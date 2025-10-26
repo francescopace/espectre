@@ -1,0 +1,238 @@
+# ============================================================================
+# ESPectre - Home Assistant Configuration
+# ============================================================================
+# Add this configuration to your Home Assistant configuration.yaml
+# to integrate ESPectre sensors.
+#
+# Author: Francesco Pace <francesco.pace@gmail.com>
+# License: GPLv3
+# ============================================================================
+
+# ============================================================================
+# MQTT SENSORS
+# ============================================================================
+# For espectre.py that publishes complete JSON payloads
+
+sensor:
+  # Node 1 - Movement
+  - platform: mqtt
+    name: "Movement Ground Floor"
+    state_topic: "home/espectre/node1"
+    unit_of_measurement: "intensity"
+    icon: mdi:motion-sensor
+    value_template: "{{ value_json.movement }}"
+    json_attributes_topic: "home/espectre/node1"
+    json_attributes_template: >
+      {
+        "confidence": {{ value_json.confidence }},
+        "state": "{{ value_json.state }}",
+        "baseline": {{ value_json.baseline }},
+        "threshold": {{ value_json.threshold }},
+        "entropy": {{ value_json.entropy }},
+        "snr": {{ value_json.snr }}
+      }
+  
+  # Node 1 - Confidence
+  - platform: mqtt
+    name: "Confidence Ground Floor"
+    state_topic: "home/espectre/node1"
+    unit_of_measurement: "%"
+    icon: mdi:percent
+    value_template: "{{ (value_json.confidence * 100) | round(1) }}"
+  
+  # Node 1 - State
+  - platform: mqtt
+    name: "State Ground Floor"
+    state_topic: "home/espectre/node1"
+    icon: mdi:state-machine
+    value_template: "{{ value_json.state }}"
+  
+  # Node 2 - Movement
+  - platform: mqtt
+    name: "Movement First Floor"
+    state_topic: "home/espectre/node2"
+    unit_of_measurement: "intensity"
+    icon: mdi:motion-sensor
+    value_template: "{{ value_json.movement }}"
+    json_attributes_topic: "home/espectre/node2"
+    json_attributes_template: >
+      {
+        "confidence": {{ value_json.confidence }},
+        "state": "{{ value_json.state }}",
+        "baseline": {{ value_json.baseline }},
+        "threshold": {{ value_json.threshold }},
+        "entropy": {{ value_json.entropy }},
+        "snr": {{ value_json.snr }}
+      }
+  
+  # Node 2 - Confidence
+  - platform: mqtt
+    name: "Confidence First Floor"
+    state_topic: "home/espectre/node2"
+    unit_of_measurement: "%"
+    icon: mdi:percent
+    value_template: "{{ (value_json.confidence * 100) | round(1) }}"
+  
+  # Node 2 - State
+  - platform: mqtt
+    name: "State First Floor"
+    state_topic: "home/espectre/node2"
+    icon: mdi:state-machine
+    value_template: "{{ value_json.state }}"
+
+# ============================================================================
+# BINARY SENSORS
+# ============================================================================
+# Converts numerical values to on/off sensors for simpler automations
+
+binary_sensor:
+  # Basic Version
+  - platform: mqtt
+    name: "Presence Ground Floor"
+    state_topic: "home/espectre/node1"
+    payload_on: "on"
+    payload_off: "off"
+    device_class: motion
+    value_template: >
+      {% if value | float > 0.6 %}
+        on
+      {% else %}
+        off
+      {% endif %}
+  
+  - platform: mqtt
+    name: "Presence First Floor"
+    state_topic: "home/espectre/node2"
+    payload_on: "on"
+    payload_off: "off"
+    device_class: motion
+    value_template: >
+      {% if value | float > 0.6 %}
+        on
+      {% else %}
+        off
+      {% endif %}
+  
+  # Advanced Version
+  - platform: mqtt
+    name: "Presence Ground Floor Advanced"
+    state_topic: "home/espectre/node1"
+    payload_on: "on"
+    payload_off: "off"
+    device_class: motion
+    value_template: >
+      {% if value_json.state == 'detected' %}
+        on
+      {% else %}
+        off
+      {% endif %}
+  
+  - platform: mqtt
+    name: "Presence First Floor Advanced"
+    state_topic: "home/espectre/node2"
+    payload_on: "on"
+    payload_off: "off"
+    device_class: motion
+    value_template: >
+      {% if value_json.state == 'detected' %}
+        on
+      {% else %}
+        off
+      {% endif %}
+
+# ============================================================================
+# TEMPLATE SENSORS (OPTIONAL)
+# ============================================================================
+# Derived sensors for advanced analysis
+
+template:
+  - sensor:
+      # Calculate average movement of all nodes
+      - name: "Home Average Movement"
+        unit_of_measurement: "intensity"
+        state: >
+          {{ ((states('sensor.movement_ground_floor') | float(0) + 
+               states('sensor.movement_first_floor') | float(0)) / 2) | round(3) }}
+        icon: mdi:home-analytics
+      
+      # Count how many nodes detect movement
+      - name: "Active Nodes"
+        unit_of_measurement: "nodes"
+        state: >
+          {% set count = 0 %}
+          {% if states('binary_sensor.presence_ground_floor') == 'on' %}
+            {% set count = count + 1 %}
+          {% endif %}
+          {% if states('binary_sensor.presence_first_floor') == 'on' %}
+            {% set count = count + 1 %}
+          {% endif %}
+          {{ count }}
+        icon: mdi:counter
+      
+      # Home state (empty/occupied/very active)
+      - name: "Home Occupancy State"
+        state: >
+          {% set active = states('sensor.active_nodes') | int(0) %}
+          {% if active == 0 %}
+            Empty
+          {% elif active == 1 %}
+            Occupied
+          {% else %}
+            Very Active
+          {% endif %}
+        icon: mdi:home-account
+
+# ============================================================================
+# MQTT BROKER CONFIGURATION
+# ============================================================================
+# If you haven't configured MQTT yet, add:
+
+mqtt:
+  broker: homeassistant.local  # Your Mosquitto broker IP
+  port: 1883
+  # username: your_username  # Optional
+  # password: your_password  # Optional
+  discovery: true
+  discovery_prefix: homeassistant
+
+# ============================================================================
+# RECORDER (OPTIONAL)
+# ============================================================================
+# Configure historical data retention
+
+recorder:
+  include:
+    entities:
+      - sensor.movement_ground_floor
+      - sensor.movement_first_floor
+      - sensor.confidence_ground_floor
+      - sensor.confidence_first_floor
+      - binary_sensor.presence_ground_floor
+      - binary_sensor.presence_first_floor
+  
+  # Keep data for 30 days
+  purge_keep_days: 30
+
+# ============================================================================
+# HISTORY (OPTIONAL)
+# ============================================================================
+# Display historical graphs in UI
+
+history:
+  include:
+    entities:
+      - sensor.movement_ground_floor
+      - sensor.movement_first_floor
+      - sensor.home_average_movement
+
+# ============================================================================
+# LOGBOOK (OPTIONAL)
+# ============================================================================
+# Log events in logbook
+
+logbook:
+  include:
+    entities:
+      - binary_sensor.presence_ground_floor
+      - binary_sensor.presence_first_floor
+      - sensor.home_occupancy_state

@@ -1,0 +1,339 @@
+# ============================================================================
+# ESPectre - Home Assistant Automations
+# ============================================================================
+# Example automations for different use case scenarios.
+# Copy the automations you need to your automations.yaml.
+#
+# Author: Francesco Pace <francesco.pace@gmail.com>
+# License: GPLv3
+# ============================================================================
+
+# ============================================================================
+# HOME SECURITY
+# ============================================================================
+
+# Movement alert when you're away from home
+- id: 'espectre_intrusion_alert'
+  alias: 'ESPectre Intrusion Alert'
+  description: 'Notify if movement is detected when nobody is home'
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.presence_ground_floor
+      to: 'on'
+    - platform: state
+      entity_id: binary_sensor.presence_first_floor
+      to: 'on'
+  condition:
+    # Activate only if everyone is away
+    - condition: state
+      entity_id: group.family
+      state: 'not_home'
+    # And if alarm is active
+    - condition: state
+      entity_id: alarm_control_panel.home_alarm
+      state: 'armed_away'
+  action:
+    # Send push notification
+    - service: notify.mobile_app
+      data:
+        title: '⚠️ Intrusion Alert'
+        message: 'Movement detected at home while you are away!'
+        data:
+          priority: high
+          ttl: 0
+          channel: alarm
+    # Log in logbook
+    - service: logbook.log
+      data:
+        name: 'ESPectre'
+        message: 'Possible intrusion detected'
+        entity_id: binary_sensor.presence_ground_floor
+    # Activate siren (optional)
+    # - service: switch.turn_on
+    #   entity_id: switch.siren
+
+# ============================================================================
+# LIGHT AUTOMATION
+# ============================================================================
+
+# Turn on lights when presence is detected
+- id: 'espectre_lights_on'
+  alias: 'Lights On - Presence Detected'
+  description: 'Turn on lights when movement is detected'
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.presence_ground_floor
+      to: 'on'
+  condition:
+    # Only if it's dark
+    - condition: numeric_state
+      entity_id: sensor.illuminance_outdoor
+      below: 100
+    # And if someone is home
+    - condition: state
+      entity_id: group.family
+      state: 'home'
+  action:
+    - service: light.turn_on
+      target:
+        entity_id: light.living_room
+      data:
+        brightness_pct: 80
+        transition: 2
+
+# Turn off lights after inactivity
+- id: 'espectre_lights_off'
+  alias: 'Lights Off - No Presence'
+  description: 'Turn off lights after 5 minutes without movement'
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.presence_ground_floor
+      to: 'off'
+      for:
+        minutes: 5
+  action:
+    - service: light.turn_off
+      target:
+        entity_id: light.living_room
+      data:
+        transition: 5
+
+# ============================================================================
+# ENERGY SAVING
+# ============================================================================
+
+# Turn off devices in empty rooms
+- id: 'espectre_energy_saving'
+  alias: 'Energy Saving - Empty Room'
+  description: 'Turn off devices when room has been empty for 15 minutes'
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.presence_first_floor
+      to: 'off'
+      for:
+        minutes: 15
+  action:
+    # Turn off TV
+    - service: media_player.turn_off
+      entity_id: media_player.bedroom_tv
+    # Turn off air conditioner
+    - service: climate.turn_off
+      entity_id: climate.bedroom_ac
+    # Notify
+    - service: notify.mobile_app
+      data:
+        message: 'Bedroom devices turned off for energy saving'
+
+# ============================================================================
+# ELDERLY CARE
+# ============================================================================
+
+# Prolonged inactivity alert
+- id: 'espectre_inactivity_alert'
+  alias: 'Prolonged Inactivity Alert'
+  description: 'Notify if no movement detected for more than 4 hours during the day'
+  trigger:
+    - platform: state
+      entity_id: sensor.home_average_movement
+      to: '0.0'
+      for:
+        hours: 4
+  condition:
+    # Only during daytime (8:00 - 22:00)
+    - condition: time
+      after: '08:00:00'
+      before: '22:00:00'
+    # And if person is home
+    - condition: state
+      entity_id: person.grandma
+      state: 'home'
+  action:
+    - service: notify.family_group
+      data:
+        title: '⚠️ Inactivity Alert'
+        message: 'No movement detected at home for 4 hours'
+        data:
+          priority: high
+
+# Fall detection (sudden movement followed by immobility)
+- id: 'espectre_fall_detection'
+  alias: 'Possible Fall Detection'
+  description: 'Alert if movement spike followed by immobility is detected'
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.movement_ground_floor
+      above: 0.8
+  condition:
+    # Verify immobility in the next 30 seconds
+    - condition: template
+      value_template: >
+        {{ states('sensor.movement_ground_floor') | float < 0.1 }}
+      for:
+        seconds: 30
+  action:
+    - service: notify.emergency_contacts
+      data:
+        title: '🚨 EMERGENCY - Possible Fall'
+        message: 'Pattern compatible with fall detected. Check immediately!'
+        data:
+          priority: critical
+          ttl: 0
+
+# ============================================================================
+# CHILD MONITORING
+# ============================================================================
+
+# Alert if child leaves room at night
+- id: 'espectre_child_monitoring'
+  alias: 'Child Monitoring - Night Exit'
+  description: 'Notify if movement is detected in child room at night'
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.presence_child_room
+      to: 'on'
+  condition:
+    # Only at night (22:00 - 07:00)
+    - condition: time
+      after: '22:00:00'
+      before: '07:00:00'
+  action:
+    - service: notify.parents
+      data:
+        message: 'Movement detected in child room'
+    # Turn on night light
+    - service: light.turn_on
+      target:
+        entity_id: light.child_room_night_light
+      data:
+        brightness_pct: 10
+
+# ============================================================================
+# HVAC OPTIMIZATION
+# ============================================================================
+
+# Adjust temperature based on occupancy
+- id: 'espectre_hvac_optimization'
+  alias: 'HVAC - Temperature Optimization'
+  description: 'Adjust air conditioner based on real presence'
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.presence_living_room
+      to: 'on'
+      for:
+        minutes: 5
+  action:
+    # Set comfort temperature
+    - service: climate.set_temperature
+      target:
+        entity_id: climate.living_room
+      data:
+        temperature: 21
+        hvac_mode: heat
+
+# Eco mode when room is empty
+- id: 'espectre_hvac_eco'
+  alias: 'HVAC - Eco Mode'
+  description: 'Activate eco mode when room is empty'
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.presence_living_room
+      to: 'off'
+      for:
+        minutes: 30
+  action:
+    - service: climate.set_temperature
+      target:
+        entity_id: climate.living_room
+      data:
+        temperature: 18
+        hvac_mode: heat
+
+# ============================================================================
+# NIGHT MODE
+# ============================================================================
+
+# Activate night mode automatically
+- id: 'espectre_night_mode'
+  alias: 'Automatic Night Mode'
+  description: 'Activate night mode when no movement is detected after 23:00'
+  trigger:
+    - platform: state
+      entity_id: sensor.home_average_movement
+      to: '0.0'
+      for:
+        minutes: 30
+  condition:
+    - condition: time
+      after: '23:00:00'
+      before: '07:00:00'
+  action:
+    # Activate night scene
+    - service: scene.turn_on
+      entity_id: scene.night_mode
+    # Turn off all lights except night lights
+    - service: light.turn_off
+      target:
+        entity_id: all
+    # Lower heating
+    - service: climate.set_temperature
+      target:
+        entity_id: all
+      data:
+        temperature: 18
+
+# ============================================================================
+# ADVANCED NOTIFICATIONS (ADVANCED VERSION)
+# ============================================================================
+
+# Notification with advanced details
+- id: 'espectre_notification'
+  alias: 'Detailed Movement Notification'
+  description: 'Send notification with advanced metrics'
+  trigger:
+    - platform: state
+      entity_id: sensor.state_ground_floor
+      to: 'detected'
+  action:
+    - service: notify.mobile_app
+      data:
+        title: 'Movement Detected'
+        message: >
+          Confidence: {{ state_attr('sensor.movement_ground_floor', 'confidence') | float * 100 | round(0) }}%
+          SNR: {{ state_attr('sensor.movement_ground_floor', 'snr') | round(2) }}
+          Baseline: {{ state_attr('sensor.movement_ground_floor', 'baseline') | round(3) }}
+
+# ============================================================================
+# DASHBOARD CARD (LOVELACE)
+# ============================================================================
+# Example card for dashboard (to add in ui-lovelace.yaml)
+
+# type: vertical-stack
+# cards:
+#   - type: entities
+#     title: ESPectre - Ground Floor
+#     entities:
+#       - entity: sensor.movement_ground_floor
+#         name: Movement Intensity
+#       - entity: sensor.confidence_ground_floor
+#         name: Confidence
+#       - entity: sensor.state_ground_floor
+#         name: State
+#       - entity: binary_sensor.presence_ground_floor
+#         name: Presence
+#   
+#   - type: history-graph
+#     title: Movement History
+#     hours_to_show: 24
+#     entities:
+#       - entity: sensor.movement_ground_floor
+#       - entity: sensor.movement_first_floor
+#   
+#   - type: gauge
+#     entity: sensor.home_average_movement
+#     name: Home Activity
+#     min: 0
+#     max: 1
+#     severity:
+#       green: 0
+#       yellow: 0.3
+#       red: 0.6

@@ -1,0 +1,19 @@
+# ESP32-S3 (ESP-IDF)
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+logs/
+csi_data/
