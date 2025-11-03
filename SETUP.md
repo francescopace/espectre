@@ -156,25 +156,13 @@ mosquitto_sub -h homeassistant.local -t "home/espectre/node1" -v
 
 ---
 
-## Configuration
+## Calibration & Tuning
 
-### Using the CLI
-
-```bash
-./espectre-cli.sh info              # Show config
-./espectre-cli.sh analyze           # Get recommended threshold
-./espectre-cli.sh threshold 0.40    # Set threshold
-./espectre-cli.sh monitor           # Watch real-time data
-```
-
-### Tuning Workflow
-
-1. Deploy sensor and let it run for 1-2 minutes
-2. Run `./espectre-cli.sh analyze`
-3. Apply recommended threshold
-4. Test by moving around
-
-Run `./espectre-cli.sh help` for all commands.
+After installation, follow the **[Calibration & Tuning Guide](CALIBRATION.md)** to:
+- Calibrate the sensor for your environment
+- Optimize detection parameters
+- Troubleshoot common issues
+- Configure advanced features
 
 ### MQTT Commands Reference
 
@@ -236,138 +224,46 @@ mosquitto_sub -h homeassistant.local -t "home/espectre/kitchen/response"
 
 ## Troubleshooting
 
-### Common Issues and Solutions
+For detailed troubleshooting, see the **[Calibration & Tuning Guide](CALIBRATION.md#-troubleshooting-scenarios)**.
 
-#### 1. No Movement Detected
+### Quick Setup Issues
 
-**Symptoms**: Sensor shows `idle` state even when moving
+#### Wi-Fi Connection Failed
 
-**Possible causes and solutions:**
-
-- ✅ **Check distance from router**: Should be 3-8 meters
-  - Too close: Move sensor farther away
-  - Too far: Move sensor closer
-  
-- ✅ **Check antenna connection**: Ensure external antenna is properly connected to IPEX connector
-
-- ✅ **Verify Wi-Fi connection**: Check serial output for connection status
-  ```bash
-  idf.py monitor
-  ```
-
-- ✅ **Adjust sensitivity**: Lower the detection threshold via MQTT command
-  ```json
-  Topic: home/espectre/kitchen/cmd
-  Payload: {"cmd": "threshold", "value": 0.25}
-  ```
-
-- ✅ **Check for interference**: Other 2.4GHz devices (microwaves, Bluetooth) may interfere
-
-#### 2. Too Many False Positives
-
-**Symptoms**: Sensor detects movement when room is empty
-
-**Solutions:**
-
-- ✅ **Increase detection threshold**:
-  ```json
-  Topic: home/espectre/kitchen/cmd
-  Payload: {"cmd": "threshold", "value": 0.45}
-  ```
-
-- ✅ **Increase debouncing**:
-  ```json
-  Topic: home/espectre/kitchen/cmd
-  Payload: {"cmd": "debounce", "value": 3}
-  ```
-
-- ✅ **Move sensor away from**: fans, air conditioners, moving curtains
-
-- ✅ **Check for environmental factors**: Pets, moving plants, heating vents
-
-#### 3. MQTT Connection Issues
-
-**Symptoms**: Sensor doesn't publish to MQTT broker
-
-**Solutions:**
-
-- ✅ **Verify MQTT credentials**: Check username/password in configuration
-
-- ✅ **Check broker address**: Ensure IP address or hostname is correct
-
-- ✅ **Verify network connectivity**: Ping MQTT broker from another device
-
-- ✅ **Check firewall rules**: Ensure port 1883 (or 8883 for TLS) is open
-
-- ✅ **View logs**:
-  ```bash
-  idf.py monitor
-  ```
-
-#### 4. Inconsistent Detection
-
-**Symptoms**: Detection works sometimes but not always
-
-**Solutions:**
-
-- ✅ **Check calibration**: Use analyze command to get recommended threshold
-  ```bash
-  # Using mosquitto_pub
-  mosquitto_pub -h homeassistant.local -t "home/espectre/kitchen/cmd" \
-    -m '{"cmd": "analyze"}'
-  
-  # Then check response on:
-  mosquitto_sub -h homeassistant.local -t "home/espectre/kitchen/response"
-  ```
-
-- ✅ **Check Wi-Fi signal strength**: Ensure stable connection (RSSI > -70 dBm)
-
-- ✅ **Verify router load**: High network traffic may affect CSI quality
-
-- ✅ **Update firmware**: Rebuild and reflash latest version
-
-#### 5. High Power Consumption
-
-**Symptoms**: Device gets hot or drains battery quickly
-
-**Solutions:**
-
-- ✅ **Smart publishing is enabled by default**: The system only publishes on significant changes or every 5 seconds as heartbeat, minimizing power consumption
-
-- ✅ **Deep sleep mode**: Not currently implemented. For battery operation, custom modifications to the code would be required
-
-- ✅ **Lower Wi-Fi TX power**:
-  ```
-  idf.py menuconfig
-  → Component config → Wi-Fi → Max WiFi TX power
-  ```
-
-### Interpreting Serial Logs
-
-Connect to serial monitor to view detailed logs:
-
+**Check serial monitor:**
 ```bash
 idf.py monitor
 ```
 
-**Key log messages:**
+Look for connection errors and verify:
+- ✅ Correct SSID and password in menuconfig
+- ✅ Router is broadcasting 2.4GHz network
+- ✅ ESP32 is within range of router
 
+#### MQTT Not Publishing
+
+**Verify MQTT broker is accessible:**
+```bash
+mosquitto_sub -h homeassistant.local -t "home/espectre/node1" -v
 ```
-[INFO] CSI: Movement detected (score: 0.72, confidence: 0.85)
-[INFO] MQTT: Published to home/espectre/kitchen
-[WARN] CSI: Low signal quality (RSSI: -78 dBm)
-[ERROR] MQTT: Connection failed, retrying...
-```
+
+If no messages appear:
+- ✅ Check MQTT broker URI in menuconfig
+- ✅ Verify MQTT credentials (username/password)
+- ✅ Ensure port 1883 is open (or 8883 for TLS)
+- ✅ Check serial monitor for MQTT connection errors
+
+#### Flash Failed
+
+**Solution:**
+1. Hold BOOT button on ESP32
+2. Press RESET button
+3. Release BOOT button
+4. Run flash command again
 
 ### Getting Help
 
-If you're still experiencing issues:
-
-1. 📝 **Check existing issues**: [GitHub Issues](https://github.com/francescopace/espectre/issues)
-2. 🆕 **Open a new issue**: Include:
-   - Hardware model (ESP32-S3 variant)
-   - Firmware version
-   - Serial logs
-   - Network setup details
-   - Steps to reproduce
-3. 📧 **Contact**: [francesco.pace@gmail.com](mailto:francesco.pace@gmail.com)
+For detection issues, calibration problems, or advanced troubleshooting:
+- 📖 **See**: [Calibration & Tuning Guide](CALIBRATION.md)
+- 📝 **GitHub Issues**: [Report problems](https://github.com/francescopace/espectre/issues)
+- 📧 **Email**: francesco.pace@gmail.com

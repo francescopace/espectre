@@ -85,7 +85,8 @@ The mathematical approach provides excellent movement detection without the comp
 **Setup time**: ~30-45 minutes (first time)  
 **Difficulty**: Intermediate (requires ESP-IDF setup)
 
-The complete setup process is documented in [SETUP.md](SETUP.md)
+1. **Setup & Installation**: Follow the complete guide in [SETUP.md](SETUP.md)
+2. **Calibration & Tuning**: Optimize for your environment with [CALIBRATION.md](CALIBRATION.md)
 
 ---
 
@@ -516,7 +517,7 @@ Models trained on CSI temporal sequences can recognize hand gestures for touchle
 <details>
 <summary>🛜 Standardized Wi-Fi Sensing (IEEE 802.11bf) (click to expand)</summary>
 
-Currently, CSI extraction requires firmware modifications (like Nexmon) because it's not a standard feature. However, the **IEEE 802.11bf (Wi-Fi Sensing)** standard will radically change this scenario.
+Currently, only a limited number of Wi-Fi chipsets support CSI extraction, which restricts hardware options for Wi-Fi sensing applications. However, the **IEEE 802.11bf (Wi-Fi Sensing)** standard should significantly improve this situation by making CSI extraction a standardized feature.
 
 ### IEEE 802.11bf - Wi-Fi Sensing
 
