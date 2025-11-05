@@ -1,0 +1,21 @@
+# ESP32-S3 Configuration for Unit Tests
+CONFIG_IDF_TARGET="esp32s3"
+
+# Unity test framework
+CONFIG_UNITY_ENABLE_FLOAT=y
+CONFIG_UNITY_ENABLE_DOUBLE=y
+CONFIG_UNITY_ENABLE_IPC_ISR=y
+
+# Increase main task stack size for tests
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Enable console for test output
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+
+# Disable WiFi for unit tests (tests don't need actual WiFi)
+# CONFIG_ESP_WIFI_ENABLED is not set
+
+# Disable task watchdog for interactive test menu
+CONFIG_ESP_TASK_WDT_EN=n

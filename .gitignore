@@ -1,4 +1,5 @@
-# ESP-IDF build artifacts
+# ESP-IDF
+esp-idf/
 build/
 sdkconfig
 sdkconfig.old
@@ -8,3 +9,5 @@ managed_components/
 # Project data
 logs/
 csi_data/
+docs/
+.vscode/

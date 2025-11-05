@@ -5,7 +5,7 @@
 
 # 🛜 ESPectre 👻
 
-**Wi-Fi-based movement detection using Channel State Information (CSI)**
+**Motion detection system based on Wi-Fi spectre analysis (CSI), with Home Assistant integration.**
 
 **⚠️ Disclaimer**: This is an experimental project for educational and research purposes. The author assumes no responsibility for misuse or damage resulting from the use of this system. Use responsibly and in compliance with applicable laws.
 
@@ -42,12 +42,12 @@
 
 ## 🔬 Mathematical Approach
 
-**This project currently does NOT use Machine Learning models.** Instead, it employs a **mathematical approach** that extracts **15 features** from CSI (Channel State Information) data using statistical and signal processing techniques.
+**This project currently does NOT use Machine Learning models.** Instead, it employs a **mathematical approach** that extracts **8 features** from CSI (Channel State Information) data using statistical and signal processing techniques.
 
 ### Key Points
 
 - ✅ **No ML training required**: Works out-of-the-box with mathematical algorithms
-- ✅ **15 extracted features**: Time-domain, spatial, temporal, and multi-window features
+- ✅ **8 extracted features**: Time-domain and spatial features
 - ✅ **Real-time processing**: Low latency detection on ESP32-S3 hardware
 - ✅ **Foundation for ML**: These features can serve as the basis for collecting labeled datasets to train ML models for advanced tasks (people counting, activity recognition, gesture detection)
 
@@ -70,7 +70,7 @@ The mathematical approach provides excellent movement detection without the comp
 - ✅ **MQTT Broker** (required for operation):
   - **Home Assistant** with built-in MQTT broker (on Raspberry Pi, PC, NAS, or cloud)
   - OR standalone **Mosquitto** MQTT server (can run on any device, including Raspberry Pi)
-- ✅ **ESP-IDF v5.x** (development framework for building firmware)
+- ✅ **ESP-IDF v6.1** (development framework for building firmware)
 
 ### Required Skills
 
@@ -244,10 +244,10 @@ A: Yes, the 2.4GHz Wi-Fi signal penetrates drywall. Reinforced concrete walls re
 A: It depends on size. One sensor can monitor ~50 m². For larger homes, use multiple sensors (1 sensor every 50-70 m² for optimal coverage).
 
 **Q: Can it distinguish between people and pets?**  
-A: The basic 2-state implementation (idle/detected) only detects generic movement. However, enabling granular states provides 4 detection levels (IDLE, MICRO, DETECTED, INTENSE) which may help distinguish different movement patterns. With trained AI models, more sophisticated classification becomes possible (see Future Evolutions section).
+A: The system uses a 2-state detection model (IDLE/DETECTED) that identifies generic movement without distinguishing between people, pets, or other moving objects. For more sophisticated classification (people vs pets, activity recognition, gesture detection), trained AI/ML models would be required (see Future Evolutions section).
 
 **Q: Does it consume a lot of Wi-Fi bandwidth?**  
-A: No, MQTT traffic is minimal. With smart publishing enabled (default), the system only sends data on significant changes or every 5 seconds as a heartbeat, resulting in ~0.2-0.5 KB/s per sensor during idle periods and up to ~1 KB/s during active movement. Network impact is negligible.
+A: No, MQTT traffic is minimal. With smart publishing disabled (default), the system publishes all detection updates. When smart publishing is enabled, the system only sends data on significant changes or every 5 seconds as a heartbeat, resulting in ~0.2-0.5 KB/s per sensor during idle periods and up to ~1 KB/s during active movement. Network impact is negligible.
 
 **Q: Does it work with mesh Wi-Fi networks?**  
 A: Yes, it works normally. Make sure the ESP32 connects to the 2.4 GHz band.
@@ -312,7 +312,7 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ---
 
-## 📚 Technical Deep Dive
+## � Technical Deep Dive
 
 <details>
 <summary>🔬 Signal Processing Pipeline (click to expand)</summary>
@@ -327,30 +327,30 @@ CSI data represents only the properties of the transmission medium and does not 
 #### 2️⃣ **Signal Processing** (ESP32-S3)
 The `espectre.c` firmware applies an advanced multi-stage processing pipeline:
 
-**Stage 1: Advanced Filters** (Optional, configurable)
+**Stage 1: Advanced Filters** (Configurable via MQTT)
+- **Butterworth Low-Pass**: Removes high-frequency noise >8Hz (environmental interference) - Enabled by default
+- **Wavelet db4**: Removes low-frequency persistent noise using Daubechies wavelet transform.
 - **Hampel Filter**: Outlier removal using MAD (Median Absolute Deviation)
 - **Savitzky-Golay Filter**: Polynomial smoothing (enabled by default)
-- **Adaptive Normalization**: Running statistics with Welford's algorithm
+- **Adaptive Normalization**: Running statistics with Welford's algorithm, with auto-reset to prevent signal degradation
 
-**Stage 2: Feature Extraction** (15 mathematical features)
-- **Time-domain** (6): Mean, Variance, Skewness, Kurtosis, Entropy, IQR
+**Filter Pipeline**: Raw CSI → Butterworth (high freq) → Wavelet (low freq) → Hampel → Savitzky-Golay → Normalization
+
+**Stage 2: Feature Extraction** (8 mathematical features)
+- **Time-domain** (5): Variance, Skewness, Kurtosis, Entropy, IQR
 - **Spatial** (3): Spatial variance, correlation, gradient across subcarriers
-- **Temporal** (3): Autocorrelation, zero-crossing rate, peak rate
-- **Multi-window** (3): Variance on short/medium/long time windows
 
 **Stage 3: Multi-Criteria Detection**
-- Weighted scoring from 4 most discriminant features
-- Configurable weights (Variance 25%, Spatial Gradient 25%, Variance Short 35%, IQR 15%)
+- Weighted scoring from selected features (4-6 features)
+- Weights optimized via automatic calibration using Fisher's criterion
 - Optimized ranges based on empirical analysis
 
-**Stage 4: Granular State Machine** (4 states)
-- **IDLE**: No movement (score < 0.10)
-- **MICRO**: Minimal movement (score 0.10-0.50)
-- **DETECTED**: Clear movement (score 0.50-0.70)
-- **INTENSE**: Strong movement (score > 0.70)
-- Debouncing: Requires 3 consecutive detections (default)
-- Persistence: 3 seconds timeout before downgrading state
-- Hysteresis: Prevents state flickering
+**Stage 4: State Machine** (2 states)
+- **IDLE**: No movement detected
+- **DETECTED**: Movement detected (score above threshold)
+- Debouncing: Requires consecutive detections (configurable, default: 10)
+- Persistence: Timeout before downgrading state (configurable, default: 3 seconds)
+- Hysteresis: Prevents state flickering using dual thresholds
 
 #### 3️⃣ **MQTT Publishing** (ESP32-S3 → Broker)
 - Publishes JSON payload every 1 second (configurable)
@@ -375,58 +375,31 @@ Trigger automations based on:
 </details>
 
 <details>
-<summary>🔬 Feature Extraction & Detection (click to expand)</summary>
+<summary>� Feature Extraction & Detection (click to expand)</summary>
 
-ESPectre uses a mathematical approach (no ML required) that extracts **15 features** from CSI data:
+ESPectre uses a mathematical approach (no ML required) that extracts **8 features** from CSI data:
 
 ### Extracted Features
 
-#### **Time-domain (6 features)**
+#### **Time-domain (5 features)**
 Statistical properties of the CSI signal distribution:
 
-1. **Mean** - Average CSI amplitude, represents the baseline signal level
-2. **Variance** - Signal variability, increases significantly with movement
-3. **Skewness** - Distribution asymmetry, detects irregular movement patterns
-4. **Kurtosis** - Distribution "tailedness", identifies outliers and sudden changes
-5. **Entropy** - Signal randomness/disorder, increases when environment changes
-6. **IQR** (Interquartile Range) - Robust spread measure (Q3-Q1), resistant to outliers
+1. **Variance** - Signal variability, increases significantly with movement
+2. **Skewness** - Distribution asymmetry, detects irregular movement patterns
+3. **Kurtosis** - Distribution "tailedness", identifies outliers and sudden changes
+4. **Entropy** - Signal randomness/disorder, increases when environment changes
+5. **IQR** (Interquartile Range) - Robust spread measure (Q3-Q1), resistant to outliers
 
 #### **Spatial (3 features)**
 Characteristics across OFDM subcarriers (frequency domain):
 
-7. **Spatial Variance** - Variability across subcarriers, indicates multipath diversity
-8. **Spatial Correlation** - Correlation between adjacent subcarriers, affected by movement
-9. **Spatial Gradient** - Rate of change across subcarriers, highly sensitive to movement
-
-#### **Temporal (3 features)**
-Time-series analysis of signal evolution:
-
-10. **Autocorrelation (lag-1)** - Temporal self-similarity, detects repetitive patterns
-11. **Zero-crossing Rate** - Frequency of mean crossings, indicates signal oscillation
-12. **Peak Rate** - Frequency of local maxima, captures signal dynamics
-
-#### **Multi-window (3 features)**
-Variance analysis at different time scales:
-
-13. **Variance Short** (~1 second) - Captures rapid movements and gestures
-14. **Variance Medium** (~5 seconds) - Detects sustained activity
-15. **Variance Long** (~10 seconds) - Tracks overall environmental changes
-
-### Advanced Filters
-
-**Hampel Filter:** Removes outliers using Median Absolute Deviation  
-**Savitzky-Golay:** Polynomial smoothing (enabled by default)  
-**Adaptive Normalization:** Running statistics with Welford's algorithm
+6. **Spatial Variance** - Variability across subcarriers, indicates multipath diversity
+7. **Spatial Correlation** - Correlation between adjacent subcarriers, affected by movement
+8. **Spatial Gradient** - Rate of change across subcarriers, highly sensitive to movement
 
 ### Detection Scoring
 
-Combines the 4 most discriminant features with optimized weights:
-- Variance: 25%
-- Spatial Gradient: 25%
-- Short-window Variance: 35%
-- IQR: 15%
-
-All parameters are configurable at runtime via MQTT commands.
+The system automatically selects the 4-6 most discriminant features for your specific environment and optimizes their weights using Fisher's criterion. This typically provides better detection accuracy than the default configuration.
 
 </details>
 
@@ -442,7 +415,7 @@ All parameters are configurable at runtime via MQTT commands.
 - **Power**: USB-C 5V or 3.3V via pins
 
 ### Software Requirements
-- **Framework**: ESP-IDF v5.x
+- **Framework**: ESP-IDF v6.1
 - **Language**: C
 - **Build System**: CMake
 - **Flash Tool**: esptool.py
@@ -472,7 +445,7 @@ All parameters are configurable at runtime via MQTT commands.
 <details>
 <summary>📚 Machine Learning and Deep Learning (click to expand)</summary>
 
-The current implementation uses an **advanced mathematical approach** with 15 features and multi-criteria detection to identify movement patterns. While this provides excellent results without requiring ML training, scientific research has shown that **Machine Learning** and **Deep Learning** techniques can extract even richer information from CSI data for complex tasks like people counting, activity recognition, and gesture detection.
+The current implementation uses an **advanced mathematical approach** with 8 features and multi-criteria detection to identify movement patterns. While this provides excellent results without requiring ML training, scientific research has shown that **Machine Learning** and **Deep Learning** techniques can extract even richer information from CSI data for complex tasks like people counting, activity recognition, and gesture detection.
 
 ### Advanced Applications
 
@@ -584,6 +557,10 @@ This project builds upon extensive research in Wi-Fi sensing and CSI-based movem
 5. **CSI-HC: A WiFi-Based Indoor Complex Human Motion Recognition Using Channel State Information (2020)**  
    Recognition of complex indoor movements through CSI with methods based on mathematical signal features, ideal for projects with signal-based analysis without advanced ML.  
    📄 [Read paper](https://onlinelibrary.wiley.com/doi/10.1155/2020/3185416)
+
+6. **Location Intelligence System for People Estimation in Indoor Environment During Emergency Operation (2022)**  
+   Demonstrates the use of ESP32 with wavelet filtering (Daubechies db4) for people detection in emergency scenarios. This paper directly influenced ESPectre's wavelet filter implementation, showing that wavelet denoising outperforms traditional filters on ESP32 hardware.  
+   📄 [Read paper](https://scholarspace.manoa.hawaii.edu/server/api/core/bitstreams/a2d2de7c-7697-485b-97c5-62f4bf1260d0/content)
 
 These references demonstrate that effective Wi-Fi sensing can be achieved through mathematical and statistical approaches, which is the foundation of ESPectre's design philosophy.
 

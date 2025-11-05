@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# ESPectre CLI - Control ESPectre via MQTT
+# ESPectre CLI - Interactive MQTT Control Interface
 #
 
 BROKER="${MQTT_BROKER:-homeassistant.local}"
@@ -9,13 +9,17 @@ TOPIC_CMD="${MQTT_TOPIC:-home/espectre/node1}/cmd"
 TOPIC_RESPONSE="${MQTT_TOPIC:-home/espectre/node1}/response"
 USERNAME="${MQTT_USERNAME:-mqtt}"
 PASSWORD="${MQTT_PASSWORD:-mqtt}"
-TIMEOUT=5
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
+
+# PID file for background listener
+LISTENER_PID_FILE="/tmp/espectre-cli-listener.pid"
 
 print_error() {
     echo -e "${RED}ERROR: $1${NC}" >&2
@@ -31,6 +35,10 @@ print_info() {
 
 print_warning() {
     echo -e "${YELLOW}$1${NC}"
+}
+
+print_prompt() {
+    echo -ne "${CYAN}espectre>${NC} "
 }
 
 check_dependencies() {
@@ -51,9 +59,70 @@ build_mqtt_cmd() {
     echo "$cmd"
 }
 
+# Start background MQTT listener
+start_listener() {
+    local sub_cmd=$(build_mqtt_cmd "mosquitto_sub")
+    
+    # Start listener in background and save PID
+    $sub_cmd -t "$TOPIC_RESPONSE" -v 2>/dev/null | while IFS= read -r line; do
+        topic=$(echo "$line" | cut -d' ' -f1)
+        message=$(echo "$line" | cut -d' ' -f2-)
+        
+        # Emit beep based on message type (using macOS system sound)
+        if echo "$message" | grep -q '"phase":"BASELINE"'; then
+            # 1 beep for BASELINE phase start
+            afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
+        elif echo "$message" | grep -q '"phase":"MOVEMENT"'; then
+            # 2 beeps for MOVEMENT phase start
+            afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
+            sleep 0.3
+            afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
+        elif echo "$message" | grep -q '"type":"calibration_complete"'; then
+            # 3 beeps for calibration complete
+            afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
+            sleep 0.3
+            afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
+            sleep 0.3
+            afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
+        fi
+        
+        # Clear current line and print response
+        echo -ne "\r\033[K"
+        echo -n "$(date '+%H:%M:%S') "
+        echo "$message" | jq '.' 2>/dev/null || echo "$message"
+        print_prompt
+    done &
+    
+    echo $! > "$LISTENER_PID_FILE"
+}
+
+# Stop background listener
+stop_listener() {
+    if [ -f "$LISTENER_PID_FILE" ]; then
+        local pid=$(cat "$LISTENER_PID_FILE")
+        # Kill the listener and its child processes
+        pkill -P $pid 2>/dev/null
+        kill $pid 2>/dev/null
+        rm -f "$LISTENER_PID_FILE"
+    fi
+}
+
+# Cleanup on exit
+cleanup() {
+    # Prevent multiple executions
+    if [ -n "$CLEANUP_DONE" ]; then
+        return
+    fi
+    CLEANUP_DONE=1
+    
+    echo ""
+    print_info "Shutting down..."
+    stop_listener
+    exit 0
+}
+
 send_command() {
     local cmd_json="$1"
-    local wait_response="${2:-true}"
     
     local pub_cmd=$(build_mqtt_cmd "mosquitto_pub")
     $pub_cmd -t "$TOPIC_CMD" -m "$cmd_json" 2>/dev/null
@@ -61,21 +130,6 @@ send_command() {
     if [ $? -ne 0 ]; then
         print_error "Failed to send command to broker"
         return 1
-    fi
-    
-    if [ "$wait_response" = "true" ]; then
-        print_info "Waiting for response..."
-        
-        local sub_cmd=$(build_mqtt_cmd "mosquitto_sub")
-        timeout $TIMEOUT $sub_cmd -t "$TOPIC_RESPONSE" -C 1 2>/dev/null | \
-        while IFS= read -r response; do
-            echo "$response" | jq -r 'if .response then .response else . end' 2>/dev/null || echo "$response"
-        done
-        
-        if [ ${PIPESTATUS[0]} -eq 124 ]; then
-            print_warning "Timeout waiting for response"
-            return 1
-        fi
     fi
 }
 
@@ -89,19 +143,20 @@ send_toggle_command() {
     elif [ "$enabled" = "off" ] || [ "$enabled" = "false" ] || [ "$enabled" = "0" ]; then
         send_command "{\"cmd\":\"$cmd_name\",\"enabled\":false}"
     else
-        print_error "Usage: $0 $cmd_name <on|off>"
+        print_error "Usage: $cmd_name <on|off>"
         return 1
     fi
 }
 
 cmd_threshold() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 threshold <value>"
-        echo "  Example: $0 threshold 0.05"
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: threshold <value>"
+        echo "  Example: threshold 0.05"
         return 1
     fi
     
-    local value="$1"
     send_command "{\"cmd\":\"threshold\",\"value\":$value}"
 }
 
@@ -114,7 +169,8 @@ cmd_info() {
 }
 
 cmd_logs() {
-    send_toggle_command "logs" "$1"
+    local enabled="$1"
+    send_toggle_command "logs" "$enabled"
 }
 
 cmd_analyze() {
@@ -122,47 +178,51 @@ cmd_analyze() {
 }
 
 cmd_persistence() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 persistence <seconds>"
-        echo "  Example: $0 persistence 2"
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: persistence <seconds>"
+        echo "  Example: persistence 2"
         return 1
     fi
     
-    local value="$1"
     send_command "{\"cmd\":\"persistence\",\"value\":$value}"
 }
 
 cmd_debounce() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 debounce <count>"
-        echo "  Example: $0 debounce 3"
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: debounce <count>"
+        echo "  Example: debounce 3"
         return 1
     fi
     
-    local value="$1"
     send_command "{\"cmd\":\"debounce\",\"value\":$value}"
 }
 
 cmd_hysteresis() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 hysteresis <ratio>"
-        echo "  Example: $0 hysteresis 0.7"
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: hysteresis <ratio>"
+        echo "  Example: hysteresis 0.7"
         return 1
     fi
     
-    local value="$1"
     send_command "{\"cmd\":\"hysteresis\",\"value\":$value}"
 }
 
 cmd_variance_scale() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 variance_scale <value>"
-        echo "  Example: $0 variance_scale 400"
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: variance_scale <value>"
+        echo "  Example: variance_scale 400"
         echo "  Lower values = higher sensitivity"
         return 1
     fi
     
-    local value="$1"
     send_command "{\"cmd\":\"variance_scale\",\"value\":$value}"
 }
 
@@ -170,234 +230,278 @@ cmd_features() {
     send_command "{\"cmd\":\"features\"}"
 }
 
-cmd_weights() {
-    send_command "{\"cmd\":\"weights\"}"
-}
-
-cmd_granular_states() {
-    send_toggle_command "granular_states" "$1"
-}
 
 cmd_hampel_filter() {
-    send_toggle_command "hampel_filter" "$1"
+    local enabled="$1"
+    send_toggle_command "hampel_filter" "$enabled"
 }
 
 cmd_hampel_threshold() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 hampel_threshold <value>"
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: hampel_threshold <value>"
         echo "  Range: 1.0-10.0 (MAD multiplier)"
-        echo "  Example: $0 hampel_threshold 3.0"
+        echo "  Example: hampel_threshold 3.0"
         return 1
     fi
     
-    local value="$1"
     send_command "{\"cmd\":\"hampel_threshold\",\"value\":$value}"
 }
 
 cmd_savgol_filter() {
-    send_toggle_command "savgol_filter" "$1"
+    local enabled="$1"
+    send_toggle_command "savgol_filter" "$enabled"
 }
 
-cmd_filters() {
-    send_command "{\"cmd\":\"filters\"}"
+cmd_butterworth_filter() {
+    local enabled="$1"
+    send_toggle_command "butterworth_filter" "$enabled"
 }
 
-cmd_weight_variance() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 weight_variance <value>"
-        echo "  Range: 0.0-1.0"
-        echo "  Example: $0 weight_variance 0.35"
+cmd_wavelet_filter() {
+    local enabled="$1"
+    send_toggle_command "wavelet_filter" "$enabled"
+}
+
+cmd_wavelet_level() {
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: wavelet_level <level>"
+        echo "  Range: 1-3 (decomposition level)"
+        echo "  1 = minimal denoising, fastest"
+        echo "  2 = moderate denoising"
+        echo "  3 = maximum denoising (recommended)"
+        echo "  Example: wavelet_level 3"
         return 1
     fi
     
-    local value="$1"
-    send_command "{\"cmd\":\"weight_variance\",\"value\":$value}"
+    send_command "{\"cmd\":\"wavelet_level\",\"value\":$value}"
 }
 
-cmd_weight_spatial_gradient() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 weight_spatial_gradient <value>"
-        echo "  Range: 0.0-1.0"
-        echo "  Example: $0 weight_spatial_gradient 0.30"
+cmd_wavelet_threshold() {
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: wavelet_threshold <value>"
+        echo "  Range: 0.5-2.0 (noise threshold)"
+        echo "  0.5 = minimal noise removal"
+        echo "  1.0 = balanced (recommended)"
+        echo "  2.0 = aggressive noise removal"
+        echo "  Example: wavelet_threshold 1.0"
         return 1
     fi
     
-    local value="$1"
-    send_command "{\"cmd\":\"weight_spatial_gradient\",\"value\":$value}"
+    send_command "{\"cmd\":\"wavelet_threshold\",\"value\":$value}"
 }
 
-cmd_weight_variance_short() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 weight_variance_short <value>"
-        echo "  Range: 0.0-1.0"
-        echo "  Example: $0 weight_variance_short 0.25"
+cmd_smart_publishing() {
+    local enabled="$1"
+    send_toggle_command "smart_publishing" "$enabled"
+}
+
+cmd_adaptive_normalizer() {
+    local enabled="$1"
+    send_toggle_command "adaptive_normalizer" "$enabled"
+}
+
+cmd_adaptive_normalizer_alpha() {
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: adaptive_normalizer_alpha <value>"
+        echo "  Range: 0.001-0.1 (learning rate)"
+        echo "  Lower = slower adaptation, Higher = faster adaptation"
+        echo "  Example: adaptive_normalizer_alpha 0.005"
         return 1
     fi
     
-    local value="$1"
-    send_command "{\"cmd\":\"weight_variance_short\",\"value\":$value}"
+    send_command "{\"cmd\":\"adaptive_normalizer_alpha\",\"value\":$value}"
 }
 
-cmd_weight_iqr() {
-    if [ -z "$1" ]; then
-        print_error "Usage: $0 weight_iqr <value>"
-        echo "  Range: 0.0-1.0"
-        echo "  Example: $0 weight_iqr 0.10"
+cmd_adaptive_normalizer_reset_timeout() {
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: adaptive_normalizer_reset_timeout <seconds>"
+        echo "  Range: 0-300 (0 = disabled)"
+        echo "  Auto-reset normalizer after N seconds of IDLE"
+        echo "  Example: adaptive_normalizer_reset_timeout 60"
         return 1
     fi
     
+    send_command "{\"cmd\":\"adaptive_normalizer_reset_timeout\",\"value\":$value}"
+}
+
+cmd_adaptive_normalizer_stats() {
+    send_command "{\"cmd\":\"adaptive_normalizer_stats\"}"
+}
+
+cmd_traffic_generator_rate() {
     local value="$1"
-    send_command "{\"cmd\":\"weight_iqr\",\"value\":$value}"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: traffic_generator_rate <packets_per_sec>"
+        echo "  Range: 0-50 (0=disabled, recommended: 15)"
+        echo "  Generates WiFi traffic for continuous CSI packets"
+        echo "  Example: traffic_generator_rate 15"
+        return 1
+    fi
+    
+    send_command "{\"cmd\":\"traffic_generator_rate\",\"value\":$value}"
 }
 
-cmd_listen() {
-    print_info "Listening to responses on $TOPIC_RESPONSE (Ctrl+C to stop)..."
+cmd_calibrate() {
+    local action="$1"
+    local samples="$2"
     
-    local sub_cmd=$(build_mqtt_cmd "mosquitto_sub")
-    $sub_cmd -t "$TOPIC_RESPONSE" -v | \
-    while IFS= read -r line; do
-        topic=$(echo "$line" | cut -d' ' -f1)
-        message=$(echo "$line" | cut -d' ' -f2-)
-        
-        echo -n "$(date '+%H:%M:%S') "
-        echo "$message" | jq '.' 2>/dev/null || echo "$message"
-    done
+    if [ -z "$action" ]; then
+        print_error "Usage: calibrate <start|stop|status> [samples]"
+        echo "  start [samples]   Start calibration (default: 1000 samples per phase)"
+        echo "  stop              Stop calibration"
+        echo "  status            Get calibration status"
+        echo ""
+        echo "Examples:"
+        echo "  calibrate start           # Start with default 1000 samples per phase"
+        echo "  calibrate start 500       # Start with 500 samples per phase (faster)"
+        echo "  calibrate start 2000      # Start with 2000 samples per phase (more accurate)"
+        echo "  calibrate status          # Check progress"
+        echo "  calibrate stop            # Stop calibration"
+        echo ""
+        echo "Note: Estimated duration = samples / traffic_rate"
+        echo "      Example: 1000 samples @ 20pps = ~50 seconds per phase"
+        return 1
+    fi
+    
+    case "$action" in
+        start)
+            samples="${samples:-1000}"
+            print_warning "⚠️  Calibration will start in 10 seconds!"
+            print_warning "📋 Please EXIT the room NOW!"
+            echo ""
+            
+            # Countdown timer
+            for i in 10 9 8 7 6 5 4 3 2 1; do
+                print_info "⏱️  Starting in $i seconds..."
+                sleep 1
+            done
+            
+            echo ""
+            print_success "🎯 Starting calibration (${samples} samples per phase)..."
+            send_command "{\"cmd\":\"calibrate\",\"action\":\"start\",\"samples\":$samples}"
+            ;;
+        stop)
+            send_command "{\"cmd\":\"calibrate\",\"action\":\"stop\"}"
+            ;;
+        status)
+            send_command "{\"cmd\":\"calibrate\",\"action\":\"status\"}"
+            ;;
+        *)
+            print_error "Unknown calibration action: $action"
+            echo "Use: start, stop, or status"
+            return 1
+            ;;
+    esac
 }
 
-cmd_monitor() {
-    local data_topic="${MQTT_TOPIC:-home/espectre/node1}"
-    print_info "Monitoring data stream on $data_topic (Ctrl+C to stop)..."
-    print_info "Note: Smart publishing may filter some messages. Use 'logs on' to see all CSI values."
+cmd_factory_reset() {
+    print_warning "⚠️  WARNING: This will reset ALL settings to factory defaults!"
+    print_warning "This includes:"
+    print_warning "  - Detection parameters (threshold, debounce, etc.)"
+    print_warning "  - Filter settings"
+    print_warning "  - Calibration data"
+    print_warning "  - All saved configurations"
+    echo ""
+    read -p "Are you sure you want to continue? (yes/no): " confirm
     
-    local sub_cmd=$(build_mqtt_cmd "mosquitto_sub")
-    $sub_cmd -t "$data_topic" -t "${data_topic}/response" -v | \
-    while IFS= read -r line; do
-        topic=$(echo "$line" | cut -d' ' -f1)
-        message=$(echo "$line" | cut -d' ' -f2-)
-        
-        echo -n "$(date '+%H:%M:%S') [$topic] "
-        if echo "$message" | jq -e . >/dev/null 2>&1; then
-            if echo "$message" | jq -e '.state' >/dev/null 2>&1; then
-                echo "$message" | jq -c '{state, movement, confidence, threshold, baseline}'
-            else
-                echo "$message" | jq -c '.'
-            fi
-        else
-            echo "$message"
-        fi
-    done
+    if [ "$confirm" = "yes" ]; then
+        print_info "Performing factory reset..."
+        send_command "{\"cmd\":\"factory_reset\"}"
+    else
+        print_info "Factory reset cancelled"
+    fi
 }
 
 show_help() {
-    cat << EOF
-ESPectre CLI - MQTT Command Line Interface
-
-Usage: $0 <command> [arguments]
-
-Commands:
-  threshold <value>    Set detection threshold (0.0-1.0)
-                       Example: $0 threshold 0.40
-  
-  persistence <sec>    Set persistence timeout (1-30 seconds)
-                       Time to wait before returning to IDLE
-                       Example: $0 persistence 3
-  
-  debounce <count>     Set debounce count (1-10)
-                       Consecutive detections needed
-                       Example: $0 debounce 3
-  
-  hysteresis <ratio>   Set hysteresis ratio (0.1-1.0)
-                       Lower threshold = high * ratio
-                       Example: $0 hysteresis 0.7
-  
-  variance_scale <val> Set variance scale (100-2000)
-                       Lower = higher sensitivity
-                       Example: $0 variance_scale 400
-  
-  features             Show all extracted CSI features (15 features)
-                       Time-domain (6), Spatial (3), Temporal (3), Multi-window (3)
-                       Example: $0 features
-  
-  weights              Show current feature weights
-                       4 features used for detection scoring
-                       Example: $0 weights
-  
-  granular_states <on|off> Enable/disable 4-state detection
-                       OFF: IDLE, DETECTED (default, 2 states)
-                       ON: IDLE, MICRO, DETECTED, INTENSE (4 states)
-                       Example: $0 granular_states on
-  
-  hampel_filter <on|off> Enable/disable Hampel outlier filter
-                       Removes outliers using MAD method
-                       Example: $0 hampel_filter on
-  
-  hampel_threshold <val> Set Hampel filter threshold (1.0-10.0)
-                       MAD multiplier for outlier detection
-                       Example: $0 hampel_threshold 3.0
-  
-  savgol_filter <on|off> Enable/disable Savitzky-Golay smoothing
-                       Polynomial smoothing filter
-                       Example: $0 savgol_filter on
-  
-  filters              Show current filter status and statistics
-                       Example: $0 filters
-  
-  weight_variance <val>    Set variance feature weight (0.0-1.0)
-                       Example: $0 weight_variance 0.35
-  
-  weight_spatial_gradient <val> Set spatial gradient weight (0.0-1.0)
-                       Example: $0 weight_spatial_gradient 0.30
-  
-  weight_variance_short <val> Set short variance weight (0.0-1.0)
-                       Example: $0 weight_variance_short 0.25
-  
-  weight_iqr <val>     Set IQR feature weight (0.0-1.0)
-                       Example: $0 weight_iqr 0.10
-  
-  stats                Show CSI statistics
-  
-  info                 Show current configuration
-  
-  logs <on|off>        Enable/disable CSI logs
-  
-  analyze              Analyze data and suggest threshold
-  
-  listen               Listen to command responses
-  
-  monitor              Monitor real-time data stream
-  
-  help                 Show this help message
-
-Environment Variables:
-  MQTT_BROKER          MQTT broker hostname (default: homeassistant.local)
-  MQTT_PORT            MQTT broker port (default: 1883)
-  MQTT_TOPIC           Base MQTT topic (default: home/espectre/node1)
-  MQTT_USERNAME        MQTT username (optional)
-  MQTT_PASSWORD        MQTT password (optional)
-
-Examples:
-  $0 threshold 0.40    # Set threshold (default: 0.40)
-  $0 stats             # Get statistics
-  $0 logs on           # Enable CSI logs
-  $0 monitor           # Monitor data stream
-
-EOF
+    echo ""
+    echo -e "${CYAN}ESPectre CLI - Interactive Commands${NC}"
+    echo ""
+    echo -e "${YELLOW}Detection Commands:${NC}"
+    echo "  threshold <value>         Set detection threshold (0.0-1.0)"
+    echo "  persistence <sec>         Set persistence timeout (1-30 seconds)"
+    echo "  debounce <count>          Set debounce count (1-10)"
+    echo "  hysteresis <ratio>        Set hysteresis ratio (0.1-1.0)"
+    echo "  variance_scale <val>      Set variance scale (100-2000)"
+    echo ""
+    echo -e "${YELLOW}Filter Commands:${NC}"
+    echo "  butterworth_filter <on|off> Enable/disable Butterworth filter (high freq)"
+    echo "  wavelet_filter <on|off>   Enable/disable Wavelet filter (low freq)"
+    echo "  wavelet_level <1-3>       Set wavelet decomposition level (rec: 3)"
+    echo "  wavelet_threshold <val>   Set wavelet threshold (0.5-2.0, rec: 1.0)"
+    echo "  hampel_filter <on|off>    Enable/disable Hampel outlier filter"
+    echo "  hampel_threshold <val>    Set Hampel threshold (1.0-10.0)"
+    echo "  savgol_filter <on|off>    Enable/disable Savitzky-Golay filter"
+    echo "  adaptive_normalizer <on|off> Enable/disable adaptive normalizer"
+    echo "  adaptive_normalizer_alpha <val> Set learning rate (0.001-0.1)"
+    echo "  adaptive_normalizer_reset_timeout <sec> Set auto-reset timeout (0-300)"
+    echo "  adaptive_normalizer_stats Show normalizer statistics"
+    echo ""
+    echo -e "${YELLOW}State Commands:${NC}"
+    echo "  smart_publishing <on|off> Enable/disable smart publishing"
+    echo ""
+    echo -e "${YELLOW}Information Commands:${NC}"
+    echo "  stats                     Show CSI statistics"
+    echo "  info                      Show current configuration"
+    echo "  features                  Show all extracted CSI features (with weights if calibrated)"
+    echo "  logs <on|off>             Enable/disable CSI logs"
+    echo ""
+    echo -e "${YELLOW}Calibration Commands:${NC}"
+    echo "  calibrate start [samples] Start calibration (default: 1000 samples/phase)"
+    echo "  calibrate stop            Stop calibration"
+    echo "  calibrate status          Get calibration status"
+    echo "  Note: Duration = samples / traffic_rate (e.g., 1000 @ 20pps = ~50s)"
+    echo ""
+    echo -e "${YELLOW}Traffic Generator:${NC}"
+    echo "  traffic_generator_rate <pps> Set traffic rate (0=off, 5-100, rec: 20)"
+    echo "  Note: Required for calibration (min: 5 pps, max: 100 pps)"
+    echo ""
+    echo -e "${YELLOW}Utility Commands:${NC}"
+    echo "  analyze                   Analyze data and suggest threshold"
+    echo "  factory_reset             Reset all settings to factory defaults"
+    echo "  clear                     Clear screen"
+    echo "  help                      Show this help message"
+    echo "  exit, quit                Exit interactive mode"
+    echo ""
+    echo -e "${YELLOW}Shortcuts:${NC}"
+    echo "  t, s, i, l, a, f, gs, hampel, sg, bw, wv, wvl, wvt, sp, cal, c"
+    echo ""
+    echo -e "${YELLOW}Environment Variables:${NC}"
+    echo "  MQTT_BROKER               MQTT broker hostname (default: homeassistant.local)"
+    echo "  MQTT_PORT                 MQTT broker port (default: 1883)"
+    echo "  MQTT_TOPIC                Base MQTT topic (default: home/espectre/node1)"
+    echo "  MQTT_USERNAME             MQTT username (default: mqtt)"
+    echo "  MQTT_PASSWORD             MQTT password (default: mqtt)"
+    echo ""
 }
 
-main() {
-    check_dependencies
+# Process command in interactive mode
+process_command() {
+    local input="$1"
     
-    if [ $# -eq 0 ]; then
-        show_help
-        exit 0
-    fi
+    # Trim whitespace
+    input=$(echo "$input" | xargs)
     
-    local command="$1"
-    shift
+    # Skip empty input
+    [ -z "$input" ] && return 0
     
-    case "$command" in
+    # Parse command and arguments
+    local cmd=$(echo "$input" | awk '{print $1}')
+    local args=$(echo "$input" | cut -d' ' -f2- -s)
+    
+    case "$cmd" in
         threshold|t)
-            cmd_threshold "$@"
+            cmd_threshold $args
             ;;
         stats|s)
             cmd_stats
@@ -406,72 +510,134 @@ main() {
             cmd_info
             ;;
         logs|l)
-            cmd_logs "$@"
+            cmd_logs $args
             ;;
         analyze|a)
             cmd_analyze
             ;;
         persistence|p)
-            cmd_persistence "$@"
+            cmd_persistence $args
             ;;
         debounce|d)
-            cmd_debounce "$@"
+            cmd_debounce $args
             ;;
         hysteresis|hyst)
-            cmd_hysteresis "$@"
+            cmd_hysteresis $args
             ;;
         variance_scale|var|sensitivity)
-            cmd_variance_scale "$@"
+            cmd_variance_scale $args
             ;;
         features|f)
             cmd_features
             ;;
-        weights|w)
-            cmd_weights
-            ;;
-        granular_states|gs)
-            cmd_granular_states "$@"
-            ;;
         hampel_filter|hampel)
-            cmd_hampel_filter "$@"
+            cmd_hampel_filter $args
             ;;
         hampel_threshold|ht)
-            cmd_hampel_threshold "$@"
+            cmd_hampel_threshold $args
             ;;
         savgol_filter|savgol|sg)
-            cmd_savgol_filter "$@"
+            cmd_savgol_filter $args
             ;;
-        filters)
-            cmd_filters
+        butterworth_filter|butterworth|bw)
+            cmd_butterworth_filter $args
             ;;
-        weight_variance|wv)
-            cmd_weight_variance "$@"
+        wavelet_filter|wavelet|wv)
+            cmd_wavelet_filter $args
             ;;
-        weight_spatial_gradient|wsg)
-            cmd_weight_spatial_gradient "$@"
+        wavelet_level|wvl)
+            cmd_wavelet_level $args
             ;;
-        weight_variance_short|wvs)
-            cmd_weight_variance_short "$@"
+        wavelet_threshold|wvt)
+            cmd_wavelet_threshold $args
             ;;
-        weight_iqr|wiqr)
-            cmd_weight_iqr "$@"
+        smart_publishing|smart|sp)
+            cmd_smart_publishing $args
             ;;
-        listen)
-            cmd_listen
+        adaptive_normalizer|an)
+            cmd_adaptive_normalizer $args
             ;;
-        monitor|m)
-            cmd_monitor
+        adaptive_normalizer_alpha|ana)
+            cmd_adaptive_normalizer_alpha $args
             ;;
-        help|h|-h|--help)
+        adaptive_normalizer_reset_timeout|anrt)
+            cmd_adaptive_normalizer_reset_timeout $args
+            ;;
+        adaptive_normalizer_stats|ans)
+            cmd_adaptive_normalizer_stats
+            ;;
+        traffic_generator_rate|tgr|traffic)
+            cmd_traffic_generator_rate $args
+            ;;
+        calibrate|cal|c)
+            cmd_calibrate $args
+            ;;
+        factory_reset|reset|fr)
+            cmd_factory_reset
+            ;;
+        clear|cls)
+            clear
+            ;;
+        help|h)
             show_help
+            ;;
+        exit|quit|q)
+            cleanup
+            ;;
+        "")
+            # Empty command, do nothing
             ;;
         *)
-            print_error "Unknown command: $command"
-            echo ""
-            show_help
-            exit 1
+            print_error "Unknown command: $cmd"
+            echo "Type 'help' for available commands"
             ;;
     esac
+}
+
+# Main interactive mode
+main() {
+    check_dependencies
+    
+    # Setup cleanup trap
+    trap cleanup SIGINT SIGTERM EXIT
+    
+    # Print banner
+    clear
+    echo -e "${MAGENTA}"
+    echo "╔═══════════════════════════════════════════════════════════╗"
+    echo "║                                                           ║"
+    echo "║                   🛜  E S P e c t r e 👻                   ║"
+    echo "║                                                           ║"
+    echo "║                Wi-Fi motion detection system              ║"
+    echo "║          based on Channel State Information (CSI)         ║"
+    echo "║                                                           ║"
+    echo "╠═══════════════════════════════════════════════════════════╣"
+    echo "║                                                           ║"
+    echo "║                  📡  Interactive CLI Mode                 ║"
+    echo "║                                                           ║"
+    echo "╚═══════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+    print_info "Connected to: $BROKER:$PORT"
+    print_info "Command topic: $TOPIC_CMD"
+    print_info "Listening on: $TOPIC_RESPONSE"
+    echo ""
+    print_warning "Type 'help' for commands, 'exit' to quit"
+    echo ""
+    
+    # Start background listener
+    start_listener
+    
+    # Give listener time to start
+    sleep 0.5
+    
+    # Main interactive loop
+    while true; do
+        print_prompt
+        read -r input
+        
+        # Process command
+        process_command "$input"
+    done
 }
 
 main "$@"
