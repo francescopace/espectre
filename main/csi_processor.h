@@ -19,7 +19,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// Maximum CSI data length for ESP32-S3
+// Maximum CSI data length (ESP32-S3: 256 bytes, ESP32-C6: 128 bytes, buffer sized for largest)
 #define CSI_MAX_LENGTH 384
 
 // CSI features extracted from raw data

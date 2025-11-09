@@ -4,6 +4,65 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.3.0] - in progress
+
+### 🚀 Major - ESP32-C6 Platform Support
+
+**Complete multi-platform support with ESP32-C6 and WiFi 6**
+
+Added comprehensive support for ESP32-C6 alongside ESP32-S3, enabling WiFi 6 (802.11ax) and HT40 capabilities:
+
+**ESP32-C6 Implementation:**
+- **CSI Configuration**: Implemented `wifi_csi_acquire_config_t` structure
+  * `.acquire_csi_legacy = 1` - Captures CSI from 802.11a/g packets (L-LTF)
+  * `.acquire_csi_ht20 = 1` - Captures CSI from 802.11n HT20 packets (64 subcarriers)
+  * `.acquire_csi_ht40 = 1` - Captures CSI from 802.11n HT40 packets (128 subcarriers)
+  * `.acquire_csi_su = 1` - Captures CSI from WiFi 6 Single-User packets
+  * Critical: Both `acquire_csi_legacy` and `acquire_csi_ht20` required for callback invocation
+
+- **WiFi 6 Support**: Enabled 802.11ax protocol for ESP32-C6
+  * Automatic negotiation with WiFi 6 routers
+  * Backward compatible with WiFi 4/5 routers
+  * Improved packet scheduling and efficiency
+
+- **Platform-Specific Subcarrier Filtering**:
+  * ESP32-S3: Subcarriers 47-59 (PCA-optimized, 12 subcarriers)
+  * ESP32-C6: Subcarriers 10-38 (temporary, 28 subcarriers, needs PCA optimization)
+  * Accounts for different subcarrier ordering between platforms
+
+**Configuration Files:**
+- `sdkconfig.defaults.esp32c6`: ESP32-C6 specific configuration
+  * DIO flash mode (more stable than QIO)
+  * USB stability improvements (PM disabled)
+  * Simplified CSI API configuration
+
+**Performance:**
+- ESP32-C6: 50-100+ CSI packets/second
+- Motion detection: Fully functional (IDLE ↔ MOTION)
+- WiFi 6: Higher packet rates when connected to 802.11ax router
+- HT40: Up to 128 subcarriers (vs 64 for HT20)
+
+**Reference:** ESP-IDF Issue #14271 - https://github.com/espressif/esp-idf/issues/14271
+
+### 🔧 Fixed - ESP32-C6 CSI Callback Issue
+
+**Critical fix: CSI callback never invoked on ESP32-C6**
+
+- **Root cause**: Incomplete CSI configuration (only `.enable = 1` was insufficient)
+- **Solution**: Added all required `acquire_csi_*` fields
+- **Result**: CSI callback now working, 50-100+ packets/second
+
+### 📝 Changed - Platform-Agnostic Documentation
+
+**Updated all documentation to support both ESP32-S3 and ESP32-C6**
+
+- Removed ESP32-S3 specific references from user-facing documentation
+- Updated platform badges and hardware requirements
+- Added platform comparison tables
+- Clarified platform-specific features and limitations
+
+---
+
 ## [1.2.1] - 2025-11-17
 
 ### 🚀 Improved - Wi-Fi Configuration Optimization

@@ -1,5 +1,6 @@
 /*
- * ESPectre - Wi-Fi CSI Movement Detection for ESP32-S3
+ * ESPectre - Wi-Fi CSI Movement Detection
+ * Supports: ESP32-S3, ESP32-C6
  *
  * Uses Channel State Information (CSI) from Wi-Fi packets to detect movement.
  * Extracts 10 mathematical features and combines them with configurable weights
@@ -167,10 +168,12 @@ static void format_progress_bar(char *buffer, size_t size, float score, float th
 }
 
 static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *data) {
+    
     int8_t *csi_data = data->buf;
     size_t csi_len = data->len;
     
     if (csi_len < 10) {
+        ESP_LOGW(TAG, "CSI data too short: %d bytes (minimum 10 required)", csi_len);
         return;
     }
     
@@ -225,19 +228,95 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
 }
 
 static void csi_init(void) {
+    // IMPORTANT: For ESP32-C6, promiscuous mode MUST be enabled BEFORE configuring CSI
+    // This is different from ESP32-S3 where the order doesn't matter
+    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(PROMISCUOUS_MODE));
+    ESP_LOGI(TAG, "Promiscuous mode: %s", PROMISCUOUS_MODE ? "enabled" : "disabled");
+    
+#if CONFIG_IDF_TARGET_ESP32C6
+    // ESP32-C6 uses wifi_csi_acquire_config_t (different from ESP32-S3!)
+    // Reference: https://github.com/espressif/esp-idf/issues/14271
+    // CRITICAL: Must specify which CSI types to acquire, otherwise callback is never invoked!
     wifi_csi_config_t csi_config = {
-        .lltf_en = true,
-        .htltf_en = true,
-        .stbc_htltf2_en = true,
-        .ltf_merge_en = true,
-        .channel_filter_en = false,  // Disabled to receive ALL subcarriers (64 instead of 52)
-        .manu_scale = false,
+        .enable = 1,                    // Master enable for CSI acquisition (REQUIRED)
+        
+        .acquire_csi_legacy = 1,        // Acquire L-LTF CSI from legacy 802.11a/g packets
+                                        // CRITICAL: Required for CSI callback to be invoked!
+                                        // Captures channel state from non-HT packets
+        
+        .acquire_csi_ht20 = 1,          // Acquire HT-LTF CSI from 802.11n HT20 packets
+                                        // CRITICAL: Required for CSI from HT packets!
+                                        // Provides improved channel estimation for MIMO
+        
+        .acquire_csi_ht40 = 1,          // Acquire HT-LTF CSI from 802.11n HT40 packets (40MHz bandwidth)
+                                        // Enabled to capture CSI from HT40 packets (128 subcarriers)
+                                        // Router will use HT40 if available and interference is low
+        
+        .acquire_csi_su = 1,            // Acquire HE-LTF CSI from 802.11ax HE20 SU (Single-User) packets
+                                        // Enabled for WiFi 6 support (if router supports 802.11ax)
+        
+        .acquire_csi_mu = 0,            // Acquire HE-LTF CSI from 802.11ax HE20 MU (Multi-User) packets
+                                        // Disabled (not using WiFi 6 MU-MIMO)
+        
+        .acquire_csi_dcm = 0,           // Acquire CSI from DCM (Dual Carrier Modulation) packets
+                                        // DCM is a WiFi 6 feature for long-range transmission
+                                        // Disabled (not used)
+        
+        .acquire_csi_beamformed = 0,    // Acquire CSI from beamformed packets
+                                        // Beamforming directs signal toward receiver
+                                        // Disabled (not needed for motion detection)
+        
+        .acquire_csi_he_stbc = 0,       // Acquire CSI from 802.11ax HE STBC packets
+                                        // STBC improves reliability using multiple antennas
+                                        // Disabled (not used)
+        
+        .val_scale_cfg = 0,             // CSI value scaling configuration (0-8)
+                                        // 0 = automatic scaling (recommended)
+                                        // 1-8 = manual scaling with shift bits
+                                        // Controls normalization of CSI amplitude values
+        
+        .dump_ack_en = 0,               // Enable capture of 802.11 ACK frames
+                                        // Disabled to reduce overhead (ACK frames not needed)
     };
     
     ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
+    ESP_LOGI(TAG, "CSI initialized and enabled (ESP32-C6: legacy/HT20/HT40/WiFi6-SU)");
+#else
+    // ESP32 and ESP32-S3 use wifi_csi_config_t with legacy LTF fields
+    wifi_csi_config_t csi_config = {
+        .lltf_en = true,                // Enable Legacy Long Training Field (L-LTF) CSI capture
+                                        // L-LTF is present in all 802.11a/g packets
+                                        // Provides base channel estimation (64 subcarriers)
+        
+        .htltf_en = true,               // Enable HT Long Training Field (HT-LTF) CSI capture
+                                        // HT-LTF is present in 802.11n (HT) packets
+                                        // Provides improved channel estimation for MIMO
+        
+        .stbc_htltf2_en = true,         // Enable Space-Time Block Code HT-LTF2 capture
+                                        // STBC uses 2 antennas to improve reliability
+                                        // Captures second HT-LTF when STBC is active
+        
+        .ltf_merge_en = true,           // Merge L-LTF and HT-LTF data by averaging
+                                        // true: Average L-LTF and HT-LTF for HT packets (more stable)
+                                        // false: Use only HT-LTF for HT packets (more precise)
+        
+        .channel_filter_en = false,     // Channel filter to smooth adjacent subcarriers
+                                        // true: Filter/smooth adjacent subcarriers (52 useful subcarriers)
+                                        // false: Keep subcarrier independence (64 total subcarriers)
+                                        // DISABLED to get all raw data without smoothing
+        
+        .manu_scale = false,            // Manual vs automatic CSI data scaling
+                                        // false: Auto-scaling (recommended, adapts dynamically)
+                                        // true: Manual scaling (requires .shift parameter)
+    };
+    
+    ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
+    ESP_LOGI(TAG, "CSI initialized and enabled (ESP32/ESP32-S3 mode)");
+#endif
+    
+    // Common CSI setup for all targets
     ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(csi_callback, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_csi(true));
-    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(PROMISCUOUS_MODE));
 }
 
 static void mqtt_publish_task(void *pvParameters) {
@@ -461,10 +540,18 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_LOGI(TAG, "Wi-Fi power save disabled for real-time CSI");
     
-    // Configure Wi-Fi protocol mode explicitly (802.11b/g/n for 2.4GHz)
+    // Configure Wi-Fi protocol mode
+#if CONFIG_IDF_TARGET_ESP32C6
+    // ESP32-C6: Enable WiFi 6 (802.11ax) for improved performance and CSI capture
+    ESP_ERROR_CHECK(esp_wifi_set_protocol(WIFI_IF_STA, 
+        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AX));
+    ESP_LOGI(TAG, "Wi-Fi protocol set to 802.11b/g/n/ax (WiFi 6 enabled)");
+#else
+    // ESP32-S3: WiFi 4 only (802.11b/g/n)
     ESP_ERROR_CHECK(esp_wifi_set_protocol(WIFI_IF_STA, 
         WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N));
     ESP_LOGI(TAG, "Wi-Fi protocol set to 802.11b/g/n");
+#endif
     
     // Configure Wi-Fi bandwidth (HT20 for stability, HT40 for more subcarriers)
     ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20));

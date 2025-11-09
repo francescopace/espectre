@@ -7,9 +7,10 @@
 ---
 
 **Hardware:**
-- ESP32-S3-DevKitC-1 N16R8 (16MB Flash, 8MB PSRAM)
-- USB-C cable
-- Wi-Fi router (2.4 GHz)
+- **ESP32-S3** (recommended): Dual-core, 16MB Flash, 8MB PSRAM, better CPU performance
+- **ESP32-C6**: Single-core, 4MB Flash, WiFi 6, higher CSI packet rate, lower cost
+- USB-C or Micro-USB cable (depending on board)
+- Wi-Fi router (2.4 GHz, ESP32-C6 supports WiFi 6 on 2.4 GHz, 5 GHz untested)
 
 **Software:**
 - ESP-IDF v6.1
@@ -32,18 +33,19 @@ brew install cmake ninja dfu-util python3
 
 git clone --recursive https://github.com/espressif/esp-idf.git
 cd esp-idf && git checkout v6.1-dev
-./install.sh esp32s3
+./install.sh 
 . ./export.sh
 ```
 
 **Linux & Windows:**
 
 For Linux and Windows installation instructions, please refer to the official Espressif documentation:
-- 📖 [ESP-IDF Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/index.html)
+- 📖 [ESP-IDF Getting Started Guide for ESP32-S3](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/index.html)
+- 📖 [ESP-IDF Getting Started Guide for ESP32-C6](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c6/get-started/index.html)
 
 Make sure to:
 - Install ESP-IDF v6.1-dev: `git checkout v6.1-dev`
-- Run `./install.sh esp32s3` (Linux) or `install.bat esp32s3` (Windows)
+- Run `./install.sh` (Linux) or `install.bat` (Windows)
 - Source the environment: `. ./export.sh` (Linux) or `export.bat` (Windows)
 
 ### 2. Clone and Configure
@@ -52,12 +54,24 @@ Make sure to:
 git clone https://github.com/francescopace/espectre.git
 cd espectre
 
-# Set target (IMPORTANT)
-idf.py set-target esp32s3
+# IMPORTANT: Copy the correct configuration for your ESP32 chip
+# This ensures all critical settings are properly applied
+
+# Clean any previous build and configuration
+idf.py fullclean
+rm -f sdkconfig
+
+# For ESP32-S3:
+cp sdkconfig.defaults.esp32s3 sdkconfig.defaults
+
+# For ESP32-C6:
+cp sdkconfig.defaults.esp32c6 sdkconfig.defaults
 
 # Configure Wi-Fi and MQTT
 idf.py menuconfig
 ```
+
+**Note:** By copying the target-specific file to `sdkconfig.defaults`, you ensure that all critical configurations (like `CONFIG_ESP_WIFI_CSI_ENABLED` and `CONFIG_SPIRAM`) are properly applied during the build process. The target will be automatically detected from the configuration file.
 
 In menuconfig:
 - Go to **ESPectre Configuration**
@@ -149,20 +163,49 @@ automation:
 **Message format:**
 ```json
 {
-  "movement": 0.75,
-  "confidence": 0.85,
-  "state": "detected",
-  "threshold": 0.40,
+  "movement": 2.87,
+  "threshold": 2.20,
+  "state": "motion",
+  "segments_total": 42,
+  "features": {
+    "variance": 0.45,
+    "skewness": 0.12,
+    "kurtosis": 2.34,
+    "entropy": 3.21,
+    "iqr": 0.67,
+    "spatial_variance": 0.89,
+    "spatial_correlation": 0.76,
+    "spatial_gradient": 1.23,
+    "temporal_delta_mean": 0.34,
+    "temporal_delta_variance": 0.56
+  },
   "timestamp": 1730066405
 }
 ```
 
 **Fields:**
-- `movement`: 0.0-1.0 (intensity)
-- `confidence`: 0.0-1.0 (detection confidence)
-- `state`: "idle" or "detected"
-- `threshold`: current detection threshold
-- `timestamp`: Unix timestamp
+- `movement`: Moving variance value (float, typically 0.0-10.0) - indicates motion intensity
+- `threshold`: Adaptive threshold value (float) - current detection threshold
+- `state`: Current segmentation state - `"idle"` or `"motion"`
+- `segments_total`: Total number of motion segments detected since startup (integer)
+- `features`: Object containing 10 extracted features (only present during MOTION state when features are enabled):
+  - `variance`: Signal variance
+  - `skewness`: Distribution asymmetry
+  - `kurtosis`: Distribution tailedness
+  - `entropy`: Signal randomness
+  - `iqr`: Interquartile range
+  - `spatial_variance`: Variance across subcarriers
+  - `spatial_correlation`: Correlation between adjacent subcarriers
+  - `spatial_gradient`: Rate of change across subcarriers
+  - `temporal_delta_mean`: Average change from previous packet
+  - `temporal_delta_variance`: Variance of changes from previous packet
+- `timestamp`: Unix timestamp (seconds since epoch)
+
+**Note:** The `features` object is only included when:
+1. The system is in `"motion"` state, AND
+2. Feature extraction is enabled (default: enabled)
+
+During `"idle"` state, only the basic fields are published (movement, threshold, state, segments_total, timestamp).
 
 ---
 
@@ -431,8 +474,8 @@ mosquitto_pub -h localhost -t "espectre/cmd" -m '{"cmd":"wavelet_threshold","val
 ---
 
 **How it works:**
-- Publishes immediately when detection state changes (idle ↔ detected)
-- Publishes when movement score changes by more than 0.05 (5%)
+- Publishes immediately when detection state changes (idle ↔ motion)
+- Publishes when movement score changes significantly
 - Publishes a heartbeat every 5 seconds even if nothing changed
 - Skips redundant messages when values are stable
 

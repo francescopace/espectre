@@ -247,7 +247,7 @@ idf.py build flash monitor
 
 ### Why TEST_CASE_ESP with Symbolic Names?
 
-The standard `TEST_CASE` macro uses `__attribute__((constructor))` which doesn't work correctly on ESP32-S3.
+The standard `TEST_CASE` macro uses `__attribute__((constructor))` which doesn't work correctly on ESP32.
 
 Solution: **symbolic names**:
 ```c

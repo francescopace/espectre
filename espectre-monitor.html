@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESPectre Real-Time Monitor</title>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <!-- MQTT.js -->
+    <script src="https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .config-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .input-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .input-group label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        
+        .input-group input {
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-indicator.connected {
+            background: #2ecc71;
+        }
+        
+        .status-indicator.disconnected {
+            background: #e74c3c;
+            animation: none;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-card {
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            transition: transform 0.3s;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .metric-card.idle {
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+            color: white;
+        }
+        
+        .metric-card.motion {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+        }
+        
+        .metric-card.neutral {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+        }
+        
+        .metric-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+        
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+        
+        .features-panel {
+            margin-top: 20px;
+        }
+        
+        .features-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            transition: background 0.3s;
+        }
+        
+        .features-header:hover {
+            background: #e9ecef;
+        }
+        
+        .features-header h3 {
+            margin: 0;
+        }
+        
+        .features-content {
+            display: none;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .features-content.show {
+            display: block;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        
+        .feature-item {
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .feature-name {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .feature-value {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-style: italic;
+        }
+        
+        .arrow {
+            transition: transform 0.3s;
+        }
+        
+        .arrow.rotate {
+            transform: rotate(180deg);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛜 ESPectre Monitor 👻</h1>
+            <p>Real-Time Motion Detection Visualization</p>
+        </div>
+        
+        <!-- Configuration Card -->
+        <div class="card">
+            <h2 style="margin-bottom: 20px;">⚙️ MQTT Configuration</h2>
+            <div class="config-section">
+                <div class="input-group">
+                    <label for="broker">Broker Address</label>
+                    <input type="text" id="broker" placeholder="homeassistant.local" value="homeassistant.local">
+                </div>
+                <div class="input-group">
+                    <label for="port">WebSocket Port</label>
+                    <input type="number" id="port" placeholder="9001" value="9001">
+                </div>
+                <div class="input-group">
+                    <label for="topic">Topic</label>
+                    <input type="text" id="topic" placeholder="home/espectre/node1" value="home/espectre/node1">
+                </div>
+                <div class="input-group">
+                    <label for="username">Username (optional)</label>
+                    <input type="text" id="username" placeholder="username">
+                </div>
+                <div class="input-group">
+                    <label for="password">Password (optional)</label>
+                    <input type="password" id="password" placeholder="password">
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">Connect</button>
+                <button class="btn btn-danger" id="clearBtn" onclick="clearData()" style="display: none;">Clear Data</button>
+            </div>
+        </div>
+        
+        <!-- Status Bar -->
+        <div class="card">
+            <div class="status-bar">
+                <div class="status-item">
+                    <div class="status-indicator disconnected" id="statusIndicator"></div>
+                    <span id="statusText">Disconnected</span>
+                </div>
+                <div class="status-item">
+                    <strong>Last update:</strong>
+                    <span id="lastUpdate">-</span>
+                </div>
+                <div class="status-item">
+                    <strong>Messages received:</strong>
+                    <span id="messageCount">0</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Metrics Cards -->
+        <div class="card">
+            <h2 style="margin-bottom: 20px;">📊 Real-Time Metrics</h2>
+            <div class="metrics-grid">
+                <div class="metric-card idle" id="stateCard">
+                    <div class="metric-label">State</div>
+                    <div class="metric-value" id="stateValue">-</div>
+                </div>
+                <div class="metric-card neutral">
+                    <div class="metric-label">Movement</div>
+                    <div class="metric-value" id="movementValue">-</div>
+                </div>
+                <div class="metric-card neutral">
+                    <div class="metric-label">Threshold</div>
+                    <div class="metric-value" id="thresholdValue">-</div>
+                </div>
+                <div class="metric-card neutral">
+                    <div class="metric-label">Total Segments</div>
+                    <div class="metric-value" id="segmentsValue">-</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Chart -->
+        <div class="card">
+            <h2 style="margin-bottom: 20px;">📈 Real-Time Chart</h2>
+            <div class="chart-container">
+                <canvas id="motionChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Features Panel -->
+        <div class="card">
+            <div class="features-panel">
+                <div class="features-header" onclick="toggleFeatures()">
+                    <h3>🔬 Extracted Features (10)</h3>
+                    <span class="arrow" id="featuresArrow">▼</span>
+                </div>
+                <div class="features-content" id="featuresContent">
+                    <div class="features-grid" id="featuresGrid">
+                        <div class="no-data">No data available. Features are extracted only during MOTION state.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let client = null;
+        let chart = null;
+        let messageCount = 0;
+        let maxDataPoints = 60;
+        
+        const chartData = {
+            labels: [],
+            movement: [],
+            threshold: []
+        };
+        
+        // Initialize Chart
+        function initChart() {
+            const ctx = document.getElementById('motionChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [
+                        {
+                            label: 'Movement',
+                            data: chartData.movement,
+                            borderColor: '#e74c3c',
+                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Threshold',
+                            data: chartData.threshold,
+                            borderColor: '#3498db',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            tension: 0,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 300
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Value'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        function toggleConnection() {
+            if (client && client.connected) {
+                disconnect();
+            } else {
+                connect();
+            }
+        }
+        
+        function connect() {
+            const broker = document.getElementById('broker').value;
+            const port = document.getElementById('port').value;
+            const topic = document.getElementById('topic').value;
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            if (!broker || !port || !topic) {
+                alert('Please fill in all required fields!');
+                return;
+            }
+            
+            const connectUrl = `ws://${broker}:${port}/mqtt`;
+            
+            const options = {
+                clean: true,
+                connectTimeout: 4000,
+                clientId: 'espectre_monitor_' + Math.random().toString(16).substr(2, 8)
+            };
+            
+            if (username) options.username = username;
+            if (password) options.password = password;
+            
+            try {
+                client = mqtt.connect(connectUrl, options);
+                
+                client.on('connect', () => {
+                    console.log('Connected to MQTT broker');
+                    updateStatus(true);
+                    client.subscribe(topic, (err) => {
+                        if (err) {
+                            console.error('Subscribe error:', err);
+                            alert('Error subscribing to topic!');
+                        }
+                    });
+                });
+                
+                client.on('message', (topic, message) => {
+                    handleMessage(message.toString());
+                });
+                
+                client.on('error', (err) => {
+                    console.error('Connection error:', err);
+                    alert('Connection error: ' + err.message);
+                    updateStatus(false);
+                });
+                
+                client.on('close', () => {
+                    console.log('Connection closed');
+                    updateStatus(false);
+                });
+                
+            } catch (err) {
+                console.error('Connection error:', err);
+                alert('Connection error: ' + err.message);
+            }
+        }
+        
+        function disconnect() {
+            if (client) {
+                client.end();
+                client = null;
+                updateStatus(false);
+            }
+        }
+        
+        function updateStatus(connected) {
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            const connectBtn = document.getElementById('connectBtn');
+            const clearBtn = document.getElementById('clearBtn');
+            
+            if (connected) {
+                indicator.classList.remove('disconnected');
+                indicator.classList.add('connected');
+                statusText.textContent = 'Connected';
+                connectBtn.textContent = 'Disconnect';
+                connectBtn.classList.remove('btn-primary');
+                connectBtn.classList.add('btn-danger');
+                clearBtn.style.display = 'inline-block';
+            } else {
+                indicator.classList.remove('connected');
+                indicator.classList.add('disconnected');
+                statusText.textContent = 'Disconnected';
+                connectBtn.textContent = 'Connect';
+                connectBtn.classList.remove('btn-danger');
+                connectBtn.classList.add('btn-primary');
+                clearBtn.style.display = 'none';
+            }
+        }
+        
+        function handleMessage(message) {
+            try {
+                const data = JSON.parse(message);
+                messageCount++;
+                
+                // Update message count
+                document.getElementById('messageCount').textContent = messageCount;
+                
+                // Update last update time
+                const now = new Date();
+                document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('en-US');
+                
+                // Update metrics
+                updateMetrics(data);
+                
+                // Update chart
+                updateChart(data);
+                
+                // Update features if available
+                if (data.features) {
+                    updateFeatures(data.features);
+                }
+                
+            } catch (err) {
+                console.error('Error parsing message:', err);
+            }
+        }
+        
+        function updateMetrics(data) {
+            // Update state
+            const stateCard = document.getElementById('stateCard');
+            const stateValue = document.getElementById('stateValue');
+            stateValue.textContent = data.state === 'motion' ? 'MOTION' : 'IDLE';
+            
+            if (data.state === 'motion') {
+                stateCard.classList.remove('idle');
+                stateCard.classList.add('motion');
+            } else {
+                stateCard.classList.remove('motion');
+                stateCard.classList.add('idle');
+            }
+            
+            // Update movement
+            document.getElementById('movementValue').textContent = 
+                data.movement ? data.movement.toFixed(2) : '-';
+            
+            // Update threshold
+            document.getElementById('thresholdValue').textContent = 
+                data.threshold ? data.threshold.toFixed(2) : '-';
+            
+            // Update segments
+            document.getElementById('segmentsValue').textContent = 
+                data.segments_total || '-';
+        }
+        
+        function updateChart(data) {
+            const now = new Date();
+            const timeLabel = now.toLocaleTimeString('en-US');
+            
+            chartData.labels.push(timeLabel);
+            chartData.movement.push(data.movement || 0);
+            chartData.threshold.push(data.threshold || 0);
+            
+            // Keep only last N data points
+            if (chartData.labels.length > maxDataPoints) {
+                chartData.labels.shift();
+                chartData.movement.shift();
+                chartData.threshold.shift();
+            }
+            
+            chart.update('none');
+        }
+        
+        function updateFeatures(features) {
+            const featuresGrid = document.getElementById('featuresGrid');
+            
+            const featureNames = {
+                variance: 'Variance',
+                skewness: 'Skewness',
+                kurtosis: 'Kurtosis',
+                entropy: 'Entropy',
+                iqr: 'IQR',
+                spatial_variance: 'Spatial Variance',
+                spatial_correlation: 'Spatial Correlation',
+                spatial_gradient: 'Spatial Gradient',
+                temporal_delta_mean: 'Temporal Delta Mean',
+                temporal_delta_variance: 'Temporal Delta Variance'
+            };
+            
+            let html = '';
+            for (const [key, name] of Object.entries(featureNames)) {
+                if (features[key] !== undefined) {
+                    html += `
+                        <div class="feature-item">
+                            <div class="feature-name">${name}</div>
+                            <div class="feature-value">${features[key].toFixed(3)}</div>
+                        </div>
+                    `;
+                }
+            }
+            
+            featuresGrid.innerHTML = html || '<div class="no-data">No features available</div>';
+        }
+        
+        function toggleFeatures() {
+            const content = document.getElementById('featuresContent');
+            const arrow = document.getElementById('featuresArrow');
+            
+            content.classList.toggle('show');
+            arrow.classList.toggle('rotate');
+        }
+        
+        function clearData() {
+            chartData.labels = [];
+            chartData.movement = [];
+            chartData.threshold = [];
+            messageCount = 0;
+            
+            document.getElementById('messageCount').textContent = '0';
+            document.getElementById('lastUpdate').textContent = '-';
+            
+            chart.update();
+        }
+        
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            initChart();
+        });
+    </script>
+</body>
+</html>

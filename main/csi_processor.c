@@ -25,12 +25,25 @@ static int8_t iqr_sort_buffer[CSI_MAX_LENGTH];
 #define AMPLITUDE_MOMENTS_WINDOW 20
 
 // Subcarrier selection for amplitude calculation
-// ESP32 provides 64 subcarriers (128 bytes: I,Q pairs)
-// Based on PCA analysis on real data: optimal range is [29-58]
-#define ENABLE_SUBCARRIER_FILTERING 1 
-#define SUBCARRIER_START 47
-#define SUBCARRIER_END 59  // Inclusive of SC58
-#define NUM_USEFUL_SUBCARRIERS (SUBCARRIER_END - SUBCARRIER_START)
+#define ENABLE_SUBCARRIER_FILTERING 1
+
+#if CONFIG_IDF_TARGET_ESP32C6
+    // ESP32-C6: Effective subcarriers are -28~-1, 1~28 (56 total in 64 positions)
+    // Subcarrier order: -32~-1, 0~32 (DIFFERENT from ESP32-S3!)
+    // Guard band at positions -32~-29 and 29~32 (null values)
+    // Temporary range (to be optimized with PCA analysis on ESP32-C6 data)
+    // Current range selects central subcarriers for stability
+    #define SUBCARRIER_START 10   // Approx. maps to subcarriers -18 to -1
+    #define SUBCARRIER_END 38     // Approx. maps to subcarriers 1 to 18
+    #define NUM_USEFUL_SUBCARRIERS (SUBCARRIER_END - SUBCARRIER_START)
+#else
+    // ESP32-S3: 64 subcarriers (order: 0~31, -32~-1)
+    // Based on PCA analysis on real ESP32-S3 data: optimal range is [47-58]
+    // This captures the most informative subcarriers for motion detection
+    #define SUBCARRIER_START 47
+    #define SUBCARRIER_END 59     // Inclusive of SC58
+    #define NUM_USEFUL_SUBCARRIERS (SUBCARRIER_END - SUBCARRIER_START)
+#endif
 static float amplitude_moments_buffer[AMPLITUDE_MOMENTS_WINDOW] = {0};
 static int amp_moments_index = 0;
 static int amp_moments_count = 0;

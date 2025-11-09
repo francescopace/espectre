@@ -1,4 +1,4 @@
-# ESP32-S3 Configuration for Unit Tests
+# ESP32 Configuration for Unit Tests (ESP32-S3)
 CONFIG_IDF_TARGET="esp32s3"
 
 # Unity test framework
