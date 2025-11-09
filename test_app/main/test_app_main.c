@@ -41,9 +41,11 @@ extern test_desc_t test_desc_78;   // Spatial correlation calculation
 extern test_desc_t test_desc_89;   // Spatial gradient calculation
 extern test_desc_t test_desc_98;   // Mock CSI data generation
 // Calibration tests
-extern test_desc_t test_desc_21;   // Calibration end-to-end with mock data
-extern test_desc_t test_desc_163;  // Features differ between baseline and movement
-extern test_desc_t test_desc_20;   // Calibration with real CSI data
+extern test_desc_t test_desc_26;   // Calibration end-to-end with mock data
+extern test_desc_t test_desc_172;  // Features differ between baseline and movement
+extern test_desc_t test_desc_23;   // Calibration with real CSI data
+// Detection approaches comparison
+extern test_desc_t test_desc_55;   // Compare detection approaches on real data
 
 void app_main(void)
 {
@@ -82,9 +84,11 @@ void app_main(void)
     unity_testcase_register(&test_desc_89);
     unity_testcase_register(&test_desc_98);
     // Calibration tests
-    unity_testcase_register(&test_desc_21);
-    unity_testcase_register(&test_desc_163);
-    unity_testcase_register(&test_desc_20);
+    unity_testcase_register(&test_desc_26);
+    unity_testcase_register(&test_desc_172);
+    unity_testcase_register(&test_desc_23);
+    // Detection approaches comparison
+    unity_testcase_register(&test_desc_55);
     
     // Run all tests automatically
     printf("Running all tests automatically...\n\n");

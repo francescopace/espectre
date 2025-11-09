@@ -371,18 +371,26 @@ static bool is_feature_selected(uint8_t feat_idx, uint8_t num_selected,
 }
 
 // Helper to add a feature to the response with optional calibration info
-static void add_feature_to_response(cJSON *response, const char *name, uint8_t feat_idx, 
+static void add_feature_to_response(cJSON *response, const char *name, uint8_t feat_idx,
                                     double value, uint8_t num_selected,
                                     const uint8_t *selected_features, const float *weights) {
     cJSON *feat_obj = cJSON_CreateObject();
     cJSON_AddNumberToObject(feat_obj, "value", value);
-    
+
     float weight;
     if (is_feature_selected(feat_idx, num_selected, selected_features, weights, &weight)) {
+        // Calibrated mode: show selected feature with calibrated weight
         cJSON_AddBoolToObject(feat_obj, "selected", true);
         cJSON_AddNumberToObject(feat_obj, "weight", (double)weight);
+    } else if (g_cmd_context && g_cmd_context->config && feat_idx < 10) {
+        // Default mode: show weight from default configuration
+        float default_weight = g_cmd_context->config->feature_weights[feat_idx];
+        if (default_weight > 0.0f) {
+            cJSON_AddBoolToObject(feat_obj, "selected", true);  // Mark as selected if weight > 0
+            cJSON_AddNumberToObject(feat_obj, "weight", (double)default_weight);
+        }
     }
-    
+
     cJSON_AddItemToObject(response, name, feat_obj);
 }
 
@@ -424,6 +432,13 @@ static void cmd_features(cJSON *root) {
                            num_selected, selected_features, weights);
     add_feature_to_response(response, "spatial_gradient", 7, 
                            (double)g_cmd_context->current_features->spatial_gradient,
+                           num_selected, selected_features, weights);
+    
+    add_feature_to_response(response, "temporal_delta_mean", 8,
+                           (double)g_cmd_context->current_features->temporal_delta_mean,
+                           num_selected, selected_features, weights);
+    add_feature_to_response(response, "temporal_delta_variance", 9,
+                           (double)g_cmd_context->current_features->temporal_delta_variance,
                            num_selected, selected_features, weights);
     
     char *json_str = cJSON_PrintUnformatted(response);

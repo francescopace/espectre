@@ -81,7 +81,7 @@ float csi_calculate_variance(const int8_t *data, size_t len) {
     return variance / len;
 }
 
-// Time domain features
+// Statistical features
 float csi_calculate_skewness(const int8_t *data, size_t len) {
     if (len < 3) return 0.0f;
     
@@ -226,24 +226,121 @@ float csi_calculate_spatial_gradient(const int8_t *data, size_t len) {
     return sum_diff / (len - 1);
 }
 
+// Temporal features: buffer for previous packet
+static int8_t prev_csi_data[CSI_MAX_LENGTH] = {0};
+static size_t prev_csi_len = 0;
+static bool first_packet = true;
+
+// Temporal delta mean calculation
+float csi_calculate_temporal_delta_mean(const int8_t *current_data,
+                                        const int8_t *previous_data,
+                                        size_t len) {
+    if (!current_data || !previous_data || len == 0) {
+        return 0.0f;
+    }
+    
+    float delta_sum = 0.0f;
+    for (size_t i = 0; i < len; i++) {
+        delta_sum += fabsf((float)(current_data[i] - previous_data[i]));
+    }
+    
+    return delta_sum / len;
+}
+
+// Temporal delta variance calculation
+float csi_calculate_temporal_delta_variance(const int8_t *current_data,
+                                            const int8_t *previous_data,
+                                            size_t len) {
+    if (!current_data || !previous_data || len == 0) {
+        return 0.0f;
+    }
+    
+    // First calculate delta mean
+    float delta_mean = csi_calculate_temporal_delta_mean(current_data, previous_data, len);
+    
+    // Then calculate variance of deltas
+    float delta_variance = 0.0f;
+    for (size_t i = 0; i < len; i++) {
+        float diff = fabsf((float)(current_data[i] - previous_data[i]));
+        float deviation = diff - delta_mean;
+        delta_variance += deviation * deviation;
+    }
+    
+    return delta_variance / len;
+}
+
+// Reset temporal buffer (call when starting new calibration phase)
+void csi_reset_temporal_buffer(void) {
+    memset(prev_csi_data, 0, sizeof(prev_csi_data));
+    prev_csi_len = 0;
+    first_packet = true;
+}
+
 // Main feature extraction function
-void csi_extract_features(const int8_t *csi_data, 
-                          size_t csi_len,
-                          csi_features_t *features) {
+void csi_extract_features(const int8_t *csi_data,
+                         size_t csi_len,
+                         csi_features_t *features,
+                         const uint8_t *selected_features,
+                         uint8_t num_features) {
     if (!csi_data || !features) {
         ESP_LOGE(TAG, "csi_extract_features: NULL pointer");
         return;
     }
     
-    // Time domain features
-    features->variance = csi_calculate_variance(csi_data, csi_len);
-    features->skewness = csi_calculate_skewness(csi_data, csi_len);
-    features->kurtosis = csi_calculate_kurtosis(csi_data, csi_len);
-    features->entropy = csi_calculate_entropy(csi_data, csi_len);
-    features->iqr = csi_calculate_iqr(csi_data, csi_len);
+    // Initialize all features to 0
+    memset(features, 0, sizeof(csi_features_t));
     
-    // Spatial features
-    features->spatial_variance = csi_calculate_spatial_variance(csi_data, csi_len);
-    features->spatial_correlation = csi_calculate_spatial_correlation(csi_data, csi_len);
-    features->spatial_gradient = csi_calculate_spatial_gradient(csi_data, csi_len);
+    // Calculate only selected features
+    for (uint8_t i = 0; i < num_features; i++) {
+        uint8_t feat_idx = selected_features[i];
+        
+        switch (feat_idx) {
+            case 0: // variance
+                features->variance = csi_calculate_variance(csi_data, csi_len);
+                break;
+            case 1: // skewness
+                features->skewness = csi_calculate_skewness(csi_data, csi_len);
+                break;
+            case 2: // kurtosis
+                features->kurtosis = csi_calculate_kurtosis(csi_data, csi_len);
+                break;
+            case 3: // entropy
+                features->entropy = csi_calculate_entropy(csi_data, csi_len);
+                break;
+            case 4: // iqr
+                features->iqr = csi_calculate_iqr(csi_data, csi_len);
+                break;
+            case 5: // spatial_variance
+                features->spatial_variance = csi_calculate_spatial_variance(csi_data, csi_len);
+                break;
+            case 6: // spatial_correlation
+                features->spatial_correlation = csi_calculate_spatial_correlation(csi_data, csi_len);
+                break;
+            case 7: // spatial_gradient
+                features->spatial_gradient = csi_calculate_spatial_gradient(csi_data, csi_len);
+                break;
+            case 8: // temporal_delta_mean
+            case 9: // temporal_delta_variance
+                // Temporal features require previous packet - calculate both together
+                if (first_packet || prev_csi_len != csi_len) {
+                    features->temporal_delta_mean = 0.0f;
+                    features->temporal_delta_variance = 0.0f;
+                    if (csi_len <= CSI_MAX_LENGTH) {
+                        memcpy(prev_csi_data, csi_data, csi_len * sizeof(int8_t));
+                        prev_csi_len = csi_len;
+                    }
+                    first_packet = false;
+                } else {
+                    features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
+                        csi_data, prev_csi_data, csi_len);
+                    features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
+                        csi_data, prev_csi_data, csi_len);
+                    memcpy(prev_csi_data, csi_data, csi_len * sizeof(int8_t));
+                }
+                break;
+            default:
+                ESP_LOGW(TAG, "Unknown feature index: %d", feat_idx);
+                break;
+        }
+    }
 }

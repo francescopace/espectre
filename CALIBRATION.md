@@ -273,7 +273,7 @@ The calibration uses **sample-based collection** for reliable results:
 6. **Example:** 1000 samples @ 20pps = ~50 seconds
 
 #### Phase 3: Analysis (Automatic)
-1. System calculates Fisher scores for all 8 features
+1. System calculates Fisher scores for all 10 features
 2. Selects top 4-6 most discriminant features
 3. Calculates optimal weights
 4. Returns to normal operation

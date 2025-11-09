@@ -42,12 +42,12 @@
 
 ## 🔬 Mathematical Approach
 
-**This project currently does NOT use Machine Learning models.** Instead, it employs a **mathematical approach** that extracts **8 features** from CSI (Channel State Information) data using statistical and signal processing techniques.
+**This project currently does NOT use Machine Learning models.** Instead, it employs a **mathematical approach** that extracts **10 features** from CSI (Channel State Information) data using statistical and signal processing techniques.
 
 ### Key Points
 
 - ✅ **No ML training required**: Works out-of-the-box with mathematical algorithms
-- ✅ **8 extracted features**: Time-domain and spatial features
+- ✅ **10 extracted features**: Statistical, spatial, and temporal features
 - ✅ **Real-time processing**: Low latency detection on ESP32-S3 hardware
 - ✅ **Foundation for ML**: These features can serve as the basis for collecting labeled datasets to train ML models for advanced tasks (people counting, activity recognition, gesture detection)
 
@@ -336,9 +336,10 @@ The `espectre.c` firmware applies an advanced multi-stage processing pipeline:
 
 **Filter Pipeline**: Raw CSI → Butterworth (high freq) → Wavelet (low freq) → Hampel → Savitzky-Golay → Normalization
 
-**Stage 2: Feature Extraction** (8 mathematical features)
-- **Time-domain** (5): Variance, Skewness, Kurtosis, Entropy, IQR
+**Stage 2: Feature Extraction** (10 mathematical features)
+- **Statistical** (5): Variance, Skewness, Kurtosis, Entropy, IQR
 - **Spatial** (3): Spatial variance, correlation, gradient across subcarriers
+- **Temporal** (2): Delta mean, delta variance (changes between consecutive packets)
 
 **Stage 3: Multi-Criteria Detection**
 - Weighted scoring from selected features (4-6 features)
@@ -377,11 +378,11 @@ Trigger automations based on:
 <details>
 <summary>� Feature Extraction & Detection (click to expand)</summary>
 
-ESPectre uses a mathematical approach (no ML required) that extracts **8 features** from CSI data:
+ESPectre uses a mathematical approach (no ML required) that extracts **10 features** from CSI data:
 
 ### Extracted Features
 
-#### **Time-domain (5 features)**
+#### **Statistical (5 features)**
 Statistical properties of the CSI signal distribution:
 
 1. **Variance** - Signal variability, increases significantly with movement
@@ -396,6 +397,12 @@ Characteristics across OFDM subcarriers (frequency domain):
 6. **Spatial Variance** - Variability across subcarriers, indicates multipath diversity
 7. **Spatial Correlation** - Correlation between adjacent subcarriers, affected by movement
 8. **Spatial Gradient** - Rate of change across subcarriers, highly sensitive to movement
+
+#### **Temporal (2 features)**
+Changes between consecutive CSI packets:
+
+9. **Temporal Delta Mean** - Average absolute difference from previous packet
+10. **Temporal Delta Variance** - Variance of differences from previous packet
 
 ### Detection Scoring
 
@@ -445,7 +452,7 @@ The system automatically selects the 4-6 most discriminant features for your spe
 <details>
 <summary>📚 Machine Learning and Deep Learning (click to expand)</summary>
 
-The current implementation uses an **advanced mathematical approach** with 8 features and multi-criteria detection to identify movement patterns. While this provides excellent results without requiring ML training, scientific research has shown that **Machine Learning** and **Deep Learning** techniques can extract even richer information from CSI data for complex tasks like people counting, activity recognition, and gesture detection.
+The current implementation uses an **advanced mathematical approach** with 10 features and multi-criteria detection to identify movement patterns. While this provides excellent results without requiring ML training, scientific research has shown that **Machine Learning** and **Deep Learning** techniques can extract even richer information from CSI data for complex tasks like people counting, activity recognition, and gesture detection.
 
 ### Advanced Applications
 

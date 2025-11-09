@@ -267,7 +267,8 @@ int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
     // Top features array (up to 3 for brevity)
     const char *feature_names[] = {
         "variance", "skewness", "kurtosis", "entropy", "iqr",
-        "spatial_variance", "spatial_correlation", "spatial_gradient"
+        "spatial_variance", "spatial_correlation", "spatial_gradient",
+        "temporal_delta_mean", "temporal_delta_variance"
     };
     
     cJSON *top_features = cJSON_CreateArray();
@@ -275,7 +276,7 @@ int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
     for (uint8_t i = 0; i < num_to_show; i++) {
         cJSON *feat = cJSON_CreateObject();
         uint8_t feat_idx = calib->selected_features[i];
-        const char *feat_name = (feat_idx < 8) ? feature_names[feat_idx] : "unknown";
+        const char *feat_name = (feat_idx < 10) ? feature_names[feat_idx] : "unknown";
         cJSON_AddStringToObject(feat, "name", feat_name);
         cJSON_AddNumberToObject(feat, "weight", (double)calib->optimized_weights[i]);
         cJSON_AddItemToArray(top_features, feat);

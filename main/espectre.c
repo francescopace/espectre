@@ -2,7 +2,7 @@
  * ESPectre - Wi-Fi CSI Movement Detection for ESP32-S3
  *
  * Uses Channel State Information (CSI) from Wi-Fi packets to detect movement.
- * Extracts 8 mathematical features and combines them with configurable weights
+ * Extracts 10 mathematical features and combines them with configurable weights
  * to distinguish between static environment and human movement.
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -102,6 +102,9 @@ static uint32_t g_normalizer_reset_count = 0;
 // MQTT command context
 static mqtt_cmd_context_t g_mqtt_cmd_context = {0};
 
+// Array of all 10 feature indices (for default mode without calibration)
+static const uint8_t g_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
 // MQTT command callback
 static void mqtt_command_callback(const char *data, int data_len) {
     mqtt_commands_process(data, data_len, &g_mqtt_cmd_context, 
@@ -159,7 +162,18 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         g_state.packets_received++;
         
         // Extract features from CSI data
-        csi_extract_features(csi_data, csi_len, &g_state.current_features);
+        // Use selective extraction if calibration is available (60-70% CPU savings)
+        uint8_t num_selected = calibration_get_num_selected();
+        if (num_selected > 0) {
+            // Calibrated mode: extract only selected features
+            const uint8_t *selected = calibration_get_selected_features();
+            csi_extract_features(csi_data, csi_len, &g_state.current_features,
+                               selected, num_selected);
+        } else {
+            // Default mode: extract all features
+            csi_extract_features(csi_data, csi_len, &g_state.current_features,
+                               g_all_features, sizeof(g_all_features) / sizeof(g_all_features[0]));
+        }
         
         // Feed features to calibration system if active
         static uint32_t calib_update_count = 0;
@@ -194,7 +208,6 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         
         // Calculate detection score - use calibrated method if available
         float detection_score;
-        uint8_t num_selected = calibration_get_num_selected();
         
         if (num_selected > 0) {
             // Use calibrated features and weights
@@ -349,11 +362,11 @@ static void mqtt_publish_task(void *pvParameters) {
                         uint8_t feat_idx = features[i];
                         float weight = weights[i];
                         
-                        // Map feature index directly to array (supports all 8 features)
-                        if (feat_idx < 8) {
+                        // Map feature index directly to array (supports all 10 features)
+                        if (feat_idx < 10) {
                             g_state.config.feature_weights[feat_idx] = weight;
                         } else {
-                            ESP_LOGW(TAG, "Invalid feature index %d (max 7)", feat_idx);
+                            ESP_LOGW(TAG, "Invalid feature index %d (max 9)", feat_idx);
                         }
                     }
                     
@@ -599,25 +612,26 @@ void app_main(void) {
             const uint8_t *features = calib_state.selected_features;
             const float *weights = calib_state.optimized_weights;
             
-            // Feature names mapping (only implemented features)
+            // Feature names mapping (all 10 features)
             const char *feature_names[] = {
                 "variance", "skewness", "kurtosis", "entropy", "iqr",
-                "spatial_variance", "spatial_correlation", "spatial_gradient"
+                "spatial_variance", "spatial_correlation", "spatial_gradient",
+                "temporal_delta_mean", "temporal_delta_variance"
             };
             
             // Reset all weights to 0
             memset(g_state.config.feature_weights, 0, sizeof(g_state.config.feature_weights));
             
-            // Apply calibrated weights to array (supports ALL 8 features)
+            // Apply calibrated weights to array (supports ALL 10 features)
             ESP_LOGI(TAG, "⚖️  Applying calibrated weights:");
             for (uint8_t i = 0; i < calib_state.num_selected; i++) {
                 uint8_t feat_idx = features[i];
                 float weight = weights[i];
                 
-                const char *feat_name = (feat_idx < 8) ? feature_names[feat_idx] : "invalid";
+                const char *feat_name = (feat_idx < 10) ? feature_names[feat_idx] : "invalid";
                 
-                // Map feature index directly to array (supports all 8 features)
-                if (feat_idx < 8) {
+                // Map feature index directly to array (supports all 10 features)
+                if (feat_idx < 10) {
                     g_state.config.feature_weights[feat_idx] = weight;
                     ESP_LOGI(TAG, "  Feature[%d] %s: weight=%.4f", feat_idx, feat_name, weight);
                 } else {

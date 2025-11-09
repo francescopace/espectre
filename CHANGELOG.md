@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.2.0] - In Progress
+
+### ✨ Added - Temporal Features
+
+**Enhanced feature set: Expanded from 8 to 10 features**
+
+- **New temporal features**: Added 2 temporal features that track changes between consecutive CSI packets
+  - `temporal_delta_mean`: Average absolute difference from previous packet
+  - `temporal_delta_variance`: Variance of differences from previous packet
+- **Improved detection**: Temporal features capture movement dynamics over time
+- **Backward compatible**: Existing calibrations continue to work with the expanded feature set
+
+**Feature set now includes:**
+- **Statistical** (5): variance, skewness, kurtosis, entropy, iqr
+- **Spatial** (3): spatial_variance, spatial_correlation, spatial_gradient
+- **Temporal** (2): temporal_delta_mean, temporal_delta_variance
+
+### 🔧 Changed - Modified Fisher Criterion
+
+**Improved feature selection algorithm**
+
+- **Modified Fisher Score**: Changed from standard Fisher `(μ₁ - μ₂)² / (σ₁² + σ₂²)` to Modified Fisher `(μ₁ - μ₂)² / √(σ₁² + σ₂²)`
+- **Benefits**: 
+  - Less penalty for features with high variance
+  - Better selection of features with strong signal separation
+  - More robust in noisy environments
+- **Configurable**: Can be toggled via `USE_MODIFIED_FISHER` flag in `calibration.c`
+
+### 🔧 Changed
+
+- **Feature extraction**: Updated to support all 10 features
+- **Calibration system**: Now analyzes all features using Modified Fisher criterion
+- **Documentation**: Updated all references from 8 to 10 features
+
+---
+
 ## [1.1.0] - 2025-11-08
 
 ### 🤖 Enhanced - Intelligent Automatic Calibration System

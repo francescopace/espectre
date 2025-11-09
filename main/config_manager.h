@@ -34,7 +34,7 @@ typedef struct {
     // Feature weights array (for both default and calibrated detection)
     // Indices: 0=variance, 1=skewness, 2=kurtosis, 3=entropy, 4=iqr,
     //          5=spatial_variance, 6=spatial_correlation, 7=spatial_gradient
-    float feature_weights[8];
+    float feature_weights[10];
     
     // Filter settings
     bool hampel_filter_enabled;

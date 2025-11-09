@@ -37,19 +37,19 @@ void config_init_defaults(runtime_config_t *config) {
     config->variance_scale = DEFAULT_VARIANCE_SCALE;
     
     // Default feature weights based on real-world testing in noisy environments
-    // Using 5 features that proved most robust and discriminant
-    // Weights sum to 1.0 for proper scoring (0-1 range)
-    // Indices: 0=variance, 1=skewness, 2=kurtosis, 3=entropy, 4=iqr,
-    //          5=spatial_variance, 6=spatial_correlation, 7=spatial_gradient
-    config->feature_weights[0] = 0.15f;  // variance
-    config->feature_weights[1] = 0.0f;   // skewness (not used by default)
-    config->feature_weights[2] = 0.0f;   // kurtosis (not used by default)
-    config->feature_weights[3] = 0.25f;  // entropy (often best discriminant)
-    config->feature_weights[4] = 0.20f;  // iqr (robust to outliers)
-    config->feature_weights[5] = 0.0f;   // spatial_variance (not used by default)
-    config->feature_weights[6] = 0.20f;  // spatial_correlation (very discriminant)
-    config->feature_weights[7] = 0.20f;  // spatial_gradient (very robust)
-    // Total: 100% (0.15 + 0.25 + 0.20 + 0.20 + 0.20 = 1.0)
+    // Feature weights optimized based on comparative testing (see test_detection_approaches.c)
+    // Skewness showed 3.74x separation (best performer), spatial_correlation 2.72x (2nd best)
+    config->feature_weights[0] = 0.05f;  // variance
+    config->feature_weights[1] = 0.60f;  // skewness (BEST: 3.74x separation!)
+    config->feature_weights[2] = 0.03f;  // kurtosis
+    config->feature_weights[3] = 0.05f;  // entropy
+    config->feature_weights[4] = 0.05f;  // iqr
+    config->feature_weights[5] = 0.02f;  // spatial_variance
+    config->feature_weights[6] = 0.10f;  // spatial_correlation (2nd best: 2.72x)
+    config->feature_weights[7] = 0.05f;  // spatial_gradient
+    config->feature_weights[8] = 0.03f;  // temporal_delta_mean
+    config->feature_weights[9] = 0.02f;  // temporal_delta_variance
+    // Total: 100% (0.60 skewness + 0.10 spatial_correlation + 0.30 others = 1.0)
     
     
     // Enable adaptive normalizer by default for better adaptation to environment changes

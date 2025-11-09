@@ -1,0 +1,344 @@
+/*
+ * ESPectre - Detection Approaches Comparison Test
+ * 
+ * Compares 4 different approaches for movement detection:
+ * 1. Fisher criterion (current implementation)
+ * 2. Modified Fisher (sqrt in denominator - less penalty for high variance)
+ * 3. Simple ratio selection (best single feature by mean ratio)
+ * 4. Temporal delta variance only (direct approach)
+ * 
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
+
+#include "test_case_esp.h"
+#include "calibration.h"
+#include "csi_processor.h"
+#include "real_csi_data.h"
+#include "config_manager.h"
+#include <math.h>
+#include <string.h>
+
+// Helper: extract all features for testing
+static const uint8_t test_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+// Feature names for display
+static const char* feature_names[] = {
+    "variance", "skewness", "kurtosis", "entropy", "iqr",
+    "spatial_variance", "spatial_correlation", "spatial_gradient",
+    "temporal_delta_mean", "temporal_delta_variance"
+};
+
+// Helper: Calculate mean of a feature across all packets
+static float calculate_feature_mean(const float *values, size_t count) {
+    if (count == 0) return 0.0f;
+    
+    float sum = 0.0f;
+    for (size_t i = 0; i < count; i++) {
+        sum += values[i];
+    }
+    return sum / count;
+}
+
+// Helper: Calculate variance of a feature across all packets
+static float calculate_feature_variance(const float *values, size_t count, float mean) {
+    if (count < 2) return 0.0f;
+    
+    float sum_sq = 0.0f;
+    for (size_t i = 0; i < count; i++) {
+        float diff = values[i] - mean;
+        sum_sq += diff * diff;
+    }
+    return sum_sq / (count - 1);
+}
+
+TEST_CASE_ESP("Compare detection approaches on real data", "[detection][comparison]")
+{
+    printf("\n");
+    printf("╔═══════════════════════════════════════════════════════╗\n");
+    printf("║     DETECTION APPROACHES COMPARISON TEST              ║\n");
+    printf("║     Testing 4 different methods on real CSI data      ║\n");
+    printf("╚═══════════════════════════════════════════════════════╝\n");
+    printf("\n");
+    
+    // Arrays of all packets
+    const int8_t *baseline_packets[] = {
+        real_baseline_0, real_baseline_1, real_baseline_2, real_baseline_3,
+        real_baseline_4, real_baseline_5, real_baseline_6, real_baseline_7,
+        real_baseline_8, real_baseline_9, real_baseline_10, real_baseline_11,
+        real_baseline_12, real_baseline_13, real_baseline_14, real_baseline_15,
+        real_baseline_16, real_baseline_17, real_baseline_18, real_baseline_19,
+        real_baseline_20, real_baseline_21, real_baseline_22, real_baseline_23,
+        real_baseline_24, real_baseline_25, real_baseline_26, real_baseline_27,
+        real_baseline_28, real_baseline_29, real_baseline_30, real_baseline_31,
+        real_baseline_32, real_baseline_33, real_baseline_34, real_baseline_35,
+        real_baseline_36, real_baseline_37, real_baseline_38, real_baseline_39,
+        real_baseline_40, real_baseline_41, real_baseline_42, real_baseline_43,
+        real_baseline_44, real_baseline_45, real_baseline_46, real_baseline_47,
+        real_baseline_48, real_baseline_49
+    };
+    
+    const int8_t *movement_packets[] = {
+        real_movement_0, real_movement_1, real_movement_2, real_movement_3,
+        real_movement_4, real_movement_5, real_movement_6, real_movement_7,
+        real_movement_8, real_movement_9, real_movement_10, real_movement_11,
+        real_movement_12, real_movement_13, real_movement_14, real_movement_15,
+        real_movement_16, real_movement_17, real_movement_18, real_movement_19,
+        real_movement_20, real_movement_21, real_movement_22, real_movement_23,
+        real_movement_24, real_movement_25, real_movement_26, real_movement_27,
+        real_movement_28, real_movement_29, real_movement_30, real_movement_31,
+        real_movement_32, real_movement_33, real_movement_34, real_movement_35,
+        real_movement_36, real_movement_37, real_movement_38, real_movement_39,
+        real_movement_40, real_movement_41, real_movement_42, real_movement_43,
+        real_movement_44, real_movement_45, real_movement_46, real_movement_47,
+        real_movement_48, real_movement_49
+    };
+    
+    // Storage for all feature values
+    #define NUM_PACKETS 50
+    #define NUM_FEATURES 10
+    float baseline_features[NUM_FEATURES][NUM_PACKETS];
+    float movement_features[NUM_FEATURES][NUM_PACKETS];
+    
+    // Reset temporal buffer before baseline phase
+    csi_reset_temporal_buffer();
+    
+    // Extract features from all baseline packets
+    printf("Extracting features from baseline packets...\n");
+    for (int p = 0; p < NUM_PACKETS; p++) {
+        csi_features_t features;
+        csi_extract_features(baseline_packets[p], 128, &features, test_all_features, 10);
+        
+        baseline_features[0][p] = features.variance;
+        baseline_features[1][p] = features.skewness;
+        baseline_features[2][p] = features.kurtosis;
+        baseline_features[3][p] = features.entropy;
+        baseline_features[4][p] = features.iqr;
+        baseline_features[5][p] = features.spatial_variance;
+        baseline_features[6][p] = features.spatial_correlation;
+        baseline_features[7][p] = features.spatial_gradient;
+        baseline_features[8][p] = features.temporal_delta_mean;
+        baseline_features[9][p] = features.temporal_delta_variance;
+    }
+    
+    // Reset temporal buffer before movement phase
+    csi_reset_temporal_buffer();
+    
+    // Extract features from all movement packets
+    printf("Extracting features from movement packets...\n");
+    for (int p = 0; p < NUM_PACKETS; p++) {
+        csi_features_t features;
+        csi_extract_features(movement_packets[p], 128, &features, test_all_features, 10);
+        
+        movement_features[0][p] = features.variance;
+        movement_features[1][p] = features.skewness;
+        movement_features[2][p] = features.kurtosis;
+        movement_features[3][p] = features.entropy;
+        movement_features[4][p] = features.iqr;
+        movement_features[5][p] = features.spatial_variance;
+        movement_features[6][p] = features.spatial_correlation;
+        movement_features[7][p] = features.spatial_gradient;
+        movement_features[8][p] = features.temporal_delta_mean;
+        movement_features[9][p] = features.temporal_delta_variance;
+    }
+    
+    // Calculate statistics for each feature
+    float baseline_means[NUM_FEATURES];
+    float baseline_vars[NUM_FEATURES];
+    float movement_means[NUM_FEATURES];
+    float movement_vars[NUM_FEATURES];
+    
+    for (int f = 0; f < NUM_FEATURES; f++) {
+        baseline_means[f] = calculate_feature_mean(baseline_features[f], NUM_PACKETS);
+        baseline_vars[f] = calculate_feature_variance(baseline_features[f], NUM_PACKETS, baseline_means[f]);
+        movement_means[f] = calculate_feature_mean(movement_features[f], NUM_PACKETS);
+        movement_vars[f] = calculate_feature_variance(movement_features[f], NUM_PACKETS, movement_means[f]);
+    }
+    
+    printf("\n");
+    printf("═══════════════════════════════════════════════════════\n");
+    printf("  APPROACH 1: FISHER CRITERION (Current Implementation)\n");
+    printf("═══════════════════════════════════════════════════════\n\n");
+    
+    // Calculate Fisher scores
+    float fisher_scores[NUM_FEATURES];
+    int best_fisher_idx = 0;
+    float best_fisher_score = 0.0f;
+    
+    for (int f = 0; f < NUM_FEATURES; f++) {
+        float mean_diff = fabsf(movement_means[f] - baseline_means[f]);
+        float var_sum = baseline_vars[f] + movement_vars[f];
+        
+        if (var_sum > 1e-6f) {
+            fisher_scores[f] = (mean_diff * mean_diff) / var_sum;
+        } else {
+            fisher_scores[f] = 0.0f;
+        }
+        
+        if (fisher_scores[f] > best_fisher_score) {
+            best_fisher_score = fisher_scores[f];
+            best_fisher_idx = f;
+        }
+        
+        printf("  %s: Fisher=%.4f (μ_base=%.2f, μ_move=%.2f, σ²_base=%.2f, σ²_move=%.2f)\n",
+               feature_names[f], fisher_scores[f],
+               baseline_means[f], movement_means[f],
+               baseline_vars[f], movement_vars[f]);
+    }
+    
+    printf("\n✅ Best Fisher feature: %s (score=%.4f)\n", 
+           feature_names[best_fisher_idx], best_fisher_score);
+    printf("   Baseline: %.2f, Movement: %.2f\n", 
+           baseline_means[best_fisher_idx], movement_means[best_fisher_idx]);
+    float fisher_separation = movement_means[best_fisher_idx] / (baseline_means[best_fisher_idx] + 1e-6f);
+    printf("   Separation ratio: %.2fx\n\n", fisher_separation);
+    
+    printf("═══════════════════════════════════════════════════════\n");
+    printf("  APPROACH 2: MODIFIED FISHER (Sqrt Denominator)\n");
+    printf("═══════════════════════════════════════════════════════\n\n");
+    
+    // Calculate Modified Fisher scores (sqrt in denominator)
+    float modified_fisher_scores[NUM_FEATURES];
+    int best_mod_fisher_idx = 0;
+    float best_mod_fisher_score = 0.0f;
+    
+    for (int f = 0; f < NUM_FEATURES; f++) {
+        float mean_diff = fabsf(movement_means[f] - baseline_means[f]);
+        float var_sum = baseline_vars[f] + movement_vars[f];
+        
+        if (var_sum > 1e-6f) {
+            // Modified Fisher: divide by sqrt instead of raw sum
+            modified_fisher_scores[f] = (mean_diff * mean_diff) / sqrtf(var_sum);
+        } else {
+            modified_fisher_scores[f] = 0.0f;
+        }
+        
+        if (modified_fisher_scores[f] > best_mod_fisher_score) {
+            best_mod_fisher_score = modified_fisher_scores[f];
+            best_mod_fisher_idx = f;
+        }
+        
+        printf("  %s: ModFisher=%.4f (standard=%.4f)\n",
+               feature_names[f], modified_fisher_scores[f], fisher_scores[f]);
+    }
+    
+    printf("\n✅ Best Modified Fisher feature: %s (score=%.4f)\n", 
+           feature_names[best_mod_fisher_idx], best_mod_fisher_score);
+    printf("   Baseline: %.2f, Movement: %.2f\n", 
+           baseline_means[best_mod_fisher_idx], movement_means[best_mod_fisher_idx]);
+    float mod_fisher_separation = movement_means[best_mod_fisher_idx] / (baseline_means[best_mod_fisher_idx] + 1e-6f);
+    printf("   Separation ratio: %.2fx\n\n", mod_fisher_separation);
+    
+    printf("═══════════════════════════════════════════════════════\n");
+    printf("  APPROACH 3: SIMPLE RATIO (Best Single Feature)\n");
+    printf("═══════════════════════════════════════════════════════\n\n");
+    
+    // Calculate simple ratios
+    float ratios[NUM_FEATURES];
+    int best_ratio_idx = 0;
+    float best_ratio = 0.0f;
+    
+    for (int f = 0; f < NUM_FEATURES; f++) {
+        // Use absolute values and add epsilon to avoid division by zero
+        float base_abs = fabsf(baseline_means[f]) + 1e-6f;
+        float move_abs = fabsf(movement_means[f]) + 1e-6f;
+        
+        // Calculate ratio (always > 0)
+        if (move_abs > base_abs) {
+            ratios[f] = move_abs / base_abs;
+        } else {
+            ratios[f] = base_abs / move_abs;
+        }
+        
+        if (ratios[f] > best_ratio) {
+            best_ratio = ratios[f];
+            best_ratio_idx = f;
+        }
+        
+        printf("  %s: ratio=%.2fx (μ_base=%.2f, μ_move=%.2f)\n",
+               feature_names[f], ratios[f],
+               baseline_means[f], movement_means[f]);
+    }
+    
+    printf("\n✅ Best ratio feature: %s (ratio=%.2fx)\n", 
+           feature_names[best_ratio_idx], best_ratio);
+    printf("   Baseline: %.2f, Movement: %.2f\n", 
+           baseline_means[best_ratio_idx], movement_means[best_ratio_idx]);
+    printf("   Separation ratio: %.2fx\n\n", best_ratio);
+    
+    printf("═══════════════════════════════════════════════════════\n");
+    printf("  APPROACH 4: TEMPORAL_DELTA_VARIANCE ONLY\n");
+    printf("═══════════════════════════════════════════════════════\n\n");
+    
+    // Direct approach with temporal_delta_variance (index 9)
+    int tdv_idx = 9;
+    float tdv_baseline = baseline_means[tdv_idx];
+    float tdv_movement = movement_means[tdv_idx];
+    float tdv_separation = tdv_movement / (tdv_baseline + 1e-6f);
+    float tdv_threshold = (tdv_baseline + tdv_movement) / 2.0f;
+    
+    printf("  Feature: %s\n", feature_names[tdv_idx]);
+    printf("  Baseline mean: %.2f (σ²=%.2f)\n", tdv_baseline, baseline_vars[tdv_idx]);
+    printf("  Movement mean: %.2f (σ²=%.2f)\n", tdv_movement, movement_vars[tdv_idx]);
+    printf("  Separation ratio: %.2fx\n", tdv_separation);
+    printf("  Suggested threshold: %.2f\n\n", tdv_threshold);
+    
+    printf("═══════════════════════════════════════════════════════\n");
+    printf("  FINAL COMPARISON\n");
+    printf("═══════════════════════════════════════════════════════\n\n");
+    
+    printf("  Approach 1 (Fisher):           %.2fx separation\n", fisher_separation);
+    printf("  Approach 2 (Modified Fisher):  %.2fx separation\n", mod_fisher_separation);
+    printf("  Approach 3 (Simple Ratio):     %.2fx separation\n", best_ratio);
+    printf("  Approach 4 (TDV Only):         %.2fx separation\n\n", tdv_separation);
+    
+    // Determine winner among all 4 approaches
+    float max_separation = fisher_separation;
+    int winner = 1;
+    
+    if (mod_fisher_separation > max_separation) {
+        max_separation = mod_fisher_separation;
+        winner = 2;
+    }
+    if (best_ratio > max_separation) {
+        max_separation = best_ratio;
+        winner = 3;
+    }
+    if (tdv_separation > max_separation) {
+        max_separation = tdv_separation;
+        winner = 4;
+    }
+    
+    printf("🏆 WINNER: Approach %d with %.2fx separation\n", winner, max_separation);
+    
+    if (winner == 1) {
+        printf("   Best feature: %s (Fisher criterion)\n", feature_names[best_fisher_idx]);
+        printf("   💡 Current implementation is optimal!\n");
+    } else if (winner == 2) {
+        printf("   Best feature: %s (Modified Fisher)\n", feature_names[best_mod_fisher_idx]);
+        printf("   💡 Recommendation: Use Modified Fisher criterion\n");
+        printf("   💡 Improvement: %.0f%% better than standard Fisher\n", 
+               ((mod_fisher_separation / fisher_separation) - 1.0f) * 100.0f);
+    } else if (winner == 3) {
+        printf("   Best feature: %s (simple ratio)\n", feature_names[best_ratio_idx]);
+        printf("   💡 Recommendation: Use this single feature\n");
+        printf("   💡 Improvement: %.0f%% better than Fisher\n", 
+               ((best_ratio / fisher_separation) - 1.0f) * 100.0f);
+    } else {
+        printf("   Best feature: temporal_delta_variance\n");
+        printf("   💡 Recommendation: Use only temporal_delta_variance\n");
+        printf("   💡 Improvement: %.0f%% better than Fisher\n", 
+               ((tdv_separation / fisher_separation) - 1.0f) * 100.0f);
+    }
+    
+    printf("\n");
+    
+    // Verify we have meaningful separation with at least one approach
+    TEST_ASSERT_TRUE(max_separation > 1.5f);
+    
+    // If temporal approaches win, they should have separation > 2.0
+    if (winner == 2 || winner == 3) {
+        printf("✅ Temporal features provide significantly better separation!\n");
+        TEST_ASSERT_TRUE(max_separation > 2.0f);
+    }
+}

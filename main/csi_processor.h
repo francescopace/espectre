@@ -1,9 +1,10 @@
 /*
  * ESPectre - CSI Processing Module
  * 
- * Extracts 8 mathematical features from Channel State Information (CSI) data:
- * - Time domain: variance, skewness, kurtosis, entropy, IQR
- * - Spatial: variance, correlation, gradient
+ * Extracts 10 mathematical features from Channel State Information (CSI) data:
+ * - Statistical (5): variance, skewness, kurtosis, entropy, IQR (within single packet)
+ * - Spatial (3): variance, correlation, gradient (across subcarriers within packet)
+ * - Temporal (2): delta_mean, delta_variance (changes between consecutive packets)
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -20,7 +21,7 @@
 
 // CSI features extracted from raw data
 typedef struct {
-    // Time domain features (5)
+    // Statistical features (5)
     float variance;
     float skewness;
     float kurtosis;
@@ -31,6 +32,10 @@ typedef struct {
     float spatial_variance;
     float spatial_correlation;
     float spatial_gradient;
+    
+    // Temporal features (2) - changes between consecutive packets
+    float temporal_delta_mean;      // Average absolute difference from previous packet
+    float temporal_delta_variance;  // Variance of differences from previous packet
 } csi_features_t;
 
 /**
@@ -43,15 +48,52 @@ typedef struct {
 float csi_calculate_variance(const int8_t *data, size_t len);
 
 /**
- * Extract all 8 features from CSI data
+ * Extract features from CSI data
  * 
  * @param csi_data Raw CSI data (int8_t array)
  * @param csi_len Length of CSI data
  * @param features Output structure for extracted features
+ * @param selected_features Array of feature indices to calculate
+ * @param num_features Number of features to calculate
  */
-void csi_extract_features(const int8_t *csi_data, 
-                          size_t csi_len,
-                          csi_features_t *features);
+void csi_extract_features(const int8_t *csi_data,
+                         size_t csi_len,
+                         csi_features_t *features,
+                         const uint8_t *selected_features,
+                         uint8_t num_features);
+
+/**
+ * Calculate temporal delta mean
+ * Average absolute difference between current and previous packet
+ * 
+ * @param current_data Current CSI packet
+ * @param previous_data Previous CSI packet
+ * @param len Length of data arrays
+ * @return Average absolute difference
+ */
+float csi_calculate_temporal_delta_mean(const int8_t *current_data,
+                                        const int8_t *previous_data,
+                                        size_t len);
+
+/**
+ * Calculate temporal delta variance
+ * Variance of differences between current and previous packet
+ * 
+ * @param current_data Current CSI packet
+ * @param previous_data Previous CSI packet
+ * @param len Length of data arrays
+ * @return Variance of differences
+ */
+float csi_calculate_temporal_delta_variance(const int8_t *current_data,
+                                            const int8_t *previous_data,
+                                            size_t len);
+
+/**
+ * Reset temporal feature buffer
+ * Call this when starting a new calibration phase or when you want
+ * to clear the history of previous packets
+ */
+void csi_reset_temporal_buffer(void);
 
 /**
  * Calculate skewness (third standardized moment)

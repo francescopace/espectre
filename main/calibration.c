@@ -18,6 +18,7 @@
 // Feature selection thresholds
 #define FISHER_MIN_RATIO    0.2f    // Minimum Fisher score ratio for feature selection
 #define SAFETY_MARGIN       1.05f   // Safety margin for threshold calculation (5%)
+#define USE_MODIFIED_FISHER 1       // 1 = use Modified Fisher (sqrt), 0 = use standard Fisher
 
 static const char *TAG = "Calibration";
 
@@ -31,10 +32,11 @@ static calibration_state_t g_calib = {
 // Global config pointer (saved during calibration_start)
 static void *g_config_ptr = NULL;
 
-// Feature names for logging (8 features: 5 time-domain + 3 spatial)
+// Feature names for logging (10 features: 5 statistical + 3 spatial + 2 temporal)
 static const char* feature_names[NUM_TOTAL_FEATURES] = {
     "variance", "skewness", "kurtosis", "entropy", "iqr",
-    "spatial_variance", "spatial_correlation", "spatial_gradient"
+    "spatial_variance", "spatial_correlation", "spatial_gradient",
+    "temporal_delta_mean", "temporal_delta_variance"
 };
 
 
@@ -79,8 +81,14 @@ static float calculate_fisher_score(const feature_stats_t *baseline,
         return 0.0f;
     }
     
-    // Fisher's criterion: (μ1 - μ2)² / (σ1² + σ2²)
+    #if USE_MODIFIED_FISHER
+    // Modified Fisher: (μ1 - μ2)² / sqrt(σ1² + σ2²)
+    // Less penalty for features with high variance
+    return (mean_diff * mean_diff) / sqrtf(var_sum);
+    #else
+    // Standard Fisher: (μ1 - μ2)² / (σ1² + σ2²)
     return (mean_diff * mean_diff) / var_sum;
+    #endif
 }
 
 // Comparison function for sorting features by Fisher score
@@ -380,7 +388,11 @@ static void analyze_and_select_features(void *config) {
     if (g_calib.optimal_threshold > THRESHOLD_MAX) g_calib.optimal_threshold = THRESHOLD_MAX;
     
     // Log results
-    ESP_LOGI(TAG, "✅ Calibration complete! Selected %d features:", g_calib.num_selected);
+    #if USE_MODIFIED_FISHER
+    ESP_LOGI(TAG, "✅ Calibration complete! Selected %d features (using Modified Fisher):", g_calib.num_selected);
+    #else
+    ESP_LOGI(TAG, "✅ Calibration complete! Selected %d features (using Standard Fisher):", g_calib.num_selected);
+    #endif
     for (uint8_t i = 0; i < g_calib.num_selected; i++) {
         uint8_t feat_idx = g_calib.selected_features[i];
         ESP_LOGI(TAG, "  %d. %s (Fisher=%.4f, weight=%.3f)",
@@ -500,14 +512,15 @@ void calibration_init(void) {
 }
 
 // Start calibration process
-bool calibration_start(int samples_or_duration, void *config, void *normalizer) {
+bool calibration_start(int samples, void *config, void *normalizer) {
     if (g_calib.phase != CALIB_IDLE) {
         ESP_LOGW(TAG, "Calibration already in progress");
         return false;
     }
     
-    if (samples_or_duration < 100 || samples_or_duration > 10000) {
-        ESP_LOGE(TAG, "Invalid sample count: %d (must be 100-10000 samples)", samples_or_duration);
+    if (samples < CALIBRATION_MIN_SAMPLES || samples > CALIBRATION_MAX_SAMPLES) {
+        ESP_LOGE(TAG, "Invalid sample count: %d (must be %d-%d samples)", 
+                 samples, CALIBRATION_MIN_SAMPLES, CALIBRATION_MAX_SAMPLES);
         return false;
     }
     
@@ -515,7 +528,7 @@ bool calibration_start(int samples_or_duration, void *config, void *normalizer) 
     runtime_config_t *cfg = (runtime_config_t*)config;
     uint32_t rate = cfg ? cfg->traffic_generator_rate : 15;  // Default if not configured
     
-    uint32_t target_samples = (uint32_t)samples_or_duration;
+    uint32_t target_samples = (uint32_t)samples;
     int estimated_duration = (rate > 0) ? (target_samples / rate) : 0;
     
     ESP_LOGI(TAG, "🎯 Calibration configuration:");
@@ -544,14 +557,20 @@ bool calibration_start(int samples_or_duration, void *config, void *normalizer) 
         
         // Save current filter settings
         g_calib.saved_butterworth_enabled = cfg->butterworth_enabled;
+        g_calib.saved_wavelet_enabled = cfg->wavelet_enabled;
+        g_calib.saved_wavelet_level = cfg->wavelet_level;
+        g_calib.saved_wavelet_threshold = cfg->wavelet_threshold;
         g_calib.saved_hampel_enabled = cfg->hampel_filter_enabled;
         g_calib.saved_hampel_threshold = cfg->hampel_threshold;
         g_calib.saved_savgol_enabled = cfg->savgol_filter_enabled;
+        g_calib.saved_savgol_window_size = cfg->savgol_window_size;
         g_calib.saved_adaptive_normalizer_enabled = cfg->adaptive_normalizer_enabled;
         g_calib.saved_adaptive_normalizer_alpha = cfg->adaptive_normalizer_alpha;
+        g_calib.saved_adaptive_normalizer_reset_timeout = cfg->adaptive_normalizer_reset_timeout_sec;
         
         // Disable all filters for calibration
         cfg->butterworth_enabled = false;
+        cfg->wavelet_enabled = false;
         cfg->hampel_filter_enabled = false;
         cfg->savgol_filter_enabled = false;
         cfg->adaptive_normalizer_enabled = false;
@@ -597,11 +616,16 @@ void calibration_stop(void *config) {
         runtime_config_t *cfg = (runtime_config_t*)config;
         
         cfg->butterworth_enabled = g_calib.saved_butterworth_enabled;
+        cfg->wavelet_enabled = g_calib.saved_wavelet_enabled;
+        cfg->wavelet_level = g_calib.saved_wavelet_level;
+        cfg->wavelet_threshold = g_calib.saved_wavelet_threshold;
         cfg->hampel_filter_enabled = g_calib.saved_hampel_enabled;
         cfg->hampel_threshold = g_calib.saved_hampel_threshold;
         cfg->savgol_filter_enabled = g_calib.saved_savgol_enabled;
+        cfg->savgol_window_size = g_calib.saved_savgol_window_size;
         cfg->adaptive_normalizer_enabled = g_calib.saved_adaptive_normalizer_enabled;
         cfg->adaptive_normalizer_alpha = g_calib.saved_adaptive_normalizer_alpha;
+        cfg->adaptive_normalizer_reset_timeout_sec = g_calib.saved_adaptive_normalizer_reset_timeout;
         
         ESP_LOGI(TAG, "🔧 Original filter configuration restored");
     }

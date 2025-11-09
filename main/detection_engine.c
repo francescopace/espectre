@@ -43,27 +43,38 @@ float detection_calculate_score(const csi_features_t *features,
         return 0.0f;
     }
     
-    // Normalize features to 0-1 range
-    // Ranges determined from real-world testing in various environments
+    // Normalize ALL 10 features to 0-1 range
+    // Ranges determined from real-world testing and comparative analysis
     float norm_variance = normalize_feature(features->variance, 0.0f, 800.0f);
-    float norm_spatial_gradient = normalize_feature(features->spatial_gradient, 0.0f, 40.0f);
-    float norm_iqr = normalize_feature(features->iqr, 0.0f, 50.0f);
+    float norm_skewness = normalize_feature(features->skewness, -3.0f, 3.0f);
+    float norm_kurtosis = normalize_feature(features->kurtosis, -10.0f, 10.0f);
     float norm_entropy = normalize_feature(features->entropy, 4.0f, 7.0f);
+    float norm_iqr = normalize_feature(features->iqr, 0.0f, 50.0f);
+    float norm_spatial_variance = normalize_feature(features->spatial_variance, 0.0f, 400.0f);
     float norm_spatial_correlation = normalize_feature(features->spatial_correlation, -1.0f, 1.0f);
+    float norm_spatial_gradient = normalize_feature(features->spatial_gradient, 0.0f, 40.0f);
+    float norm_temporal_delta_mean = normalize_feature(features->temporal_delta_mean, 0.0f, 20.0f);
+    float norm_temporal_delta_variance = normalize_feature(features->temporal_delta_variance, 0.0f, 150.0f);
     
-    // Weighted combination using feature_weights array
+    // Weighted combination using ALL 10 features
     // Indices: 0=variance, 1=skewness, 2=kurtosis, 3=entropy, 4=iqr,
-    //          5=spatial_variance, 6=spatial_correlation, 7=spatial_gradient
+    //          5=spatial_variance, 6=spatial_correlation, 7=spatial_gradient,
+    //          8=temporal_delta_mean, 9=temporal_delta_variance
     if (!config->feature_weights) {
         ESP_LOGE(TAG, "feature_weights pointer is NULL");
         return 0.0f;
     }
     
-    float score = config->feature_weights[0] * norm_variance +           // variance
-                  config->feature_weights[3] * norm_entropy +             // entropy
-                  config->feature_weights[4] * norm_iqr +                 // iqr
-                  config->feature_weights[6] * norm_spatial_correlation + // spatial_correlation
-                  config->feature_weights[7] * norm_spatial_gradient;     // spatial_gradient
+    float score = config->feature_weights[0] * norm_variance +
+                  config->feature_weights[1] * norm_skewness +
+                  config->feature_weights[2] * norm_kurtosis +
+                  config->feature_weights[3] * norm_entropy +
+                  config->feature_weights[4] * norm_iqr +
+                  config->feature_weights[5] * norm_spatial_variance +
+                  config->feature_weights[6] * norm_spatial_correlation +
+                  config->feature_weights[7] * norm_spatial_gradient +
+                  config->feature_weights[8] * norm_temporal_delta_mean +
+                  config->feature_weights[9] * norm_temporal_delta_variance;
     
     return score;
 }
@@ -87,8 +98,9 @@ float detection_calculate_score_calibrated(const csi_features_t *features,
     const float *feature_max = calibration_get_feature_max();
     
     // Map feature index to actual feature value
-    // Feature indices (8 total): 0=variance, 1=skewness, 2=kurtosis, 3=entropy, 4=iqr,
-    //                            5=spatial_variance, 6=spatial_correlation, 7=spatial_gradient
+    // Feature indices (10 total): 0=variance, 1=skewness, 2=kurtosis, 3=entropy, 4=iqr,
+    //                             5=spatial_variance, 6=spatial_correlation, 7=spatial_gradient,
+    //                             8=temporal_delta_mean, 9=temporal_delta_variance
     
     float score = 0.0f;
     
@@ -127,6 +139,12 @@ float detection_calculate_score_calibrated(const csi_features_t *features,
             case 7: // spatial_gradient
                 feature_value = features->spatial_gradient;
                 break;
+            case 8: // temporal_delta_mean
+                feature_value = features->temporal_delta_mean;
+                break;
+            case 9: // temporal_delta_variance
+                feature_value = features->temporal_delta_variance;
+                break;
             default:
                 ESP_LOGW(TAG, "Unknown feature index: %d", feat_idx);
                 continue;
@@ -149,6 +167,8 @@ float detection_calculate_score_calibrated(const csi_features_t *features,
                 case 5: normalized_value = normalize_feature(feature_value, 0.0f, 400.0f); break;
                 case 6: normalized_value = normalize_feature(feature_value, -1.0f, 1.0f); break;  // correlation: -1 to +1
                 case 7: normalized_value = normalize_feature(feature_value, 0.0f, 25.0f); break;
+                case 8: normalized_value = normalize_feature(feature_value, 0.0f, 20.0f); break;  // temporal_delta_mean
+                case 9: normalized_value = normalize_feature(feature_value, 0.0f, 150.0f); break; // temporal_delta_variance
             }
         }
         

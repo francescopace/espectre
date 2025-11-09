@@ -22,8 +22,9 @@
 // Calibration constants
 #define CALIBRATION_DEFAULT_SAMPLES 1000  // default samples per phase
 #define CALIBRATION_MIN_SAMPLES     50    // minimum samples needed
+#define CALIBRATION_MAX_SAMPLES     10000 // maximum samples allowed
 #define MAX_SELECTED_FEATURES       6     // maximum features to select
-#define NUM_TOTAL_FEATURES          8     // total available features (time-domain + spatial only)
+#define NUM_TOTAL_FEATURES          10    // total available features (statistical + spatial + temporal)
 
 // Threshold bounds (shared with NVS validation)
 #define THRESHOLD_MIN               0.15f // Minimum allowed threshold
@@ -74,11 +75,16 @@ typedef struct {
     
     // Filter configuration backup (saved before calibration)
     bool saved_butterworth_enabled;
+    bool saved_wavelet_enabled;
+    int saved_wavelet_level;
+    float saved_wavelet_threshold;
     bool saved_hampel_enabled;
     float saved_hampel_threshold;
     bool saved_savgol_enabled;
+    int saved_savgol_window_size;
     bool saved_adaptive_normalizer_enabled;
     float saved_adaptive_normalizer_alpha;
+    uint32_t saved_adaptive_normalizer_reset_timeout;
     
     // Recommended filter settings (calculated during analysis)
     bool recommended_butterworth;

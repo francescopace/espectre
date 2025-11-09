@@ -17,6 +17,11 @@
 #include <math.h>
 #include <string.h>
 
+// Helper: extract all features for testing
+static const uint8_t test_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+#define EXTRACT_ALL_FEATURES(data, len, features) \
+    csi_extract_features(data, len, features, test_all_features, 10)
+
 // Test: End-to-end calibration with synthetic baseline and movement data
 TEST_CASE_ESP("Calibration end-to-end with mock data", "[calibration]")
 {
@@ -55,7 +60,7 @@ TEST_CASE_ESP("Calibration end-to-end with mock data", "[calibration]")
         
         // Extract features (simplified - no history buffer)
         csi_features_t features;
-        csi_extract_features(csi_info.buf, csi_info.len, &features);
+        EXTRACT_ALL_FEATURES(csi_info.buf, csi_info.len, &features);
         
         // Feed to calibration
         feature_array_t feat_array;
@@ -67,6 +72,8 @@ TEST_CASE_ESP("Calibration end-to-end with mock data", "[calibration]")
         feat_array.features[5] = features.spatial_variance;
         feat_array.features[6] = features.spatial_correlation;
         feat_array.features[7] = features.spatial_gradient;
+        feat_array.features[8] = features.temporal_delta_mean;
+        feat_array.features[9] = features.temporal_delta_variance;
         
         calibration_update(&feat_array);
     }
@@ -93,7 +100,7 @@ TEST_CASE_ESP("Calibration end-to-end with mock data", "[calibration]")
         
         // Extract features
         csi_features_t features;
-        csi_extract_features(csi_info.buf, csi_info.len, &features);
+        EXTRACT_ALL_FEATURES(csi_info.buf, csi_info.len, &features);
         
         // Feed to calibration
         feature_array_t feat_array;
@@ -105,6 +112,8 @@ TEST_CASE_ESP("Calibration end-to-end with mock data", "[calibration]")
         feat_array.features[5] = features.spatial_variance;
         feat_array.features[6] = features.spatial_correlation;
         feat_array.features[7] = features.spatial_gradient;
+        feat_array.features[8] = features.temporal_delta_mean;
+        feat_array.features[9] = features.temporal_delta_variance;
         
         calibration_update(&feat_array);
     }
@@ -125,9 +134,9 @@ TEST_CASE_ESP("Calibration end-to-end with mock data", "[calibration]")
     printf("Num features selected: %d\n", calib_state.num_selected);
     printf("Optimal threshold: %.4f\n", calib_state.optimal_threshold);
     
-    // Print baseline stats for all 8 features
-    printf("\n=== BASELINE STATS (all 8 features) ===\n");
-    for (int i = 0; i < 8; i++) {
+    // Print baseline stats for all 10 features
+    printf("\n=== BASELINE STATS (all 10 features) ===\n");
+    for (int i = 0; i < 10; i++) {
         printf("Feature %d: mean=%.4f, variance=%.4f, count=%zu\n", 
                i, 
                calib_state.baseline_stats[i].mean,
@@ -135,8 +144,8 @@ TEST_CASE_ESP("Calibration end-to-end with mock data", "[calibration]")
                calib_state.baseline_stats[i].count);
     }
     
-    printf("\n=== MOVEMENT STATS (all 8 features) ===\n");
-    for (int i = 0; i < 8; i++) {
+    printf("\n=== MOVEMENT STATS (all 10 features) ===\n");
+    for (int i = 0; i < 10; i++) {
         printf("Feature %d: mean=%.4f, variance=%.4f, count=%zu\n", 
                i,
                calib_state.movement_stats[i].mean,
@@ -169,13 +178,13 @@ TEST_CASE_ESP("Features differ between baseline and movement", "[calibration]")
     generate_mock_csi_data(&csi_info, MOCK_CSI_STATIC);
     
     csi_features_t baseline_features;
-    csi_extract_features(csi_info.buf, csi_info.len, &baseline_features);
+    EXTRACT_ALL_FEATURES(csi_info.buf, csi_info.len, &baseline_features);
     
     // Extract movement features using MOCK_CSI_WALKING instead of generate_csi_movement
     generate_mock_csi_data(&csi_info, MOCK_CSI_WALKING);
     
     csi_features_t movement_features;
-    csi_extract_features(csi_info.buf, csi_info.len, &movement_features);
+    EXTRACT_ALL_FEATURES(csi_info.buf, csi_info.len, &movement_features);
     
     // Debug: Print feature values
     printf("\n=== FEATURE COMPARISON ===\n");
