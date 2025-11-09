@@ -13,7 +13,7 @@
 #include <string.h>
 
 // Test: Wavelet initialization
-TEST_CASE_ESP("Wavelet filter initialization", "[wavelet]")
+TEST_CASE_ESP(wavelet_filter_initialization, "[wavelet]")
 {
     wavelet_state_t state;
     wavelet_init(&state, 3, 1.0f, WAVELET_THRESH_SOFT);
@@ -26,7 +26,7 @@ TEST_CASE_ESP("Wavelet filter initialization", "[wavelet]")
 }
 
 // Test: Soft thresholding
-TEST_CASE_ESP("Wavelet soft thresholding", "[wavelet]")
+TEST_CASE_ESP(wavelet_soft_thresholding, "[wavelet]")
 {
     float threshold = 1.0f;
     
@@ -44,7 +44,7 @@ TEST_CASE_ESP("Wavelet soft thresholding", "[wavelet]")
 }
 
 // Test: Hard thresholding
-TEST_CASE_ESP("Wavelet hard thresholding", "[wavelet]")
+TEST_CASE_ESP(wavelet_hard_thresholding, "[wavelet]")
 {
     float threshold = 1.0f;
     
@@ -62,7 +62,7 @@ TEST_CASE_ESP("Wavelet hard thresholding", "[wavelet]")
 }
 
 // Test: Wavelet denoising on synthetic signal
-TEST_CASE_ESP("Wavelet denoising reduces noise", "[wavelet]")
+TEST_CASE_ESP(wavelet_denoising_reduces_noise, "[wavelet]")
 {
     // Create a clean signal (sine wave) + significant noise
     const size_t length = 32;  // Must be power of 2
@@ -105,7 +105,7 @@ TEST_CASE_ESP("Wavelet denoising reduces noise", "[wavelet]")
 
 
 // Test: Streaming mode with circular buffer
-TEST_CASE_ESP("Wavelet streaming mode", "[wavelet]")
+TEST_CASE_ESP(wavelet_streaming_mode, "[wavelet]")
 {
     wavelet_state_t state;
     wavelet_init(&state, 2, 1.0f, WAVELET_THRESH_SOFT);
@@ -127,7 +127,7 @@ TEST_CASE_ESP("Wavelet streaming mode", "[wavelet]")
 
 
 // Test: Wavelet with invalid parameters
-TEST_CASE_ESP("Wavelet handles invalid parameters", "[wavelet]")
+TEST_CASE_ESP(wavelet_handles_invalid_parameters, "[wavelet]")
 {
     float input[32];
     float output[32];
@@ -145,7 +145,7 @@ TEST_CASE_ESP("Wavelet handles invalid parameters", "[wavelet]")
 }
 
 // Test: Wavelet level clamping
-TEST_CASE_ESP("Wavelet level clamping", "[wavelet]")
+TEST_CASE_ESP(wavelet_level_clamping, "[wavelet]")
 {
     wavelet_state_t state;
     
@@ -163,7 +163,7 @@ TEST_CASE_ESP("Wavelet level clamping", "[wavelet]")
 }
 
 // Test: Wavelet coefficients are normalized
-TEST_CASE_ESP("Wavelet db4 coefficients sum correctly", "[wavelet]")
+TEST_CASE_ESP(wavelet_db4_coefficients_sum_correctly, "[wavelet]")
 {
     // Low-pass filter should sum to sqrt(2) for normalization
     float lp_sum = 0.0f;
@@ -181,7 +181,7 @@ TEST_CASE_ESP("Wavelet db4 coefficients sum correctly", "[wavelet]")
 }
 
 // Test: Wavelet preserves DC component
-TEST_CASE_ESP("Wavelet preserves DC component", "[wavelet]")
+TEST_CASE_ESP(wavelet_preserves_dc_component, "[wavelet]")
 {
     const size_t length = 32;
     float input[length];

@@ -52,7 +52,7 @@ static float calculate_feature_variance(const float *values, size_t count, float
     return sum_sq / (count - 1);
 }
 
-TEST_CASE_ESP("Compare detection approaches on real data", "[detection][comparison]")
+TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison]")
 {
     printf("\n");
     printf("╔═══════════════════════════════════════════════════════╗\n");

@@ -23,7 +23,7 @@ static const uint8_t test_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     csi_extract_features(data, len, features, test_all_features, 10)
 
 // Test: End-to-end calibration with synthetic baseline and movement data
-TEST_CASE_ESP("Calibration end-to-end with mock data", "[calibration]")
+TEST_CASE_ESP(calibration_end_to_end_with_mock_data, "[calibration]")
 {
     // Initialize calibration system
     calibration_init();
@@ -169,7 +169,7 @@ TEST_CASE_ESP("Calibration end-to-end with mock data", "[calibration]")
 }
 
 // Test: Verify features are different between baseline and movement
-TEST_CASE_ESP("Features differ between baseline and movement", "[calibration]")
+TEST_CASE_ESP(features_differ_between_baseline_and_movement, "[calibration]")
 {
     // Extract baseline features
     wifi_csi_info_t csi_info;

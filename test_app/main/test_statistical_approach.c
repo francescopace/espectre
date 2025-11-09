@@ -409,7 +409,7 @@ static approach_results_t test_approach_abs_skewness(const int8_t **baseline_pkt
 // MAIN TEST
 // ============================================================================
 
-TEST_CASE_ESP("Statistical approach with real CSI data", "[statistical][real]")
+TEST_CASE_ESP(statistical_approach_with_real_csi_data, "[statistical][real]")
 {
     printf("\n");
     printf("╔═══════════════════════════════════════════════════════════╗\n");

@@ -20,7 +20,7 @@
 static const uint8_t test_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
 // Test: Calibration with real CSI data
-TEST_CASE_ESP("Calibration with real CSI data", "[calibration][real]")
+TEST_CASE_ESP(calibration_with_real_csi_data, "[calibration][real]")
 {
     // Initialize calibration
     calibration_init();

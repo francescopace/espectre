@@ -14,7 +14,7 @@
 #include <string.h>
 
 // Test: Adaptive normalizer should not update when disabled
-TEST_CASE_ESP("Adaptive normalizer respects enabled flag", "[filters]")
+TEST_CASE_ESP(adaptive_normalizer_respects_enabled_flag, "[filters]")
 {
     adaptive_normalizer_t norm = {0};
     adaptive_normalizer_init(&norm, 0.01f);
@@ -60,7 +60,7 @@ TEST_CASE_ESP("Adaptive normalizer respects enabled flag", "[filters]")
 }
 
 // Test: Butterworth filter initialization
-TEST_CASE_ESP("Butterworth filter initialization", "[filters]")
+TEST_CASE_ESP(butterworth_filter_initialization, "[filters]")
 {
     butterworth_filter_t filter = {0};
     butterworth_init(&filter);
@@ -70,7 +70,7 @@ TEST_CASE_ESP("Butterworth filter initialization", "[filters]")
 }
 
 // Test: Hampel filter removes outliers
-TEST_CASE_ESP("Hampel filter removes outliers", "[filters]")
+TEST_CASE_ESP(hampel_filter_removes_outliers, "[filters]")
 {
     float window[] = {1.0f, 1.1f, 1.0f, 100.0f, 0.9f};  // 100.0 is outlier
     float result = hampel_filter(window, 5, 100.0f, 2.0f);
@@ -80,7 +80,7 @@ TEST_CASE_ESP("Hampel filter removes outliers", "[filters]")
 }
 
 // Test: Filter buffer operations
-TEST_CASE_ESP("Filter buffer operations", "[filters]")
+TEST_CASE_ESP(filter_buffer_operations, "[filters]")
 {
     filter_buffer_t fb;
     filter_buffer_init(&fb);
@@ -104,7 +104,7 @@ TEST_CASE_ESP("Filter buffer operations", "[filters]")
 }
 
 // Test: Adaptive normalizer updates correctly
-TEST_CASE_ESP("Adaptive normalizer update", "[filters]")
+TEST_CASE_ESP(adaptive_normalizer_update, "[filters]")
 {
     adaptive_normalizer_t norm;
     adaptive_normalizer_init(&norm, 0.1f);
@@ -123,7 +123,7 @@ TEST_CASE_ESP("Adaptive normalizer update", "[filters]")
 }
 
 // Test: Complete filter pipeline with wavelet
-TEST_CASE_ESP("Filter pipeline with wavelet integration", "[filters]")
+TEST_CASE_ESP(filter_pipeline_with_wavelet_integration, "[filters]")
 {
     butterworth_filter_t butterworth = {0};
     wavelet_state_t wavelet = {0};
@@ -155,7 +155,7 @@ TEST_CASE_ESP("Filter pipeline with wavelet integration", "[filters]")
 }
 
 // Test: Wavelet can be disabled in pipeline
-TEST_CASE_ESP("Filter pipeline with wavelet disabled", "[filters]")
+TEST_CASE_ESP(filter_pipeline_with_wavelet_disabled, "[filters]")
 {
     butterworth_filter_t butterworth = {0};
     wavelet_state_t wavelet = {0};
