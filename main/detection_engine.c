@@ -46,8 +46,8 @@ float detection_calculate_score(const csi_features_t *features,
     // Normalize ALL 10 features to 0-1 range
     // Ranges determined from real-world testing and comparative analysis
     float norm_variance = normalize_feature(features->variance, 0.0f, 800.0f);
-    float norm_skewness = normalize_feature(features->skewness, -3.0f, 3.0f);
-    float norm_kurtosis = normalize_feature(features->kurtosis, -10.0f, 10.0f);
+    float norm_skewness = normalize_feature(features->skewness, -2.5f, 1.5f);  // Amplitude skewness: observed [-2.4, +1.2]
+    float norm_kurtosis = normalize_feature(features->kurtosis, -3.0f, 6.0f);  // Amplitude kurtosis: observed [-2.2, +5.5]
     float norm_entropy = normalize_feature(features->entropy, 4.0f, 7.0f);
     float norm_iqr = normalize_feature(features->iqr, 0.0f, 50.0f);
     float norm_spatial_variance = normalize_feature(features->spatial_variance, 0.0f, 400.0f);
@@ -156,12 +156,12 @@ float detection_calculate_score_calibrated(const csi_features_t *features,
             normalized_value = normalize_feature(feature_value, feature_min[i], feature_max[i]);
         } else {
             // Fallback to fixed ranges if calibration data not available
-            // NOTE: Updated ranges to support negative values for skewness, kurtosis, and correlation
+            // NOTE: Updated ranges for amplitude-based skewness and kurtosis
             ESP_LOGW(TAG, "Calibration ranges not available, using fixed ranges");
             switch (feat_idx) {
                 case 0: normalized_value = normalize_feature(feature_value, 0.0f, 400.0f); break;
-                case 1: normalized_value = normalize_feature(feature_value, -3.0f, 3.0f); break;  // skewness: -3 to +3
-                case 2: normalized_value = normalize_feature(feature_value, -10.0f, 10.0f); break;  // kurtosis: -10 to +10
+                case 1: normalized_value = normalize_feature(feature_value, -2.5f, 1.5f); break;  // amplitude skewness: observed [-2.4, +1.2]
+                case 2: normalized_value = normalize_feature(feature_value, -3.0f, 6.0f); break;  // amplitude kurtosis: observed [-2.2, +5.5]
                 case 3: normalized_value = normalize_feature(feature_value, 0.0f, 8.0f); break;
                 case 4: normalized_value = normalize_feature(feature_value, 0.0f, 25.0f); break;
                 case 5: normalized_value = normalize_feature(feature_value, 0.0f, 400.0f); break;

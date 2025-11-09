@@ -168,8 +168,8 @@ Optimal sensor placement is crucial for reliable movement detection.
 
 ✅ **Position sensor in the area to monitor** (not necessarily in direct line with router)  
 ✅ **Height: 1-1.5 meters** from ground (desk/table height)  
-✅ **Avoid metal obstacles** between router and sensor (refrigerators, metal cabinets)  
 ✅ **External antenna**: Use IPEX connector for better reception  
+❌ **Avoid metal obstacles** between router and sensor (refrigerators, metal cabinets)  
 ❌ **Avoid corners** or enclosed spaces (reduces multipath diversity)
 
 ---

@@ -46,6 +46,8 @@ extern test_desc_t test_desc_172;  // Features differ between baseline and movem
 extern test_desc_t test_desc_23;   // Calibration with real CSI data
 // Detection approaches comparison
 extern test_desc_t test_desc_55;   // Compare detection approaches on real data
+// Statistical approach test
+extern test_desc_t test_desc_412;  // Statistical 3-way comparison (variance/skewness/abs-skewness)
 
 void app_main(void)
 {
@@ -89,6 +91,8 @@ void app_main(void)
     unity_testcase_register(&test_desc_23);
     // Detection approaches comparison
     unity_testcase_register(&test_desc_55);
+    // Statistical approach test
+    unity_testcase_register(&test_desc_412);
     
     // Run all tests automatically
     printf("Running all tests automatically...\n\n");

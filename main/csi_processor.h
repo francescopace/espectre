@@ -2,9 +2,12 @@
  * ESPectre - CSI Processing Module
  * 
  * Extracts 10 mathematical features from Channel State Information (CSI) data:
- * - Statistical (5): variance, skewness, kurtosis, entropy, IQR (within single packet)
+ * - Statistical (5): variance, skewness (amplitude-based), kurtosis, entropy, IQR
  * - Spatial (3): variance, correlation, gradient (across subcarriers within packet)
  * - Temporal (2): delta_mean, delta_variance (changes between consecutive packets)
+ * 
+ * NOTE: Skewness is calculated on a moving window of amplitude values (not raw bytes)
+ *       for better separation between baseline and movement (82.3% accuracy vs 72.6%)
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -94,6 +97,13 @@ float csi_calculate_temporal_delta_variance(const int8_t *current_data,
  * to clear the history of previous packets
  */
 void csi_reset_temporal_buffer(void);
+
+/**
+ * Reset amplitude skewness buffer
+ * Call this when starting a new calibration phase to clear the
+ * amplitude history used for skewness calculation
+ */
+void csi_reset_amplitude_skewness_buffer(void);
 
 /**
  * Calculate skewness (third standardized moment)

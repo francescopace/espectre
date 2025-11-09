@@ -37,8 +37,6 @@ static const char *TAG = "MQTT_Commands";
 #define TRAFFIC_RATE_MAX        50
 #define MIN_SAMPLES_ANALYZE     50
 #define DEFAULT_CALIBRATION_SAMPLES 1000
-#define FACTORY_RESET_THRESHOLD 0.43f
-
 // Global context for command handlers
 static mqtt_cmd_context_t *g_cmd_context = NULL;
 static mqtt_handler_state_t *g_mqtt_state = NULL;
@@ -825,8 +823,8 @@ static void cmd_factory_reset(cJSON *root) {
     
     // Reset config to defaults
     config_init_defaults(g_cmd_context->config);
-    *g_cmd_context->threshold_high = FACTORY_RESET_THRESHOLD;
-    *g_cmd_context->threshold_low = FACTORY_RESET_THRESHOLD * g_cmd_context->config->hysteresis_ratio;
+    *g_cmd_context->threshold_high = DEFAULT_THRESHOLD;
+    *g_cmd_context->threshold_low = DEFAULT_THRESHOLD * g_cmd_context->config->hysteresis_ratio;
     
     calibration_init();
     

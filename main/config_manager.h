@@ -19,6 +19,9 @@
 #include "esp_err.h"
 #include "nvs_storage.h"
 
+// Default threshold for motion detection (optimized for amplitude skewness)
+#define DEFAULT_THRESHOLD 0.50f
+
 // Runtime configuration structure
 typedef struct {
     // Logging

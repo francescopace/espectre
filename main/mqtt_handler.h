@@ -34,7 +34,6 @@ typedef struct {
     bool enabled;
     float delta_threshold;      // Minimum change to trigger publish
     float max_interval_sec;     // Maximum time between publishes (heartbeat)
-    float confidence_threshold; // Minimum confidence to publish
 } mqtt_publish_config_t;
 
 // MQTT handler state

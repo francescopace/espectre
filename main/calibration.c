@@ -9,6 +9,7 @@
 #include "config_manager.h"
 #include "filters.h"
 #include "traffic_generator.h"
+#include "csi_processor.h"
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
@@ -66,20 +67,39 @@ static float welford_get_variance(const feature_stats_t *stats) {
 
 // Fisher's criterion: measures class separability
 // Higher value = better discrimination between baseline and movement
+// NOTE: Normalizes features to [0,1] before calculating Fisher to avoid bias
+//       towards features with large absolute values
 static float calculate_fisher_score(const feature_stats_t *baseline, 
                                     const feature_stats_t *movement) {
     if (baseline->count < 2 || movement->count < 2) {
         return 0.0f;
     }
     
-    float mean_diff = fabsf(movement->mean - baseline->mean);
-    float var_baseline = welford_get_variance(baseline);
-    float var_movement = welford_get_variance(movement);
+    // Calculate overall min/max across both baseline and movement
+    float overall_min = fminf(baseline->min_val, movement->min_val);
+    float overall_max = fmaxf(baseline->max_val, movement->max_val);
+    float range = overall_max - overall_min;
+    
+    // If range is too small, feature is not discriminative
+    if (range < 1e-6f) {
+        return 0.0f;
+    }
+    
+    // Normalize means to [0,1] range
+    float baseline_mean_norm = (baseline->mean - overall_min) / range;
+    float movement_mean_norm = (movement->mean - overall_min) / range;
+    
+    // Normalize variances to [0,1] range (divide by range²)
+    float var_baseline = welford_get_variance(baseline) / (range * range);
+    float var_movement = welford_get_variance(movement) / (range * range);
     float var_sum = var_baseline + var_movement;
     
     if (var_sum < 1e-6f) {
         return 0.0f;
     }
+    
+    // Calculate Fisher on normalized values
+    float mean_diff = fabsf(movement_mean_norm - baseline_mean_norm);
     
     #if USE_MODIFIED_FISHER
     // Modified Fisher: (μ1 - μ2)² / sqrt(σ1² + σ2²)
@@ -587,6 +607,10 @@ bool calibration_start(int samples, void *config, void *normalizer) {
     memset(&g_calib.selected_features, 0, sizeof(g_calib.selected_features));
     memset(&g_calib.optimized_weights, 0, sizeof(g_calib.optimized_weights));
     g_calib.num_selected = 0;
+    
+    // Reset feature buffers to ensure clean calibration
+    csi_reset_temporal_buffer();
+    csi_reset_amplitude_skewness_buffer();
     
     // Save calibration parameters
     g_calib.traffic_rate = rate;

@@ -36,20 +36,20 @@ void config_init_defaults(runtime_config_t *config) {
     config->persistence_timeout = DEFAULT_PERSISTENCE_TIMEOUT;
     config->variance_scale = DEFAULT_VARIANCE_SCALE;
     
-    // Default feature weights based on real-world testing in noisy environments
-    // Feature weights optimized based on comparative testing (see test_detection_approaches.c)
-    // Skewness showed 3.74x separation (best performer), spatial_correlation 2.72x (2nd best)
-    config->feature_weights[0] = 0.05f;  // variance
-    config->feature_weights[1] = 0.60f;  // skewness (BEST: 3.74x separation!)
-    config->feature_weights[2] = 0.03f;  // kurtosis
-    config->feature_weights[3] = 0.05f;  // entropy
-    config->feature_weights[4] = 0.05f;  // iqr
-    config->feature_weights[5] = 0.02f;  // spatial_variance
-    config->feature_weights[6] = 0.10f;  // spatial_correlation (2nd best: 2.72x)
-    config->feature_weights[7] = 0.05f;  // spatial_gradient
-    config->feature_weights[8] = 0.03f;  // temporal_delta_mean
-    config->feature_weights[9] = 0.02f;  // temporal_delta_variance
-    // Total: 100% (0.60 skewness + 0.10 spatial_correlation + 0.30 others = 1.0)
+    // Default feature weights based on real-world calibration results
+    // Optimized based on calibration with real CSI data (see test_real_calibration.c)
+    // Kurtosis (47%) + Skewness (21%) = 68% combined (both amplitude-based)
+    config->feature_weights[0] = 0.00f;   // variance (not selected by calibrator)
+    config->feature_weights[1] = 0.215f;  // amplitude skewness (2.91x separation, 82.3% accuracy)
+    config->feature_weights[2] = 0.472f;  // amplitude kurtosis (2.47x separation, Fisher=0.84)
+    config->feature_weights[3] = 0.00f;   // entropy (not selected)
+    config->feature_weights[4] = 0.106f;  // iqr
+    config->feature_weights[5] = 0.00f;   // spatial_variance (not selected)
+    config->feature_weights[6] = 0.101f;  // spatial_correlation
+    config->feature_weights[7] = 0.106f;  // spatial_gradient
+    config->feature_weights[8] = 0.00f;   // temporal_delta_mean (not used)
+    config->feature_weights[9] = 0.00f;   // temporal_delta_variance (not used)
+    // Total: 100% (47.2% kurtosis + 21.5% skewness + 31.3% others = 1.0)
     
     
     // Enable adaptive normalizer by default for better adaptation to environment changes

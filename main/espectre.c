@@ -44,9 +44,6 @@
 #define MQTT_USERNAME       CONFIG_MQTT_USERNAME
 #define MQTT_PASSWORD       CONFIG_MQTT_PASSWORD
 
-// Default threshold
-#define DEFAULT_THRESHOLD   0.40f
-
 // Logging intervals
 #define LOG_CSI_VALUES_INTERVAL 1
 #define STATS_LOG_INTERVAL  100
@@ -56,7 +53,6 @@
 
 // Publishing configuration
 #define PUBLISH_INTERVAL    1.0f
-#define CONFIDENCE_THRESHOLD 0.5f
 
 static const char *TAG = "ESPectre";
 
@@ -284,8 +280,7 @@ static void mqtt_publish_task(void *pvParameters) {
     mqtt_publish_config_t pub_config = {
         .enabled = g_state.config.smart_publishing_enabled,
         .delta_threshold = 0.05f,
-        .max_interval_sec = 5.0f,
-        .confidence_threshold = CONFIDENCE_THRESHOLD
+        .max_interval_sec = 5.0f
     };
     
     while (1) {
@@ -474,22 +469,20 @@ static void mqtt_publish_task(void *pvParameters) {
         }
         
         // Smart publishing
-        if (confidence >= pub_config.confidence_threshold) {
-            int64_t current_time = get_timestamp_ms();
+        int64_t current_time = get_timestamp_ms();
+        
+        if (mqtt_should_publish(&g_state.mqtt_state, detection_score, state, 
+                                &pub_config, current_time)) {
+            // Prepare detection result
+            detection_result_t result = {
+                .score = detection_score,
+                .confidence = confidence,
+                .state = state,
+                .timestamp = get_timestamp_sec()
+            };
             
-            if (mqtt_should_publish(&g_state.mqtt_state, detection_score, state, 
-                                   &pub_config, current_time)) {
-                // Prepare detection result
-                detection_result_t result = {
-                    .score = detection_score,
-                    .confidence = confidence,
-                    .state = state,
-                    .timestamp = get_timestamp_sec()
-                };
-                
-                mqtt_publish_detection(&g_state.mqtt_state, &result, MQTT_TOPIC);
-                mqtt_update_publish_state(&g_state.mqtt_state, detection_score, state, current_time);
-            }
+            mqtt_publish_detection(&g_state.mqtt_state, &result, MQTT_TOPIC);
+            mqtt_update_publish_state(&g_state.mqtt_state, detection_score, state, current_time);
         }
         
         // Statistics logging

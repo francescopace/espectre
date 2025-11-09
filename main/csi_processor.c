@@ -27,6 +27,18 @@ typedef struct {
 // Reusable buffer for IQR sorting (avoids malloc in hot path)
 static int8_t iqr_sort_buffer[CSI_MAX_LENGTH];
 
+// Amplitude buffer for skewness/kurtosis calculation (moving window approach)
+// Both features share the same buffer for efficiency
+#define AMPLITUDE_MOMENTS_WINDOW 20
+static float amplitude_moments_buffer[AMPLITUDE_MOMENTS_WINDOW] = {0};
+static int amp_moments_index = 0;
+static int amp_moments_count = 0;
+
+// Cached moments for kurtosis (calculated during skewness computation)
+static float cached_m2 = 0.0f;
+static float cached_m4 = 0.0f;
+static bool moments_valid = false;
+
 // qsort comparator for int8_t
 static int compare_int8(const void *a, const void *b) {
     int8_t ia = *(const int8_t*)a;
@@ -81,21 +93,81 @@ float csi_calculate_variance(const int8_t *data, size_t len) {
     return variance / len;
 }
 
-// Statistical features
+// Statistical features - AMPLITUDE SKEWNESS (moving window approach)
+// This calculates skewness of the amplitude time series instead of raw bytes
 float csi_calculate_skewness(const int8_t *data, size_t len) {
-    if (len < 3) return 0.0f;
+    if (len < 2) return 0.0f;
     
-    moments_t moments = calculate_moments(data, len);
-    float m2 = moments.m2 / len;
-    float m3 = moments.m3 / len;
+    // Step 1: Calculate average amplitude across all subcarriers
+    float avg_amplitude = 0.0f;
+    int num_subcarriers = len / 2;  // Each subcarrier has I and Q
     
+    for (int i = 0; i < num_subcarriers; i++) {
+        float I = (float)data[2 * i];
+        float Q = (float)data[2 * i + 1];
+        avg_amplitude += sqrtf(I * I + Q * Q);
+    }
+    avg_amplitude /= num_subcarriers;
+    
+    // Step 2: Add to circular buffer
+    amplitude_moments_buffer[amp_moments_index] = avg_amplitude;
+    amp_moments_index = (amp_moments_index + 1) % AMPLITUDE_MOMENTS_WINDOW;
+    if (amp_moments_count < AMPLITUDE_MOMENTS_WINDOW) {
+        amp_moments_count++;
+    }
+    
+    // Step 3: Calculate skewness and cache moments for kurtosis
+    if (amp_moments_count < 3) {
+        moments_valid = false;
+        return 0.0f;
+    }
+    
+    // Calculate mean
+    float mean = 0.0f;
+    for (int i = 0; i < amp_moments_count; i++) {
+        mean += amplitude_moments_buffer[i];
+    }
+    mean /= amp_moments_count;
+    
+    // Calculate second, third, and fourth moments (for both skewness and kurtosis)
+    float m2 = 0.0f;
+    float m3 = 0.0f;
+    float m4 = 0.0f;
+    for (int i = 0; i < amp_moments_count; i++) {
+        float diff = amplitude_moments_buffer[i] - mean;
+        float diff2 = diff * diff;
+        m2 += diff2;
+        m3 += diff2 * diff;
+        m4 += diff2 * diff2;  // Fourth moment for kurtosis
+    }
+    
+    m2 /= amp_moments_count;
+    m3 /= amp_moments_count;
+    m4 /= amp_moments_count;
+    
+    // Cache moments for kurtosis
+    cached_m2 = m2;
+    cached_m4 = m4;
+    moments_valid = true;
+    
+    // Calculate skewness
     float stddev = sqrtf(m2);
     if (stddev < EPSILON_SMALL) return 0.0f;
     
     return m3 / (stddev * stddev * stddev);
 }
 
+// AMPLITUDE KURTOSIS (moving window approach)
+// Reuses moments calculated by skewness for efficiency
 float csi_calculate_kurtosis(const int8_t *data, size_t len) {
+    // If moments are valid (skewness was called first), use cached values
+    if (moments_valid && cached_m2 > EPSILON_SMALL) {
+        // Return excess kurtosis using cached moments
+        return (cached_m4 / (cached_m2 * cached_m2)) - 3.0f;
+    }
+    
+    // Fallback: calculate from raw bytes if skewness wasn't called
+    // This ensures kurtosis works even if called independently
     if (len < 4) return 0.0f;
     
     moments_t moments = calculate_moments(data, len);
@@ -274,6 +346,15 @@ void csi_reset_temporal_buffer(void) {
     memset(prev_csi_data, 0, sizeof(prev_csi_data));
     prev_csi_len = 0;
     first_packet = true;
+}
+
+// Reset amplitude moments buffer (call when starting new calibration phase)
+// Resets buffer used by both skewness and kurtosis
+void csi_reset_amplitude_skewness_buffer(void) {
+    memset(amplitude_moments_buffer, 0, sizeof(amplitude_moments_buffer));
+    amp_moments_index = 0;
+    amp_moments_count = 0;
+    moments_valid = false;
 }
 
 // Main feature extraction function

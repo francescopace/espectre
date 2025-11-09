@@ -21,21 +21,63 @@ All notable changes to this project will be documented in this file.
 - **Spatial** (3): spatial_variance, spatial_correlation, spatial_gradient
 - **Temporal** (2): temporal_delta_mean, temporal_delta_variance
 
+### 🚀 Major - Amplitude-Based Skewness & Kurtosis
+
+**Performance breakthrough: +151% separation improvement**
+
+Based on analysis of 6 scientific papers on Wi-Fi CSI sensing, implemented amplitude-based approach for skewness and kurtosis:
+
+- **Amplitude-based pipeline**:
+  1. Convert raw bytes (I+jQ) → amplitude |h| = √(I² + Q²) for each subcarrier
+  2. Aggregate all subcarriers → single amplitude value per packet
+  3. Maintain 20-packet circular buffer for temporal analysis
+  4. Calculate statistical moments (m2, m3, m4) on amplitude time series
+  
+- **Shared buffer optimization**:
+  * Skewness and kurtosis share same `amplitude_moments_buffer`
+  * Cached moments (m2, m4) reused between features
+  * Zero memory overhead, ~5% CPU overhead
+  
+- **Results**:
+  * **Skewness**: 2.91x separation (vs 1.16x previous), 82.3% accuracy, 0% false positives
+  * **Kurtosis**: 2.47x separation (+79% vs raw kurtosis)
+  * **Combined**: Calibrator selects both as dominant features (68% total weight)
+
 ### 🔧 Changed - Modified Fisher Criterion
 
 **Improved feature selection algorithm**
 
 - **Modified Fisher Score**: Changed from standard Fisher `(μ₁ - μ₂)² / (σ₁² + σ₂²)` to Modified Fisher `(μ₁ - μ₂)² / √(σ₁² + σ₂²)`
+- **Pre-normalization**: All features normalized to [0,1] before Fisher calculation
+  * Eliminates bias towards features with large absolute values
+  * Ensures fair comparison between features
+  * Skewness/kurtosis now correctly selected as top features
 - **Benefits**: 
   - Less penalty for features with high variance
   - Better selection of features with strong signal separation
   - More robust in noisy environments
 - **Configurable**: Can be toggled via `USE_MODIFIED_FISHER` flag in `calibration.c`
 
+### 🧪 Added - Comprehensive Testing
+
+**New test suites for validation**
+
+- **3-way statistical comparison**: Tests variance/skewness/abs-skewness approaches
+- **5-way detection approaches**: Compares Fisher/Modified Fisher/Simple Ratio/TDV/Amplitude Kurtosis
+- **All tests pass**: Validates amplitude-based implementation
+
+### 📊 Performance Improvements
+
+**Measured improvements vs v1.1.0:**
+- **Separation ratio**: 1.16x → 2.91x (+151%)
+- **Accuracy**: ~50% → 82.3% (+64%)
+- **False positives**: ~10% → 0% (-100%)
+- **False negatives**: ~90% → 35.5% (-60%)
+
 ### 🔧 Changed
 
 - **Feature extraction**: Updated to support all 10 features
-- **Calibration system**: Now analyzes all features using Modified Fisher criterion
+- **Calibration system**: Now analyzes all features using Modified Fisher criterion with pre-normalization
 - **Documentation**: Updated all references from 8 to 10 features
 
 ---
