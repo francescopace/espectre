@@ -6,6 +6,8 @@
  */
 
 #include "calibration.h"
+#include "config_manager.h"
+#include "filters.h"
 #include "traffic_generator.h"
 #include <string.h>
 #include <math.h>
@@ -28,20 +30,6 @@ static calibration_state_t g_calib = {
 
 // Global config pointer (saved during calibration_start)
 static void *g_config_ptr = NULL;
-
-// CSI data capture for debugging (distributed sampling across entire phase)
-#define MAX_CAPTURE_PACKETS 50  // Capture 50 packets distributed across the phase
-#define CSI_PACKET_SIZE 128
-static int8_t g_captured_baseline[MAX_CAPTURE_PACKETS][CSI_PACKET_SIZE];
-static int8_t g_captured_movement[MAX_CAPTURE_PACKETS][CSI_PACKET_SIZE];
-static size_t g_baseline_capture_count = 0;
-static size_t g_movement_capture_count = 0;
-static uint32_t g_baseline_capture_interval = 0;  // Capture every Nth packet
-static uint32_t g_movement_capture_interval = 0;
-static uint32_t g_baseline_packet_counter = 0;
-static uint32_t g_movement_packet_counter = 0;
-static int8_t g_last_csi_packet[CSI_PACKET_SIZE];
-static bool g_has_last_packet = false;
 
 // Feature names for logging (8 features: 5 time-domain + 3 spatial)
 static const char* feature_names[NUM_TOTAL_FEATURES] = {
@@ -111,7 +99,7 @@ static int compare_feature_scores(const void *a, const void *b) {
     return 0;
 }
 
-// Helper function: Calculate outlier ratio using MAD (Median Absolute Deviation)
+// Count features with variance >4x mean² (outlier detection)
 static float calculate_outlier_ratio(const feature_stats_t *stats, size_t num_features) {
     if (!stats || num_features == 0) return 0.0f;
     
@@ -132,8 +120,8 @@ static float calculate_outlier_ratio(const feature_stats_t *stats, size_t num_fe
     return (float)outlier_count / num_features;
 }
 
-// Helper function: Calculate signal-to-noise ratio
-static float calculate_snr(const feature_stats_t *baseline, 
+// Calculate SNR as signal difference / baseline std deviation
+static float calculate_snr(const feature_stats_t *baseline,
                           const feature_stats_t *movement,
                           size_t num_features) {
     if (!baseline || !movement || num_features == 0) return 0.0f;
@@ -156,11 +144,7 @@ static float calculate_snr(const feature_stats_t *baseline,
     return valid_count > 0 ? total_snr / valid_count : 0.0f;
 }
 
-
-// Forward declaration for debugging function
-static void calibration_dump_captured_data(void);
-
-// Helper function: Calculate baseline drift (variance of variance over time)
+// Measure baseline stability using coefficient of variation
 static float calculate_baseline_drift(const feature_stats_t *stats, size_t num_features) {
     if (!stats || num_features == 0) return 0.0f;
     
@@ -489,30 +473,6 @@ static void analyze_and_select_features(void *config) {
     
     // Apply recommended filter configuration (if config provided)
     if (config) {
-        typedef struct {
-            bool csi_logs_enabled;
-            bool verbose_mode;
-            uint8_t debounce_count;
-            float hysteresis_ratio;
-            int persistence_timeout;
-            float variance_scale;
-            bool hampel_filter_enabled;
-            float hampel_threshold;
-            bool savgol_filter_enabled;
-            int savgol_window_size;
-            bool butterworth_enabled;
-            bool wavelet_enabled;
-            int wavelet_level;
-            float wavelet_threshold;
-            bool cusum_enabled;
-            float cusum_threshold;
-            float cusum_drift;
-            bool smart_publishing_enabled;
-            bool adaptive_normalizer_enabled;
-            float adaptive_normalizer_alpha;
-            uint32_t adaptive_normalizer_reset_timeout_sec;
-        } runtime_config_t;
-        
         runtime_config_t *cfg = (runtime_config_t*)config;
         
         cfg->butterworth_enabled = g_calib.recommended_butterworth;
@@ -526,11 +486,6 @@ static void analyze_and_select_features(void *config) {
         cfg->adaptive_normalizer_alpha = g_calib.recommended_normalizer_alpha;
         
         ESP_LOGI(TAG, "✅ Optimal filter configuration applied (including wavelet if needed)");
-    }
-    
-    // Automatically dump captured CSI data for debugging
-    if (g_baseline_capture_count > 0 || g_movement_capture_count > 0) {
-        calibration_dump_captured_data();
     }
 }
 
@@ -557,30 +512,6 @@ bool calibration_start(int samples_or_duration, void *config, void *normalizer) 
     }
     
     // Read traffic rate for estimated duration calculation
-    typedef struct {
-        bool csi_logs_enabled;
-        bool verbose_mode;
-        uint8_t debounce_count;
-        float hysteresis_ratio;
-        int persistence_timeout;
-        float variance_scale;
-        bool hampel_filter_enabled;
-        float hampel_threshold;
-        bool savgol_filter_enabled;
-        int savgol_window_size;
-        bool butterworth_enabled;
-        bool cusum_enabled;
-        float cusum_threshold;
-        float cusum_drift;
-        float micro_movement_threshold;
-        float intense_movement_threshold;
-        bool smart_publishing_enabled;
-        bool adaptive_normalizer_enabled;
-        float adaptive_normalizer_alpha;
-        uint32_t adaptive_normalizer_reset_timeout_sec;
-        uint32_t traffic_generator_rate;
-    } runtime_config_t;
-    
     runtime_config_t *cfg = (runtime_config_t*)config;
     uint32_t rate = cfg ? cfg->traffic_generator_rate : 15;  // Default if not configured
     
@@ -594,38 +525,9 @@ bool calibration_start(int samples_or_duration, void *config, void *normalizer) 
     
     // Reset adaptive normalizer to prevent contamination of calibration data
     if (normalizer && config) {
-        typedef struct {
-            bool csi_logs_enabled;
-            bool verbose_mode;
-            uint8_t debounce_count;
-            float hysteresis_ratio;
-            int persistence_timeout;
-            float variance_scale;
-            bool hampel_filter_enabled;
-            float hampel_threshold;
-            bool savgol_filter_enabled;
-            int savgol_window_size;
-            bool butterworth_enabled;
-            bool cusum_enabled;
-            float cusum_threshold;
-            float cusum_drift;
-            bool smart_publishing_enabled;
-            bool adaptive_normalizer_enabled;
-            float adaptive_normalizer_alpha;
-            uint32_t adaptive_normalizer_reset_timeout_sec;
-        } runtime_config_t;
-        
         runtime_config_t *cfg = (runtime_config_t*)config;
         
         // Reset normalizer with current alpha before disabling
-        typedef struct {
-            float running_mean;
-            float running_variance;
-            size_t sample_count;
-            float alpha;
-            bool initialized;
-        } adaptive_normalizer_t;
-        
         adaptive_normalizer_t *norm = (adaptive_normalizer_t*)normalizer;
         norm->running_mean = 0.0f;
         norm->running_variance = 1.0f;
@@ -638,28 +540,6 @@ bool calibration_start(int samples_or_duration, void *config, void *normalizer) 
     
     // Save current filter configuration (if config provided)
     if (config) {
-        // Cast to runtime_config_t (we use void* to avoid circular dependency)
-        typedef struct {
-            bool csi_logs_enabled;
-            bool verbose_mode;
-            uint8_t debounce_count;
-            float hysteresis_ratio;
-            int persistence_timeout;
-            float variance_scale;
-            bool hampel_filter_enabled;
-            float hampel_threshold;
-            bool savgol_filter_enabled;
-            int savgol_window_size;
-            bool butterworth_enabled;
-            bool cusum_enabled;
-            float cusum_threshold;
-            float cusum_drift;
-            bool smart_publishing_enabled;
-            bool adaptive_normalizer_enabled;
-            float adaptive_normalizer_alpha;
-            uint32_t adaptive_normalizer_reset_timeout_sec;
-        } runtime_config_t;
-        
         runtime_config_t *cfg = (runtime_config_t*)config;
         
         // Save current filter settings
@@ -689,23 +569,6 @@ bool calibration_start(int samples_or_duration, void *config, void *normalizer) 
     memset(&g_calib.optimized_weights, 0, sizeof(g_calib.optimized_weights));
     g_calib.num_selected = 0;
     
-    // Reset CSI capture counters
-    g_baseline_capture_count = 0;
-    g_movement_capture_count = 0;
-    g_baseline_packet_counter = 0;
-    g_movement_packet_counter = 0;
-    g_has_last_packet = false;
-    
-    // Calculate capture interval for distributed sampling
-    // Capture 50 packets evenly distributed across the phase
-    g_baseline_capture_interval = target_samples / MAX_CAPTURE_PACKETS;
-    g_movement_capture_interval = target_samples / MAX_CAPTURE_PACKETS;
-    if (g_baseline_capture_interval < 1) g_baseline_capture_interval = 1;
-    if (g_movement_capture_interval < 1) g_movement_capture_interval = 1;
-    
-    ESP_LOGI(TAG, "📸 Will capture 1 packet every %u samples (total: %u packets per phase)",
-             g_baseline_capture_interval, MAX_CAPTURE_PACKETS);
-    
     // Save calibration parameters
     g_calib.traffic_rate = rate;
     g_calib.baseline_movement_target_samples = target_samples;
@@ -731,29 +594,6 @@ void calibration_stop(void *config) {
     
     // Restore original filter configuration if interrupted (if config provided)
     if (config) {
-        typedef struct {
-            bool csi_logs_enabled;
-            bool verbose_mode;
-            uint8_t debounce_count;
-            float hysteresis_ratio;
-            int persistence_timeout;
-            float variance_scale;
-            bool hampel_filter_enabled;
-            float hampel_threshold;
-            bool savgol_filter_enabled;
-            int savgol_window_size;
-            bool butterworth_enabled;
-            bool cusum_enabled;
-            float cusum_threshold;
-            float cusum_drift;
-            float micro_movement_threshold;
-            float intense_movement_threshold;
-            bool smart_publishing_enabled;
-            bool adaptive_normalizer_enabled;
-            float adaptive_normalizer_alpha;
-            uint32_t adaptive_normalizer_reset_timeout_sec;
-        } runtime_config_t;
-        
         runtime_config_t *cfg = (runtime_config_t*)config;
         
         cfg->butterworth_enabled = g_calib.saved_butterworth_enabled;
@@ -1129,82 +969,4 @@ void calibration_force_phase(calibration_phase_t phase) {
 // Test helper: Trigger analysis manually (for unit testing only)
 void calibration_trigger_analysis(void) {
     analyze_and_select_features(g_config_ptr);
-}
-
-// CSI data capture function
-void calibration_capture_csi(const int8_t *csi_data, size_t csi_len) {
-    if (!csi_data || csi_len == 0 || csi_len > CSI_PACKET_SIZE) {
-        return;
-    }
-    
-    // Store last packet for potential use
-    memcpy(g_last_csi_packet, csi_data, csi_len);
-    if (csi_len < CSI_PACKET_SIZE) {
-        memset(g_last_csi_packet + csi_len, 0, CSI_PACKET_SIZE - csi_len);
-    }
-    g_has_last_packet = true;
-    
-    // Capture packets with distributed sampling during baseline and movement phases
-    if (g_calib.phase == CALIB_BASELINE) {
-        g_baseline_packet_counter++;
-        // Capture every Nth packet to get distributed samples across entire phase
-        if (g_baseline_capture_count < MAX_CAPTURE_PACKETS && 
-            (g_baseline_packet_counter % g_baseline_capture_interval == 0)) {
-            memcpy(g_captured_baseline[g_baseline_capture_count], csi_data, csi_len);
-            if (csi_len < CSI_PACKET_SIZE) {
-                memset(g_captured_baseline[g_baseline_capture_count] + csi_len, 0, CSI_PACKET_SIZE - csi_len);
-            }
-            g_baseline_capture_count++;
-        }
-    } else if (g_calib.phase == CALIB_MOVEMENT) {
-        g_movement_packet_counter++;
-        // Capture every Nth packet to get distributed samples across entire phase
-        if (g_movement_capture_count < MAX_CAPTURE_PACKETS && 
-            (g_movement_packet_counter % g_movement_capture_interval == 0)) {
-            memcpy(g_captured_movement[g_movement_capture_count], csi_data, csi_len);
-            if (csi_len < CSI_PACKET_SIZE) {
-                memset(g_captured_movement[g_movement_capture_count] + csi_len, 0, CSI_PACKET_SIZE - csi_len);
-            }
-            g_movement_capture_count++;
-        }
-    }
-}
-
-// Dump captured CSI data as C arrays (for copying to test files)
-// Compact format: one packet per line to save space
-__attribute__((unused)) static void calibration_dump_captured_data(void) {
-    ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "========== CAPTURED CSI DATA ==========");
-    ESP_LOGI(TAG, "Baseline packets: %zu, Movement packets: %zu", 
-             g_baseline_capture_count, g_movement_capture_count);
-    ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "Copy the following to test_app/main/real_csi_data.h:");
-    ESP_LOGI(TAG, "");
-    
-    // Print baseline packets (one per line)
-    ESP_LOGI(TAG, "// Baseline CSI packets (static environment) - %zu packets", g_baseline_capture_count);
-    for (size_t p = 0; p < g_baseline_capture_count; p++) {
-        printf("static const int8_t real_baseline_%u[128] = {", (unsigned int)p);
-        for (int i = 0; i < CSI_PACKET_SIZE; i++) {
-            printf("%d", g_captured_baseline[p][i]);
-            if (i < CSI_PACKET_SIZE - 1) printf(", ");
-        }
-        printf("};\n");
-    }
-    printf("\n");
-    
-    // Print movement packets (one per line)
-    ESP_LOGI(TAG, "// Movement CSI packets (with human movement) - %zu packets", g_movement_capture_count);
-    for (size_t p = 0; p < g_movement_capture_count; p++) {
-        printf("static const int8_t real_movement_%u[128] = {", (unsigned int)p);
-        for (int i = 0; i < CSI_PACKET_SIZE; i++) {
-            printf("%d", g_captured_movement[p][i]);
-            if (i < CSI_PACKET_SIZE - 1) printf(", ");
-        }
-        printf("};\n");
-    }
-    
-    ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "");
 }

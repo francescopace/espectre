@@ -16,7 +16,7 @@ static const char *TAG = "Filters";
 // Pre-computed Savitzky-Golay coefficients (window=5, poly=2)
 static const float savgol_coeffs_5_2[] = {-0.0857f, 0.3429f, 0.4857f, 0.3429f, -0.0857f};
 
-// Comparison function for qsort
+// qsort comparator for float
 static int compare_float(const void *a, const void *b) {
     float fa = *(const float*)a;
     float fb = *(const float*)b;

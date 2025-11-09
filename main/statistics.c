@@ -13,7 +13,7 @@
 
 static const char *TAG = "Statistics";
 
-// Comparison function for qsort
+// qsort comparator for float
 static int compare_float(const void *a, const void *b) {
     float fa = *(const float*)a;
     float fb = *(const float*)b;

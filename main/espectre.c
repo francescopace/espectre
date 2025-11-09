@@ -60,10 +60,8 @@
 
 static const char *TAG = "ESPectre";
 
-// Global MQTT response topic
 static const char *g_response_topic = NULL;
 
-// Global state structure
 static struct {
     stats_buffer_t stats_buffer;
     
@@ -110,15 +108,15 @@ static void mqtt_command_callback(const char *data, int data_len) {
                          &g_state.mqtt_state, MQTT_TOPIC "/response");
 }
 
-static int64_t get_timestamp_ms(void) {
+static inline int64_t get_timestamp_ms(void) {
     return esp_timer_get_time() / 1000;
 }
 
-static int64_t get_timestamp_sec(void) {
+static inline int64_t get_timestamp_sec(void) {
     return esp_timer_get_time() / 1000000;
 }
 
-// Helper function to format progress bar with threshold marker (UTF-8 version)
+// Build UTF-8 progress bar with threshold marker
 static void format_progress_bar(char *buffer, size_t size, float score, float threshold) {
     const int bar_width = 20;
     int filled = (int)(score * bar_width);
@@ -154,11 +152,6 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
     
     if (csi_len < 10) {
         return;
-    }
-    
-    // Capture CSI data during calibration for debugging
-    if (calibration_is_active()) {
-        calibration_capture_csi(csi_data, csi_len);
     }
     
     // Protect g_state modifications with mutex (50ms timeout)

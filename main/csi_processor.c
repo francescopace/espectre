@@ -16,7 +16,7 @@ static const char *TAG = "CSI_Processor";
 // Numerical stability constant
 #define EPSILON_SMALL 1e-6f
 
-// Helper structure for calculating statistical moments in one pass
+// Statistical moments for single-pass calculation
 typedef struct {
     float mean;
     float m2;  // second moment (variance * n)
@@ -24,18 +24,18 @@ typedef struct {
     float m4;  // fourth moment
 } moments_t;
 
-// Static buffer for IQR calculation to avoid dynamic allocation
+// Reusable buffer for IQR sorting (avoids malloc in hot path)
 static int8_t iqr_sort_buffer[CSI_MAX_LENGTH];
 
-// Comparison functions for qsort
+// qsort comparator for int8_t
 static int compare_int8(const void *a, const void *b) {
     int8_t ia = *(const int8_t*)a;
     int8_t ib = *(const int8_t*)b;
     return (ia > ib) - (ia < ib);
 }
 
-// Helper to calculate mean for int8_t arrays
-static float calculate_mean_int8(const int8_t *data, size_t len) {
+// Fast mean calculation for CSI data
+static inline float calculate_mean_int8(const int8_t *data, size_t len) {
     if (len == 0) return 0.0f;
     
     float sum = 0.0f;
@@ -45,7 +45,7 @@ static float calculate_mean_int8(const int8_t *data, size_t len) {
     return sum / len;
 }
 
-// Helper to calculate moments (variance, skewness, kurtosis) in one pass
+// Single-pass calculation of variance, skewness, and kurtosis
 static moments_t calculate_moments(const int8_t *data, size_t len) {
     moments_t moments = {0};
     if (len == 0) return moments;

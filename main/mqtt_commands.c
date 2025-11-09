@@ -16,59 +16,124 @@
 
 static const char *TAG = "MQTT_Commands";
 
+// Parameter validation constants (THRESHOLD_MIN/MAX defined in calibration.h)
+#define HYSTERESIS_MIN          0.1f
+#define HYSTERESIS_MAX          1.0f
+#define VARIANCE_SCALE_MIN      100.0f
+#define VARIANCE_SCALE_MAX      2000.0f
+#define HAMPEL_THRESHOLD_MIN    1.0f
+#define HAMPEL_THRESHOLD_MAX    10.0f
+#define ALPHA_MIN               0.001f
+#define ALPHA_MAX               0.1f
+#define WAVELET_THRESHOLD_MIN   0.5f
+#define WAVELET_THRESHOLD_MAX   2.0f
+#define PERSISTENCE_MIN         1
+#define PERSISTENCE_MAX         30
+#define DEBOUNCE_MIN            1
+#define DEBOUNCE_MAX            10
+#define WAVELET_LEVEL_MIN       1
+#define WAVELET_LEVEL_MAX       3
+#define RESET_TIMEOUT_MAX       300
+#define TRAFFIC_RATE_MAX        50
+#define MIN_SAMPLES_ANALYZE     50
+#define DEFAULT_CALIBRATION_SAMPLES 1000
+#define FACTORY_RESET_THRESHOLD 0.43f
+
 // Global context for command handlers
 static mqtt_cmd_context_t *g_cmd_context = NULL;
 static mqtt_handler_state_t *g_mqtt_state = NULL;
 static const char *g_response_topic = NULL;
 
-// Helper function to validate float values
+// Check for NaN and Infinity to prevent calculation errors
 static bool is_valid_float(float value) {
     return !isnan(value) && !isinf(value);
 }
 
-// Helper to send response
+// Send MQTT response message to configured topic
 static void send_response(const char *message) {
     if (g_mqtt_state && g_response_topic) {
         mqtt_send_response(g_mqtt_state, message, g_response_topic);
     }
 }
 
-// Command: threshold
-static void cmd_threshold(cJSON *root) {
-    cJSON *value = cJSON_GetObjectItem(root, "value");
-    if (value && cJSON_IsNumber(value)) {
-        float new_threshold = (float)value->valuedouble;
-        if (!is_valid_float(new_threshold)) {
-            send_response("ERROR: Invalid value (NaN or Infinity)");
-            return;
-        }
-        if (new_threshold > 0.0f && new_threshold < 1.0f) {
-            float old_threshold = *g_cmd_context->threshold_high;
-            *g_cmd_context->threshold_high = new_threshold;
-            *g_cmd_context->threshold_low = new_threshold * g_cmd_context->config->hysteresis_ratio;
-            
-            char response[256];
-            snprintf(response, sizeof(response), 
-                     "Threshold updated: %.4f -> %.4f", old_threshold, new_threshold);
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            esp_err_t err = config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
-            if (err == ESP_OK) {
-                ESP_LOGI(TAG, "💾 Configuration saved to NVS");
-            } else {
-                ESP_LOGE(TAG, "❌ Failed to save configuration to NVS: %s", esp_err_to_name(err));
-            }
-        } else {
-            send_response("ERROR: Threshold must be between 0.0 and 1.0");
-        }
-    } else {
+// Extract and validate boolean parameter from JSON command
+static bool get_bool_param(cJSON *root, const char *key, bool *out_value) {
+    cJSON *item = cJSON_GetObjectItem(root, key);
+    if (item && cJSON_IsBool(item)) {
+        *out_value = cJSON_IsTrue(item);
+        return true;
+    }
+    send_response("ERROR: Missing or invalid 'enabled' field");
+    return false;
+}
+
+// Extract float parameter with range validation
+static bool get_float_param(cJSON *root, const char *key, float *out_value, 
+                           float min_val, float max_val, const char *error_msg) {
+    cJSON *item = cJSON_GetObjectItem(root, key);
+    if (!item || !cJSON_IsNumber(item)) {
         send_response("ERROR: Missing or invalid 'value' field");
+        return false;
+    }
+    
+    float value = (float)item->valuedouble;
+    if (!is_valid_float(value)) {
+        send_response("ERROR: Invalid value (NaN or Infinity)");
+        return false;
+    }
+    
+    if (value < min_val || value > max_val) {
+        send_response(error_msg);
+        return false;
+    }
+    
+    *out_value = value;
+    return true;
+}
+
+// Extract integer parameter with range validation
+static bool get_int_param(cJSON *root, const char *key, int *out_value,
+                         int min_val, int max_val, const char *error_msg) {
+    cJSON *item = cJSON_GetObjectItem(root, key);
+    if (!item || !cJSON_IsNumber(item)) {
+        send_response("ERROR: Missing or invalid 'value' field");
+        return false;
+    }
+    
+    int value = (int)item->valueint;
+    if (value < min_val || value > max_val) {
+        send_response(error_msg);
+        return false;
+    }
+    
+    *out_value = value;
+    return true;
+}
+
+static void cmd_threshold(cJSON *root) {
+    float new_threshold;
+    if (get_float_param(root, "value", &new_threshold, THRESHOLD_MIN, THRESHOLD_MAX,
+                       "ERROR: Threshold must be between 0.0 and 1.0")) {
+        float old_threshold = *g_cmd_context->threshold_high;
+        *g_cmd_context->threshold_high = new_threshold;
+        *g_cmd_context->threshold_low = new_threshold * g_cmd_context->config->hysteresis_ratio;
+        
+        char response[256];
+        snprintf(response, sizeof(response), 
+                 "Threshold updated: %.4f -> %.4f", old_threshold, new_threshold);
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        esp_err_t err = config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
+                         *g_cmd_context->threshold_low);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "💾 Configuration saved to NVS");
+        } else {
+            ESP_LOGE(TAG, "❌ Failed to save configuration to NVS: %s", esp_err_to_name(err));
+        }
     }
 }
 
-// Command: stats
 static void cmd_stats(cJSON *root) {
     stats_result_t result;
     stats_buffer_analyze(g_cmd_context->stats_buffer, &result);
@@ -89,7 +154,6 @@ static void cmd_stats(cJSON *root) {
     cJSON_Delete(response);
 }
 
-// Command: info
 static void cmd_info(cJSON *root) {
     cJSON *response = cJSON_CreateObject();
     
@@ -164,27 +228,24 @@ static void cmd_info(cJSON *root) {
     cJSON_Delete(response);
 }
 
-// Command: logs
 static void cmd_logs(cJSON *root) {
-    cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
-    if (enabled && cJSON_IsBool(enabled)) {
-        g_cmd_context->config->csi_logs_enabled = cJSON_IsTrue(enabled);
+    bool enabled;
+    if (get_bool_param(root, "enabled", &enabled)) {
+        g_cmd_context->config->csi_logs_enabled = enabled;
         char response[64];
         snprintf(response, sizeof(response), "CSI logs %s", 
-                 g_cmd_context->config->csi_logs_enabled ? "enabled" : "disabled");
+                 enabled ? "enabled" : "disabled");
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
-    } else {
-        send_response("ERROR: Missing or invalid 'enabled' field");
     }
 }
 
-// Command: analyze
 static void cmd_analyze(cJSON *root) {
-    if (g_cmd_context->stats_buffer->count < 50) {
+    if (g_cmd_context->stats_buffer->count < MIN_SAMPLES_ANALYZE) {
         char response[128];
         snprintf(response, sizeof(response), 
-                 "ERROR: Need at least 50 samples (have %lu)", 
+                 "ERROR: Need at least %d samples (have %lu)", 
+                 MIN_SAMPLES_ANALYZE,
                  (unsigned long)g_cmd_context->stats_buffer->count);
         send_response(response);
         return;
@@ -220,114 +281,78 @@ static void cmd_analyze(cJSON *root) {
     cJSON_Delete(response);
 }
 
-// Command: persistence
 static void cmd_persistence(cJSON *root) {
-    cJSON *value = cJSON_GetObjectItem(root, "value");
-    if (value && cJSON_IsNumber(value)) {
-        int new_timeout = (int)value->valueint;
-        if (new_timeout >= 1 && new_timeout <= 30) {
-            int old_timeout = g_cmd_context->config->persistence_timeout;
-            g_cmd_context->config->persistence_timeout = new_timeout;
-            
-            char response[128];
-            snprintf(response, sizeof(response), 
-                     "Persistence timeout updated: %d -> %d seconds", old_timeout, new_timeout);
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
-        } else {
-            send_response("ERROR: Persistence timeout must be between 1 and 30 seconds");
-        }
-    } else {
-        send_response("ERROR: Missing or invalid 'value' field");
+    int new_timeout;
+    if (get_int_param(root, "value", &new_timeout, PERSISTENCE_MIN, PERSISTENCE_MAX,
+                     "ERROR: Persistence timeout must be between 1 and 30 seconds")) {
+        int old_timeout = g_cmd_context->config->persistence_timeout;
+        g_cmd_context->config->persistence_timeout = new_timeout;
+        
+        char response[128];
+        snprintf(response, sizeof(response), 
+                 "Persistence timeout updated: %d -> %d seconds", old_timeout, new_timeout);
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
+                         *g_cmd_context->threshold_low);
     }
 }
 
-// Command: debounce
 static void cmd_debounce(cJSON *root) {
-    cJSON *value = cJSON_GetObjectItem(root, "value");
-    if (value && cJSON_IsNumber(value)) {
-        int new_debounce = (int)value->valueint;
-        if (new_debounce >= 1 && new_debounce <= 10) {
-            uint8_t old_debounce = g_cmd_context->config->debounce_count;
-            g_cmd_context->config->debounce_count = (uint8_t)new_debounce;
-            
-            char response[128];
-            snprintf(response, sizeof(response), 
-                     "Debounce count updated: %d -> %d", old_debounce, new_debounce);
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
-        } else {
-            send_response("ERROR: Debounce count must be between 1 and 10");
-        }
-    } else {
-        send_response("ERROR: Missing or invalid 'value' field");
+    int new_debounce;
+    if (get_int_param(root, "value", &new_debounce, DEBOUNCE_MIN, DEBOUNCE_MAX,
+                     "ERROR: Debounce count must be between 1 and 10")) {
+        uint8_t old_debounce = g_cmd_context->config->debounce_count;
+        g_cmd_context->config->debounce_count = (uint8_t)new_debounce;
+        
+        char response[128];
+        snprintf(response, sizeof(response), 
+                 "Debounce count updated: %d -> %d", old_debounce, new_debounce);
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
+                         *g_cmd_context->threshold_low);
     }
 }
 
-// Command: hysteresis
 static void cmd_hysteresis(cJSON *root) {
-    cJSON *value = cJSON_GetObjectItem(root, "value");
-    if (value && cJSON_IsNumber(value)) {
-        float new_ratio = (float)value->valuedouble;
-        if (!is_valid_float(new_ratio)) {
-            send_response("ERROR: Invalid value (NaN or Infinity)");
-            return;
-        }
-        if (new_ratio >= 0.1f && new_ratio <= 1.0f) {
-            float old_ratio = g_cmd_context->config->hysteresis_ratio;
-            g_cmd_context->config->hysteresis_ratio = new_ratio;
-            *g_cmd_context->threshold_low = *g_cmd_context->threshold_high * new_ratio;
-            
-            char response[256];
-            snprintf(response, sizeof(response), 
-                     "Hysteresis ratio updated: %.2f -> %.2f", old_ratio, new_ratio);
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
-        } else {
-            send_response("ERROR: Hysteresis ratio must be between 0.1 and 1.0");
-        }
-    } else {
-        send_response("ERROR: Missing or invalid 'value' field");
+    float new_ratio;
+    if (get_float_param(root, "value", &new_ratio, HYSTERESIS_MIN, HYSTERESIS_MAX,
+                       "ERROR: Hysteresis ratio must be between 0.1 and 1.0")) {
+        float old_ratio = g_cmd_context->config->hysteresis_ratio;
+        g_cmd_context->config->hysteresis_ratio = new_ratio;
+        *g_cmd_context->threshold_low = *g_cmd_context->threshold_high * new_ratio;
+        
+        char response[256];
+        snprintf(response, sizeof(response), 
+                 "Hysteresis ratio updated: %.2f -> %.2f", old_ratio, new_ratio);
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
+                         *g_cmd_context->threshold_low);
     }
 }
 
-// Command: variance_scale
 static void cmd_variance_scale(cJSON *root) {
-    cJSON *value = cJSON_GetObjectItem(root, "value");
-    if (value && cJSON_IsNumber(value)) {
-        float new_scale = (float)value->valuedouble;
-        if (!is_valid_float(new_scale)) {
-            send_response("ERROR: Invalid value (NaN or Infinity)");
-            return;
-        }
-        if (new_scale >= 100.0f && new_scale <= 2000.0f) {
-            float old_scale = g_cmd_context->config->variance_scale;
-            g_cmd_context->config->variance_scale = new_scale;
-            
-            char response[256];
-            snprintf(response, sizeof(response), 
-                     "Variance scale updated: %.0f -> %.0f (sensitivity %s)", 
-                     old_scale, new_scale,
-                     new_scale < old_scale ? "increased" : "decreased");
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
-        } else {
-            send_response("ERROR: Variance scale must be between 100 and 2000");
-        }
-    } else {
-        send_response("ERROR: Missing or invalid 'value' field");
+    float new_scale;
+    if (get_float_param(root, "value", &new_scale, VARIANCE_SCALE_MIN, VARIANCE_SCALE_MAX,
+                       "ERROR: Variance scale must be between 100 and 2000")) {
+        float old_scale = g_cmd_context->config->variance_scale;
+        g_cmd_context->config->variance_scale = new_scale;
+        
+        char response[256];
+        snprintf(response, sizeof(response), 
+                 "Variance scale updated: %.0f -> %.0f (sensitivity %s)", 
+                 old_scale, new_scale,
+                 new_scale < old_scale ? "increased" : "decreased");
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
+                         *g_cmd_context->threshold_low);
     }
 }
 
@@ -361,7 +386,6 @@ static void add_feature_to_response(cJSON *response, const char *name, uint8_t f
     cJSON_AddItemToObject(response, name, feat_obj);
 }
 
-// Command: features
 static void cmd_features(cJSON *root) {
     cJSON *response = cJSON_CreateObject();
     
@@ -410,108 +434,84 @@ static void cmd_features(cJSON *root) {
     cJSON_Delete(response);
 }
 
-// Command: hampel_filter
 static void cmd_hampel_filter(cJSON *root) {
-    cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
-    if (enabled && cJSON_IsBool(enabled)) {
-        g_cmd_context->config->hampel_filter_enabled = cJSON_IsTrue(enabled);
+    bool enabled;
+    if (get_bool_param(root, "enabled", &enabled)) {
+        g_cmd_context->config->hampel_filter_enabled = enabled;
         char response[64];
         snprintf(response, sizeof(response), "Hampel filter %s", 
-                 g_cmd_context->config->hampel_filter_enabled ? "enabled" : "disabled");
+                 enabled ? "enabled" : "disabled");
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
                          *g_cmd_context->threshold_low);
-    } else {
-        send_response("ERROR: Missing or invalid 'enabled' field");
     }
 }
 
-// Command: hampel_threshold
 static void cmd_hampel_threshold(cJSON *root) {
-    cJSON *value = cJSON_GetObjectItem(root, "value");
-    if (value && cJSON_IsNumber(value)) {
-        float new_threshold = (float)value->valuedouble;
-        if (!is_valid_float(new_threshold)) {
-            send_response("ERROR: Invalid value (NaN or Infinity)");
-            return;
-        }
-        if (new_threshold >= 1.0f && new_threshold <= 10.0f) {
-            float old_threshold = g_cmd_context->config->hampel_threshold;
-            g_cmd_context->config->hampel_threshold = new_threshold;
-            
-            char response[256];
-            snprintf(response, sizeof(response), 
-                     "Hampel threshold updated: %.1f -> %.1f", old_threshold, new_threshold);
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
-        } else {
-            send_response("ERROR: Hampel threshold must be between 1.0 and 10.0");
-        }
-    } else {
-        send_response("ERROR: Missing or invalid 'value' field");
+    float new_threshold;
+    if (get_float_param(root, "value", &new_threshold, HAMPEL_THRESHOLD_MIN, HAMPEL_THRESHOLD_MAX,
+                       "ERROR: Hampel threshold must be between 1.0 and 10.0")) {
+        float old_threshold = g_cmd_context->config->hampel_threshold;
+        g_cmd_context->config->hampel_threshold = new_threshold;
+        
+        char response[256];
+        snprintf(response, sizeof(response), 
+                 "Hampel threshold updated: %.1f -> %.1f", old_threshold, new_threshold);
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
+                         *g_cmd_context->threshold_low);
     }
 }
 
-// Command: savgol_filter
 static void cmd_savgol_filter(cJSON *root) {
-    cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
-    if (enabled && cJSON_IsBool(enabled)) {
-        g_cmd_context->config->savgol_filter_enabled = cJSON_IsTrue(enabled);
+    bool enabled;
+    if (get_bool_param(root, "enabled", &enabled)) {
+        g_cmd_context->config->savgol_filter_enabled = enabled;
         char response[64];
         snprintf(response, sizeof(response), "Savitzky-Golay filter %s", 
-                 g_cmd_context->config->savgol_filter_enabled ? "enabled" : "disabled");
+                 enabled ? "enabled" : "disabled");
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
                          *g_cmd_context->threshold_low);
-    } else {
-        send_response("ERROR: Missing or invalid 'enabled' field");
     }
 }
 
-// Command: butterworth_filter
 static void cmd_butterworth_filter(cJSON *root) {
-    cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
-    if (enabled && cJSON_IsBool(enabled)) {
-        g_cmd_context->config->butterworth_enabled = cJSON_IsTrue(enabled);
+    bool enabled;
+    if (get_bool_param(root, "enabled", &enabled)) {
+        g_cmd_context->config->butterworth_enabled = enabled;
         char response[64];
         snprintf(response, sizeof(response), "Butterworth filter %s", 
-                 g_cmd_context->config->butterworth_enabled ? "enabled" : "disabled");
+                 enabled ? "enabled" : "disabled");
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
                          *g_cmd_context->threshold_low);
-    } else {
-        send_response("ERROR: Missing or invalid 'enabled' field");
     }
 }
 
-// Command: smart_publishing
 static void cmd_smart_publishing(cJSON *root) {
-    cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
-    if (enabled && cJSON_IsBool(enabled)) {
-        g_cmd_context->config->smart_publishing_enabled = cJSON_IsTrue(enabled);
+    bool enabled;
+    if (get_bool_param(root, "enabled", &enabled)) {
+        g_cmd_context->config->smart_publishing_enabled = enabled;
         char response[128];
         snprintf(response, sizeof(response), "Smart publishing %s", 
-                 g_cmd_context->config->smart_publishing_enabled ? "enabled" : "disabled");
+                 enabled ? "enabled" : "disabled");
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
                          *g_cmd_context->threshold_low);
-    } else {
-        send_response("ERROR: Missing or invalid 'enabled' field");
     }
 }
 
-// Command: calibrate
 static void cmd_calibrate(cJSON *root) {
     cJSON *action = cJSON_GetObjectItem(root, "action");
     if (!action || !cJSON_IsString(action)) {
@@ -522,7 +522,7 @@ static void cmd_calibrate(cJSON *root) {
     const char *action_str = action->valuestring;
     
     if (strcmp(action_str, "start") == 0) {
-        int samples = 1000; // Default samples
+        int samples = DEFAULT_CALIBRATION_SAMPLES;
         cJSON *samples_obj = cJSON_GetObjectItem(root, "samples");
         if (samples_obj && cJSON_IsNumber(samples_obj)) {
             samples = (int)samples_obj->valueint;
@@ -608,64 +608,49 @@ static void cmd_calibrate(cJSON *root) {
     }
 }
 
-// Command: adaptive_normalizer
 static void cmd_adaptive_normalizer(cJSON *root) {
-    cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
-    if (enabled && cJSON_IsBool(enabled)) {
-        g_cmd_context->config->adaptive_normalizer_enabled = cJSON_IsTrue(enabled);
+    bool enabled;
+    if (get_bool_param(root, "enabled", &enabled)) {
+        g_cmd_context->config->adaptive_normalizer_enabled = enabled;
         char response[64];
         snprintf(response, sizeof(response), "Adaptive normalizer %s", 
-                 g_cmd_context->config->adaptive_normalizer_enabled ? "enabled" : "disabled");
+                 enabled ? "enabled" : "disabled");
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
                          *g_cmd_context->threshold_low);
-    } else {
-        send_response("ERROR: Missing or invalid 'enabled' field");
     }
 }
 
-// Command: adaptive_normalizer_alpha
 static void cmd_adaptive_normalizer_alpha(cJSON *root) {
-    cJSON *value = cJSON_GetObjectItem(root, "value");
-    if (value && cJSON_IsNumber(value)) {
-        float new_alpha = (float)value->valuedouble;
-        if (!is_valid_float(new_alpha)) {
-            send_response("ERROR: Invalid value (NaN or Infinity)");
-            return;
-        }
-        if (new_alpha >= 0.001f && new_alpha <= 0.1f) {
-            float old_alpha = g_cmd_context->config->adaptive_normalizer_alpha;
-            g_cmd_context->config->adaptive_normalizer_alpha = new_alpha;
-            
-            // Reinitialize normalizer with new alpha
-            adaptive_normalizer_init(g_cmd_context->normalizer, new_alpha);
-            
-            char response[256];
-            snprintf(response, sizeof(response), 
-                     "Adaptive normalizer alpha updated: %.4f -> %.4f (learning rate %s)", 
-                     old_alpha, new_alpha,
-                     new_alpha > old_alpha ? "increased" : "decreased");
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
-        } else {
-            send_response("ERROR: Alpha must be between 0.001 and 0.1");
-        }
-    } else {
-        send_response("ERROR: Missing or invalid 'value' field");
+    float new_alpha;
+    if (get_float_param(root, "value", &new_alpha, ALPHA_MIN, ALPHA_MAX,
+                       "ERROR: Alpha must be between 0.001 and 0.1")) {
+        float old_alpha = g_cmd_context->config->adaptive_normalizer_alpha;
+        g_cmd_context->config->adaptive_normalizer_alpha = new_alpha;
+        
+        // Reinitialize normalizer with new alpha
+        adaptive_normalizer_init(g_cmd_context->normalizer, new_alpha);
+        
+        char response[256];
+        snprintf(response, sizeof(response), 
+                 "Adaptive normalizer alpha updated: %.4f -> %.4f (learning rate %s)", 
+                 old_alpha, new_alpha,
+                 new_alpha > old_alpha ? "increased" : "decreased");
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
+                         *g_cmd_context->threshold_low);
     }
 }
 
-// Command: adaptive_normalizer_reset_timeout
 static void cmd_adaptive_normalizer_reset_timeout(cJSON *root) {
     cJSON *value = cJSON_GetObjectItem(root, "value");
     if (value && cJSON_IsNumber(value)) {
         uint32_t new_timeout = (uint32_t)value->valueint;
-        if (new_timeout <= 300) {
+        if (new_timeout <= RESET_TIMEOUT_MAX) {
             uint32_t old_timeout = g_cmd_context->config->adaptive_normalizer_reset_timeout_sec;
             g_cmd_context->config->adaptive_normalizer_reset_timeout_sec = new_timeout;
             
@@ -692,7 +677,6 @@ static void cmd_adaptive_normalizer_reset_timeout(cJSON *root) {
     }
 }
 
-// Command: adaptive_normalizer_stats
 static void cmd_adaptive_normalizer_stats(cJSON *root) {
     cJSON *response = cJSON_CreateObject();
     
@@ -716,12 +700,11 @@ static void cmd_adaptive_normalizer_stats(cJSON *root) {
     cJSON_Delete(response);
 }
 
-// Command: traffic_generator_rate
 static void cmd_traffic_generator_rate(cJSON *root) {
     cJSON *value = cJSON_GetObjectItem(root, "value");
     if (value && cJSON_IsNumber(value)) {
         uint32_t new_rate = (uint32_t)value->valueint;
-        if (new_rate <= 50) {  // 0-50 pps
+        if (new_rate <= TRAFFIC_RATE_MAX) {
             uint32_t old_rate = g_cmd_context->config->traffic_generator_rate;
             g_cmd_context->config->traffic_generator_rate = new_rate;
             
@@ -765,83 +748,61 @@ static void cmd_traffic_generator_rate(cJSON *root) {
     }
 }
 
-// Command: wavelet_filter
 static void cmd_wavelet_filter(cJSON *root) {
-    cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
-    if (enabled && cJSON_IsBool(enabled)) {
-        g_cmd_context->config->wavelet_enabled = cJSON_IsTrue(enabled);
+    bool enabled;
+    if (get_bool_param(root, "enabled", &enabled)) {
+        g_cmd_context->config->wavelet_enabled = enabled;
         char response[64];
         snprintf(response, sizeof(response), "Wavelet filter %s", 
-                 g_cmd_context->config->wavelet_enabled ? "enabled" : "disabled");
+                 enabled ? "enabled" : "disabled");
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
                          *g_cmd_context->threshold_low);
-    } else {
-        send_response("ERROR: Missing or invalid 'enabled' field");
     }
 }
 
-// Command: wavelet_level
 static void cmd_wavelet_level(cJSON *root) {
-    cJSON *value = cJSON_GetObjectItem(root, "value");
-    if (value && cJSON_IsNumber(value)) {
-        int new_level = (int)value->valueint;
-        if (new_level >= 1 && new_level <= 3) {
-            int old_level = g_cmd_context->config->wavelet_level;
-            g_cmd_context->config->wavelet_level = new_level;
-            
-            char response[256];
-            snprintf(response, sizeof(response), 
-                     "Wavelet decomposition level updated: %d -> %d (denoising %s)", 
-                     old_level, new_level,
-                     new_level > old_level ? "more aggressive" : "less aggressive");
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
-        } else {
-            send_response("ERROR: Wavelet level must be between 1 and 3 (recommended: 3)");
-        }
-    } else {
-        send_response("ERROR: Missing or invalid 'value' field");
+    int new_level;
+    if (get_int_param(root, "value", &new_level, WAVELET_LEVEL_MIN, WAVELET_LEVEL_MAX,
+                     "ERROR: Wavelet level must be between 1 and 3 (recommended: 3)")) {
+        int old_level = g_cmd_context->config->wavelet_level;
+        g_cmd_context->config->wavelet_level = new_level;
+        
+        char response[256];
+        snprintf(response, sizeof(response), 
+                 "Wavelet decomposition level updated: %d -> %d (denoising %s)", 
+                 old_level, new_level,
+                 new_level > old_level ? "more aggressive" : "less aggressive");
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
+                         *g_cmd_context->threshold_low);
     }
 }
 
-// Command: wavelet_threshold
 static void cmd_wavelet_threshold(cJSON *root) {
-    cJSON *value = cJSON_GetObjectItem(root, "value");
-    if (value && cJSON_IsNumber(value)) {
-        float new_threshold = (float)value->valuedouble;
-        if (!is_valid_float(new_threshold)) {
-            send_response("ERROR: Invalid value (NaN or Infinity)");
-            return;
-        }
-        if (new_threshold >= 0.5f && new_threshold <= 2.0f) {
-            float old_threshold = g_cmd_context->config->wavelet_threshold;
-            g_cmd_context->config->wavelet_threshold = new_threshold;
-            
-            char response[256];
-            snprintf(response, sizeof(response), 
-                     "Wavelet threshold updated: %.2f -> %.2f (noise removal %s)", 
-                     old_threshold, new_threshold,
-                     new_threshold > old_threshold ? "more aggressive" : "less aggressive");
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
-        } else {
-            send_response("ERROR: Wavelet threshold must be between 0.5 and 2.0 (recommended: 1.0)");
-        }
-    } else {
-        send_response("ERROR: Missing or invalid 'value' field");
+    float new_threshold;
+    if (get_float_param(root, "value", &new_threshold, WAVELET_THRESHOLD_MIN, WAVELET_THRESHOLD_MAX,
+                       "ERROR: Wavelet threshold must be between 0.5 and 2.0 (recommended: 1.0)")) {
+        float old_threshold = g_cmd_context->config->wavelet_threshold;
+        g_cmd_context->config->wavelet_threshold = new_threshold;
+        
+        char response[256];
+        snprintf(response, sizeof(response), 
+                 "Wavelet threshold updated: %.2f -> %.2f (noise removal %s)", 
+                 old_threshold, new_threshold,
+                 new_threshold > old_threshold ? "more aggressive" : "less aggressive");
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
+                         *g_cmd_context->threshold_low);
     }
 }
 
-// Command: factory_reset
 static void cmd_factory_reset(cJSON *root) {
     ESP_LOGW(TAG, "⚠️  Factory reset requested");
     
@@ -849,8 +810,8 @@ static void cmd_factory_reset(cJSON *root) {
     
     // Reset config to defaults
     config_init_defaults(g_cmd_context->config);
-    *g_cmd_context->threshold_high = 0.43f;
-    *g_cmd_context->threshold_low = 0.43f * g_cmd_context->config->hysteresis_ratio;
+    *g_cmd_context->threshold_high = FACTORY_RESET_THRESHOLD;
+    *g_cmd_context->threshold_low = FACTORY_RESET_THRESHOLD * g_cmd_context->config->hysteresis_ratio;
     
     calibration_init();
     

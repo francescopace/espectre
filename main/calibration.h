@@ -165,7 +165,4 @@ const float* calibration_get_feature_max(void);
 void calibration_force_phase(calibration_phase_t phase);
 void calibration_trigger_analysis(void);
 
-// CSI data capture (for debugging real calibration data)
-void calibration_capture_csi(const int8_t *csi_data, size_t csi_len);
-
 #endif // CALIBRATION_H

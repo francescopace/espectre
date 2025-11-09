@@ -30,7 +30,7 @@ void detection_engine_init(detection_engine_state_t *state) {
     state->confidence = 0.0f;
 }
 
-static float normalize_feature(float value, float min_val, float max_val) {
+static inline float normalize_feature(float value, float min_val, float max_val) {
     if (max_val - min_val < EPSILON_SMALL) return 0.0f;
     float normalized = (value - min_val) / (max_val - min_val);
     return fmaxf(0.0f, fminf(1.0f, normalized));
