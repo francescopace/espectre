@@ -153,6 +153,11 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         return;
     }
     
+    // Add CSI raw data to batch if streaming is enabled (before any processing)
+    if (calibration_is_raw_streaming_enabled()) {
+        calibration_add_csi_to_batch(csi_data);
+    }
+    
     // Protect g_state modifications with mutex (50ms timeout)
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         g_state.packets_received++;

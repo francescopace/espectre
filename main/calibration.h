@@ -118,7 +118,7 @@ typedef struct {
 void calibration_init(void);
 
 // Start calibration process (pass runtime_config_t pointer to save/restore filters, and normalizer to reset)
-bool calibration_start(int target_samples, void *config, void *normalizer);
+bool calibration_start(int target_samples, void *config, void *normalizer, bool save_raw);
 
 // Stop calibration process (pass runtime_config_t pointer to restore filters)
 void calibration_stop(void *config);
@@ -166,6 +166,10 @@ void calibration_get_filter_config(bool *butterworth, bool *wavelet, int *wavele
 // Get feature normalization ranges (for adaptive normalization in detection engine)
 const float* calibration_get_feature_min(void);
 const float* calibration_get_feature_max(void);
+
+// CSI raw data streaming (for dataset collection)
+void calibration_add_csi_to_batch(const int8_t *csi_raw);
+bool calibration_is_raw_streaming_enabled(void);
 
 // Test helpers (for unit testing only)
 void calibration_force_phase(calibration_phase_t phase);

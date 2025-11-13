@@ -21,7 +21,15 @@
 #define SAFETY_MARGIN       1.05f   // Safety margin for threshold calculation (5%)
 #define USE_MODIFIED_FISHER 1       // 1 = use Modified Fisher (sqrt), 0 = use standard Fisher
 
+// CSI raw data batch publishing
+#define MAX_CSI_BATCH       100     // Maximum CSI packets per batch mqtt
+
 static const char *TAG = "Calibration";
+
+// CSI raw data streaming state
+static bool g_raw_streaming_enabled = false;
+static int8_t g_csi_batch[MAX_CSI_BATCH][128];
+static uint32_t g_csi_batch_count = 0;
 
 // Global calibration state
 static calibration_state_t g_calib = {
@@ -521,6 +529,18 @@ static void analyze_and_select_features(void *config) {
     }
 }
 
+// CSI raw data streaming functions (forward declarations and implementations)
+
+// Flush remaining CSI data in batch (called at phase end)
+static void flush_csi_batch(void) {
+    if (g_csi_batch_count > 0 && g_raw_streaming_enabled) {
+        extern void mqtt_publish_csi_batch(const int8_t batch[][128], uint32_t count, calibration_phase_t phase);
+        mqtt_publish_csi_batch(g_csi_batch, g_csi_batch_count, g_calib.phase);
+        ESP_LOGI(TAG, "📡 Flushed remaining %u CSI packets from batch", (unsigned int)g_csi_batch_count);
+        g_csi_batch_count = 0;
+    }
+}
+
 // Initialize calibration system
 void calibration_init(void) {
     memset(&g_calib, 0, sizeof(g_calib));
@@ -532,7 +552,7 @@ void calibration_init(void) {
 }
 
 // Start calibration process
-bool calibration_start(int samples, void *config, void *normalizer) {
+bool calibration_start(int samples, void *config, void *normalizer, bool save_raw) {
     if (g_calib.phase != CALIB_IDLE) {
         ESP_LOGW(TAG, "Calibration already in progress");
         return false;
@@ -616,6 +636,14 @@ bool calibration_start(int samples, void *config, void *normalizer) {
     g_calib.traffic_rate = rate;
     g_calib.baseline_movement_target_samples = target_samples;
     
+    // Enable CSI raw streaming if requested
+    g_raw_streaming_enabled = save_raw;
+    g_csi_batch_count = 0;
+    
+    if (save_raw) {
+        ESP_LOGI(TAG, "📡 CSI raw data streaming enabled (batch size: %d packets)", MAX_CSI_BATCH);
+    }
+    
     // Start baseline phase
     g_calib.mode = CALIB_MODE_COLLECTING;
     g_calib.phase = CALIB_BASELINE;
@@ -633,6 +661,16 @@ bool calibration_start(int samples, void *config, void *normalizer) {
 void calibration_stop(void *config) {
     if (g_calib.phase == CALIB_IDLE) {
         return;
+    }
+    
+    // Flush remaining CSI data before stopping
+    flush_csi_batch();
+    
+    // Disable CSI raw streaming
+    if (g_raw_streaming_enabled) {
+        g_raw_streaming_enabled = false;
+        g_csi_batch_count = 0;
+        ESP_LOGI(TAG, "📡 CSI raw data streaming disabled");
     }
     
     // Restore original filter configuration if interrupted (if config provided)
@@ -696,6 +734,9 @@ void calibration_check_completion(void) {
                 return;
             }
             
+            // Flush remaining CSI data before changing phase
+            flush_csi_batch();
+            
             // Move to movement phase
             g_calib.phase = CALIB_MOVEMENT;
             g_calib.phase_target_samples = g_calib.baseline_movement_target_samples;
@@ -714,6 +755,9 @@ void calibration_check_completion(void) {
                          (unsigned int)g_calib.movement_stats[0].count, CALIBRATION_MIN_SAMPLES);
                 return;
             }
+            
+            // Flush remaining CSI data before analysis
+            flush_csi_batch();
             
             // Move to analysis phase
             g_calib.phase = CALIB_ANALYZING;
@@ -1017,4 +1061,27 @@ void calibration_force_phase(calibration_phase_t phase) {
 // Test helper: Trigger analysis manually (for unit testing only)
 void calibration_trigger_analysis(void) {
     analyze_and_select_features(g_config_ptr);
+}
+
+// Add CSI packet to batch and publish when full
+void calibration_add_csi_to_batch(const int8_t *csi_raw) {
+    if (!g_raw_streaming_enabled || !csi_raw) {
+        return;
+    }
+    
+    // Add to batch
+    memcpy(g_csi_batch[g_csi_batch_count], csi_raw, 128);
+    g_csi_batch_count++;
+    
+    // Publish when batch reaches MAX_CSI_BATCH (100 packets)
+    if (g_csi_batch_count >= MAX_CSI_BATCH) {
+        extern void mqtt_publish_csi_batch(const int8_t batch[][128], uint32_t count, calibration_phase_t phase);
+        mqtt_publish_csi_batch(g_csi_batch, g_csi_batch_count, g_calib.phase);
+        g_csi_batch_count = 0;
+    }
+}
+
+// Check if raw streaming is enabled
+bool calibration_is_raw_streaming_enabled(void) {
+    return g_raw_streaming_enabled;
 }

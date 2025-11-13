@@ -6,6 +6,55 @@ All notable changes to this project will be documented in this file.
 
 ## [1.2.0] - In Progress
 
+### ✨ Added - CSI Raw Data Collection
+
+**Dataset generation for testing and analysis**
+
+- **Calibration data export**: Extended `calibrate` command to save CSI raw data during calibration
+- **Batch publishing**: CSI packets sent in batches of 100 via MQTT (every ~5-7 seconds @ 15-20 pps)
+- **Automatic flush**: Remaining packets published at phase end (no data loss)
+- **CLI integration**: `calibrate start [samples] [save_dir]` saves data to local files
+- **Ready-to-use format**: Generates `.h` files compatible with `test_app/main/`
+- **Real-time monitoring**: Progress display during collection
+- **Dual output**: Separate files for baseline and movement phases
+
+**Usage:**
+```bash
+espectre> calibrate start 1000 ./my_dataset
+# Generates:
+# - ./my_dataset/baseline_csi_data.h (1000 samples)
+# - ./my_dataset/movement_csi_data.h (1000 samples)
+```
+
+**Implementation:**
+- New MQTT topic: `home/espectre/node1/csi_raw`
+- Batch format: JSON with phase, count, and samples array
+- Zero memory overhead on ESP32 (streaming architecture)
+- Bandwidth: ~3-15 KB per batch (manageable even at high traffic rates)
+
+### 🚀 Improved - Traffic Generator
+
+**Reliable CSI packet generation with bidirectional traffic**
+
+- **ICMP ping-based**: Replaced UDP broadcast with ICMP Echo Request/Reply
+- **ESP-IDF ping component**: Uses official `ping/ping_sock.h` API
+- **Bidirectional traffic**: Guaranteed request + reply for CSI generation
+- **Auto-discovery**: Automatically targets WiFi gateway
+- **Robust implementation**: Thread-safe, tested, maintained by Espressif
+- **Statistics**: Success/timeout tracking with callbacks
+
+**Benefits:**
+- ✅ Reliable CSI packet generation on every ping reply
+- ✅ No external dependencies (uses gateway)
+- ✅ Simpler code (~200 lines vs manual ICMP implementation)
+- ✅ Better error handling and logging
+
+**Technical details:**
+- Previous: UDP broadcast (no reply, unreliable CSI generation)
+- Current: ICMP ping to gateway (bidirectional, reliable CSI on reply)
+- Configurable rate: 1-50 pps
+- Automatic gateway IP discovery from network interface
+
 ### ✨ Added - Temporal Features
 
 **Enhanced feature set: Expanded from 8 to 10 features**

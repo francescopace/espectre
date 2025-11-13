@@ -20,6 +20,10 @@ static const char *TAG = "MQTT_Handler";
 static void (*g_command_callback)(const char *data, int data_len) = NULL;
 static const char *g_cmd_topic = NULL;
 
+// Global MQTT client handle and base topic for CSI batch publishing
+static esp_mqtt_client_handle_t g_mqtt_client = NULL;
+static const char *g_base_topic = NULL;
+
 // MQTT event handler
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                int32_t event_id, void *event_data) {
@@ -73,6 +77,9 @@ int mqtt_handler_init(mqtt_handler_state_t *state, const mqtt_config_t *config) 
     // Store command topic for subscription
     g_cmd_topic = config->cmd_topic;
     
+    // Store base topic and client handle for CSI batch publishing
+    g_base_topic = config->base_topic;
+    
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = config->broker_uri,
     };
@@ -90,6 +97,9 @@ int mqtt_handler_init(mqtt_handler_state_t *state, const mqtt_config_t *config) 
         ESP_LOGE(TAG, "Failed to initialize MQTT client");
         return -1;
     }
+    
+    // Store client handle globally for CSI batch publishing
+    g_mqtt_client = state->client;
     
     // Register event handler
     ESP_ERROR_CHECK(esp_mqtt_client_register_event(state->client, ESP_EVENT_ANY_ID, 
@@ -435,4 +445,64 @@ void mqtt_get_publish_stats(const mqtt_handler_state_t *state,
 
 void mqtt_handler_set_command_callback(void (*callback)(const char *data, int data_len)) {
     g_command_callback = callback;
+}
+
+void mqtt_publish_csi_batch(const int8_t batch[][128], uint32_t count, uint8_t phase) {
+    if (!batch || count == 0) {
+        return;
+    }
+    
+    if (!g_mqtt_client || !g_base_topic) {
+        ESP_LOGW(TAG, "MQTT client not initialized");
+        return;
+    }
+    
+    // Build topic: base_topic/csi_raw
+    char csi_topic[144];
+    snprintf(csi_topic, sizeof(csi_topic), "%s/csi_raw", g_base_topic);
+    
+    // Create JSON message
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        ESP_LOGE(TAG, "Failed to create JSON object for CSI batch");
+        return;
+    }
+    
+    // Add phase
+    const char *phase_names[] = {"IDLE", "BASELINE", "MOVEMENT", "ANALYZING"};
+    const char *phase_str = (phase < 4) ? phase_names[phase] : "UNKNOWN";
+    cJSON_AddStringToObject(root, "phase", phase_str);
+    
+    // Add batch count
+    cJSON_AddNumberToObject(root, "count", (double)count);
+    
+    // Add samples array
+    cJSON *samples = cJSON_CreateArray();
+    for (uint32_t i = 0; i < count; i++) {
+        cJSON *sample = cJSON_CreateObject();
+        cJSON_AddNumberToObject(sample, "id", (double)i);
+        
+        // Create CSI data array
+        cJSON *csi_array = cJSON_CreateIntArray((const int*)batch[i], 128);
+        cJSON_AddItemToObject(sample, "csi", csi_array);
+        
+        cJSON_AddItemToArray(samples, sample);
+    }
+    cJSON_AddItemToObject(root, "samples", samples);
+    
+    // Publish
+    char *json_str = cJSON_PrintUnformatted(root);
+    if (json_str) {
+        int msg_id = esp_mqtt_client_publish(g_mqtt_client, csi_topic, json_str, 0, 0, 0);
+        free(json_str);
+        
+        if (msg_id >= 0) {
+            ESP_LOGD(TAG, "📡 Published CSI batch: %lu packets (phase: %s)", 
+                     (unsigned long)count, phase_str);
+        } else {
+            ESP_LOGW(TAG, "Failed to publish CSI batch");
+        }
+    }
+    
+    cJSON_Delete(root);
 }

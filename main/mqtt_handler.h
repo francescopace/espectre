@@ -184,4 +184,13 @@ void mqtt_get_publish_stats(const mqtt_handler_state_t *state,
  */
 void mqtt_handler_set_command_callback(void (*callback)(const char *data, int data_len));
 
+/**
+ * Publish CSI raw data batch
+ * 
+ * @param batch Array of CSI packets (100 packets x 128 bytes)
+ * @param count Number of packets in batch
+ * @param phase Current calibration phase
+ */
+void mqtt_publish_csi_batch(const int8_t batch[][128], uint32_t count, uint8_t phase);
+
 #endif // MQTT_HANDLER_H

@@ -541,10 +541,22 @@ static void cmd_calibrate(cJSON *root) {
             samples = (int)samples_obj->valueint;
         }
         
-        if (calibration_start(samples, g_cmd_context->config, g_cmd_context->normalizer)) {
+        // Check for optional save_raw parameter
+        bool save_raw = false;
+        cJSON *save_raw_obj = cJSON_GetObjectItem(root, "save_raw");
+        if (save_raw_obj && cJSON_IsBool(save_raw_obj)) {
+            save_raw = cJSON_IsTrue(save_raw_obj);
+        }
+        
+        if (calibration_start(samples, g_cmd_context->config, g_cmd_context->normalizer, save_raw)) {
             char response[128];
-            snprintf(response, sizeof(response), 
-                     "Calibration started (%d samples per phase)", samples);
+            if (save_raw) {
+                snprintf(response, sizeof(response), 
+                         "Calibration started (%d samples per phase, CSI raw streaming enabled)", samples);
+            } else {
+                snprintf(response, sizeof(response), 
+                         "Calibration started (%d samples per phase)", samples);
+            }
             send_response(response);
         } else {
             send_response("ERROR: Failed to start calibration (already in progress?)");
