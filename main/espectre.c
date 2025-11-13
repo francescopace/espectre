@@ -264,15 +264,15 @@ static void csi_init(void) {
         .htltf_en = true,
         .stbc_htltf2_en = true,
         .ltf_merge_en = true,
-        .channel_filter_en = true,
+        .channel_filter_en = false,  // Disabled to receive ALL subcarriers (64 instead of 52)
         .manu_scale = false,
     };
     
     ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
     ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(csi_callback, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_csi(true));
-    
-    ESP_LOGI(TAG, "CSI initialized and enabled");
+    // Enable promiscuous mode to receive CSI from ALL WiFi packets (not just connected AP)
+    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
 }
 
 static void mqtt_publish_task(void *pvParameters) {

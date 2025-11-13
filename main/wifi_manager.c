@@ -104,6 +104,9 @@ bool wifi_manager_is_connected(const wifi_manager_state_t *state) {
 void wifi_manager_cleanup(wifi_manager_state_t *state) {
     if (state) {
         if (state->initialized) {
+            // Disable promiscuous mode before stopping WiFi
+            esp_wifi_set_promiscuous(false);
+            esp_wifi_set_csi(false);
             esp_wifi_stop();
             esp_wifi_deinit();
         }

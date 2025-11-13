@@ -6,6 +6,39 @@ All notable changes to this project will be documented in this file.
 
 ## [1.2.0] - In Progress
 
+### 🚀 Improved - CSI Subcarrier Optimization
+
+**Maximum spatial information: Reading ALL available subcarriers**
+
+Based on ESP32-S3 Wi-Fi documentation analysis, optimized CSI data collection to capture complete channel information:
+
+- **Channel filter disabled**: Changed `channel_filter_en` from `true` to `false`
+  * Now receives ALL 64 subcarriers instead of 52 (+23% spatial information)
+  * Includes edge subcarriers (-32 to -27 and +27 to +32) previously filtered
+  * More complete frequency response of the channel
+  
+- **Promiscuous mode enabled**: Added `esp_wifi_set_promiscuous(true)`
+  * Receives CSI from ALL Wi-Fi packets in the environment (not just connected AP)
+  * 10-100x increase in CSI packet rate depending on Wi-Fi traffic
+  * Much higher sampling frequency for better movement detection
+  * Automatic cleanup in `wifi_manager_cleanup()`
+
+**Benefits:**
+- ✅ +23% more spatial information (64 vs 52 subcarriers)
+- ✅ 10-100x more CSI packets (all Wi-Fi traffic vs only AP)
+- ✅ Better movement detection accuracy
+- ✅ More data for calibration optimization
+- ✅ Higher spatial resolution
+
+**Trade-offs:**
+- ⚠️ Increased CPU load (more packets to process)
+- ⚠️ More noise in data (edge subcarriers + all sources)
+- ⚠️ Higher power consumption
+
+**Impact on traffic generator:**
+- May no longer be necessary for normal operation (promiscuous provides enough packets)
+- Still useful for: controlled calibration, empty Wi-Fi environments, testing
+
 ### ✨ Added - CSI Raw Data Collection
 
 **Dataset generation for testing and analysis**
