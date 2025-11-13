@@ -6,6 +6,37 @@ All notable changes to this project will be documented in this file.
 
 ## [1.2.0] - In Progress
 
+### 🔧 Refactored - Code Optimization
+
+**Reduced codebase by ~280 lines through component consolidation and algorithm improvements**
+
+- **Removed wifi_manager module** (~150 lines): Replaced with direct ESP-IDF API calls
+  * Uses `esp_wifi`, `esp_netif`, `esp_event` directly
+  * Less abstraction overhead, more maintainable
+  
+- **Optimized MQTT handler** (~80 lines): Created `mqtt_publish_json()` helper function
+  * Eliminates JSON serialization code duplication
+  * Centralized error handling
+  * Cleaner, more maintainable code
+
+- **Optimized statistics module** (~30 lines): Implemented quickselect algorithm
+  * Replaced malloc/free with static buffer for percentile calculations
+  * O(n) average time vs O(n log n) for sorting
+  * Zero heap allocations in hot path
+  * Better performance and reduced memory fragmentation
+
+- **Optimized config_manager** (~20 lines): Created helper functions for NVS conversion
+  * `config_to_nvs()` and `nvs_to_config()` eliminate code duplication
+  * Cleaner load/save operations
+  * Easier to maintain and extend
+
+**Benefits:**
+- ✅ ~280 lines of code removed
+- ✅ Better use of native ESP-IDF components
+- ✅ Improved performance (no malloc in percentile calculations)
+- ✅ Improved code maintainability
+- ✅ Same functionality, less complexity
+
 ### 🚀 Improved - CSI Subcarrier Optimization
 
 **Maximum spatial information: Reading ALL available subcarriers**

@@ -24,6 +24,24 @@ static const char *g_cmd_topic = NULL;
 static esp_mqtt_client_handle_t g_mqtt_client = NULL;
 static const char *g_base_topic = NULL;
 
+// Helper function to publish JSON object
+static int mqtt_publish_json(esp_mqtt_client_handle_t client, const char *topic, 
+                             cJSON *root, int qos, int retain) {
+    if (!client || !topic || !root) {
+        return -1;
+    }
+    
+    char *json_str = cJSON_PrintUnformatted(root);
+    if (!json_str) {
+        return -1;
+    }
+    
+    int msg_id = esp_mqtt_client_publish(client, topic, json_str, 0, qos, retain);
+    free(json_str);
+    
+    return (msg_id >= 0) ? 0 : -1;
+}
+
 // MQTT event handler
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                int32_t event_id, void *event_data) {
@@ -144,12 +162,7 @@ bool mqtt_handler_is_connected(const mqtt_handler_state_t *state) {
 int mqtt_publish_detection(mqtt_handler_state_t *state,
                            const detection_result_t *result,
                            const char *topic) {
-    if (!state || !result || !topic) {
-        ESP_LOGE(TAG, "mqtt_publish_detection: NULL pointer");
-        return -1;
-    }
-    
-    if (!state->connected) {
+    if (!state || !result || !topic || !state->connected) {
         return -1;
     }
     
@@ -164,20 +177,13 @@ int mqtt_publish_detection(mqtt_handler_state_t *state,
     cJSON_AddStringToObject(root, "state", detection_state_to_string(result->state));
     cJSON_AddNumberToObject(root, "timestamp", (double)result->timestamp);
     
-    char *json_str = cJSON_PrintUnformatted(root);
-    if (json_str) {
-        int msg_id = esp_mqtt_client_publish(state->client, topic, json_str, 0, 0, 0);
-        free(json_str);
-        cJSON_Delete(root);
-        
-        if (msg_id >= 0) {
-            state->publish_count++;
-            return 0;
-        }
-    }
-    
+    int ret = mqtt_publish_json(state->client, topic, root, 0, 0);
     cJSON_Delete(root);
-    return -1;
+    
+    if (ret == 0) {
+        state->publish_count++;
+    }
+    return ret;
 }
 
 int mqtt_publish_calibration_status(mqtt_handler_state_t *state,
@@ -186,12 +192,7 @@ int mqtt_publish_calibration_status(mqtt_handler_state_t *state,
                                     uint32_t samples_collected,
                                     uint32_t traffic_rate,
                                     const char *topic) {
-    if (!state || !topic) {
-        ESP_LOGE(TAG, "mqtt_publish_calibration_status: NULL pointer");
-        return -1;
-    }
-    
-    if (!state->connected) {
+    if (!state || !topic || !state->connected) {
         return -1;
     }
     
@@ -218,21 +219,14 @@ int mqtt_publish_calibration_status(mqtt_handler_state_t *state,
         cJSON_AddNumberToObject(root, "estimated_duration_sec", (double)estimated_sec);
     }
     
-    char *json_str = cJSON_PrintUnformatted(root);
-    if (json_str) {
-        int msg_id = esp_mqtt_client_publish(state->client, topic, json_str, 0, 0, 0);
-        free(json_str);
-        cJSON_Delete(root);
-        
-        if (msg_id >= 0) {
-            ESP_LOGD(TAG, "Published calibration status: phase=%s, target=%lu, collected=%lu", 
-                     phase_str, (unsigned long)phase_target_samples, (unsigned long)samples_collected);
-            return 0;
-        }
-    }
-    
+    int ret = mqtt_publish_json(state->client, topic, root, 0, 0);
     cJSON_Delete(root);
-    return -1;
+    
+    if (ret == 0) {
+        ESP_LOGD(TAG, "Published calibration status: phase=%s, target=%lu, collected=%lu", 
+                 phase_str, (unsigned long)phase_target_samples, (unsigned long)samples_collected);
+    }
+    return ret;
 }
 
 int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
@@ -325,20 +319,13 @@ int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
     }
     cJSON_AddItemToObject(root, "warnings", warnings);
     
-    char *json_str = cJSON_PrintUnformatted(root);
-    if (json_str) {
-        int msg_id = esp_mqtt_client_publish(state->client, topic, json_str, 0, 0, 0);
-        free(json_str);
-        cJSON_Delete(root);
-        
-        if (msg_id >= 0) {
-            ESP_LOGI(TAG, "📊 Published calibration complete recap");
-            return 0;
-        }
-    }
-    
+    int ret = mqtt_publish_json(state->client, topic, root, 0, 0);
     cJSON_Delete(root);
-    return -1;
+    
+    if (ret == 0) {
+        ESP_LOGI(TAG, "📊 Published calibration complete recap");
+    }
+    return ret;
 }
 
 int mqtt_send_response(mqtt_handler_state_t *state,
@@ -372,16 +359,9 @@ int mqtt_send_response(mqtt_handler_state_t *state,
     
     cJSON_AddStringToObject(root, "response", message);
     
-    char *json_str = cJSON_PrintUnformatted(root);
-    if (json_str) {
-        int msg_id = esp_mqtt_client_publish(state->client, response_topic, json_str, 0, 1, 0);
-        free(json_str);
-        cJSON_Delete(root);
-        return (msg_id >= 0) ? 0 : -1;
-    }
-    
+    int ret = mqtt_publish_json(state->client, response_topic, root, 1, 0);
     cJSON_Delete(root);
-    return -1;
+    return ret;
 }
 
 bool mqtt_should_publish(mqtt_handler_state_t *state,
@@ -491,18 +471,13 @@ void mqtt_publish_csi_batch(const int8_t batch[][128], uint32_t count, uint8_t p
     cJSON_AddItemToObject(root, "samples", samples);
     
     // Publish
-    char *json_str = cJSON_PrintUnformatted(root);
-    if (json_str) {
-        int msg_id = esp_mqtt_client_publish(g_mqtt_client, csi_topic, json_str, 0, 0, 0);
-        free(json_str);
-        
-        if (msg_id >= 0) {
-            ESP_LOGD(TAG, "📡 Published CSI batch: %lu packets (phase: %s)", 
-                     (unsigned long)count, phase_str);
-        } else {
-            ESP_LOGW(TAG, "Failed to publish CSI batch");
-        }
-    }
-    
+    int ret = mqtt_publish_json(g_mqtt_client, csi_topic, root, 0, 0);
     cJSON_Delete(root);
+    
+    if (ret == 0) {
+        ESP_LOGD(TAG, "📡 Published CSI batch: %lu packets (phase: %s)", 
+                 (unsigned long)count, phase_str);
+    } else {
+        ESP_LOGW(TAG, "Failed to publish CSI batch");
+    }
 }

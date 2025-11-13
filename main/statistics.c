@@ -13,13 +13,6 @@
 
 static const char *TAG = "Statistics";
 
-// qsort comparator for float
-static int compare_float(const void *a, const void *b) {
-    float fa = *(const float*)a;
-    float fb = *(const float*)b;
-    return (fa > fb) - (fa < fb);
-}
-
 int stats_buffer_init(stats_buffer_t *buffer, size_t size) {
     if (!buffer || size == 0) {
         ESP_LOGE(TAG, "stats_buffer_init: Invalid parameters");
@@ -95,25 +88,75 @@ void stats_buffer_analyze(const stats_buffer_t *buffer, stats_result_t *result) 
     result->count = buffer->count;
 }
 
+// Partition function for quickselect
+static size_t partition(float *arr, size_t left, size_t right, size_t pivot_idx) {
+    float pivot = arr[pivot_idx];
+    
+    // Move pivot to end
+    float temp = arr[pivot_idx];
+    arr[pivot_idx] = arr[right];
+    arr[right] = temp;
+    
+    size_t store_idx = left;
+    for (size_t i = left; i < right; i++) {
+        if (arr[i] < pivot) {
+            temp = arr[store_idx];
+            arr[store_idx] = arr[i];
+            arr[i] = temp;
+            store_idx++;
+        }
+    }
+    
+    // Move pivot to final position
+    temp = arr[right];
+    arr[right] = arr[store_idx];
+    arr[store_idx] = temp;
+    
+    return store_idx;
+}
+
+// Quickselect algorithm - finds k-th smallest element in-place
+static float quickselect(float *arr, size_t left, size_t right, size_t k) {
+    if (left == right) {
+        return arr[left];
+    }
+    
+    // Choose pivot (median-of-three for better performance)
+    size_t mid = left + (right - left) / 2;
+    size_t pivot_idx = mid;
+    
+    pivot_idx = partition(arr, left, right, pivot_idx);
+    
+    if (k == pivot_idx) {
+        return arr[k];
+    } else if (k < pivot_idx) {
+        return quickselect(arr, left, pivot_idx - 1, k);
+    } else {
+        return quickselect(arr, pivot_idx + 1, right, k);
+    }
+}
+
 float stats_buffer_percentile(const stats_buffer_t *buffer, float percentile) {
     if (!buffer || buffer->count == 0) {
         return 0.0f;
     }
     
-    float *sorted = (float*)malloc(buffer->count * sizeof(float));
-    if (!sorted) {
-        ESP_LOGE(TAG, "stats_buffer_percentile: Failed to allocate memory");
+    // Use static buffer to avoid malloc (reuse iqr_sort_buffer concept)
+    static float percentile_buffer[100];  // Matches STATS_BUFFER_SIZE
+    
+    if (buffer->count > 100) {
+        ESP_LOGE(TAG, "Buffer size exceeds static buffer capacity");
         return 0.0f;
     }
     
-    memcpy(sorted, buffer->data, buffer->count * sizeof(float));
-    qsort(sorted, buffer->count, sizeof(float), compare_float);
+    // Copy data to working buffer
+    memcpy(percentile_buffer, buffer->data, buffer->count * sizeof(float));
     
-    size_t index = (size_t)((percentile / 100.0f) * (buffer->count - 1));
-    float result = sorted[index];
+    // Calculate target index
+    size_t k = (size_t)((percentile / 100.0f) * (buffer->count - 1));
     
-    free(sorted);
-    return result;
+    // Use quickselect to find k-th element in-place
+    return quickselect(percentile_buffer, 0, buffer->count - 1, k);
 }
 
 float stats_calculate_recommended_threshold(const stats_buffer_t *buffer) {

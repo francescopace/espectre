@@ -21,6 +21,54 @@ static const char *TAG = "Config_Manager";
 #define DEFAULT_HAMPEL_THRESHOLD 3.0f     // Increased from 2.0 for better outlier tolerance
 #define DEFAULT_SAVGOL_WINDOW 5
 
+// Helper: Copy runtime config to NVS structure
+static inline void config_to_nvs(nvs_config_data_t *nvs_cfg, const runtime_config_t *config,
+                                 float threshold_high, float threshold_low) {
+    nvs_cfg->version = NVS_CONFIG_VERSION;
+    nvs_cfg->threshold_high = threshold_high;
+    nvs_cfg->threshold_low = threshold_low;
+    nvs_cfg->debounce_count = config->debounce_count;
+    nvs_cfg->hysteresis_ratio = config->hysteresis_ratio;
+    nvs_cfg->persistence_timeout = config->persistence_timeout;
+    nvs_cfg->variance_scale = config->variance_scale;
+    memcpy(nvs_cfg->feature_weights, config->feature_weights, sizeof(config->feature_weights));
+    nvs_cfg->hampel_filter_enabled = config->hampel_filter_enabled;
+    nvs_cfg->hampel_threshold = config->hampel_threshold;
+    nvs_cfg->savgol_filter_enabled = config->savgol_filter_enabled;
+    nvs_cfg->savgol_window_size = config->savgol_window_size;
+    nvs_cfg->butterworth_enabled = config->butterworth_enabled;
+    nvs_cfg->wavelet_enabled = config->wavelet_enabled;
+    nvs_cfg->wavelet_level = config->wavelet_level;
+    nvs_cfg->wavelet_threshold = config->wavelet_threshold;
+    nvs_cfg->csi_logs_enabled = config->csi_logs_enabled;
+    nvs_cfg->adaptive_normalizer_enabled = config->adaptive_normalizer_enabled;
+    nvs_cfg->adaptive_normalizer_alpha = config->adaptive_normalizer_alpha;
+    nvs_cfg->adaptive_normalizer_reset_timeout_sec = config->adaptive_normalizer_reset_timeout_sec;
+    nvs_cfg->traffic_generator_rate = config->traffic_generator_rate;
+}
+
+// Helper: Copy NVS structure to runtime config
+static inline void nvs_to_config(runtime_config_t *config, const nvs_config_data_t *nvs_cfg) {
+    config->debounce_count = nvs_cfg->debounce_count;
+    config->hysteresis_ratio = nvs_cfg->hysteresis_ratio;
+    config->persistence_timeout = nvs_cfg->persistence_timeout;
+    config->variance_scale = nvs_cfg->variance_scale;
+    memcpy(config->feature_weights, nvs_cfg->feature_weights, sizeof(config->feature_weights));
+    config->hampel_filter_enabled = nvs_cfg->hampel_filter_enabled;
+    config->hampel_threshold = nvs_cfg->hampel_threshold;
+    config->savgol_filter_enabled = nvs_cfg->savgol_filter_enabled;
+    config->savgol_window_size = nvs_cfg->savgol_window_size;
+    config->butterworth_enabled = nvs_cfg->butterworth_enabled;
+    config->wavelet_enabled = nvs_cfg->wavelet_enabled;
+    config->wavelet_level = nvs_cfg->wavelet_level;
+    config->wavelet_threshold = nvs_cfg->wavelet_threshold;
+    config->csi_logs_enabled = nvs_cfg->csi_logs_enabled;
+    config->adaptive_normalizer_enabled = nvs_cfg->adaptive_normalizer_enabled;
+    config->adaptive_normalizer_alpha = nvs_cfg->adaptive_normalizer_alpha;
+    config->adaptive_normalizer_reset_timeout_sec = nvs_cfg->adaptive_normalizer_reset_timeout_sec;
+    config->traffic_generator_rate = nvs_cfg->traffic_generator_rate;
+}
+
 void config_init_defaults(runtime_config_t *config) {
     if (!config) {
         ESP_LOGE(TAG, "config_init_defaults: NULL pointer");
@@ -126,31 +174,8 @@ esp_err_t config_load_from_nvs(runtime_config_t *config, const nvs_config_data_t
         cfg_to_use = &local_nvs_cfg;
     }
     
-    // Convert NVS data to runtime config
-    config->debounce_count = cfg_to_use->debounce_count;
-    config->hysteresis_ratio = cfg_to_use->hysteresis_ratio;
-    config->persistence_timeout = cfg_to_use->persistence_timeout;
-    config->variance_scale = cfg_to_use->variance_scale;
-    
-    // Load feature weights array from NVS
-    memcpy(config->feature_weights, cfg_to_use->feature_weights, sizeof(config->feature_weights));
-    
-    config->hampel_filter_enabled = cfg_to_use->hampel_filter_enabled;
-    config->hampel_threshold = cfg_to_use->hampel_threshold;
-    config->savgol_filter_enabled = cfg_to_use->savgol_filter_enabled;
-    config->savgol_window_size = cfg_to_use->savgol_window_size;
-    config->butterworth_enabled = cfg_to_use->butterworth_enabled;
-    
-    // Load wavelet settings from NVS
-    config->wavelet_enabled = cfg_to_use->wavelet_enabled;
-    config->wavelet_level = cfg_to_use->wavelet_level;
-    config->wavelet_threshold = cfg_to_use->wavelet_threshold;
-    
-    config->csi_logs_enabled = cfg_to_use->csi_logs_enabled;
-    config->adaptive_normalizer_enabled = cfg_to_use->adaptive_normalizer_enabled;
-    config->adaptive_normalizer_alpha = cfg_to_use->adaptive_normalizer_alpha;
-    config->adaptive_normalizer_reset_timeout_sec = cfg_to_use->adaptive_normalizer_reset_timeout_sec;
-    config->traffic_generator_rate = cfg_to_use->traffic_generator_rate;
+    // Use helper to convert NVS to runtime config
+    nvs_to_config(config, cfg_to_use);
     
     return ESP_OK;
 }
@@ -163,33 +188,9 @@ esp_err_t config_save_to_nvs(const runtime_config_t *config,
     }
     
     nvs_config_data_t nvs_cfg;
-    nvs_cfg.version = NVS_CONFIG_VERSION;
-    nvs_cfg.threshold_high = threshold_high;
-    nvs_cfg.threshold_low = threshold_low;
-    nvs_cfg.debounce_count = config->debounce_count;
-    nvs_cfg.hysteresis_ratio = config->hysteresis_ratio;
-    nvs_cfg.persistence_timeout = config->persistence_timeout;
-    nvs_cfg.variance_scale = config->variance_scale;
     
-    // Save feature weights array to NVS
-    memcpy(nvs_cfg.feature_weights, config->feature_weights, sizeof(config->feature_weights));
-    
-    nvs_cfg.hampel_filter_enabled = config->hampel_filter_enabled;
-    nvs_cfg.hampel_threshold = config->hampel_threshold;
-    nvs_cfg.savgol_filter_enabled = config->savgol_filter_enabled;
-    nvs_cfg.savgol_window_size = config->savgol_window_size;
-    nvs_cfg.butterworth_enabled = config->butterworth_enabled;
-    
-    // Save wavelet settings to NVS
-    nvs_cfg.wavelet_enabled = config->wavelet_enabled;
-    nvs_cfg.wavelet_level = config->wavelet_level;
-    nvs_cfg.wavelet_threshold = config->wavelet_threshold;
-    
-    nvs_cfg.csi_logs_enabled = config->csi_logs_enabled;
-    nvs_cfg.adaptive_normalizer_enabled = config->adaptive_normalizer_enabled;
-    nvs_cfg.adaptive_normalizer_alpha = config->adaptive_normalizer_alpha;
-    nvs_cfg.adaptive_normalizer_reset_timeout_sec = config->adaptive_normalizer_reset_timeout_sec;
-    nvs_cfg.traffic_generator_rate = config->traffic_generator_rate;
+    // Use helper to convert runtime config to NVS
+    config_to_nvs(&nvs_cfg, config, threshold_high, threshold_low);
     
     return nvs_save_control_params(&nvs_cfg);
 }

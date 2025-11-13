@@ -31,10 +31,10 @@
 #include "detection_engine.h"
 #include "statistics.h"
 #include "config_manager.h"
-#include "wifi_manager.h"
 #include "mqtt_handler.h"
 #include "mqtt_commands.h"
 #include "traffic_generator.h"
+#include "esp_netif.h"
 
 // Configuration - can be overridden via menuconfig
 #define WIFI_SSID           CONFIG_WIFI_SSID
@@ -58,6 +58,10 @@ static const char *TAG = "ESPectre";
 
 static const char *g_response_topic = NULL;
 
+// WiFi event group
+static EventGroupHandle_t s_wifi_event_group = NULL;
+#define WIFI_CONNECTED_BIT BIT0
+
 static struct {
     stats_buffer_t stats_buffer;
     
@@ -77,9 +81,11 @@ static struct {
     csi_features_t current_features;
     
     // Module instances
-    wifi_manager_state_t wifi_state;
     mqtt_handler_state_t mqtt_state;
     runtime_config_t config;
+    
+    // WiFi state
+    bool wifi_connected;
     
 } g_state = {0};
 
@@ -100,6 +106,27 @@ static mqtt_cmd_context_t g_mqtt_cmd_context = {0};
 
 // Array of all 10 feature indices (for default mode without calibration)
 static const uint8_t g_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+// WiFi event handler
+static void wifi_event_handler(void* arg, esp_event_base_t event_base,
+                               int32_t event_id, void* event_data) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        ESP_LOGI(TAG, "WiFi STA started, attempting connection...");
+        esp_wifi_connect();
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t* disconnected = (wifi_event_sta_disconnected_t*) event_data;
+        ESP_LOGW(TAG, "WiFi disconnected, reason: %d, reconnecting...", disconnected->reason);
+        g_state.wifi_connected = false;
+        esp_wifi_connect();
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        ESP_LOGI(TAG, "WiFi connected, got IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        g_state.wifi_connected = true;
+        if (s_wifi_event_group) {
+            xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        }
+    }
+}
 
 // MQTT command callback
 static void mqtt_command_callback(const char *data, int data_len) {
@@ -523,6 +550,13 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
     
+    // Create WiFi event group
+    s_wifi_event_group = xEventGroupCreate();
+    if (!s_wifi_event_group) {
+        ESP_LOGE(TAG, "Failed to create WiFi event group");
+        return;
+    }
+    
     // Create mutex for g_state protection
     g_state_mutex = xSemaphoreCreateMutex();
     if (g_state_mutex == NULL) {
@@ -648,17 +682,35 @@ void app_main(void) {
     }
     
     // Initialize WiFi
-    wifi_credentials_t wifi_creds = {
-        .ssid = WIFI_SSID,
-        .password = WIFI_PASSWORD
-    };
+    ESP_LOGI(TAG, "Initializing WiFi...");
+    g_state.wifi_connected = false;
     
-    if (wifi_manager_init(&g_state.wifi_state, &wifi_creds) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize WiFi");
-        return;
-    }
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_sta();
     
-    wifi_manager_wait_connected();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
+    
+    wifi_config_t wifi_config = {0};
+    strncpy((char *)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid) - 1);
+    wifi_config.sta.ssid[sizeof(wifi_config.sta.ssid) - 1] = '\0';
+    strncpy((char *)wifi_config.sta.password, WIFI_PASSWORD, sizeof(wifi_config.sta.password) - 1);
+    wifi_config.sta.password[sizeof(wifi_config.sta.password) - 1] = '\0';
+    
+    ESP_LOGI(TAG, "WiFi SSID: %s", wifi_config.sta.ssid);
+    
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    
+    // Wait for WiFi connection
+    ESP_LOGI(TAG, "Waiting for WiFi connection...");
+    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
+    ESP_LOGI(TAG, "WiFi connected successfully");
     
     // Initialize MQTT
     mqtt_config_t mqtt_cfg = {
