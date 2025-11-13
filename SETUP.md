@@ -23,29 +23,28 @@
 
 ### 1. Install ESP-IDF
 
-**Linux:**
-```bash
-sudo apt-get install git wget flex bison gperf python3 python3-pip \
-  python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+**macOS (tested):**
 
-git clone --recursive https://github.com/espressif/esp-idf.git
-cd esp-idf && git checkout v6.1
-./install.sh esp32s3
-. ./export.sh
-```
+> **Note:** Tested on MacBook Air M2 with ESP-IDF v6.1-dev, but should also work with the latest stable version v5.5.1
 
-**macOS:**
 ```bash
 brew install cmake ninja dfu-util python3
 
 git clone --recursive https://github.com/espressif/esp-idf.git
-cd esp-idf && git checkout v6.1
+cd esp-idf && git checkout v6.1-dev
 ./install.sh esp32s3
 . ./export.sh
 ```
 
-**Windows:**
-Download [ESP-IDF Windows Installer](https://dl.espressif.com/dl/esp-idf/)
+**Linux & Windows:**
+
+For Linux and Windows installation instructions, please refer to the official Espressif documentation:
+- 📖 [ESP-IDF Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/index.html)
+
+Make sure to:
+- Install ESP-IDF v6.1-dev: `git checkout v6.1-dev`
+- Run `./install.sh esp32s3` (Linux) or `install.bat esp32s3` (Windows)
+- Source the environment: `. ./export.sh` (Linux) or `export.bat` (Windows)
 
 ### 2. Clone and Configure
 
@@ -73,15 +72,13 @@ In menuconfig:
 # Build the project
 idf.py build
 
-# Flash to device
-# Linux
-idf.py -p /dev/ttyUSB0 flash
+# Flash to device (auto-detects port)
+idf.py flash
 
-# macOS (find port with: ls /dev/cu.*)
-idf.py -p /dev/cu.usbmodem* flash
-
-# Windows
-idf.py -p COM3 flash
+# Or specify port manually:
+# macOS: idf.py -p /dev/cu.usbmodem* flash
+# Linux: idf.py -p /dev/ttyUSB0 flash (or /dev/ttyACM0)
+# Windows: idf.py -p COM3 flash (check Device Manager for correct COM port)
 
 # Monitor serial output (optional but recommended)
 idf.py monitor
