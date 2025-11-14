@@ -15,21 +15,18 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 
 // Feature selection thresholds
 #define FISHER_MIN_RATIO    0.2f    // Minimum Fisher score ratio for feature selection
 #define SAFETY_MARGIN       1.05f   // Safety margin for threshold calculation (5%)
 #define USE_MODIFIED_FISHER 1       // 1 = use Modified Fisher (sqrt), 0 = use standard Fisher
 
-// CSI raw data batch publishing
-#define MAX_CSI_BATCH       100     // Maximum CSI packets per batch mqtt
-
 static const char *TAG = "Calibration";
 
 // CSI raw data streaming state
 static bool g_raw_streaming_enabled = false;
-static int8_t g_csi_batch[MAX_CSI_BATCH][128];
-static uint32_t g_csi_batch_count = 0;
 
 // Global calibration state
 static calibration_state_t g_calib = {
@@ -40,6 +37,9 @@ static calibration_state_t g_calib = {
 
 // Global config pointer (saved during calibration_start)
 static void *g_config_ptr = NULL;
+
+// Phase change callback
+static calibration_phase_callback_t g_phase_callback = NULL;
 
 // Feature names for logging (10 features: 5 statistical + 3 spatial + 2 temporal)
 static const char* feature_names[NUM_TOTAL_FEATURES] = {
@@ -387,10 +387,22 @@ static void analyze_and_select_features(void *config) {
         g_calib.optimal_threshold = (baseline_mean_score + movement_mean_score) / 2.0f;
     }
     
+    // Check for NaN or invalid values
+    if (isnan(g_calib.optimal_threshold) || isinf(g_calib.optimal_threshold)) {
+        ESP_LOGW(TAG, "Invalid threshold calculated (NaN/Inf), using fallback");
+        g_calib.optimal_threshold = (baseline_mean_score + movement_mean_score) / 2.0f;
+        
+        // If still invalid, use absolute fallback
+        if (isnan(g_calib.optimal_threshold) || isinf(g_calib.optimal_threshold)) {
+            ESP_LOGW(TAG, "Baseline/movement scores invalid, using default threshold 0.5");
+            g_calib.optimal_threshold = 0.5f;
+        }
+    }
+    
     // Apply safety margin based on separation quality
     // If separation is poor, use a more conservative threshold
     float safety_factor = SAFETY_MARGIN;
-    if (separation_ratio < 2.0f) {
+    if (separation_ratio < 2.0f && !isnan(separation_ratio) && !isinf(separation_ratio)) {
         // Poor separation: move threshold closer to movement mean
         safety_factor = 1.0f + (separation_ratio - 1.0f) * 0.5f;
         safety_factor = fmaxf(1.0f, fminf(safety_factor, SAFETY_MARGIN));
@@ -398,22 +410,38 @@ static void analyze_and_select_features(void *config) {
     
     g_calib.optimal_threshold *= safety_factor;
     
-    // Ensure threshold is between baseline and movement means
-    float min_threshold = baseline_mean_score + (movement_mean_score - baseline_mean_score) * 0.3f;
-    float max_threshold = baseline_mean_score + (movement_mean_score - baseline_mean_score) * 0.7f;
-    
-    if (g_calib.optimal_threshold < min_threshold) {
-        g_calib.optimal_threshold = min_threshold;
-        ESP_LOGD(TAG, "Threshold adjusted to minimum: %.4f", min_threshold);
+    // Validate after safety factor application
+    if (isnan(g_calib.optimal_threshold) || isinf(g_calib.optimal_threshold)) {
+        ESP_LOGW(TAG, "Threshold became invalid after safety factor, using 0.5");
+        g_calib.optimal_threshold = 0.5f;
     }
-    if (g_calib.optimal_threshold > max_threshold) {
-        g_calib.optimal_threshold = max_threshold;
-        ESP_LOGD(TAG, "Threshold adjusted to maximum: %.4f", max_threshold);
+    
+    // Ensure threshold is between baseline and movement means (if both are valid)
+    if (!isnan(baseline_mean_score) && !isnan(movement_mean_score)) {
+        float min_threshold = baseline_mean_score + (movement_mean_score - baseline_mean_score) * 0.3f;
+        float max_threshold = baseline_mean_score + (movement_mean_score - baseline_mean_score) * 0.7f;
+        
+        if (!isnan(min_threshold) && !isnan(max_threshold)) {
+            if (g_calib.optimal_threshold < min_threshold) {
+                g_calib.optimal_threshold = min_threshold;
+                ESP_LOGD(TAG, "Threshold adjusted to minimum: %.4f", min_threshold);
+            }
+            if (g_calib.optimal_threshold > max_threshold) {
+                g_calib.optimal_threshold = max_threshold;
+                ESP_LOGD(TAG, "Threshold adjusted to maximum: %.4f", max_threshold);
+            }
+        }
     }
     
     // Final clamp to absolute bounds
     if (g_calib.optimal_threshold < THRESHOLD_MIN) g_calib.optimal_threshold = THRESHOLD_MIN;
     if (g_calib.optimal_threshold > THRESHOLD_MAX) g_calib.optimal_threshold = THRESHOLD_MAX;
+    
+    // Final validation
+    if (isnan(g_calib.optimal_threshold) || isinf(g_calib.optimal_threshold)) {
+        ESP_LOGE(TAG, "Failed to calculate valid threshold, using default 0.5");
+        g_calib.optimal_threshold = 0.5f;
+    }
     
     // Log results
     #if USE_MODIFIED_FISHER
@@ -531,15 +559,6 @@ static void analyze_and_select_features(void *config) {
 
 // CSI raw data streaming functions (forward declarations and implementations)
 
-// Flush remaining CSI data in batch (called at phase end)
-static void flush_csi_batch(void) {
-    if (g_csi_batch_count > 0 && g_raw_streaming_enabled) {
-        extern void mqtt_publish_csi_batch(const int8_t batch[][128], uint32_t count, calibration_phase_t phase);
-        mqtt_publish_csi_batch(g_csi_batch, g_csi_batch_count, g_calib.phase);
-        ESP_LOGI(TAG, "📡 Flushed remaining %u CSI packets from batch", (unsigned int)g_csi_batch_count);
-        g_csi_batch_count = 0;
-    }
-}
 
 // Initialize calibration system
 void calibration_init(void) {
@@ -552,7 +571,7 @@ void calibration_init(void) {
 }
 
 // Start calibration process
-bool calibration_start(int samples, void *config, void *normalizer, bool save_raw) {
+bool calibration_start(int samples, void *config, void *normalizer, bool csi_raw) {
     if (g_calib.phase != CALIB_IDLE) {
         ESP_LOGW(TAG, "Calibration already in progress");
         return false;
@@ -636,12 +655,11 @@ bool calibration_start(int samples, void *config, void *normalizer, bool save_ra
     g_calib.traffic_rate = rate;
     g_calib.baseline_movement_target_samples = target_samples;
     
-    // Enable CSI raw streaming if requested
-    g_raw_streaming_enabled = save_raw;
-    g_csi_batch_count = 0;
+    // Enable CSI raw streaming if requested (logs to console)
+    g_raw_streaming_enabled = csi_raw;
     
-    if (save_raw) {
-        ESP_LOGI(TAG, "📡 CSI raw data streaming enabled (batch size: %d packets)", MAX_CSI_BATCH);
+    if (csi_raw) {
+        ESP_LOGI(TAG, "📡 CSI raw data logging enabled (console output)");
     }
     
     // Start baseline phase
@@ -654,6 +672,11 @@ bool calibration_start(int samples, void *config, void *normalizer, bool save_ra
     ESP_LOGI(TAG, "🎯 Phase 1: BASELINE (target: %u samples)", g_calib.phase_target_samples);
     ESP_LOGI(TAG, "📋 Please ensure the room is EMPTY and STATIC");
     
+    // Notify callback about calibration start (BASELINE phase)
+    if (g_phase_callback) {
+        g_phase_callback(CALIB_BASELINE, 0, target_samples, rate);
+    }
+    
     return true;
 }
 
@@ -663,14 +686,10 @@ void calibration_stop(void *config) {
         return;
     }
     
-    // Flush remaining CSI data before stopping
-    flush_csi_batch();
-    
     // Disable CSI raw streaming
     if (g_raw_streaming_enabled) {
         g_raw_streaming_enabled = false;
-        g_csi_batch_count = 0;
-        ESP_LOGI(TAG, "📡 CSI raw data streaming disabled");
+        ESP_LOGI(TAG, "📡 CSI raw data logging disabled");
     }
     
     // Restore original filter configuration if interrupted (if config provided)
@@ -734,9 +753,6 @@ void calibration_check_completion(void) {
                 return;
             }
             
-            // Flush remaining CSI data before changing phase
-            flush_csi_batch();
-            
             // Move to movement phase
             g_calib.phase = CALIB_MOVEMENT;
             g_calib.phase_target_samples = g_calib.baseline_movement_target_samples;
@@ -748,6 +764,11 @@ void calibration_check_completion(void) {
                      g_calib.phase_target_samples);
             ESP_LOGI(TAG, "📋 Please perform NORMAL MOVEMENT in the room");
             
+            // Notify callback about phase change
+            if (g_phase_callback) {
+                g_phase_callback(CALIB_MOVEMENT, 0, g_calib.phase_target_samples, g_calib.traffic_rate);
+            }
+            
         } else if (g_calib.phase == CALIB_MOVEMENT) {
             // Check if we have enough samples (should always be true now)
             if (g_calib.movement_stats[0].count < CALIBRATION_MIN_SAMPLES) {
@@ -756,14 +777,16 @@ void calibration_check_completion(void) {
                 return;
             }
             
-            // Flush remaining CSI data before analysis
-            flush_csi_batch();
-            
             // Move to analysis phase
             g_calib.phase = CALIB_ANALYZING;
             
             ESP_LOGI(TAG, "✅ Movement phase complete (%u samples collected)",
                      (unsigned int)g_calib.movement_stats[0].count);
+            
+            // Notify callback about phase change to ANALYZING
+            if (g_phase_callback) {
+                g_phase_callback(CALIB_ANALYZING, 0, 0, g_calib.traffic_rate);
+            }
             
             // Perform analysis and apply optimal filter configuration
             analyze_and_select_features(g_config_ptr);
@@ -1063,25 +1086,51 @@ void calibration_trigger_analysis(void) {
     analyze_and_select_features(g_config_ptr);
 }
 
-// Add CSI packet to batch and publish when full
+// Log CSI packet directly to console (called from WiFi task)
 void calibration_add_csi_to_batch(const int8_t *csi_raw) {
     if (!g_raw_streaming_enabled || !csi_raw) {
         return;
     }
     
-    // Add to batch
-    memcpy(g_csi_batch[g_csi_batch_count], csi_raw, 128);
-    g_csi_batch_count++;
-    
-    // Publish when batch reaches MAX_CSI_BATCH (100 packets)
-    if (g_csi_batch_count >= MAX_CSI_BATCH) {
-        extern void mqtt_publish_csi_batch(const int8_t batch[][128], uint32_t count, calibration_phase_t phase);
-        mqtt_publish_csi_batch(g_csi_batch, g_csi_batch_count, g_calib.phase);
-        g_csi_batch_count = 0;
+    // Only log CSI data during active calibration phases (not IDLE or ANALYZING)
+    if (g_calib.phase != CALIB_BASELINE && g_calib.phase != CALIB_MOVEMENT) {
+        return;
     }
+    
+    // Phase names for logging
+    const char *phase_names[] = {"IDLE", "BASELINE", "MOVEMENT", "ANALYZING"};
+    const char *phase_str = (g_calib.phase < 4) ? phase_names[g_calib.phase] : "UNKNOWN";
+    
+    // Build CSV string: "CSI|PHASE|val1,val2,...,val128"
+    char csi_log[600];
+    int offset = 0;
+    
+    offset += snprintf(csi_log, sizeof(csi_log), "CSI|%s|", phase_str);
+    
+    // Add CSI values as CSV
+    for (int i = 0; i < 128; i++) {
+        if (i < 127) {
+            offset += snprintf(csi_log + offset, sizeof(csi_log) - offset, "%d,", csi_raw[i]);
+        } else {
+            offset += snprintf(csi_log + offset, sizeof(csi_log) - offset, "%d", csi_raw[i]);
+        }
+        
+        if (offset >= (int)sizeof(csi_log) - 10) {
+            ESP_LOGE(TAG, "CSI log buffer overflow");
+            return;
+        }
+    }
+    
+    // Log to stdout (clean output, no ESP-IDF prefix)
+    printf("%s\n", csi_log);
 }
 
 // Check if raw streaming is enabled
 bool calibration_is_raw_streaming_enabled(void) {
     return g_raw_streaming_enabled;
+}
+
+// Set callback for phase change notifications
+void calibration_set_phase_callback(calibration_phase_callback_t callback) {
+    g_phase_callback = callback;
 }

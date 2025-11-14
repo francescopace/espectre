@@ -74,27 +74,12 @@ Based on ESP32-S3 Wi-Fi documentation analysis, optimized CSI data collection to
 
 **Dataset generation for testing and analysis**
 
-- **Calibration data export**: Extended `calibrate` command to save CSI raw data during calibration
-- **Batch publishing**: CSI packets sent in batches of 100 via MQTT (every ~5-7 seconds @ 15-20 pps)
-- **Automatic flush**: Remaining packets published at phase end (no data loss)
-- **CLI integration**: `calibrate start [samples] [save_dir]` saves data to local files
-- **Ready-to-use format**: Generates `.h` files compatible with `test_app/main/`
-- **Real-time monitoring**: Progress display during collection
-- **Dual output**: Separate files for baseline and movement phases
+
+- **Calibration data export**: Extended `calibrate` command to print CSI raw data during calibration
 
 **Usage:**
 ```bash
-espectre> calibrate start 1000 ./my_dataset
-# Generates:
-# - ./my_dataset/baseline_csi_data.h (1000 samples)
-# - ./my_dataset/movement_csi_data.h (1000 samples)
-```
-
-**Implementation:**
-- New MQTT topic: `home/espectre/node1/csi_raw`
-- Batch format: JSON with phase, count, and samples array
-- Zero memory overhead on ESP32 (streaming architecture)
-- Bandwidth: ~3-15 KB per batch (manageable even at high traffic rates)
+espectre> calibrate start 100 verbose
 
 ### 🚀 Improved - Traffic Generator
 

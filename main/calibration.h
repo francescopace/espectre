@@ -118,7 +118,7 @@ typedef struct {
 void calibration_init(void);
 
 // Start calibration process (pass runtime_config_t pointer to save/restore filters, and normalizer to reset)
-bool calibration_start(int target_samples, void *config, void *normalizer, bool save_raw);
+bool calibration_start(int target_samples, void *config, void *normalizer, bool csi_raw);
 
 // Stop calibration process (pass runtime_config_t pointer to restore filters)
 void calibration_stop(void *config);
@@ -167,9 +167,18 @@ void calibration_get_filter_config(bool *butterworth, bool *wavelet, int *wavele
 const float* calibration_get_feature_min(void);
 const float* calibration_get_feature_max(void);
 
-// CSI raw data streaming (for dataset collection)
+// CSI raw data streaming (for dataset collection via console logging)
 void calibration_add_csi_to_batch(const int8_t *csi_raw);
 bool calibration_is_raw_streaming_enabled(void);
+
+// Callback for phase change notifications
+typedef void (*calibration_phase_callback_t)(calibration_phase_t new_phase, 
+                                             uint32_t samples_collected,
+                                             uint32_t phase_target_samples,
+                                             uint32_t traffic_rate);
+
+// Set callback for phase change notifications
+void calibration_set_phase_callback(calibration_phase_callback_t callback);
 
 // Test helpers (for unit testing only)
 void calibration_force_phase(calibration_phase_t phase);

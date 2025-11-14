@@ -18,6 +18,10 @@
 #include "config_manager.h"
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
+
+// Include CSI data arrays (must be at file scope to avoid stack overflow)
+#include "real_csi_arrays.inc"
 
 // Helper: extract all features for testing
 static const uint8_t test_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
@@ -61,51 +65,23 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
     printf("╚═══════════════════════════════════════════════════════╝\n");
     printf("\n");
     
-    // Arrays of all packets
-    const int8_t *baseline_packets[] = {
-        real_baseline_0, real_baseline_1, real_baseline_2, real_baseline_3,
-        real_baseline_4, real_baseline_5, real_baseline_6, real_baseline_7,
-        real_baseline_8, real_baseline_9, real_baseline_10, real_baseline_11,
-        real_baseline_12, real_baseline_13, real_baseline_14, real_baseline_15,
-        real_baseline_16, real_baseline_17, real_baseline_18, real_baseline_19,
-        real_baseline_20, real_baseline_21, real_baseline_22, real_baseline_23,
-        real_baseline_24, real_baseline_25, real_baseline_26, real_baseline_27,
-        real_baseline_28, real_baseline_29, real_baseline_30, real_baseline_31,
-        real_baseline_32, real_baseline_33, real_baseline_34, real_baseline_35,
-        real_baseline_36, real_baseline_37, real_baseline_38, real_baseline_39,
-        real_baseline_40, real_baseline_41, real_baseline_42, real_baseline_43,
-        real_baseline_44, real_baseline_45, real_baseline_46, real_baseline_47,
-        real_baseline_48, real_baseline_49
-    };
-    
-    const int8_t *movement_packets[] = {
-        real_movement_0, real_movement_1, real_movement_2, real_movement_3,
-        real_movement_4, real_movement_5, real_movement_6, real_movement_7,
-        real_movement_8, real_movement_9, real_movement_10, real_movement_11,
-        real_movement_12, real_movement_13, real_movement_14, real_movement_15,
-        real_movement_16, real_movement_17, real_movement_18, real_movement_19,
-        real_movement_20, real_movement_21, real_movement_22, real_movement_23,
-        real_movement_24, real_movement_25, real_movement_26, real_movement_27,
-        real_movement_28, real_movement_29, real_movement_30, real_movement_31,
-        real_movement_32, real_movement_33, real_movement_34, real_movement_35,
-        real_movement_36, real_movement_37, real_movement_38, real_movement_39,
-        real_movement_40, real_movement_41, real_movement_42, real_movement_43,
-        real_movement_44, real_movement_45, real_movement_46, real_movement_47,
-        real_movement_48, real_movement_49
-    };
-    
     // Storage for all feature values
-    #define NUM_PACKETS 50
     #define NUM_FEATURES 10
-    float baseline_features[NUM_FEATURES][NUM_PACKETS];
-    float movement_features[NUM_FEATURES][NUM_PACKETS];
+    float *baseline_features[NUM_FEATURES];
+    float *movement_features[NUM_FEATURES];
+    
+    // Allocate memory for features
+    for (int f = 0; f < NUM_FEATURES; f++) {
+        baseline_features[f] = malloc(num_baseline * sizeof(float));
+        movement_features[f] = malloc(num_movement * sizeof(float));
+    }
     
     // Reset temporal buffer before baseline phase
     csi_reset_temporal_buffer();
     
     // Extract features from all baseline packets
-    printf("Extracting features from baseline packets...\n");
-    for (int p = 0; p < NUM_PACKETS; p++) {
+    printf("Extracting features from %d baseline packets...\n", num_baseline);
+    for (int p = 0; p < num_baseline; p++) {
         csi_features_t features;
         csi_extract_features(baseline_packets[p], 128, &features, test_all_features, 10);
         
@@ -125,8 +101,8 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
     csi_reset_temporal_buffer();
     
     // Extract features from all movement packets
-    printf("Extracting features from movement packets...\n");
-    for (int p = 0; p < NUM_PACKETS; p++) {
+    printf("Extracting features from %d movement packets...\n", num_movement);
+    for (int p = 0; p < num_movement; p++) {
         csi_features_t features;
         csi_extract_features(movement_packets[p], 128, &features, test_all_features, 10);
         
@@ -149,10 +125,10 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
     float movement_vars[NUM_FEATURES];
     
     for (int f = 0; f < NUM_FEATURES; f++) {
-        baseline_means[f] = calculate_feature_mean(baseline_features[f], NUM_PACKETS);
-        baseline_vars[f] = calculate_feature_variance(baseline_features[f], NUM_PACKETS, baseline_means[f]);
-        movement_means[f] = calculate_feature_mean(movement_features[f], NUM_PACKETS);
-        movement_vars[f] = calculate_feature_variance(movement_features[f], NUM_PACKETS, movement_means[f]);
+        baseline_means[f] = calculate_feature_mean(baseline_features[f], num_baseline);
+        baseline_vars[f] = calculate_feature_variance(baseline_features[f], num_baseline, baseline_means[f]);
+        movement_means[f] = calculate_feature_mean(movement_features[f], num_movement);
+        movement_vars[f] = calculate_feature_variance(movement_features[f], num_movement, movement_means[f]);
     }
     
     printf("\n");
@@ -295,10 +271,10 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
     int amp_count_kurt = 0;
     
     // Calculate amplitude kurtosis for baseline
-    float baseline_amp_kurtosis[NUM_PACKETS];
+    float *baseline_amp_kurtosis = malloc(num_baseline * sizeof(float));
     int baseline_kurt_count = 0;
     
-    for (int p = 0; p < NUM_PACKETS; p++) {
+    for (int p = 0; p < num_baseline; p++) {
         // Calculate average amplitude
         float avg_amp = 0.0f;
         for (int i = 0; i < 64; i++) {
@@ -338,12 +314,12 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
     }
     
     // Calculate amplitude kurtosis for movement
-    float movement_amp_kurtosis[NUM_PACKETS];
+    float *movement_amp_kurtosis = malloc(num_movement * sizeof(float));
     int movement_kurt_count = 0;
     amp_idx_kurt = 0;
     amp_count_kurt = 0;
     
-    for (int p = 0; p < NUM_PACKETS; p++) {
+    for (int p = 0; p < num_movement; p++) {
         // Calculate average amplitude
         float avg_amp = 0.0f;
         for (int i = 0; i < 64; i++) {
@@ -471,4 +447,12 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
         printf("✅ Temporal features provide significantly better separation!\n");
         TEST_ASSERT_TRUE(max_separation > 2.0f);
     }
+    
+    // Cleanup
+    for (int f = 0; f < NUM_FEATURES; f++) {
+        free(baseline_features[f]);
+        free(movement_features[f]);
+    }
+    free(baseline_amp_kurtosis);
+    free(movement_amp_kurtosis);
 }

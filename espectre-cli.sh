@@ -68,6 +68,9 @@ start_listener() {
         topic=$(echo "$line" | cut -d' ' -f1)
         message=$(echo "$line" | cut -d' ' -f2-)
         
+        # Check message type
+        local msg_type=$(echo "$message" | jq -r '.type' 2>/dev/null)
+        
         # Emit beep based on message type (using macOS system sound)
         if echo "$message" | grep -q '"phase":"BASELINE"'; then
             # 1 beep for BASELINE phase start
@@ -84,6 +87,9 @@ start_listener() {
             afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
             sleep 0.3
             afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
+            
+            # Create completion marker for calibrate_with_save function
+            touch "/tmp/espectre-calibration-complete" 2>/dev/null
         fi
         
         # Clear current line and print response
@@ -355,19 +361,19 @@ cmd_traffic_generator_rate() {
 cmd_calibrate() {
     local action="$1"
     local samples="$2"
-    local save_dir="$3"
+    local verbose="$3"
     
     if [ -z "$action" ]; then
-        print_error "Usage: calibrate <start|stop|status> [samples] [save_dir]"
-        echo "  start [samples] [save_dir]  Start calibration (default: 1000 samples/phase)"
-        echo "                               If save_dir provided, saves CSI raw data"
+        print_error "Usage: calibrate <start|stop|status> [samples] [verbose]"
+        echo "  start [samples] [verbose]  Start calibration (default: 1000 samples/phase)"
+        echo "                               If verbose provided, print CSI raw data"
         echo "  stop                         Stop calibration"
         echo "  status                       Get calibration status"
         echo ""
         echo "Examples:"
         echo "  calibrate start                    # Normal calibration"
         echo "  calibrate start 500                # 500 samples per phase"
-        echo "  calibrate start 1000 ./dataset     # 1000 samples per phase and Save CSI data to ./dataset"
+        echo "  calibrate start 1000 verbose          # 1000 samples per phase and verbose CSI data"
         echo "  calibrate status"
         echo "  calibrate stop"
         echo ""
@@ -392,19 +398,15 @@ cmd_calibrate() {
             
             echo ""
             
-            # Check if save_dir is provided
-            if [ -n "$save_dir" ]; then
-                print_info "🎯 Starting calibration with CSI data collection"
-                print_info "📊 Samples per phase: $samples"
-                print_info "📁 Output directory: $save_dir"
-                print_info "   (CSI data will be saved automatically)"
-                echo ""
-
-                # Start calibration with CSI data collection
-                calibrate_with_save "$samples" "$save_dir"
+            # Check if verbose is explicitly "verbose" to enable CSI data logging
+            if [ "$verbose" = "verbose" ]; then
+                print_success "🎯 Starting calibration with CSI data logging (${samples} samples per phase)..."
+                print_info "📋 CSI data will be logged to device console"
+                print_info "   Format: CSI|PHASE|val1,val2,...,val128"
+                send_command "{\"cmd\":\"calibrate\",\"action\":\"start\",\"samples\":$samples,\"verbose\":true}"
             else
                 print_success "🎯 Starting calibration (${samples} samples per phase)..."
-                send_command "{\"cmd\":\"calibrate\",\"action\":\"start\",\"samples\":$samples}"
+                send_command "{\"cmd\":\"calibrate\",\"action\":\"start\",\"samples\":$samples,\"verbose\":false}"
             fi
             ;;
         stop)
@@ -419,162 +421,6 @@ cmd_calibrate() {
             return 1
             ;;
     esac
-}
-
-# Helper function for calibration with CSI data saving
-calibrate_with_save() {
-    local samples="$1"
-    local save_dir="$2"
-    
-    # Create directory
-    mkdir -p "$save_dir"
-    
-    local baseline_file="${save_dir}/baseline_csi_data.h"
-    local movement_file="${save_dir}/movement_csi_data.h"
-    local temp_pid_file="/tmp/espectre-csi-monitor.pid"
-    
-    # Initialize header files
-    cat > "$baseline_file" << 'EOF'
-/*
- * Baseline CSI Data - Collected during calibration
- */
-#ifndef BASELINE_CSI_DATA_H
-#define BASELINE_CSI_DATA_H
-
-#include <stdint.h>
-
-EOF
-
-    cat > "$movement_file" << 'EOF'
-/*
- * Movement CSI Data - Collected during calibration
- */
-#ifndef MOVEMENT_CSI_DATA_H
-#define MOVEMENT_CSI_DATA_H
-
-#include <stdint.h>
-
-EOF
-    
-    # Start background CSI monitor
-    local sub_cmd=$(build_mqtt_cmd "mosquitto_sub")
-    local csi_topic="${TOPIC_CMD%/cmd}/csi_raw"
-    
-    (
-        $sub_cmd -t "$csi_topic" 2>/dev/null | while IFS= read -r line; do
-            local json_data=$(echo "$line" | cut -d' ' -f2-)
-            local phase=$(echo "$json_data" | jq -r '.phase' 2>/dev/null)
-            local samples_array=$(echo "$json_data" | jq -c '.samples' 2>/dev/null)
-            
-            if [ -z "$phase" ] || [ -z "$samples_array" ] || [ "$samples_array" = "null" ]; then
-                continue
-            fi
-            
-            # Process each sample in the batch
-            local sample_count=$(echo "$samples_array" | jq 'length' 2>/dev/null)
-            for ((idx=0; idx<sample_count; idx++)); do
-                local csi_array=$(echo "$samples_array" | jq -c ".[$idx].csi" 2>/dev/null)
-                
-                if [ -z "$csi_array" ] || [ "$csi_array" = "null" ]; then
-                    continue
-                fi
-                
-                # Format as C array
-                local c_array=$(echo "$csi_array" | sed 's/\[/{/g' | sed 's/\]/}/g')
-                
-                if [ "$phase" = "BASELINE" ]; then
-                    local file_idx=$(grep -c "real_baseline_" "$baseline_file" 2>/dev/null || echo 0)
-                    echo "static const int8_t real_baseline_${file_idx}[128] = $c_array;" >> "$baseline_file"
-                elif [ "$phase" = "MOVEMENT" ]; then
-                    local file_idx=$(grep -c "real_movement_" "$movement_file" 2>/dev/null || echo 0)
-                    echo "static const int8_t real_movement_${file_idx}[128] = $c_array;" >> "$movement_file"
-                fi
-            done
-        done
-    ) &
-    
-    local monitor_pid=$!
-    echo $monitor_pid > "$temp_pid_file"
-    print_success "✓ CSI monitor started (PID: $monitor_pid)"
-    sleep 1
-    
-    # Start calibration with save_raw=true
-    send_command "{\"cmd\":\"calibrate\",\"action\":\"start\",\"samples\":$samples,\"save_raw\":true}"
-    
-    # Wait for calibration to complete (monitor via status checks)
-    local phase="BASELINE"
-    local last_phase="BASELINE"
-    
-    while true; do
-        sleep 3
-        
-        # Count collected samples from files
-        local baseline_samples=$(grep -c "real_baseline_" "$baseline_file" 2>/dev/null || echo 0)
-        local movement_samples=$(grep -c "real_movement_" "$movement_file" 2>/dev/null || echo 0)
-        
-        # Detect phase change
-        if [ $baseline_samples -ge $samples ] && [ $movement_samples -lt $samples ]; then
-            phase="MOVEMENT"
-            if [ "$phase" != "$last_phase" ]; then
-                echo ""
-                print_success "✅ Baseline phase complete ($baseline_samples samples)"
-                print_info "🎯 Phase 2: MOVEMENT"
-                print_warning "📋 Please perform NORMAL MOVEMENT in the room"
-                echo ""
-                last_phase="$phase"
-            fi
-        fi
-        
-        # Show progress
-        echo -ne "\r\033[K"
-        if [ "$phase" = "BASELINE" ]; then
-            print_info "📊 Baseline: $baseline_samples / $samples samples"
-        else
-            print_info "📊 Movement: $movement_samples / $samples samples"
-        fi
-        
-        # Check completion
-        if [ $baseline_samples -ge $samples ] && [ $movement_samples -ge $samples ]; then
-            echo ""
-            print_success "✅ Calibration complete!"
-            break
-        fi
-    done
-    
-    # Cleanup
-    print_info ""
-    if [ -f "$temp_pid_file" ]; then
-        local pid=$(cat "$temp_pid_file")
-        kill $pid 2>/dev/null
-        rm -f "$temp_pid_file"
-        print_success "✓ CSI monitor stopped"
-    fi
-    
-    # Close header files
-    echo "" >> "$baseline_file"
-    echo "#endif // BASELINE_CSI_DATA_H" >> "$baseline_file"
-    echo "" >> "$movement_file"
-    echo "#endif // MOVEMENT_CSI_DATA_H" >> "$movement_file"
-    
-    # Summary
-    local final_baseline=$(grep -c "real_baseline_" "$baseline_file" 2>/dev/null || echo 0)
-    local final_movement=$(grep -c "real_movement_" "$movement_file" 2>/dev/null || echo 0)
-    
-    echo ""
-    print_success "════════════════════════════════════════"
-    print_success "✅ Calibration with data collection complete!"
-    print_success "════════════════════════════════════════"
-    echo ""
-    print_info "📊 Collected samples:"
-    print_info "   Baseline:  $final_baseline samples"
-    print_info "   Movement:  $final_movement samples"
-    echo ""
-    print_info "📄 Output files:"
-    print_info "   $baseline_file"
-    print_info "   $movement_file"
-    echo ""
-    print_info "💡 You can now copy these files to test_app/main/"
-    echo ""
 }
 
 cmd_factory_reset() {
@@ -629,7 +475,7 @@ show_help() {
     echo "  logs <on|off>             Enable/disable CSI logs"
     echo ""
     echo -e "${YELLOW}Calibration Commands:${NC}"
-    echo "  calibrate start [samples] [dir]  Start calibration (default: 1000 samples/phase)"
+    echo "  calibrate start [samples] [verbose]  Start calibration (default: 1000 samples/phase)"
     echo "                                    If dir provided, saves CSI raw data"
     echo "  calibrate stop                   Stop calibration"
     echo "  calibrate status                 Get calibration status"
@@ -637,10 +483,10 @@ show_help() {
     echo "  Examples:"
     echo "    calibrate start                # Normal calibration"
     echo "    calibrate start 500            # 500 samples per phase"
-    echo "    calibrate start 1000 ./data    # Save CSI data to ./data"
+    echo "    calibrate start 1000 verbose      # Log CSI data to device console"
     echo ""
     echo "  Note: Duration = samples / traffic_rate (e.g., 1000 @ 20pps = ~50s)"
-    echo "        CSI data saved every 100 packets (~5-7 seconds @ 15-20 pps)"
+    echo "        With 'save': CSI data logged to device console (use idf.py monitor)"
     echo ""
     echo -e "${YELLOW}Traffic Generator:${NC}"
     echo "  traffic_generator_rate <pps> Set traffic rate (0=off, 5-100, rec: 20)"
@@ -793,7 +639,7 @@ main() {
     echo "║                                                           ║"
     echo "╠═══════════════════════════════════════════════════════════╣"
     echo "║                                                           ║"
-    echo "║                  📡  Interactive CLI Mode                 ║"
+    echo "║                   Interactive CLI Mode                    ║"
     echo "║                                                           ║"
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo -e "${NC}"

@@ -107,6 +107,23 @@ static mqtt_cmd_context_t g_mqtt_cmd_context = {0};
 // Array of all 10 feature indices (for default mode without calibration)
 static const uint8_t g_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
+// Callback for calibration phase changes
+static void calibration_phase_change_callback(calibration_phase_t new_phase, 
+                                              uint32_t samples_collected,
+                                              uint32_t phase_target_samples,
+                                              uint32_t traffic_rate) {
+    // Only publish if response topic is initialized
+    if (g_response_topic != NULL) {
+        // Publish calibration status immediately when phase changes
+        mqtt_publish_calibration_status(&g_state.mqtt_state, 
+                                      (uint8_t)new_phase,
+                                      phase_target_samples,
+                                      samples_collected,
+                                      traffic_rate,
+                                      g_response_topic);
+    }
+}
+
 // WiFi event handler
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                int32_t event_id, void* event_data) {
@@ -223,6 +240,9 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
             feat_array.features[7] = g_state.current_features.spatial_gradient;
             
             calibration_update(&feat_array);
+            
+            // Check if phase completed
+            calibration_check_completion();
         }
         
         // Calculate detection score
@@ -336,27 +356,9 @@ static void mqtt_publish_task(void *pvParameters) {
             continue;
         }
         
-        // Check calibration and advance phases
+        // Track phase changes for calibration completion handling
         static calibration_phase_t last_phase = CALIB_IDLE;
         calibration_phase_t current_phase = calibration_get_phase();
-        
-        // Publish calibration status on phase change
-        if (current_phase != last_phase) {
-            uint32_t samples = calibration_get_samples_collected();
-            
-            // Get phase target samples and traffic rate from calibration system
-            calibration_state_t calib_state;
-            calibration_get_results(&calib_state);
-            uint32_t phase_target = calib_state.phase_target_samples;
-            uint32_t traffic_rate = calib_state.traffic_rate;
-            
-            mqtt_publish_calibration_status(&g_state.mqtt_state, 
-                                          (uint8_t)current_phase,
-                                          phase_target,
-                                          samples,
-                                          traffic_rate,
-                                          g_response_topic);
-        }
         
         // Detect calibration completion (when phase becomes ANALYZING)
         if (current_phase == CALIB_ANALYZING && last_phase != CALIB_ANALYZING) {
@@ -448,7 +450,6 @@ static void mqtt_publish_task(void *pvParameters) {
         }
         
         last_phase = current_phase;
-        calibration_check_completion();
         
         // Adaptive normalizer auto-reset logic
         if (g_state.config.adaptive_normalizer_enabled && 
@@ -759,6 +760,9 @@ void app_main(void) {
     mqtt_handler_set_command_callback(mqtt_command_callback);
     
     ESP_LOGI(TAG, "MQTT client started with command support");
+    
+    // Register calibration phase change callback (after MQTT is initialized)
+    calibration_set_phase_callback(calibration_phase_change_callback);
     
     // Initialize traffic generator
     traffic_generator_init();

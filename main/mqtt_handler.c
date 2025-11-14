@@ -13,6 +13,9 @@
 #include "esp_event.h"
 #include "esp_timer.h"
 #include "cJSON.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
 
 static const char *TAG = "MQTT_Handler";
 
@@ -20,9 +23,6 @@ static const char *TAG = "MQTT_Handler";
 static void (*g_command_callback)(const char *data, int data_len) = NULL;
 static const char *g_cmd_topic = NULL;
 
-// Global MQTT client handle and base topic for CSI batch publishing
-static esp_mqtt_client_handle_t g_mqtt_client = NULL;
-static const char *g_base_topic = NULL;
 
 // Helper function to publish JSON object
 static int mqtt_publish_json(esp_mqtt_client_handle_t client, const char *topic, 
@@ -95,9 +95,6 @@ int mqtt_handler_init(mqtt_handler_state_t *state, const mqtt_config_t *config) 
     // Store command topic for subscription
     g_cmd_topic = config->cmd_topic;
     
-    // Store base topic and client handle for CSI batch publishing
-    g_base_topic = config->base_topic;
-    
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = config->broker_uri,
     };
@@ -115,9 +112,6 @@ int mqtt_handler_init(mqtt_handler_state_t *state, const mqtt_config_t *config) 
         ESP_LOGE(TAG, "Failed to initialize MQTT client");
         return -1;
     }
-    
-    // Store client handle globally for CSI batch publishing
-    g_mqtt_client = state->client;
     
     // Register event handler
     ESP_ERROR_CHECK(esp_mqtt_client_register_event(state->client, ESP_EVENT_ANY_ID, 
@@ -209,22 +203,15 @@ int mqtt_publish_calibration_status(mqtt_handler_state_t *state,
     const char *phase_str = (phase < 4) ? phase_names[phase] : "UNKNOWN";
     cJSON_AddStringToObject(root, "phase", phase_str);
     
-    // Add sample information
+    // Only add target samples (not collected - shown only in calibration_complete)
     cJSON_AddNumberToObject(root, "phase_target_samples", (double)phase_target_samples);
-    cJSON_AddNumberToObject(root, "samples_collected", (double)samples_collected);
-    
-    // Calculate and add estimated duration if traffic rate is available
-    if (traffic_rate > 0 && phase_target_samples > 0) {
-        uint32_t estimated_sec = phase_target_samples / traffic_rate;
-        cJSON_AddNumberToObject(root, "estimated_duration_sec", (double)estimated_sec);
-    }
     
     int ret = mqtt_publish_json(state->client, topic, root, 0, 0);
     cJSON_Delete(root);
     
     if (ret == 0) {
-        ESP_LOGD(TAG, "Published calibration status: phase=%s, target=%lu, collected=%lu", 
-                 phase_str, (unsigned long)phase_target_samples, (unsigned long)samples_collected);
+        ESP_LOGD(TAG, "Published calibration status: phase=%s, target=%lu", 
+                 phase_str, (unsigned long)phase_target_samples);
     }
     return ret;
 }
@@ -254,6 +241,10 @@ int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
     
     // Summary object
     cJSON *summary = cJSON_CreateObject();
+    // Add sample counts
+    cJSON_AddNumberToObject(summary, "baseline_samples_collected", (double)calib->baseline_stats[0].count);
+    cJSON_AddNumberToObject(summary, "movement_samples_collected", (double)calib->movement_stats[0].count);
+    
     cJSON_AddNumberToObject(summary, "baseline_score", (double)calib->baseline_mean_score);
     cJSON_AddNumberToObject(summary, "movement_score", (double)calib->movement_mean_score);
     cJSON_AddNumberToObject(summary, "separation_ratio", (double)calib->separation_ratio);
@@ -425,59 +416,4 @@ void mqtt_get_publish_stats(const mqtt_handler_state_t *state,
 
 void mqtt_handler_set_command_callback(void (*callback)(const char *data, int data_len)) {
     g_command_callback = callback;
-}
-
-void mqtt_publish_csi_batch(const int8_t batch[][128], uint32_t count, uint8_t phase) {
-    if (!batch || count == 0) {
-        return;
-    }
-    
-    if (!g_mqtt_client || !g_base_topic) {
-        ESP_LOGW(TAG, "MQTT client not initialized");
-        return;
-    }
-    
-    // Build topic: base_topic/csi_raw
-    char csi_topic[144];
-    snprintf(csi_topic, sizeof(csi_topic), "%s/csi_raw", g_base_topic);
-    
-    // Create JSON message
-    cJSON *root = cJSON_CreateObject();
-    if (!root) {
-        ESP_LOGE(TAG, "Failed to create JSON object for CSI batch");
-        return;
-    }
-    
-    // Add phase
-    const char *phase_names[] = {"IDLE", "BASELINE", "MOVEMENT", "ANALYZING"};
-    const char *phase_str = (phase < 4) ? phase_names[phase] : "UNKNOWN";
-    cJSON_AddStringToObject(root, "phase", phase_str);
-    
-    // Add batch count
-    cJSON_AddNumberToObject(root, "count", (double)count);
-    
-    // Add samples array
-    cJSON *samples = cJSON_CreateArray();
-    for (uint32_t i = 0; i < count; i++) {
-        cJSON *sample = cJSON_CreateObject();
-        cJSON_AddNumberToObject(sample, "id", (double)i);
-        
-        // Create CSI data array
-        cJSON *csi_array = cJSON_CreateIntArray((const int*)batch[i], 128);
-        cJSON_AddItemToObject(sample, "csi", csi_array);
-        
-        cJSON_AddItemToArray(samples, sample);
-    }
-    cJSON_AddItemToObject(root, "samples", samples);
-    
-    // Publish
-    int ret = mqtt_publish_json(g_mqtt_client, csi_topic, root, 0, 0);
-    cJSON_Delete(root);
-    
-    if (ret == 0) {
-        ESP_LOGD(TAG, "📡 Published CSI batch: %lu packets (phase: %s)", 
-                 (unsigned long)count, phase_str);
-    } else {
-        ESP_LOGW(TAG, "Failed to publish CSI batch");
-    }
 }

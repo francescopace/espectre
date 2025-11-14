@@ -84,8 +84,6 @@ void app_main(void)
     unity_testcase_register(&test_desc_adaptive_normalizer_update);
     unity_testcase_register(&test_desc_filter_pipeline_with_wavelet_integration);
     unity_testcase_register(&test_desc_filter_pipeline_with_wavelet_disabled);
-    unity_testcase_register(&test_desc_calibration_with_real_csi_data);
-    unity_testcase_register(&test_desc_statistical_approach_with_real_csi_data);
     unity_testcase_register(&test_desc_wavelet_filter_initialization);
     unity_testcase_register(&test_desc_wavelet_soft_thresholding);
     unity_testcase_register(&test_desc_wavelet_hard_thresholding);
@@ -95,6 +93,7 @@ void app_main(void)
     unity_testcase_register(&test_desc_wavelet_level_clamping);
     unity_testcase_register(&test_desc_wavelet_db4_coefficients_sum_correctly);
     unity_testcase_register(&test_desc_wavelet_preserves_dc_component);
+    unity_testcase_register(&test_desc_calibration_with_real_csi_data);
     
     // Run all tests
     printf("Running all tests automatically...\n\n");

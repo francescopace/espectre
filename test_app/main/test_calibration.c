@@ -38,7 +38,7 @@ TEST_CASE_ESP(calibration_end_to_end_with_mock_data, "[calibration]")
     adaptive_normalizer_init(&normalizer, 0.02f);
     
     // Start calibration (100 samples minimum required)
-    bool started = calibration_start(100, &config, &normalizer);
+    bool started = calibration_start(100, &config, &normalizer, false);
     TEST_ASSERT_TRUE(started);
     
     // Initialize filters

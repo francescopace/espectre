@@ -532,7 +532,7 @@ static void cmd_calibrate(cJSON *root) {
         return;
     }
     
-    const char *action_str = action->valuestring;
+        const char *action_str = action->valuestring;
     
     if (strcmp(action_str, "start") == 0) {
         int samples = DEFAULT_CALIBRATION_SAMPLES;
@@ -541,18 +541,18 @@ static void cmd_calibrate(cJSON *root) {
             samples = (int)samples_obj->valueint;
         }
         
-        // Check for optional save_raw parameter
-        bool save_raw = false;
-        cJSON *save_raw_obj = cJSON_GetObjectItem(root, "save_raw");
-        if (save_raw_obj && cJSON_IsBool(save_raw_obj)) {
-            save_raw = cJSON_IsTrue(save_raw_obj);
+        // Check for optional verbose parameter
+        bool csi_raw = false;
+        cJSON *csi_raw_obj = cJSON_GetObjectItem(root, "verbose");
+        if (csi_raw_obj && cJSON_IsBool(csi_raw_obj)) {
+            csi_raw = cJSON_IsTrue(csi_raw_obj);
         }
         
-        if (calibration_start(samples, g_cmd_context->config, g_cmd_context->normalizer, save_raw)) {
+        if (calibration_start(samples, g_cmd_context->config, g_cmd_context->normalizer, csi_raw)) {
             char response[128];
-            if (save_raw) {
+            if (csi_raw) {
                 snprintf(response, sizeof(response), 
-                         "Calibration started (%d samples per phase, CSI raw streaming enabled)", samples);
+                         "Calibration started (%d samples per phase, CSI raw logging enabled)", samples);
             } else {
                 snprintf(response, sizeof(response), 
                          "Calibration started (%d samples per phase)", samples);
