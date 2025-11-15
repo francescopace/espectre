@@ -22,7 +22,7 @@ static const char *TAG = "Config_Manager";
 
 // Helper: Copy runtime config to NVS structure
 static inline void config_to_nvs(nvs_config_data_t *nvs_cfg, const runtime_config_t *config,
-                                 float threshold_high, float threshold_low) {
+                                 float threshold_high, float threshold_low, float segmentation_threshold) {
     nvs_cfg->version = NVS_CONFIG_VERSION;
     nvs_cfg->threshold_high = threshold_high;
     nvs_cfg->threshold_low = threshold_low;
@@ -43,6 +43,7 @@ static inline void config_to_nvs(nvs_config_data_t *nvs_cfg, const runtime_confi
     nvs_cfg->adaptive_normalizer_alpha = config->adaptive_normalizer_alpha;
     nvs_cfg->adaptive_normalizer_reset_timeout_sec = config->adaptive_normalizer_reset_timeout_sec;
     nvs_cfg->traffic_generator_rate = config->traffic_generator_rate;
+    nvs_cfg->segmentation_threshold = segmentation_threshold;
 }
 
 // Helper: Copy NVS structure to runtime config
@@ -177,7 +178,8 @@ esp_err_t config_load_from_nvs(runtime_config_t *config, const nvs_config_data_t
 
 esp_err_t config_save_to_nvs(const runtime_config_t *config, 
                              float threshold_high, 
-                             float threshold_low) {
+                             float threshold_low,
+                             float segmentation_threshold) {
     if (!config) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -185,7 +187,7 @@ esp_err_t config_save_to_nvs(const runtime_config_t *config,
     nvs_config_data_t nvs_cfg;
     
     // Use helper to convert runtime config to NVS
-    config_to_nvs(&nvs_cfg, config, threshold_high, threshold_low);
+    config_to_nvs(&nvs_cfg, config, threshold_high, threshold_low, segmentation_threshold);
     
     return nvs_save_control_params(&nvs_cfg);
 }

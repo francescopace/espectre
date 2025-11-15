@@ -34,6 +34,7 @@
 #include "mqtt_handler.h"
 #include "mqtt_commands.h"
 #include "traffic_generator.h"
+#include "segmentation.h"
 #include "esp_netif.h"
 
 // Configuration - can be overridden via menuconfig
@@ -89,6 +90,9 @@ static struct {
     
     // WiFi state
     bool wifi_connected;
+    
+    // Segmentation module
+    segmentation_context_t segmentation;
     
 } g_state = {0};
 
@@ -172,8 +176,10 @@ static void format_progress_bar(char *buffer, size_t size, float score, float th
     // Clamp values
     if (filled < 0) filled = 0;
     if (filled > bar_width) filled = bar_width;
-    if (threshold_pos < 0) threshold_pos = 0;
-    if (threshold_pos > bar_width) threshold_pos = bar_width;
+    
+    // For segmentation: threshold is always at 100% (middle of bar = position 10)
+    // This makes the threshold marker always visible
+    threshold_pos = bar_width / 2;  // Position 10 (middle of 20-char bar)
     
     // Build bar directly in output buffer
     int pos = 0;
@@ -294,6 +300,26 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         g_state.detection_score = detection_score;
         g_state.confidence = engine_state.confidence;
         
+        // MVS Segmentation: Calculate spatial turbulence and update segmentation
+        float turbulence = csi_calculate_spatial_turbulence(csi_data, csi_len);
+        bool segment_completed = segmentation_add_turbulence(&g_state.segmentation, turbulence);
+        
+        if (segment_completed) {
+            // A motion segment was just completed
+            uint8_t num_segments = segmentation_get_num_segments(&g_state.segmentation);
+            const segment_t *seg = segmentation_get_segment(&g_state.segmentation, num_segments - 1);
+            
+            if (seg) {
+                ESP_LOGD(TAG, "📍 Motion segment #%d: start=%lu, length=%d (%.2fs), avg_turb=%.2f, max_turb=%.2f",
+                         num_segments,
+                         (unsigned long)seg->start_index,
+                         seg->length,
+                         seg->length / 20.0f,  // Assuming 20 pps
+                         seg->avg_turbulence,
+                         seg->max_turbulence);
+            }
+        }
+        
         g_state.packets_processed++;
         
         xSemaphoreGive(g_state_mutex);
@@ -341,13 +367,12 @@ static void mqtt_publish_task(void *pvParameters) {
         vTaskDelayUntil(&last_wake_time, publish_period);
         
         // Read g_state values with mutex protection
-        float detection_score, threshold_high, confidence;
+        float detection_score, confidence;
         detection_state_t state;
         uint32_t packets_received, packets_processed;
         
         if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             detection_score = g_state.detection_score;
-            threshold_high = g_state.threshold_high;
             confidence = g_state.confidence;
             state = g_state.state;
             packets_received = g_state.packets_received;
@@ -431,7 +456,7 @@ static void mqtt_publish_task(void *pvParameters) {
                     ESP_LOGE(TAG, "❌ Failed to save calibration to NVS: %s", esp_err_to_name(calib_err));
                 }
                 
-                esp_err_t config_err = config_save_to_nvs(&g_state.config, g_state.threshold_high, g_state.threshold_low);
+                esp_err_t config_err = config_save_to_nvs(&g_state.config, g_state.threshold_high, g_state.threshold_low, g_state.segmentation.adaptive_threshold);
                 if (config_err == ESP_OK) {
                     ESP_LOGI(TAG, "💾 Configuration saved to NVS");
                 } else {
@@ -485,12 +510,21 @@ static void mqtt_publish_task(void *pvParameters) {
         if (g_state.config.csi_logs_enabled && 
             !calibration_is_active() && 
             (now - last_csi_log_time >= LOG_CSI_VALUES_INTERVAL)) {
-            const char *state_names[] = {"IDLE", "DETECTED"};
-            const char *state_str = (state < 2) ? state_names[state] : "UNKNOWN";
             
-            // Format progress bar with threshold marker (larger buffer to avoid truncation)
+            // Get segmentation data
+            float moving_variance = segmentation_get_moving_variance(&g_state.segmentation);
+            float adaptive_threshold = segmentation_get_threshold(&g_state.segmentation);
+            segmentation_state_t seg_state = segmentation_get_state(&g_state.segmentation);
+            
+            const char *seg_state_names[] = {"IDLE", "MOTION"};
+            const char *seg_state_str = (seg_state < 2) ? seg_state_names[seg_state] : "UNKNOWN";
+            
+            // Calculate progress based on segmentation (moving_variance / threshold)
+            float seg_progress = (adaptive_threshold > 0.0f) ? (moving_variance / adaptive_threshold) : 0.0f;
+            
+            // Format progress bar with threshold marker at 100% (larger buffer to avoid truncation)
             char progress_bar[256];
-            format_progress_bar(progress_bar, sizeof(progress_bar), detection_score, threshold_high);
+            format_progress_bar(progress_bar, sizeof(progress_bar), seg_progress, 1.0f);
             
             // Calculate packet delta (packets processed in last second)
             static uint32_t last_packets_processed = 0;
@@ -499,7 +533,7 @@ static void mqtt_publish_task(void *pvParameters) {
             
             ESP_LOGI(TAG, "📊 %s | pkts:%lu mvmt:%.4f thr:%.4f | %s",
                      progress_bar, (unsigned long)packet_delta, 
-                     detection_score, threshold_high, state_str);
+                     moving_variance, adaptive_threshold, seg_state_str);
             last_csi_log_time = now;
         }
         
@@ -594,6 +628,10 @@ void app_main(void) {
     // Initialize calibration system
     calibration_init();
     
+    // Initialize segmentation system
+    segmentation_init(&g_state.segmentation);
+    ESP_LOGI(TAG, "📍 Segmentation module initialized");
+    
     // Initialize NVS storage
     nvs_storage_init();
     
@@ -608,9 +646,14 @@ void app_main(void) {
             g_state.threshold_high = nvs_cfg.threshold_high;
             g_state.threshold_low = nvs_cfg.threshold_low;
             
+            // Load segmentation threshold from NVS
+            g_state.segmentation.adaptive_threshold = nvs_cfg.segmentation_threshold;
+            
             ESP_LOGI(TAG, "💾 Loaded saved configuration from NVS");
-            ESP_LOGI(TAG, "🎯 Loaded thresholds: high=%.4f, low=%.4f",
+            ESP_LOGI(TAG, "🎯 Loaded detection thresholds: high=%.4f, low=%.4f",
                      g_state.threshold_high, g_state.threshold_low);
+            ESP_LOGI(TAG, "📍 Loaded segmentation threshold: %.2f",
+                     g_state.segmentation.adaptive_threshold);
         }
     }
     
@@ -748,6 +791,7 @@ void app_main(void) {
     g_mqtt_cmd_context.butterworth = &g_butterworth;
     g_mqtt_cmd_context.filter_buffer = &g_filter_buffer;
     g_mqtt_cmd_context.normalizer = &g_normalizer;
+    g_mqtt_cmd_context.segmentation = &g_state.segmentation;
     g_mqtt_cmd_context.mqtt_base_topic = mqtt_cfg.base_topic;
     g_mqtt_cmd_context.mqtt_cmd_topic = mqtt_cfg.cmd_topic;
     g_mqtt_cmd_context.mqtt_response_topic = mqtt_cfg.response_topic;

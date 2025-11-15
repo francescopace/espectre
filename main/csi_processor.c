@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdbool.h>
 #include "esp_log.h"
 
 static const char *TAG = "CSI_Processor";
@@ -26,7 +27,7 @@ static int8_t iqr_sort_buffer[CSI_MAX_LENGTH];
 // Subcarrier selection for amplitude calculation
 // ESP32 provides 64 subcarriers (128 bytes: I,Q pairs)
 // Based on PCA analysis on real data: optimal range is [29-58]
-#define ENABLE_SUBCARRIER_FILTERING 1  // ← Inizialmente 0 per testare
+#define ENABLE_SUBCARRIER_FILTERING 1 
 #define SUBCARRIER_START 47
 #define SUBCARRIER_END 59  // Inclusive of SC58
 #define NUM_USEFUL_SUBCARRIERS (SUBCARRIER_END - SUBCARRIER_START)
@@ -350,15 +351,10 @@ float csi_calculate_spatial_gradient(const int8_t *data, size_t len) {
     return sum_diff / (len - 1);
 }
 
-// Temporal features: separate buffers for raw and filtered data
-// This ensures temporal features work correctly regardless of filtering mode
-static int8_t prev_csi_data_raw[CSI_MAX_LENGTH] = {0};
-static size_t prev_csi_len_raw = 0;
-static bool first_packet_raw = true;
-
-static int8_t prev_csi_data_filtered[CSI_MAX_LENGTH] = {0};
-static size_t prev_csi_len_filtered = 0;
-static bool first_packet_filtered = true;
+// Temporal features: unified buffer (simplified - no raw/filtered separation)
+static int8_t prev_csi_data[CSI_MAX_LENGTH] = {0};
+static size_t prev_csi_len = 0;
+static bool first_packet = true;
 
 // Temporal delta mean calculation
 float csi_calculate_temporal_delta_mean(const int8_t *current_data,
@@ -400,14 +396,9 @@ float csi_calculate_temporal_delta_variance(const int8_t *current_data,
 
 // Reset temporal buffer (call when starting new calibration phase)
 void csi_reset_temporal_buffer(void) {
-    // Reset both raw and filtered buffers
-    memset(prev_csi_data_raw, 0, sizeof(prev_csi_data_raw));
-    prev_csi_len_raw = 0;
-    first_packet_raw = true;
-    
-    memset(prev_csi_data_filtered, 0, sizeof(prev_csi_data_filtered));
-    prev_csi_len_filtered = 0;
-    first_packet_filtered = true;
+    memset(prev_csi_data, 0, sizeof(prev_csi_data));
+    prev_csi_len = 0;
+    first_packet = true;
 }
 
 // Reset amplitude moments buffer (call when starting new calibration phase)
@@ -417,6 +408,56 @@ void csi_reset_amplitude_skewness_buffer(void) {
     amp_moments_index = 0;
     amp_moments_count = 0;
     moments_valid = false;
+}
+
+// Calculate spatial turbulence (std of subcarrier amplitudes)
+// Used for Moving Variance Segmentation (MVS)
+// Replicates: calculate_spatial_turbulence() from Python code
+// 
+// NOTE: Uses SELECTIVE subcarrier filtering (47-58) to match Python implementation
+//       which uses SELECTED_SUBCARRIERS = list(range(47, 59))
+float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len) {
+    if (!csi_data || csi_len < 2) {
+        return 0.0f;
+    }
+    
+    // Use SELECTIVE subcarrier filtering (47-58) to match Python
+    // Python: SELECTED_SUBCARRIERS = list(range(47, 59))  # 12 subcarriers
+    int num_subcarriers = csi_len / 2;  // Each subcarrier has I and Q
+    
+    // Determine range of useful subcarriers (same as Python SELECTIVE mode)
+    int start_idx = (num_subcarriers > SUBCARRIER_END) ? SUBCARRIER_START : 0;
+    int end_idx = (num_subcarriers > SUBCARRIER_END) ? SUBCARRIER_END : num_subcarriers;
+    int useful_count = end_idx - start_idx;
+    
+    if (useful_count <= 0) {
+        // Fallback: use all subcarriers
+        start_idx = 0;
+        end_idx = num_subcarriers;
+        useful_count = num_subcarriers;
+    }
+    
+    // Calculate amplitudes for selected subcarriers
+    float sum = 0.0f;
+    float sum_sq = 0.0f;
+    
+    for (int i = start_idx; i < end_idx; i++) {
+        float I = (float)csi_data[i * 2];
+        float Q = (float)csi_data[i * 2 + 1];
+        float amplitude = sqrtf(I * I + Q * Q);
+        
+        sum += amplitude;
+        sum_sq += amplitude * amplitude;
+    }
+    
+    // Calculate standard deviation
+    float mean = sum / useful_count;
+    float variance = (sum_sq / useful_count) - (mean * mean);
+    
+    // Protect against negative variance due to floating point errors
+    if (variance < 0.0f) variance = 0.0f;
+    
+    return sqrtf(variance);
 }
 
 // Main feature extraction function
@@ -495,56 +536,23 @@ void csi_extract_features(const int8_t *csi_data,
                 temporal_calculated = true;
                 
                 // Temporal features require previous packet - calculate both together
-                // Use appropriate buffer based on filtering mode
-#if ENABLE_SUBCARRIER_FILTERING
-                {
-                    int8_t *prev_buffer = prev_csi_data_filtered;
-                    size_t *prev_len = &prev_csi_len_filtered;
-                    bool *first_pkt = &first_packet_filtered;
-                    
-                    // Handle first packet: initialize buffer, skip temporal calculation
-                    if (*first_pkt) {
-                        if (len_to_use <= CSI_MAX_LENGTH) {
-                            memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
-                            *prev_len = len_to_use;
-                        }
-                        *first_pkt = false;
-                        // Leave temporal features at 0.0 for first packet (already set by memset)
-                    } else if (*prev_len == len_to_use) {
-                        // Calculate temporal features from second packet onwards
-                        features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
-                            data_to_use, prev_buffer, len_to_use);
-                        features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
-                            data_to_use, prev_buffer, len_to_use);
-                        // Update buffer for next packet
-                        memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
+                // Handle first packet: initialize buffer, skip temporal calculation
+                if (first_packet) {
+                    if (len_to_use <= CSI_MAX_LENGTH) {
+                        memcpy(prev_csi_data, data_to_use, len_to_use * sizeof(int8_t));
+                        prev_csi_len = len_to_use;
                     }
+                    first_packet = false;
+                    // Leave temporal features at 0.0 for first packet (already set by memset)
+                } else if (prev_csi_len == len_to_use) {
+                    // Calculate temporal features from second packet onwards
+                    features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
+                        data_to_use, prev_csi_data, len_to_use);
+                    features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
+                        data_to_use, prev_csi_data, len_to_use);
+                    // Update buffer for next packet
+                    memcpy(prev_csi_data, data_to_use, len_to_use * sizeof(int8_t));
                 }
-#else
-                {
-                    int8_t *prev_buffer = prev_csi_data_raw;
-                    size_t *prev_len = &prev_csi_len_raw;
-                    bool *first_pkt = &first_packet_raw;
-                    
-                    // Handle first packet: initialize buffer, skip temporal calculation
-                    if (*first_pkt) {
-                        if (len_to_use <= CSI_MAX_LENGTH) {
-                            memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
-                            *prev_len = len_to_use;
-                        }
-                        *first_pkt = false;
-                        // Leave temporal features at 0.0 for first packet (already set by memset)
-                    } else if (*prev_len == len_to_use) {
-                        // Calculate temporal features from second packet onwards
-                        features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
-                            data_to_use, prev_buffer, len_to_use);
-                        features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
-                            data_to_use, prev_buffer, len_to_use);
-                        // Update buffer for next packet
-                        memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
-                    }
-                }
-#endif
                 break;
             default:
                 ESP_LOGW(TAG, "Unknown feature index: %d", feat_idx);

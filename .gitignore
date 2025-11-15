@@ -11,3 +11,5 @@ logs/
 csi_data/
 docs/
 .vscode/
+test_results/
+test_output.log

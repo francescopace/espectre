@@ -175,4 +175,14 @@ float csi_calculate_spatial_correlation(const int8_t *data, size_t len);
  */
 float csi_calculate_spatial_gradient(const int8_t *data, size_t len);
 
+/**
+ * Calculate spatial turbulence (std of subcarrier amplitudes)
+ * Used for Moving Variance Segmentation (MVS)
+ * 
+ * @param csi_data Raw CSI data (I/Q pairs for subcarriers)
+ * @param csi_len Length of CSI data
+ * @return Spatial turbulence (standard deviation of amplitudes)
+ */
+float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len);
+
 #endif // CSI_PROCESSOR_H

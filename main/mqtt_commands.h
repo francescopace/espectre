@@ -20,6 +20,7 @@
 #include "calibration.h"
 #include "csi_processor.h"
 #include "filters.h"
+#include "segmentation.h"
 
 // Command context - provides access to system state
 typedef struct {
@@ -32,6 +33,7 @@ typedef struct {
     butterworth_filter_t *butterworth;
     filter_buffer_t *filter_buffer;
     adaptive_normalizer_t *normalizer;
+    segmentation_context_t *segmentation;
     const char *mqtt_base_topic;
     const char *mqtt_cmd_topic;
     const char *mqtt_response_topic;

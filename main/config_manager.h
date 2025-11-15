@@ -95,13 +95,15 @@ esp_err_t config_load_from_nvs(runtime_config_t *config, const nvs_config_data_t
  * Save configuration to NVS
  * 
  * @param config Configuration to save
- * @param threshold_high Current high threshold
- * @param threshold_low Current low threshold
+ * @param threshold_high Current high threshold (detection)
+ * @param threshold_low Current low threshold (detection)
+ * @param segmentation_threshold Current segmentation threshold
  * @return ESP_OK on success, error code otherwise
  */
 esp_err_t config_save_to_nvs(const runtime_config_t *config, 
                              float threshold_high, 
-                             float threshold_low);
+                             float threshold_low,
+                             float segmentation_threshold);
 
 /**
  * Check if configuration exists in NVS

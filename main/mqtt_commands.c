@@ -106,22 +106,48 @@ static bool get_int_param(cJSON *root, const char *key, int *out_value,
     return true;
 }
 
-static void cmd_threshold(cJSON *root) {
+static void cmd_detection_threshold(cJSON *root) {
     float new_threshold;
     if (get_float_param(root, "value", &new_threshold, THRESHOLD_MIN, THRESHOLD_MAX,
-                       "ERROR: Threshold must be between 0.0 and 1.0")) {
+                       "ERROR: Detection threshold must be between 0.0 and 1.0")) {
         float old_threshold = *g_cmd_context->threshold_high;
         *g_cmd_context->threshold_high = new_threshold;
         *g_cmd_context->threshold_low = new_threshold * g_cmd_context->config->hysteresis_ratio;
         
         char response[256];
         snprintf(response, sizeof(response), 
-                 "Threshold updated: %.4f -> %.4f", old_threshold, new_threshold);
+                 "Detection threshold updated: %.4f -> %.4f", old_threshold, new_threshold);
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
         esp_err_t err = config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "💾 Configuration saved to NVS");
+        } else {
+            ESP_LOGE(TAG, "❌ Failed to save configuration to NVS: %s", esp_err_to_name(err));
+        }
+    }
+}
+
+static void cmd_segmentation_threshold(cJSON *root) {
+    float new_threshold;
+    if (get_float_param(root, "value", &new_threshold, 0.5f, 10.0f,
+                       "ERROR: Segmentation threshold must be between 0.5 and 10.0")) {
+        float old_threshold = g_cmd_context->segmentation->adaptive_threshold;
+        g_cmd_context->segmentation->adaptive_threshold = new_threshold;
+        
+        char response[256];
+        snprintf(response, sizeof(response), 
+                 "Segmentation threshold updated: %.2f -> %.2f", old_threshold, new_threshold);
+        send_response(response);
+        ESP_LOGI(TAG, "%s", response);
+        
+        // Save to NVS
+        esp_err_t err = config_save_to_nvs(g_cmd_context->config, 
+                                           *g_cmd_context->threshold_high,
+                                           *g_cmd_context->threshold_low, 
+                                           new_threshold);
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "💾 Configuration saved to NVS");
         } else {
@@ -190,6 +216,17 @@ static void cmd_info(cJSON *root) {
     cJSON_AddNumberToObject(detection, "persistence_timeout", g_cmd_context->config->persistence_timeout);
     cJSON_AddNumberToObject(detection, "hysteresis_ratio", (double)g_cmd_context->config->hysteresis_ratio);
     cJSON_AddItemToObject(response, "detection", detection);
+    
+    // Segmentation parameters
+    cJSON *segmentation = cJSON_CreateObject();
+    cJSON_AddNumberToObject(segmentation, "threshold", (double)g_cmd_context->segmentation->adaptive_threshold);
+    cJSON_AddNumberToObject(segmentation, "window_size", SEGMENTATION_WINDOW_SIZE);
+    cJSON_AddNumberToObject(segmentation, "k_factor", (double)SEGMENTATION_K_FACTOR);
+    cJSON_AddNumberToObject(segmentation, "min_length", SEGMENTATION_MIN_LENGTH);
+    cJSON_AddNumberToObject(segmentation, "max_length", SEGMENTATION_MAX_LENGTH);
+    cJSON_AddBoolToObject(segmentation, "calibrated", g_cmd_context->segmentation->threshold_calibrated);
+    cJSON_AddNumberToObject(segmentation, "total_segments", g_cmd_context->segmentation->total_segments_detected);
+    cJSON_AddItemToObject(response, "segmentation", segmentation);
     
     // Traffic generator
     cJSON_AddNumberToObject(response, "traffic_generator_rate", g_cmd_context->config->traffic_generator_rate);
@@ -290,7 +327,7 @@ static void cmd_persistence(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -308,7 +345,7 @@ static void cmd_debounce(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -327,7 +364,7 @@ static void cmd_hysteresis(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -436,7 +473,7 @@ static void cmd_hampel_filter(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -454,7 +491,7 @@ static void cmd_hampel_threshold(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -469,7 +506,7 @@ static void cmd_savgol_filter(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -484,7 +521,7 @@ static void cmd_butterworth_filter(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -499,7 +536,7 @@ static void cmd_smart_publishing(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -622,7 +659,7 @@ static void cmd_adaptive_normalizer(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -645,7 +682,7 @@ static void cmd_adaptive_normalizer_alpha(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -671,7 +708,7 @@ static void cmd_adaptive_normalizer_reset_timeout(cJSON *root) {
             ESP_LOGI(TAG, "%s", response);
             
             config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
+                             *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
         } else {
             send_response("ERROR: Reset timeout must be between 0 and 300 seconds (0 = disabled)");
         }
@@ -742,7 +779,7 @@ static void cmd_traffic_generator_rate(cJSON *root) {
             send_response(response);
             
             config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                             *g_cmd_context->threshold_low);
+                             *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
         } else {
             send_response("ERROR: Rate must be 0-50 packets/sec (0=disabled, recommended: 15)");
         }
@@ -762,7 +799,7 @@ static void cmd_wavelet_filter(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -782,7 +819,7 @@ static void cmd_wavelet_level(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -802,7 +839,7 @@ static void cmd_wavelet_threshold(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
+                         *g_cmd_context->threshold_low, g_cmd_context->segmentation->adaptive_threshold);
     }
 }
 
@@ -815,6 +852,10 @@ static void cmd_factory_reset(cJSON *root) {
     config_init_defaults(g_cmd_context->config);
     *g_cmd_context->threshold_high = DEFAULT_THRESHOLD;
     *g_cmd_context->threshold_low = DEFAULT_THRESHOLD * g_cmd_context->config->hysteresis_ratio;
+    
+    // Reset segmentation to defaults
+    segmentation_init(g_cmd_context->segmentation);
+    ESP_LOGI(TAG, "📍 Segmentation reset to defaults (threshold: %.2f)", SEGMENTATION_DEFAULT_THRESHOLD);
     
     calibration_init();
     
@@ -831,7 +872,8 @@ typedef struct {
 } command_entry_t;
 
 static const command_entry_t command_table[] = {
-    {"threshold", cmd_threshold},
+    {"detection_threshold", cmd_detection_threshold},
+    {"segmentation_threshold", cmd_segmentation_threshold},
     {"stats", cmd_stats},
     {"info", cmd_info},
     {"logs", cmd_logs},

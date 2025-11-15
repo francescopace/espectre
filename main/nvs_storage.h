@@ -21,7 +21,7 @@
 
 // Versioning for future compatibility
 #define NVS_CALIBRATION_VERSION 1
-#define NVS_CONFIG_VERSION 4  // Incremented: removed unused variance_scale parameter
+#define NVS_CONFIG_VERSION 5  // Incremented: added segmentation_threshold parameter
 
 // Maximum sizes
 #define MAX_SELECTED_FEATURES 6
@@ -75,6 +75,9 @@ typedef struct {
     
     // Traffic generator
     uint32_t traffic_generator_rate;  // packets/sec (0=disabled)
+    
+    // Segmentation parameters
+    float segmentation_threshold;  // Adaptive threshold for MVS (0.5-10.0)
     
 } nvs_config_data_t;
 

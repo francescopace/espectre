@@ -6,36 +6,31 @@ All notable changes to this project will be documented in this file.
 
 ## [1.2.0] - In Progress
 
-### 🔧 Refactored - Code Optimization
+### ✨ Added - Moving Variance Segmentation (MVS) Module
 
-**Reduced codebase by ~280 lines through component consolidation and algorithm improvements**
+**Real-time motion segment detection and analysis**
 
-- **Removed wifi_manager module** (~150 lines): Replaced with direct ESP-IDF API calls
-  * Uses `esp_wifi`, `esp_netif`, `esp_event` directly
-  * Less abstraction overhead, more maintainable
+- **Segmentation module**: New `segmentation.c/h` module for motion segment extraction
+  * Implements Moving Variance Segmentation (MVS) algorithm with adaptive threshold
+  * Extracts motion segments from CSI data in real-time
+  * Calculates statistical features per segment (duration, avg/max turbulence)
+  * Circular buffer maintains up to 10 recent segments
   
-- **Optimized MQTT handler** (~80 lines): Created `mqtt_publish_json()` helper function
-  * Eliminates JSON serialization code duplication
-  * Centralized error handling
-  * Cleaner, more maintainable code
-
-- **Optimized statistics module** (~30 lines): Implemented quickselect algorithm
-  * Replaced malloc/free with static buffer for percentile calculations
-  * O(n) average time vs O(n log n) for sorting
-  * Zero heap allocations in hot path
-  * Better performance and reduced memory fragmentation
-
-- **Optimized config_manager** (~20 lines): Created helper functions for NVS conversion
-  * `config_to_nvs()` and `nvs_to_config()` eliminate code duplication
-  * Cleaner load/save operations
-  * Easier to maintain and extend
+- **Spatial turbulence calculation**: New `csi_calculate_spatial_turbulence()` function
+  * Calculates standard deviation of subcarrier amplitudes
+  * Uses selective subcarrier filtering (47-58) matching Python implementation
+  * Integrated into main CSI processing loop
+  
+- **Automatic segment logging**: Real-time segment detection feedback
+  * Logs segment number, start index, length, duration
+  * Reports average and maximum turbulence values
+  * Foundation for advanced motion classification
 
 **Benefits:**
-- ✅ ~280 lines of code removed
-- ✅ Better use of native ESP-IDF components
-- ✅ Improved performance (no malloc in percentile calculations)
-- ✅ Improved code maintainability
-- ✅ Same functionality, less complexity
+- ✅ Real-time motion segment extraction
+- ✅ Adaptive threshold based on moving variance
+- ✅ Statistical features per segment for classification
+- ✅ Foundation for advanced motion pattern recognition
 
 ### 🚀 Improved - CSI Subcarrier Optimization
 
@@ -48,27 +43,11 @@ Based on ESP32-S3 Wi-Fi documentation analysis, optimized CSI data collection to
   * Includes edge subcarriers (-32 to -27 and +27 to +32) previously filtered
   * More complete frequency response of the channel
   
-- **Promiscuous mode enabled**: Added `esp_wifi_set_promiscuous(true)`
-  * Receives CSI from ALL Wi-Fi packets in the environment (not just connected AP)
-  * 10-100x increase in CSI packet rate depending on Wi-Fi traffic
-  * Much higher sampling frequency for better movement detection
-  * Automatic cleanup in `wifi_manager_cleanup()`
-
 **Benefits:**
 - ✅ +23% more spatial information (64 vs 52 subcarriers)
-- ✅ 10-100x more CSI packets (all Wi-Fi traffic vs only AP)
 - ✅ Better movement detection accuracy
 - ✅ More data for calibration optimization
 - ✅ Higher spatial resolution
-
-**Trade-offs:**
-- ⚠️ Increased CPU load (more packets to process)
-- ⚠️ More noise in data (edge subcarriers + all sources)
-- ⚠️ Higher power consumption
-
-**Impact on traffic generator:**
-- May no longer be necessary for normal operation (promiscuous provides enough packets)
-- Still useful for: controlled calibration, empty Wi-Fi environments, testing
 
 ### 🧪 Added - Local Segmentation Test Script
 
@@ -95,16 +74,14 @@ Based on ESP32-S3 Wi-Fi documentation analysis, optimized CSI data collection to
 
 **Usage:**
 ```bash
-python test/test_segmentation_local.py              # Run with defaults
-python test/test_segmentation_local.py --optimize   # Find optimal parameters
-python test/test_segmentation_local.py --no-plot    # Skip visualization
+python test_app/test_segmentation_local.py              # Run with defaults
+python test_app/test_segmentation_local.py --optimize   # Find optimal parameters
+python test_app/test_segmentation_local.py --no-plot    # Skip visualization
 ```
 
 ### ✨ Added - CSI Raw Data Collection
 
 **Dataset generation for testing and analysis**
-
-
 - **Calibration data export**: Extended `calibrate` command to print CSI raw data during calibration
 
 **Usage:**
@@ -185,28 +162,6 @@ Based on analysis of 6 scientific papers on Wi-Fi CSI sensing, implemented ampli
   - Better selection of features with strong signal separation
   - More robust in noisy environments
 - **Configurable**: Can be toggled via `USE_MODIFIED_FISHER` flag in `calibration.c`
-
-### 🧪 Added - Comprehensive Testing
-
-**New test suites for validation**
-
-- **3-way statistical comparison**: Tests variance/skewness/abs-skewness approaches
-- **5-way detection approaches**: Compares Fisher/Modified Fisher/Simple Ratio/TDV/Amplitude Kurtosis
-- **All tests pass**: Validates amplitude-based implementation
-
-### 📊 Performance Improvements
-
-**Measured improvements vs v1.1.0:**
-- **Separation ratio**: 1.16x → 2.91x (+151%)
-- **Accuracy**: ~50% → 82.3% (+64%)
-- **False positives**: ~10% → 0% (-100%)
-- **False negatives**: ~90% → 35.5% (-60%)
-
-### 🔧 Changed
-
-- **Feature extraction**: Updated to support all 10 features
-- **Calibration system**: Now analyzes all features using Modified Fisher criterion with pre-normalization
-- **Documentation**: Updated all references from 8 to 10 features
 
 ---
 

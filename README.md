@@ -324,7 +324,15 @@ CSI data represents only the properties of the transmission medium and does not 
 - Extracts amplitude and phase data from OFDM subcarriers (up to 64 subcarriers)
 - Typical capture rate: ~10-100 packets/second depending on Wi-Fi traffic
 
-#### 2️⃣ **Signal Processing** (ESP32-S3)
+#### 2️⃣ **Motion Segmentation** (ESP32-S3)
+- **Spatial turbulence calculation**: Standard deviation of subcarrier amplitudes
+- **Moving Variance Segmentation (MVS)**: Real-time motion segment extraction
+- **Adaptive threshold**: Based on moving variance of turbulence signal
+- **Segment features**: Duration, average turbulence, maximum turbulence
+- **Circular buffer**: Maintains up to 10 recent segments for analysis
+- **Foundation for ML**: Segments can be labeled and used for activity classification
+
+#### 3️⃣ **Signal Processing** (ESP32-S3)
 The `espectre.c` firmware applies an advanced multi-stage processing pipeline:
 
 **Stage 1: Advanced Filters** (Configurable via MQTT)
@@ -353,19 +361,19 @@ The `espectre.c` firmware applies an advanced multi-stage processing pipeline:
 - Persistence: Timeout before downgrading state (configurable, default: 3 seconds)
 - Hysteresis: Prevents state flickering using dual thresholds
 
-#### 3️⃣ **MQTT Publishing** (ESP32-S3 → Broker)
+#### 4️⃣ **MQTT Publishing** (ESP32-S3 → Broker)
 - Publishes JSON payload every 1 second (configurable)
 - QoS level 0 (fire-and-forget) for low latency
 - Retained message option for last known state
 - Automatic reconnection on connection loss
 
-#### 4️⃣ **Home Assistant Integration**
+#### 5️⃣ **Home Assistant Integration**
 - **MQTT Sensor** subscribes to topic and creates entity
 - **State**: Primary `movement` value (0.0-1.0)
 - **Attributes**: All other metrics available for conditions
 - **History**: Automatic logging to database for graphs
 
-#### 5️⃣ **Automation & Actions**
+#### 6️⃣ **Automation & Actions**
 Trigger automations based on:
 - **Numeric state**: `movement > 0.6` (active movement)
 - **Confidence level**: `confidence > 0.7` (high certainty)
