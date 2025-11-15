@@ -28,3 +28,7 @@ CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
 # Flash size configuration (4MB to accommodate 2MB app + other partitions)
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# Line ending configuration
+CONFIG_LIBC_STDIN_LINE_ENDING_CR=y
+CONFIG_LIBC_STDOUT_LINE_ENDING_CRLF=y

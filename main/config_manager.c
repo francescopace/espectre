@@ -84,32 +84,35 @@ void config_init_defaults(runtime_config_t *config) {
     config->persistence_timeout = DEFAULT_PERSISTENCE_TIMEOUT;
     config->variance_scale = DEFAULT_VARIANCE_SCALE;
     
-    // Default feature weights
-    config->feature_weights[0] = 0.200f;  // variance <-
-    config->feature_weights[1] = 0.000f;  // amplitude skewness
-    config->feature_weights[2] = 0.150f;  // amplitude kurtosis  <-
-    config->feature_weights[3] = 0.000f;  // entropy
-    config->feature_weights[4] = 0.300f;  // iqr <-
-    config->feature_weights[5] = 0.000f;  // spatial_variance
-    config->feature_weights[6] = 0.000f;  // spatial_correlation
-    config->feature_weights[7] = 0.350f;  // spatial_gradient <-
-    config->feature_weights[8] = 0.000f;  // temporal_delta_mean
-    config->feature_weights[9] = 0.000f;  // temporal_delta_variance
+    // Default feature weights (optimized based on real-world testing)
+    // Based on automatic calibration results with Modified Fisher criterion
+    // Top 6 features selected for optimal baseline/movement separation
+    config->feature_weights[0] = 0.128f;  // variance
+    config->feature_weights[1] = 0.111f;  // amplitude skewness
+    config->feature_weights[2] = 0.166f;  // amplitude kurtosis
+    config->feature_weights[3] = 0.000f;  // entropy (not selected)
+    config->feature_weights[4] = 0.182f;  // iqr
+    config->feature_weights[5] = 0.000f;  // spatial_variance (not selected)
+    config->feature_weights[6] = 0.000f;  // spatial_correlation (not selected)
+    config->feature_weights[7] = 0.171f;  // spatial_gradient
+    config->feature_weights[8] = 0.241f;  // temporal_delta_mean (highest weight - best F1-score)
+    config->feature_weights[9] = 0.000f;  // temporal_delta_variance (not selected by default)
     
     // Enable adaptive normalizer by default for better adaptation to environment changes
     config->adaptive_normalizer_enabled = true;
-    config->adaptive_normalizer_alpha = 0.01f;
+    config->adaptive_normalizer_alpha = 0.020f;  // Optimized based on calibration (baseline drift detection)
     config->adaptive_normalizer_reset_timeout_sec = 60;  // Increased from 30 for stability
     
     // Traffic generator (20 pps = good balance for continuous CSI and stability)
     config->traffic_generator_rate = 20;
     
     // Enable key filters by default for robust operation in noisy environments
-    config->hampel_filter_enabled = true;   // Outlier removal
-    config->hampel_threshold = DEFAULT_HAMPEL_THRESHOLD;
-    config->savgol_filter_enabled = true;   // Smoothing
+    // Hampel disabled by default (calibration shows 0% outlier rate in typical environments)
+    config->hampel_filter_enabled = false;  // Enable manually if high outlier rate detected
+    config->hampel_threshold = 2.0f;        // Optimized threshold (reduced from 3.0 for better sensitivity)
+    config->savgol_filter_enabled = true;   // Smoothing (recommended for noisy signals)
     config->savgol_window_size = DEFAULT_SAVGOL_WINDOW;
-    config->butterworth_enabled = true;     // High-frequency noise reduction
+    config->butterworth_enabled = true;     // High-frequency noise reduction (always recommended)
     
     // Wavelet filter settings (disabled by default, enable for high-noise environments)
     config->wavelet_enabled = false;        // Enable manually if variance > 500

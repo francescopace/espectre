@@ -433,6 +433,9 @@ void csi_extract_features(const int8_t *csi_data,
     // Initialize all features to 0
     memset(features, 0, sizeof(csi_features_t));
     
+    // Flag to track if temporal features have been calculated in this call
+    bool temporal_calculated = false;
+    
 #if ENABLE_SUBCARRIER_FILTERING
     // PRE-FILTER: Apply subcarrier selection ONCE for all features
     static int8_t filtered_data[CSI_MAX_LENGTH];
@@ -483,6 +486,14 @@ void csi_extract_features(const int8_t *csi_data,
                 break;
             case 8: // temporal_delta_mean
             case 9: // temporal_delta_variance
+                // Calculate temporal features only once per packet (skip if already calculated)
+                if (temporal_calculated) {
+                    break;  // Already calculated when we encountered the other temporal feature index
+                }
+                
+                // Mark as calculated to prevent double calculation
+                temporal_calculated = true;
+                
                 // Temporal features require previous packet - calculate both together
                 // Use appropriate buffer based on filtering mode
 #if ENABLE_SUBCARRIER_FILTERING
@@ -491,19 +502,21 @@ void csi_extract_features(const int8_t *csi_data,
                     size_t *prev_len = &prev_csi_len_filtered;
                     bool *first_pkt = &first_packet_filtered;
                     
-                    if (*first_pkt || *prev_len != len_to_use) {
-                        features->temporal_delta_mean = 0.0f;
-                        features->temporal_delta_variance = 0.0f;
+                    // Handle first packet: initialize buffer, skip temporal calculation
+                    if (*first_pkt) {
                         if (len_to_use <= CSI_MAX_LENGTH) {
                             memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
                             *prev_len = len_to_use;
                         }
                         *first_pkt = false;
-                    } else {
+                        // Leave temporal features at 0.0 for first packet (already set by memset)
+                    } else if (*prev_len == len_to_use) {
+                        // Calculate temporal features from second packet onwards
                         features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
                             data_to_use, prev_buffer, len_to_use);
                         features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
                             data_to_use, prev_buffer, len_to_use);
+                        // Update buffer for next packet
                         memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
                     }
                 }
@@ -513,19 +526,21 @@ void csi_extract_features(const int8_t *csi_data,
                     size_t *prev_len = &prev_csi_len_raw;
                     bool *first_pkt = &first_packet_raw;
                     
-                    if (*first_pkt || *prev_len != len_to_use) {
-                        features->temporal_delta_mean = 0.0f;
-                        features->temporal_delta_variance = 0.0f;
+                    // Handle first packet: initialize buffer, skip temporal calculation
+                    if (*first_pkt) {
                         if (len_to_use <= CSI_MAX_LENGTH) {
                             memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
                             *prev_len = len_to_use;
                         }
                         *first_pkt = false;
-                    } else {
+                        // Leave temporal features at 0.0 for first packet (already set by memset)
+                    } else if (*prev_len == len_to_use) {
+                        // Calculate temporal features from second packet onwards
                         features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
                             data_to_use, prev_buffer, len_to_use);
                         features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
                             data_to_use, prev_buffer, len_to_use);
+                        // Update buffer for next packet
                         memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
                     }
                 }

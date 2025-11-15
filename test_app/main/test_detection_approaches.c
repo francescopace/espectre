@@ -1,11 +1,10 @@
 /*
  * ESPectre - Detection Approaches Comparison Test
  * 
- * Compares 4 different approaches for movement detection:
+ * Compares 3 different approaches for movement detection:
  * 1. Fisher criterion (current implementation)
  * 2. Modified Fisher (sqrt in denominator - less penalty for high variance)
  * 3. Simple ratio selection (best single feature by mean ratio)
- * 4. Temporal delta variance only (direct approach)
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -243,151 +242,14 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
     printf("   Separation ratio: %.2fx\n\n", best_ratio);
     
     printf("═══════════════════════════════════════════════════════\n");
-    printf("  APPROACH 4: TEMPORAL_DELTA_VARIANCE ONLY\n");
-    printf("═══════════════════════════════════════════════════════\n\n");
-    
-    // Direct approach with temporal_delta_variance (index 9)
-    int tdv_idx = 9;
-    float tdv_baseline = baseline_means[tdv_idx];
-    float tdv_movement = movement_means[tdv_idx];
-    float tdv_separation = tdv_movement / (tdv_baseline + 1e-6f);
-    float tdv_threshold = (tdv_baseline + tdv_movement) / 2.0f;
-    
-    printf("  Feature: %s\n", feature_names[tdv_idx]);
-    printf("  Baseline mean: %.2f (σ²=%.2f)\n", tdv_baseline, baseline_vars[tdv_idx]);
-    printf("  Movement mean: %.2f (σ²=%.2f)\n", tdv_movement, movement_vars[tdv_idx]);
-    printf("  Separation ratio: %.2fx\n", tdv_separation);
-    printf("  Suggested threshold: %.2f\n\n", tdv_threshold);
-    
-    printf("═══════════════════════════════════════════════════════\n");
-    printf("  APPROACH 5: AMPLITUDE KURTOSIS (Moving Window)\n");
-    printf("═══════════════════════════════════════════════════════\n\n");
-    
-    // Test amplitude-based kurtosis (same approach as amplitude skewness)
-    // Calculate kurtosis on moving window of amplitudes
-    #define KURTOSIS_WINDOW 20
-    float amp_buffer_kurt[KURTOSIS_WINDOW];
-    int amp_idx_kurt = 0;
-    int amp_count_kurt = 0;
-    
-    // Calculate amplitude kurtosis for baseline
-    float *baseline_amp_kurtosis = malloc(num_baseline * sizeof(float));
-    int baseline_kurt_count = 0;
-    
-    for (int p = 0; p < num_baseline; p++) {
-        // Calculate average amplitude
-        float avg_amp = 0.0f;
-        for (int i = 0; i < 64; i++) {
-            float I = (float)baseline_packets[p][2*i];
-            float Q = (float)baseline_packets[p][2*i+1];
-            avg_amp += sqrtf(I*I + Q*Q);
-        }
-        avg_amp /= 64.0f;
-        
-        // Add to buffer
-        amp_buffer_kurt[amp_idx_kurt] = avg_amp;
-        amp_idx_kurt = (amp_idx_kurt + 1) % KURTOSIS_WINDOW;
-        if (amp_count_kurt < KURTOSIS_WINDOW) amp_count_kurt++;
-        
-        // Calculate kurtosis inline
-        if (amp_count_kurt >= 4) {
-            float mean = 0.0f;
-            for (int i = 0; i < amp_count_kurt; i++) {
-                mean += amp_buffer_kurt[i];
-            }
-            mean /= amp_count_kurt;
-            
-            float m2 = 0.0f, m4 = 0.0f;
-            for (int i = 0; i < amp_count_kurt; i++) {
-                float diff = amp_buffer_kurt[i] - mean;
-                float diff2 = diff * diff;
-                m2 += diff2;
-                m4 += diff2 * diff2;
-            }
-            m2 /= amp_count_kurt;
-            m4 /= amp_count_kurt;
-            
-            if (m2 > 1e-6f) {
-                baseline_amp_kurtosis[baseline_kurt_count++] = (m4 / (m2 * m2)) - 3.0f;
-            }
-        }
-    }
-    
-    // Calculate amplitude kurtosis for movement
-    float *movement_amp_kurtosis = malloc(num_movement * sizeof(float));
-    int movement_kurt_count = 0;
-    amp_idx_kurt = 0;
-    amp_count_kurt = 0;
-    
-    for (int p = 0; p < num_movement; p++) {
-        // Calculate average amplitude
-        float avg_amp = 0.0f;
-        for (int i = 0; i < 64; i++) {
-            float I = (float)movement_packets[p][2*i];
-            float Q = (float)movement_packets[p][2*i+1];
-            avg_amp += sqrtf(I*I + Q*Q);
-        }
-        avg_amp /= 64.0f;
-        
-        // Add to buffer
-        amp_buffer_kurt[amp_idx_kurt] = avg_amp;
-        amp_idx_kurt = (amp_idx_kurt + 1) % KURTOSIS_WINDOW;
-        if (amp_count_kurt < KURTOSIS_WINDOW) amp_count_kurt++;
-        
-        // Calculate kurtosis inline
-        if (amp_count_kurt >= 4) {
-            float mean = 0.0f;
-            for (int i = 0; i < amp_count_kurt; i++) {
-                mean += amp_buffer_kurt[i];
-            }
-            mean /= amp_count_kurt;
-            
-            float m2 = 0.0f, m4 = 0.0f;
-            for (int i = 0; i < amp_count_kurt; i++) {
-                float diff = amp_buffer_kurt[i] - mean;
-                float diff2 = diff * diff;
-                m2 += diff2;
-                m4 += diff2 * diff2;
-            }
-            m2 /= amp_count_kurt;
-            m4 /= amp_count_kurt;
-            
-            if (m2 > 1e-6f) {
-                movement_amp_kurtosis[movement_kurt_count++] = (m4 / (m2 * m2)) - 3.0f;
-            }
-        }
-    }
-    
-    // Calculate statistics
-    float amp_kurt_baseline_mean = calculate_feature_mean(baseline_amp_kurtosis, baseline_kurt_count);
-    float amp_kurt_movement_mean = calculate_feature_mean(movement_amp_kurtosis, movement_kurt_count);
-    float amp_kurt_baseline_var = calculate_feature_variance(baseline_amp_kurtosis, baseline_kurt_count, amp_kurt_baseline_mean);
-    float amp_kurt_movement_var = calculate_feature_variance(movement_amp_kurtosis, movement_kurt_count, amp_kurt_movement_mean);
-    
-    // Calculate separation
-    float amp_kurt_separation = fabsf(amp_kurt_movement_mean) / (fabsf(amp_kurt_baseline_mean) + 1e-6f);
-    if (amp_kurt_separation < 1.0f) {
-        amp_kurt_separation = 1.0f / amp_kurt_separation;
-    }
-    
-    printf("  Feature: amplitude_kurtosis (moving window)\n");
-    printf("  Baseline mean: %.2f (σ²=%.2f)\n", amp_kurt_baseline_mean, amp_kurt_baseline_var);
-    printf("  Movement mean: %.2f (σ²=%.2f)\n", amp_kurt_movement_mean, amp_kurt_movement_var);
-    printf("  Separation ratio: %.2fx\n", amp_kurt_separation);
-    printf("  Comparison with raw kurtosis: %.2fx vs %.2fx\n\n", 
-           amp_kurt_separation, ratios[2]);
-    
-    printf("═══════════════════════════════════════════════════════\n");
     printf("  FINAL COMPARISON\n");
     printf("═══════════════════════════════════════════════════════\n\n");
     
     printf("  Approach 1 (Fisher):           %.2fx separation\n", fisher_separation);
     printf("  Approach 2 (Modified Fisher):  %.2fx separation\n", mod_fisher_separation);
-    printf("  Approach 3 (Simple Ratio):     %.2fx separation\n", best_ratio);
-    printf("  Approach 4 (TDV Only):         %.2fx separation\n", tdv_separation);
-    printf("  Approach 5 (Amp Kurtosis):     %.2fx separation\n\n", amp_kurt_separation);
+    printf("  Approach 3 (Simple Ratio):     %.2fx separation\n\n", best_ratio);
     
-    // Determine winner among all approaches
+    // Determine winner among the 3 approaches
     float max_separation = fisher_separation;
     int winner = 1;
     
@@ -398,14 +260,6 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
     if (best_ratio > max_separation) {
         max_separation = best_ratio;
         winner = 3;
-    }
-    if (tdv_separation > max_separation) {
-        max_separation = tdv_separation;
-        winner = 4;
-    }
-    if (amp_kurt_separation > max_separation) {
-        max_separation = amp_kurt_separation;
-        winner = 5;
     }
     
     printf("🏆 WINNER: Approach %d with %.2fx separation\n", winner, max_separation);
@@ -418,23 +272,11 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
         printf("   💡 Recommendation: Use Modified Fisher criterion\n");
         printf("   💡 Improvement: %.0f%% better than standard Fisher\n", 
                ((mod_fisher_separation / fisher_separation) - 1.0f) * 100.0f);
-    } else if (winner == 3) {
+    } else {
         printf("   Best feature: %s (simple ratio)\n", feature_names[best_ratio_idx]);
         printf("   💡 Recommendation: Use this single feature\n");
         printf("   💡 Improvement: %.0f%% better than Fisher\n", 
                ((best_ratio / fisher_separation) - 1.0f) * 100.0f);
-    } else if (winner == 4) {
-        printf("   Best feature: temporal_delta_variance\n");
-        printf("   💡 Recommendation: Use only temporal_delta_variance\n");
-        printf("   💡 Improvement: %.0f%% better than Fisher\n", 
-               ((tdv_separation / fisher_separation) - 1.0f) * 100.0f);
-    } else {
-        printf("   Best feature: amplitude_kurtosis (moving window)\n");
-        printf("   💡 Recommendation: Implement amplitude kurtosis like skewness\n");
-        printf("   💡 Improvement: %.0f%% better than Fisher\n", 
-               ((amp_kurt_separation / fisher_separation) - 1.0f) * 100.0f);
-        printf("   💡 Comparison: %.0f%% better than raw kurtosis\n",
-               ((amp_kurt_separation / ratios[2]) - 1.0f) * 100.0f);
     }
     
     printf("\n");
@@ -442,9 +284,9 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
     // Verify we have meaningful separation with at least one approach
     TEST_ASSERT_TRUE(max_separation > 1.5f);
     
-    // If temporal approaches win, they should have separation > 2.0
+    // If Modified Fisher or Simple Ratio win, they should have separation > 2.0
     if (winner == 2 || winner == 3) {
-        printf("✅ Temporal features provide significantly better separation!\n");
+        printf("✅ Alternative approach provides better separation!\n");
         TEST_ASSERT_TRUE(max_separation > 2.0f);
     }
     
@@ -453,6 +295,4 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
         free(baseline_features[f]);
         free(movement_features[f]);
     }
-    free(baseline_amp_kurtosis);
-    free(movement_amp_kurtosis);
 }

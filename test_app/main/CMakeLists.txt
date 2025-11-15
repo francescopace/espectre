@@ -7,6 +7,7 @@ idf_component_register(SRCS "test_app_main.c"
                             "test_detection_approaches.c"
                             "test_pca_subcarrier.c"
                             "test_feature_classification_performance.c"
+                            "test_doppler_features.c"
                             "${CMAKE_CURRENT_LIST_DIR}/../../main/filters.c"
                             "${CMAKE_CURRENT_LIST_DIR}/../../main/wavelet.c"
                             "${CMAKE_CURRENT_LIST_DIR}/../../main/csi_processor.c"
@@ -16,4 +17,4 @@ idf_component_register(SRCS "test_app_main.c"
                             "${CMAKE_CURRENT_LIST_DIR}/../../main/config_manager.c"
                             "${CMAKE_CURRENT_LIST_DIR}/../../main/nvs_storage.c"
                        INCLUDE_DIRS "." "${CMAKE_CURRENT_LIST_DIR}/../../main"
-                       REQUIRES unity esp_wifi nvs_flash esp_timer)
+                       REQUIRES unity esp_wifi nvs_flash esp_timer esp-dsp)

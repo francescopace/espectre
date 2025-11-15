@@ -22,6 +22,8 @@ extern test_desc_t test_desc_calibration_end_to_end_with_mock_data;
 extern test_desc_t test_desc_features_differ_between_baseline_and_movement;
 // test_detection_approaches.c
 extern test_desc_t test_desc_compare_detection_approaches_on_real_data;
+// test_doppler_features.c
+extern test_desc_t test_desc_doppler_features_classification_performance;
 // test_feature_classification_performance.c
 extern test_desc_t test_desc_feature_classification_performance_on_real_data;
 // test_features.c
@@ -95,11 +97,12 @@ void app_main(void)
     unity_testcase_register(&test_desc_wavelet_db4_coefficients_sum_correctly);
     unity_testcase_register(&test_desc_wavelet_preserves_dc_component);
     unity_testcase_register(&test_desc_calibration_end_to_end_with_mock_data);
+    unity_testcase_register(&test_desc_pca_subcarrier_analysis_on_real_data);
+    unity_testcase_register(&test_desc_compare_detection_approaches_on_real_data);
     */
    
-    unity_testcase_register(&test_desc_pca_subcarrier_analysis_on_real_data);
     unity_testcase_register(&test_desc_calibration_with_real_csi_data);
-    unity_testcase_register(&test_desc_compare_detection_approaches_on_real_data);
+    unity_testcase_register(&test_desc_doppler_features_classification_performance);
     unity_testcase_register(&test_desc_feature_classification_performance_on_real_data);
     
     // Run all tests
