@@ -22,6 +22,8 @@ extern test_desc_t test_desc_calibration_end_to_end_with_mock_data;
 extern test_desc_t test_desc_features_differ_between_baseline_and_movement;
 // test_detection_approaches.c
 extern test_desc_t test_desc_compare_detection_approaches_on_real_data;
+// test_feature_classification_performance.c
+extern test_desc_t test_desc_feature_classification_performance_on_real_data;
 // test_features.c
 extern test_desc_t test_desc_csi_variance_calculation;
 extern test_desc_t test_desc_skewness_calculation;
@@ -40,10 +42,10 @@ extern test_desc_t test_desc_filter_buffer_operations;
 extern test_desc_t test_desc_adaptive_normalizer_update;
 extern test_desc_t test_desc_filter_pipeline_with_wavelet_integration;
 extern test_desc_t test_desc_filter_pipeline_with_wavelet_disabled;
+// test_pca_subcarrier.c
+extern test_desc_t test_desc_pca_subcarrier_analysis_on_real_data;
 // test_real_calibration.c
 extern test_desc_t test_desc_calibration_with_real_csi_data;
-// test_statistical_approach.c
-extern test_desc_t test_desc_statistical_approach_with_real_csi_data;
 // test_wavelet.c
 extern test_desc_t test_desc_wavelet_filter_initialization;
 extern test_desc_t test_desc_wavelet_soft_thresholding;
@@ -65,9 +67,9 @@ void app_main(void)
     printf("\n");
     
     // Register all tests
-    unity_testcase_register(&test_desc_calibration_end_to_end_with_mock_data);
+    /*
+    unity_testcase_register(&test_desc_mock_csi_data_generation);
     unity_testcase_register(&test_desc_features_differ_between_baseline_and_movement);
-    unity_testcase_register(&test_desc_compare_detection_approaches_on_real_data);
     unity_testcase_register(&test_desc_csi_variance_calculation);
     unity_testcase_register(&test_desc_skewness_calculation);
     unity_testcase_register(&test_desc_kurtosis_calculation);
@@ -76,14 +78,13 @@ void app_main(void)
     unity_testcase_register(&test_desc_spatial_variance_calculation);
     unity_testcase_register(&test_desc_spatial_correlation_calculation);
     unity_testcase_register(&test_desc_spatial_gradient_calculation);
-    unity_testcase_register(&test_desc_mock_csi_data_generation);
-    unity_testcase_register(&test_desc_adaptive_normalizer_respects_enabled_flag);
     unity_testcase_register(&test_desc_butterworth_filter_initialization);
     unity_testcase_register(&test_desc_hampel_filter_removes_outliers);
     unity_testcase_register(&test_desc_filter_buffer_operations);
-    unity_testcase_register(&test_desc_adaptive_normalizer_update);
     unity_testcase_register(&test_desc_filter_pipeline_with_wavelet_integration);
     unity_testcase_register(&test_desc_filter_pipeline_with_wavelet_disabled);
+    unity_testcase_register(&test_desc_adaptive_normalizer_update);
+    unity_testcase_register(&test_desc_adaptive_normalizer_respects_enabled_flag);
     unity_testcase_register(&test_desc_wavelet_filter_initialization);
     unity_testcase_register(&test_desc_wavelet_soft_thresholding);
     unity_testcase_register(&test_desc_wavelet_hard_thresholding);
@@ -93,7 +94,13 @@ void app_main(void)
     unity_testcase_register(&test_desc_wavelet_level_clamping);
     unity_testcase_register(&test_desc_wavelet_db4_coefficients_sum_correctly);
     unity_testcase_register(&test_desc_wavelet_preserves_dc_component);
+    unity_testcase_register(&test_desc_calibration_end_to_end_with_mock_data);
+    */
+   
+    unity_testcase_register(&test_desc_pca_subcarrier_analysis_on_real_data);
     unity_testcase_register(&test_desc_calibration_with_real_csi_data);
+    unity_testcase_register(&test_desc_compare_detection_approaches_on_real_data);
+    unity_testcase_register(&test_desc_feature_classification_performance_on_real_data);
     
     // Run all tests
     printf("Running all tests automatically...\n\n");

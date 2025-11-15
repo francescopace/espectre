@@ -84,21 +84,17 @@ void config_init_defaults(runtime_config_t *config) {
     config->persistence_timeout = DEFAULT_PERSISTENCE_TIMEOUT;
     config->variance_scale = DEFAULT_VARIANCE_SCALE;
     
-    // Default feature weights based on real-world calibration results
-    // Optimized based on calibration with real CSI data (see test_real_calibration.c)
-    // Kurtosis (47%) + Skewness (21%) = 68% combined (both amplitude-based)
-    config->feature_weights[0] = 0.00f;   // variance (not selected by calibrator)
-    config->feature_weights[1] = 0.215f;  // amplitude skewness (2.91x separation, 82.3% accuracy)
-    config->feature_weights[2] = 0.472f;  // amplitude kurtosis (2.47x separation, Fisher=0.84)
-    config->feature_weights[3] = 0.00f;   // entropy (not selected)
-    config->feature_weights[4] = 0.106f;  // iqr
-    config->feature_weights[5] = 0.00f;   // spatial_variance (not selected)
-    config->feature_weights[6] = 0.101f;  // spatial_correlation
-    config->feature_weights[7] = 0.106f;  // spatial_gradient
-    config->feature_weights[8] = 0.00f;   // temporal_delta_mean (not used)
-    config->feature_weights[9] = 0.00f;   // temporal_delta_variance (not used)
-    // Total: 100% (47.2% kurtosis + 21.5% skewness + 31.3% others = 1.0)
-    
+    // Default feature weights
+    config->feature_weights[0] = 0.200f;  // variance <-
+    config->feature_weights[1] = 0.000f;  // amplitude skewness
+    config->feature_weights[2] = 0.150f;  // amplitude kurtosis  <-
+    config->feature_weights[3] = 0.000f;  // entropy
+    config->feature_weights[4] = 0.300f;  // iqr <-
+    config->feature_weights[5] = 0.000f;  // spatial_variance
+    config->feature_weights[6] = 0.000f;  // spatial_correlation
+    config->feature_weights[7] = 0.350f;  // spatial_gradient <-
+    config->feature_weights[8] = 0.000f;  // temporal_delta_mean
+    config->feature_weights[9] = 0.000f;  // temporal_delta_variance
     
     // Enable adaptive normalizer by default for better adaptation to environment changes
     config->adaptive_normalizer_enabled = true;

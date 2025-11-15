@@ -16,20 +16,20 @@ static const char *TAG = "CSI_Processor";
 // Numerical stability constant
 #define EPSILON_SMALL 1e-6f
 
-// Statistical moments for single-pass calculation
-typedef struct {
-    float mean;
-    float m2;  // second moment (variance * n)
-    float m3;  // third moment
-    float m4;  // fourth moment
-} moments_t;
-
 // Reusable buffer for IQR sorting (avoids malloc in hot path)
 static int8_t iqr_sort_buffer[CSI_MAX_LENGTH];
 
 // Amplitude buffer for skewness/kurtosis calculation (moving window approach)
 // Both features share the same buffer for efficiency
 #define AMPLITUDE_MOMENTS_WINDOW 20
+
+// Subcarrier selection for amplitude calculation
+// ESP32 provides 64 subcarriers (128 bytes: I,Q pairs)
+// Based on PCA analysis on real data: optimal range is [29-58]
+#define ENABLE_SUBCARRIER_FILTERING 1  // ← Inizialmente 0 per testare
+#define SUBCARRIER_START 47
+#define SUBCARRIER_END 59  // Inclusive of SC58
+#define NUM_USEFUL_SUBCARRIERS (SUBCARRIER_END - SUBCARRIER_START)
 static float amplitude_moments_buffer[AMPLITUDE_MOMENTS_WINDOW] = {0};
 static int amp_moments_index = 0;
 static int amp_moments_count = 0;
@@ -46,45 +46,58 @@ static int compare_int8(const void *a, const void *b) {
     return (ia > ib) - (ia < ib);
 }
 
-// Fast mean calculation for CSI data
-static inline float calculate_mean_int8(const int8_t *data, size_t len) {
-    if (len == 0) return 0.0f;
+// Helper: Filter CSI data to selected subcarriers only
+// This pre-processes the data once, making all feature calculations agnostic
+// Returns the filtered data length (2 * num_selected_subcarriers)
+static size_t csi_filter_subcarriers(const int8_t *input_data, size_t input_len,
+                                     int8_t *output_data, size_t max_output_len) {
+    int num_subcarriers = input_len / 2;  // Each subcarrier has I and Q
     
-    float sum = 0.0f;
-    for (size_t i = 0; i < len; i++) {
-        sum += data[i];
-    }
-    return sum / len;
-}
-
-// Single-pass calculation of variance, skewness, and kurtosis
-static moments_t calculate_moments(const int8_t *data, size_t len) {
-    moments_t moments = {0};
-    if (len == 0) return moments;
+    // Determine range of useful subcarriers
+    int start_idx = (num_subcarriers > SUBCARRIER_END) ? SUBCARRIER_START : 0;
+    int end_idx = (num_subcarriers > SUBCARRIER_END) ? SUBCARRIER_END : num_subcarriers;
+    int useful_count = end_idx - start_idx;
     
-    moments.mean = calculate_mean_int8(data, len);
-    
-    for (size_t i = 0; i < len; i++) {
-        float diff = data[i] - moments.mean;
-        float diff2 = diff * diff;
-        moments.m2 += diff2;
-        moments.m3 += diff2 * diff;
-        moments.m4 += diff2 * diff2;
+    if (useful_count <= 0) {
+        // Fallback: use all subcarriers if selection doesn't make sense
+        if (input_len <= max_output_len) {
+            memcpy(output_data, input_data, input_len);
+            return input_len;
+        }
+        return 0;
     }
     
-    return moments;
+    // Check output buffer size
+    size_t output_len = useful_count * 2;  // I,Q pairs
+    if (output_len > max_output_len) {
+        ESP_LOGE(TAG, "Output buffer too small: need %zu, have %zu", output_len, max_output_len);
+        return 0;
+    }
+    
+    // Copy selected subcarriers (I,Q pairs)
+    for (int i = 0; i < useful_count; i++) {
+        int src_idx = (start_idx + i) * 2;
+        int dst_idx = i * 2;
+        output_data[dst_idx] = input_data[src_idx];         // I
+        output_data[dst_idx + 1] = input_data[src_idx + 1]; // Q
+    }
+    
+    return output_len;
 }
 
 // Basic statistical functions
+// Now operates on filtered data (agnostic to subcarrier selection)
 float csi_calculate_variance(const int8_t *data, size_t len) {
     if (len == 0) return 0.0f;
     
+    // Calculate mean
     float mean = 0.0f;
     for (size_t i = 0; i < len; i++) {
         mean += data[i];
     }
     mean /= len;
     
+    // Calculate variance
     float variance = 0.0f;
     for (size_t i = 0; i < len; i++) {
         float diff = data[i] - mean;
@@ -94,11 +107,11 @@ float csi_calculate_variance(const int8_t *data, size_t len) {
 }
 
 // Statistical features - AMPLITUDE SKEWNESS (moving window approach)
-// This calculates skewness of the amplitude time series instead of raw bytes
+// Now operates on filtered data (agnostic to subcarrier selection)
 float csi_calculate_skewness(const int8_t *data, size_t len) {
     if (len < 2) return 0.0f;
     
-    // Step 1: Calculate average amplitude across all subcarriers
+    // Step 1: Calculate average amplitude from filtered data
     float avg_amplitude = 0.0f;
     int num_subcarriers = len / 2;  // Each subcarrier has I and Q
     
@@ -158,21 +171,60 @@ float csi_calculate_skewness(const int8_t *data, size_t len) {
 }
 
 // AMPLITUDE KURTOSIS (moving window approach)
-// Reuses moments calculated by skewness for efficiency
+// Now operates on filtered data (agnostic to subcarrier selection)
 float csi_calculate_kurtosis(const int8_t *data, size_t len) {
-    // If moments are valid (skewness was called first), use cached values
+    // If moments are valid (skewness was called first in this cycle), use cached values
+    // This optimization avoids recalculating the same moments twice
     if (moments_valid && cached_m2 > EPSILON_SMALL) {
         // Return excess kurtosis using cached moments
         return (cached_m4 / (cached_m2 * cached_m2)) - 3.0f;
     }
     
-    // Fallback: calculate from raw bytes if skewness wasn't called
-    // This ensures kurtosis works even if called independently
-    if (len < 4) return 0.0f;
+    // If skewness wasn't called first, calculate amplitude kurtosis independently
+    if (len < 2) return 0.0f;
     
-    moments_t moments = calculate_moments(data, len);
-    float m2 = moments.m2 / len;
-    float m4 = moments.m4 / len;
+    // Step 1: Calculate average amplitude from filtered data
+    float avg_amplitude = 0.0f;
+    int num_subcarriers = len / 2;  // Each subcarrier has I and Q
+    
+    for (int i = 0; i < num_subcarriers; i++) {
+        float I = (float)data[2 * i];
+        float Q = (float)data[2 * i + 1];
+        avg_amplitude += sqrtf(I * I + Q * Q);
+    }
+    avg_amplitude /= num_subcarriers;
+    
+    // Step 2: Add to circular buffer (shared with skewness)
+    amplitude_moments_buffer[amp_moments_index] = avg_amplitude;
+    amp_moments_index = (amp_moments_index + 1) % AMPLITUDE_MOMENTS_WINDOW;
+    if (amp_moments_count < AMPLITUDE_MOMENTS_WINDOW) {
+        amp_moments_count++;
+    }
+    
+    // Step 3: Calculate kurtosis from amplitude buffer
+    if (amp_moments_count < 4) {
+        return 0.0f;
+    }
+    
+    // Calculate mean
+    float mean = 0.0f;
+    for (int i = 0; i < amp_moments_count; i++) {
+        mean += amplitude_moments_buffer[i];
+    }
+    mean /= amp_moments_count;
+    
+    // Calculate second and fourth moments
+    float m2 = 0.0f;
+    float m4 = 0.0f;
+    for (int i = 0; i < amp_moments_count; i++) {
+        float diff = amplitude_moments_buffer[i] - mean;
+        float diff2 = diff * diff;
+        m2 += diff2;
+        m4 += diff2 * diff2;
+    }
+    
+    m2 /= amp_moments_count;
+    m4 /= amp_moments_count;
     
     if (m2 < EPSILON_SMALL) return 0.0f;
     
@@ -298,10 +350,15 @@ float csi_calculate_spatial_gradient(const int8_t *data, size_t len) {
     return sum_diff / (len - 1);
 }
 
-// Temporal features: buffer for previous packet
-static int8_t prev_csi_data[CSI_MAX_LENGTH] = {0};
-static size_t prev_csi_len = 0;
-static bool first_packet = true;
+// Temporal features: separate buffers for raw and filtered data
+// This ensures temporal features work correctly regardless of filtering mode
+static int8_t prev_csi_data_raw[CSI_MAX_LENGTH] = {0};
+static size_t prev_csi_len_raw = 0;
+static bool first_packet_raw = true;
+
+static int8_t prev_csi_data_filtered[CSI_MAX_LENGTH] = {0};
+static size_t prev_csi_len_filtered = 0;
+static bool first_packet_filtered = true;
 
 // Temporal delta mean calculation
 float csi_calculate_temporal_delta_mean(const int8_t *current_data,
@@ -343,9 +400,14 @@ float csi_calculate_temporal_delta_variance(const int8_t *current_data,
 
 // Reset temporal buffer (call when starting new calibration phase)
 void csi_reset_temporal_buffer(void) {
-    memset(prev_csi_data, 0, sizeof(prev_csi_data));
-    prev_csi_len = 0;
-    first_packet = true;
+    // Reset both raw and filtered buffers
+    memset(prev_csi_data_raw, 0, sizeof(prev_csi_data_raw));
+    prev_csi_len_raw = 0;
+    first_packet_raw = true;
+    
+    memset(prev_csi_data_filtered, 0, sizeof(prev_csi_data_filtered));
+    prev_csi_len_filtered = 0;
+    first_packet_filtered = true;
 }
 
 // Reset amplitude moments buffer (call when starting new calibration phase)
@@ -371,53 +433,103 @@ void csi_extract_features(const int8_t *csi_data,
     // Initialize all features to 0
     memset(features, 0, sizeof(csi_features_t));
     
+#if ENABLE_SUBCARRIER_FILTERING
+    // PRE-FILTER: Apply subcarrier selection ONCE for all features
+    static int8_t filtered_data[CSI_MAX_LENGTH];
+    size_t filtered_len = csi_filter_subcarriers(csi_data, csi_len, filtered_data, CSI_MAX_LENGTH);
+    
+    if (filtered_len == 0) {
+        ESP_LOGE(TAG, "Failed to filter subcarriers");
+        return;
+    }
+    
+    // Use filtered data
+    const int8_t *data_to_use = filtered_data;
+    size_t len_to_use = filtered_len;
+#else
+    // No filtering: use original data directly
+    const int8_t *data_to_use = csi_data;
+    size_t len_to_use = csi_len;
+#endif
+    
     // Calculate only selected features
     for (uint8_t i = 0; i < num_features; i++) {
         uint8_t feat_idx = selected_features[i];
         
         switch (feat_idx) {
             case 0: // variance
-                features->variance = csi_calculate_variance(csi_data, csi_len);
+                features->variance = csi_calculate_variance(data_to_use, len_to_use);
                 break;
             case 1: // skewness
-                features->skewness = csi_calculate_skewness(csi_data, csi_len);
+                features->skewness = csi_calculate_skewness(data_to_use, len_to_use);
                 break;
             case 2: // kurtosis
-                features->kurtosis = csi_calculate_kurtosis(csi_data, csi_len);
+                features->kurtosis = csi_calculate_kurtosis(data_to_use, len_to_use);
                 break;
             case 3: // entropy
-                features->entropy = csi_calculate_entropy(csi_data, csi_len);
+                features->entropy = csi_calculate_entropy(data_to_use, len_to_use);
                 break;
             case 4: // iqr
-                features->iqr = csi_calculate_iqr(csi_data, csi_len);
+                features->iqr = csi_calculate_iqr(data_to_use, len_to_use);
                 break;
             case 5: // spatial_variance
-                features->spatial_variance = csi_calculate_spatial_variance(csi_data, csi_len);
+                features->spatial_variance = csi_calculate_spatial_variance(data_to_use, len_to_use);
                 break;
             case 6: // spatial_correlation
-                features->spatial_correlation = csi_calculate_spatial_correlation(csi_data, csi_len);
+                features->spatial_correlation = csi_calculate_spatial_correlation(data_to_use, len_to_use);
                 break;
             case 7: // spatial_gradient
-                features->spatial_gradient = csi_calculate_spatial_gradient(csi_data, csi_len);
+                features->spatial_gradient = csi_calculate_spatial_gradient(data_to_use, len_to_use);
                 break;
             case 8: // temporal_delta_mean
             case 9: // temporal_delta_variance
                 // Temporal features require previous packet - calculate both together
-                if (first_packet || prev_csi_len != csi_len) {
-                    features->temporal_delta_mean = 0.0f;
-                    features->temporal_delta_variance = 0.0f;
-                    if (csi_len <= CSI_MAX_LENGTH) {
-                        memcpy(prev_csi_data, csi_data, csi_len * sizeof(int8_t));
-                        prev_csi_len = csi_len;
+                // Use appropriate buffer based on filtering mode
+#if ENABLE_SUBCARRIER_FILTERING
+                {
+                    int8_t *prev_buffer = prev_csi_data_filtered;
+                    size_t *prev_len = &prev_csi_len_filtered;
+                    bool *first_pkt = &first_packet_filtered;
+                    
+                    if (*first_pkt || *prev_len != len_to_use) {
+                        features->temporal_delta_mean = 0.0f;
+                        features->temporal_delta_variance = 0.0f;
+                        if (len_to_use <= CSI_MAX_LENGTH) {
+                            memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
+                            *prev_len = len_to_use;
+                        }
+                        *first_pkt = false;
+                    } else {
+                        features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
+                            data_to_use, prev_buffer, len_to_use);
+                        features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
+                            data_to_use, prev_buffer, len_to_use);
+                        memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
                     }
-                    first_packet = false;
-                } else {
-                    features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
-                        csi_data, prev_csi_data, csi_len);
-                    features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
-                        csi_data, prev_csi_data, csi_len);
-                    memcpy(prev_csi_data, csi_data, csi_len * sizeof(int8_t));
                 }
+#else
+                {
+                    int8_t *prev_buffer = prev_csi_data_raw;
+                    size_t *prev_len = &prev_csi_len_raw;
+                    bool *first_pkt = &first_packet_raw;
+                    
+                    if (*first_pkt || *prev_len != len_to_use) {
+                        features->temporal_delta_mean = 0.0f;
+                        features->temporal_delta_variance = 0.0f;
+                        if (len_to_use <= CSI_MAX_LENGTH) {
+                            memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
+                            *prev_len = len_to_use;
+                        }
+                        *first_pkt = false;
+                    } else {
+                        features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
+                            data_to_use, prev_buffer, len_to_use);
+                        features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
+                            data_to_use, prev_buffer, len_to_use);
+                        memcpy(prev_buffer, data_to_use, len_to_use * sizeof(int8_t));
+                    }
+                }
+#endif
                 break;
             default:
                 ESP_LOGW(TAG, "Unknown feature index: %d", feat_idx);

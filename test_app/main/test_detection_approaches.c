@@ -76,8 +76,8 @@ TEST_CASE_ESP(compare_detection_approaches_on_real_data, "[detection][comparison
         movement_features[f] = malloc(num_movement * sizeof(float));
     }
     
-    // Reset temporal buffer before baseline phase
-    csi_reset_temporal_buffer();
+    // Do NOT reset temporal buffer - let it accumulate across baseline packets
+    // This allows temporal features to work properly
     
     // Extract features from all baseline packets
     printf("Extracting features from %d baseline packets...\n", num_baseline);

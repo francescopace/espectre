@@ -54,6 +54,9 @@
 // Publishing configuration
 #define PUBLISH_INTERVAL    1.0f
 
+// WiFi promiscuous mode (false = receive CSI only from connected AP, true = all WiFi packets)
+#define PROMISCUOUS_MODE    false
+
 static const char *TAG = "ESPectre";
 
 static const char *g_response_topic = NULL;
@@ -318,8 +321,7 @@ static void csi_init(void) {
     ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
     ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(csi_callback, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_csi(true));
-    // Enable promiscuous mode to receive CSI from ALL WiFi packets (not just connected AP)
-    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
+    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(PROMISCUOUS_MODE));
 }
 
 static void mqtt_publish_task(void *pvParameters) {
