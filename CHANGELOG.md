@@ -70,6 +70,36 @@ Based on ESP32-S3 Wi-Fi documentation analysis, optimized CSI data collection to
 - May no longer be necessary for normal operation (promiscuous provides enough packets)
 - Still useful for: controlled calibration, empty Wi-Fi environments, testing
 
+### 🧪 Added - Local Segmentation Test Script
+
+**Python tool for rapid parameter tuning without device flashing**
+
+- **test_segmentation_local.py**: Replicates ESP32 segmentation algorithm locally
+  * Implements Moving Variance Segmentation (MVS) with adaptive threshold
+  * Calculates spatial turbulence from CSI packets
+  * Extracts statistical features from motion segments
+  * Includes Random Forest classifier for validation
+  * Interactive visualization of segmentation results
+
+**Features:**
+- **Parameter optimization**: Grid search over 300 combinations (--optimize flag)
+- **Configurable parameters**: K_FACTOR, WINDOW_SIZE, MIN_SEGMENT, MAX_SEGMENT at top of file
+- **Batch mode**: Skip visualization with --no-plot flag
+- **Comprehensive documentation**: Usage examples and parameter descriptions
+
+**Benefits:**
+- ✅ Fast iteration without ESP32 flashing
+- ✅ Visual feedback for parameter tuning
+- ✅ Automatic optimal parameter discovery
+- ✅ Validates C code implementation in Python
+
+**Usage:**
+```bash
+python test/test_segmentation_local.py              # Run with defaults
+python test/test_segmentation_local.py --optimize   # Find optimal parameters
+python test/test_segmentation_local.py --no-plot    # Skip visualization
+```
+
 ### ✨ Added - CSI Raw Data Collection
 
 **Dataset generation for testing and analysis**

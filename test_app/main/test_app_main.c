@@ -69,7 +69,6 @@ void app_main(void)
     printf("\n");
     
     // Register all tests
-    /*
     unity_testcase_register(&test_desc_mock_csi_data_generation);
     unity_testcase_register(&test_desc_features_differ_between_baseline_and_movement);
     unity_testcase_register(&test_desc_csi_variance_calculation);
@@ -99,8 +98,6 @@ void app_main(void)
     unity_testcase_register(&test_desc_calibration_end_to_end_with_mock_data);
     unity_testcase_register(&test_desc_pca_subcarrier_analysis_on_real_data);
     unity_testcase_register(&test_desc_compare_detection_approaches_on_real_data);
-    */
-   
     unity_testcase_register(&test_desc_calibration_with_real_csi_data);
     unity_testcase_register(&test_desc_doppler_features_classification_performance);
     unity_testcase_register(&test_desc_feature_classification_performance_on_real_data);

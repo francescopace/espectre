@@ -83,7 +83,7 @@ void wavelet_init(wavelet_state_t *state, int level, float threshold,
     state->method = method;
     state->initialized = true;
     
-    ESP_LOGI(TAG, "Wavelet initialized: level=%d, threshold=%.2f, method=%s",
+    ESP_LOGD(TAG, "Wavelet initialized: level=%d, threshold=%.2f, method=%s",
              level, threshold, method == WAVELET_THRESH_SOFT ? "SOFT" : "HARD");
 }
 

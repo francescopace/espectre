@@ -12,7 +12,6 @@ test_app/
 │   ├── ...
 │   ├── mock_csi_data.h           # Synthetic data generator
 │   └── real_csi_data.h           # Real CSI data samples
-├── convert_tests.py              # Script to generate test_app_main.c
 └── README.md                     # This file
 ```
 
@@ -65,17 +64,11 @@ TEST_CASE_ESP(my_new_test_name, "[filters]")
 
 **Important:** Use a **symbolic name** (lowercase with underscores), not a string!
 
-### 2. Regenerate test_app_main.c
+### 2. Update test_app_main.c
 
-```bash
-cd test_app
-python3 convert_tests.py
-```
-
-This script will:
-- Scan all `test_*.c` files
-- Find all `TEST_CASE_ESP` declarations
-- Auto-generate `test_app_main.c` with proper registrations
+Update `test_app_main.c` with:
+   - `extern test_desc_t test_desc_name;` declarations
+   - `unity_testcase_register(&test_desc_name);` calls
 
 ### 3. Build and Test
 
@@ -93,20 +86,6 @@ My solution uses **symbolic names**:
 
 ```c
 TEST_CASE_ESP(test_name, "[tag]")    // → test_desc_test_name (symbolic!)
-```
-
-### Auto-Generation Script
-
-The `convert_tests.py` script:
-1. Scans all `test_*.c` files
-2. Finds all `TEST_CASE_ESP(name, "[tag]")` declarations
-3. Generates `test_app_main.c` with:
-   - `extern test_desc_t test_desc_name;` declarations
-   - `unity_testcase_register(&test_desc_name);` calls
-
-**Run it whenever you add/remove tests:**
-```bash
-python3 convert_tests.py
 ```
 
 ### Preventing Infinite Reboot Loops
