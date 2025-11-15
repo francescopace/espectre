@@ -6,16 +6,19 @@
  */
 
 #include "nvs_storage.h"
-#include "calibration.h"
 #include <string.h>
 #include <math.h>
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
+#include "esp_err.h"
+
+// Total number of features (for validation)
+#define NUM_TOTAL_FEATURES 10
 
 // Weight validation bounds
-#define WEIGHT_SUM_MIN      0.8f    // Minimum acceptable weight sum (aligned with calibration)
-#define WEIGHT_SUM_MAX      1.2f    // Maximum acceptable weight sum (aligned with calibration)
+#define WEIGHT_SUM_MIN      0.8f    // Minimum acceptable weight sum
+#define WEIGHT_SUM_MAX      1.2f    // Maximum acceptable weight sum
 
 static const char *TAG = "NVS_Storage";
 
@@ -123,38 +126,6 @@ static bool validate_config_data(nvs_config_data_t *config) {
     
     bool valid = true;
     
-    // Validate and fix threshold values
-    if (!is_valid_float(config->threshold_high) || 
-        config->threshold_high <= 0.0f || 
-        config->threshold_high >= 1.0f) {
-        ESP_LOGW(TAG, "Invalid threshold_high: %.4f, using default", config->threshold_high);
-        config->threshold_high = 0.43f;
-        valid = false;
-    }
-    
-    // Validate debounce count
-    if (config->debounce_count < 1 || config->debounce_count > 10) {
-        ESP_LOGW(TAG, "Invalid debounce_count: %d, using default", config->debounce_count);
-        config->debounce_count = 3;
-        valid = false;
-    }
-    
-    // Validate hysteresis ratio
-    if (!is_valid_float(config->hysteresis_ratio) || 
-        config->hysteresis_ratio < 0.1f || 
-        config->hysteresis_ratio > 1.0f) {
-        ESP_LOGW(TAG, "Invalid hysteresis_ratio: %.2f, using default", config->hysteresis_ratio);
-        config->hysteresis_ratio = 0.7f;
-        valid = false;
-    }
-    
-    // Validate persistence timeout
-    if (config->persistence_timeout < 1 || config->persistence_timeout > 30) {
-        ESP_LOGW(TAG, "Invalid persistence_timeout: %d, using default", config->persistence_timeout);
-        config->persistence_timeout = 3;
-        valid = false;
-    }
-    
     // Validate hampel threshold
     if (!is_valid_float(config->hampel_threshold) || 
         config->hampel_threshold < 1.0f || 
@@ -185,6 +156,15 @@ static bool validate_config_data(nvs_config_data_t *config) {
         config->wavelet_threshold > 2.0f) {
         ESP_LOGW(TAG, "Invalid wavelet_threshold: %.2f, using default", config->wavelet_threshold);
         config->wavelet_threshold = 1.0f;
+        valid = false;
+    }
+    
+    // Validate segmentation threshold
+    if (!is_valid_float(config->segmentation_threshold) || 
+        config->segmentation_threshold < 0.5f || 
+        config->segmentation_threshold > 10.0f) {
+        ESP_LOGW(TAG, "Invalid segmentation_threshold: %.2f, using default", config->segmentation_threshold);
+        config->segmentation_threshold = 2.2f;
         valid = false;
     }
     

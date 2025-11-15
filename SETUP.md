@@ -114,20 +114,32 @@ mqtt:
 
 ```yaml
 automation:
-  - alias: "Movement Alert"
+  - alias: "Movement Detection Alert"
     trigger:
-      - platform: numeric_state
+      - platform: state
         entity_id: sensor.movement_sensor
-        above: 0.6
-    condition:
-      - condition: template
-        value_template: "{{ state_attr('sensor.movement_sensor', 'confidence') > 0.7 }}"
+        to: "motion"
     action:
       - service: notify.mobile_app
         data:
-          message: "Movement detected!"
+          message: "Movement detected in monitored area"
+          
+  - alias: "Inactivity Alert"
+    trigger:
+      - platform: state
+        entity_id: sensor.movement_sensor
+        to: "idle"
+        for:
+          hours: 4
+    condition:
+      - condition: time
+        after: "08:00:00"
+        before: "22:00:00"
+    action:
+      - service: notify.mobile_app
+        data:
+          message: "No movement detected for 4 hours"
 ```
-
 ---
 
 ## MQTT Messages
@@ -204,10 +216,10 @@ Responses are published to: `<your_topic>/response`
 
 | Command | Parameter | Description | Example |
 |---------|-----------|-------------|---------|
-| `threshold` | float (0.0-1.0) | Set detection threshold | `{"cmd": "threshold", "value": 0.40}` |
-| `debounce` | int (1-10) | Set consecutive detections needed | `{"cmd": "debounce", "value": 3}` |
-| `persistence` | int (1-30) | Timeout in seconds before downgrading state | `{"cmd": "persistence", "value": 3}` |
-| `hysteresis` | float (0.1-1.0) | Ratio for threshold hysteresis | `{"cmd": "hysteresis", "value": 0.7}` |
+| `segmentation_threshold` | float (0.5-10.0) | Set segmentation threshold for motion detection | `{"cmd": "segmentation_threshold", "value": 2.2}` |
+| `features_enable` | bool | Enable/disable feature extraction during MOTION state | `{"cmd": "features_enable", "enabled": true}` |
+| `info` | none | Get current configuration (network, MQTT topics, filters, segmentation params, options) | `{"cmd": "info"}` |
+| `stats` | none | Get runtime statistics (state, turbulence, variance, packets, segments, uptime) | `{"cmd": "stats"}` |
 | `butterworth_filter` | bool | Enable/disable Butterworth low-pass filter (8Hz cutoff) | `{"cmd": "butterworth_filter", "enabled": true}` |
 | `wavelet_filter` | bool | Enable/disable Wavelet db4 filter (low-freq noise) | `{"cmd": "wavelet_filter", "enabled": true}` |
 | `wavelet_level` | int (1-3) | Wavelet decomposition level (3=max denoising) | `{"cmd": "wavelet_level", "value": 3}` |
@@ -215,41 +227,33 @@ Responses are published to: `<your_topic>/response`
 | `hampel_filter` | bool | Enable/disable Hampel outlier filter | `{"cmd": "hampel_filter", "enabled": true}` |
 | `hampel_threshold` | float (1.0-10.0) | Hampel filter sensitivity | `{"cmd": "hampel_threshold", "value": 2.0}` |
 | `savgol_filter` | bool | Enable/disable Savitzky-Golay smoothing | `{"cmd": "savgol_filter", "enabled": true}` |
-| `info` | none | Get current configuration (includes network, MQTT topics, filters, etc.) | `{"cmd": "info"}` |
-| `stats` | none | Get detection statistics | `{"cmd": "stats"}` |
-| `analyze` | none | Analyze data and get recommended threshold | `{"cmd": "analyze"}` |
-| `features` | none | Get all CSI features with calibration info (selected features show weight) | `{"cmd": "features"}` |
-| `logs` | bool | Enable/disable CSI logging | `{"cmd": "logs", "enabled": true}` |
-| `calibrate` | action + duration | Automatic calibration (start/stop/status) | `{"cmd": "calibrate", "action": "start", "duration": 60}` |
 | `smart_publishing` | bool | Enable/disable smart publishing (reduces MQTT traffic) | `{"cmd": "smart_publishing", "enabled": true}` |
-| `adaptive_normalizer` | bool | Enable/disable adaptive normalizer filter | `{"cmd": "adaptive_normalizer", "enabled": true}` |
-| `adaptive_normalizer_alpha` | float (0.001-0.1) | Set normalizer learning rate (lower = slower adaptation) | `{"cmd": "adaptive_normalizer_alpha", "value": 0.01}` |
-| `adaptive_normalizer_reset_timeout` | int (0-300) | Auto-reset timeout in seconds (0 = disabled) | `{"cmd": "adaptive_normalizer_reset_timeout", "value": 30}` |
-| `adaptive_normalizer_stats` | none | Get normalizer statistics (mean, variance, stddev) | `{"cmd": "adaptive_normalizer_stats"}` |
 | `traffic_generator_rate` | int (0-50) | Set WiFi traffic rate for continuous CSI (0=disabled, recommended: 15 pps) | `{"cmd": "traffic_generator_rate", "value": 15}` |
 | `factory_reset` | none | Restore all settings to factory defaults | `{"cmd": "factory_reset"}` |
 
-**Note:** Feature weights are automatically optimized through the calibration system. Manual weight adjustment has been removed. Use `./espectre-cli.sh calibrate start` to optimize weights for your environment.
+**Note:** The system uses a simple segmentation-based approach. Use `info` for configuration and `stats` for runtime metrics.
 
 #### Info Command Response Structure
 
-The `info` command returns a comprehensive JSON object organized into logical groups:
+The `info` command returns **static configuration** organized into logical groups:
 
 ```json
 {
   "network": {
-    "ip_address": "192.168.1.100"
+    "ip_address": "192.168.1.100",
+    "traffic_generator_rate": 20
   },
   "mqtt": {
     "base_topic": "home/espectre/node1",
     "cmd_topic": "home/espectre/node1/cmd",
     "response_topic": "home/espectre/node1/response"
   },
-  "detection": {
-    "threshold": 0.4,
-    "debounce": 3,
-    "persistence_timeout": 5,
-    "hysteresis_ratio": 0.8
+  "segmentation": {
+    "threshold": 2.2,
+    "window_size": 30,
+    "k_factor": 2.5,
+    "min_length": 10,
+    "max_length": 60
   },
   "filters": {
     "butterworth_enabled": true,
@@ -257,26 +261,59 @@ The `info` command returns a comprehensive JSON object organized into logical gr
     "wavelet_level": 3,
     "wavelet_threshold": 1.0,
     "hampel_enabled": false,
-    "hampel_threshold": 3.0,
-    "savgol_enabled": false,
-    "savgol_window_size": 5,
-    "adaptive_normalizer_enabled": true,
-    "adaptive_normalizer_alpha": 0.01,
-    "adaptive_normalizer_reset_timeout_sec": 60
+    "hampel_threshold": 2.0,
+    "savgol_enabled": true,
+    "savgol_window_size": 5
   },
-  "features": {
-    "csi_logs_enabled": true,
-    "smart_publishing_enabled": true
+  "options": {
+    "features_enabled": true,
+    "smart_publishing_enabled": false
   }
 }
 ```
 
 **Groups:**
-- **`network`**: Network information (IP address for ping/diagnostics)
+- **`network`**: Network information (IP address, traffic generator rate)
 - **`mqtt`**: MQTT topic configuration
-- **`detection`**: Core detection parameters
-- **`filters`**: Signal processing filters status
-- **`features`**: General capabilities and features
+- **`segmentation`**: Motion segmentation configuration parameters
+- **`filters`**: Signal processing filters configuration
+- **`options`**: General capabilities and features
+
+#### Stats Command Response Structure
+
+The `stats` command returns **runtime metrics** for monitoring:
+
+```json
+{
+  "timestamp": 1730066405,
+  "uptime": "3h 24m 15s",
+  "state": "motion",
+  "turbulence": 3.45,
+  "moving_variance": 2.87,
+  "adaptive_threshold": 2.20,
+  "packets_processed": 15234,
+  "segments": {
+    "total": 42,
+    "active": 2,
+    "last_completed": {
+      "length": 15,
+      "duration_sec": 0.75,
+      "avg_turbulence": 3.12,
+      "max_turbulence": 4.56
+    }
+  }
+}
+```
+
+**Fields:**
+- **`timestamp`**: Unix timestamp when stats were generated
+- **`uptime`**: System uptime in human-readable format
+- **`state`**: Current segmentation state (idle/motion)
+- **`turbulence`**: Last spatial turbulence value
+- **`moving_variance`**: Current moving variance
+- **`adaptive_threshold`**: Current adaptive threshold
+- **`packets_processed`**: Total CSI packets processed
+- **`segments`**: Segment statistics (total, active, last completed)
 
 ### Factory Reset
 
@@ -290,11 +327,9 @@ mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
 **Or use the interactive CLI** (see [CALIBRATION.md](CALIBRATION.md) for details).
 
 **This will:**
-- ✅ Clear all saved calibration data from NVS
 - ✅ Clear all saved configuration parameters from NVS
-- ✅ Restore all parameters to factory defaults
-- ✅ Reinitialize the calibration system
-- ⚠️ You will need to recalibrate after reset
+- ✅ Restore all parameters to factory defaults (filters, segmentation threshold)
+- ⚠️ You will need to reconfigure after reset
 
 **When to use:**
 - Configuration is corrupted or inconsistent
@@ -304,13 +339,13 @@ mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
 
 **Example using mosquitto_pub:**
 ```bash
-# Set threshold
+# Set segmentation threshold
 mosquitto_pub -h homeassistant.local -t "home/espectre/kitchen/cmd" \
-  -m '{"cmd": "threshold", "value": 0.35}'
+  -m '{"cmd": "segmentation_threshold", "value": 0.35}'
 
-# Get statistics
+# Get info
 mosquitto_pub -h homeassistant.local -t "home/espectre/kitchen/cmd" \
-  -m '{"cmd": "stats"}'
+  -m '{"cmd": "info"}'
 
 # Listen for response
 mosquitto_sub -h homeassistant.local -t "home/espectre/kitchen/response"

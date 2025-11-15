@@ -1,6 +1,6 @@
-# 🛜 ESPectre 👻 - Calibration & Tuning Guide
+# 🛜 ESPectre 👻 - Tuning Guide
 
-This guide will help you calibrate and optimize ESPectre for your specific environment to achieve reliable movement detection.
+This guide will help you tune and optimize ESPectre for your specific environment to achieve reliable movement detection.
 
 ---
 
@@ -8,9 +8,8 @@ This guide will help you calibrate and optimize ESPectre for your specific envir
 
 - [Using the CLI Tool](#️-using-the-cli-tool)
 - [Understanding Your Environment](#-understanding-your-environment)
-- [Automatic Calibration](#-automatic-calibration)
-- [Manual Calibration](#-manual-calibration)
-- [Advanced Tuning](#-advanced-tuning)
+- [Manual Tuning](#-manual-tuning)
+- [Advanced Configuration](#-advanced-configuration)
 - [Troubleshooting Scenarios](#-troubleshooting-scenarios)
 - [Use Case Examples](#-use-case-examples)
 
@@ -20,7 +19,7 @@ This guide will help you calibrate and optimize ESPectre for your specific envir
 
 ---
 
-The `espectre-cli.sh` script provides an **interactive interface** for calibrating and tuning your ESPectre sensor in real-time.
+The `espectre-cli.sh` script provides an **interactive interface** for tuning your ESPectre sensor in real-time.
 
 **ESPectre is designed for hot-tuning**: All parameters can be adjusted in real-time via MQTT commands without requiring a rebuild, reflash, or device restart. This allows you to fine-tune detection settings while the sensor is running and immediately see the results.
 
@@ -63,14 +62,8 @@ Type 'help' for commands, 'exit' to quit
 espectre> info
 20:05:12 {"network": {"ip_address": "192.168.1.100"}, ...}
 
-espectre> analyze
-20:05:15 {"min": 0.02, "max": 0.18, "recommended_threshold": 0.35}
-
-espectre> threshold 0.35
-20:05:18 {"response": "Threshold set to 0.35"}
-
-espectre> stats
-20:05:20 {"detections": 42, "uptime": "3h 24m"}
+espectre> segmentation_threshold 0.35
+20:05:18 {"response": "Segmentation threshold set to 0.35"}
 
 espectre> help
 [shows all available commands]
@@ -81,7 +74,7 @@ Shutting down...
 
 **Available commands in interactive mode:**
 - Type `help` to see all commands
-- Use shortcuts: `t` (threshold), `s` (stats), `i` (info), etc.
+- Use shortcuts where available
 - Type `exit` or `quit` to close the CLI
 
 ### Configuration
@@ -146,9 +139,9 @@ ESPectre's performance depends heavily on your specific environment. Understandi
 - Pets
 
 **Solutions:**
-- Increase `debounce` count (3-5)
-- Increase `threshold` slightly
+- Increase `segmentation_threshold`
 - Enable Hampel filter to remove outliers
+- Adjust filter settings
 
 #### 4. **Wi-Fi Traffic**
 
@@ -158,329 +151,7 @@ ESPectre's performance depends heavily on your specific environment. Understandi
 
 ---
 
-## 🤖 Automatic Calibration
-
----
-
-ESPectre now includes an **automatic guided calibration system** that optimizes feature selection and weights for your specific environment.
-
-### What is Auto-Calibration?
-
-Instead of manually tuning weights and thresholds, the auto-calibration:
-
-1. **Disables all filters** automatically before data collection
-2. **Collects data** in two phases (baseline + movement)
-3. **Analyzes** all CSI features using Fisher's criterion
-4. **Selects** the top 4-6 most discriminant features
-5. **Calculates** optimal weights automatically
-6. **Analyzes signal characteristics** to determine optimal filter configuration
-7. **Applies optimal filters** automatically with calculated parameters
-8. **Reduces CPU usage** by 30-40% at runtime
-
-### Benefits
-
-- ⚡ **30-40% faster** - extracts only 4-6 features instead of 10
-- 💾 **60% RAM savings** - smaller feature buffers
-- 🎯 **Environment-specific** - optimized for YOUR room
-- ✅ **Zero manual tuning** - fully automatic
-
-### How to Use
-
-#### Prerequisites
-
-**Configure traffic generator rate first** (required for sample-based calibration):
-
-```bash
-./espectre-cli.sh
-```
-
-Then in the interactive session:
-```
-espectre> traffic_generator_rate 20
-```
-
-**Valid range:** 5-100 pps (packets per second)
-- **Recommended:** 15 pps (balanced speed and accuracy)
-- **Minimum:** 5 pps (slower but works)
-- **Maximum:** 100 pps (very fast, may be too quick for movement phase)
-
-**Why this is required:** Calibration now uses **sample-based collection** instead of time-based. The system calculates `target_samples = duration × traffic_rate` to ensure consistent data collection regardless of network conditions.
-
-#### Via CLI (Recommended)
-
-Launch the interactive CLI first:
-```bash
-./espectre-cli.sh
-```
-
-Then in the interactive session:
-
-**Start calibration:**
-```
-espectre> calibrate start
-```
-
-**With custom sample count:**
-```
-espectre> calibrate start 2000
-```
-
-**Check progress:**
-```
-espectre> calibrate status
-```
-
-**Stop calibration:**
-```
-espectre> calibrate stop
-```
-
-#### Via MQTT
-
-**Start:**
-```bash
-mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
-  -m '{"cmd":"calibrate","action":"start","samples":1000}'
-```
-
-**Status:**
-```bash
-mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
-  -m '{"cmd":"calibrate","action":"status"}'
-```
-
-### Calibration Process
-
-The calibration uses **sample-based collection** for reliable results:
-
-#### Phase 1: Baseline (target samples)
-1. Start calibration
-2. **LEAVE THE ROOM COMPLETELY EMPTY**
-3. No people, no pets, no moving objects
-4. System collects exactly the specified number of samples
-5. **Example:** 1000 samples @ 20pps = ~50 seconds
-6. Wait for automatic phase transition
-
-#### Phase 2: Movement (target samples)
-1. System automatically advances to Phase 2
-2. **ENTER AND MOVE NORMALLY** in the room
-3. Walk around naturally (not exaggerated)
-4. Try different movement patterns:
-   - Walking across the room
-   - Different speeds and directions
-   - Standing and moving arms
-5. System collects exactly the specified number of samples
-6. **Example:** 1000 samples @ 20pps = ~50 seconds
-
-#### Phase 3: Analysis (Automatic)
-1. System calculates Fisher scores for all 10 features
-2. Selects top 4-6 most discriminant features
-3. Calculates optimal weights
-4. Returns to normal operation
-
-### Example Output
-
-```
-🎯 Calibration configuration:
-   Target samples: 1000 per phase
-   Traffic rate: 15 pps
-   Estimated duration: ~50 seconds per phase
-
-🎯 Calibration started
-🎯 Phase 1: BASELINE (target: 1000 samples)
-📋 Please ensure the room is EMPTY and STATIC
-
-... (collecting samples) ...
-
-✅ Baseline phase complete (1000 samples collected)
-🎯 Phase 2: MOVEMENT (target: 1000 samples)
-📋 Please perform NORMAL MOVEMENT in the room
-
-... (collecting samples) ...
-
-✅ Movement phase complete (1000 samples collected)
-🔬 Analyzing collected data...
-
-✅ Calibration complete! Selected 4 features:
-  1. variance (Fisher=15.23, weight=0.380)
-  2. spatial_gradient (Fisher=10.45, weight=0.261)
-  4. iqr (Fisher=5.67, weight=0.142)
-  5. entropy (Fisher=2.34, weight=0.058)
-
-🎯 Optimal threshold: 0.35 (baseline: 0.08, movement: 0.62)
-
-🔧 Analyzing optimal filter configuration...
-  Hampel filter: ON (threshold: 2.0) - detected 8.5% outliers
-  Savitzky-Golay filter: ON - SNR=7.2 (noisy signal)
-  Adaptive normalizer: ON (alpha: 0.01) - baseline drift=0.15
-  Butterworth filter: ON (always recommended for noise reduction)
-
-✅ Optimal filter configuration applied
-
-💡 Expected CPU savings: ~67%
-```
-
-### Automatic Filter Optimization
-
-The calibration system now **automatically analyzes your environment** and configures filters optimally:
-
-#### 1. **Butterworth Filter**
-- **Always enabled** - removes high-frequency noise (>8Hz)
-- Human movement is typically 0.5-8Hz
-- No configuration needed
-
-#### 2. **Wavelet Filter** (Low-Frequency Noise Removal)
-- **Enabled if:** Baseline variance > 500
-- **Level:** 3 (maximum denoising)
-- **Threshold:**
-  - 1.0 (balanced) if variance 500-600
-  - 1.5 (aggressive) if variance 600-800
-  - 2.0 (very aggressive) if variance > 800
-- **Purpose:** Removes persistent low-frequency noise that Butterworth can't handle
-- **Performance:** Reduces variance by 70-84% in high-noise environments
-
-#### 3. **Hampel Filter** (Outlier Detection)
-- **Enabled if:** Outlier ratio > 5%
-- **Threshold:** 
-  - 2.0 (standard) if outlier ratio 5-15%
-  - 3.0 (tolerant) if outlier ratio > 15%
-- **Purpose:** Removes electrical spikes and interference
-
-#### 4. **Savitzky-Golay Filter** (Smoothing)
-- **Enabled if:** Signal-to-Noise Ratio (SNR) < 10.0
-- **Purpose:** Smooths noisy signals while preserving shape
-- **Disabled if:** Signal is already clean (SNR ≥ 10.0)
-
-#### 5. **Adaptive Normalizer** (Baseline Tracking)
-- **Enabled if:** Baseline drift > 0.1
-- **Alpha (learning rate):**
-  - 0.01 (standard) if drift 0.1-0.3
-  - 0.02 (fast) if drift > 0.3
-- **Purpose:** Adapts to slow environmental changes
-- **Disabled if:** Baseline is stable (drift < 0.1)
-
-### Filter Configuration in Status Response
-
-When you check calibration status after completion, you'll receive the recommended filter configuration:
-
-```bash
-espectre> calibrate status
-```
-
-**Response:**
-```json
-{
-  "phase": "ANALYZING",
-  "progress": 1.0,
-  "active": false,
-  "num_selected": 5,
-  "optimal_threshold": 0.35,
-  "filter_config": {
-    "butterworth_enabled": true,
-    "hampel_enabled": true,
-    "hampel_threshold": 2.0,
-    "savgol_enabled": true,
-    "adaptive_normalizer_enabled": true,
-    "adaptive_normalizer_alpha": 0.01
-  }
-}
-```
-
-This configuration is **automatically applied** at the end of calibration - no manual intervention needed!
-
-### Understanding Fisher Scores
-
-Fisher's criterion measures how well a feature separates baseline from movement:
-
-```
-Fisher Score = (μ_movement - μ_baseline)² / (σ²_movement + σ²_baseline)
-```
-
-- **High score (>10)**: Excellent discriminator - large separation, low variance
-- **Medium score (5-10)**: Good discriminator - useful for detection
-- **Low score (<5)**: Poor discriminator - not selected
-
-### When to Use Auto-Calibration
-
-**Recommended for:**
-- ✅ New installations
-- ✅ Unfamiliar environments
-- ✅ Maximizing performance
-- ✅ Reducing CPU usage
-- ✅ Environments with unique characteristics
-
-**Manual tuning still better for:**
-- ❌ Quick adjustments
-- ❌ Fine-tuning specific parameters
-- ❌ Troubleshooting specific issues
-- ❌ When you know exactly what you need
-
-### Auto-Calibration vs Manual Tuning
-
-| Aspect | Auto-Calibration | Manual Tuning |
-|--------|------------------|---------------|
-| **Time Required** | 2-3 minutes | 10-30 minutes |
-| **Expertise Needed** | None | Medium-High |
-| **CPU Efficiency** | Optimized (4-6 features) | Standard (4 features) |
-| **Accuracy** | Environment-specific | Generic |
-| **Flexibility** | Limited | Full control |
-| **Best For** | Initial setup | Fine-tuning |
-
-**Recommendation:** Start with auto-calibration, then use manual tuning for fine adjustments if needed.
-
-### Tips for Best Results
-
-1. **Sample Count Selection:**
-   - **1000 samples** (default): Recommended for most cases (~50s @ 20pps)
-   - **500 samples**: Quick calibration (~25s @ 20pps)
-   - **2000 samples**: More accurate (~100s @ 20pps)
-   - **Range:** 100-10000 samples
-
-2. **Baseline Phase:**
-   - Truly empty the room
-   - Close doors to prevent air currents
-   - Turn off fans, AC, heaters
-   - Wait outside the room
-
-3. **Movement Phase:**
-   - Move naturally, not exaggerated
-   - Cover different areas of the room
-   - Try various speeds (slow, normal, fast)
-   - Include typical movements for your use case
-   - **Note:** Duration = samples / traffic_rate
-
-### Troubleshooting Auto-Calibration
-
-**"Invalid sample count" error:**
-- Valid range: 100-10000 samples
-- Use: `calibrate start 1000`
-
-**"Not enough samples" warning:**
-- Increase sample count: `calibrate start 2000`
-- Check Wi-Fi packet rate with `idf.py monitor`
-
-**Calibration too fast/slow:**
-- **Too fast:** Increase sample count: `calibrate start 2000`
-- **Too slow:** Decrease sample count: `calibrate start 500`
-- **Example:** 1000 samples @ 20pps = ~50 seconds
-
-**All features have low Fisher scores:**
-- Baseline phase likely had movement
-- Recalibrate with truly static room
-
-**Only 4 features selected:**
-- Normal - other features didn't meet 20% threshold
-- Still provides good performance
-
-**Calibration doesn't improve detection:**
-- Try more varied movement in Phase 2
-- Increase sample count: `calibrate start 2000`
-- Verify baseline phase was truly static
-- Check traffic generator is running: `info`
-
----
-
-## 📊 Manual Calibration
+## 📊 Manual Tuning
 
 ---
 
@@ -501,7 +172,7 @@ Fisher Score = (μ_movement - μ_baseline)² / (σ²_movement + σ²_baseline)
    # You should see JSON messages every 1-5 seconds
    ```
 
-### Phase 2: Baseline Collection (2-3 minutes)
+### Phase 2: Baseline Observation (2-3 minutes)
 
 1. **Ensure the room is empty and still**:
    - No people moving
@@ -512,15 +183,21 @@ Fisher Score = (μ_movement - μ_baseline)² / (σ²_movement + σ²_baseline)
    ```bash
    idf.py monitor
    ```
-   This shows live detection logs with immediate feedback (no delays from MQTT optimizations).
+   This shows live detection logs with immediate feedback.
 
 3. **Observe the baseline values** for 1-2 minutes:
-   - Look for `📊 CSI: movement=` logs
-   - `movement` should be low (< 0.20)
-   - `state` should be "idle"
+   - Look for `📊 CSI:` logs showing moving_variance and state
+   - `state` should be "IDLE"
+   - Note the typical `moving_variance` values
    - Note any spikes or variations
 
-### Phase 3: Analysis & Threshold Setting (2 minutes)
+4. **Check runtime statistics** (in interactive CLI):
+   ```
+   espectre> stats
+   ```
+   This shows current turbulence, moving_variance, state, and segment information.
+
+### Phase 3: Threshold Adjustment (2 minutes)
 
 **Start the interactive CLI:**
 ```bash
@@ -529,23 +206,18 @@ Fisher Score = (μ_movement - μ_baseline)² / (σ²_movement + σ²_baseline)
 
 **In the interactive session:**
 
-1. **Run statistical analysis**:
+1. **Check current configuration**:
    ```
-   espectre> analyze
-   20:05:15 {"min": 0.02, "max": 0.18, "avg": 0.08, "stddev": 0.03, 
-             "p25": 0.06, "p50_median": 0.08, "p75": 0.11, "p95": 0.15,
-             "recommended_threshold": 0.35, "current_threshold": 0.40}
+   espectre> info
    ```
+   Look at the `segmentation` section to see current threshold and state.
 
-2. **Interpret the results**:
-   - `p50_median`: Typical idle value
-   - `p95`: Maximum idle value (95th percentile)
-   - `recommended_threshold`: Suggested value (median between p50 and p75)
-
-3. **Apply the recommended threshold**:
+2. **Adjust segmentation threshold based on observations**:
+   - If baseline moving_variance is typically 0.05-0.10, set threshold to 0.30-0.40
+   - If baseline is higher (0.15-0.20), increase threshold to 0.45-0.55
+   
    ```
-   espectre> threshold 0.35
-   20:05:18 {"response": "Threshold set to 0.35"}
+   espectre> segmentation_threshold 0.35
    ```
 
 ### Phase 4: Movement Testing (5 minutes)
@@ -556,51 +228,46 @@ Fisher Score = (μ_movement - μ_baseline)² / (σ²_movement + σ²_baseline)
 
    **Slow walking:**
    - Walk slowly across the room
-   - Expected in logs: `movement=0.40-0.60`, `state=detected`
+   - Expected: `state=MOTION`, moving_variance increases
 
    **Normal walking:**
    - Walk at normal pace
-   - Expected in logs: `movement=0.60-0.80`, `state=detected`
+   - Expected: `state=MOTION`, higher moving_variance
 
    **Fast movement:**
    - Walk quickly or wave arms
-   - Expected in logs: `movement=0.80-1.00`, `state=detected`
+   - Expected: `state=MOTION`, highest moving_variance
 
-2. **Test detection persistence**:
+2. **Test state transitions**:
    - Move, then stand completely still
-   - Detection should persist for ~3 seconds (default)
-   - Then return to "idle"
+   - State should transition from MOTION → IDLE
+   - Observe how quickly it transitions
 
 3. **Adjust if needed** (in the interactive CLI session):
 
-   **Too many false positives:**
+   **Too many false positives (MOTION when room is empty):**
    ```
-   espectre> threshold 0.45
-   
-   # Or increase debounce
-   espectre> debounce 4
+   espectre> segmentation_threshold 0.45
    ```
 
-   **Missing movements:**
+   **Missing movements (stays IDLE during activity):**
    ```
-   espectre> threshold 0.30
-   
-   # Or decrease debounce
-   espectre> debounce 2
+   espectre> segmentation_threshold 0.30
    ```
 
 ### Phase 5: Verification (3 minutes)
 
 1. **Run a complete test cycle**:
-   - Leave room empty for 30 seconds → should be "idle"
+   - Leave room empty for 30 seconds → should be "IDLE"
    - Enter and move around → should detect within 1-2 seconds
-   - Stand still → should return to "idle" after 3 seconds
+   - Stand still → should return to "IDLE" after movement stops
    - Repeat 3-5 times
 
-2. **Check statistics** (in interactive CLI):
+2. **Check final statistics** (in interactive CLI):
    ```
    espectre> stats
    ```
+   Verify stable detection with good segment metrics.
 
 3. **Save your configuration** (note down the values in interactive CLI):
    ```
@@ -609,18 +276,20 @@ Fisher Score = (μ_movement - μ_baseline)² / (σ²_movement + σ²_baseline)
 
 ---
 
-## 🔧 Advanced Tuning
+## 🔧 Advanced Configuration
 
 ---
 
-Once basic calibration is complete, you can fine-tune advanced parameters for optimal performance.
+Once basic tuning is complete, you can fine-tune advanced parameters for optimal performance.
 
-### Detection Parameters
+### Segmentation Parameters
 
-#### Threshold
-**What it does:** Minimum score needed to trigger detection
+#### Segmentation Threshold
+**What it does:** Adaptive threshold multiplier for motion detection (k-factor in MVS algorithm)
 
 **Default:** 0.40
+
+**How it works:** The system calculates `adaptive_threshold = k_factor × moving_variance`. Motion is detected when current variance exceeds this adaptive threshold.
 
 **When to adjust:**
 - **Lower (0.25-0.35):** Small rooms, need high sensitivity
@@ -628,62 +297,42 @@ Once basic calibration is complete, you can fine-tune advanced parameters for op
 
 **Interactive CLI:**
 ```
-espectre> threshold 0.35
+espectre> segmentation_threshold 0.35
 ```
 
-#### Debounce Count
-**What it does:** Number of consecutive detections needed before triggering
+### Feature Extraction
 
-**Default:** 3
+#### Features Enable/Disable
+**What it does:** Toggle feature extraction during MOTION state
 
-**When to adjust:**
-- **Lower (1-2):** Faster response, more false positives
-- **Higher (4-5):** Slower response, fewer false positives
+**Default:** Enabled
+
+**When to disable:**
+- Only need basic motion detection (IDLE/MOTION states)
+- Want to reduce CPU usage
+- Don't need detailed feature analysis
 
 **Interactive CLI:**
 ```
-espectre> debounce 3
+# Disable features (motion detection only)
+espectre> features_enable off
+
+# Re-enable features
+espectre> features_enable on
 ```
 
-#### Persistence Timeout
-**What it does:** Seconds to wait before returning to IDLE after last detection
+### Signal Processing Filters
 
-**Default:** 3 seconds
-
-**When to adjust:**
-- **Lower (1-2s):** Quick response to absence
-- **Higher (5-10s):** Avoid flickering in/out of detection
-
-**Interactive CLI:**
-```
-espectre> persistence 5
-```
-
-#### Hysteresis Ratio
-**What it does:** Ratio for lower threshold (prevents rapid state flipping)
-
-**Default:** 0.7 (lower threshold = 0.7 × upper threshold)
-
-**When to adjust:**
-- **Lower (0.5-0.6):** More stable, slower to return to idle
-- **Higher (0.8-0.9):** Faster response, may flicker
-
-**Interactive CLI:**
-```
-espectre> hysteresis 0.7
-```
-
-### Signal Processing
-
+**Important:** Filters are applied **only to feature extraction**, not to segmentation. Segmentation uses raw CSI data to preserve motion sensitivity.
 
 #### Hampel Filter (Outlier Removal)
 **What it does:** Removes statistical outliers using Median Absolute Deviation
 
-**Default:** Enabled, threshold 2.0
+**Default:** Disabled, threshold 2.0
 
 **When to use:**
 - Enable in high-interference environments
-- Helps reduce false positives from electrical noise
+- Helps reduce noise in extracted features
 
 **Interactive CLI:**
 ```
@@ -695,18 +344,18 @@ espectre> hampel_threshold 3.0
 ```
 
 #### Butterworth Low-Pass Filter
-**What it does:** Removes high-frequency noise (>8Hz) - human movement is 0.5-8Hz
+**What it does:** Removes high-frequency noise (>8Hz) from features - human movement is 0.5-8Hz
 
 **Default:** Enabled (recommended to keep on)
 
 **When to use:**
-- **Always recommended** - significantly reduces false positives
-- Filters out environmental noise, vibrations, electrical interference
+- **Always recommended** for feature extraction
+- Filters out environmental noise in features
 - Based on scientific papers (Lolla, CSI-HC, Dong et al.)
 
 **Performance impact:**
 - CPU: Minimal (~5-10 μs per packet)
-- Benefit: +5-8% accuracy, -30-50% false positives
+- Benefit: Cleaner feature values
 
 **Interactive CLI:**
 ```
@@ -714,15 +363,14 @@ espectre> butterworth_filter on
 ```
 
 #### Wavelet Filter (Advanced - Daubechies db4)
-**What it does:** Removes low-frequency persistent noise using wavelet transform
+**What it does:** Removes low-frequency persistent noise from features using wavelet transform
 
 **Default:** Disabled (enable only for high-noise environments)
 
 **When to enable:**
-- ✅ High variance in static environment (>500)
+- ✅ High noise in feature values
 - ✅ Persistent low-frequency noise that Butterworth can't remove
-- ✅ Poor detection accuracy despite calibration
-- ✅ Baseline drift issues
+- ✅ Poor feature quality despite tuning
 
 **Parameters:**
 - **Level** (1-3): Decomposition depth (3 = most aggressive)
@@ -738,34 +386,26 @@ espectre> wavelet_level 3
 
 # Set balanced threshold
 espectre> wavelet_threshold 1.0
-
-# For very high noise (variance >500), use aggressive threshold
-espectre> wavelet_threshold 1.5
 ```
 
 **Performance impact:**
 - CPU: ~5-8% additional load
 - RAM: ~2 KB
 - Latency: 320ms warm-up (32 samples)
-- Benefit: 70-80% variance reduction in high-noise environments
-
-**Expected results:**
-- Variance drops from >500 to <100 in static environment
-- Spatial gradient reduces by ~60%
-- Significantly improved baseline stability
+- Benefit: Cleaner features in high-noise environments
 
 **Based on research:**
 - "Location Intelligence System" (2022) - ESP32 + wavelet db4
 - "CSI-HC" (2020) - Butterworth + Sym8 combination
 
 #### Savitzky-Golay Filter (Smoothing)
-**What it does:** Polynomial smoothing to reduce noise
+**What it does:** Polynomial smoothing to reduce noise in features
 
 **Default:** Enabled
 
 **When to use:**
 - Keep enabled for most scenarios
-- Disable only if you need raw, unfiltered data
+- Provides smooth feature values
 
 **Interactive CLI:**
 ```
@@ -779,183 +419,7 @@ espectre> savgol_filter on
 espectre> info
 ```
 
-Then filter the JSON output with jq if needed:
-```bash
-# From another terminal
-mosquitto_sub -h homeassistant.local -t "home/espectre/node1/response" | jq '.filters'
-```
-
-**Example output:**
-```json
-{
-  "butterworth_enabled": true,
-  "hampel_enabled": true,
-  "hampel_threshold": 2.0,
-  "savgol_enabled": true,
-  "savgol_window_size": 5,
-  "adaptive_normalizer_enabled": true,
-  "adaptive_normalizer_alpha": 0.01,
-  "adaptive_normalizer_reset_timeout_sec": 30
-}
-```
-
-#### Adaptive Normalizer (Signal Baseline Tracking)
-
-**What it does:** Tracks the running mean and variance of the signal to adapt to environmental changes
-
-**Default:** Enabled, alpha=0.01, auto-reset after 30 seconds of IDLE
-
-**The Problem it Solves:**
-
-In static conditions, you may observe a **progressive signal degradation** where the movement score decreases over time even without any changes:
-
-```
-Time:  0s    30s   60s   90s   120s
-Score: 30% → 25% → 20% → 15% → 6%  (then stabilizes)
-```
-
-This happens because the adaptive normalizer "learns" the static noise as the new baseline, progressively reducing the normalized signal.
-
-**The Solution:**
-
-The system now includes **automatic reset** functionality:
-- After N seconds of IDLE state (default: 30), the normalizer resets
-- This prevents progressive degradation
-
-**Configuration Parameters:**
-
-1. **Enable/Disable:**
-   ```
-   # Enable (default)
-   espectre> adaptive_normalizer on
-   
-   # Disable (not recommended - loses adaptive capability)
-   espectre> adaptive_normalizer off
-   ```
-
-2. **Learning Rate (alpha):**
-   Controls how quickly the normalizer adapts to changes
-   
-   ```
-   # Slow adaptation (more stable, less responsive)
-   espectre> adaptive_normalizer_alpha 0.001
-   
-   # Default (balanced)
-   espectre> adaptive_normalizer_alpha 0.01
-   
-   # Fast adaptation (more responsive, less stable)
-   espectre> adaptive_normalizer_alpha 0.05
-   ```
-   
-   **Range:** 0.001-0.1
-   - **Lower values (0.001-0.005):** Slower adaptation, more stable baseline
-   - **Medium values (0.01-0.02):** Balanced (recommended)
-   - **Higher values (0.05-0.1):** Faster adaptation, may degrade quicker
-
-3. **Auto-Reset Timeout:**
-   Seconds of IDLE before resetting the normalizer
-   
-   ```
-   # Short timeout (frequent resets)
-   espectre> adaptive_normalizer_reset_timeout 10
-   
-   # Default (balanced)
-   espectre> adaptive_normalizer_reset_timeout 30
-   
-   # Long timeout (rare resets)
-   espectre> adaptive_normalizer_reset_timeout 60
-   
-   # Disable auto-reset (not recommended)
-   espectre> adaptive_normalizer_reset_timeout 0
-   ```
-   
-   **Range:** 0-300 seconds (0 = disabled)
-
-4. **View Statistics:**
-   ```
-   espectre> adaptive_normalizer_stats
-   ```
-   
-   **Example output:**
-   ```json
-   {
-     "enabled": true,
-     "alpha": 0.01,
-     "reset_timeout_sec": 30,
-     "current_mean": 0.0234,
-     "current_variance": 0.0012,
-     "current_stddev": 0.0346
-   }
-   ```
-
-**When to Adjust:**
-
-- **Experiencing signal degradation:** Reduce alpha or decrease reset timeout
-- **Too many resets in logs:** Increase reset timeout
-- **Need faster environmental adaptation:** Increase alpha (but may degrade faster)
-- **Very stable environment:** Can increase reset timeout to 60-120 seconds
-- **High interference environment:** Decrease alpha for more stable baseline
-
-**Recommended Settings by Environment:**
-
-| Environment | Alpha | Reset Timeout | Reason |
-|-------------|-------|---------------|--------|
-| Stable home | 0.01 | 30s | Default, balanced |
-| High interference | 0.005 | 20s | Slower adaptation, frequent resets |
-| Office/dynamic | 0.02 | 45s | Faster adaptation, less frequent resets |
-| Very stable lab | 0.001 | 60s | Very slow adaptation, rare resets |
-
-### View Current Features and Weights
-
-ESPectre automatically manages features and weights through the calibration system. The weights are calculated using Fisher's criterion to optimize detection for your specific environment.
-
-**View all features with calibration info (in interactive CLI):**
-```
-espectre> features
-```
-
-**Example output:**
-```json
-{
-  "time_domain_variance": {
-    "value": 315.50,
-    "selected": true,
-    "weight": 0.380
-  },
-  "time_domain_entropy": {
-    "value": 5.45,
-    "selected": true,
-    "weight": 0.261
-  },
-  "spatial_gradient": {
-    "value": 17.26,
-    "selected": true,
-    "weight": 0.222
-  },
-  "time_domain_iqr": {
-    "value": 18.5,
-    "selected": true,
-    "weight": 0.137
-  },
-  "time_domain_skewness": {
-    "value": 0.0854
-  },
-  "spatial_correlation": {
-    "value": -0.42
-  }
-}
-```
-
-**Understanding the output:**
-- Features **with** `"selected": true` are used in detection (show their weight)
-- Features **without** `"selected"` are calculated but not used
-- Weights sum to 1.0 across all selected features
-- After auto-calibration, the system automatically selects the 4-6 most discriminant features
-
-**Available features (10 total):**
-- **Time-domain** (5): variance, skewness, kurtosis, entropy, iqr
-- **Spatial** (3): variance, correlation, gradient
-- **Temporal** (2): delta_mean, delta_variance
+Look at the `filters` section in the JSON response.
 
 ---
 
@@ -969,7 +433,6 @@ espectre> features
 - Configuration is corrupted or inconsistent
 - Want to start fresh with default settings
 - Testing different configurations
-- Persistent issues after multiple tuning attempts
 
 **Solution:**
 
@@ -994,39 +457,37 @@ mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
 ```
 
 **This will:**
-- ✅ Clear all NVS storage (calibration + configuration)
+- ✅ Clear all NVS storage (configuration)
 - ✅ Restore all parameters to factory defaults
-- ✅ Reinitialize the calibration system
-- ⚠️ You will need to recalibrate after reset
-
-**After factory reset**, follow the [Automatic Calibration](#-automatic-calibration) process to set up the sensor again.
+- ⚠️ You will need to retune after reset
 
 ### Scenario 2: Too Many False Positives
 
 **Symptoms:**
-- Detects movement when room is empty
+- Detects movement when room is empty (state = MOTION)
 - Frequent state changes without actual movement
-- High `movement` values during idle periods
+- High `moving_variance` values during idle periods
+
+**Diagnosis (in interactive CLI):**
+```
+espectre> stats
+```
+Check `turbulence` and `moving_variance` values during idle periods.
 
 **Solutions (in interactive CLI):**
 
-1. **Increase threshold:**
+1. **Increase segmentation threshold:**
    ```
-   espectre> threshold 0.50
-   ```
-
-2. **Increase debounce:**
-   ```
-   espectre> debounce 4
+   espectre> segmentation_threshold 0.50
    ```
 
-3. **Enable/tune Hampel filter:**
+2. **Enable/tune Hampel filter (for features):**
    ```
    espectre> hampel_filter on
    espectre> hampel_threshold 2.5
    ```
 
-4. **Check for interference sources:**
+3. **Check for interference sources:**
    - Move sensor away from fans, AC units
    - Check for moving curtains or plants
    - Verify no pets in the room
@@ -1034,15 +495,21 @@ mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
 ### Scenario 3: Missing Movements
 
 **Symptoms:**
-- Doesn't detect when people move
-- `movement` values stay low even during activity
-- State remains "idle" during movement
+- Doesn't detect when people move (stays IDLE)
+- `moving_variance` values stay low even during activity
+- State remains "IDLE" during movement
+
+**Diagnosis (in interactive CLI):**
+```
+espectre> stats
+```
+Check if `turbulence` and `moving_variance` increase during movement.
 
 **Solutions (in interactive CLI):**
 
-1. **Decrease threshold:**
+1. **Decrease segmentation threshold:**
    ```
-   espectre> threshold 0.30
+   espectre> segmentation_threshold 0.30
    ```
 
 2. **Check sensor position:**
@@ -1056,133 +523,72 @@ mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
    # Look for RSSI values > -70 dBm
    ```
 
-5. **Reduce debounce for faster response:**
+4. **Check traffic generator:**
    ```
-   espectre> debounce 2
+   espectre> info
    ```
+   Verify `traffic_generator_rate` is set (recommended: 15-20 pps)
 
 ### Scenario 4: Unstable Detection
 
 **Symptoms:**
-- Rapid flickering between "idle" and "detected"
+- Rapid flickering between "IDLE" and "MOTION"
 - Inconsistent detection of same movements
-- High variance in `movement` values
+- High variance in `moving_variance` values
+
+**Diagnosis (in interactive CLI):**
+```
+espectre> stats
+```
+Monitor `state` transitions and `moving_variance` stability.
 
 **Solutions (in interactive CLI):**
 
-1. **Adjust hysteresis:**
+1. **Adjust segmentation threshold:**
    ```
-   espectre> hysteresis 0.6
-   ```
-
-2. **Increase persistence timeout:**
-   ```
-   espectre> persistence 5
+   espectre> segmentation_threshold 0.40
    ```
 
-3. **Enable smoothing filters:**
+2. **Enable smoothing filters (for features):**
    ```
    espectre> savgol_filter on
    espectre> hampel_filter on
    ```
 
-4. **Check Wi-Fi stability:**
+3. **Check Wi-Fi stability:**
    - Verify router isn't overloaded
    - Check for mesh network handoffs
    - Ensure stable 2.4GHz connection
 
-### Scenario 5: Slow Response Time
+### Scenario 5: Feature Quality Issues
 
 **Symptoms:**
-- Takes several seconds to detect movement
-- Delayed return to idle state
+- Noisy feature values (if features are enabled)
+- Inconsistent feature readings
+
+**Diagnosis (in interactive CLI):**
+```
+espectre> stats
+```
+Check segment quality metrics (`avg_turbulence`, `max_turbulence`).
 
 **Solutions (in interactive CLI):**
 
-1. **Reduce debounce count:**
+1. **Enable Butterworth filter:**
    ```
-   espectre> debounce 2
-   ```
-
-2. **Reduce persistence timeout:**
-   ```
-   espectre> persistence 2
+   espectre> butterworth_filter on
    ```
 
-3. **Lower threshold slightly:**
+2. **Enable Savitzky-Golay smoothing:**
    ```
-   espectre> threshold 0.35
-   ```
-
-### Scenario 6: Progressive Signal Degradation
-
-**Symptoms:**
-- Movement score decreases progressively over time in static conditions
-- Score drops from 30% → 25% → 20% → 15% → 6% and stabilizes
-- Happens even when nothing changes in the environment
-- Eventually stabilizes at a low value (6-15%)
-
-**Cause:**
-The adaptive normalizer is "learning" the static noise as the new baseline, progressively reducing the normalized signal.
-
-**Solutions:**
-
-1. **Reduce learning rate (slower adaptation):**
-   ```
-   espectre> adaptive_normalizer_alpha 0.005
-   ```
-   This makes the normalizer adapt more slowly, reducing degradation.
-
-2. **Decrease reset timeout (more frequent resets):**
-   ```
-   espectre> adaptive_normalizer_reset_timeout 20
-   ```
-   Resets the normalizer more frequently before significant degradation occurs.
-
-3. **Check current normalizer statistics:**
-   ```
-   espectre> adaptive_normalizer_stats
-   ```
-   Monitor `current_mean` and `current_variance` to see if they're drifting.
-
-4. **Temporary workaround - disable normalizer:**
-   ```
-   espectre> adaptive_normalizer off
-   ```
-   Only use this as a last resort, as it removes adaptive capability.
-
-**Recommended Fix:**
-```
-espectre> adaptive_normalizer_alpha 0.005
-espectre> adaptive_normalizer_reset_timeout 30
-```
-
-This provides slower adaptation with regular resets to prevent degradation.
-
-### Scenario 7: Can't Distinguish Pets from Humans
-
-**Symptoms:**
-- Pet movements trigger detection
-- Want to ignore small animals
-
-**Solutions (in interactive CLI):**
-
-1. **Increase threshold to ignore MICRO movements:**
-   ```
-   espectre> threshold 0.50
+   espectre> savgol_filter on
    ```
 
-2. **Use Home Assistant automation to filter:**
-   ```yaml
-   # Only trigger on DETECTED or INTENSE states
-   condition:
-     - condition: template
-       value_template: "{{ state_attr('sensor.movement_sensor', 'state') in ['detected', 'intense'] }}"
+3. **For high noise, enable Wavelet filter:**
    ```
-
-3. **Run auto-calibration** to optimize feature selection for your environment (may help distinguish movement patterns):
-   ```
-   espectre> calibrate start
+   espectre> wavelet_filter on
+   espectre> wavelet_level 3
+   espectre> wavelet_threshold 1.0
    ```
 
 ---
@@ -1203,9 +609,8 @@ This provides slower adaptation with regular resets to prevent degradation.
 
 **Optimal Configuration (in interactive CLI):**
 ```
-espectre> threshold 0.30
-espectre> debounce 2
-espectre> persistence 3
+espectre> segmentation_threshold 0.30
+espectre> features_enable on
 espectre> hampel_filter on
 ```
 
@@ -1224,9 +629,8 @@ espectre> hampel_filter on
 
 **Optimal Configuration (in interactive CLI):**
 ```
-espectre> threshold 0.45
-espectre> debounce 3
-espectre> persistence 5
+espectre> segmentation_threshold 0.45
+espectre> features_enable on
 espectre> hampel_filter on
 espectre> hampel_threshold 3.0
 ```
@@ -1246,16 +650,15 @@ espectre> hampel_threshold 3.0
 
 **Optimal Configuration (in interactive CLI):**
 ```
-espectre> threshold 0.35
-espectre> debounce 2
-espectre> persistence 10
+espectre> segmentation_threshold 0.35
+espectre> features_enable on
 espectre> hampel_filter on
 espectre> savgol_filter on
 ```
 
 **Expected Performance:**
 - Detects any movement quickly
-- Long persistence keeps "detected" during brief pauses
+- Stable detection during activity
 
 ### Use Case 4: Hallway/Corridor
 
@@ -1266,60 +669,27 @@ espectre> savgol_filter on
 
 **Optimal Configuration (in interactive CLI):**
 ```
-espectre> threshold 0.40
-espectre> debounce 2
-espectre> persistence 2
-espectre> hysteresis 0.8
+espectre> segmentation_threshold 0.40
+espectre> features_enable off
 ```
 
 **Expected Performance:**
 - Quick detection when entering
 - Fast return to idle after passing
-- Minimal false positives
+- Minimal CPU usage (features disabled)
 
 ### Use Case 5: Elderly Care Monitoring
 
 **Environment:**
 - Bedroom or living area
-- Need to detect falls or prolonged inactivity
+- Need to detect all movements
 - High reliability required
 
 **Optimal Configuration (in interactive CLI):**
 ```
-espectre> threshold 0.25
-espectre> debounce 2
-espectre> persistence 3
+espectre> segmentation_threshold 0.25
+espectre> features_enable on
 espectre> hampel_filter on
-```
-
-**Home Assistant Automation Example:**
-```yaml
-automation:
-  - alias: "Fall Detection Alert"
-    trigger:
-      - platform: state
-        entity_id: sensor.movement_sensor
-        to: "intense"
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "Sudden intense movement detected - possible fall"
-          
-  - alias: "Inactivity Alert"
-    trigger:
-      - platform: state
-        entity_id: sensor.movement_sensor
-        to: "idle"
-        for:
-          hours: 4
-    condition:
-      - condition: time
-        after: "08:00:00"
-        before: "22:00:00"
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "No movement detected for 4 hours"
 ```
 
 **Expected Performance:**
@@ -1332,16 +702,15 @@ automation:
 
 ---
 
-### 1. Calibration Workflow
+### 1. Tuning Workflow
 
 Always follow this sequence:
 1. Position sensor optimally
-2. Collect baseline (empty room)
-3. Run `analyze` command
-4. Apply recommended threshold
-5. Test with movement
-6. Fine-tune if needed
-7. Document your settings
+2. Observe baseline (empty room)
+3. Adjust segmentation threshold
+4. Test with movement
+5. Fine-tune if needed
+6. Document your settings
 
 ### 2. Iterative Tuning
 
@@ -1353,7 +722,7 @@ Make changes incrementally:
 
 ### 3. Seasonal Adjustments
 
-You may need to recalibrate when:
+You may need to retune when:
 - Furniture is rearranged
 - Seasonal changes (heating/cooling)
 - New interference sources added
@@ -1362,7 +731,7 @@ You may need to recalibrate when:
 ### 4. Multiple Sensors
 
 If using multiple sensors:
-- Calibrate each independently
+- Tune each independently
 - Different rooms may need different settings
 - Use descriptive MQTT topics (e.g., `home/espectre/bedroom`)
 - Document settings per sensor
@@ -1371,15 +740,19 @@ If using multiple sensors:
 
 Regular checks (in interactive CLI):
 ```
-# Weekly: Check statistics
+# Check current configuration
+espectre> info
+
+# Monitor runtime statistics
 espectre> stats
 
-# Monthly: Re-run analysis
-espectre> analyze
-
-# As needed: View current config
-espectre> info
+# Monitor via serial output
+idf.py monitor
 ```
+
+**Understanding the difference:**
+- **`info`**: Static configuration (thresholds, filters, network settings)
+- **`stats`**: Dynamic runtime metrics (state, turbulence, variance, segments, uptime)
 
 ---
 

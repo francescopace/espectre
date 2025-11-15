@@ -6,7 +6,6 @@
  */
 
 #include "mqtt_handler.h"
-#include "calibration.h"
 #include <string.h>
 #include <math.h>
 #include "esp_log.h"
@@ -18,6 +17,15 @@
 #include "freertos/queue.h"
 
 static const char *TAG = "MQTT_Handler";
+
+// State names for segmentation
+static const char* segmentation_state_to_string(segmentation_state_t state) {
+    switch (state) {
+        case SEG_STATE_IDLE: return "idle";
+        case SEG_STATE_MOTION: return "motion";
+        default: return "unknown";
+    }
+}
 
 // Callback for command processing
 static void (*g_command_callback)(const char *data, int data_len) = NULL;
@@ -153,9 +161,9 @@ bool mqtt_handler_is_connected(const mqtt_handler_state_t *state) {
     return state ? state->connected : false;
 }
 
-int mqtt_publish_detection(mqtt_handler_state_t *state,
-                           const detection_result_t *result,
-                           const char *topic) {
+int mqtt_publish_segmentation(mqtt_handler_state_t *state,
+                              const segmentation_result_t *result,
+                              const char *topic) {
     if (!state || !result || !topic || !state->connected) {
         return -1;
     }
@@ -166,9 +174,29 @@ int mqtt_publish_detection(mqtt_handler_state_t *state,
         return -1;
     }
     
-    cJSON_AddNumberToObject(root, "movement", (double)result->score);
-    cJSON_AddNumberToObject(root, "confidence", (double)result->confidence);
-    cJSON_AddStringToObject(root, "state", detection_state_to_string(result->state));
+    cJSON_AddNumberToObject(root, "movement", (double)result->moving_variance);
+    cJSON_AddNumberToObject(root, "threshold", (double)result->adaptive_threshold);
+    cJSON_AddStringToObject(root, "state", segmentation_state_to_string(result->state));
+    cJSON_AddNumberToObject(root, "segments_total", result->segments_total);
+    
+    // Add features if available (only during MOTION with features_enabled)
+    if (result->has_features) {
+        cJSON *features = cJSON_CreateObject();
+        if (features) {
+            cJSON_AddNumberToObject(features, "variance", (double)result->features.variance);
+            cJSON_AddNumberToObject(features, "skewness", (double)result->features.skewness);
+            cJSON_AddNumberToObject(features, "kurtosis", (double)result->features.kurtosis);
+            cJSON_AddNumberToObject(features, "entropy", (double)result->features.entropy);
+            cJSON_AddNumberToObject(features, "iqr", (double)result->features.iqr);
+            cJSON_AddNumberToObject(features, "spatial_variance", (double)result->features.spatial_variance);
+            cJSON_AddNumberToObject(features, "spatial_correlation", (double)result->features.spatial_correlation);
+            cJSON_AddNumberToObject(features, "spatial_gradient", (double)result->features.spatial_gradient);
+            cJSON_AddNumberToObject(features, "temporal_delta_mean", (double)result->features.temporal_delta_mean);
+            cJSON_AddNumberToObject(features, "temporal_delta_variance", (double)result->features.temporal_delta_variance);
+            cJSON_AddItemToObject(root, "features", features);
+        }
+    }
+    
     cJSON_AddNumberToObject(root, "timestamp", (double)result->timestamp);
     
     int ret = mqtt_publish_json(state->client, topic, root, 0, 0);
@@ -228,8 +256,9 @@ int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
         return -1;
     }
     
-    // Cast to calibration_state_t (defined in calibration.h)
-    const calibration_state_t *calib = (const calibration_state_t*)calib_results;
+    // Note: This function is kept for compatibility but calibration system is being removed
+    // Cast to generic structure pointer
+    const void *calib = calib_results;
     
     cJSON *root = cJSON_CreateObject();
     if (!root) {
@@ -238,77 +267,7 @@ int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
     }
     
     cJSON_AddStringToObject(root, "type", "calibration_complete");
-    
-    // Summary object
-    cJSON *summary = cJSON_CreateObject();
-    // Add sample counts
-    cJSON_AddNumberToObject(summary, "baseline_samples_collected", (double)calib->baseline_stats[0].count);
-    cJSON_AddNumberToObject(summary, "movement_samples_collected", (double)calib->movement_stats[0].count);
-    
-    cJSON_AddNumberToObject(summary, "baseline_score", (double)calib->baseline_mean_score);
-    cJSON_AddNumberToObject(summary, "movement_score", (double)calib->movement_mean_score);
-    cJSON_AddNumberToObject(summary, "separation_ratio", (double)calib->separation_ratio);
-    
-    // Separation quality assessment
-    const char *quality = "poor";
-    if (calib->separation_ratio >= 2.5f) quality = "excellent";
-    else if (calib->separation_ratio >= 2.0f) quality = "good";
-    else if (calib->separation_ratio >= 1.5f) quality = "fair";
-    cJSON_AddStringToObject(summary, "separation_quality", quality);
-    
-    cJSON_AddNumberToObject(summary, "optimal_threshold", (double)calib->optimal_threshold);
-    cJSON_AddNumberToObject(summary, "num_features_selected", calib->num_selected);
-    
-    // Top features array (up to 3 for brevity)
-    const char *feature_names[] = {
-        "variance", "skewness", "kurtosis", "entropy", "iqr",
-        "spatial_variance", "spatial_correlation", "spatial_gradient",
-        "temporal_delta_mean", "temporal_delta_variance"
-    };
-    
-    cJSON *top_features = cJSON_CreateArray();
-    uint8_t num_to_show = (calib->num_selected < 3) ? calib->num_selected : 3;
-    for (uint8_t i = 0; i < num_to_show; i++) {
-        cJSON *feat = cJSON_CreateObject();
-        uint8_t feat_idx = calib->selected_features[i];
-        const char *feat_name = (feat_idx < 10) ? feature_names[feat_idx] : "unknown";
-        cJSON_AddStringToObject(feat, "name", feat_name);
-        cJSON_AddNumberToObject(feat, "weight", (double)calib->optimized_weights[i]);
-        cJSON_AddItemToArray(top_features, feat);
-    }
-    cJSON_AddItemToObject(summary, "top_features", top_features);
-    
-    // Filter config
-    cJSON *filters = cJSON_CreateObject();
-    cJSON_AddBoolToObject(filters, "butterworth", calib->recommended_butterworth);
-    cJSON_AddBoolToObject(filters, "wavelet", calib->recommended_wavelet);
-    if (calib->recommended_wavelet) {
-        cJSON_AddNumberToObject(filters, "wavelet_level", calib->recommended_wavelet_level);
-        cJSON_AddNumberToObject(filters, "wavelet_threshold", (double)calib->recommended_wavelet_threshold);
-    }
-    cJSON_AddBoolToObject(filters, "hampel", calib->recommended_hampel);
-    if (calib->recommended_hampel) {
-        cJSON_AddNumberToObject(filters, "hampel_threshold", (double)calib->recommended_hampel_threshold);
-    }
-    cJSON_AddBoolToObject(filters, "savgol", calib->recommended_savgol);
-    cJSON_AddBoolToObject(filters, "adaptive_normalizer", calib->recommended_adaptive_normalizer);
-    if (calib->recommended_adaptive_normalizer) {
-        cJSON_AddNumberToObject(filters, "adaptive_normalizer_alpha", (double)calib->recommended_normalizer_alpha);
-    }
-    cJSON_AddItemToObject(summary, "filter_config", filters);
-    
-    cJSON_AddItemToObject(root, "summary", summary);
-    
-    // Warnings array
-    cJSON *warnings = cJSON_CreateArray();
-    if (calib->separation_ratio < 2.0f) {
-        char warning[128];
-        snprintf(warning, sizeof(warning), 
-                "Low separation ratio (%.2f < 2.0) - consider more intense movement", 
-                calib->separation_ratio);
-        cJSON_AddItemToArray(warnings, cJSON_CreateString(warning));
-    }
-    cJSON_AddItemToObject(root, "warnings", warnings);
+    cJSON_AddStringToObject(root, "message", "Calibration system removed - using segmentation only");
     
     int ret = mqtt_publish_json(state->client, topic, root, 0, 0);
     cJSON_Delete(root);
@@ -357,7 +316,7 @@ int mqtt_send_response(mqtt_handler_state_t *state,
 
 bool mqtt_should_publish(mqtt_handler_state_t *state,
                         float current_movement,
-                        detection_state_t current_state,
+                        segmentation_state_t current_state,
                         const mqtt_publish_config_t *config,
                         int64_t current_time) {
     if (!state || !config) {
@@ -396,12 +355,12 @@ bool mqtt_should_publish(mqtt_handler_state_t *state,
 
 void mqtt_update_publish_state(mqtt_handler_state_t *state,
                               float movement,
-                              detection_state_t det_state,
+                              segmentation_state_t seg_state,
                               int64_t current_time) {
     if (!state) return;
     
     state->last_published_movement = movement;
-    state->last_published_state = det_state;
+    state->last_published_state = seg_state;
     state->last_publish_time = current_time;
 }
 

@@ -24,12 +24,9 @@
 #include "esp_timer.h"
 
 // Module headers
-#include "calibration.h"
 #include "nvs_storage.h"
 #include "filters.h"
 #include "csi_processor.h"
-#include "detection_engine.h"
-#include "statistics.h"
 #include "config_manager.h"
 #include "mqtt_handler.h"
 #include "mqtt_commands.h"
@@ -49,9 +46,6 @@
 #define LOG_CSI_VALUES_INTERVAL 1
 #define STATS_LOG_INTERVAL  100
 
-// Buffer sizes
-#define STATS_BUFFER_SIZE   100
-
 // Publishing configuration
 #define PUBLISH_INTERVAL    1.0f
 
@@ -67,17 +61,6 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 #define WIFI_CONNECTED_BIT BIT0
 
 static struct {
-    stats_buffer_t stats_buffer;
-    
-    float detection_score;
-    float threshold_high;
-    float threshold_low;
-    
-    detection_state_t state;
-    uint8_t consecutive_detections;
-    int64_t last_detection_time;
-    float confidence;
-    
     uint32_t packets_received;
     uint32_t packets_processed;
     _Atomic uint32_t packets_dropped;
@@ -93,6 +76,7 @@ static struct {
     
     // Segmentation module
     segmentation_context_t segmentation;
+    segmentation_state_t segmentation_state;
     
 } g_state = {0};
 
@@ -102,34 +86,13 @@ static SemaphoreHandle_t g_state_mutex = NULL;
 // Filter module instances
 static butterworth_filter_t g_butterworth = {0};
 static filter_buffer_t g_filter_buffer = {0};
-static adaptive_normalizer_t g_normalizer = {0};
-
-// Adaptive normalizer reset tracking
-static int64_t g_last_movement_time = 0;
-static uint32_t g_normalizer_reset_count = 0;
+static wavelet_state_t g_wavelet = {0};
 
 // MQTT command context
 static mqtt_cmd_context_t g_mqtt_cmd_context = {0};
 
-// Array of all 10 feature indices (for default mode without calibration)
-static const uint8_t g_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-
-// Callback for calibration phase changes
-static void calibration_phase_change_callback(calibration_phase_t new_phase, 
-                                              uint32_t samples_collected,
-                                              uint32_t phase_target_samples,
-                                              uint32_t traffic_rate) {
-    // Only publish if response topic is initialized
-    if (g_response_topic != NULL) {
-        // Publish calibration status immediately when phase changes
-        mqtt_publish_calibration_status(&g_state.mqtt_state, 
-                                      (uint8_t)new_phase,
-                                      phase_target_samples,
-                                      samples_collected,
-                                      traffic_rate,
-                                      g_response_topic);
-    }
-}
+// System start time for uptime calculation
+static int64_t g_system_start_time = 0;
 
 // WiFi event handler
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
@@ -166,25 +129,25 @@ static inline int64_t get_timestamp_sec(void) {
     return esp_timer_get_time() / 1000000;
 }
 
-// Build UTF-8 progress bar with threshold marker
+// Build UTF-8 progress bar with threshold marker at 3/4 position
 static void format_progress_bar(char *buffer, size_t size, float score, float threshold) {
     const int bar_width = 20;
-    int percent = (int)(score * 100);
     
-    // For segmentation: score is already normalized (moving_variance / adaptive_threshold)
-    // So score=1.0 means we're at 100% of threshold
-    // We want to fill the bar up to the threshold marker (position 10)
-    // and continue beyond if score > 1.0
+    // Threshold marker at 3/4 position (15 out of 20)
+    const int threshold_pos = 15;
     
-    // Calculate filled blocks: score * 10 (since threshold is at position 10)
-    int filled = (int)(score * 10.0f);
+    // Calculate percentage: score represents (moving_variance / adaptive_threshold)
+    // At threshold_pos (75% of bar), score should be 1.0 (100% of threshold)
+    // So we scale: filled = score * threshold_pos
+    int filled = (int)(score * threshold_pos);
     
     // Clamp filled to bar width
     if (filled < 0) filled = 0;
     if (filled > bar_width) filled = bar_width;
     
-    // Threshold marker always at middle (position 10 = 100%)
-    int threshold_pos = bar_width / 2;  // Position 10
+    // Calculate percentage for display (score * 100)
+    int percent = (int)(score * 100);
+    if (percent > 200) percent = 200;  // Cap at 200% for display
     
     // Build bar directly in output buffer
     int pos = 0;
@@ -211,103 +174,25 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         return;
     }
     
-    // Add CSI raw data to batch if streaming is enabled (before any processing)
-    if (calibration_is_raw_streaming_enabled()) {
-        calibration_add_csi_to_batch(csi_data);
-    }
-    
     // Protect g_state modifications with mutex (50ms timeout)
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         g_state.packets_received++;
         
-        // Extract features from CSI data
-        // Use selective extraction if calibration is available (60-70% CPU savings)
-        uint8_t num_selected = calibration_get_num_selected();
-        if (num_selected > 0) {
-            // Calibrated mode: extract only selected features
-            const uint8_t *selected = calibration_get_selected_features();
+        // Extract features if enabled (only during MOTION state)
+        segmentation_state_t seg_state = segmentation_get_state(&g_state.segmentation);
+        if (g_state.config.features_enabled && seg_state == SEG_STATE_MOTION) {
+            // Extract all 10 features
+            const uint8_t all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
             csi_extract_features(csi_data, csi_len, &g_state.current_features,
-                               selected, num_selected);
-        } else {
-            // Default mode: extract all features
-            csi_extract_features(csi_data, csi_len, &g_state.current_features,
-                               g_all_features, sizeof(g_all_features) / sizeof(g_all_features[0]));
+                               all_features, 10);
         }
-        
-        // Feed features to calibration system if active
-        static uint32_t calib_update_count = 0;
-        
-        if (calibration_is_active()) {
-            calib_update_count++;
-            if (calib_update_count % 100 == 1) {
-                ESP_LOGI(TAG, "🔬 Calibration active: %u updates sent", calib_update_count);
-            }
-            
-            feature_array_t feat_array;
-            feat_array.features[0] = g_state.current_features.variance;
-            feat_array.features[1] = g_state.current_features.skewness;
-            feat_array.features[2] = g_state.current_features.kurtosis;
-            feat_array.features[3] = g_state.current_features.entropy;
-            feat_array.features[4] = g_state.current_features.iqr;
-            feat_array.features[5] = g_state.current_features.spatial_variance;
-            feat_array.features[6] = g_state.current_features.spatial_correlation;
-            feat_array.features[7] = g_state.current_features.spatial_gradient;
-            
-            calibration_update(&feat_array);
-            
-            // Check if phase completed
-            calibration_check_completion();
-        }
-        
-        // Calculate detection score
-        detection_config_t det_config = {
-            .threshold_high = g_state.threshold_high,
-            .threshold_low = g_state.threshold_low,
-            .debounce_count = g_state.config.debounce_count,
-            .persistence_timeout = g_state.config.persistence_timeout,
-            .feature_weights = g_state.config.feature_weights  // Pass pointer to array
-        };
-        
-        // Calculate detection score - use calibrated method if available
-        float detection_score;
-        
-        if (num_selected > 0) {
-            // Use calibrated features and weights
-            const uint8_t *selected_features = calibration_get_selected_features();
-            const float *weights = calibration_get_weights();
-            detection_score = detection_calculate_score_calibrated(&g_state.current_features,
-                                                                   selected_features,
-                                                                   weights,
-                                                                   num_selected);
-        } else {
-            // Fallback to default scoring
-            detection_score = detection_calculate_score(&g_state.current_features, &det_config);
-        }
-        
-        // Add to stats buffer
-        stats_buffer_add(&g_state.stats_buffer, detection_score);
-        
-        // Update detection state
-        detection_engine_state_t engine_state = {
-            .current_state = g_state.state,
-            .consecutive_detections = g_state.consecutive_detections,
-            .last_detection_time = g_state.last_detection_time,
-            .last_score = detection_score,
-            .confidence = g_state.confidence
-        };
-        
-        detection_update_state(&engine_state, detection_score, &det_config, get_timestamp_sec());
-        
-        // Update g_state from engine_state
-        g_state.state = engine_state.current_state;
-        g_state.consecutive_detections = engine_state.consecutive_detections;
-        g_state.last_detection_time = engine_state.last_detection_time;
-        g_state.detection_score = detection_score;
-        g_state.confidence = engine_state.confidence;
         
         // MVS Segmentation: Calculate spatial turbulence and update segmentation
         float turbulence = csi_calculate_spatial_turbulence(csi_data, csi_len);
         bool segment_completed = segmentation_add_turbulence(&g_state.segmentation, turbulence);
+        
+        // Update segmentation state
+        g_state.segmentation_state = segmentation_get_state(&g_state.segmentation);
         
         if (segment_completed) {
             // A motion segment was just completed
@@ -372,154 +257,35 @@ static void mqtt_publish_task(void *pvParameters) {
         vTaskDelayUntil(&last_wake_time, publish_period);
         
         // Read g_state values with mutex protection
-        float detection_score, confidence;
-        detection_state_t state;
+        segmentation_state_t seg_state;
         uint32_t packets_received, packets_processed;
+        csi_features_t features;
+        bool has_features = false;
         
         if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-            detection_score = g_state.detection_score;
-            confidence = g_state.confidence;
-            state = g_state.state;
+            seg_state = g_state.segmentation_state;
             packets_received = g_state.packets_received;
             packets_processed = g_state.packets_processed;
+            
+            // Copy features if they were extracted
+            if (g_state.config.features_enabled && seg_state == SEG_STATE_MOTION) {
+                features = g_state.current_features;
+                has_features = true;
+            }
+            
             xSemaphoreGive(g_state_mutex);
         } else {
             ESP_LOGW(TAG, "MQTT publish task: Failed to acquire mutex, skipping publish cycle");
             continue;
         }
         
-        // Track phase changes for calibration completion handling
-        static calibration_phase_t last_phase = CALIB_IDLE;
-        calibration_phase_t current_phase = calibration_get_phase();
-        
-        // Detect calibration completion (when phase becomes ANALYZING)
-        if (current_phase == CALIB_ANALYZING && last_phase != CALIB_ANALYZING) {
-            ESP_LOGI(TAG, "🎉 Calibration analysis complete, applying results...");
-            
-            if (calibration_get_num_selected() > 0) {
-                float optimal_threshold = calibration_get_threshold();
-                
-                if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                    float old_threshold = g_state.threshold_high;
-                    g_state.threshold_high = optimal_threshold;
-                    g_state.threshold_low = optimal_threshold * g_state.config.hysteresis_ratio;
-                    xSemaphoreGive(g_state_mutex);
-                    
-                    ESP_LOGI(TAG, "🎯 Applied calibration results: threshold %.4f -> %.4f",
-                             old_threshold, optimal_threshold);
-                }
-                
-                // Apply optimized weights (protected by mutex for thread-safety)
-                const float *weights = calibration_get_weights();
-                const uint8_t *features = calibration_get_selected_features();
-                uint8_t num_selected = calibration_get_num_selected();
-                
-                if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                    // Reset all weights to 0
-                    memset(g_state.config.feature_weights, 0, sizeof(g_state.config.feature_weights));
-                    
-                    // Map ALL calibrated features to the weights array
-                    for (uint8_t i = 0; i < num_selected; i++) {
-                        uint8_t feat_idx = features[i];
-                        float weight = weights[i];
-                        
-                        // Map feature index directly to array (supports all 10 features)
-                        if (feat_idx < 10) {
-                            g_state.config.feature_weights[feat_idx] = weight;
-                        } else {
-                            ESP_LOGW(TAG, "Invalid feature index %d (max 9)", feat_idx);
-                        }
-                    }
-                    
-                    xSemaphoreGive(g_state_mutex);
-                    
-                    ESP_LOGI(TAG, "✅ Calibration applied: all %d feature weights updated", num_selected);
-                } else {
-                    ESP_LOGW(TAG, "Failed to acquire mutex for weight update");
-                }
-                
-                // Save to NVS
-                calibration_state_t calib_state;
-                calibration_get_results(&calib_state);
-                nvs_calibration_data_t nvs_calib;
-                nvs_calib.version = NVS_CALIBRATION_VERSION;
-                nvs_calib.num_selected = calib_state.num_selected;
-                memcpy(nvs_calib.selected_features, calib_state.selected_features, 
-                       sizeof(nvs_calib.selected_features));
-                memcpy(nvs_calib.optimized_weights, calib_state.optimized_weights, 
-                       sizeof(nvs_calib.optimized_weights));
-                nvs_calib.optimal_threshold = calib_state.optimal_threshold;
-                memcpy(nvs_calib.feature_min, calib_state.feature_min,
-                       sizeof(nvs_calib.feature_min));
-                memcpy(nvs_calib.feature_max, calib_state.feature_max,
-                       sizeof(nvs_calib.feature_max));
-                
-                esp_err_t calib_err = nvs_save_calibration(&nvs_calib);
-                if (calib_err == ESP_OK) {
-                    ESP_LOGI(TAG, "💾 Calibration data saved to NVS");
-                } else {
-                    ESP_LOGE(TAG, "❌ Failed to save calibration to NVS: %s", esp_err_to_name(calib_err));
-                }
-                
-                esp_err_t config_err = config_save_to_nvs(&g_state.config, g_state.threshold_high, g_state.threshold_low, g_state.segmentation.adaptive_threshold);
-                if (config_err == ESP_OK) {
-                    ESP_LOGI(TAG, "💾 Configuration saved to NVS");
-                } else {
-                    ESP_LOGE(TAG, "❌ Failed to save configuration to NVS: %s", esp_err_to_name(config_err));
-                }
-                
-                // Acknowledge completion to reset calibration phase to IDLE
-                calibration_acknowledge_completion();
-            }
-        }
-        
-        // Detect when calibration fully completes (ANALYZING → IDLE)
-        if (current_phase == CALIB_IDLE && last_phase == CALIB_ANALYZING) {
-            // Send calibration complete recap
-            calibration_state_t calib_state;
-            calibration_get_results(&calib_state);
-            mqtt_publish_calibration_complete(&g_state.mqtt_state, &calib_state, g_response_topic);
-        }
-        
-        last_phase = current_phase;
-        
-        // Adaptive normalizer auto-reset logic
-        if (g_state.config.adaptive_normalizer_enabled && 
-            g_state.config.adaptive_normalizer_reset_timeout_sec > 0) {
-            
-            int64_t current_time = get_timestamp_sec();
-            
-            // Update last movement time
-            if (state != STATE_IDLE) {
-                g_last_movement_time = current_time;
-            }
-            
-            // Check if we should reset the normalizer
-            if (state == STATE_IDLE && g_last_movement_time > 0) {
-                int64_t idle_duration = current_time - g_last_movement_time;
-                
-                if (idle_duration >= (int64_t)g_state.config.adaptive_normalizer_reset_timeout_sec) {
-                    // Reset the normalizer
-                    adaptive_normalizer_init(&g_normalizer, g_state.config.adaptive_normalizer_alpha);
-                    g_normalizer_reset_count++;
-                    g_last_movement_time = current_time;
-                    
-                    ESP_LOGI(TAG, "🔄 Adaptive normalizer reset after %lld sec of IDLE (reset #%u)",
-                             (long long)idle_duration, (unsigned int)g_normalizer_reset_count);
-                }
-            }
-        }
-        
-        // CSI logging with progress bar (skip during calibration to avoid confusion)
+        // CSI logging with progress bar (always enabled)
         int64_t now = get_timestamp_sec();
-        if (g_state.config.csi_logs_enabled && 
-            !calibration_is_active() && 
-            (now - last_csi_log_time >= LOG_CSI_VALUES_INTERVAL)) {
+        if (now - last_csi_log_time >= LOG_CSI_VALUES_INTERVAL) {
             
             // Get segmentation data
             float moving_variance = segmentation_get_moving_variance(&g_state.segmentation);
             float adaptive_threshold = segmentation_get_threshold(&g_state.segmentation);
-            segmentation_state_t seg_state = segmentation_get_state(&g_state.segmentation);
             
             const char *seg_state_names[] = {"IDLE", "MOTION"};
             const char *seg_state_str = (seg_state < 2) ? seg_state_names[seg_state] : "UNKNOWN";
@@ -527,7 +293,7 @@ static void mqtt_publish_task(void *pvParameters) {
             // Calculate progress based on segmentation (moving_variance / threshold)
             float seg_progress = (adaptive_threshold > 0.0f) ? (moving_variance / adaptive_threshold) : 0.0f;
             
-            // Format progress bar with threshold marker at 100% (larger buffer to avoid truncation)
+            // Format progress bar with threshold marker at 100%
             char progress_bar[256];
             format_progress_bar(progress_bar, sizeof(progress_bar), seg_progress, 1.0f);
             
@@ -542,21 +308,28 @@ static void mqtt_publish_task(void *pvParameters) {
             last_csi_log_time = now;
         }
         
-        // Smart publishing
+        // Publish segmentation data
         int64_t current_time = get_timestamp_ms();
+        float moving_variance = segmentation_get_moving_variance(&g_state.segmentation);
         
-        if (mqtt_should_publish(&g_state.mqtt_state, detection_score, state, 
+        if (mqtt_should_publish(&g_state.mqtt_state, moving_variance, seg_state, 
                                 &pub_config, current_time)) {
-            // Prepare detection result
-            detection_result_t result = {
-                .score = detection_score,
-                .confidence = confidence,
-                .state = state,
-                .timestamp = get_timestamp_sec()
+            // Prepare segmentation result
+            segmentation_result_t result = {
+                .moving_variance = moving_variance,
+                .adaptive_threshold = segmentation_get_threshold(&g_state.segmentation),
+                .state = seg_state,
+                .segments_total = segmentation_get_num_segments(&g_state.segmentation),
+                .timestamp = get_timestamp_sec(),
+                .has_features = has_features
             };
             
-            mqtt_publish_detection(&g_state.mqtt_state, &result, MQTT_TOPIC);
-            mqtt_update_publish_state(&g_state.mqtt_state, detection_score, state, current_time);
+            if (has_features) {
+                result.features = features;
+            }
+            
+            mqtt_publish_segmentation(&g_state.mqtt_state, &result, MQTT_TOPIC);
+            mqtt_update_publish_state(&g_state.mqtt_state, moving_variance, seg_state, current_time);
         }
         
         // Statistics logging
@@ -583,6 +356,9 @@ static void mqtt_publish_task(void *pvParameters) {
 
 void app_main(void) {
     ESP_LOGI(TAG, "System starting...");
+    
+    // Record system start time
+    g_system_start_time = esp_timer_get_time() / 1000000;  // Convert to seconds
     
     // Initialize NVS
     esp_err_t ret = nvs_flash_init();
@@ -611,27 +387,11 @@ void app_main(void) {
     // Initialize configuration with defaults
     config_init_defaults(&g_state.config);
     
-    // Initialize statistics buffer
-    if (stats_buffer_init(&g_state.stats_buffer, STATS_BUFFER_SIZE) != 0) {
-        ESP_LOGE(TAG, "Failed to initialize statistics buffer");
-        vSemaphoreDelete(g_state_mutex);
-        return;
-    }
-    
-    // Set default thresholds
-    g_state.threshold_high = DEFAULT_THRESHOLD;
-    g_state.threshold_low = DEFAULT_THRESHOLD * g_state.config.hysteresis_ratio;
-    
     // Initialize filter modules
     filter_buffer_init(&g_filter_buffer);
-    adaptive_normalizer_init(&g_normalizer, g_state.config.adaptive_normalizer_alpha);
-    
-    // Initialize adaptive normalizer reset tracking
-    g_last_movement_time = get_timestamp_sec();
-    g_normalizer_reset_count = 0;
-    
-    // Initialize calibration system
-    calibration_init();
+    butterworth_init(&g_butterworth);
+    wavelet_init(&g_wavelet, g_state.config.wavelet_level, 
+                 g_state.config.wavelet_threshold, WAVELET_THRESH_SOFT);
     
     // Initialize segmentation system
     segmentation_init(&g_state.segmentation);
@@ -647,89 +407,13 @@ void app_main(void) {
             // Load config parameters (pass nvs_cfg to avoid duplicate NVS read)
             config_load_from_nvs(&g_state.config, &nvs_cfg);
             
-            // Load thresholds from NVS
-            g_state.threshold_high = nvs_cfg.threshold_high;
-            g_state.threshold_low = nvs_cfg.threshold_low;
-            
             // Load segmentation threshold from NVS
             g_state.segmentation.adaptive_threshold = nvs_cfg.segmentation_threshold;
             
             ESP_LOGI(TAG, "💾 Loaded saved configuration from NVS");
-            ESP_LOGI(TAG, "🎯 Loaded detection thresholds: high=%.4f, low=%.4f",
-                     g_state.threshold_high, g_state.threshold_low);
             ESP_LOGI(TAG, "📍 Loaded segmentation threshold: %.2f",
                      g_state.segmentation.adaptive_threshold);
         }
-    }
-    
-    // Load saved calibration if exists
-    if (nvs_has_calibration()) {
-        ESP_LOGI(TAG, "🔍 Calibration data found in NVS, loading...");
-        nvs_calibration_data_t nvs_calib;
-        if (nvs_load_calibration(&nvs_calib) == ESP_OK) {
-            ESP_LOGI(TAG, "📥 NVS calibration loaded: %d features, threshold=%.4f",
-                     nvs_calib.num_selected, nvs_calib.optimal_threshold);
-            
-            calibration_state_t calib_state = {0};
-            calib_state.num_selected = nvs_calib.num_selected;
-            calib_state.optimal_threshold = nvs_calib.optimal_threshold;
-            memcpy(calib_state.selected_features, nvs_calib.selected_features, 
-                   sizeof(calib_state.selected_features));
-            memcpy(calib_state.optimized_weights, nvs_calib.optimized_weights, 
-                   sizeof(calib_state.optimized_weights));
-            memcpy(calib_state.feature_min, nvs_calib.feature_min,
-                   sizeof(calib_state.feature_min));
-            memcpy(calib_state.feature_max, nvs_calib.feature_max,
-                   sizeof(calib_state.feature_max));
-            
-            // Apply to calibration system
-            calibration_apply_saved(&calib_state);
-            
-            // Update thresholds
-            g_state.threshold_high = nvs_calib.optimal_threshold;
-            g_state.threshold_low = nvs_calib.optimal_threshold * g_state.config.hysteresis_ratio;
-            ESP_LOGI(TAG, "🎯 Thresholds updated: high=%.4f, low=%.4f",
-                     g_state.threshold_high, g_state.threshold_low);
-            
-            // Apply loaded weights to config
-            const uint8_t *features = calib_state.selected_features;
-            const float *weights = calib_state.optimized_weights;
-            
-            // Feature names mapping (all 10 features)
-            const char *feature_names[] = {
-                "variance", "skewness", "kurtosis", "entropy", "iqr",
-                "spatial_variance", "spatial_correlation", "spatial_gradient",
-                "temporal_delta_mean", "temporal_delta_variance"
-            };
-            
-            // Reset all weights to 0
-            memset(g_state.config.feature_weights, 0, sizeof(g_state.config.feature_weights));
-            
-            // Apply calibrated weights to array (supports ALL 10 features)
-            ESP_LOGI(TAG, "⚖️  Applying calibrated weights:");
-            for (uint8_t i = 0; i < calib_state.num_selected; i++) {
-                uint8_t feat_idx = features[i];
-                float weight = weights[i];
-                
-                const char *feat_name = (feat_idx < 10) ? feature_names[feat_idx] : "invalid";
-                
-                // Map feature index directly to array (supports all 10 features)
-                if (feat_idx < 10) {
-                    g_state.config.feature_weights[feat_idx] = weight;
-                    ESP_LOGI(TAG, "  Feature[%d] %s: weight=%.4f", feat_idx, feat_name, weight);
-                } else {
-                    ESP_LOGW(TAG, "  Invalid feature index: %d", feat_idx);
-                }
-            }
-            
-            ESP_LOGI(TAG, "✅ All %d calibrated feature weights applied to array", calib_state.num_selected);
-            
-            ESP_LOGI(TAG, "💾 Saved calibration successfully applied");
-        } else {
-            ESP_LOGE(TAG, "❌ Failed to load calibration from NVS");
-        }
-    } else {
-        ESP_LOGI(TAG, "ℹ️  No saved calibration found in NVS, using defaults");
     }
     
     // Initialize WiFi
@@ -788,18 +472,15 @@ void app_main(void) {
     
     // Setup MQTT command context
     g_mqtt_cmd_context.config = &g_state.config;
-    g_mqtt_cmd_context.threshold_high = &g_state.threshold_high;
-    g_mqtt_cmd_context.threshold_low = &g_state.threshold_low;
-    g_mqtt_cmd_context.stats_buffer = &g_state.stats_buffer;
     g_mqtt_cmd_context.current_features = &g_state.current_features;
-    g_mqtt_cmd_context.current_state = &g_state.state;
+    g_mqtt_cmd_context.current_state = &g_state.segmentation_state;
     g_mqtt_cmd_context.butterworth = &g_butterworth;
     g_mqtt_cmd_context.filter_buffer = &g_filter_buffer;
-    g_mqtt_cmd_context.normalizer = &g_normalizer;
     g_mqtt_cmd_context.segmentation = &g_state.segmentation;
     g_mqtt_cmd_context.mqtt_base_topic = mqtt_cfg.base_topic;
     g_mqtt_cmd_context.mqtt_cmd_topic = mqtt_cfg.cmd_topic;
     g_mqtt_cmd_context.mqtt_response_topic = mqtt_cfg.response_topic;
+    g_mqtt_cmd_context.system_start_time = &g_system_start_time;
     
     // Initialize MQTT commands
     if (mqtt_commands_init(&g_state.mqtt_state, &g_mqtt_cmd_context) != 0) {
@@ -811,9 +492,6 @@ void app_main(void) {
     mqtt_handler_set_command_callback(mqtt_command_callback);
     
     ESP_LOGI(TAG, "MQTT client started with command support");
-    
-    // Register calibration phase change callback (after MQTT is initialized)
-    calibration_set_phase_callback(calibration_phase_change_callback);
     
     // Initialize traffic generator
     traffic_generator_init();

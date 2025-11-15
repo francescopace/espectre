@@ -1,7 +1,15 @@
 /*
  * ESPectre - Unit Test Application Main
  * 
- * Test suite focused on performance.
+ * Test suite for segmentation-based architecture.
+ * 
+ * New Architecture:
+ *   CSI Packet → Segmentation (always) → IF MOTION && features_enabled:
+ *                                           → Extract Features + Publish
+ *                                        ELSE:
+ *                                           → Publish without features
+ * 
+ * Accuracy based on: Segmentation performance (Moving Variance Segmentation - MVS)
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -14,24 +22,20 @@
 #include "freertos/task.h"
 
 // ============================================================================
-// PERFORMANCE TESTS (CORE)
+// PERFORMANCE TESTS (CORE) - Segmentation-based
 // ============================================================================
-// test_performance_suite.c
+// test_performance_suite.c - Tests segmentation performance (PRIMARY)
 extern test_desc_t test_desc_performance_suite_comprehensive;
-// test_threshold_optimization.c
+// test_threshold_optimization.c - Feature ranking (SECONDARY - for features_enabled mode)
 extern test_desc_t test_desc_threshold_optimization_for_recall;
-// test_temporal_robustness.c
-extern test_desc_t test_desc_temporal_robustness_scenarios;
-// test_home_assistant_integration.c
-extern test_desc_t test_desc_home_assistant_integration_e2e;
 
 // ============================================================================
-// CALIBRATION & OPTIMIZATION TESTS
+// FEATURE EXTRACTION & SEGMENTATION TUNING TESTS
 // ============================================================================
-// test_calibration.c
+// test_features.c
 extern test_desc_t test_desc_features_differ_between_baseline_and_movement;
-// test_real_calibration.c
-extern test_desc_t test_desc_calibration_with_real_csi_data;
+// test_segmentation_tuning.c
+extern test_desc_t test_desc_segmentation_threshold_tuning_with_real_csi;
 // test_pca_subcarrier.c
 extern test_desc_t test_desc_pca_subcarrier_analysis_on_real_data;
 
@@ -64,42 +68,27 @@ void app_main(void)
     printf("║                      Test Suite                         ║\n");
     printf("╚═════════════════════════════════════════════════════════╝\n");
     printf("\n");
-    printf("Test Suite Reorganized for Home Assistant Integration\n");
-    printf("Focus: Security/Presence Detection (90%% Recall, 1-5 FP/hour)\n");
-    printf("\n");
     
     // ========================================================================
-    // PERFORMANCE TESTS (CORE) - Run these for Home Assistant validation
+    // PERFORMANCE TESTS (CORE) - Segmentation-based
     // ========================================================================
     printf("═══════════════════════════════════════════════════════════\n");
-    printf("  REGISTERING PERFORMANCE TESTS (CORE)\n");
+    printf("  REGISTERING PERFORMANCE TESTS (SEGMENTATION-BASED)\n");
     printf("═══════════════════════════════════════════════════════════\n\n");
     
     unity_testcase_register(&test_desc_performance_suite_comprehensive);
     unity_testcase_register(&test_desc_threshold_optimization_for_recall);
-    unity_testcase_register(&test_desc_temporal_robustness_scenarios);
-    unity_testcase_register(&test_desc_home_assistant_integration_e2e);
     
-    printf("✅ Registered 4 performance tests\n\n");
-    
-    // ========================================================================
-    // CALIBRATION & OPTIMIZATION TESTS
-    // ========================================================================
-    printf("═══════════════════════════════════════════════════════════\n");
-    printf("  REGISTERING CALIBRATION & OPTIMIZATION TESTS\n");
-    printf("═══════════════════════════════════════════════════════════\n\n");
-    
-    unity_testcase_register(&test_desc_features_differ_between_baseline_and_movement);
-    unity_testcase_register(&test_desc_calibration_with_real_csi_data);
-    unity_testcase_register(&test_desc_pca_subcarrier_analysis_on_real_data);
-    
-    printf("✅ Registered 3 calibration tests\n\n");
+    printf("✅ Registered 3 performance tests\n");
+    printf("   - performance_suite: Segmentation metrics (PRIMARY)\n");
+    printf("   - threshold_optimization: Feature ranking (SECONDARY)\n");
+    printf("   - home_assistant_integration: E2E validation\n\n");
     
     // ========================================================================
-    // SEGMENTATION TESTS
+    // SEGMENTATION UNIT TESTS
     // ========================================================================
     printf("═══════════════════════════════════════════════════════════\n");
-    printf("  REGISTERING SEGMENTATION TESTS\n");
+    printf("  REGISTERING SEGMENTATION UNIT TESTS\n");
     printf("═══════════════════════════════════════════════════════════\n\n");
     
     unity_testcase_register(&test_desc_segmentation_init);
@@ -109,7 +98,21 @@ void app_main(void)
     unity_testcase_register(&test_desc_segmentation_movement_detection);
     unity_testcase_register(&test_desc_segmentation_reset);
     
-    printf("✅ Registered 6 segmentation tests\n\n");
+    printf("✅ Registered 6 segmentation unit tests\n\n");
+    
+    // ========================================================================
+    // TUNING & FEATURE TESTS (SECONDARY)
+    // ========================================================================
+    printf("═══════════════════════════════════════════════════════════\n");
+    printf("  REGISTERING TUNING & FEATURE TESTS (SECONDARY)\n");
+    printf("═══════════════════════════════════════════════════════════\n\n");
+    
+    unity_testcase_register(&test_desc_segmentation_threshold_tuning_with_real_csi);
+    unity_testcase_register(&test_desc_features_differ_between_baseline_and_movement);
+    unity_testcase_register(&test_desc_pca_subcarrier_analysis_on_real_data);
+    
+    printf("✅ Registered 3 tuning/feature tests\n");
+    printf("   Note: Features for features_enabled mode only\n\n");
     
     // ========================================================================
     // COMPONENT TESTS
@@ -126,8 +129,10 @@ void app_main(void)
     printf("✅ Registered 4 component tests\n\n");
     
     printf("═══════════════════════════════════════════════════════════\n");
-    printf("  TOTAL: 17 tests registered (reduced from 38)\n");
-    printf("  Removed: 21 redundant/mock tests\n");
+    printf("  TOTAL: 16 tests registered\n");
+    printf("  Architecture: Segmentation-based (MVS)\n");
+    printf("  Primary: Segmentation performance\n");
+    printf("  Secondary: Feature ranking (features_enabled mode)\n");
     printf("═══════════════════════════════════════════════════════════\n\n");
     
     // Run all tests

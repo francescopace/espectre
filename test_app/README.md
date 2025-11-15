@@ -1,6 +1,6 @@
 # ESPectre Test Suite
 
-Automated test system for ESPectre focused on **Home Assistant integration performance** for security and presence detection.
+Automated test system for ESPectre.
 
 ## Overview
 
@@ -9,11 +9,12 @@ The test suite has been reorganized to focus on **real-world performance metrics
 - **1-5 False Positives per hour** (balanced false alarm rate)
 - **Stable state transitions** (reliable detection)
 
-**Total Tests**: 17 (reduced from 38 - 55% reduction)
-- **Performance Tests (CORE)**: 4
-- **Calibration & Optimization**: 3 (real data only)
+**Total Tests**: 25
+- **Performance Tests (CORE)**: 2
+- **Feature Extraction & Tuning**: 3 (real data only)
 - **Segmentation**: 6
-- **Component**: 4
+- **Filters**: 5
+- **Wavelet**: 9
 
 ---
 
@@ -39,6 +40,7 @@ Press `Ctrl+]` to exit monitor when tests complete.
 
 ```bash
 cd test_app
+pip install -r requirements.txt
 python analyze_test_results.py test_output.log
 open test_results/report.html
 ```
@@ -47,62 +49,61 @@ open test_results/report.html
 
 ## Test Suite Structure
 
-### 📊 Performance Tests (CORE) - 4 tests
+### 📊 Performance Tests (CORE) - 2 tests
 
 Primary tests for validating Home Assistant integration:
 
-#### 1. `test_performance_suite.c`
+#### 1. `performance_suite_comprehensive` (test_performance_suite.c)
 - Evaluates all 10 features individually
 - Calculates: Accuracy, Precision, **Recall**, F1-Score, FP/FN rates
 - Ranks features by recall (priority for security)
 - Generates confusion matrix
 - **Output**: JSON with best feature and metrics
 
-#### 2. `test_threshold_optimization.c`
+#### 2. `threshold_optimization_for_recall` (test_threshold_optimization.c)
 - Generates 50-point ROC curve
 - Calculates AUC (Area Under Curve)
 - Finds optimal threshold for 90% recall target
 - Trade-off analysis (80%, 85%, 90%, 95%, 99% recall)
 - **Output**: JSON with ROC data and optimal threshold
 
-#### 3. `test_temporal_robustness.c`
-- Scenario 1: Prolonged baseline (empty room stability)
-- Scenario 2: Baseline → Movement (intrusion detection)
-- Scenario 3: Movement → Baseline (person leaves)
-- Scenario 4: Continuous movement
-- Measures detection latency and persistence
-- **Output**: JSON with scenario results
+### 🎯 Feature Extraction & Segmentation Tuning - 3 tests
 
-#### 4. `test_home_assistant_integration.c`
-- Simulates: Empty room → Person enters → Moves → Leaves
-- Includes debouncing (3 consecutive detections)
-- Includes persistence (15 packets ~1 second)
-- State machine validation
-- **Output**: JSON with production readiness assessment
-
-### 🎯 Calibration & Optimization - 3 tests
-
-- `test_features_differ_between_baseline_and_movement` - Feature separation validation
-- `test_calibration_with_real_csi_data` - Complete calibration flow (1000+1000 packets)
-- `test_pca_subcarrier_analysis_on_real_data` - PCA subcarrier optimization
+- `features_differ_between_baseline_and_movement` (test_features.c) - Feature separation validation
+- `segmentation_threshold_tuning_with_real_csi` (test_segmentation_tuning.c) - Segmentation threshold tuning with real CSI data
+- `pca_subcarrier_analysis_on_real_data` (test_pca_subcarrier.c) - PCA subcarrier optimization
 
 ### 📈 Segmentation - 6 tests
 
 Temporal event segmentation for activity recognition:
-- `test_segmentation_init`
-- `test_spatial_turbulence_calculation`
-- `test_segmentation_calibration`
-- `test_segmentation_no_false_positives`
-- `test_segmentation_movement_detection`
-- `test_segmentation_reset`
+- `segmentation_init` (test_segmentation.c)
+- `spatial_turbulence_calculation` (test_segmentation.c)
+- `segmentation_calibration` (test_segmentation.c)
+- `segmentation_no_false_positives` (test_segmentation.c)
+- `segmentation_movement_detection` (test_segmentation.c)
+- `segmentation_reset` (test_segmentation.c)
 
-### 🔧 Component - 4 tests
+### 🔧 Filters - 5 tests
 
-Filter/wavelet integration tests:
-- `test_filter_pipeline_with_wavelet_integration`
-- `test_filter_pipeline_with_wavelet_disabled`
-- `test_wavelet_denoising_reduces_noise`
-- `test_wavelet_streaming_mode`
+Signal filtering and preprocessing tests:
+- `butterworth_filter_initialization` (test_filters.c)
+- `filter_buffer_operations` (test_filters.c)
+- `hampel_filter_removes_outliers` (test_filters.c)
+- `filter_pipeline_with_wavelet_integration` (test_filters.c)
+- `filter_pipeline_with_wavelet_disabled` (test_filters.c)
+
+### 🌊 Wavelet - 9 tests
+
+Wavelet denoising and signal processing tests:
+- `wavelet_filter_initialization` (test_wavelet.c)
+- `wavelet_soft_thresholding` (test_wavelet.c)
+- `wavelet_hard_thresholding` (test_wavelet.c)
+- `wavelet_denoising_reduces_noise` (test_wavelet.c)
+- `wavelet_streaming_mode` (test_wavelet.c)
+- `wavelet_handles_invalid_parameters` (test_wavelet.c)
+- `wavelet_level_clamping` (test_wavelet.c)
+- `wavelet_db4_coefficients_sum_correctly` (test_wavelet.c)
+- `wavelet_preserves_dc_component` (test_wavelet.c)
 
 ---
 
@@ -123,18 +124,6 @@ Rank  Feature                   Recall    FN Rate   FP Rate   F1-Score
 ✅  2  spatial_gradient         63.18%    36.82%    21.72%    56.63%
 ⚠️   3  entropy                  59.70%    40.30%    67.98%    52.44%
 ```
-
-### Home Assistant Integration
-
-**Production Readiness Criteria:**
-- ✅ Recall ≥ 90%
-- ✅ FP rate: 1-5 per hour
-- ✅ State transitions: 2-6 (stable)
-
-**Status:**
-- 🎉 **READY FOR PRODUCTION**: All criteria met
-- ⚠️ **NEEDS TUNING**: Some criteria not met
-
 ---
 
 ## Python Analysis Tools
@@ -154,8 +143,8 @@ The `analyze_test_results.py` script generates:
 ### Low Recall (<90%)
 
 **Solutions:**
-1. Run `test_threshold_optimization` to find optimal threshold
-2. Check `test_performance_suite` for best features
+1. Run `threshold_optimization_for_recall` to find optimal threshold
+2. Check `performance_suite_comprehensive` for best features
 3. Consider combining multiple features
 4. Adjust debouncing (reduce from 3 to 2)
 
@@ -164,7 +153,6 @@ The `analyze_test_results.py` script generates:
 **Solutions:**
 1. Increase threshold slightly
 2. Enable Hampel filter (outlier removal)
-3. Enable Adaptive Normalizer (drift compensation)
 4. Increase debouncing (from 3 to 5)
 
 ### Unstable State Transitions (>6)
@@ -178,11 +166,9 @@ The `analyze_test_results.py` script generates:
 
 ## Best Practices
 
-1. **Always Run Performance Tests First** - Start with `test_performance_suite`
-2. **Optimize Threshold** - Use `test_threshold_optimization`
-3. **Validate Temporal Behavior** - Run `test_temporal_robustness`
-4. **Final Validation** - Run `test_home_assistant_integration` before deployment
-5. **Analyze with Python** - Generate visualizations for better insights
+1. **Always Run Performance Tests First** - Start with `performance_suite_comprehensive`
+2. **Optimize Threshold** - Use `threshold_optimization_for_recall`
+3. **Analyze with Python** - Generate visualizations for better insights
 
 ---
 

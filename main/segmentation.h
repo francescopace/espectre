@@ -184,4 +184,36 @@ float segmentation_get_threshold(const segmentation_context_t *ctx);
  */
 float segmentation_get_moving_variance(const segmentation_context_t *ctx);
 
+/**
+ * Get last turbulence value added
+ * 
+ * @param ctx Segmentation context
+ * @return Last turbulence value
+ */
+float segmentation_get_last_turbulence(const segmentation_context_t *ctx);
+
+/**
+ * Get count of active segments in buffer
+ * 
+ * @param ctx Segmentation context
+ * @return Number of active segments
+ */
+uint8_t segmentation_get_active_segments_count(const segmentation_context_t *ctx);
+
+/**
+ * Get last completed segment
+ * 
+ * @param ctx Segmentation context
+ * @return Pointer to last completed segment, or NULL if no segments
+ */
+const segment_t* segmentation_get_last_completed_segment(const segmentation_context_t *ctx);
+
+/**
+ * Get total packets processed
+ * 
+ * @param ctx Segmentation context
+ * @return Total packets processed
+ */
+uint32_t segmentation_get_total_packets(const segmentation_context_t *ctx);
+
 #endif // SEGMENTATION_H

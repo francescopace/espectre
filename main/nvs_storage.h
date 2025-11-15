@@ -21,7 +21,7 @@
 
 // Versioning for future compatibility
 #define NVS_CALIBRATION_VERSION 1
-#define NVS_CONFIG_VERSION 5  // Incremented: added segmentation_threshold parameter
+#define NVS_CONFIG_VERSION 6  // Incremented: removed detection fields, added features_enabled
 
 // Maximum sizes
 #define MAX_SELECTED_FEATURES 6
@@ -41,17 +41,8 @@ typedef struct {
 typedef struct {
     uint8_t version;
     
-    // Detection parameters
-    float threshold_high;
-    float threshold_low;
-    uint8_t debounce_count;
-    float hysteresis_ratio;
-    int persistence_timeout;
-    
-    // Feature weights array
-    // Indices: 0=variance, 1=skewness, 2=kurtosis, 3=entropy, 4=iqr,
-    //          5=spatial_variance, 6=spatial_correlation, 7=spatial_gradient
-    float feature_weights[8];
+    // Feature extraction control
+    bool features_enabled;  // Enable/disable feature extraction during MOTION state
     
     // Filter settings
     bool hampel_filter_enabled;
@@ -64,14 +55,6 @@ typedef struct {
     bool wavelet_enabled;
     int wavelet_level;           // 1-3
     float wavelet_threshold;     // 0.5-2.0
-    
-    // Logging
-    bool csi_logs_enabled;
-    
-    // Adaptive Normalizer settings
-    bool adaptive_normalizer_enabled;
-    float adaptive_normalizer_alpha;
-    uint32_t adaptive_normalizer_reset_timeout_sec;
     
     // Traffic generator
     uint32_t traffic_generator_rate;  // packets/sec (0=disabled)

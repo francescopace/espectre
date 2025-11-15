@@ -17,7 +17,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "mqtt_client.h"
-#include "detection_engine.h"
+#include "segmentation.h"
+#include "csi_processor.h"
 
 // MQTT configuration
 typedef struct {
@@ -36,6 +37,19 @@ typedef struct {
     float max_interval_sec;     // Maximum time between publishes (heartbeat)
 } mqtt_publish_config_t;
 
+// Segmentation result for publishing
+typedef struct {
+    float moving_variance;
+    float adaptive_threshold;
+    segmentation_state_t state;
+    uint8_t segments_total;
+    int64_t timestamp;
+    
+    // Optional features (only if features_enabled && state==MOTION)
+    bool has_features;
+    csi_features_t features;
+} segmentation_result_t;
+
 // MQTT handler state
 typedef struct {
     esp_mqtt_client_handle_t client;
@@ -43,7 +57,7 @@ typedef struct {
     
     // Smart publishing state
     float last_published_movement;
-    detection_state_t last_published_state;
+    segmentation_state_t last_published_state;
     int64_t last_publish_time;
     bool publish_initialized;
     
@@ -85,16 +99,16 @@ void mqtt_handler_stop(mqtt_handler_state_t *state);
 bool mqtt_handler_is_connected(const mqtt_handler_state_t *state);
 
 /**
- * Publish detection result
+ * Publish segmentation result
  * 
  * @param state MQTT handler state
- * @param result Detection result to publish
+ * @param result Segmentation result to publish
  * @param topic Topic to publish to
  * @return 0 on success, -1 on failure
  */
-int mqtt_publish_detection(mqtt_handler_state_t *state,
-                           const detection_result_t *result,
-                           const char *topic);
+int mqtt_publish_segmentation(mqtt_handler_state_t *state,
+                              const segmentation_result_t *result,
+                              const char *topic);
 
 /**
  * Publish calibration status update
@@ -142,14 +156,14 @@ int mqtt_send_response(mqtt_handler_state_t *state,
  * 
  * @param state MQTT handler state
  * @param current_movement Current movement score
- * @param current_state Current detection state
+ * @param current_state Current segmentation state
  * @param config Smart publishing configuration
  * @param current_time Current timestamp in milliseconds
  * @return true if should publish, false otherwise
  */
 bool mqtt_should_publish(mqtt_handler_state_t *state,
                         float current_movement,
-                        detection_state_t current_state,
+                        segmentation_state_t current_state,
                         const mqtt_publish_config_t *config,
                         int64_t current_time);
 
@@ -158,12 +172,12 @@ bool mqtt_should_publish(mqtt_handler_state_t *state,
  * 
  * @param state MQTT handler state
  * @param movement Movement score that was published
- * @param det_state Detection state that was published
+ * @param seg_state Segmentation state that was published
  * @param current_time Current timestamp in milliseconds
  */
 void mqtt_update_publish_state(mqtt_handler_state_t *state,
                               float movement,
-                              detection_state_t det_state,
+                              segmentation_state_t seg_state,
                               int64_t current_time);
 
 /**

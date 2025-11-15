@@ -1572,8 +1572,8 @@ Examples:
     
     print("\n")
     print("╔═══════════════════════════════════════════════════════╗")
-    print("║   SEGMENTATION TEST (Local Python Version)           ║")
-    print("║   Replicates ESP32 C code for rapid iteration        ║")
+    print("║   SEGMENTATION TEST (Local Python Version)            ║")
+    print("║   Replicates ESP32 C code for rapid iteration         ║")
     print("╚═══════════════════════════════════════════════════════╝")
     print("\n")
     

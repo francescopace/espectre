@@ -342,3 +342,49 @@ float segmentation_get_threshold(const segmentation_context_t *ctx) {
 float segmentation_get_moving_variance(const segmentation_context_t *ctx) {
     return ctx ? ctx->current_moving_variance : 0.0f;
 }
+
+// Get last turbulence value
+float segmentation_get_last_turbulence(const segmentation_context_t *ctx) {
+    if (!ctx || ctx->buffer_count == 0) {
+        return 0.0f;
+    }
+    
+    // Get the most recently added value (buffer_index - 1)
+    int16_t last_idx = (int16_t)ctx->buffer_index - 1;
+    if (last_idx < 0) {
+        last_idx = SEGMENTATION_WINDOW_SIZE - 1;
+    }
+    
+    return ctx->turbulence_buffer[last_idx];
+}
+
+// Get count of active segments
+uint8_t segmentation_get_active_segments_count(const segmentation_context_t *ctx) {
+    if (!ctx) {
+        return 0;
+    }
+    
+    uint8_t count = 0;
+    for (uint8_t i = 0; i < ctx->num_segments; i++) {
+        if (ctx->segments[i].active) {
+            count++;
+        }
+    }
+    
+    return count;
+}
+
+// Get last completed segment
+const segment_t* segmentation_get_last_completed_segment(const segmentation_context_t *ctx) {
+    if (!ctx || ctx->num_segments == 0) {
+        return NULL;
+    }
+    
+    // Return the most recently added segment (last in array)
+    return &ctx->segments[ctx->num_segments - 1];
+}
+
+// Get total packets processed
+uint32_t segmentation_get_total_packets(const segmentation_context_t *ctx) {
+    return ctx ? ctx->total_packets_processed : 0;
+}

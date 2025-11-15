@@ -176,6 +176,58 @@ Optimal sensor placement is crucial for reliable movement detection.
 
 ## ⚙️ System Architecture
 
+### Processing Pipeline
+
+ESPectre uses a streamlined processing pipeline:
+
+```
+┌─────────────┐
+│  CSI Data   │  Raw Wi-Fi Channel State Information
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│Segmentation │  Moving Variance Segmentation (MVS)
+│  (2-state)  │  IDLE ↔ MOTION (operates on RAW CSI)
+└──────┬──────┘
+       │
+       ├─────────────────────┐
+       │                     │
+       ▼                     ▼
+┌─────────────┐      ┌──────────────┐
+│    IDLE     │      │    MOTION    │
+│  (no feat.) │      │  (optional   │
+│             │      │   features)  │
+└─────────────┘      └──────┬───────┘
+                            │
+                            ▼
+                     ┌─────────────┐
+                     │   Filters   │  Butterworth, Wavelet,
+                     │             │  Hampel, Savitzky-Golay
+                     │             │  (applied to features only)
+                     └──────┬──────┘
+                            │
+                            ▼
+                     ┌─────────────┐
+                     │  Features   │  10 mathematical features
+                     │ (if enabled)│  (filtered CSI data)
+                     └──────┬──────┘
+                            │
+       ┌────────────────────┴────────────────────┐
+       │                                         │
+       ▼                                         ▼
+┌─────────────┐                          ┌─────────────┐
+│    MQTT     │  Publish state + metrics │    MQTT     │
+│   (IDLE)    │                          │  (MOTION)   │
+└─────────────┘                          └─────────────┘
+```
+
+**Key Points:**
+- **2-state system**: IDLE or MOTION (no intermediate states)
+- **Segmentation-based**: Uses Moving Variance Segmentation (MVS) on **raw CSI data**
+- **Filters applied to features only**: Segmentation uses unfiltered data to preserve motion sensitivity
+- **Optional features**: Feature extraction only during MOTION state (configurable)
+
 ### Single or Multiple Sensors
 
 ```
@@ -244,7 +296,7 @@ A: Yes, the 2.4GHz Wi-Fi signal penetrates drywall. Reinforced concrete walls re
 A: It depends on size. One sensor can monitor ~50 m². For larger homes, use multiple sensors (1 sensor every 50-70 m² for optimal coverage).
 
 **Q: Can it distinguish between people and pets?**  
-A: The system uses a 2-state detection model (IDLE/DETECTED) that identifies generic movement without distinguishing between people, pets, or other moving objects. For more sophisticated classification (people vs pets, activity recognition, gesture detection), trained AI/ML models would be required (see Future Evolutions section).
+A: The system uses a 2-state segmentation model (IDLE/MOTION) that identifies generic movement without distinguishing between people, pets, or other moving objects. For more sophisticated classification (people vs pets, activity recognition, gesture detection), trained AI/ML models would be required (see Future Evolutions section).
 
 **Q: Does it consume a lot of Wi-Fi bandwidth?**  
 A: No, MQTT traffic is minimal. With smart publishing disabled (default), the system publishes all detection updates. When smart publishing is enabled, the system only sends data on significant changes or every 5 seconds as a heartbeat, resulting in ~0.2-0.5 KB/s per sensor during idle periods and up to ~1 KB/s during active movement. Network impact is negligible.
@@ -256,7 +308,7 @@ A: Yes, it works normally. Make sure the ESP32 connects to the 2.4 GHz band.
 A: No, Home Assistant can run on Raspberry Pi, NAS, or cloud. Alternatively, just an MQTT broker (Mosquitto) on any device is sufficient.
 
 **Q: How accurate is the detection?**  
-A: Detection accuracy is highly environment-dependent and requires proper calibration. Factors affecting performance include: room layout, wall materials, furniture placement, distance from router (optimal: 3-8m), and interference levels. In optimal conditions with proper calibration, the system provides reliable movement detection. Use the built-in calibration tools (MQTT commands: `analyze`, `threshold`) to tune parameters for your specific environment.
+A: Detection accuracy is highly environment-dependent and requires proper tuning. Factors affecting performance include: room layout, wall materials, furniture placement, distance from router (optimal: 3-8m), and interference levels. In optimal conditions with proper tuning, the system provides reliable movement detection. Adjust the `segmentation_threshold` parameter to tune sensitivity for your specific environment.
 
 **Q: What's the power consumption?**  
 A: ~500mW typical during continuous operation. The firmware includes support for power optimization, and deep sleep modes can be implemented for battery-powered deployments, though this would require custom modifications to the code.
@@ -314,6 +366,9 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ## � Technical Deep Dive
 
+![Segmentation Analysis](images/segmentation_analysis.png)
+*Moving Variance Segmentation (MVS) analysis: baseline graphs (top) show quiet state, while bottom graphs show motion detection with turbulence signal, adaptive threshold, and state transitions*
+
 <details>
 <summary>🔬 Signal Processing Pipeline (click to expand)</summary>
 
@@ -325,68 +380,52 @@ CSI data represents only the properties of the transmission medium and does not 
 - Typical capture rate: ~10-100 packets/second depending on Wi-Fi traffic
 
 #### 2️⃣ **Motion Segmentation** (ESP32-S3)
-- **Spatial turbulence calculation**: Standard deviation of subcarrier amplitudes
+- **Spatial turbulence calculation**: Standard deviation of subcarrier amplitudes (raw CSI data)
 - **Moving Variance Segmentation (MVS)**: Real-time motion segment extraction
 - **Adaptive threshold**: Based on moving variance of turbulence signal
 - **Segment features**: Duration, average turbulence, maximum turbulence
 - **Circular buffer**: Maintains up to 10 recent segments for analysis
 - **Foundation for ML**: Segments can be labeled and used for activity classification
 
-#### 3️⃣ **Signal Processing** (ESP32-S3)
-The `espectre.c` firmware applies an advanced multi-stage processing pipeline:
+**Note**: Segmentation operates on **raw, unfiltered CSI data** to preserve motion sensitivity. Filters are not applied to the turbulence signal used for segmentation.
 
-**Stage 1: Advanced Filters** (Configurable via MQTT)
+#### 3️⃣ **Optional Signal Processing Filters** (ESP32-S3)
+Advanced filters applied to CSI data **before feature extraction** (configurable via MQTT):
 - **Butterworth Low-Pass**: Removes high-frequency noise >8Hz (environmental interference) - Enabled by default
-- **Wavelet db4**: Removes low-frequency persistent noise using Daubechies wavelet transform.
+- **Wavelet db4**: Removes low-frequency persistent noise using Daubechies wavelet transform
 - **Hampel Filter**: Outlier removal using MAD (Median Absolute Deviation)
 - **Savitzky-Golay Filter**: Polynomial smoothing (enabled by default)
-- **Adaptive Normalization**: Running statistics with Welford's algorithm, with auto-reset to prevent signal degradation
 
-**Filter Pipeline**: Raw CSI → Butterworth (high freq) → Wavelet (low freq) → Hampel → Savitzky-Golay → Normalization
+**Filter Pipeline**: Raw CSI → Butterworth (high freq) → Wavelet (low freq) → Hampel → Savitzky-Golay → Features
 
-**Stage 2: Feature Extraction** (10 mathematical features)
+**Note**: Filters are applied **only to feature extraction**, not to segmentation. Segmentation uses raw CSI data to preserve motion sensitivity.
+
+#### 4️⃣ **Optional Feature Extraction** (ESP32-S3)
+When enabled (default: on), extracts 10 mathematical features from **filtered CSI data** during MOTION state:
 - **Statistical** (5): Variance, Skewness, Kurtosis, Entropy, IQR
 - **Spatial** (3): Spatial variance, correlation, gradient across subcarriers
 - **Temporal** (2): Delta mean, delta variance (changes between consecutive packets)
 
-**Stage 3: Multi-Criteria Detection**
-- Weighted scoring from selected features (4-6 features)
-- Weights optimized via automatic calibration using Fisher's criterion
-- Optimized ranges based on empirical analysis
+**Note**: Feature extraction can be disabled to reduce CPU usage if only basic motion detection is needed.
 
-**Stage 4: State Machine** (2 states)
-- **IDLE**: No movement detected
-- **DETECTED**: Movement detected (score above threshold)
-- Debouncing: Requires consecutive detections (configurable, default: 10)
-- Persistence: Timeout before downgrading state (configurable, default: 3 seconds)
-- Hysteresis: Prevents state flickering using dual thresholds
-
-#### 4️⃣ **MQTT Publishing** (ESP32-S3 → Broker)
+#### 5️⃣ **MQTT Publishing** (ESP32-S3 → Broker)
 - Publishes JSON payload every 1 second (configurable)
 - QoS level 0 (fire-and-forget) for low latency
 - Retained message option for last known state
 - Automatic reconnection on connection loss
 
-#### 5️⃣ **Home Assistant Integration**
+#### 6️⃣ **Home Assistant Integration**
 - **MQTT Sensor** subscribes to topic and creates entity
 - **State**: Primary `movement` value (0.0-1.0)
 - **Attributes**: All other metrics available for conditions
 - **History**: Automatic logging to database for graphs
 
-#### 6️⃣ **Automation & Actions**
-Trigger automations based on:
-- **Numeric state**: `movement > 0.6` (active movement)
-- **Confidence level**: `confidence > 0.7` (high certainty)
-- **State changes**: `idle` → `detected` transitions
-- **Time patterns**: Only during specific hours
-- **Template conditions**: Complex logic combining multiple sensors
-
 </details>
 
 <details>
-<summary>� Feature Extraction & Detection (click to expand)</summary>
+<summary>📊 Optional Feature Extraction (click to expand)</summary>
 
-ESPectre uses a mathematical approach (no ML required) that extracts **10 features** from CSI data:
+ESPectre can optionally extract **10 mathematical features** from CSI data during MOTION state:
 
 ### Extracted Features
 
@@ -412,9 +451,10 @@ Changes between consecutive CSI packets:
 9. **Temporal Delta Mean** - Average absolute difference from previous packet
 10. **Temporal Delta Variance** - Variance of differences from previous packet
 
-### Detection Scoring
+### Usage
 
-The system automatically selects the 4-6 most discriminant features for your specific environment and optimizes their weights using Fisher's criterion. This typically provides better detection accuracy than the default configuration.
+Feature extraction is **enabled by default** but can be disabled to reduce CPU usage.
+**Note**: Features are only extracted during MOTION state, not during IDLE, to optimize performance.
 
 </details>
 
@@ -442,13 +482,14 @@ The system automatically selects the 4-6 most discriminant features for your spe
 - **MQTT Bandwidth**: ~0.2-1 KB/s depending on activity
 - **Power Consumption**: ~500mW typical
 - **Detection Range**: 3-8 meters optimal
-- **Detection Accuracy**: Environment-dependent, requires calibration
+- **Detection Accuracy**: Environment-dependent, requires tuning
 
 ### Limitations
 - Works only on 2.4 GHz band (ESP32-S3 hardware limitation)
 - Sensitivity dependent on: wall materials, antenna placement, distances, interference
 - Not suitable for environments with very high Wi-Fi traffic
-- Cannot distinguish between multiple people (without ML models)
+- Cannot distinguish between people, pets, or objects (generic motion detection)
+- Cannot count people or recognize specific activities (without ML models)
 - Reduced performance through metal obstacles or thick concrete walls
 
 </details>

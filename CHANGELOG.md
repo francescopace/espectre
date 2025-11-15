@@ -4,7 +4,87 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [1.2.0] - In Progress
+## [1.2.0] - 2025-11-16
+
+### 🏗️ Major Refactoring - Simplified Architecture
+
+**Architectural simplification: Focus on segmentation-only approach**
+
+Removed the complex calibration/detection system in favor of a simpler, more maintainable segmentation-only architecture:
+
+- **Removed modules** (6 files, ~2,140 lines):
+  * `calibration.c/h` - Complex calibration system
+  * `detection_engine.c/h` - Multi-state detection engine
+  * `statistics.c/h` - Statistics buffer and analysis
+
+- **Simplified core files**:
+  * `espectre.c`: 900 → 557 lines (-38%, -343 lines)
+  * `mqtt_commands.c`: 966 → 604 lines (-37%, -362 lines)
+  * Total reduction: ~2,845 lines removed
+
+- **New architecture**:
+  ```
+  CSI Packet → Segmentation (always) → IF MOTION && features_enabled:
+                                          → Extract Features
+                                          → Publish with features
+                                       ELSE:
+                                          → Publish without features
+  ```
+
+- **Removed MQTT commands** (8 commands):
+  * `detection_threshold` - No longer needed
+  * `calibrate` - Calibration system removed
+  * `analyze` - Statistics analysis removed
+  * `features` - Feature display removed
+  * `stats` - Statistics buffer removed
+  * `debounce` - Detection debouncing removed
+  * `persistence` - Detection persistence removed
+  * `hysteresis` - Detection hysteresis removed
+
+- **Added MQTT commands**:
+  * `features_enable <on|off>` - Toggle feature extraction during MOTION state
+
+- **Simplified configuration**:
+  * Removed: `debounce_count`, `hysteresis_ratio`, `persistence_timeout`, `feature_weights[]`
+  * Removed: `threshold_high`, `threshold_low` (detection thresholds)
+  * Added: `features_enabled` (bool, default: true)
+  * NVS version incremented to 6
+
+**Benefits:**
+- ✅ Simpler codebase (~2,845 lines removed, -60% complexity)
+- ✅ Easier to understand and maintain
+- ✅ Focus on proven MVS algorithm
+- ✅ Optional feature extraction (performance optimization)
+- ✅ Cleaner MQTT API (10 commands instead of 18)
+
+**MQTT Publishing:**
+
+*IDLE or MOTION without features:*
+```json
+{
+  "movement": 1.85,
+  "threshold": 2.20,
+  "state": "idle",
+  "segments_total": 5,
+  "timestamp": 1730066405
+}
+```
+
+*MOTION with features_enabled=true:*
+```json
+{
+  "movement": 2.45,
+  "threshold": 2.20,
+  "state": "motion",
+  "segments_total": 6,
+  "features": {
+    "variance": 315.5,
+    "skewness": 0.85,
+    ...
+  },
+  "timestamp": 1730066405
+}
+```
 
 ### ✨ Added - Moving Variance Segmentation (MVS) Module
 
@@ -32,6 +112,51 @@ All notable changes to this project will be documented in this file.
 - ✅ Statistical features per segment for classification
 - ✅ Foundation for advanced motion pattern recognition
 
+### 🚀 Major - Amplitude-Based Skewness & Kurtosis
+
+**Performance breakthrough: +151% separation improvement**
+
+Based on analysis of 6 scientific papers on Wi-Fi CSI sensing, implemented amplitude-based approach for skewness and kurtosis:
+
+- **Amplitude-based pipeline**:
+  1. Convert raw bytes (I+jQ) → amplitude |h| = √(I² + Q²) for each subcarrier
+  2. Aggregate all subcarriers → single amplitude value per packet
+  3. Maintain 20-packet circular buffer for temporal analysis
+  4. Calculate statistical moments (m2, m3, m4) on amplitude time series
+  
+- **Shared buffer optimization**:
+  * Skewness and kurtosis share same `amplitude_moments_buffer`
+  * Cached moments (m2, m4) reused between features
+  * Zero memory overhead, ~5% CPU overhead
+  
+- **Results**:
+  * **Skewness**: 2.91x separation (vs 1.16x previous), 82.3% accuracy, 0% false positives
+  * **Kurtosis**: 2.47x separation (+79% vs raw kurtosis)
+  * **Combined**: Calibrator selects both as dominant features (68% total weight)
+
+### 🚀 Improved - Traffic Generator
+
+**Reliable CSI packet generation with bidirectional traffic**
+
+- **ICMP ping-based**: Replaced UDP broadcast with ICMP Echo Request/Reply
+- **ESP-IDF ping component**: Uses official `ping/ping_sock.h` API
+- **Bidirectional traffic**: Guaranteed request + reply for CSI generation
+- **Auto-discovery**: Automatically targets WiFi gateway
+- **Robust implementation**: Thread-safe, tested, maintained by Espressif
+- **Statistics**: Success/timeout tracking with callbacks
+
+**Benefits:**
+- ✅ Reliable CSI packet generation on every ping reply
+- ✅ No external dependencies (uses gateway)
+- ✅ Simpler code (~200 lines vs manual ICMP implementation)
+- ✅ Better error handling and logging
+
+**Technical details:**
+- Previous: UDP broadcast (no reply, unreliable CSI generation)
+- Current: ICMP ping to gateway (bidirectional, reliable CSI on reply)
+- Configurable rate: 1-50 pps
+- Automatic gateway IP discovery from network interface
+
 ### 🚀 Improved - CSI Subcarrier Optimization
 
 **Maximum spatial information: Reading ALL available subcarriers**
@@ -48,6 +173,36 @@ Based on ESP32-S3 Wi-Fi documentation analysis, optimized CSI data collection to
 - ✅ Better movement detection accuracy
 - ✅ More data for calibration optimization
 - ✅ Higher spatial resolution
+
+### ✨ Added - Temporal Features
+
+**Enhanced feature set: Expanded from 8 to 10 features**
+
+- **New temporal features**: Added 2 temporal features that track changes between consecutive CSI packets
+  - `temporal_delta_mean`: Average absolute difference from previous packet
+  - `temporal_delta_variance`: Variance of differences from previous packet
+- **Improved detection**: Temporal features capture movement dynamics over time
+- **Backward compatible**: Existing calibrations continue to work with the expanded feature set
+
+**Feature set now includes:**
+- **Statistical** (5): variance, skewness, kurtosis, entropy, iqr
+- **Spatial** (3): spatial_variance, spatial_correlation, spatial_gradient
+- **Temporal** (2): temporal_delta_mean, temporal_delta_variance
+
+### 🔧 Changed - Modified Fisher Criterion
+
+**Improved feature selection algorithm**
+
+- **Modified Fisher Score**: Changed from standard Fisher `(μ₁ - μ₂)² / (σ₁² + σ₂²)` to Modified Fisher `(μ₁ - μ₂)² / √(σ₁² + σ₂²)`
+- **Pre-normalization**: All features normalized to [0,1] before Fisher calculation
+  * Eliminates bias towards features with large absolute values
+  * Ensures fair comparison between features
+  * Skewness/kurtosis now correctly selected as top features
+- **Benefits**: 
+  - Less penalty for features with high variance
+  - Better selection of features with strong signal separation
+  - More robust in noisy environments
+- **Configurable**: Can be toggled via `USE_MODIFIED_FISHER` flag in `calibration.c`
 
 ### 🧪 Added - Local Segmentation Test Script
 
@@ -87,81 +242,20 @@ python test_app/test_segmentation_local.py --no-plot    # Skip visualization
 **Usage:**
 ```bash
 espectre> calibrate start 100 verbose
+```
 
-### 🚀 Improved - Traffic Generator
+### 🗑️ Removed - Adaptive Normalizer
 
-**Reliable CSI packet generation with bidirectional traffic**
+**Code simplification: Removed adaptive normalizer filter**
 
-- **ICMP ping-based**: Replaced UDP broadcast with ICMP Echo Request/Reply
-- **ESP-IDF ping component**: Uses official `ping/ping_sock.h` API
-- **Bidirectional traffic**: Guaranteed request + reply for CSI generation
-- **Auto-discovery**: Automatically targets WiFi gateway
-- **Robust implementation**: Thread-safe, tested, maintained by Espressif
-- **Statistics**: Success/timeout tracking with callbacks
+The adaptive normalizer has been removed to simplify the codebase and reduce computational overhead:
 
-**Benefits:**
-- ✅ Reliable CSI packet generation on every ping reply
-- ✅ No external dependencies (uses gateway)
-- ✅ Simpler code (~200 lines vs manual ICMP implementation)
-- ✅ Better error handling and logging
-
-**Technical details:**
-- Previous: UDP broadcast (no reply, unreliable CSI generation)
-- Current: ICMP ping to gateway (bidirectional, reliable CSI on reply)
-- Configurable rate: 1-50 pps
-- Automatic gateway IP discovery from network interface
-
-### ✨ Added - Temporal Features
-
-**Enhanced feature set: Expanded from 8 to 10 features**
-
-- **New temporal features**: Added 2 temporal features that track changes between consecutive CSI packets
-  - `temporal_delta_mean`: Average absolute difference from previous packet
-  - `temporal_delta_variance`: Variance of differences from previous packet
-- **Improved detection**: Temporal features capture movement dynamics over time
-- **Backward compatible**: Existing calibrations continue to work with the expanded feature set
-
-**Feature set now includes:**
-- **Statistical** (5): variance, skewness, kurtosis, entropy, iqr
-- **Spatial** (3): spatial_variance, spatial_correlation, spatial_gradient
-- **Temporal** (2): temporal_delta_mean, temporal_delta_variance
-
-### 🚀 Major - Amplitude-Based Skewness & Kurtosis
-
-**Performance breakthrough: +151% separation improvement**
-
-Based on analysis of 6 scientific papers on Wi-Fi CSI sensing, implemented amplitude-based approach for skewness and kurtosis:
-
-- **Amplitude-based pipeline**:
-  1. Convert raw bytes (I+jQ) → amplitude |h| = √(I² + Q²) for each subcarrier
-  2. Aggregate all subcarriers → single amplitude value per packet
-  3. Maintain 20-packet circular buffer for temporal analysis
-  4. Calculate statistical moments (m2, m3, m4) on amplitude time series
-  
-- **Shared buffer optimization**:
-  * Skewness and kurtosis share same `amplitude_moments_buffer`
-  * Cached moments (m2, m4) reused between features
-  * Zero memory overhead, ~5% CPU overhead
-  
-- **Results**:
-  * **Skewness**: 2.91x separation (vs 1.16x previous), 82.3% accuracy, 0% false positives
-  * **Kurtosis**: 2.47x separation (+79% vs raw kurtosis)
-  * **Combined**: Calibrator selects both as dominant features (68% total weight)
-
-### 🔧 Changed - Modified Fisher Criterion
-
-**Improved feature selection algorithm**
-
-- **Modified Fisher Score**: Changed from standard Fisher `(μ₁ - μ₂)² / (σ₁² + σ₂²)` to Modified Fisher `(μ₁ - μ₂)² / √(σ₁² + σ₂²)`
-- **Pre-normalization**: All features normalized to [0,1] before Fisher calculation
-  * Eliminates bias towards features with large absolute values
-  * Ensures fair comparison between features
-  * Skewness/kurtosis now correctly selected as top features
-- **Benefits**: 
-  - Less penalty for features with high variance
-  - Better selection of features with strong signal separation
-  - More robust in noisy environments
-- **Configurable**: Can be toggled via `USE_MODIFIED_FISHER` flag in `calibration.c`
+- **Simplified filter pipeline**:
+  ```
+  Butterworth (ON) → Wavelet (OFF) → Hampel (OFF) → Savitzky-Golay (ON)
+  ```
+**Rationale:**
+The adaptive normalizer was primarily used for monitoring/debugging and did not directly affect signal processing or motion detection. Its removal simplifies the system while maintaining all core functionality.
 
 ---
 

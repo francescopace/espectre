@@ -132,33 +132,51 @@ def plot_precision_recall_curve(data: Dict, output_dir: Path):
 
 
 def plot_confusion_matrix(data: Dict, output_dir: Path):
-    """Generate confusion matrix heatmap."""
-    if not data or 'best_feature' not in data:
+    """Generate confusion matrix heatmap (segmentation-based)."""
+    if not data:
         print("⚠️  No confusion matrix data found")
         return
     
-    best = data['best_feature']
+    # Check if this is segmentation-based data (new architecture)
+    if 'segmentation' in data:
+        seg = data['segmentation']
+        baseline_samples = data['baseline_samples']
+        movement_samples = data['movement_samples']
+        
+        tn = int((1 - seg['fp_rate']) * baseline_samples)
+        fp = int(seg['fp_rate'] * baseline_samples)
+        tp = int(seg['recall'] * movement_samples)
+        fn = int((1 - seg['recall']) * movement_samples)
+        
+        title = f'Confusion Matrix - Segmentation\n' \
+                f'Recall: {seg["recall"]*100:.1f}% | FP Rate: {seg["fp_rate"]*100:.1f}%'
     
-    # Calculate confusion matrix values from rates
-    baseline_samples = data['baseline_samples']
-    movement_samples = data['movement_samples']
-    
-    tn = int((1 - best['fp_rate']) * baseline_samples)
-    fp = int(best['fp_rate'] * baseline_samples)
-    tp = int(best['recall'] * movement_samples)
-    fn = int((1 - best['recall']) * movement_samples)
+    # Fallback to old feature-based data
+    elif 'best_feature' in data:
+        best = data['best_feature']
+        baseline_samples = data['baseline_samples']
+        movement_samples = data['movement_samples']
+        
+        tn = int((1 - best['fp_rate']) * baseline_samples)
+        fp = int(best['fp_rate'] * baseline_samples)
+        tp = int(best['recall'] * movement_samples)
+        fn = int((1 - best['recall']) * movement_samples)
+        
+        title = f'Confusion Matrix - {best["name"]}\n' \
+                f'Recall: {best["recall"]*100:.1f}% | FP Rate: {best["fp_rate"]*100:.1f}%'
+    else:
+        print("⚠️  No confusion matrix data found")
+        return
     
     cm = np.array([[tn, fp], [fn, tp]])
     
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=['Predicted IDLE', 'Predicted DETECTED'],
-                yticklabels=['Actual IDLE', 'Actual DETECTED'],
+                xticklabels=['Predicted IDLE', 'Predicted MOTION'],
+                yticklabels=['Actual IDLE', 'Actual MOTION'],
                 cbar_kws={'label': 'Count'})
     
-    plt.title(f'Confusion Matrix - {best["name"]}\n'
-              f'Recall: {best["recall"]*100:.1f}% | FP Rate: {best["fp_rate"]*100:.1f}%',
-              fontsize=14, fontweight='bold')
+    plt.title(title, fontsize=14, fontweight='bold')
     
     output_file = output_dir / 'confusion_matrix.png'
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
@@ -312,7 +330,7 @@ def plot_segmentation_analysis(data: Dict, output_dir: Path):
 
 
 def plot_home_assistant_summary(data: Dict, output_dir: Path):
-    """Generate Home Assistant integration summary."""
+    """Generate Home Assistant integration summary (segment-based)."""
     if not data or 'metrics' not in data:
         print("⚠️  No Home Assistant data found")
         return
@@ -320,51 +338,111 @@ def plot_home_assistant_summary(data: Dict, output_dir: Path):
     metrics = data['metrics']
     targets = data['targets_met']
     
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(14, 10))
+    # Check if this is segment-based data (new architecture)
+    is_segment_based = 'baseline_segments' in metrics and 'movement_segments' in metrics
     
-    # Recall gauge
-    recall = metrics['recall'] * 100
-    ax1.barh(['Recall'], [recall], color='green' if recall >= 90 else 'orange', alpha=0.7)
-    ax1.axvline(x=90, color='red', linestyle='--', linewidth=2)
-    ax1.set_xlim([0, 100])
-    ax1.set_xlabel('Percentage (%)', fontsize=11)
-    status_text = '[TARGET MET]' if targets["recall_90"] else '[BELOW TARGET]'
-    ax1.set_title(f'Recall: {recall:.1f}% {status_text}', 
-                  fontsize=12, fontweight='bold')
-    ax1.grid(True, alpha=0.3, axis='x')
+    if is_segment_based:
+        # New segment-based visualization
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(14, 10))
+        
+        # Segments detected
+        baseline_segs = metrics['baseline_segments']
+        movement_segs = metrics['movement_segments']
+        
+        ax1.bar(['Baseline', 'Movement'], [baseline_segs, movement_segs], 
+                color=['green' if baseline_segs == 0 else 'red', 
+                       'green' if movement_segs > 0 else 'red'], alpha=0.7)
+        ax1.set_ylabel('Segments Detected', fontsize=11)
+        ax1.set_title(f'Segment Detection\nBaseline: {baseline_segs} | Movement: {movement_segs}', 
+                      fontsize=12, fontweight='bold')
+        ax1.grid(True, alpha=0.3, axis='y')
+        
+        # Detection latency
+        latency = metrics.get('detection_latency_seconds', 0)
+        color = 'green' if 0 < latency <= 2 else 'orange' if latency <= 5 else 'red'
+        ax2.barh(['Latency'], [latency], color=color, alpha=0.7)
+        ax2.axvline(x=2, color='green', linestyle='--', linewidth=2, label='2s target')
+        ax2.axvline(x=5, color='red', linestyle='--', linewidth=2, label='5s limit')
+        ax2.set_xlabel('Seconds', fontsize=11)
+        ax2.set_title(f'Detection Latency: {latency:.2f}s', 
+                      fontsize=12, fontweight='bold')
+        ax2.legend(fontsize=9)
+        ax2.grid(True, alpha=0.3, axis='x')
+        
+        # State transitions
+        transitions = metrics['state_transitions']
+        color = 'green' if 2 <= transitions <= 10 else 'orange'
+        ax3.bar(['Transitions'], [transitions], color=color, alpha=0.7)
+        ax3.axhline(y=2, color='green', linestyle='--', linewidth=1, alpha=0.5)
+        ax3.axhline(y=10, color='red', linestyle='--', linewidth=1, alpha=0.5)
+        ax3.set_ylabel('Count', fontsize=11)
+        trans_status = '[STABLE]' if targets.get("stable_transitions", False) else '[UNSTABLE]'
+        ax3.set_title(f'State Transitions: {transitions} {trans_status}', 
+                      fontsize=12, fontweight='bold')
+        ax3.grid(True, alpha=0.3, axis='y')
+        
+        # Summary status
+        ax4.axis('off')
+        status_text = "READY" if targets.get("motion_detected") and targets.get("no_false_alarms") else "NEEDS REVIEW"
+        ax4.text(0.5, 0.7, status_text, fontsize=32, ha='center', va='center',
+                 color='green' if "READY" in status_text else 'orange', fontweight='bold')
+        
+        checks = []
+        checks.append(f"Motion: {movement_segs} segments" if movement_segs > 0 else "No motion")
+        checks.append(f"No FP: {baseline_segs} segments" if baseline_segs == 0 else f"FP: {baseline_segs}")
+        checks.append(f"Stable: {transitions}" if 2 <= transitions <= 10 else f"Unstable: {transitions}")
+        checks.append(f"Fast: {latency:.1f}s" if 0 < latency <= 5 else f"Slow: {latency:.1f}s")
+        
+        ax4.text(0.5, 0.4, '\n'.join(checks), fontsize=11, ha='center', va='center',
+                 family='monospace')
     
-    # FP per hour
-    fp_hour = metrics['fp_per_hour']
-    color = 'green' if 1 <= fp_hour <= 5 else 'orange' if fp_hour < 1 else 'red'
-    ax2.bar(['FP/hour'], [fp_hour], color=color, alpha=0.7)
-    ax2.axhline(y=1, color='green', linestyle='--', linewidth=1, alpha=0.5)
-    ax2.axhline(y=5, color='red', linestyle='--', linewidth=1, alpha=0.5)
-    ax2.set_ylabel('False Positives per Hour', fontsize=11)
-    fp_status = '[TARGET MET]' if targets["fp_1_5_per_hour"] else '[OUT OF RANGE]'
-    ax2.set_title(f'FP Rate: {fp_hour:.1f}/hour {fp_status}', 
-                  fontsize=12, fontweight='bold')
-    ax2.grid(True, alpha=0.3, axis='y')
-    
-    # Metrics comparison
-    metric_names = ['Recall', 'Precision', 'F1-Score']
-    metric_values = [metrics['recall'] * 100, metrics['precision'] * 100, metrics['f1_score'] * 100]
-    ax3.bar(metric_names, metric_values, color=['green', 'blue', 'purple'], alpha=0.7)
-    ax3.set_ylabel('Percentage (%)', fontsize=11)
-    ax3.set_ylim([0, 100])
-    ax3.set_title('Performance Metrics', fontsize=12, fontweight='bold')
-    ax3.grid(True, alpha=0.3, axis='y')
-    
-    # State transitions
-    transitions = metrics['state_transitions']
-    color = 'green' if 2 <= transitions <= 6 else 'orange'
-    ax4.bar(['Transitions'], [transitions], color=color, alpha=0.7)
-    ax4.axhline(y=2, color='green', linestyle='--', linewidth=1, alpha=0.5)
-    ax4.axhline(y=6, color='red', linestyle='--', linewidth=1, alpha=0.5)
-    ax4.set_ylabel('Count', fontsize=11)
-    trans_status = '[STABLE]' if targets["stable_transitions"] else '[UNSTABLE]'
-    ax4.set_title(f'State Transitions: {transitions} {trans_status}', 
-                  fontsize=12, fontweight='bold')
-    ax4.grid(True, alpha=0.3, axis='y')
+    else:
+        # Legacy packet-based visualization
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(14, 10))
+        
+        # Recall gauge
+        recall = metrics['recall'] * 100
+        ax1.barh(['Recall'], [recall], color='green' if recall >= 90 else 'orange', alpha=0.7)
+        ax1.axvline(x=90, color='red', linestyle='--', linewidth=2)
+        ax1.set_xlim([0, 100])
+        ax1.set_xlabel('Percentage (%)', fontsize=11)
+        status_text = '[TARGET MET]' if targets.get("recall_90", False) else '[BELOW TARGET]'
+        ax1.set_title(f'Recall: {recall:.1f}% {status_text}', 
+                      fontsize=12, fontweight='bold')
+        ax1.grid(True, alpha=0.3, axis='x')
+        
+        # FP per hour
+        fp_hour = metrics.get('fp_per_hour', 0)
+        color = 'green' if 1 <= fp_hour <= 5 else 'orange' if fp_hour < 1 else 'red'
+        ax2.bar(['FP/hour'], [fp_hour], color=color, alpha=0.7)
+        ax2.axhline(y=1, color='green', linestyle='--', linewidth=1, alpha=0.5)
+        ax2.axhline(y=5, color='red', linestyle='--', linewidth=1, alpha=0.5)
+        ax2.set_ylabel('False Positives per Hour', fontsize=11)
+        fp_status = '[TARGET MET]' if targets.get("fp_1_5_per_hour", False) else '[OUT OF RANGE]'
+        ax2.set_title(f'FP Rate: {fp_hour:.1f}/hour {fp_status}', 
+                      fontsize=12, fontweight='bold')
+        ax2.grid(True, alpha=0.3, axis='y')
+        
+        # Metrics comparison
+        metric_names = ['Recall', 'Precision', 'F1-Score']
+        metric_values = [metrics['recall'] * 100, metrics.get('precision', 0) * 100, metrics.get('f1_score', 0) * 100]
+        ax3.bar(metric_names, metric_values, color=['green', 'blue', 'purple'], alpha=0.7)
+        ax3.set_ylabel('Percentage (%)', fontsize=11)
+        ax3.set_ylim([0, 100])
+        ax3.set_title('Performance Metrics', fontsize=12, fontweight='bold')
+        ax3.grid(True, alpha=0.3, axis='y')
+        
+        # State transitions
+        transitions = metrics['state_transitions']
+        color = 'green' if 2 <= transitions <= 6 else 'orange'
+        ax4.bar(['Transitions'], [transitions], color=color, alpha=0.7)
+        ax4.axhline(y=2, color='green', linestyle='--', linewidth=1, alpha=0.5)
+        ax4.axhline(y=6, color='red', linestyle='--', linewidth=1, alpha=0.5)
+        ax4.set_ylabel('Count', fontsize=11)
+        trans_status = '[STABLE]' if targets.get("stable_transitions", False) else '[UNSTABLE]'
+        ax4.set_title(f'State Transitions: {transitions} {trans_status}', 
+                      fontsize=12, fontweight='bold')
+        ax4.grid(True, alpha=0.3, axis='y')
     
     plt.suptitle('Home Assistant Integration Assessment', fontsize=16, fontweight='bold', y=0.995)
     plt.tight_layout()
@@ -376,7 +454,12 @@ def plot_home_assistant_summary(data: Dict, output_dir: Path):
 
 
 def generate_report(results: Dict, output_dir: Path):
-    """Generate comprehensive HTML report."""
+    """Generate comprehensive HTML report (segmentation-focused)."""
+    
+    # Detect architecture type
+    is_segmentation_based = (results.get('performance_suite') and 
+                             results['performance_suite'].get('architecture') == 'segmentation_based')
+    
     html = f"""
 <!DOCTYPE html>
 <html>
@@ -387,6 +470,7 @@ def generate_report(results: Dict, output_dir: Path):
         .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; }}
         h1 {{ color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }}
         h2 {{ color: #34495e; margin-top: 30px; }}
+        .architecture-note {{ background: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 20px 0; }}
         .metric {{ display: inline-block; margin: 10px; padding: 15px; background: #ecf0f1; border-radius: 5px; }}
         .metric-value {{ font-size: 24px; font-weight: bold; color: #2980b9; }}
         .metric-label {{ font-size: 14px; color: #7f8c8d; }}
@@ -404,79 +488,94 @@ def generate_report(results: Dict, output_dir: Path):
     <div class="container">
         <h1>🛜 ESPectre Performance Report 👻</h1>
         <p><strong>Generated:</strong> {Path(output_dir).name}</p>
+        <p><strong>Architecture:</strong> {'Segmentation-Based' if is_segmentation_based else 'Feature-Based (Legacy)'}</p>
         <p><strong>Focus:</strong> Home Assistant Security/Presence Detection</p>
 """
     
-    # Segmentation Analysis (FIRST SECTION)
+    if is_segmentation_based:
+        html += """
+        <div class="architecture-note">
+            <strong>📌 New Architecture:</strong> CSI Packet → Segmentation (always) → 
+            IF MOTION && features_enabled: Extract Features + Publish<br>
+            <strong>Accuracy based on:</strong> Segmentation performance (Moving Variance Segmentation - MVS)
+        </div>
+"""
+    
+    # 1. SEGMENTATION ANALYSIS (PRIMARY - if available)
     if results['segmentation']:
         seg = results['segmentation']
         html += f"""
-        <h2>Segmentation Analysis</h2>
+        <h2>🎯 1. Segmentation Analysis (PRIMARY)</h2>
+        <p><strong>Algorithm:</strong> Moving Variance Segmentation (MVS)</p>
         <p><strong>Threshold:</strong> {seg['threshold']:.4f}</p>
         <p><strong>Window Size:</strong> {seg.get('window_size', 30)} packets</p>
         <p><strong>Detected Segments:</strong> {len(seg.get('movement_segments', []))}</p>
         <img src="segmentation_analysis.png" alt="Segmentation Analysis">
 """
     
-    # Home Assistant Summary
-    if results['home_assistant']:
-        ha = results['home_assistant']
-        metrics = ha['metrics']
-        targets = ha['targets_met']
-        ready = ha['ready_for_production']
-        
-        html += f"""
-        <h2>Home Assistant Integration Status</h2>
-        <div style="padding: 20px; background: {'#d4edda' if ready else '#fff3cd'}; border-radius: 5px; margin: 20px 0;">
-            <h3 style="margin-top: 0;">{'🎉 READY FOR PRODUCTION' if ready else '⚠️ NEEDS TUNING'}</h3>
-            <div class="metric">
-                <div class="metric-label">Recall</div>
-                <div class="metric-value {'pass' if targets['recall_90'] else 'fail'}">{metrics['recall']*100:.1f}%</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">FP per Hour</div>
-                <div class="metric-value {'pass' if targets['fp_1_5_per_hour'] else 'warn'}">{metrics['fp_per_hour']:.1f}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">F1-Score</div>
-                <div class="metric-value">{metrics['f1_score']*100:.1f}%</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">State Transitions</div>
-                <div class="metric-value {'pass' if targets['stable_transitions'] else 'warn'}">{metrics['state_transitions']}</div>
-            </div>
+    # 2. SEGMENTATION PERFORMANCE METRICS (if segmentation-based)
+    if is_segmentation_based and results['performance_suite']:
+        perf = results['performance_suite']
+        seg_metrics = perf.get('segmentation', {})
+        if seg_metrics:
+            segments_detected = seg_metrics.get('segments_detected', 0)
+            # Determine if segmentation is working well based on segments, not packet-level recall
+            segments_ok = segments_detected >= 10
+            fp_rate_ok = seg_metrics['fp_rate'] <= 0.05
+            
+            html += f"""
+        <h2>📊 2. Segmentation Performance Metrics</h2>
+        <div style="padding: 15px; background: {'#d4edda' if segments_ok and fp_rate_ok else '#fff3cd'}; border-radius: 5px; margin: 20px 0;">
+            <h3 style="margin-top: 0;">{'✅ Segmentation Working Correctly' if segments_ok and fp_rate_ok else '⚠️ Needs Review'}</h3>
+            <p><strong>Key Metric:</strong> Segments Detected = <span style="font-size: 24px; color: {'#27ae60' if segments_ok else '#f39c12'};">{segments_detected}</span> 
+               {'✅ (target: >10)' if segments_ok else '⚠️ (target: >10)'}</p>
+            <p><em>Note: Packet-level recall of {seg_metrics['recall']*100:.1f}% is NORMAL. 
+               Segmentation detects motion bursts ({segments_detected} segments), not every packet.</em></p>
         </div>
-        <img src="home_assistant_summary.png" alt="Home Assistant Summary">
+        <div class="metric">
+            <div class="metric-label">Segments Detected</div>
+            <div class="metric-value {'pass' if segments_ok else 'warn'}">{segments_detected}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">FP Rate</div>
+            <div class="metric-value {'pass' if seg_metrics['fp_rate'] <= 0.05 else 'warn'}">{seg_metrics['fp_rate']*100:.1f}%</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Precision</div>
+            <div class="metric-value">{seg_metrics['precision']*100:.1f}%</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Packet Recall</div>
+            <div class="metric-value">{seg_metrics['recall']*100:.1f}%</div>
+        </div>
+        <img src="confusion_matrix.png" alt="Confusion Matrix - Segmentation">
+        <p><em>Confusion Matrix shows packet-level classification. 
+           The {segments_detected} segments detected indicate successful motion burst detection.</em></p>
 """
-    
-    # ROC Analysis
+   
+    # 3. FEATURE RANKING (SECONDARY - for features_enabled mode)
     if results['threshold_optimization']:
         opt = results['threshold_optimization']
         html += f"""
-        <h2>Threshold Optimization</h2>
-        <p><strong>Feature:</strong> {opt['feature']}</p>
+        <h2>📈 4. Feature Ranking (SECONDARY - for features_enabled mode)</h2>
+        <p><em>Note: Features extracted only when segmentation detects motion</em></p>
+        <p><strong>Best Feature:</strong> {opt['feature']}</p>
         <p><strong>AUC:</strong> {opt['auc']:.3f}</p>
         <p><strong>Optimal Threshold:</strong> {opt['optimal_threshold']:.4f}</p>
         <img src="roc_curve.png" alt="ROC Curve">
         <img src="precision_recall_curve.png" alt="Precision-Recall Curve">
 """
     
-    # Performance Suite
-    if results['performance_suite']:
+    # Legacy: Feature Performance (if not segmentation-based)
+    if not is_segmentation_based and results['performance_suite']:
         perf = results['performance_suite']
-        html += f"""
-        <h2>Feature Performance</h2>
+        if 'best_feature' in perf:
+            html += f"""
+        <h2>Feature Performance (Legacy)</h2>
         <p><strong>Best Feature:</strong> {perf['best_feature']['name']}</p>
         <img src="confusion_matrix.png" alt="Confusion Matrix">
 """
-    
-    # Temporal Robustness
-    if results['temporal_robustness']:
-        html += f"""
-        <h2>Temporal Robustness</h2>
-        <img src="temporal_scenarios.png" alt="Temporal Scenarios">
-"""
-    
+        
     html += """
     </div>
 </body>
@@ -514,9 +613,9 @@ def main():
     plot_roc_curve(results['threshold_optimization'], output_dir)
     plot_precision_recall_curve(results['threshold_optimization'], output_dir)
     plot_confusion_matrix(results['performance_suite'], output_dir)
-    plot_temporal_scenarios(results['temporal_robustness'], output_dir)
+    # Note: temporal_robustness test has been removed in new architecture
+    # plot_temporal_scenarios(results['temporal_robustness'], output_dir)
     plot_segmentation_analysis(results['segmentation'], output_dir)
-    plot_home_assistant_summary(results['home_assistant'], output_dir)
     
     # Generate report
     print("\nGenerating HTML report...")

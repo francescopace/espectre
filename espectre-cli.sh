@@ -154,19 +154,6 @@ send_toggle_command() {
     fi
 }
 
-cmd_detection_threshold() {
-    local value="$1"
-    
-    if [ -z "$value" ]; then
-        print_error "Usage: detection_threshold <value>"
-        echo "  Range: 0.0-1.0 (detection threshold)"
-        echo "  Example: detection_threshold 0.4"
-        return 1
-    fi
-    
-    send_command "{\"cmd\":\"detection_threshold\",\"value\":$value}"
-}
-
 cmd_segmentation_threshold() {
     local value="$1"
     
@@ -180,63 +167,18 @@ cmd_segmentation_threshold() {
     send_command "{\"cmd\":\"segmentation_threshold\",\"value\":$value}"
 }
 
-cmd_stats() {
-    send_command "{\"cmd\":\"stats\"}"
+cmd_features_enable() {
+    local enabled="$1"
+    send_toggle_command "features_enable" "$enabled"
 }
 
 cmd_info() {
     send_command "{\"cmd\":\"info\"}"
 }
 
-cmd_logs() {
-    local enabled="$1"
-    send_toggle_command "logs" "$enabled"
+cmd_stats() {
+    send_command "{\"cmd\":\"stats\"}"
 }
-
-cmd_analyze() {
-    send_command "{\"cmd\":\"analyze\"}"
-}
-
-cmd_persistence() {
-    local value="$1"
-    
-    if [ -z "$value" ]; then
-        print_error "Usage: persistence <seconds>"
-        echo "  Example: persistence 2"
-        return 1
-    fi
-    
-    send_command "{\"cmd\":\"persistence\",\"value\":$value}"
-}
-
-cmd_debounce() {
-    local value="$1"
-    
-    if [ -z "$value" ]; then
-        print_error "Usage: debounce <count>"
-        echo "  Example: debounce 3"
-        return 1
-    fi
-    
-    send_command "{\"cmd\":\"debounce\",\"value\":$value}"
-}
-
-cmd_hysteresis() {
-    local value="$1"
-    
-    if [ -z "$value" ]; then
-        print_error "Usage: hysteresis <ratio>"
-        echo "  Example: hysteresis 0.7"
-        return 1
-    fi
-    
-    send_command "{\"cmd\":\"hysteresis\",\"value\":$value}"
-}
-
-cmd_features() {
-    send_command "{\"cmd\":\"features\"}"
-}
-
 
 cmd_hampel_filter() {
     local enabled="$1"
@@ -308,42 +250,6 @@ cmd_smart_publishing() {
     send_toggle_command "smart_publishing" "$enabled"
 }
 
-cmd_adaptive_normalizer() {
-    local enabled="$1"
-    send_toggle_command "adaptive_normalizer" "$enabled"
-}
-
-cmd_adaptive_normalizer_alpha() {
-    local value="$1"
-    
-    if [ -z "$value" ]; then
-        print_error "Usage: adaptive_normalizer_alpha <value>"
-        echo "  Range: 0.001-0.1 (learning rate)"
-        echo "  Lower = slower adaptation, Higher = faster adaptation"
-        echo "  Example: adaptive_normalizer_alpha 0.005"
-        return 1
-    fi
-    
-    send_command "{\"cmd\":\"adaptive_normalizer_alpha\",\"value\":$value}"
-}
-
-cmd_adaptive_normalizer_reset_timeout() {
-    local value="$1"
-    
-    if [ -z "$value" ]; then
-        print_error "Usage: adaptive_normalizer_reset_timeout <seconds>"
-        echo "  Range: 0-300 (0 = disabled)"
-        echo "  Auto-reset normalizer after N seconds of IDLE"
-        echo "  Example: adaptive_normalizer_reset_timeout 60"
-        return 1
-    fi
-    
-    send_command "{\"cmd\":\"adaptive_normalizer_reset_timeout\",\"value\":$value}"
-}
-
-cmd_adaptive_normalizer_stats() {
-    send_command "{\"cmd\":\"adaptive_normalizer_stats\"}"
-}
 
 cmd_traffic_generator_rate() {
     local value="$1"
@@ -357,71 +263,6 @@ cmd_traffic_generator_rate() {
     fi
     
     send_command "{\"cmd\":\"traffic_generator_rate\",\"value\":$value}"
-}
-
-cmd_calibrate() {
-    local action="$1"
-    local samples="$2"
-    local verbose="$3"
-    
-    if [ -z "$action" ]; then
-        print_error "Usage: calibrate <start|stop|status> [samples] [verbose]"
-        echo "  start [samples] [verbose]  Start calibration (default: 1000 samples/phase)"
-        echo "                               If verbose provided, print CSI raw data"
-        echo "  stop                         Stop calibration"
-        echo "  status                       Get calibration status"
-        echo ""
-        echo "Examples:"
-        echo "  calibrate start                    # Normal calibration"
-        echo "  calibrate start 500                # 500 samples per phase"
-        echo "  calibrate start 1000 verbose          # 1000 samples per phase and verbose CSI data"
-        echo "  calibrate status"
-        echo "  calibrate stop"
-        echo ""
-        echo "Note: Estimated duration = samples / traffic_rate"
-        echo "      Example: 1000 samples @ 20pps = ~50 seconds per phase"
-        return 1
-    fi
-    
-    case "$action" in
-        start)
-            samples="${samples:-1000}"
-            
-            print_warning "⚠️  Calibration will start in 10 seconds!"
-            print_warning "📋 Please EXIT the room NOW!"
-            echo ""
-            
-            # Countdown timer
-            for i in 10 9 8 7 6 5 4 3 2 1; do
-                print_info "⏱️  Starting in $i seconds..."
-                sleep 1
-            done
-            
-            echo ""
-            
-            # Check if verbose is explicitly "verbose" to enable CSI data logging
-            if [ "$verbose" = "verbose" ]; then
-                print_success "🎯 Starting calibration with CSI data logging (${samples} samples per phase)..."
-                print_info "📋 CSI data will be logged to device console"
-                print_info "   Format: CSI|PHASE|val1,val2,...,val128"
-                send_command "{\"cmd\":\"calibrate\",\"action\":\"start\",\"samples\":$samples,\"verbose\":true}"
-            else
-                print_success "🎯 Starting calibration (${samples} samples per phase)..."
-                send_command "{\"cmd\":\"calibrate\",\"action\":\"start\",\"samples\":$samples,\"verbose\":false}"
-            fi
-            ;;
-        stop)
-            send_command "{\"cmd\":\"calibrate\",\"action\":\"stop\"}"
-            ;;
-        status)
-            send_command "{\"cmd\":\"calibrate\",\"action\":\"status\"}"
-            ;;
-        *)
-            print_error "Unknown calibration action: $action"
-            echo "Use: start, stop, or status"
-            return 1
-            ;;
-    esac
 }
 
 cmd_factory_reset() {
@@ -446,14 +287,9 @@ show_help() {
     echo ""
     echo -e "${CYAN}ESPectre CLI - Interactive Commands${NC}"
     echo ""
-    echo -e "${YELLOW}Threshold Commands:${NC}"
-    echo "  detection_threshold <val>    Set detection threshold (0.0-1.0)"
+    echo -e "${YELLOW}Segmentation Commands:${NC}"
     echo "  segmentation_threshold <val> Set segmentation threshold (0.5-10.0)"
-    echo ""
-    echo -e "${YELLOW}Detection Commands:${NC}"
-    echo "  persistence <sec>         Set persistence timeout (1-30 seconds)"
-    echo "  debounce <count>          Set debounce count (1-10)"
-    echo "  hysteresis <ratio>        Set hysteresis ratio (0.1-1.0)"
+    echo "  features_enable <on|off>  Enable/disable feature extraction during MOTION"
     echo ""
     echo -e "${YELLOW}Filter Commands:${NC}"
     echo "  butterworth_filter <on|off> Enable/disable Butterworth filter (high freq)"
@@ -463,47 +299,25 @@ show_help() {
     echo "  hampel_filter <on|off>    Enable/disable Hampel outlier filter"
     echo "  hampel_threshold <val>    Set Hampel threshold (1.0-10.0)"
     echo "  savgol_filter <on|off>    Enable/disable Savitzky-Golay filter"
-    echo "  adaptive_normalizer <on|off> Enable/disable adaptive normalizer"
-    echo "  adaptive_normalizer_alpha <val> Set learning rate (0.001-0.1)"
-    echo "  adaptive_normalizer_reset_timeout <sec> Set auto-reset timeout (0-300)"
-    echo "  adaptive_normalizer_stats Show normalizer statistics"
     echo ""
     echo -e "${YELLOW}State Commands:${NC}"
     echo "  smart_publishing <on|off> Enable/disable smart publishing"
     echo ""
     echo -e "${YELLOW}Information Commands:${NC}"
-    echo "  stats                     Show CSI statistics"
-    echo "  info                      Show current configuration"
-    echo "  features                  Show all extracted CSI features (with weights if calibrated)"
-    echo "  logs <on|off>             Enable/disable CSI logs"
-    echo ""
-    echo -e "${YELLOW}Calibration Commands:${NC}"
-    echo "  calibrate start [samples] [verbose]  Start calibration (default: 1000 samples/phase)"
-    echo "                                    If dir provided, saves CSI raw data"
-    echo "  calibrate stop                   Stop calibration"
-    echo "  calibrate status                 Get calibration status"
-    echo ""
-    echo "  Examples:"
-    echo "    calibrate start                # Normal calibration"
-    echo "    calibrate start 500            # 500 samples per phase"
-    echo "    calibrate start 1000 verbose      # Log CSI data to device console"
-    echo ""
-    echo "  Note: Duration = samples / traffic_rate (e.g., 1000 @ 20pps = ~50s)"
-    echo "        With 'save': CSI data logged to device console (use idf.py monitor)"
+    echo "  info                      Show current configuration (static)"
+    echo "  stats                     Show runtime statistics (dynamic)"
     echo ""
     echo -e "${YELLOW}Traffic Generator:${NC}"
     echo "  traffic_generator_rate <pps> Set traffic rate (0=off, 5-100, rec: 20)"
-    echo "  Note: Required for calibration (min: 5 pps, max: 100 pps)"
     echo ""
     echo -e "${YELLOW}Utility Commands:${NC}"
-    echo "  analyze                   Analyze data and suggest threshold"
     echo "  factory_reset             Reset all settings to factory defaults"
     echo "  clear                     Clear screen"
     echo "  help                      Show this help message"
     echo "  exit, quit                Exit interactive mode"
     echo ""
     echo -e "${YELLOW}Shortcuts:${NC}"
-    echo "  dt, st, s, i, l, a, f, p, d, hampel, sg, bw, wv, wvl, wvt, sp, cal, c"
+    echo "  st, fe, i, s, hampel, sg, bw, wv, wvl, wvt, sp, tgr, fr"
     echo ""
     echo -e "${YELLOW}Environment Variables:${NC}"
     echo "  MQTT_BROKER               MQTT broker hostname (default: homeassistant.local)"
@@ -529,35 +343,17 @@ process_command() {
     local args=$(echo "$input" | cut -d' ' -f2- -s)
     
     case "$cmd" in
-        detection_threshold|dt)
-            cmd_detection_threshold $args
-            ;;
         segmentation_threshold|st)
             cmd_segmentation_threshold $args
             ;;
-        stats|s)
-            cmd_stats
+        features_enable|fe)
+            cmd_features_enable $args
             ;;
         info|i)
             cmd_info
             ;;
-        logs|l)
-            cmd_logs $args
-            ;;
-        analyze|a)
-            cmd_analyze
-            ;;
-        persistence|p)
-            cmd_persistence $args
-            ;;
-        debounce|d)
-            cmd_debounce $args
-            ;;
-        hysteresis|hyst)
-            cmd_hysteresis $args
-            ;;
-        features|f)
-            cmd_features
+        stats|s)
+            cmd_stats
             ;;
         hampel_filter|hampel)
             cmd_hampel_filter $args
@@ -583,23 +379,8 @@ process_command() {
         smart_publishing|smart|sp)
             cmd_smart_publishing $args
             ;;
-        adaptive_normalizer|an)
-            cmd_adaptive_normalizer $args
-            ;;
-        adaptive_normalizer_alpha|ana)
-            cmd_adaptive_normalizer_alpha $args
-            ;;
-        adaptive_normalizer_reset_timeout|anrt)
-            cmd_adaptive_normalizer_reset_timeout $args
-            ;;
-        adaptive_normalizer_stats|ans)
-            cmd_adaptive_normalizer_stats
-            ;;
         traffic_generator_rate|tgr|traffic)
             cmd_traffic_generator_rate $args
-            ;;
-        calibrate|cal|c)
-            cmd_calibrate $args
             ;;
         factory_reset|reset|fr)
             cmd_factory_reset

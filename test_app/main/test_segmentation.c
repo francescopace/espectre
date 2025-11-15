@@ -35,7 +35,8 @@ TEST_CASE_ESP(segmentation_init, "[segmentation]")
     TEST_ASSERT_EQUAL(SEG_STATE_IDLE, ctx.state);
     TEST_ASSERT_EQUAL(0, ctx.buffer_count);
     TEST_ASSERT_EQUAL(0, ctx.num_segments);
-    TEST_ASSERT_FALSE(ctx.threshold_calibrated);
+    // Threshold is now initialized with default value, not calibrated
+    TEST_ASSERT_TRUE(ctx.adaptive_threshold > 0.0f);
     TEST_ASSERT_FALSE(ctx.calibrating);
 }
 

@@ -5,7 +5,7 @@
  * - Butterworth low-pass filter (removes high frequency noise >8Hz)
  * - Hampel filter (outlier detection and removal)
  * - Savitzky-Golay filter (smoothing while preserving shape)
- * - Adaptive normalizer (tracks running mean and variance)
+ * - Wavelet denoising (optional, high computational cost)
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -36,15 +36,6 @@ typedef struct {
     bool initialized;
 } butterworth_filter_t;
 
-// Adaptive normalizer state
-typedef struct {
-    float running_mean;
-    float running_variance;
-    size_t sample_count;
-    float alpha;
-    bool initialized;
-} adaptive_normalizer_t;
-
 // Filter buffer for windowed operations
 typedef struct {
     float data[SAVGOL_WINDOW_SIZE];
@@ -55,13 +46,12 @@ typedef struct {
 // Filter configuration
 typedef struct {
     bool butterworth_enabled;
-    bool wavelet_enabled;           // NEW: Wavelet denoising
-    int wavelet_level;              // NEW: Decomposition level (1-3)
-    float wavelet_threshold;        // NEW: Noise threshold
+    bool wavelet_enabled;           // Wavelet denoising (optional, high cost)
+    int wavelet_level;              // Decomposition level (1-3)
+    float wavelet_threshold;        // Noise threshold
     bool hampel_enabled;
     float hampel_threshold;
     bool savgol_enabled;
-    bool adaptive_normalizer_enabled;
 } filter_config_t;
 
 /**
@@ -106,33 +96,6 @@ float hampel_filter(const float *window, size_t window_size,
 float savitzky_golay_filter(const float *window, size_t window_size);
 
 /**
- * Initialize adaptive normalizer
- * 
- * @param norm Pointer to normalizer state
- * @param alpha Learning rate (typically 0.01)
- */
-void adaptive_normalizer_init(adaptive_normalizer_t *norm, float alpha);
-
-/**
- * Update adaptive normalizer with new sample
- * Uses Welford's algorithm for online variance calculation
- * 
- * @param norm Pointer to normalizer state
- * @param value New sample value
- */
-void adaptive_normalizer_update(adaptive_normalizer_t *norm, float value);
-
-/**
- * Get current normalizer statistics
- * 
- * @param norm Pointer to normalizer state
- * @param mean Output: current running mean
- * @param variance Output: current running variance
- */
-void adaptive_normalizer_get_stats(const adaptive_normalizer_t *norm, 
-                                   float *mean, float *variance);
-
-/**
  * Initialize filter buffer
  * 
  * @param fb Pointer to filter buffer
@@ -161,21 +124,19 @@ void filter_buffer_get_window(const filter_buffer_t *fb, float *window,
 
 /**
  * Apply complete filter pipeline
- * Applies filters in sequence: Butterworth -> Wavelet -> Hampel -> Savitzky-Golay -> Normalization
+ * Applies filters in sequence: Butterworth -> Wavelet -> Hampel -> Savitzky-Golay
  * 
  * @param raw_value Input sample
  * @param config Filter configuration
  * @param butterworth Butterworth filter state
- * @param wavelet Wavelet filter state (NEW)
+ * @param wavelet Wavelet filter state
  * @param buffer Filter buffer for windowed operations
- * @param normalizer Adaptive normalizer state
- * @return Filtered and normalized value
+ * @return Filtered value
  */
 float apply_filter_pipeline(float raw_value, 
                             const filter_config_t *config,
                             butterworth_filter_t *butterworth,
                             wavelet_state_t *wavelet,
-                            filter_buffer_t *buffer,
-                            adaptive_normalizer_t *normalizer);
+                            filter_buffer_t *buffer);
 
 #endif // FILTERS_H

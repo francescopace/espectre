@@ -169,54 +169,6 @@ float savitzky_golay_filter(const float *window, size_t window_size) {
     return result;
 }
 
-void adaptive_normalizer_init(adaptive_normalizer_t *norm, float alpha) {
-    if (!norm) {
-        ESP_LOGE(TAG, "adaptive_normalizer_init: NULL normalizer pointer");
-        return;
-    }
-    
-    norm->running_mean = 0.0f;
-    norm->running_variance = 1.0f;
-    norm->sample_count = 0;
-    norm->alpha = alpha;
-    norm->initialized = false;
-}
-
-void adaptive_normalizer_update(adaptive_normalizer_t *norm, float value) {
-    if (!norm) {
-        ESP_LOGE(TAG, "adaptive_normalizer_update: NULL normalizer pointer");
-        return;
-    }
-    
-    if (!norm->initialized) {
-        norm->running_mean = value;
-        norm->running_variance = 1.0f;
-        norm->initialized = true;
-        norm->sample_count = 1;
-        return;
-    }
-    
-    // Welford's algorithm for online variance
-    float delta = value - norm->running_mean;
-    norm->running_mean += norm->alpha * delta;
-    
-    float delta2 = value - norm->running_mean;
-    norm->running_variance = (1.0f - norm->alpha) * norm->running_variance + 
-                             norm->alpha * delta * delta2;
-    
-    norm->sample_count++;
-}
-
-void adaptive_normalizer_get_stats(const adaptive_normalizer_t *norm, 
-                                   float *mean, float *variance) {
-    if (!norm || !mean || !variance) {
-        ESP_LOGE(TAG, "adaptive_normalizer_get_stats: NULL pointer");
-        return;
-    }
-    
-    *mean = norm->running_mean;
-    *variance = norm->running_variance;
-}
 
 void filter_buffer_init(filter_buffer_t *fb) {
     if (!fb) {
@@ -302,9 +254,8 @@ float apply_filter_pipeline(float raw_value,
                             const filter_config_t *config,
                             butterworth_filter_t *butterworth,
                             wavelet_state_t *wavelet,
-                            filter_buffer_t *buffer,
-                            adaptive_normalizer_t *normalizer) {
-    if (!config || !butterworth || !wavelet || !buffer || !normalizer) {
+                            filter_buffer_t *buffer) {
+    if (!config || !butterworth || !wavelet || !buffer) {
         ESP_LOGE(TAG, "apply_filter_pipeline: NULL pointer in parameters");
         return raw_value;
     }
@@ -343,13 +294,6 @@ float apply_filter_pipeline(float raw_value,
             window[window_size - 1] = filtered_value;
         }
         filtered_value = savitzky_golay_filter(window, window_size);
-    }
-    
-    // Step 5: Adaptive normalization tracks the signal's baseline (only if enabled)
-    // IMPORTANT: Do not update normalizer if disabled (e.g. during calibration)
-    // Otherwise it contaminates the collected data even when supposedly disabled
-    if (config->adaptive_normalizer_enabled) {
-        adaptive_normalizer_update(normalizer, filtered_value);
     }
     
     return filtered_value;

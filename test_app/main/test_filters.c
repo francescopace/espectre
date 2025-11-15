@@ -1,7 +1,7 @@
 /*
  * ESPectre - Filter Unit Tests
  * 
- * Tests for Butterworth, Hampel, Savitzky-Golay, and Adaptive Normalizer
+ * Tests for Butterworth, Hampel and Savitzky-Golay
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -13,51 +13,6 @@
 #include <math.h>
 #include <string.h>
 
-// Test: Adaptive normalizer should not update when disabled
-TEST_CASE_ESP(adaptive_normalizer_respects_enabled_flag, "[filters]")
-{
-    adaptive_normalizer_t norm = {0};
-    adaptive_normalizer_init(&norm, 0.01f);
-    
-    butterworth_filter_t butterworth = {0};
-    wavelet_state_t wavelet = {0};
-    wavelet_init(&wavelet, 3, 1.0f, WAVELET_THRESH_SOFT);
-    filter_buffer_t buffer = {0};
-    filter_buffer_init(&buffer);
-    
-    // Test with normalizer DISABLED
-    filter_config_t config_disabled = {
-        .butterworth_enabled = false,
-        .wavelet_enabled = false,
-        .wavelet_level = 3,
-        .wavelet_threshold = 1.0f,
-        .hampel_enabled = false,
-        .savgol_enabled = false,
-        .adaptive_normalizer_enabled = false  // DISABLED
-    };
-    
-    // Apply filter pipeline
-    apply_filter_pipeline(1.0f, &config_disabled, &butterworth, &wavelet, &buffer, &norm);
-    
-    // Normalizer should NOT have been updated
-    TEST_ASSERT_EQUAL(0, norm.sample_count);
-    
-    // Test with normalizer ENABLED
-    filter_config_t config_enabled = {
-        .butterworth_enabled = false,
-        .wavelet_enabled = false,
-        .wavelet_level = 3,
-        .wavelet_threshold = 1.0f,
-        .hampel_enabled = false,
-        .savgol_enabled = false,
-        .adaptive_normalizer_enabled = true  // ENABLED
-    };
-    
-    apply_filter_pipeline(1.0f, &config_enabled, &butterworth, &wavelet, &buffer, &norm);
-    
-    // Normalizer SHOULD have been updated
-    TEST_ASSERT_GREATER_THAN(0, norm.sample_count);
-}
 
 // Test: Butterworth filter initialization
 TEST_CASE_ESP(butterworth_filter_initialization, "[filters]")
@@ -103,24 +58,6 @@ TEST_CASE_ESP(filter_buffer_operations, "[filters]")
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 2.0f, window[2]);
 }
 
-// Test: Adaptive normalizer updates correctly
-TEST_CASE_ESP(adaptive_normalizer_update, "[filters]")
-{
-    adaptive_normalizer_t norm;
-    adaptive_normalizer_init(&norm, 0.1f);
-    
-    // Feed some values
-    for (int i = 0; i < 10; i++) {
-        adaptive_normalizer_update(&norm, 5.0f);
-    }
-    
-    float mean, variance;
-    adaptive_normalizer_get_stats(&norm, &mean, &variance);
-    
-    // Mean should converge toward 5.0
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, 5.0f, mean);
-    TEST_ASSERT_EQUAL(10, norm.sample_count);
-}
 
 // Test: Complete filter pipeline with wavelet
 TEST_CASE_ESP(filter_pipeline_with_wavelet_integration, "[filters]")
@@ -130,8 +67,6 @@ TEST_CASE_ESP(filter_pipeline_with_wavelet_integration, "[filters]")
     wavelet_init(&wavelet, 3, 1.0f, WAVELET_THRESH_SOFT);
     filter_buffer_t buffer = {0};
     filter_buffer_init(&buffer);
-    adaptive_normalizer_t norm = {0};
-    adaptive_normalizer_init(&norm, 0.01f);
     
     filter_config_t config = {
         .butterworth_enabled = true,
@@ -140,14 +75,13 @@ TEST_CASE_ESP(filter_pipeline_with_wavelet_integration, "[filters]")
         .wavelet_threshold = 1.0f,
         .hampel_enabled = true,
         .hampel_threshold = 2.0f,
-        .savgol_enabled = true,
-        .adaptive_normalizer_enabled = false
+        .savgol_enabled = true
     };
     
     // Apply pipeline with noisy input
     float noisy_input = 10.0f;
     float filtered = apply_filter_pipeline(noisy_input, &config, &butterworth, 
-                                          &wavelet, &buffer, &norm);
+                                          &wavelet, &buffer);
     
     // Output should be valid
     TEST_ASSERT_FALSE(isnan(filtered));
@@ -162,8 +96,6 @@ TEST_CASE_ESP(filter_pipeline_with_wavelet_disabled, "[filters]")
     wavelet_init(&wavelet, 3, 1.0f, WAVELET_THRESH_SOFT);
     filter_buffer_t buffer = {0};
     filter_buffer_init(&buffer);
-    adaptive_normalizer_t norm = {0};
-    adaptive_normalizer_init(&norm, 0.01f);
     
     filter_config_t config = {
         .butterworth_enabled = true,
@@ -171,14 +103,13 @@ TEST_CASE_ESP(filter_pipeline_with_wavelet_disabled, "[filters]")
         .wavelet_level = 3,
         .wavelet_threshold = 1.0f,
         .hampel_enabled = false,
-        .savgol_enabled = false,
-        .adaptive_normalizer_enabled = false
+        .savgol_enabled = false
     };
     
     // Apply pipeline
     float input = 5.0f;
     float filtered = apply_filter_pipeline(input, &config, &butterworth, 
-                                          &wavelet, &buffer, &norm);
+                                          &wavelet, &buffer);
     
     // Should work fine with wavelet disabled
     TEST_ASSERT_FALSE(isnan(filtered));
