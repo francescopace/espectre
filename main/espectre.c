@@ -169,17 +169,22 @@ static inline int64_t get_timestamp_sec(void) {
 // Build UTF-8 progress bar with threshold marker
 static void format_progress_bar(char *buffer, size_t size, float score, float threshold) {
     const int bar_width = 20;
-    int filled = (int)(score * bar_width);
-    int threshold_pos = (int)(threshold * bar_width);
     int percent = (int)(score * 100);
     
-    // Clamp values
+    // For segmentation: score is already normalized (moving_variance / adaptive_threshold)
+    // So score=1.0 means we're at 100% of threshold
+    // We want to fill the bar up to the threshold marker (position 10)
+    // and continue beyond if score > 1.0
+    
+    // Calculate filled blocks: score * 10 (since threshold is at position 10)
+    int filled = (int)(score * 10.0f);
+    
+    // Clamp filled to bar width
     if (filled < 0) filled = 0;
     if (filled > bar_width) filled = bar_width;
     
-    // For segmentation: threshold is always at 100% (middle of bar = position 10)
-    // This makes the threshold marker always visible
-    threshold_pos = bar_width / 2;  // Position 10 (middle of 20-char bar)
+    // Threshold marker always at middle (position 10 = 100%)
+    int threshold_pos = bar_width / 2;  // Position 10
     
     // Build bar directly in output buffer
     int pos = 0;

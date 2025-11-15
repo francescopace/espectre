@@ -224,7 +224,6 @@ static void cmd_info(cJSON *root) {
     cJSON_AddNumberToObject(segmentation, "k_factor", (double)SEGMENTATION_K_FACTOR);
     cJSON_AddNumberToObject(segmentation, "min_length", SEGMENTATION_MIN_LENGTH);
     cJSON_AddNumberToObject(segmentation, "max_length", SEGMENTATION_MAX_LENGTH);
-    cJSON_AddBoolToObject(segmentation, "calibrated", g_cmd_context->segmentation->threshold_calibrated);
     cJSON_AddNumberToObject(segmentation, "total_segments", g_cmd_context->segmentation->total_segments_detected);
     cJSON_AddItemToObject(response, "segmentation", segmentation);
     

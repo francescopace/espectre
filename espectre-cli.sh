@@ -154,16 +154,30 @@ send_toggle_command() {
     fi
 }
 
-cmd_threshold() {
+cmd_detection_threshold() {
     local value="$1"
     
     if [ -z "$value" ]; then
-        print_error "Usage: threshold <value>"
-        echo "  Example: threshold 0.05"
+        print_error "Usage: detection_threshold <value>"
+        echo "  Range: 0.0-1.0 (detection threshold)"
+        echo "  Example: detection_threshold 0.4"
         return 1
     fi
     
-    send_command "{\"cmd\":\"threshold\",\"value\":$value}"
+    send_command "{\"cmd\":\"detection_threshold\",\"value\":$value}"
+}
+
+cmd_segmentation_threshold() {
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: segmentation_threshold <value>"
+        echo "  Range: 0.5-10.0 (MVS adaptive threshold)"
+        echo "  Example: segmentation_threshold 2.5"
+        return 1
+    fi
+    
+    send_command "{\"cmd\":\"segmentation_threshold\",\"value\":$value}"
 }
 
 cmd_stats() {
@@ -432,8 +446,11 @@ show_help() {
     echo ""
     echo -e "${CYAN}ESPectre CLI - Interactive Commands${NC}"
     echo ""
+    echo -e "${YELLOW}Threshold Commands:${NC}"
+    echo "  detection_threshold <val>    Set detection threshold (0.0-1.0)"
+    echo "  segmentation_threshold <val> Set segmentation threshold (0.5-10.0)"
+    echo ""
     echo -e "${YELLOW}Detection Commands:${NC}"
-    echo "  threshold <value>         Set detection threshold (0.0-1.0)"
     echo "  persistence <sec>         Set persistence timeout (1-30 seconds)"
     echo "  debounce <count>          Set debounce count (1-10)"
     echo "  hysteresis <ratio>        Set hysteresis ratio (0.1-1.0)"
@@ -486,7 +503,7 @@ show_help() {
     echo "  exit, quit                Exit interactive mode"
     echo ""
     echo -e "${YELLOW}Shortcuts:${NC}"
-    echo "  t, s, i, l, a, f, gs, hampel, sg, bw, wv, wvl, wvt, sp, cal, c"
+    echo "  dt, st, s, i, l, a, f, p, d, hampel, sg, bw, wv, wvl, wvt, sp, cal, c"
     echo ""
     echo -e "${YELLOW}Environment Variables:${NC}"
     echo "  MQTT_BROKER               MQTT broker hostname (default: homeassistant.local)"
@@ -512,8 +529,11 @@ process_command() {
     local args=$(echo "$input" | cut -d' ' -f2- -s)
     
     case "$cmd" in
-        threshold|t)
-            cmd_threshold $args
+        detection_threshold|dt)
+            cmd_detection_threshold $args
+            ;;
+        segmentation_threshold|st)
+            cmd_segmentation_threshold $args
             ;;
         stats|s)
             cmd_stats
