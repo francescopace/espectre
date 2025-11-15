@@ -155,15 +155,6 @@ static bool validate_config_data(nvs_config_data_t *config) {
         valid = false;
     }
     
-    // Validate variance scale
-    if (!is_valid_float(config->variance_scale) || 
-        config->variance_scale < 100.0f || 
-        config->variance_scale > 2000.0f) {
-        ESP_LOGW(TAG, "Invalid variance_scale: %.0f, using default", config->variance_scale);
-        config->variance_scale = 400.0f;
-        valid = false;
-    }
-    
     // Validate hampel threshold
     if (!is_valid_float(config->hampel_threshold) || 
         config->hampel_threshold < 1.0f || 

@@ -208,7 +208,6 @@ Responses are published to: `<your_topic>/response`
 | `debounce` | int (1-10) | Set consecutive detections needed | `{"cmd": "debounce", "value": 3}` |
 | `persistence` | int (1-30) | Timeout in seconds before downgrading state | `{"cmd": "persistence", "value": 3}` |
 | `hysteresis` | float (0.1-1.0) | Ratio for threshold hysteresis | `{"cmd": "hysteresis", "value": 0.7}` |
-| `variance_scale` | float (100-2000) | Variance normalization scale | `{"cmd": "variance_scale", "value": 400}` |
 | `butterworth_filter` | bool | Enable/disable Butterworth low-pass filter (8Hz cutoff) | `{"cmd": "butterworth_filter", "enabled": true}` |
 | `wavelet_filter` | bool | Enable/disable Wavelet db4 filter (low-freq noise) | `{"cmd": "wavelet_filter", "enabled": true}` |
 | `wavelet_level` | int (1-3) | Wavelet decomposition level (3=max denoising) | `{"cmd": "wavelet_level", "value": 3}` |
@@ -250,8 +249,7 @@ The `info` command returns a comprehensive JSON object organized into logical gr
     "threshold": 0.4,
     "debounce": 3,
     "persistence_timeout": 5,
-    "hysteresis_ratio": 0.8,
-    "variance_scale": 500.0
+    "hysteresis_ratio": 0.8
   },
   "filters": {
     "butterworth_enabled": true,

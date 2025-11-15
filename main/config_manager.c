@@ -17,7 +17,6 @@ static const char *TAG = "Config_Manager";
 #define DEFAULT_DEBOUNCE_COUNT 10          // Increased from 3 to reduce false positives
 #define DEFAULT_HYSTERESIS_RATIO 0.7f
 #define DEFAULT_PERSISTENCE_TIMEOUT 3
-#define DEFAULT_VARIANCE_SCALE 600.0f     // Increased from 400 for high-variance environments
 #define DEFAULT_HAMPEL_THRESHOLD 3.0f     // Increased from 2.0 for better outlier tolerance
 #define DEFAULT_SAVGOL_WINDOW 5
 
@@ -30,7 +29,6 @@ static inline void config_to_nvs(nvs_config_data_t *nvs_cfg, const runtime_confi
     nvs_cfg->debounce_count = config->debounce_count;
     nvs_cfg->hysteresis_ratio = config->hysteresis_ratio;
     nvs_cfg->persistence_timeout = config->persistence_timeout;
-    nvs_cfg->variance_scale = config->variance_scale;
     memcpy(nvs_cfg->feature_weights, config->feature_weights, sizeof(config->feature_weights));
     nvs_cfg->hampel_filter_enabled = config->hampel_filter_enabled;
     nvs_cfg->hampel_threshold = config->hampel_threshold;
@@ -52,7 +50,6 @@ static inline void nvs_to_config(runtime_config_t *config, const nvs_config_data
     config->debounce_count = nvs_cfg->debounce_count;
     config->hysteresis_ratio = nvs_cfg->hysteresis_ratio;
     config->persistence_timeout = nvs_cfg->persistence_timeout;
-    config->variance_scale = nvs_cfg->variance_scale;
     memcpy(config->feature_weights, nvs_cfg->feature_weights, sizeof(config->feature_weights));
     config->hampel_filter_enabled = nvs_cfg->hampel_filter_enabled;
     config->hampel_threshold = nvs_cfg->hampel_threshold;
@@ -82,7 +79,6 @@ void config_init_defaults(runtime_config_t *config) {
     config->debounce_count = DEFAULT_DEBOUNCE_COUNT;
     config->hysteresis_ratio = DEFAULT_HYSTERESIS_RATIO;
     config->persistence_timeout = DEFAULT_PERSISTENCE_TIMEOUT;
-    config->variance_scale = DEFAULT_VARIANCE_SCALE;
     
     // Default feature weights (optimized based on real-world testing)
     // Based on automatic calibration results with Modified Fisher criterion

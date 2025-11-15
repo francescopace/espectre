@@ -219,19 +219,6 @@ cmd_hysteresis() {
     send_command "{\"cmd\":\"hysteresis\",\"value\":$value}"
 }
 
-cmd_variance_scale() {
-    local value="$1"
-    
-    if [ -z "$value" ]; then
-        print_error "Usage: variance_scale <value>"
-        echo "  Example: variance_scale 400"
-        echo "  Lower values = higher sensitivity"
-        return 1
-    fi
-    
-    send_command "{\"cmd\":\"variance_scale\",\"value\":$value}"
-}
-
 cmd_features() {
     send_command "{\"cmd\":\"features\"}"
 }
@@ -450,7 +437,6 @@ show_help() {
     echo "  persistence <sec>         Set persistence timeout (1-30 seconds)"
     echo "  debounce <count>          Set debounce count (1-10)"
     echo "  hysteresis <ratio>        Set hysteresis ratio (0.1-1.0)"
-    echo "  variance_scale <val>      Set variance scale (100-2000)"
     echo ""
     echo -e "${YELLOW}Filter Commands:${NC}"
     echo "  butterworth_filter <on|off> Enable/disable Butterworth filter (high freq)"
@@ -549,9 +535,6 @@ process_command() {
             ;;
         hysteresis|hyst)
             cmd_hysteresis $args
-            ;;
-        variance_scale|var|sensitivity)
-            cmd_variance_scale $args
             ;;
         features|f)
             cmd_features

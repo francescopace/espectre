@@ -32,7 +32,6 @@ typedef struct {
     uint8_t debounce_count;
     float hysteresis_ratio;
     int persistence_timeout;
-    float variance_scale;
     
     // Feature weights array (for both default and calibrated detection)
     // Indices: 0=variance, 1=skewness, 2=kurtosis, 3=entropy, 4=iqr,

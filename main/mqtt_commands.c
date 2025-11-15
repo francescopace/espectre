@@ -19,8 +19,6 @@ static const char *TAG = "MQTT_Commands";
 // Parameter validation constants (THRESHOLD_MIN/MAX defined in calibration.h)
 #define HYSTERESIS_MIN          0.1f
 #define HYSTERESIS_MAX          1.0f
-#define VARIANCE_SCALE_MIN      100.0f
-#define VARIANCE_SCALE_MAX      2000.0f
 #define HAMPEL_THRESHOLD_MIN    1.0f
 #define HAMPEL_THRESHOLD_MAX    10.0f
 #define ALPHA_MIN               0.001f
@@ -191,7 +189,6 @@ static void cmd_info(cJSON *root) {
     cJSON_AddNumberToObject(detection, "debounce", g_cmd_context->config->debounce_count);
     cJSON_AddNumberToObject(detection, "persistence_timeout", g_cmd_context->config->persistence_timeout);
     cJSON_AddNumberToObject(detection, "hysteresis_ratio", (double)g_cmd_context->config->hysteresis_ratio);
-    cJSON_AddNumberToObject(detection, "variance_scale", (double)g_cmd_context->config->variance_scale);
     cJSON_AddItemToObject(response, "detection", detection);
     
     // Traffic generator
@@ -334,25 +331,6 @@ static void cmd_hysteresis(cJSON *root) {
     }
 }
 
-static void cmd_variance_scale(cJSON *root) {
-    float new_scale;
-    if (get_float_param(root, "value", &new_scale, VARIANCE_SCALE_MIN, VARIANCE_SCALE_MAX,
-                       "ERROR: Variance scale must be between 100 and 2000")) {
-        float old_scale = g_cmd_context->config->variance_scale;
-        g_cmd_context->config->variance_scale = new_scale;
-        
-        char response[256];
-        snprintf(response, sizeof(response), 
-                 "Variance scale updated: %.0f -> %.0f (sensitivity %s)", 
-                 old_scale, new_scale,
-                 new_scale < old_scale ? "increased" : "decreased");
-        send_response(response);
-        ESP_LOGI(TAG, "%s", response);
-        
-        config_save_to_nvs(g_cmd_context->config, *g_cmd_context->threshold_high, 
-                         *g_cmd_context->threshold_low);
-    }
-}
 
 // Helper function to check if a feature is selected and get its weight
 static bool is_feature_selected(uint8_t feat_idx, uint8_t num_selected, 
@@ -861,7 +839,6 @@ static const command_entry_t command_table[] = {
     {"persistence", cmd_persistence},
     {"debounce", cmd_debounce},
     {"hysteresis", cmd_hysteresis},
-    {"variance_scale", cmd_variance_scale},
     {"features", cmd_features},
     {"hampel_filter", cmd_hampel_filter},
     {"hampel_threshold", cmd_hampel_threshold},

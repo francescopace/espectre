@@ -179,7 +179,7 @@ Instead of manually tuning weights and thresholds, the auto-calibration:
 
 ### Benefits
 
-- ⚡ **30-40% faster** - extracts only 4-6 features instead of 15
+- ⚡ **30-40% faster** - extracts only 4-6 features instead of 10
 - 💾 **60% RAM savings** - smaller feature buffers
 - 🎯 **Environment-specific** - optimized for YOUR room
 - ✅ **Zero manual tuning** - fully automatic
@@ -675,19 +675,6 @@ espectre> hysteresis 0.7
 
 ### Signal Processing
 
-#### Variance Scale
-**What it does:** Normalization scale for variance feature (affects overall sensitivity)
-
-**Default:** 400
-
-**When to adjust:**
-- **Lower (200-300):** Higher sensitivity (more responsive)
-- **Higher (500-800):** Lower sensitivity (fewer false positives)
-
-**Interactive CLI:**
-```
-espectre> variance_scale 400
-```
 
 #### Hampel Filter (Outlier Removal)
 **What it does:** Removes statistical outliers using Median Absolute Deviation
@@ -965,9 +952,10 @@ espectre> features
 - Weights sum to 1.0 across all selected features
 - After auto-calibration, the system automatically selects the 4-6 most discriminant features
 
-**Available features (8 total):**
+**Available features (10 total):**
 - **Time-domain** (5): variance, skewness, kurtosis, entropy, iqr
 - **Spatial** (3): variance, correlation, gradient
+- **Temporal** (2): delta_mean, delta_variance
 
 ---
 
@@ -1043,11 +1031,6 @@ mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
    - Check for moving curtains or plants
    - Verify no pets in the room
 
-5. **Increase variance scale (reduce sensitivity):**
-   ```
-   espectre> variance_scale 600
-   ```
-
 ### Scenario 3: Missing Movements
 
 **Symptoms:**
@@ -1067,12 +1050,7 @@ mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
    - Ensure external antenna is connected
    - Try different height (1-1.5m)
 
-3. **Decrease variance scale (increase sensitivity):**
-   ```
-   espectre> variance_scale 300
-   ```
-
-4. **Verify Wi-Fi signal strength:**
+3. **Verify Wi-Fi signal strength:**
    ```bash
    idf.py monitor
    # Look for RSSI values > -70 dBm
@@ -1228,7 +1206,6 @@ This provides slower adaptation with regular resets to prevent degradation.
 espectre> threshold 0.30
 espectre> debounce 2
 espectre> persistence 3
-espectre> variance_scale 300
 espectre> hampel_filter on
 ```
 
@@ -1250,7 +1227,6 @@ espectre> hampel_filter on
 espectre> threshold 0.45
 espectre> debounce 3
 espectre> persistence 5
-espectre> variance_scale 500
 espectre> hampel_filter on
 espectre> hampel_threshold 3.0
 ```
@@ -1294,7 +1270,6 @@ espectre> threshold 0.40
 espectre> debounce 2
 espectre> persistence 2
 espectre> hysteresis 0.8
-espectre> variance_scale 400
 ```
 
 **Expected Performance:**
@@ -1314,7 +1289,6 @@ espectre> variance_scale 400
 espectre> threshold 0.25
 espectre> debounce 2
 espectre> persistence 3
-espectre> variance_scale 300
 espectre> hampel_filter on
 ```
 

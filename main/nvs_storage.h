@@ -21,7 +21,7 @@
 
 // Versioning for future compatibility
 #define NVS_CALIBRATION_VERSION 1
-#define NVS_CONFIG_VERSION 3
+#define NVS_CONFIG_VERSION 4  // Incremented: removed unused variance_scale parameter
 
 // Maximum sizes
 #define MAX_SELECTED_FEATURES 6
@@ -47,7 +47,6 @@ typedef struct {
     uint8_t debounce_count;
     float hysteresis_ratio;
     int persistence_timeout;
-    float variance_scale;
     
     // Feature weights array
     // Indices: 0=variance, 1=skewness, 2=kurtosis, 3=entropy, 4=iqr,
