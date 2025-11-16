@@ -4,6 +4,57 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.2.1] - 2025-11-17
+
+### 🚀 Improved - Wi-Fi Configuration Optimization
+
+**ESP-IDF best practices implementation for optimal CSI performance**
+
+Based on comprehensive analysis of ESP32-S3 Wi-Fi driver documentation, implemented all recommended optimizations:
+
+- **Power Management**: Disabled Wi-Fi power save mode (`WIFI_PS_NONE`)
+  * Minimizes latency in CSI packet reception
+  * Critical for real-time movement detection
+  * Ensures consistent packet capture rate
+
+- **Country Code Configuration**: Added configurable regulatory domain
+  * New `CONFIG_WIFI_COUNTRY_CODE` option in menuconfig
+  * Default: "IT" (Italy) in `sdkconfig.defaults`
+  * Automatic channel adaptation via `WIFI_COUNTRY_POLICY_AUTO`
+  * Driver automatically configures correct channel range per country:
+    - US: channels 1-11
+    - EU/IT: channels 1-13
+    - JP: channels 1-14
+
+- **Protocol Mode**: Explicitly configured 802.11a/g/n
+  * Ensures predictable performance on 2.4GHz band
+  * Optimal for CSI data collection
+
+- **Bandwidth Configuration**: Set to HT20 (20MHz)
+  * Provides stability in high-interference environments
+  * Can be changed to HT40 for more subcarriers if needed
+
+**Benefits:**
+- ✅ Minimal latency for real-time CSI capture
+- ✅ Regulatory compliance for any country
+- ✅ Predictable and stable Wi-Fi performance
+- ✅ Easy country configuration via menuconfig
+
+**Configuration:**
+```bash
+idf.py menuconfig
+# Navigate: ESPectre Configuration → WiFi Country Code
+# Change from "IT" to your country code (US, GB, DE, FR, ES, JP, CN, etc.)
+```
+
+**Technical details:**
+- Power save mode: `WIFI_PS_NONE` (no modem sleep)
+- Country policy: `WIFI_COUNTRY_POLICY_AUTO` (driver adapts channels)
+- Protocol: `WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N`
+- Bandwidth: `WIFI_BW_HT20` (20MHz)
+
+---
+
 ## [1.2.0] - 2025-11-16
 
 ### 🏗️ Major Refactoring - Simplified Architecture

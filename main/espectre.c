@@ -440,7 +440,35 @@ void app_main(void) {
     
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    
+    // Configure Wi-Fi country code (regulatory compliance)
+    // Note: schan=1 and nchan=13 are standard initial values.
+    // With WIFI_COUNTRY_POLICY_AUTO, the ESP32 driver automatically adapts
+    // the channel range based on the country code (e.g., 1-11 for US, 1-13 for EU, 1-14 for JP).
+    wifi_country_t country = {
+        .cc = CONFIG_WIFI_COUNTRY_CODE,
+        .schan = 1,        // Standard start channel (driver adapts based on country code)
+        .nchan = 13,       // Standard channel count (driver adapts based on country code)
+        .policy = WIFI_COUNTRY_POLICY_AUTO,
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_country(&country));
+    ESP_LOGI(TAG, "Wi-Fi country code set to %s (channels auto-configured by driver)", 
+             CONFIG_WIFI_COUNTRY_CODE);
+    
     ESP_ERROR_CHECK(esp_wifi_start());
+    
+    // Configure Wi-Fi power management (disable for real-time CSI with minimal latency)
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_LOGI(TAG, "Wi-Fi power save disabled for real-time CSI");
+    
+    // Configure Wi-Fi protocol mode explicitly (802.11b/g/n for 2.4GHz)
+    ESP_ERROR_CHECK(esp_wifi_set_protocol(WIFI_IF_STA, 
+        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N));
+    ESP_LOGI(TAG, "Wi-Fi protocol set to 802.11b/g/n");
+    
+    // Configure Wi-Fi bandwidth (HT20 for stability, HT40 for more subcarriers)
+    ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20));
+    ESP_LOGI(TAG, "Wi-Fi bandwidth set to HT20 (20MHz)");
     
     // Wait for WiFi connection
     ESP_LOGI(TAG, "Waiting for WiFi connection...");

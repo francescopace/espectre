@@ -256,10 +256,6 @@ int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
         return -1;
     }
     
-    // Note: This function is kept for compatibility but calibration system is being removed
-    // Cast to generic structure pointer
-    const void *calib = calib_results;
-    
     cJSON *root = cJSON_CreateObject();
     if (!root) {
         ESP_LOGE(TAG, "Failed to create JSON object");
