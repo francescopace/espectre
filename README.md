@@ -1,7 +1,8 @@
-![License](https://img.shields.io/badge/license-GPLv3-blue.svg)
-![C](https://img.shields.io/badge/C-ESP--IDF-orange.svg)
-![Platform](https://img.shields.io/badge/platform-ESP32--S3-red.svg)
-![Status](https://img.shields.io/badge/status-experimental-orange.svg)
+[![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
+[![C](https://img.shields.io/badge/C-ESP--IDF-orange.svg)](https://github.com/espressif/esp-idf)
+[![Platform](https://img.shields.io/badge/platform-ESP32--S3-red.svg)](https://www.espressif.com/en/products/socs/esp32-s3)
+[![Status](https://img.shields.io/badge/status-experimental-orange.svg)](https://github.com/francescopace/espectre)
+[![Changelog](https://img.shields.io/badge/changelog-v1.2.0-blue.svg)](https://github.com/francescopace/espectre/blob/main/CHANGELOG.md)
 
 # 🛜 ESPectre 👻
 
@@ -27,6 +28,7 @@
 - [Technical Deep Dive](#-technical-deep-dive)
 - [Future Evolutions](#-future-evolutions-ai-approach)
 - [References](#-references)
+- [Changelog](#-changelog)
 - [License](#-license)
 - [Author](#-author)
 
@@ -619,6 +621,12 @@ This project builds upon extensive research in Wi-Fi sensing and CSI-based movem
    📄 [Read paper](https://scholarspace.manoa.hawaii.edu/server/api/core/bitstreams/a2d2de7c-7697-485b-97c5-62f4bf1260d0/content)
 
 These references demonstrate that effective Wi-Fi sensing can be achieved through mathematical and statistical approaches, which is the foundation of ESPectre's design philosophy.
+
+---
+
+## 📋 Changelog
+
+For a detailed history of changes, new features, and improvements, see the [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
