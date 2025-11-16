@@ -467,7 +467,7 @@ Feature extraction is **enabled by default** but can be disabled to reduce CPU u
 - **Board**: ESP32-S3-DevKitC-1 N16R8
 - **Flash**: 16MB
 - **PSRAM**: 8MB
-- **Wi-Fi**: 802.11 b/g/n (2.4 GHz only)
+- **Wi-Fi**: 802.11 a/g/n (2.4 GHz only)
 - **Antenna**: Built-in PCB antenna + IPEX connector for external
 - **Power**: USB-C 5V or 3.3V via pins
 
