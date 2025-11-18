@@ -201,15 +201,28 @@ int wavelet_denoise(const float *input, float *output, size_t length,
     
     // Allocate buffers for decomposition
     size_t max_size = length;
-    float *approx = (float*)malloc(max_size * sizeof(float));
-    float *detail = (float*)malloc(max_size * sizeof(float));
-    float *temp = (float*)malloc(max_size * sizeof(float));
-    
-    if (!approx || !detail || !temp) {
-        ESP_LOGE(TAG, "wavelet_denoise: malloc failed");
+    float *approx = NULL;
+    float *detail = NULL;
+    float *temp = NULL;
+
+    approx = (float*)malloc(max_size * sizeof(float));
+    if (!approx) {
+        ESP_LOGE(TAG, "wavelet_denoise: malloc failed for approx");
+        return -1;
+    }
+
+    detail = (float*)malloc(max_size * sizeof(float));
+    if (!detail) {
+        ESP_LOGE(TAG, "wavelet_denoise: malloc failed for detail");
+        free(approx);
+        return -1;
+    }
+
+    temp = (float*)malloc(max_size * sizeof(float));
+    if (!temp) {
+        ESP_LOGE(TAG, "wavelet_denoise: malloc failed for temp");
         free(approx);
         free(detail);
-        free(temp);
         return -1;
     }
     
