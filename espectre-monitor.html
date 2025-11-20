@@ -33,7 +33,7 @@
         .header {
             text-align: center;
             color: white;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
         
         .header h1 {
@@ -50,9 +50,38 @@
         .card {
             background: white;
             border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 20px;
+            padding: 20px;
+            margin-bottom: 15px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .card.compact {
+            padding: 12px 20px;
+        }
+        
+        .collapsible-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .collapsible-header:hover {
+            opacity: 0.8;
+        }
+        
+        .collapsible-header h2 {
+            margin: 0;
+            font-size: 1.2em;
+        }
+        
+        .collapsible-content {
+            margin-top: 15px;
+        }
+        
+        .collapsible-content.collapsed {
+            display: none;
         }
         
         .config-section {
@@ -71,10 +100,11 @@
             font-weight: 600;
             margin-bottom: 5px;
             color: #333;
+            font-size: 0.9em;
         }
         
         .input-group input {
-            padding: 10px;
+            padding: 8px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             font-size: 14px;
@@ -87,15 +117,20 @@
         }
         
         .btn {
-            padding: 12px 30px;
+            padding: 10px 25px;
             border: none;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+        }
+        
+        .btn-sm {
+            padding: 6px 15px;
+            font-size: 12px;
         }
         
         .btn-primary {
@@ -123,27 +158,42 @@
             background: #c0392b;
         }
         
+        .btn-success {
+            background: #2ecc71;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #27ae60;
+        }
+        
+        .btn-warning {
+            background: #f39c12;
+            color: white;
+        }
+        
+        .btn-warning:hover {
+            background: #e67e22;
+        }
+        
         .status-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 15px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 10px;
-            margin-bottom: 20px;
+            gap: 20px;
         }
         
         .status-item {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
+            font-size: 0.95em;
         }
         
         .status-indicator {
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             animation: pulse 2s infinite;
         }
@@ -164,20 +214,19 @@
         
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
         }
         
         .metric-card {
-            padding: 20px;
+            padding: 15px;
             border-radius: 10px;
             text-align: center;
             transition: transform 0.3s;
         }
         
         .metric-card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-3px);
         }
         
         .metric-card.idle {
@@ -196,138 +245,292 @@
         }
         
         .metric-label {
-            font-size: 0.9em;
+            font-size: 0.85em;
             opacity: 0.9;
             margin-bottom: 5px;
         }
         
         .metric-value {
-            font-size: 2em;
+            font-size: 1.8em;
             font-weight: bold;
         }
         
         .chart-container {
             position: relative;
-            height: 400px;
-            margin-bottom: 20px;
+            height: 600px;
+            margin-bottom: 10px;
         }
         
-        .features-panel {
-            margin-top: 20px;
-        }
-        
-        .features-header {
+        .chart-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            cursor: pointer;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 10px;
-            margin-bottom: 10px;
-            transition: background 0.3s;
+            margin-bottom: 15px;
         }
         
-        .features-header:hover {
-            background: #e9ecef;
-        }
-        
-        .features-header h3 {
+        .chart-title {
+            font-size: 1.3em;
             margin: 0;
-        }
-        
-        .features-content {
-            display: none;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-        
-        .features-content.show {
-            display: block;
-        }
-        
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
-        }
-        
-        .feature-item {
-            padding: 10px;
-            background: white;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
-        }
-        
-        .feature-name {
-            font-size: 0.85em;
-            color: #666;
-            margin-bottom: 5px;
-        }
-        
-        .feature-value {
-            font-size: 1.2em;
-            font-weight: 600;
-            color: #333;
-        }
-        
-        .no-data {
-            text-align: center;
-            padding: 40px;
-            color: #999;
-            font-style: italic;
         }
         
         .arrow {
             transition: transform 0.3s;
+            font-size: 0.9em;
         }
         
         .arrow.rotate {
             transform: rotate(180deg);
+        }
+        
+        /* Toggle Switch Styles */
+        .toggle-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            gap: 10px;
+        }
+        
+        .toggle-label input[type="checkbox"] {
+            display: none;
+        }
+        
+        .toggle-slider {
+            position: relative;
+            width: 50px;
+            height: 26px;
+            background: #ccc;
+            border-radius: 13px;
+            transition: background 0.3s;
+        }
+        
+        .toggle-slider::before {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: white;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.3s;
+        }
+        
+        .toggle-label input[type="checkbox"]:checked + .toggle-slider {
+            background: #667eea;
+        }
+        
+        .toggle-label input[type="checkbox"]:checked + .toggle-slider::before {
+            transform: translateX(24px);
+        }
+        
+        .toggle-text {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        /* Filter Group Styles */
+        .filter-group {
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            transition: border-color 0.3s;
+        }
+        
+        .filter-group:hover {
+            border-color: #667eea;
+        }
+        
+        /* Notification Styles */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        .notification.success {
+            background: #2ecc71;
+        }
+        
+        .notification.error {
+            background: #e74c3c;
+        }
+        
+        .notification.info {
+            background: #3498db;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            animation: scaleIn 0.3s ease-out;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .modal-header h3 {
+            margin: 0;
+            color: #667eea;
+            font-size: 1.5em;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #999;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.3s;
+        }
+        
+        .modal-close:hover {
+            background: #f0f0f0;
+            color: #333;
+        }
+        
+        .modal-body {
+            font-family: monospace;
+            font-size: 0.95em;
+            line-height: 1.6;
+            color: #333;
+        }
+        
+        .stat-line {
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .stat-line:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-label {
+            font-weight: 600;
+            color: #667eea;
+            display: inline-block;
+            min-width: 180px;
+        }
+        
+        .stat-value {
+            color: #333;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes scaleIn {
+            from {
+                transform: scale(0.9);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🛜 ESPectre Monitor 👻</h1>
+            <h1>🛜 ESPectre 👻</h1>
             <p>Real-Time Motion Detection Visualization</p>
         </div>
         
-        <!-- Configuration Card -->
-        <div class="card">
-            <h2 style="margin-bottom: 20px;">⚙️ MQTT Configuration</h2>
-            <div class="config-section">
-                <div class="input-group">
-                    <label for="broker">Broker Address</label>
-                    <input type="text" id="broker" placeholder="homeassistant.local" value="homeassistant.local">
+        <!-- MQTT Configuration Card -->
+        <div class="card compact">
+            <div class="collapsible-header" onclick="toggleConfig()">
+                <h2>⚙️ MQTT Configuration</h2>
+                <span class="arrow" id="configArrow">▼</span>
+            </div>
+            <div class="collapsible-content" id="configContent">
+                <div class="config-section">
+                    <div class="input-group">
+                        <label for="broker">Broker Address</label>
+                        <input type="text" id="broker" placeholder="homeassistant.local" value="homeassistant.local">
+                    </div>
+                    <div class="input-group">
+                        <label for="port">WebSocket Port</label>
+                        <input type="number" id="port" placeholder="9001" value="9001">
+                    </div>
+                    <div class="input-group">
+                        <label for="topic">Topic</label>
+                        <input type="text" id="topic" placeholder="home/espectre/node1" value="home/espectre/node1">
+                    </div>
+                    <div class="input-group">
+                        <label for="username">Username (optional)</label>
+                        <input type="text" id="username" placeholder="user" value="mqtt">
+                    </div>
+                    <div class="input-group">
+                        <label for="password">Password (optional)</label>
+                        <input type="password" id="password" placeholder="password" value="mqtt">
+                    </div>
                 </div>
-                <div class="input-group">
-                    <label for="port">WebSocket Port</label>
-                    <input type="number" id="port" placeholder="9001" value="9001">
-                </div>
-                <div class="input-group">
-                    <label for="topic">Topic</label>
-                    <input type="text" id="topic" placeholder="home/espectre/node1" value="home/espectre/node1">
-                </div>
-                <div class="input-group">
-                    <label for="username">Username (optional)</label>
-                    <input type="text" id="username" placeholder="username">
-                </div>
-                <div class="input-group">
-                    <label for="password">Password (optional)</label>
-                    <input type="password" id="password" placeholder="password">
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">Connect</button>
+                    <button class="btn btn-danger" id="clearBtn" onclick="clearData()" style="display: none;">Clear Data</button>
                 </div>
             </div>
-            <div style="display: flex; gap: 10px;">
-                <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">Connect</button>
-                <button class="btn btn-danger" id="clearBtn" onclick="clearData()" style="display: none;">Clear Data</button>
-            </div>
-        </div>
-        
-        <!-- Status Bar -->
-        <div class="card">
             <div class="status-bar">
                 <div class="status-item">
                     <div class="status-indicator disconnected" id="statusIndicator"></div>
@@ -338,15 +541,139 @@
                     <span id="lastUpdate">-</span>
                 </div>
                 <div class="status-item">
-                    <strong>Messages received:</strong>
+                    <strong>Messages:</strong>
                     <span id="messageCount">0</span>
                 </div>
             </div>
         </div>
         
-        <!-- Metrics Cards -->
+        <!-- ESPectre Configuration -->
         <div class="card">
-            <h2 style="margin-bottom: 20px;">📊 Real-Time Metrics</h2>
+            <div class="collapsible-header" onclick="toggleSection('configuration')">
+                <h2>⚙️ ESPectre Configuration</h2>
+                <span class="arrow rotate" id="configurationArrow">▼</span>
+            </div>
+            <div class="collapsible-content collapsed" id="configurationContent">
+                <div style="padding: 12px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                    <span style="font-weight: 600; color: #667eea;">📡 Device IP:</span>
+                    <span id="deviceIP" style="font-family: monospace; color: #333;">-</span>
+                </div>
+                
+                <h3 style="margin-bottom: 15px; color: #667eea;">Detection Parameters</h3>
+                <div class="config-section">
+                    <div class="input-group">
+                        <label for="segThreshold">Segmentation Threshold (0.5-10.0)</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="range" id="segThreshold" min="0.5" max="10.0" step="0.1" value="2.5" style="flex: 1;">
+                            <input type="number" id="segThresholdValue" min="0.5" max="10.0" step="0.1" value="2.5" style="width: 80px;">
+                        </div>
+                        <small style="color: #666; margin-top: 5px;">MVS adaptive threshold for motion detection</small>
+                    </div>
+                    <div class="input-group">
+                        <label for="trafficRate">Traffic Generator Rate (0-50 pps)</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="range" id="trafficRate" min="0" max="50" step="1" value="15" style="flex: 1;">
+                            <input type="number" id="trafficRateValue" min="0" max="50" step="1" value="15" style="width: 80px;">
+                        </div>
+                        <small style="color: #666; margin-top: 5px;">WiFi traffic generation (0=disabled, recommended: 15)</small>
+                    </div>
+                </div>
+                <div class="config-section" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                    <div class="toggle-group">
+                        <label class="toggle-label">
+                            <input type="checkbox" id="featuresEnable" checked>
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-text">Features Extraction</span>
+                        </label>
+                        <small style="color: #666;">Extract features during MOTION phase</small>
+                    </div>
+                    <div class="toggle-group">
+                        <label class="toggle-label">
+                            <input type="checkbox" id="smartPublishing" checked>
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-text">Smart Publishing</span>
+                        </label>
+                        <small style="color: #666;">Optimize MQTT message publishing</small>
+                    </div>
+                </div>
+                
+                <hr style="margin: 25px 0; border: none; border-top: 2px solid #e0e0e0;">
+                
+                <h3 style="margin-bottom: 15px; color: #667eea;">Filters Configuration</h3>
+                <div class="config-section">
+                    <div class="filter-group">
+                        <div class="toggle-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="hampelFilter">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Hampel Filter</span>
+                            </label>
+                            <small style="color: #666;">Outlier detection and removal</small>
+                        </div>
+                        <div class="input-group" style="margin-top: 10px;">
+                            <label for="hampelThreshold">Threshold (1.0-10.0)</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="range" id="hampelThreshold" min="1.0" max="10.0" step="0.1" value="3.0" style="flex: 1;">
+                                <input type="number" id="hampelThresholdValue" min="1.0" max="10.0" step="0.1" value="3.0" style="width: 80px;">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <div class="toggle-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="savgolFilter">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Savitzky-Golay Filter</span>
+                            </label>
+                            <small style="color: #666;">Polynomial smoothing filter</small>
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <div class="toggle-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="butterworthFilter">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Butterworth Filter</span>
+                            </label>
+                            <small style="color: #666;">High frequency noise removal</small>
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <div class="toggle-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="waveletFilter">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Wavelet Filter</span>
+                            </label>
+                            <small style="color: #666;">Low frequency denoising</small>
+                        </div>
+                        <div class="input-group" style="margin-top: 10px;">
+                            <label for="waveletLevel">Level (1-3)</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="range" id="waveletLevel" min="1" max="3" step="1" value="3" style="flex: 1;">
+                                <input type="number" id="waveletLevelValue" min="1" max="3" step="1" value="3" style="width: 80px;">
+                            </div>
+                        </div>
+                        <div class="input-group" style="margin-top: 10px;">
+                            <label for="waveletThreshold">Threshold (0.5-2.0)</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="range" id="waveletThreshold" min="0.5" max="2.0" step="0.1" value="1.0" style="flex: 1;">
+                                <input type="number" id="waveletThresholdValue" min="0.5" max="2.0" step="0.1" value="1.0" style="width: 80px;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="applyAllConfiguration()">Apply All Configuration</button>
+                    <button class="btn btn-warning" onclick="requestInfo()">Get Current Config</button>
+                    <button class="btn btn-success btn-sm" onclick="requestStats()">Stats</button>
+                    <button class="btn btn-danger" onclick="factoryReset()">Factory Reset</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Metrics Cards (Fixed) -->
+        <div class="card compact">
             <div class="metrics-grid">
                 <div class="metric-card idle" id="stateCard">
                     <div class="metric-label">State</div>
@@ -367,26 +694,14 @@
             </div>
         </div>
         
-        <!-- Chart -->
+        <!-- Chart  (Fixed) -->
         <div class="card">
-            <h2 style="margin-bottom: 20px;">📈 Real-Time Chart</h2>
+            <div class="chart-header">
+                <h2 class="chart-title" id="chartTitle">📈 Real-Time Chart</h2>
+                <button class="btn btn-warning btn-sm" id="pauseBtn" onclick="togglePause()">⏸️ Pause</button>
+            </div>
             <div class="chart-container">
                 <canvas id="motionChart"></canvas>
-            </div>
-        </div>
-        
-        <!-- Features Panel -->
-        <div class="card">
-            <div class="features-panel">
-                <div class="features-header" onclick="toggleFeatures()">
-                    <h3>🔬 Extracted Features (10)</h3>
-                    <span class="arrow" id="featuresArrow">▼</span>
-                </div>
-                <div class="features-content" id="featuresContent">
-                    <div class="features-grid" id="featuresGrid">
-                        <div class="no-data">No data available. Features are extracted only during MOTION state.</div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
@@ -396,11 +711,15 @@
         let chart = null;
         let messageCount = 0;
         let maxDataPoints = 60;
+        let currentFeatures = null;
+        let isPaused = false;
+        let pendingData = [];
         
         const chartData = {
             labels: [],
             movement: [],
-            threshold: []
+            threshold: [],
+            features: []
         };
         
         // Initialize Chart
@@ -460,11 +779,71 @@
                         },
                         tooltip: {
                             mode: 'index',
-                            intersect: false
+                            intersect: false,
+                            callbacks: {
+                                afterBody: function(context) {
+                                    const index = context[0].dataIndex;
+                                    const features = chartData.features[index];
+                                    
+                                    if (!features) {
+                                        return '';
+                                    }
+                                    
+                                    const lines = [
+                                        '',
+                                        '─────────────────────',
+                                        '🔬 Extracted Features:',
+                                        '',
+                                        `Variance: ${features.variance?.toFixed(3) || 'N/A'}`,
+                                        `Skewness: ${features.skewness?.toFixed(3) || 'N/A'}`,
+                                        `Kurtosis: ${features.kurtosis?.toFixed(3) || 'N/A'}`,
+                                        `Entropy: ${features.entropy?.toFixed(3) || 'N/A'}`,
+                                        `IQR: ${features.iqr?.toFixed(3) || 'N/A'}`,
+                                        `Spatial Variance: ${features.spatial_variance?.toFixed(3) || 'N/A'}`,
+                                        `Spatial Correlation: ${features.spatial_correlation?.toFixed(3) || 'N/A'}`,
+                                        `Spatial Gradient: ${features.spatial_gradient?.toFixed(3) || 'N/A'}`,
+                                        `Temporal Delta Mean: ${features.temporal_delta_mean?.toFixed(3) || 'N/A'}`,
+                                        `Temporal Delta Variance: ${features.temporal_delta_variance?.toFixed(3) || 'N/A'}`
+                                    ];
+                                    
+                                    return lines;
+                                }
+                            }
                         }
                     }
                 }
             });
+        }
+        
+        function togglePause() {
+            isPaused = !isPaused;
+            const pauseBtn = document.getElementById('pauseBtn');
+            const chartTitle = document.getElementById('chartTitle');
+            
+            if (isPaused) {
+                pauseBtn.textContent = '▶️ Resume';
+                pauseBtn.classList.remove('btn-warning');
+                pauseBtn.classList.add('btn-success');
+                chartTitle.textContent = '📈 Real-Time Chart (PAUSED)';
+            } else {
+                pauseBtn.textContent = '⏸️ Pause';
+                pauseBtn.classList.remove('btn-success');
+                pauseBtn.classList.add('btn-warning');
+                chartTitle.textContent = '📈 Real-Time Chart';
+                
+                // Add all pending data when resuming
+                if (pendingData.length > 0) {
+                    pendingData.forEach(data => addDataToChart(data));
+                    pendingData = [];
+                }
+            }
+        }
+        
+        function toggleConfig() {
+            const content = document.getElementById('configContent');
+            const arrow = document.getElementById('configArrow');
+            content.classList.toggle('collapsed');
+            arrow.classList.toggle('rotate');
         }
         
         function toggleConnection() {
@@ -504,10 +883,32 @@
                 client.on('connect', () => {
                     console.log('Connected to MQTT broker');
                     updateStatus(true);
+                    document.getElementById('configContent').classList.add('collapsed');
+                    document.getElementById('configArrow').classList.add('rotate');
+                    
+                    // Subscribe to main topic
                     client.subscribe(topic, (err) => {
                         if (err) {
                             console.error('Subscribe error:', err);
                             alert('Error subscribing to topic!');
+                        } else {
+                            console.log('Subscribed to:', topic);
+                        }
+                    });
+                    
+                    // Also subscribe to response topic
+                    const responseTopic = topic + '/response';
+                    client.subscribe(responseTopic, (err) => {
+                        if (err) {
+                            console.error('Subscribe error for response topic:', err);
+                        } else {
+                            console.log('Subscribed to:', responseTopic);
+                            
+                            // Request current configuration after successful connection
+                            setTimeout(() => {
+                                console.log('Requesting initial configuration...');
+                                requestInfo();
+                            }, 500); // Small delay to ensure subscriptions are ready
                         }
                     });
                 });
@@ -566,36 +967,27 @@
             }
         }
         
-        function handleMessage(message) {
-            try {
-                const data = JSON.parse(message);
-                messageCount++;
-                
-                // Update message count
-                document.getElementById('messageCount').textContent = messageCount;
-                
-                // Update last update time
-                const now = new Date();
-                document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('en-US');
-                
-                // Update metrics
-                updateMetrics(data);
-                
-                // Update chart
-                updateChart(data);
-                
-                // Update features if available
-                if (data.features) {
-                    updateFeatures(data.features);
-                }
-                
-            } catch (err) {
-                console.error('Error parsing message:', err);
+        
+        function addDataToChart(data) {
+            const now = new Date();
+            const timeLabel = now.toLocaleTimeString('en-US');
+            
+            chartData.labels.push(timeLabel);
+            chartData.movement.push(data.movement || 0);
+            chartData.threshold.push(data.threshold || 0);
+            chartData.features.push(data.features || null);
+            
+            if (chartData.labels.length > maxDataPoints) {
+                chartData.labels.shift();
+                chartData.movement.shift();
+                chartData.threshold.shift();
+                chartData.features.shift();
             }
+            
+            chart.update('none');
         }
         
         function updateMetrics(data) {
-            // Update state
             const stateCard = document.getElementById('stateCard');
             const stateValue = document.getElementById('stateValue');
             stateValue.textContent = data.state === 'motion' ? 'MOTION' : 'IDLE';
@@ -608,81 +1000,24 @@
                 stateCard.classList.add('idle');
             }
             
-            // Update movement
             document.getElementById('movementValue').textContent = 
                 data.movement ? data.movement.toFixed(2) : '-';
             
-            // Update threshold
             document.getElementById('thresholdValue').textContent = 
                 data.threshold ? data.threshold.toFixed(2) : '-';
             
-            // Update segments
             document.getElementById('segmentsValue').textContent = 
                 data.segments_total || '-';
-        }
-        
-        function updateChart(data) {
-            const now = new Date();
-            const timeLabel = now.toLocaleTimeString('en-US');
-            
-            chartData.labels.push(timeLabel);
-            chartData.movement.push(data.movement || 0);
-            chartData.threshold.push(data.threshold || 0);
-            
-            // Keep only last N data points
-            if (chartData.labels.length > maxDataPoints) {
-                chartData.labels.shift();
-                chartData.movement.shift();
-                chartData.threshold.shift();
-            }
-            
-            chart.update('none');
-        }
-        
-        function updateFeatures(features) {
-            const featuresGrid = document.getElementById('featuresGrid');
-            
-            const featureNames = {
-                variance: 'Variance',
-                skewness: 'Skewness',
-                kurtosis: 'Kurtosis',
-                entropy: 'Entropy',
-                iqr: 'IQR',
-                spatial_variance: 'Spatial Variance',
-                spatial_correlation: 'Spatial Correlation',
-                spatial_gradient: 'Spatial Gradient',
-                temporal_delta_mean: 'Temporal Delta Mean',
-                temporal_delta_variance: 'Temporal Delta Variance'
-            };
-            
-            let html = '';
-            for (const [key, name] of Object.entries(featureNames)) {
-                if (features[key] !== undefined) {
-                    html += `
-                        <div class="feature-item">
-                            <div class="feature-name">${name}</div>
-                            <div class="feature-value">${features[key].toFixed(3)}</div>
-                        </div>
-                    `;
-                }
-            }
-            
-            featuresGrid.innerHTML = html || '<div class="no-data">No features available</div>';
-        }
-        
-        function toggleFeatures() {
-            const content = document.getElementById('featuresContent');
-            const arrow = document.getElementById('featuresArrow');
-            
-            content.classList.toggle('show');
-            arrow.classList.toggle('rotate');
         }
         
         function clearData() {
             chartData.labels = [];
             chartData.movement = [];
             chartData.threshold = [];
+            chartData.features = [];
             messageCount = 0;
+            currentFeatures = null;
+            pendingData = [];
             
             document.getElementById('messageCount').textContent = '0';
             document.getElementById('lastUpdate').textContent = '-';
@@ -690,9 +1025,316 @@
             chart.update();
         }
         
-        // Initialize on page load
+        // MQTT Command Functions
+        function sendCommand(cmd, params = {}) {
+            if (!client || !client.connected) {
+                showNotification('Not connected to MQTT broker', 'error');
+                return;
+            }
+            
+            const topic = document.getElementById('topic').value;
+            const cmdTopic = topic + '/cmd';
+            const message = JSON.stringify({ cmd, ...params });
+            
+            client.publish(cmdTopic, message, (err) => {
+                if (err) {
+                    showNotification(`Failed to send command: ${err.message}`, 'error');
+                } else {
+                    showNotification(`Command sent: ${cmd}`, 'success');
+                }
+            });
+        }
+        
+        // Apply All Configuration (Detection Parameters + Filters)
+        function applyAllConfiguration() {
+            // Detection Parameters
+            const segThreshold = parseFloat(document.getElementById('segThresholdValue').value);
+            const trafficRate = parseInt(document.getElementById('trafficRateValue').value);
+            const featuresEnable = document.getElementById('featuresEnable').checked;
+            const smartPublishing = document.getElementById('smartPublishing').checked;
+            
+            // Filters
+            const hampelEnabled = document.getElementById('hampelFilter').checked;
+            const hampelThreshold = parseFloat(document.getElementById('hampelThresholdValue').value);
+            const savgolEnabled = document.getElementById('savgolFilter').checked;
+            const butterworthEnabled = document.getElementById('butterworthFilter').checked;
+            const waveletEnabled = document.getElementById('waveletFilter').checked;
+            const waveletLevel = parseInt(document.getElementById('waveletLevelValue').value);
+            const waveletThreshold = parseFloat(document.getElementById('waveletThresholdValue').value);
+            
+            // Send all commands with delays
+            let delay = 0;
+            sendCommand('segmentation_threshold', { value: segThreshold });
+            delay += 100;
+            setTimeout(() => sendCommand('traffic_generator_rate', { value: trafficRate }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('features_enable', { enabled: featuresEnable }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('smart_publishing', { enabled: smartPublishing }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('hampel_filter', { enabled: hampelEnabled }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('hampel_threshold', { value: hampelThreshold }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('savgol_filter', { enabled: savgolEnabled }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('butterworth_filter', { enabled: butterworthEnabled }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('wavelet_filter', { enabled: waveletEnabled }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('wavelet_level', { value: waveletLevel }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('wavelet_threshold', { value: waveletThreshold }), delay);
+        }
+        
+        // System Info Functions
+        function requestInfo() {
+            sendCommand('info');
+        }
+        
+        function requestStats() {
+            sendCommand('stats');
+        }
+        
+        function factoryReset() {
+            if (confirm('⚠️ WARNING: This will reset ALL settings to factory defaults!\n\nThis includes:\n- Detection parameters\n- Filter settings\n- Calibration data\n- All saved configurations\n\nAre you sure you want to continue?')) {
+                sendCommand('factory_reset');
+            }
+        }
+        
+        // Section Toggle Function
+        function toggleSection(sectionId) {
+            const content = document.getElementById(sectionId + 'Content');
+            const arrow = document.getElementById(sectionId + 'Arrow');
+            content.classList.toggle('collapsed');
+            arrow.classList.toggle('rotate');
+        }
+        
+        // Notification Function
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.animation = 'slideIn 0.3s ease-out reverse';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+        
+        // Slider Synchronization
+        function syncSlider(sliderId, valueId) {
+            const slider = document.getElementById(sliderId);
+            const valueInput = document.getElementById(valueId);
+            
+            slider.addEventListener('input', (e) => {
+                valueInput.value = e.target.value;
+            });
+            
+            valueInput.addEventListener('input', (e) => {
+                slider.value = e.target.value;
+            });
+        }
+        
+        // Enhanced Message Handler for Info/Stats and regular data
+        function handleMessage(message) {
+            try {
+                const data = JSON.parse(message);
+                
+                // Log all messages to console for debugging
+                console.log('Received message:', data);
+                
+                // Check if this is an info response (has network, mqtt, segmentation, filters, options)
+                if (data.network || data.mqtt || (data.segmentation && data.filters && data.options)) {
+                    console.log('Detected INFO response');
+                    populateUIFromConfig(data);
+                    return;
+                }
+                
+                // Check if this is a stats response (has uptime, turbulence, segments)
+                if (data.uptime || data.turbulence || (data.segments && data.packets_processed)) {
+                    console.log('Detected STATS response');
+                    displayStats(data);
+                    return;
+                }
+                
+                // Check if this is a simple response message (has "response" field)
+                if (data.response && typeof data.response === 'string') {
+                    console.log('Detected command response');
+                    showNotification(data.response, 'info');
+                    return;
+                }
+                
+                // Regular data message (has movement, threshold, state)
+                if (data.movement !== undefined || data.threshold !== undefined || data.state) {
+                    messageCount++;
+                    
+                    document.getElementById('messageCount').textContent = messageCount;
+                    
+                    const now = new Date();
+                    document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('en-US');
+                    
+                    currentFeatures = data.features || null;
+                    
+                    updateMetrics(data);
+                    
+                    if (isPaused) {
+                        pendingData.push(data);
+                    } else {
+                        addDataToChart(data);
+                    }
+                }
+                
+            } catch (err) {
+                console.error('Error parsing message:', err);
+            }
+        }
+        
+        // Display Stats in modal
+        function displayStats(stats) {
+            // Create modal overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.onclick = (e) => {
+                if (e.target === overlay) closeModal();
+            };
+            
+            // Create modal content
+            const modal = document.createElement('div');
+            modal.className = 'modal-content';
+            
+            // Modal header
+            const header = document.createElement('div');
+            header.className = 'modal-header';
+            header.innerHTML = `
+                <h3>Statistics</h3>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            `;
+            
+            // Modal body
+            const body = document.createElement('div');
+            body.className = 'modal-body';
+            
+            let html = '';
+            html += `<div class="stat-line"><span class="stat-label">State:</span> <span class="stat-value">${stats.state || 'N/A'}</span></div>`;
+            html += `<div class="stat-line"><span class="stat-label">Uptime:</span> <span class="stat-value">${stats.uptime || 'N/A'}</span></div>`;
+            html += `<div class="stat-line"><span class="stat-label">Turbulence:</span> <span class="stat-value">${stats.turbulence?.toFixed(3) || 'N/A'}</span></div>`;
+            html += `<div class="stat-line"><span class="stat-label">Moving Variance:</span> <span class="stat-value">${stats.moving_variance?.toFixed(3) || 'N/A'}</span></div>`;
+            html += `<div class="stat-line"><span class="stat-label">Adaptive Threshold:</span> <span class="stat-value">${stats.adaptive_threshold?.toFixed(3) || 'N/A'}</span></div>`;
+            html += `<div class="stat-line"><span class="stat-label">Packets Processed:</span> <span class="stat-value">${stats.packets_processed || 'N/A'}</span></div>`;
+            
+            if (stats.segments) {
+                html += `<div class="stat-line"><span class="stat-label">Segments Total:</span> <span class="stat-value">${stats.segments.total || 'N/A'}</span></div>`;
+                html += `<div class="stat-line"><span class="stat-label">Segments Active:</span> <span class="stat-value">${stats.segments.active || 'N/A'}</span></div>`;
+                
+                if (stats.segments.last_completed) {
+                    const seg = stats.segments.last_completed;
+                    html += `<div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e0e0e0;">`;
+                    html += `<h4 style="color: #667eea; margin-bottom: 10px;">Last Completed Segment</h4>`;
+                    html += `<div class="stat-line"><span class="stat-label">Length:</span> <span class="stat-value">${seg.length || 'N/A'}</span></div>`;
+                    html += `<div class="stat-line"><span class="stat-label">Duration:</span> <span class="stat-value">${seg.duration_sec?.toFixed(1) || 'N/A'}s</span></div>`;
+                    html += `<div class="stat-line"><span class="stat-label">Avg Turbulence:</span> <span class="stat-value">${seg.avg_turbulence?.toFixed(3) || 'N/A'}</span></div>`;
+                    html += `<div class="stat-line"><span class="stat-label">Max Turbulence:</span> <span class="stat-value">${seg.max_turbulence?.toFixed(3) || 'N/A'}</span></div>`;
+                    html += `</div>`;
+                }
+            }
+            
+            body.innerHTML = html;
+            
+            modal.appendChild(header);
+            modal.appendChild(body);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+        }
+        
+        // Close modal
+        function closeModal() {
+            const overlay = document.querySelector('.modal-overlay');
+            if (overlay) {
+                overlay.style.animation = 'fadeIn 0.3s ease-out reverse';
+                setTimeout(() => overlay.remove(), 300);
+            }
+        }
+        
+        // Populate UI controls from config data
+        function populateUIFromConfig(config) {
+            console.log('Populating UI from config:', config);
+            
+            // Update Device IP if available
+            if (config.network && config.network.ip_address) {
+                document.getElementById('deviceIP').textContent = config.network.ip_address;
+            }
+            
+            // Detection Parameters
+            if (config.segmentation && config.segmentation.threshold !== undefined) {
+                const threshold = config.segmentation.threshold;
+                document.getElementById('segThreshold').value = threshold;
+                document.getElementById('segThresholdValue').value = threshold;
+            }
+            
+            if (config.network && config.network.traffic_generator_rate !== undefined) {
+                const rate = config.network.traffic_generator_rate;
+                document.getElementById('trafficRate').value = rate;
+                document.getElementById('trafficRateValue').value = rate;
+            }
+            
+            if (config.options) {
+                if (config.options.features_enabled !== undefined) {
+                    document.getElementById('featuresEnable').checked = config.options.features_enabled;
+                }
+                if (config.options.smart_publishing_enabled !== undefined) {
+                    document.getElementById('smartPublishing').checked = config.options.smart_publishing_enabled;
+                }
+            }
+            
+            // Filters
+            if (config.filters) {
+                if (config.filters.hampel_enabled !== undefined) {
+                    document.getElementById('hampelFilter').checked = config.filters.hampel_enabled;
+                }
+                if (config.filters.hampel_threshold !== undefined) {
+                    const threshold = config.filters.hampel_threshold;
+                    document.getElementById('hampelThreshold').value = threshold;
+                    document.getElementById('hampelThresholdValue').value = threshold;
+                }
+                
+                if (config.filters.savgol_enabled !== undefined) {
+                    document.getElementById('savgolFilter').checked = config.filters.savgol_enabled;
+                }
+                
+                if (config.filters.butterworth_enabled !== undefined) {
+                    document.getElementById('butterworthFilter').checked = config.filters.butterworth_enabled;
+                }
+                
+                if (config.filters.wavelet_enabled !== undefined) {
+                    document.getElementById('waveletFilter').checked = config.filters.wavelet_enabled;
+                }
+                if (config.filters.wavelet_level !== undefined) {
+                    const level = config.filters.wavelet_level;
+                    document.getElementById('waveletLevel').value = level;
+                    document.getElementById('waveletLevelValue').value = level;
+                }
+                if (config.filters.wavelet_threshold !== undefined) {
+                    const threshold = config.filters.wavelet_threshold;
+                    document.getElementById('waveletThreshold').value = threshold;
+                    document.getElementById('waveletThresholdValue').value = threshold;
+                }
+            }
+            
+            showNotification('Configuration loaded from device', 'success');
+        }
+        
+        // Initialize on load
         window.addEventListener('load', () => {
             initChart();
+            
+            // Sync all sliders with their value inputs
+            syncSlider('segThreshold', 'segThresholdValue');
+            syncSlider('trafficRate', 'trafficRateValue');
+            syncSlider('hampelThreshold', 'hampelThresholdValue');
+            syncSlider('waveletLevel', 'waveletLevelValue');
+            syncSlider('waveletThreshold', 'waveletThresholdValue');
         });
     </script>
 </body>

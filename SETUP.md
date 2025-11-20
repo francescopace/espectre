@@ -209,6 +209,57 @@ During `"idle"` state, only the basic fields are published (movement, threshold,
 
 ---
 
+## Monitoring & Configuration Tools
+
+---
+
+ESPectre provides two tools for monitoring and configuration:
+
+### 🌐 Web-Based Monitor (Recommended for Beginners)
+
+**`espectre-monitor.html`** - Modern web interface with visual controls and real-time charts.
+
+**Features:**
+- ✅ Real-time visualization with interactive charts
+- ✅ Live metrics dashboard (state, movement, threshold, segments)
+- ✅ Visual configuration of all parameters (sliders, toggles)
+- ✅ Device IP display
+- ✅ Statistics viewer with modal popup
+- ✅ Auto-sync configuration on connection
+- ✅ No terminal required - works in any browser
+- ✅ Cross-platform (desktop, tablet, mobile)
+
+**How to use:**
+1. Open `espectre-monitor.html` in your browser
+2. Configure MQTT connection (broker address, port, topic, credentials)
+3. Click "Connect"
+4. Monitor real-time data and configure parameters visually
+
+**Perfect for:**
+- First-time users
+- Visual parameter tuning
+- Real-time monitoring
+- Multi-device management
+
+### 🖥️ CLI Tool (Advanced Users)
+
+**`espectre-cli.sh`** - Interactive command-line interface for advanced users and scripting.
+
+**Features:**
+- ✅ Interactive terminal session
+- ✅ Real-time command feedback
+- ✅ Scriptable for automation
+- ✅ Lightweight and fast
+
+**Quick start:**
+```bash
+./espectre-cli.sh
+```
+
+See [CALIBRATION.md](CALIBRATION.md) for detailed CLI usage and tuning examples.
+
+---
+
 ## Calibration & Tuning
 
 ---
@@ -219,13 +270,15 @@ After installation, follow the **[Calibration & Tuning Guide](CALIBRATION.md)** 
 - Troubleshoot common issues
 - Configure advanced features
 
+**Tip:** Use the web monitor (`espectre-monitor.html`) for easier visual tuning, or the CLI tool for advanced control.
+
 ---
 
 ### MQTT Commands Reference
 
 ---
 
-ESPectre provides an **interactive CLI tool** (`espectre-cli.sh`) for easy configuration and calibration. The CLI automatically handles MQTT communication and provides real-time feedback.
+Both the web monitor and CLI tool use MQTT commands under the hood. You can also send commands directly via MQTT for scripting and automation.
 
 **Quick Start with CLI:**
 ```bash

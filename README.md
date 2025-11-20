@@ -90,6 +90,13 @@ The mathematical approach provides excellent movement detection without the comp
 1. **Setup & Installation**: Follow the complete guide in [SETUP.md](SETUP.md)
 2. **Calibration & Tuning**: Optimize for your environment with [CALIBRATION.md](CALIBRATION.md)
 
+### Web-Based Monitor
+
+ESPectre includes a web-based monitoring interface (`espectre-monitor.html`) for real-time visualization and configuration without command line tools.
+
+![Web Monitor Interface](images/web_monitor.png)
+*Real-time CSI monitoring and configuration interface*
+
 ---
 
 ## 📖 How It Works (Simple Version)

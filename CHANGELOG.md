@@ -6,6 +6,40 @@ All notable changes to this project will be documented in this file.
 
 ## [1.3.0] - in progress
 
+### 🌐 Added - Web-Based Real-Time Monitor
+
+**Modern web interface for ESPectre monitoring and configuration**
+
+New `espectre-monitor.html` provides a comprehensive web-based alternative to the CLI shell:
+
+**Features:**
+- **Real-time visualization**: Live chart of movement and threshold values
+- **Interactive metrics**: State, movement, threshold, and segment counters
+- **Complete configuration**: All detection parameters and filters controllable via web UI
+  * Segmentation threshold (0.5-10.0)
+  * Traffic generator rate (0-50 pps)
+  * Features extraction toggle
+  * Smart publishing toggle
+  * All filters (Hampel, Savitzky-Golay, Butterworth, Wavelet) with parameters
+- **Device information**: Displays ESP32 IP address
+- **Statistics viewer**: Runtime statistics in modal popup
+- **Auto-sync**: Automatically loads current configuration on connection
+- **Factory reset**: Web-based factory reset with confirmation
+
+**Technical details:**
+- Single HTML file (no dependencies except CDN libraries)
+- MQTT.js for WebSocket communication
+- Chart.js for real-time data visualization
+- Responsive design with collapsible sections
+- Toast notifications for command feedback
+
+**Benefits:**
+- ✅ No terminal required - works in any modern browser
+- ✅ Visual feedback and easier parameter tuning
+- ✅ Multi-device support (can monitor multiple ESPectre nodes)
+- ✅ Cross-platform (works on desktop, tablet, mobile)
+- ✅ Can replace `espectre-cli.sh` for most use cases
+
 ### 🚀 Major - ESP32-C6 Platform Support
 
 **Complete multi-platform support with ESP32-C6 and WiFi 6**
