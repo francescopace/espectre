@@ -28,7 +28,7 @@ Keep the room empty and still for 1-2 minutes.
 espectre> stats
 ```
 
-Note the typical `moving_variance` values when idle (usually 0.05-0.20).
+Note the typical `movement` values when idle (usually 0.05-0.20).
 
 ### 3. Set Segmentation Threshold
 

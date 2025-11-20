@@ -6,6 +6,36 @@ All notable changes to this project will be documented in this file.
 
 ## [1.3.0] - in progress
 
+### 🔧 Changed - MQTT Data Structure Optimization
+
+**Simplified and standardized MQTT message format**
+
+Optimized MQTT data structure for consistency and reduced bandwidth:
+
+**Periodic Data (published during detection):**
+- ❌ Removed `segments_total` (not needed for motion detection)
+- ✅ Kept essential fields: `movement`, `threshold`, `state`, `features` (optional), `timestamp`
+
+**Stats Command Response:**
+- ❌ Removed entire `segments` object (total, active, last_completed)
+- ✅ Renamed `moving_variance` → `movement` (consistent with periodic data)
+- ✅ Renamed `adaptive_threshold` → `threshold` (consistent with periodic data)
+- ✅ Kept `turbulence` for diagnostics
+- ✅ Simplified to essential runtime metrics only
+
+**Code Cleanup:**
+- ❌ Removed `segment_t` structure from `segmentation.h`
+- ❌ Removed segment array and tracking logic from `segmentation.c` (~150 lines)
+- ❌ Removed functions: `segmentation_get_num_segments()`, `segmentation_get_segment()`, `segmentation_clear_segments()`, `segmentation_get_active_segments_count()`, `segmentation_get_last_completed_segment()`
+- ✅ Simplified state machine to focus only on IDLE ↔ MOTION transitions
+
+**Benefits:**
+- 📉 Reduced message size and memory usage
+- 🔄 Consistent field naming between periodic data and stats
+- 🎯 Cleaner API focused on motion detection
+- 🧹 Simpler codebase (~200 lines removed)
+- 🐛 Fixed bug where last_completed_segment showed stale data after 10 segments
+
 ### 🌐 Added - Web-Based Real-Time Monitor
 
 **Modern web interface for ESPectre monitoring and configuration**
@@ -209,7 +239,6 @@ Removed the complex calibration/detection system in favor of a simpler, more mai
   "movement": 1.85,
   "threshold": 2.20,
   "state": "idle",
-  "segments_total": 5,
   "timestamp": 1730066405
 }
 ```
@@ -220,7 +249,6 @@ Removed the complex calibration/detection system in favor of a simpler, more mai
   "movement": 2.45,
   "threshold": 2.20,
   "state": "motion",
-  "segments_total": 6,
   "features": {
     "variance": 315.5,
     "skewness": 0.85,

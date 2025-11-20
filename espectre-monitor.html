@@ -687,10 +687,6 @@
                     <div class="metric-label">Threshold</div>
                     <div class="metric-value" id="thresholdValue">-</div>
                 </div>
-                <div class="metric-card neutral">
-                    <div class="metric-label">Total Segments</div>
-                    <div class="metric-value" id="segmentsValue">-</div>
-                </div>
             </div>
         </div>
         
@@ -1005,9 +1001,6 @@
             
             document.getElementById('thresholdValue').textContent = 
                 data.threshold ? data.threshold.toFixed(2) : '-';
-            
-            document.getElementById('segmentsValue').textContent = 
-                data.segments_total || '-';
         }
         
         function clearData() {
@@ -1152,8 +1145,8 @@
                     return;
                 }
                 
-                // Check if this is a stats response (has uptime, turbulence, segments)
-                if (data.uptime || data.turbulence || (data.segments && data.packets_processed)) {
+                // Check if this is a stats response (has uptime, turbulence, packets_processed)
+                if (data.uptime || (data.turbulence !== undefined && data.packets_processed !== undefined)) {
                     console.log('Detected STATS response');
                     displayStats(data);
                     return;
@@ -1220,25 +1213,9 @@
             html += `<div class="stat-line"><span class="stat-label">State:</span> <span class="stat-value">${stats.state || 'N/A'}</span></div>`;
             html += `<div class="stat-line"><span class="stat-label">Uptime:</span> <span class="stat-value">${stats.uptime || 'N/A'}</span></div>`;
             html += `<div class="stat-line"><span class="stat-label">Turbulence:</span> <span class="stat-value">${stats.turbulence?.toFixed(3) || 'N/A'}</span></div>`;
-            html += `<div class="stat-line"><span class="stat-label">Moving Variance:</span> <span class="stat-value">${stats.moving_variance?.toFixed(3) || 'N/A'}</span></div>`;
-            html += `<div class="stat-line"><span class="stat-label">Adaptive Threshold:</span> <span class="stat-value">${stats.adaptive_threshold?.toFixed(3) || 'N/A'}</span></div>`;
+            html += `<div class="stat-line"><span class="stat-label">Movement:</span> <span class="stat-value">${stats.movement?.toFixed(3) || 'N/A'}</span></div>`;
+            html += `<div class="stat-line"><span class="stat-label">Threshold:</span> <span class="stat-value">${stats.threshold?.toFixed(3) || 'N/A'}</span></div>`;
             html += `<div class="stat-line"><span class="stat-label">Packets Processed:</span> <span class="stat-value">${stats.packets_processed || 'N/A'}</span></div>`;
-            
-            if (stats.segments) {
-                html += `<div class="stat-line"><span class="stat-label">Segments Total:</span> <span class="stat-value">${stats.segments.total || 'N/A'}</span></div>`;
-                html += `<div class="stat-line"><span class="stat-label">Segments Active:</span> <span class="stat-value">${stats.segments.active || 'N/A'}</span></div>`;
-                
-                if (stats.segments.last_completed) {
-                    const seg = stats.segments.last_completed;
-                    html += `<div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e0e0e0;">`;
-                    html += `<h4 style="color: #667eea; margin-bottom: 10px;">Last Completed Segment</h4>`;
-                    html += `<div class="stat-line"><span class="stat-label">Length:</span> <span class="stat-value">${seg.length || 'N/A'}</span></div>`;
-                    html += `<div class="stat-line"><span class="stat-label">Duration:</span> <span class="stat-value">${seg.duration_sec?.toFixed(1) || 'N/A'}s</span></div>`;
-                    html += `<div class="stat-line"><span class="stat-label">Avg Turbulence:</span> <span class="stat-value">${seg.avg_turbulence?.toFixed(3) || 'N/A'}</span></div>`;
-                    html += `<div class="stat-line"><span class="stat-label">Max Turbulence:</span> <span class="stat-value">${seg.max_turbulence?.toFixed(3) || 'N/A'}</span></div>`;
-                    html += `</div>`;
-                }
-            }
             
             body.innerHTML = html;
             

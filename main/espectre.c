@@ -199,18 +199,7 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         
         if (segment_completed) {
             // A motion segment was just completed
-            uint8_t num_segments = segmentation_get_num_segments(&g_state.segmentation);
-            const segment_t *seg = segmentation_get_segment(&g_state.segmentation, num_segments - 1);
-            
-            if (seg) {
-                ESP_LOGD(TAG, "📍 Motion segment #%d: start=%lu, length=%d (%.2fs), avg_turb=%.2f, max_turb=%.2f",
-                         num_segments,
-                         (unsigned long)seg->start_index,
-                         seg->length,
-                         seg->length / 20.0f,  // Assuming 20 pps
-                         seg->avg_turbulence,
-                         seg->max_turbulence);
-            }
+            ESP_LOGD(TAG, "📍 Motion segment completed");
         }
         
         g_state.packets_processed++;
@@ -398,7 +387,6 @@ static void mqtt_publish_task(void *pvParameters) {
                 .moving_variance = moving_variance,
                 .adaptive_threshold = segmentation_get_threshold(&g_state.segmentation),
                 .state = seg_state,
-                .segments_total = segmentation_get_num_segments(&g_state.segmentation),
                 .timestamp = get_timestamp_sec(),
                 .has_features = has_features
             };

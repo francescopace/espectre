@@ -213,47 +213,13 @@ bool segmentation_add_turbulence(segmentation_context_t *ctx, float turbulence) 
         if (motion_ended || max_length_reached) {
             // Validate segment length
             if (ctx->motion_length >= SEGMENTATION_MIN_LENGTH) {
-                // Valid segment - add to list if space available
-                if (ctx->num_segments < SEGMENTATION_MAX_SEGMENTS) {
-                    segment_t *seg = &ctx->segments[ctx->num_segments];
-                    seg->start_index = ctx->motion_start_index;
-                    seg->length = ctx->motion_length;
-                    seg->active = true;
-                    
-                    // Calculate segment statistics
-                    float sum = 0.0f;
-                    float max_val = 0.0f;
-                    uint16_t count = 0;
-                    
-                    // Get turbulence values from segment
-                    for (uint16_t i = 0; i < ctx->motion_length && i < SEGMENTATION_WINDOW_SIZE; i++) {
-                        // Calculate buffer index for this packet
-                        int16_t buf_idx = (int16_t)ctx->buffer_index - 1 - i;
-                        if (buf_idx < 0) buf_idx += SEGMENTATION_WINDOW_SIZE;
-                        
-                        float val = ctx->turbulence_buffer[buf_idx];
-                        sum += val;
-                        if (val > max_val) max_val = val;
-                        count++;
-                    }
-                    
-                    seg->avg_turbulence = (count > 0) ? (sum / count) : 0.0f;
-                    seg->max_turbulence = max_val;
-                    
-                    ctx->num_segments++;
-                    ctx->total_segments_detected++;
-                    segment_completed = true;
-                    
-                    ESP_LOGD(TAG, "Segment #%d: start=%lu, length=%d (%.2fs), avg=%.2f, max=%.2f",
-                             ctx->num_segments,
-                             (unsigned long)seg->start_index,
-                             seg->length,
-                             seg->length / 20.0f,  // Assuming 20 pps
-                             seg->avg_turbulence,
-                             seg->max_turbulence);
-                } else {
-                    ESP_LOGW(TAG, "Segment buffer full - discarding segment");
-                }
+                // Valid segment completed
+                segment_completed = true;
+                
+                ESP_LOGD(TAG, "Motion segment completed: start=%lu, length=%d (%.2fs)",
+                         (unsigned long)ctx->motion_start_index,
+                         ctx->motion_length,
+                         ctx->motion_length / 20.0f);  // Assuming 20 pps
             } else {
                 ESP_LOGD(TAG, "Segment too short (%d < %d) - discarded",
                          ctx->motion_length, SEGMENTATION_MIN_LENGTH);
@@ -276,27 +242,6 @@ segmentation_state_t segmentation_get_state(const segmentation_context_t *ctx) {
     return ctx ? ctx->state : SEG_STATE_IDLE;
 }
 
-// Get number of segments
-uint8_t segmentation_get_num_segments(const segmentation_context_t *ctx) {
-    return ctx ? ctx->num_segments : 0;
-}
-
-// Get segment by index
-const segment_t* segmentation_get_segment(const segmentation_context_t *ctx, uint8_t index) {
-    if (!ctx || index >= ctx->num_segments) {
-        return NULL;
-    }
-    return &ctx->segments[index];
-}
-
-// Clear all segments
-void segmentation_clear_segments(segmentation_context_t *ctx) {
-    if (!ctx) return;
-    
-    memset(ctx->segments, 0, sizeof(ctx->segments));
-    ctx->num_segments = 0;
-}
-
 // Reset segmentation context
 void segmentation_reset(segmentation_context_t *ctx) {
     if (!ctx) return;
@@ -317,9 +262,6 @@ void segmentation_reset(segmentation_context_t *ctx) {
     ctx->motion_length = 0;
     ctx->packet_index = 0;
     
-    segmentation_clear_segments(ctx);
-    
-    ctx->total_segments_detected = 0;
     ctx->total_packets_processed = 0;
     
     // Keep calibration results (threshold, mean, std)
@@ -356,32 +298,6 @@ float segmentation_get_last_turbulence(const segmentation_context_t *ctx) {
     }
     
     return ctx->turbulence_buffer[last_idx];
-}
-
-// Get count of active segments
-uint8_t segmentation_get_active_segments_count(const segmentation_context_t *ctx) {
-    if (!ctx) {
-        return 0;
-    }
-    
-    uint8_t count = 0;
-    for (uint8_t i = 0; i < ctx->num_segments; i++) {
-        if (ctx->segments[i].active) {
-            count++;
-        }
-    }
-    
-    return count;
-}
-
-// Get last completed segment
-const segment_t* segmentation_get_last_completed_segment(const segmentation_context_t *ctx) {
-    if (!ctx || ctx->num_segments == 0) {
-        return NULL;
-    }
-    
-    // Return the most recently added segment (last in array)
-    return &ctx->segments[ctx->num_segments - 1];
 }
 
 // Get total packets processed

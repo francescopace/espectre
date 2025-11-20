@@ -35,15 +35,6 @@
 // This allows segmentation to work immediately without calibration
 #define SEGMENTATION_DEFAULT_THRESHOLD 2.2f
 
-// Segment structure
-typedef struct {
-    uint32_t start_index;      // Start packet index
-    uint16_t length;           // Segment length in packets
-    float avg_turbulence;      // Average turbulence in segment
-    float max_turbulence;      // Maximum turbulence in segment
-    bool active;               // Is this segment slot active?
-} segment_t;
-
 // Segmentation state
 typedef enum {
     SEG_STATE_IDLE,           // No motion detected
@@ -78,12 +69,7 @@ typedef struct {
     uint16_t motion_length;
     uint32_t packet_index;         // Global packet counter
     
-    // Detected segments
-    segment_t segments[SEGMENTATION_MAX_SEGMENTS];
-    uint8_t num_segments;
-    
     // Statistics
-    uint32_t total_segments_detected;
     uint32_t total_packets_processed;
     
 } segmentation_context_t;
@@ -130,30 +116,6 @@ bool segmentation_finalize_calibration(segmentation_context_t *ctx);
 segmentation_state_t segmentation_get_state(const segmentation_context_t *ctx);
 
 /**
- * Get number of detected segments
- * 
- * @param ctx Segmentation context
- * @return Number of segments
- */
-uint8_t segmentation_get_num_segments(const segmentation_context_t *ctx);
-
-/**
- * Get segment by index
- * 
- * @param ctx Segmentation context
- * @param index Segment index (0 to num_segments-1)
- * @return Pointer to segment, or NULL if invalid index
- */
-const segment_t* segmentation_get_segment(const segmentation_context_t *ctx, uint8_t index);
-
-/**
- * Clear all detected segments
- * 
- * @param ctx Segmentation context
- */
-void segmentation_clear_segments(segmentation_context_t *ctx);
-
-/**
  * Reset segmentation context (clear all state)
  * 
  * @param ctx Segmentation context
@@ -191,22 +153,6 @@ float segmentation_get_moving_variance(const segmentation_context_t *ctx);
  * @return Last turbulence value
  */
 float segmentation_get_last_turbulence(const segmentation_context_t *ctx);
-
-/**
- * Get count of active segments in buffer
- * 
- * @param ctx Segmentation context
- * @return Number of active segments
- */
-uint8_t segmentation_get_active_segments_count(const segmentation_context_t *ctx);
-
-/**
- * Get last completed segment
- * 
- * @param ctx Segmentation context
- * @return Pointer to last completed segment, or NULL if no segments
- */
-const segment_t* segmentation_get_last_completed_segment(const segmentation_context_t *ctx);
 
 /**
  * Get total packets processed

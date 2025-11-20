@@ -166,7 +166,6 @@ automation:
   "movement": 2.87,
   "threshold": 2.20,
   "state": "motion",
-  "segments_total": 42,
   "features": {
     "variance": 0.45,
     "skewness": 0.12,
@@ -187,7 +186,6 @@ automation:
 - `movement`: Moving variance value (float, typically 0.0-10.0) - indicates motion intensity
 - `threshold`: Adaptive threshold value (float) - current detection threshold
 - `state`: Current segmentation state - `"idle"` or `"motion"`
-- `segments_total`: Total number of motion segments detected since startup (integer)
 - `features`: Object containing 10 extracted features (only present during MOTION state when features are enabled):
   - `variance`: Signal variance
   - `skewness`: Distribution asymmetry
@@ -205,7 +203,7 @@ automation:
 1. The system is in `"motion"` state, AND
 2. Feature extraction is enabled (default: enabled)
 
-During `"idle"` state, only the basic fields are published (movement, threshold, state, segments_total, timestamp).
+During `"idle"` state, only the basic fields are published (movement, threshold, state, timestamp).
 
 ---
 
@@ -385,19 +383,9 @@ The `stats` command returns **runtime metrics** for monitoring:
   "uptime": "3h 24m 15s",
   "state": "motion",
   "turbulence": 3.45,
-  "moving_variance": 2.87,
-  "adaptive_threshold": 2.20,
-  "packets_processed": 15234,
-  "segments": {
-    "total": 42,
-    "active": 2,
-    "last_completed": {
-      "length": 15,
-      "duration_sec": 0.75,
-      "avg_turbulence": 3.12,
-      "max_turbulence": 4.56
-    }
-  }
+  "movement": 2.87,
+  "threshold": 2.20,
+  "packets_processed": 15234
 }
 ```
 
@@ -405,11 +393,10 @@ The `stats` command returns **runtime metrics** for monitoring:
 - **`timestamp`**: Unix timestamp when stats were generated
 - **`uptime`**: System uptime in human-readable format
 - **`state`**: Current segmentation state (idle/motion)
-- **`turbulence`**: Last spatial turbulence value
-- **`moving_variance`**: Current moving variance
-- **`adaptive_threshold`**: Current adaptive threshold
+- **`turbulence`**: Last spatial turbulence value (for diagnostics)
+- **`movement`**: Current moving variance (same as in periodic data)
+- **`threshold`**: Current adaptive threshold (same as in periodic data)
 - **`packets_processed`**: Total CSI packets processed
-- **`segments`**: Segment statistics (total, active, last completed)
 
 ### Factory Reset
 

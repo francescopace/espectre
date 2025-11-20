@@ -251,33 +251,16 @@ static void cmd_stats(cJSON *root) {
     
     // Moving variance
     float moving_variance = segmentation_get_moving_variance(g_cmd_context->segmentation);
-    cJSON_AddNumberToObject(response, "moving_variance", (double)moving_variance);
+    cJSON_AddNumberToObject(response, "movement", (double)moving_variance);
     
     // Adaptive threshold
     float adaptive_threshold = segmentation_get_threshold(g_cmd_context->segmentation);
-    cJSON_AddNumberToObject(response, "adaptive_threshold", (double)adaptive_threshold);
+    cJSON_AddNumberToObject(response, "threshold", (double)adaptive_threshold);
     
     // Packets processed
     uint32_t packets_processed = segmentation_get_total_packets(g_cmd_context->segmentation);
     cJSON_AddNumberToObject(response, "packets_processed", packets_processed);
     
-    // Segments information
-    cJSON *segments = cJSON_CreateObject();
-    cJSON_AddNumberToObject(segments, "total", g_cmd_context->segmentation->total_segments_detected);
-    cJSON_AddNumberToObject(segments, "active", segmentation_get_active_segments_count(g_cmd_context->segmentation));
-    
-    // Last completed segment
-    const segment_t *last_seg = segmentation_get_last_completed_segment(g_cmd_context->segmentation);
-    if (last_seg) {
-        cJSON *last_completed = cJSON_CreateObject();
-        cJSON_AddNumberToObject(last_completed, "length", last_seg->length);
-        cJSON_AddNumberToObject(last_completed, "duration_sec", (double)(last_seg->length / 20.0f));  // Assuming 20 pps
-        cJSON_AddNumberToObject(last_completed, "avg_turbulence", (double)last_seg->avg_turbulence);
-        cJSON_AddNumberToObject(last_completed, "max_turbulence", (double)last_seg->max_turbulence);
-        cJSON_AddItemToObject(segments, "last_completed", last_completed);
-    }
-    
-    cJSON_AddItemToObject(response, "segments", segments);
     
     char *json_str = cJSON_PrintUnformatted(response);
     if (json_str) {

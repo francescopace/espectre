@@ -34,7 +34,6 @@ TEST_CASE_ESP(segmentation_init, "[segmentation]")
     
     TEST_ASSERT_EQUAL(SEG_STATE_IDLE, ctx.state);
     TEST_ASSERT_EQUAL(0, ctx.buffer_count);
-    TEST_ASSERT_EQUAL(0, ctx.num_segments);
     // Threshold is now initialized with default value, not calibrated
     TEST_ASSERT_TRUE(ctx.adaptive_threshold > 0.0f);
     TEST_ASSERT_FALSE(ctx.calibrating);
@@ -81,105 +80,55 @@ TEST_CASE_ESP(segmentation_movement_detection, "[segmentation]")
     uint32_t calib_samples = 1000;
     segmentation_start_calibration(&ctx, calib_samples);
     
-    // Store turbulence values for JSON output
-    float *baseline_turbulence = malloc(calib_samples * sizeof(float));
-    float *baseline_moving_var = malloc(calib_samples * sizeof(float));
-    
     for (int i = 0; i < calib_samples && i < NUM_BASELINE_PACKETS; i++) {
         float turbulence = csi_calculate_spatial_turbulence(
             (const int8_t*)baseline_packets[i], 128);
-        baseline_turbulence[i] = turbulence;
         segmentation_add_turbulence(&ctx, turbulence);
     }
     
     segmentation_finalize_calibration(&ctx);
     
-    // Extract moving variance from calibration (for visualization)
-    // Note: This is a simplified extraction - in real code, we'd need to access internal buffer
-    for (int i = 0; i < calib_samples; i++) {
-        baseline_moving_var[i] = 0.0f;  // Placeholder - will be calculated in Python
-    }
-    
     // CRITICAL: Reset the segmentation state after calibration
     segmentation_reset(&ctx);
     
-    // Process movement data
-    int segments_detected = 0;
-    float *movement_turbulence = malloc(NUM_MOVEMENT_PACKETS * sizeof(float));
-    float *movement_moving_var = malloc(NUM_MOVEMENT_PACKETS * sizeof(float));
+    // Process movement data and count state transitions
+    int motion_transitions = 0;
+    int motion_packets = 0;
+    segmentation_state_t prev_state = SEG_STATE_IDLE;
     
     for (int i = 0; i < NUM_MOVEMENT_PACKETS; i++) {
         float turbulence = csi_calculate_spatial_turbulence(
             (const int8_t*)movement_packets[i], 128);
-        movement_turbulence[i] = turbulence;
         
         bool segment_completed = segmentation_add_turbulence(&ctx, turbulence);
+        segmentation_state_t current_state = segmentation_get_state(&ctx);
+        
+        // Count transitions to MOTION state
+        if (current_state == SEG_STATE_MOTION && prev_state == SEG_STATE_IDLE) {
+            motion_transitions++;
+            ESP_LOGI(TAG, "Motion transition #%d at packet %d", motion_transitions, i);
+        }
+        
+        if (current_state == SEG_STATE_MOTION) {
+            motion_packets++;
+        }
         
         if (segment_completed) {
-            segments_detected++;
-            const segment_t *seg = segmentation_get_segment(&ctx, ctx.num_segments - 1);
-            if (seg) {
-                ESP_LOGI(TAG, "Segment #%d: start=%lu, length=%d (%.2fs), avg=%.2f, max=%.2f",
-                         segments_detected,
-                         (unsigned long)seg->start_index,
-                         seg->length,
-                         seg->length / 20.0f,
-                         seg->avg_turbulence,
-                         seg->max_turbulence);
-            }
+            ESP_LOGD(TAG, "Motion segment completed at packet %d", i);
         }
         
-        movement_moving_var[i] = 0.0f;  // Placeholder
+        prev_state = current_state;
     }
     
-    // JSON output for Python visualization
-    printf("\n═══════════════════════════════════════════════════════\n");
-    printf("  JSON OUTPUT (for segmentation visualization)\n");
-    printf("═══════════════════════════════════════════════════════\n");
-    printf("{\n");
-    printf("  \"test_name\": \"segmentation_movement_detection\",\n");
-    printf("  \"threshold\": %.4f,\n", ctx.adaptive_threshold);
-    printf("  \"mean_variance\": %.4f,\n", ctx.baseline_mean_variance);
-    printf("  \"std_variance\": %.4f,\n", ctx.baseline_std_variance);
-    printf("  \"window_size\": %d,\n", SEGMENTATION_WINDOW_SIZE);
-    printf("  \"baseline_turbulence\": [");
-    for (int i = 0; i < calib_samples && i < NUM_BASELINE_PACKETS; i++) {
-        printf("%.4f%s", baseline_turbulence[i], i < calib_samples - 1 && i < NUM_BASELINE_PACKETS - 1 ? ", " : "");
-    }
-    printf("],\n");
-    printf("  \"movement_turbulence\": [");
-    for (int i = 0; i < NUM_MOVEMENT_PACKETS; i++) {
-        printf("%.4f%s", movement_turbulence[i], i < NUM_MOVEMENT_PACKETS - 1 ? ", " : "");
-    }
-    printf("],\n");
-    printf("  \"baseline_segments\": [],\n");
-    printf("  \"movement_segments\": [\n");
-    for (int i = 0; i < ctx.num_segments; i++) {
-        const segment_t *seg = segmentation_get_segment(&ctx, i);
-        if (seg) {
-            printf("    {\"start\": %lu, \"length\": %d, \"avg\": %.4f, \"max\": %.4f}%s\n",
-                   (unsigned long)seg->start_index,
-                   seg->length,
-                   seg->avg_turbulence,
-                   seg->max_turbulence,
-                   i < ctx.num_segments - 1 ? "," : "");
-        }
-    }
-    printf("  ]\n");
-    printf("}\n");
-    printf("═══════════════════════════════════════════════════════\n\n");
+    ESP_LOGI(TAG, "Movement detection results:");
+    ESP_LOGI(TAG, "  Motion transitions: %d", motion_transitions);
+    ESP_LOGI(TAG, "  Motion packets: %d/%d (%.1f%%)", 
+             motion_packets, NUM_MOVEMENT_PACKETS,
+             (motion_packets * 100.0f) / NUM_MOVEMENT_PACKETS);
     
-    // Cleanup
-    free(baseline_turbulence);
-    free(baseline_moving_var);
-    free(movement_turbulence);
-    free(movement_moving_var);
-    
-    // Verify segments were detected
-    TEST_ASSERT_GREATER_THAN(0, ctx.num_segments);
-    TEST_ASSERT_EQUAL(segments_detected, ctx.num_segments);
-    TEST_ASSERT_GREATER_OR_EQUAL(10, ctx.num_segments);
-    TEST_ASSERT_LESS_OR_EQUAL(20, ctx.num_segments);
+    // Verify motion was detected
+    TEST_ASSERT_GREATER_THAN(0, motion_transitions);
+    TEST_ASSERT_GREATER_THAN(0, motion_packets);
 }
 
 // Test: No false positives on baseline
@@ -200,17 +149,28 @@ TEST_CASE_ESP(segmentation_no_false_positives, "[segmentation]")
     
     segmentation_finalize_calibration(&ctx);
     
-    // Test with second half of baseline (should have 0 segments)
-    ESP_LOGI(TAG, "Testing baseline (should have 0 segments)...");
+    // Test with second half of baseline (should have minimal motion detection)
+    ESP_LOGI(TAG, "Testing baseline (should have minimal motion detection)...");
     
+    int motion_packets = 0;
     for (int i = calib_samples; i < NUM_BASELINE_PACKETS; i++) {
         float turbulence = csi_calculate_spatial_turbulence(
             (const int8_t*)baseline_packets[i], 128);
         segmentation_add_turbulence(&ctx, turbulence);
+        
+        if (segmentation_get_state(&ctx) == SEG_STATE_MOTION) {
+            motion_packets++;
+        }
     }
     
-    // Should have 0 or very few segments (no false positives)
-    TEST_ASSERT_LESS_OR_EQUAL(2, ctx.num_segments);  // Allow max 2 false positives
+    int total_tested = NUM_BASELINE_PACKETS - calib_samples;
+    float false_positive_rate = (motion_packets * 100.0f) / total_tested;
+    
+    ESP_LOGI(TAG, "False positive rate: %.1f%% (%d/%d packets)", 
+             false_positive_rate, motion_packets, total_tested);
+    
+    // Should have very few false positives (< 5%)
+    TEST_ASSERT_LESS_THAN(5.0f, false_positive_rate);
 }
 
 // Test: Spatial turbulence calculation
@@ -260,7 +220,7 @@ TEST_CASE_ESP(segmentation_reset, "[segmentation]")
     segmentation_context_t ctx;
     segmentation_init(&ctx);
     
-    // Calibrate and detect some segments
+    // Calibrate and detect some motion
     // NOTE: Need to provide target + WINDOW_SIZE samples because the first
     //       WINDOW_SIZE samples are used to fill the circular buffer before
     //       variance collection begins. So for 100 target samples, we need
@@ -285,7 +245,6 @@ TEST_CASE_ESP(segmentation_reset, "[segmentation]")
     
     // Verify reset (but threshold should be preserved)
     TEST_ASSERT_EQUAL(SEG_STATE_IDLE, ctx.state);
-    TEST_ASSERT_EQUAL(0, ctx.num_segments);
     TEST_ASSERT_EQUAL(0, ctx.packet_index);
     TEST_ASSERT_TRUE(ctx.threshold_calibrated);  // Threshold preserved
 }

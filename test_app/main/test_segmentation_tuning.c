@@ -92,7 +92,7 @@ TEST_CASE_ESP(segmentation_threshold_tuning_with_real_csi, "[segmentation][real]
     printf("Turbulence ratio (movement/baseline): %.2fx\n", turbulence_ratio);
     printf("Moving variance ratio: %.2fx\n", variance_ratio);
     printf("Current threshold: %.4f\n", segmentation_get_threshold(&ctx));
-    printf("Total segments detected: %d\n", segmentation_get_num_segments(&ctx));
+    printf("Motion detection rate: %.1f%%\n", (motion_detections * 100.0f) / movement_count);
     printf("==========================\n\n");
     
     // Verify that movement is distinguishable from baseline
@@ -109,9 +109,6 @@ TEST_CASE_ESP(segmentation_threshold_tuning_with_real_csi, "[segmentation][real]
     
     // Verify that motion was detected
     TEST_ASSERT_GREATER_THAN(0, motion_detections);
-    
-    // Verify that at least some segments were created
-    TEST_ASSERT_GREATER_THAN(0, segmentation_get_num_segments(&ctx));
     
     printf("✅ Segmentation threshold tuning test PASSED\n");
     printf("   Movement turbulence is %.2fx higher than baseline\n", turbulence_ratio);
