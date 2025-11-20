@@ -40,9 +40,7 @@ ESPectre now supports multiple ESP32 platforms with optimized configurations for
 | **CSI Packet Rate** | 50-100 pps | 50-100+ pps (WiFi 6) |
 | **CSI Configuration** | Simple (`lltf_en`) | Complex (`acquire_csi_*`) |
 | **Subcarrier Count** | 64 | 64 (HT20) or 128 (HT40) |
-| **Subcarrier Order** | 0~31, -32~-1 | -32~-1, 0~32 |
 | **USB Stability** | Excellent | Requires workarounds |
-| **Cost** | ~€10 | ~€8 (lower) |
 | **WiFi Standard** | WiFi 4 (802.11n) | WiFi 6 (802.11ax) |
 
 ## Configuration Files
@@ -177,10 +175,8 @@ ESP32-C6 uses a different CSI configuration structure than ESP32-S3. Simply sett
 
 ### Data Validation
 
-According to ESP-IDF issue #14271, validate CSI data using the `rx_channel_estimate_info_vld` field in `wifi_pkt_rx_ctrl_t` to filter out invalid CSI data.
+According to ESP-IDF issue [#14271](https://github.com/espressif/esp-idf/issues/14271), validate CSI data using the `rx_channel_estimate_info_vld` field in `wifi_pkt_rx_ctrl_t` to filter out invalid CSI data.
 
 ## References
 
-- ESP-IDF Issue #14271: https://github.com/espressif/esp-idf/issues/14271
-- ESP-IDF WiFi API Guide (ESP32-C6): https://docs.espressif.com/projects/esp-idf/en/latest/esp32c6/api-guides/wifi.html
-- ESP-IDF WiFi API Guide (ESP32-S3): https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-guides/wifi.html
+- ESP-IDF WiFi API Guide ([ESP32-C6](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c6/api-guides/wifi.html, https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-guides/wifi.html))

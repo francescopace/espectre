@@ -32,14 +32,15 @@ Note the typical `movement` values when idle (usually 0.05-0.20).
 
 ### 3. Set Segmentation Threshold
 
-**This is the critical parameter for motion detection.**
+This is the critical parameter for motion detection.
+
+**What it does:** Determines sensitivity for motion detection.
 
 **Rule of thumb:**
-- If baseline variance is 0.05-0.10 → set threshold to 0.30-0.40
-- If baseline variance is 0.15-0.20 → set threshold to 0.45-0.55
+- If baseline variance is 0.0-4.0 → set threshold to 5.0-6.0
 
 ```
-espectre> segmentation_threshold 0.35
+espectre> segmentation_threshold 5.5
 ```
 
 ### 4. Test Movement
@@ -55,28 +56,6 @@ Look for `state=MOTION` when moving, `state=IDLE` when still.
 - Too many false positives → increase threshold
 - Missing movements → decrease threshold
 
----
-
-## 🎯 Essential Parameters
-
-### Segmentation Threshold
-
-**What it does:** Determines sensitivity for motion detection.
-
-**Default:** 0.40
-
-**Quick reference:**
-| Environment | Recommended Range |
-|-------------|-------------------|
-| Small room (< 20m²) | 0.25 - 0.35 |
-| Medium room (20-50m²) | 0.35 - 0.45 |
-| Large room (> 50m²) | 0.45 - 0.60 |
-| High interference | 0.45 - 0.60 |
-
-**Command:**
-```
-espectre> segmentation_threshold 0.35
-```
 
 ---
 
@@ -202,7 +181,7 @@ espectre> wavelet_threshold 1.0
 **Solutions:**
 1. Increase threshold:
    ```
-   espectre> segmentation_threshold 0.50
+   espectre> segmentation_threshold 8.0
    ```
 
 2. Enable Hampel filter:
@@ -217,9 +196,9 @@ espectre> wavelet_threshold 1.0
 **Symptoms:** Doesn't detect when people move.
 
 **Solutions:**
-1. Decrease threshold:
+1. Decrease threshold (but respect platform minimums):
    ```
-   espectre> segmentation_threshold 0.30
+   espectre> segmentation_threshold 5.0
    ```
 
 2. Check sensor position (optimal: 3-8m from router).
@@ -236,7 +215,7 @@ espectre> wavelet_threshold 1.0
 **Solutions:**
 1. Adjust threshold:
    ```
-   espectre> segmentation_threshold 0.40
+   espectre> segmentation_threshold 6.0
    ```
 
 2. Enable smoothing filters:
