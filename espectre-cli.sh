@@ -80,16 +80,6 @@ start_listener() {
             afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
             sleep 0.3
             afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
-        elif echo "$message" | grep -q '"type":"calibration_complete"'; then
-            # 3 beeps for calibration complete
-            afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
-            sleep 0.3
-            afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
-            sleep 0.3
-            afplay /System/Library/Sounds/Ping.aiff 2>/dev/null &
-            
-            # Create completion marker for calibrate_with_save function
-            touch "/tmp/espectre-calibration-complete" 2>/dev/null
         fi
         
         # Clear current line and print response
@@ -165,6 +155,62 @@ cmd_segmentation_threshold() {
     fi
     
     send_command "{\"cmd\":\"segmentation_threshold\",\"value\":$value}"
+}
+
+cmd_segmentation_k_factor() {
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: segmentation_k_factor <value>"
+        echo "  Range: 0.5-5.0 (threshold sensitivity multiplier)"
+        echo "  Higher = less sensitive, Lower = more sensitive"
+        echo "  Example: segmentation_k_factor 2.0"
+        return 1
+    fi
+    
+    send_command "{\"cmd\":\"segmentation_k_factor\",\"value\":$value}"
+}
+
+cmd_segmentation_window_size() {
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: segmentation_window_size <packets>"
+        echo "  Range: 3-50 packets (moving variance window)"
+        echo "  Small = more reactive, Large = more stable"
+        echo "  Example: segmentation_window_size 10"
+        return 1
+    fi
+    
+    send_command "{\"cmd\":\"segmentation_window_size\",\"value\":$value}"
+}
+
+cmd_segmentation_min_length() {
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: segmentation_min_length <packets>"
+        echo "  Range: 5-100 packets (minimum segment length)"
+        echo "  Filters out very short motion bursts"
+        echo "  Example: segmentation_min_length 10"
+        return 1
+    fi
+    
+    send_command "{\"cmd\":\"segmentation_min_length\",\"value\":$value}"
+}
+
+cmd_segmentation_max_length() {
+    local value="$1"
+    
+    if [ -z "$value" ]; then
+        print_error "Usage: segmentation_max_length <packets>"
+        echo "  Range: 10-200 packets or 0 (no limit)"
+        echo "  Forces segment closure at max length"
+        echo "  Example: segmentation_max_length 50"
+        return 1
+    fi
+    
+    send_command "{\"cmd\":\"segmentation_max_length\",\"value\":$value}"
 }
 
 cmd_features_enable() {
@@ -265,12 +311,28 @@ cmd_traffic_generator_rate() {
     send_command "{\"cmd\":\"traffic_generator_rate\",\"value\":$value}"
 }
 
+cmd_subcarrier_selection() {
+    local indices="$1"
+    
+    if [ -z "$indices" ]; then
+        print_error "Usage: subcarrier_selection <comma-separated indices>"
+        echo "  Range: 0-63 (64 total subcarriers)"
+        echo "  Count: 1-64 subcarriers"
+        echo "  Example: subcarrier_selection 47,48,49,50,51,52,53,54"
+        return 1
+    fi
+    
+    # Convert comma-separated to JSON array
+    local json_array="[${indices}]"
+    send_command "{\"cmd\":\"subcarrier_selection\",\"indices\":${json_array}}"
+}
+
 cmd_factory_reset() {
     print_warning "⚠️  WARNING: This will reset ALL settings to factory defaults!"
     print_warning "This includes:"
-    print_warning "  - Detection parameters (threshold, debounce, etc.)"
+    print_warning "  - Segmentation parameters (threshold, K factor, window size, etc.)"
+    print_warning "  - Subcarrier selection"
     print_warning "  - Filter settings"
-    print_warning "  - Calibration data"
     print_warning "  - All saved configurations"
     echo ""
     read -p "Are you sure you want to continue? (yes/no): " confirm
@@ -288,43 +350,44 @@ show_help() {
     echo -e "${CYAN}ESPectre CLI - Interactive Commands${NC}"
     echo ""
     echo -e "${YELLOW}Segmentation Commands:${NC}"
-    echo "  segmentation_threshold <val> Set segmentation threshold (0.5-10.0)"
-    echo "  features_enable <on|off>  Enable/disable feature extraction during MOTION"
+    echo "  segmentation_threshold <val>    Set segmentation threshold (0.5-10.0)"
+    echo "  segmentation_k_factor <val>     Set K factor sensitivity (0.5-5.0)"
+    echo "  segmentation_window_size <n>    Set moving variance window (3-50 packets)"
+    echo "  segmentation_min_length <n>     Set min segment length (5-100 packets)"
+    echo "  segmentation_max_length <n>     Set max segment length (10-200, 0=no limit)"
+    echo "  subcarrier_selection <indices>  Set subcarrier selection (0-63, comma-separated)"
     echo ""
-    echo -e "${YELLOW}Filter Commands:${NC}"
-    echo "  butterworth_filter <on|off> Enable/disable Butterworth filter (high freq)"
-    echo "  wavelet_filter <on|off>   Enable/disable Wavelet filter (low freq)"
-    echo "  wavelet_level <1-3>       Set wavelet decomposition level (rec: 3)"
-    echo "  wavelet_threshold <val>   Set wavelet threshold (0.5-2.0, rec: 1.0)"
-    echo "  hampel_filter <on|off>    Enable/disable Hampel outlier filter"
-    echo "  hampel_threshold <val>    Set Hampel threshold (1.0-10.0)"
-    echo "  savgol_filter <on|off>    Enable/disable Savitzky-Golay filter"
+    echo -e "${YELLOW}Featuers Commands:${NC}"
+    echo "  features_enable <on|off>        Enable/disable feature extraction during MOTION"
+    echo "  butterworth_filter <on|off>     Enable/disable Butterworth filter (high freq)"
+    echo "  wavelet_filter <on|off>         Enable/disable Wavelet filter (low freq)"
+    echo "  wavelet_level <1-3>             Set wavelet decomposition level (rec: 3)"
+    echo "  wavelet_threshold <val>         Set wavelet threshold (0.5-2.0, rec: 1.0)"
+    echo "  hampel_filter <on|off>          Enable/disable Hampel outlier filter"
+    echo "  hampel_threshold <val>          Set Hampel threshold (1.0-10.0)"
+    echo "  savgol_filter <on|off>          Enable/disable Savitzky-Golay filter"
     echo ""
-    echo -e "${YELLOW}State Commands:${NC}"
-    echo "  smart_publishing <on|off> Enable/disable smart publishing"
-    echo ""
-    echo -e "${YELLOW}Information Commands:${NC}"
-    echo "  info                      Show current configuration (static)"
-    echo "  stats                     Show runtime statistics (dynamic)"
-    echo ""
-    echo -e "${YELLOW}Traffic Generator:${NC}"
-    echo "  traffic_generator_rate <pps> Set traffic rate (0=off, 5-100, rec: 20)"
+    echo -e "${YELLOW}System Commands:${NC}"
+    echo "  info                            Show current configuration (static)"
+    echo "  stats                           Show runtime statistics (dynamic)"
+    echo "  smart_publishing <on|off>       Enable/disable smart publishing"
+    echo "  traffic_generator_rate <pps>    Set traffic rate (0=off, 5-100, rec: 20)"
+    echo "  factory_reset                   Reset all settings to factory defaults"
     echo ""
     echo -e "${YELLOW}Utility Commands:${NC}"
-    echo "  factory_reset             Reset all settings to factory defaults"
-    echo "  clear                     Clear screen"
-    echo "  help                      Show this help message"
-    echo "  exit, quit                Exit interactive mode"
+    echo "  clear                           Clear screen"
+    echo "  help                            Show this help message"
+    echo "  exit, quit                      Exit interactive mode"
     echo ""
     echo -e "${YELLOW}Shortcuts:${NC}"
-    echo "  st, fe, i, s, hampel, sg, bw, wv, wvl, wvt, sp, tgr, fr"
+    echo "  st, skf, sws, sml, smxl, scs, fe, i, s, hampel, sg, bw, wv, wvl, wvt, sp, tgr, fr"
     echo ""
     echo -e "${YELLOW}Environment Variables:${NC}"
-    echo "  MQTT_BROKER               MQTT broker hostname (default: homeassistant.local)"
-    echo "  MQTT_PORT                 MQTT broker port (default: 1883)"
-    echo "  MQTT_TOPIC                Base MQTT topic (default: home/espectre/node1)"
-    echo "  MQTT_USERNAME             MQTT username (default: mqtt)"
-    echo "  MQTT_PASSWORD             MQTT password (default: mqtt)"
+    echo "  MQTT_BROKER                     MQTT broker hostname (default: homeassistant.local)"
+    echo "  MQTT_PORT                       MQTT broker port (default: 1883)"
+    echo "  MQTT_TOPIC                      Base MQTT topic (default: home/espectre/node1)"
+    echo "  MQTT_USERNAME                   MQTT username (default: mqtt)"
+    echo "  MQTT_PASSWORD                   MQTT password (default: mqtt)"
     echo ""
 }
 
@@ -345,6 +408,21 @@ process_command() {
     case "$cmd" in
         segmentation_threshold|st)
             cmd_segmentation_threshold $args
+            ;;
+        segmentation_k_factor|skf)
+            cmd_segmentation_k_factor $args
+            ;;
+        segmentation_window_size|sws)
+            cmd_segmentation_window_size $args
+            ;;
+        segmentation_min_length|sml)
+            cmd_segmentation_min_length $args
+            ;;
+        segmentation_max_length|smxl)
+            cmd_segmentation_max_length $args
+            ;;
+        subcarrier_selection|scs)
+            cmd_subcarrier_selection $args
             ;;
         features_enable|fe)
             cmd_features_enable $args

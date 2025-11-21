@@ -12,7 +12,6 @@ ESPectre now supports multiple ESP32 platforms with optimized configurations for
 - **CSI Config**: `lltf_en`, `htltf_en` (legacy structure)
 - **CSI Data**: 256 bytes (L-LTF + HT-LTF)
 - **Subcarriers**: 64 total (order: 0~31, -32~-1)
-- **Optimal Range**: 47-59 (PCA-optimized)
 - **USB**: Stable, no issues
 
 ### ESP32-C6 ✅
@@ -23,9 +22,7 @@ ESPectre now supports multiple ESP32 platforms with optimized configurations for
 - **CSI Config**: `acquire_csi_legacy`, `acquire_csi_ht20`, `acquire_csi_ht40`, `acquire_csi_su`
 - **CSI Data**: 128-256 bytes (HT20: 128, HT40: 256)
 - **Subcarriers**: 64 (HT20) or 128 (HT40), effective range varies
-- **Optimal Range**: 10-38 for HT20 (temporary, needs PCA optimization)
-- **USB**: Requires workarounds (see ESP32-C6-FLASH-GUIDE.md)
-- **Advantages**: WiFi 6, HT40 support, higher CSI packet rate, more subcarriers, lower cost
+- **Advantages**: WiFi 6, HT40 support, higher CSI packet rate, more subcarriers
 
 ### ESP32 (Classic) ❌
 - **Status**: Not tested, not officially supported
@@ -40,7 +37,6 @@ ESPectre now supports multiple ESP32 platforms with optimized configurations for
 | **CSI Packet Rate** | 50-100 pps | 50-100+ pps (WiFi 6) |
 | **CSI Configuration** | Simple (`lltf_en`) | Complex (`acquire_csi_*`) |
 | **Subcarrier Count** | 64 | 64 (HT20) or 128 (HT40) |
-| **USB Stability** | Excellent | Requires workarounds |
 | **WiFi Standard** | WiFi 4 (802.11n) | WiFi 6 (802.11ax) |
 
 ## Configuration Files
@@ -90,13 +86,11 @@ These modules work identically on all platforms:
 4. Flash (may require multiple attempts): `idf.py flash`
 5. Monitor: `idf.py monitor`
 6. Verify CSI packets are received (should see "🔔 CSI CALLBACK" logs)
-7. Re-run PCA analysis to optimize subcarrier range
 
 ### Known Issues
 
 **ESP32-C6:**
 - USB flashing instability (use lower baud rates or flash script)
-- Subcarrier range not yet PCA-optimized (using conservative 10-38)
 - 5 GHz WiFi support untested
 
 ## Performance Comparison
@@ -109,37 +103,25 @@ Based on testing:
 | Motion Detection | Excellent | Excellent |
 | CPU Usage | Low (dual-core) | Moderate (single-core) |
 | Memory Usage | Low (with PSRAM) | Higher (no PSRAM) |
-| USB Stability | Excellent | Problematic |
-| Setup Difficulty | Easy | Moderate |
 
 ## Recommendations
 
 ### Choose ESP32-S3 if:
-- ✅ You want the easiest setup experience
-- ✅ You need stable USB connection
-- ✅ You want proven, tested platform
+- ✅ You need more computing power to run small models directly on the device
 - ✅ You need PSRAM for future features
 
 ### Choose ESP32-C6 if:
 - ✅ You want WiFi 6 support
-- ✅ You want potentially higher CSI packet rates
-- ✅ You want lower cost
-- ✅ You're comfortable with USB workarounds
+- ✅ You want higher CSI packet rates
 - ✅ You want to experiment with 5 GHz (untested)
 
 ## Future Work
 
 ### ESP32-C6 Optimization
-- [ ] Run PCA analysis on ESP32-C6 CSI data
-- [ ] Optimize subcarrier range (currently 10-38)
 - [ ] Test 5 GHz WiFi support
-- [ ] Validate CSI data using `rx_channel_estimate_info_vld`
 - [ ] Compare detection accuracy with ESP32-S3 baseline
 
 ### Documentation
-- [x] ESP32-C6 CSI configuration guide
-- [x] ESP32-C6 USB flashing guide
-- [x] Platform comparison table
 - [ ] Performance benchmarks
 - [ ] 5 GHz testing results (when available)
 
@@ -161,7 +143,7 @@ ESP32-C6 uses a different CSI configuration structure than ESP32-S3. Simply sett
         .enable = 1,                    // Master enable (REQUIRED)
         .acquire_csi_legacy = 1,        // CRITICAL: Required for callback!
         .acquire_csi_ht20 = 1,          // CRITICAL: Required for HT20 packets!
-        .acquire_csi_ht40 = 1,          // Enabled: Captures HT40 packets (128 subcarriers)
+        .acquire_csi_ht40 = 0,          // Disabled: Captures HT40 packets (128 subcarriers)
         .acquire_csi_su = 1,            // Enabled: WiFi 6 Single-User support
         .acquire_csi_mu = 0,            // Disabled: WiFi 6 Multi-User
         .acquire_csi_dcm = 0,           // Disabled: DCM
@@ -179,4 +161,4 @@ According to ESP-IDF issue [#14271](https://github.com/espressif/esp-idf/issues/
 
 ## References
 
-- ESP-IDF WiFi API Guide ([ESP32-C6](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c6/api-guides/wifi.html, https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-guides/wifi.html))
+- ESP-IDF WiFi API Guide ([ESP32-C6](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c6/api-guides/wifi.html), [ESP32-C6](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-guides/wifi.html))

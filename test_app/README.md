@@ -78,7 +78,7 @@ Primary tests for validating Home Assistant integration:
 Temporal event segmentation for activity recognition:
 - `segmentation_init` (test_segmentation.c)
 - `spatial_turbulence_calculation` (test_segmentation.c)
-- `segmentation_calibration` (test_segmentation.c)
+- `segmentation_parameters` (test_segmentation.c)
 - `segmentation_no_false_positives` (test_segmentation.c)
 - `segmentation_movement_detection` (test_segmentation.c)
 - `segmentation_reset` (test_segmentation.c)
@@ -198,11 +198,11 @@ open test_results/report.html  # macOS
 
 ## Real CSI Data
 
-The `real_csi_data.h` file contains real CSI packets:
+The `real_csi_data_esp32_[S3-C6].h` file contains real CSI packets:
 - 1000 baseline packets (empty room)
 - 1000 movement packets (person walking)
 
-These are used for realistic calibration and detection testing.
+These are used for realistic detection testing with real CSI data.
 
 ---
 

@@ -7,9 +7,11 @@ dependencies.lock
 managed_components/
 
 # Project data
-logs/
-csi_data/
-docs/
 .vscode/
+docs/
 test_results/
-test_output.log
+__pycache__
+
+# Other
+.DS_Store
+.log.

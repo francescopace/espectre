@@ -17,7 +17,7 @@
  */
 
 #include "test_case_esp.h"
-#include "real_csi_data.h"
+#include "real_csi_data_esp32_c6.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -95,13 +95,7 @@ static float power_iteration(float **matrix, int n, float *eigenvector, int max_
 
 TEST_CASE_ESP(pca_subcarrier_analysis_on_real_data, "[pca][subcarrier]")
 {
-    printf("\n");
-    printf("╔═══════════════════════════════════════════════════════╗\n");
-    printf("║     PCA SUBCARRIER ANALYSIS ON REAL CSI DATA         ║\n");
-    printf("║     Finding optimal subcarrier selection             ║\n");
-    printf("║     (Incremental Processing - Memory Efficient)       ║\n");
-    printf("╚═══════════════════════════════════════════════════════╝\n");
-    printf("\n");
+    printf("\n=== PCA SUBCARRIER ANALYSIS ===\n");
     
     // Allocate incremental statistics (minimal memory)
     incremental_stats_t *stats = malloc(NUM_SUBCARRIERS * sizeof(incremental_stats_t));
@@ -343,8 +337,6 @@ TEST_CASE_ESP(pca_subcarrier_analysis_on_real_data, "[pca][subcarrier]")
     }
     
     // Incremental covariance calculation - process one packet at a time
-    printf("Processing %d movement packets incrementally...\n", num_movement);
-    
     for (int p = 0; p < num_movement; p++) {
         // Calculate all subcarrier amplitudes for this packet
         float packet_amps[NUM_SUBCARRIERS];
@@ -360,11 +352,6 @@ TEST_CASE_ESP(pca_subcarrier_analysis_on_real_data, "[pca][subcarrier]")
                 cov_matrix[i][j] += diff_i * diff_j;
             }
         }
-        
-        // Progress indicator every 200 packets
-        if ((p + 1) % 200 == 0) {
-            printf("  Processed %d/%d packets...\n", p + 1, num_movement);
-        }
     }
     
     // Finalize covariance (divide by N-1 and make symmetric)
@@ -374,8 +361,6 @@ TEST_CASE_ESP(pca_subcarrier_analysis_on_real_data, "[pca][subcarrier]")
             cov_matrix[j][i] = cov_matrix[i][j];  // Symmetric
         }
     }
-    
-    printf("Covariance matrix built successfully!\n\n");
     
     // Calculate total variance (trace of covariance matrix)
     float total_variance = 0.0f;
@@ -471,8 +456,6 @@ TEST_CASE_ESP(pca_subcarrier_analysis_on_real_data, "[pca][subcarrier]")
         memcpy(work_matrix[i], cov_matrix[i], NUM_SUBCARRIERS * sizeof(float));
     }
     
-    printf("Calculating %d principal components...\n", PCA_COMPONENTS);
-    
     // Find principal components
     for (int pc = 0; pc < PCA_COMPONENTS; pc++) {
         eigenvalues[pc] = power_iteration(work_matrix, NUM_SUBCARRIERS, eigenvectors[pc], 50);
@@ -482,10 +465,6 @@ TEST_CASE_ESP(pca_subcarrier_analysis_on_real_data, "[pca][subcarrier]")
             for (int j = 0; j < NUM_SUBCARRIERS; j++) {
                 work_matrix[i][j] -= eigenvalues[pc] * eigenvectors[pc][i] * eigenvectors[pc][j];
             }
-        }
-        
-        if ((pc + 1) % 2 == 0) {
-            printf("  Calculated PC%d...\n", pc + 1);
         }
     }
     

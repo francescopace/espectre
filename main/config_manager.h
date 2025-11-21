@@ -22,6 +22,9 @@
 // Default threshold for motion detection (optimized for amplitude skewness)
 #define DEFAULT_THRESHOLD 0.50f
 
+// Subcarrier selection limits
+#define MAX_SUBCARRIERS 64  // Maximum number of subcarriers that can be selected
+
 // Runtime configuration structure
 typedef struct {
     // Logging (always enabled in monitor mode, disabled otherwise)
@@ -52,6 +55,16 @@ typedef struct {
     
     // Traffic generator (for continuous CSI packets)
     uint32_t traffic_generator_rate;  // packets/sec (0=disabled, 1-50, recommended: 15)
+    
+    // Segmentation parameters (configurable at runtime)
+    float segmentation_k_factor;        // Threshold sensitivity (0.5-5.0)
+    uint16_t segmentation_window_size;  // Moving variance window (3-50 packets)
+    uint16_t segmentation_min_length;   // Minimum segment length (5-100 packets)
+    uint16_t segmentation_max_length;   // Maximum segment length (10-200 packets, 0=no limit)
+    
+    // Subcarrier selection (configurable at runtime)
+    uint8_t selected_subcarriers[MAX_SUBCARRIERS];  // Array of selected subcarrier indices (0-63)
+    uint8_t num_selected_subcarriers;               // Number of selected subcarriers (1-64)
 } runtime_config_t;
 
 /**

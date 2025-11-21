@@ -24,26 +24,15 @@ static int8_t iqr_sort_buffer[CSI_MAX_LENGTH];
 // Both features share the same buffer for efficiency
 #define AMPLITUDE_MOMENTS_WINDOW 20
 
-// Subcarrier selection for amplitude calculation
+// ============================================================================
+// SUBCARRIER SELECTION - Configurable at runtime
+// ============================================================================
+
 #define ENABLE_SUBCARRIER_FILTERING 1
 
-#if CONFIG_IDF_TARGET_ESP32C6
-    // ESP32-C6: Effective subcarriers are -28~-1, 1~28 (56 total in 64 positions)
-    // Subcarrier order: -32~-1, 0~32 (DIFFERENT from ESP32-S3!)
-    // Guard band at positions -32~-29 and 29~32 (null values)
-    // Temporary range (to be optimized with PCA analysis on ESP32-C6 data)
-    // Current range selects central subcarriers for stability
-    #define SUBCARRIER_START 10   // Approx. maps to subcarriers -18 to -1
-    #define SUBCARRIER_END 38     // Approx. maps to subcarriers 1 to 18
-    #define NUM_USEFUL_SUBCARRIERS (SUBCARRIER_END - SUBCARRIER_START)
-#else
-    // ESP32-S3: 64 subcarriers (order: 0~31, -32~-1)
-    // Based on PCA analysis on real ESP32-S3 data: optimal range is [47-58]
-    // This captures the most informative subcarriers for motion detection
-    #define SUBCARRIER_START 47
-    #define SUBCARRIER_END 59     // Inclusive of SC58
-    #define NUM_USEFUL_SUBCARRIERS (SUBCARRIER_END - SUBCARRIER_START)
-#endif
+// Runtime subcarrier selection (configurable via MQTT/NVS)
+static uint8_t g_selected_subcarriers[64];
+static uint8_t g_num_selected_subcarriers = 0;
 static float amplitude_moments_buffer[AMPLITUDE_MOMENTS_WINDOW] = {0};
 static int amp_moments_index = 0;
 static int amp_moments_count = 0;
@@ -61,25 +50,17 @@ static int compare_int8(const void *a, const void *b) {
 }
 
 // Helper: Filter CSI data to selected subcarriers only
-// This pre-processes the data once, making all feature calculations agnostic
+// Uses runtime-configurable subcarrier list
 // Returns the filtered data length (2 * num_selected_subcarriers)
 static size_t csi_filter_subcarriers(const int8_t *input_data, size_t input_len,
                                      int8_t *output_data, size_t max_output_len) {
-    int num_subcarriers = input_len / 2;  // Each subcarrier has I and Q
-    
-    // Determine range of useful subcarriers
-    int start_idx = (num_subcarriers > SUBCARRIER_END) ? SUBCARRIER_START : 0;
-    int end_idx = (num_subcarriers > SUBCARRIER_END) ? SUBCARRIER_END : num_subcarriers;
-    int useful_count = end_idx - start_idx;
-    
-    if (useful_count <= 0) {
-        // Fallback: use all subcarriers if selection doesn't make sense
-        if (input_len <= max_output_len) {
-            memcpy(output_data, input_data, input_len);
-            return input_len;
-        }
+    if (g_num_selected_subcarriers == 0) {
+        ESP_LOGE(TAG, "No subcarriers selected");
         return 0;
     }
+    
+    int num_subcarriers = input_len / 2;  // Each subcarrier has I and Q
+    int useful_count = g_num_selected_subcarriers;
     
     // Check output buffer size
     size_t output_len = useful_count * 2;  // I,Q pairs
@@ -90,7 +71,15 @@ static size_t csi_filter_subcarriers(const int8_t *input_data, size_t input_len,
     
     // Copy selected subcarriers (I,Q pairs)
     for (int i = 0; i < useful_count; i++) {
-        int src_idx = (start_idx + i) * 2;
+        int sc_idx = g_selected_subcarriers[i];
+        
+        // Validate subcarrier index
+        if (sc_idx >= num_subcarriers) {
+            ESP_LOGE(TAG, "Subcarrier index %d out of range (max %d)", sc_idx, num_subcarriers - 1);
+            return 0;
+        }
+        
+        int src_idx = sc_idx * 2;
         int dst_idx = i * 2;
         output_data[dst_idx] = input_data[src_idx];         // I
         output_data[dst_idx + 1] = input_data[src_idx + 1]; // Q
@@ -407,14 +396,14 @@ float csi_calculate_temporal_delta_variance(const int8_t *current_data,
     return delta_variance / len;
 }
 
-// Reset temporal buffer (call when starting new calibration phase)
+// Reset temporal buffer
 void csi_reset_temporal_buffer(void) {
     memset(prev_csi_data, 0, sizeof(prev_csi_data));
     prev_csi_len = 0;
     first_packet = true;
 }
 
-// Reset amplitude moments buffer (call when starting new calibration phase)
+// Reset amplitude moments buffer
 // Resets buffer used by both skewness and kurtosis
 void csi_reset_amplitude_skewness_buffer(void) {
     memset(amplitude_moments_buffer, 0, sizeof(amplitude_moments_buffer));
@@ -425,38 +414,36 @@ void csi_reset_amplitude_skewness_buffer(void) {
 
 // Calculate spatial turbulence (std of subcarrier amplitudes)
 // Used for Moving Variance Segmentation (MVS)
-// Replicates: calculate_spatial_turbulence() from Python code
-// 
-// NOTE: Uses SELECTIVE subcarrier filtering (47-58) to match Python implementation
-//       which uses SELECTED_SUBCARRIERS = list(range(47, 59))
-float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len) {
+// Uses runtime-configurable subcarrier list
+float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len,
+                                       const uint8_t *selected_subcarriers,
+                                       uint8_t num_subcarriers) {
     if (!csi_data || csi_len < 2) {
         return 0.0f;
     }
     
-    // Use SELECTIVE subcarrier filtering (47-58) to match Python
-    // Python: SELECTED_SUBCARRIERS = list(range(47, 59))  # 12 subcarriers
-    int num_subcarriers = csi_len / 2;  // Each subcarrier has I and Q
-    
-    // Determine range of useful subcarriers (same as Python SELECTIVE mode)
-    int start_idx = (num_subcarriers > SUBCARRIER_END) ? SUBCARRIER_START : 0;
-    int end_idx = (num_subcarriers > SUBCARRIER_END) ? SUBCARRIER_END : num_subcarriers;
-    int useful_count = end_idx - start_idx;
-    
-    if (useful_count <= 0) {
-        // Fallback: use all subcarriers
-        start_idx = 0;
-        end_idx = num_subcarriers;
-        useful_count = num_subcarriers;
+    if (num_subcarriers == 0) {
+        ESP_LOGE(TAG, "No subcarriers provided");
+        return 0.0f;
     }
+    
+    int total_subcarriers = csi_len / 2;  // Each subcarrier has I and Q
     
     // Calculate amplitudes for selected subcarriers
     float sum = 0.0f;
     float sum_sq = 0.0f;
     
-    for (int i = start_idx; i < end_idx; i++) {
-        float I = (float)csi_data[i * 2];
-        float Q = (float)csi_data[i * 2 + 1];
+    for (int i = 0; i < num_subcarriers; i++) {
+        int sc_idx = selected_subcarriers[i];
+        
+        // Validate subcarrier index
+        if (sc_idx >= total_subcarriers) {
+            ESP_LOGW(TAG, "Subcarrier %d out of range, skipping", sc_idx);
+            continue;
+        }
+        
+        float I = (float)csi_data[sc_idx * 2];
+        float Q = (float)csi_data[sc_idx * 2 + 1];
         float amplitude = sqrtf(I * I + Q * Q);
         
         sum += amplitude;
@@ -464,13 +451,40 @@ float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len) {
     }
     
     // Calculate standard deviation
-    float mean = sum / useful_count;
-    float variance = (sum_sq / useful_count) - (mean * mean);
+    float mean = sum / num_subcarriers;
+    float variance = (sum_sq / num_subcarriers) - (mean * mean);
     
     // Protect against negative variance due to floating point errors
     if (variance < 0.0f) variance = 0.0f;
     
     return sqrtf(variance);
+}
+
+// Set subcarrier selection for feature extraction
+void csi_set_subcarrier_selection(const uint8_t *selected_subcarriers,
+                                   uint8_t num_subcarriers) {
+    if (!selected_subcarriers || num_subcarriers == 0 || num_subcarriers > 64) {
+        ESP_LOGE(TAG, "Invalid subcarrier selection parameters");
+        return;
+    }
+    
+    memcpy(g_selected_subcarriers, selected_subcarriers, num_subcarriers * sizeof(uint8_t));
+    g_num_selected_subcarriers = num_subcarriers;
+    
+    ESP_LOGI(TAG, "Subcarrier selection updated: %d subcarriers", num_subcarriers);
+}
+
+// Get current subcarrier selection
+void csi_get_subcarrier_selection(uint8_t *selected_subcarriers,
+                                   uint8_t *num_subcarriers) {
+    if (!selected_subcarriers || !num_subcarriers) {
+        ESP_LOGE(TAG, "Invalid output parameters");
+        return;
+    }
+    
+    memcpy(selected_subcarriers, g_selected_subcarriers, 
+           g_num_selected_subcarriers * sizeof(uint8_t));
+    *num_subcarriers = g_num_selected_subcarriers;
 }
 
 // Main feature extraction function

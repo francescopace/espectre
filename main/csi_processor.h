@@ -16,6 +16,8 @@
 #ifndef CSI_PROCESSOR_H
 #define CSI_PROCESSOR_H
 
+#include "sdkconfig.h"
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -93,15 +95,13 @@ float csi_calculate_temporal_delta_variance(const int8_t *current_data,
 
 /**
  * Reset temporal feature buffer
- * Call this when starting a new calibration phase or when you want
- * to clear the history of previous packets
+ * Call this when you want to clear the history of previous packets
  */
 void csi_reset_temporal_buffer(void);
 
 /**
  * Reset amplitude skewness buffer
- * Call this when starting a new calibration phase to clear the
- * amplitude history used for skewness calculation
+ * Call this to clear the amplitude history used for skewness calculation
  */
 void csi_reset_amplitude_skewness_buffer(void);
 
@@ -181,8 +181,31 @@ float csi_calculate_spatial_gradient(const int8_t *data, size_t len);
  * 
  * @param csi_data Raw CSI data (I/Q pairs for subcarriers)
  * @param csi_len Length of CSI data
+ * @param selected_subcarriers Array of subcarrier indices to use
+ * @param num_subcarriers Number of selected subcarriers
  * @return Spatial turbulence (standard deviation of amplitudes)
  */
-float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len);
+float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len,
+                                       const uint8_t *selected_subcarriers,
+                                       uint8_t num_subcarriers);
+
+/**
+ * Set the subcarrier selection for feature extraction
+ * This updates the internal configuration used by all CSI processing functions
+ * 
+ * @param selected_subcarriers Array of subcarrier indices (0-63)
+ * @param num_subcarriers Number of selected subcarriers (1-64)
+ */
+void csi_set_subcarrier_selection(const uint8_t *selected_subcarriers,
+                                   uint8_t num_subcarriers);
+
+/**
+ * Get current subcarrier selection
+ * 
+ * @param selected_subcarriers Output array for subcarrier indices
+ * @param num_subcarriers Output for number of selected subcarriers
+ */
+void csi_get_subcarrier_selection(uint8_t *selected_subcarriers,
+                                   uint8_t *num_subcarriers);
 
 #endif // CSI_PROCESSOR_H

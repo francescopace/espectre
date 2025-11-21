@@ -4,39 +4,112 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [1.3.0] - in progress
+## [1.3.0] - 2025-11-22
 
-### 🔧 Changed - MQTT Data Structure Optimization
+### 🚀 ESP32-C6 Platform Support
 
-**Simplified and standardized MQTT message format**
+**Complete multi-platform support with ESP32-C6 and WiFi 6**
 
-Optimized MQTT data structure for consistency and reduced bandwidth:
+Added comprehensive support for ESP32-C6 alongside ESP32-S3, enabling WiFi 6 (802.11ax):
 
-**Periodic Data (published during detection):**
-- ❌ Removed `segments_total` (not needed for motion detection)
-- ✅ Kept essential fields: `movement`, `threshold`, `state`, `features` (optional), `timestamp`
+**ESP32-C6 Implementation:**
+- **CSI Configuration**: Implemented `wifi_csi_acquire_config_t` structure
+  * `.acquire_csi_legacy = 1` - Captures CSI from 802.11a/g packets (L-LTF)
+  * `.acquire_csi_ht20 = 1` - Captures CSI from 802.11n HT20 packets (64 subcarriers)
+  * `.acquire_csi_ht40 = 0` - Captures CSI from 802.11n HT40 packets (128 subcarriers) - to be tested
+  * `.acquire_csi_su = 1` - Captures CSI from WiFi 6 Single-User packets
+  * Critical: Both `acquire_csi_legacy` and `acquire_csi_ht20` required for callback invocation
 
-**Stats Command Response:**
-- ❌ Removed entire `segments` object (total, active, last_completed)
-- ✅ Renamed `moving_variance` → `movement` (consistent with periodic data)
-- ✅ Renamed `adaptive_threshold` → `threshold` (consistent with periodic data)
-- ✅ Kept `turbulence` for diagnostics
-- ✅ Simplified to essential runtime metrics only
+- **WiFi 6 Support**: Enabled 802.11ax protocol for ESP32-C6
+  * Automatic negotiation with WiFi 6 routers
+  * Backward compatible with WiFi 4/5 routers
+  * Improved packet scheduling and efficiency
 
-**Code Cleanup:**
-- ❌ Removed `segment_t` structure from `segmentation.h`
-- ❌ Removed segment array and tracking logic from `segmentation.c` (~150 lines)
-- ❌ Removed functions: `segmentation_get_num_segments()`, `segmentation_get_segment()`, `segmentation_clear_segments()`, `segmentation_get_active_segments_count()`, `segmentation_get_last_completed_segment()`
-- ✅ Simplified state machine to focus only on IDLE ↔ MOTION transitions
+**Configuration Files:**
+- `sdkconfig.defaults.esp32c6`: ESP32-C6 specific configuration
+  * DIO flash mode (more stable than QIO)
+  * USB stability improvements (PM disabled)
+  * Simplified CSI API configuration
+
+**Critical Fix - CSI Callback Issue:**
+- **Root cause**: Incomplete CSI configuration (only `.enable = 1` was insufficient)
+- **Solution**: Added all required `acquire_csi_*` fields
+- **Result**: CSI callback now working, 50-100+ packets/second
+
+**Testing Infrastructure:**
+- **Added `real_csi_data_esp32_c6.h`**: 2015 lines of real CSI test data
+- **Renamed `real_csi_data.h`** → `real_csi_data_eps32_s3.h` for clarity
+- **Added `segmentation_analysis_c6.png`**: Visual analysis of C6 performance
+- **Rewrote `test_segmentation_local.py`**: Complete rewrite for better parameter analysis
+  * Grid search optimization
+  * Visual segmentation analysis
+  * Platform-specific parameter validation
+
+**Documentation:**
+- Removed ESP32-S3 specific references from user-facing documentation
+- Updated platform badges and hardware requirements
+- Added platform comparison tables
+- Clarified platform-specific features and limitations
+- Updated **ESP32-PLATFORM-SUPPORT.md** with platform-specific defaults
+
+**Reference:** ESP-IDF Issue #14271 - https://github.com/espressif/esp-idf/issues/14271
+
+### 🔧 Runtime-Configurable Parameters
+
+**Major system configurability improvements**
+
+Transformed hardcoded parameters into runtime-configurable settings, enabling fine-tuning without recompilation:
+
+**Segmentation Parameters (MQTT-configurable):**
+- **Threshold**: Direct value setting (0.5-10.0)
+- **K factor**: Threshold sensitivity multiplier (0.5-5.0)
+  * Higher values = less sensitive (fewer false positives)
+  * Lower values = more sensitive (better detection of subtle movements)
+- **Window size**: Moving variance window (3-50 packets)
+  * Smaller = more reactive, larger = more stable
+- **Min segment length**: Minimum motion duration (5-100 packets)
+- **Max segment length**: Maximum motion duration (10-200 packets)
+- **Platform-specific defaults**: Optimized separately for ESP32-S3 and ESP32-C6
+
+**Subcarrier Selection (runtime-configurable):**
+- Dynamic subcarrier selection for feature extraction
+- New API: `csi_set_subcarrier_selection()`
+- Configurable via MQTT with array of indices (0-63)
+- Allows optimization for different environments and interference patterns
+
+**New MQTT Commands:**
+- `segmentation_threshold <value>` - Set detection threshold
+- `segmentation_k_factor <value>` - Set threshold sensitivity
+- `segmentation_window_size <value>` - Set moving variance window
+- `segmentation_min_length <value>` - Set minimum segment length
+- `segmentation_max_length <value>` - Set maximum segment length
+
+**Enhanced Stats Command:**
+- Now displays all configurable parameters
+- Shows current subcarrier selection
+- Provides real-time configuration overview
 
 **Benefits:**
-- 📉 Reduced message size and memory usage
-- 🔄 Consistent field naming between periodic data and stats
-- 🎯 Cleaner API focused on motion detection
-- 🧹 Simpler codebase (~200 lines removed)
-- 🐛 Fixed bug where last_completed_segment showed stale data after 10 segments
+- ✅ No recompilation needed for parameter tuning
+- ✅ Easy optimization for different environments
+- ✅ Platform-specific defaults (ESP32-S3 vs ESP32-C6)
+- ✅ All parameters saved to NVS automatically
+- ✅ Simplified testing and validation workflow
 
-### 🌐 Added - Web-Based Real-Time Monitor
+### ✨ Added - System Resource Monitoring
+
+**Real-time CPU and RAM usage in stats command**
+
+- Added `cpu_usage_percent` and `heap_usage_percent` fields to `stats` command response
+- Calculated using FreeRTOS runtime statistics and ESP-IDF heap APIs
+- Minimal overhead (< 0.1% CPU, ~150 bytes RAM)
+- Requires FreeRTOS runtime stats enabled in sdkconfig (added to all platform configs)
+- Web UI updated to display CPU and RAM in statistics modal
+
+**Real-world performance (ESP32-C6 with all filters + features):**
+- CPU: 5.4%, Heap: 22.3% - confirms excellent resource efficiency
+
+### 🌐 Web-Based Real-Time Monitor
 
 **Modern web interface for ESPectre monitoring and configuration**
 
@@ -70,60 +143,65 @@ New `espectre-monitor.html` provides a comprehensive web-based alternative to th
 - ✅ Cross-platform (works on desktop, tablet, mobile)
 - ✅ Can replace `espectre-cli.sh` for most use cases
 
-### 🚀 Major - ESP32-C6 Platform Support
+### 🔧 MQTT Data Structure Optimization
 
-**Complete multi-platform support with ESP32-C6 and WiFi 6**
+**Simplified and standardized MQTT message format**
 
-Added comprehensive support for ESP32-C6 alongside ESP32-S3, enabling WiFi 6 (802.11ax) and HT40 capabilities:
+Optimized MQTT data structure for consistency and reduced bandwidth:
 
-**ESP32-C6 Implementation:**
-- **CSI Configuration**: Implemented `wifi_csi_acquire_config_t` structure
-  * `.acquire_csi_legacy = 1` - Captures CSI from 802.11a/g packets (L-LTF)
-  * `.acquire_csi_ht20 = 1` - Captures CSI from 802.11n HT20 packets (64 subcarriers)
-  * `.acquire_csi_ht40 = 1` - Captures CSI from 802.11n HT40 packets (128 subcarriers)
-  * `.acquire_csi_su = 1` - Captures CSI from WiFi 6 Single-User packets
-  * Critical: Both `acquire_csi_legacy` and `acquire_csi_ht20` required for callback invocation
+**Periodic Data (published during detection):**
+- ❌ Removed `segments_total` (not needed for motion detection)
+- ✅ Kept essential fields: `movement`, `threshold`, `state`, `features` (optional), `timestamp`
 
-- **WiFi 6 Support**: Enabled 802.11ax protocol for ESP32-C6
-  * Automatic negotiation with WiFi 6 routers
-  * Backward compatible with WiFi 4/5 routers
-  * Improved packet scheduling and efficiency
+**Stats Command Response:**
+- ❌ Removed entire `segments` object (total, active, last_completed)
+- ✅ Renamed `moving_variance` → `movement` (consistent with periodic data)
+- ✅ Renamed `adaptive_threshold` → `threshold` (consistent with periodic data)
+- ✅ Kept `turbulence` for diagnostics
+- ✅ Simplified to essential runtime metrics only
 
-- **Platform-Specific Subcarrier Filtering**:
-  * ESP32-S3: Subcarriers 47-59 (PCA-optimized, 12 subcarriers)
-  * ESP32-C6: Subcarriers 10-38 (temporary, 28 subcarriers, needs PCA optimization)
-  * Accounts for different subcarrier ordering between platforms
+**Code Cleanup:**
+- ❌ Removed `segment_t` structure from `segmentation.h`
+- ❌ Removed segment array and tracking logic from `segmentation.c` (~150 lines)
+- ❌ Removed functions: `segmentation_get_num_segments()`, `segmentation_get_segment()`, `segmentation_clear_segments()`, `segmentation_get_active_segments_count()`, `segmentation_get_last_completed_segment()`
+- ✅ Simplified state machine to focus only on IDLE ↔ MOTION transitions
 
-**Configuration Files:**
-- `sdkconfig.defaults.esp32c6`: ESP32-C6 specific configuration
-  * DIO flash mode (more stable than QIO)
-  * USB stability improvements (PM disabled)
-  * Simplified CSI API configuration
+**MQTT Handler Simplification:**
+- Removed `mqtt_publish_calibration_status()` function
+- Removed `mqtt_publish_calibration_complete()` function
+- Added `mqtt_publish_binary()` for CSI raw data collection
+- Simplified API focused on segmentation-only approach
 
-**Performance:**
-- ESP32-C6: 50-100+ CSI packets/second
-- Motion detection: Fully functional (IDLE ↔ MOTION)
-- WiFi 6: Higher packet rates when connected to 802.11ax router
-- HT40: Up to 128 subcarriers (vs 64 for HT20)
+**Benefits:**
+- 📉 Reduced message size and memory usage
+- 🔄 Consistent field naming between periodic data and stats
+- 🎯 Cleaner API focused on motion detection
+- 🧹 Simpler codebase (~200 lines removed)
+- 🐛 Fixed bug where last_completed_segment showed stale data after 10 segments
 
-**Reference:** ESP-IDF Issue #14271 - https://github.com/espressif/esp-idf/issues/14271
+### 🛠️ Enhanced Tools
 
-### 🔧 Fixed - ESP32-C6 CSI Callback Issue
+**Web Monitor:**
+- Added controls for all new segmentation parameters
+- Real-time parameter adjustment with visual feedback
+- Improved configuration synchronization
 
-**Critical fix: CSI callback never invoked on ESP32-C6**
+**CLI (`espectre-cli.sh`):**
+- Added commands for segmentation parameter configuration
+- Improved interactive menu with new options
+- Better parameter validation and feedback
 
-- **Root cause**: Incomplete CSI configuration (only `.enable = 1` was insufficient)
-- **Solution**: Added all required `acquire_csi_*` fields
-- **Result**: CSI callback now working, 50-100+ packets/second
+### 📚 Documentation & Cleanup
 
-### 📝 Changed - Platform-Agnostic Documentation
+**Documentation Updates:**
+- **CALIBRATION.md**: Added runtime parameter configuration section
+- **SETUP.md**: Updated with new MQTT commands and examples
+- **ESP32-PLATFORM-SUPPORT.md**: Clarified platform-specific defaults
 
-**Updated all documentation to support both ESP32-S3 and ESP32-C6**
-
-- Removed ESP32-S3 specific references from user-facing documentation
-- Updated platform badges and hardware requirements
-- Added platform comparison tables
-- Clarified platform-specific features and limitations
+**Code Cleanup:**
+- Removed `.DS_Store` file
+- Updated `.gitignore` with better patterns
+- Removed obsolete `convert_csi_to_header.py` script
 
 ---
 

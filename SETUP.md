@@ -7,8 +7,8 @@
 ---
 
 **Hardware:**
-- **ESP32-S3** (recommended): Dual-core, 16MB Flash, 8MB PSRAM, better CPU performance
-- **ESP32-C6**: Single-core, 4MB Flash, WiFi 6, higher CSI packet rate, lower cost
+- **ESP32-S3**: Dual-core, 16MB Flash, 8MB PSRAM, better CPU performance
+- **ESP32-C6**: Single-core, 4MB Flash, WiFi 6, higher CSI packet rate
 - USB-C or Micro-USB cable (depending on board)
 - Wi-Fi router (2.4 GHz, ESP32-C6 supports WiFi 6 on 2.4 GHz, 5 GHz untested)
 
@@ -166,6 +166,7 @@ automation:
   "movement": 2.87,
   "threshold": 2.20,
   "state": "motion",
+  "packets_processed": 15234,
   "features": {
     "variance": 0.45,
     "skewness": 0.12,
@@ -186,6 +187,7 @@ automation:
 - `movement`: Moving variance value (float, typically 0.0-10.0) - indicates motion intensity
 - `threshold`: Adaptive threshold value (float) - current detection threshold
 - `state`: Current segmentation state - `"idle"` or `"motion"`
+- `packets_processed`: CSI packets processed since last publish (integer)
 - `features`: Object containing 10 extracted features (only present during MOTION state when features are enabled):
   - `variance`: Signal variance
   - `skewness`: Distribution asymmetry
@@ -213,7 +215,7 @@ During `"idle"` state, only the basic fields are published (movement, threshold,
 
 ESPectre provides two tools for monitoring and configuration:
 
-### 🌐 Web-Based Monitor (Recommended for Beginners)
+### 🌐 Web-Based Monitor
 
 **`espectre-monitor.html`** - Modern web interface with visual controls and real-time charts.
 
@@ -239,7 +241,7 @@ ESPectre provides two tools for monitoring and configuration:
 - Real-time monitoring
 - Multi-device management
 
-### 🖥️ CLI Tool (Advanced Users)
+### 🖥️ CLI Tool
 
 **`espectre-cli.sh`** - Interactive command-line interface for advanced users and scripting.
 
@@ -252,9 +254,6 @@ ESPectre provides two tools for monitoring and configuration:
 **Quick start:**
 ```bash
 ./espectre-cli.sh
-```
-
-See [CALIBRATION.md](CALIBRATION.md) for detailed CLI usage and tuning examples.
 
 ---
 
@@ -262,7 +261,7 @@ See [CALIBRATION.md](CALIBRATION.md) for detailed CLI usage and tuning examples.
 
 ---
 
-After installation, follow the **[Calibration & Tuning Guide](CALIBRATION.md)** to:
+After installation, follow the **[CALIBRATION.md](CALIBRATION.md)** to:
 - Calibrate the sensor for your environment
 - Optimize detection parameters
 - Troubleshoot common issues
@@ -291,7 +290,6 @@ espectre> help          # Show all commands
 espectre> exit          # Exit CLI
 ```
 
-For detailed calibration and tuning instructions, see **[CALIBRATION.md](CALIBRATION.md)**.
 
 #### Direct MQTT Commands (for scripting/automation)
 
@@ -308,24 +306,27 @@ Responses are published to: `<your_topic>/response`
 
 **Available commands:**
 
-| Command | Parameter | Description | Example |
-|---------|-----------|-------------|---------|
-| `segmentation_threshold` | float (0.5-10.0) | Set segmentation threshold for motion detection | `{"cmd": "segmentation_threshold", "value": 2.2}` |
-| `features_enable` | bool | Enable/disable feature extraction during MOTION state | `{"cmd": "features_enable", "enabled": true}` |
-| `info` | none | Get current configuration (network, MQTT topics, filters, segmentation params, options) | `{"cmd": "info"}` |
-| `stats` | none | Get runtime statistics (state, turbulence, variance, packets, segments, uptime) | `{"cmd": "stats"}` |
-| `butterworth_filter` | bool | Enable/disable Butterworth low-pass filter (8Hz cutoff) | `{"cmd": "butterworth_filter", "enabled": true}` |
-| `wavelet_filter` | bool | Enable/disable Wavelet db4 filter (low-freq noise) | `{"cmd": "wavelet_filter", "enabled": true}` |
-| `wavelet_level` | int (1-3) | Wavelet decomposition level (3=max denoising) | `{"cmd": "wavelet_level", "value": 3}` |
-| `wavelet_threshold` | float (0.5-2.0) | Wavelet noise threshold (1.0=balanced) | `{"cmd": "wavelet_threshold", "value": 1.0}` |
-| `hampel_filter` | bool | Enable/disable Hampel outlier filter | `{"cmd": "hampel_filter", "enabled": true}` |
-| `hampel_threshold` | float (1.0-10.0) | Hampel filter sensitivity | `{"cmd": "hampel_threshold", "value": 2.0}` |
-| `savgol_filter` | bool | Enable/disable Savitzky-Golay smoothing | `{"cmd": "savgol_filter", "enabled": true}` |
-| `smart_publishing` | bool | Enable/disable smart publishing (reduces MQTT traffic) | `{"cmd": "smart_publishing", "enabled": true}` |
-| `traffic_generator_rate` | int (0-50) | Set WiFi traffic rate for continuous CSI (0=disabled, recommended: 15 pps) | `{"cmd": "traffic_generator_rate", "value": 15}` |
-| `factory_reset` | none | Restore all settings to factory defaults | `{"cmd": "factory_reset"}` |
-
-**Note:** The system uses a simple segmentation-based approach. Use `info` for configuration and `stats` for runtime metrics.
+| Area | Command | Parameter | Description | Example |
+|------|---------|-----------|-------------|---------|
+| **System** | `info` | none | Get current configuration (network, MQTT topics, filters, segmentation params, options) | `{"cmd": "info"}` |
+| **System** | `stats` | none | Get runtime statistics (state, turbulence, variance, packets, segments, uptime) | `{"cmd": "stats"}` |
+| **System** | `traffic_generator_rate` | int (0-50) | Set WiFi traffic rate for continuous CSI (0=disabled, recommended: 15 pps) | `{"cmd": "traffic_generator_rate", "value": 15}` |
+| **System** | `smart_publishing` | bool | Enable/disable smart publishing (reduces MQTT traffic) | `{"cmd": "smart_publishing", "enabled": true}` |
+| **System** | `factory_reset` | none | Restore all settings to factory defaults | `{"cmd": "factory_reset"}` |
+| **Segmentation** | `segmentation_threshold` | float (0.5-10.0) | Set segmentation threshold for motion detection | `{"cmd": "segmentation_threshold", "value": 2.2}` |
+| **Segmentation** | `segmentation_k_factor` | float (0.5-5.0) | Set K factor for threshold sensitivity (higher = less sensitive) | `{"cmd": "segmentation_k_factor", "value": 2.0}` |
+| **Segmentation** | `segmentation_window_size` | int (3-50) | Set moving variance window size in packets | `{"cmd": "segmentation_window_size", "value": 10}` |
+| **Segmentation** | `segmentation_min_length` | int (5-100) | Set minimum segment length in packets | `{"cmd": "segmentation_min_length", "value": 10}` |
+| **Segmentation** | `segmentation_max_length` | int (0-200) | Set maximum segment length in packets (0=no limit) | `{"cmd": "segmentation_max_length", "value": 50}` |
+| **Segmentation** | `subcarrier_selection` | array of int (0-63) | Set selected subcarriers for CSI processing (1-64 subcarriers) | `{"cmd": "subcarrier_selection", "indices": [47,48,49,50,51,52,53,54]}` |
+| **Features** | `features_enable` | bool | Enable/disable feature extraction during MOTION state | `{"cmd": "features_enable", "enabled": true}` |
+| **Features** | `butterworth_filter` | bool | Enable/disable Butterworth low-pass filter (8Hz cutoff) | `{"cmd": "butterworth_filter", "enabled": true}` |
+| **Features** | `wavelet_filter` | bool | Enable/disable Wavelet db4 filter (low-freq noise) | `{"cmd": "wavelet_filter", "enabled": true}` |
+| **Features** | `wavelet_level` | int (1-3) | Wavelet decomposition level (3=max denoising) | `{"cmd": "wavelet_level", "value": 3}` |
+| **Features** | `wavelet_threshold` | float (0.5-2.0) | Wavelet noise threshold (1.0=balanced) | `{"cmd": "wavelet_threshold", "value": 1.0}` |
+| **Features** | `hampel_filter` | bool | Enable/disable Hampel outlier filter | `{"cmd": "hampel_filter", "enabled": true}` |
+| **Features** | `hampel_threshold` | float (1.0-10.0) | Hampel filter sensitivity | `{"cmd": "hampel_threshold", "value": 2.0}` |
+| **Features** | `savgol_filter` | bool | Enable/disable Savitzky-Golay smoothing | `{"cmd": "savgol_filter", "enabled": true}` |
 
 #### Info Command Response Structure
 
@@ -362,6 +363,10 @@ The `info` command returns **static configuration** organized into logical group
   "options": {
     "features_enabled": true,
     "smart_publishing_enabled": false
+  },
+  "subcarriers": {
+    "indices": [47, 48, 49, 50, 51, 52, 53, 54],
+    "count": 8
   }
 }
 ```
@@ -372,6 +377,7 @@ The `info` command returns **static configuration** organized into logical group
 - **`segmentation`**: Motion segmentation configuration parameters
 - **`filters`**: Signal processing filters configuration
 - **`options`**: General capabilities and features
+- **`subcarriers`**: Selected subcarriers for CSI processing (configurable at runtime)
 
 #### Stats Command Response Structure
 
@@ -381,6 +387,8 @@ The `stats` command returns **runtime metrics** for monitoring:
 {
   "timestamp": 1730066405,
   "uptime": "3h 24m 15s",
+  "cpu_usage_percent": 5.4,
+  "heap_usage_percent": 22.3,
   "state": "motion",
   "turbulence": 3.45,
   "movement": 2.87,
@@ -392,11 +400,17 @@ The `stats` command returns **runtime metrics** for monitoring:
 **Fields:**
 - **`timestamp`**: Unix timestamp when stats were generated
 - **`uptime`**: System uptime in human-readable format
+- **`cpu_usage_percent`**: CPU usage percentage (0-100), calculated using FreeRTOS runtime statistics
+- **`heap_usage_percent`**: Heap memory usage percentage (0-100), calculated as (used/total)*100
 - **`state`**: Current segmentation state (idle/motion)
 - **`turbulence`**: Last spatial turbulence value (for diagnostics)
 - **`movement`**: Current moving variance (same as in periodic data)
 - **`threshold`**: Current adaptive threshold (same as in periodic data)
 - **`packets_processed`**: Total CSI packets processed
+
+**System Resource Monitoring:**
+- CPU and heap monitoring provide real-time visibility into system health
+- Useful for detecting performance issues and memory leaks
 
 ### Factory Reset
 
@@ -407,7 +421,6 @@ Restore all settings to factory defaults and clear all saved data from NVS:
 mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
   -m '{"cmd":"factory_reset"}'
 ```
-**Or use the interactive CLI** (see [CALIBRATION.md](CALIBRATION.md) for details).
 
 **This will:**
 - ✅ Clear all saved configuration parameters from NVS
@@ -440,17 +453,15 @@ mosquitto_sub -h homeassistant.local -t "home/espectre/kitchen/response"
 
 ---
 
-**⚠️ IMPORTANT:** ESPectre requires continuous WiFi traffic to receive CSI packets. Without traffic, the ESP32 receives few/no CSI packets, resulting in poor detection and failed calibration.
+**⚠️ IMPORTANT:** ESPectre requires continuous WiFi traffic to receive CSI packets. Without traffic, the ESP32 receives few/no CSI packets, resulting in poor detection.
 
 **What it does:**
 - Generates UDP broadcast packets at configurable rate (default: 15 packets/sec)
 - Ensures continuous CSI data availability
-- Essential for reliable detection and calibration
+- Essential for reliable detection
 
 **Why it's needed:**
 - ESP32 only receives CSI when there's WiFi traffic
-- Without traffic generator: 10-20 samples during 60s calibration ❌
-- With traffic generator: 100+ samples during 60s calibration ✅
 
 **Configuration:**
 ```bash
@@ -467,7 +478,7 @@ traffic_generator_rate 15  # Enable 15 pps
 - **20 pps**: Busy environments with interference
 - **0 pps**: Disabled (only if you have other continuous WiFi traffic)
 
-**Note:** Rate is constant during both calibration and normal operation to ensure consistency.
+**Note:** Recommended rate is 20 pps for optimal detection performance.
 
 **Troubleshooting:**
 
@@ -533,8 +544,6 @@ mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
   -m '{"cmd":"smart_publishing","enabled":true}'
 ```
 
-**Or use the interactive CLI** (see [CALIBRATION.md](CALIBRATION.md) for details).
-
 **When to use:**
 - ✅ High-traffic MQTT brokers
 - ✅ Battery-powered or low-bandwidth scenarios
@@ -591,7 +600,7 @@ If no messages appear:
 
 ---
 
-For detection issues, calibration problems, or advanced troubleshooting:
-- 📖 **See**: [Calibration & Tuning Guide](CALIBRATION.md)
-- 📝 **GitHub Issues**: [Report problems](https://github.com/francescopace/espectre/issues)
+For detection issues or parameter tuning:
+- 📖 **See**: [CALIBRATION.md](CALIBRATION.md)
+- � **GitHub Issues**: [Report problems](https://github.com/francescopace/espectre/issues)
 - 📧 **Email**: francesco.pace@gmail.com

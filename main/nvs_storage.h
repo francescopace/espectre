@@ -1,7 +1,7 @@
 /*
  * ESPectre - NVS Storage Module
  * 
- * Handles persistent storage of calibration results and runtime configuration
+ * Handles persistent storage of runtime configuration
  * in ESP32's Non-Volatile Storage (NVS).
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -16,26 +16,10 @@
 #include "esp_err.h"
 
 // NVS Namespaces
-#define NVS_NAMESPACE_CALIBRATION "espectre_cal"
 #define NVS_NAMESPACE_CONFIG      "espectre_cfg"
 
 // Versioning for future compatibility
-#define NVS_CALIBRATION_VERSION 1
-#define NVS_CONFIG_VERSION 6  // Incremented: removed detection fields, added features_enabled
-
-// Maximum sizes
-#define MAX_SELECTED_FEATURES 6
-
-// Calibration data structure for NVS storage
-typedef struct {
-    uint8_t version;
-    uint8_t num_selected;
-    uint8_t selected_features[MAX_SELECTED_FEATURES];
-    float optimized_weights[MAX_SELECTED_FEATURES];
-    float optimal_threshold;
-    float feature_min[MAX_SELECTED_FEATURES];
-    float feature_max[MAX_SELECTED_FEATURES];
-} nvs_calibration_data_t;
+#define NVS_CONFIG_VERSION 7  // Incremented: added subcarrier selection
 
 // Control parameters structure for NVS storage
 typedef struct {
@@ -62,6 +46,10 @@ typedef struct {
     // Segmentation parameters
     float segmentation_threshold;  // Adaptive threshold for MVS (0.5-10.0)
     
+    // Subcarrier selection
+    uint8_t selected_subcarriers[64];  // Array of selected subcarrier indices (0-63)
+    uint8_t num_selected_subcarriers;  // Number of selected subcarriers (1-64)
+    
 } nvs_config_data_t;
 
 /**
@@ -71,36 +59,6 @@ typedef struct {
  * @return ESP_OK on success, error code otherwise
  */
 esp_err_t nvs_storage_init(void);
-
-/**
- * Save calibration data to NVS
- * 
- * @param calib Calibration data to save
- * @return ESP_OK on success, error code otherwise
- */
-esp_err_t nvs_save_calibration(const nvs_calibration_data_t *calib);
-
-/**
- * Load calibration data from NVS
- * 
- * @param calib Pointer to store loaded calibration data
- * @return ESP_OK on success, ESP_ERR_NVS_NOT_FOUND if no data exists
- */
-esp_err_t nvs_load_calibration(nvs_calibration_data_t *calib);
-
-/**
- * Check if calibration data exists in NVS
- * 
- * @return true if calibration data exists, false otherwise
- */
-bool nvs_has_calibration(void);
-
-/**
- * Clear calibration data from NVS
- * 
- * @return ESP_OK on success, error code otherwise
- */
-esp_err_t nvs_clear_calibration(void);
 
 /**
  * Save control parameters to NVS

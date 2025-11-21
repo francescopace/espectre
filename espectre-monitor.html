@@ -1,64 +1,65 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESPectre Real-Time Monitor</title>
-    
+
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    
+
     <!-- MQTT.js -->
     <script src="https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js"></script>
-    
+
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
-        
+
         .container {
             max-width: 1400px;
             margin: 0 auto;
         }
-        
+
         .header {
             text-align: center;
             color: white;
             margin-bottom: 20px;
         }
-        
+
         .header h1 {
             font-size: 2.5em;
             margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
         }
-        
+
         .header p {
             font-size: 1.1em;
             opacity: 0.9;
         }
-        
+
         .card {
             background: white;
             border-radius: 15px;
             padding: 20px;
             margin-bottom: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
         }
-        
+
         .card.compact {
             padding: 12px 20px;
         }
-        
+
         .collapsible-header {
             display: flex;
             justify-content: space-between;
@@ -66,43 +67,43 @@
             cursor: pointer;
             user-select: none;
         }
-        
+
         .collapsible-header:hover {
             opacity: 0.8;
         }
-        
+
         .collapsible-header h2 {
             margin: 0;
             font-size: 1.2em;
         }
-        
+
         .collapsible-content {
             margin-top: 15px;
         }
-        
+
         .collapsible-content.collapsed {
             display: none;
         }
-        
+
         .config-section {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 15px;
             margin-bottom: 20px;
         }
-        
+
         .input-group {
             display: flex;
             flex-direction: column;
         }
-        
+
         .input-group label {
             font-weight: 600;
             margin-bottom: 5px;
             color: #333;
             font-size: 0.9em;
         }
-        
+
         .input-group input {
             padding: 8px;
             border: 2px solid #e0e0e0;
@@ -110,12 +111,12 @@
             font-size: 14px;
             transition: border-color 0.3s;
         }
-        
+
         .input-group input:focus {
             outline: none;
             border-color: #667eea;
         }
-        
+
         .btn {
             padding: 10px 25px;
             border: none;
@@ -127,55 +128,73 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
+
         .btn-sm {
             padding: 6px 15px;
             font-size: 12px;
         }
-        
+
         .btn-primary {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
-        
+
         .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
         }
-        
+
         .btn-primary:disabled {
             opacity: 0.5;
             cursor: not-allowed;
             transform: none;
         }
-        
+
         .btn-danger {
             background: #e74c3c;
             color: white;
         }
-        
+
         .btn-danger:hover {
             background: #c0392b;
         }
-        
+
         .btn-success {
             background: #2ecc71;
             color: white;
         }
-        
+
         .btn-success:hover {
             background: #27ae60;
         }
-        
+
         .btn-warning {
             background: #f39c12;
             color: white;
         }
-        
+
         .btn-warning:hover {
             background: #e67e22;
         }
-        
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .btn-info {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #2980b9;
+        }
+
         .status-bar {
             display: flex;
             justify-content: space-between;
@@ -183,112 +202,119 @@
             flex-wrap: wrap;
             gap: 20px;
         }
-        
+
         .status-item {
             display: flex;
             align-items: center;
             gap: 8px;
             font-size: 0.95em;
         }
-        
+
         .status-indicator {
             width: 10px;
             height: 10px;
             border-radius: 50%;
             animation: pulse 2s infinite;
         }
-        
+
         .status-indicator.connected {
             background: #2ecc71;
         }
-        
+
         .status-indicator.disconnected {
             background: #e74c3c;
             animation: none;
         }
-        
+
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
         }
-        
+
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 12px;
         }
-        
+
         .metric-card {
             padding: 15px;
             border-radius: 10px;
             text-align: center;
             transition: transform 0.3s;
         }
-        
+
         .metric-card:hover {
             transform: translateY(-3px);
         }
-        
+
         .metric-card.idle {
             background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
             color: white;
         }
-        
+
         .metric-card.motion {
             background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
             color: white;
         }
-        
+
         .metric-card.neutral {
             background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
             color: white;
         }
-        
+
         .metric-label {
             font-size: 0.85em;
             opacity: 0.9;
             margin-bottom: 5px;
         }
-        
+
         .metric-value {
             font-size: 1.8em;
             font-weight: bold;
         }
-        
+
         .chart-container {
             position: relative;
             height: 600px;
             margin-bottom: 10px;
         }
-        
+
         .chart-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 15px;
         }
-        
+
         .chart-title {
             font-size: 1.3em;
             margin: 0;
         }
-        
+
         .arrow {
             transition: transform 0.3s;
             font-size: 0.9em;
         }
-        
+
         .arrow.rotate {
             transform: rotate(180deg);
         }
-        
+
         /* Toggle Switch Styles */
         .toggle-group {
             display: flex;
             flex-direction: column;
             gap: 5px;
         }
-        
+
         .toggle-label {
             display: flex;
             align-items: center;
@@ -296,11 +322,11 @@
             user-select: none;
             gap: 10px;
         }
-        
+
         .toggle-label input[type="checkbox"] {
             display: none;
         }
-        
+
         .toggle-slider {
             position: relative;
             width: 50px;
@@ -309,7 +335,7 @@
             border-radius: 13px;
             transition: background 0.3s;
         }
-        
+
         .toggle-slider::before {
             content: '';
             position: absolute;
@@ -321,20 +347,20 @@
             left: 3px;
             transition: transform 0.3s;
         }
-        
-        .toggle-label input[type="checkbox"]:checked + .toggle-slider {
+
+        .toggle-label input[type="checkbox"]:checked+.toggle-slider {
             background: #667eea;
         }
-        
-        .toggle-label input[type="checkbox"]:checked + .toggle-slider::before {
+
+        .toggle-label input[type="checkbox"]:checked+.toggle-slider::before {
             transform: translateX(24px);
         }
-        
+
         .toggle-text {
             font-weight: 600;
             color: #333;
         }
-        
+
         /* Filter Group Styles */
         .filter-group {
             padding: 15px;
@@ -342,11 +368,11 @@
             border-radius: 10px;
             transition: border-color 0.3s;
         }
-        
+
         .filter-group:hover {
             border-color: #667eea;
         }
-        
+
         /* Notification Styles */
         .notification {
             position: fixed;
@@ -356,34 +382,35 @@
             border-radius: 8px;
             color: white;
             font-weight: 600;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
             z-index: 1000;
             animation: slideIn 0.3s ease-out;
         }
-        
+
         .notification.success {
             background: #2ecc71;
         }
-        
+
         .notification.error {
             background: #e74c3c;
         }
-        
+
         .notification.info {
             background: #3498db;
         }
-        
+
         @keyframes slideIn {
             from {
                 transform: translateX(400px);
                 opacity: 0;
             }
+
             to {
                 transform: translateX(0);
                 opacity: 1;
             }
         }
-        
+
         /* Modal Styles */
         .modal-overlay {
             position: fixed;
@@ -398,18 +425,17 @@
             z-index: 2000;
             animation: fadeIn 0.3s ease-out;
         }
-        
+
         .modal-content {
             background: white;
             border-radius: 15px;
-            padding: 30px;
-            max-width: 600px;
-            max-height: 80vh;
+            padding: 25px;
+            width: 400px;
             overflow-y: auto;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
             animation: scaleIn 0.3s ease-out;
         }
-        
+
         .modal-header {
             display: flex;
             justify-content: space-between;
@@ -418,13 +444,57 @@
             padding-bottom: 15px;
             border-bottom: 2px solid #e0e0e0;
         }
-        
+
         .modal-header h3 {
             margin: 0;
             color: #667eea;
             font-size: 1.5em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
-        
+
+        .modal-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .modal-reload {
+            background: none;
+            border: none;
+            font-size: 1.3em;
+            cursor: pointer;
+            color: #667eea;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.3s;
+        }
+
+        .modal-reload:hover {
+            background: #667eea15;
+            transform: scale(1.1);
+        }
+
+        .modal-reload.spinning {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
         .modal-close {
             background: none;
             border: none;
@@ -440,49 +510,94 @@
             border-radius: 50%;
             transition: all 0.3s;
         }
-        
+
         .modal-close:hover {
             background: #f0f0f0;
             color: #333;
         }
-        
+
         .modal-body {
             font-family: monospace;
             font-size: 0.95em;
             line-height: 1.6;
             color: #333;
         }
-        
-        .stat-line {
-            padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
+
+        .stat-section {
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #e8e8e8;
         }
-        
+
+        .stat-section:last-child {
+            margin-bottom: 0;
+            border-bottom: none;
+        }
+
+        .stat-section-title {
+            font-size: 0.85em;
+            font-weight: 600;
+            color: #999;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-line {
+            padding: 6px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
         .stat-line:last-child {
             border-bottom: none;
         }
-        
+
         .stat-label {
-            font-weight: 600;
-            color: #667eea;
-            display: inline-block;
-            min-width: 180px;
+            font-weight: 500;
+            color: #666;
+            font-size: 1em;
+            flex-shrink: 0;
         }
-        
+
         .stat-value {
             color: #333;
+            font-weight: 600;
+            font-size: 1em;
+            text-align: right;
+            word-break: break-word;
         }
-        
+
+        .stat-value.highlight {
+            color: #667eea;
+        }
+
+        .stat-value.success {
+            color: #2ecc71;
+        }
+
+        .stat-value.warning {
+            color: #f39c12;
+        }
+
         @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
         }
-        
+
         @keyframes scaleIn {
             from {
                 transform: scale(0.9);
                 opacity: 0;
             }
+
             to {
                 transform: scale(1);
                 opacity: 1;
@@ -490,17 +605,22 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
             <h1>🛜 ESPectre 👻</h1>
             <p>Real-Time Motion Detection Visualization</p>
         </div>
-        
+
         <!-- MQTT Configuration Card -->
         <div class="card compact">
-            <div class="collapsible-header" onclick="toggleConfig()">
-                <h2>⚙️ MQTT Configuration</h2>
+            <div class="collapsible-header" onclick="toggleConfig()" style="display: flex; align-items: center; gap: 15px;">
+                <h2 style="margin: 0;">⚙️ MQTT Configuration</h2>
+                <div class="status-item" style="margin-left: auto;">
+                    <div class="status-indicator disconnected" id="statusIndicator"></div>
+                    <span id="statusText">Disconnected</span>
+                </div>
                 <span class="arrow" id="configArrow">▼</span>
             </div>
             <div class="collapsible-content" id="configContent">
@@ -528,150 +648,242 @@
                 </div>
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                     <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">Connect</button>
-                    <button class="btn btn-danger" id="clearBtn" onclick="clearData()" style="display: none;">Clear Data</button>
-                </div>
-            </div>
-            <div class="status-bar">
-                <div class="status-item">
-                    <div class="status-indicator disconnected" id="statusIndicator"></div>
-                    <span id="statusText">Disconnected</span>
-                </div>
-                <div class="status-item">
-                    <strong>Last update:</strong>
-                    <span id="lastUpdate">-</span>
-                </div>
-                <div class="status-item">
-                    <strong>Messages:</strong>
-                    <span id="messageCount">0</span>
+                    <button class="btn btn-danger" id="clearBtn" onclick="clearData()" style="display: none;">Clear
+                        Data</button>
                 </div>
             </div>
         </div>
-        
+
         <!-- ESPectre Configuration -->
         <div class="card">
             <div class="collapsible-header" onclick="toggleSection('configuration')">
-                <h2>⚙️ ESPectre Configuration</h2>
+                <h2>🛜 ESPectre Configuration</h2>
                 <span class="arrow rotate" id="configurationArrow">▼</span>
             </div>
             <div class="collapsible-content collapsed" id="configurationContent">
-                <div style="padding: 12px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
-                    <span style="font-weight: 600; color: #667eea;">📡 Device IP:</span>
-                    <span id="deviceIP" style="font-family: monospace; color: #333;">-</span>
+                <!-- Device IP -->
+                <div
+                    style="padding: 10px 15px; background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #667eea; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 1.2em;">📡</span>
+                    <span style="font-weight: 600; color: #667eea;">Device IP:</span>
+                    <span id="deviceIP" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
                 </div>
-                
-                <h3 style="margin-bottom: 15px; color: #667eea;">Detection Parameters</h3>
-                <div class="config-section">
-                    <div class="input-group">
-                        <label for="segThreshold">Segmentation Threshold (0.5-10.0)</label>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <input type="range" id="segThreshold" min="0.5" max="10.0" step="0.1" value="2.5" style="flex: 1;">
-                            <input type="number" id="segThresholdValue" min="0.5" max="10.0" step="0.1" value="2.5" style="width: 80px;">
-                        </div>
-                        <small style="color: #666; margin-top: 5px;">MVS adaptive threshold for motion detection</small>
+
+                <!-- Detection Parameters Section -->
+                <div
+                    style="background: #f8f9fa; border-radius: 10px; padding: 15px; margin-bottom: 15px; border: 2px solid #e0e0e0;">
+                    <div class="collapsible-header" onclick="toggleSubSection('detectionParams')"
+                        style="padding: 5px 0;">
+                        <h3
+                            style="margin: 0; color: #667eea; font-size: 1.1em; display: flex; align-items: center; gap: 8px;">
+                            <span>🎯</span> Detection Parameters
+                        </h3>
+                        <span class="arrow" id="detectionParamsArrow">▼</span>
                     </div>
-                    <div class="input-group">
-                        <label for="trafficRate">Traffic Generator Rate (0-50 pps)</label>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <input type="range" id="trafficRate" min="0" max="50" step="1" value="15" style="flex: 1;">
-                            <input type="number" id="trafficRateValue" min="0" max="50" step="1" value="15" style="width: 80px;">
-                        </div>
-                        <small style="color: #666; margin-top: 5px;">WiFi traffic generation (0=disabled, recommended: 15)</small>
-                    </div>
-                </div>
-                <div class="config-section" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-                    <div class="toggle-group">
-                        <label class="toggle-label">
-                            <input type="checkbox" id="featuresEnable" checked>
-                            <span class="toggle-slider"></span>
-                            <span class="toggle-text">Features Extraction</span>
-                        </label>
-                        <small style="color: #666;">Extract features during MOTION phase</small>
-                    </div>
-                    <div class="toggle-group">
-                        <label class="toggle-label">
-                            <input type="checkbox" id="smartPublishing" checked>
-                            <span class="toggle-slider"></span>
-                            <span class="toggle-text">Smart Publishing</span>
-                        </label>
-                        <small style="color: #666;">Optimize MQTT message publishing</small>
-                    </div>
-                </div>
-                
-                <hr style="margin: 25px 0; border: none; border-top: 2px solid #e0e0e0;">
-                
-                <h3 style="margin-bottom: 15px; color: #667eea;">Filters Configuration</h3>
-                <div class="config-section">
-                    <div class="filter-group">
-                        <div class="toggle-group">
-                            <label class="toggle-label">
-                                <input type="checkbox" id="hampelFilter">
-                                <span class="toggle-slider"></span>
-                                <span class="toggle-text">Hampel Filter</span>
-                            </label>
-                            <small style="color: #666;">Outlier detection and removal</small>
-                        </div>
-                        <div class="input-group" style="margin-top: 10px;">
-                            <label for="hampelThreshold">Threshold (1.0-10.0)</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <input type="range" id="hampelThreshold" min="1.0" max="10.0" step="0.1" value="3.0" style="flex: 1;">
-                                <input type="number" id="hampelThresholdValue" min="1.0" max="10.0" step="0.1" value="3.0" style="width: 80px;">
+                    <div class="collapsible-content" id="detectionParamsContent" style="margin-top: 15px;">
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
+                            <div class="input-group">
+                                <label for="kFactor" style="font-size: 0.85em;">K Factor (0.5-5.0)</label>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="range" id="kFactor" min="0.5" max="5.0" step="0.1" value="2.0"
+                                        style="flex: 1;">
+                                    <input type="number" id="kFactorValue" min="0.5" max="5.0" step="0.1" value="2.0"
+                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
+                                </div>
+                                <small style="color: #666; font-size: 0.8em;">Threshold sensitivity (higher = less
+                                    sensitive)</small>
                             </div>
-                        </div>
-                    </div>
-                    <div class="filter-group">
-                        <div class="toggle-group">
-                            <label class="toggle-label">
-                                <input type="checkbox" id="savgolFilter">
-                                <span class="toggle-slider"></span>
-                                <span class="toggle-text">Savitzky-Golay Filter</span>
-                            </label>
-                            <small style="color: #666;">Polynomial smoothing filter</small>
-                        </div>
-                    </div>
-                    <div class="filter-group">
-                        <div class="toggle-group">
-                            <label class="toggle-label">
-                                <input type="checkbox" id="butterworthFilter">
-                                <span class="toggle-slider"></span>
-                                <span class="toggle-text">Butterworth Filter</span>
-                            </label>
-                            <small style="color: #666;">High frequency noise removal</small>
-                        </div>
-                    </div>
-                    <div class="filter-group">
-                        <div class="toggle-group">
-                            <label class="toggle-label">
-                                <input type="checkbox" id="waveletFilter">
-                                <span class="toggle-slider"></span>
-                                <span class="toggle-text">Wavelet Filter</span>
-                            </label>
-                            <small style="color: #666;">Low frequency denoising</small>
-                        </div>
-                        <div class="input-group" style="margin-top: 10px;">
-                            <label for="waveletLevel">Level (1-3)</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <input type="range" id="waveletLevel" min="1" max="3" step="1" value="3" style="flex: 1;">
-                                <input type="number" id="waveletLevelValue" min="1" max="3" step="1" value="3" style="width: 80px;">
+                            <div class="input-group">
+                                <label for="windowSize" style="font-size: 0.85em;">Window Size (3-50 packets)</label>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="range" id="windowSize" min="3" max="50" step="1" value="5"
+                                        style="flex: 1;">
+                                    <input type="number" id="windowSizeValue" min="3" max="50" step="1" value="5"
+                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
+                                </div>
+                                <small style="color: #666; font-size: 0.8em;">Moving variance window<br>(small = reactive, large = stable)</small>
                             </div>
-                        </div>
-                        <div class="input-group" style="margin-top: 10px;">
-                            <label for="waveletThreshold">Threshold (0.5-2.0)</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <input type="range" id="waveletThreshold" min="0.5" max="2.0" step="0.1" value="1.0" style="flex: 1;">
-                                <input type="number" id="waveletThresholdValue" min="0.5" max="2.0" step="0.1" value="1.0" style="width: 80px;">
+                            <div class="input-group">
+                                <label for="minLength" style="font-size: 0.85em;">Min Segment Length (5-100
+                                    packets)</label>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="range" id="minLength" min="5" max="100" step="5" value="10"
+                                        style="flex: 1;">
+                                    <input type="number" id="minLengthValue" min="5" max="100" step="5" value="10"
+                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
+                                </div>
+                                <small style="color: #666; font-size: 0.8em;">Minimum motion duration to be valid</small>
+                            </div>
+                            <div class="input-group">
+                                <label for="maxLength" style="font-size: 0.85em;">Max Segment Length (0-200 packets)</label>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="range" id="maxLength" min="0" max="200" step="10" value="40"
+                                        style="flex: 1;">
+                                    <input type="number" id="maxLengthValue" min="0" max="200" step="10" value="40"
+                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
+                                </div>
+                                <small style="color: #666; font-size: 0.8em;">Maximum segment duration<br> (0 = no limit)</small>
+                            </div>
+                            <div class="input-group">
+                                <label for="trafficRate" style="font-size: 0.85em;">Traffic Generator Rate (0-50 pps)</label>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="range" id="trafficRate" min="0" max="50" step="1" value="15"
+                                        style="flex: 1;">
+                                    <input type="number" id="trafficRateValue" min="0" max="50" step="1" value="15"
+                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
+                                </div>
+                                <small style="color: #666; font-size: 0.8em;">WiFi traffic generation<br>(0=disabled, recommended: 20)</small>
+                            </div>
+                            <div class="input-group">
+                                <label for="segThreshold" style="font-size: 0.85em;">Segmentation Threshold (0.5-10.0)</label>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="range" id="segThreshold" min="0.5" max="10.0" step="0.1" value="2.5"
+                                        style="flex: 1;">
+                                    <input type="number" id="segThresholdValue" min="0.5" max="10.0" step="0.1"
+                                        value="2.5" style="width: 70px; padding: 6px; font-size: 0.9em;">
+                                </div>
+                                <small style="color: #666; font-size: 0.8em;">MVS adaptive threshold for motion detection</small>
+                            </div>
+                            <div id="subcarrierSelectionContent" style="grid-column: span 2;">
+                                <div class="input-group">
+                                    <label for="subcarrierIndices" style="font-size: 0.85em;">Selected Subcarriers (comma-separated, 0-63)</label>
+                                    <input type="text" id="subcarrierIndices" placeholder="47,48,49,50,51,52,53,54"
+                                        style="padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; font-family: monospace; width: 100%;">
+                                    <small style="color: #666; font-size: 0.8em;">WiFi frequency channels. Select specific subcarriers to improve motion detection accuracy.</small>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div style="display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap;">
-                    <button class="btn btn-primary" onclick="applyAllConfiguration()">Apply All Configuration</button>
-                    <button class="btn btn-warning" onclick="requestInfo()">Get Current Config</button>
-                    <button class="btn btn-success btn-sm" onclick="requestStats()">Stats</button>
+
+                <!-- Feature Parameters Section -->
+                <div
+                    style="background: #f8f9fa; border-radius: 10px; padding: 15px; margin-bottom: 15px; border: 2px solid #e0e0e0;">
+                    <div class="collapsible-header" onclick="toggleSubSection('featuresFilters')"
+                        style="padding: 5px 0;">
+                        <h3
+                            style="margin: 0; color: #667eea; font-size: 1.1em; display: flex; align-items: center; gap: 8px;">
+                            <span>🔬</span> Feature Parameters Section
+                        </h3>
+                        <span class="arrow" id="featuresFiltersArrow">▼</span>
+                    </div>
+                    <div class="collapsible-content" id="featuresFiltersContent" style="margin-top: 15px;">
+                        <!-- Features Extraction Toggle -->
+                        <div
+                            style="margin-bottom: 20px; padding: 15px; background: white; border-radius: 8px; border: 2px solid #e0e0e0;">
+                            <div class="toggle-group">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="featuresEnable" checked>
+                                    <span class="toggle-slider"></span>
+                                    <span class="toggle-text" style="font-size: 0.95em;">Features Extraction</span>
+                                </label>
+                                <small style="color: #666; font-size: 0.85em;">Extract features during MOTION
+                                    phase</small>
+                            </div>
+                        </div>
+
+                        <!-- Filters Grid -->
+                        <h4
+                            style="margin: 0 0 12px 0; color: #667eea; font-size: 1em; display: flex; align-items: center; gap: 6px;">
+                            <span>🔧</span> Signal Filters
+                        </h4>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px;">
+                            <!-- Hampel Filter -->
+                            <div
+                                style="padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; background: white;">
+                                <div class="toggle-group" style="margin-bottom: 10px;">
+                                    <label class="toggle-label">
+                                        <input type="checkbox" id="hampelFilter">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-text" style="font-size: 0.9em;">Hampel Filter</span>
+                                    </label>
+                                    <small style="color: #666; font-size: 0.8em;">Outlier detection and removal</small>
+                                </div>
+                                <div class="input-group">
+                                    <label for="hampelThreshold" style="font-size: 0.8em;">Threshold (1.0-10.0)</label>
+                                    <div style="display: flex; gap: 6px; align-items: center;">
+                                        <input type="range" id="hampelThreshold" min="1.0" max="10.0" step="0.1"
+                                            value="3.0" style="flex: 1;">
+                                        <input type="number" id="hampelThresholdValue" min="1.0" max="10.0" step="0.1"
+                                            value="3.0" style="width: 60px; padding: 4px; font-size: 0.85em;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Savitzky-Golay Filter -->
+                            <div
+                                style="padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; background: white;">
+                                <div class="toggle-group">
+                                    <label class="toggle-label">
+                                        <input type="checkbox" id="savgolFilter">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-text" style="font-size: 0.9em;">Savitzky-Golay Filter</span>
+                                    </label>
+                                    <small style="color: #666; font-size: 0.8em;">Polynomial smoothing filter</small>
+                                </div>
+                            </div>
+
+                            <!-- Butterworth Filter -->
+                            <div
+                                style="padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; background: white;">
+                                <div class="toggle-group">
+                                    <label class="toggle-label">
+                                        <input type="checkbox" id="butterworthFilter">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-text" style="font-size: 0.9em;">Butterworth Filter</span>
+                                    </label>
+                                    <small style="color: #666; font-size: 0.8em;">High frequency noise removal</small>
+                                </div>
+                            </div>
+
+                            <!-- Wavelet Filter -->
+                            <div
+                                style="padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; background: white;">
+                                <div class="toggle-group" style="margin-bottom: 10px;">
+                                    <label class="toggle-label">
+                                        <input type="checkbox" id="waveletFilter">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-text" style="font-size: 0.9em;">Wavelet Filter</span>
+                                    </label>
+                                    <small style="color: #666; font-size: 0.8em;">Low frequency denoising</small>
+                                </div>
+                                <div class="input-group" style="margin-bottom: 8px;">
+                                    <label for="waveletLevel" style="font-size: 0.8em;">Level (1-3)</label>
+                                    <div style="display: flex; gap: 6px; align-items: center;">
+                                        <input type="range" id="waveletLevel" min="1" max="3" step="1" value="3"
+                                            style="flex: 1;">
+                                        <input type="number" id="waveletLevelValue" min="1" max="3" step="1" value="3"
+                                            style="width: 60px; padding: 4px; font-size: 0.85em;">
+                                    </div>
+                                </div>
+                                <div class="input-group">
+                                    <label for="waveletThreshold" style="font-size: 0.8em;">Threshold (0.5-2.0)</label>
+                                    <div style="display: flex; gap: 6px; align-items: center;">
+                                        <input type="range" id="waveletThreshold" min="0.5" max="2.0" step="0.1"
+                                            value="1.0" style="flex: 1;">
+                                        <input type="number" id="waveletThresholdValue" min="0.5" max="2.0" step="0.1"
+                                            value="1.0" style="width: 60px; padding: 4px; font-size: 0.85em;">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Global Action Buttons -->
+                <div
+                    style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding-top: 10px; border-top: 2px solid #e0e0e0;">
+                    <button class="btn btn-info" id="smartPublishingBtn" onclick="toggleSmartPublishing()">Smart
+                        Publishing: ON</button>
+                    <button class="btn btn-warning" onclick="requestInfo()">Reload info</button>
+                    <button class="btn btn-success btn-sm" onclick="requestStats()">Statistics</button>
                     <button class="btn btn-danger" onclick="factoryReset()">Factory Reset</button>
                 </div>
             </div>
         </div>
-        
+
         <!-- Metrics Cards (Fixed) -->
         <div class="card compact">
             <div class="metrics-grid">
@@ -684,12 +896,16 @@
                     <div class="metric-value" id="movementValue">-</div>
                 </div>
                 <div class="metric-card neutral">
-                    <div class="metric-label">Threshold</div>
-                    <div class="metric-value" id="thresholdValue">-</div>
+                    <div class="metric-label">Messages</div>
+                    <div class="metric-value" id="messageCount">0</div>
+                </div>
+                <div class="metric-card neutral">
+                    <div class="metric-label">Last Update</div>
+                    <div class="metric-value" id="lastUpdate">-</div>
                 </div>
             </div>
         </div>
-        
+
         <!-- Chart  (Fixed) -->
         <div class="card">
             <div class="chart-header">
@@ -700,8 +916,70 @@
                 <canvas id="motionChart"></canvas>
             </div>
         </div>
+
+        <!-- CSI Raw Data Collection -->
+        <div class="card">
+            <div class="collapsible-header" onclick="toggleSection('csiCollection')">
+                <h2>📥 CSI Raw Data Download</h2>
+                <span class="arrow rotate" id="csiCollectionArrow">▼</span>
+            </div>
+            <div class="collapsible-content collapsed" id="csiCollectionContent">
+                <div style="padding: 12px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
+                    <p style="margin: 0; color: #666; font-size: 0.95em;">
+                        Collect raw CSI packets for local analysis with <code>test_segmentation_local.py</code>
+                    </p>
+                </div>
+
+                <div class="config-section" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                    <div class="input-group">
+                        <label>Session Type</label>
+                        <select id="csiSessionType"
+                            style="padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
+                            <option value="BASELINE">BASELINE</option>
+                            <option value="MOVEMENT">MOVEMENT</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="csiPacketCount">Packets to Collect</label>
+                        <input type="number" id="csiPacketCount" min="10" max="10000" value="1000"
+                            style="padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
+                    </div>
+                </div>
+
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 15px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-weight: 600; color: #333;">Status:</span>
+                        <span id="csiStatus" style="font-weight: 600; color: #999;">⚪ Ready</span>
+                    </div>
+                    <div style="margin-bottom: 5px;">
+                        <div
+                            style="display: flex; justify-content: space-between; font-size: 0.9em; color: #666; margin-bottom: 5px;">
+                            <span>Progress</span>
+                            <span id="csiProgress">0 / 0</span>
+                        </div>
+                        <div
+                            style="width: 100%; height: 24px; background: #e0e0e0; border-radius: 12px; overflow: hidden;">
+                            <div id="csiProgressBar"
+                                style="width: 0%; height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); transition: width 0.3s;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" id="csiStartBtn" onclick="startCSICollection()">▶️ Start
+                        Recording</button>
+                    <button class="btn btn-danger" id="csiStopBtn" onclick="stopCSICollection()"
+                        style="display: none;">⏹️ Stop</button>
+                    <button class="btn btn-success" id="csiDownloadBtn" onclick="downloadCSI()"
+                        style="display: none;">💾 Download CSV</button>
+                </div>
+            </div>
+        </div>
+
     </div>
-    
+
     <script>
         let client = null;
         let chart = null;
@@ -710,14 +988,16 @@
         let currentFeatures = null;
         let isPaused = false;
         let pendingData = [];
-        
+        let smartPublishingEnabled = true; // Track smart publishing state
+
         const chartData = {
             labels: [],
             movement: [],
             threshold: [],
-            features: []
+            features: [],
+            packets_processed: []
         };
-        
+
         // Initialize Chart
         function initChart() {
             const ctx = document.getElementById('motionChart').getContext('2d');
@@ -733,7 +1013,8 @@
                             backgroundColor: 'rgba(231, 76, 60, 0.1)',
                             borderWidth: 2,
                             tension: 0.4,
-                            fill: true
+                            fill: true,
+                            yAxisID: 'y'
                         },
                         {
                             label: 'Threshold',
@@ -743,7 +1024,18 @@
                             borderWidth: 2,
                             borderDash: [5, 5],
                             tension: 0,
-                            fill: false
+                            fill: false,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'CSI Packets',
+                            data: chartData.packets_processed,
+                            borderColor: '#2ecc71',
+                            backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: false,
+                            yAxisID: 'y1'
                         }
                     ]
                 },
@@ -755,10 +1047,26 @@
                     },
                     scales: {
                         y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
                             beginAtZero: true,
                             title: {
                                 display: true,
-                                text: 'Value'
+                                text: 'Movement / Threshold'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'CSI Packets/sec'
+                            },
+                            grid: {
+                                drawOnChartArea: false
                             }
                         },
                         x: {
@@ -777,31 +1085,29 @@
                             mode: 'index',
                             intersect: false,
                             callbacks: {
-                                afterBody: function(context) {
+                                afterBody: function (context) {
                                     const index = context[0].dataIndex;
                                     const features = chartData.features[index];
-                                    
-                                    if (!features) {
-                                        return '';
+
+                                    const lines = [''];
+
+                                    // Show features only if available
+                                    if (features) {
+                                        lines.push('─────────────────────');
+                                        lines.push('🔬 Extracted Features:');
+                                        lines.push('');
+                                        lines.push(`Variance: ${features.variance?.toFixed(3) || 'N/A'}`);
+                                        lines.push(`Skewness: ${features.skewness?.toFixed(3) || 'N/A'}`);
+                                        lines.push(`Kurtosis: ${features.kurtosis?.toFixed(3) || 'N/A'}`);
+                                        lines.push(`Entropy: ${features.entropy?.toFixed(3) || 'N/A'}`);
+                                        lines.push(`IQR: ${features.iqr?.toFixed(3) || 'N/A'}`);
+                                        lines.push(`Spatial Variance: ${features.spatial_variance?.toFixed(3) || 'N/A'}`);
+                                        lines.push(`Spatial Correlation: ${features.spatial_correlation?.toFixed(3) || 'N/A'}`);
+                                        lines.push(`Spatial Gradient: ${features.spatial_gradient?.toFixed(3) || 'N/A'}`);
+                                        lines.push(`Temporal Delta Mean: ${features.temporal_delta_mean?.toFixed(3) || 'N/A'}`);
+                                        lines.push(`Temporal Delta Variance: ${features.temporal_delta_variance?.toFixed(3) || 'N/A'}`);
                                     }
-                                    
-                                    const lines = [
-                                        '',
-                                        '─────────────────────',
-                                        '🔬 Extracted Features:',
-                                        '',
-                                        `Variance: ${features.variance?.toFixed(3) || 'N/A'}`,
-                                        `Skewness: ${features.skewness?.toFixed(3) || 'N/A'}`,
-                                        `Kurtosis: ${features.kurtosis?.toFixed(3) || 'N/A'}`,
-                                        `Entropy: ${features.entropy?.toFixed(3) || 'N/A'}`,
-                                        `IQR: ${features.iqr?.toFixed(3) || 'N/A'}`,
-                                        `Spatial Variance: ${features.spatial_variance?.toFixed(3) || 'N/A'}`,
-                                        `Spatial Correlation: ${features.spatial_correlation?.toFixed(3) || 'N/A'}`,
-                                        `Spatial Gradient: ${features.spatial_gradient?.toFixed(3) || 'N/A'}`,
-                                        `Temporal Delta Mean: ${features.temporal_delta_mean?.toFixed(3) || 'N/A'}`,
-                                        `Temporal Delta Variance: ${features.temporal_delta_variance?.toFixed(3) || 'N/A'}`
-                                    ];
-                                    
+
                                     return lines;
                                 }
                             }
@@ -810,12 +1116,12 @@
                 }
             });
         }
-        
+
         function togglePause() {
             isPaused = !isPaused;
             const pauseBtn = document.getElementById('pauseBtn');
             const chartTitle = document.getElementById('chartTitle');
-            
+
             if (isPaused) {
                 pauseBtn.textContent = '▶️ Resume';
                 pauseBtn.classList.remove('btn-warning');
@@ -826,7 +1132,7 @@
                 pauseBtn.classList.remove('btn-success');
                 pauseBtn.classList.add('btn-warning');
                 chartTitle.textContent = '📈 Real-Time Chart';
-                
+
                 // Add all pending data when resuming
                 if (pendingData.length > 0) {
                     pendingData.forEach(data => addDataToChart(data));
@@ -834,14 +1140,14 @@
                 }
             }
         }
-        
+
         function toggleConfig() {
             const content = document.getElementById('configContent');
             const arrow = document.getElementById('configArrow');
             content.classList.toggle('collapsed');
             arrow.classList.toggle('rotate');
         }
-        
+
         function toggleConnection() {
             if (client && client.connected) {
                 disconnect();
@@ -849,39 +1155,39 @@
                 connect();
             }
         }
-        
+
         function connect() {
             const broker = document.getElementById('broker').value;
             const port = document.getElementById('port').value;
             const topic = document.getElementById('topic').value;
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
-            
+
             if (!broker || !port || !topic) {
                 alert('Please fill in all required fields!');
                 return;
             }
-            
+
             const connectUrl = `ws://${broker}:${port}/mqtt`;
-            
+
             const options = {
                 clean: true,
                 connectTimeout: 4000,
                 clientId: 'espectre_monitor_' + Math.random().toString(16).substr(2, 8)
             };
-            
+
             if (username) options.username = username;
             if (password) options.password = password;
-            
+
             try {
                 client = mqtt.connect(connectUrl, options);
-                
+
                 client.on('connect', () => {
                     console.log('Connected to MQTT broker');
                     updateStatus(true);
                     document.getElementById('configContent').classList.add('collapsed');
                     document.getElementById('configArrow').classList.add('rotate');
-                    
+
                     // Subscribe to main topic
                     client.subscribe(topic, (err) => {
                         if (err) {
@@ -891,7 +1197,7 @@
                             console.log('Subscribed to:', topic);
                         }
                     });
-                    
+
                     // Also subscribe to response topic
                     const responseTopic = topic + '/response';
                     client.subscribe(responseTopic, (err) => {
@@ -899,7 +1205,7 @@
                             console.error('Subscribe error for response topic:', err);
                         } else {
                             console.log('Subscribed to:', responseTopic);
-                            
+
                             // Request current configuration after successful connection
                             setTimeout(() => {
                                 console.log('Requesting initial configuration...');
@@ -908,28 +1214,38 @@
                         }
                     });
                 });
-                
+
                 client.on('message', (topic, message) => {
-                    handleMessage(message.toString());
+                    // Check if this is a binary CSI raw message
+                    const baseTopic = document.getElementById('topic').value;
+                    const csiRawTopic = baseTopic + '/csi_raw';
+
+                    if (topic === csiRawTopic) {
+                        // Binary message - handle CSI raw data
+                        handleCSIRawData(message);
+                    } else {
+                        // Text message - parse as JSON
+                        handleMessage(message.toString());
+                    }
                 });
-                
+
                 client.on('error', (err) => {
                     console.error('Connection error:', err);
                     alert('Connection error: ' + err.message);
                     updateStatus(false);
                 });
-                
+
                 client.on('close', () => {
                     console.log('Connection closed');
                     updateStatus(false);
                 });
-                
+
             } catch (err) {
                 console.error('Connection error:', err);
                 alert('Connection error: ' + err.message);
             }
         }
-        
+
         function disconnect() {
             if (client) {
                 client.end();
@@ -937,13 +1253,13 @@
                 updateStatus(false);
             }
         }
-        
+
         function updateStatus(connected) {
             const indicator = document.getElementById('statusIndicator');
             const statusText = document.getElementById('statusText');
             const connectBtn = document.getElementById('connectBtn');
             const clearBtn = document.getElementById('clearBtn');
-            
+
             if (connected) {
                 indicator.classList.remove('disconnected');
                 indicator.classList.add('connected');
@@ -962,32 +1278,34 @@
                 clearBtn.style.display = 'none';
             }
         }
-        
-        
+
+
         function addDataToChart(data) {
             const now = new Date();
             const timeLabel = now.toLocaleTimeString('en-US');
-            
+
             chartData.labels.push(timeLabel);
             chartData.movement.push(data.movement || 0);
             chartData.threshold.push(data.threshold || 0);
             chartData.features.push(data.features || null);
-            
+            chartData.packets_processed.push(data.packets_processed || 0);
+
             if (chartData.labels.length > maxDataPoints) {
                 chartData.labels.shift();
                 chartData.movement.shift();
                 chartData.threshold.shift();
                 chartData.features.shift();
+                chartData.packets_processed.shift();
             }
-            
+
             chart.update('none');
         }
-        
+
         function updateMetrics(data) {
             const stateCard = document.getElementById('stateCard');
             const stateValue = document.getElementById('stateValue');
             stateValue.textContent = data.state === 'motion' ? 'MOTION' : 'IDLE';
-            
+
             if (data.state === 'motion') {
                 stateCard.classList.remove('idle');
                 stateCard.classList.add('motion');
@@ -995,57 +1313,59 @@
                 stateCard.classList.remove('motion');
                 stateCard.classList.add('idle');
             }
-            
-            document.getElementById('movementValue').textContent = 
+
+            document.getElementById('movementValue').textContent =
                 data.movement ? data.movement.toFixed(2) : '-';
-            
-            document.getElementById('thresholdValue').textContent = 
-                data.threshold ? data.threshold.toFixed(2) : '-';
         }
-        
+
         function clearData() {
             chartData.labels = [];
             chartData.movement = [];
             chartData.threshold = [];
             chartData.features = [];
+            chartData.packets_processed = [];
             messageCount = 0;
             currentFeatures = null;
             pendingData = [];
-            
+
             document.getElementById('messageCount').textContent = '0';
             document.getElementById('lastUpdate').textContent = '-';
-            
+
             chart.update();
         }
-        
+
         // MQTT Command Functions
         function sendCommand(cmd, params = {}) {
             if (!client || !client.connected) {
                 showNotification('Not connected to MQTT broker', 'error');
                 return;
             }
-            
+
             const topic = document.getElementById('topic').value;
             const cmdTopic = topic + '/cmd';
             const message = JSON.stringify({ cmd, ...params });
-            
+
             client.publish(cmdTopic, message, (err) => {
                 if (err) {
                     showNotification(`Failed to send command: ${err.message}`, 'error');
-                } else {
-                    showNotification(`Command sent: ${cmd}`, 'success');
                 }
+                // Removed "Command sent" notification for cleaner real-time updates
+                // Only device responses will show notifications now
             });
         }
-        
+
         // Apply All Configuration (Detection Parameters + Filters)
         function applyAllConfiguration() {
             // Detection Parameters
             const segThreshold = parseFloat(document.getElementById('segThresholdValue').value);
+            const kFactor = parseFloat(document.getElementById('kFactorValue').value);
+            const windowSize = parseInt(document.getElementById('windowSizeValue').value);
+            const minLength = parseInt(document.getElementById('minLengthValue').value);
+            const maxLength = parseInt(document.getElementById('maxLengthValue').value);
             const trafficRate = parseInt(document.getElementById('trafficRateValue').value);
             const featuresEnable = document.getElementById('featuresEnable').checked;
             const smartPublishing = document.getElementById('smartPublishing').checked;
-            
+
             // Filters
             const hampelEnabled = document.getElementById('hampelFilter').checked;
             const hampelThreshold = parseFloat(document.getElementById('hampelThresholdValue').value);
@@ -1054,10 +1374,18 @@
             const waveletEnabled = document.getElementById('waveletFilter').checked;
             const waveletLevel = parseInt(document.getElementById('waveletLevelValue').value);
             const waveletThreshold = parseFloat(document.getElementById('waveletThresholdValue').value);
-            
+
             // Send all commands with delays
             let delay = 0;
             sendCommand('segmentation_threshold', { value: segThreshold });
+            delay += 100;
+            setTimeout(() => sendCommand('segmentation_k_factor', { value: kFactor }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('segmentation_window_size', { value: windowSize }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('segmentation_min_length', { value: minLength }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('segmentation_max_length', { value: maxLength }), delay);
             delay += 100;
             setTimeout(() => sendCommand('traffic_generator_rate', { value: trafficRate }), delay);
             delay += 100;
@@ -1079,22 +1407,83 @@
             delay += 100;
             setTimeout(() => sendCommand('wavelet_threshold', { value: waveletThreshold }), delay);
         }
-        
+
         // System Info Functions
         function requestInfo() {
             sendCommand('info');
         }
-        
+
         function requestStats() {
             sendCommand('stats');
         }
-        
+
         function factoryReset() {
-            if (confirm('⚠️ WARNING: This will reset ALL settings to factory defaults!\n\nThis includes:\n- Detection parameters\n- Filter settings\n- Calibration data\n- All saved configurations\n\nAre you sure you want to continue?')) {
-                sendCommand('factory_reset');
-            }
+            showFactoryResetModal();
         }
-        
+
+        function showFactoryResetModal() {
+            // Create modal overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.onclick = (e) => {
+                if (e.target === overlay) closeModal();
+            };
+
+            // Create modal content
+            const modal = document.createElement('div');
+            modal.className = 'modal-content';
+
+            // Modal header
+            const header = document.createElement('div');
+            header.className = 'modal-header';
+            header.innerHTML = `
+                <h3 style="color: #e74c3c;">⚠️ Factory Reset</h3>
+            `;
+
+            // Modal body
+            const body = document.createElement('div');
+            body.className = 'modal-body';
+            body.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+            let html = '';
+            html += `<div style="margin-bottom: 20px;">`;
+            html += `<p style="font-size: 1em; color: #e74c3c; font-weight: 600; margin-bottom: 15px;">`;
+            html += `This will reset ALL settings to factory defaults!`;
+            html += `</p>`;
+            html += `<p style="font-size: 0.95em; color: #666; margin-bottom: 10px;">This includes:</p>`;
+            html += `<ul style="margin-left: 20px; color: #666; font-size: 0.9em; line-height: 1.8;">`;
+            html += `<li>Detection parameters</li>`;
+            html += `<li>Filter settings</li>`;
+            html += `<li>All saved configurations</li>`;
+            html += `</ul>`;
+            html += `</div>`;
+            html += `<p style="font-size: 0.95em; color: #333; font-weight: 600; margin-top: 20px;">`;
+            html += `Are you sure you want to continue?`;
+            html += `</p>`;
+
+            body.innerHTML = html;
+
+            // Modal footer with buttons
+            const footer = document.createElement('div');
+            footer.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px; padding-top: 20px; border-top: 2px solid #e0e0e0;';
+            footer.innerHTML = `
+                <button class="btn btn-secondary" onclick="closeModal()" style="padding: 10px 20px;">Cancel</button>
+                <button class="btn btn-danger" onclick="confirmFactoryReset()" style="padding: 10px 20px;">Reset to Factory Defaults</button>
+            `;
+
+            modal.appendChild(header);
+            modal.appendChild(body);
+            modal.appendChild(footer);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+        }
+
+        function confirmFactoryReset() {
+            closeModal();
+            sendCommand('factory_reset');
+            showNotification('Factory reset command sent', 'info');
+        }
+
         // Section Toggle Function
         function toggleSection(sectionId) {
             const content = document.getElementById(sectionId + 'Content');
@@ -1102,129 +1491,334 @@
             content.classList.toggle('collapsed');
             arrow.classList.toggle('rotate');
         }
-        
+
+        // SubSection Toggle Function
+        function toggleSubSection(sectionId) {
+            const content = document.getElementById(sectionId + 'Content');
+            const arrow = document.getElementById(sectionId + 'Arrow');
+            content.classList.toggle('collapsed');
+            arrow.classList.toggle('rotate');
+        }
+
+        // Toggle Smart Publishing
+        function toggleSmartPublishing() {
+            const btn = document.getElementById('smartPublishingBtn');
+
+            // Toggle the state
+            smartPublishingEnabled = !smartPublishingEnabled;
+
+            // Update button appearance by switching classes
+            if (smartPublishingEnabled) {
+                btn.classList.remove('btn-secondary');
+                btn.classList.add('btn-info');
+                btn.textContent = 'Smart Publishing: ON';
+            } else {
+                btn.classList.remove('btn-info');
+                btn.classList.add('btn-secondary');
+                btn.textContent = 'Smart Publishing: OFF';
+            }
+
+            // Send command to device
+            sendCommand('smart_publishing', { enabled: smartPublishingEnabled });
+        }
+
+        // Apply Detection Configuration Only
+        function applyDetectionConfiguration() {
+            const segThreshold = parseFloat(document.getElementById('segThresholdValue').value);
+            const kFactor = parseFloat(document.getElementById('kFactorValue').value);
+            const windowSize = parseInt(document.getElementById('windowSizeValue').value);
+            const minLength = parseInt(document.getElementById('minLengthValue').value);
+            const maxLength = parseInt(document.getElementById('maxLengthValue').value);
+            const trafficRate = parseInt(document.getElementById('trafficRateValue').value);
+
+            // Send detection commands with delays
+            let delay = 0;
+            sendCommand('segmentation_threshold', { value: segThreshold });
+            delay += 100;
+            setTimeout(() => sendCommand('segmentation_k_factor', { value: kFactor }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('segmentation_window_size', { value: windowSize }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('segmentation_min_length', { value: minLength }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('segmentation_max_length', { value: maxLength }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('traffic_generator_rate', { value: trafficRate }), delay);
+
+            showNotification('Detection configuration applied', 'success');
+        }
+
+        // Apply Features & Filters Configuration Only
+        function applyFeaturesFiltersConfiguration() {
+            const featuresEnable = document.getElementById('featuresEnable').checked;
+            const hampelEnabled = document.getElementById('hampelFilter').checked;
+            const hampelThreshold = parseFloat(document.getElementById('hampelThresholdValue').value);
+            const savgolEnabled = document.getElementById('savgolFilter').checked;
+            const butterworthEnabled = document.getElementById('butterworthFilter').checked;
+            const waveletEnabled = document.getElementById('waveletFilter').checked;
+            const waveletLevel = parseInt(document.getElementById('waveletLevelValue').value);
+            const waveletThreshold = parseFloat(document.getElementById('waveletThresholdValue').value);
+
+            // Send features & filters commands with delays
+            let delay = 0;
+            sendCommand('features_enable', { enabled: featuresEnable });
+            delay += 100;
+            setTimeout(() => sendCommand('hampel_filter', { enabled: hampelEnabled }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('hampel_threshold', { value: hampelThreshold }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('savgol_filter', { enabled: savgolEnabled }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('butterworth_filter', { enabled: butterworthEnabled }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('wavelet_filter', { enabled: waveletEnabled }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('wavelet_level', { value: waveletLevel }), delay);
+            delay += 100;
+            setTimeout(() => sendCommand('wavelet_threshold', { value: waveletThreshold }), delay);
+
+            showNotification('Features & Filters configuration applied', 'success');
+        }
+
         // Notification Function
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
             notification.textContent = message;
             document.body.appendChild(notification);
-            
+
             setTimeout(() => {
                 notification.style.animation = 'slideIn 0.3s ease-out reverse';
                 setTimeout(() => notification.remove(), 300);
             }, 3000);
         }
-        
+
         // Slider Synchronization
         function syncSlider(sliderId, valueId) {
             const slider = document.getElementById(sliderId);
             const valueInput = document.getElementById(valueId);
-            
+
             slider.addEventListener('input', (e) => {
                 valueInput.value = e.target.value;
             });
-            
+
             valueInput.addEventListener('input', (e) => {
                 slider.value = e.target.value;
             });
         }
-        
+
         // Enhanced Message Handler for Info/Stats and regular data
         function handleMessage(message) {
             try {
                 const data = JSON.parse(message);
-                
+
                 // Log all messages to console for debugging
                 console.log('Received message:', data);
-                
+
                 // Check if this is an info response (has network, mqtt, segmentation, filters, options)
                 if (data.network || data.mqtt || (data.segmentation && data.filters && data.options)) {
                     console.log('Detected INFO response');
                     populateUIFromConfig(data);
                     return;
                 }
-                
+
                 // Check if this is a stats response (has uptime, turbulence, packets_processed)
                 if (data.uptime || (data.turbulence !== undefined && data.packets_processed !== undefined)) {
                     console.log('Detected STATS response');
                     displayStats(data);
                     return;
                 }
-                
+
                 // Check if this is a simple response message (has "response" field)
                 if (data.response && typeof data.response === 'string') {
                     console.log('Detected command response');
                     showNotification(data.response, 'info');
+                    
+                    // If it's a factory reset confirmation, request updated configuration
+                    if (data.response.toLowerCase().includes('factory reset') || 
+                        data.response.toLowerCase().includes('reset complete')) {
+                        console.log('Factory reset confirmed, requesting updated configuration...');
+                        requestInfo();
+                    }
                     return;
                 }
-                
+
                 // Regular data message (has movement, threshold, state)
                 if (data.movement !== undefined || data.threshold !== undefined || data.state) {
                     messageCount++;
-                    
+
                     document.getElementById('messageCount').textContent = messageCount;
-                    
+
                     const now = new Date();
-                    document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('en-US');
-                    
+                    document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('it-IT', { hour12: false });
+
                     currentFeatures = data.features || null;
-                    
+
                     updateMetrics(data);
-                    
+
                     if (isPaused) {
                         pendingData.push(data);
                     } else {
                         addDataToChart(data);
                     }
                 }
-                
+
             } catch (err) {
                 console.error('Error parsing message:', err);
             }
         }
-        
+
+        // Format uptime to human readable format
+        function formatUptime(uptime) {
+            if (!uptime) return 'N/A';
+
+            // If uptime is already a formatted string, return it as is
+            if (typeof uptime === 'string') {
+                return uptime;
+            }
+
+            // If uptime is a number (seconds), format it
+            if (typeof uptime === 'number') {
+                const hours = Math.floor(uptime / 3600);
+                const minutes = Math.floor((uptime % 3600) / 60);
+                const secs = uptime % 60;
+                return `${hours}h ${minutes}m ${secs}s`;
+            }
+
+            return 'N/A';
+        }
+
+        // Format large numbers with thousands separator
+        function formatNumber(num) {
+            if (num === undefined || num === null) return 'N/A';
+            return num.toLocaleString();
+        }
+
+        // Refresh stats in modal
+        function refreshStats() {
+            const reloadBtn = document.getElementById('statsReloadBtn');
+            if (reloadBtn) {
+                reloadBtn.classList.add('spinning');
+                reloadBtn.disabled = true;
+            }
+
+            // Send stats command
+            sendCommand('stats');
+
+            // Re-enable button after a delay
+            setTimeout(() => {
+                if (reloadBtn) {
+                    reloadBtn.classList.remove('spinning');
+                    reloadBtn.disabled = false;
+                }
+            }, 1000);
+        }
+
         // Display Stats in modal
         function displayStats(stats) {
-            // Create modal overlay
-            const overlay = document.createElement('div');
-            overlay.className = 'modal-overlay';
-            overlay.onclick = (e) => {
-                if (e.target === overlay) closeModal();
-            };
-            
-            // Create modal content
-            const modal = document.createElement('div');
-            modal.className = 'modal-content';
-            
-            // Modal header
+            // Check if modal already exists
+            let overlay = document.querySelector('.modal-overlay');
+            let isUpdate = false;
+
+            if (overlay) {
+                // Modal exists, just update the content
+                isUpdate = true;
+            } else {
+                // Create new modal overlay
+                overlay = document.createElement('div');
+                overlay.className = 'modal-overlay';
+                overlay.onclick = (e) => {
+                    if (e.target === overlay) closeModal();
+                };
+            }
+
+            // Create or get modal content
+            let modal = overlay.querySelector('.modal-content');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.className = 'modal-content';
+            } else {
+                modal.innerHTML = ''; // Clear existing content
+            }
+
+            // Modal header with reload button
             const header = document.createElement('div');
             header.className = 'modal-header';
             header.innerHTML = `
                 <h3>Statistics</h3>
-                <button class="modal-close" onclick="closeModal()">×</button>
+                <div class="modal-header-actions">
+                    <button class="modal-reload" id="statsReloadBtn" onclick="refreshStats()" title="Refresh statistics">🔄</button>
+                </div>
             `;
-            
-            // Modal body
+
+            // Modal body with organized sections
             const body = document.createElement('div');
             body.className = 'modal-body';
-            
+
+            // Determine state color
+            const stateClass = stats.state === 'motion' ? 'warning' : 'success';
+            const stateIcon = stats.state === 'motion' ? '🔴' : '🟢';
+
             let html = '';
-            html += `<div class="stat-line"><span class="stat-label">State:</span> <span class="stat-value">${stats.state || 'N/A'}</span></div>`;
-            html += `<div class="stat-line"><span class="stat-label">Uptime:</span> <span class="stat-value">${stats.uptime || 'N/A'}</span></div>`;
-            html += `<div class="stat-line"><span class="stat-label">Turbulence:</span> <span class="stat-value">${stats.turbulence?.toFixed(3) || 'N/A'}</span></div>`;
-            html += `<div class="stat-line"><span class="stat-label">Movement:</span> <span class="stat-value">${stats.movement?.toFixed(3) || 'N/A'}</span></div>`;
-            html += `<div class="stat-line"><span class="stat-label">Threshold:</span> <span class="stat-value">${stats.threshold?.toFixed(3) || 'N/A'}</span></div>`;
-            html += `<div class="stat-line"><span class="stat-label">Packets Processed:</span> <span class="stat-value">${stats.packets_processed || 'N/A'}</span></div>`;
-            
+
+            // System Status Section
+            html += `<div class="stat-section">`;
+            html += `<div class="stat-section-title">📊 System Status</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">${stateIcon} State</span>`;
+            html += `<span class="stat-value ${stateClass}">${(stats.state || 'N/A').toUpperCase()}</span>`;
+            html += `</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">⏱️ Uptime</span>`;
+            html += `<span class="stat-value">${formatUptime(stats.uptime)}</span>`;
+            html += `</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">💻 CPU Usage</span>`;
+            html += `<span class="stat-value highlight">${stats.cpu_usage_percent !== undefined ? stats.cpu_usage_percent.toFixed(1) + '%' : 'N/A'}</span>`;
+            html += `</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">🧠 RAM Usage</span>`;
+            html += `<span class="stat-value highlight">${stats.heap_usage_percent !== undefined ? stats.heap_usage_percent.toFixed(1) + '%' : 'N/A'}</span>`;
+            html += `</div>`;
+            html += `</div>`;
+
+            // Detection Metrics Section
+            html += `<div class="stat-section">`;
+            html += `<div class="stat-section-title">🎯 Detection Metrics</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">🌊 Turbulence</span>`;
+            html += `<span class="stat-value highlight">${stats.turbulence?.toFixed(3) || 'N/A'}</span>`;
+            html += `</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">📈 Movement</span>`;
+            html += `<span class="stat-value highlight">${stats.movement?.toFixed(3) || 'N/A'}</span>`;
+            html += `</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">🎚️ Threshold</span>`;
+            html += `<span class="stat-value">${stats.threshold?.toFixed(3) || 'N/A'}</span>`;
+            html += `</div>`;
+            html += `</div>`;
+
+            // Counters Section
+            html += `<div class="stat-section">`;
+            html += `<div class="stat-section-title">📈 Counters</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">📦 Packets Processed</span>`;
+            html += `<span class="stat-value highlight">${formatNumber(stats.packets_processed)}</span>`;
+            html += `</div>`;
+            html += `</div>`;
+
             body.innerHTML = html;
-            
+
             modal.appendChild(header);
             modal.appendChild(body);
-            overlay.appendChild(modal);
-            document.body.appendChild(overlay);
+
+            if (!isUpdate) {
+                overlay.appendChild(modal);
+                document.body.appendChild(overlay);
+            }
         }
-        
+
         // Close modal
         function closeModal() {
             const overlay = document.querySelector('.modal-overlay');
@@ -1233,38 +1827,115 @@
                 setTimeout(() => overlay.remove(), 300);
             }
         }
-        
+
+        // Update subcarrier selection
+        function updateSubcarriers() {
+            const indicesStr = document.getElementById('subcarrierIndices').value.trim();
+
+            if (!indicesStr) {
+                showNotification('Please enter subcarrier indices', 'error');
+                return;
+            }
+
+            // Parse comma-separated values
+            const indices = indicesStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+
+            if (indices.length === 0) {
+                showNotification('Invalid format. Use comma-separated numbers (e.g., 47,48,49,50)', 'error');
+                return;
+            }
+
+            // Validate range (0-63)
+            const invalidIndices = indices.filter(n => n < 0 || n > 63);
+            if (invalidIndices.length > 0) {
+                showNotification(`Invalid indices: ${invalidIndices.join(',')} (must be 0-63)`, 'error');
+                return;
+            }
+
+            // Validate count (1-64)
+            if (indices.length > 64) {
+                showNotification('Too many subcarriers (max 64)', 'error');
+                return;
+            }
+
+            // Send command
+            sendCommand('subcarrier_selection', { indices: indices });
+            showNotification(`Updating ${indices.length} subcarriers...`, 'info');
+        }
+
         // Populate UI controls from config data
         function populateUIFromConfig(config) {
             console.log('Populating UI from config:', config);
-            
+
             // Update Device IP if available
             if (config.network && config.network.ip_address) {
                 document.getElementById('deviceIP').textContent = config.network.ip_address;
             }
-            
-            // Detection Parameters
-            if (config.segmentation && config.segmentation.threshold !== undefined) {
-                const threshold = config.segmentation.threshold;
-                document.getElementById('segThreshold').value = threshold;
-                document.getElementById('segThresholdValue').value = threshold;
+
+            // Subcarrier selection
+            if (config.subcarriers) {
+                if (config.subcarriers.indices && Array.isArray(config.subcarriers.indices)) {
+                    const indicesStr = config.subcarriers.indices.join(',');
+                    document.getElementById('subcarrierIndices').value = indicesStr;
+                }
             }
-            
+
+            // Detection Parameters
+            if (config.segmentation) {
+                if (config.segmentation.threshold !== undefined) {
+                    const threshold = config.segmentation.threshold;
+                    document.getElementById('segThreshold').value = threshold;
+                    document.getElementById('segThresholdValue').value = threshold;
+                }
+                if (config.segmentation.k_factor !== undefined) {
+                    const kFactor = config.segmentation.k_factor;
+                    document.getElementById('kFactor').value = kFactor;
+                    document.getElementById('kFactorValue').value = kFactor;
+                }
+                if (config.segmentation.window_size !== undefined) {
+                    const windowSize = config.segmentation.window_size;
+                    document.getElementById('windowSize').value = windowSize;
+                    document.getElementById('windowSizeValue').value = windowSize;
+                }
+                if (config.segmentation.min_length !== undefined) {
+                    const minLength = config.segmentation.min_length;
+                    document.getElementById('minLength').value = minLength;
+                    document.getElementById('minLengthValue').value = minLength;
+                }
+                if (config.segmentation.max_length !== undefined) {
+                    const maxLength = config.segmentation.max_length;
+                    document.getElementById('maxLength').value = maxLength;
+                    document.getElementById('maxLengthValue').value = maxLength;
+                }
+            }
+
             if (config.network && config.network.traffic_generator_rate !== undefined) {
                 const rate = config.network.traffic_generator_rate;
                 document.getElementById('trafficRate').value = rate;
                 document.getElementById('trafficRateValue').value = rate;
             }
-            
+
             if (config.options) {
                 if (config.options.features_enabled !== undefined) {
                     document.getElementById('featuresEnable').checked = config.options.features_enabled;
                 }
                 if (config.options.smart_publishing_enabled !== undefined) {
-                    document.getElementById('smartPublishing').checked = config.options.smart_publishing_enabled;
+                    smartPublishingEnabled = config.options.smart_publishing_enabled;
+
+                    // Update button appearance by switching classes
+                    const btn = document.getElementById('smartPublishingBtn');
+                    if (smartPublishingEnabled) {
+                        btn.classList.remove('btn-secondary');
+                        btn.classList.add('btn-info');
+                        btn.textContent = 'Smart Publishing: ON';
+                    } else {
+                        btn.classList.remove('btn-info');
+                        btn.classList.add('btn-secondary');
+                        btn.textContent = 'Smart Publishing: OFF';
+                    }
                 }
             }
-            
+
             // Filters
             if (config.filters) {
                 if (config.filters.hampel_enabled !== undefined) {
@@ -1275,15 +1946,15 @@
                     document.getElementById('hampelThreshold').value = threshold;
                     document.getElementById('hampelThresholdValue').value = threshold;
                 }
-                
+
                 if (config.filters.savgol_enabled !== undefined) {
                     document.getElementById('savgolFilter').checked = config.filters.savgol_enabled;
                 }
-                
+
                 if (config.filters.butterworth_enabled !== undefined) {
                     document.getElementById('butterworthFilter').checked = config.filters.butterworth_enabled;
                 }
-                
+
                 if (config.filters.wavelet_enabled !== undefined) {
                     document.getElementById('waveletFilter').checked = config.filters.wavelet_enabled;
                 }
@@ -1298,21 +1969,321 @@
                     document.getElementById('waveletThresholdValue').value = threshold;
                 }
             }
-            
+
             showNotification('Configuration loaded from device', 'success');
         }
-        
+
+        // CSI Raw Data Collection State
+        let csiCollectionActive = false;
+        let csiCollectedPackets = [];
+        let csiTargetPackets = 0;
+        let csiSessionType = 'BASELINE';
+
+        function startCSICollection() {
+            if (!client || !client.connected) {
+                showNotification('Not connected to MQTT broker', 'error');
+                return;
+            }
+
+            const packetCount = parseInt(document.getElementById('csiPacketCount').value);
+            const sessionType = document.getElementById('csiSessionType').value;
+
+            if (packetCount < 10 || packetCount > 10000) {
+                showNotification('Packet count must be between 10 and 10000', 'error');
+                return;
+            }
+
+            // Reset state
+            csiCollectedPackets = [];
+            csiTargetPackets = packetCount;
+            csiSessionType = sessionType;
+            csiCollectionActive = true;
+
+            // Update UI
+            document.getElementById('csiStatus').textContent = '🟢 Recording...';
+            document.getElementById('csiStatus').style.color = '#2ecc71';
+            document.getElementById('csiProgress').textContent = `0 / ${packetCount}`;
+            document.getElementById('csiProgressBar').style.width = '0%';
+            document.getElementById('csiStartBtn').style.display = 'none';
+            document.getElementById('csiStopBtn').style.display = 'inline-block';
+            document.getElementById('csiDownloadBtn').style.display = 'none';
+
+            // Subscribe to CSI raw topic
+            const topic = document.getElementById('topic').value;
+            const csiRawTopic = topic + '/csi_raw';
+            client.subscribe(csiRawTopic, (err) => {
+                if (err) {
+                    console.error('Failed to subscribe to CSI raw topic:', err);
+                    showNotification('Failed to subscribe to CSI raw topic', 'error');
+                    stopCSICollection();
+                    return;
+                }
+                console.log('Subscribed to CSI raw topic:', csiRawTopic);
+
+                // Send start command to ESP32
+                sendCommand('csi_raw_capture', { action: 'start', max_packets: packetCount });
+                showNotification(`Started CSI collection (${sessionType}, ${packetCount} packets)`, 'success');
+            });
+        }
+
+        function stopCSICollection() {
+            if (!csiCollectionActive) {
+                return;
+            }
+
+            // Send stop command to ESP32
+            sendCommand('csi_raw_capture', { action: 'stop' });
+
+            // Unsubscribe from CSI raw topic
+            const topic = document.getElementById('topic').value;
+            const csiRawTopic = topic + '/csi_raw';
+            if (client && client.connected) {
+                client.unsubscribe(csiRawTopic);
+            }
+
+            csiCollectionActive = false;
+
+            // Update UI
+            document.getElementById('csiStatus').textContent = '⚪ Complete';
+            document.getElementById('csiStatus').style.color = '#2ecc71';
+            document.getElementById('csiStartBtn').style.display = 'inline-block';
+            document.getElementById('csiStopBtn').style.display = 'none';
+            document.getElementById('csiDownloadBtn').style.display = 'inline-block';
+
+            showNotification(`CSI collection stopped (${csiCollectedPackets.length} packets collected)`, 'info');
+        }
+
+        function handleCSIRawData(message) {
+            if (!csiCollectionActive) {
+                return;
+            }
+
+            try {
+                // Parse JSON message
+                const data = JSON.parse(message);
+
+                console.log('CSI Raw batch received:', {
+                    packet_count: data.packet_count,
+                    batch_index: data.batch_index,
+                    data_length: data.data ? data.data.length : 0
+                });
+
+                if (!data.packet_count || !data.data) {
+                    console.error('Invalid CSI raw message format');
+                    return;
+                }
+
+                // Decode base64 data
+                const binaryString = atob(data.data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                console.log(`Decoded ${bytes.length} bytes from base64`);
+
+                // Extract packets (each packet is 128 bytes)
+                const packetCount = data.packet_count;
+                for (let i = 0; i < packetCount; i++) {
+                    const offset = i * 128;
+                    if (offset + 128 <= bytes.length) {
+                        const packet = new Int8Array(bytes.buffer, offset, 128);
+                        csiCollectedPackets.push(Array.from(packet));
+                    }
+                }
+
+                // Update progress
+                const progress = Math.min(100, (csiCollectedPackets.length / csiTargetPackets) * 100);
+                document.getElementById('csiProgress').textContent = `${csiCollectedPackets.length} / ${csiTargetPackets}`;
+                document.getElementById('csiProgressBar').style.width = `${progress}%`;
+
+                console.log(`Total packets collected: ${csiCollectedPackets.length} / ${csiTargetPackets}`);
+
+                // Auto-stop when target reached
+                if (csiCollectedPackets.length >= csiTargetPackets) {
+                    stopCSICollection();
+                }
+
+            } catch (err) {
+                console.error('Error parsing CSI raw data:', err);
+            }
+        }
+
+        function downloadCSI() {
+            if (csiCollectedPackets.length === 0) {
+                showNotification('No data to download', 'error');
+                return;
+            }
+
+            // Generate CSV content (simple format: val1,val2,...,val128 per line)
+            let csv = '';
+            csiCollectedPackets.forEach(packet => {
+                csv += packet.join(',') + '\n';
+            });
+
+            // Create download
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `csi_${csiSessionType.toLowerCase()}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            showNotification(`Downloaded ${csiCollectedPackets.length} packets as CSV`, 'success');
+        }
+
+        // Debounce helper function
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Real-time configuration update functions with debounce
+        const debouncedSendCommand = debounce((cmd, params) => {
+            sendCommand(cmd, params);
+        }, 300);
+
+        // Setup real-time listeners for Detection Parameters
+        function setupDetectionListeners() {
+            // Segmentation Threshold
+            document.getElementById('segThreshold').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_threshold', { value: parseFloat(e.target.value) });
+            });
+            document.getElementById('segThresholdValue').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_threshold', { value: parseFloat(e.target.value) });
+            });
+
+            // K Factor
+            document.getElementById('kFactor').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_k_factor', { value: parseFloat(e.target.value) });
+            });
+            document.getElementById('kFactorValue').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_k_factor', { value: parseFloat(e.target.value) });
+            });
+
+            // Window Size
+            document.getElementById('windowSize').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_window_size', { value: parseInt(e.target.value) });
+            });
+            document.getElementById('windowSizeValue').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_window_size', { value: parseInt(e.target.value) });
+            });
+
+            // Min Length
+            document.getElementById('minLength').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_min_length', { value: parseInt(e.target.value) });
+            });
+            document.getElementById('minLengthValue').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_min_length', { value: parseInt(e.target.value) });
+            });
+
+            // Max Length
+            document.getElementById('maxLength').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_max_length', { value: parseInt(e.target.value) });
+            });
+            document.getElementById('maxLengthValue').addEventListener('change', (e) => {
+                debouncedSendCommand('segmentation_max_length', { value: parseInt(e.target.value) });
+            });
+
+            // Traffic Rate
+            document.getElementById('trafficRate').addEventListener('change', (e) => {
+                debouncedSendCommand('traffic_generator_rate', { value: parseInt(e.target.value) });
+            });
+            document.getElementById('trafficRateValue').addEventListener('change', (e) => {
+                debouncedSendCommand('traffic_generator_rate', { value: parseInt(e.target.value) });
+            });
+        }
+
+        // Setup real-time listener for Subcarrier Selection
+        function setupSubcarrierListener() {
+            const subcarrierInput = document.getElementById('subcarrierIndices');
+            
+            // Debounced update function with longer delay for text input
+            const debouncedUpdateSubcarriers = debounce(() => {
+                updateSubcarriers();
+            }, 500);
+            
+            // Listen for input changes
+            subcarrierInput.addEventListener('input', () => {
+                debouncedUpdateSubcarriers();
+            });
+        }
+
+        // Setup real-time listeners for Features & Filters
+        function setupFeaturesFiltersListeners() {
+            // Features Enable
+            document.getElementById('featuresEnable').addEventListener('change', (e) => {
+                sendCommand('features_enable', { enabled: e.target.checked });
+            });
+
+            // Hampel Filter
+            document.getElementById('hampelFilter').addEventListener('change', (e) => {
+                sendCommand('hampel_filter', { enabled: e.target.checked });
+            });
+            document.getElementById('hampelThreshold').addEventListener('change', (e) => {
+                debouncedSendCommand('hampel_threshold', { value: parseFloat(e.target.value) });
+            });
+            document.getElementById('hampelThresholdValue').addEventListener('change', (e) => {
+                debouncedSendCommand('hampel_threshold', { value: parseFloat(e.target.value) });
+            });
+
+            // Savitzky-Golay Filter
+            document.getElementById('savgolFilter').addEventListener('change', (e) => {
+                sendCommand('savgol_filter', { enabled: e.target.checked });
+            });
+
+            // Butterworth Filter
+            document.getElementById('butterworthFilter').addEventListener('change', (e) => {
+                sendCommand('butterworth_filter', { enabled: e.target.checked });
+            });
+
+            // Wavelet Filter
+            document.getElementById('waveletFilter').addEventListener('change', (e) => {
+                sendCommand('wavelet_filter', { enabled: e.target.checked });
+            });
+            document.getElementById('waveletLevel').addEventListener('change', (e) => {
+                debouncedSendCommand('wavelet_level', { value: parseInt(e.target.value) });
+            });
+            document.getElementById('waveletLevelValue').addEventListener('change', (e) => {
+                debouncedSendCommand('wavelet_level', { value: parseInt(e.target.value) });
+            });
+            document.getElementById('waveletThreshold').addEventListener('change', (e) => {
+                debouncedSendCommand('wavelet_threshold', { value: parseFloat(e.target.value) });
+            });
+            document.getElementById('waveletThresholdValue').addEventListener('change', (e) => {
+                debouncedSendCommand('wavelet_threshold', { value: parseFloat(e.target.value) });
+            });
+        }
+
         // Initialize on load
         window.addEventListener('load', () => {
             initChart();
-            
+
             // Sync all sliders with their value inputs
             syncSlider('segThreshold', 'segThresholdValue');
+            syncSlider('kFactor', 'kFactorValue');
+            syncSlider('windowSize', 'windowSizeValue');
+            syncSlider('minLength', 'minLengthValue');
+            syncSlider('maxLength', 'maxLengthValue');
             syncSlider('trafficRate', 'trafficRateValue');
             syncSlider('hampelThreshold', 'hampelThresholdValue');
             syncSlider('waveletLevel', 'waveletLevelValue');
             syncSlider('waveletThreshold', 'waveletThresholdValue');
+
+            // Setup real-time configuration listeners
+            setupDetectionListeners();
+            setupSubcarrierListener();
+            setupFeaturesFiltersListeners();
         });
     </script>
 </body>
+
 </html>

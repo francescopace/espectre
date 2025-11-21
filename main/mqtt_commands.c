@@ -11,6 +11,9 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "cJSON.h"
 #include <string.h>
 #include <math.h>
@@ -104,21 +107,122 @@ static void cmd_segmentation_threshold(cJSON *root) {
     float new_threshold;
     if (get_float_param(root, "value", &new_threshold, 0.5f, 10.0f,
                        "ERROR: Segmentation threshold must be between 0.5 and 10.0")) {
-        float old_threshold = g_cmd_context->segmentation->adaptive_threshold;
-        g_cmd_context->segmentation->adaptive_threshold = new_threshold;
-        
-        char response[256];
-        snprintf(response, sizeof(response), 
-                 "Segmentation threshold updated: %.2f -> %.2f", old_threshold, new_threshold);
-        send_response(response);
-        ESP_LOGI(TAG, "%s", response);
-        
-        // Save to NVS
-        esp_err_t err = config_save_to_nvs(g_cmd_context->config, new_threshold);
-        if (err == ESP_OK) {
-            ESP_LOGI(TAG, "💾 Configuration saved to NVS");
+        if (segmentation_set_threshold(g_cmd_context->segmentation, new_threshold)) {
+            char response[256];
+            snprintf(response, sizeof(response), 
+                     "Segmentation threshold updated: %.2f", new_threshold);
+            send_response(response);
+            ESP_LOGI(TAG, "%s", response);
+            
+            // Save to NVS
+            esp_err_t err = config_save_to_nvs(g_cmd_context->config, new_threshold);
+            if (err == ESP_OK) {
+                ESP_LOGI(TAG, "💾 Configuration saved to NVS");
+            } else {
+                ESP_LOGE(TAG, "❌ Failed to save configuration to NVS: %s", esp_err_to_name(err));
+            }
         } else {
-            ESP_LOGE(TAG, "❌ Failed to save configuration to NVS: %s", esp_err_to_name(err));
+            send_response("ERROR: Failed to set threshold");
+        }
+    }
+}
+
+static void cmd_segmentation_k_factor(cJSON *root) {
+    float new_k_factor;
+    if (get_float_param(root, "value", &new_k_factor, 0.5f, 5.0f,
+                       "ERROR: K factor must be between 0.5 and 5.0")) {
+        if (segmentation_set_k_factor(g_cmd_context->segmentation, new_k_factor)) {
+            g_cmd_context->config->segmentation_k_factor = new_k_factor;
+            
+            char response[256];
+            snprintf(response, sizeof(response), 
+                     "K factor updated: %.2f (threshold sensitivity: %s)",
+                     new_k_factor, new_k_factor > 2.5f ? "less sensitive" : "more sensitive");
+            send_response(response);
+            ESP_LOGI(TAG, "%s", response);
+            
+            config_save_to_nvs(g_cmd_context->config, 
+                             segmentation_get_threshold(g_cmd_context->segmentation));
+        } else {
+            send_response("ERROR: Failed to set K factor");
+        }
+    }
+}
+
+static void cmd_segmentation_window_size(cJSON *root) {
+    int new_window_size;
+    if (get_int_param(root, "value", &new_window_size, 3, 50,
+                     "ERROR: Window size must be between 3 and 50 packets")) {
+        if (segmentation_set_window_size(g_cmd_context->segmentation, (uint16_t)new_window_size)) {
+            g_cmd_context->config->segmentation_window_size = (uint16_t)new_window_size;
+            
+            char response[256];
+            snprintf(response, sizeof(response), 
+                     "Window size updated: %d packets (%.2fs @ 20Hz, %s)",
+                     new_window_size, new_window_size / 20.0f,
+                     new_window_size < 10 ? "more reactive" : "more stable");
+            send_response(response);
+            ESP_LOGI(TAG, "%s", response);
+            
+            config_save_to_nvs(g_cmd_context->config, 
+                             segmentation_get_threshold(g_cmd_context->segmentation));
+        } else {
+            send_response("ERROR: Failed to set window size");
+        }
+    }
+}
+
+static void cmd_segmentation_min_length(cJSON *root) {
+    int new_min_length;
+    if (get_int_param(root, "value", &new_min_length, 5, 100,
+                     "ERROR: Min length must be between 5 and 100 packets")) {
+        if (segmentation_set_min_length(g_cmd_context->segmentation, (uint16_t)new_min_length)) {
+            g_cmd_context->config->segmentation_min_length = (uint16_t)new_min_length;
+            
+            char response[256];
+            snprintf(response, sizeof(response), 
+                     "Min segment length updated: %d packets (%.2fs @ 20Hz)",
+                     new_min_length, new_min_length / 20.0f);
+            send_response(response);
+            ESP_LOGI(TAG, "%s", response);
+            
+            config_save_to_nvs(g_cmd_context->config, 
+                             segmentation_get_threshold(g_cmd_context->segmentation));
+        } else {
+            send_response("ERROR: Failed to set min length");
+        }
+    }
+}
+
+static void cmd_segmentation_max_length(cJSON *root) {
+    int new_max_length;
+    if (get_int_param(root, "value", &new_max_length, 0, 200,
+                     "ERROR: Max length must be 0 (no limit) or 10-200 packets")) {
+        // Special validation for 0 or valid range
+        if (new_max_length != 0 && new_max_length < 10) {
+            send_response("ERROR: Max length must be 0 (no limit) or at least 10 packets");
+            return;
+        }
+        
+        if (segmentation_set_max_length(g_cmd_context->segmentation, (uint16_t)new_max_length)) {
+            g_cmd_context->config->segmentation_max_length = (uint16_t)new_max_length;
+            
+            char response[256];
+            if (new_max_length == 0) {
+                snprintf(response, sizeof(response), 
+                         "Max segment length updated: no limit");
+            } else {
+                snprintf(response, sizeof(response), 
+                         "Max segment length updated: %d packets (%.2fs @ 20Hz)",
+                         new_max_length, new_max_length / 20.0f);
+            }
+            send_response(response);
+            ESP_LOGI(TAG, "%s", response);
+            
+            config_save_to_nvs(g_cmd_context->config, 
+                             segmentation_get_threshold(g_cmd_context->segmentation));
+        } else {
+            send_response("ERROR: Failed to set max length");
         }
     }
 }
@@ -177,11 +281,11 @@ static void cmd_info(cJSON *root) {
     
     // Segmentation parameters (configuration only - runtime metrics moved to stats command)
     cJSON *segmentation = cJSON_CreateObject();
-    cJSON_AddNumberToObject(segmentation, "threshold", (double)g_cmd_context->segmentation->adaptive_threshold);
-    cJSON_AddNumberToObject(segmentation, "window_size", SEGMENTATION_WINDOW_SIZE);
-    cJSON_AddNumberToObject(segmentation, "k_factor", (double)SEGMENTATION_K_FACTOR);
-    cJSON_AddNumberToObject(segmentation, "min_length", SEGMENTATION_MIN_LENGTH);
-    cJSON_AddNumberToObject(segmentation, "max_length", SEGMENTATION_MAX_LENGTH);
+    cJSON_AddNumberToObject(segmentation, "threshold", (double)segmentation_get_threshold(g_cmd_context->segmentation));
+    cJSON_AddNumberToObject(segmentation, "window_size", segmentation_get_window_size(g_cmd_context->segmentation));
+    cJSON_AddNumberToObject(segmentation, "k_factor", (double)segmentation_get_k_factor(g_cmd_context->segmentation));
+    cJSON_AddNumberToObject(segmentation, "min_length", segmentation_get_min_length(g_cmd_context->segmentation));
+    cJSON_AddNumberToObject(segmentation, "max_length", segmentation_get_max_length(g_cmd_context->segmentation));
     cJSON_AddItemToObject(response, "segmentation", segmentation);
     
     // Filters configuration
@@ -201,6 +305,16 @@ static void cmd_info(cJSON *root) {
     cJSON_AddBoolToObject(options, "smart_publishing_enabled", g_cmd_context->config->smart_publishing_enabled);
     cJSON_AddBoolToObject(options, "features_enabled", g_cmd_context->config->features_enabled);
     cJSON_AddItemToObject(response, "options", options);
+    
+    // Subcarrier selection
+    cJSON *subcarriers = cJSON_CreateObject();
+    cJSON *indices_array = cJSON_CreateArray();
+    for (uint8_t i = 0; i < g_cmd_context->config->num_selected_subcarriers; i++) {
+        cJSON_AddItemToArray(indices_array, cJSON_CreateNumber(g_cmd_context->config->selected_subcarriers[i]));
+    }
+    cJSON_AddItemToObject(subcarriers, "indices", indices_array);
+    cJSON_AddNumberToObject(subcarriers, "count", g_cmd_context->config->num_selected_subcarriers);
+    cJSON_AddItemToObject(response, "subcarriers", subcarriers);
     
     char *json_str = cJSON_PrintUnformatted(response);
     if (json_str) {
@@ -239,6 +353,47 @@ static void cmd_stats(cJSON *root) {
         format_uptime(uptime_str, sizeof(uptime_str), uptime_sec);
         cJSON_AddStringToObject(response, "uptime", uptime_str);
     }
+    
+    // CPU usage percentage
+    TaskStatus_t *task_status_array;
+    uint32_t total_run_time;
+    UBaseType_t task_count = uxTaskGetNumberOfTasks();
+    
+    task_status_array = pvPortMalloc(task_count * sizeof(TaskStatus_t));
+    if (task_status_array != NULL) {
+        task_count = uxTaskGetSystemState(task_status_array, task_count, &total_run_time);
+        
+        // Find IDLE task runtime
+        uint32_t idle_run_time = 0;
+        for (UBaseType_t i = 0; i < task_count; i++) {
+            if (strstr(task_status_array[i].pcTaskName, "IDLE") != NULL) {
+                idle_run_time += task_status_array[i].ulRunTimeCounter;
+            }
+        }
+        
+        // Calculate CPU usage: 100 - (idle_time / total_time * 100)
+        float cpu_usage = 0.0f;
+        if (total_run_time > 0) {
+            cpu_usage = 100.0f - ((float)idle_run_time / (float)total_run_time * 100.0f);
+            if (cpu_usage < 0.0f) cpu_usage = 0.0f;
+            if (cpu_usage > 100.0f) cpu_usage = 100.0f;
+        }
+        
+        cJSON_AddNumberToObject(response, "cpu_usage_percent", (double)cpu_usage);
+        vPortFree(task_status_array);
+    } else {
+        // Fallback if memory allocation fails
+        cJSON_AddNumberToObject(response, "cpu_usage_percent", 0.0);
+    }
+    
+    // Heap usage percentage
+    size_t free_heap = esp_get_free_heap_size();
+    size_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
+    float heap_usage = 0.0f;
+    if (total_heap > 0) {
+        heap_usage = ((float)(total_heap - free_heap) / (float)total_heap) * 100.0f;
+    }
+    cJSON_AddNumberToObject(response, "heap_usage_percent", (double)heap_usage);
     
     // Current state
     const char *state_names[] = {"idle", "motion"};
@@ -443,6 +598,66 @@ static void cmd_wavelet_threshold(cJSON *root) {
     }
 }
 
+static void cmd_subcarrier_selection(cJSON *root) {
+    cJSON *indices = cJSON_GetObjectItem(root, "indices");
+    if (!indices || !cJSON_IsArray(indices)) {
+        send_response("ERROR: Missing or invalid 'indices' array");
+        return;
+    }
+    
+    int array_size = cJSON_GetArraySize(indices);
+    if (array_size < 1 || array_size > 64) {
+        send_response("ERROR: Number of subcarriers must be between 1 and 64");
+        return;
+    }
+    
+    // Temporary array to validate indices
+    uint8_t temp_subcarriers[64];
+    
+    // Extract and validate indices
+    for (int i = 0; i < array_size; i++) {
+        cJSON *item = cJSON_GetArrayItem(indices, i);
+        if (!cJSON_IsNumber(item)) {
+            send_response("ERROR: All indices must be numbers");
+            return;
+        }
+        
+        int value = item->valueint;
+        if (value < 0 || value > 63) {
+            char error_msg[128];
+            snprintf(error_msg, sizeof(error_msg), 
+                     "ERROR: Subcarrier index %d out of range (must be 0-63)", value);
+            send_response(error_msg);
+            return;
+        }
+        
+        temp_subcarriers[i] = (uint8_t)value;
+    }
+    
+    // Update configuration
+    memcpy(g_cmd_context->config->selected_subcarriers, temp_subcarriers, 
+           array_size * sizeof(uint8_t));
+    g_cmd_context->config->num_selected_subcarriers = (uint8_t)array_size;
+    
+    // Update CSI processor
+    csi_set_subcarrier_selection(temp_subcarriers, (uint8_t)array_size);
+    
+    // Save to NVS
+    esp_err_t err = config_save_to_nvs(g_cmd_context->config, 
+                                       segmentation_get_threshold(g_cmd_context->segmentation));
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "💾 Subcarrier selection saved to NVS");
+    } else {
+        ESP_LOGE(TAG, "❌ Failed to save subcarrier selection to NVS: %s", esp_err_to_name(err));
+    }
+    
+    char response[256];
+    snprintf(response, sizeof(response), 
+             "Subcarrier selection updated: %d subcarriers", array_size);
+    send_response(response);
+    ESP_LOGI(TAG, "%s", response);
+}
+
 static void cmd_factory_reset(cJSON *root) {
     ESP_LOGW(TAG, "⚠️  Factory reset requested");
     
@@ -455,8 +670,180 @@ static void cmd_factory_reset(cJSON *root) {
     segmentation_init(g_cmd_context->segmentation);
     ESP_LOGI(TAG, "📍 Segmentation reset to defaults (threshold: %.2f)", SEGMENTATION_DEFAULT_THRESHOLD);
     
+    // Reset subcarrier selection to defaults
+    csi_set_subcarrier_selection(g_cmd_context->config->selected_subcarriers,
+                                 g_cmd_context->config->num_selected_subcarriers);
+    ESP_LOGI(TAG, "📡 Subcarrier selection reset to defaults (%d subcarriers)", 
+             g_cmd_context->config->num_selected_subcarriers);
+    
     send_response("✅ Factory reset complete - all settings restored to defaults");
     ESP_LOGI(TAG, "✅ Factory reset complete");
+}
+
+// CSI raw capture state
+typedef struct {
+    bool active;
+    uint32_t max_packets;
+    uint32_t collected_packets;
+    uint8_t batch_buffer[4 + (10 * 128)];  // Header (4 bytes) + 10 packets (128 bytes each)
+    uint8_t batch_count;
+    uint16_t batch_index;
+} csi_raw_capture_t;
+
+static csi_raw_capture_t g_csi_capture = {0};
+
+static void cmd_csi_raw_capture(cJSON *root) {
+    cJSON *action = cJSON_GetObjectItem(root, "action");
+    if (!action || !cJSON_IsString(action)) {
+        send_response("ERROR: Missing 'action' field (start/stop)");
+        return;
+    }
+    
+    const char *action_str = action->valuestring;
+    
+    if (strcmp(action_str, "start") == 0) {
+        // Get max_packets parameter (default: 1000)
+        cJSON *max_packets = cJSON_GetObjectItem(root, "max_packets");
+        uint32_t target = 1000;
+        if (max_packets && cJSON_IsNumber(max_packets)) {
+            target = (uint32_t)max_packets->valueint;
+            if (target < 10 || target > 10000) {
+                send_response("ERROR: max_packets must be between 10 and 10000");
+                return;
+            }
+        }
+        
+        // Initialize capture
+        g_csi_capture.active = true;
+        g_csi_capture.max_packets = target;
+        g_csi_capture.collected_packets = 0;
+        g_csi_capture.batch_count = 0;
+        g_csi_capture.batch_index = 0;
+        
+        char response[128];
+        snprintf(response, sizeof(response), 
+                 "CSI raw capture started (target: %u packets)", (unsigned int)target);
+        send_response(response);
+        ESP_LOGI(TAG, "📊 %s", response);
+        
+    } else if (strcmp(action_str, "stop") == 0) {
+        if (!g_csi_capture.active) {
+            send_response("CSI raw capture not active");
+            return;
+        }
+        
+        // Flush remaining packets in batch
+        if (g_csi_capture.batch_count > 0) {
+            // Write header (little-endian)
+            g_csi_capture.batch_buffer[0] = (uint8_t)(g_csi_capture.batch_count & 0xFF);
+            g_csi_capture.batch_buffer[1] = (uint8_t)((g_csi_capture.batch_count >> 8) & 0xFF);
+            g_csi_capture.batch_buffer[2] = (uint8_t)(g_csi_capture.batch_index & 0xFF);
+            g_csi_capture.batch_buffer[3] = (uint8_t)((g_csi_capture.batch_index >> 8) & 0xFF);
+            
+            // Publish batch
+            size_t payload_size = 4 + (g_csi_capture.batch_count * 128);
+            char topic[128];
+            snprintf(topic, sizeof(topic), "%s/csi_raw", g_cmd_context->mqtt_base_topic);
+            mqtt_publish_binary(g_mqtt_state, topic, g_csi_capture.batch_buffer, payload_size);
+        }
+        
+        g_csi_capture.active = false;
+        
+        char response[128];
+        snprintf(response, sizeof(response), 
+                 "CSI raw capture stopped (collected: %u packets)", 
+                 (unsigned int)g_csi_capture.collected_packets);
+        send_response(response);
+        ESP_LOGI(TAG, "📊 %s", response);
+        
+    } else {
+        send_response("ERROR: Invalid action (must be 'start' or 'stop')");
+    }
+}
+
+// Function to be called from csi_callback to capture raw packets
+void mqtt_commands_capture_csi_packet(const int8_t *csi_data, size_t csi_len) {
+    if (!g_csi_capture.active || csi_len != 128) {
+        return;
+    }
+    
+    // Check if we've reached the target
+    if (g_csi_capture.collected_packets >= g_csi_capture.max_packets) {
+        g_csi_capture.active = false;
+        return;
+    }
+    
+    // Copy packet to batch buffer
+    size_t offset = 4 + (g_csi_capture.batch_count * 128);
+    memcpy(&g_csi_capture.batch_buffer[offset], csi_data, 128);
+    g_csi_capture.batch_count++;
+    g_csi_capture.collected_packets++;
+    
+    // When batch is full (10 packets) or we've reached the target, publish
+    if (g_csi_capture.batch_count == 10 || 
+        g_csi_capture.collected_packets >= g_csi_capture.max_packets) {
+        
+        // Create JSON message with base64-encoded data
+        cJSON *root = cJSON_CreateObject();
+        if (root) {
+            cJSON_AddNumberToObject(root, "packet_count", g_csi_capture.batch_count);
+            cJSON_AddNumberToObject(root, "batch_index", g_csi_capture.batch_index);
+            
+            // Base64 encode the CSI data
+            size_t data_len = g_csi_capture.batch_count * 128;
+            size_t base64_len = ((data_len + 2) / 3) * 4 + 1;
+            char *base64_data = malloc(base64_len);
+            
+            if (base64_data) {
+                // Simple base64 encoding
+                const char base64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+                size_t i, j;
+                for (i = 0, j = 0; i < data_len; i += 3, j += 4) {
+                    uint32_t n = ((uint32_t)g_csi_capture.batch_buffer[4 + i] << 16) |
+                                 ((i + 1 < data_len) ? ((uint32_t)g_csi_capture.batch_buffer[4 + i + 1] << 8) : 0) |
+                                 ((i + 2 < data_len) ? (uint32_t)g_csi_capture.batch_buffer[4 + i + 2] : 0);
+                    
+                    base64_data[j] = base64_chars[(n >> 18) & 0x3F];
+                    base64_data[j + 1] = base64_chars[(n >> 12) & 0x3F];
+                    base64_data[j + 2] = (i + 1 < data_len) ? base64_chars[(n >> 6) & 0x3F] : '=';
+                    base64_data[j + 3] = (i + 2 < data_len) ? base64_chars[n & 0x3F] : '=';
+                }
+                base64_data[j] = '\0';
+                
+                cJSON_AddStringToObject(root, "data", base64_data);
+                free(base64_data);
+                
+                // Publish JSON
+                char *json_str = cJSON_PrintUnformatted(root);
+                if (json_str) {
+                    char topic[128];
+                    snprintf(topic, sizeof(topic), "%s/csi_raw", g_cmd_context->mqtt_base_topic);
+                    mqtt_send_response(g_mqtt_state, json_str, topic);
+                    free(json_str);
+                }
+            }
+            
+            cJSON_Delete(root);
+        }
+        
+        // Reset batch
+        g_csi_capture.batch_count = 0;
+        g_csi_capture.batch_index++;
+        
+        // Log progress every 100 packets
+        if (g_csi_capture.collected_packets % 100 == 0) {
+            ESP_LOGI(TAG, "📊 CSI capture progress: %u/%u packets", 
+                     (unsigned int)g_csi_capture.collected_packets,
+                     (unsigned int)g_csi_capture.max_packets);
+        }
+    }
+    
+    // Auto-stop when target reached
+    if (g_csi_capture.collected_packets >= g_csi_capture.max_packets) {
+        g_csi_capture.active = false;
+        ESP_LOGI(TAG, "📊 CSI capture complete: %u packets collected", 
+                 (unsigned int)g_csi_capture.collected_packets);
+    }
 }
 
 // Command dispatch table
@@ -469,6 +856,11 @@ typedef struct {
 
 static const command_entry_t command_table[] = {
     {"segmentation_threshold", cmd_segmentation_threshold},
+    {"segmentation_k_factor", cmd_segmentation_k_factor},
+    {"segmentation_window_size", cmd_segmentation_window_size},
+    {"segmentation_min_length", cmd_segmentation_min_length},
+    {"segmentation_max_length", cmd_segmentation_max_length},
+    {"subcarrier_selection", cmd_subcarrier_selection},
     {"features_enable", cmd_features_enable},
     {"info", cmd_info},
     {"stats", cmd_stats},
@@ -482,6 +874,7 @@ static const command_entry_t command_table[] = {
     {"smart_publishing", cmd_smart_publishing},
     {"traffic_generator_rate", cmd_traffic_generator_rate},
     {"factory_reset", cmd_factory_reset},
+    {"csi_raw_capture", cmd_csi_raw_capture},
     {NULL, NULL}
 };
 

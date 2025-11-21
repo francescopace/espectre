@@ -177,6 +177,9 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         return;
     }
     
+    // Capture raw CSI packet if collection is active
+    mqtt_commands_capture_csi_packet(csi_data, csi_len);
+    
     // Protect g_state modifications with mutex (50ms timeout)
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         g_state.packets_received++;
@@ -191,7 +194,9 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         }
         
         // MVS Segmentation: Calculate spatial turbulence and update segmentation
-        float turbulence = csi_calculate_spatial_turbulence(csi_data, csi_len);
+        float turbulence = csi_calculate_spatial_turbulence(csi_data, csi_len,
+                                                            g_state.config.selected_subcarriers,
+                                                            g_state.config.num_selected_subcarriers);
         bool segment_completed = segmentation_add_turbulence(&g_state.segmentation, turbulence);
         
         // Update segmentation state
@@ -237,7 +242,7 @@ static void csi_init(void) {
                                         // CRITICAL: Required for CSI from HT packets!
                                         // Provides improved channel estimation for MIMO
         
-        .acquire_csi_ht40 = 1,          // Acquire HT-LTF CSI from 802.11n HT40 packets (40MHz bandwidth)
+        .acquire_csi_ht40 = 0,          // Acquire HT-LTF CSI from 802.11n HT40 packets (40MHz bandwidth)
                                         // Enabled to capture CSI from HT40 packets (128 subcarriers)
                                         // Router will use HT40 if available and interference is low
         
@@ -269,7 +274,7 @@ static void csi_init(void) {
     };
     
     ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
-    ESP_LOGI(TAG, "CSI initialized and enabled (ESP32-C6: legacy/HT20/HT40/WiFi6-SU)");
+    ESP_LOGI(TAG, "CSI initialized and enabled (ESP32-C6 mode)");
 #else
     // ESP32 and ESP32-S3 use wifi_csi_config_t with legacy LTF fields
     wifi_csi_config_t csi_config = {
@@ -347,6 +352,11 @@ static void mqtt_publish_task(void *pvParameters) {
             continue;
         }
         
+        // Calculate packet delta (packets processed since last cycle)
+        static uint32_t last_packets_processed = 0;
+        uint32_t packet_delta = packets_processed - last_packets_processed;
+        last_packets_processed = packets_processed;
+        
         // CSI logging with progress bar (always enabled)
         int64_t now = get_timestamp_sec();
         if (now - last_csi_log_time >= LOG_CSI_VALUES_INTERVAL) {
@@ -364,11 +374,6 @@ static void mqtt_publish_task(void *pvParameters) {
             // Format progress bar with threshold marker at 100%
             char progress_bar[256];
             format_progress_bar(progress_bar, sizeof(progress_bar), seg_progress, 1.0f);
-            
-            // Calculate packet delta (packets processed in last second)
-            static uint32_t last_packets_processed = 0;
-            uint32_t packet_delta = packets_processed - last_packets_processed;
-            last_packets_processed = packets_processed;
             
             ESP_LOGI(TAG, "📊 %s | pkts:%lu mvmt:%.4f thr:%.4f | %s",
                      progress_bar, (unsigned long)packet_delta, 
@@ -388,6 +393,7 @@ static void mqtt_publish_task(void *pvParameters) {
                 .adaptive_threshold = segmentation_get_threshold(&g_state.segmentation),
                 .state = seg_state,
                 .timestamp = get_timestamp_sec(),
+                .packets_processed = packet_delta,
                 .has_features = has_features
             };
             
@@ -464,6 +470,12 @@ void app_main(void) {
     segmentation_init(&g_state.segmentation);
     ESP_LOGI(TAG, "📍 Segmentation module initialized");
     
+    // Initialize CSI processor with default subcarrier selection
+    csi_set_subcarrier_selection(g_state.config.selected_subcarriers,
+                                 g_state.config.num_selected_subcarriers);
+    ESP_LOGI(TAG, "📡 CSI processor initialized with %d subcarriers", 
+             g_state.config.num_selected_subcarriers);
+    
     // Initialize NVS storage
     nvs_storage_init();
     
@@ -474,12 +486,30 @@ void app_main(void) {
             // Load config parameters (pass nvs_cfg to avoid duplicate NVS read)
             config_load_from_nvs(&g_state.config, &nvs_cfg);
             
+            // Apply segmentation parameters from config
+            segmentation_set_k_factor(&g_state.segmentation, g_state.config.segmentation_k_factor);
+            segmentation_set_window_size(&g_state.segmentation, g_state.config.segmentation_window_size);
+            segmentation_set_min_length(&g_state.segmentation, g_state.config.segmentation_min_length);
+            segmentation_set_max_length(&g_state.segmentation, g_state.config.segmentation_max_length);
+            
             // Load segmentation threshold from NVS
-            g_state.segmentation.adaptive_threshold = nvs_cfg.segmentation_threshold;
+            segmentation_set_threshold(&g_state.segmentation, nvs_cfg.segmentation_threshold);
+            
+            // Load subcarrier selection from NVS
+            if (nvs_cfg.num_selected_subcarriers > 0) {
+                csi_set_subcarrier_selection(nvs_cfg.selected_subcarriers,
+                                            nvs_cfg.num_selected_subcarriers);
+                ESP_LOGI(TAG, "📡 Loaded subcarrier selection: %d subcarriers", 
+                         nvs_cfg.num_selected_subcarriers);
+            }
             
             ESP_LOGI(TAG, "💾 Loaded saved configuration from NVS");
-            ESP_LOGI(TAG, "📍 Loaded segmentation threshold: %.2f",
-                     g_state.segmentation.adaptive_threshold);
+            ESP_LOGI(TAG, "📍 Segmentation: threshold=%.2f, K=%.2f, window=%d, min=%d, max=%d",
+                     nvs_cfg.segmentation_threshold,
+                     g_state.config.segmentation_k_factor,
+                     g_state.config.segmentation_window_size,
+                     g_state.config.segmentation_min_length,
+                     g_state.config.segmentation_max_length);
         }
     }
     

@@ -44,7 +44,6 @@ extern test_desc_t test_desc_pca_subcarrier_analysis_on_real_data;
 // ============================================================================
 // test_segmentation.c
 extern test_desc_t test_desc_segmentation_init;
-extern test_desc_t test_desc_segmentation_calibration;
 extern test_desc_t test_desc_segmentation_movement_detection;
 extern test_desc_t test_desc_segmentation_no_false_positives;
 extern test_desc_t test_desc_spatial_turbulence_calculation;
@@ -93,7 +92,6 @@ void app_main(void)
     
     unity_testcase_register(&test_desc_segmentation_init);
     unity_testcase_register(&test_desc_spatial_turbulence_calculation);
-    unity_testcase_register(&test_desc_segmentation_calibration);
     unity_testcase_register(&test_desc_segmentation_no_false_positives);
     unity_testcase_register(&test_desc_segmentation_movement_detection);
     unity_testcase_register(&test_desc_segmentation_reset);

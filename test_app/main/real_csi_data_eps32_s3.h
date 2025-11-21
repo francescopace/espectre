@@ -1,5 +1,6 @@
 /*
- * Real CSI Data Captured from Calibration
+ * Real CSI Data Captured from ESP32-S3 Device
+ * Used for Testing and Performance Evaluation
  */
 
 #ifndef REAL_CSI_DATA_H

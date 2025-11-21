@@ -37,8 +37,8 @@
 
 ## 🎯 In 3 Points
 
-1. **What it does**: Detects movement at home using Wi-Fi (no cameras, no microphones)
-2. **What you need**: A ~€10 device (ESP32-S3 or ESP32-C6) + Home Assistant or MQTT server + ESP-IDF development tools
+1. **What it does**: Detects movement using Wi-Fi (no cameras, no microphones)
+2. **What you need**: A ~€10 device (ESP32-S3 or ESP32-C6) + Home Assistant or MQTT server
 3. **Setup time**: 30-45 minutes (first time, including ESP-IDF setup)
 
 ---
@@ -60,10 +60,12 @@ The mathematical approach provides excellent movement detection without the comp
 
 ## 🛒 What You Need
 
-### Hardware (Total: ~€10)
+### Hardware
 
-- ✅ **2.4GHz Wi-Fi Router** (the one you already have at home works fine)
-- ✅ **ESP32-S3 or ESP32-C6** (~€10) - Available on Amazon, AliExpress, or electronics stores
+- ✅ **2.4GHz Wi-Fi Router** - the one you already have at home works fine
+- ✅ **ESP32-S3 or ESP32-C6** - Available on Amazon, AliExpress, or electronics stores
+
+📖 See [ESP32-PLATFORM-SUPPORT.md](ESP32-PLATFORM-SUPPORT.md) for detailed platform comparison and recommendations
 
 ![3 x ESP32-S3 DevKit bundle with external antennas](images/home_lab.jpg)
 *ESP32-S3 DevKit with external antennas*
@@ -94,7 +96,7 @@ The mathematical approach provides excellent movement detection without the comp
 
 ESPectre includes a web-based monitoring interface (`espectre-monitor.html`) for real-time visualization and configuration without command line tools.
 
-![Web Monitor Interface](images/web_monitor.png)
+![Web Monitor Interface](images/web_monitor_chart.png)
 *Real-time CSI monitoring and configuration interface*
 
 ---
@@ -375,8 +377,22 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ## � Technical Deep Dive
 
-![Segmentation Analysis](images/segmentation_analysis.png)
+![Segmentation Analysis](images/segmentation_analysis_esp32_c6.png)
 *Moving Variance Segmentation (MVS) analysis: baseline graphs (top) show quiet state, while bottom graphs show motion detection with turbulence signal, adaptive threshold, and state transitions*
+
+<details>
+<summary>🔧 Multi-Platform Support (click to expand)</summary>
+
+ESPectre supports multiple ESP32 platforms with optimized configurations:
+
+- **ESP32-S3**: Fully tested, dual-core, 8MB PSRAM, WiFi 4
+- **ESP32-C6**: Fully tested, single-core RISC-V, WiFi 6
+
+Each platform has specific characteristics, advantages, and configuration requirements.
+
+📖 **For detailed platform comparison, migration guides, and recommendations**, see [ESP32-PLATFORM-SUPPORT.md](ESP32-PLATFORM-SUPPORT.md)
+
+</details>
 
 <details>
 <summary>🔬 Signal Processing Pipeline (click to expand)</summary>
@@ -477,7 +493,6 @@ Feature extraction is **enabled by default** but can be disabled to reduce CPU u
 - **Flash**: 16MB
 - **PSRAM**: 8MB
 - **Wi-Fi**: 802.11 b/g/n (2.4 GHz only)
-- **Antenna**: Built-in PCB antenna + IPEX connector for external
 - **Power**: USB-C 5V or 3.3V via pins
 
 **ESP32-C6:**
@@ -485,7 +500,6 @@ Feature extraction is **enabled by default** but can be disabled to reduce CPU u
 - **Flash**: 4MB minimum
 - **PSRAM**: None
 - **Wi-Fi**: 802.11 b/g/n/ax (WiFi 6 tested on 2.4 GHz, 5 GHz untested)
-- **Antenna**: Built-in PCB antenna
 - **Power**: USB-C 5V or 3.3V via pins
 
 ### Software Requirements

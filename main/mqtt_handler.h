@@ -44,6 +44,7 @@ typedef struct {
     segmentation_state_t state;
     uint8_t segments_total;
     int64_t timestamp;
+    uint32_t packets_processed;
     
     // Optional features (only if features_enabled && state==MOTION)
     bool has_features;
@@ -110,34 +111,6 @@ int mqtt_publish_segmentation(mqtt_handler_state_t *state,
                               const segmentation_result_t *result,
                               const char *topic);
 
-/**
- * Publish calibration status update
- * 
- * @param state MQTT handler state
- * @param phase Current calibration phase
- * @param phase_duration Duration of the phase in seconds
- * @param samples_collected Number of samples collected
- * @param topic Topic to publish to
- * @return 0 on success, -1 on failure
- */
-int mqtt_publish_calibration_status(mqtt_handler_state_t *state,
-                                    uint8_t phase,
-                                    uint32_t phase_target_samples,
-                                    uint32_t samples_collected,
-                                    uint32_t traffic_rate,
-                                    const char *topic);
-
-/**
- * Publish calibration complete recap with detailed summary
- * 
- * @param state MQTT handler state
- * @param calib_results Calibration results (void* to calibration_state_t)
- * @param topic Topic to publish to
- * @return 0 on success, -1 on failure
- */
-int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
-                                      const void *calib_results,
-                                      const char *topic);
 
 /**
  * Send response message
@@ -197,5 +170,20 @@ void mqtt_get_publish_stats(const mqtt_handler_state_t *state,
  * @param callback Function to call when command is received
  */
 void mqtt_handler_set_command_callback(void (*callback)(const char *data, int data_len));
+
+/**
+ * Publish binary data to MQTT topic
+ * Used for CSI raw data collection
+ * 
+ * @param state MQTT handler state
+ * @param topic Topic to publish to
+ * @param data Binary data to publish
+ * @param data_len Length of binary data
+ * @return 0 on success, -1 on failure
+ */
+int mqtt_publish_binary(mqtt_handler_state_t *state,
+                       const char *topic,
+                       const uint8_t *data,
+                       size_t data_len);
 
 #endif // MQTT_HANDLER_H

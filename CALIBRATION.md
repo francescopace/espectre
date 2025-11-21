@@ -59,6 +59,105 @@ Look for `state=MOTION` when moving, `state=IDLE` when still.
 
 ---
 
+## 🎯 Advanced MVS Parameters (New!)
+
+ESPectre now allows fine-tuning of the Moving Variance Segmentation algorithm parameters for optimal performance in your specific environment.
+
+### K Factor (0.5-5.0)
+
+**What it does:** Threshold sensitivity multiplier for adaptive detection.
+
+**Effect:**
+- **Lower (1.0-2.0)**: More sensitive to variance changes
+- **Higher (3.0-5.0)**: Less sensitive, requires stronger variance
+
+**Default:**
+- ESP32-C6: 2.0
+- ESP32-S3: 2.5
+
+**MQTT Command:**
+```json
+{"cmd": "segmentation_k_factor", "value": 2.0}
+```
+
+**CLI Command:**
+```bash
+segmentation_k_factor 2.0
+```
+
+---
+
+### Window Size (3-50 packets)
+
+**What it does:** Number of turbulence samples used to calculate moving variance.
+
+**Effect:**
+- **Small (3-10)**: Fast response, more reactive, noisier
+- **Large (20-50)**: Slow response, more stable, smoother
+
+**Default:**
+- ESP32-C6: 5 packets (0.25s @ 20Hz)
+- ESP32-S3: 30 packets (1.5s @ 20Hz)
+
+**MQTT Command:**
+```json
+{"cmd": "segmentation_window_size", "value": 10}
+```
+
+**CLI Command:**
+```bash
+segmentation_window_size 10
+```
+
+---
+
+### Min Segment Length (5-100 packets)
+
+**What it does:** Minimum number of consecutive packets above threshold to consider valid motion.
+
+**Effect:**
+- **Small (5-10)**: Detects brief movements
+- **Large (20-50)**: Only detects sustained movements
+
+**Default:** 10 packets (0.5s @ 20Hz)
+
+**MQTT Command:**
+```json
+{"cmd": "segmentation_min_length", "value": 15}
+```
+
+**CLI Command:**
+```bash
+segmentation_min_length 15
+```
+
+---
+
+### Max Segment Length (10-200 packets, 0=no limit)
+
+**What it does:** Maximum duration of a single motion segment.
+
+**Effect:**
+- **Small (20-40)**: Breaks long movements into multiple segments
+- **Large (100-200)**: Captures entire movement as one segment
+- **0**: No limit (segment only ends when motion stops)
+
+**Default:**
+- ESP32-C6: 40 packets (2s @ 20Hz)
+- ESP32-S3: 60 packets (3s @ 20Hz)
+
+**MQTT Command:**
+```json
+{"cmd": "segmentation_max_length", "value": 50}
+```
+
+**CLI Command:**
+```bash
+segmentation_max_length 50
+```
+
+---
+
 ## ⚙️ Optional Parameters
 
 ### Traffic Generator Rate

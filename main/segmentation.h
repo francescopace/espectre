@@ -5,9 +5,11 @@
  * 
  * Algorithm:
  * 1. Calculate spatial turbulence (std of subcarrier amplitudes) per packet
- * 2. Compute moving variance on turbulence signal (window: 30 packets = 1.5s @ 20Hz)
- * 3. Apply adaptive threshold (mean + K*std, K=2.5)
- * 4. Segment motion using state machine (min: 10 packets, max: 60 packets)
+ * 2. Compute moving variance on turbulence signal
+ * 3. Apply configurable threshold
+ * 4. Segment motion using state machine
+ * 
+ * All parameters are now configurable at runtime via MQTT commands.
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -16,24 +18,30 @@
 #ifndef SEGMENTATION_H
 #define SEGMENTATION_H
 
+#include "sdkconfig.h"
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
 
-// Configuration parameters (optimized from Python testing)
-#define SEGMENTATION_WINDOW_SIZE 30      // Moving variance window (packets) - 1.5s @ 20Hz
-#define SEGMENTATION_K_FACTOR 2.5f       // Adaptive threshold sensitivity (higher = less sensitive)
-#define SEGMENTATION_MIN_LENGTH 10       // Minimum segment length (packets) - 0.5s
-#define SEGMENTATION_MAX_LENGTH 60       // Maximum segment length (packets) - 3.0s
-#define SEGMENTATION_MAX_SEGMENTS 20     // Maximum concurrent segments to track (Python has no limit)
+// Maximum buffer size for turbulence window (fixed allocation)
+#define SEGMENTATION_MAX_WINDOW_SIZE 50
 
-// Calibration parameters
-#define SEGMENTATION_CALIBRATION_MIN_SAMPLES 100  // Minimum samples for threshold calibration
+// Parameter limits for validation
+#define SEGMENTATION_K_FACTOR_MIN 0.5f
+#define SEGMENTATION_K_FACTOR_MAX 5.0f
+#define SEGMENTATION_WINDOW_SIZE_MIN 3
+#define SEGMENTATION_MIN_LENGTH_MIN 5
+#define SEGMENTATION_MIN_LENGTH_MAX 100
+#define SEGMENTATION_MAX_LENGTH_MIN 10
+#define SEGMENTATION_MAX_LENGTH_MAX 200
 
-// Default threshold based on empirical testing (test_segmentation_local.py)
-// Baseline: mean=1.26, std=0.38 → threshold = 1.26 + 2.5*0.38 = 2.22
-// This allows segmentation to work immediately without calibration
-#define SEGMENTATION_DEFAULT_THRESHOLD 2.2f
+// Default configuration parameters (optimized from testing)
+#define SEGMENTATION_DEFAULT_K_FACTOR 2.5f
+#define SEGMENTATION_DEFAULT_WINDOW_SIZE 30
+#define SEGMENTATION_DEFAULT_MIN_LENGTH 10
+#define SEGMENTATION_DEFAULT_MAX_LENGTH 60
+#define SEGMENTATION_DEFAULT_THRESHOLD 3.0f
 
 // Segmentation state
 typedef enum {
@@ -43,25 +51,20 @@ typedef enum {
 
 // Main segmentation context
 typedef struct {
-    // Turbulence circular buffer
-    float turbulence_buffer[SEGMENTATION_WINDOW_SIZE];
+    // Turbulence circular buffer (fixed size, use first window_size elements)
+    float turbulence_buffer[SEGMENTATION_MAX_WINDOW_SIZE];
     uint16_t buffer_index;
     uint16_t buffer_count;
     
     // Moving variance state
     float current_moving_variance;
     
-    // Adaptive threshold (calibrated from baseline)
-    float adaptive_threshold;
-    float baseline_mean_variance;
-    float baseline_std_variance;
-    bool threshold_calibrated;
-    
-    // Calibration state
-    float *calibration_variances;  // Dynamic array for calibration
-    uint32_t calibration_count;
-    uint32_t calibration_target;
-    bool calibrating;
+    // Configurable parameters
+    float k_factor;              // Threshold sensitivity multiplier
+    uint16_t window_size;        // Moving variance window size (packets)
+    uint16_t min_length;         // Minimum segment length (packets)
+    uint16_t max_length;         // Maximum segment length (packets)
+    float adaptive_threshold;    // Current threshold value
     
     // State machine
     segmentation_state_t state;
@@ -75,37 +78,97 @@ typedef struct {
 } segmentation_context_t;
 
 /**
- * Initialize segmentation context
+ * Initialize segmentation context with default parameters
  * 
  * @param ctx Segmentation context to initialize
  */
 void segmentation_init(segmentation_context_t *ctx);
 
 /**
- * Start baseline calibration for adaptive threshold
+ * Set K factor (threshold sensitivity)
  * 
  * @param ctx Segmentation context
- * @param num_samples Number of baseline samples to collect
- * @return true if calibration started successfully
+ * @param k_factor New K factor value (0.5 - 5.0)
+ * @return true if value is valid and was set
  */
-bool segmentation_start_calibration(segmentation_context_t *ctx, uint32_t num_samples);
+bool segmentation_set_k_factor(segmentation_context_t *ctx, float k_factor);
 
 /**
- * Add turbulence value to segmentation (during calibration or normal operation)
+ * Set window size for moving variance
+ * 
+ * @param ctx Segmentation context
+ * @param window_size New window size (3 - 50 packets)
+ * @return true if value is valid and was set
+ */
+bool segmentation_set_window_size(segmentation_context_t *ctx, uint16_t window_size);
+
+/**
+ * Set minimum segment length
+ * 
+ * @param ctx Segmentation context
+ * @param min_length New minimum length (5 - 100 packets)
+ * @return true if value is valid and was set
+ */
+bool segmentation_set_min_length(segmentation_context_t *ctx, uint16_t min_length);
+
+/**
+ * Set maximum segment length
+ * 
+ * @param ctx Segmentation context
+ * @param max_length New maximum length (10 - 200 packets, 0 = no limit)
+ * @return true if value is valid and was set
+ */
+bool segmentation_set_max_length(segmentation_context_t *ctx, uint16_t max_length);
+
+/**
+ * Set threshold directly
+ * 
+ * @param ctx Segmentation context
+ * @param threshold New threshold value (must be positive)
+ * @return true if value is valid and was set
+ */
+bool segmentation_set_threshold(segmentation_context_t *ctx, float threshold);
+
+/**
+ * Get current K factor
+ * 
+ * @param ctx Segmentation context
+ * @return Current K factor value
+ */
+float segmentation_get_k_factor(const segmentation_context_t *ctx);
+
+/**
+ * Get current window size
+ * 
+ * @param ctx Segmentation context
+ * @return Current window size
+ */
+uint16_t segmentation_get_window_size(const segmentation_context_t *ctx);
+
+/**
+ * Get current minimum segment length
+ * 
+ * @param ctx Segmentation context
+ * @return Current minimum length
+ */
+uint16_t segmentation_get_min_length(const segmentation_context_t *ctx);
+
+/**
+ * Get current maximum segment length
+ * 
+ * @param ctx Segmentation context
+ * @return Current maximum length (0 = no limit)
+ */
+uint16_t segmentation_get_max_length(const segmentation_context_t *ctx);
+
+/**
+ * Add turbulence value to segmentation
  * 
  * @param ctx Segmentation context
  * @param turbulence Spatial turbulence value
  * @return true if a new segment was completed
  */
 bool segmentation_add_turbulence(segmentation_context_t *ctx, float turbulence);
-
-/**
- * Finalize calibration and calculate adaptive threshold
- * 
- * @param ctx Segmentation context
- * @return true if calibration successful
- */
-bool segmentation_finalize_calibration(segmentation_context_t *ctx);
 
 /**
  * Get current segmentation state
@@ -116,25 +179,28 @@ bool segmentation_finalize_calibration(segmentation_context_t *ctx);
 segmentation_state_t segmentation_get_state(const segmentation_context_t *ctx);
 
 /**
- * Reset segmentation context (clear all state)
+ * Reset segmentation context (clear state machine only)
+ * 
+ * Resets the state machine (IDLE/MOTION state, packet counters) but preserves:
+ * - Turbulence buffer (keeps buffer "warm" to avoid cold start)
+ * - Buffer index and count
+ * - Configured parameters and threshold
+ * 
+ * This prevents the "cold start" problem where the first window_size packets
+ * after reset would have moving_variance = 0, causing detection issues.
+ * 
+ * NOTE: This function is primarily used by unit tests to reset state between
+ * test phases. It is NOT used in the main application code (espectre.c).
  * 
  * @param ctx Segmentation context
  */
 void segmentation_reset(segmentation_context_t *ctx);
 
 /**
- * Get calibration status
+ * Get current threshold
  * 
  * @param ctx Segmentation context
- * @return true if threshold is calibrated
- */
-bool segmentation_is_calibrated(const segmentation_context_t *ctx);
-
-/**
- * Get current adaptive threshold
- * 
- * @param ctx Segmentation context
- * @return Adaptive threshold value
+ * @return Current threshold value
  */
 float segmentation_get_threshold(const segmentation_context_t *ctx);
 

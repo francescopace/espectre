@@ -177,6 +177,7 @@ int mqtt_publish_segmentation(mqtt_handler_state_t *state,
     cJSON_AddNumberToObject(root, "movement", (double)result->moving_variance);
     cJSON_AddNumberToObject(root, "threshold", (double)result->adaptive_threshold);
     cJSON_AddStringToObject(root, "state", segmentation_state_to_string(result->state));
+    cJSON_AddNumberToObject(root, "packets_processed", (double)result->packets_processed);
     
     // Add features if available (only during MOTION with features_enabled)
     if (result->has_features) {
@@ -203,72 +204,6 @@ int mqtt_publish_segmentation(mqtt_handler_state_t *state,
     
     if (ret == 0) {
         state->publish_count++;
-    }
-    return ret;
-}
-
-int mqtt_publish_calibration_status(mqtt_handler_state_t *state,
-                                    uint8_t phase,
-                                    uint32_t phase_target_samples,
-                                    uint32_t samples_collected,
-                                    uint32_t traffic_rate,
-                                    const char *topic) {
-    if (!state || !topic || !state->connected) {
-        return -1;
-    }
-    
-    cJSON *root = cJSON_CreateObject();
-    if (!root) {
-        ESP_LOGE(TAG, "Failed to create JSON object");
-        return -1;
-    }
-    
-    cJSON_AddStringToObject(root, "type", "calibration_status");
-    
-    // Map phase enum to string
-    const char *phase_names[] = {"IDLE", "BASELINE", "MOVEMENT", "ANALYZING"};
-    const char *phase_str = (phase < 4) ? phase_names[phase] : "UNKNOWN";
-    cJSON_AddStringToObject(root, "phase", phase_str);
-    
-    // Only add target samples (not collected - shown only in calibration_complete)
-    cJSON_AddNumberToObject(root, "phase_target_samples", (double)phase_target_samples);
-    
-    int ret = mqtt_publish_json(state->client, topic, root, 0, 0);
-    cJSON_Delete(root);
-    
-    if (ret == 0) {
-        ESP_LOGD(TAG, "Published calibration status: phase=%s, target=%lu", 
-                 phase_str, (unsigned long)phase_target_samples);
-    }
-    return ret;
-}
-
-int mqtt_publish_calibration_complete(mqtt_handler_state_t *state,
-                                      const void *calib_results,
-                                      const char *topic) {
-    if (!state || !calib_results || !topic) {
-        ESP_LOGE(TAG, "mqtt_publish_calibration_complete: NULL pointer");
-        return -1;
-    }
-    
-    if (!state->connected) {
-        return -1;
-    }
-    
-    cJSON *root = cJSON_CreateObject();
-    if (!root) {
-        ESP_LOGE(TAG, "Failed to create JSON object");
-        return -1;
-    }
-    
-    cJSON_AddStringToObject(root, "type", "calibration_complete");
-    cJSON_AddStringToObject(root, "message", "Calibration system removed - using segmentation only");
-    
-    int ret = mqtt_publish_json(state->client, topic, root, 0, 0);
-    cJSON_Delete(root);
-    
-    if (ret == 0) {
-        ESP_LOGI(TAG, "📊 Published calibration complete recap");
     }
     return ret;
 }
@@ -370,4 +305,29 @@ void mqtt_get_publish_stats(const mqtt_handler_state_t *state,
 
 void mqtt_handler_set_command_callback(void (*callback)(const char *data, int data_len)) {
     g_command_callback = callback;
+}
+
+int mqtt_publish_binary(mqtt_handler_state_t *state,
+                       const char *topic,
+                       const uint8_t *data,
+                       size_t data_len) {
+    if (!state || !topic || !data || data_len == 0) {
+        ESP_LOGE(TAG, "mqtt_publish_binary: Invalid parameters");
+        return -1;
+    }
+    
+    if (!state->connected) {
+        ESP_LOGW(TAG, "Cannot publish binary: MQTT not connected");
+        return -1;
+    }
+    
+    // Publish binary data directly (QoS 0, no retain)
+    int msg_id = esp_mqtt_client_publish(state->client, topic, (const char *)data, data_len, 0, 0);
+    
+    if (msg_id < 0) {
+        ESP_LOGE(TAG, "Failed to publish binary data to %s", topic);
+        return -1;
+    }
+    
+    return 0;
 }
