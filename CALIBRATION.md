@@ -2,7 +2,7 @@
 
 Quick guide to calibrate ESPectre for reliable movement detection in your environment.
 
-> **💡 Tip**: Use the CLI tool (`espectre-cli.sh`) or the web monitor (`espectre-monitor.html`) for real-time tuning.
+> **💡 Tip**: Use the CLI tool (`espectre-cli.py`) or the web monitor (`espectre-monitor.html`) for real-time tuning.
 
 ![Web Monitor Configuration Panel](images/web_monitor_configurations.png)
 *Web monitor configuration interface showing all tunable parameters*
@@ -14,7 +14,7 @@ Quick guide to calibrate ESPectre for reliable movement detection in your enviro
 ### 1. Launch Interactive CLI
 
 ```bash
-./espectre-cli.sh
+./espectre-cli.py
 ```
 
 This starts an interactive session with real-time feedback.
@@ -390,7 +390,7 @@ export MQTT_PORT="1883"
 export MQTT_TOPIC="home/espectre/node1"
 export MQTT_USERNAME="mqtt"
 export MQTT_PASSWORD="mqtt"
-./espectre-cli.sh
+./espectre-cli.py
 ```
 
 Type `help` in the CLI for all available commands.

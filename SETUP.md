@@ -243,7 +243,7 @@ ESPectre provides two tools for monitoring and configuration:
 
 ### 🖥️ CLI Tool
 
-**`espectre-cli.sh`** - Interactive command-line interface for advanced users and scripting.
+**`espectre-cli.py`** - Interactive command-line interface for advanced users and scripting.
 
 **Features:**
 - ✅ Interactive terminal session
@@ -253,7 +253,7 @@ ESPectre provides two tools for monitoring and configuration:
 
 **Quick start:**
 ```bash
-./espectre-cli.sh
+./espectre-cli.py
 
 ---
 
@@ -280,7 +280,7 @@ Both the web monitor and CLI tool use MQTT commands under the hood. You can also
 **Quick Start with CLI:**
 ```bash
 # Launch interactive mode
-./espectre-cli.sh
+./espectre-cli.py
 
 # In the interactive session, type commands directly:
 espectre> info          # Get current configuration
@@ -507,7 +507,7 @@ mosquitto_pub -h localhost -t "espectre/cmd" -m '{"cmd":"wavelet_threshold","val
 
 **Or use the interactive CLI:**
 ```bash
-./espectre-cli.sh
+./espectre-cli.py
 > wv on
 > wvl 3
 > wvt 1.0

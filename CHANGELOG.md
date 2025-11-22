@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.3.1] - in progress
+
+### 🔄 Migrate ESPectre CLI from Bash to Python
+
+**Cross-platform Python implementation with enhanced user experience**
+
+Completely rewrote the ESPectre CLI tool, migrating from Bash to Python for better cross-platform compatibility and improved user experience:
+
+**New Python Implementation (`espectre-cli.py`):**
+- **Cross-platform support**: Works on Linux, macOS, and Windows without platform-specific dependencies
+- **Modern UI**: Interactive prompt using `prompt_toolkit` with:
+  * Styled command prompt with color-coded output
+  * Nested autocompletion for commands and parameters
+  * Syntax highlighting for YAML responses using Pygments
+- **Pure Python MQTT**: Uses `paho-mqtt` library instead of external `mosquitto_pub/sub` tools
+
+
 ## [1.3.0] - 2025-11-22
 
 ### 🚀 ESP32-C6 Platform Support

@@ -194,7 +194,7 @@ esp_err_t nvs_factory_reset(void) {
     esp_err_t err = nvs_clear_control_params();
     
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "✅ Factory reset complete - all settings cleared");
+        ESP_LOGI(TAG, "Factory reset complete");
         return ESP_OK;
     }
     

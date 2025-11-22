@@ -676,8 +676,8 @@ static void cmd_factory_reset(cJSON *root) {
     ESP_LOGI(TAG, "📡 Subcarrier selection reset to defaults (%d subcarriers)", 
              g_cmd_context->config->num_selected_subcarriers);
     
-    send_response("✅ Factory reset complete - all settings restored to defaults");
-    ESP_LOGI(TAG, "✅ Factory reset complete");
+    send_response("Factory reset complete");
+    ESP_LOGI(TAG, "Factory reset complete");
 }
 
 // CSI raw capture state
