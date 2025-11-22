@@ -6,6 +6,51 @@ All notable changes to this project will be documented in this file.
 
 ## [1.3.1] - in progress
 
+### 🎵 Added - Wi-Fi Theremin Sonification Client
+
+**Real-time audio sonification of Wi-Fi CSI data**
+
+New `espectre-theremin.html` transforms CSI data into sound using Web Audio API:
+
+**Core Features:**
+- **Three modes**: Continuous (glissando), Quantized (musical notes), Hybrid
+- **Musical scales**: Pentatonic, Major, Minor, Chromatic
+- **60Hz interpolation**: Smooth audio between 1Hz MQTT updates
+- **MQTT WebSocket**: Real-time data streaming
+
+**Feature-Based Modulation:**
+All 10 CSI features modulate audio parameters in real-time:
+- **Waveform** (entropy): Sine/square/sawtooth selection
+- **Vibrato** (temporal_delta_mean + spatial_variance): Speed and depth
+- **Filter** (kurtosis + skewness): Cutoff and resonance
+- **Stereo Pan** (spatial_correlation): Spatial positioning
+- **Tremolo** (temporal_delta_variance + spatial_gradient): Volume modulation
+- **Auto Scale** (entropy + variance): Dynamic scale selection
+
+**Technical:**
+- Web Audio API with oscillator, gain, filter, panner nodes
+- Musical note detection (MIDI conversion)
+- Single HTML file, no dependencies
+
+### 🔧 Changed - Feature Extraction Always Active
+
+**Simplified feature extraction logic**
+
+Modified feature extraction behavior to be always active when enabled, regardless of segmentation state:
+
+**Previous behavior:**
+- Features extracted only during MOTION state
+- IDLE state published without features
+
+**New behavior:**
+- Features extracted continuously when `features_enabled=true`
+- Features published in both IDLE and MOTION states
+- Provides continuous data stream for analysis and ML applications
+
+**Benefits:**
+- ✅ Continuous feature data for machine learning dataset collection
+- ✅ Better baseline characterization during IDLE periods
+
 ### 🔄 Migrate ESPectre CLI from Bash to Python
 
 **Cross-platform Python implementation with enhanced user experience**

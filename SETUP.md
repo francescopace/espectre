@@ -188,7 +188,7 @@ automation:
 - `threshold`: Adaptive threshold value (float) - current detection threshold
 - `state`: Current segmentation state - `"idle"` or `"motion"`
 - `packets_processed`: CSI packets processed since last publish (integer)
-- `features`: Object containing 10 extracted features (only present during MOTION state when features are enabled):
+- `features`: Object containing 10 extracted features (present when features extraction is enabled):
   - `variance`: Signal variance
   - `skewness`: Distribution asymmetry
   - `kurtosis`: Distribution tailedness
@@ -201,11 +201,7 @@ automation:
   - `temporal_delta_variance`: Variance of changes from previous packet
 - `timestamp`: Unix timestamp (seconds since epoch)
 
-**Note:** The `features` object is only included when:
-1. The system is in `"motion"` state, AND
-2. Feature extraction is enabled (default: enabled)
-
-During `"idle"` state, only the basic fields are published (movement, threshold, state, timestamp).
+**Note:** The `features` object is included when feature extraction is enabled (default: enabled), regardless of the system state (idle or motion).
 
 ---
 
@@ -319,7 +315,7 @@ Responses are published to: `<your_topic>/response`
 | **Segmentation** | `segmentation_min_length` | int (5-100) | Set minimum segment length in packets | `{"cmd": "segmentation_min_length", "value": 10}` |
 | **Segmentation** | `segmentation_max_length` | int (0-200) | Set maximum segment length in packets (0=no limit) | `{"cmd": "segmentation_max_length", "value": 50}` |
 | **Segmentation** | `subcarrier_selection` | array of int (0-63) | Set selected subcarriers for CSI processing (1-64 subcarriers) | `{"cmd": "subcarrier_selection", "indices": [47,48,49,50,51,52,53,54]}` |
-| **Features** | `features_enable` | bool | Enable/disable feature extraction during MOTION state | `{"cmd": "features_enable", "enabled": true}` |
+| **Features** | `features_enable` | bool | Enable/disable feature extraction | `{"cmd": "features_enable", "enabled": true}` |
 | **Features** | `butterworth_filter` | bool | Enable/disable Butterworth low-pass filter (8Hz cutoff) | `{"cmd": "butterworth_filter", "enabled": true}` |
 | **Features** | `wavelet_filter` | bool | Enable/disable Wavelet db4 filter (low-freq noise) | `{"cmd": "wavelet_filter", "enabled": true}` |
 | **Features** | `wavelet_level` | int (1-3) | Wavelet decomposition level (3=max denoising) | `{"cmd": "wavelet_level", "value": 3}` |
