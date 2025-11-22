@@ -11,6 +11,7 @@ managed_components/
 docs/
 test_results/
 __pycache__
+.cache
 
 # Other
 .DS_Store
