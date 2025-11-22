@@ -53,6 +53,9 @@
 // WiFi promiscuous mode (false = receive CSI only from connected AP, true = all WiFi packets)
 #define PROMISCUOUS_MODE    false
 
+// Array of all CSI feature indices (0-9) for feature extraction
+static const uint8_t ALL_CSI_FEATURES[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
 static const char *TAG = "ESPectre";
 
 static const char *g_response_topic = NULL;
@@ -184,13 +187,10 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         g_state.packets_received++;
         
-        // Extract features if enabled (only during MOTION state)
-        segmentation_state_t seg_state = segmentation_get_state(&g_state.segmentation);
-        if (g_state.config.features_enabled && seg_state == SEG_STATE_MOTION) {
-            // Extract all 10 features
-            const uint8_t all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        // Extract features if enabled (always, regardless of state)
+        if (g_state.config.features_enabled) {
             csi_extract_features(csi_data, csi_len, &g_state.current_features,
-                               all_features, 10);
+                               ALL_CSI_FEATURES, 10);
         }
         
         // MVS Segmentation: Calculate spatial turbulence and update segmentation
@@ -341,7 +341,7 @@ static void mqtt_publish_task(void *pvParameters) {
             packets_processed = g_state.packets_processed;
             
             // Copy features if they were extracted
-            if (g_state.config.features_enabled && seg_state == SEG_STATE_MOTION) {
+            if (g_state.config.features_enabled) {
                 features = g_state.current_features;
                 has_features = true;
             }

@@ -237,7 +237,7 @@ ESPectre uses a streamlined processing pipeline:
 - **2-state system**: IDLE or MOTION (no intermediate states)
 - **Segmentation-based**: Uses Moving Variance Segmentation (MVS) on **raw CSI data**
 - **Filters applied to features only**: Segmentation uses unfiltered data to preserve motion sensitivity
-- **Optional features**: Feature extraction only during MOTION state (configurable)
+- **Optional features**: Feature extraction when enabled (configurable)
 
 ### Single or Multiple Sensors
 
