@@ -10,7 +10,7 @@
 - **ESP32-S3**: Dual-core, 16MB Flash, 8MB PSRAM, better CPU performance
 - **ESP32-C6**: Single-core, 4MB Flash, WiFi 6, higher CSI packet rate
 - USB-C or Micro-USB cable (depending on board)
-- Wi-Fi router (2.4 GHz, ESP32-C6 supports WiFi 6 on 2.4 GHz, 5 GHz untested)
+- Wi-Fi router (2.4 GHz, ESP32-C6 supports WiFi 6 on 2.4 GHz)
 
 **Software:**
 - ESP-IDF v6.1

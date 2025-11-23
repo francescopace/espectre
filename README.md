@@ -499,7 +499,7 @@ Feature extraction is **enabled by default** but can be disabled to reduce CPU u
 - **Board**: ESP32-C6
 - **Flash**: 4MB minimum
 - **PSRAM**: None
-- **Wi-Fi**: 802.11 b/g/n/ax (WiFi 6 tested on 2.4 GHz, 5 GHz untested)
+- **Wi-Fi**: 802.11 b/g/n/ax (WiFi 6 tested on 2.4 GHz)
 - **Power**: USB-C 5V or 3.3V via pins
 
 ### Software Requirements
@@ -518,7 +518,7 @@ Feature extraction is **enabled by default** but can be disabled to reduce CPU u
 - **Detection Accuracy**: Environment-dependent, requires tuning
 
 ### Limitations
-- Currently tested on 2.4 GHz only (ESP32-S3: 2.4 GHz only, ESP32-C6: WiFi 6 on 2.4 GHz tested, 5 GHz untested)
+- Currently tested on 2.4 GHz only (ESP32-S3: 2.4 GHz only, ESP32-C6: WiFi 6 on 2.4 GHz tested)
 - Sensitivity dependent on: wall materials, antenna placement, distances, interference
 - Not suitable for environments with very high Wi-Fi traffic
 - Cannot distinguish between people, pets, or objects (generic motion detection)

@@ -18,7 +18,6 @@ ESPectre now supports multiple ESP32 platforms with optimized configurations for
 - **Status**: Fully tested and supported
 - **CPU**: Single-core RISC-V @ 160MHz
 - **Memory**: No PSRAM
-- **WiFi**: 802.11 b/g/n/ax (WiFi 6 tested on 2.4 GHz, 5 GHz untested)
 - **CSI Config**: `acquire_csi_legacy`, `acquire_csi_ht20`, `acquire_csi_ht40`, `acquire_csi_su`
 - **CSI Data**: 128-256 bytes (HT20: 128, HT40: 256)
 - **Subcarriers**: 64 (HT20) or 128 (HT40), effective range varies
@@ -91,7 +90,6 @@ These modules work identically on all platforms:
 
 **ESP32-C6:**
 - USB flashing instability (use lower baud rates or flash script)
-- 5 GHz WiFi support untested
 
 ## Performance Comparison
 
@@ -113,17 +111,14 @@ Based on testing:
 ### Choose ESP32-C6 if:
 - ✅ You want WiFi 6 support
 - ✅ You want higher CSI packet rates
-- ✅ You want to experiment with 5 GHz (untested)
 
 ## Future Work
 
 ### ESP32-C6 Optimization
-- [ ] Test 5 GHz WiFi support
 - [ ] Compare detection accuracy with ESP32-S3 baseline
 
 ### Documentation
 - [ ] Performance benchmarks
-- [ ] 5 GHz testing results (when available)
 
 ## ESP32-C6 CSI Configuration Details
 
