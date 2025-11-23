@@ -18,6 +18,7 @@ ESPectre now supports multiple ESP32 platforms with optimized configurations for
 - **Status**: Fully tested and supported
 - **CPU**: Single-core RISC-V @ 160MHz
 - **Memory**: No PSRAM
+- **WiFi**: 802.11 b/g/n/ax (WiFi 6 tested on 2.4 GHz)
 - **CSI Config**: `acquire_csi_legacy`, `acquire_csi_ht20`, `acquire_csi_ht40`, `acquire_csi_su`
 - **CSI Data**: 128-256 bytes (HT20: 128, HT40: 256)
 - **Subcarriers**: 64 (HT20) or 128 (HT40), effective range varies
