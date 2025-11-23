@@ -1,0 +1,18 @@
+"""
+Micro-ESPectre Local Configuration Template
+Copy this file to config_local.py and update with your settings
+(config_local.py overrides defaults from config.py and is gitignored for security)
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
+
+# WiFi Configuration
+WIFI_SSID = "YourSSID"
+WIFI_PASSWORD = "YourPassword"
+
+# MQTT Configuration
+MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP or hostname
+MQTT_PORT = 1883
+MQTT_USERNAME = "username"
+MQTT_USERNAME = "password"

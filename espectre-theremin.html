@@ -527,7 +527,7 @@
                 </div>
 
                 <!-- Feature Modulation -->
-                <div style="background: #f8f9fa; border-radius: 10px; padding: 15px; margin-bottom: 15px; border: 2px solid #e0e0e0;">
+                <div id="featureModulationSection" style="background: #f8f9fa; border-radius: 10px; padding: 15px; margin-bottom: 15px; border: 2px solid #e0e0e0; display: none;">
                     <div class="collapsible-header" onclick="toggleSubSection('featureMod')" style="padding: 5px 0;">
                         <h3 style="margin: 0; color: #667eea; font-size: 1.1em; display: flex; align-items: center; gap: 8px;">
                             <span>🎛️</span> Feature Modulation
@@ -1358,9 +1358,16 @@
             if (data.movement !== undefined || data.threshold !== undefined || data.state) {
                 messageCount++;
 
-                // Save features if available
+                // Show/hide Feature Modulation section based on features presence
+                const featureSection = document.getElementById('featureModulationSection');
                 if (data.features) {
+                    // Features are available - show the section
+                    featureSection.style.display = 'block';
                     currentFeatures = data.features;
+                } else {
+                    // No features (e.g., Micro-ESPectre) - hide the section
+                    featureSection.style.display = 'none';
+                    currentFeatures = null;
                 }
 
                 // Update target movement for interpolation

@@ -1,0 +1,21 @@
+# Local configuration (security)
+config_local.py
+
+# MicroPython compiled files
+*.mpy
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+csi_log.csv
