@@ -108,31 +108,47 @@ idf.py monitor
 
 ---
 
-### MQTT Sensor
+ESPectre can be integrated into Home Assistant in two ways, depending on your use case:
+
+### Option 1: Binary Sensor (Motion Detection) - Recommended for Automations
+
+Use this configuration if you want a simple **motion detected / no motion** sensor for automations.
 
 Add to `configuration.yaml`:
 
 ```yaml
 mqtt:
-  sensor:
+  binary_sensor:
     - name: "Movement Sensor"
       state_topic: "home/espectre/node1"
-      unit_of_measurement: "intensity"
-      icon: mdi:motion-sensor
-      value_template: "{{ value_json.movement }}"
+      value_template: "{{ value_json.state }}"
+      payload_on: "motion"
+      payload_off: "idle"
+      device_class: motion
       json_attributes_topic: "home/espectre/node1"
       json_attributes_template: "{{ value_json | tojson }}"
 ```
 
-### Automation Example
+**Displays:**
+- 🟢 **ON** when motion is detected
+- ⚫ **OFF** when idle
+- All metrics available as attributes (movement, threshold, features)
+
+**Best for:**
+- ✅ Motion-triggered automations
+- ✅ Security alerts
+- ✅ Presence detection
+- ✅ Simple on/off logic
+
+**Automation Example:**
 
 ```yaml
 automation:
   - alias: "Movement Detection Alert"
     trigger:
       - platform: state
-        entity_id: sensor.movement_sensor
-        to: "motion"
+        entity_id: binary_sensor.movement_sensor
+        to: "on"
     action:
       - service: notify.mobile_app
         data:
@@ -141,8 +157,8 @@ automation:
   - alias: "Inactivity Alert"
     trigger:
       - platform: state
-        entity_id: sensor.movement_sensor
-        to: "idle"
+        entity_id: binary_sensor.movement_sensor
+        to: "off"
         for:
           hours: 4
     condition:
@@ -153,6 +169,94 @@ automation:
       - service: notify.mobile_app
         data:
           message: "No movement detected for 4 hours"
+```
+
+### Option 2: Numeric Sensor (Movement Intensity)
+
+Use this configuration if you want to track the **movement intensity value** for analysis and graphing.
+
+Add to `configuration.yaml`:
+
+```yaml
+mqtt:
+  sensor:
+    - name: "Movement Intensity"
+      state_topic: "home/espectre/node1"
+      unit_of_measurement: "intensity"
+      icon: mdi:motion-sensor
+      value_template: "{{ value_json.movement }}"
+      json_attributes_topic: "home/espectre/node1"
+      json_attributes_template: "{{ value_json | tojson }}"
+```
+
+**Displays:**
+- Numeric value (e.g., 2.87) representing movement intensity
+- All other metrics available as attributes
+
+**Best for:**
+- ✅ Historical graphs and trends
+- ✅ Advanced analytics
+- ✅ Threshold-based automations
+- ✅ Comparing movement levels over time
+
+**Automation Example:**
+
+```yaml
+automation:
+  - alias: "High Movement Alert"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.movement_intensity
+        above: 5.0
+    action:
+      - service: notify.mobile_app
+        data:
+          message: "High movement intensity detected: {{ states('sensor.movement_intensity') }}"
+          
+  - alias: "Movement Trend Analysis"
+    trigger:
+      - platform: time_pattern
+        minutes: "/30"
+    action:
+      - service: notify.mobile_app
+        data:
+          message: "Average movement in last 30min: {{ state_attr('sensor.movement_intensity', 'movement') }}"
+```
+
+### Which Configuration Should I Use?
+
+| Feature | Binary Sensor | Numeric Sensor |
+|---------|--------------|----------------|
+| Simple motion detection | ✅ Best | ⚠️ Requires threshold |
+| Historical graphs | ⚠️ On/Off only | ✅ Best |
+| Automations | ✅ Easy | ✅ Flexible |
+| Visual clarity | ✅ Clear on/off | ⚠️ Needs interpretation |
+| Use case | Security, presence | Analysis, tuning |
+
+**💡 Tip:** You can configure **both** sensors simultaneously using different names (e.g., "Movement Sensor" and "Movement Intensity") to get the benefits of both approaches!
+
+**Example of both configurations:**
+
+```yaml
+mqtt:
+  binary_sensor:
+    - name: "Movement Sensor"
+      state_topic: "home/espectre/node1"
+      value_template: "{{ value_json.state }}"
+      payload_on: "motion"
+      payload_off: "idle"
+      device_class: motion
+      json_attributes_topic: "home/espectre/node1"
+      json_attributes_template: "{{ value_json | tojson }}"
+  
+  sensor:
+    - name: "Movement Intensity"
+      state_topic: "home/espectre/node1"
+      unit_of_measurement: "intensity"
+      icon: mdi:motion-sensor
+      value_template: "{{ value_json.movement }}"
+      json_attributes_topic: "home/espectre/node1"
+      json_attributes_template: "{{ value_json | tojson }}"
 ```
 ---
 
