@@ -175,7 +175,7 @@ int mqtt_publish_segmentation(mqtt_handler_state_t *state,
     }
     
     cJSON_AddNumberToObject(root, "movement", (double)result->moving_variance);
-    cJSON_AddNumberToObject(root, "threshold", (double)result->adaptive_threshold);
+    cJSON_AddNumberToObject(root, "threshold", (double)result->threshold);
     cJSON_AddStringToObject(root, "state", segmentation_state_to_string(result->state));
     cJSON_AddNumberToObject(root, "packets_processed", (double)result->packets_processed);
     

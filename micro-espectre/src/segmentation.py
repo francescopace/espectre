@@ -15,19 +15,17 @@ class SegmentationContext:
     STATE_IDLE = 0
     STATE_MOTION = 1
     
-    def __init__(self, k_factor=2.5, window_size=30, min_length=10, 
+    def __init__(self, window_size=30, min_length=10, 
                  max_length=60, threshold=3.0):
         """
         Initialize segmentation context
         
         Args:
-            k_factor: Threshold sensitivity multiplier (0.5-5.0)
             window_size: Moving variance window size (3-50)
             min_length: Minimum motion segment length (5-100)
             max_length: Maximum motion segment length (10-200)
-            threshold: Base threshold value
+            threshold: Motion detection threshold value
         """
-        self.k_factor = k_factor
         self.window_size = window_size
         self.min_length = min_length
         self.max_length = max_length

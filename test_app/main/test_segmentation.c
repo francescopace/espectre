@@ -38,7 +38,7 @@ TEST_CASE_ESP(segmentation_init, "[segmentation]")
     
     TEST_ASSERT_EQUAL(SEG_STATE_IDLE, ctx.state);
     TEST_ASSERT_EQUAL(0, ctx.buffer_count);
-    TEST_ASSERT_TRUE(ctx.adaptive_threshold > 0.0f);
+    TEST_ASSERT_TRUE(ctx.threshold > 0.0f);
     TEST_ASSERT_EQUAL(SEGMENTATION_DEFAULT_WINDOW_SIZE, ctx.window_size);
     TEST_ASSERT_EQUAL(SEGMENTATION_DEFAULT_MIN_LENGTH, ctx.min_length);
     TEST_ASSERT_EQUAL(SEGMENTATION_DEFAULT_MAX_LENGTH, ctx.max_length);
@@ -49,12 +49,6 @@ TEST_CASE_ESP(segmentation_parameters, "[segmentation]")
 {
     segmentation_context_t ctx;
     segmentation_init(&ctx);
-    
-    // Test K factor
-    TEST_ASSERT_TRUE(segmentation_set_k_factor(&ctx, 1.5f));
-    TEST_ASSERT_EQUAL_FLOAT(1.5f, segmentation_get_k_factor(&ctx));
-    TEST_ASSERT_FALSE(segmentation_set_k_factor(&ctx, 0.1f));  // Too low
-    TEST_ASSERT_FALSE(segmentation_set_k_factor(&ctx, 10.0f)); // Too high
     
     // Test window size
     TEST_ASSERT_TRUE(segmentation_set_window_size(&ctx, 10));

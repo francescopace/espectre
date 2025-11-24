@@ -684,17 +684,6 @@
                         <div
                             style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
                             <div class="input-group">
-                                <label for="kFactor" style="font-size: 0.85em;">K Factor (0.5-5.0)</label>
-                                <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="kFactor" min="0.5" max="5.0" step="0.1" value="2.0"
-                                        style="flex: 1;">
-                                    <input type="number" id="kFactorValue" min="0.5" max="5.0" step="0.1" value="2.0"
-                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
-                                </div>
-                                <small style="color: #666; font-size: 0.8em;">Threshold sensitivity (higher = less
-                                    sensitive)</small>
-                            </div>
-                            <div class="input-group">
                                 <label for="windowSize" style="font-size: 0.85em;">Window Size (3-50 packets)</label>
                                 <div style="display: flex; gap: 8px; align-items: center;">
                                     <input type="range" id="windowSize" min="3" max="50" step="1" value="5"
@@ -745,7 +734,7 @@
                                 </div>
                                 <small style="color: #666; font-size: 0.8em;">MVS adaptive threshold for motion detection</small>
                             </div>
-                            <div id="subcarrierSelectionContent" style="grid-column: span 2;">
+                            <div id="subcarrierSelectionContent" style="grid-column: span 3;">
                                 <div class="input-group">
                                     <label for="subcarrierIndices" style="font-size: 0.85em;">Selected Subcarriers (comma-separated, 0-63)</label>
                                     <input type="text" id="subcarrierIndices" placeholder="47,48,49,50,51,52,53,54"
@@ -1358,7 +1347,6 @@
         function applyAllConfiguration() {
             // Detection Parameters
             const segThreshold = parseFloat(document.getElementById('segThresholdValue').value);
-            const kFactor = parseFloat(document.getElementById('kFactorValue').value);
             const windowSize = parseInt(document.getElementById('windowSizeValue').value);
             const minLength = parseInt(document.getElementById('minLengthValue').value);
             const maxLength = parseInt(document.getElementById('maxLengthValue').value);
@@ -1378,8 +1366,6 @@
             // Send all commands with delays
             let delay = 0;
             sendCommand('segmentation_threshold', { value: segThreshold });
-            delay += 100;
-            setTimeout(() => sendCommand('segmentation_k_factor', { value: kFactor }), delay);
             delay += 100;
             setTimeout(() => sendCommand('segmentation_window_size', { value: windowSize }), delay);
             delay += 100;
@@ -1525,7 +1511,6 @@
         // Apply Detection Configuration Only
         function applyDetectionConfiguration() {
             const segThreshold = parseFloat(document.getElementById('segThresholdValue').value);
-            const kFactor = parseFloat(document.getElementById('kFactorValue').value);
             const windowSize = parseInt(document.getElementById('windowSizeValue').value);
             const minLength = parseInt(document.getElementById('minLengthValue').value);
             const maxLength = parseInt(document.getElementById('maxLengthValue').value);
@@ -1534,8 +1519,6 @@
             // Send detection commands with delays
             let delay = 0;
             sendCommand('segmentation_threshold', { value: segThreshold });
-            delay += 100;
-            setTimeout(() => sendCommand('segmentation_k_factor', { value: kFactor }), delay);
             delay += 100;
             setTimeout(() => sendCommand('segmentation_window_size', { value: windowSize }), delay);
             delay += 100;
@@ -1897,11 +1880,6 @@
                     document.getElementById('segThreshold').value = threshold;
                     document.getElementById('segThresholdValue').value = threshold;
                 }
-                if (config.segmentation.k_factor !== undefined) {
-                    const kFactor = config.segmentation.k_factor;
-                    document.getElementById('kFactor').value = kFactor;
-                    document.getElementById('kFactorValue').value = kFactor;
-                }
                 if (config.segmentation.window_size !== undefined) {
                     const windowSize = config.segmentation.window_size;
                     document.getElementById('windowSize').value = windowSize;
@@ -2171,14 +2149,6 @@
                 debouncedSendCommand('segmentation_threshold', { value: parseFloat(e.target.value) });
             });
 
-            // K Factor
-            document.getElementById('kFactor').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_k_factor', { value: parseFloat(e.target.value) });
-            });
-            document.getElementById('kFactorValue').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_k_factor', { value: parseFloat(e.target.value) });
-            });
-
             // Window Size
             document.getElementById('windowSize').addEventListener('change', (e) => {
                 debouncedSendCommand('segmentation_window_size', { value: parseInt(e.target.value) });
@@ -2279,7 +2249,6 @@
 
             // Sync all sliders with their value inputs
             syncSlider('segThreshold', 'segThresholdValue');
-            syncSlider('kFactor', 'kFactorValue');
             syncSlider('windowSize', 'windowSizeValue');
             syncSlider('minLength', 'minLengthValue');
             syncSlider('maxLength', 'maxLengthValue');

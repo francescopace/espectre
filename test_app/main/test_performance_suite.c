@@ -186,9 +186,7 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
     
     float threshold = segmentation_get_threshold(&seg_ctx);
     printf("Using default threshold: %.4f\n", threshold);
-    printf("Window size: %d, K factor: %.2f\n", 
-           segmentation_get_window_size(&seg_ctx),
-           segmentation_get_k_factor(&seg_ctx));
+    printf("Window size: %d\n", segmentation_get_window_size(&seg_ctx));
     printf("Min length: %d, Max length: %d\n\n",
            segmentation_get_min_length(&seg_ctx),
            segmentation_get_max_length(&seg_ctx));

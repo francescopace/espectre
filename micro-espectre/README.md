@@ -29,7 +29,6 @@ Micro-ESPectre implements the **MVS (Moving Variance Segmentation)** algorithm f
 | `info` | ✅ | ✅ | ✅ Implemented |
 | `stats` | ✅ | ✅ | ✅ Implemented |
 | `segmentation_threshold` | ✅ | ✅ | ✅ Implemented |
-| `segmentation_k_factor` | ✅ | ✅ | ✅ Implemented |
 | `segmentation_window_size` | ✅ | ✅ | ✅ Implemented |
 | `segmentation_min_length` | ✅ | ✅ | ✅ Implemented |
 | `segmentation_max_length` | ✅ | ✅ | ✅ Implemented |
@@ -197,10 +196,6 @@ micro-espectre/
 ### Segmentation Parameters (config.py)
 
 ```python
-SEG_K_FACTOR = 2.5        # Threshold sensitivity (0.5-5.0)
-                          # Higher = less sensitive, fewer false positives
-                          # Lower = more sensitive, more detections
-
 SEG_WINDOW_SIZE = 30      # Moving variance window (3-50 packets)
                           # Larger = smoother, slower response
                           # Smaller = faster response, more noise
@@ -241,7 +236,7 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
 Micro-ESPectre maintains **full backward compatibility** with ESPectre's MQTT command interface. Every MQTT commands are supported:
 
 - System monitoring: `info`, `stats`
-- Segmentation tuning: `segmentation_threshold`, `segmentation_k_factor`, `segmentation_window_size`, `segmentation_min_length`, `segmentation_max_length`
+- Segmentation tuning: `segmentation_threshold`, `segmentation_window_size`, `segmentation_min_length`, `segmentation_max_length`
 - Configuration: `subcarrier_selection`, `traffic_generator_rate`, `smart_publishing`
 - Maintenance: `factory_reset`
 

@@ -36,7 +36,6 @@ import argparse
 # ============================================================================
 
 FILE_NAME = 'main/real_csi_data_esp32_c6.h'
-K_FACTOR = 2.0
 WINDOW_SIZE = 10
 MIN_SEGMENT = 10
 MAX_SEGMENT = 40
@@ -98,9 +97,9 @@ class StreamingSegmentation:
     maintaining internal state like the C implementation.
     """
     
-    def __init__(self, window_size=10, K=1.5, min_length=20, max_length=60, track_data=False):
+    def __init__(self, window_size=10, threshold=3.0, min_length=20, max_length=60, track_data=False):
         self.window_size = window_size
-        self.K = K
+        self.threshold_base = threshold
         self.min_length = min_length
         self.max_length = max_length
         self.track_data = track_data
@@ -116,12 +115,8 @@ class StreamingSegmentation:
         self.motion_length = 0
         self.packet_index = 0
         
-        # Calibration
-        self.calibrating = False
-        self.calibration_variances = []
-        self.calibration_target = 0
-        self.threshold = 0.0
-        self.threshold_calibrated = False
+        # Use fixed threshold (no calibration needed)
+        self.threshold = threshold
         
         # Statistics
         self.segments_detected = 0
@@ -133,18 +128,6 @@ class StreamingSegmentation:
             self.moving_var_history = []
             self.state_history = []
         
-    def start_calibration(self, num_samples):
-        """Start calibration phase"""
-        self.calibrating = True
-        self.calibration_variances = []
-        self.calibration_target = num_samples
-        self.threshold_calibrated = False
-        
-        # Reset buffers
-        self.turbulence_buffer = np.zeros(self.window_size)
-        self.buffer_index = 0
-        self.buffer_count = 0
-        self.packet_index = 0
     
     def add_turbulence(self, turbulence):
         """Add one turbulence value and update state"""
@@ -162,19 +145,6 @@ class StreamingSegmentation:
             self.turbulence_history.append(turbulence)
             self.moving_var_history.append(moving_var)
             self.state_history.append(self.state)
-        
-        # During calibration: collect variance values
-        if self.calibrating:
-            if self.buffer_count >= self.window_size:
-                if len(self.calibration_variances) < self.calibration_target:
-                    self.calibration_variances.append(moving_var)
-            self.packet_index += 1
-            return False
-        
-        # Normal operation: segmentation
-        if not self.threshold_calibrated:
-            self.packet_index += 1
-            return False
         
         segment_completed = False
         
@@ -202,20 +172,6 @@ class StreamingSegmentation:
         self.packet_index += 1
         return segment_completed
     
-    def finalize_calibration(self):
-        """Finalize calibration and calculate threshold"""
-        if not self.calibrating or len(self.calibration_variances) < 100:
-            return False
-        
-        variances = np.array(self.calibration_variances)
-        mean_var = np.mean(variances)
-        std_var = np.std(variances)
-        
-        self.threshold = mean_var + self.K * std_var
-        self.threshold_calibrated = True
-        self.calibrating = False
-        
-        return True
     
     def reset(self):
         """Reset state machine but preserve buffer and threshold"""
@@ -416,14 +372,7 @@ def analyze_subcarrier_importance(baseline_packets, movement_packets):
     print("-" * 70)
     
     for name, sc_list in test_configs:
-        seg = StreamingSegmentation(WINDOW_SIZE, K_FACTOR, MIN_SEGMENT, MAX_SEGMENT)
-        
-        # Calibrate
-        seg.start_calibration(500)
-        for pkt in baseline_packets[:500]:
-            turb = calculate_spatial_turbulence(pkt, sc_list)
-            seg.add_turbulence(turb)
-        seg.finalize_calibration()
+        seg = StreamingSegmentation(WINDOW_SIZE, 3.0, MIN_SEGMENT, MAX_SEGMENT)
         
         # Test baseline
         seg.reset()
@@ -521,7 +470,6 @@ def main():
     print("╚═══════════════════════════════════════════════════════╝\n")
     
     print("Configuration:")
-    print(f"  K Factor: {K_FACTOR}")
     print(f"  Window Size: {WINDOW_SIZE} packets ({WINDOW_SIZE/20.0:.2f}s)")
     print(f"  Min Segment: {MIN_SEGMENT} packets ({MIN_SEGMENT/20.0:.2f}s)")
     print(f"  Max Segment: {MAX_SEGMENT} packets ({MAX_SEGMENT/20.0:.2f}s)")
@@ -568,23 +516,13 @@ def main():
     
     seg = StreamingSegmentation(
         window_size=WINDOW_SIZE,
-        K=K_FACTOR,
+        threshold=3.0,
         min_length=MIN_SEGMENT,
         max_length=MAX_SEGMENT,
         track_data=args.plot
     )
     
-    seg.start_calibration(1000)
-    
-    for pkt in baseline_packets[:1000]:
-        turbulence = calculate_spatial_turbulence(pkt)
-        seg.add_turbulence(turbulence)
-    
-    seg.finalize_calibration()
-    
-    print(f"Calibration complete:")
-    print(f"  Samples: {len(seg.calibration_variances)}")
-    print(f"  Threshold: {seg.threshold:.4f}\n")
+    print(f"Using threshold: {seg.threshold:.4f}\n")
     
     # ========================================================================
     # PHASE 2: TEST ON BASELINE
@@ -669,17 +607,11 @@ def main():
         # Re-run with data tracking enabled
         seg_plot = StreamingSegmentation(
             window_size=WINDOW_SIZE,
-            K=K_FACTOR,
+            threshold=3.0,
             min_length=MIN_SEGMENT,
             max_length=MAX_SEGMENT,
             track_data=True
         )
-        
-        # Calibrate
-        seg_plot.start_calibration(1000)
-        for pkt in baseline_packets[:1000]:
-            seg_plot.add_turbulence(calculate_spatial_turbulence(pkt))
-        seg_plot.finalize_calibration()
         
         # Test baseline
         seg_plot.reset()

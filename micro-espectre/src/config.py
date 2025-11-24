@@ -25,14 +25,11 @@ CSI_BUFFER_SIZE = 10  # Circular buffer size (used to store csi packets until pr
 SELECTED_SUBCARRIERS = [47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]
 
 # Segmentation Configuration
-# Note: Threshold is FIXED (not adaptive) - set once and never changes
 # Values calibrated for int8 CSI data with 12 selected subcarriers
-SEG_K_FACTOR = 2.5        # Not used (kept for compatibility)
 SEG_WINDOW_SIZE = 30      # Moving variance window (packets)
 SEG_MIN_LENGTH = 10       # Min motion segment length (packets)
 SEG_MAX_LENGTH = 60       # Max motion segment length (packets)
-SEG_THRESHOLD = 3.0       # Fixed threshold (matches C version with int8 data)
-                          # Lower values = more sensitive to motion
+SEG_THRESHOLD = 3.0       # Motion detection threshold (Lower values = more sensitive to motion)
 
 # Publishing Configuration
 # If SMART_PUBLISHING = False, messages are published every 1 secon

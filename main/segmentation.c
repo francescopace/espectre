@@ -26,33 +26,14 @@ void segmentation_init(segmentation_context_t *ctx) {
     memset(ctx, 0, sizeof(segmentation_context_t));
     
     // Initialize with platform-specific defaults
-    ctx->k_factor = SEGMENTATION_DEFAULT_K_FACTOR;
     ctx->window_size = SEGMENTATION_DEFAULT_WINDOW_SIZE;
     ctx->min_length = SEGMENTATION_DEFAULT_MIN_LENGTH;
     ctx->max_length = SEGMENTATION_DEFAULT_MAX_LENGTH;
-    ctx->adaptive_threshold = SEGMENTATION_DEFAULT_THRESHOLD;
+    ctx->threshold = SEGMENTATION_DEFAULT_THRESHOLD;
     ctx->state = SEG_STATE_IDLE;
     
-    ESP_LOGI(TAG, "Segmentation initialized (window=%d, K=%.1f, min=%d, max=%d, threshold=%.2f)",
-             ctx->window_size, ctx->k_factor, ctx->min_length, ctx->max_length, ctx->adaptive_threshold);
-}
-
-// Set K factor with validation
-bool segmentation_set_k_factor(segmentation_context_t *ctx, float k_factor) {
-    if (!ctx) {
-        ESP_LOGE(TAG, "segmentation_set_k_factor: NULL context");
-        return false;
-    }
-    
-    if (k_factor < SEGMENTATION_K_FACTOR_MIN || k_factor > SEGMENTATION_K_FACTOR_MAX) {
-        ESP_LOGE(TAG, "Invalid K factor: %.2f (must be %.1f-%.1f)", 
-                 k_factor, SEGMENTATION_K_FACTOR_MIN, SEGMENTATION_K_FACTOR_MAX);
-        return false;
-    }
-    
-    ctx->k_factor = k_factor;
-    ESP_LOGI(TAG, "K factor updated: %.2f", k_factor);
-    return true;
+    ESP_LOGI(TAG, "Segmentation initialized (window=%d, min=%d, max=%d, threshold=%.2f)",
+             ctx->window_size, ctx->min_length, ctx->max_length, ctx->threshold);
 }
 
 // Set window size with validation
@@ -131,16 +112,12 @@ bool segmentation_set_threshold(segmentation_context_t *ctx, float threshold) {
         return false;
     }
     
-    ctx->adaptive_threshold = threshold;
+    ctx->threshold = threshold;
     ESP_LOGI(TAG, "Threshold updated: %.2f", threshold);
     return true;
 }
 
 // Getters
-float segmentation_get_k_factor(const segmentation_context_t *ctx) {
-    return ctx ? ctx->k_factor : 0.0f;
-}
-
 uint16_t segmentation_get_window_size(const segmentation_context_t *ctx) {
     return ctx ? ctx->window_size : 0;
 }
@@ -200,7 +177,7 @@ bool segmentation_add_turbulence(segmentation_context_t *ctx, float turbulence) 
     // State machine for segmentation
     if (ctx->state == SEG_STATE_IDLE) {
         // IDLE state: looking for motion start
-        if (ctx->current_moving_variance > ctx->adaptive_threshold) {
+        if (ctx->current_moving_variance > ctx->threshold) {
             // Motion detected - transition to MOTION state
             ctx->state = SEG_STATE_MOTION;
             ctx->motion_start_index = ctx->packet_index;
@@ -213,7 +190,7 @@ bool segmentation_add_turbulence(segmentation_context_t *ctx, float turbulence) 
         ctx->motion_length++;
         
         // Check for motion end or max length reached
-        bool motion_ended = (ctx->current_moving_variance < ctx->adaptive_threshold);
+        bool motion_ended = (ctx->current_moving_variance < ctx->threshold);
         bool max_length_reached = (ctx->max_length > 0 && ctx->motion_length >= ctx->max_length);
         
         if (motion_ended || max_length_reached) {
@@ -264,15 +241,15 @@ void segmentation_reset(segmentation_context_t *ctx) {
     // - ctx->buffer_index (current position in circular buffer)
     // - ctx->buffer_count (should stay at window_size after warm-up)
     // - ctx->current_moving_variance (will be recalculated on next packet)
-    // - ctx->adaptive_threshold (configured threshold)
-    // - ctx->k_factor, window_size, min_length, max_length (configured parameters)
+    // - ctx->threshold (configured threshold)
+    // - ctx->window_size, min_length, max_length (configured parameters)
     
     ESP_LOGD(TAG, "Segmentation reset (buffer and parameters preserved)");
 }
 
 // Get threshold
 float segmentation_get_threshold(const segmentation_context_t *ctx) {
-    return ctx ? ctx->adaptive_threshold : 0.0f;
+    return ctx ? ctx->threshold : 0.0f;
 }
 
 // Get current moving variance

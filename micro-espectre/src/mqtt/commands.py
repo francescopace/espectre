@@ -100,7 +100,6 @@ class MQTTCommands:
             "segmentation": {
                 "threshold": round(self.seg.threshold, 2),
                 "window_size": self.seg.window_size,
-                "k_factor": round(self.seg.k_factor, 2),
                 "min_length": self.seg.min_length,
                 "max_length": self.seg.max_length
             },
@@ -186,32 +185,6 @@ class MQTTCommands:
             
         except ValueError:
             self.send_response("ERROR: Invalid threshold value (must be float)")
-    
-    def cmd_segmentation_k_factor(self, cmd_obj):
-        """Set K factor"""
-        if 'value' not in cmd_obj:
-            self.send_response("ERROR: Missing 'value' field")
-            return
-        
-        try:
-            k_factor = float(cmd_obj['value'])
-            
-            if k_factor < 0.5 or k_factor > 5.0:
-                self.send_response("ERROR: K factor must be between 0.5 and 5.0")
-                return
-            
-            old_k = self.seg.k_factor
-            self.seg.k_factor = k_factor
-            
-            # Save to NVS
-            self.nvs.save_full_config(self.seg, self.config, self.traffic_gen)
-            
-            sensitivity = "less sensitive" if k_factor > 2.5 else "more sensitive"
-            self.send_response(f"K factor updated: {old_k:.2f} -> {k_factor:.2f} (threshold sensitivity: {sensitivity})")
-            print(f"📍 K factor updated: {old_k:.2f} -> {k_factor:.2f}")
-            
-        except ValueError:
-            self.send_response("ERROR: Invalid K factor value (must be float)")
     
     def cmd_segmentation_window_size(self, cmd_obj):
         """Set window size"""
@@ -361,7 +334,6 @@ class MQTTCommands:
         
         # Reset segmentation to defaults
         self.seg.threshold = 3.0
-        self.seg.k_factor = 2.5
         self.seg.window_size = 30
         self.seg.min_length = 10
         self.seg.max_length = 60
@@ -473,8 +445,6 @@ class MQTTCommands:
                 self.cmd_stats()
             elif command == 'segmentation_threshold':
                 self.cmd_segmentation_threshold(cmd_obj)
-            elif command == 'segmentation_k_factor':
-                self.cmd_segmentation_k_factor(cmd_obj)
             elif command == 'segmentation_window_size':
                 self.cmd_segmentation_window_size(cmd_obj)
             elif command == 'segmentation_min_length':

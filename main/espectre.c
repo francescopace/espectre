@@ -363,13 +363,13 @@ static void mqtt_publish_task(void *pvParameters) {
             
             // Get segmentation data
             float moving_variance = segmentation_get_moving_variance(&g_state.segmentation);
-            float adaptive_threshold = segmentation_get_threshold(&g_state.segmentation);
+            float threshold = segmentation_get_threshold(&g_state.segmentation);
             
             const char *seg_state_names[] = {"IDLE", "MOTION"};
             const char *seg_state_str = (seg_state < 2) ? seg_state_names[seg_state] : "UNKNOWN";
             
             // Calculate progress based on segmentation (moving_variance / threshold)
-            float seg_progress = (adaptive_threshold > 0.0f) ? (moving_variance / adaptive_threshold) : 0.0f;
+            float seg_progress = (threshold > 0.0f) ? (moving_variance / threshold) : 0.0f;
             
             // Format progress bar with threshold marker at 100%
             char progress_bar[256];
@@ -377,7 +377,7 @@ static void mqtt_publish_task(void *pvParameters) {
             
             ESP_LOGI(TAG, "📊 %s | pkts:%lu mvmt:%.4f thr:%.4f | %s",
                      progress_bar, (unsigned long)packet_delta, 
-                     moving_variance, adaptive_threshold, seg_state_str);
+                     moving_variance, threshold, seg_state_str);
             last_csi_log_time = now;
         }
         
@@ -390,7 +390,7 @@ static void mqtt_publish_task(void *pvParameters) {
             // Prepare segmentation result
             segmentation_result_t result = {
                 .moving_variance = moving_variance,
-                .adaptive_threshold = segmentation_get_threshold(&g_state.segmentation),
+                .threshold = segmentation_get_threshold(&g_state.segmentation),
                 .state = seg_state,
                 .timestamp = get_timestamp_sec(),
                 .packets_processed = packet_delta,
@@ -487,7 +487,6 @@ void app_main(void) {
             config_load_from_nvs(&g_state.config, &nvs_cfg);
             
             // Apply segmentation parameters from config
-            segmentation_set_k_factor(&g_state.segmentation, g_state.config.segmentation_k_factor);
             segmentation_set_window_size(&g_state.segmentation, g_state.config.segmentation_window_size);
             segmentation_set_min_length(&g_state.segmentation, g_state.config.segmentation_min_length);
             segmentation_set_max_length(&g_state.segmentation, g_state.config.segmentation_max_length);
@@ -504,9 +503,8 @@ void app_main(void) {
             }
             
             ESP_LOGI(TAG, "💾 Loaded saved configuration from NVS");
-            ESP_LOGI(TAG, "📍 Segmentation: threshold=%.2f, K=%.2f, window=%d, min=%d, max=%d",
+            ESP_LOGI(TAG, "📍 Segmentation: threshold=%.2f, window=%d, min=%d, max=%d",
                      nvs_cfg.segmentation_threshold,
-                     g_state.config.segmentation_k_factor,
                      g_state.config.segmentation_window_size,
                      g_state.config.segmentation_min_length,
                      g_state.config.segmentation_max_length);

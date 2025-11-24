@@ -40,7 +40,7 @@ typedef struct {
 // Segmentation result for publishing
 typedef struct {
     float moving_variance;
-    float adaptive_threshold;
+    float threshold;
     segmentation_state_t state;
     uint8_t segments_total;
     int64_t timestamp;

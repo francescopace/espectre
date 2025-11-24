@@ -6,6 +6,24 @@ All notable changes to this project will be documented in this file.
 
 ## [1.3.1] - in progress
 
+### 🗑️ Removed - Unused SEG_K_FACTOR Parameter
+
+**Simplified segmentation configuration**
+
+The k_factor parameter was originally intended as a threshold sensitivity
+multiplier (effective_threshold = threshold * k_factor) to allow adjusting
+detection sensitivity without changing the base threshold value.
+
+Since adjusting the threshold value directly achieves the same result with simpler
+configuration, k_factor is redundant and has been removed.
+
+This simplifies the configuration interface: users can now directly adjust
+the threshold value instead of managing two separate parameters.
+
+- Removed `k_factor` parameter from MVS algo
+- Renamed `adaptive_threshold` → `threshold` in C version for clarity
+- Direct threshold configuration without redundant multipliers
+
 ### 🎵 Added - Wi-Fi Theremin Sonification Client
 
 **Real-time audio sonification of Wi-Fi CSI data**
@@ -141,7 +159,6 @@ Transformed hardcoded parameters into runtime-configurable settings, enabling fi
 
 **New MQTT Commands:**
 - `segmentation_threshold <value>` - Set detection threshold
-- `segmentation_k_factor <value>` - Set threshold sensitivity
 - `segmentation_window_size <value>` - Set moving variance window
 - `segmentation_min_length <value>` - Set minimum segment length
 - `segmentation_max_length <value>` - Set maximum segment length
@@ -218,7 +235,6 @@ Optimized MQTT data structure for consistency and reduced bandwidth:
 **Stats Command Response:**
 - ❌ Removed entire `segments` object (total, active, last_completed)
 - ✅ Renamed `moving_variance` → `movement` (consistent with periodic data)
-- ✅ Renamed `adaptive_threshold` → `threshold` (consistent with periodic data)
 - ✅ Kept `turbulence` for diagnostics
 - ✅ Simplified to essential runtime metrics only
 
@@ -529,7 +545,7 @@ Based on ESP32-S3 Wi-Fi documentation analysis, optimized CSI data collection to
 
 **Features:**
 - **Parameter optimization**: Grid search over 300 combinations (--optimize flag)
-- **Configurable parameters**: K_FACTOR, WINDOW_SIZE, MIN_SEGMENT, MAX_SEGMENT at top of file
+- **Configurable parameters**: WINDOW_SIZE, MIN_SEGMENT, MAX_SEGMENT at top of file
 - **Batch mode**: Skip visualization with --no-plot flag
 - **Comprehensive documentation**: Usage examples and parameter descriptions
 

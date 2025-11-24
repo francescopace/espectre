@@ -127,28 +127,6 @@ static void cmd_segmentation_threshold(cJSON *root) {
     }
 }
 
-static void cmd_segmentation_k_factor(cJSON *root) {
-    float new_k_factor;
-    if (get_float_param(root, "value", &new_k_factor, 0.5f, 5.0f,
-                       "ERROR: K factor must be between 0.5 and 5.0")) {
-        if (segmentation_set_k_factor(g_cmd_context->segmentation, new_k_factor)) {
-            g_cmd_context->config->segmentation_k_factor = new_k_factor;
-            
-            char response[256];
-            snprintf(response, sizeof(response), 
-                     "K factor updated: %.2f (threshold sensitivity: %s)",
-                     new_k_factor, new_k_factor > 2.5f ? "less sensitive" : "more sensitive");
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, 
-                             segmentation_get_threshold(g_cmd_context->segmentation));
-        } else {
-            send_response("ERROR: Failed to set K factor");
-        }
-    }
-}
-
 static void cmd_segmentation_window_size(cJSON *root) {
     int new_window_size;
     if (get_int_param(root, "value", &new_window_size, 3, 50,
@@ -238,7 +216,7 @@ static void cmd_features_enable(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         esp_err_t err = config_save_to_nvs(g_cmd_context->config, 
-                                           g_cmd_context->segmentation->adaptive_threshold);
+                                           segmentation_get_threshold(g_cmd_context->segmentation));
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "💾 Configuration saved to NVS");
         }
@@ -283,7 +261,6 @@ static void cmd_info(cJSON *root) {
     cJSON *segmentation = cJSON_CreateObject();
     cJSON_AddNumberToObject(segmentation, "threshold", (double)segmentation_get_threshold(g_cmd_context->segmentation));
     cJSON_AddNumberToObject(segmentation, "window_size", segmentation_get_window_size(g_cmd_context->segmentation));
-    cJSON_AddNumberToObject(segmentation, "k_factor", (double)segmentation_get_k_factor(g_cmd_context->segmentation));
     cJSON_AddNumberToObject(segmentation, "min_length", segmentation_get_min_length(g_cmd_context->segmentation));
     cJSON_AddNumberToObject(segmentation, "max_length", segmentation_get_max_length(g_cmd_context->segmentation));
     cJSON_AddItemToObject(response, "segmentation", segmentation);
@@ -435,7 +412,7 @@ static void cmd_hampel_filter(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, g_cmd_context->segmentation->adaptive_threshold);
+        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
     }
 }
 
@@ -452,7 +429,7 @@ static void cmd_hampel_threshold(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, g_cmd_context->segmentation->adaptive_threshold);
+        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
     }
 }
 
@@ -466,7 +443,7 @@ static void cmd_savgol_filter(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, g_cmd_context->segmentation->adaptive_threshold);
+        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
     }
 }
 
@@ -480,7 +457,7 @@ static void cmd_butterworth_filter(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, g_cmd_context->segmentation->adaptive_threshold);
+        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
     }
 }
 
@@ -494,7 +471,7 @@ static void cmd_smart_publishing(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, g_cmd_context->segmentation->adaptive_threshold);
+        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
     }
 }
 
@@ -537,7 +514,7 @@ static void cmd_traffic_generator_rate(cJSON *root) {
             }
             send_response(response);
             
-            config_save_to_nvs(g_cmd_context->config, g_cmd_context->segmentation->adaptive_threshold);
+            config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
         } else {
             send_response("ERROR: Rate must be 0-50 packets/sec (0=disabled, recommended: 15)");
         }
@@ -556,7 +533,7 @@ static void cmd_wavelet_filter(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, g_cmd_context->segmentation->adaptive_threshold);
+        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
     }
 }
 
@@ -575,7 +552,7 @@ static void cmd_wavelet_level(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, g_cmd_context->segmentation->adaptive_threshold);
+        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
     }
 }
 
@@ -594,7 +571,7 @@ static void cmd_wavelet_threshold(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, g_cmd_context->segmentation->adaptive_threshold);
+        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
     }
 }
 
@@ -856,7 +833,6 @@ typedef struct {
 
 static const command_entry_t command_table[] = {
     {"segmentation_threshold", cmd_segmentation_threshold},
-    {"segmentation_k_factor", cmd_segmentation_k_factor},
     {"segmentation_window_size", cmd_segmentation_window_size},
     {"segmentation_min_length", cmd_segmentation_min_length},
     {"segmentation_max_length", cmd_segmentation_max_length},

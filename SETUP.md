@@ -414,7 +414,6 @@ Responses are published to: `<your_topic>/response`
 | **System** | `smart_publishing` | bool | Enable/disable smart publishing (reduces MQTT traffic) | `{"cmd": "smart_publishing", "enabled": true}` |
 | **System** | `factory_reset` | none | Restore all settings to factory defaults | `{"cmd": "factory_reset"}` |
 | **Segmentation** | `segmentation_threshold` | float (0.5-10.0) | Set segmentation threshold for motion detection | `{"cmd": "segmentation_threshold", "value": 2.2}` |
-| **Segmentation** | `segmentation_k_factor` | float (0.5-5.0) | Set K factor for threshold sensitivity (higher = less sensitive) | `{"cmd": "segmentation_k_factor", "value": 2.0}` |
 | **Segmentation** | `segmentation_window_size` | int (3-50) | Set moving variance window size in packets | `{"cmd": "segmentation_window_size", "value": 10}` |
 | **Segmentation** | `segmentation_min_length` | int (5-100) | Set minimum segment length in packets | `{"cmd": "segmentation_min_length", "value": 10}` |
 | **Segmentation** | `segmentation_max_length` | int (0-200) | Set maximum segment length in packets (0=no limit) | `{"cmd": "segmentation_max_length", "value": 50}` |
@@ -446,7 +445,6 @@ The `info` command returns **static configuration** organized into logical group
   "segmentation": {
     "threshold": 2.2,
     "window_size": 30,
-    "k_factor": 2.5,
     "min_length": 10,
     "max_length": 60
   },

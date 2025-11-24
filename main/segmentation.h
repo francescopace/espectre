@@ -28,8 +28,6 @@
 #define SEGMENTATION_MAX_WINDOW_SIZE 50
 
 // Parameter limits for validation
-#define SEGMENTATION_K_FACTOR_MIN 0.5f
-#define SEGMENTATION_K_FACTOR_MAX 5.0f
 #define SEGMENTATION_WINDOW_SIZE_MIN 3
 #define SEGMENTATION_MIN_LENGTH_MIN 5
 #define SEGMENTATION_MIN_LENGTH_MAX 100
@@ -37,7 +35,6 @@
 #define SEGMENTATION_MAX_LENGTH_MAX 200
 
 // Default configuration parameters (optimized from testing)
-#define SEGMENTATION_DEFAULT_K_FACTOR 2.5f
 #define SEGMENTATION_DEFAULT_WINDOW_SIZE 30
 #define SEGMENTATION_DEFAULT_MIN_LENGTH 10
 #define SEGMENTATION_DEFAULT_MAX_LENGTH 60
@@ -60,11 +57,10 @@ typedef struct {
     float current_moving_variance;
     
     // Configurable parameters
-    float k_factor;              // Threshold sensitivity multiplier
     uint16_t window_size;        // Moving variance window size (packets)
     uint16_t min_length;         // Minimum segment length (packets)
     uint16_t max_length;         // Maximum segment length (packets)
-    float adaptive_threshold;    // Current threshold value
+    float threshold;             // Motion detection threshold value
     
     // State machine
     segmentation_state_t state;
@@ -83,15 +79,6 @@ typedef struct {
  * @param ctx Segmentation context to initialize
  */
 void segmentation_init(segmentation_context_t *ctx);
-
-/**
- * Set K factor (threshold sensitivity)
- * 
- * @param ctx Segmentation context
- * @param k_factor New K factor value (0.5 - 5.0)
- * @return true if value is valid and was set
- */
-bool segmentation_set_k_factor(segmentation_context_t *ctx, float k_factor);
 
 /**
  * Set window size for moving variance
@@ -128,14 +115,6 @@ bool segmentation_set_max_length(segmentation_context_t *ctx, uint16_t max_lengt
  * @return true if value is valid and was set
  */
 bool segmentation_set_threshold(segmentation_context_t *ctx, float threshold);
-
-/**
- * Get current K factor
- * 
- * @param ctx Segmentation context
- * @return Current K factor value
- */
-float segmentation_get_k_factor(const segmentation_context_t *ctx);
 
 /**
  * Get current window size

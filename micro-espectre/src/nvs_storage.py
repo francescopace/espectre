@@ -99,7 +99,6 @@ class NVSStorage:
         config_data = {
             "segmentation": {
                 "threshold": seg.threshold,
-                "k_factor": seg.k_factor,
                 "window_size": seg.window_size,
                 "min_length": seg.min_length,
                 "max_length": seg.max_length
@@ -126,7 +125,6 @@ class NVSStorage:
         config_data = {
             "segmentation": {
                 "threshold": seg.threshold,
-                "k_factor": seg.k_factor,
                 "window_size": seg.window_size,
                 "min_length": seg.min_length,
                 "max_length": seg.max_length
@@ -166,7 +164,6 @@ class NVSStorage:
         if "segmentation" in config_data:
             seg_cfg = config_data["segmentation"]
             seg.threshold = seg_cfg.get("threshold", seg.threshold)
-            seg.k_factor = seg_cfg.get("k_factor", seg.k_factor)
             seg.window_size = seg_cfg.get("window_size", seg.window_size)
             seg.min_length = seg_cfg.get("min_length", seg.min_length)
             seg.max_length = seg_cfg.get("max_length", seg.max_length)
@@ -176,7 +173,7 @@ class NVSStorage:
             seg.buffer_index = 0
             seg.buffer_count = 0
             
-            print(f"📍 Segmentation config loaded: threshold={seg.threshold:.2f}, K={seg.k_factor:.2f}, window={seg.window_size}")
+            print(f"📍 Segmentation config loaded: threshold={seg.threshold:.2f}, window={seg.window_size}")
         
         # Apply subcarrier selection
         if "subcarriers" in config_data:
@@ -187,4 +184,3 @@ class NVSStorage:
         if "options" in config_data:
             config_module.SMART_PUBLISHING = config_data["options"].get("smart_publishing", config_module.SMART_PUBLISHING)
             print(f"📡 Smart publishing: {config_module.SMART_PUBLISHING}")
-        

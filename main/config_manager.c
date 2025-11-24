@@ -98,7 +98,6 @@ void config_init_defaults(runtime_config_t *config) {
     config->smart_publishing_enabled = false;
     
     // Segmentation parameters (platform-specific defaults)
-    config->segmentation_k_factor = SEGMENTATION_DEFAULT_K_FACTOR;
     config->segmentation_window_size = SEGMENTATION_DEFAULT_WINDOW_SIZE;
     config->segmentation_min_length = SEGMENTATION_DEFAULT_MIN_LENGTH;
     config->segmentation_max_length = SEGMENTATION_DEFAULT_MAX_LENGTH;
@@ -117,13 +116,7 @@ esp_err_t config_validate(const runtime_config_t *config) {
     }
     
     // Validate segmentation parameters
-    if (config->segmentation_k_factor < SEGMENTATION_K_FACTOR_MIN || 
-        config->segmentation_k_factor > SEGMENTATION_K_FACTOR_MAX) {
-        ESP_LOGE(TAG, "Invalid K factor: %.2f", config->segmentation_k_factor);
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    if (config->segmentation_window_size < SEGMENTATION_WINDOW_SIZE_MIN || 
+    if (config->segmentation_window_size < SEGMENTATION_WINDOW_SIZE_MIN ||
         config->segmentation_window_size > SEGMENTATION_MAX_WINDOW_SIZE) {
         ESP_LOGE(TAG, "Invalid window size: %d", config->segmentation_window_size);
         return ESP_ERR_INVALID_ARG;

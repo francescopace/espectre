@@ -59,33 +59,9 @@ Look for `state=MOTION` when moving, `state=IDLE` when still.
 
 ---
 
-## 🎯 Advanced MVS Parameters (New!)
+## 🎯 Advanced MVS Parameters
 
-ESPectre now allows fine-tuning of the Moving Variance Segmentation algorithm parameters for optimal performance in your specific environment.
-
-### K Factor (0.5-5.0)
-
-**What it does:** Threshold sensitivity multiplier for adaptive detection.
-
-**Effect:**
-- **Lower (1.0-2.0)**: More sensitive to variance changes
-- **Higher (3.0-5.0)**: Less sensitive, requires stronger variance
-
-**Default:**
-- ESP32-C6: 2.0
-- ESP32-S3: 2.5
-
-**MQTT Command:**
-```json
-{"cmd": "segmentation_k_factor", "value": 2.0}
-```
-
-**CLI Command:**
-```bash
-segmentation_k_factor 2.0
-```
-
----
+ESPectre allows fine-tuning of the Moving Variance Segmentation algorithm parameters for optimal performance in your specific environment.
 
 ### Window Size (3-50 packets)
 

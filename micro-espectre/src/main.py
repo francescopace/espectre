@@ -184,7 +184,6 @@ def main():
     # Initialize segmentation
     print('Initializing segmentation...')
     seg = SegmentationContext(
-        k_factor=config.SEG_K_FACTOR,
         window_size=config.SEG_WINDOW_SIZE,
         min_length=config.SEG_MIN_LENGTH,
         max_length=config.SEG_MAX_LENGTH,

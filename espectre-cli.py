@@ -76,7 +76,6 @@ class EspectreCLI:
         # Create nested completer for commands and their arguments (only full names, no shortcuts)
         completer_dict = {
             'segmentation_threshold': None,
-            'segmentation_k_factor': None,
             'segmentation_window_size': None,
             'segmentation_min_length': None,
             'segmentation_max_length': None,
@@ -228,8 +227,6 @@ class EspectreCLI:
         try:
             if cmd in ["segmentation_threshold", "st"]:
                 self.cmd_segmentation_threshold(args)
-            elif cmd in ["segmentation_k_factor", "skf"]:
-                self.cmd_segmentation_k_factor(args)
             elif cmd in ["segmentation_window_size", "sws"]:
                 self.cmd_segmentation_window_size(args)
             elif cmd in ["segmentation_min_length", "sml"]:
@@ -296,12 +293,6 @@ class EspectreCLI:
             print(f"{Fore.RED}Usage: segmentation_threshold <value>{Style.RESET_ALL}")
             return
         self.send_command({"cmd": "segmentation_threshold", "value": float(args[0])})
-
-    def cmd_segmentation_k_factor(self, args):
-        if not args:
-            print(f"{Fore.RED}Usage: segmentation_k_factor <value>{Style.RESET_ALL}")
-            return
-        self.send_command({"cmd": "segmentation_k_factor", "value": float(args[0])})
 
     def cmd_segmentation_window_size(self, args):
         if not args:
@@ -372,7 +363,6 @@ class EspectreCLI:
 
 <ansiyellow><b>Segmentation Commands:</b></ansiyellow>
   <ansigreen>segmentation_threshold|st</ansigreen> &lt;val&gt;            Set segmentation threshold (0.5-10.0)
-  <ansigreen>segmentation_k_factor|skf</ansigreen> &lt;val&gt;            Set K factor sensitivity (0.5-5.0)
   <ansigreen>segmentation_window_size|sws</ansigreen> &lt;n&gt;           Set moving variance window (3-50 packets)
   <ansigreen>segmentation_min_length|sml</ansigreen> &lt;n&gt;            Set min segment length (5-100 packets)
   <ansigreen>segmentation_max_length|smxl</ansigreen> &lt;n&gt;           Set max segment length (10-200, 0=no limit)

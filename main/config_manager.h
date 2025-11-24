@@ -57,7 +57,6 @@ typedef struct {
     uint32_t traffic_generator_rate;  // packets/sec (0=disabled, 1-50, recommended: 15)
     
     // Segmentation parameters (configurable at runtime)
-    float segmentation_k_factor;        // Threshold sensitivity (0.5-5.0)
     uint16_t segmentation_window_size;  // Moving variance window (3-50 packets)
     uint16_t segmentation_min_length;   // Minimum segment length (5-100 packets)
     uint16_t segmentation_max_length;   // Maximum segment length (10-200 packets, 0=no limit)
