@@ -8,18 +8,11 @@
 #include "config_manager.h"
 #include "nvs_storage.h"
 #include "segmentation.h"
+#include "filters.h"
 #include "esp_log.h"
 #include <string.h>
 
 static const char *TAG = "Config_Manager";
-
-// Default configuration values
-// Optimized for noisy/challenging environments based on real-world testing
-#define DEFAULT_DEBOUNCE_COUNT 10          // Increased from 3 to reduce false positives
-#define DEFAULT_HYSTERESIS_RATIO 0.7f
-#define DEFAULT_PERSISTENCE_TIMEOUT 3
-#define DEFAULT_HAMPEL_THRESHOLD 3.0f     // Increased from 2.0 for better outlier tolerance
-#define DEFAULT_SAVGOL_WINDOW 5
 
 // Helper: Copy runtime config to NVS structure
 static inline void config_to_nvs(nvs_config_data_t *nvs_cfg, const runtime_config_t *config,
@@ -36,6 +29,7 @@ static inline void config_to_nvs(nvs_config_data_t *nvs_cfg, const runtime_confi
     nvs_cfg->wavelet_threshold = config->wavelet_threshold;
     nvs_cfg->traffic_generator_rate = config->traffic_generator_rate;
     nvs_cfg->segmentation_threshold = segmentation_threshold;
+    nvs_cfg->segmentation_window_size = config->segmentation_window_size;
     
     // Copy subcarrier selection
     memcpy(nvs_cfg->selected_subcarriers, config->selected_subcarriers, 
@@ -55,6 +49,7 @@ static inline void nvs_to_config(runtime_config_t *config, const nvs_config_data
     config->wavelet_level = nvs_cfg->wavelet_level;
     config->wavelet_threshold = nvs_cfg->wavelet_threshold;
     config->traffic_generator_rate = nvs_cfg->traffic_generator_rate;
+    config->segmentation_window_size = nvs_cfg->segmentation_window_size;
     
     // Copy subcarrier selection
     memcpy(config->selected_subcarriers, nvs_cfg->selected_subcarriers, 
@@ -81,15 +76,15 @@ void config_init_defaults(runtime_config_t *config) {
     // Enable key filters by default for robust operation in noisy environments
     // Hampel disabled by default (testing shows 0% outlier rate in typical environments)
     config->hampel_filter_enabled = false;  // Enable manually if high outlier rate detected
-    config->hampel_threshold = 2.0f;        // Optimized threshold (reduced from 3.0 for better sensitivity)
+    config->hampel_threshold = HAMPEL_DEFAULT_THRESHOLD;
     config->savgol_filter_enabled = true;   // Smoothing (recommended for noisy signals)
-    config->savgol_window_size = DEFAULT_SAVGOL_WINDOW;
+    config->savgol_window_size = SAVGOL_WINDOW_SIZE;
     config->butterworth_enabled = true;     // High-frequency noise reduction (always recommended)
     
     // Wavelet filter settings (disabled by default, enable for high-noise environments)
     config->wavelet_enabled = false;        // Enable manually if variance > 500
-    config->wavelet_level = 3;              // Maximum denoising when enabled
-    config->wavelet_threshold = 1.0f;       // Balanced threshold
+    config->wavelet_level = WAVELET_LEVEL_MAX;  // Maximum denoising when enabled
+    config->wavelet_threshold = 1.0f;       // Balanced threshold (middle of range)
     
     config->cusum_enabled = false;
     config->cusum_threshold = 0.5f;
@@ -99,8 +94,6 @@ void config_init_defaults(runtime_config_t *config) {
     
     // Segmentation parameters (platform-specific defaults)
     config->segmentation_window_size = SEGMENTATION_DEFAULT_WINDOW_SIZE;
-    config->segmentation_min_length = SEGMENTATION_DEFAULT_MIN_LENGTH;
-    config->segmentation_max_length = SEGMENTATION_DEFAULT_MAX_LENGTH;
     
     // ESP32-S3: Top 12 most informative subcarriers
     const uint8_t default_subcarriers[] = {47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58};
@@ -117,21 +110,8 @@ esp_err_t config_validate(const runtime_config_t *config) {
     
     // Validate segmentation parameters
     if (config->segmentation_window_size < SEGMENTATION_WINDOW_SIZE_MIN ||
-        config->segmentation_window_size > SEGMENTATION_MAX_WINDOW_SIZE) {
+        config->segmentation_window_size > SEGMENTATION_WINDOW_SIZE_MAX) {
         ESP_LOGE(TAG, "Invalid window size: %d", config->segmentation_window_size);
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    if (config->segmentation_min_length < SEGMENTATION_MIN_LENGTH_MIN || 
-        config->segmentation_min_length > SEGMENTATION_MIN_LENGTH_MAX) {
-        ESP_LOGE(TAG, "Invalid min length: %d", config->segmentation_min_length);
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    if (config->segmentation_max_length != 0 && 
-        (config->segmentation_max_length < SEGMENTATION_MAX_LENGTH_MIN || 
-         config->segmentation_max_length > SEGMENTATION_MAX_LENGTH_MAX)) {
-        ESP_LOGE(TAG, "Invalid max length: %d", config->segmentation_max_length);
         return ESP_ERR_INVALID_ARG;
     }
     

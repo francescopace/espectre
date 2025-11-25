@@ -99,9 +99,7 @@ class NVSStorage:
         config_data = {
             "segmentation": {
                 "threshold": seg.threshold,
-                "window_size": seg.window_size,
-                "min_length": seg.min_length,
-                "max_length": seg.max_length
+                "window_size": seg.window_size
             }
         }
         
@@ -125,9 +123,7 @@ class NVSStorage:
         config_data = {
             "segmentation": {
                 "threshold": seg.threshold,
-                "window_size": seg.window_size,
-                "min_length": seg.min_length,
-                "max_length": seg.max_length
+                "window_size": seg.window_size
             },
             "subcarriers": {
                 "indices": config_module.SELECTED_SUBCARRIERS
@@ -165,8 +161,6 @@ class NVSStorage:
             seg_cfg = config_data["segmentation"]
             seg.threshold = seg_cfg.get("threshold", seg.threshold)
             seg.window_size = seg_cfg.get("window_size", seg.window_size)
-            seg.min_length = seg_cfg.get("min_length", seg.min_length)
-            seg.max_length = seg_cfg.get("max_length", seg.max_length)
             
             # Reset buffer if window size changed
             seg.turbulence_buffer = [0.0] * seg.window_size

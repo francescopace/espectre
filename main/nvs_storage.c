@@ -6,26 +6,17 @@
  */
 
 #include "nvs_storage.h"
+#include "segmentation.h"
+#include "filters.h"
+#include "espectre.h"
+#include "validation.h"
 #include <string.h>
-#include <math.h>
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
 #include "esp_err.h"
 
-// Total number of features (for validation)
-#define NUM_TOTAL_FEATURES 10
-
 static const char *TAG = "NVS_Storage";
-
-// NVS keys for config data
-#define NVS_KEY_CFG_VERSION      "cfg_ver"
-#define NVS_KEY_CFG_DATA         "cfg_data"
-
-// Helper function to validate float values
-static bool is_valid_float(float value) {
-    return !isnan(value) && !isinf(value);
-}
 
 // Helper function to validate config data
 static bool validate_config_data(nvs_config_data_t *config) {
@@ -40,44 +31,44 @@ static bool validate_config_data(nvs_config_data_t *config) {
     bool valid = true;
     
     // Validate hampel threshold
-    if (!is_valid_float(config->hampel_threshold) || 
-        config->hampel_threshold < 1.0f || 
-        config->hampel_threshold > 10.0f) {
+    if (!validate_hampel_threshold(config->hampel_threshold)) {
         ESP_LOGW(TAG, "Invalid hampel_threshold: %.1f, using default", config->hampel_threshold);
-        config->hampel_threshold = 2.0f;
+        config->hampel_threshold = HAMPEL_DEFAULT_THRESHOLD;
         valid = false;
     }
     
-    // Validate savgol window size (must be odd)
-    if (config->savgol_window_size < 3 || config->savgol_window_size > 11 || 
-        (config->savgol_window_size % 2) == 0) {
+    // Validate savgol window size
+    if (!validate_savgol_window_size(config->savgol_window_size)) {
         ESP_LOGW(TAG, "Invalid savgol_window_size: %d, using default", config->savgol_window_size);
-        config->savgol_window_size = 5;
+        config->savgol_window_size = SAVGOL_WINDOW_SIZE;
         valid = false;
     }
     
     // Validate wavelet level
-    if (config->wavelet_level < 1 || config->wavelet_level > 3) {
+    if (!validate_wavelet_level(config->wavelet_level)) {
         ESP_LOGW(TAG, "Invalid wavelet_level: %d, using default", config->wavelet_level);
-        config->wavelet_level = 3;
+        config->wavelet_level = WAVELET_LEVEL_MAX;
         valid = false;
     }
     
     // Validate wavelet threshold
-    if (!is_valid_float(config->wavelet_threshold) || 
-        config->wavelet_threshold < 0.5f || 
-        config->wavelet_threshold > 2.0f) {
+    if (!validate_wavelet_threshold(config->wavelet_threshold)) {
         ESP_LOGW(TAG, "Invalid wavelet_threshold: %.2f, using default", config->wavelet_threshold);
         config->wavelet_threshold = 1.0f;
         valid = false;
     }
     
     // Validate segmentation threshold
-    if (!is_valid_float(config->segmentation_threshold) || 
-        config->segmentation_threshold < 0.5f || 
-        config->segmentation_threshold > 10.0f) {
+    if (!validate_segmentation_threshold(config->segmentation_threshold)) {
         ESP_LOGW(TAG, "Invalid segmentation_threshold: %.2f, using default", config->segmentation_threshold);
-        config->segmentation_threshold = 2.2f;
+        config->segmentation_threshold = SEGMENTATION_DEFAULT_THRESHOLD;
+        valid = false;
+    }
+    
+    // Validate segmentation window size
+    if (!validate_segmentation_window_size(config->segmentation_window_size)) {
+        ESP_LOGW(TAG, "Invalid segmentation_window_size: %d, using default", config->segmentation_window_size);
+        config->segmentation_window_size = SEGMENTATION_DEFAULT_WINDOW_SIZE;
         valid = false;
     }
     

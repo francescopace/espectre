@@ -30,8 +30,6 @@ Micro-ESPectre implements the **MVS (Moving Variance Segmentation)** algorithm f
 | `stats` | ✅ | ✅ | ✅ Implemented |
 | `segmentation_threshold` | ✅ | ✅ | ✅ Implemented |
 | `segmentation_window_size` | ✅ | ✅ | ✅ Implemented |
-| `segmentation_min_length` | ✅ | ✅ | ✅ Implemented |
-| `segmentation_max_length` | ✅ | ✅ | ✅ Implemented |
 | `subcarrier_selection` | ✅ | ✅ | ✅ Implemented |
 | `traffic_generator_rate` | ✅ | ✅ | ✅ Implemented |
 | `smart_publishing` | ✅ | ✅ | ✅ Implemented |
@@ -158,9 +156,6 @@ Use the deployment script:
 # Run main application
 mpremote connect /dev/cu.usbmodem* run src/main.py
 
-# Run debug script (analyze CSI data)
-mpremote connect /dev/cu.usbmodem* run examples/debug_csi.py
-
 # Or connect to REPL and run
 mpremote connect /dev/cu.usbmodem*
 >>> from src import main
@@ -182,8 +177,6 @@ micro-espectre/
 │       ├── __init__.py        # MQTT package initialization
 │       ├── handler.py         # MQTT connection and publishing
 │       └── commands.py        # MQTT command processing
-├── examples/                  # Utility scripts
-│   └── debug_csi.py           # CSI data debug/diagnostic tool
 ├── config_local.py            # Local config override (gitignored)
 ├── config_local.py.example    # Configuration template
 ├── deploy.sh                  # Deployment script
@@ -196,15 +189,9 @@ micro-espectre/
 ### Segmentation Parameters (config.py)
 
 ```python
-SEG_WINDOW_SIZE = 30      # Moving variance window (3-50 packets)
+SEG_WINDOW_SIZE = 100      # Moving variance window (3-50 packets)
                           # Larger = smoother, slower response
                           # Smaller = faster response, more noise
-
-SEG_MIN_LENGTH = 10       # Min motion segment length (5-100 packets)
-                          # Filters out very short movements
-
-SEG_MAX_LENGTH = 60       # Max motion segment length (10-200 packets)
-                          # Splits long continuous motion into segments
 
 SEG_THRESHOLD = 3.0       # Base threshold 
                           # Lower values = more sensitive to motion
@@ -227,6 +214,7 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
   "threshold": 3.0,              // Current threshold
   "state": "idle",               // "idle" or "motion"
   "packets_processed": 42,       // Packets since last publish
+  "packets_dropped": 0,          // Packets dropped since last publish
   "timestamp": 1700000000        // Unix timestamp
 }
 ```
@@ -236,7 +224,7 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
 Micro-ESPectre maintains **full backward compatibility** with ESPectre's MQTT command interface. Every MQTT commands are supported:
 
 - System monitoring: `info`, `stats`
-- Segmentation tuning: `segmentation_threshold`, `segmentation_window_size`, `segmentation_min_length`, `segmentation_max_length`
+- Segmentation tuning: `segmentation_threshold`, `segmentation_window_size`
 - Configuration: `subcarrier_selection`, `traffic_generator_rate`, `smart_publishing`
 - Maintenance: `factory_reset`
 

@@ -22,23 +22,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h>
-
-// Maximum buffer size for turbulence window (fixed allocation)
-#define SEGMENTATION_MAX_WINDOW_SIZE 50
-
-// Parameter limits for validation
-#define SEGMENTATION_WINDOW_SIZE_MIN 3
-#define SEGMENTATION_MIN_LENGTH_MIN 5
-#define SEGMENTATION_MIN_LENGTH_MAX 100
-#define SEGMENTATION_MAX_LENGTH_MIN 10
-#define SEGMENTATION_MAX_LENGTH_MAX 200
-
-// Default configuration parameters (optimized from testing)
-#define SEGMENTATION_DEFAULT_WINDOW_SIZE 30
-#define SEGMENTATION_DEFAULT_MIN_LENGTH 10
-#define SEGMENTATION_DEFAULT_MAX_LENGTH 60
-#define SEGMENTATION_DEFAULT_THRESHOLD 3.0f
+#include "espectre.h"
 
 // Segmentation state
 typedef enum {
@@ -48,8 +32,9 @@ typedef enum {
 
 // Main segmentation context
 typedef struct {
-    // Turbulence circular buffer (fixed size, use first window_size elements)
-    float turbulence_buffer[SEGMENTATION_MAX_WINDOW_SIZE];
+    // Turbulence circular buffer (allocated at max size to support runtime window_size changes)
+    // Only the first window_size elements are used (window_size can be 10-200)
+    float turbulence_buffer[SEGMENTATION_WINDOW_SIZE_MAX];
     uint16_t buffer_index;
     uint16_t buffer_count;
     
@@ -58,14 +43,10 @@ typedef struct {
     
     // Configurable parameters
     uint16_t window_size;        // Moving variance window size (packets)
-    uint16_t min_length;         // Minimum segment length (packets)
-    uint16_t max_length;         // Maximum segment length (packets)
     float threshold;             // Motion detection threshold value
     
     // State machine
     segmentation_state_t state;
-    uint32_t motion_start_index;
-    uint16_t motion_length;
     uint32_t packet_index;         // Global packet counter
     
     // Statistics
@@ -84,28 +65,11 @@ void segmentation_init(segmentation_context_t *ctx);
  * Set window size for moving variance
  * 
  * @param ctx Segmentation context
- * @param window_size New window size (3 - 50 packets)
+ * @param window_size New window size (10 - 200 packets)
  * @return true if value is valid and was set
  */
 bool segmentation_set_window_size(segmentation_context_t *ctx, uint16_t window_size);
 
-/**
- * Set minimum segment length
- * 
- * @param ctx Segmentation context
- * @param min_length New minimum length (5 - 100 packets)
- * @return true if value is valid and was set
- */
-bool segmentation_set_min_length(segmentation_context_t *ctx, uint16_t min_length);
-
-/**
- * Set maximum segment length
- * 
- * @param ctx Segmentation context
- * @param max_length New maximum length (10 - 200 packets, 0 = no limit)
- * @return true if value is valid and was set
- */
-bool segmentation_set_max_length(segmentation_context_t *ctx, uint16_t max_length);
 
 /**
  * Set threshold directly
@@ -125,29 +89,12 @@ bool segmentation_set_threshold(segmentation_context_t *ctx, float threshold);
 uint16_t segmentation_get_window_size(const segmentation_context_t *ctx);
 
 /**
- * Get current minimum segment length
- * 
- * @param ctx Segmentation context
- * @return Current minimum length
- */
-uint16_t segmentation_get_min_length(const segmentation_context_t *ctx);
-
-/**
- * Get current maximum segment length
- * 
- * @param ctx Segmentation context
- * @return Current maximum length (0 = no limit)
- */
-uint16_t segmentation_get_max_length(const segmentation_context_t *ctx);
-
-/**
  * Add turbulence value to segmentation
  * 
  * @param ctx Segmentation context
  * @param turbulence Spatial turbulence value
- * @return true if a new segment was completed
  */
-bool segmentation_add_turbulence(segmentation_context_t *ctx, float turbulence);
+void segmentation_add_turbulence(segmentation_context_t *ctx, float turbulence);
 
 /**
  * Get current segmentation state

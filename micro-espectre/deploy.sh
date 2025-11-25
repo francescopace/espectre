@@ -1,10 +1,9 @@
 #!/bin/bash
 # Micro-ESPectre Deployment Script
 # 
-# Usage: ./deploy.sh [port] [--run|--debug]
+# Usage: ./deploy.sh [port] [--run]
 # Example: ./deploy.sh /dev/cu.usbmodem14201
 #          ./deploy.sh /dev/cu.usbmodem14201 --run
-#          ./deploy.sh /dev/cu.usbmodem14201 --debug
 #
 # Author: Francesco Pace <francesco.pace@gmail.com>
 # License: GPLv3
@@ -14,15 +13,11 @@ set -e
 # Parse arguments
 PORT="/dev/cu.usbmodem*"
 RUN_AFTER_DEPLOY=false
-RUN_DEBUG=false
 
 for arg in "$@"; do
     case $arg in
         --run)
             RUN_AFTER_DEPLOY=true
-            ;;
-        --debug)
-            RUN_DEBUG=true
             ;;
         *)
             PORT="$arg"
@@ -93,21 +88,12 @@ echo "   ✅ src/mqtt/commands.py"
 mpremote connect "$PORT" cp config_local.py : || { echo "❌ Failed to upload config_local.py"; exit 1; }
 echo "   ✅ config_local.py"
 
-# Upload examples
-mpremote connect "$PORT" mkdir :examples || true
-mpremote connect "$PORT" cp examples/debug_csi.py :examples/ || { echo "❌ Failed to upload examples/debug_csi.py"; exit 1; }
-echo "   ✅ examples/debug_csi.py"
-
 echo ""
 echo "✅ Deployment complete!"
 echo ""
 
-# Run application or debug script based on flags
-if [ "$RUN_DEBUG" = true ]; then
-    echo "🔍 Starting debug script..."
-    echo ""
-    mpremote connect "$PORT" run examples/debug_csi.py
-elif [ "$RUN_AFTER_DEPLOY" = true ]; then
+# Run application based on flags
+if [ "$RUN_AFTER_DEPLOY" = true ]; then
     echo "🚀 Starting application..."
     echo ""
     mpremote connect "$PORT" run src/main.py
@@ -115,12 +101,8 @@ else
     echo "To run the application:"
     echo "  mpremote connect $PORT run src/main.py"
     echo ""
-    echo "To run the debug script:"
-    echo "  mpremote connect $PORT run examples/debug_csi.py"
-    echo ""
-    echo "Or with auto-run on next deployment:"
+    echo "Or auto-run on next deployment:"
     echo "  ./deploy.sh $PORT --run        # Run src/main.py"
-    echo "  ./deploy.sh $PORT --debug      # Run examples/debug_csi.py"
     echo ""
     echo "Or connect to REPL:"
     echo "  mpremote connect $PORT"

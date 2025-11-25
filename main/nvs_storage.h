@@ -19,7 +19,7 @@
 #define NVS_NAMESPACE_CONFIG      "espectre_cfg"
 
 // Versioning for future compatibility
-#define NVS_CONFIG_VERSION 7  // Incremented: added subcarrier selection
+#define NVS_CONFIG_VERSION 10  // Incremented: removed min_length parameter
 
 // Control parameters structure for NVS storage
 typedef struct {
@@ -44,7 +44,8 @@ typedef struct {
     uint32_t traffic_generator_rate;  // packets/sec (0=disabled)
     
     // Segmentation parameters
-    float segmentation_threshold;  // Adaptive threshold for MVS (0.5-10.0)
+    float segmentation_threshold;       // Adaptive threshold for MVS (0.5-10.0)
+    uint16_t segmentation_window_size;  // Moving variance window (10-200 packets)
     
     // Subcarrier selection
     uint8_t selected_subcarriers[64];  // Array of selected subcarrier indices (0-63)

@@ -8,6 +8,7 @@ License: GPLv3
 import network
 import time
 import _thread
+import gc
 from src.segmentation import SegmentationContext
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
@@ -40,51 +41,87 @@ class GlobalState:
 g_state = GlobalState()
 
 
-def connect_wifi():
-    """Connect to WiFi"""
+def connect_wifi(max_retries=3):
+    """Connect to WiFi with retry mechanism"""
     
-    # Initialize WiFi in station mode
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
+    for attempt in range(max_retries):
+        wlan = None
+        try:
+            print(f"Connecting to WiFi (attempt {attempt + 1}/{max_retries})...")
+            
+            gc.collect()
+            wlan = network.WLAN(network.STA_IF)
+            
+            # Initialize WiFi on first attempt
+            if attempt == 0:
+                if wlan.active():
+                    wlan.active(False)
+                    time.sleep(1)
+                wlan.active(True)
+                time.sleep(5)  # Wait for hardware initialization
+            else:
+                if not wlan.active():
+                    wlan.active(True)
+                    time.sleep(2)
+            
+            if not wlan.active():
+                raise Exception("WiFi failed to activate")
+            
+            # Disable power save for CSI stability
+            wlan.config(pm=wlan.PM_NONE)
+            
+            # Disconnect if already connected
+            if wlan.isconnected():
+                wlan.disconnect()
+                time.sleep(1)
+            
+            # Scan for networks (helps MicroPython find the network)
+            networks = wlan.scan()
+            found = any(net[0].decode('utf-8') if isinstance(net[0], bytes) else net[0] == WIFI_SSID 
+                       for net in networks)
+            
+            if not found:
+                raise Exception(f"Network '{WIFI_SSID}' not found")
+            
+            # Wait for WiFi to stabilize after scan
+            time.sleep(3)
+            
+            # Connect
+            wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+            
+            # Wait for connection
+            timeout = 30
+            while not wlan.isconnected() and timeout > 0:
+                time.sleep(1)
+                timeout -= 1
+            
+            if wlan.isconnected():
+                print(f"✅ WiFi connected - IP: {wlan.ifconfig()[0]}")
+                time.sleep(3)  # Stabilization
+                return wlan
+            else:
+                raise Exception("Connection timeout")
+                
+        except Exception as e:
+            print(f"❌ Attempt {attempt + 1} failed: {e}")
+            
+            if wlan:
+                try:
+                    wlan.disconnect()
+                except:
+                    pass
+            
+            if attempt < max_retries - 1:
+                wait_time = min(5, 2 ** attempt)
+                time.sleep(wait_time)
+                gc.collect()
     
-    print("WiFi initialized")
-    mac = wlan.config('mac')
-    print("MAC address: " + ':'.join('%02x' % b for b in mac))
-    
-    # Configure WiFi BEFORE connecting (critical for ESP32-C6 CSI)
-    print("Configuring WiFi for CSI...")
-    wlan.config(pm=wlan.PM_NONE)  # Disable power save
-    # Note: protocol and bandwidth are set automatically by MicroPython
-    
-    time.sleep(1)  # Small delay to ensure settings take effect
-    
-    # Connect to WiFi (REQUIRED for CSI)
-    print("Connecting to WiFi...")
-    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-
-    print("Checking WiFi connection...")
-    
-    # Wait for connection
-    timeout = 10
-    while not wlan.isconnected() and timeout > 0:
-        time.sleep(0.5)
-        timeout -= 0.5
-    
-    if not wlan.isconnected():
-        raise Exception("Failed to connect to WiFi! CSI requires WiFi connection to work.")
-    
-    print("WiFi connected to: " + WIFI_SSID)
-    
-    # Wait for WiFi to be fully ready (critical for ESP32-C6)
-    print("Waiting for WiFi to stabilize...")
-    time.sleep(2)
-    
-    return wlan
+    raise Exception(f"Failed to connect to WiFi after {max_retries} attempts")
 
 
 def format_progress_bar(score, threshold, width=20):
     """Format progress bar for console output"""
-    threshold_pos = 15  # 75% position
+    threshold_pos = 15
     filled = int(score * threshold_pos)
     filled = max(0, min(filled, width))
     
@@ -103,66 +140,53 @@ def format_progress_bar(score, threshold, width=20):
 
 
 def mqtt_publish_task(mqtt_handler, wlan):
-    """MQTT publish task"""
+    """MQTT publish task (runs in separate thread with increased stack)"""
     last_packets_processed = 0
     last_dropped = 0
     
     while True:
         try:
-            time.sleep(1.0)  # Publish interval: 1 second
+            # Periodic garbage collection to prevent memory fragmentation
+            gc.collect()
             
+            time.sleep(1.0)
             current_time = time.ticks_ms()
             
-            # Check for incoming MQTT commands
             mqtt_handler.check_messages()
             
-            # Read global state with lock
             with g_state.lock:
                 current_state = g_state.current_state
                 current_variance = g_state.current_variance
                 current_threshold = g_state.current_threshold
                 packets_processed = g_state.packets_processed
             
-            # Calculate packet delta (packets processed since last cycle)
             packet_delta = packets_processed - last_packets_processed
             last_packets_processed = packets_processed
             
-            # Update packet count in command handler
-            mqtt_handler.update_packet_count(packets_processed)
-            
-            # Check for dropped CSI packets
-            dropped = wlan.csi.dropped()
+            dropped = wlan.csi_dropped()
             dropped_delta = dropped - last_dropped
             last_dropped = dropped
             
-            # Logging
-            state_str = 'MOTION' if current_state == 1 else 'IDLE'
+            mqtt_handler.update_packet_count(packets_processed, dropped)
             
-            # Calculate progress (variance / threshold)
+            state_str = 'MOTION' if current_state == 1 else 'IDLE'
             progress = current_variance / current_threshold if current_threshold > 0 else 0
             progress_bar = format_progress_bar(progress, 1.0)
             
-            # Log with dropped packets if any
-            if dropped_delta > 0:
-                print(f"📊 {progress_bar} | pkts:{packet_delta} dropped:{dropped_delta} "
-                      f"mvmt:{current_variance:.4f} thr:{current_threshold:.4f} | "
-                      f"{state_str}")
-            else:
-                print(f"📊 {progress_bar} | pkts:{packet_delta} "
-                      f"mvmt:{current_variance:.4f} thr:{current_threshold:.4f} | "
-                      f"{state_str}")
+            print(f"📊 {progress_bar} | pkts:{packet_delta} drop:{dropped_delta} | "
+                  f"mvmt:{current_variance:.4f} thr:{current_threshold:.4f} | {state_str}")
             
-            # Publish to MQTT using handler
             mqtt_handler.publish_state(
                 current_variance,
                 current_state,
                 current_threshold,
                 packet_delta,
+                dropped_delta,
                 current_time
             )
             
         except Exception as e:
-            print(f"MQTT publish task error: {e}")
+            print(f"MQTT error: {e}")
             time.sleep(1)
 
 
@@ -173,51 +197,34 @@ def main():
     # Connect to WiFi
     wlan = connect_wifi()
     
-    # Configure CSI
-    print("Configuring CSI...")
-    wlan.csi.config(buffer_size=config.CSI_BUFFER_SIZE)
-    
-    # Enable CSI
-    print("Enabling CSI...")
-    wlan.csi.enable()
+    # Configure and enable CSI
+    wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
     
     # Initialize segmentation
-    print('Initializing segmentation...')
     seg = SegmentationContext(
         window_size=config.SEG_WINDOW_SIZE,
-        min_length=config.SEG_MIN_LENGTH,
-        max_length=config.SEG_MAX_LENGTH,
         threshold=config.SEG_THRESHOLD
     )
     
-    # Load saved configuration if exists
-    print('Loading saved configuration...')
+    # Load saved configuration
     nvs = NVSStorage()
     saved_config = nvs.load_and_apply(seg, config)
     
-    # Initialize traffic generator
-    print('Initializing traffic generator...')
+    # Initialize and start traffic generator
     traffic_gen = TrafficGenerator()
-    
-    # Determine traffic generator rate (saved config or default)
     traffic_rate = config.TRAFFIC_GENERATOR_RATE
     if saved_config and "traffic_generator" in saved_config:
         traffic_rate = saved_config["traffic_generator"].get("rate", traffic_rate)
     
-    # Start traffic generator if configured
     if traffic_rate > 0:
         if traffic_gen.start(traffic_rate):
             print(f'✅ Traffic generator started ({traffic_rate} pps)')
-        else:
-            print('⚠️  Failed to start traffic generator')
     
-    # Initialize MQTT handler with command support
-    print('Initializing MQTT handler...')
+    # Initialize MQTT
     mqtt_handler = MQTTHandler(config, seg, traffic_gen)
-    mqtt = mqtt_handler.connect()
+    mqtt_handler.connect()
     
-    # Start MQTT publish task in separate thread (like C version)
-    print("Starting MQTT publish task...")
+    # Start MQTT publish task
     _thread.start_new_thread(mqtt_publish_task, (mqtt_handler, wlan))
     
     print('')
@@ -235,48 +242,50 @@ def main():
     print('╚═══════════════════════════════════════════════════════════╝')
     print('')
     
+    # Main CSI processing loop
+    packet_counter = 0
     try:
         while True:
-            # Read CSI frame
-            frame = wlan.csi.read()
+            frame = wlan.csi_read()
             
             if frame:
-                # Calculate turbulence and update segmentation
-                turbulence = seg.calculate_spatial_turbulence(frame['data'], config.SELECTED_SUBCARRIERS)
-                segment_completed = seg.add_turbulence(turbulence)
-                
-                # Get current metrics
+                # ESP32-C6 provides 512 bytes but we use only first 128 bytes
+                # This avoids corrupted data in the extended buffer
+                csi_data = frame['data'][:128]
+                turbulence = seg.calculate_spatial_turbulence(csi_data, config.SELECTED_SUBCARRIERS)
+                seg.add_turbulence(turbulence)
                 metrics = seg.get_metrics()
                 
-                # Update global state with lock
                 with g_state.lock:
                     g_state.packets_processed += 1
                     g_state.current_state = metrics['state']
                     g_state.current_variance = metrics['moving_variance']
                     g_state.current_threshold = metrics['threshold']
-            
+                
+                # Periodic garbage collection in main loop (every 100 packets)
+                packet_counter += 1
+                if packet_counter >= 100:
+                    gc.collect()
+                    packet_counter = 0
             else:
-                # No frame available, small delay
-                time.sleep_ms(10)
+                # Minimal sleep to yield to other threads
+                time.sleep_us(100)
     
     except KeyboardInterrupt:
         print('\n\nStopping...')
     
     finally:
-        # Cleanup
-        wlan.csi.disable()
+        wlan.csi_disable()
         mqtt_handler.disconnect()
         
-        # Stop traffic generator if running
         if traffic_gen.is_running():
             traffic_gen.stop()
         
-        # Print statistics
         stats = mqtt_handler.get_stats()
         print('\n' + '='*60)
         print('Statistics:')
         print(f'  Packets processed: {g_state.packets_processed}')
-        print(f'  Dropped packets: {wlan.csi.dropped()}')
+        print(f'  Dropped packets: {wlan.csi_dropped()}')
         print(f'  MQTT published: {stats["published"]}, skipped: {stats["skipped"]}')
         if traffic_gen.get_packet_count() > 0:
             print(f'  Traffic generated: {traffic_gen.get_packet_count()} packets')

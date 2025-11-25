@@ -112,7 +112,7 @@ class MQTTHandler:
         return False
     
     def publish_state(self, current_variance, current_state, current_threshold, 
-                     packet_delta, current_time):
+                     packet_delta, dropped_delta, current_time):
         """
         Publish current state to MQTT
         
@@ -121,6 +121,7 @@ class MQTTHandler:
             current_state: Current state (0=IDLE, 1=MOTION)
             current_threshold: Current threshold
             packet_delta: Packets processed since last publish
+            dropped_delta: Packets dropped since last publish
             current_time: Current time in milliseconds
         """
         if self.should_publish(current_variance, current_state, current_time):
@@ -132,6 +133,7 @@ class MQTTHandler:
                 'threshold': round(current_threshold, 4),
                 'state': state_str,
                 'packets_processed': packet_delta,
+                'packets_dropped': dropped_delta,
                 'timestamp': time.time()
             }
             
@@ -148,10 +150,10 @@ class MQTTHandler:
         self.last_variance = current_variance
         self.last_state = current_state
     
-    def update_packet_count(self, count):
-        """Update packets processed counter in command handler"""
+    def update_packet_count(self, count, dropped=None):
+        """Update packets processed and dropped counters in command handler"""
         if self.cmd_handler:
-            self.cmd_handler.update_packet_count(count)
+            self.cmd_handler.update_packet_count(count, dropped)
     
     def disconnect(self):
         """Disconnect from MQTT broker"""

@@ -18,11 +18,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-
-// Wavelet configuration constants
-#define WAVELET_DB4_LENGTH 8        // Daubechies db4 filter length
-#define WAVELET_MAX_LEVEL 3         // Maximum decomposition level
-#define WAVELET_BUFFER_SIZE 32      // Circular buffer for streaming (power of 2)
+#include "espectre.h"
 
 // Thresholding methods
 typedef enum {

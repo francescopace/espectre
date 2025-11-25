@@ -18,14 +18,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "wavelet.h"
-
-// Filter configuration constants
-#define BUTTERWORTH_ORDER 4
-#define BUTTERWORTH_CUTOFF 8.0f  // Hz
-#define SAVGOL_WINDOW_SIZE 5     // must be odd
-#define SAVGOL_POLY_ORDER 2
-#define HAMPEL_DEFAULT_THRESHOLD 2.0f
-#define MAD_SCALE_FACTOR 1.4826f
+#include "espectre.h"
 
 // Butterworth filter state
 typedef struct {

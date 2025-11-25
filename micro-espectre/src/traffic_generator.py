@@ -42,20 +42,26 @@ class TrafficGenerator:
             return None
     
     def _dns_task(self): 
-        """Background task that sends DNS queries"""
+        """Background task that sends DNS queries (runs with increased stack)"""
+        import gc
+        
         interval_ms = 1000 // self.rate_pps if self.rate_pps > 0 else 1000
         
         # Use DNS queries to generate bidirectional traffic
         # DNS always generates a reply, which triggers CSI
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.sock.settimeout(0.05)  # Very short timeout
+            # Set socket to non-blocking mode to avoid delays
+            self.sock.setblocking(False)
         except Exception as e:
             print(f"Failed to create socket: {e}")
             self.running = False
             return
         
-        print(f"📡 Traffic generator task started (DNS queries to {self.gateway_ip}, rate: {self.rate_pps} pps)")
+        print(f"📡 Traffic generator task started (DNS queries to {self.gateway_ip}, rate: {self.rate_pps} pps, interval: {interval_ms} ms)")
+        
+        # Periodic garbage collection counter
+        gc_counter = 0
         
         # Simple DNS query for google.com (type A)
         # This is a minimal DNS query that will get a response
@@ -74,36 +80,48 @@ class TrafficGenerator:
             0x00, 0x01   # Class: IN
         ])
         
-        last_time = time.ticks_ms()
-        
         while self.running:
             try:
-                current_time = time.ticks_ms()
+                # Periodic garbage collection (every 50 packets to reduce overhead)
+                gc_counter += 1
+                if gc_counter >= 50:
+                    gc.collect()
+                    gc_counter = 0
+                
+                loop_start = time.ticks_ms()
                 
                 # Send DNS query to gateway (port 53)
                 # Gateway will forward and reply, generating incoming traffic → CSI
-                self.sock.sendto(dns_query, (self.gateway_ip, 53))
-                
-                # Try to receive DNS reply (non-blocking)
-                # The reply generates CSI packets!
                 try:
-                    reply, addr = self.sock.recvfrom(512)
-                    # Reply received - this generates CSI!
-                except OSError:
-                    # Timeout - that's ok, query was sent
-                    pass
+                    self.sock.sendto(dns_query, (self.gateway_ip, 53))
+                    
+                    # Try to receive DNS reply (non-blocking, will raise if no data)
+                    # The reply generates CSI packets!
+                    try:
+                        reply, addr = self.sock.recvfrom(512)
+                    except OSError:
+                        # No data available - that's ok, query was sent
+                        pass
+                    
+                    with self.thread_lock:
+                        self.packet_count += 1
+                        
+                except OSError as e:
+                    # Socket error (e.g., network unavailable)
+                    with self.thread_lock:
+                        self.error_count += 1
+                    if self.error_count % 10 == 1:
+                        print(f"Socket error: {e}")
                 
-                with self.thread_lock:
-                    self.packet_count += 1
+                # Calculate how long the loop took and sleep for the remainder
+                loop_time = time.ticks_diff(time.ticks_ms(), loop_start)
+                sleep_time = interval_ms - loop_time
                 
-                # Calculate sleep time to maintain rate
-                elapsed = time.ticks_diff(current_time, last_time)
-                sleep_time = interval_ms - elapsed
-                
-                if sleep_time > 0:
+                # Sleep for the target interval (minimum 1ms to yield to other threads)
+                if sleep_time > 1:
                     time.sleep_ms(sleep_time)
-                
-                last_time = time.ticks_ms()
+                else:
+                    time.sleep_ms(1)
                 
             except Exception as e:
                 with self.thread_lock:

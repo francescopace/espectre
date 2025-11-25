@@ -27,25 +27,17 @@ void segmentation_init(segmentation_context_t *ctx) {
     
     // Initialize with platform-specific defaults
     ctx->window_size = SEGMENTATION_DEFAULT_WINDOW_SIZE;
-    ctx->min_length = SEGMENTATION_DEFAULT_MIN_LENGTH;
-    ctx->max_length = SEGMENTATION_DEFAULT_MAX_LENGTH;
     ctx->threshold = SEGMENTATION_DEFAULT_THRESHOLD;
     ctx->state = SEG_STATE_IDLE;
     
-    ESP_LOGI(TAG, "Segmentation initialized (window=%d, min=%d, max=%d, threshold=%.2f)",
-             ctx->window_size, ctx->min_length, ctx->max_length, ctx->threshold);
+    ESP_LOGI(TAG, "Segmentation initialized (window=%d, threshold=%.2f)",
+             ctx->window_size, ctx->threshold);
 }
 
-// Set window size with validation
+// Set window size (no validation - caller must validate)
 bool segmentation_set_window_size(segmentation_context_t *ctx, uint16_t window_size) {
     if (!ctx) {
         ESP_LOGE(TAG, "segmentation_set_window_size: NULL context");
-        return false;
-    }
-    
-    if (window_size < SEGMENTATION_WINDOW_SIZE_MIN || window_size > SEGMENTATION_MAX_WINDOW_SIZE) {
-        ESP_LOGE(TAG, "Invalid window size: %d (must be %d-%d)", 
-                 window_size, SEGMENTATION_WINDOW_SIZE_MIN, SEGMENTATION_MAX_WINDOW_SIZE);
         return false;
     }
     
@@ -63,52 +55,11 @@ bool segmentation_set_window_size(segmentation_context_t *ctx, uint16_t window_s
     return true;
 }
 
-// Set minimum segment length with validation
-bool segmentation_set_min_length(segmentation_context_t *ctx, uint16_t min_length) {
-    if (!ctx) {
-        ESP_LOGE(TAG, "segmentation_set_min_length: NULL context");
-        return false;
-    }
-    
-    if (min_length < SEGMENTATION_MIN_LENGTH_MIN || min_length > SEGMENTATION_MIN_LENGTH_MAX) {
-        ESP_LOGE(TAG, "Invalid min length: %d (must be %d-%d)", 
-                 min_length, SEGMENTATION_MIN_LENGTH_MIN, SEGMENTATION_MIN_LENGTH_MAX);
-        return false;
-    }
-    
-    ctx->min_length = min_length;
-    ESP_LOGI(TAG, "Min segment length updated: %d", min_length);
-    return true;
-}
 
-// Set maximum segment length with validation
-bool segmentation_set_max_length(segmentation_context_t *ctx, uint16_t max_length) {
-    if (!ctx) {
-        ESP_LOGE(TAG, "segmentation_set_max_length: NULL context");
-        return false;
-    }
-    
-    // 0 means no limit
-    if (max_length != 0 && (max_length < SEGMENTATION_MAX_LENGTH_MIN || max_length > SEGMENTATION_MAX_LENGTH_MAX)) {
-        ESP_LOGE(TAG, "Invalid max length: %d (must be 0 or %d-%d)", 
-                 max_length, SEGMENTATION_MAX_LENGTH_MIN, SEGMENTATION_MAX_LENGTH_MAX);
-        return false;
-    }
-    
-    ctx->max_length = max_length;
-    ESP_LOGI(TAG, "Max segment length updated: %d%s", max_length, max_length == 0 ? " (no limit)" : "");
-    return true;
-}
-
-// Set threshold directly
+// Set threshold (no validation - caller must validate)
 bool segmentation_set_threshold(segmentation_context_t *ctx, float threshold) {
     if (!ctx) {
         ESP_LOGE(TAG, "segmentation_set_threshold: NULL context");
-        return false;
-    }
-    
-    if (threshold <= 0.0f || threshold > 10.0f) {
-        ESP_LOGE(TAG, "Invalid threshold: %.2f (must be 0.0-10.0)", threshold);
         return false;
     }
     
@@ -122,13 +73,6 @@ uint16_t segmentation_get_window_size(const segmentation_context_t *ctx) {
     return ctx ? ctx->window_size : 0;
 }
 
-uint16_t segmentation_get_min_length(const segmentation_context_t *ctx) {
-    return ctx ? ctx->min_length : 0;
-}
-
-uint16_t segmentation_get_max_length(const segmentation_context_t *ctx) {
-    return ctx ? ctx->max_length : 0;
-}
 
 // Calculate moving variance from turbulence buffer
 static float calculate_moving_variance(const segmentation_context_t *ctx) {
@@ -156,13 +100,11 @@ static float calculate_moving_variance(const segmentation_context_t *ctx) {
 }
 
 // Add turbulence value and update segmentation
-bool segmentation_add_turbulence(segmentation_context_t *ctx, float turbulence) {
+void segmentation_add_turbulence(segmentation_context_t *ctx, float turbulence) {
     if (!ctx) {
         ESP_LOGE(TAG, "segmentation_add_turbulence: NULL context");
-        return false;
+        return;
     }
-    
-    bool segment_completed = false;
     
     // Add to circular buffer
     ctx->turbulence_buffer[ctx->buffer_index] = turbulence;
@@ -174,50 +116,25 @@ bool segmentation_add_turbulence(segmentation_context_t *ctx, float turbulence) 
     // Calculate moving variance
     ctx->current_moving_variance = calculate_moving_variance(ctx);
     
-    // State machine for segmentation
+    // State machine for segmentation (simplified)
     if (ctx->state == SEG_STATE_IDLE) {
         // IDLE state: looking for motion start
         if (ctx->current_moving_variance > ctx->threshold) {
             // Motion detected - transition to MOTION state
             ctx->state = SEG_STATE_MOTION;
-            ctx->motion_start_index = ctx->packet_index;
-            ctx->motion_length = 1;
-            
-            ESP_LOGD(TAG, "Motion started at packet %lu", (unsigned long)ctx->motion_start_index);
+            ESP_LOGD(TAG, "Motion started at packet %lu", (unsigned long)ctx->packet_index);
         }
     } else {
-        // MOTION state: accumulating motion data
-        ctx->motion_length++;
-        
-        // Check for motion end or max length reached
-        bool motion_ended = (ctx->current_moving_variance < ctx->threshold);
-        bool max_length_reached = (ctx->max_length > 0 && ctx->motion_length >= ctx->max_length);
-        
-        if (motion_ended || max_length_reached) {
-            // Validate segment length
-            if (ctx->motion_length >= ctx->min_length) {
-                // Valid segment completed
-                segment_completed = true;
-                
-                ESP_LOGD(TAG, "Motion segment completed: start=%lu, length=%d (%.2fs)",
-                         (unsigned long)ctx->motion_start_index,
-                         ctx->motion_length,
-                         ctx->motion_length / 20.0f);  // Assuming 20 pps
-            } else {
-                ESP_LOGD(TAG, "Segment too short (%d < %d) - discarded",
-                         ctx->motion_length, ctx->min_length);
-            }
-            
-            // Return to IDLE state
+        // MOTION state: check for motion end
+        if (ctx->current_moving_variance < ctx->threshold) {
+            // Motion ended - return to IDLE state
             ctx->state = SEG_STATE_IDLE;
-            ctx->motion_length = 0;
+            ESP_LOGD(TAG, "Motion ended at packet %lu", (unsigned long)ctx->packet_index);
         }
     }
     
     ctx->packet_index++;
     ctx->total_packets_processed++;
-    
-    return segment_completed;
 }
 
 // Get current state
@@ -225,14 +142,12 @@ segmentation_state_t segmentation_get_state(const segmentation_context_t *ctx) {
     return ctx ? ctx->state : SEG_STATE_IDLE;
 }
 
-// Reset segmentation context
+// Reset segmentation context (unit test only)
 void segmentation_reset(segmentation_context_t *ctx) {
     if (!ctx) return;
     
     // Reset state machine ONLY (preserve buffer and parameters)
     ctx->state = SEG_STATE_IDLE;
-    ctx->motion_start_index = 0;
-    ctx->motion_length = 0;
     ctx->packet_index = 0;
     ctx->total_packets_processed = 0;
     
@@ -242,7 +157,7 @@ void segmentation_reset(segmentation_context_t *ctx) {
     // - ctx->buffer_count (should stay at window_size after warm-up)
     // - ctx->current_moving_variance (will be recalculated on next packet)
     // - ctx->threshold (configured threshold)
-    // - ctx->window_size, min_length, max_length (configured parameters)
+    // - ctx->window_size (configured parameter)
     
     ESP_LOGD(TAG, "Segmentation reset (buffer and parameters preserved)");
 }

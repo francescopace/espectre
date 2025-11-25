@@ -34,6 +34,7 @@
 #include "traffic_generator.h"
 #include "segmentation.h"
 #include "esp_netif.h"
+#include "espectre.h"
 
 // Configuration - can be overridden via menuconfig
 #define WIFI_SSID           CONFIG_WIFI_SSID
@@ -42,16 +43,6 @@
 #define MQTT_TOPIC          CONFIG_MQTT_TOPIC
 #define MQTT_USERNAME       CONFIG_MQTT_USERNAME
 #define MQTT_PASSWORD       CONFIG_MQTT_PASSWORD
-
-// Logging intervals
-#define LOG_CSI_VALUES_INTERVAL 1
-#define STATS_LOG_INTERVAL  100
-
-// Publishing configuration
-#define PUBLISH_INTERVAL    1.0f
-
-// WiFi promiscuous mode (false = receive CSI only from connected AP, true = all WiFi packets)
-#define PROMISCUOUS_MODE    false
 
 // Array of all CSI feature indices (0-9) for feature extraction
 static const uint8_t ALL_CSI_FEATURES[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
@@ -65,7 +56,6 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 #define WIFI_CONNECTED_BIT BIT0
 
 static struct {
-    uint32_t packets_received;
     uint32_t packets_processed;
     _Atomic uint32_t packets_dropped;
     
@@ -185,7 +175,6 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
     
     // Protect g_state modifications with mutex (50ms timeout)
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-        g_state.packets_received++;
         
         // Extract features if enabled (always, regardless of state)
         if (g_state.config.features_enabled) {
@@ -197,15 +186,10 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         float turbulence = csi_calculate_spatial_turbulence(csi_data, csi_len,
                                                             g_state.config.selected_subcarriers,
                                                             g_state.config.num_selected_subcarriers);
-        bool segment_completed = segmentation_add_turbulence(&g_state.segmentation, turbulence);
+        segmentation_add_turbulence(&g_state.segmentation, turbulence);
         
         // Update segmentation state
         g_state.segmentation_state = segmentation_get_state(&g_state.segmentation);
-        
-        if (segment_completed) {
-            // A motion segment was just completed
-            ESP_LOGD(TAG, "📍 Motion segment completed");
-        }
         
         g_state.packets_processed++;
         
@@ -331,13 +315,12 @@ static void mqtt_publish_task(void *pvParameters) {
         
         // Read g_state values with mutex protection
         segmentation_state_t seg_state;
-        uint32_t packets_received, packets_processed;
+        uint32_t packets_processed;
         csi_features_t features;
         bool has_features = false;
         
         if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             seg_state = g_state.segmentation_state;
-            packets_received = g_state.packets_received;
             packets_processed = g_state.packets_processed;
             
             // Copy features if they were extracted
@@ -354,8 +337,12 @@ static void mqtt_publish_task(void *pvParameters) {
         
         // Calculate packet delta (packets processed since last cycle)
         static uint32_t last_packets_processed = 0;
+        static uint32_t last_packets_dropped = 0;
         uint32_t packet_delta = packets_processed - last_packets_processed;
+        uint32_t packets_dropped_stat = atomic_load(&g_state.packets_dropped);
+        uint32_t dropped_delta = packets_dropped_stat - last_packets_dropped;
         last_packets_processed = packets_processed;
+        last_packets_dropped = packets_dropped_stat;
         
         // CSI logging with progress bar (always enabled)
         int64_t now = get_timestamp_sec();
@@ -375,8 +362,8 @@ static void mqtt_publish_task(void *pvParameters) {
             char progress_bar[256];
             format_progress_bar(progress_bar, sizeof(progress_bar), seg_progress, 1.0f);
             
-            ESP_LOGI(TAG, "📊 %s | pkts:%lu mvmt:%.4f thr:%.4f | %s",
-                     progress_bar, (unsigned long)packet_delta, 
+            ESP_LOGI(TAG, "📊 %s | pkts:%lu drop:%lu | mvmt:%.4f thr:%.4f | %s",
+                     progress_bar, (unsigned long)packet_delta, (unsigned long)dropped_delta,
                      moving_variance, threshold, seg_state_str);
             last_csi_log_time = now;
         }
@@ -394,6 +381,7 @@ static void mqtt_publish_task(void *pvParameters) {
                 .state = seg_state,
                 .timestamp = get_timestamp_sec(),
                 .packets_processed = packet_delta,
+                .packets_dropped = dropped_delta,
                 .has_features = has_features
             };
             
@@ -403,26 +391,6 @@ static void mqtt_publish_task(void *pvParameters) {
             
             mqtt_publish_segmentation(&g_state.mqtt_state, &result, MQTT_TOPIC);
             mqtt_update_publish_state(&g_state.mqtt_state, moving_variance, seg_state, current_time);
-        }
-        
-        // Statistics logging
-        if (packets_received > 0 && packets_received % STATS_LOG_INTERVAL == 0) {
-            float success_rate = ((float)packets_processed / packets_received) * 100.0f;
-            uint32_t packets_dropped_stat = atomic_load(&g_state.packets_dropped);
-            ESP_LOGD(TAG, "Stats: %lu packets received, %lu processed (%.1f%% success), %lu dropped",
-                     (unsigned long)packets_received, (unsigned long)packets_processed, 
-                     success_rate, (unsigned long)packets_dropped_stat);
-            
-            // Only log smart publishing stats if the feature is enabled
-            if (g_state.config.smart_publishing_enabled) {
-                uint32_t published, skipped;
-                mqtt_get_publish_stats(&g_state.mqtt_state, &published, &skipped);
-                if (published + skipped > 0) {
-                    float reduction = (skipped * 100.0f) / (published + skipped);
-                    ESP_LOGD(TAG, "Smart Publishing: %lu published, %lu skipped (%.1f%% reduction)",
-                             (unsigned long)published, (unsigned long)skipped, reduction);
-                }
-            }
         }
     }
 }
@@ -488,8 +456,6 @@ void app_main(void) {
             
             // Apply segmentation parameters from config
             segmentation_set_window_size(&g_state.segmentation, g_state.config.segmentation_window_size);
-            segmentation_set_min_length(&g_state.segmentation, g_state.config.segmentation_min_length);
-            segmentation_set_max_length(&g_state.segmentation, g_state.config.segmentation_max_length);
             
             // Load segmentation threshold from NVS
             segmentation_set_threshold(&g_state.segmentation, nvs_cfg.segmentation_threshold);
@@ -503,11 +469,9 @@ void app_main(void) {
             }
             
             ESP_LOGI(TAG, "💾 Loaded saved configuration from NVS");
-            ESP_LOGI(TAG, "📍 Segmentation: threshold=%.2f, window=%d, min=%d, max=%d",
+            ESP_LOGI(TAG, "📍 Segmentation: threshold=%.2f, window=%d",
                      nvs_cfg.segmentation_threshold,
-                     g_state.config.segmentation_window_size,
-                     g_state.config.segmentation_min_length,
-                     g_state.config.segmentation_max_length);
+                     g_state.config.segmentation_window_size);
         }
     }
     
@@ -612,6 +576,7 @@ void app_main(void) {
     g_mqtt_cmd_context.mqtt_cmd_topic = mqtt_cfg.cmd_topic;
     g_mqtt_cmd_context.mqtt_response_topic = mqtt_cfg.response_topic;
     g_mqtt_cmd_context.system_start_time = &g_system_start_time;
+    g_mqtt_cmd_context.packets_dropped = &g_state.packets_dropped;
     
     // Initialize MQTT commands
     if (mqtt_commands_init(&g_state.mqtt_state, &g_mqtt_cmd_context) != 0) {

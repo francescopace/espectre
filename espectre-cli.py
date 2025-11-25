@@ -77,8 +77,6 @@ class EspectreCLI:
         completer_dict = {
             'segmentation_threshold': None,
             'segmentation_window_size': None,
-            'segmentation_min_length': None,
-            'segmentation_max_length': None,
             'subcarrier_selection': None,
             'features_enable': {'on': None, 'off': None},
             'info': None,
@@ -229,10 +227,6 @@ class EspectreCLI:
                 self.cmd_segmentation_threshold(args)
             elif cmd in ["segmentation_window_size", "sws"]:
                 self.cmd_segmentation_window_size(args)
-            elif cmd in ["segmentation_min_length", "sml"]:
-                self.cmd_segmentation_min_length(args)
-            elif cmd in ["segmentation_max_length", "smxl"]:
-                self.cmd_segmentation_max_length(args)
             elif cmd in ["subcarrier_selection", "scs"]:
                 self.cmd_subcarrier_selection(args)
             elif cmd in ["features_enable", "fe"]:
@@ -300,18 +294,6 @@ class EspectreCLI:
             return
         self.send_command({"cmd": "segmentation_window_size", "value": int(args[0])})
 
-    def cmd_segmentation_min_length(self, args):
-        if not args:
-            print(f"{Fore.RED}Usage: segmentation_min_length <packets>{Style.RESET_ALL}")
-            return
-        self.send_command({"cmd": "segmentation_min_length", "value": int(args[0])})
-
-    def cmd_segmentation_max_length(self, args):
-        if not args:
-            print(f"{Fore.RED}Usage: segmentation_max_length <packets>{Style.RESET_ALL}")
-            return
-        self.send_command({"cmd": "segmentation_max_length", "value": int(args[0])})
-
     def cmd_subcarrier_selection(self, args):
         if not args:
             print(f"{Fore.RED}Usage: subcarrier_selection <comma-separated indices>{Style.RESET_ALL}")
@@ -363,9 +345,7 @@ class EspectreCLI:
 
 <ansiyellow><b>Segmentation Commands:</b></ansiyellow>
   <ansigreen>segmentation_threshold|st</ansigreen> &lt;val&gt;            Set segmentation threshold (0.5-10.0)
-  <ansigreen>segmentation_window_size|sws</ansigreen> &lt;n&gt;           Set moving variance window (3-50 packets)
-  <ansigreen>segmentation_min_length|sml</ansigreen> &lt;n&gt;            Set min segment length (5-100 packets)
-  <ansigreen>segmentation_max_length|smxl</ansigreen> &lt;n&gt;           Set max segment length (10-200, 0=no limit)
+  <ansigreen>segmentation_window_size|sws</ansigreen> &lt;n&gt;           Set moving variance window (10-200 packets)
   <ansigreen>subcarrier_selection|scs</ansigreen> &lt;indices&gt;         Set subcarrier selection (0-63, comma-separated)
 
 <ansiyellow><b>Features Commands:</b></ansiyellow>

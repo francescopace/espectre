@@ -32,6 +32,7 @@ typedef struct {
     const char *mqtt_cmd_topic;
     const char *mqtt_response_topic;
     int64_t *system_start_time;  // Pointer to system start timestamp (for uptime calculation)
+    _Atomic uint32_t *packets_dropped;  // Pointer to atomic packets dropped counter
 } mqtt_cmd_context_t;
 
 /**

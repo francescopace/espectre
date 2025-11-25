@@ -28,7 +28,7 @@ Keep the room empty and still for 1-2 minutes.
 espectre> stats
 ```
 
-Note the typical `movement` values when idle (usually 0.05-0.20).
+Note the typical `moving_variance` values when idle (typically 0.5-2.0).
 
 ### 3. Set Segmentation Threshold
 
@@ -36,11 +36,16 @@ This is the critical parameter for motion detection.
 
 **What it does:** Determines sensitivity for motion detection.
 
+**Default:** 3.0
+
 **Rule of thumb:**
-- If baseline variance is 0.0-4.0 → set threshold to 5.0-6.0
+- Start with default value (3.0) and adjust based on your environment
+- If baseline moving_variance is 0.5-2.0 → threshold 3.0 is good
+- If baseline moving_variance is 2.0-4.0 → increase threshold to 4.0-5.0
+- If baseline moving_variance is >4.0 → increase threshold to 6.0-8.0
 
 ```
-espectre> segmentation_threshold 5.5
+espectre> segmentation_threshold 3.0
 ```
 
 ### 4. Test Movement
@@ -63,17 +68,15 @@ Look for `state=MOTION` when moving, `state=IDLE` when still.
 
 ESPectre allows fine-tuning of the Moving Variance Segmentation algorithm parameters for optimal performance in your specific environment.
 
-### Window Size (3-50 packets)
+### Window Size (10-200 packets)
 
 **What it does:** Number of turbulence samples used to calculate moving variance.
 
 **Effect:**
-- **Small (3-10)**: Fast response, more reactive, noisier
-- **Large (20-50)**: Slow response, more stable, smoother
+- **Small (10-30)**: Fast response, more reactive, noisier
+- **Large (100-200)**: Slow response, more stable, smoother
 
-**Default:**
-- ESP32-C6: 5 packets (0.25s @ 20Hz)
-- ESP32-S3: 30 packets (1.5s @ 20Hz)
+**Default:** 100 packets
 
 **MQTT Command:**
 ```json
@@ -85,52 +88,37 @@ ESPectre allows fine-tuning of the Moving Variance Segmentation algorithm parame
 segmentation_window_size 10
 ```
 
----
 
-### Min Segment Length (5-100 packets)
+<details>
+<summary><b>📊 Optimal Window Configuration Guide</b></summary>
 
-**What it does:** Minimum number of consecutive packets above threshold to consider valid motion.
+To detect general movement (walking, arm movement, standing up), you need to balance **sensitivity** (capturing even minimal movements) and **robustness** (ignoring noise).
 
-**Effect:**
-- **Small (5-10)**: Detects brief movements
-- **Large (20-50)**: Only detects sustained movements
+**Sampling Rate ($F_s$)**
 
-**Default:** 10 packets (0.5s @ 20Hz)
+Maintaining $F_s = 100 \text{ Hz}$ is an excellent compromise between accuracy and computational load for detecting most human activities.
 
-**MQTT Command:**
-```json
-{"cmd": "segmentation_min_length", "value": 15}
-```
+**Moving Window Size ($N$)**
 
-**CLI Command:**
+For general movement detection, a window is recommended that captures transient action while being long enough to dampen high-frequency noise.
+
+| $T_{window}$ | $N$ (at 100 Hz) | Advantage for Presence Detection |
+|--------------|-----------------|----------------------------------|
+| $0.5$ seconds | $50$ packets | Extremely reactive, but too sensitive to noise. |
+| $1$ second | $100$ packets | **Recommended**. Optimal balance, captures $1-2$ steps or a complete gesture. |
+| $2$ seconds | $200$ packets | Slower to react, but very robust against false positives. |
+
+**Recommendation:** Start with $N=100$ packets (corresponding to $1$ second). This is the ideal point for detecting activities like entering a room.
+
+**How to configure:**
 ```bash
-segmentation_min_length 15
+# Via CLI
+segmentation_window_size 100
+
+# Via MQTT
+{"cmd": "segmentation_window_size", "value": 100}
 ```
-
----
-
-### Max Segment Length (10-200 packets, 0=no limit)
-
-**What it does:** Maximum duration of a single motion segment.
-
-**Effect:**
-- **Small (20-40)**: Breaks long movements into multiple segments
-- **Large (100-200)**: Captures entire movement as one segment
-- **0**: No limit (segment only ends when motion stops)
-
-**Default:**
-- ESP32-C6: 40 packets (2s @ 20Hz)
-- ESP32-S3: 60 packets (3s @ 20Hz)
-
-**MQTT Command:**
-```json
-{"cmd": "segmentation_max_length", "value": 50}
-```
-
-**CLI Command:**
-```bash
-segmentation_max_length 50
-```
+</details>
 
 ---
 
@@ -140,16 +128,41 @@ segmentation_max_length 50
 
 **What it does:** Controls how many packets per second are sent for CSI measurement.
 
-**Default:** 20 pps
+**Default:** 100 pps
 
 **When to adjust:**
-- Lower (10-15 pps): Reduce network load, slower detection
-- Higher (25-30 pps): Faster detection, more network traffic
+- Lower (50 pps): Reduce network load, slower detection
+- Higher (600-1000 pps): Faster detection for rapid movements
 
 **Command:**
 ```
 espectre> traffic_rate 100
 ```
+
+<details>
+<summary><b>📐 Understanding Sampling Rates (Nyquist-Shannon Theorem)</b></summary>
+
+The traffic generator rate determines the maximum frequency of motion that can be accurately detected. According to the **Nyquist-Shannon Sampling Theorem**, the sampling rate (Fs) must be at least twice the maximum frequency of the signal (Fmax):
+
+$$F_s \geq 2 \times F_{max}$$
+
+In Wi-Fi sensing, Fmax is the highest Doppler frequency generated by human movement reflected in the CSI signal.
+
+**Application Scenarios:**
+
+| Activity Type | Max Frequency (Fmax) | Minimum Sampling Rate (Fs) | Recommended Rate |
+|---------------|---------------------|---------------------------|------------------|
+| **Vital signs** (breathing, heartbeat) | < 5 Hz | ≥ 10 Hz | 10-30 pps |
+| **Activity recognition** (walking, sitting, gestures) | ≈ 10-30 Hz | ≥ 60 Hz | 60-100 pps |
+| **Fast motion** (rapid gestures, precision localization) | ≈ 300-400 Hz | ≥ 600 Hz | 600-1000 pps |
+
+**Key Takeaways:**
+- Higher rates enable detection of faster movements
+- Lower rates are sufficient for slow movements (vital signs, presence)
+- Choose the rate based on your application requirements
+- Higher rates increase CPU usage and network traffic
+
+</details>
 
 ### Feature Extraction
 
@@ -172,18 +185,22 @@ espectre> features_enable on
 
 ### Smart Publishing
 
-**What it does:** Controls when data is published via MQTT.
+**What it does:** Reduces MQTT traffic by skipping redundant publishes when values don't change significantly.
 
-**Options:**
-- `always`: Publish every packet (high traffic)
-- `motion_only`: Publish only during motion (recommended)
-- `segments_only`: Publish only complete motion segments
+**Default:** Disabled
 
-**Default:** motion_only
+**When to enable:**
+- Reduce MQTT broker load
+- Minimize network traffic
+- Only publish when meaningful changes occur
 
-**Command:**
+**Commands:**
 ```
-espectre> smart_publishing motion_only
+# Enable smart publishing
+espectre> smart_publishing on
+
+# Disable smart publishing (publish every cycle)
+espectre> smart_publishing off
 ```
 
 ---
@@ -214,7 +231,7 @@ espectre> butterworth_filter on
 **Commands:**
 ```
 espectre> hampel_filter on
-espectre> hampel_threshold 2.5
+espectre> hampel_threshold 2.0  # Default threshold value
 ```
 
 ### Savitzky-Golay Filter
@@ -259,22 +276,18 @@ espectre> wavelet_threshold 1.0
    espectre> segmentation_threshold 8.0
    ```
 
-2. Enable Hampel filter:
-   ```
-   espectre> hampel_filter on
-   ```
-
-3. Check for interference sources (fans, AC, moving curtains).
+2. Check for interference sources (fans, AC, moving curtains).
 
 ### Missing Movements
 
 **Symptoms:** Doesn't detect when people move.
 
 **Solutions:**
-1. Decrease threshold (but respect platform minimums):
+1. Decrease threshold gradually:
    ```
-   espectre> segmentation_threshold 5.0
+   espectre> segmentation_threshold 2.0
    ```
+   Note: Start from default (3.0) and decrease in steps of 0.5 until detection improves.
 
 2. Check sensor position (optimal: 3-8m from router).
 
@@ -283,20 +296,24 @@ espectre> wavelet_threshold 1.0
    espectre> info
    ```
 
+4. Increase window size for more stable detection:
+   ```
+   espectre> segmentation_window_size 150
+   ```
+
 ### Unstable Detection
 
 **Symptoms:** Rapid flickering between IDLE and MOTION.
 
 **Solutions:**
-1. Adjust threshold:
+1. Increase threshold to reduce sensitivity:
    ```
-   espectre> segmentation_threshold 6.0
+   espectre> segmentation_threshold 4.5
    ```
 
-2. Enable smoothing filters:
+2. Increase window size for more stable detection:
    ```
-   espectre> savgol_filter on
-   espectre> hampel_filter on
+   espectre> segmentation_window_size 150
    ```
 
 ### Factory Reset

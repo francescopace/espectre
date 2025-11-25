@@ -40,8 +40,6 @@ TEST_CASE_ESP(segmentation_init, "[segmentation]")
     TEST_ASSERT_EQUAL(0, ctx.buffer_count);
     TEST_ASSERT_TRUE(ctx.threshold > 0.0f);
     TEST_ASSERT_EQUAL(SEGMENTATION_DEFAULT_WINDOW_SIZE, ctx.window_size);
-    TEST_ASSERT_EQUAL(SEGMENTATION_DEFAULT_MIN_LENGTH, ctx.min_length);
-    TEST_ASSERT_EQUAL(SEGMENTATION_DEFAULT_MAX_LENGTH, ctx.max_length);
 }
 
 // Test: Parameter setters and getters
@@ -55,20 +53,6 @@ TEST_CASE_ESP(segmentation_parameters, "[segmentation]")
     TEST_ASSERT_EQUAL(10, segmentation_get_window_size(&ctx));
     TEST_ASSERT_FALSE(segmentation_set_window_size(&ctx, 2));   // Too low
     TEST_ASSERT_FALSE(segmentation_set_window_size(&ctx, 100)); // Too high
-    
-    // Test min length
-    TEST_ASSERT_TRUE(segmentation_set_min_length(&ctx, 15));
-    TEST_ASSERT_EQUAL(15, segmentation_get_min_length(&ctx));
-    TEST_ASSERT_FALSE(segmentation_set_min_length(&ctx, 2));    // Too low
-    TEST_ASSERT_FALSE(segmentation_set_min_length(&ctx, 200));  // Too high
-    
-    // Test max length
-    TEST_ASSERT_TRUE(segmentation_set_max_length(&ctx, 50));
-    TEST_ASSERT_EQUAL(50, segmentation_get_max_length(&ctx));
-    TEST_ASSERT_TRUE(segmentation_set_max_length(&ctx, 0));     // 0 = no limit
-    TEST_ASSERT_EQUAL(0, segmentation_get_max_length(&ctx));
-    TEST_ASSERT_FALSE(segmentation_set_max_length(&ctx, 5));    // Too low
-    TEST_ASSERT_FALSE(segmentation_set_max_length(&ctx, 300));  // Too high
     
     // Test threshold
     TEST_ASSERT_TRUE(segmentation_set_threshold(&ctx, 0.5f));
@@ -91,20 +75,27 @@ TEST_CASE_ESP(segmentation_movement_detection, "[segmentation]")
     // Process movement data
     int segments_completed = 0;
     int motion_packets = 0;
+    segmentation_state_t prev_state = SEG_STATE_IDLE;
     
     for (int i = 0; i < NUM_MOVEMENT_PACKETS; i++) {
         float turbulence = csi_calculate_spatial_turbulence(
             (const int8_t*)movement_packets[i], 128,
             SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
         
-        bool segment_completed = segmentation_add_turbulence(&ctx, turbulence);
-        if (segment_completed) {
+        segmentation_add_turbulence(&ctx, turbulence);
+        
+        segmentation_state_t current_state = segmentation_get_state(&ctx);
+        
+        // Count transitions from MOTION to IDLE as completed segments
+        if (prev_state == SEG_STATE_MOTION && current_state == SEG_STATE_IDLE) {
             segments_completed++;
         }
         
-        if (segmentation_get_state(&ctx) == SEG_STATE_MOTION) {
+        if (current_state == SEG_STATE_MOTION) {
             motion_packets++;
         }
+        
+        prev_state = current_state;
     }
     
     ESP_LOGI(TAG, "Movement: %d packets, %d motion (%.1f%%), %d segments", 
@@ -112,9 +103,9 @@ TEST_CASE_ESP(segmentation_movement_detection, "[segmentation]")
              (motion_packets * 100.0f) / NUM_MOVEMENT_PACKETS,
              segments_completed);
     
-    // Verify motion was detected (at least 14 segments expected based on real performance)
-    TEST_ASSERT_GREATER_THAN(13, segments_completed);  // Expects ≥14 (actual: ~15)
-    TEST_ASSERT_GREATER_THAN(650, motion_packets);     // Expects ≥651 (actual: ~735)
+    // Verify motion was detected (at least 6 segments expected)
+    TEST_ASSERT_GREATER_THAN(5, segments_completed);   // Expects ≥6 (actual: ~7)
+    TEST_ASSERT_GREATER_THAN(650, motion_packets);     // Expects ≥651 (actual: ~801)
 }
 
 // Test: No false positives on baseline
@@ -135,20 +126,27 @@ TEST_CASE_ESP(segmentation_no_false_positives, "[segmentation]")
     // Test with baseline data (should have no false segments)
     int segments_completed = 0;
     int motion_packets = 0;
+    segmentation_state_t prev_state = SEG_STATE_IDLE;
     
     for (int i = 0; i < NUM_BASELINE_PACKETS; i++) {
         float turbulence = csi_calculate_spatial_turbulence(
             (const int8_t*)baseline_packets[i], 128,
             SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
         
-        bool segment_completed = segmentation_add_turbulence(&ctx, turbulence);
-        if (segment_completed) {
+        segmentation_add_turbulence(&ctx, turbulence);
+        
+        segmentation_state_t current_state = segmentation_get_state(&ctx);
+        
+        // Count transitions from MOTION to IDLE as completed segments
+        if (prev_state == SEG_STATE_MOTION && current_state == SEG_STATE_IDLE) {
             segments_completed++;
         }
         
-        if (segmentation_get_state(&ctx) == SEG_STATE_MOTION) {
+        if (current_state == SEG_STATE_MOTION) {
             motion_packets++;
         }
+        
+        prev_state = current_state;
     }
     
     ESP_LOGI(TAG, "Baseline test: %d packets, %d motion (%.1f%%), %d segments (FP)", 
@@ -249,13 +247,20 @@ TEST_CASE_ESP(segmentation_window_size_effect, "[segmentation]")
     segmentation_set_window_size(&ctx, 5);
     
     int segments_small = 0;
+    segmentation_state_t prev_state_small = SEG_STATE_IDLE;
+    
     for (int i = 0; i < 200 && i < NUM_MOVEMENT_PACKETS; i++) {
         float turbulence = csi_calculate_spatial_turbulence(
             (const int8_t*)movement_packets[i], 128,
             SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
-        if (segmentation_add_turbulence(&ctx, turbulence)) {
+        
+        segmentation_add_turbulence(&ctx, turbulence);
+        
+        segmentation_state_t current_state = segmentation_get_state(&ctx);
+        if (prev_state_small == SEG_STATE_MOTION && current_state == SEG_STATE_IDLE) {
             segments_small++;
         }
+        prev_state_small = current_state;
     }
     
     // Test with large window (more stable)
@@ -263,13 +268,20 @@ TEST_CASE_ESP(segmentation_window_size_effect, "[segmentation]")
     segmentation_set_window_size(&ctx, 30);
     
     int segments_large = 0;
+    segmentation_state_t prev_state_large = SEG_STATE_IDLE;
+    
     for (int i = 0; i < 200 && i < NUM_MOVEMENT_PACKETS; i++) {
         float turbulence = csi_calculate_spatial_turbulence(
             (const int8_t*)movement_packets[i], 128,
             SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
-        if (segmentation_add_turbulence(&ctx, turbulence)) {
+        
+        segmentation_add_turbulence(&ctx, turbulence);
+        
+        segmentation_state_t current_state = segmentation_get_state(&ctx);
+        if (prev_state_large == SEG_STATE_MOTION && current_state == SEG_STATE_IDLE) {
             segments_large++;
         }
+        prev_state_large = current_state;
     }
     
     ESP_LOGI(TAG, "Window size effect: small=%d segments, large=%d segments", 

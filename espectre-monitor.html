@@ -648,8 +648,7 @@
                 </div>
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                     <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">Connect</button>
-                    <button class="btn btn-danger" id="clearBtn" onclick="clearData()" style="display: none;">Clear
-                        Data</button>
+                    <button class="btn btn-danger" id="clearBtn" onclick="clearData()" style="display: none;">Clear Data</button>
                 </div>
             </div>
         </div>
@@ -684,62 +683,41 @@
                         <div
                             style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
                             <div class="input-group">
-                                <label for="windowSize" style="font-size: 0.85em;">Window Size (3-50 packets)</label>
-                                <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="windowSize" min="3" max="50" step="1" value="50"
-                                        style="flex: 1;">
-                                    <input type="number" id="windowSizeValue" min="3" max="50" step="1" value="50"
-                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
-                                </div>
-                                <small style="color: #666; font-size: 0.8em;">Moving variance window<br>(small = reactive, large = stable)</small>
-                            </div>
-                            <div class="input-group">
-                                <label for="minLength" style="font-size: 0.85em;">Min Segment Length (5-100
-                                    packets)</label>
-                                <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="minLength" min="5" max="100" step="5" value="10"
-                                        style="flex: 1;">
-                                    <input type="number" id="minLengthValue" min="5" max="100" step="5" value="10"
-                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
-                                </div>
-                                <small style="color: #666; font-size: 0.8em;">Minimum motion duration to be valid</small>
-                            </div>
-                            <div class="input-group">
-                                <label for="maxLength" style="font-size: 0.85em;">Max Segment Length (0-200 packets)</label>
-                                <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="maxLength" min="0" max="200" step="10" value="40"
-                                        style="flex: 1;">
-                                    <input type="number" id="maxLengthValue" min="0" max="200" step="10" value="40"
-                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
-                                </div>
-                                <small style="color: #666; font-size: 0.8em;">Maximum segment duration<br> (0 = no limit)</small>
-                            </div>
-                            <div class="input-group">
-                                <label for="trafficRate" style="font-size: 0.85em;">Traffic Generator Rate (0-1000 pps)</label>
+                                <label for="trafficRate" style="font-size: 0.85em;">📡 WiFi Packet Rate (0-1000 Hz)</label>
                                 <div style="display: flex; gap: 8px; align-items: center;">
                                     <input type="range" id="trafficRate" min="0" max="1000" step="1" value="100"
                                         style="flex: 1;">
                                     <input type="number" id="trafficRateValue" min="0" max="1000" step="1" value="100"
                                         style="width: 70px; padding: 6px; font-size: 0.9em;">
                                 </div>
-                                <small style="color: #666; font-size: 0.8em;">WiFi traffic generation<br>(0=disabled, recommended: 100)</small>
+                                <small style="color: #666; font-size: 0.8em;">How many WiFi packets to send per second.<br>0 = disabled (uses ambient WiFi traffic only).<br>Increase to improve precision at the cost of bandwidth and CPU.<br><b>Recommended: 100 Hz for normal use 💡</b></small>
                             </div>
                             <div class="input-group">
-                                <label for="segThreshold" style="font-size: 0.85em;">Segmentation Threshold (0.5-10.0)</label>
+                                <label for="windowSize" style="font-size: 0.85em;">⚡ Response Speed (10-200)</label>
                                 <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="segThreshold" min="0.5" max="10.0" step="0.1" value="2"
+                                    <input type="range" id="windowSize" min="10" max="200" step="1" value="50"
+                                        style="flex: 1;">
+                                    <input type="number" id="windowSizeValue" min="10" max="200" step="1" value="50"
+                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
+                                </div>
+                                <small style="color: #666; font-size: 0.8em;">How fast the system reacts to changes.<br>Low value = quick response, more sensitive to noise.<br>High value = stable, filters out small variations.<br><b>Recommended: 50 💡</b></small>
+                            </div>
+                            <div class="input-group">
+                                <label for="segThreshold" style="font-size: 0.85em;">🎯 Motion Threshold (0.5-10.0)</label>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="range" id="segThreshold" min="0.5" max="10.0" step="0.1" value="3.0"
                                         style="flex: 1;">
                                     <input type="number" id="segThresholdValue" min="0.5" max="10.0" step="0.1"
-                                        value="2" style="width: 70px; padding: 6px; font-size: 0.9em;">
+                                        value="3.0" style="width: 70px; padding: 6px; font-size: 0.9em;">
                                 </div>
-                                <small style="color: #666; font-size: 0.8em;">MVS adaptive threshold for motion detection</small>
+                                <small style="color: #666; font-size: 0.8em;">Minimum threshold required to detect movement.<br>Low value = detects small movements.<br>High value = detects large movements.<br><b>Recommended: 3.0 for balanced detection 💡</b></small>
                             </div>
                             <div id="subcarrierSelectionContent" style="grid-column: span 3;">
                                 <div class="input-group">
-                                    <label for="subcarrierIndices" style="font-size: 0.85em;">Selected Subcarriers (comma-separated, 0-63)</label>
+                                    <label for="subcarrierIndices" style="font-size: 0.85em;">📻 WiFi Channel Selection (0-63)</label>
                                     <input type="text" id="subcarrierIndices" placeholder="47,48,49,50,51,52,53,54,55,56,57,58"
                                         style="padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; font-family: monospace; width: 100%;">
-                                    <small style="color: #666; font-size: 0.8em;">WiFi frequency channels. Select specific subcarriers to improve motion detection accuracy.</small>
+                                    <small style="color: #666; font-size: 0.8em;">Choose which WiFi frequency channels to monitor (comma-separated). <b>Default selection works well for most cases 💡</b></small>
                                 </div>
                             </div>
                         </div>
@@ -765,10 +743,9 @@
                                 <label class="toggle-label">
                                     <input type="checkbox" id="featuresEnable" checked>
                                     <span class="toggle-slider"></span>
-                                    <span class="toggle-text" style="font-size: 0.95em;">Features Extraction</span>
+                                    <span class="toggle-text" style="font-size: 0.95em;">🔬 Advanced Feature Extraction</span>
                                 </label>
-                                <small style="color: #666; font-size: 0.85em;">Extract features during MOTION
-                                    phase</small>
+                                <small style="color: #666; font-size: 0.85em;">Extract detailed motion characteristics during detection<br>💡 Enable for machine learning and advanced analysis</small>
                             </div>
                         </div>
 
@@ -786,18 +763,19 @@
                                     <label class="toggle-label">
                                         <input type="checkbox" id="hampelFilter">
                                         <span class="toggle-slider"></span>
-                                        <span class="toggle-text" style="font-size: 0.9em;">Hampel Filter</span>
+                                        <span class="toggle-text" style="font-size: 0.9em;">🎯 Spike Remover</span>
                                     </label>
-                                    <small style="color: #666; font-size: 0.8em;">Outlier detection and removal</small>
+                                    <small style="color: #666; font-size: 0.8em;">Removes sudden anomalies and spikes<br>Good for: Eliminating interference</small>
                                 </div>
                                 <div class="input-group">
-                                    <label for="hampelThreshold" style="font-size: 0.8em;">Threshold (1.0-10.0)</label>
+                                    <label for="hampelThreshold" style="font-size: 0.8em;">Sensitivity (1.0-10.0)</label>
                                     <div style="display: flex; gap: 6px; align-items: center;">
                                         <input type="range" id="hampelThreshold" min="1.0" max="10.0" step="0.1"
-                                            value="3.0" style="flex: 1;">
+                                            value="2.0" style="flex: 1;">
                                         <input type="number" id="hampelThresholdValue" min="1.0" max="10.0" step="0.1"
-                                            value="3.0" style="width: 60px; padding: 4px; font-size: 0.85em;">
+                                            value="2.0" style="width: 60px; padding: 4px; font-size: 0.85em;">
                                     </div>
+                                    <small style="color: #666; font-size: 0.75em;">Lower = more aggressive filtering</small>
                                 </div>
                             </div>
 
@@ -808,9 +786,9 @@
                                     <label class="toggle-label">
                                         <input type="checkbox" id="savgolFilter">
                                         <span class="toggle-slider"></span>
-                                        <span class="toggle-text" style="font-size: 0.9em;">Savitzky-Golay Filter</span>
+                                        <span class="toggle-text" style="font-size: 0.9em;">📊 Signal Smoother</span>
                                     </label>
-                                    <small style="color: #666; font-size: 0.8em;">Polynomial smoothing filter</small>
+                                    <small style="color: #666; font-size: 0.8em;">Smooths signal while preserving shape<br>Good for: Reducing jitter and noise</small>
                                 </div>
                             </div>
 
@@ -821,9 +799,9 @@
                                     <label class="toggle-label">
                                         <input type="checkbox" id="butterworthFilter">
                                         <span class="toggle-slider"></span>
-                                        <span class="toggle-text" style="font-size: 0.9em;">Butterworth Filter</span>
+                                        <span class="toggle-text" style="font-size: 0.9em;">🔇 Noise Filter</span>
                                     </label>
-                                    <small style="color: #666; font-size: 0.8em;">High frequency noise removal</small>
+                                    <small style="color: #666; font-size: 0.8em;">Removes high-frequency noise<br>Good for: Cleaner signal in noisy environments</small>
                                 </div>
                             </div>
 
@@ -834,27 +812,29 @@
                                     <label class="toggle-label">
                                         <input type="checkbox" id="waveletFilter">
                                         <span class="toggle-slider"></span>
-                                        <span class="toggle-text" style="font-size: 0.9em;">Wavelet Filter</span>
+                                        <span class="toggle-text" style="font-size: 0.9em;">🌊 Background Remover</span>
                                     </label>
-                                    <small style="color: #666; font-size: 0.8em;">Low frequency denoising</small>
+                                    <small style="color: #666; font-size: 0.8em;">Removes slow background changes<br>Good for: Focusing on actual motion</small>
                                 </div>
                                 <div class="input-group" style="margin-bottom: 8px;">
-                                    <label for="waveletLevel" style="font-size: 0.8em;">Level (1-3)</label>
+                                    <label for="waveletLevel" style="font-size: 0.8em;">Depth (1-3)</label>
                                     <div style="display: flex; gap: 6px; align-items: center;">
                                         <input type="range" id="waveletLevel" min="1" max="3" step="1" value="3"
                                             style="flex: 1;">
                                         <input type="number" id="waveletLevelValue" min="1" max="3" step="1" value="3"
                                             style="width: 60px; padding: 4px; font-size: 0.85em;">
                                     </div>
+                                    <small style="color: #666; font-size: 0.75em;">Higher = more thorough filtering</small>
                                 </div>
                                 <div class="input-group">
-                                    <label for="waveletThreshold" style="font-size: 0.8em;">Threshold (0.5-2.0)</label>
+                                    <label for="waveletThreshold" style="font-size: 0.8em;">Strength (0.5-2.0)</label>
                                     <div style="display: flex; gap: 6px; align-items: center;">
                                         <input type="range" id="waveletThreshold" min="0.5" max="2.0" step="0.1"
                                             value="1.0" style="flex: 1;">
                                         <input type="number" id="waveletThresholdValue" min="0.5" max="2.0" step="0.1"
                                             value="1.0" style="width: 60px; padding: 4px; font-size: 0.85em;">
                                     </div>
+                                    <small style="color: #666; font-size: 0.75em;">Higher = stronger filtering</small>
                                 </div>
                             </div>
                         </div>
@@ -984,7 +964,8 @@
             movement: [],
             threshold: [],
             features: [],
-            packets_processed: []
+            packets_processed: [],
+            packets_dropped: []
         };
 
         // Initialize Chart
@@ -1021,6 +1002,16 @@
                             data: chartData.packets_processed,
                             borderColor: '#2ecc71',
                             backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: false,
+                            yAxisID: 'y1'
+                        },
+                        {
+                            label: 'CSI Dropped',
+                            data: chartData.packets_dropped,
+                            borderColor: '#f39c12',
+                            backgroundColor: 'rgba(243, 156, 18, 0.1)',
                             borderWidth: 2,
                             tension: 0.4,
                             fill: false,
@@ -1278,6 +1269,7 @@
             chartData.threshold.push(data.threshold || 0);
             chartData.features.push(data.features || null);
             chartData.packets_processed.push(data.packets_processed || 0);
+            chartData.packets_dropped.push(data.packets_dropped || 0);
 
             if (chartData.labels.length > maxDataPoints) {
                 chartData.labels.shift();
@@ -1285,6 +1277,7 @@
                 chartData.threshold.shift();
                 chartData.features.shift();
                 chartData.packets_processed.shift();
+                chartData.packets_dropped.shift();
             }
 
             chart.update('none');
@@ -1348,8 +1341,6 @@
             // Detection Parameters
             const segThreshold = parseFloat(document.getElementById('segThresholdValue').value);
             const windowSize = parseInt(document.getElementById('windowSizeValue').value);
-            const minLength = parseInt(document.getElementById('minLengthValue').value);
-            const maxLength = parseInt(document.getElementById('maxLengthValue').value);
             const trafficRate = parseInt(document.getElementById('trafficRateValue').value);
             const featuresEnable = document.getElementById('featuresEnable').checked;
             const smartPublishing = document.getElementById('smartPublishing').checked;
@@ -1368,10 +1359,6 @@
             sendCommand('segmentation_threshold', { value: segThreshold });
             delay += 100;
             setTimeout(() => sendCommand('segmentation_window_size', { value: windowSize }), delay);
-            delay += 100;
-            setTimeout(() => sendCommand('segmentation_min_length', { value: minLength }), delay);
-            delay += 100;
-            setTimeout(() => sendCommand('segmentation_max_length', { value: maxLength }), delay);
             delay += 100;
             setTimeout(() => sendCommand('traffic_generator_rate', { value: trafficRate }), delay);
             delay += 100;
@@ -1512,8 +1499,6 @@
         function applyDetectionConfiguration() {
             const segThreshold = parseFloat(document.getElementById('segThresholdValue').value);
             const windowSize = parseInt(document.getElementById('windowSizeValue').value);
-            const minLength = parseInt(document.getElementById('minLengthValue').value);
-            const maxLength = parseInt(document.getElementById('maxLengthValue').value);
             const trafficRate = parseInt(document.getElementById('trafficRateValue').value);
 
             // Send detection commands with delays
@@ -1521,10 +1506,6 @@
             sendCommand('segmentation_threshold', { value: segThreshold });
             delay += 100;
             setTimeout(() => sendCommand('segmentation_window_size', { value: windowSize }), delay);
-            delay += 100;
-            setTimeout(() => sendCommand('segmentation_min_length', { value: minLength }), delay);
-            delay += 100;
-            setTimeout(() => sendCommand('segmentation_max_length', { value: maxLength }), delay);
             delay += 100;
             setTimeout(() => sendCommand('traffic_generator_rate', { value: trafficRate }), delay);
 
@@ -1789,6 +1770,10 @@
             html += `<span class="stat-label">📦 Packets Processed</span>`;
             html += `<span class="stat-value highlight">${formatNumber(stats.packets_processed)}</span>`;
             html += `</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">❌ Packets Dropped</span>`;
+            html += `<span class="stat-value ${stats.packets_dropped > 0 ? 'warning' : 'success'}">${formatNumber(stats.packets_dropped)}</span>`;
+            html += `</div>`;
             html += `</div>`;
 
             body.innerHTML = html;
@@ -1884,16 +1869,6 @@
                     const windowSize = config.segmentation.window_size;
                     document.getElementById('windowSize').value = windowSize;
                     document.getElementById('windowSizeValue').value = windowSize;
-                }
-                if (config.segmentation.min_length !== undefined) {
-                    const minLength = config.segmentation.min_length;
-                    document.getElementById('minLength').value = minLength;
-                    document.getElementById('minLengthValue').value = minLength;
-                }
-                if (config.segmentation.max_length !== undefined) {
-                    const maxLength = config.segmentation.max_length;
-                    document.getElementById('maxLength').value = maxLength;
-                    document.getElementById('maxLengthValue').value = maxLength;
                 }
             }
 
@@ -2157,22 +2132,6 @@
                 debouncedSendCommand('segmentation_window_size', { value: parseInt(e.target.value) });
             });
 
-            // Min Length
-            document.getElementById('minLength').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_min_length', { value: parseInt(e.target.value) });
-            });
-            document.getElementById('minLengthValue').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_min_length', { value: parseInt(e.target.value) });
-            });
-
-            // Max Length
-            document.getElementById('maxLength').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_max_length', { value: parseInt(e.target.value) });
-            });
-            document.getElementById('maxLengthValue').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_max_length', { value: parseInt(e.target.value) });
-            });
-
             // Traffic Rate
             document.getElementById('trafficRate').addEventListener('change', (e) => {
                 debouncedSendCommand('traffic_generator_rate', { value: parseInt(e.target.value) });
@@ -2250,8 +2209,6 @@
             // Sync all sliders with their value inputs
             syncSlider('segThreshold', 'segThresholdValue');
             syncSlider('windowSize', 'windowSizeValue');
-            syncSlider('minLength', 'minLengthValue');
-            syncSlider('maxLength', 'maxLengthValue');
             syncSlider('trafficRate', 'trafficRateValue');
             syncSlider('hampelThreshold', 'hampelThresholdValue');
             syncSlider('waveletLevel', 'waveletLevelValue');

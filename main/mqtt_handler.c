@@ -178,6 +178,7 @@ int mqtt_publish_segmentation(mqtt_handler_state_t *state,
     cJSON_AddNumberToObject(root, "threshold", (double)result->threshold);
     cJSON_AddStringToObject(root, "state", segmentation_state_to_string(result->state));
     cJSON_AddNumberToObject(root, "packets_processed", (double)result->packets_processed);
+    cJSON_AddNumberToObject(root, "packets_dropped", (double)result->packets_dropped);
     
     // Add features if available (only during MOTION with features_enabled)
     if (result->has_features) {
@@ -292,15 +293,6 @@ void mqtt_update_publish_state(mqtt_handler_state_t *state,
     state->last_published_movement = movement;
     state->last_published_state = seg_state;
     state->last_publish_time = current_time;
-}
-
-void mqtt_get_publish_stats(const mqtt_handler_state_t *state,
-                           uint32_t *published,
-                           uint32_t *skipped) {
-    if (!state) return;
-    
-    if (published) *published = state->publish_count;
-    if (skipped) *skipped = state->skip_count;
 }
 
 void mqtt_handler_set_command_callback(void (*callback)(const char *data, int data_len)) {

@@ -13,9 +13,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-
-// Traffic generator rate limits
-#define TRAFFIC_RATE_MAX        1000
+#include "espectre.h"
 
 // Initialize traffic generator
 void traffic_generator_init(void);

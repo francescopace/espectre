@@ -15,4 +15,4 @@ WIFI_PASSWORD = "YourPassword"
 MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP or hostname
 MQTT_PORT = 1883
 MQTT_USERNAME = "username"
-MQTT_USERNAME = "password"
+MQTT_PASSWORD = "password"

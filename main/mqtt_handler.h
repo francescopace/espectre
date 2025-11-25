@@ -45,6 +45,7 @@ typedef struct {
     uint8_t segments_total;
     int64_t timestamp;
     uint32_t packets_processed;
+    uint32_t packets_dropped;
     
     // Optional features (only if features_enabled && state==MOTION)
     bool has_features;
@@ -152,17 +153,6 @@ void mqtt_update_publish_state(mqtt_handler_state_t *state,
                               float movement,
                               segmentation_state_t seg_state,
                               int64_t current_time);
-
-/**
- * Get publish statistics
- * 
- * @param state MQTT handler state
- * @param published Output: number of messages published
- * @param skipped Output: number of messages skipped
- */
-void mqtt_get_publish_stats(const mqtt_handler_state_t *state,
-                           uint32_t *published,
-                           uint32_t *skipped);
 
 /**
  * Set command callback for processing incoming MQTT commands

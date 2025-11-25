@@ -36,9 +36,8 @@ import argparse
 # ============================================================================
 
 FILE_NAME = 'main/real_csi_data_esp32_c6.h'
-WINDOW_SIZE = 10
-MIN_SEGMENT = 10
-MAX_SEGMENT = 40
+WINDOW_SIZE = 50
+THRESHOLD = 3.0
 SELECTED_SUBCARRIERS = [53, 21, 52, 20, 58, 54, 22, 45, 46, 51, 19, 57]
 
 # ============================================================================
@@ -97,11 +96,9 @@ class StreamingSegmentation:
     maintaining internal state like the C implementation.
     """
     
-    def __init__(self, window_size=10, threshold=3.0, min_length=20, max_length=60, track_data=False):
+    def __init__(self, window_size=50, threshold=3.0, track_data=False):
         self.window_size = window_size
         self.threshold_base = threshold
-        self.min_length = min_length
-        self.max_length = max_length
         self.track_data = track_data
         
         # Circular buffer for turbulence values
@@ -141,14 +138,14 @@ class StreamingSegmentation:
         moving_var = self._calculate_moving_variance()
         
         # Track data for visualization
-        if self.track_data and not self.calibrating:
+        if self.track_data:
             self.turbulence_history.append(turbulence)
             self.moving_var_history.append(moving_var)
             self.state_history.append(self.state)
         
         segment_completed = False
         
-        # State machine
+        # State machine (simplified - no min_length validation)
         if self.state == 'IDLE':
             if moving_var > self.threshold:
                 self.state = 'MOTION'
@@ -159,12 +156,11 @@ class StreamingSegmentation:
             self.motion_length += 1
             self.motion_packets += 1
             
-            # Check for motion end or max length
-            if moving_var < self.threshold or self.motion_length >= self.max_length:
-                # Validate segment
-                if self.motion_length >= self.min_length:
-                    segment_completed = True
-                    self.segments_detected += 1
+            # Check for motion end
+            if moving_var < self.threshold:
+                # Segment completed (no length validation)
+                segment_completed = True
+                self.segments_detected += 1
                 
                 self.state = 'IDLE'
                 self.motion_length = 0
@@ -213,68 +209,56 @@ def optimize_parameters_streaming(baseline_packets, movement_packets):
     print("  PARAMETER OPTIMIZATION (Streaming)")
     print("="*60 + "\n")
     
-    # Parameter ranges to test
-    k_values = [1.0, 1.5, 2.0, 2.5, 3.0]
-    window_sizes = [5, 10, 15, 20, 25]
-    min_lengths = [10, 15, 20, 25]
-    max_lengths = [40, 60, 80]
+    # Parameter ranges to test (simplified - no min/max length)
+    threshold_values = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
+    window_sizes = [10, 20, 30, 50, 75, 100]
     
     best_config = None
     best_score = -1000
     all_results = []
     
-    total_combinations = len(k_values) * len(window_sizes) * len(min_lengths) * len(max_lengths)
+    total_combinations = len(threshold_values) * len(window_sizes)
     print(f"Testing {total_combinations} parameter combinations...\n")
     
     tested = 0
-    for K in k_values:
+    for threshold in threshold_values:
         for window_size in window_sizes:
-            for min_length in min_lengths:
-                for max_length in max_lengths:
-                    tested += 1
-                    
-                    # Test configuration
-                    seg = StreamingSegmentation(window_size, K, min_length, max_length)
-                    
-                    # Calibrate
-                    seg.start_calibration(500)
-                    for pkt in baseline_packets[:500]:
-                        seg.add_turbulence(calculate_spatial_turbulence(pkt))
-                    seg.finalize_calibration()
-                    
-                    # Test baseline
-                    seg.reset()
-                    for pkt in baseline_packets[:500]:
-                        seg.add_turbulence(calculate_spatial_turbulence(pkt))
-                    baseline_fp = seg.segments_detected
-                    
-                    # Test movement
-                    seg.reset()
-                    for pkt in movement_packets[:500]:
-                        seg.add_turbulence(calculate_spatial_turbulence(pkt))
-                    movement_tp = seg.segments_detected
-                    
-                    # Score: penalize FP heavily, reward TP
-                    score = movement_tp - baseline_fp * 10
-                    
-                    result = {
-                        'K': K,
-                        'window_size': window_size,
-                        'min_length': min_length,
-                        'max_length': max_length,
-                        'false_positives': baseline_fp,
-                        'true_positives': movement_tp,
-                        'score': score
-                    }
-                    
-                    all_results.append(result)
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_config = result
-                    
-                    if tested % 50 == 0:
-                        print(f"  Progress: {tested}/{total_combinations} ({tested*100//total_combinations}%)")
+            tested += 1
+            
+            # Test configuration
+            seg = StreamingSegmentation(window_size, threshold)
+            
+            # Test baseline
+            seg.reset()
+            for pkt in baseline_packets[:500]:
+                seg.add_turbulence(calculate_spatial_turbulence(pkt))
+            baseline_fp = seg.segments_detected
+            
+            # Test movement
+            seg.reset()
+            for pkt in movement_packets[:500]:
+                seg.add_turbulence(calculate_spatial_turbulence(pkt))
+            movement_tp = seg.segments_detected
+            
+            # Score: penalize FP heavily, reward TP
+            score = movement_tp - baseline_fp * 10
+            
+            result = {
+                'threshold': threshold,
+                'window_size': window_size,
+                'false_positives': baseline_fp,
+                'true_positives': movement_tp,
+                'score': score
+            }
+            
+            all_results.append(result)
+            
+            if score > best_score:
+                best_score = score
+                best_config = result
+            
+            if tested % 10 == 0:
+                print(f"  Progress: {tested}/{total_combinations} ({tested*100//total_combinations}%)")
     
     print(f"\n✅ Optimization complete!\n")
     
@@ -282,15 +266,15 @@ def optimize_parameters_streaming(baseline_packets, movement_packets):
     sorted_results = sorted(all_results, key=lambda x: x['score'], reverse=True)
     
     print("Top 5 Configurations:")
-    print("-" * 80)
-    print(f"{'Rank':<6} {'K':<6} {'Window':<8} {'MinLen':<8} {'MaxLen':<8} {'FP':<5} {'TP':<5} {'Score':<8}")
-    print("-" * 80)
+    print("-" * 70)
+    print(f"{'Rank':<6} {'Threshold':<12} {'Window':<8} {'FP':<5} {'TP':<5} {'Score':<8}")
+    print("-" * 70)
     
     for i, result in enumerate(sorted_results[:5]):
-        print(f"{i+1:<6} {result['K']:<6.1f} {result['window_size']:<8} {result['min_length']:<8} "
-              f"{result['max_length']:<8} {result['false_positives']:<5} {result['true_positives']:<5} {result['score']:<8.2f}")
+        print(f"{i+1:<6} {result['threshold']:<12.1f} {result['window_size']:<8} "
+              f"{result['false_positives']:<5} {result['true_positives']:<5} {result['score']:<8.2f}")
     
-    print("-" * 80)
+    print("-" * 70)
     print()
     
     return best_config
@@ -372,7 +356,7 @@ def analyze_subcarrier_importance(baseline_packets, movement_packets):
     print("-" * 70)
     
     for name, sc_list in test_configs:
-        seg = StreamingSegmentation(WINDOW_SIZE, 3.0, MIN_SEGMENT, MAX_SEGMENT)
+        seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD)
         
         # Test baseline
         seg.reset()
@@ -471,8 +455,7 @@ def main():
     
     print("Configuration:")
     print(f"  Window Size: {WINDOW_SIZE} packets ({WINDOW_SIZE/20.0:.2f}s)")
-    print(f"  Min Segment: {MIN_SEGMENT} packets ({MIN_SEGMENT/20.0:.2f}s)")
-    print(f"  Max Segment: {MAX_SEGMENT} packets ({MAX_SEGMENT/20.0:.2f}s)")
+    print(f"  Threshold: {THRESHOLD} (default)")
     print(f"  Subcarriers: {SELECTED_SUBCARRIERS}\n")
     
     # Load CSI data
@@ -495,8 +478,7 @@ def main():
         best_config = optimize_parameters_streaming(baseline_packets, movement_packets)
         if best_config:
             print(f"Best Configuration:")
-            print(f"  K={best_config['K']}, window={best_config['window_size']}, "
-                  f"min={best_config['min_length']}, max={best_config['max_length']}")
+            print(f"  Threshold={best_config['threshold']}, window={best_config['window_size']}")
             print(f"  FP={best_config['false_positives']}, TP={best_config['true_positives']}, "
                   f"Score={best_config['score']:.2f}\n")
         return
@@ -507,30 +489,20 @@ def main():
         return
     
     # ========================================================================
-    # PHASE 1: CALIBRATION
+    # TEST ON BASELINE
     # ========================================================================
     
     print("="*60)
-    print("  PHASE 1: CALIBRATION")
+    print("  TEST ON BASELINE")
     print("="*60 + "\n")
     
     seg = StreamingSegmentation(
         window_size=WINDOW_SIZE,
-        threshold=3.0,
-        min_length=MIN_SEGMENT,
-        max_length=MAX_SEGMENT,
+        threshold=THRESHOLD,
         track_data=args.plot
     )
     
     print(f"Using threshold: {seg.threshold:.4f}\n")
-    
-    # ========================================================================
-    # PHASE 2: TEST ON BASELINE
-    # ========================================================================
-    
-    print("="*60)
-    print("  PHASE 2: TEST ON BASELINE")
-    print("="*60 + "\n")
     
     seg.reset()
     
@@ -548,11 +520,11 @@ def main():
     print(f"  FP Rate: {baseline_fp/10.0:.1f}%\n")
     
     # ========================================================================
-    # PHASE 3: TEST ON MOVEMENT
+    # TEST ON MOVEMENT
     # ========================================================================
     
     print("="*60)
-    print("  PHASE 3: TEST ON MOVEMENT")
+    print("  TEST ON MOVEMENT")
     print("="*60 + "\n")
     
     seg.reset()
@@ -586,12 +558,12 @@ def main():
     print(f"  Recall: {movement_motion/10.0:.1f}% ({movement_motion}/1000 packets)")
     print(f"  Segments: {movement_tp}\n")
     
-    if baseline_fp == 0 and movement_tp >= 15:
+    if baseline_fp == 0 and movement_tp >= 5:
         print("✅ EXCELLENT: Perfect segmentation!")
         print(f"   0 false positives, {movement_tp} segments detected")
     elif baseline_fp == 0:
         print("✅ GOOD: No false positives")
-        print(f"   {movement_tp} segments detected (expected ~17)")
+        print(f"   {movement_tp} segments detected (expected ~7)")
     else:
         print(f"⚠️  WARNING: {baseline_fp} false positive segments")
     
@@ -607,9 +579,7 @@ def main():
         # Re-run with data tracking enabled
         seg_plot = StreamingSegmentation(
             window_size=WINDOW_SIZE,
-            threshold=3.0,
-            min_length=MIN_SEGMENT,
-            max_length=MAX_SEGMENT,
+            threshold=THRESHOLD,
             track_data=True
         )
         

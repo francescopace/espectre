@@ -10,7 +10,14 @@ import time
 import gc
 import network
 from src.nvs_storage import NVSStorage
-from src.config import TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX
+from src.config import (
+    TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX, TRAFFIC_GENERATOR_RATE,
+    SEG_WINDOW_SIZE, SEG_THRESHOLD,
+    SEG_WINDOW_SIZE_MIN, SEG_WINDOW_SIZE_MAX,
+    SEG_THRESHOLD_MIN, SEG_THRESHOLD_MAX,
+    SUBCARRIER_INDEX_MIN, SUBCARRIER_INDEX_MAX,
+    SELECTED_SUBCARRIERS
+)
 
 
 class MQTTCommands:
@@ -34,6 +41,7 @@ class MQTTCommands:
         self.response_topic = response_topic
         self.start_time = time.time()
         self.packets_processed = 0
+        self.packets_dropped = 0
         
         # CPU usage estimation
         self.last_stats_time = time.ticks_ms()
@@ -100,9 +108,7 @@ class MQTTCommands:
             },
             "segmentation": {
                 "threshold": round(self.seg.threshold, 2),
-                "window_size": self.seg.window_size,
-                "min_length": self.seg.min_length,
-                "max_length": self.seg.max_length
+                "window_size": self.seg.window_size
             },
             "options": {
                 "smart_publishing_enabled": self.config.SMART_PUBLISHING
@@ -156,7 +162,8 @@ class MQTTCommands:
             "turbulence": round(self.seg.last_turbulence, 4),
             "movement": round(self.seg.current_moving_variance, 4),
             "threshold": round(self.seg.threshold, 4),
-            "packets_processed": self.packets_processed
+            "packets_processed": self.packets_processed,
+            "packets_dropped": self.packets_dropped
         }
         
         self.send_response(response)
@@ -171,8 +178,8 @@ class MQTTCommands:
         try:
             threshold = float(cmd_obj['value'])
             
-            if threshold <= 0.0 or threshold > 10.0:
-                self.send_response("ERROR: Threshold must be between 0.0 and 10.0")
+            if threshold < SEG_THRESHOLD_MIN or threshold > SEG_THRESHOLD_MAX:
+                self.send_response(f"ERROR: Threshold must be between {SEG_THRESHOLD_MIN} and {SEG_THRESHOLD_MAX}")
                 return
             
             old_threshold = self.seg.threshold
@@ -196,8 +203,8 @@ class MQTTCommands:
         try:
             window_size = int(cmd_obj['value'])
             
-            if window_size < 3 or window_size > 50:
-                self.send_response("ERROR: Window size must be between 3 and 50 packets")
+            if window_size < SEG_WINDOW_SIZE_MIN or window_size > SEG_WINDOW_SIZE_MAX:
+                self.send_response(f"ERROR: Window size must be between {SEG_WINDOW_SIZE_MIN} and {SEG_WINDOW_SIZE_MAX} packets")
                 return
             
             old_size = self.seg.window_size
@@ -212,65 +219,15 @@ class MQTTCommands:
             # Save to NVS
             self.nvs.save_full_config(self.seg, self.config, self.traffic_gen)
             
-            reactivity = "more reactive" if window_size < 10 else "more stable"
-            self.send_response(f"Window size updated: {old_size} -> {window_size} packets ({window_size/20.0:.2f}s @ 20Hz, {reactivity})")
+            # Calculate duration using actual traffic rate
+            rate = self.traffic_gen.get_rate() if self.traffic_gen else TRAFFIC_GENERATOR_RATE
+            duration = window_size / rate if rate > 0 else 0.0
+            reactivity = "more reactive" if window_size < (SEG_WINDOW_SIZE_MAX // 2) else "more stable"
+            self.send_response(f"Window size updated: {old_size} -> {window_size} packets ({duration:.2f}s @ {rate}Hz, {reactivity})")
             print(f"📍 Window size updated: {old_size} -> {window_size} (buffer reset)")
             
         except ValueError:
             self.send_response("ERROR: Invalid window size value (must be integer)")
-    
-    def cmd_segmentation_min_length(self, cmd_obj):
-        """Set minimum segment length"""
-        if 'value' not in cmd_obj:
-            self.send_response("ERROR: Missing 'value' field")
-            return
-        
-        try:
-            min_length = int(cmd_obj['value'])
-            
-            if min_length < 5 or min_length > 100:
-                self.send_response("ERROR: Min length must be between 5 and 100 packets")
-                return
-            
-            old_min = self.seg.min_length
-            self.seg.min_length = min_length
-            
-            # Save to NVS
-            self.nvs.save_full_config(self.seg, self.config, self.traffic_gen)
-            
-            self.send_response(f"Min segment length updated: {old_min} -> {min_length} packets ({min_length/20.0:.2f}s @ 20Hz)")
-            print(f"📍 Min length updated: {old_min} -> {min_length}")
-            
-        except ValueError:
-            self.send_response("ERROR: Invalid min length value (must be integer)")
-    
-    def cmd_segmentation_max_length(self, cmd_obj):
-        """Set maximum segment length"""
-        if 'value' not in cmd_obj:
-            self.send_response("ERROR: Missing 'value' field")
-            return
-        
-        try:
-            max_length = int(cmd_obj['value'])
-            
-            if max_length != 0 and (max_length < 10 or max_length > 200):
-                self.send_response("ERROR: Max length must be 0 (no limit) or 10-200 packets")
-                return
-            
-            old_max = self.seg.max_length
-            self.seg.max_length = max_length
-            
-            # Save to NVS
-            self.nvs.save_full_config(self.seg, self.config, self.traffic_gen)
-            
-            if max_length == 0:
-                self.send_response(f"Max segment length updated: {old_max} -> no limit")
-            else:
-                self.send_response(f"Max segment length updated: {old_max} -> {max_length} packets ({max_length/20.0:.2f}s @ 20Hz)")
-            print(f"📍 Max length updated: {old_max} -> {max_length}")
-            
-        except ValueError:
-            self.send_response("ERROR: Invalid max length value (must be integer)")
     
     def cmd_subcarrier_selection(self, cmd_obj):
         """Set subcarrier selection"""
@@ -285,14 +242,14 @@ class MQTTCommands:
                 self.send_response("ERROR: 'indices' must be an array")
                 return
             
-            if len(indices) < 1 or len(indices) > 64:
-                self.send_response("ERROR: Number of subcarriers must be between 1 and 64")
+            if len(indices) < 1 or len(indices) > (SUBCARRIER_INDEX_MAX + 1):
+                self.send_response(f"ERROR: Number of subcarriers must be between 1 and {SUBCARRIER_INDEX_MAX + 1}")
                 return
             
             # Validate all indices
             for idx in indices:
-                if not isinstance(idx, int) or idx < 0 or idx > 63:
-                    self.send_response(f"ERROR: Subcarrier index {idx} out of range (must be 0-63)")
+                if not isinstance(idx, int) or idx < SUBCARRIER_INDEX_MIN or idx > SUBCARRIER_INDEX_MAX:
+                    self.send_response(f"ERROR: Subcarrier index {idx} out of range (must be {SUBCARRIER_INDEX_MIN}-{SUBCARRIER_INDEX_MAX})")
                     return
             
             # Update configuration
@@ -333,11 +290,9 @@ class MQTTCommands:
         """Reset all parameters to defaults"""
         print("⚠️  Factory reset requested")
         
-        # Reset segmentation to defaults
-        self.seg.threshold = 3.0
-        self.seg.window_size = 30
-        self.seg.min_length = 10
-        self.seg.max_length = 60
+        # Reset segmentation to defaults (use constants from config.py)
+        self.seg.threshold = SEG_THRESHOLD
+        self.seg.window_size = SEG_WINDOW_SIZE
         
         # Reset buffer
         self.seg.turbulence_buffer = [0.0] * self.seg.window_size
@@ -347,24 +302,31 @@ class MQTTCommands:
         
         # Reset state machine
         self.seg.state = self.seg.STATE_IDLE
-        self.seg.motion_start_index = 0
-        self.seg.motion_length = 0
         self.seg.packet_index = 0
         
         # Reset subcarrier selection to defaults
-        self.config.SELECTED_SUBCARRIERS = [47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]
+        self.config.SELECTED_SUBCARRIERS = SELECTED_SUBCARRIERS.copy()
         
         # Reset smart publishing
         self.config.SMART_PUBLISHING = False
         
-        # Stop traffic generator if running
-        if self.traffic_gen and self.traffic_gen.is_running():
-            self.traffic_gen.stop()
+        # Reset traffic generator to default rate
+        if self.traffic_gen:
+            if self.traffic_gen.is_running():
+                self.traffic_gen.stop()
+            
+            # Restart with default rate if configured
+            if TRAFFIC_GENERATOR_RATE > 0:
+                time.sleep(0.5)  # Brief pause before restart
+                if self.traffic_gen.start(TRAFFIC_GENERATOR_RATE):
+                    print(f"📡 Traffic generator restarted at default rate ({TRAFFIC_GENERATOR_RATE} pps)")
+                else:
+                    print("⚠️  Failed to restart traffic generator")
         
         # Erase saved configuration
         self.nvs.erase()
         
-        self.send_response("Factory reset complete")
+        self.send_response(f"Factory reset complete (traffic generator: {TRAFFIC_GENERATOR_RATE} pps)")
         print("✅ Factory reset complete")
     
     def cmd_traffic_generator_rate(self, cmd_obj):
@@ -381,7 +343,7 @@ class MQTTCommands:
             rate = int(cmd_obj['value'])
             
             if rate < TRAFFIC_RATE_MIN or rate > TRAFFIC_RATE_MAX:
-                self.send_response(f"ERROR: Rate must be {TRAFFIC_RATE_MIN}-{TRAFFIC_RATE_MAX} packets/sec (0=disabled, 100 recommended)")
+                self.send_response(f"ERROR: Rate must be {TRAFFIC_RATE_MIN}-{TRAFFIC_RATE_MAX} packets/sec (0=disabled, {TRAFFIC_GENERATOR_RATE} recommended)")
                 return
             
             old_rate = self.traffic_gen.get_rate()
@@ -448,10 +410,6 @@ class MQTTCommands:
                 self.cmd_segmentation_threshold(cmd_obj)
             elif command == 'segmentation_window_size':
                 self.cmd_segmentation_window_size(cmd_obj)
-            elif command == 'segmentation_min_length':
-                self.cmd_segmentation_min_length(cmd_obj)
-            elif command == 'segmentation_max_length':
-                self.cmd_segmentation_max_length(cmd_obj)
             elif command == 'subcarrier_selection':
                 self.cmd_subcarrier_selection(cmd_obj)
             elif command == 'smart_publishing':
@@ -468,6 +426,8 @@ class MQTTCommands:
             print(error_msg)
             self.send_response(error_msg)
     
-    def update_packet_count(self, count):
-        """Update packets processed counter"""
+    def update_packet_count(self, count, dropped=None):
+        """Update packets processed and dropped counters"""
         self.packets_processed = count
+        if dropped is not None:
+            self.packets_dropped = dropped

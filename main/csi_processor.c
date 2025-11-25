@@ -11,24 +11,16 @@
 #include <math.h>
 #include <stdbool.h>
 #include "esp_log.h"
+#include "espectre.h"
 
 static const char *TAG = "CSI_Processor";
-
-// Numerical stability constant
-#define EPSILON_SMALL 1e-6f
 
 // Reusable buffer for IQR sorting (avoids malloc in hot path)
 static int8_t iqr_sort_buffer[CSI_MAX_LENGTH];
 
-// Amplitude buffer for skewness/kurtosis calculation (moving window approach)
-// Both features share the same buffer for efficiency
-#define AMPLITUDE_MOMENTS_WINDOW 20
-
 // ============================================================================
 // SUBCARRIER SELECTION - Configurable at runtime
 // ============================================================================
-
-#define ENABLE_SUBCARRIER_FILTERING 1
 
 // Runtime subcarrier selection (configurable via MQTT/NVS)
 static uint8_t g_selected_subcarriers[64];

@@ -18,18 +18,26 @@ MQTT_USERNAME = "mqtt"
 MQTT_PASSWORD = "mqtt"
 
 # CSI Configuration
-CSI_BUFFER_SIZE = 10  # Circular buffer size (used to store csi packets until processed)
+CSI_BUFFER_SIZE = 16  # Circular buffer size (used to store csi packets until processed)
 
 # Selected subcarriers for turbulence calculation (from C version)
 # These are the most informative subcarriers identified through analysis
 SELECTED_SUBCARRIERS = [47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]
 
 # Segmentation Configuration
-# Values calibrated for int8 CSI data with 12 selected subcarriers
-SEG_WINDOW_SIZE = 30      # Moving variance window (packets)
-SEG_MIN_LENGTH = 10       # Min motion segment length (packets)
-SEG_MAX_LENGTH = 60       # Max motion segment length (packets)
-SEG_THRESHOLD = 2.0       # Motion detection threshold (Lower values = more sensitive to motion)
+# Limits (matching segmentation.h)
+SEG_WINDOW_SIZE_MIN = 10
+SEG_WINDOW_SIZE_MAX = 200
+SEG_THRESHOLD_MIN = 0.0
+SEG_THRESHOLD_MAX = 10.0
+
+# Defaults
+SEG_WINDOW_SIZE = 50     # Moving variance window (packets)
+SEG_THRESHOLD = 3.0       # Motion detection threshold (Lower values = more sensitive to motion)
+
+# Subcarrier limits
+SUBCARRIER_INDEX_MIN = 0
+SUBCARRIER_INDEX_MAX = 63
 
 # Publishing Configuration
 # If SMART_PUBLISHING = False, messages are published every 1 secon

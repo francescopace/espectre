@@ -8,6 +8,8 @@
 #include "mqtt_commands.h"
 #include "nvs_storage.h"
 #include "traffic_generator.h"
+#include "filters.h"
+#include "validation.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
@@ -16,30 +18,18 @@
 #include "freertos/task.h"
 #include "cJSON.h"
 #include <string.h>
-#include <math.h>
+#include <stdatomic.h>
 
 static const char *TAG = "MQTT_Commands";
 
-// Parameter validation constants
-#define HAMPEL_THRESHOLD_MIN    1.0f
-#define HAMPEL_THRESHOLD_MAX    10.0f
-#define ALPHA_MIN               0.001f
-#define ALPHA_MAX               0.1f
-#define WAVELET_THRESHOLD_MIN   0.5f
-#define WAVELET_THRESHOLD_MAX   2.0f
-#define WAVELET_LEVEL_MIN       1
-#define WAVELET_LEVEL_MAX       3
-#define RESET_TIMEOUT_MAX       300
+// Macro for converting numbers to strings
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
 
 // Global context for command handlers
 static mqtt_cmd_context_t *g_cmd_context = NULL;
 static mqtt_handler_state_t *g_mqtt_state = NULL;
 static const char *g_response_topic = NULL;
-
-// Check for NaN and Infinity to prevent calculation errors
-static bool is_valid_float(float value) {
-    return !isnan(value) && !isinf(value);
-}
 
 // Send MQTT response message to configured topic
 static void send_response(const char *message) {
@@ -69,7 +59,7 @@ static bool get_float_param(cJSON *root, const char *key, float *out_value,
     }
     
     float value = (float)item->valuedouble;
-    if (!is_valid_float(value)) {
+    if (!validate_float(value)) {
         send_response("ERROR: Invalid value (NaN or Infinity)");
         return false;
     }
@@ -128,16 +118,21 @@ static void cmd_segmentation_threshold(cJSON *root) {
 
 static void cmd_segmentation_window_size(cJSON *root) {
     int new_window_size;
-    if (get_int_param(root, "value", &new_window_size, 3, 50,
-                     "ERROR: Window size must be between 3 and 50 packets")) {
+    if (get_int_param(root, "value", &new_window_size, 
+                     SEGMENTATION_WINDOW_SIZE_MIN, SEGMENTATION_WINDOW_SIZE_MAX,
+                     "ERROR: Window size must be between " 
+                     TOSTRING(SEGMENTATION_WINDOW_SIZE_MIN) " and " 
+                     TOSTRING(SEGMENTATION_WINDOW_SIZE_MAX) " packets")) {
         if (segmentation_set_window_size(g_cmd_context->segmentation, (uint16_t)new_window_size)) {
             g_cmd_context->config->segmentation_window_size = (uint16_t)new_window_size;
             
             char response[256];
+            uint32_t rate = g_cmd_context->config->traffic_generator_rate;
+            float duration = (rate > 0) ? (float)new_window_size / (float)rate : 0.0f;
             snprintf(response, sizeof(response), 
-                     "Window size updated: %d packets (%.2fs @ 20Hz, %s)",
-                     new_window_size, new_window_size / 20.0f,
-                     new_window_size < 10 ? "more reactive" : "more stable");
+                     "Window size updated: %d packets (%.2fs @ %uHz, %s)",
+                     new_window_size, duration, (unsigned int)rate,
+                     new_window_size < 50 ? "more reactive" : "more stable");
             send_response(response);
             ESP_LOGI(TAG, "%s", response);
             
@@ -145,61 +140,6 @@ static void cmd_segmentation_window_size(cJSON *root) {
                              segmentation_get_threshold(g_cmd_context->segmentation));
         } else {
             send_response("ERROR: Failed to set window size");
-        }
-    }
-}
-
-static void cmd_segmentation_min_length(cJSON *root) {
-    int new_min_length;
-    if (get_int_param(root, "value", &new_min_length, 5, 100,
-                     "ERROR: Min length must be between 5 and 100 packets")) {
-        if (segmentation_set_min_length(g_cmd_context->segmentation, (uint16_t)new_min_length)) {
-            g_cmd_context->config->segmentation_min_length = (uint16_t)new_min_length;
-            
-            char response[256];
-            snprintf(response, sizeof(response), 
-                     "Min segment length updated: %d packets (%.2fs @ 20Hz)",
-                     new_min_length, new_min_length / 20.0f);
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, 
-                             segmentation_get_threshold(g_cmd_context->segmentation));
-        } else {
-            send_response("ERROR: Failed to set min length");
-        }
-    }
-}
-
-static void cmd_segmentation_max_length(cJSON *root) {
-    int new_max_length;
-    if (get_int_param(root, "value", &new_max_length, 0, 200,
-                     "ERROR: Max length must be 0 (no limit) or 10-200 packets")) {
-        // Special validation for 0 or valid range
-        if (new_max_length != 0 && new_max_length < 10) {
-            send_response("ERROR: Max length must be 0 (no limit) or at least 10 packets");
-            return;
-        }
-        
-        if (segmentation_set_max_length(g_cmd_context->segmentation, (uint16_t)new_max_length)) {
-            g_cmd_context->config->segmentation_max_length = (uint16_t)new_max_length;
-            
-            char response[256];
-            if (new_max_length == 0) {
-                snprintf(response, sizeof(response), 
-                         "Max segment length updated: no limit");
-            } else {
-                snprintf(response, sizeof(response), 
-                         "Max segment length updated: %d packets (%.2fs @ 20Hz)",
-                         new_max_length, new_max_length / 20.0f);
-            }
-            send_response(response);
-            ESP_LOGI(TAG, "%s", response);
-            
-            config_save_to_nvs(g_cmd_context->config, 
-                             segmentation_get_threshold(g_cmd_context->segmentation));
-        } else {
-            send_response("ERROR: Failed to set max length");
         }
     }
 }
@@ -260,8 +200,6 @@ static void cmd_info(cJSON *root) {
     cJSON *segmentation = cJSON_CreateObject();
     cJSON_AddNumberToObject(segmentation, "threshold", (double)segmentation_get_threshold(g_cmd_context->segmentation));
     cJSON_AddNumberToObject(segmentation, "window_size", segmentation_get_window_size(g_cmd_context->segmentation));
-    cJSON_AddNumberToObject(segmentation, "min_length", segmentation_get_min_length(g_cmd_context->segmentation));
-    cJSON_AddNumberToObject(segmentation, "max_length", segmentation_get_max_length(g_cmd_context->segmentation));
     cJSON_AddItemToObject(response, "segmentation", segmentation);
     
     // Filters configuration
@@ -391,6 +329,10 @@ static void cmd_stats(cJSON *root) {
     // Packets processed
     uint32_t packets_processed = segmentation_get_total_packets(g_cmd_context->segmentation);
     cJSON_AddNumberToObject(response, "packets_processed", packets_processed);
+
+    // Packets dropped
+    uint32_t packets_dropped = atomic_load(g_cmd_context->packets_dropped);
+    cJSON_AddNumberToObject(response, "packets_dropped", packets_dropped);
     
     
     char *json_str = cJSON_PrintUnformatted(response);
@@ -836,8 +778,6 @@ typedef struct {
 static const command_entry_t command_table[] = {
     {"segmentation_threshold", cmd_segmentation_threshold},
     {"segmentation_window_size", cmd_segmentation_window_size},
-    {"segmentation_min_length", cmd_segmentation_min_length},
-    {"segmentation_max_length", cmd_segmentation_max_length},
     {"subcarrier_selection", cmd_subcarrier_selection},
     {"features_enable", cmd_features_enable},
     {"info", cmd_info},

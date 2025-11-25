@@ -6,77 +6,31 @@ All notable changes to this project will be documented in this file.
 
 ## [1.3.1] - in progress
 
-### 🚀 Enhanced - Traffic Generator Rate Limit (Nyquist Compliance)
+### 🏗️ Refactored - Configuration and Validation Centralization
 
-**Increased maximum rate from 50 to 1000 pps for high-frequency motion detection**
-
-Extended traffic generator to support higher sampling rates for fast-motion scenarios (Nyquist-Shannon theorem):
+Centralized configuration constants and validation logic to eliminate duplication:
 
 **Changes:**
-- **Maximum rate**: Increased from 50 to 1000 packets per second
-- **Centralized constants**: 
-  * ESP32 (C): `TRAFFIC_RATE_MIN = 0`, `TRAFFIC_RATE_MAX = 1000` in `traffic_generator.h`
-  * MicroPython: `TRAFFIC_RATE_MIN = 0`, `TRAFFIC_RATE_MAX = 1000` in `config.py`
-- **Default rate**: Increased from 20 to 100 pps for better activity recognition
-
-**Nyquist-Shannon Theorem Application:**
-- **Vital signs** (breathing, heartbeat): Fmax < 5 Hz → Fs ≈ 10-30 Hz
-- **Activity recognition** (walking, sitting): Fmax ≈ 10-30 Hz → Fs ≈ 60-100 Hz
-- **Fast motion/precision localization**: Fmax ≈ 300-400 Hz → Fs ≈ 600-1000 Hz
+- **`espectre.h`**: Single source of truth for all system constants (replaced scattered `#define` across 9 files)
+- **`validation.h/c`**: Centralized validation with "validate at boundary" pattern
+  * MQTT commands: strict validation
+  * NVS loading: defensive validation with auto-fix
+  * Internal setters: trust caller (no overhead)
+- **Removed ~200 lines** of duplicated validation code
 
 **Benefits:**
-- ✅ Supports full spectrum of Wi-Fi sensing applications
-- ✅ Enables detection of rapid movements and gestures
-- ✅ Maintains backward compatibility (lower rates still supported)
-- ✅ Consistent implementation across ESP32 and MicroPython platforms
+- Single source of truth, reduced duplication, easier maintenance
 
-### 🗑️ Removed - Unused SEG_K_FACTOR Parameter
+### 🚀 Enhanced - Traffic Generator Rate Limit
 
-**Simplified segmentation configuration**
+Increased maximum rate from 50 to 1000 pps for high-frequency motion detection:
 
-The k_factor parameter was originally intended as a threshold sensitivity
-multiplier (effective_threshold = threshold * k_factor) to allow adjusting
-detection sensitivity without changing the base threshold value.
-
-Since adjusting the threshold value directly achieves the same result with simpler
-configuration, k_factor is redundant and has been removed.
-
-This simplifies the configuration interface: users can now directly adjust
-the threshold value instead of managing two separate parameters.
-
-- Removed `k_factor` parameter from MVS algo
-- Renamed `adaptive_threshold` → `threshold` in C version for clarity
-- Direct threshold configuration without redundant multipliers
-
-### 🎵 Added - Wi-Fi Theremin Sonification Client
-
-**Real-time audio sonification of Wi-Fi CSI data**
-
-New `espectre-theremin.html` transforms CSI data into sound using Web Audio API:
-
-**Core Features:**
-- **Three modes**: Continuous (glissando), Quantized (musical notes), Hybrid
-- **Musical scales**: Pentatonic, Major, Minor, Chromatic
-- **60Hz interpolation**: Smooth audio between 1Hz MQTT updates
-- **MQTT WebSocket**: Real-time data streaming
-
-**Feature-Based Modulation:**
-All 10 CSI features modulate audio parameters in real-time:
-- **Waveform** (entropy): Sine/square/sawtooth selection
-- **Vibrato** (temporal_delta_mean + spatial_variance): Speed and depth
-- **Filter** (kurtosis + skewness): Cutoff and resonance
-- **Stereo Pan** (spatial_correlation): Spatial positioning
-- **Tremolo** (temporal_delta_variance + spatial_gradient): Volume modulation
-- **Auto Scale** (entropy + variance): Dynamic scale selection
-
-**Technical:**
-- Web Audio API with oscillator, gain, filter, panner nodes
-- Musical note detection (MIDI conversion)
-- Single HTML file, no dependencies
+- **Max rate**: 1000 pps (was 50 pps)
+- **Default rate**: 100 pps (was 20 pps)
+- **Nyquist-Shannon support**: Enables detection from vital signs (10-30 Hz) to fast motion (600-1000 Hz)
+- Consistent across ESP32 and MicroPython platforms
 
 ### 🔧 Changed - Feature Extraction Always Active
-
-**Simplified feature extraction logic**
 
 Modified feature extraction behavior to be always active when enabled, regardless of segmentation state:
 
@@ -93,20 +47,37 @@ Modified feature extraction behavior to be always active when enabled, regardles
 - ✅ Continuous feature data for machine learning dataset collection
 - ✅ Better baseline characterization during IDLE periods
 
-### 🔄 Migrate ESPectre CLI from Bash to Python
+### 🔄 Migrated - ESPectre CLI to Python
 
-**Cross-platform Python implementation with enhanced user experience**
+Rewrote CLI from Bash to Python for cross-platform support:
 
-Completely rewrote the ESPectre CLI tool, migrating from Bash to Python for better cross-platform compatibility and improved user experience:
+- **Cross-platform**: Linux, macOS, Windows
+- **Modern UI**: Interactive prompt with autocompletion and syntax highlighting
+- **Pure Python**: Uses `paho-mqtt` instead of external `mosquitto_pub/sub`
 
-**New Python Implementation (`espectre-cli.py`):**
-- **Cross-platform support**: Works on Linux, macOS, and Windows without platform-specific dependencies
-- **Modern UI**: Interactive prompt using `prompt_toolkit` with:
-  * Styled command prompt with color-coded output
-  * Nested autocompletion for commands and parameters
-  * Syntax highlighting for YAML responses using Pygments
-- **Pure Python MQTT**: Uses `paho-mqtt` library instead of external `mosquitto_pub/sub` tools
+### 🎵 Added - Wi-Fi Theremin Sonification
 
+Real-time audio sonification of CSI data via `espectre-theremin.html`:
+
+- **Three modes**: Continuous, Quantized, Hybrid
+- **10 CSI features** modulate audio parameters (waveform, vibrato, filter, pan, tremolo)
+- **60Hz interpolation** for smooth audio between MQTT updates
+- Web Audio API, single HTML file, no dependencies
+
+### 🗑️ Removed - Redundant Segmentation Parameters
+
+**Simplified segmentation: Removed redundant min_length, max_length, k_factor parameter**
+
+After analysis of the segmentation algorithm, removed the `min_length` parameter as it was redundant with the moving variance window:
+
+Removed redundant `k_factor` multiplier - users can now adjust threshold directly.
+- Inittially introduced as a scale factor for threshold.
+
+Removed `min_segment_length` parameter to simplify segmentation configuration:
+- When moving variance exceeds threshold, it means the window already contains enough "motion packets"
+
+Removed `max_segment_length` parameter to simplify segmentation configuration:
+- Motion segments naturally end when movement stops (moving variance drops below threshold).
 
 ## [1.3.0] - 2025-11-22
 

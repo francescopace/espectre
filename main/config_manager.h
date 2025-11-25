@@ -18,12 +18,7 @@
 #include <stdbool.h>
 #include "esp_err.h"
 #include "nvs_storage.h"
-
-// Default threshold for motion detection (optimized for amplitude skewness)
-#define DEFAULT_THRESHOLD 0.50f
-
-// Subcarrier selection limits
-#define MAX_SUBCARRIERS 64  // Maximum number of subcarriers that can be selected
+#include "espectre.h"
 
 // Runtime configuration structure
 typedef struct {
@@ -57,9 +52,7 @@ typedef struct {
     uint32_t traffic_generator_rate;  // packets/sec (0=disabled)
     
     // Segmentation parameters (configurable at runtime)
-    uint16_t segmentation_window_size;  // Moving variance window (3-50 packets)
-    uint16_t segmentation_min_length;   // Minimum segment length (5-100 packets)
-    uint16_t segmentation_max_length;   // Maximum segment length (10-200 packets, 0=no limit)
+    uint16_t segmentation_window_size;  // Moving variance window (10-200 packets)
     
     // Subcarrier selection (configurable at runtime)
     uint8_t selected_subcarriers[MAX_SUBCARRIERS];  // Array of selected subcarrier indices (0-63)
