@@ -14,11 +14,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// Traffic generator rate limits
+#define TRAFFIC_RATE_MAX        1000
+
 // Initialize traffic generator
 void traffic_generator_init(void);
 
 // Start traffic generator with specified rate (packets per second)
-// rate: 1-50 packets/sec (recommended: 15)
 bool traffic_generator_start(uint32_t rate_pps);
 
 // Stop traffic generator

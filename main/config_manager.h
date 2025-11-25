@@ -54,7 +54,7 @@ typedef struct {
     bool smart_publishing_enabled;
     
     // Traffic generator (for continuous CSI packets)
-    uint32_t traffic_generator_rate;  // packets/sec (0=disabled, 1-50, recommended: 15)
+    uint32_t traffic_generator_rate;  // packets/sec (0=disabled)
     
     // Segmentation parameters (configurable at runtime)
     uint16_t segmentation_window_size;  // Moving variance window (3-50 packets)

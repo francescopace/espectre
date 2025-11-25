@@ -29,7 +29,7 @@ SELECTED_SUBCARRIERS = [47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]
 SEG_WINDOW_SIZE = 30      # Moving variance window (packets)
 SEG_MIN_LENGTH = 10       # Min motion segment length (packets)
 SEG_MAX_LENGTH = 60       # Max motion segment length (packets)
-SEG_THRESHOLD = 3.0       # Motion detection threshold (Lower values = more sensitive to motion)
+SEG_THRESHOLD = 2.0       # Motion detection threshold (Lower values = more sensitive to motion)
 
 # Publishing Configuration
 # If SMART_PUBLISHING = False, messages are published every 1 secon
@@ -38,5 +38,7 @@ DELTA_THRESHOLD = 0.05      # Minimum change to trigger publish (0.05 = 5%)
 MAX_PUBLISH_INTERVAL_MS = 5000  # Max time between publishes - heartbeat (5 seconds)
 
 # Traffic Generator Configuration
-# Generates WiFi traffic (ICMP ping) to ensure continuous CSI data
-TRAFFIC_GENERATOR_RATE = 20  # Packets per second (0=disabled, 1-50, recommended: 20)
+# Generates WiFi traffic to ensure continuous CSI data
+TRAFFIC_RATE_MIN = 0          # Minimum rate (0=disabled)
+TRAFFIC_RATE_MAX = 1000       # Maximum rate (packets per second)
+TRAFFIC_GENERATOR_RATE = 100  # Default rate (packets per second, recommended: 100)

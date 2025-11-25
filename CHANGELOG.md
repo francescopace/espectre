@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ## [1.3.1] - in progress
 
+### 🚀 Enhanced - Traffic Generator Rate Limit (Nyquist Compliance)
+
+**Increased maximum rate from 50 to 1000 pps for high-frequency motion detection**
+
+Extended traffic generator to support higher sampling rates for fast-motion scenarios (Nyquist-Shannon theorem):
+
+**Changes:**
+- **Maximum rate**: Increased from 50 to 1000 packets per second
+- **Centralized constants**: 
+  * ESP32 (C): `TRAFFIC_RATE_MIN = 0`, `TRAFFIC_RATE_MAX = 1000` in `traffic_generator.h`
+  * MicroPython: `TRAFFIC_RATE_MIN = 0`, `TRAFFIC_RATE_MAX = 1000` in `config.py`
+- **Default rate**: Increased from 20 to 100 pps for better activity recognition
+
+**Nyquist-Shannon Theorem Application:**
+- **Vital signs** (breathing, heartbeat): Fmax < 5 Hz → Fs ≈ 10-30 Hz
+- **Activity recognition** (walking, sitting): Fmax ≈ 10-30 Hz → Fs ≈ 60-100 Hz
+- **Fast motion/precision localization**: Fmax ≈ 300-400 Hz → Fs ≈ 600-1000 Hz
+
+**Benefits:**
+- ✅ Supports full spectrum of Wi-Fi sensing applications
+- ✅ Enables detection of rapid movements and gestures
+- ✅ Maintains backward compatibility (lower rates still supported)
+- ✅ Consistent implementation across ESP32 and MicroPython platforms
+
 ### 🗑️ Removed - Unused SEG_K_FACTOR Parameter
 
 **Simplified segmentation configuration**
@@ -199,7 +223,7 @@ New `espectre-monitor.html` provides a comprehensive web-based alternative to th
 - **Interactive metrics**: State, movement, threshold, and segment counters
 - **Complete configuration**: All detection parameters and filters controllable via web UI
   * Segmentation threshold (0.5-10.0)
-  * Traffic generator rate (0-50 pps)
+  * Traffic generator rate (0-1000 pps)
   * Features extraction toggle
   * Smart publishing toggle
   * All filters (Hampel, Savitzky-Golay, Butterworth, Wavelet) with parameters

@@ -148,7 +148,7 @@ segmentation_max_length 50
 
 **Command:**
 ```
-espectre> traffic_rate 20
+espectre> traffic_rate 100
 ```
 
 ### Feature Extraction

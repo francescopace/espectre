@@ -30,7 +30,6 @@ static const char *TAG = "MQTT_Commands";
 #define WAVELET_LEVEL_MIN       1
 #define WAVELET_LEVEL_MAX       3
 #define RESET_TIMEOUT_MAX       300
-#define TRAFFIC_RATE_MAX        50
 
 // Global context for command handlers
 static mqtt_cmd_context_t *g_cmd_context = NULL;
@@ -516,7 +515,10 @@ static void cmd_traffic_generator_rate(cJSON *root) {
             
             config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
         } else {
-            send_response("ERROR: Rate must be 0-50 packets/sec (0=disabled, recommended: 15)");
+            char error_msg[128];
+            snprintf(error_msg, sizeof(error_msg), 
+                     "ERROR: Rate must be 0-%u packets/sec (0=disabled, 100 recommended)", TRAFFIC_RATE_MAX);
+            send_response(error_msg);
         }
     } else {
         send_response("ERROR: Missing or invalid 'value' field");

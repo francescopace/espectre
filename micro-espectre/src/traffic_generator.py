@@ -9,6 +9,7 @@ import socket
 import time
 import _thread
 import network
+from src.config import TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX
 
 
 class TrafficGenerator:
@@ -126,7 +127,7 @@ class TrafficGenerator:
         Start traffic generator
         
         Args:
-            rate_pps: Packets per second (1-50, recommended: 15)
+            rate_pps: Packets per second (0-1000, recommended: 100)
             
         Returns:
             bool: True if started successfully
@@ -135,8 +136,8 @@ class TrafficGenerator:
             print("Traffic generator already running")
             return False
         
-        if rate_pps < 1 or rate_pps > 50:
-            print(f"Invalid rate: {rate_pps} (must be 1-50 packets/sec)")
+        if rate_pps < TRAFFIC_RATE_MIN or rate_pps > TRAFFIC_RATE_MAX:
+            print(f"Invalid rate: {rate_pps} (must be {TRAFFIC_RATE_MIN}-{TRAFFIC_RATE_MAX} packets/sec)")
             return False
         
         # Get gateway IP
@@ -191,14 +192,14 @@ class TrafficGenerator:
         Change traffic rate (restarts generator)
         
         Args:
-            rate_pps: New rate in packets per second (1-50)
+            rate_pps: New rate in packets per second (0-1000)
         """
         if not self.running:
             print("Cannot set rate: traffic generator not running")
             return False
         
-        if rate_pps < 1 or rate_pps > 50:
-            print(f"Invalid rate: {rate_pps} (must be 1-50 packets/sec)")
+        if rate_pps < TRAFFIC_RATE_MIN or rate_pps > TRAFFIC_RATE_MAX:
+            print(f"Invalid rate: {rate_pps} (must be {TRAFFIC_RATE_MIN}-{TRAFFIC_RATE_MAX} packets/sec)")
             return False
         
         if rate_pps == self.rate_pps:

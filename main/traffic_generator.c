@@ -74,8 +74,8 @@ bool traffic_generator_start(uint32_t rate_pps) {
         return false;
     }
     
-    if (rate_pps < 1 || rate_pps > 50) {
-        ESP_LOGE(TAG, "Invalid rate: %u (must be 1-50 packets/sec)", (unsigned int)rate_pps);
+    if (rate_pps > TRAFFIC_RATE_MAX) {
+        ESP_LOGE(TAG, "Invalid rate: %u (must be 0-%u packets/sec)", (unsigned int)rate_pps, TRAFFIC_RATE_MAX);
         return false;
     }
     
@@ -185,8 +185,8 @@ void traffic_generator_set_rate(uint32_t rate_pps) {
         return;
     }
     
-    if (rate_pps < 1 || rate_pps > 50) {
-        ESP_LOGE(TAG, "Invalid rate: %u (must be 1-50 packets/sec)", (unsigned int)rate_pps);
+    if (rate_pps > TRAFFIC_RATE_MAX) {
+        ESP_LOGE(TAG, "Invalid rate: %u (must be 0-%u packets/sec)", (unsigned int)rate_pps, TRAFFIC_RATE_MAX);
         return;
     }
     

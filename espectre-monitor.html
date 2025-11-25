@@ -686,9 +686,9 @@
                             <div class="input-group">
                                 <label for="windowSize" style="font-size: 0.85em;">Window Size (3-50 packets)</label>
                                 <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="windowSize" min="3" max="50" step="1" value="5"
+                                    <input type="range" id="windowSize" min="3" max="50" step="1" value="50"
                                         style="flex: 1;">
-                                    <input type="number" id="windowSizeValue" min="3" max="50" step="1" value="5"
+                                    <input type="number" id="windowSizeValue" min="3" max="50" step="1" value="50"
                                         style="width: 70px; padding: 6px; font-size: 0.9em;">
                                 </div>
                                 <small style="color: #666; font-size: 0.8em;">Moving variance window<br>(small = reactive, large = stable)</small>
@@ -715,29 +715,29 @@
                                 <small style="color: #666; font-size: 0.8em;">Maximum segment duration<br> (0 = no limit)</small>
                             </div>
                             <div class="input-group">
-                                <label for="trafficRate" style="font-size: 0.85em;">Traffic Generator Rate (0-50 pps)</label>
+                                <label for="trafficRate" style="font-size: 0.85em;">Traffic Generator Rate (0-1000 pps)</label>
                                 <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="trafficRate" min="0" max="50" step="1" value="15"
+                                    <input type="range" id="trafficRate" min="0" max="1000" step="1" value="100"
                                         style="flex: 1;">
-                                    <input type="number" id="trafficRateValue" min="0" max="50" step="1" value="15"
+                                    <input type="number" id="trafficRateValue" min="0" max="1000" step="1" value="100"
                                         style="width: 70px; padding: 6px; font-size: 0.9em;">
                                 </div>
-                                <small style="color: #666; font-size: 0.8em;">WiFi traffic generation<br>(0=disabled, recommended: 20)</small>
+                                <small style="color: #666; font-size: 0.8em;">WiFi traffic generation<br>(0=disabled, recommended: 100)</small>
                             </div>
                             <div class="input-group">
                                 <label for="segThreshold" style="font-size: 0.85em;">Segmentation Threshold (0.5-10.0)</label>
                                 <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="segThreshold" min="0.5" max="10.0" step="0.1" value="2.5"
+                                    <input type="range" id="segThreshold" min="0.5" max="10.0" step="0.1" value="2"
                                         style="flex: 1;">
                                     <input type="number" id="segThresholdValue" min="0.5" max="10.0" step="0.1"
-                                        value="2.5" style="width: 70px; padding: 6px; font-size: 0.9em;">
+                                        value="2" style="width: 70px; padding: 6px; font-size: 0.9em;">
                                 </div>
                                 <small style="color: #666; font-size: 0.8em;">MVS adaptive threshold for motion detection</small>
                             </div>
                             <div id="subcarrierSelectionContent" style="grid-column: span 3;">
                                 <div class="input-group">
                                     <label for="subcarrierIndices" style="font-size: 0.85em;">Selected Subcarriers (comma-separated, 0-63)</label>
-                                    <input type="text" id="subcarrierIndices" placeholder="47,48,49,50,51,52,53,54"
+                                    <input type="text" id="subcarrierIndices" placeholder="47,48,49,50,51,52,53,54,55,56,57,58"
                                         style="padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; font-family: monospace; width: 100%;">
                                     <small style="color: #666; font-size: 0.8em;">WiFi frequency channels. Select specific subcarriers to improve motion detection accuracy.</small>
                                 </div>

@@ -10,6 +10,7 @@ import time
 import gc
 import network
 from src.nvs_storage import NVSStorage
+from src.config import TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX
 
 
 class MQTTCommands:
@@ -379,8 +380,8 @@ class MQTTCommands:
         try:
             rate = int(cmd_obj['value'])
             
-            if rate < 0 or rate > 50:
-                self.send_response("ERROR: Rate must be 0-50 packets/sec (0=disabled, recommended: 15)")
+            if rate < TRAFFIC_RATE_MIN or rate > TRAFFIC_RATE_MAX:
+                self.send_response(f"ERROR: Rate must be {TRAFFIC_RATE_MIN}-{TRAFFIC_RATE_MAX} packets/sec (0=disabled, 100 recommended)")
                 return
             
             old_rate = self.traffic_gen.get_rate()

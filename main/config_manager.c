@@ -75,8 +75,8 @@ void config_init_defaults(runtime_config_t *config) {
     // Feature extraction enabled by default
     config->features_enabled = true;
     
-    // Traffic generator (20 pps = good balance for continuous CSI and stability)
-    config->traffic_generator_rate = 20;
+    // Traffic generator (100 pps = good balance for continuous CSI and stability)
+    config->traffic_generator_rate = 100;
     
     // Enable key filters by default for robust operation in noisy environments
     // Hampel disabled by default (testing shows 0% outlier rate in typical environments)
