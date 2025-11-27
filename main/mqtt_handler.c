@@ -8,6 +8,7 @@
 #include "mqtt_handler.h"
 #include <string.h>
 #include <math.h>
+#include <stdatomic.h>
 #include "esp_log.h"
 #include "esp_event.h"
 #include "esp_timer.h"
@@ -15,6 +16,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "sdkconfig.h"
+#include "config_manager.h"
+#include "espectre.h"
 
 static const char *TAG = "MQTT_Handler";
 
@@ -322,4 +327,166 @@ int mqtt_publish_binary(mqtt_handler_state_t *state,
     }
     
     return 0;
+}
+
+// Helper function to get timestamp in seconds
+static inline int64_t get_timestamp_sec(void) {
+    return esp_timer_get_time() / 1000000;
+}
+
+// Helper function to get timestamp in milliseconds
+static inline int64_t get_timestamp_ms(void) {
+    return esp_timer_get_time() / 1000;
+}
+
+// Build UTF-8 progress bar with threshold marker at 3/4 position
+static void format_progress_bar(char *buffer, size_t size, float score, float threshold) {
+    const int bar_width = 20;
+    
+    // Threshold marker at 3/4 position (15 out of 20)
+    const int threshold_pos = 15;
+    
+    // Calculate percentage: score represents (moving_variance / adaptive_threshold)
+    // At threshold_pos (75% of bar), score should be 1.0 (100% of threshold)
+    // So we scale: filled = score * threshold_pos
+    int filled = (int)(score * threshold_pos);
+    
+    // Clamp filled to bar width
+    if (filled < 0) filled = 0;
+    if (filled > bar_width) filled = bar_width;
+    
+    // Calculate percentage for display (score * 100)
+    int percent = (int)(score * 100);
+    if (percent > 200) percent = 200;  // Cap at 200% for display
+    
+    // Build bar directly in output buffer
+    int pos = 0;
+    pos += snprintf(buffer + pos, size - pos, "[");
+    
+    for (int i = 0; i < bar_width; i++) {
+        if (i == threshold_pos) {
+            pos += snprintf(buffer + pos, size - pos, "|");  // Threshold marker
+        } else if (i < filled) {
+            pos += snprintf(buffer + pos, size - pos, "█");  // Filled block (UTF-8)
+        } else {
+            pos += snprintf(buffer + pos, size - pos, "░");  // Empty block (UTF-8)
+        }
+    }
+    
+    snprintf(buffer + pos, size - pos, "] %d%%", percent);
+}
+
+// MQTT publisher task
+static void mqtt_publisher(void *pvParameters) {
+    mqtt_publisher_context_t *ctx = (mqtt_publisher_context_t *)pvParameters;
+    
+    TickType_t last_wake_time = xTaskGetTickCount();
+    const TickType_t publish_period = pdMS_TO_TICKS((uint32_t)(PUBLISH_INTERVAL * 1000));
+    
+    int64_t last_csi_log_time = 0;
+    
+    // Smart publishing configuration
+    runtime_config_t *config = (runtime_config_t *)ctx->config;
+    mqtt_publish_config_t pub_config = {
+        .enabled = config->smart_publishing_enabled,
+        .delta_threshold = 0.05f,
+        .max_interval_sec = 5.0f
+    };
+    
+    while (1) {
+        vTaskDelayUntil(&last_wake_time, publish_period);
+        
+        // Read state values with mutex protection
+        csi_motion_state_t motion_state;
+        uint32_t packets_processed;
+        csi_features_t features;
+        bool has_features = false;
+        
+        if (xSemaphoreTake(ctx->state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            motion_state = *(csi_motion_state_t *)ctx->motion_state;
+            packets_processed = *(uint32_t *)ctx->packets_processed;
+            
+            // Copy features if they were extracted
+            if (config->features_enabled) {
+                features = *(csi_features_t *)ctx->current_features;
+                has_features = true;
+            }
+            
+            xSemaphoreGive(ctx->state_mutex);
+        } else {
+            ESP_LOGW(TAG, "MQTT publisher: Failed to acquire mutex, skipping publish cycle");
+            continue;
+        }
+        
+        // Get CSI processor for motion detection data
+        csi_processor_context_t *csi_proc = (csi_processor_context_t *)ctx->csi_processor;
+        
+        // Calculate packet delta (packets processed since last cycle)
+        static uint32_t last_packets_processed = 0;
+        static uint32_t last_packets_dropped = 0;
+        uint32_t packet_delta = packets_processed - last_packets_processed;
+        uint32_t packets_dropped_stat = atomic_load((_Atomic uint32_t *)ctx->packets_dropped);
+        uint32_t dropped_delta = packets_dropped_stat - last_packets_dropped;
+        last_packets_processed = packets_processed;
+        last_packets_dropped = packets_dropped_stat;
+        
+        // CSI logging with progress bar (always enabled)
+        int64_t now = get_timestamp_sec();
+        if (now - last_csi_log_time >= LOG_CSI_VALUES_INTERVAL) {
+            
+            // Get motion detection data
+            float moving_variance = csi_processor_get_moving_variance(csi_proc);
+            float threshold = csi_processor_get_threshold(csi_proc);
+            
+            const char *state_names[] = {"IDLE", "MOTION"};
+            const char *state_str = (motion_state < 2) ? state_names[motion_state] : "UNKNOWN";
+            
+            // Calculate progress based on motion detection (moving_variance / threshold)
+            float progress = (threshold > 0.0f) ? (moving_variance / threshold) : 0.0f;
+            
+            // Format progress bar with threshold marker at 100%
+            char progress_bar[256];
+            format_progress_bar(progress_bar, sizeof(progress_bar), progress, 1.0f);
+            
+            ESP_LOGI(TAG, "📊 %s | pkts:%lu drop:%lu | mvmt:%.4f thr:%.4f | %s",
+                     progress_bar, (unsigned long)packet_delta, (unsigned long)dropped_delta,
+                     moving_variance, threshold, state_str);
+            last_csi_log_time = now;
+        }
+        
+        // Publish motion detection data
+        int64_t current_time = get_timestamp_ms();
+        float moving_variance = csi_processor_get_moving_variance(csi_proc);
+        
+        if (mqtt_should_publish(ctx->mqtt_state, moving_variance, motion_state, 
+                                &pub_config, current_time)) {
+            // Prepare segmentation result
+            segmentation_result_t result = {
+                .moving_variance = moving_variance,
+                .threshold = csi_processor_get_threshold(csi_proc),
+                .state = motion_state,
+                .timestamp = get_timestamp_sec(),
+                .packets_processed = packet_delta,
+                .packets_dropped = dropped_delta,
+                .has_features = has_features
+            };
+            
+            if (has_features) {
+                result.features = features;
+            }
+            
+            mqtt_publish_segmentation(ctx->mqtt_state, &result, ctx->mqtt_topic);
+            mqtt_update_publish_state(ctx->mqtt_state, moving_variance, motion_state, current_time);
+        }
+    }
+}
+
+void mqtt_start_publisher(mqtt_publisher_context_t *context) {
+    if (!context) {
+        ESP_LOGE(TAG, "mqtt_start_publisher: NULL context");
+        return;
+    }
+    
+    xTaskCreate(mqtt_publisher, "mqtt_pub", 4096, context, 5, NULL);
+    ESP_LOGI(TAG, "MQTT publisher task started");
 }

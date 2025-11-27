@@ -114,51 +114,6 @@ static void mqtt_command_callback(const char *data, int data_len) {
                          &g_state.mqtt_state, MQTT_TOPIC "/response");
 }
 
-static inline int64_t get_timestamp_ms(void) {
-    return esp_timer_get_time() / 1000;
-}
-
-static inline int64_t get_timestamp_sec(void) {
-    return esp_timer_get_time() / 1000000;
-}
-
-// Build UTF-8 progress bar with threshold marker at 3/4 position
-static void format_progress_bar(char *buffer, size_t size, float score, float threshold) {
-    const int bar_width = 20;
-    
-    // Threshold marker at 3/4 position (15 out of 20)
-    const int threshold_pos = 15;
-    
-    // Calculate percentage: score represents (moving_variance / adaptive_threshold)
-    // At threshold_pos (75% of bar), score should be 1.0 (100% of threshold)
-    // So we scale: filled = score * threshold_pos
-    int filled = (int)(score * threshold_pos);
-    
-    // Clamp filled to bar width
-    if (filled < 0) filled = 0;
-    if (filled > bar_width) filled = bar_width;
-    
-    // Calculate percentage for display (score * 100)
-    int percent = (int)(score * 100);
-    if (percent > 200) percent = 200;  // Cap at 200% for display
-    
-    // Build bar directly in output buffer
-    int pos = 0;
-    pos += snprintf(buffer + pos, size - pos, "[");
-    
-    for (int i = 0; i < bar_width; i++) {
-        if (i == threshold_pos) {
-            pos += snprintf(buffer + pos, size - pos, "|");  // Threshold marker
-        } else if (i < filled) {
-            pos += snprintf(buffer + pos, size - pos, "█");  // Filled block (UTF-8)
-        } else {
-            pos += snprintf(buffer + pos, size - pos, "░");  // Empty block (UTF-8)
-        }
-    }
-    
-    snprintf(buffer + pos, size - pos, "] %d%%", percent);
-}
-
 static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *data) {
     
     int8_t *csi_data = data->buf;
@@ -288,104 +243,6 @@ static void csi_init(void) {
     // Common CSI setup for all targets
     ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(csi_callback, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_csi(true));
-}
-
-static void mqtt_publish_task(void *pvParameters) {
-    TickType_t last_wake_time = xTaskGetTickCount();
-    const TickType_t publish_period = pdMS_TO_TICKS((uint32_t)(PUBLISH_INTERVAL * 1000));
-    
-    int64_t last_csi_log_time = 0;
-    
-    // Smart publishing configuration
-    mqtt_publish_config_t pub_config = {
-        .enabled = g_state.config.smart_publishing_enabled,
-        .delta_threshold = 0.05f,
-        .max_interval_sec = 5.0f
-    };
-    
-    while (1) {
-        vTaskDelayUntil(&last_wake_time, publish_period);
-        
-        // Read g_state values with mutex protection
-        csi_motion_state_t motion_state;
-        uint32_t packets_processed;
-        csi_features_t features;
-        bool has_features = false;
-        
-        if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-            motion_state = g_state.motion_state;
-            packets_processed = g_state.packets_processed;
-            
-            // Copy features if they were extracted
-            if (g_state.config.features_enabled) {
-                features = g_state.current_features;
-                has_features = true;
-            }
-            
-            xSemaphoreGive(g_state_mutex);
-        } else {
-            ESP_LOGW(TAG, "MQTT publish task: Failed to acquire mutex, skipping publish cycle");
-            continue;
-        }
-        
-        // Calculate packet delta (packets processed since last cycle)
-        static uint32_t last_packets_processed = 0;
-        static uint32_t last_packets_dropped = 0;
-        uint32_t packet_delta = packets_processed - last_packets_processed;
-        uint32_t packets_dropped_stat = atomic_load(&g_state.packets_dropped);
-        uint32_t dropped_delta = packets_dropped_stat - last_packets_dropped;
-        last_packets_processed = packets_processed;
-        last_packets_dropped = packets_dropped_stat;
-        
-        // CSI logging with progress bar (always enabled)
-        int64_t now = get_timestamp_sec();
-        if (now - last_csi_log_time >= LOG_CSI_VALUES_INTERVAL) {
-            
-            // Get motion detection data
-            float moving_variance = csi_processor_get_moving_variance(&g_state.csi_processor);
-            float threshold = csi_processor_get_threshold(&g_state.csi_processor);
-            
-            const char *state_names[] = {"IDLE", "MOTION"};
-            const char *state_str = (motion_state < 2) ? state_names[motion_state] : "UNKNOWN";
-            
-            // Calculate progress based on motion detection (moving_variance / threshold)
-            float progress = (threshold > 0.0f) ? (moving_variance / threshold) : 0.0f;
-            
-            // Format progress bar with threshold marker at 100%
-            char progress_bar[256];
-            format_progress_bar(progress_bar, sizeof(progress_bar), progress, 1.0f);
-            
-            ESP_LOGI(TAG, "📊 %s | pkts:%lu drop:%lu | mvmt:%.4f thr:%.4f | %s",
-                     progress_bar, (unsigned long)packet_delta, (unsigned long)dropped_delta,
-                     moving_variance, threshold, state_str);
-            last_csi_log_time = now;
-        }
-        
-        // Publish motion detection data
-        int64_t current_time = get_timestamp_ms();
-        float moving_variance = csi_processor_get_moving_variance(&g_state.csi_processor);
-        
-        if (mqtt_should_publish(&g_state.mqtt_state, moving_variance, motion_state, 
-                                &pub_config, current_time)) {
-            // Prepare segmentation result
-            segmentation_result_t result = {
-                .moving_variance = moving_variance,
-                .threshold = csi_processor_get_threshold(&g_state.csi_processor),
-                .state = motion_state,
-                .timestamp = get_timestamp_sec(),
-                .packets_processed = packet_delta,
-                .packets_dropped = dropped_delta,
-                .has_features = has_features
-            };
-            
-            if (has_features) {
-                result.features = features;
-            }
-            
-            mqtt_publish_segmentation(&g_state.mqtt_state, &result, MQTT_TOPIC);
-            mqtt_update_publish_state(&g_state.mqtt_state, moving_variance, motion_state, current_time);
-        }
-    }
 }
 
 void app_main(void) {
@@ -599,8 +456,20 @@ void app_main(void) {
     // Initialize CSI
     csi_init();
     
-    // Start MQTT publish task
-    xTaskCreate(mqtt_publish_task, "mqtt_pub", 4096, NULL, 5, NULL);
+    // Setup MQTT publisher context (static to persist after app_main returns)
+    static mqtt_publisher_context_t pub_context = {0};
+    pub_context.mqtt_state = &g_state.mqtt_state;
+    pub_context.csi_processor = &g_state.csi_processor;
+    pub_context.config = &g_state.config;
+    pub_context.current_features = &g_state.current_features;
+    pub_context.motion_state = &g_state.motion_state;
+    pub_context.packets_processed = &g_state.packets_processed;
+    pub_context.packets_dropped = &g_state.packets_dropped;
+    pub_context.state_mutex = g_state_mutex;
+    pub_context.mqtt_topic = MQTT_TOPIC;
+    
+    // Start MQTT publisher task
+    mqtt_start_publisher(&pub_context);
     
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "╔═══════════════════════════════════════════════════════════╗");

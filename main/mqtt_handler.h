@@ -18,6 +18,8 @@
 #include <stdbool.h>
 #include "mqtt_client.h"
 #include "csi_processor.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 // MQTT configuration
 typedef struct {
@@ -174,5 +176,28 @@ int mqtt_publish_binary(mqtt_handler_state_t *state,
                        const char *topic,
                        const uint8_t *data,
                        size_t data_len);
+
+/**
+ * Context for MQTT publisher task
+ */
+typedef struct {
+    mqtt_handler_state_t *mqtt_state;
+    void *csi_processor;
+    void *config;
+    void *current_features;
+    void *motion_state;
+    void *packets_processed;
+    void *packets_dropped;
+    SemaphoreHandle_t state_mutex;
+    const char *mqtt_topic;
+} mqtt_publisher_context_t;
+
+/**
+ * Start MQTT publisher task
+ * Publishes motion detection data periodically
+ * 
+ * @param context Publisher context with all required state
+ */
+void mqtt_start_publisher(mqtt_publisher_context_t *context);
 
 #endif // MQTT_HANDLER_H
