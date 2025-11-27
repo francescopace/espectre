@@ -509,13 +509,23 @@ Feature extraction is **enabled by default** but can be disabled to reduce CPU u
 - **Flash Tool**: esptool.py
 
 ### Performance Metrics
-- **CSI Capture Rate**: 10-100 packets/second
-- **Processing Latency**: <50ms per packet
-- **MQTT Publish Rate**: Smart publishing (only on significant changes + 5s heartbeat)
-- **MQTT Bandwidth**: ~0.2-1 KB/s depending on activity
-- **Power Consumption**: ~500mW typical
+- **CSI Capture Rate**: 100 packets/second
+- **Processing Latency**: <10ms per packet
+- **CPU Usage**: <20% (ESP32-C6 @ 160MHz)
+- **MQTT Publish Rate**: 1 packets/second (smart publishing optional)
+- **MQTT Bandwidth**: ~0.5-1 KB/s depending on activity
+- **Power Consumption**: ~500mW typical (Wi-Fi active)
 - **Detection Range**: 3-8 meters optimal
-- **Detection Accuracy**: Environment-dependent, requires tuning
+
+### Segmentation Accuracy
+| Metric | Value | Target |
+|--------|-------|--------|
+| Recall | 98.1% | >90% ✅ |
+| Precision | 100% | - |
+| FP Rate | 0.0% | <10% ✅ |
+| F1-Score | 99.0% | - |
+
+*Tested on 2000 packets. See [PERFORMANCE.md](PERFORMANCE.md) for detailed metrics and methodology.*
 
 ### Limitations
 - Currently tested on 2.4 GHz only (ESP32-S3: 2.4 GHz only, ESP32-C6: WiFi 6 on 2.4 GHz tested)

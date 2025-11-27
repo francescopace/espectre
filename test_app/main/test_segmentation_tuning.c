@@ -11,16 +11,17 @@
 #include "test_case_esp.h"
 #include "csi_processor.h"
 #include "segmentation.h"
-#include "real_csi_data_esp32_c6.h"
+#include "real_csi_data_esp32.h"
+#include "espectre.h"
 #include <math.h>
 #include <string.h>
 
 // Include CSI data arrays
 #include "real_csi_arrays.inc"
 
-// Default subcarrier selection for all tests (optimized based on PCA analysis)
-static const uint8_t SELECTED_SUBCARRIERS[] = {53, 21, 52, 20, 58, 54, 22, 45, 46, 51, 19, 57};
-static const uint8_t NUM_SUBCARRIERS = 12;
+// Default subcarrier selection from espectre.h (production configuration)
+static const uint8_t SELECTED_SUBCARRIERS[] = DEFAULT_SUBCARRIERS;
+static const uint8_t NUM_SUBCARRIERS = sizeof(SELECTED_SUBCARRIERS) / sizeof(SELECTED_SUBCARRIERS[0]);
 
 // Test: Segmentation threshold tuning with real CSI data
 TEST_CASE_ESP(segmentation_threshold_tuning_with_real_csi, "[segmentation][real]")
@@ -79,9 +80,11 @@ TEST_CASE_ESP(segmentation_threshold_tuning_with_real_csi, "[segmentation][real]
            segmentation_get_moving_variance(&ctx), segmentation_get_threshold(&ctx));
     printf("================================\n\n");
     
-    // Verify performance (updated based on real performance: 0 FP, 2 segments)
+    // Verify performance based on motion packets (not segments)
+    // Baseline: should have 0 false positive segments
+    // Movement: should have >90% motion packets (450 out of 500)
     TEST_ASSERT_LESS_THAN(1, baseline_segments);     // Expects 0 FP (actual: 0)
-    TEST_ASSERT_GREATER_THAN(1, movement_segments);  // Expects ≥2 segments (actual: 2)
+    TEST_ASSERT_GREATER_THAN(450, motion_packets);   // Expects >90% recall (actual: ~93%)
 }
 
 // Test: Different threshold values

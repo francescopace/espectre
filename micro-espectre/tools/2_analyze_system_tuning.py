@@ -12,7 +12,8 @@ License: GPLv3
 
 import numpy as np
 import argparse
-from mvs_utils import load_baseline_and_movement, test_mvs_configuration
+from mvs_utils import load_baseline_and_movement, test_mvs_configuration, MVSDetector
+from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 from itertools import combinations
 
 def test_contiguous_clusters(baseline_packets, movement_packets, cluster_size=12, quick=False):
@@ -249,6 +250,75 @@ def test_sparse_configurations(baseline_packets, movement_packets, quick=False):
     
     return results
 
+def print_confusion_matrix(baseline_packets, movement_packets, subcarriers, threshold, window_size):
+    """
+    Print confusion matrix and segmentation metrics for a specific configuration.
+    Matches the output format and behavior of test_performance_suite.c
+    
+    IMPORTANT: Like the C test, we do NOT reset the detector between baseline and movement.
+    This keeps the turbulence buffer "warm" when transitioning to movement data,
+    allowing proper evaluation of the first packets in the movement sequence.
+    """
+    num_baseline = len(baseline_packets)
+    num_movement = len(movement_packets)
+    
+    # Create detector once - will be used for both baseline and movement
+    detector = MVSDetector(window_size, threshold, subcarriers)
+    
+    # Test on baseline (FP = packets incorrectly classified as motion)
+    for pkt in baseline_packets:
+        detector.process_packet(pkt['csi_data'])
+    fp = detector.get_motion_count()
+    tn = num_baseline - fp
+    
+    # Reset only the motion counter, NOT the turbulence buffer
+    # This matches the C test behavior where the buffer stays "warm"
+    baseline_motion_count = detector.motion_packet_count
+    detector.motion_packet_count = 0
+    
+    # Test on movement (TP = packets correctly classified as motion)
+    # Buffer is already warm from baseline processing
+    for pkt in movement_packets:
+        detector.process_packet(pkt['csi_data'])
+    tp = detector.get_motion_count()
+    fn = num_movement - tp
+    
+    # Calculate metrics
+    recall = (tp / (tp + fn) * 100) if (tp + fn) > 0 else 0.0
+    precision = (tp / (tp + fp) * 100) if (tp + fp) > 0 else 0.0
+    fp_rate = (fp / num_baseline * 100) if num_baseline > 0 else 0.0
+    f1_score = (2 * (precision/100) * (recall/100) / ((precision + recall)/100) * 100) if (precision + recall) > 0 else 0.0
+    
+    # Print formatted output (matching C test format)
+    print()
+    print("═" * 75)
+    print("                         PERFORMANCE SUMMARY")
+    print("═" * 75)
+    print()
+    print(f"CONFUSION MATRIX ({num_baseline} baseline + {num_movement} movement packets):")
+    print("                    Predicted")
+    print("                IDLE      MOTION")
+    print(f"Actual IDLE     {tn:4d} (TN)  {fp:4d} (FP)")
+    print(f"    MOTION      {fn:4d} (FN)  {tp:4d} (TP)")
+    print()
+    print("SEGMENTATION METRICS:")
+    recall_status = "✅" if recall > 90 else "❌"
+    fp_status = "✅" if fp_rate < 10 else "❌"
+    print(f"  * Recall:     {recall:.1f}% (target: >90%) {recall_status}")
+    print(f"  * Precision:  {precision:.1f}%")
+    print(f"  * FP Rate:    {fp_rate:.1f}% (target: <10%) {fp_status}")
+    print(f"  * F1-Score:   {f1_score:.1f}%")
+    print()
+    print("═" * 75)
+    print()
+    
+    return {
+        'tp': tp, 'tn': tn, 'fp': fp, 'fn': fn,
+        'recall': recall, 'precision': precision,
+        'fp_rate': fp_rate, 'f1_score': f1_score
+    }
+
+
 def print_top_results(results, top_n=20):
     """Print top N results"""
     
@@ -307,6 +377,8 @@ def print_top_results(results, top_n=20):
 def main():
     parser = argparse.ArgumentParser(description='Comprehensive grid search for optimal MVS parameters')
     parser.add_argument('--quick', action='store_true', help='Quick mode (fewer tests)')
+    parser.add_argument('--confusion-matrix', action='store_true', 
+                       help='Show confusion matrix for current config (skip grid search)')
     
     args = parser.parse_args()
     
@@ -328,6 +400,16 @@ def main():
     
     print(f"   Baseline: {len(baseline_packets)} packets")
     print(f"   Movement: {len(movement_packets)} packets")
+    
+    # If --confusion-matrix flag, just show metrics for current config and exit
+    if args.confusion_matrix:
+        print(f"\n📊 Showing confusion matrix for current configuration:")
+        print(f"   Subcarriers: {SELECTED_SUBCARRIERS}")
+        print(f"   Window Size: {WINDOW_SIZE}")
+        print(f"   Threshold: {THRESHOLD}")
+        print_confusion_matrix(baseline_packets, movement_packets, 
+                              SELECTED_SUBCARRIERS, THRESHOLD, WINDOW_SIZE)
+        return
     
     all_results = []
     
@@ -361,6 +443,21 @@ def main():
     print(f"\n✅ Grid search complete!")
     print(f"   Total configurations tested: {len(all_results)}")
     print(f"   Configurations with positive score: {sum(1 for r in all_results if r['score'] > 0)}")
+    
+    # Show confusion matrix for best configuration
+    if all_results:
+        # Get best configuration (FP=0, minimum threshold)
+        fp_zero_results = [r for r in all_results if r['fp'] == 0 and r['tp'] > 0]
+        if fp_zero_results:
+            fp_zero_results.sort(key=lambda x: (x['threshold'], -x['tp'], x['window_size']))
+            best = fp_zero_results[0]
+        else:
+            all_results.sort(key=lambda x: (x['fp'], x['threshold'], -x['tp']))
+            best = all_results[0]
+        
+        print_confusion_matrix(baseline_packets, movement_packets,
+                              best['cluster'], best['threshold'], best['window_size'])
+    
     print()
 
 if __name__ == '__main__':

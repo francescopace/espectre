@@ -10,8 +10,10 @@
 #include "test_case_esp.h"
 #include "segmentation.h"
 #include "csi_processor.h"
-#include "real_csi_data_esp32_c6.h"
+#include "real_csi_data_esp32.h"
+#include "espectre.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -25,9 +27,9 @@ static const char *TAG = "test_segmentation";
 #define NUM_BASELINE_PACKETS num_baseline
 #define NUM_MOVEMENT_PACKETS num_movement
 
-// Default subcarrier selection for all tests (optimized based on PCA analysis)
-static const uint8_t SELECTED_SUBCARRIERS[] = {53, 21, 52, 20, 58, 54, 22, 45, 46, 51, 19, 57};
-static const uint8_t NUM_SUBCARRIERS = 12;
+// Default subcarrier selection from espectre.h (production configuration)
+static const uint8_t SELECTED_SUBCARRIERS[] = DEFAULT_SUBCARRIERS;
+static const uint8_t NUM_SUBCARRIERS = sizeof(SELECTED_SUBCARRIERS) / sizeof(SELECTED_SUBCARRIERS[0]);
 
 // Test: Initialize segmentation context
 TEST_CASE_ESP(segmentation_init, "[segmentation]")
@@ -103,9 +105,10 @@ TEST_CASE_ESP(segmentation_movement_detection, "[segmentation]")
              (motion_packets * 100.0f) / NUM_MOVEMENT_PACKETS,
              segments_completed);
     
-    // Verify motion was detected (at least 6 segments expected)
-    TEST_ASSERT_GREATER_THAN(5, segments_completed);   // Expects ≥6 (actual: ~7)
-    TEST_ASSERT_GREATER_THAN(650, motion_packets);     // Expects ≥651 (actual: ~801)
+    // Verify motion was detected
+    // Count motion packets (not segments) - should have >94% recall
+    TEST_ASSERT_GREATER_THAN(940, motion_packets);     // Expects >94% recall (actual: ~94.7%)
+    TEST_ASSERT_GREATER_THAN(0, segments_completed);   // At least 1 segment completed
 }
 
 // Test: No false positives on baseline
@@ -290,4 +293,94 @@ TEST_CASE_ESP(segmentation_window_size_effect, "[segmentation]")
     // Both should detect motion
     TEST_ASSERT_GREATER_THAN(0, segments_small);
     TEST_ASSERT_GREATER_THAN(0, segments_large);
+}
+
+// Test: Segmentation handles invalid input gracefully
+TEST_CASE_ESP(segmentation_handles_invalid_input, "[segmentation][edge]")
+{
+    segmentation_context_t ctx;
+    segmentation_init(&ctx);
+    
+    // Test with negative turbulence (should be treated as 0 or ignored)
+    segmentation_add_turbulence(&ctx, -1.0f);
+    TEST_ASSERT_EQUAL(SEG_STATE_IDLE, ctx.state);
+    
+    // Test with very large turbulence
+    segmentation_add_turbulence(&ctx, 1000000.0f);
+    // Should handle gracefully without crash
+    TEST_ASSERT_TRUE(ctx.state == SEG_STATE_IDLE || ctx.state == SEG_STATE_MOTION);
+    
+    // Reset and test with NaN (if supported)
+    segmentation_reset(&ctx);
+    float nan_val = 0.0f / 0.0f;  // Generate NaN
+    segmentation_add_turbulence(&ctx, nan_val);
+    // Should not crash, state should remain valid
+    TEST_ASSERT_TRUE(ctx.state == SEG_STATE_IDLE || ctx.state == SEG_STATE_MOTION);
+    
+    // Test with infinity
+    segmentation_reset(&ctx);
+    float inf_val = 1.0f / 0.0f;  // Generate infinity
+    segmentation_add_turbulence(&ctx, inf_val);
+    // Should not crash
+    TEST_ASSERT_TRUE(ctx.state == SEG_STATE_IDLE || ctx.state == SEG_STATE_MOTION);
+}
+
+// Test: Segmentation stress test with many packets and memory leak check
+TEST_CASE_ESP(segmentation_stress_test, "[segmentation][stress][memory]")
+{
+    // Set global subcarrier selection for CSI processing
+    csi_set_subcarrier_selection(SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+    
+    // Measure heap before test
+    size_t heap_before = esp_get_free_heap_size();
+    ESP_LOGI(TAG, "Heap before stress test: %d bytes", heap_before);
+    
+    segmentation_context_t ctx;
+    segmentation_init(&ctx);
+    
+    // Process all available packets multiple times
+    int total_packets = 0;
+    int total_motion = 0;
+    
+    for (int round = 0; round < 5; round++) {
+        // Process baseline
+        for (int i = 0; i < NUM_BASELINE_PACKETS; i++) {
+            float turbulence = csi_calculate_spatial_turbulence(
+                (const int8_t*)baseline_packets[i], 128,
+                SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+            segmentation_add_turbulence(&ctx, turbulence);
+            total_packets++;
+            if (segmentation_get_state(&ctx) == SEG_STATE_MOTION) {
+                total_motion++;
+            }
+        }
+        
+        // Process movement
+        for (int i = 0; i < NUM_MOVEMENT_PACKETS; i++) {
+            float turbulence = csi_calculate_spatial_turbulence(
+                (const int8_t*)movement_packets[i], 128,
+                SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+            segmentation_add_turbulence(&ctx, turbulence);
+            total_packets++;
+            if (segmentation_get_state(&ctx) == SEG_STATE_MOTION) {
+                total_motion++;
+            }
+        }
+    }
+    
+    // Measure heap after test
+    size_t heap_after = esp_get_free_heap_size();
+    int heap_diff = (int)heap_before - (int)heap_after;
+    
+    ESP_LOGI(TAG, "Stress test: %d packets processed, %d motion (%.1f%%)", 
+             total_packets, total_motion, (total_motion * 100.0f) / total_packets);
+    ESP_LOGI(TAG, "Heap after stress test: %d bytes (diff: %d bytes)", 
+             heap_after, heap_diff);
+    
+    // Should have processed all packets without crash
+    TEST_ASSERT_EQUAL(10000, total_packets);  // 5 rounds * 2000 packets
+    // Should have detected some motion
+    TEST_ASSERT_GREATER_THAN(0, total_motion);
+    // Memory leak check: allow up to 1KB tolerance for fragmentation
+    TEST_ASSERT_LESS_THAN(1024, heap_diff);
 }

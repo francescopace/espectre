@@ -19,7 +19,9 @@
 #include "test_case_esp.h"
 #include "csi_processor.h"
 #include "segmentation.h"
-#include "real_csi_data_esp32_c6.h"
+#include "real_csi_data_esp32.h"
+#include "espectre.h"
+#include "esp_system.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -28,8 +30,8 @@
 #include "real_csi_arrays.inc"
 
 // Default subcarrier selection for all tests (optimized based on PCA analysis)
-static const uint8_t SELECTED_SUBCARRIERS[] = {53, 21, 52, 20, 58, 54, 22, 45, 46, 51, 19, 57};
-static const uint8_t NUM_SUBCARRIERS = 12;
+static const uint8_t SELECTED_SUBCARRIERS[] = DEFAULT_SUBCARRIERS;
+static const uint8_t NUM_SUBCARRIERS = sizeof(SELECTED_SUBCARRIERS) / sizeof(SELECTED_SUBCARRIERS[0]);
 
 #define NUM_FEATURES 10
 
@@ -272,31 +274,6 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
     
     calculate_segmentation_metrics(&metrics, num_baseline, num_movement);
     
-    printf("═══════════════════════════════════════════════════════\n");
-    printf("  SEGMENTATION PERFORMANCE METRICS\n");
-    printf("═══════════════════════════════════════════════════════\n\n");
-    
-    printf("                    Predicted\n");
-    printf("                IDLE      MOTION\n");
-    printf("Actual IDLE     %-8d  %-8d  (FP Rate: %.2f%%)\n",
-           metrics.true_negatives, metrics.false_positives, metrics.false_positive_rate);
-    printf("    MOTION      %-8d  %-8d  (FN Rate: %.2f%%)\n",
-           metrics.false_negatives, metrics.true_positives, metrics.false_negative_rate);
-    printf("\n");
-    printf("Metrics:\n");
-    printf("  Accuracy:    %.2f%%\n", metrics.accuracy);
-    printf("  Precision:   %.2f%%\n", metrics.precision);
-    printf("  Recall:      %.2f%% %s\n", metrics.recall, 
-           metrics.recall >= 90.0f ? "✅ TARGET MET" : "⚠️  BELOW TARGET");
-    printf("  F1-Score:    %.2f%%\n", metrics.f1_score);
-    printf("  Specificity: %.2f%%\n", metrics.specificity);
-    printf("\n");
-    
-    float fp_per_hour = metrics.false_positive_rate / 100.0f * 15.0f * 3600.0f;
-    printf("Expected false alarms: ~%.1f per hour (at 15 pps) %s\n", fp_per_hour,
-           (fp_per_hour >= 1.0f && fp_per_hour <= 5.0f) ? "✅ TARGET" : 
-           fp_per_hour < 1.0f ? "✅ EXCELLENT" : "⚠️  HIGH");
-    printf("\n");
     
     // ========================================================================
     // PART 2: FEATURE RANKING (SECONDARY - for features_enabled mode)
@@ -313,7 +290,7 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
     
     if (!baseline_features || !movement_features) {
         printf("⚠️  Skipping feature ranking (memory allocation failed)\n\n");
-        goto skip_features;
+        goto test_summary;
     }
     
     for (int f = 0; f < NUM_FEATURES; f++) {
@@ -322,7 +299,7 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
         
         if (!baseline_features[f] || !movement_features[f]) {
             printf("⚠️  Skipping feature ranking (memory allocation failed)\n\n");
-            goto cleanup_features;
+            goto feature_cleanup;
         }
     }
     
@@ -366,7 +343,7 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
     feature_ranking_t *rankings = malloc(NUM_FEATURES * sizeof(feature_ranking_t));
     if (!rankings) {
         printf("⚠️  Skipping feature ranking (memory allocation failed)\n\n");
-        goto cleanup_features;
+        goto feature_cleanup;
     }
     
     for (int f = 0; f < NUM_FEATURES; f++) {
@@ -418,7 +395,7 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
     
     free(rankings);
     
-cleanup_features:
+feature_cleanup:
     for (int f = 0; f < NUM_FEATURES; f++) {
         free(baseline_features[f]);
         free(movement_features[f]);
@@ -426,67 +403,51 @@ cleanup_features:
     free(baseline_features);
     free(movement_features);
     
-skip_features:
-    
+test_summary:
     // ========================================================================
-    // SUMMARY
+    // FINAL TEST SUMMARY (printed before assertions so always visible)
     // ========================================================================
-    printf("═══════════════════════════════════════════════════════\n");
-    printf("  SUMMARY\n");
-    printf("═══════════════════════════════════════════════════════\n\n");
     
-    if (metrics.recall >= 90.0f && metrics.false_positive_rate <= 10.0f) {
-        printf("✅ EXCELLENT: Segmentation meets all targets!\n");
-        printf("   Recall: %.1f%% (target: 90%%)\n", metrics.recall);
-        printf("   FP Rate: %.1f%% (target: <10%%)\n", metrics.false_positive_rate);
-        printf("   System ready for Home Assistant integration\n");
-    } else {
-        printf("⚠️  WARNING: Segmentation needs tuning\n");
-        if (metrics.recall < 90.0f) {
-            printf("   Recall: %.1f%% (below 90%% target)\n", metrics.recall);
-            printf("   → Consider lowering threshold or adjusting K factor\n");
-        }
-        if (metrics.false_positive_rate > 10.0f) {
-            printf("   FP Rate: %.1f%% (above 10%% target)\n", metrics.false_positive_rate);
-            printf("   → Consider increasing threshold or window size\n");
-        }
-    }
+    // Calculate packet-based metrics
+    int pkt_tp = movement_with_segments;
+    int pkt_fn = movement_without_segments;
+    int pkt_tn = num_baseline - baseline_motion_packets;
+    int pkt_fp = baseline_motion_packets;
     
+    float pkt_recall = (float)pkt_tp / (pkt_tp + pkt_fn) * 100.0f;
+    float pkt_precision = (pkt_tp + pkt_fp > 0) ? (float)pkt_tp / (pkt_tp + pkt_fp) * 100.0f : 0.0f;
+    float pkt_fp_rate = (float)pkt_fp / num_baseline * 100.0f;
+    float pkt_f1 = (pkt_precision + pkt_recall > 0) ? 
+        2.0f * (pkt_precision / 100.0f) * (pkt_recall / 100.0f) / ((pkt_precision + pkt_recall) / 100.0f) * 100.0f : 0.0f;
+    
+    size_t free_heap = esp_get_free_heap_size();
+    
+    printf("═══════════════════════════════════════════════════════════════════════\n");
+    printf("                         TEST SUMMARY\n");
+    printf("═══════════════════════════════════════════════════════════════════════\n");
     printf("\n");
-    printf("💡 Next Steps:\n");
-    printf("   1. Run home_assistant_integration test for E2E validation\n");
-    printf("   2. Run threshold_optimization for feature ranking details\n");
-    printf("   3. Use analyze_test_results.py to generate report\n");
+    printf("CONFUSION MATRIX (%d baseline + %d movement packets):\n", num_baseline, num_movement);
+    printf("                    Predicted\n");
+    printf("                IDLE      MOTION\n");
+    printf("Actual IDLE     %4d (TN)  %4d (FP)\n", pkt_tn, pkt_fp);
+    printf("    MOTION      %4d (FN)  %4d (TP)\n", pkt_fn, pkt_tp);
     printf("\n");
+    printf("SEGMENTATION METRICS:\n");
+    printf("  * True Positives (TP):   %d\n", pkt_tp);
+    printf("  * True Negatives (TN):   %d\n", pkt_tn);
+    printf("  * False Positives (FP):  %d\n", pkt_fp);
+    printf("  * False Negatives (FN):  %d\n", pkt_fn);
+    printf("  * Recall:     %.1f%% (target: >90%%)\n", pkt_recall);
+    printf("  * Precision:  %.1f%%\n", pkt_precision);
+    printf("  * FP Rate:    %.1f%% (target: <10%%)\n", pkt_fp_rate);
+    printf("  * F1-Score:   %.1f%%\n", pkt_f1);
+    printf("\n");
+    printf("MEMORY:\n");
+    printf("  * Free heap: %d bytes\n", (int)free_heap);
+    printf("\n");
+    printf("═══════════════════════════════════════════════════════════════════════\n\n");
     
-    // JSON output for Python analysis
-    printf("═══════════════════════════════════════════════════════\n");
-    printf("  JSON OUTPUT (for Python analysis)\n");
-    printf("═══════════════════════════════════════════════════════\n");
-    printf("{\n");
-    printf("  \"test_name\": \"performance_suite_comprehensive\",\n");
-    printf("  \"architecture\": \"segmentation_based\",\n");
-    printf("  \"baseline_samples\": %d,\n", num_baseline);
-    printf("  \"movement_samples\": %d,\n", num_movement);
-    printf("  \"segmentation\": {\n");
-    printf("    \"threshold\": %.4f,\n", threshold);
-    printf("    \"recall\": %.4f,\n", metrics.recall / 100.0f);
-    printf("    \"precision\": %.4f,\n", metrics.precision / 100.0f);
-    printf("    \"f1_score\": %.4f,\n", metrics.f1_score / 100.0f);
-    printf("    \"fp_rate\": %.4f,\n", metrics.false_positive_rate / 100.0f);
-    printf("    \"fn_rate\": %.4f,\n", metrics.false_negative_rate / 100.0f);
-    printf("    \"segments_detected\": %d\n", total_segments_detected);
-    printf("  },\n");
-    printf("  \"target_met\": %s\n", 
-           (metrics.recall >= 90.0f && metrics.false_positive_rate <= 10.0f) ? "true" : "false");
-    printf("}\n");
-    printf("═══════════════════════════════════════════════════════\n\n");
-    
-    // Verify minimum acceptable performance (updated for simplified algorithm)
-    // NOTE: Without min_length validation, we get fewer but longer segments
-    // The segmentation detects ~7 segments, which cover ~820 packets (82% detection rate)
-    // This is excellent - segments are more meaningful without artificial length filtering
-    // Key metrics: segments detected (7), FP rate (0%), baseline segments (0)
-    TEST_ASSERT_GREATER_THAN(5, total_segments_detected);      // Expects ≥6 segments (actual: 7)
-    TEST_ASSERT_LESS_THAN(1.0f, metrics.false_positive_rate);  // Expects <1% FP rate (actual: 0%)
+    // Verify minimum acceptable performance based on motion packets
+    TEST_ASSERT_GREATER_THAN(950, movement_with_segments);  // >95% recall
+    TEST_ASSERT_LESS_THAN(1.0f, pkt_fp_rate);               // <1% FP rate
 }
