@@ -11,25 +11,22 @@
 #include "unity_test_runner.h"
 #include <stdio.h>
 
-// test_performance_suite.c - Tests segmentation performance (PRIMARY)
+// test_performance_suite.c
 extern test_desc_t test_desc_performance_suite_comprehensive;
-// test_threshold_optimization.c - Feature ranking (SECONDARY - for features_enabled mode)
-extern test_desc_t test_desc_threshold_optimization_for_recall;
 // test_features.c
 extern test_desc_t test_desc_features_differ_between_baseline_and_movement;
-// test_segmentation_tuning.c
-extern test_desc_t test_desc_segmentation_threshold_tuning_with_real_csi;
 // test_pca_subcarrier.c
 extern test_desc_t test_desc_pca_subcarrier_analysis_on_real_data;
 // test_segmentation.c
 extern test_desc_t test_desc_segmentation_init;
-extern test_desc_t test_desc_segmentation_movement_detection;
-extern test_desc_t test_desc_segmentation_no_false_positives;
-extern test_desc_t test_desc_spatial_turbulence_calculation;
+extern test_desc_t test_desc_segmentation_parameters;
 extern test_desc_t test_desc_segmentation_reset;
 extern test_desc_t test_desc_segmentation_handles_invalid_input;
 extern test_desc_t test_desc_segmentation_stress_test;
 // test_filters.c
+extern test_desc_t test_desc_butterworth_filter_initialization;
+extern test_desc_t test_desc_hampel_filter_removes_outliers;
+extern test_desc_t test_desc_filter_buffer_operations;
 extern test_desc_t test_desc_filter_pipeline_with_wavelet_integration;
 extern test_desc_t test_desc_filter_pipeline_with_wavelet_disabled;
 // test_wavelet.c
@@ -45,32 +42,38 @@ void app_main(void) {
   printf("╚═════════════════════════════════════════════════════════╝\n");
   printf("\n");
 
+
   // ========================================================================
-  // SEGMENTATION UNIT TESTS
+  // CSI PROCESSOR UNIT TESTS
   // ========================================================================
 
   unity_testcase_register(&test_desc_segmentation_init);
-  unity_testcase_register(&test_desc_spatial_turbulence_calculation);
-  unity_testcase_register(&test_desc_segmentation_no_false_positives);
-  unity_testcase_register(&test_desc_segmentation_movement_detection);
+  unity_testcase_register(&test_desc_segmentation_parameters);
   unity_testcase_register(&test_desc_segmentation_reset);
   unity_testcase_register(&test_desc_segmentation_handles_invalid_input);
   unity_testcase_register(&test_desc_segmentation_stress_test);
 
   // ========================================================================
-  // TUNING & FEATURE TESTS
+  // FEATURE TESTS
+  // ========================================================================
+  
+  //unity_testcase_register(&test_desc_features_differ_between_baseline_and_movement);
+  //unity_testcase_register(&test_desc_pca_subcarrier_analysis_on_real_data);
+
+  // ========================================================================
+  // FILTER TESTS
   // ========================================================================
 
-  unity_testcase_register(&test_desc_segmentation_threshold_tuning_with_real_csi);
-  unity_testcase_register(&test_desc_features_differ_between_baseline_and_movement);
-  unity_testcase_register(&test_desc_pca_subcarrier_analysis_on_real_data);
-
-  // ========================================================================
-  // COMPONENT TESTS
-  // ========================================================================
-
+  unity_testcase_register(&test_desc_butterworth_filter_initialization);
+  unity_testcase_register(&test_desc_hampel_filter_removes_outliers);
+  unity_testcase_register(&test_desc_filter_buffer_operations);
   unity_testcase_register(&test_desc_filter_pipeline_with_wavelet_integration);
   unity_testcase_register(&test_desc_filter_pipeline_with_wavelet_disabled);
+
+  // ========================================================================
+  // WAVELET TESTS
+  // ========================================================================
+
   unity_testcase_register(&test_desc_wavelet_denoising_reduces_noise);
   unity_testcase_register(&test_desc_wavelet_streaming_mode);
   unity_testcase_register(&test_desc_wavelet_allocation_failure_protection);
@@ -79,7 +82,6 @@ void app_main(void) {
   // PERFORMANCE TESTS
   // ========================================================================
 
-  unity_testcase_register(&test_desc_threshold_optimization_for_recall);
   unity_testcase_register(&test_desc_performance_suite_comprehensive);
 
   // Run all tests

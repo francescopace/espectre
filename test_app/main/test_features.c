@@ -20,7 +20,7 @@
 // Helper: extract all features for testing
 static const uint8_t test_all_features[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 #define EXTRACT_ALL_FEATURES(data, len, features) \
-    csi_extract_features(data, len, features, test_all_features, 10)
+    csi_extract_features(data, len, NULL, 0, features, test_all_features, 10)
 
 // Test: Verify features are different between baseline and movement (using real data)
 TEST_CASE_ESP(features_differ_between_baseline_and_movement, "[features]")

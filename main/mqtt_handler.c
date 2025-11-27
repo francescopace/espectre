@@ -18,11 +18,11 @@
 
 static const char *TAG = "MQTT_Handler";
 
-// State names for segmentation
-static const char* segmentation_state_to_string(segmentation_state_t state) {
+// State names for motion detection
+static const char* motion_state_to_string(csi_motion_state_t state) {
     switch (state) {
-        case SEG_STATE_IDLE: return "idle";
-        case SEG_STATE_MOTION: return "motion";
+        case CSI_STATE_IDLE: return "idle";
+        case CSI_STATE_MOTION: return "motion";
         default: return "unknown";
     }
 }
@@ -176,7 +176,7 @@ int mqtt_publish_segmentation(mqtt_handler_state_t *state,
     
     cJSON_AddNumberToObject(root, "movement", (double)result->moving_variance);
     cJSON_AddNumberToObject(root, "threshold", (double)result->threshold);
-    cJSON_AddStringToObject(root, "state", segmentation_state_to_string(result->state));
+    cJSON_AddStringToObject(root, "state", motion_state_to_string(result->state));
     cJSON_AddNumberToObject(root, "packets_processed", (double)result->packets_processed);
     cJSON_AddNumberToObject(root, "packets_dropped", (double)result->packets_dropped);
     
@@ -247,7 +247,7 @@ int mqtt_send_response(mqtt_handler_state_t *state,
 
 bool mqtt_should_publish(mqtt_handler_state_t *state,
                         float current_movement,
-                        segmentation_state_t current_state,
+                        csi_motion_state_t current_state,
                         const mqtt_publish_config_t *config,
                         int64_t current_time) {
     if (!state || !config) {
@@ -286,12 +286,12 @@ bool mqtt_should_publish(mqtt_handler_state_t *state,
 
 void mqtt_update_publish_state(mqtt_handler_state_t *state,
                               float movement,
-                              segmentation_state_t seg_state,
+                              csi_motion_state_t motion_state,
                               int64_t current_time) {
     if (!state) return;
     
     state->last_published_movement = movement;
-    state->last_published_state = seg_state;
+    state->last_published_state = motion_state;
     state->last_publish_time = current_time;
 }
 

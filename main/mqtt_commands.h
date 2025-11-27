@@ -18,16 +18,15 @@
 #include "config_manager.h"
 #include "csi_processor.h"
 #include "filters.h"
-#include "segmentation.h"
 
 // Command context - provides access to system state
 typedef struct {
     runtime_config_t *config;
     csi_features_t *current_features;
-    segmentation_state_t *current_state;
+    csi_motion_state_t *current_state;
     butterworth_filter_t *butterworth;
     filter_buffer_t *filter_buffer;
-    segmentation_context_t *segmentation;
+    csi_processor_context_t *csi_processor;
     const char *mqtt_base_topic;
     const char *mqtt_cmd_topic;
     const char *mqtt_response_topic;

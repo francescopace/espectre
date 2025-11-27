@@ -32,7 +32,6 @@
 #include "mqtt_handler.h"
 #include "mqtt_commands.h"
 #include "traffic_generator.h"
-#include "segmentation.h"
 #include "esp_netif.h"
 #include "espectre.h"
 
@@ -68,9 +67,9 @@ static struct {
     // WiFi state
     bool wifi_connected;
     
-    // Segmentation module
-    segmentation_context_t segmentation;
-    segmentation_state_t segmentation_state;
+    // CSI processor (unified: feature extraction + motion detection)
+    csi_processor_context_t csi_processor;
+    csi_motion_state_t motion_state;
     
 } g_state = {0};
 
@@ -173,20 +172,17 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
     // Protect g_state modifications with mutex (50ms timeout)
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         
-        // Extract features if enabled (always, regardless of state)
-        if (g_state.config.features_enabled) {
-            csi_extract_features(csi_data, csi_len, &g_state.current_features,
-                               ALL_CSI_FEATURES, 10);
-        }
+        // Process CSI packet: turbulence calculation, motion detection, and optional feature extraction
+        // Uses unified csi_process_packet() which handles everything in one call
+        csi_process_packet(&g_state.csi_processor,
+                          csi_data, csi_len,
+                          g_state.config.selected_subcarriers,
+                          g_state.config.num_selected_subcarriers,
+                          g_state.config.features_enabled ? &g_state.current_features : NULL,
+                          ALL_CSI_FEATURES, 10);
         
-        // MVS Segmentation: Calculate spatial turbulence and update segmentation
-        float turbulence = csi_calculate_spatial_turbulence(csi_data, csi_len,
-                                                            g_state.config.selected_subcarriers,
-                                                            g_state.config.num_selected_subcarriers);
-        segmentation_add_turbulence(&g_state.segmentation, turbulence);
-        
-        // Update segmentation state
-        g_state.segmentation_state = segmentation_get_state(&g_state.segmentation);
+        // Update motion state
+        g_state.motion_state = csi_processor_get_state(&g_state.csi_processor);
         
         g_state.packets_processed++;
         
@@ -311,13 +307,13 @@ static void mqtt_publish_task(void *pvParameters) {
         vTaskDelayUntil(&last_wake_time, publish_period);
         
         // Read g_state values with mutex protection
-        segmentation_state_t seg_state;
+        csi_motion_state_t motion_state;
         uint32_t packets_processed;
         csi_features_t features;
         bool has_features = false;
         
         if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-            seg_state = g_state.segmentation_state;
+            motion_state = g_state.motion_state;
             packets_processed = g_state.packets_processed;
             
             // Copy features if they were extracted
@@ -345,37 +341,37 @@ static void mqtt_publish_task(void *pvParameters) {
         int64_t now = get_timestamp_sec();
         if (now - last_csi_log_time >= LOG_CSI_VALUES_INTERVAL) {
             
-            // Get segmentation data
-            float moving_variance = segmentation_get_moving_variance(&g_state.segmentation);
-            float threshold = segmentation_get_threshold(&g_state.segmentation);
+            // Get motion detection data
+            float moving_variance = csi_processor_get_moving_variance(&g_state.csi_processor);
+            float threshold = csi_processor_get_threshold(&g_state.csi_processor);
             
-            const char *seg_state_names[] = {"IDLE", "MOTION"};
-            const char *seg_state_str = (seg_state < 2) ? seg_state_names[seg_state] : "UNKNOWN";
+            const char *state_names[] = {"IDLE", "MOTION"};
+            const char *state_str = (motion_state < 2) ? state_names[motion_state] : "UNKNOWN";
             
-            // Calculate progress based on segmentation (moving_variance / threshold)
-            float seg_progress = (threshold > 0.0f) ? (moving_variance / threshold) : 0.0f;
+            // Calculate progress based on motion detection (moving_variance / threshold)
+            float progress = (threshold > 0.0f) ? (moving_variance / threshold) : 0.0f;
             
             // Format progress bar with threshold marker at 100%
             char progress_bar[256];
-            format_progress_bar(progress_bar, sizeof(progress_bar), seg_progress, 1.0f);
+            format_progress_bar(progress_bar, sizeof(progress_bar), progress, 1.0f);
             
             ESP_LOGI(TAG, "📊 %s | pkts:%lu drop:%lu | mvmt:%.4f thr:%.4f | %s",
                      progress_bar, (unsigned long)packet_delta, (unsigned long)dropped_delta,
-                     moving_variance, threshold, seg_state_str);
+                     moving_variance, threshold, state_str);
             last_csi_log_time = now;
         }
         
-        // Publish segmentation data
+        // Publish motion detection data
         int64_t current_time = get_timestamp_ms();
-        float moving_variance = segmentation_get_moving_variance(&g_state.segmentation);
+        float moving_variance = csi_processor_get_moving_variance(&g_state.csi_processor);
         
-        if (mqtt_should_publish(&g_state.mqtt_state, moving_variance, seg_state, 
+        if (mqtt_should_publish(&g_state.mqtt_state, moving_variance, motion_state, 
                                 &pub_config, current_time)) {
             // Prepare segmentation result
             segmentation_result_t result = {
                 .moving_variance = moving_variance,
-                .threshold = segmentation_get_threshold(&g_state.segmentation),
-                .state = seg_state,
+                .threshold = csi_processor_get_threshold(&g_state.csi_processor),
+                .state = motion_state,
                 .timestamp = get_timestamp_sec(),
                 .packets_processed = packet_delta,
                 .packets_dropped = dropped_delta,
@@ -387,7 +383,7 @@ static void mqtt_publish_task(void *pvParameters) {
             }
             
             mqtt_publish_segmentation(&g_state.mqtt_state, &result, MQTT_TOPIC);
-            mqtt_update_publish_state(&g_state.mqtt_state, moving_variance, seg_state, current_time);
+            mqtt_update_publish_state(&g_state.mqtt_state, moving_variance, motion_state, current_time);
         }
     }
 }
@@ -431,9 +427,9 @@ void app_main(void) {
     wavelet_init(&g_wavelet, g_state.config.wavelet_level, 
                  g_state.config.wavelet_threshold, WAVELET_THRESH_SOFT);
     
-    // Initialize segmentation system
-    segmentation_init(&g_state.segmentation);
-    ESP_LOGI(TAG, "📍 Segmentation module initialized");
+    // Initialize CSI processor (unified: feature extraction + motion detection)
+    csi_processor_init(&g_state.csi_processor);
+    ESP_LOGI(TAG, "📍 CSI processor initialized");
     
     // Initialize CSI processor with default subcarrier selection
     csi_set_subcarrier_selection(g_state.config.selected_subcarriers,
@@ -451,11 +447,11 @@ void app_main(void) {
             // Load config parameters (pass nvs_cfg to avoid duplicate NVS read)
             config_load_from_nvs(&g_state.config, &nvs_cfg);
             
-            // Apply segmentation parameters from config
-            segmentation_set_window_size(&g_state.segmentation, g_state.config.segmentation_window_size);
+            // Apply motion detection parameters from config
+            csi_processor_set_window_size(&g_state.csi_processor, g_state.config.segmentation_window_size);
             
-            // Load segmentation threshold from NVS
-            segmentation_set_threshold(&g_state.segmentation, nvs_cfg.segmentation_threshold);
+            // Load motion detection threshold from NVS
+            csi_processor_set_threshold(&g_state.csi_processor, nvs_cfg.segmentation_threshold);
             
             // Load subcarrier selection from NVS
             if (nvs_cfg.num_selected_subcarriers > 0) {
@@ -466,7 +462,7 @@ void app_main(void) {
             }
             
             ESP_LOGI(TAG, "💾 Loaded saved configuration from NVS");
-            ESP_LOGI(TAG, "📍 Segmentation: threshold=%.2f, window=%d",
+            ESP_LOGI(TAG, "📍 Motion detection: threshold=%.2f, window=%d",
                      nvs_cfg.segmentation_threshold,
                      g_state.config.segmentation_window_size);
         }
@@ -565,10 +561,10 @@ void app_main(void) {
     // Setup MQTT command context
     g_mqtt_cmd_context.config = &g_state.config;
     g_mqtt_cmd_context.current_features = &g_state.current_features;
-    g_mqtt_cmd_context.current_state = &g_state.segmentation_state;
+    g_mqtt_cmd_context.current_state = &g_state.motion_state;
     g_mqtt_cmd_context.butterworth = &g_butterworth;
     g_mqtt_cmd_context.filter_buffer = &g_filter_buffer;
-    g_mqtt_cmd_context.segmentation = &g_state.segmentation;
+    g_mqtt_cmd_context.csi_processor = &g_state.csi_processor;
     g_mqtt_cmd_context.mqtt_base_topic = mqtt_cfg.base_topic;
     g_mqtt_cmd_context.mqtt_cmd_topic = mqtt_cfg.cmd_topic;
     g_mqtt_cmd_context.mqtt_response_topic = mqtt_cfg.response_topic;

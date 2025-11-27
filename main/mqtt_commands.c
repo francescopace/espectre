@@ -10,6 +10,7 @@
 #include "traffic_generator.h"
 #include "filters.h"
 #include "validation.h"
+#include "csi_processor.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
@@ -96,10 +97,10 @@ static void cmd_segmentation_threshold(cJSON *root) {
     float new_threshold;
     if (get_float_param(root, "value", &new_threshold, 0.5f, 10.0f,
                        "ERROR: Segmentation threshold must be between 0.5 and 10.0")) {
-        if (segmentation_set_threshold(g_cmd_context->segmentation, new_threshold)) {
+        if (csi_processor_set_threshold(g_cmd_context->csi_processor, new_threshold)) {
             char response[256];
             snprintf(response, sizeof(response), 
-                     "Segmentation threshold updated: %.2f", new_threshold);
+                     "Motion detection threshold updated: %.2f", new_threshold);
             send_response(response);
             ESP_LOGI(TAG, "%s", response);
             
@@ -123,7 +124,7 @@ static void cmd_segmentation_window_size(cJSON *root) {
                      "ERROR: Window size must be between " 
                      TOSTRING(SEGMENTATION_WINDOW_SIZE_MIN) " and " 
                      TOSTRING(SEGMENTATION_WINDOW_SIZE_MAX) " packets")) {
-        if (segmentation_set_window_size(g_cmd_context->segmentation, (uint16_t)new_window_size)) {
+        if (csi_processor_set_window_size(g_cmd_context->csi_processor, (uint16_t)new_window_size)) {
             g_cmd_context->config->segmentation_window_size = (uint16_t)new_window_size;
             
             char response[256];
@@ -137,7 +138,7 @@ static void cmd_segmentation_window_size(cJSON *root) {
             ESP_LOGI(TAG, "%s", response);
             
             config_save_to_nvs(g_cmd_context->config, 
-                             segmentation_get_threshold(g_cmd_context->segmentation));
+                             csi_processor_get_threshold(g_cmd_context->csi_processor));
         } else {
             send_response("ERROR: Failed to set window size");
         }
@@ -155,7 +156,7 @@ static void cmd_features_enable(cJSON *root) {
         ESP_LOGI(TAG, "%s", response);
         
         esp_err_t err = config_save_to_nvs(g_cmd_context->config, 
-                                           segmentation_get_threshold(g_cmd_context->segmentation));
+                                           csi_processor_get_threshold(g_cmd_context->csi_processor));
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "💾 Configuration saved to NVS");
         }
@@ -196,11 +197,11 @@ static void cmd_info(cJSON *root) {
     }
     cJSON_AddItemToObject(response, "mqtt", mqtt);
     
-    // Segmentation parameters (configuration only - runtime metrics moved to stats command)
-    cJSON *segmentation = cJSON_CreateObject();
-    cJSON_AddNumberToObject(segmentation, "threshold", (double)segmentation_get_threshold(g_cmd_context->segmentation));
-    cJSON_AddNumberToObject(segmentation, "window_size", segmentation_get_window_size(g_cmd_context->segmentation));
-    cJSON_AddItemToObject(response, "segmentation", segmentation);
+    // Motion detection parameters (configuration only - runtime metrics moved to stats command)
+    cJSON *motion_detection = cJSON_CreateObject();
+    cJSON_AddNumberToObject(motion_detection, "threshold", (double)csi_processor_get_threshold(g_cmd_context->csi_processor));
+    cJSON_AddNumberToObject(motion_detection, "window_size", csi_processor_get_window_size(g_cmd_context->csi_processor));
+    cJSON_AddItemToObject(response, "motion_detection", motion_detection);
     
     // Filters configuration
     cJSON *filters = cJSON_CreateObject();
@@ -311,23 +312,23 @@ static void cmd_stats(cJSON *root) {
     
     // Current state
     const char *state_names[] = {"idle", "motion"};
-    segmentation_state_t state = segmentation_get_state(g_cmd_context->segmentation);
+    csi_motion_state_t state = csi_processor_get_state(g_cmd_context->csi_processor);
     cJSON_AddStringToObject(response, "state", state_names[state]);
     
     // Current turbulence (last packet)
-    float turbulence = segmentation_get_last_turbulence(g_cmd_context->segmentation);
+    float turbulence = csi_processor_get_last_turbulence(g_cmd_context->csi_processor);
     cJSON_AddNumberToObject(response, "turbulence", (double)turbulence);
     
     // Moving variance
-    float moving_variance = segmentation_get_moving_variance(g_cmd_context->segmentation);
+    float moving_variance = csi_processor_get_moving_variance(g_cmd_context->csi_processor);
     cJSON_AddNumberToObject(response, "movement", (double)moving_variance);
     
-    // Adaptive threshold
-    float adaptive_threshold = segmentation_get_threshold(g_cmd_context->segmentation);
-    cJSON_AddNumberToObject(response, "threshold", (double)adaptive_threshold);
+    // Threshold
+    float threshold = csi_processor_get_threshold(g_cmd_context->csi_processor);
+    cJSON_AddNumberToObject(response, "threshold", (double)threshold);
     
     // Packets processed
-    uint32_t packets_processed = segmentation_get_total_packets(g_cmd_context->segmentation);
+    uint32_t packets_processed = csi_processor_get_total_packets(g_cmd_context->csi_processor);
     cJSON_AddNumberToObject(response, "packets_processed", packets_processed);
 
     // Packets dropped
@@ -353,7 +354,7 @@ static void cmd_hampel_filter(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
+        config_save_to_nvs(g_cmd_context->config, csi_processor_get_threshold(g_cmd_context->csi_processor));
     }
 }
 
@@ -370,7 +371,7 @@ static void cmd_hampel_threshold(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
+        config_save_to_nvs(g_cmd_context->config, csi_processor_get_threshold(g_cmd_context->csi_processor));
     }
 }
 
@@ -384,7 +385,7 @@ static void cmd_savgol_filter(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
+        config_save_to_nvs(g_cmd_context->config, csi_processor_get_threshold(g_cmd_context->csi_processor));
     }
 }
 
@@ -398,7 +399,7 @@ static void cmd_butterworth_filter(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
+        config_save_to_nvs(g_cmd_context->config, csi_processor_get_threshold(g_cmd_context->csi_processor));
     }
 }
 
@@ -412,7 +413,7 @@ static void cmd_smart_publishing(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
+        config_save_to_nvs(g_cmd_context->config, csi_processor_get_threshold(g_cmd_context->csi_processor));
     }
 }
 
@@ -455,7 +456,7 @@ static void cmd_traffic_generator_rate(cJSON *root) {
             }
             send_response(response);
             
-            config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
+            config_save_to_nvs(g_cmd_context->config, csi_processor_get_threshold(g_cmd_context->csi_processor));
         } else {
             char error_msg[128];
             snprintf(error_msg, sizeof(error_msg), 
@@ -477,7 +478,7 @@ static void cmd_wavelet_filter(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
+        config_save_to_nvs(g_cmd_context->config, csi_processor_get_threshold(g_cmd_context->csi_processor));
     }
 }
 
@@ -496,7 +497,7 @@ static void cmd_wavelet_level(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
+        config_save_to_nvs(g_cmd_context->config, csi_processor_get_threshold(g_cmd_context->csi_processor));
     }
 }
 
@@ -515,7 +516,7 @@ static void cmd_wavelet_threshold(cJSON *root) {
         send_response(response);
         ESP_LOGI(TAG, "%s", response);
         
-        config_save_to_nvs(g_cmd_context->config, segmentation_get_threshold(g_cmd_context->segmentation));
+        config_save_to_nvs(g_cmd_context->config, csi_processor_get_threshold(g_cmd_context->csi_processor));
     }
 }
 
@@ -565,7 +566,7 @@ static void cmd_subcarrier_selection(cJSON *root) {
     
     // Save to NVS
     esp_err_t err = config_save_to_nvs(g_cmd_context->config, 
-                                       segmentation_get_threshold(g_cmd_context->segmentation));
+                                       csi_processor_get_threshold(g_cmd_context->csi_processor));
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "💾 Subcarrier selection saved to NVS");
     } else {
@@ -587,9 +588,9 @@ static void cmd_factory_reset(cJSON *root) {
     // Reset config to defaults
     config_init_defaults(g_cmd_context->config);
     
-    // Reset segmentation to defaults
-    segmentation_init(g_cmd_context->segmentation);
-    ESP_LOGI(TAG, "📍 Segmentation reset to defaults (threshold: %.2f)", SEGMENTATION_DEFAULT_THRESHOLD);
+    // Reset CSI processor to defaults
+    csi_processor_init(g_cmd_context->csi_processor);
+    ESP_LOGI(TAG, "📍 CSI processor reset to defaults (threshold: %.2f)", SEGMENTATION_DEFAULT_THRESHOLD);
     
     // Reset subcarrier selection to defaults
     csi_set_subcarrier_selection(g_cmd_context->config->selected_subcarriers,

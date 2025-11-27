@@ -6,7 +6,6 @@
  */
 
 #include "nvs_storage.h"
-#include "segmentation.h"
 #include "filters.h"
 #include "espectre.h"
 #include "validation.h"

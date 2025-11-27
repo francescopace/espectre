@@ -17,7 +17,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "mqtt_client.h"
-#include "segmentation.h"
 #include "csi_processor.h"
 
 // MQTT configuration
@@ -37,11 +36,11 @@ typedef struct {
     float max_interval_sec;     // Maximum time between publishes (heartbeat)
 } mqtt_publish_config_t;
 
-// Segmentation result for publishing
+// Motion detection result for publishing
 typedef struct {
     float moving_variance;
     float threshold;
-    segmentation_state_t state;
+    csi_motion_state_t state;
     uint8_t segments_total;
     int64_t timestamp;
     uint32_t packets_processed;
@@ -59,7 +58,7 @@ typedef struct {
     
     // Smart publishing state
     float last_published_movement;
-    segmentation_state_t last_published_state;
+    csi_motion_state_t last_published_state;
     int64_t last_publish_time;
     bool publish_initialized;
     
@@ -130,14 +129,14 @@ int mqtt_send_response(mqtt_handler_state_t *state,
  * 
  * @param state MQTT handler state
  * @param current_movement Current movement score
- * @param current_state Current segmentation state
+ * @param current_state Current motion detection state
  * @param config Smart publishing configuration
  * @param current_time Current timestamp in milliseconds
  * @return true if should publish, false otherwise
  */
 bool mqtt_should_publish(mqtt_handler_state_t *state,
                         float current_movement,
-                        segmentation_state_t current_state,
+                        csi_motion_state_t current_state,
                         const mqtt_publish_config_t *config,
                         int64_t current_time);
 
@@ -146,12 +145,12 @@ bool mqtt_should_publish(mqtt_handler_state_t *state,
  * 
  * @param state MQTT handler state
  * @param movement Movement score that was published
- * @param seg_state Segmentation state that was published
+ * @param motion_state Motion detection state that was published
  * @param current_time Current timestamp in milliseconds
  */
 void mqtt_update_publish_state(mqtt_handler_state_t *state,
                               float movement,
-                              segmentation_state_t seg_state,
+                              csi_motion_state_t motion_state,
                               int64_t current_time);
 
 /**

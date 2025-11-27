@@ -7,7 +7,6 @@
 
 #include "config_manager.h"
 #include "nvs_storage.h"
-#include "segmentation.h"
 #include "filters.h"
 #include "esp_log.h"
 #include <string.h>

@@ -15,17 +15,14 @@
 // SYSTEM CONFIGURATION
 // ============================================================================
 
+// WiFi promiscuous mode (false = receive CSI only from connected AP, true = all WiFi packets)
+#define PROMISCUOUS_MODE            false
+
 // Logging intervals
 #define LOG_CSI_VALUES_INTERVAL     1       // seconds
 
 // Publishing configuration
 #define PUBLISH_INTERVAL            1.0f    // seconds
-
-// WiFi promiscuous mode (false = receive CSI only from connected AP, true = all WiFi packets)
-#define PROMISCUOUS_MODE            false
-
-// Traffic generator default rate
-#define DEFAULT_TRAFFIC_GENERATOR_RATE     100       // packets/sec
 
 // ============================================================================
 // CSI PROCESSING
@@ -34,14 +31,8 @@
 // Maximum CSI data length (ESP32-S3: 256 bytes, ESP32-C6: 128 bytes, buffer sized for largest)
 #define CSI_MAX_LENGTH              384
 
-// Amplitude moments calculation window
-#define AMPLITUDE_MOMENTS_WINDOW    20
-
 // Enable subcarrier filtering
 #define ENABLE_SUBCARRIER_FILTERING 1
-
-// Numerical stability constant
-#define EPSILON_SMALL               1e-6f
 
 // Subcarrier selection limits
 #define MAX_SUBCARRIERS             64      // Maximum number of subcarriers that can be selected
@@ -107,21 +98,7 @@
 
 #define TRAFFIC_RATE_MAX            1000    // packets/sec (maximum allowed rate)
 
-// ============================================================================
-// NVS STORAGE
-// ============================================================================
-
-// NVS Namespaces
-#define NVS_NAMESPACE_CONFIG        "espectre_cfg"
-
-// Versioning for future compatibility
-#define NVS_CONFIG_VERSION          10      // Incremented: removed min_length parameter
-
-// Total number of CSI features
-#define NUM_TOTAL_FEATURES          10
-
-// NVS keys for config data
-#define NVS_KEY_CFG_VERSION         "cfg_ver"
-#define NVS_KEY_CFG_DATA            "cfg_data"
+// Traffic generator default rate
+#define DEFAULT_TRAFFIC_GENERATOR_RATE     100       // packets/sec
 
 #endif // ESPECTRE_H

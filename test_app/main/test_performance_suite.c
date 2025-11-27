@@ -1,16 +1,17 @@
 /*
  * ESPectre - Performance Suite Test
  * 
- * Comprehensive performance evaluation based on segmentation.
+ * Comprehensive performance evaluation based on motion detection.
  * Tests the Moving Variance Segmentation (MVS) algorithm for motion detection.
+ * Now using unified csi_processor module.
  * 
  * Focus: Maximize Recall (90% target) for security/presence detection
  * 
  * New Architecture:
- *   CSI Packet → Segmentation (always) → IF MOTION && features_enabled:
- *                                           → Extract Features + Publish
- *                                        ELSE:
- *                                           → Publish without features
+ *   CSI Packet → Motion Detection (always) → IF MOTION && features_enabled:
+ *                                              → Extract Features + Publish
+ *                                           ELSE:
+ *                                              → Publish without features
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -18,7 +19,6 @@
 
 #include "test_case_esp.h"
 #include "csi_processor.h"
-#include "segmentation.h"
 #include "real_csi_data_esp32.h"
 #include "espectre.h"
 #include "esp_system.h"
@@ -45,12 +45,12 @@ static const char* feature_names[] = {
 // Helper: extract all features for ranking
 static const uint8_t test_all_features[NUM_FEATURES] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
-// Segmentation metrics structure
+// Motion detection metrics structure
 typedef struct {
-    int true_positives;      // Movement packets with segments detected
-    int true_negatives;      // Baseline packets without segments
-    int false_positives;     // Baseline packets with false segments
-    int false_negatives;     // Movement packets without segments
+    int true_positives;      // Movement packets with motion detected
+    int true_negatives;      // Baseline packets without motion
+    int false_positives;     // Baseline packets with false motion
+    int false_negatives;     // Movement packets without motion
     float accuracy;
     float precision;
     float recall;
@@ -58,7 +58,7 @@ typedef struct {
     float f1_score;
     float false_positive_rate;
     float false_negative_rate;
-} segmentation_metrics_t;
+} motion_metrics_t;
 
 // Feature ranking structure (secondary)
 typedef struct {
@@ -70,9 +70,9 @@ typedef struct {
     float f1_score;
 } feature_ranking_t;
 
-// Helper: Calculate segmentation metrics
-static void calculate_segmentation_metrics(segmentation_metrics_t *metrics, 
-                                           int total_baseline, int total_movement) {
+// Helper: Calculate motion detection metrics
+static void calculate_motion_metrics(motion_metrics_t *metrics, 
+                                     int total_baseline, int total_movement) {
     int total = total_baseline + total_movement;
     
     metrics->accuracy = (float)(metrics->true_positives + metrics->true_negatives) / total * 100.0f;
@@ -160,60 +160,61 @@ static float find_optimal_threshold_otsu(const float *baseline_values, int basel
     return best_threshold;
 }
 
+// Helper function to process a packet
+static void process_packet(csi_processor_context_t *ctx, const int8_t *packet) {
+    csi_process_packet(ctx, packet, 128, SELECTED_SUBCARRIERS, NUM_SUBCARRIERS, NULL, NULL, 0);
+}
+
 TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
 {
     printf("\n");
     printf("╔═══════════════════════════════════════════════════════╗\n");
-    printf("║   ESPECTRE PERFORMANCE SUITE - SEGMENTATION-BASED     ║\n");
+    printf("║   ESPECTRE PERFORMANCE SUITE - MOTION DETECTION       ║\n");
     printf("║   Comprehensive evaluation for security/presence      ║\n");
     printf("║   Target: 90%% Recall, <10%% FP Rate                   ║\n");
     printf("╚═══════════════════════════════════════════════════════╝\n");
     printf("\n");
-    printf("New Architecture: Segmentation → [IF MOTION] → Features\n");
-    printf("Accuracy based on: Segmentation performance\n");
+    printf("New Architecture: Motion Detection → [IF MOTION] → Features\n");
+    printf("Accuracy based on: Motion detection performance\n");
     printf("\n");
     
     // ========================================================================
-    // PART 1: SEGMENTATION PERFORMANCE (PRIMARY)
+    // PART 1: MOTION DETECTION PERFORMANCE (PRIMARY)
     // ========================================================================
     printf("═══════════════════════════════════════════════════════\n");
-    printf("  PART 1: SEGMENTATION PERFORMANCE (PRIMARY)\n");
+    printf("  PART 1: MOTION DETECTION PERFORMANCE (PRIMARY)\n");
     printf("═══════════════════════════════════════════════════════\n\n");
     
     // Set global subcarrier selection for CSI processing
     csi_set_subcarrier_selection(SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
     
-    segmentation_context_t seg_ctx;
-    segmentation_init(&seg_ctx);
+    csi_processor_context_t ctx;
+    csi_processor_init(&ctx);
     
-    float threshold = segmentation_get_threshold(&seg_ctx);
+    float threshold = csi_processor_get_threshold(&ctx);
     printf("Using default threshold: %.4f\n", threshold);
-    printf("Window size: %d\n", segmentation_get_window_size(&seg_ctx));
+    printf("Window size: %d\n", csi_processor_get_window_size(&ctx));
     
     // Test on baseline (should have minimal false positives)
-    printf("Testing on baseline packets (expecting no segments)...\n");
+    printf("Testing on baseline packets (expecting no motion)...\n");
     
     int baseline_segments_completed = 0;
     int baseline_motion_packets = 0;
     
-    segmentation_state_t prev_state = SEG_STATE_IDLE;
+    csi_motion_state_t prev_state = CSI_STATE_IDLE;
     
     for (int p = 0; p < num_baseline; p++) {
-        float turbulence = csi_calculate_spatial_turbulence(
-            (const int8_t*)baseline_packets[p], 128,
-            SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+        process_packet(&ctx, (const int8_t*)baseline_packets[p]);
         
-        segmentation_add_turbulence(&seg_ctx, turbulence);
-        
-        segmentation_state_t current_state = segmentation_get_state(&seg_ctx);
+        csi_motion_state_t current_state = csi_processor_get_state(&ctx);
         
         // Count transitions from MOTION to IDLE as completed segments
-        if (prev_state == SEG_STATE_MOTION && current_state == SEG_STATE_IDLE) {
+        if (prev_state == CSI_STATE_MOTION && current_state == CSI_STATE_IDLE) {
             baseline_segments_completed++;
         }
         
         // Also track packets in motion state (for info)
-        if (current_state == SEG_STATE_MOTION) {
+        if (current_state == CSI_STATE_MOTION) {
             baseline_motion_packets++;
         }
         
@@ -226,53 +227,49 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
     printf("  Segments completed (FP): %d\n", baseline_segments_completed);
     printf("  FP Rate: %.2f%%\n\n", (float)baseline_segments_completed / num_baseline * 100.0f);
     
-    // Test on movement (should detect segments)
-    printf("Testing on movement packets (expecting segments)...\n");
+    // Test on movement (should detect motion)
+    printf("Testing on movement packets (expecting motion)...\n");
     
-    int movement_with_segments = 0;
-    int movement_without_segments = 0;
+    int movement_with_motion = 0;
+    int movement_without_motion = 0;
     int total_segments_detected = 0;
     
-    prev_state = SEG_STATE_IDLE;
+    prev_state = CSI_STATE_IDLE;
     
     for (int p = 0; p < num_movement; p++) {
-        float turbulence = csi_calculate_spatial_turbulence(
-            (const int8_t*)movement_packets[p], 128,
-            SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+        process_packet(&ctx, (const int8_t*)movement_packets[p]);
         
-        segmentation_add_turbulence(&seg_ctx, turbulence);
-        
-        segmentation_state_t current_state = segmentation_get_state(&seg_ctx);
+        csi_motion_state_t current_state = csi_processor_get_state(&ctx);
         
         // Count transitions from MOTION to IDLE as completed segments
-        if (prev_state == SEG_STATE_MOTION && current_state == SEG_STATE_IDLE) {
+        if (prev_state == CSI_STATE_MOTION && current_state == CSI_STATE_IDLE) {
             total_segments_detected++;
         }
         
         // Check if currently in motion state
-        if (current_state == SEG_STATE_MOTION) {
-            movement_with_segments++;
+        if (current_state == CSI_STATE_MOTION) {
+            movement_with_motion++;
         } else {
-            movement_without_segments++;
+            movement_without_motion++;
         }
         
         prev_state = current_state;
     }
     
     printf("  Movement packets: %d\n", num_movement);
-    printf("  With segments: %d\n", movement_with_segments);
-    printf("  Without segments (FN): %d\n", movement_without_segments);
-    printf("  Detection Rate: %.2f%%\n", (float)movement_with_segments / num_movement * 100.0f);
+    printf("  With motion: %d\n", movement_with_motion);
+    printf("  Without motion (FN): %d\n", movement_without_motion);
+    printf("  Detection Rate: %.2f%%\n", (float)movement_with_motion / num_movement * 100.0f);
     printf("  Total segments detected: %d\n\n", total_segments_detected);
     
     // Calculate metrics based on segments completed (not packets in motion)
-    segmentation_metrics_t metrics;
+    motion_metrics_t metrics;
     metrics.true_positives = total_segments_detected;  // Segments detected in movement
     metrics.true_negatives = num_baseline - baseline_segments_completed;  // Baseline without segments
     metrics.false_positives = baseline_segments_completed;  // False segments in baseline
     metrics.false_negatives = 0;  // Assume all movement should have segments (simplified)
     
-    calculate_segmentation_metrics(&metrics, num_baseline, num_movement);
+    calculate_motion_metrics(&metrics, num_baseline, num_movement);
     
     
     // ========================================================================
@@ -280,7 +277,7 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
     // ========================================================================
     printf("═══════════════════════════════════════════════════════\n");
     printf("  PART 2: FEATURE RANKING (SECONDARY)\n");
-    printf("  Note: Features extracted only when segmentation\n");
+    printf("  Note: Features extracted only when motion detection\n");
     printf("        detects motion (features_enabled=true)\n");
     printf("═══════════════════════════════════════════════════════\n\n");
     
@@ -308,7 +305,7 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
     // Extract baseline features
     for (int p = 0; p < num_baseline; p++) {
         csi_features_t features;
-        csi_extract_features(baseline_packets[p], 128, &features, test_all_features, NUM_FEATURES);
+        csi_extract_features(baseline_packets[p], 128, NULL, 0, &features, test_all_features, NUM_FEATURES);
         
         baseline_features[0][p] = features.variance;
         baseline_features[1][p] = features.skewness;
@@ -325,7 +322,7 @@ TEST_CASE_ESP(performance_suite_comprehensive, "[performance][security]")
     // Extract movement features
     for (int p = 0; p < num_movement; p++) {
         csi_features_t features;
-        csi_extract_features(movement_packets[p], 128, &features, test_all_features, NUM_FEATURES);
+        csi_extract_features(movement_packets[p], 128, NULL, 0, &features, test_all_features, NUM_FEATURES);
         
         movement_features[0][p] = features.variance;
         movement_features[1][p] = features.skewness;
@@ -409,8 +406,8 @@ test_summary:
     // ========================================================================
     
     // Calculate packet-based metrics
-    int pkt_tp = movement_with_segments;
-    int pkt_fn = movement_without_segments;
+    int pkt_tp = movement_with_motion;
+    int pkt_fn = movement_without_motion;
     int pkt_tn = num_baseline - baseline_motion_packets;
     int pkt_fp = baseline_motion_packets;
     
@@ -432,7 +429,7 @@ test_summary:
     printf("Actual IDLE     %4d (TN)  %4d (FP)\n", pkt_tn, pkt_fp);
     printf("    MOTION      %4d (FN)  %4d (TP)\n", pkt_fn, pkt_tp);
     printf("\n");
-    printf("SEGMENTATION METRICS:\n");
+    printf("MOTION DETECTION METRICS:\n");
     printf("  * True Positives (TP):   %d\n", pkt_tp);
     printf("  * True Negatives (TN):   %d\n", pkt_tn);
     printf("  * False Positives (FP):  %d\n", pkt_fp);
@@ -448,6 +445,6 @@ test_summary:
     printf("═══════════════════════════════════════════════════════════════════════\n\n");
     
     // Verify minimum acceptable performance based on motion packets
-    TEST_ASSERT_GREATER_THAN(950, movement_with_segments);  // >95% recall
-    TEST_ASSERT_LESS_THAN(1.0f, pkt_fp_rate);               // <1% FP rate
+    TEST_ASSERT_GREATER_THAN(950, movement_with_motion);  // >95% recall
+    TEST_ASSERT_LESS_THAN(1.0f, pkt_fp_rate);             // <1% FP rate
 }

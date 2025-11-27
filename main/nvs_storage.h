@@ -16,7 +16,10 @@
 #include "esp_err.h"
 
 // NVS Namespaces
-#define NVS_NAMESPACE_CONFIG      "espectre_cfg"
+#define NVS_NAMESPACE_CONFIG        "espectre_cfg"
+
+// NVS keys for config data
+#define NVS_KEY_CFG_DATA            "cfg_data"
 
 // Versioning for future compatibility
 #define NVS_CONFIG_VERSION 10  // Incremented: removed min_length parameter
