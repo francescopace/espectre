@@ -11,7 +11,6 @@ import _thread
 import network
 from src.config import TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX
 
-
 class TrafficGenerator:
     """WiFi traffic generator using DNS queries"""
     
@@ -58,7 +57,7 @@ class TrafficGenerator:
             self.running = False
             return
         
-        print(f"📡 Traffic generator task started (DNS queries to {self.gateway_ip}, rate: {self.rate_pps} pps, interval: {interval_ms} ms)")
+        # print(f"📡 Traffic generator task started (DNS queries to {self.gateway_ip}, rate: {self.rate_pps} pps, interval: {interval_ms} ms)")
         
         # Periodic garbage collection counter
         gc_counter = 0
@@ -93,15 +92,10 @@ class TrafficGenerator:
                 # Send DNS query to gateway (port 53)
                 # Gateway will forward and reply, generating incoming traffic → CSI
                 try:
+                    # Send DNS query to gateway
+                    # Responses accumulate in socket buffer until full, then OS drops them
+                    # No need to read or manage buffer - OS handles overflow automatically
                     self.sock.sendto(dns_query, (self.gateway_ip, 53))
-                    
-                    # Try to receive DNS reply (non-blocking, will raise if no data)
-                    # The reply generates CSI packets!
-                    try:
-                        reply, addr = self.sock.recvfrom(512)
-                    except OSError:
-                        # No data available - that's ok, query was sent
-                        pass
                     
                     with self.thread_lock:
                         self.packet_count += 1
@@ -138,7 +132,7 @@ class TrafficGenerator:
             self.sock.close()
             self.sock = None
         
-        print(f"📡 Traffic generator task stopped ({self.packet_count} packets sent, {self.error_count} errors)")
+        #print(f"📡 Traffic generator task stopped ({self.packet_count} packets sent, {self.error_count} errors)")
     
     def start(self, rate_pps):
         """
@@ -173,7 +167,6 @@ class TrafficGenerator:
         # Start background task
         try:
             _thread.start_new_thread(self._dns_task, ())
-            print(f"✅ Traffic generator started ({rate_pps} pps)")
             return True
         except Exception as e:
             print(f"Failed to start traffic generator: {e}")
@@ -188,7 +181,7 @@ class TrafficGenerator:
         self.running = False
         time.sleep(0.5)  # Give thread time to stop
         
-        print(f"📡 Traffic generator stopped ({self.packet_count} packets sent, {self.error_count} errors)")
+        #print(f"📡 Traffic generator stopped ({self.packet_count} packets sent, {self.error_count} errors)")
         
         self.rate_pps = 0
     

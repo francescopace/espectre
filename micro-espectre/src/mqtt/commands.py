@@ -373,7 +373,6 @@ class MQTTCommands:
                         # Save to NVS
                         self.nvs.save_full_config(self.seg, self.config, self.traffic_gen)
                         self.send_response(f"Traffic generator enabled ({rate} pps)")
-                        print(f"📡 Traffic generator started ({rate} pps)")
                     else:
                         self.send_response("ERROR: Failed to start traffic generator")
                         

@@ -6,7 +6,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 import math
-from src.config import SEG_WINDOW_SIZE, SEG_THRESHOLD
+from src.config import SEG_WINDOW_SIZE, SEG_THRESHOLD, ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD
 
 
 class SegmentationContext:
@@ -39,6 +39,22 @@ class SegmentationContext:
         # Current metrics
         self.current_moving_variance = 0.0
         self.last_turbulence = 0.0
+        
+        # Initialize Hampel filter if enabled
+        self.hampel_filter = None
+        if ENABLE_HAMPEL_FILTER:
+            try:
+                print("[DEBUG] Importing HampelFilter...")
+                from src.filters import HampelFilter
+                print("[DEBUG] Creating HampelFilter instance...")
+                self.hampel_filter = HampelFilter(
+                    window_size=HAMPEL_WINDOW,
+                    threshold=HAMPEL_THRESHOLD
+                )
+                print(f"[DEBUG] HampelFilter initialized: window={HAMPEL_WINDOW}, threshold={HAMPEL_THRESHOLD}")
+            except Exception as e:
+                print(f"[ERROR] Failed to initialize HampelFilter: {e}")
+                self.hampel_filter = None
         
     def calculate_spatial_turbulence(self, csi_data, selected_subcarriers=None):
         """
@@ -133,10 +149,19 @@ class SegmentationContext:
         Args:
             turbulence: Spatial turbulence value
         """
-        self.last_turbulence = turbulence
+        # Apply Hampel filter if enabled
+        filtered_turbulence = turbulence
+        if self.hampel_filter is not None:
+            try:
+                filtered_turbulence = self.hampel_filter.filter(turbulence)
+            except Exception as e:
+                print(f"[ERROR] Hampel filter failed: {e}")
+                filtered_turbulence = turbulence
         
-        # Add to circular buffer
-        self.turbulence_buffer[self.buffer_index] = turbulence
+        self.last_turbulence = filtered_turbulence
+        
+        # Add filtered value to circular buffer
+        self.turbulence_buffer[self.buffer_index] = filtered_turbulence
         self.buffer_index = (self.buffer_index + 1) % self.window_size
         if self.buffer_count < self.window_size:
             self.buffer_count += 1

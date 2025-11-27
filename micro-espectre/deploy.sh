@@ -13,11 +13,19 @@ set -e
 # Parse arguments
 PORT="/dev/cu.usbmodem*"
 RUN_AFTER_DEPLOY=false
+COLLECT_BASELINE=false
+COLLECT_MOVEMENT=false
 
 for arg in "$@"; do
     case $arg in
         --run)
             RUN_AFTER_DEPLOY=true
+            ;;
+        --collect-baseline)
+            COLLECT_BASELINE=true
+            ;;
+        --collect-movement)
+            COLLECT_MOVEMENT=true
             ;;
         *)
             PORT="$arg"
@@ -56,57 +64,45 @@ echo "📤 Uploading files..."
 # Upload src package
 mpremote connect "$PORT" mkdir :src || true
 mpremote connect "$PORT" mkdir :src/mqtt || true
-
 mpremote connect "$PORT" cp src/__init__.py :src/ || { echo "❌ Failed to upload src/__init__.py"; exit 1; }
-echo "   ✅ src/__init__.py"
-
 mpremote connect "$PORT" cp src/config.py :src/ || { echo "❌ Failed to upload src/config.py"; exit 1; }
-echo "   ✅ src/config.py"
-
 mpremote connect "$PORT" cp src/segmentation.py :src/ || { echo "❌ Failed to upload src/segmentation.py"; exit 1; }
-echo "   ✅ src/segmentation.py"
-
 mpremote connect "$PORT" cp src/traffic_generator.py :src/ || { echo "❌ Failed to upload src/traffic_generator.py"; exit 1; }
-echo "   ✅ src/traffic_generator.py"
-
 mpremote connect "$PORT" cp src/nvs_storage.py :src/ || { echo "❌ Failed to upload src/nvs_storage.py"; exit 1; }
-echo "   ✅ src/nvs_storage.py"
-
+mpremote connect "$PORT" cp src/filters.py :src/ || { echo "❌ Failed to upload src/filters.py"; exit 1; }
 mpremote connect "$PORT" cp src/main.py :src/ || { echo "❌ Failed to upload src/main.py"; exit 1; }
-echo "   ✅ src/main.py"
-
 mpremote connect "$PORT" cp src/mqtt/__init__.py :src/mqtt/ || { echo "❌ Failed to upload src/mqtt/__init__.py"; exit 1; }
-echo "   ✅ src/mqtt/__init__.py"
-
 mpremote connect "$PORT" cp src/mqtt/handler.py :src/mqtt/ || { echo "❌ Failed to upload src/mqtt/handler.py"; exit 1; }
-echo "   ✅ src/mqtt/handler.py"
-
 mpremote connect "$PORT" cp src/mqtt/commands.py :src/mqtt/ || { echo "❌ Failed to upload src/mqtt/commands.py"; exit 1; }
-echo "   ✅ src/mqtt/commands.py"
-
-# Upload config_local.py to root
+mpremote connect "$PORT" cp src/data_collector.py :src/ || { echo "❌ Failed to upload src/data_collector.py"; exit 1; }
 mpremote connect "$PORT" cp config_local.py : || { echo "❌ Failed to upload config_local.py"; exit 1; }
-echo "   ✅ config_local.py"
-
 echo ""
 echo "✅ Deployment complete!"
 echo ""
 
 # Run application based on flags
-if [ "$RUN_AFTER_DEPLOY" = true ]; then
+if [ "$COLLECT_BASELINE" = true ]; then
+    mpremote connect "$PORT" exec "from src import data_collector as dc; dc.collect_baseline()"
+    echo ""
+    echo "📥 Downloading baseline_data.bin..."
+    mpremote connect "$PORT" cp :baseline_data.bin tools/baseline_data.bin
+    echo "✅ Downloaded: baseline_data.bin"
+    echo ""
+elif [ "$COLLECT_MOVEMENT" = true ]; then
+    mpremote connect "$PORT" exec "from src import data_collector as dc; dc.collect_movement()"
+    echo ""
+    echo "📥 Downloading movement_data.bin..."
+    mpremote connect "$PORT" cp :movement_data.bin tools/movement_data.bin
+    echo "✅ Downloaded: movement_data.bin"
+    echo ""
+elif [ "$RUN_AFTER_DEPLOY" = true ]; then
     echo "🚀 Starting application..."
     echo ""
     mpremote connect "$PORT" run src/main.py
 else
-    echo "To run the application:"
-    echo "  mpremote connect $PORT run src/main.py"
-    echo ""
-    echo "Or auto-run on next deployment:"
-    echo "  ./deploy.sh $PORT --run        # Run src/main.py"
-    echo ""
-    echo "Or connect to REPL:"
-    echo "  mpremote connect $PORT"
-    echo "  >>> from src import main"
-    echo "  >>> main.main()"
+    echo "Usage:"
+    echo "  ./deploy.sh $PORT --run                # Run main application"
+    echo "  ./deploy.sh $PORT --collect-baseline   # Collect baseline data"
+    echo "  ./deploy.sh $PORT --collect-movement   # Collect movement data"
     echo ""
 fi

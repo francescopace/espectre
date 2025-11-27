@@ -20,9 +20,10 @@ MQTT_PASSWORD = "mqtt"
 # CSI Configuration
 CSI_BUFFER_SIZE = 16  # Circular buffer size (used to store csi packets until processed)
 
-# Selected subcarriers for turbulence calculation (from C version)
+# Selected subcarriers for turbulence calculation
 # These are the most informative subcarriers identified through analysis
-SELECTED_SUBCARRIERS = [47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]
+#SELECTED_SUBCARRIERS = [47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58]
+SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 # Segmentation Configuration
 # Limits (matching segmentation.h)
@@ -33,7 +34,13 @@ SEG_THRESHOLD_MAX = 10.0
 
 # Defaults
 SEG_WINDOW_SIZE = 50     # Moving variance window (packets)
-SEG_THRESHOLD = 3.0       # Motion detection threshold (Lower values = more sensitive to motion)
+SEG_THRESHOLD = 1.0       # Motion detection threshold (Lower values = more sensitive to motion)
+
+# Turbulence Filtering Configuration
+ENABLE_HAMPEL_FILTER = True    # Enable/disable Hampel outlier filter
+HAMPEL_WINDOW = 5              # Window size for median calculation (3-7 recommended)
+HAMPEL_THRESHOLD = 3.0         # Outlier detection threshold in MAD units (2.0-4.0 recommended)
+                               # Higher values = less aggressive filtering
 
 # Subcarrier limits
 SUBCARRIER_INDEX_MIN = 0

@@ -41,82 +41,47 @@ class GlobalState:
 g_state = GlobalState()
 
 
-def connect_wifi(max_retries=3):
-    """Connect to WiFi with retry mechanism"""
+def connect_wifi():
+    """Connect to WiFi"""
     
-    for attempt in range(max_retries):
-        wlan = None
-        try:
-            print(f"Connecting to WiFi (attempt {attempt + 1}/{max_retries})...")
-            
-            gc.collect()
-            wlan = network.WLAN(network.STA_IF)
-            
-            # Initialize WiFi on first attempt
-            if attempt == 0:
-                if wlan.active():
-                    wlan.active(False)
-                    time.sleep(1)
-                wlan.active(True)
-                time.sleep(5)  # Wait for hardware initialization
-            else:
-                if not wlan.active():
-                    wlan.active(True)
-                    time.sleep(2)
-            
-            if not wlan.active():
-                raise Exception("WiFi failed to activate")
-            
-            # Disable power save for CSI stability
-            wlan.config(pm=wlan.PM_NONE)
-            
-            # Disconnect if already connected
-            if wlan.isconnected():
-                wlan.disconnect()
-                time.sleep(1)
-            
-            # Scan for networks (helps MicroPython find the network)
-            networks = wlan.scan()
-            found = any(net[0].decode('utf-8') if isinstance(net[0], bytes) else net[0] == WIFI_SSID 
-                       for net in networks)
-            
-            if not found:
-                raise Exception(f"Network '{WIFI_SSID}' not found")
-            
-            # Wait for WiFi to stabilize after scan
-            time.sleep(3)
-            
-            # Connect
-            wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-            
-            # Wait for connection
-            timeout = 30
-            while not wlan.isconnected() and timeout > 0:
-                time.sleep(1)
-                timeout -= 1
-            
-            if wlan.isconnected():
-                print(f"✅ WiFi connected - IP: {wlan.ifconfig()[0]}")
-                time.sleep(3)  # Stabilization
-                return wlan
-            else:
-                raise Exception("Connection timeout")
-                
-        except Exception as e:
-            print(f"❌ Attempt {attempt + 1} failed: {e}")
-            
-            if wlan:
-                try:
-                    wlan.disconnect()
-                except:
-                    pass
-            
-            if attempt < max_retries - 1:
-                wait_time = min(5, 2 ** attempt)
-                time.sleep(wait_time)
-                gc.collect()
+    print(f"Connecting to WiFi...")
     
-    raise Exception(f"Failed to connect to WiFi after {max_retries} attempts")
+    gc.collect()
+    wlan = network.WLAN(network.STA_IF)
+    
+    # Initialize WiFi
+    if wlan.active():
+        wlan.active(False)
+    wlan.active(True)
+    
+    if not wlan.active():
+        raise Exception("WiFi failed to activate")
+    
+    # Disable power save for CSI stability
+    wlan.config(pm=wlan.PM_NONE)
+    
+    # Disconnect if already connected
+    if wlan.isconnected():
+        wlan.disconnect()
+    
+    # Wait for hardware initialization
+    time.sleep(2)  
+    
+    # Connect
+    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    
+    # Wait for connection
+    timeout = 30
+    while not wlan.isconnected() and timeout > 0:
+        time.sleep(1)
+        timeout -= 1
+    
+    if wlan.isconnected():
+        print(f"✅ WiFi connected - IP: {wlan.ifconfig()[0]}")
+        time.sleep(1)  # Stabilization
+        return wlan
+    else:
+        raise Exception("Connection timeout")
 
 
 def format_progress_bar(score, threshold, width=20):
@@ -217,8 +182,7 @@ def main():
         traffic_rate = saved_config["traffic_generator"].get("rate", traffic_rate)
     
     if traffic_rate > 0:
-        if traffic_gen.start(traffic_rate):
-            print(f'✅ Traffic generator started ({traffic_rate} pps)')
+        traffic_gen.start(traffic_rate)
     
     # Initialize MQTT
     mqtt_handler = MQTTHandler(config, seg, traffic_gen)
