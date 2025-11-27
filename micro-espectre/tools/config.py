@@ -12,4 +12,4 @@ License: GPLv3
 # Optimal MVS parameters (from full grid search)
 SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 WINDOW_SIZE = 50
-THRESHOLD = 0.2
+THRESHOLD = 1

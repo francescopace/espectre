@@ -41,6 +41,28 @@ static int compare_int8(const void *a, const void *b) {
     return (ia > ib) - (ia < ib);
 }
 
+// Two-pass variance calculation (numerically stable)
+// variance = sum((x - mean)^2) / n
+float calculate_variance_two_pass(const float *values, size_t n) {
+    if (n == 0) return 0.0f;
+    
+    // First pass: calculate mean
+    float sum = 0.0f;
+    for (size_t i = 0; i < n; i++) {
+        sum += values[i];
+    }
+    float mean = sum / n;
+    
+    // Second pass: calculate variance
+    float variance = 0.0f;
+    for (size_t i = 0; i < n; i++) {
+        float diff = values[i] - mean;
+        variance += diff * diff;
+    }
+    
+    return variance / n;
+}
+
 // Helper: Filter CSI data to selected subcarriers only
 // Uses runtime-configurable subcarrier list
 // Returns the filtered data length (2 * num_selected_subcarriers)
@@ -406,7 +428,7 @@ void csi_reset_amplitude_skewness_buffer(void) {
 
 // Calculate spatial turbulence (std of subcarrier amplitudes)
 // Used for Moving Variance Segmentation (MVS)
-// Uses runtime-configurable subcarrier list
+// Uses runtime-configurable subcarrier list and two-pass variance for numerical stability
 float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len,
                                        const uint8_t *selected_subcarriers,
                                        uint8_t num_subcarriers) {
@@ -421,11 +443,12 @@ float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len,
     
     int total_subcarriers = csi_len / 2;  // Each subcarrier has I and Q
     
-    // Calculate amplitudes for selected subcarriers
-    float sum = 0.0f;
-    float sum_sq = 0.0f;
+    // Temporary buffer for amplitudes (max 64 subcarriers)
+    float amplitudes[64];
+    int valid_count = 0;
     
-    for (int i = 0; i < num_subcarriers; i++) {
+    // Calculate amplitudes for selected subcarriers
+    for (int i = 0; i < num_subcarriers && i < 64; i++) {
         int sc_idx = selected_subcarriers[i];
         
         // Validate subcarrier index
@@ -436,18 +459,15 @@ float csi_calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len,
         
         float I = (float)csi_data[sc_idx * 2];
         float Q = (float)csi_data[sc_idx * 2 + 1];
-        float amplitude = sqrtf(I * I + Q * Q);
-        
-        sum += amplitude;
-        sum_sq += amplitude * amplitude;
+        amplitudes[valid_count++] = sqrtf(I * I + Q * Q);
     }
     
-    // Calculate standard deviation
-    float mean = sum / num_subcarriers;
-    float variance = (sum_sq / num_subcarriers) - (mean * mean);
+    if (valid_count == 0) {
+        return 0.0f;
+    }
     
-    // Protect against negative variance due to floating point errors
-    if (variance < 0.0f) variance = 0.0f;
+    // Use two-pass variance for numerical stability
+    float variance = calculate_variance_two_pass(amplitudes, valid_count);
     
     return sqrtf(variance);
 }

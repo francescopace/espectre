@@ -6,15 +6,13 @@
  */
 
 #include "segmentation.h"
+#include "csi_processor.h"  // For calculate_variance_two_pass()
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include "esp_log.h"
 
 static const char *TAG = "Segmentation";
-
-// Numerical stability constant
-#define EPSILON_SMALL 1e-6f
 
 // Initialize segmentation context
 void segmentation_init(segmentation_context_t *ctx) {
@@ -75,28 +73,15 @@ uint16_t segmentation_get_window_size(const segmentation_context_t *ctx) {
 
 
 // Calculate moving variance from turbulence buffer
+// Uses calculate_variance_two_pass() from csi_processor for numerical stability
 static float calculate_moving_variance(const segmentation_context_t *ctx) {
     // Return 0 if buffer not full yet
     if (ctx->buffer_count < ctx->window_size) {
         return 0.0f;
     }
     
-    // Calculate mean of the window
-    float mean = 0.0f;
-    for (uint16_t i = 0; i < ctx->window_size; i++) {
-        mean += ctx->turbulence_buffer[i];
-    }
-    mean /= ctx->window_size;
-    
-    // Calculate variance of the window
-    float variance = 0.0f;
-    for (uint16_t i = 0; i < ctx->window_size; i++) {
-        float diff = ctx->turbulence_buffer[i] - mean;
-        variance += diff * diff;
-    }
-    variance /= ctx->window_size;
-    
-    return variance;
+    // Use centralized two-pass variance calculation
+    return calculate_variance_two_pass(ctx->turbulence_buffer, ctx->window_size);
 }
 
 // Add turbulence value and update segmentation

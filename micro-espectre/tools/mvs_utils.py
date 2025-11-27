@@ -89,17 +89,50 @@ def load_baseline_and_movement():
 # MVS Detection Functions
 # ============================================================================
 
+def calculate_variance_two_pass(values):
+    """
+    Calculate variance using two-pass algorithm (numerically stable)
+    
+    Two-pass algorithm: variance = sum((x - mean)^2) / n
+    More stable than single-pass E[X²] - E[X]² for float32 arithmetic.
+    
+    This is the centralized variance function used by all MVS components.
+    Matches the implementation in csi_processor.c and segmentation.py.
+    
+    Args:
+        values: List or array of float values
+    
+    Returns:
+        float: Variance (0.0 if empty)
+    """
+    n = len(values)
+    if n == 0:
+        return 0.0
+    
+    # First pass: calculate mean
+    mean = sum(values) / n
+    
+    # Second pass: calculate variance
+    variance = sum((x - mean) ** 2 for x in values) / n
+    
+    return variance
+
+
 def calculate_spatial_turbulence(csi_data, selected_subcarriers):
     """
     Calculate spatial turbulence (standard deviation of amplitudes)
+    
+    Uses two-pass variance for numerical stability.
+    This matches the implementation in segmentation.py and csi_processor.c.
     
     Args:
         csi_data: CSI data array (I/Q pairs)
         selected_subcarriers: List of subcarrier indices to use
     
     Returns:
-        float: Spatial turbulence value
+        float: Spatial turbulence value (standard deviation of amplitudes)
     """
+    # Calculate amplitudes for selected subcarriers
     amplitudes = []
     for sc_idx in selected_subcarriers:
         i = sc_idx * 2
@@ -111,7 +144,10 @@ def calculate_spatial_turbulence(csi_data, selected_subcarriers):
     if len(amplitudes) < 2:
         return 0.0
     
-    return np.std(amplitudes)
+    # Use two-pass variance for numerical stability
+    variance = calculate_variance_two_pass(amplitudes)
+    
+    return math.sqrt(variance)
 
 
 class MVSDetector:
@@ -162,7 +198,9 @@ class MVSDetector:
             self.turbulence_buffer.pop(0)
         
         if len(self.turbulence_buffer) == self.window_size:
-            moving_var = np.var(self.turbulence_buffer)
+            # Use centralized two-pass variance calculation
+            # This matches the implementation in segmentation.py and csi_processor.c
+            moving_var = calculate_variance_two_pass(self.turbulence_buffer)
             
             if self.track_data:
                 self.moving_var_history.append(moving_var)

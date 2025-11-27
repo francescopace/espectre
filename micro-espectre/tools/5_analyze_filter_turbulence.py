@@ -27,6 +27,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 from scipy import signal
+import pywt
 from mvs_utils import load_baseline_and_movement
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
@@ -43,6 +44,11 @@ HAMPEL_THRESHOLD = 3.0
 
 SAVGOL_WINDOW = 5
 SAVGOL_POLYORDER = 2
+
+WAVELET_TYPE = 'db4'          # Daubechies 4 (same as C implementation)
+WAVELET_LEVEL = 3             # Decomposition level (1-3)
+WAVELET_THRESHOLD = 1.0       # Noise threshold
+WAVELET_MODE = 'soft'         # 'soft' or 'hard' thresholding
 
 # ============================================================================
 
@@ -169,6 +175,58 @@ class SavitzkyGolayFilter:
         self.buffer = []
 
 
+class WaveletFilter:
+    """Wavelet denoising filter using PyWavelets (Daubechies db4)"""
+    
+    def __init__(self, wavelet=WAVELET_TYPE, level=WAVELET_LEVEL, 
+                 threshold=WAVELET_THRESHOLD, mode=WAVELET_MODE):
+        self.wavelet = wavelet
+        self.level = level
+        self.threshold = threshold
+        self.mode = mode
+        self.buffer = []
+        # Buffer size must be power of 2 for wavelet transform
+        self.buffer_size = 64  # Same as C implementation (WAVELET_BUFFER_SIZE)
+    
+    def filter(self, value):
+        """Apply wavelet denoising to single value"""
+        self.buffer.append(value)
+        
+        # Keep only buffer_size values
+        if len(self.buffer) > self.buffer_size:
+            self.buffer.pop(0)
+        
+        # Need full buffer for wavelet transform
+        if len(self.buffer) < self.buffer_size:
+            return value
+        
+        # Apply wavelet decomposition
+        coeffs = pywt.wavedec(self.buffer, self.wavelet, level=self.level)
+        
+        # Apply thresholding to detail coefficients (keep approximation unchanged)
+        coeffs_thresh = [coeffs[0]]  # Keep approximation
+        for detail in coeffs[1:]:
+            coeffs_thresh.append(pywt.threshold(detail, self.threshold, mode=self.mode))
+        
+        # Reconstruct signal
+        denoised = pywt.waverec(coeffs_thresh, self.wavelet)
+        
+        # Handle potential length mismatch due to wavelet reconstruction
+        if len(denoised) > self.buffer_size:
+            denoised = denoised[:self.buffer_size]
+        elif len(denoised) < self.buffer_size:
+            # Pad with last value if needed
+            denoised = np.pad(denoised, (0, self.buffer_size - len(denoised)), 
+                            mode='edge')
+        
+        # Return middle sample (to minimize edge effects, same as C implementation)
+        return denoised[self.buffer_size // 2]
+    
+    def reset(self):
+        """Reset filter state"""
+        self.buffer = []
+
+
 class FilterPipeline:
     """Complete filter pipeline"""
     
@@ -178,6 +236,7 @@ class FilterPipeline:
             - butterworth: bool
             - hampel: bool
             - savgol: bool
+            - wavelet: bool
         """
         self.config = config
         
@@ -185,6 +244,7 @@ class FilterPipeline:
         self.butterworth = ButterworthFilter() if config.get('butterworth', False) else None
         self.hampel = HampelFilter() if config.get('hampel', False) else None
         self.savgol = SavitzkyGolayFilter() if config.get('savgol', False) else None
+        self.wavelet = WaveletFilter() if config.get('wavelet', False) else None
     
     def filter(self, value):
         """Apply filter pipeline to single value"""
@@ -200,6 +260,9 @@ class FilterPipeline:
         if self.savgol:
             filtered = self.savgol.filter(filtered)
         
+        if self.wavelet:
+            filtered = self.wavelet.filter(filtered)
+        
         return filtered
     
     def reset(self):
@@ -210,6 +273,8 @@ class FilterPipeline:
             self.hampel.reset()
         if self.savgol:
             self.savgol.reset()
+        if self.wavelet:
+            self.wavelet.reset()
 
 # ============================================================================
 # FILTERED STREAMING SEGMENTATION
@@ -345,14 +410,18 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, tr
         dict: Results for each configuration
     """
     configs = {
-        'No Filter': {'butterworth': False, 'hampel': False, 'savgol': False},
-        'Butterworth': {'butterworth': True, 'hampel': False, 'savgol': False},
-        'Hampel': {'butterworth': False, 'hampel': True, 'savgol': False},
-        'Savitzky-Golay': {'butterworth': False, 'hampel': False, 'savgol': True},
-        'Butter+Hampel': {'butterworth': True, 'hampel': True, 'savgol': False},
-        'Butter+SavGol': {'butterworth': True, 'hampel': False, 'savgol': True},
-        'Hampel+SavGol': {'butterworth': False, 'hampel': True, 'savgol': True},
-        'Full Pipeline': {'butterworth': True, 'hampel': True, 'savgol': True},
+        'No Filter': {'butterworth': False, 'hampel': False, 'savgol': False, 'wavelet': False},
+        'Butterworth': {'butterworth': True, 'hampel': False, 'savgol': False, 'wavelet': False},
+        'Hampel': {'butterworth': False, 'hampel': True, 'savgol': False, 'wavelet': False},
+        'Savitzky-Golay': {'butterworth': False, 'hampel': False, 'savgol': True, 'wavelet': False},
+        'Wavelet': {'butterworth': False, 'hampel': False, 'savgol': False, 'wavelet': True},
+        'Butter+Hampel': {'butterworth': True, 'hampel': True, 'savgol': False, 'wavelet': False},
+        'Butter+SavGol': {'butterworth': True, 'hampel': False, 'savgol': True, 'wavelet': False},
+        'Butter+Wavelet': {'butterworth': True, 'hampel': False, 'savgol': False, 'wavelet': True},
+        'Hampel+SavGol': {'butterworth': False, 'hampel': True, 'savgol': True, 'wavelet': False},
+        'Wavelet+Hampel': {'butterworth': False, 'hampel': True, 'savgol': False, 'wavelet': True},
+        'Full Pipeline': {'butterworth': True, 'hampel': True, 'savgol': True, 'wavelet': False},
+        'Full+Wavelet': {'butterworth': True, 'hampel': True, 'savgol': True, 'wavelet': True},
     }
     
     results = {}
@@ -601,7 +670,8 @@ def main():
     print(f"  Threshold: {THRESHOLD}")
     print(f"  Butterworth: {BUTTERWORTH_ORDER}th order, {BUTTERWORTH_CUTOFF}Hz cutoff")
     print(f"  Hampel: window={HAMPEL_WINDOW}, threshold={HAMPEL_THRESHOLD}")
-    print(f"  Savitzky-Golay: window={SAVGOL_WINDOW}, polyorder={SAVGOL_POLYORDER}\n")
+    print(f"  Savitzky-Golay: window={SAVGOL_WINDOW}, polyorder={SAVGOL_POLYORDER}")
+    print(f"  Wavelet: {WAVELET_TYPE}, level={WAVELET_LEVEL}, threshold={WAVELET_THRESHOLD}, mode={WAVELET_MODE}\n")
     
     # Load CSI data
     print("Loading CSI data...")
@@ -649,10 +719,14 @@ def main():
         'Butterworth',
         'Hampel',
         'Savitzky-Golay',
+        'Wavelet',
         'Butter+Hampel',
         'Butter+SavGol',
+        'Butter+Wavelet',
         'Hampel+SavGol',
-        'Full Pipeline'
+        'Wavelet+Hampel',
+        'Full Pipeline',
+        'Full+Wavelet'
     ]
     
     for name in config_order:

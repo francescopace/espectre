@@ -65,42 +65,38 @@ void config_init_defaults(runtime_config_t *config) {
     
     memset(config, 0, sizeof(runtime_config_t));
     
-    config->verbose_mode = false;
+    // System settings
+    config->verbose_mode = DEFAULT_VERBOSE_MODE;
+    config->features_enabled = DEFAULT_FEATURES_ENABLED;
+    config->smart_publishing_enabled = DEFAULT_SMART_PUBLISHING;
     
-    // Feature extraction enabled by default
-    config->features_enabled = true;
+    // Traffic generator
+    config->traffic_generator_rate = DEFAULT_TRAFFIC_GENERATOR_RATE;
     
-    // Traffic generator (100 pps = good balance for continuous CSI and stability)
-    config->traffic_generator_rate = 100;
+    // Filter enable flags (all from espectre.h)
+    config->hampel_filter_enabled = DEFAULT_HAMPEL_ENABLED;
+    config->savgol_filter_enabled = DEFAULT_SAVGOL_ENABLED;
+    config->butterworth_enabled = DEFAULT_BUTTERWORTH_ENABLED;
+    config->wavelet_enabled = DEFAULT_WAVELET_ENABLED;
+    config->cusum_enabled = DEFAULT_CUSUM_ENABLED;
     
-    // Enable key filters by default for robust operation in noisy environments
-    // Hampel disabled by default (testing shows 0% outlier rate in typical environments)
-    config->hampel_filter_enabled = false;  // Enable manually if high outlier rate detected
+    // Filter parameters
     config->hampel_threshold = HAMPEL_DEFAULT_THRESHOLD;
-    config->savgol_filter_enabled = true;   // Smoothing (recommended for noisy signals)
     config->savgol_window_size = SAVGOL_WINDOW_SIZE;
-    config->butterworth_enabled = true;     // High-frequency noise reduction (always recommended)
+    config->wavelet_level = WAVELET_LEVEL_MAX;
+    config->wavelet_threshold = WAVELET_DEFAULT_THRESHOLD;
+    config->cusum_threshold = CUSUM_DEFAULT_THRESHOLD;
+    config->cusum_drift = CUSUM_DEFAULT_DRIFT;
     
-    // Wavelet filter settings (disabled by default, enable for high-noise environments)
-    config->wavelet_enabled = false;        // Enable manually if variance > 500
-    config->wavelet_level = WAVELET_LEVEL_MAX;  // Maximum denoising when enabled
-    config->wavelet_threshold = 1.0f;       // Balanced threshold (middle of range)
-    
-    config->cusum_enabled = false;
-    config->cusum_threshold = 0.5f;
-    config->cusum_drift = 0.01f;
-    
-    config->smart_publishing_enabled = false;
-    
-    // Segmentation parameters (platform-specific defaults)
+    // Segmentation parameters
     config->segmentation_window_size = SEGMENTATION_DEFAULT_WINDOW_SIZE;
     
-    // ESP32-S3: Top 12 most informative subcarriers
-    const uint8_t default_subcarriers[] = {47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58};
-    config->num_selected_subcarriers = 12;
+    // Default subcarrier selection (top most informative subcarriers)
+    // Calculate count from array size - single source of truth
+    const uint8_t default_subcarriers[] = DEFAULT_SUBCARRIERS;
+    config->num_selected_subcarriers = sizeof(default_subcarriers) / sizeof(default_subcarriers[0]);
     
-    memcpy(config->selected_subcarriers, default_subcarriers, 
-           config->num_selected_subcarriers * sizeof(uint8_t));
+    memcpy(config->selected_subcarriers, default_subcarriers, sizeof(default_subcarriers));
 }
 
 esp_err_t config_validate(const runtime_config_t *config) {

@@ -9,6 +9,42 @@ import math
 from src.config import SEG_WINDOW_SIZE, SEG_THRESHOLD, ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD
 
 
+def _calculate_variance_two_pass(values, n):
+    """
+    Calculate variance using two-pass algorithm (numerically stable)
+    
+    Two-pass algorithm: variance = sum((x - mean)^2) / n
+    More stable than single-pass E[X²] - E[X]² for float32 arithmetic.
+    
+    This is the centralized variance function used by all MVS components.
+    Matches the implementation in csi_processor.c and mvs_utils.py.
+    
+    Args:
+        values: List of float values
+        n: Number of values to use (may be less than len(values))
+    
+    Returns:
+        float: Variance (0.0 if n == 0)
+    """
+    if n == 0:
+        return 0.0
+    
+    # First pass: calculate mean
+    mean = 0.0
+    for i in range(n):
+        mean += values[i]
+    mean /= n
+    
+    # Second pass: calculate variance
+    variance = 0.0
+    for i in range(n):
+        diff = values[i] - mean
+        variance += diff * diff
+    variance /= n
+    
+    return variance
+
+
 class SegmentationContext:
     """Moving Variance Segmentation for motion detection"""
     
@@ -68,17 +104,13 @@ class SegmentationContext:
             float: Standard deviation of amplitudes
         
         Note: Uses only selected subcarriers to match C version behavior.
-              This filters out less informative subcarriers and potential garbage data.
-              Uses the same efficient variance formula as the C version for numerical consistency.
+              Uses two-pass variance for numerical stability.
         """
         if len(csi_data) < 2:
             return 0.0
         
-        # Calculate amplitudes and accumulate sum and sum of squares in one pass
-        # This matches the C version's efficient computation
-        sum_amp = 0.0
-        sum_sq = 0.0
-        count = 0
+        # Calculate amplitudes for selected subcarriers
+        amplitudes = []
         
         # If no selection provided, use all available up to 64 subcarriers
         if selected_subcarriers is None:
@@ -87,10 +119,7 @@ class SegmentationContext:
                 if i + 1 < max_values:
                     real = csi_data[i]
                     imag = csi_data[i + 1]
-                    amplitude = math.sqrt(real * real + imag * imag)
-                    sum_amp += amplitude
-                    sum_sq += amplitude * amplitude
-                    count += 1
+                    amplitudes.append(math.sqrt(real * real + imag * imag))
         else:
             # Use only selected subcarriers (matches C version)
             for sc_idx in selected_subcarriers:
@@ -98,49 +127,29 @@ class SegmentationContext:
                 if i + 1 < len(csi_data):
                     real = csi_data[i]
                     imag = csi_data[i + 1]
-                    amplitude = math.sqrt(real * real + imag * imag)
-                    sum_amp += amplitude
-                    sum_sq += amplitude * amplitude
-                    count += 1
+                    amplitudes.append(math.sqrt(real * real + imag * imag))
         
-        if count < 2:
+        if len(amplitudes) < 2:
             return 0.0
         
-        # Calculate variance using efficient formula: variance = E[X²] - E[X]²
-        # This matches the C version exactly
-        mean = sum_amp / count
-        variance = (sum_sq / count) - (mean * mean)
+        # Use centralized two-pass variance for numerical stability
+        variance = _calculate_variance_two_pass(amplitudes, len(amplitudes))
         
-        # Protect against negative variance due to floating point errors
-        if variance < 0.0:
-            variance = 0.0
-        
-        std_dev = math.sqrt(variance)
-        
-        return std_dev
+        return math.sqrt(variance)
     
     def _calculate_moving_variance(self):
-        """Calculate variance of turbulence buffer"""
+        """
+        Calculate variance of turbulence buffer
+        
+        Uses centralized two-pass variance for numerical stability.
+        Matches the implementation in csi_processor.c and mvs_utils.py.
+        """
         # Return 0 if buffer not full yet (matches C version behavior)
         if self.buffer_count < self.window_size:
             return 0.0
         
-        # Calculate mean of the window (first pass)
-        # Matches C version: explicit loop for clarity and numerical consistency
-        mean = 0.0
-        for i in range(self.window_size):
-            mean += self.turbulence_buffer[i]
-        mean /= self.window_size
-        
-        # Calculate variance of the window (second pass)
-        # Matches C version: explicit loop with diff calculation
-        variance = 0.0
-        for i in range(self.window_size):
-            diff = self.turbulence_buffer[i] - mean
-            variance += diff * diff
-        variance /= self.window_size
-        
-        return variance
+        # Use centralized two-pass variance calculation
+        return _calculate_variance_two_pass(self.turbulence_buffer, self.window_size)
     
     def add_turbulence(self, turbulence):
         """
@@ -177,7 +186,7 @@ class SegmentationContext:
         
         elif self.state == self.STATE_MOTION:
             # Check for motion end
-            if self.current_moving_variance <= self.threshold:
+            if self.current_moving_variance < self.threshold:
                 # Motion ended
                 self.state = self.STATE_IDLE
         

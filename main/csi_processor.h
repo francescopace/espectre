@@ -43,6 +43,18 @@ typedef struct {
 } csi_features_t;
 
 /**
+ * Calculate variance using two-pass algorithm (numerically stable)
+ * 
+ * Two-pass algorithm: variance = sum((x - mean)^2) / n
+ * More stable than single-pass E[X²] - E[X]² for float32 arithmetic.
+ * 
+ * @param values Array of float values
+ * @param n Number of values
+ * @return Variance (0.0 if n == 0)
+ */
+float calculate_variance_two_pass(const float *values, size_t n);
+
+/**
  * Calculate variance from int8_t CSI data
  * 
  * @param data CSI data array
