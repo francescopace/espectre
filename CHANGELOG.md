@@ -4,22 +4,192 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [1.3.1] - in progress
+## [1.4.0] - 2025-11-28
 
-### 🏗️ Refactored - Configuration and Validation Centralization
+### 🏗️ Major Refactoring - Technical Debt Reduction
 
-Centralized configuration constants and validation logic to eliminate duplication:
+**Comprehensive code reorganization to improve maintainability, reduce duplication, and enforce separation of concerns**
 
-**Changes:**
-- **`espectre.h`**: Single source of truth for all system constants (replaced scattered `#define` across 9 files)
-- **`validation.h/c`**: Centralized validation with "validate at boundary" pattern
+This release focuses on addressing technical debt accumulated during rapid feature development. The refactoring was driven by insights gained from the MicroPython implementation (Micro-ESPectre), which enabled faster parameter tuning and testing of optimal configurations. The lessons learned were then applied to improve the C firmware architecture.
+
+**Key Objectives:**
+- ✅ **DRY Principle**: Eliminate code duplication across modules
+- ✅ **Separation of Concerns**: Clear boundaries between responsibilities
+- ✅ **Maintainability**: Easier to understand, test, and extend
+- ✅ **Single Source of Truth**: Centralized configuration and defaults
+
+---
+
+### 🏗️ Modular Architecture Improvements
+
+**Code reorganization for better separation of concerns**
+
+**Feature Extraction Module (`csi_features.c/h`):**
+- Extracted 12 feature calculation functions from `csi_processor` into dedicated module
+- Reduced `csi_processor.c` from ~800 to ~400 lines (-50%)
+- Added `csi_extract_features()` orchestrator in `csi_processor.c`
+- Removed dead code: `csi_get_subcarrier_selection()`, `csi_processor_get_turbulence_buffer()`
+- Clear separation: MVS algorithm (motion detection) vs feature extraction (analysis)
+- No circular dependencies
+
+**MQTT Publisher Task:**
+- Renamed `mqtt_publish_task` → `mqtt_publisher` for clarity
+- Moved publisher task from `espectre.c` to `mqtt_handler.c`
+- Moved `format_progress_bar` helper function to `mqtt_handler.c`
+- Added `mqtt_publisher_context_t` structure for task parameters
+- New `mqtt_start_publisher()` API to start publisher task
+- Improved module encapsulation
+
+**Segmentation Logic Consolidation:**
+- Consolidated segmentation functionality into `csi_processor` module
+- Removed standalone `segmentation.c/h` files
+- Simplified test suite by removing redundant tuning tests
+- Updated MQTT commands to use consolidated API
+- Single responsibility: `csi_processor` handles all CSI processing
+
+**Benefits:**
+- ✅ Better code organization and maintainability
+- ✅ Clear separation between motion detection and feature extraction
+- ✅ Features testable independently
+- ✅ Reduced complexity of individual modules
+- ✅ Easier to locate and modify specific functionality
+
+---
+
+### 🔧 Configuration Centralization
+
+**Single source of truth for all system defaults**
+
+**Centralized Configuration in `espectre.h`:**
+- All filter defaults now in one place:
+  * Hampel filter defaults
+  * Savitzky-Golay filter defaults
+  * Butterworth filter defaults
+  * Wavelet filter defaults
+  * CUSUM filter defaults
+- Added default subcarrier selection (top 12 most informative)
+- Updated segmentation threshold: 3.0 → 1.0 (better sensitivity based on testing)
+- Replaced scattered `#define` across 9 files with centralized constants
+
+**Validation Centralization (`validation.h/c`):**
+- Centralized validation with "validate at boundary" pattern:
   * MQTT commands: strict validation
   * NVS loading: defensive validation with auto-fix
   * Internal setters: trust caller (no overhead)
-- **Removed ~200 lines** of duplicated validation code
+- Removed ~200 lines of duplicated validation code
+
+**Python/C Synchronization:**
+- MicroPython implementation synchronized with C defaults
+- Consistent behavior across both platforms
+- Easier to maintain parameter parity
 
 **Benefits:**
-- Single source of truth, reduced duplication, easier maintenance
+- ✅ Single source of truth for configuration
+- ✅ Eliminated duplication across modules
+- ✅ Easier to update and maintain defaults
+- ✅ Consistent configuration between C and Python implementations
+- ✅ Reduced risk of configuration drift
+
+---
+
+### 🔬 Improved Algorithms & Testing
+
+**Numerically stable variance calculation and stricter test validation**
+
+**Two-Pass Variance Algorithm:**
+- Added `calculate_variance_two_pass()` for numerically stable variance calculation
+- Better precision with very large or very small values
+- Prevents numerical instability in edge cases
+- Analysis tool: `7_analyze_variance_algo.py` for algorithm comparison
+
+**Enhanced Test Suite:**
+- Changed counting logic: from segment transitions to MOTION packets
+- Stricter thresholds: >94% recall (was >1 segment), >95% in performance suite
+- Added edge case test for invalid inputs (NaN, infinity, negative values)
+- Added stress test: 10,000 packets with memory leak detection
+- Fixed include: `esp_heap_caps.h` → `esp_system.h` for `esp_get_free_heap_size()`
+
+**Test Results:**
+- All 16 tests pass successfully
+- Segmentation: 94.7% recall, 0% false positive rate
+- Memory: 0 bytes leaked after 10,000 packets
+- Performance suite: 100% recall, 0% false positive rate
+
+**Documentation:**
+- Added `PERFORMANCE.md` to document performance metrics and test results
+
+**Benefits:**
+- ✅ Better numerical precision in variance calculation
+- ✅ More rigorous test validation
+- ✅ Confidence in memory management
+- ✅ Documented performance characteristics
+
+---
+
+### ✨ Enhanced Features
+
+**Extended MQTT info command with device and network diagnostics**
+
+Extended `info` command with detailed device and network information:
+
+**Device Information:**
+- Automatic device type detection (ESP32-C6, ESP32-S3, ESP32, esp32)
+- Information retrieved dynamically via ESP-IDF/MicroPython APIs
+
+**Network Information:**
+- Device MAC address
+- WiFi channel in use
+- Bandwidth (20MHz/40MHz)
+- WiFi protocol (802.11b/g/n/ax)
+- Promiscuous mode status (on/off)
+
+**Implementation:**
+- Implemented for both ESPectre (C) and Micro-ESPectre (MicroPython)
+- Web monitor updated to display new information
+- Better diagnostics and connectivity troubleshooting
+
+---
+
+### 🗑️ Code Cleanup
+
+**Removed obsolete functionality and simplified workflows**
+
+**CSI Raw Data Extractor Removal:**
+- Removed CSI raw data extraction from firmware and Web UI
+- Replaced by Python `data_collector.py` script in micro-espectre
+- More flexible and efficient approach for data collection
+
+**Removed Components:**
+- Web UI: CSI Raw Data Download section, related JS functions
+- `mqtt_commands.c`: `csi_raw_capture` command, capture functions and structures
+- `mqtt_commands.h`: `mqtt_commands_capture_csi_packet()` declaration
+- `espectre.c`: `mqtt_commands_capture_csi_packet()` call in `csi_callback`
+
+**Benefits:**
+- ✅ Lighter and more focused firmware
+- ✅ More flexible data collection via Python
+- ✅ Reduced code complexity
+- ✅ Eliminated maintenance burden of duplicate functionality
+
+---
+
+### 📊 Impact Summary
+
+**Overall improvements from this refactoring release:**
+
+- **Code Quality**: Reduced duplication, improved separation of concerns
+- **Maintainability**: Easier to understand, test, and extend
+- **Configuration**: Single source of truth, consistent across platforms
+- **Testing**: Stricter validation, memory leak detection, documented performance
+- **Simplification**: Removed obsolete features, streamlined workflows
+
+**Lines of Code:**
+- `csi_processor.c`: ~800 → ~400 lines (-50%)
+- Validation code: ~200 lines removed (duplication eliminated)
+- Total: Significant reduction in code complexity
+
+**MicroPython Contribution:**
+The MicroPython implementation (Micro-ESPectre) proved invaluable for rapid prototyping and parameter tuning. The ability to quickly test configurations and algorithms in Python accelerated the optimization process, with successful patterns then being ported back to the C firmware with confidence.
 
 ### 🚀 Enhanced - Traffic Generator Rate Limit
 

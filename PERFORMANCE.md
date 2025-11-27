@@ -122,4 +122,4 @@ See [CALIBRATION.md](CALIBRATION.md) for detailed tuning instructions.
 
 | Date | Version | Recall | FP Rate | Notes |
 |------|---------|--------|---------|-------|
-| 2025-11-27 | v1.3.1 | 98.1% | 0.0% | Current release |
+| 2025-11-28 | v1.4.0 | 98.1% | 0.0% | Current release |

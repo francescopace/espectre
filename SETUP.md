@@ -306,7 +306,7 @@ mqtt:
   - `temporal_delta_variance`: Variance of changes from previous packet
 - `timestamp`: Unix timestamp (seconds since epoch)
 
-**Note:** The `features` object is included when feature extraction is enabled (default: enabled), regardless of the system state (idle or motion).
+**Note:** The `features` object is included when feature extraction is enabled (default: enabled). Features are extracted continuously from filtered CSI data and published in every MQTT message.
 
 ---
 

@@ -8,6 +8,21 @@ Micro-ESPectre is a lightweight Python port of [ESPectre](https://github.com/fra
 
 Micro-ESPectre implements the **MVS (Moving Variance Segmentation)** algorithm from ESPectre in pure Python. It focuses on the essential motion detection functionality while maintaining full backward compatibility with ESPectre's MQTT command interface.
 
+### 🔬 Role in Development
+
+Micro-ESPectre serves a dual purpose:
+
+1. **Production Use**: Lightweight motion detection for resource-constrained environments
+2. **Development Tool**: Rapid prototyping and parameter tuning platform
+
+The Python implementation enables **fast iteration cycles** for testing configurations and algorithms without the overhead of C compilation. Successful patterns and optimized parameters discovered in Micro-ESPectre are then ported back to the C firmware with confidence. This approach significantly accelerated the development of ESPectre v1.4.0's refactoring and optimization work.
+
+**Key Benefits for Development:**
+- ⚡ **Instant deployment**: No compilation, ~5 seconds to update
+- 🔧 **Easy experimentation**: Modify parameters and test immediately
+- 📊 **Quick validation**: Test algorithms and configurations rapidly
+- 🔄 **Bidirectional sync**: Proven patterns flow back to C implementation
+
 ### What is esp32-microcsi?
 
 [esp32-microcsi](https://github.com/francescopace/esp32-microcsi) is a MicroPython module that I wrote to expose ESP32's CSI (Channel State Information) capabilities to Python. This module makes CSI-based applications accessible to Python developers and enables rapid prototyping of WiFi sensing applications.
@@ -34,7 +49,6 @@ Micro-ESPectre implements the **MVS (Moving Variance Segmentation)** algorithm f
 | `traffic_generator_rate` | ✅ | ✅ | ✅ Implemented |
 | `smart_publishing` | ✅ | ✅ | ✅ Implemented |
 | `factory_reset` | ✅ | ✅ | ✅ Implemented |
-| `csi_raw_capture` | ✅ | ❌ | Not implemented |
 | **Storage** |
 | NVS Persistence | ✅ | ✅ (JSON file) | ✅ Implemented |
 | Auto-save on config change | ✅ | ✅ | ✅ Implemented |
@@ -146,9 +160,15 @@ Use the deployment script:
 # Deploy and run main application
 ./deploy.sh /dev/cu.usbmodem* --run
 
-# Deploy and run debug script (diagnose CSI issues)
-./deploy.sh /dev/cu.usbmodem* --debug
+# Deploy and collect baseline data (for testing/analysis)
+./deploy.sh /dev/cu.usbmodem* --collect-baseline
+
+# Deploy and collect movement data (for testing/analysis)
+./deploy.sh /dev/cu.usbmodem* --collect-movement
 ```
+
+**Data Collection:**
+The `--collect-baseline` and `--collect-movement` flags are used to collect CSI data samples for algorithm testing and parameter tuning. The collected binary files are automatically downloaded to the `tools/` directory and can be analyzed with the Python analysis scripts.
 
 ### 4. Run
 
@@ -171,12 +191,16 @@ micro-espectre/
 │   ├── main.py                # Main application entry point
 │   ├── config.py              # Default configuration
 │   ├── segmentation.py        # MVS segmentation logic
-│   ├── traffic_generator.py   # UDP traffic generator
+│   ├── traffic_generator.py   # WiFi traffic generator
 │   ├── nvs_storage.py         # JSON-based config persistence
+│   ├── filters.py             # Signal filtering (Hampel filter)
+│   ├── data_collector.py      # CSI data collection for testing
 │   └── mqtt/                  # MQTT sub-package
 │       ├── __init__.py        # MQTT package initialization
 │       ├── handler.py         # MQTT connection and publishing
 │       └── commands.py        # MQTT command processing
+├── tools/                     # Analysis and optimization tools
+│   └── ...
 ├── config_local.py            # Local config override (gitignored)
 ├── config_local.py.example    # Configuration template
 ├── deploy.sh                  # Deployment script
@@ -189,21 +213,14 @@ micro-espectre/
 ### Segmentation Parameters (config.py)
 
 ```python
-SEG_WINDOW_SIZE = 100      # Moving variance window (3-50 packets)
+SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
                           # Larger = smoother, slower response
                           # Smaller = faster response, more noise
 
-SEG_THRESHOLD = 3.0       # Base threshold 
+SEG_THRESHOLD = 1.0       # Motion detection threshold (0.0-10.0)
                           # Lower values = more sensitive to motion
 ```
 
-### Publishing Parameters
-
-```python
-SMART_PUBLISHING = True   # Only publish on significant changes
-DELTA_THRESHOLD = 0.05    # Minimum variance change to trigger publish
-MAX_PUBLISH_INTERVAL_MS = 5000  # Max time between publishes (heartbeat)
-```
 ### Published Data (same as ESPectre)
 
 The system publishes JSON payloads to the configured MQTT topic (default: `home/espectre/node1`):
@@ -211,13 +228,114 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
 ```json
 {
   "movement": 0.0234,            // Current moving variance
-  "threshold": 3.0,              // Current threshold
+  "threshold": 1.0,              // Current threshold
   "state": "idle",               // "idle" or "motion"
   "packets_processed": 42,       // Packets since last publish
   "packets_dropped": 0,          // Packets dropped since last publish
   "timestamp": 1700000000        // Unix timestamp
 }
 ```
+
+## 🔧 Analysis Tools
+
+The `tools/` directory contains Python scripts for analyzing CSI data and optimizing system parameters. These tools were instrumental in developing and tuning the MVS algorithm.
+
+### Data Collection
+
+First, collect CSI data samples using the deployment script:
+
+```bash
+# Collect baseline data (no movement)
+./deploy.sh /dev/cu.usbmodem* --collect-baseline
+
+# Collect movement data (with movement)
+./deploy.sh /dev/cu.usbmodem* --collect-movement
+```
+
+This creates `baseline_data.bin` and `movement_data.bin` in the `tools/` directory.
+
+### Analysis Scripts
+
+**1. Raw Data Analysis** (`1_analyze_raw_data.py`)
+- Visualizes raw CSI amplitude data
+- Analyzes subcarrier patterns and noise characteristics
+- Helps identify most informative subcarriers
+- **Options**: None
+
+**2. System Tuning** (`2_analyze_system_tuning.py`)
+- Comprehensive grid search for optimal MVS parameters
+- Tests subcarrier clusters, thresholds, and window sizes
+- Always shows confusion matrix for best configuration
+- **Options**: 
+  - `--quick`: Reduced parameter space (faster)
+  - `--plot`: Show comprehensive analysis of best configuration (amplitudes, I/Q constellation)
+
+![Subcarrier Analysis](../images/subcarriers.png)
+*Example output showing amplitude analysis and I/Q constellation diagrams for the best subcarrier configuration*
+
+**3. MVS Visualization** (`3_analyze_moving_variance_segmentation.py`)
+- Visualizes MVS algorithm behavior with current configuration
+- Shows moving variance, threshold, and detection states
+- Always displays confusion matrix and performance metrics
+- **Options**:
+  - `--plot`: Show MVS graphs (baseline + movement)
+
+**4. Filter Location Analysis** (`4_analyze_filter_location.py`)
+- Compares filter placement in processing pipeline
+- Tests pre-filtering vs post-filtering approaches
+- Evaluates impact on motion detection accuracy
+- **Options**:
+  - `--plot`: Show comparison visualizations
+
+**5. Filter Turbulence Analysis** (`5_analyze_filter_turbulence.py`)
+- Analyzes turbulence calculation with different filters
+- Compares filtered vs unfiltered turbulence
+- Validates Hampel filter effectiveness
+- **Options**:
+  - `--plot`: Show filter comparison plots
+  - `--optimize-filters`: Optimize filter parameters
+
+**6. Hampel Parameter Optimization** (`6_optimize_hampel_parameters.py`)
+- Grid search over Hampel filter parameters
+- Tests window sizes (3-9) and thresholds (2.0-4.0)
+- Finds optimal outlier detection configuration
+- **Options**: None
+
+**7. Variance Algorithm Comparison** (`7_analyze_variance_algo.py`)
+- Compares one-pass vs two-pass variance algorithms
+- Analyzes numerical stability with large values
+- Validates algorithm selection for production
+- **Options**: None
+
+**8. Detection Methods Comparison** (`8_compare_detection_methods.py`)
+- Compares RSSI, Mean Amplitude, Turbulence, and MVS
+- Demonstrates MVS superiority for movement detection
+- Shows why MVS provides best separation
+- **Options**:
+  - `--plot`: Show comparison visualization (4×2 layout)
+
+![Detection Methods Comparison](../images/detection_method_comparison.png)
+*Comparison of detection methods (RSSI, Mean Amplitude, Turbulence, MVS) demonstrating MVS superiority with lowest false positives and highest recall*
+
+### Usage Example
+
+```bash
+cd tools
+
+# Analyze raw CSI data
+python 1_analyze_raw_data.py
+
+# Optimize segmentation parameters (shows confusion matrix)
+python 2_analyze_system_tuning.py
+
+# Quick mode With subcarrier heatmaps
+python 2_analyze_system_tuning.py --quick --plot
+```
+**Benefits:**
+- 📊 Visual feedback on algorithm performance
+- 🎯 Data-driven parameter optimization
+- 🔬 Scientific validation of design choices
+- ⚡ Faster iteration than C firmware testing
 
 ## 📡 MQTT Integration
 

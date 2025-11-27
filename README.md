@@ -2,7 +2,7 @@
 [![C](https://img.shields.io/badge/C-ESP--IDF-orange.svg)](https://github.com/espressif/esp-idf)
 [![Platform](https://img.shields.io/badge/platform-ESP32--S3%20%7C%20ESP32--C6-red.svg)](https://www.espressif.com/en/products/socs)
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)](https://github.com/francescopace/espectre)
-[![Changelog](https://img.shields.io/badge/changelog-v1.2.0-blue.svg)](https://github.com/francescopace/espectre/blob/main/CHANGELOG.md)
+[![Release](https://img.shields.io/github/v/release/francescopace/espectre)](https://github.com/francescopace/espectre/releases/latest)
 
 # 🛜 ESPectre 👻
 
@@ -189,55 +189,44 @@ Optimal sensor placement is crucial for reliable movement detection.
 
 ### Processing Pipeline
 
-ESPectre uses a streamlined processing pipeline:
+ESPectre uses a streamlined processing pipeline with parallel paths for segmentation and feature extraction:
 
 ```
 ┌─────────────┐
 │  CSI Data   │  Raw Wi-Fi Channel State Information
 └──────┬──────┘
        │
-       ▼
-┌─────────────┐
-│Segmentation │  Moving Variance Segmentation (MVS)
-│  (2-state)  │  IDLE ↔ MOTION (operates on RAW CSI)
-└──────┬──────┘
-       │
-       ├─────────────────────┐
-       │                     │
-       ▼                     ▼
-┌─────────────┐      ┌──────────────┐
-│    IDLE     │      │    MOTION    │
-│  (no feat.) │      │  (optional   │
-│             │      │   features)  │
-└─────────────┘      └──────┬───────┘
-                            │
-                            ▼
-                     ┌─────────────┐
-                     │   Filters   │  Butterworth, Wavelet,
-                     │             │  Hampel, Savitzky-Golay
-                     │             │  (applied to features only)
-                     └──────┬──────┘
-                            │
-                            ▼
-                     ┌─────────────┐
-                     │  Features   │  10 mathematical features
-                     │ (if enabled)│  (filtered CSI data)
-                     └──────┬──────┘
-                            │
-       ┌────────────────────┴────────────────────┐
-       │                                         │
-       ▼                                         ▼
-┌─────────────┐                          ┌─────────────┐
-│    MQTT     │  Publish state + metrics │    MQTT     │
-│   (IDLE)    │                          │  (MOTION)   │
-└─────────────┘                          └─────────────┘
+       ├──────────────────────────────────────┐
+       │                                      │
+       │ (RAW CSI - unfiltered)               │ (IF features_enabled)
+       ▼                                      ▼
+┌─────────────┐                       ┌─────────────┐
+│Segmentation │  MVS on RAW CSI       │   Filters   │  Butterworth, Wavelet,
+│  (always)   │  IDLE ↔ MOTION        │  (optional) │  Hampel, Savitzky-Golay
+└──────┬──────┘                       └───────┬─────┘
+       │                                      │
+       │                                      ▼
+       │                               ┌─────────────┐
+       │                               │  Features   │  10 mathematical features
+       │                               │ Extraction  │  (from filtered CSI)
+       │                               │  (always)   │
+       │                               └──────┬──────┘
+       │                                      │
+       └──────────────┬───────────────────────┘
+                      │
+                      ▼
+               ┌─────────────┐
+               │    MQTT     │  Publish: state + movement + threshold
+               │ Publishing  │  + features (if features_enabled=true)
+               └─────────────┘
 ```
 
 **Key Points:**
-- **2-state system**: IDLE or MOTION (no intermediate states)
-- **Segmentation-based**: Uses Moving Variance Segmentation (MVS) on **raw CSI data**
-- **Filters applied to features only**: Segmentation uses unfiltered data to preserve motion sensitivity
-- **Optional features**: Feature extraction when enabled (configurable)
+- **Parallel processing**: Segmentation (raw CSI) and Features (filtered CSI) run independently
+- **Segmentation always active**: MVS operates on **raw, unfiltered CSI** to preserve motion sensitivity
+- **Features always calculated**: When `features_enabled=true`, features are extracted continuously
+- **Filters applied before features**: Signal processing filters clean CSI data before feature extraction
+- **Single MQTT output**: Publishes state, movement, threshold, and optionally features
 
 ### Single or Multiple Sensors
 
@@ -377,8 +366,8 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ## � Technical Deep Dive
 
-![Segmentation Analysis](images/segmentation_analysis_esp32_c6.png)
-*Moving Variance Segmentation (MVS) analysis: baseline graphs (top) show quiet state, while bottom graphs show motion detection with turbulence signal, adaptive threshold, and state transitions*
+![Segmentation Analysis](images/mvs.png)
+*Baseline graphs show quiet state (<1), motion graphs show high variance in turbolence (>1)*
 
 <details>
 <summary>🔧 Multi-Platform Support (click to expand)</summary>
@@ -426,12 +415,12 @@ Advanced filters applied to CSI data **before feature extraction** (configurable
 **Note**: Filters are applied **only to feature extraction**, not to segmentation. Segmentation uses raw CSI data to preserve motion sensitivity.
 
 #### 4️⃣ **Optional Feature Extraction** (ESP32)
-When enabled (default: on), extracts 10 mathematical features from **filtered CSI data** during MOTION state:
+When enabled (default: on), extracts 10 mathematical features from **filtered CSI data** continuously:
 - **Statistical** (5): Variance, Skewness, Kurtosis, Entropy, IQR
 - **Spatial** (3): Spatial variance, correlation, gradient across subcarriers
 - **Temporal** (2): Delta mean, delta variance (changes between consecutive packets)
 
-**Note**: Feature extraction can be disabled to reduce CPU usage if only basic motion detection is needed.
+**Note**: Feature extraction can be disabled via `features_enable` command to reduce CPU usage if only basic motion detection is needed.
 
 #### 5️⃣ **MQTT Publishing** (ESP32 → Broker)
 - Publishes JSON payload every 1 second (configurable)
@@ -450,7 +439,7 @@ When enabled (default: on), extracts 10 mathematical features from **filtered CS
 <details>
 <summary>📊 Optional Feature Extraction (click to expand)</summary>
 
-ESPectre can optionally extract **10 mathematical features** from CSI data during MOTION state:
+ESPectre can optionally extract **10 mathematical features** from filtered CSI data continuously:
 
 ### Extracted Features
 
@@ -478,8 +467,8 @@ Changes between consecutive CSI packets:
 
 ### Usage
 
-Feature extraction is **enabled by default** but can be disabled to reduce CPU usage.
-**Note**: Features are only extracted during MOTION state, not during IDLE, to optimize performance.
+Feature extraction is **enabled by default** but can be disabled via `features_enable` command to reduce CPU usage.
+**Note**: When enabled, features are extracted continuously from filtered CSI data and published via MQTT.
 
 </details>
 
