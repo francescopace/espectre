@@ -134,6 +134,32 @@ void csi_process_packet(csi_processor_context_t *ctx,
                         uint8_t num_features);
 
 /**
+ * Extract features from CSI data (orchestrator function)
+ * 
+ * This function orchestrates feature extraction by calling individual
+ * feature calculation functions from csi_features.c. It has direct access
+ * to the turbulence buffer for skewness/kurtosis calculation.
+ * 
+ * Can be called standalone for testing or when features are needed without
+ * motion detection.
+ * 
+ * @param csi_data Raw CSI data (int8_t array)
+ * @param csi_len Length of CSI data
+ * @param turbulence_buffer Buffer of turbulence values for skewness/kurtosis (can be NULL)
+ * @param turbulence_count Number of valid values in turbulence buffer
+ * @param features Output structure for extracted features
+ * @param selected_features Array of feature indices to calculate
+ * @param num_features Number of features to calculate
+ */
+void csi_extract_features(const int8_t *csi_data,
+                         size_t csi_len,
+                         const float *turbulence_buffer,
+                         uint16_t turbulence_count,
+                         csi_features_t *features,
+                         const uint8_t *selected_features,
+                         uint8_t num_features);
+
+/**
  * Reset CSI processor context (clear state machine only)
  * 
  * Resets the state machine (IDLE/MOTION state, packet counters) but preserves:
@@ -219,164 +245,6 @@ float csi_processor_get_last_turbulence(const csi_processor_context_t *ctx);
  */
 uint32_t csi_processor_get_total_packets(const csi_processor_context_t *ctx);
 
-/**
- * Get turbulence buffer and count
- * 
- * Returns a pointer to the turbulence buffer and the number of valid elements.
- * Used internally for calculating skewness/kurtosis.
- * 
- * @param ctx CSI processor context
- * @param count Output: number of valid elements in buffer
- * @return Pointer to turbulence buffer, or NULL if ctx is NULL
- */
-const float* csi_processor_get_turbulence_buffer(const csi_processor_context_t *ctx, 
-                                                  uint16_t *count);
-
-// ============================================================================
-// FEATURE CALCULATION FUNCTIONS
-// ============================================================================
-
-/**
- * Calculate variance using two-pass algorithm (numerically stable)
- * 
- * Two-pass algorithm: variance = sum((x - mean)^2) / n
- * More stable than single-pass E[X²] - E[X]² for float32 arithmetic.
- * 
- * @param values Array of float values
- * @param n Number of values
- * @return Variance (0.0 if n == 0)
- */
-float calculate_variance_two_pass(const float *values, size_t n);
-
-/**
- * Calculate variance from int8_t CSI data
- * 
- * @param data CSI data array
- * @param len Length of data array
- * @return Variance value
- */
-float csi_calculate_variance(const int8_t *data, size_t len);
-
-/**
- * Extract features from CSI data
- * 
- * @param csi_data Raw CSI data (int8_t array)
- * @param csi_len Length of CSI data
- * @param turbulence_buffer Buffer of turbulence values for skewness/kurtosis (can be NULL)
- * @param turbulence_count Number of valid values in turbulence buffer
- * @param features Output structure for extracted features
- * @param selected_features Array of feature indices to calculate
- * @param num_features Number of features to calculate
- */
-void csi_extract_features(const int8_t *csi_data,
-                         size_t csi_len,
-                         const float *turbulence_buffer,
-                         uint16_t turbulence_count,
-                         csi_features_t *features,
-                         const uint8_t *selected_features,
-                         uint8_t num_features);
-
-/**
- * Calculate temporal delta mean
- * Average absolute difference between current and previous packet
- * 
- * @param current_data Current CSI packet
- * @param previous_data Previous CSI packet
- * @param len Length of data arrays
- * @return Average absolute difference
- */
-float csi_calculate_temporal_delta_mean(const int8_t *current_data,
-                                        const int8_t *previous_data,
-                                        size_t len);
-
-/**
- * Calculate temporal delta variance
- * Variance of differences between current and previous packet
- * 
- * @param current_data Current CSI packet
- * @param previous_data Previous CSI packet
- * @param len Length of data arrays
- * @return Variance of differences
- */
-float csi_calculate_temporal_delta_variance(const int8_t *current_data,
-                                            const int8_t *previous_data,
-                                            size_t len);
-
-/**
- * Reset temporal feature buffer
- * Call this when you want to clear the history of previous packets
- */
-void csi_reset_temporal_buffer(void);
-
-/**
- * Calculate skewness from turbulence buffer
- * Measures asymmetry of the distribution
- * 
- * @param buffer Turbulence buffer (float array)
- * @param count Number of valid values in buffer
- * @return Skewness value, or 0.0 if count < 3
- */
-float csi_calculate_skewness(const float *buffer, uint16_t count);
-
-/**
- * Calculate kurtosis from turbulence buffer
- * Measures "tailedness" of the distribution
- * 
- * @param buffer Turbulence buffer (float array)
- * @param count Number of valid values in buffer
- * @return Kurtosis value (excess kurtosis, normal distribution = 0), or 0.0 if count < 4
- */
-float csi_calculate_kurtosis(const float *buffer, uint16_t count);
-
-/**
- * Calculate Shannon entropy
- * Measures randomness/information content
- * 
- * @param data CSI data array
- * @param len Length of data array
- * @return Entropy value in bits
- */
-float csi_calculate_entropy(const int8_t *data, size_t len);
-
-/**
- * Calculate Interquartile Range (IQR)
- * Robust measure of statistical dispersion
- * 
- * @param data CSI data array
- * @param len Length of data array
- * @return IQR value (Q3 - Q1)
- */
-float csi_calculate_iqr(const int8_t *data, size_t len);
-
-/**
- * Calculate spatial variance
- * Variance across antenna/subcarrier space
- * 
- * @param data CSI data array
- * @param len Length of data array
- * @return Spatial variance
- */
-float csi_calculate_spatial_variance(const int8_t *data, size_t len);
-
-/**
- * Calculate spatial correlation
- * Correlation between adjacent samples
- * 
- * @param data CSI data array
- * @param len Length of data array
- * @return Correlation coefficient (-1 to 1)
- */
-float csi_calculate_spatial_correlation(const int8_t *data, size_t len);
-
-/**
- * Calculate spatial gradient
- * Average absolute difference between adjacent samples
- * 
- * @param data CSI data array
- * @param len Length of data array
- * @return Average gradient magnitude
- */
-float csi_calculate_spatial_gradient(const int8_t *data, size_t len);
 
 // ============================================================================
 // SUBCARRIER SELECTION
@@ -391,14 +259,5 @@ float csi_calculate_spatial_gradient(const int8_t *data, size_t len);
  */
 void csi_set_subcarrier_selection(const uint8_t *selected_subcarriers,
                                    uint8_t num_subcarriers);
-
-/**
- * Get current subcarrier selection
- * 
- * @param selected_subcarriers Output array for subcarrier indices
- * @param num_subcarriers Output for number of selected subcarriers
- */
-void csi_get_subcarrier_selection(uint8_t *selected_subcarriers,
-                                   uint8_t *num_subcarriers);
 
 #endif // CSI_PROCESSOR_H
