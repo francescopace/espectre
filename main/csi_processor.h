@@ -56,6 +56,12 @@ typedef struct {
     uint16_t buffer_index;
     uint16_t buffer_count;
     
+    // Hampel filter buffer for turbulence preprocessing
+    // Used to remove outliers before adding to turbulence_buffer
+    float hampel_buffer[HAMPEL_TURBULENCE_WINDOW];
+    uint8_t hampel_index;
+    uint8_t hampel_count;
+    
     // Moving variance state
     float current_moving_variance;
     

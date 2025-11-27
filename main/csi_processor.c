@@ -9,6 +9,7 @@
 
 #include "csi_processor.h"
 #include "csi_features.h"
+#include "filters.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -206,6 +207,35 @@ static float calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len
 }
 
 // ============================================================================
+// HAMPEL FILTER FOR TURBULENCE
+// ============================================================================
+
+// Apply Hampel filter to turbulence value
+// Uses the existing hampel_filter() function from filters.c with a circular buffer
+static float apply_hampel_to_turbulence(csi_processor_context_t *ctx, float turbulence) {
+#if ENABLE_HAMPEL_TURBULENCE_FILTER
+    // Add value to Hampel circular buffer
+    ctx->hampel_buffer[ctx->hampel_index] = turbulence;
+    ctx->hampel_index = (ctx->hampel_index + 1) % HAMPEL_TURBULENCE_WINDOW;
+    if (ctx->hampel_count < HAMPEL_TURBULENCE_WINDOW) {
+        ctx->hampel_count++;
+    }
+    
+    // Need at least 3 values for meaningful Hampel filtering
+    if (ctx->hampel_count < 3) {
+        return turbulence;
+    }
+    
+    // Call existing hampel_filter() function from filters.c
+    return hampel_filter(ctx->hampel_buffer, ctx->hampel_count, 
+                        turbulence, HAMPEL_TURBULENCE_THRESHOLD);
+#else
+    // Hampel filter disabled - return raw value
+    return turbulence;
+#endif
+}
+
+// ============================================================================
 // MOVING VARIANCE CALCULATION
 // ============================================================================
 
@@ -222,8 +252,11 @@ static float calculate_moving_variance(const csi_processor_context_t *ctx) {
 
 // Add turbulence value to buffer and update state
 static void add_turbulence_and_update_state(csi_processor_context_t *ctx, float turbulence) {
-    // Add to circular buffer
-    ctx->turbulence_buffer[ctx->buffer_index] = turbulence;
+    // Apply Hampel filter to remove outliers before adding to MVS buffer
+    float filtered_turbulence = apply_hampel_to_turbulence(ctx, turbulence);
+    
+    // Add filtered value to circular buffer
+    ctx->turbulence_buffer[ctx->buffer_index] = filtered_turbulence;
     ctx->buffer_index = (ctx->buffer_index + 1) % ctx->window_size;
     if (ctx->buffer_count < ctx->window_size) {
         ctx->buffer_count++;

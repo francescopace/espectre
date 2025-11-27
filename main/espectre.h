@@ -66,6 +66,11 @@
 #define HAMPEL_DEFAULT_THRESHOLD    2.0f
 #define MAD_SCALE_FACTOR            1.4826f // Median Absolute Deviation scale factor
 
+// Hampel filter for turbulence (MVS preprocessing)
+#define ENABLE_HAMPEL_TURBULENCE_FILTER  true    // Enable Hampel filter on turbulence
+#define HAMPEL_TURBULENCE_WINDOW         7       // Window size for turbulence filter
+#define HAMPEL_TURBULENCE_THRESHOLD      4.0f    // Threshold in MAD units (higher = less aggressive)
+
 // Wavelet filter
 #define WAVELET_LEVEL_MIN           1
 #define WAVELET_LEVEL_MAX           3
