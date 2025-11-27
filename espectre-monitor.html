@@ -640,12 +640,49 @@
                 <span class="arrow rotate" id="configurationArrow">▼</span>
             </div>
             <div class="collapsible-content collapsed" id="configurationContent">
-                <!-- Device IP -->
-                <div
-                    style="padding: 10px 15px; background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #667eea; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 1.2em;">📡</span>
-                    <span style="font-weight: 600; color: #667eea;">Device IP:</span>
-                    <span id="deviceIP" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                <!-- Device & Network Information -->
+                <div style="background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #667eea; border-radius: 8px; margin-bottom: 20px; padding: 15px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                        <span style="font-size: 1.3em;">📱</span>
+                        <span style="font-weight: 700; color: #667eea; font-size: 1.1em;">Device & Network Information</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; font-size: 0.95em;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.1em;">🖥️</span>
+                            <span style="font-weight: 600; color: #666;">Device:</span>
+                            <span id="deviceType" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.1em;">📡</span>
+                            <span style="font-weight: 600; color: #666;">IP:</span>
+                            <span id="deviceIP" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.1em;">🔗</span>
+                            <span style="font-weight: 600; color: #666;">MAC:</span>
+                            <span id="deviceMAC" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.1em;">📻</span>
+                            <span style="font-weight: 600; color: #666;">Channel:</span>
+                            <span id="wifiChannel" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.1em;">📶</span>
+                            <span style="font-weight: 600; color: #666;">Bandwidth:</span>
+                            <span id="wifiBandwidth" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.1em;">📡</span>
+                            <span style="font-weight: 600; color: #666;">Protocol:</span>
+                            <span id="wifiProtocol" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.1em;">👁️</span>
+                            <span style="font-weight: 600; color: #666;">Promiscuous:</span>
+                            <span id="wifiPromiscuous" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Detection Parameters Section -->
@@ -1755,9 +1792,33 @@
                 featureSection.style.display = 'none';
             }
 
-            // Update Device IP if available
-            if (config.network && config.network.ip_address) {
-                document.getElementById('deviceIP').textContent = config.network.ip_address;
+            // Update Device & Network Information
+            if (config.device && config.device.type) {
+                document.getElementById('deviceType').textContent = config.device.type;
+            }
+            
+            if (config.network) {
+                if (config.network.ip_address) {
+                    document.getElementById('deviceIP').textContent = config.network.ip_address;
+                }
+                if (config.network.mac_address) {
+                    document.getElementById('deviceMAC').textContent = config.network.mac_address;
+                }
+                if (config.network.channel) {
+                    const primary = config.network.channel.primary || '-';
+                    const secondary = config.network.channel.secondary || 0;
+                    const channelText = secondary > 0 ? `${primary} + ${secondary}` : `${primary}`;
+                    document.getElementById('wifiChannel').textContent = channelText;
+                }
+                if (config.network.bandwidth) {
+                    document.getElementById('wifiBandwidth').textContent = config.network.bandwidth;
+                }
+                if (config.network.protocol) {
+                    document.getElementById('wifiProtocol').textContent = config.network.protocol;
+                }
+                if (config.network.promiscuous_mode !== undefined) {
+                    document.getElementById('wifiPromiscuous').textContent = config.network.promiscuous_mode ? 'Yes' : 'No';
+                }
             }
 
             // Subcarrier selection

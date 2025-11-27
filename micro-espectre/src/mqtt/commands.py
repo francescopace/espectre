@@ -8,7 +8,7 @@ License: GPLv3
 import json
 import time
 import gc
-import network
+import sys
 from src.nvs_storage import NVSStorage
 from src.config import (
     TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX, TRAFFIC_GENERATOR_RATE,
@@ -23,7 +23,7 @@ from src.config import (
 class MQTTCommands:
     """MQTT command processor"""
     
-    def __init__(self, mqtt_client, config, segmentation, response_topic, traffic_generator=None):
+    def __init__(self, mqtt_client, config, segmentation, response_topic, wlan, traffic_generator=None):
         """
         Initialize MQTT commands
         
@@ -32,11 +32,13 @@ class MQTTCommands:
             config: Configuration module
             segmentation: SegmentationContext instance
             response_topic: MQTT topic for responses
+            wlan: wlan instance
             traffic_generator: TrafficGenerator instance (optional)
         """
         self.mqtt = mqtt_client
         self.config = config
         self.seg = segmentation
+        self.wlan = wlan
         self.traffic_gen = traffic_generator
         self.response_topic = response_topic
         self.start_time = time.time()
@@ -85,11 +87,40 @@ class MQTTCommands:
     def cmd_info(self):
         """Get system information"""
         # Get WiFi info
-        wlan = network.WLAN(network.STA_IF)
         ip_address = "not connected"
-        if wlan.isconnected():
-            ip_info = wlan.ifconfig()
-            ip_address = ip_info[0] if ip_info else "unknown"
+        mac_address = "unknown"
+        channel_primary = 0
+        channel_secondary = 0
+        bandwidth = "unknown"
+        protocol = "unknown"
+        promiscuous = False
+        
+        if self.wlan.active():
+            # MAC address
+            mac_bytes = self.wlan.config('mac')
+            mac_address = ':'.join(['%02X' % b for b in mac_bytes])
+            
+            # IP address
+            if self.wlan.isconnected():
+                ip_info = self.wlan.ifconfig()
+                ip_address = ip_info[0] if ip_info else "unknown"
+            
+            # WiFi channel
+            try:
+                channel_primary = self.wlan.config('channel')
+                # MicroPython doesn't expose secondary channel directly
+                channel_secondary = 0
+            except:
+                pass
+            
+            # WiFi bandwidth (MicroPython typically uses HT20)
+            bandwidth = "-" #TODO: detect actual bandwidth
+            
+            # WiFi protocol (MicroPython supports 802.11b/g/n)
+            protocol = "-" #TODO: detect actual protocol
+            
+            # Promiscuous mode (not typically exposed in MicroPython)
+            promiscuous = False #TODO: detect actual protocol
         
         # Get traffic generator rate (current runtime value)
         traffic_rate = 0
@@ -99,7 +130,18 @@ class MQTTCommands:
         response = {
             "network": {
                 "ip_address": ip_address,
-                "traffic_generator_rate": traffic_rate
+                "mac_address": mac_address,
+                "traffic_generator_rate": traffic_rate,
+                "channel": {
+                    "primary": channel_primary,
+                    "secondary": channel_secondary
+                },
+                "bandwidth": bandwidth,
+                "protocol": protocol,
+                "promiscuous_mode": promiscuous
+            },
+            "device": {
+                "type": sys.platform
             },
             "mqtt": {
                 "base_topic": self.config.MQTT_TOPIC,

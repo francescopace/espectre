@@ -14,7 +14,7 @@ from src.mqtt.commands import MQTTCommands
 class MQTTHandler:
     """MQTT handler with publishing and command support"""
     
-    def __init__(self, config, segmentation, traffic_generator=None):
+    def __init__(self, config, segmentation, wlan, traffic_generator=None):
         """
         Initialize MQTT handler
         
@@ -25,6 +25,7 @@ class MQTTHandler:
         """
         self.config = config
         self.seg = segmentation
+        self.wlan = wlan
         self.traffic_gen = traffic_generator
         self.client = None
         self.cmd_handler = None
@@ -61,6 +62,7 @@ class MQTTHandler:
             self.config,
             self.seg,
             self.response_topic,
+            self.wlan,
             self.traffic_gen
         )
         

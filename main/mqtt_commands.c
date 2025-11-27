@@ -15,6 +15,7 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "cJSON.h"
@@ -166,8 +167,10 @@ static void cmd_features_enable(cJSON *root) {
 static void cmd_info(cJSON *root) {
     cJSON *response = cJSON_CreateObject();
     
-    // Network information
+    // Network information (extended with WiFi details)
     cJSON *network = cJSON_CreateObject();
+    
+    // IP address
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (netif) {
         esp_netif_ip_info_t ip_info;
@@ -181,8 +184,84 @@ static void cmd_info(cJSON *root) {
     } else {
         cJSON_AddStringToObject(network, "ip_address", "not available");
     }
+    
+    // MAC address
+    uint8_t mac[6];
+    if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK) {
+        char mac_str[18];
+        snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        cJSON_AddStringToObject(network, "mac_address", mac_str);
+    }
+    
+    // Traffic generator rate
     cJSON_AddNumberToObject(network, "traffic_generator_rate", g_cmd_context->config->traffic_generator_rate);
+    
+    // WiFi channel
+    uint8_t primary = 0;
+    wifi_second_chan_t secondary = WIFI_SECOND_CHAN_NONE;
+    if (esp_wifi_get_channel(&primary, &secondary) == ESP_OK) {
+        cJSON *channel = cJSON_CreateObject();
+        cJSON_AddNumberToObject(channel, "primary", primary);
+        cJSON_AddNumberToObject(channel, "secondary", secondary);
+        cJSON_AddItemToObject(network, "channel", channel);
+    }
+    
+    // WiFi bandwidth
+    wifi_bandwidth_t bw;
+    if (esp_wifi_get_bandwidth(WIFI_IF_STA, &bw) == ESP_OK) {
+        const char *bw_str = (bw == WIFI_BW_HT20) ? "HT20" : "HT40";
+        cJSON_AddStringToObject(network, "bandwidth", bw_str);
+    }
+    
+    // WiFi protocol
+    uint8_t protocol;
+    if (esp_wifi_get_protocol(WIFI_IF_STA, &protocol) == ESP_OK) {
+        char protocol_str[32] = "";
+        bool first = true;
+        
+        if (protocol & WIFI_PROTOCOL_11B) {
+            strcat(protocol_str, "802.11b");
+            first = false;
+        }
+        if (protocol & WIFI_PROTOCOL_11G) {
+            if (!first) strcat(protocol_str, "/");
+            strcat(protocol_str, "g");
+            first = false;
+        }
+        if (protocol & WIFI_PROTOCOL_11N) {
+            if (!first) strcat(protocol_str, "/");
+            strcat(protocol_str, "n");
+            first = false;
+        }
+#if CONFIG_IDF_TARGET_ESP32C6
+        if (protocol & WIFI_PROTOCOL_11AX) {
+            if (!first) strcat(protocol_str, "/");
+            strcat(protocol_str, "ax");
+        }
+#endif
+        cJSON_AddStringToObject(network, "protocol", protocol_str);
+    }
+    
+    // Promiscuous mode
+    bool promiscuous = false;
+    esp_wifi_get_promiscuous(&promiscuous);
+    cJSON_AddBoolToObject(network, "promiscuous_mode", promiscuous);
+    
     cJSON_AddItemToObject(response, "network", network);
+    
+    // Device information
+    cJSON *device = cJSON_CreateObject();
+#if CONFIG_IDF_TARGET_ESP32C6
+    cJSON_AddStringToObject(device, "type", "ESP32-C6");
+#elif CONFIG_IDF_TARGET_ESP32S3
+    cJSON_AddStringToObject(device, "type", "ESP32-S3");
+#elif CONFIG_IDF_TARGET_ESP32
+    cJSON_AddStringToObject(device, "type", "ESP32");
+#else
+    cJSON_AddStringToObject(device, "type", "Unknown");
+#endif
+    cJSON_AddItemToObject(response, "device", device);
     
     // MQTT topics
     cJSON *mqtt = cJSON_CreateObject();

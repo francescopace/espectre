@@ -185,7 +185,7 @@ def main():
         traffic_gen.start(traffic_rate)
     
     # Initialize MQTT
-    mqtt_handler = MQTTHandler(config, seg, traffic_gen)
+    mqtt_handler = MQTTHandler(config, seg, wlan, traffic_gen)
     mqtt_handler.connect()
     
     # Start MQTT publish task
