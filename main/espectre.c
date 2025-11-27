@@ -170,9 +170,6 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         return;
     }
     
-    // Capture raw CSI packet if collection is active
-    mqtt_commands_capture_csi_packet(csi_data, csi_len);
-    
     // Protect g_state modifications with mutex (50ms timeout)
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         

@@ -195,14 +195,6 @@
             background: #2980b9;
         }
 
-        .status-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
-
         .status-item {
             display: flex;
             align-items: center;
@@ -359,18 +351,6 @@
         .toggle-text {
             font-weight: 600;
             color: #333;
-        }
-
-        /* Filter Group Styles */
-        .filter-group {
-            padding: 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            transition: border-color 0.3s;
-        }
-
-        .filter-group:hover {
-            border-color: #667eea;
         }
 
         /* Notification Styles */
@@ -886,67 +866,6 @@
             </div>
         </div>
 
-        <!-- CSI Raw Data Collection -->
-        <div class="card">
-            <div class="collapsible-header" onclick="toggleSection('csiCollection')">
-                <h2>📥 CSI Raw Data Download</h2>
-                <span class="arrow rotate" id="csiCollectionArrow">▼</span>
-            </div>
-            <div class="collapsible-content collapsed" id="csiCollectionContent">
-                <div style="padding: 12px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
-                    <p style="margin: 0; color: #666; font-size: 0.95em;">
-                        Collect raw CSI packets for local analysis with <code>test_segmentation_local.py</code>
-                    </p>
-                </div>
-
-                <div class="config-section" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-                    <div class="input-group">
-                        <label>Session Type</label>
-                        <select id="csiSessionType"
-                            style="padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
-                            <option value="BASELINE">BASELINE</option>
-                            <option value="MOVEMENT">MOVEMENT</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
-                        <label for="csiPacketCount">Packets to Collect</label>
-                        <input type="number" id="csiPacketCount" min="10" max="10000" value="1000"
-                            style="padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
-                    </div>
-                </div>
-
-                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 15px;">
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <span style="font-weight: 600; color: #333;">Status:</span>
-                        <span id="csiStatus" style="font-weight: 600; color: #999;">⚪ Ready</span>
-                    </div>
-                    <div style="margin-bottom: 5px;">
-                        <div
-                            style="display: flex; justify-content: space-between; font-size: 0.9em; color: #666; margin-bottom: 5px;">
-                            <span>Progress</span>
-                            <span id="csiProgress">0 / 0</span>
-                        </div>
-                        <div
-                            style="width: 100%; height: 24px; background: #e0e0e0; border-radius: 12px; overflow: hidden;">
-                            <div id="csiProgressBar"
-                                style="width: 0%; height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); transition: width 0.3s;">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button class="btn btn-primary" id="csiStartBtn" onclick="startCSICollection()">▶️ Start
-                        Recording</button>
-                    <button class="btn btn-danger" id="csiStopBtn" onclick="stopCSICollection()"
-                        style="display: none;">⏹️ Stop</button>
-                    <button class="btn btn-success" id="csiDownloadBtn" onclick="downloadCSI()"
-                        style="display: none;">💾 Download CSV</button>
-                </div>
-            </div>
-        </div>
-
     </div>
 
     <script>
@@ -1196,17 +1115,8 @@
                 });
 
                 client.on('message', (topic, message) => {
-                    // Check if this is a binary CSI raw message
-                    const baseTopic = document.getElementById('topic').value;
-                    const csiRawTopic = baseTopic + '/csi_raw';
-
-                    if (topic === csiRawTopic) {
-                        // Binary message - handle CSI raw data
-                        handleCSIRawData(message);
-                    } else {
-                        // Text message - parse as JSON
-                        handleMessage(message.toString());
-                    }
+                    // Text message - parse as JSON
+                    handleMessage(message.toString());
                 });
 
                 client.on('error', (err) => {
@@ -1934,166 +1844,6 @@
             }
 
             showNotification('Configuration loaded from device', 'success');
-        }
-
-        // CSI Raw Data Collection State
-        let csiCollectionActive = false;
-        let csiCollectedPackets = [];
-        let csiTargetPackets = 0;
-        let csiSessionType = 'BASELINE';
-
-        function startCSICollection() {
-            if (!client || !client.connected) {
-                showNotification('Not connected to MQTT broker', 'error');
-                return;
-            }
-
-            const packetCount = parseInt(document.getElementById('csiPacketCount').value);
-            const sessionType = document.getElementById('csiSessionType').value;
-
-            if (packetCount < 10 || packetCount > 10000) {
-                showNotification('Packet count must be between 10 and 10000', 'error');
-                return;
-            }
-
-            // Reset state
-            csiCollectedPackets = [];
-            csiTargetPackets = packetCount;
-            csiSessionType = sessionType;
-            csiCollectionActive = true;
-
-            // Update UI
-            document.getElementById('csiStatus').textContent = '🟢 Recording...';
-            document.getElementById('csiStatus').style.color = '#2ecc71';
-            document.getElementById('csiProgress').textContent = `0 / ${packetCount}`;
-            document.getElementById('csiProgressBar').style.width = '0%';
-            document.getElementById('csiStartBtn').style.display = 'none';
-            document.getElementById('csiStopBtn').style.display = 'inline-block';
-            document.getElementById('csiDownloadBtn').style.display = 'none';
-
-            // Subscribe to CSI raw topic
-            const topic = document.getElementById('topic').value;
-            const csiRawTopic = topic + '/csi_raw';
-            client.subscribe(csiRawTopic, (err) => {
-                if (err) {
-                    console.error('Failed to subscribe to CSI raw topic:', err);
-                    showNotification('Failed to subscribe to CSI raw topic', 'error');
-                    stopCSICollection();
-                    return;
-                }
-                console.log('Subscribed to CSI raw topic:', csiRawTopic);
-
-                // Send start command to ESP32
-                sendCommand('csi_raw_capture', { action: 'start', max_packets: packetCount });
-                showNotification(`Started CSI collection (${sessionType}, ${packetCount} packets)`, 'success');
-            });
-        }
-
-        function stopCSICollection() {
-            if (!csiCollectionActive) {
-                return;
-            }
-
-            // Send stop command to ESP32
-            sendCommand('csi_raw_capture', { action: 'stop' });
-
-            // Unsubscribe from CSI raw topic
-            const topic = document.getElementById('topic').value;
-            const csiRawTopic = topic + '/csi_raw';
-            if (client && client.connected) {
-                client.unsubscribe(csiRawTopic);
-            }
-
-            csiCollectionActive = false;
-
-            // Update UI
-            document.getElementById('csiStatus').textContent = '⚪ Complete';
-            document.getElementById('csiStatus').style.color = '#2ecc71';
-            document.getElementById('csiStartBtn').style.display = 'inline-block';
-            document.getElementById('csiStopBtn').style.display = 'none';
-            document.getElementById('csiDownloadBtn').style.display = 'inline-block';
-
-            showNotification(`CSI collection stopped (${csiCollectedPackets.length} packets collected)`, 'info');
-        }
-
-        function handleCSIRawData(message) {
-            if (!csiCollectionActive) {
-                return;
-            }
-
-            try {
-                // Parse JSON message
-                const data = JSON.parse(message);
-
-                console.log('CSI Raw batch received:', {
-                    packet_count: data.packet_count,
-                    batch_index: data.batch_index,
-                    data_length: data.data ? data.data.length : 0
-                });
-
-                if (!data.packet_count || !data.data) {
-                    console.error('Invalid CSI raw message format');
-                    return;
-                }
-
-                // Decode base64 data
-                const binaryString = atob(data.data);
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                }
-
-                console.log(`Decoded ${bytes.length} bytes from base64`);
-
-                // Extract packets (each packet is 128 bytes)
-                const packetCount = data.packet_count;
-                for (let i = 0; i < packetCount; i++) {
-                    const offset = i * 128;
-                    if (offset + 128 <= bytes.length) {
-                        const packet = new Int8Array(bytes.buffer, offset, 128);
-                        csiCollectedPackets.push(Array.from(packet));
-                    }
-                }
-
-                // Update progress
-                const progress = Math.min(100, (csiCollectedPackets.length / csiTargetPackets) * 100);
-                document.getElementById('csiProgress').textContent = `${csiCollectedPackets.length} / ${csiTargetPackets}`;
-                document.getElementById('csiProgressBar').style.width = `${progress}%`;
-
-                console.log(`Total packets collected: ${csiCollectedPackets.length} / ${csiTargetPackets}`);
-
-                // Auto-stop when target reached
-                if (csiCollectedPackets.length >= csiTargetPackets) {
-                    stopCSICollection();
-                }
-
-            } catch (err) {
-                console.error('Error parsing CSI raw data:', err);
-            }
-        }
-
-        function downloadCSI() {
-            if (csiCollectedPackets.length === 0) {
-                showNotification('No data to download', 'error');
-                return;
-            }
-
-            // Generate CSV content (simple format: val1,val2,...,val128 per line)
-            let csv = '';
-            csiCollectedPackets.forEach(packet => {
-                csv += packet.join(',') + '\n';
-            });
-
-            // Create download
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `csi_${csiSessionType.toLowerCase()}.csv`;
-            a.click();
-            URL.revokeObjectURL(url);
-
-            showNotification(`Downloaded ${csiCollectedPackets.length} packets as CSV`, 'success');
         }
 
         // Debounce helper function

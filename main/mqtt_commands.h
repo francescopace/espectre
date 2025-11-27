@@ -59,13 +59,4 @@ int mqtt_commands_process(const char *data, int data_len,
                          mqtt_handler_state_t *mqtt_state,
                          const char *response_topic);
 
-/**
- * Capture CSI raw packet for data collection
- * Called from csi_callback when raw capture is active
- * 
- * @param csi_data Raw CSI data (128 bytes)
- * @param csi_len Length of CSI data
- */
-void mqtt_commands_capture_csi_packet(const int8_t *csi_data, size_t csi_len);
-
 #endif // MQTT_COMMANDS_H
