@@ -1,4 +1,4 @@
-# Micro-ESPectre
+# 🛜 Micro-ESPectre 👻
 
 **Motion detection system based on Wi-Fi CSI (Channel State Information) - Pure Python implementation for MicroPython**
 
@@ -238,143 +238,52 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
 
 ## 🔧 Analysis Tools
 
-The `tools/` directory contains Python scripts for analyzing CSI data and optimizing system parameters. These tools were instrumental in developing and tuning the MVS algorithm.
+The `tools/` directory contains a comprehensive suite of Python scripts for CSI data analysis, algorithm optimization, and subcarrier selection. These tools were instrumental in developing and validating the MVS algorithm and the breakthrough **NBVI (Normalized Baseline Variability Index)** automatic subcarrier selection method.
 
-### Data Collection
-
-First, collect CSI data samples using the deployment script:
+### Quick Start
 
 ```bash
-# Collect baseline data (no movement)
+# Collect CSI data samples
 ./deploy.sh /dev/cu.usbmodem* --collect-baseline
-
-# Collect movement data (with movement)
 ./deploy.sh /dev/cu.usbmodem* --collect-movement
-```
 
-This creates `baseline_data.bin` and `movement_data.bin` in the `tools/` directory.
-
-### Analysis Scripts
-
-**1. Raw Data Analysis** (`1_analyze_raw_data.py`)
-- Visualizes raw CSI amplitude data
-- Analyzes subcarrier patterns and noise characteristics
-- Helps identify most informative subcarriers
-- **Options**: None
-
-**2. System Tuning** (`2_analyze_system_tuning.py`)
-- Comprehensive grid search for optimal MVS parameters
-- Tests subcarrier clusters, thresholds, and window sizes
-- Always shows confusion matrix for best configuration
-- **Options**: 
-  - `--quick`: Reduced parameter space (faster)
-
-**3. MVS Visualization** (`3_analyze_moving_variance_segmentation.py`)
-- Visualizes MVS algorithm behavior with current configuration
-- Shows moving variance, threshold, and detection states
-- Always displays confusion matrix and performance metrics
-- **Options**:
-  - `--plot`: Show MVS graphs (baseline + movement)
-
-**4. Filter Location Analysis** (`4_analyze_filter_location.py`)
-- Compares filter placement in processing pipeline
-- Tests pre-filtering vs post-filtering approaches
-- Evaluates impact on motion detection accuracy
-- **Options**:
-  - `--plot`: Show comparison visualizations
-
-**5. Filter Turbulence Analysis** (`5_analyze_filter_turbulence.py`)
-- Analyzes turbulence calculation with different filters
-- Compares filtered vs unfiltered turbulence
-- Validates Hampel filter effectiveness
-- **Options**:
-  - `--plot`: Show filter comparison plots
-  - `--optimize-filters`: Optimize filter parameters
-
-**6. Hampel Parameter Optimization** (`6_optimize_hampel_parameters.py`)
-- Grid search over Hampel filter parameters
-- Tests window sizes (3-9) and thresholds (2.0-4.0)
-- Finds optimal outlier detection configuration
-- **Options**: None
-
-**7. Variance Algorithm Comparison** (`7_analyze_variance_algo.py`)
-- Compares one-pass vs two-pass variance algorithms
-- Analyzes numerical stability with large values
-- Validates algorithm selection for production
-- **Options**: None
-
-**8. Detection Methods Comparison** (`8_compare_detection_methods.py`)
-- Compares RSSI, Mean Amplitude, Turbulence, and MVS
-- Demonstrates MVS superiority for movement detection
-- Shows why MVS provides best separation
-- **Options**:
-  - `--plot`: Show comparison visualization (4×2 layout)
-
-![Detection Methods Comparison](../images/detection_method_comparison.png)
-*Comparison of detection methods (RSSI, Mean Amplitude, Turbulence, MVS) demonstrating MVS superiority with lowest false positives and highest recall*
-
-**9. Retroactive Auto-Calibration Test** (`9_test_retroactive_calibration.py`)
-- Tests automatic subcarrier selection using retrospective baseline detection
-- Validates adaptive threshold for universal deployment
-- Tests with random starting bands and realistic mixed data
-- **Key Findings**:
-  - Works with pure baseline blocks (F1=96.7%)
-  - Adaptive threshold enables calibration from ANY starting band (6/6 success)
-  - Fails with realistic mixed data (80% baseline, 20% movement scattered)
-  - Conclusion: Fully automatic calibration difficult; recommend robust default + optional manual calibration
-- **Options**: None (runs all tests automatically)
-
-**10. I/Q Constellation Plotter** (`10_plot_constellation.py`)
-- Visualizes I/Q constellation diagrams for CSI subcarriers
-- Compares baseline (stable) vs movement (dispersed) patterns
-- Shows all 64 subcarriers (top row) and selected subcarriers (bottom row)
-- Useful for understanding signal quality and subcarrier behavior
-- **Options**:
-  - `--packets N`: Number of contiguous packets to plot (default: 100)
-  - `--offset N`: Starting packet index (default: 0)
-  - `--subcarriers LIST`: Comma-separated subcarrier indices (default: from config.py)
-  - `--grid`: Use grid layout (one subplot per subcarrier)
-
-### Usage Example
-
-```bash
+# Run analysis
 cd tools
-
-# Analyze raw CSI data
-python 1_analyze_raw_data.py
-
-# Optimize segmentation parameters (shows confusion matrix)
-python 2_analyze_system_tuning.py
-
-# Quick mode (faster)
 python 2_analyze_system_tuning.py --quick
-
-# Plot I/Q constellations (100 packets)
-python 10_plot_constellation.py
-
-# Plot more packets with offset
-python 10_plot_constellation.py --packets 200 --offset 50
-
-# Plot specific subcarriers
-python 10_plot_constellation.py --subcarriers 47,48,49,50
-
-# Use grid layout (one subplot per subcarrier)
-python 10_plot_constellation.py --grid
+python 11_test_nbvi_selection.py
 ```
-**Benefits:**
-- 📊 Visual feedback on algorithm performance
-- 🎯 Data-driven parameter optimization
-- 🔬 Scientific validation of design choices
-- ⚡ Faster iteration than C firmware testing
+
+### Available Tools
+
+The tools directory includes **11 analysis scripts** covering:
+- 📊 Raw data visualization and system tuning
+- 🔬 MVS algorithm validation and optimization
+- 🎨 I/Q constellation analysis
+- 🧬 **NBVI automatic subcarrier selection** (F1=97.1%)
+- 🔍 Ring geometry analysis (23+ strategies tested)
+- 📈 Detection methods comparison
+
+**For complete documentation**, see **[tools/README.md](tools/README.md)** which includes:
+- Detailed description of all 11 scripts
+- Usage examples and options
+- NBVI algorithm explanation and results
+- Performance comparisons and scientific findings
+
+### 🧬 NBVI: Breakthrough in Automatic Subcarrier Selection
+
+**NBVI (Normalized Baseline Variability Index)** achieves **F1=97.1%** (pure data) and **F1=91.2%** (mixed data) with **zero manual configuration** - the best automatic method tested among 23+ strategies.
+
+**Key Results**:
+- ✅ Gap to manual optimization: only **-0.2%**
+- ✅ Outperforms variance-only by **+4.7%** (pure), **∞** (mixed - variance fails)
+- ✅ **Percentile-based**: NO threshold configuration needed
+- ✅ **Production-ready**: Validated on real CSI data
+
+For complete NBVI documentation, algorithm details, and performance analysis, see **[tools/README.md](tools/README.md)**.
 
 ## 📡 MQTT Integration
 
-Micro-ESPectre maintains **full backward compatibility** with ESPectre's MQTT command interface. Every MQTT commands are supported:
-
-- System monitoring: `info`, `stats`
-- Segmentation tuning: `segmentation_threshold`, `segmentation_window_size`
-- Configuration: `subcarrier_selection`, `traffic_generator_rate`, `smart_publishing`
-- Maintenance: `factory_reset`
+Micro-ESPectre maintains **full backward compatibility** with ESPectre's MQTT command interface. 
 
 For detailed documentation on MQTT commands, payloads, and usage examples, see the [ESPectre SETUP.md - MQTT Commands Reference](https://github.com/francescopace/espectre/blob/main/SETUP.md#mqtt-commands-reference).
 
