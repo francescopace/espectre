@@ -364,25 +364,10 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ---
 
-## � Technical Deep Dive
+## 🔬 Technical Deep Dive
 
-![Segmentation Analysis](images/mvs.png)
-*Baseline graphs show quiet state (<1), motion graphs show high variance in turbolence (>1)*
-
-<details>
-<summary>🔧 Multi-Platform Support (click to expand)</summary>
-
-ESPectre supports multiple ESP32 platforms with optimized configurations:
-
-- **ESP32-S3**: Fully tested, dual-core, 8MB PSRAM, WiFi 4
-- **ESP32-C6**: Fully tested, single-core RISC-V, WiFi 6
-
-Each platform has specific characteristics, advantages, and configuration requirements.
-
-📖 **For detailed platform comparison, migration guides, and recommendations**, see [ESP32-PLATFORM-SUPPORT.md](ESP32-PLATFORM-SUPPORT.md)
-
-</details>
-
+![Subcarrier Analysis](images/subcarriers_constellation_diagram.png)
+*I/Q constellation diagrams showing the geometric representation of WiFi signal propagation in the complex plane. The baseline (idle) state exhibits a stable, compact pattern, while movement introduces entropic dispersion as multipath reflections change. The radius of these circular patterns represents the amplitude (magnitude) of each subcarrier, while the ring thickness visualizes the signal variance - wider rings indicate higher variability. MVS (Moving Variance Segmentation) analyzes the variance of spatial turbulence across subcarriers to detect motion patterns.*
 <details>
 <summary>🔬 Signal Processing Pipeline (click to expand)</summary>
 
@@ -433,6 +418,9 @@ When enabled (default: on), extracts 10 mathematical features from **filtered CS
 - **State**: Primary `movement` value (0.0-1.0)
 - **Attributes**: All other metrics available for conditions
 - **History**: Automatic logging to database for graphs
+
+![Segmentation Analysis](images/mvs.png)
+*Baseline graphs show quiet state (<1), motion graphs show high variance in turbolence (>1)*
 
 </details>
 
@@ -523,6 +511,20 @@ Feature extraction is **enabled by default** but can be disabled via `features_e
 - Cannot distinguish between people, pets, or objects (generic motion detection)
 - Cannot count people or recognize specific activities (without ML models)
 - Reduced performance through metal obstacles or thick concrete walls
+
+</details>
+
+<details>
+<summary>🔧 Multi-Platform Support (click to expand)</summary>
+
+ESPectre supports multiple ESP32 platforms with optimized configurations:
+
+- **ESP32-S3**: Fully tested, dual-core, 8MB PSRAM, WiFi 4
+- **ESP32-C6**: Fully tested, single-core RISC-V, WiFi 6
+
+Each platform has specific characteristics, advantages, and configuration requirements.
+
+📖 **For detailed platform comparison, migration guides, and recommendations**, see [ESP32-PLATFORM-SUPPORT.md](ESP32-PLATFORM-SUPPORT.md)
 
 </details>
 

@@ -13,7 +13,6 @@ License: GPLv3
 
 import numpy as np
 import argparse
-import matplotlib.pyplot as plt
 from mvs_utils import load_baseline_and_movement, test_mvs_configuration, MVSDetector, calculate_spatial_turbulence
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 from itertools import combinations
@@ -301,102 +300,7 @@ def calculate_subcarrier_metrics(packets):
         'amplitudes': all_amplitudes
     }
 
-def plot_top_configuration(baseline_packets, movement_packets, top_configs):
-    """
-    Visualize best configuration with comprehensive subcarrier analysis
-    Shows amplitudes + 5 metrics (SNR, Variance, Phase, Correlation, Peak-to-Peak)
-    """
-    # Use only the best configuration
-    best_config = top_configs[0]
-    subcarriers = best_config['cluster']
-    
-    # Calculate metrics
-    baseline_metrics = calculate_subcarrier_metrics(baseline_packets)
-    movement_metrics = calculate_subcarrier_metrics(movement_packets)
-    
-    # Create figure with 2×2 grid
-    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
-    
-    fig.suptitle(f'Best Configuration Analysis - Subcarriers: {subcarriers}', 
-                 fontsize=14, fontweight='bold')
-    
-    packet_indices_baseline = np.arange(len(baseline_metrics['amplitudes']))
-    packet_indices_movement = np.arange(len(movement_metrics['amplitudes']))
-    colors = plt.cm.tab20(np.linspace(0, 1, len(subcarriers)))
-    
-    # ========================================================================
-    # TOP LEFT: Baseline Amplitudes
-    # ========================================================================
-    ax1 = axes[0, 0]
-    for i, sc_idx in enumerate(subcarriers):
-        ax1.plot(packet_indices_baseline, baseline_metrics['amplitudes'][:, sc_idx], 
-                color=colors[i], alpha=0.8, linewidth=1.5, label=f'SC {sc_idx}')
-    ax1.set_ylabel('Amplitude', fontsize=11)
-    ax1.set_title('Baseline - Amplitudes (Selected Subcarriers)', fontsize=12, fontweight='bold')
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(fontsize=9, ncol=2)
-    
-    # ========================================================================
-    # TOP RIGHT: Baseline I/Q Constellation
-    # ========================================================================
-    ax2 = axes[0, 1]
-    sampled_baseline = baseline_packets[::10]  # Sample every 10th packet for speed
-    for pkt in sampled_baseline:
-        for i, sc_idx in enumerate(subcarriers):
-            I = float(pkt['csi_data'][sc_idx * 2])
-            Q = float(pkt['csi_data'][sc_idx * 2 + 1])
-            ax2.scatter(I, Q, color=colors[i], alpha=0.5, s=20)
-    
-    for i, sc_idx in enumerate(subcarriers):
-        ax2.scatter([], [], color=colors[i], alpha=0.8, s=50, label=f'SC {sc_idx}')
-    
-    ax2.axhline(y=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
-    ax2.axvline(x=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
-    ax2.set_xlabel('I (In-phase)', fontsize=11)
-    ax2.set_ylabel('Q (Quadrature)', fontsize=11)
-    ax2.set_title('Baseline - I/Q Constellation', fontsize=12, fontweight='bold')
-    ax2.grid(True, alpha=0.3)
-    ax2.legend(fontsize=8, ncol=2, loc='upper right')
-    ax2.set_aspect('equal', adjustable='box')
-    
-    # ========================================================================
-    # BOTTOM LEFT: Movement Amplitudes
-    # ========================================================================
-    ax3 = axes[1, 0]
-    for i, sc_idx in enumerate(subcarriers):
-        ax3.plot(packet_indices_movement, movement_metrics['amplitudes'][:, sc_idx], 
-                color=colors[i], alpha=0.8, linewidth=1.5, label=f'SC {sc_idx}')
-    ax3.set_xlabel('Packet Index', fontsize=11)
-    ax3.set_ylabel('Amplitude', fontsize=11)
-    ax3.set_title('Movement - Amplitudes (Selected Subcarriers)', fontsize=12, fontweight='bold')
-    ax3.grid(True, alpha=0.3)
-    ax3.legend(fontsize=9, ncol=2)
-    
-    # ========================================================================
-    # BOTTOM RIGHT: Movement I/Q Constellation
-    # ========================================================================
-    ax4 = axes[1, 1]
-    sampled_movement = movement_packets[::10]  # Sample every 10th packet for speed
-    for pkt in sampled_movement:
-        for i, sc_idx in enumerate(subcarriers):
-            I = float(pkt['csi_data'][sc_idx * 2])
-            Q = float(pkt['csi_data'][sc_idx * 2 + 1])
-            ax4.scatter(I, Q, color=colors[i], alpha=0.5, s=20)
-    
-    for i, sc_idx in enumerate(subcarriers):
-        ax4.scatter([], [], color=colors[i], alpha=0.8, s=50, label=f'SC {sc_idx}')
-    
-    ax4.axhline(y=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
-    ax4.axvline(x=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
-    ax4.set_xlabel('I (In-phase)', fontsize=11)
-    ax4.set_ylabel('Q (Quadrature)', fontsize=11)
-    ax4.set_title('Movement - I/Q Constellation', fontsize=12, fontweight='bold')
-    ax4.grid(True, alpha=0.3)
-    ax4.legend(fontsize=8, ncol=2, loc='upper right')
-    ax4.set_aspect('equal', adjustable='box')
-    
-    plt.tight_layout()
-    plt.show()
+
 
 def print_confusion_matrix(baseline_packets, movement_packets, subcarriers, threshold, window_size, show_plot=False):
     """
@@ -532,8 +436,6 @@ def print_top_results(results, top_n=20):
 def main():
     parser = argparse.ArgumentParser(description='Comprehensive grid search for optimal MVS parameters')
     parser.add_argument('--quick', action='store_true', help='Quick mode (fewer tests)')
-    parser.add_argument('--plot', action='store_true',
-                       help='Show visualization plots (MVS + subcarrier heatmaps)')
     
     args = parser.parse_args()
     
@@ -602,11 +504,6 @@ def main():
         
         print_confusion_matrix(baseline_packets, movement_packets,
                               best['cluster'], best['threshold'], best['window_size'])
-        
-        # Show plot for best configuration if requested
-        if args.plot:
-            print("📊 Generating best configuration visualization...\n")
-            plot_top_configuration(baseline_packets, movement_packets, fp_zero_results)
     
     print()
 

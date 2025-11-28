@@ -1,0 +1,798 @@
+#!/usr/bin/env python3
+"""
+Retroactive Auto-Calibration Test
+Tests automatic baseline detection and calibration using retrospective analysis
+
+OVERVIEW:
+This tool tests a system that automatically detects baseline periods in the packet
+stream and performs calibration without user intervention. The system uses a 
+retrospective approach: when low variance is detected in the LAST 200 packets,
+those packets are used for calibration (safe, no risk of future movement).
+
+TESTS INCLUDED:
+1. find_optimal_baseline_threshold()
+   PURPOSE: Determines the optimal variance threshold to distinguish baseline from movement
+   METHOD: Analyzes 200-packet windows in both baseline and movement data
+   OUTPUT: Threshold value that maximizes separation (0.3878)
+   
+2. test_false_positive_rate()
+   PURPOSE: Validates that movement is not falsely detected as baseline
+   METHOD: Tests threshold on movement data windows
+   OUTPUT: False positive rate (should be <5%)
+   
+3. test_detection_latency()
+   PURPOSE: Measures how quickly baseline periods are detected
+   METHOD: Simulates baseline stream and tracks first detection
+   OUTPUT: Time to first detection (target: <3s)
+   
+4. test_with_random_starting_bands() [CRITICAL]
+   PURPOSE: Validates algorithm works from ANY starting band (universal deployment)
+   METHOD: Tests 6 different starting bands (edges, center, random, sparse)
+   OUTPUT: Success rate and performance improvements
+   WHY CRITICAL: Simulates deploying in unknown environment where default may be suboptimal
+   
+5. test_realistic_mixed_scenario() [CRITICAL]
+   PURPOSE: Tests with realistic data (80% baseline, 20% movement scattered)
+   METHOD: Creates random mix simulating real-world usage
+   OUTPUT: Calibration success rate with mixed data
+   WHY CRITICAL: Real deployment will have occasional movement, not pure blocks
+   
+6. simulate_runtime_scenario()
+   PURPOSE: Full end-to-end simulation of system behavior
+   METHOD: Movement → Baseline → Movement → Baseline sequence
+   OUTPUT: Complete calibration timeline and final performance
+
+KEY FINDINGS:
+1. Baseline Detection:
+   - Optimal threshold: 0.3878 (variance of turbulence)
+   - Baseline variance: 0.02-0.39 (mean 0.21)
+   - Movement variance: 3.07-12.99 (mean 6.90)
+   - Separation: ~8x difference (excellent!)
+   - False positive rate: 0.0%
+   - Detection latency: 2.0s
+
+2. Adaptive Threshold:
+   - REQUIRED for universal deployment
+   - Calculated from first 100 packets: threshold = estimated_variance * 2.0
+   - Enables calibration from ANY starting band (6/6 = 100%)
+   - Without adaptive: only 2/6 (33%) success
+
+3. Performance:
+   - Artificial scenario (pure blocks): F1=96.7% ✅
+   - Random starting bands: F1=96.7% ✅ (with adaptive threshold)
+   - Realistic mixed data (80/20): FAILS ❌
+     → Adaptive threshold too permissive (9.20)
+     → Detects "baseline" in windows with movement
+     → Calibration selects wrong bands
+     → Validation fails (bands not in KNOWN_GOOD_BANDS)
+
+4. Limitations:
+   - Works ONLY with pure baseline (200+ packet blocks without movement)
+   - Does NOT work with realistic mixed data (scattered movement)
+   - Requires validation against list of known good bands
+
+CONCLUSION:
+Fully automatic calibration is DIFFICULT with realistic runtime data.
+Recommended solution: Robust default + optional manual calibration.
+
+Usage:
+    python tools/9_test_retroactive_calibration.py
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
+
+import numpy as np
+from mvs_utils import load_baseline_and_movement, test_mvs_configuration, calculate_spatial_turbulence, calculate_variance_two_pass
+from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
+
+BAND_SIZE = 12
+TOTAL_SUBCARRIERS = 64
+DEFAULT_BAND = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+
+# Known good bands (from previous analysis)
+KNOWN_GOOD_BANDS = [
+    [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],  # F1=97.3%
+    [31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42],  # F1=96.7%
+    [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],  # F1=95.4%
+    [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  # F1=96.7%
+]
+
+def find_optimal_baseline_threshold(baseline_packets, movement_packets):
+    """
+    Find optimal threshold to distinguish baseline from movement
+    
+    Returns:
+        float: Optimal variance threshold
+    """
+    print(f"\n{'='*70}")
+    print(f"  FINDING OPTIMAL BASELINE DETECTION THRESHOLD")
+    print(f"{'='*70}\n")
+    
+    # Calculate variance for windows in baseline
+    baseline_variances = []
+    window_size = 200
+    
+    for i in range(0, len(baseline_packets) - window_size, 50):
+        window = baseline_packets[i:i+window_size]
+        turbulences = [calculate_spatial_turbulence(pkt['csi_data'], DEFAULT_BAND) 
+                      for pkt in window]
+        variance = calculate_variance_two_pass(turbulences)
+        baseline_variances.append(variance)
+    
+    # Calculate variance for windows in movement
+    movement_variances = []
+    for i in range(0, len(movement_packets) - window_size, 50):
+        window = movement_packets[i:i+window_size]
+        turbulences = [calculate_spatial_turbulence(pkt['csi_data'], DEFAULT_BAND) 
+                      for pkt in window]
+        variance = calculate_variance_two_pass(turbulences)
+        movement_variances.append(variance)
+    
+    print(f"Baseline windows analyzed: {len(baseline_variances)}")
+    print(f"Movement windows analyzed: {len(movement_variances)}")
+    
+    print(f"\nBaseline variance statistics:")
+    print(f"  Mean: {np.mean(baseline_variances):.4f}")
+    print(f"  Std:  {np.std(baseline_variances):.4f}")
+    print(f"  Min:  {np.min(baseline_variances):.4f}")
+    print(f"  Max:  {np.max(baseline_variances):.4f}")
+    
+    print(f"\nMovement variance statistics:")
+    print(f"  Mean: {np.mean(movement_variances):.4f}")
+    print(f"  Std:  {np.std(movement_variances):.4f}")
+    print(f"  Min:  {np.min(movement_variances):.4f}")
+    print(f"  Max:  {np.max(movement_variances):.4f}")
+    
+    # Find threshold that separates them
+    # Use max of baseline as conservative threshold
+    threshold = np.max(baseline_variances)
+    
+    # Test threshold
+    baseline_detected = sum(1 for v in baseline_variances if v < threshold)
+    movement_rejected = sum(1 for v in movement_variances if v >= threshold)
+    
+    baseline_accuracy = baseline_detected / len(baseline_variances) * 100
+    movement_accuracy = movement_rejected / len(movement_variances) * 100
+    
+    print(f"\nProposed threshold: {threshold:.4f}")
+    print(f"  Baseline detection rate: {baseline_accuracy:.1f}%")
+    print(f"  Movement rejection rate: {movement_accuracy:.1f}%")
+    
+    # Try a more conservative threshold (mean + 2*std)
+    conservative_threshold = np.mean(baseline_variances) + 2 * np.std(baseline_variances)
+    
+    baseline_detected_cons = sum(1 for v in baseline_variances if v < conservative_threshold)
+    movement_rejected_cons = sum(1 for v in movement_variances if v >= conservative_threshold)
+    
+    baseline_accuracy_cons = baseline_detected_cons / len(baseline_variances) * 100
+    movement_accuracy_cons = movement_rejected_cons / len(movement_variances) * 100
+    
+    print(f"\nConservative threshold (mean + 2σ): {conservative_threshold:.4f}")
+    print(f"  Baseline detection rate: {baseline_accuracy_cons:.1f}%")
+    print(f"  Movement rejection rate: {movement_accuracy_cons:.1f}%")
+    
+    # Choose the one with best movement rejection
+    if movement_accuracy_cons > movement_accuracy:
+        return conservative_threshold
+    else:
+        return threshold
+
+class OpportunisticCalibrator:
+    """
+    Automatic calibrator that detects baseline periods and calibrates opportunistically
+    """
+    
+    def __init__(self, baseline_threshold=0.5, starting_band=None, use_adaptive_threshold=False):
+        self.packet_history = []
+        self.current_band = starting_band if starting_band else DEFAULT_BAND
+        self.starting_band = self.current_band.copy()
+        self.calibrated = False
+        self.baseline_threshold = baseline_threshold
+        self.use_adaptive_threshold = use_adaptive_threshold
+        self.adaptive_threshold = None
+        self.check_interval = 100  # Check every 100 packets
+        self.calibration_window = 200
+        self.detection_window = 200
+        self.packet_count = 0
+        self.calibration_time = None
+        
+    def process_packet(self, packet):
+        """Process incoming packet"""
+        self.packet_count += 1
+        
+        # Add to history
+        self.packet_history.append(packet)
+        if len(self.packet_history) > 500:
+            self.packet_history.pop(0)
+        
+        # Check for calibration opportunity periodically
+        if not self.calibrated and self.packet_count % self.check_interval == 0:
+            self.check_for_baseline_period()
+    
+    def calculate_adaptive_threshold(self):
+        """
+        Calculate adaptive threshold based on current band's baseline variance
+        
+        Uses first 100 packets to estimate baseline variance for current band
+        """
+        if len(self.packet_history) < 100:
+            return self.baseline_threshold
+        
+        # Use first 100 packets to estimate baseline variance
+        sample = self.packet_history[:100]
+        turbulences = [calculate_spatial_turbulence(pkt['csi_data'], self.current_band) 
+                      for pkt in sample]
+        estimated_baseline_var = calculate_variance_two_pass(turbulences)
+        
+        # Threshold = 2x estimated baseline variance (conservative)
+        adaptive_threshold = estimated_baseline_var * 2.0
+        
+        return adaptive_threshold
+    
+    def check_for_baseline_period(self):
+        """Check if recent history contains a baseline period"""
+        
+        if len(self.packet_history) < self.detection_window:
+            return
+        
+        # Calculate adaptive threshold if enabled
+        if self.use_adaptive_threshold and self.adaptive_threshold is None:
+            self.adaptive_threshold = self.calculate_adaptive_threshold()
+            print(f"\n🔧 Adaptive threshold calculated: {self.adaptive_threshold:.4f}")
+        
+        threshold_to_use = self.adaptive_threshold if self.use_adaptive_threshold else self.baseline_threshold
+        
+        # Check the LAST detection_window packets
+        recent_window = self.packet_history[-self.detection_window:]
+        
+        # Calculate variance
+        turbulences = [calculate_spatial_turbulence(pkt['csi_data'], self.current_band) 
+                      for pkt in recent_window]
+        variance = calculate_variance_two_pass(turbulences)
+        
+        # If variance is low → baseline detected!
+        if variance < threshold_to_use:
+            print(f"\n📊 Baseline period detected at packet {self.packet_count}!")
+            print(f"   Variance: {variance:.4f} < threshold {threshold_to_use:.4f}")
+            print(f"   Using packets [{self.packet_count - self.detection_window}:{self.packet_count}]")
+            
+            # Calibrate using these packets
+            self.calibrate_with_window(recent_window)
+    
+    def calibrate_with_window(self, window):
+        """Calibrate using a specific window of packets"""
+        
+        print(f"\n🔧 Running auto-calibration...")
+        
+        best_band = None
+        min_variance = float('inf')
+        
+        # Test all contiguous bands
+        for start in range(TOTAL_SUBCARRIERS - BAND_SIZE + 1):
+            band = list(range(start, start + BAND_SIZE))
+            
+            turbulences = [calculate_spatial_turbulence(pkt['csi_data'], band) 
+                          for pkt in window]
+            variance = calculate_variance_two_pass(turbulences)
+            
+            if variance < min_variance:
+                min_variance = variance
+                best_band = band
+        
+        print(f"   Best band found: {best_band}")
+        print(f"   Variance: {min_variance:.4f}")
+        
+        # Validate
+        if self.validate_band(best_band):
+            print(f"   ✅ Validation passed")
+            self.current_band = best_band
+            self.calibrated = True
+            self.calibration_time = self.packet_count
+        else:
+            print(f"   ⚠️  Validation failed, keeping default")
+    
+    def validate_band(self, band):
+        """Validate that band is in known good bands"""
+        return band in KNOWN_GOOD_BANDS
+
+def simulate_runtime_scenario(baseline_packets, movement_packets, baseline_threshold):
+    """
+    Simulate a realistic runtime scenario with alternating baseline/movement
+    """
+    print(f"\n{'='*70}")
+    print(f"  SIMULATING RUNTIME SCENARIO")
+    print(f"{'='*70}\n")
+    
+    # Create realistic scenario: movement → baseline → movement → baseline
+    scenario = []
+    
+    # Phase 1: Initial movement (0-2s)
+    scenario.extend(movement_packets[:200])
+    print("Phase 1 (0-2s): Movement")
+    
+    # Phase 2: Baseline period (2-5s)
+    scenario.extend(baseline_packets[:300])
+    print("Phase 2 (2-5s): Baseline (calibration opportunity)")
+    
+    # Phase 3: Movement (5-8s)
+    scenario.extend(movement_packets[200:500])
+    print("Phase 3 (5-8s): Movement")
+    
+    # Phase 4: Another baseline (8-10s)
+    scenario.extend(baseline_packets[300:500])
+    print("Phase 4 (8-10s): Baseline")
+    
+    print(f"\nTotal packets: {len(scenario)} ({len(scenario)/100:.1f}s @ 100Hz)")
+    
+    # Run calibrator
+    print(f"\n{'='*70}")
+    print(f"  RUNNING OPPORTUNISTIC CALIBRATOR")
+    print(f"{'='*70}")
+    
+    calibrator = OpportunisticCalibrator(baseline_threshold=baseline_threshold)
+    
+    for i, packet in enumerate(scenario):
+        calibrator.process_packet(packet)
+        
+        # Print progress
+        if (i + 1) % 200 == 0:
+            time = (i + 1) / 100
+            status = "CALIBRATED" if calibrator.calibrated else "RUNNING"
+            print(f"t={time:.1f}s (packet {i+1}): {status}")
+    
+    # Results
+    print(f"\n{'='*70}")
+    print(f"  CALIBRATION RESULTS")
+    print(f"{'='*70}\n")
+    
+    if calibrator.calibrated:
+        print(f"✅ Auto-calibration successful!")
+        print(f"   Calibrated at packet: {calibrator.calibration_time} (t={(calibrator.calibration_time/100):.1f}s)")
+        print(f"   Selected band: {calibrator.current_band}")
+        
+        # Test performance
+        fp, tp, score = test_mvs_configuration(
+            baseline_packets, movement_packets,
+            calibrator.current_band, THRESHOLD, WINDOW_SIZE
+        )
+        
+        f1 = (2 * tp / (2*tp + fp + (len(movement_packets) - tp)) * 100) if (tp + fp) > 0 else 0.0
+        
+        print(f"   Performance: FP={fp}, TP={tp}, F1={f1:.1f}%")
+        
+        # Compare with default
+        default_fp, default_tp, _ = test_mvs_configuration(
+            baseline_packets, movement_packets,
+            DEFAULT_BAND, THRESHOLD, WINDOW_SIZE
+        )
+        default_f1 = (2 * default_tp / (2*default_tp + default_fp + (len(movement_packets) - default_tp)) * 100)
+        
+        print(f"\n   Comparison with default:")
+        print(f"   Default: F1={default_f1:.1f}%")
+        print(f"   Calibrated: F1={f1:.1f}%")
+        print(f"   Improvement: {f1 - default_f1:+.1f}%")
+    else:
+        print(f"❌ Auto-calibration did not trigger")
+        print(f"   No baseline period detected with threshold {baseline_threshold:.4f}")
+    
+    return calibrator
+
+
+def test_false_positive_rate(baseline_packets, movement_packets, threshold):
+    """Test how often baseline is falsely detected in movement data"""
+    print(f"\n{'='*70}")
+    print(f"  TESTING FALSE POSITIVE RATE (threshold={threshold:.4f})")
+    print(f"{'='*70}\n")
+    
+    window_size = 200
+    
+    # Test on movement data
+    false_positives = 0
+    total_windows = 0
+    
+    for i in range(0, len(movement_packets) - window_size, 50):
+        window = movement_packets[i:i+window_size]
+        turbulences = [calculate_spatial_turbulence(pkt['csi_data'], DEFAULT_BAND) 
+                      for pkt in window]
+        variance = calculate_variance_two_pass(turbulences)
+        
+        total_windows += 1
+        if variance < threshold:
+            false_positives += 1
+    
+    fp_rate = (false_positives / total_windows * 100) if total_windows > 0 else 0
+    
+    print(f"Movement windows tested: {total_windows}")
+    print(f"False positives (detected as baseline): {false_positives}")
+    print(f"False positive rate: {fp_rate:.1f}%")
+    
+    if fp_rate < 5:
+        print(f"\n✅ EXCELLENT: Very low false positive rate")
+    elif fp_rate < 15:
+        print(f"\n✅ GOOD: Acceptable false positive rate")
+    else:
+        print(f"\n⚠️  HIGH: Too many false positives, threshold too high")
+    
+    return fp_rate
+
+def test_detection_latency(baseline_packets, threshold):
+    """Test how quickly baseline is detected"""
+    print(f"\n{'='*70}")
+    print(f"  TESTING DETECTION LATENCY")
+    print(f"{'='*70}\n")
+    
+    window_size = 200
+    check_interval = 50
+    
+    # Simulate: start collecting baseline packets
+    detected_at = None
+    
+    for i in range(window_size, len(baseline_packets), check_interval):
+        window = baseline_packets[i-window_size:i]
+        turbulences = [calculate_spatial_turbulence(pkt['csi_data'], DEFAULT_BAND) 
+                      for pkt in window]
+        variance = calculate_variance_two_pass(turbulences)
+        
+        if variance < threshold:
+            detected_at = i
+            print(f"✅ Baseline detected at packet {i} ({i/100:.1f}s)")
+            print(f"   Variance: {variance:.4f}")
+            break
+    
+    if detected_at:
+        latency = detected_at / 100
+        print(f"\nDetection latency: {latency:.1f}s")
+        
+        if latency < 3:
+            print("✅ FAST: Baseline detected quickly")
+        elif latency < 5:
+            print("✅ ACCEPTABLE: Reasonable detection time")
+        else:
+            print("⚠️  SLOW: Takes too long to detect")
+    else:
+        print("\n❌ Baseline not detected")
+    
+    return detected_at
+
+def test_with_random_starting_bands(baseline_packets, movement_packets, threshold, use_adaptive=False):
+    """
+    Test calibration starting from different (potentially bad) bands
+    
+    This is the critical test to validate the algorithm works in any environment
+    """
+    mode_str = "ADAPTIVE THRESHOLD" if use_adaptive else "FIXED THRESHOLD"
+    print(f"\n{'='*70}")
+    print(f"  TESTING WITH RANDOM/BAD STARTING BANDS ({mode_str})")
+    print(f"{'='*70}\n")
+    
+    print("This simulates deploying the system in a new environment")
+    print("where the default band may not be optimal.\n")
+    
+    test_bands = [
+        ([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "Lower Edge (DC area)"),
+        ([52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63], "Upper Edge (high freq)"),
+        ([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60], "Random Sparse"),
+        ([25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36], "Mid-High Band"),
+        ([40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51], "High Band"),
+        ([20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31], "Mid Band"),
+    ]
+    
+    # Create scenario: movement → baseline → movement
+    scenario = (movement_packets[:200] + 
+                baseline_packets[:300] + 
+                movement_packets[200:500])
+    
+    results = []
+    
+    print(f"{'Starting Band':<25} {'Detected?':<12} {'Final Band':<15} {'F1-Score':<10} {'Status':<8}")
+    print("-" * 80)
+    
+    for start_band, description in test_bands:
+        # Create calibrator with this starting band
+        calibrator = OpportunisticCalibrator(
+            baseline_threshold=threshold,
+            starting_band=start_band,
+            use_adaptive_threshold=use_adaptive
+        )
+        
+        # Run scenario
+        for packet in scenario:
+            calibrator.process_packet(packet)
+        
+        # Evaluate
+        if calibrator.calibrated:
+            # Test performance
+            fp, tp, _ = test_mvs_configuration(
+                baseline_packets, movement_packets,
+                calibrator.current_band, THRESHOLD, WINDOW_SIZE
+            )
+            f1 = (2 * tp / (2*tp + fp + (len(movement_packets) - tp)) * 100) if (tp + fp) > 0 else 0.0
+            
+            final_band_str = f"[{calibrator.current_band[0]}-{calibrator.current_band[-1]}]"
+            
+            # Check if it improved
+            start_fp, start_tp, _ = test_mvs_configuration(
+                baseline_packets, movement_packets,
+                start_band, THRESHOLD, WINDOW_SIZE
+            )
+            start_f1 = (2 * start_tp / (2*start_tp + start_fp + (len(movement_packets) - start_tp)) * 100) if (start_tp + start_fp) > 0 else 0.0
+            
+            improvement = f1 - start_f1
+            status = "✅ GOOD" if f1 >= 95 else "⚠️  OK" if f1 >= 85 else "❌ BAD"
+            
+            print(f"{description:<25} {'Yes':<12} {final_band_str:<15} {f1:<10.1f} {status:<8}")
+            
+            results.append({
+                'start_band': start_band,
+                'description': description,
+                'final_band': calibrator.current_band,
+                'start_f1': start_f1,
+                'final_f1': f1,
+                'improvement': improvement,
+                'calibrated': True
+            })
+        else:
+            print(f"{description:<25} {'No':<12} {'-':<15} {'-':<10} {'❌ FAIL':<8}")
+            
+            results.append({
+                'start_band': start_band,
+                'description': description,
+                'calibrated': False
+            })
+    
+    # Analysis
+    print(f"\n{'='*70}")
+    print(f"  RANDOM START ANALYSIS ({mode_str})")
+    print(f"{'='*70}\n")
+    
+    calibrated_count = sum(1 for r in results if r['calibrated'])
+    good_count = sum(1 for r in results if r.get('final_f1', 0) >= 95)
+    
+    print(f"Starting bands tested: {len(results)}")
+    print(f"Successfully calibrated: {calibrated_count}/{len(results)} ({calibrated_count/len(results)*100:.0f}%)")
+    print(f"Good performance (F1≥95%): {good_count}/{len(results)} ({good_count/len(results)*100:.0f}%)")
+    
+    if calibrated_count == len(results):
+        print("\n✅ EXCELLENT: Calibration works from ANY starting band!")
+    elif calibrated_count >= len(results) * 0.8:
+        print("\n✅ GOOD: Calibration works from most starting bands")
+    else:
+        print("\n⚠️  PROBLEM: Calibration fails from some starting bands")
+        if not use_adaptive:
+            print("   → Try adaptive threshold")
+    
+    # Show improvements
+    if calibrated_count > 0:
+        print(f"\nPerformance improvements:")
+        for r in results:
+            if r['calibrated']:
+                print(f"  {r['description']:<25} {r['start_f1']:.1f}% → {r['final_f1']:.1f}% ({r['improvement']:+.1f}%)")
+    
+    return results
+
+def test_realistic_mixed_scenario(baseline_packets, movement_packets, threshold):
+    """
+    Test with completely realistic mixed data (80% baseline, 20% movement scattered)
+    
+    This simulates real-world usage where user moves occasionally
+    """
+    print(f"\n{'='*70}")
+    print(f"  REALISTIC MIXED SCENARIO TEST")
+    print(f"{'='*70}\n")
+    
+    print("Simulating realistic usage: 80% baseline, 20% movement (scattered)")
+    
+    # Create realistic mixed stream
+    import random
+    random.seed(42)  # Reproducible
+    
+    mixed_stream = []
+    baseline_idx = 0
+    movement_idx = 0
+    
+    for i in range(1000):
+        if random.random() < 0.2 and movement_idx < len(movement_packets):
+            # 20% chance of movement
+            mixed_stream.append(movement_packets[movement_idx])
+            movement_idx += 1
+        elif baseline_idx < len(baseline_packets):
+            # 80% baseline
+            mixed_stream.append(baseline_packets[baseline_idx])
+            baseline_idx += 1
+    
+    print(f"Created mixed stream: {len(mixed_stream)} packets")
+    print(f"  Baseline packets: ~{baseline_idx}")
+    print(f"  Movement packets: ~{movement_idx}")
+    
+    # Test with different starting bands
+    test_bands = [
+        ([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "Lower Edge"),
+        ([52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63], "Upper Edge"),
+        ([25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36], "Mid-High"),
+    ]
+    
+    results = []
+    
+    print(f"\n{'Starting Band':<20} {'Detected?':<12} {'Time (s)':<10} {'Final Band':<15} {'F1':<8}")
+    print("-" * 75)
+    
+    for start_band, description in test_bands:
+        calibrator = OpportunisticCalibrator(
+            baseline_threshold=threshold,
+            starting_band=start_band,
+            use_adaptive_threshold=True
+        )
+        
+        for packet in mixed_stream:
+            calibrator.process_packet(packet)
+        
+        if calibrator.calibrated:
+            fp, tp, _ = test_mvs_configuration(
+                baseline_packets, movement_packets,
+                calibrator.current_band, THRESHOLD, WINDOW_SIZE
+            )
+            f1 = (2 * tp / (2*tp + fp + (len(movement_packets) - tp)) * 100) if (tp + fp) > 0 else 0.0
+            
+            final_str = f"[{calibrator.current_band[0]}-{calibrator.current_band[-1]}]"
+            time_str = f"{calibrator.calibration_time/100:.1f}s"
+            
+            print(f"{description:<20} {'Yes':<12} {time_str:<10} {final_str:<15} {f1:<8.1f}")
+            
+            results.append({
+                'start': description,
+                'calibrated': True,
+                'time': calibrator.calibration_time/100,
+                'final_band': calibrator.current_band,
+                'f1': f1
+            })
+        else:
+            print(f"{description:<20} {'No':<12} {'-':<10} {'-':<15} {'-':<8}")
+            results.append({'start': description, 'calibrated': False})
+    
+    # Analysis
+    print(f"\n{'='*70}")
+    print(f"  REALISTIC SCENARIO ANALYSIS")
+    print(f"{'='*70}\n")
+    
+    calibrated = sum(1 for r in results if r['calibrated'])
+    
+    if calibrated == len(results):
+        avg_time = np.mean([r['time'] for r in results if r['calibrated']])
+        avg_f1 = np.mean([r['f1'] for r in results if r['calibrated']])
+        
+        print(f"✅ SUCCESS: Works with realistic mixed data!")
+        print(f"   Calibrated: {calibrated}/{len(results)}")
+        print(f"   Average time: {avg_time:.1f}s")
+        print(f"   Average F1: {avg_f1:.1f}%")
+    else:
+        print(f"⚠️  Partial success: {calibrated}/{len(results)} calibrated")
+    
+    return results
+
+def main():
+    print("\n╔═══════════════════════════════════════════════════════╗")
+    print("║   Retroactive Auto-Calibration Test                  ║")
+    print("╚═══════════════════════════════════════════════════════╝")
+    
+    # Load data
+    print("\n📂 Loading data...")
+    try:
+        baseline_packets, movement_packets = load_baseline_and_movement()
+    except FileNotFoundError as e:
+        print(f"❌ Error: {e}")
+        return
+    
+    print(f"   Loaded {len(baseline_packets)} baseline packets")
+    print(f"   Loaded {len(movement_packets)} movement packets")
+    
+    # Step 1: Find optimal threshold
+    optimal_threshold = find_optimal_baseline_threshold(baseline_packets, movement_packets)
+    
+    # Step 2: Test false positive rate
+    fp_rate = test_false_positive_rate(baseline_packets, movement_packets, optimal_threshold)
+    
+    # Step 3: Test detection latency
+    detection_latency = test_detection_latency(baseline_packets, optimal_threshold)
+    
+    # Step 4: CRITICAL TEST - Random starting bands (fixed threshold)
+    print("\n" + "="*70)
+    print("  PHASE 1: Testing with FIXED threshold")
+    print("="*70)
+    random_results_fixed = test_with_random_starting_bands(baseline_packets, movement_packets, optimal_threshold, use_adaptive=False)
+    
+    # Step 5: Test with ADAPTIVE threshold
+    print("\n" + "="*70)
+    print("  PHASE 2: Testing with ADAPTIVE threshold")
+    print("="*70)
+    random_results_adaptive = test_with_random_starting_bands(baseline_packets, movement_packets, optimal_threshold, use_adaptive=True)
+    
+    # Step 6: NEW - Test with realistic mixed data
+    print("\n" + "="*70)
+    print("  PHASE 3: Testing with REALISTIC MIXED DATA")
+    print("="*70)
+    realistic_results = test_realistic_mixed_scenario(baseline_packets, movement_packets, optimal_threshold)
+    
+    # Step 7: Simulate full runtime scenario
+    print(f"\n{'='*70}")
+    print(f"  FULL RUNTIME SIMULATION (with optimal starting band)")
+    print(f"{'='*70}")
+    
+    calibrator = simulate_runtime_scenario(baseline_packets, movement_packets, optimal_threshold)
+    
+    # Final summary
+    print(f"\n{'='*70}")
+    print(f"  FINAL SUMMARY")
+    print(f"{'='*70}\n")
+    
+    print(f"Optimal threshold: {optimal_threshold:.4f}")
+    print(f"False positive rate: {fp_rate:.1f}%")
+    
+    if detection_latency:
+        print(f"Detection latency: {detection_latency/100:.1f}s")
+    
+    # Analyze random start results
+    fixed_calibrated = sum(1 for r in random_results_fixed if r['calibrated'])
+    fixed_good = sum(1 for r in random_results_fixed if r.get('final_f1', 0) >= 95)
+    
+    adaptive_calibrated = sum(1 for r in random_results_adaptive if r['calibrated'])
+    adaptive_good = sum(1 for r in random_results_adaptive if r.get('final_f1', 0) >= 95)
+    
+    print(f"\n{'='*70}")
+    print(f"  COMPARISON: FIXED vs ADAPTIVE THRESHOLD")
+    print(f"{'='*70}\n")
+    
+    print(f"Fixed Threshold:")
+    print(f"  Calibrated: {fixed_calibrated}/{len(random_results_fixed)} ({fixed_calibrated/len(random_results_fixed)*100:.0f}%)")
+    print(f"  Good (F1≥95%): {fixed_good}/{len(random_results_fixed)} ({fixed_good/len(random_results_fixed)*100:.0f}%)")
+    
+    print(f"\nAdaptive Threshold:")
+    print(f"  Calibrated: {adaptive_calibrated}/{len(random_results_adaptive)} ({adaptive_calibrated/len(random_results_adaptive)*100:.0f}%)")
+    print(f"  Good (F1≥95%): {adaptive_good}/{len(random_results_adaptive)*100:.0f}%)")
+    
+    # Analyze realistic scenario
+    realistic_calibrated = sum(1 for r in realistic_results if r['calibrated'])
+    realistic_good = sum(1 for r in realistic_results if r.get('f1', 0) >= 95)
+    
+    if calibrator.calibrated and adaptive_calibrated == len(random_results_adaptive) and realistic_calibrated == len(realistic_results):
+        print(f"\n🎉 OPPORTUNISTIC CALIBRATION IS PRODUCTION-READY!")
+        print(f"\nKey findings:")
+        print(f"  1. Adaptive threshold enables universal calibration")
+        print(f"  2. Works from ANY starting band ({adaptive_calibrated}/{len(random_results_adaptive)})")
+        print(f"  3. Works with realistic mixed data ({realistic_calibrated}/{len(realistic_results)})")
+        print(f"  4. Achieves F1≥95% in all scenarios")
+        print(f"  5. Calibrates within {calibrator.calibration_time/100:.1f}s")
+        print(f"  6. False positive rate: {fp_rate:.1f}%")
+        
+        print(f"\nDeployment strategy:")
+        print(f"  - System starts with ANY reasonable default band")
+        print(f"  - Monitors packet variance continuously (every 100 packets)")
+        print(f"  - Calculates adaptive threshold from first 100 packets")
+        print(f"  - When baseline detected (variance < adaptive_threshold):")
+        print(f"    → Uses last 200 packets for calibration")
+        print(f"    → Finds band with minimum variance")
+        print(f"    → Validates against known good bands")
+        print(f"    → Switches to calibrated band if valid")
+        print(f"  - Completely automatic and transparent to user")
+        print(f"  - No 'remain still' message needed!")
+        print(f"  - Works even with occasional movement in data!")
+    elif adaptive_calibrated >= len(random_results_adaptive) * 0.8 or realistic_calibrated >= len(realistic_results) * 0.8:
+        print(f"\n✅ ADAPTIVE THRESHOLD SOLVES THE PROBLEM!")
+        print(f"\nFindings:")
+        print(f"  1. Fixed threshold: {fixed_calibrated}/{len(random_results_fixed)} success")
+        print(f"  2. Adaptive threshold: {adaptive_calibrated}/{len(random_results_adaptive)} success")
+        print(f"  3. Realistic mixed data: {realistic_calibrated}/{len(realistic_results)} success")
+        print(f"  4. Adaptive threshold is REQUIRED for universal deployment")
+        
+        print(f"\nRecommendation:")
+        print(f"  - Use robust default band (e.g., [10-21] or [31-42])")
+        print(f"  - Implement adaptive threshold calculation")
+        print(f"  - Fallback to default if calibration fails")
+    else:
+        print(f"\n⚠️  Calibration did not trigger in this scenario")
+        print(f"   May need to adjust threshold or scenario")
+    
+    print()
+
+if __name__ == '__main__':
+    main()

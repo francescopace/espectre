@@ -268,10 +268,6 @@ This creates `baseline_data.bin` and `movement_data.bin` in the `tools/` directo
 - Always shows confusion matrix for best configuration
 - **Options**: 
   - `--quick`: Reduced parameter space (faster)
-  - `--plot`: Show comprehensive analysis of best configuration (amplitudes, I/Q constellation)
-
-![Subcarrier Analysis](../images/subcarriers.png)
-*Example output showing amplitude analysis and I/Q constellation diagrams for the best subcarrier configuration*
 
 **3. MVS Visualization** (`3_analyze_moving_variance_segmentation.py`)
 - Visualizes MVS algorithm behavior with current configuration
@@ -317,6 +313,28 @@ This creates `baseline_data.bin` and `movement_data.bin` in the `tools/` directo
 ![Detection Methods Comparison](../images/detection_method_comparison.png)
 *Comparison of detection methods (RSSI, Mean Amplitude, Turbulence, MVS) demonstrating MVS superiority with lowest false positives and highest recall*
 
+**9. Retroactive Auto-Calibration Test** (`9_test_retroactive_calibration.py`)
+- Tests automatic subcarrier selection using retrospective baseline detection
+- Validates adaptive threshold for universal deployment
+- Tests with random starting bands and realistic mixed data
+- **Key Findings**:
+  - Works with pure baseline blocks (F1=96.7%)
+  - Adaptive threshold enables calibration from ANY starting band (6/6 success)
+  - Fails with realistic mixed data (80% baseline, 20% movement scattered)
+  - Conclusion: Fully automatic calibration difficult; recommend robust default + optional manual calibration
+- **Options**: None (runs all tests automatically)
+
+**10. I/Q Constellation Plotter** (`10_plot_constellation.py`)
+- Visualizes I/Q constellation diagrams for CSI subcarriers
+- Compares baseline (stable) vs movement (dispersed) patterns
+- Shows all 64 subcarriers (top row) and selected subcarriers (bottom row)
+- Useful for understanding signal quality and subcarrier behavior
+- **Options**:
+  - `--packets N`: Number of contiguous packets to plot (default: 100)
+  - `--offset N`: Starting packet index (default: 0)
+  - `--subcarriers LIST`: Comma-separated subcarrier indices (default: from config.py)
+  - `--grid`: Use grid layout (one subplot per subcarrier)
+
 ### Usage Example
 
 ```bash
@@ -328,8 +346,20 @@ python 1_analyze_raw_data.py
 # Optimize segmentation parameters (shows confusion matrix)
 python 2_analyze_system_tuning.py
 
-# Quick mode With subcarrier heatmaps
-python 2_analyze_system_tuning.py --quick --plot
+# Quick mode (faster)
+python 2_analyze_system_tuning.py --quick
+
+# Plot I/Q constellations (100 packets)
+python 10_plot_constellation.py
+
+# Plot more packets with offset
+python 10_plot_constellation.py --packets 200 --offset 50
+
+# Plot specific subcarriers
+python 10_plot_constellation.py --subcarriers 47,48,49,50
+
+# Use grid layout (one subplot per subcarrier)
+python 10_plot_constellation.py --grid
 ```
 **Benefits:**
 - 📊 Visual feedback on algorithm performance
