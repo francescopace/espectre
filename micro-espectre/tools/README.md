@@ -263,20 +263,20 @@ NBVI = 0.3 × (σ/μ²) + 0.7 × (σ/μ)
 
 ### Algorithm Steps
 
-1. **Collect Data**: 800-1000 packets (8-10s @ 100Hz)
+1. **Collect Data**: 500-1000 packets (5-10s @ 100Hz)
 2. **Percentile Analysis**: Find quietest windows using p10
 3. **Calculate NBVI**: For all 64 subcarriers
 4. **Noise Gate**: Exclude weak subcarriers (10th percentile)
 5. **Select with Spacing**: Top 5 + 7 with Δf≥3
 6. **Save to NVS**: Persist selected band
 
-### Percentile-Based Detection (Recommended)
+### Percentile-Based Detection ⭐
 
 **NO threshold configuration needed!**
 
 ```python
 # Analyzes sliding windows
-for window in sliding_windows(buffer, size=200, step=50):
+for window in sliding_windows(buffer, size=100, step=50):
     variances.append(calculate_variance(window))
 
 # Finds quietest windows using percentile
@@ -290,10 +290,11 @@ best_window = min(baseline_windows, key=lambda x: x.variance)
 **Advantages**:
 - ✅ Adapts to any environment automatically
 - ✅ Finds better baseline windows (variance 0.26 vs 0.58)
-- ✅ +3.0% improvement vs threshold-based
+- ✅ +3.0% average improvement vs threshold-based
 - ✅ 100% success rate (4/4 vs 3/3)
+- ✅ Zero configuration required
 
-**Trade-off**: 8s latency vs 2s (worth it for +4.3% performance)
+**Trade-off**: Requires larger buffer (500-1000 packets) for reliable percentile analysis
 
 ### Performance Comparison
 
@@ -320,17 +321,88 @@ From I/Q constellation analysis:
 - ✅ **Validated**: 1000+ packets real CSI data
 - ✅ **Robust**: Works on mixed data (80/20)
 - ✅ **Threshold-free**: Percentile-based (zero config)
-- ✅ **Production-ready**: Ready for ESP32-C6
-- ⏳ **Integration**: Pending C implementation
+- ✅ **Production-ready**: Implemented in Python (micro-espectre)
+- ✅ **Python Implementation**: `src/nbvi_calibrator.py` (fully functional)
 
-### Recommended Configuration
+### Python Implementation
+
+The NBVI algorithm is fully implemented in `micro-espectre/src/nbvi_calibrator.py`:
+
+```python
+from src.nbvi_calibrator import NBVICalibrator
+
+# Initialize calibrator
+calibrator = NBVICalibrator(
+    buffer_size=1000,      # Packets to collect (500-1000 recommended)
+    percentile=10,         # 10th percentile for baseline detection
+    alpha=0.3,             # NBVI weighting factor
+    min_spacing=3          # Minimum spacing between subcarriers
+)
+
+# Collect CSI packets
+for packet in csi_stream:
+    progress = calibrator.add_packet(packet['csi_data'])
+    if progress >= calibrator.buffer_size:
+        break
+
+# Calibrate and get optimal band
+selected_band = calibrator.calibrate(current_band=[11,12,13,14,15,16,17,18,19,20,21,22])
+
+if selected_band:
+    print(f"Optimal band: {selected_band}")
+    # Save to NVS and use for detection
+```
+
+**Key Features**:
+- Two-pass variance algorithm for numerical stability
+- Memory-efficient buffer (stores magnitudes as int16)
+- Configurable window size and step for sliding window analysis
+- Automatic noise gate and spectral spacing
+
+### Configuration Parameters
+
+**Recommended for ESP32-C6**:
+
+```python
+# Percentile-based (recommended)
+NBVICalibrator(
+    buffer_size=1000,          # 10s @ 100Hz (ideal)
+    percentile=10,             # 10th percentile
+    alpha=0.3,                 # NBVI weighting
+    min_spacing=3              # Spectral de-correlation
+)
+
+# Memory-constrained (alternative)
+NBVICalibrator(
+    buffer_size=500,           # 5s @ 100Hz (minimum)
+    percentile=10,
+    alpha=0.3,
+    min_spacing=3
+)
+```
+
+**Window Analysis Parameters** (configurable in `config.py`):
+- `NBVI_WINDOW_SIZE = 100`: Window size for baseline detection
+- `NBVI_WINDOW_STEP = 50`: Step size for sliding window analysis
+
+**Note**: 
+- The Python implementation (`src/nbvi_calibrator.py`) uses **only percentile-based detection**
+- The test script (`11_test_nbvi_selection.py`) tests **both percentile and threshold modes** for comparison
+- Test script uses `buffer_size=500` and `window_size=100` to simulate ESP32-C6 memory constraints
+- README recommends `buffer_size=1000` for optimal performance when memory allows
+
+### Future C Implementation
+
+Planned configuration structure for ESP32-C6 firmware:
 
 ```c
-// For ESP32-C6 deployment
+// For ESP32 deployment
 nbvi_config_t config = {
     .use_percentile = true,          // Percentile-based (recommended)
     .percentile = 10,                // 10th percentile
-    .analysis_buffer_size = 1000,    // 10s @ 100Hz
+    .analysis_buffer_size = 1000,    // 10s @ 100Hz (or 500 if memory-constrained)
+    .window_size = 100,              // Window size for baseline detection
+    .window_step = 50,               // Step size for sliding window
     .alpha = 0.3f,                   // NBVI weighting
     .min_spacing = 3,                // Spectral de-correlation
     .noise_gate_percentile = 10      // Exclude weak subcarriers
@@ -515,11 +587,17 @@ NBVI_weighted = 0.3 × (σ/μ²) + 0.7 × (σ/μ)
 **Solution**: Percentile-based adaptive detection
 
 **How it works**:
-1. Collect buffer (800-1000 packets = 8-10s @ 100Hz)
-2. Calculate variance for sliding windows (200 packets, step 50)
+1. Collect buffer (500-1000 packets = 5-10s @ 100Hz)
+2. Calculate variance for sliding windows (100 packets, step 50)
 3. Compute p10 threshold from window variances (adaptive!)
 4. Select window with minimum variance below p10
 5. Calibrate NBVI on that window
+
+**Implementation Details**:
+- **Buffer size**: 500-1000 packets (configurable based on memory)
+- **Window size**: 100 packets (1s @ 100Hz)
+- **Step size**: 50 packets (50% overlap for better coverage)
+- **Percentile**: 10th percentile (finds quietest 10% of windows)
 
 **Example**:
 ```python
@@ -541,9 +619,33 @@ baseline_windows = [0.3, 0.2, 0.3]  # Automatically found!
 - ✅ Zero configuration required
 - ✅ Adapts to any environment automatically
 
-**Trade-off**: 8s latency vs 2s (worth it for +4.3% performance)
+**Trade-offs**:
+- Requires larger buffer (500-1000 vs 200 packets)
+- Longer calibration time (5-10s vs 2s)
+- Worth it for +4.3% performance improvement
 
 **Reference**: [7] Using Wi-Fi Channel State Information (CSI) for Human Activity Recognition
+
+#### 4. Threshold-Based Detection (Alternative)
+
+**When to use**: Memory-constrained environments or when faster calibration is needed
+
+**How it works**:
+1. Collect initial sample (100 packets)
+2. Calculate adaptive threshold: `threshold = baseline_variance × 2.0`
+3. Monitor sliding window (100 packets)
+4. When variance drops below threshold → calibrate
+
+**Advantages**:
+- Faster calibration (2s vs 5-10s)
+- Lower memory footprint (200 packets vs 500-1000)
+- Still performs well (F1=86.9%)
+
+**Trade-offs**:
+- Requires threshold tuning for different environments
+- Less robust than percentile-based (-4.3% performance)
+
+**Note**: The Python implementation (`src/nbvi_calibrator.py`) implements **only percentile-based detection**. The threshold-based mode exists only in the test script (`11_test_nbvi_selection.py`) for performance comparison purposes.
 
 ### Computational Efficiency
 

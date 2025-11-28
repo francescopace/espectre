@@ -11,6 +11,7 @@
 #include "filters.h"
 #include "validation.h"
 #include "csi_processor.h"
+#include "nbvi_calibrator.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
@@ -27,6 +28,9 @@ static const char *TAG = "MQTT_Commands";
 // Macro for converting numbers to strings
 #define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
+
+// Forward declaration of NBVI calibration function (defined in espectre.c)
+extern bool run_nbvi_calibration(void);
 
 // Global context for command handlers
 static mqtt_cmd_context_t *g_cmd_context = NULL;
@@ -276,11 +280,11 @@ static void cmd_info(cJSON *root) {
     }
     cJSON_AddItemToObject(response, "mqtt", mqtt);
     
-    // Motion detection parameters (configuration only - runtime metrics moved to stats command)
-    cJSON *motion_detection = cJSON_CreateObject();
-    cJSON_AddNumberToObject(motion_detection, "threshold", (double)csi_processor_get_threshold(g_cmd_context->csi_processor));
-    cJSON_AddNumberToObject(motion_detection, "window_size", csi_processor_get_window_size(g_cmd_context->csi_processor));
-    cJSON_AddItemToObject(response, "motion_detection", motion_detection);
+    // Segmentation parameters (renamed from motion_detection for compatibility with micro-espectre)
+    cJSON *segmentation = cJSON_CreateObject();
+    cJSON_AddNumberToObject(segmentation, "threshold", (double)csi_processor_get_threshold(g_cmd_context->csi_processor));
+    cJSON_AddNumberToObject(segmentation, "window_size", csi_processor_get_window_size(g_cmd_context->csi_processor));
+    cJSON_AddItemToObject(response, "segmentation", segmentation);
     
     // Filters configuration
     cJSON *filters = cJSON_CreateObject();
@@ -677,8 +681,50 @@ static void cmd_factory_reset(cJSON *root) {
     ESP_LOGI(TAG, "📡 Subcarrier selection reset to defaults (%d subcarriers)", 
              g_cmd_context->config->num_selected_subcarriers);
     
+    // Reset traffic generator to default rate
+    if (DEFAULT_TRAFFIC_GENERATOR_RATE > 0) {
+        if (traffic_generator_is_running()) {
+            // Just change the rate
+            traffic_generator_set_rate(DEFAULT_TRAFFIC_GENERATOR_RATE);
+            ESP_LOGI(TAG, "📡 Traffic generator rate reset to default (%d pps)", 
+                     DEFAULT_TRAFFIC_GENERATOR_RATE);
+        } else {
+            // Start with default rate
+            if (traffic_generator_start(DEFAULT_TRAFFIC_GENERATOR_RATE)) {
+                ESP_LOGI(TAG, "📡 Traffic generator started at default rate (%d pps)", 
+                         DEFAULT_TRAFFIC_GENERATOR_RATE);
+            } else {
+                ESP_LOGW(TAG, "⚠️  Failed to start traffic generator");
+            }
+        }
+    } else if (traffic_generator_is_running()) {
+        // Default rate is 0, stop traffic generator
+        traffic_generator_stop();
+        ESP_LOGI(TAG, "📡 Traffic generator stopped (default rate is 0)");
+    }
+    
     send_response("Factory reset complete");
-    ESP_LOGI(TAG, "Factory reset complete");
+    ESP_LOGI(TAG, "✅ Factory reset complete");
+    
+    // Run NBVI calibration if enabled
+    if (NBVI_ENABLED) {
+        send_response("Starting NBVI re-calibration...");
+        ESP_LOGI(TAG, "🧬 Starting NBVI re-calibration...");
+        
+        bool success = run_nbvi_calibration();
+        
+        if (success) {
+            send_response("NBVI re-calibration successful!");
+            ESP_LOGI(TAG, "✅ NBVI re-calibration successful");
+        } else {
+            send_response("NBVI re-calibration failed. Using default band.");
+            ESP_LOGW(TAG, "⚠️  NBVI re-calibration failed");
+        }
+    }
+    
+    // Publish info to show reset configuration
+    ESP_LOGI(TAG, "📡 Publishing system info after factory reset...");
+    cmd_info(root);
 }
 
 // Command dispatch table

@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased]
+
+### 🧬 Added - NBVI Automatic Subcarrier Selection
+
+**Zero-configuration subcarrier optimization achieving F1=97.1%**
+
+Implemented NBVI (Normalized Baseline Variability Index) algorithm for automatic subcarrier selection in both micro-espectre (Python) and espectre (C).
+
+**Algorithm:**
+- Formula: `NBVI = 0.3 × (σ/μ²) + 0.7 × (σ/μ)` (lower = better)
+- Percentile-based baseline detection (p10, NO threshold needed)
+- Noise Gate: excludes weak subcarriers (below 10th percentile)
+- Spectral spacing: Top 5 + Δf≥3 for remaining 7
+
+**Performance:**
+- Pure data: F1=97.1% (gap to manual: -0.2%)
+- Mixed data: F1=91.2% (4/4 calibrated)
+- vs Variance-only: +4.7% (pure), ∞ (variance fails on mixed)
+
+**Implementation:**
+- Python: `src/nbvi_calibrator.py` (percentile-based only)
+- C: `main/nbvi_calibrator.c/h` (same algorithm)
+- Auto-calibration at boot if no saved configurationgit 
+- Re-calibration after factory_reset command
+- Memory: 128KB buffer (500 packets × 64 subcarriers)
+
+**Benefits:**
+- ✅ Zero configuration required
+- ✅ Adapts to any environment automatically
+- ✅ Near-optimal performance (-0.2% gap to manual)
+- ✅ Production-ready (validated on 1000+ packets)
+
+---
+
 ## [1.4.0] - 2025-11-28
 
 ### 🏗️ Major Refactoring - Technical Debt Reduction

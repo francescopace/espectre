@@ -80,14 +80,12 @@ class SegmentationContext:
         self.hampel_filter = None
         if ENABLE_HAMPEL_FILTER:
             try:
-                print("[DEBUG] Importing HampelFilter...")
                 from src.filters import HampelFilter
-                print("[DEBUG] Creating HampelFilter instance...")
                 self.hampel_filter = HampelFilter(
                     window_size=HAMPEL_WINDOW,
                     threshold=HAMPEL_THRESHOLD
                 )
-                print(f"[DEBUG] HampelFilter initialized: window={HAMPEL_WINDOW}, threshold={HAMPEL_THRESHOLD}")
+                print(f"HampelFilter initialized: window={HAMPEL_WINDOW}, threshold={HAMPEL_THRESHOLD}")
             except Exception as e:
                 print(f"[ERROR] Failed to initialize HampelFilter: {e}")
                 self.hampel_filter = None

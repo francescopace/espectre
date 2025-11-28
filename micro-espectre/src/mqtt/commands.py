@@ -23,7 +23,7 @@ from src.config import (
 class MQTTCommands:
     """MQTT command processor"""
     
-    def __init__(self, mqtt_client, config, segmentation, response_topic, wlan, traffic_generator=None):
+    def __init__(self, mqtt_client, config, segmentation, response_topic, wlan, traffic_generator=None, nbvi_calibration_func=None):
         """
         Initialize MQTT commands
         
@@ -34,12 +34,14 @@ class MQTTCommands:
             response_topic: MQTT topic for responses
             wlan: wlan instance
             traffic_generator: TrafficGenerator instance (optional)
+            nbvi_calibration_func: Function to run NBVI calibration (optional)
         """
         self.mqtt = mqtt_client
         self.config = config
         self.seg = segmentation
         self.wlan = wlan
         self.traffic_gen = traffic_generator
+        self.nbvi_calibration_func = nbvi_calibration_func
         self.response_topic = response_topic
         self.start_time = time.time()
         self.packets_processed = 0
@@ -329,7 +331,7 @@ class MQTTCommands:
             self.send_response(f"ERROR: Invalid enabled value: {e}")
     
     def cmd_factory_reset(self, cmd_obj):
-        """Reset all parameters to defaults"""
+        """Reset all parameters to defaults and trigger NBVI re-calibration"""
         print("⚠️  Factory reset requested")
         
         # Reset segmentation to defaults (use constants from config.py)
@@ -354,22 +356,43 @@ class MQTTCommands:
         
         # Reset traffic generator to default rate
         if self.traffic_gen:
-            if self.traffic_gen.is_running():
-                self.traffic_gen.stop()
-            
-            # Restart with default rate if configured
             if TRAFFIC_GENERATOR_RATE > 0:
-                time.sleep(0.5)  # Brief pause before restart
-                if self.traffic_gen.start(TRAFFIC_GENERATOR_RATE):
-                    print(f"📡 Traffic generator restarted at default rate ({TRAFFIC_GENERATOR_RATE} pps)")
+                if self.traffic_gen.is_running():
+                    # Just change the rate
+                    if self.traffic_gen.set_rate(TRAFFIC_GENERATOR_RATE):
+                        print(f"📡 Traffic generator rate reset to default ({TRAFFIC_GENERATOR_RATE} pps)")
+                    else:
+                        print("⚠️  Failed to reset traffic generator rate")
                 else:
-                    print("⚠️  Failed to restart traffic generator")
+                    # Start with default rate
+                    if self.traffic_gen.start(TRAFFIC_GENERATOR_RATE):
+                        print(f"📡 Traffic generator started at default rate ({TRAFFIC_GENERATOR_RATE} pps)")
+                    else:
+                        print("⚠️  Failed to start traffic generator")
+            elif self.traffic_gen.is_running():
+                # Default rate is 0, stop traffic generator
+                self.traffic_gen.stop()
+                print("📡 Traffic generator stopped (default rate is 0)")
         
         # Erase saved configuration
         self.nvs.erase()
-        
-        self.send_response(f"Factory reset complete (traffic generator: {TRAFFIC_GENERATOR_RATE} pps)")
+
         print("✅ Factory reset complete")
+        
+        # Run NBVI calibration immediately if function provided
+        if self.nbvi_calibration_func:
+            self.send_response("Factory reset complete. Starting NBVI re-calibration...")
+            print("🧬 Starting NBVI re-calibration...")
+            
+            # Run calibration
+            success = self.nbvi_calibration_func(self.wlan, self.nvs, self.seg)
+            
+            if success:
+                self.send_response(f"NBVI re-calibration successful! Band: {self.config.SELECTED_SUBCARRIERS}")
+            else:
+                self.send_response(f"NBVI re-calibration failed. Using default band.")
+        else:
+            self.send_response(f"Factory reset complete.")
     
     def cmd_traffic_generator_rate(self, cmd_obj):
         """Set traffic generator rate"""

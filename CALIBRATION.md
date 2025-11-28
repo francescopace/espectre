@@ -11,6 +11,8 @@ Quick guide to calibrate ESPectre for reliable movement detection in your enviro
 
 ## 🚀 Quick Start (5 minutes)
 
+> **📌 Note on Subcarrier Selection**: ESPectre automatically selects optimal subcarriers using the NBVI (Normalized Baseline Variability Index) algorithm at first boot or after factory reset. No manual configuration needed. For details, see [micro-espectre/tools/README.md](micro-espectre/tools/README.md).
+
 ### 1. Launch Interactive CLI
 
 ```bash
@@ -318,14 +320,19 @@ espectre> wavelet_threshold 1.0
 
 ### Factory Reset
 
-**When needed:** Start fresh with default settings.
+**When needed:** Start fresh with default settings or trigger subcarriers recalibration.
 
 **Command:**
 ```
 espectre> factory_reset
 ```
 
-This clears all NVS storage and restores factory defaults.
+**This will:**
+- Clear all NVS storage and restore factory defaults
+- Trigger automatic NBVI subcarrier calibration (~5 seconds)
+- Require a quiet baseline period for optimal calibration
+
+**Note:** After factory reset, the system will automatically select optimal subcarriers using NBVI algorithm. Ensure the environment is quiet during the first 5-10 seconds after reboot for best results.
 
 ---
 

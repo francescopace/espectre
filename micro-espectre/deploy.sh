@@ -70,6 +70,7 @@ mpremote connect "$PORT" cp src/segmentation.py :src/ || { echo "❌ Failed to u
 mpremote connect "$PORT" cp src/traffic_generator.py :src/ || { echo "❌ Failed to upload src/traffic_generator.py"; exit 1; }
 mpremote connect "$PORT" cp src/nvs_storage.py :src/ || { echo "❌ Failed to upload src/nvs_storage.py"; exit 1; }
 mpremote connect "$PORT" cp src/filters.py :src/ || { echo "❌ Failed to upload src/filters.py"; exit 1; }
+mpremote connect "$PORT" cp src/nbvi_calibrator.py :src/ || { echo "❌ Failed to upload src/nbvi_calibrator.py"; exit 1; }
 mpremote connect "$PORT" cp src/main.py :src/ || { echo "❌ Failed to upload src/main.py"; exit 1; }
 mpremote connect "$PORT" cp src/mqtt/__init__.py :src/mqtt/ || { echo "❌ Failed to upload src/mqtt/__init__.py"; exit 1; }
 mpremote connect "$PORT" cp src/mqtt/handler.py :src/mqtt/ || { echo "❌ Failed to upload src/mqtt/handler.py"; exit 1; }

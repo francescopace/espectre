@@ -122,6 +122,11 @@ BAND_SIZE = 12
 TOTAL_SUBCARRIERS = 64
 DEFAULT_BAND = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
+# Test Configuration
+ESP32_BUFFER_SIZE = 500      # Packets to collect for calibration - 1000 on ESP32-C6 is too large
+ESP32_WINDOW_SIZE = 100      # Window size for baseline detection - 200 on ESP32-C6 is too large
+ESP32_WINDOW_STEP = 50       # Step size for sliding window analysis
+
 def calculate_magnitude(csi_data, subcarrier):
     """
     Calculate magnitude |H| from I/Q components
@@ -327,7 +332,7 @@ class OpportunisticNBVICalibrator:
     """
     
     def __init__(self, variant='weighted_03', use_percentile=True, percentile=10, 
-                 baseline_threshold=0.5, starting_band=None, analysis_buffer_size=1000):
+                 baseline_threshold=0.5, starting_band=None, analysis_buffer_size=ESP32_BUFFER_SIZE):
         self.variant = variant
         self.use_percentile = use_percentile
         self.percentile_threshold = percentile
@@ -339,7 +344,7 @@ class OpportunisticNBVICalibrator:
         self.baseline_threshold = baseline_threshold
         self.adaptive_threshold = None
         self.check_interval = 100
-        self.detection_window = 200
+        self.detection_window = ESP32_WINDOW_SIZE 
         self.packet_count = 0
         self.calibration_time = None
         
@@ -419,7 +424,7 @@ class OpportunisticNBVICalibrator:
         window_variances = []
         from mvs_utils import calculate_variance_two_pass
         
-        for i in range(0, len(buffer) - self.detection_window, 50):
+        for i in range(0, len(buffer) - self.detection_window, ESP32_WINDOW_STEP):
             window = buffer[i:i+self.detection_window]
             turbulences = [calculate_spatial_turbulence(pkt['csi_data'], self.current_band) 
                           for pkt in window]
@@ -541,7 +546,7 @@ def test_nbvi_percentile_vs_threshold(baseline_packets, movement_packets):
             use_percentile=use_perc,
             percentile=perc_val if perc_val else 10,
             baseline_threshold=0.5,
-            analysis_buffer_size=800  # Adjusted for 1000 packet stream
+            analysis_buffer_size=ESP32_BUFFER_SIZE  # ESP32-C6 memory constraint
         )
         
         for packet in mixed_stream:

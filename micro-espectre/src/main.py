@@ -13,6 +13,7 @@ from src.segmentation import SegmentationContext
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
 from src.nvs_storage import NVSStorage
+from src.nbvi_calibrator import NBVICalibrator
 import src.config as config
 
 # Try to import local configuration (overrides config.py defaults)
@@ -35,6 +36,7 @@ class GlobalState:
         self.current_state = 0  # STATE_IDLE
         self.current_variance = 0.0
         self.current_threshold = 0.0
+        self.calibration_mode = False  # Flag to suspend main loop during calibration
         self.lock = _thread.allocate_lock()
 
 
@@ -102,6 +104,118 @@ def format_progress_bar(score, threshold, width=20):
     
     percent = int(score * 100)
     return f"{bar} {percent}%"
+
+
+def run_nbvi_calibration(wlan, nvs, seg):
+    """
+    Run NBVI calibration
+    
+    Args:
+        wlan: WLAN instance
+        nvs: NVSStorage instance
+        seg: SegmentationContext instance
+    
+    Returns:
+        bool: True if calibration successful
+    """
+    # Set calibration mode to suspend main loop
+    g_state.calibration_mode = True
+    
+    print('')
+    print('='*60)
+    print('🧬 NBVI Auto-Calibration Starting')
+    print('='*60)
+    print('Please remain still for 10 seconds...')
+    print('Collecting CSI data for automatic subcarrier selection')
+    print('')
+    
+    # Initialize NBVI calibrator
+    nbvi_calibrator = NBVICalibrator(
+        buffer_size=config.NBVI_BUFFER_SIZE,
+        percentile=config.NBVI_PERCENTILE,
+        alpha=config.NBVI_ALPHA,
+        min_spacing=config.NBVI_MIN_SPACING
+    )
+    
+    # Collect packets for calibration
+    print("NBVI: Starting packet collection loop...")
+    calibration_progress = 0
+    timeout_counter = 0
+    max_timeout = 15000  # 15 seconds
+    packets_read = 0
+    
+    while calibration_progress < config.NBVI_BUFFER_SIZE:
+        frame = wlan.csi_read()
+        packets_read += 1
+        
+        if frame:
+            csi_data = frame['data'][:128]
+            calibration_progress = nbvi_calibrator.add_packet(csi_data)
+            timeout_counter = 0  # Reset timeout on successful read
+            
+            # Print progress every 100 packets
+            if calibration_progress % 100 == 0:
+                print(f"NBVI: Collecting {calibration_progress}/{config.NBVI_BUFFER_SIZE} packets... (read attempts: {packets_read})")
+                gc.collect()  # Garbage collect during progress
+        else:
+            time.sleep_ms(1)
+            timeout_counter += 1
+            
+            # Debug: print if stuck
+            if timeout_counter % 1000 == 0:
+                # Check if traffic generator is still running
+                tg_running = traffic_gen.is_running() if 'traffic_gen' in dir() else False
+                tg_count = traffic_gen.get_packet_count() if 'traffic_gen' in dir() else 0
+                print(f"NBVI: Waiting for CSI... ({timeout_counter/1000:.0f}s, progress: {calibration_progress}, TG running: {tg_running}, TG packets: {tg_count})")
+            
+            if timeout_counter >= max_timeout:
+                print(f"NBVI: Timeout waiting for CSI packets (collected {calibration_progress}/{config.NBVI_BUFFER_SIZE})")
+                print("NBVI: Calibration aborted - using default band")
+                return False
+    
+    print(f"NBVI: Collection complete ({config.NBVI_BUFFER_SIZE} packets)")
+    
+    # Calibrate using percentile-based approach
+    success = False
+    try:
+        selected_band = nbvi_calibrator.calibrate(config.SELECTED_SUBCARRIERS)
+        
+        if selected_band and len(selected_band) == 12:
+            # Calibration successful
+            config.SELECTED_SUBCARRIERS = selected_band
+            success = True
+            
+            print('')
+            print('='*60)
+            print('✅ NBVI Calibration Successful!')
+            print(f'   Selected band: {selected_band}')
+            print('   Configuration saved to NVS')
+            print('='*60)
+            print('')
+        else:
+            # Calibration failed - keep default
+            print('')
+            print('='*60)
+            print('⚠️  NBVI Calibration Failed')
+            print(f'   Using default band: {config.SELECTED_SUBCARRIERS}')
+            print('='*60)
+            print('')
+    
+    except Exception as e:
+        print(f"NBVI: Error during calibration: {e}")
+        print(f"NBVI: Using default band: {config.SELECTED_SUBCARRIERS}")
+    
+    # Free calibrator memory
+    nbvi_calibrator = None
+    gc.collect()
+    
+    # Save configuration
+    nvs.save_full_config(seg, config)
+    
+    # Resume main loop
+    g_state.calibration_mode = False
+    
+    return success
 
 
 def mqtt_publish_task(mqtt_handler, wlan):
@@ -183,10 +297,22 @@ def main():
     
     if traffic_rate > 0:
         traffic_gen.start(traffic_rate)
+        print(f'📡 Traffic generator started ({traffic_rate} pps)')
+        time.sleep(1)  # Wait for traffic to start generating CSI packets
     
-    # Initialize MQTT
-    mqtt_handler = MQTTHandler(config, seg, wlan, traffic_gen)
+    # NBVI Auto-Calibration at boot (if enabled and needed)
+    if config.NBVI_ENABLED and not saved_config:
+        run_nbvi_calibration(wlan, nvs, seg)
+    else:
+        print('🧬 NBVI: Auto-calibration disabled or already calibrated')
+    
+    # Initialize MQTT (pass calibration function for factory_reset)
+    mqtt_handler = MQTTHandler(config, seg, wlan, traffic_gen, run_nbvi_calibration)
     mqtt_handler.connect()
+    
+    # Publish info after boot (always, to show current configuration)
+    print('📡 Publishing system info...')
+    mqtt_handler.publish_info()
     
     # Start MQTT publish task
     _thread.start_new_thread(mqtt_publish_task, (mqtt_handler, wlan))
@@ -210,6 +336,11 @@ def main():
     packet_counter = 0
     try:
         while True:
+            # Suspend main loop during calibration
+            if g_state.calibration_mode:
+                time.sleep_ms(100)
+                continue
+            
             frame = wlan.csi_read()
             
             if frame:

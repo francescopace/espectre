@@ -267,6 +267,14 @@ Home Assistant can then:
 - Track movement patterns across rooms
 
 
+### Automatic Subcarrier Selection (NBVI)
+
+ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving near-optimal performance (F1=97.1%) with **zero manual configuration**.
+
+NBVI automatically selects the optimal 12 subcarriers from the 64 available in WiFi CSI by analyzing their stability and signal strength during a baseline period. The calibration runs automatically:
+- **At first boot** (if no saved configuration exists)
+- **After factory_reset** command
+
 ---
 
 ## ❓ FAQ for Beginners

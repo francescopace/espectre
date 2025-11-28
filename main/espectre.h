@@ -106,4 +106,20 @@
 // Traffic generator default rate
 #define DEFAULT_TRAFFIC_GENERATOR_RATE     100       // packets/sec
 
+// ============================================================================
+// NBVI AUTO-CALIBRATION
+// ============================================================================
+
+// Enable automatic subcarrier selection at boot
+#define NBVI_ENABLED                    true
+
+// NBVI calibration parameters
+#define NBVI_BUFFER_SIZE                500     // Packets to collect (5s @ 100Hz)
+#define NBVI_WINDOW_SIZE                100     // Window for baseline detection (1s @ 100Hz)
+#define NBVI_WINDOW_STEP                50      // Step size for sliding window
+#define NBVI_PERCENTILE                 10      // Percentile for baseline (p10)
+#define NBVI_ALPHA                      0.3f    // Weighting factor (optimal)
+#define NBVI_MIN_SPACING                3       // Minimum spacing Δf≥3
+#define NBVI_NOISE_GATE_PERCENTILE      10      // Exclude weak subcarriers
+
 #endif // ESPECTRE_H

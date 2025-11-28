@@ -434,7 +434,18 @@ The `info` command returns **static configuration** organized into logical group
 {
   "network": {
     "ip_address": "192.168.1.100",
-    "traffic_generator_rate": 100
+    "mac_address": "AA:BB:CC:DD:EE:FF",
+    "traffic_generator_rate": 100,
+    "channel": {
+      "primary": 6,
+      "secondary": 0
+    },
+    "bandwidth": "HT20",
+    "protocol": "802.11b/g/n",
+    "promiscuous_mode": false
+  },
+  "device": {
+    "type": "ESP32-C6"
   },
   "mqtt": {
     "base_topic": "home/espectre/node1",
@@ -443,9 +454,7 @@ The `info` command returns **static configuration** organized into logical group
   },
   "segmentation": {
     "threshold": 2.2,
-    "window_size": 100,
-    "min_length": 10,
-    "max_length": 60
+    "window_size": 100
   },
   "filters": {
     "butterworth_enabled": true,
@@ -469,9 +478,10 @@ The `info` command returns **static configuration** organized into logical group
 ```
 
 **Groups:**
-- **`network`**: Network information (IP address, traffic generator rate)
+- **`network`**: Network information (IP address, MAC address, WiFi channel, bandwidth, protocol, traffic generator rate)
+- **`device`**: Device type (ESP32-C6, ESP32-S3, or ESP32)
 - **`mqtt`**: MQTT topic configuration
-- **`segmentation`**: Motion segmentation configuration parameters
+- **`segmentation`**: Motion segmentation configuration parameters (threshold, window size)
 - **`filters`**: Signal processing filters configuration
 - **`options`**: General capabilities and features
 - **`subcarriers`**: Selected subcarriers for CSI processing (configurable at runtime)
@@ -521,9 +531,12 @@ mosquitto_pub -h homeassistant.local -t "home/espectre/node1/cmd" \
 ```
 
 **This will:**
-- ✅ Clear all saved configuration parameters from NVS
-- ✅ Restore all parameters to factory defaults (filters, segmentation threshold)
-- ⚠️ You will need to reconfigure after reset
+- ⚠️ Clear all saved configuration parameters from NVS
+- ⚠️ Restore all parameters to factory defaults (filters, segmentation threshold)
+- ✅ Trigger NBVI automatic subcarrier calibration
+
+**Note on Calibration:**
+After factory reset, the system will automatically run NBVI (Normalized Baseline Variability Index) calibration at next boot to select optimal subcarriers. This process takes ~5 seconds and requires a quiet baseline period. For details on NBVI algorithm, see [micro-espectre/tools/README.md](micro-espectre/tools/README.md).
 
 **When to use:**
 - Configuration is corrupted or inconsistent

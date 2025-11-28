@@ -32,8 +32,10 @@
 #include "mqtt_handler.h"
 #include "mqtt_commands.h"
 #include "traffic_generator.h"
+#include "nbvi_calibrator.h"
 #include "esp_netif.h"
 #include "espectre.h"
+#include "cJSON.h"
 
 // Configuration - can be overridden via menuconfig
 #define WIFI_SSID           CONFIG_WIFI_SSID
@@ -87,6 +89,9 @@ static mqtt_cmd_context_t g_mqtt_cmd_context = {0};
 // System start time for uptime calculation
 static int64_t g_system_start_time = 0;
 
+// NBVI calibrator pointer (used during calibration to collect packets)
+static nbvi_calibrator_t *g_nbvi_calibrator = NULL;
+
 // WiFi event handler
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                int32_t event_id, void* event_data) {
@@ -124,6 +129,12 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
         return;
     }
     
+    // If NBVI calibration is in progress, add packet to calibrator buffer
+    if (g_nbvi_calibrator != NULL) {
+        nbvi_calibrator_add_packet(g_nbvi_calibrator, csi_data, csi_len);
+        return;  // Skip normal processing during calibration
+    }
+    
     // Protect g_state modifications with mutex (50ms timeout)
     if (xSemaphoreTake(g_state_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         
@@ -151,6 +162,125 @@ static void csi_callback(void *ctx __attribute__((unused)), wifi_csi_info_t *dat
                      (unsigned long)dropped);
         }
     }
+}
+
+/**
+ * Run NBVI auto-calibration
+ * 
+ * Collects CSI packets and automatically selects optimal subcarriers
+ * using NBVI Weighted α=0.3 algorithm with percentile-based detection.
+ * 
+ * @return true if calibration successful, false otherwise
+ */
+bool run_nbvi_calibration(void) {
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "═══════════════════════════════════════════════════════════");
+    ESP_LOGI(TAG, "🧬 NBVI Auto-Calibration Starting");
+    ESP_LOGI(TAG, "═══════════════════════════════════════════════════════════");
+    ESP_LOGI(TAG, "Please remain still for 5 seconds...");
+    ESP_LOGI(TAG, "Collecting CSI data for automatic subcarrier selection");
+    ESP_LOGI(TAG, "");
+    
+    // Initialize NBVI calibrator
+    nbvi_calibrator_t calibrator;
+    esp_err_t err = nbvi_calibrator_init(&calibrator);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize NBVI calibrator: %s", esp_err_to_name(err));
+        return false;
+    }
+    
+    // Set global pointer for CSI callback to populate calibrator buffer
+    g_nbvi_calibrator = &calibrator;
+    
+    // Wait for CSI callback to collect packets
+    ESP_LOGI(TAG, "NBVI: Collecting packets via CSI callback...");
+    uint16_t timeout_counter = 0;
+    const uint16_t max_timeout_ms = 15000;  // 15 seconds timeout
+    uint16_t last_count = 0;
+    
+    while (calibrator.buffer_count < NBVI_BUFFER_SIZE) {
+        vTaskDelay(pdMS_TO_TICKS(100));  // Check every 100ms
+        timeout_counter += 100;
+        
+        // Print progress when count changes
+        if (calibrator.buffer_count != last_count) {
+            if (calibrator.buffer_count % 100 == 0) {
+                ESP_LOGI(TAG, "NBVI: Collected %d/%d packets...",
+                         calibrator.buffer_count, NBVI_BUFFER_SIZE);
+            }
+            last_count = calibrator.buffer_count;
+            timeout_counter = 0;  // Reset timeout on progress
+        }
+        
+        // Check for timeout
+        if (timeout_counter >= max_timeout_ms) {
+            ESP_LOGE(TAG, "NBVI: Timeout waiting for CSI packets (collected %d/%d)",
+                     calibrator.buffer_count, NBVI_BUFFER_SIZE);
+            ESP_LOGE(TAG, "NBVI: Calibration aborted - using default band");
+            g_nbvi_calibrator = NULL;
+            nbvi_calibrator_free(&calibrator);
+            return false;
+        }
+    }
+    
+    // Clear global pointer
+    g_nbvi_calibrator = NULL;
+    
+    ESP_LOGI(TAG, "NBVI: Collection complete (%d packets)", NBVI_BUFFER_SIZE);
+    
+    // Run calibration
+    uint8_t selected_band[12];
+    uint8_t band_size = 0;
+    
+    err = nbvi_calibrator_calibrate(&calibrator,
+                                    g_state.config.selected_subcarriers,
+                                    g_state.config.num_selected_subcarriers,
+                                    selected_band,
+                                    &band_size);
+    
+    bool success = (err == ESP_OK && band_size == 12);
+    
+    if (success) {
+        // Update configuration
+        memcpy(g_state.config.selected_subcarriers, selected_band, 12);
+        g_state.config.num_selected_subcarriers = 12;
+        
+        // Update CSI processor
+        csi_set_subcarrier_selection(selected_band, 12);
+        
+        // Save to NVS
+        config_save_to_nvs(&g_state.config, 
+                          csi_processor_get_threshold(&g_state.csi_processor));
+        
+        ESP_LOGI(TAG, "");
+        ESP_LOGI(TAG, "═══════════════════════════════════════════════════════════");
+        ESP_LOGI(TAG, "✅ NBVI Calibration Successful!");
+        ESP_LOGI(TAG, "   Selected band: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d]",
+                 selected_band[0], selected_band[1], selected_band[2], selected_band[3],
+                 selected_band[4], selected_band[5], selected_band[6], selected_band[7],
+                 selected_band[8], selected_band[9], selected_band[10], selected_band[11]);
+        ESP_LOGI(TAG, "   Configuration saved to NVS");
+        ESP_LOGI(TAG, "═══════════════════════════════════════════════════════════");
+        ESP_LOGI(TAG, "");
+    } else {
+        ESP_LOGW(TAG, "");
+        ESP_LOGW(TAG, "═══════════════════════════════════════════════════════════");
+        ESP_LOGW(TAG, "⚠️  NBVI Calibration Failed");
+        ESP_LOGW(TAG, "   Using default band: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d]",
+                 g_state.config.selected_subcarriers[0], g_state.config.selected_subcarriers[1],
+                 g_state.config.selected_subcarriers[2], g_state.config.selected_subcarriers[3],
+                 g_state.config.selected_subcarriers[4], g_state.config.selected_subcarriers[5],
+                 g_state.config.selected_subcarriers[6], g_state.config.selected_subcarriers[7],
+                 g_state.config.selected_subcarriers[8], g_state.config.selected_subcarriers[9],
+                 g_state.config.selected_subcarriers[10], g_state.config.selected_subcarriers[11]);
+        ESP_LOGW(TAG, "═══════════════════════════════════════════════════════════");
+        ESP_LOGW(TAG, "");
+    }
+    
+    // Cleanup
+    nbvi_calibrator_free(&calibrator);
+    
+    return success;
 }
 
 static void csi_init(void) {
@@ -456,6 +586,16 @@ void app_main(void) {
     // Initialize CSI
     csi_init();
     
+    // NBVI Auto-Calibration (if enabled and no saved configuration)
+    if (NBVI_ENABLED && !config_exists_in_nvs()) {
+        ESP_LOGI(TAG, "🧬 NBVI auto-calibration enabled (no saved configuration)");
+        run_nbvi_calibration();
+    } else if (NBVI_ENABLED) {
+        ESP_LOGI(TAG, "🧬 NBVI: Using saved subcarrier configuration from NVS");
+    } else {
+        ESP_LOGI(TAG, "🧬 NBVI: Auto-calibration disabled");
+    }
+    
     // Setup MQTT publisher context (static to persist after app_main returns)
     static mqtt_publisher_context_t pub_context = {0};
     pub_context.mqtt_state = &g_state.mqtt_state;
@@ -485,4 +625,16 @@ void app_main(void) {
     ESP_LOGI(TAG, "║                                                           ║");
     ESP_LOGI(TAG, "╚═══════════════════════════════════════════════════════════╝");
     ESP_LOGI(TAG, "");
+    
+    // Publish system info after boot (to show current configuration)
+    ESP_LOGI(TAG, "📡 Publishing system info...");
+    cJSON *empty_root = cJSON_CreateObject();
+    if (empty_root) {
+        // Call cmd_info through mqtt_commands_process with empty command
+        // This will publish the info to MQTT
+        const char *info_cmd = "{\"cmd\":\"info\"}";
+        mqtt_commands_process(info_cmd, strlen(info_cmd), &g_mqtt_cmd_context,
+                            &g_state.mqtt_state, MQTT_TOPIC "/response");
+        cJSON_Delete(empty_root);
+    }
 }

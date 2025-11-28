@@ -1544,13 +1544,7 @@
                 if (data.response && typeof data.response === 'string') {
                     console.log('Detected command response');
                     showNotification(data.response, 'info');
-                    
-                    // If it's a factory reset confirmation, request updated configuration
-                    if (data.response.toLowerCase().includes('factory reset') || 
-                        data.response.toLowerCase().includes('reset complete')) {
-                        console.log('Factory reset confirmed, requesting updated configuration...');
-                        requestInfo();
-                    }
+                    // Info is automatically published by device after factory_reset
                     return;
                 }
 

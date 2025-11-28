@@ -172,9 +172,11 @@ class NVSStorage:
         # Apply subcarrier selection
         if "subcarriers" in config_data:
             config_module.SELECTED_SUBCARRIERS = config_data["subcarriers"]["indices"]
-            print(f"📡 Subcarrier selection loaded: {len(config_module.SELECTED_SUBCARRIERS)} subcarriers")
+            print(f"📡 Subcarrier selection loaded: {config_module.SELECTED_SUBCARRIERS}")
         
         # Apply options
         if "options" in config_data:
             config_module.SMART_PUBLISHING = config_data["options"].get("smart_publishing", config_module.SMART_PUBLISHING)
             print(f"📡 Smart publishing: {config_module.SMART_PUBLISHING}")
+        
+        return config_data

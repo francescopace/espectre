@@ -53,6 +53,11 @@ The Python implementation enables **fast iteration cycles** for testing configur
 | NVS Persistence | ✅ | ✅ (JSON file) | ✅ Implemented |
 | Auto-save on config change | ✅ | ✅ | ✅ Implemented |
 | Auto-load on startup | ✅ | ✅ | ✅ Implemented |
+| **Automatic Subcarrier Selection** |
+| NBVI Algorithm | ✅ | ✅ | ✅ Implemented |
+| Percentile-based Detection | ✅ | ✅ | ✅ Implemented |
+| Noise Gate | ✅ | ✅ | ✅ Implemented |
+| Spectral De-correlation | ✅ | ✅ | ✅ Implemented |
 | **CSI Features** |
 | `features_enable` | ✅ | ❌ | Not implemented |
 | 10 CSI Features | ✅ | ❌ | Not implemented |
@@ -81,6 +86,7 @@ The Python implementation enables **fast iteration cycles** for testing configur
 - ✅ Core motion detection functionality
 - ✅ Simple Python-based development
 - ✅ MQTT-based runtime configuration
+- ✅ Automatic subcarrier selection
 
 **Use ESPectre (C) if you need:**
 - ✅ Maximum performance and efficiency
@@ -194,6 +200,7 @@ micro-espectre/
 │   ├── traffic_generator.py   # WiFi traffic generator
 │   ├── nvs_storage.py         # JSON-based config persistence
 │   ├── filters.py             # Signal filtering (Hampel filter)
+│   ├── nbvi_calibrator.py     # NBVI automatic subcarrier selection
 │   ├── data_collector.py      # CSI data collection for testing
 │   └── mqtt/                  # MQTT sub-package
 │       ├── __init__.py        # MQTT package initialization
@@ -281,9 +288,19 @@ The tools directory includes **11 analysis scripts** covering:
 
 For complete NBVI documentation, algorithm details, and performance analysis, see **[tools/README.md](tools/README.md)**.
 
+## 🧬 Automatic Subcarrier Selection (NBVI)
+
+Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving near-optimal performance (F1=97.1%) with **zero manual configuration**.
+
+NBVI automatically selects the optimal 12 subcarriers from the 64 available in WiFi CSI by analyzing their stability and signal strength during a baseline period. The calibration runs automatically:
+- **At first boot** (if no saved configuration exists)
+- **After factory_reset** command
+
+For complete NBVI documentation, algorithm details, performance analysis, and configuration parameters, see **[tools/README.md](tools/README.md)**.
+
 ## 📡 MQTT Integration
 
-Micro-ESPectre maintains **full backward compatibility** with ESPectre's MQTT command interface. 
+Micro-ESPectre maintains **full backward compatibility** with ESPectre's MQTT command interface.
 
 For detailed documentation on MQTT commands, payloads, and usage examples, see the [ESPectre SETUP.md - MQTT Commands Reference](https://github.com/francescopace/espectre/blob/main/SETUP.md#mqtt-commands-reference).
 

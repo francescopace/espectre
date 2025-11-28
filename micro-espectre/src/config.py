@@ -22,7 +22,18 @@ CSI_BUFFER_SIZE = 16  # Circular buffer size (used to store csi packets until pr
 
 # Selected subcarriers for turbulence calculation
 # These are the most informative subcarriers identified through analysis
+# Can be automatically calibrated using NBVI algorithm at boot
 SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+
+# NBVI Auto-Calibration Configuration
+NBVI_ENABLED = True           # Enable automatic subcarrier selection at boot
+NBVI_BUFFER_SIZE = 500        # Packets to collect for calibration (5s @ 100Hz)
+NBVI_WINDOW_SIZE = 100        # Window size for baseline detection (1s @ 100Hz)
+NBVI_WINDOW_STEP = 50         # Step size for sliding window analysis
+NBVI_PERCENTILE = 10          # Percentile for baseline detection (10 = p10)
+NBVI_ALPHA = 0.3              # NBVI weighting factor (0.3 = optimal)
+NBVI_MIN_SPACING = 3          # Minimum spacing between subcarriers (Δf≥3)
+NBVI_NOISE_GATE_PERCENTILE = 10  # Exclude weak subcarriers below this percentile
 
 # Segmentation Configuration
 # Limits (matching segmentation.h)

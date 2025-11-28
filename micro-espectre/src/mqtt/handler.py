@@ -14,19 +14,22 @@ from src.mqtt.commands import MQTTCommands
 class MQTTHandler:
     """MQTT handler with publishing and command support"""
     
-    def __init__(self, config, segmentation, wlan, traffic_generator=None):
+    def __init__(self, config, segmentation, wlan, traffic_generator=None, nbvi_calibration_func=None):
         """
         Initialize MQTT handler
         
         Args:
             config: Configuration module
             segmentation: SegmentationContext instance
+            wlan: WLAN instance
             traffic_generator: TrafficGenerator instance (optional)
+            nbvi_calibration_func: Function to run NBVI calibration (optional)
         """
         self.config = config
         self.seg = segmentation
         self.wlan = wlan
         self.traffic_gen = traffic_generator
+        self.nbvi_calibration_func = nbvi_calibration_func
         self.client = None
         self.cmd_handler = None
         
@@ -63,7 +66,8 @@ class MQTTHandler:
             self.seg,
             self.response_topic,
             self.wlan,
-            self.traffic_gen
+            self.traffic_gen,
+            self.nbvi_calibration_func
         )
         
         # Set callback for incoming messages
@@ -165,6 +169,11 @@ class MQTTHandler:
                 print('MQTT disconnected')
             except Exception as e:
                 print(f"Error disconnecting MQTT: {e}")
+    
+    def publish_info(self):
+        """Publish system info"""
+        if self.cmd_handler:
+            self.cmd_handler.cmd_info()
     
     def get_stats(self):
         """Get publishing statistics"""
