@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'components/espectre/**'
+      - 'test/**'
+      - 'espectre-c6.yaml'
+      - 'espectre-s3.yaml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'components/espectre/**'
+      - 'test/**'
+      - 'espectre-c6.yaml'
+      - 'espectre-s3.yaml'
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+      
+      - name: Run Tests
+        working-directory: test
+        run: pio test -e native
+
+  build:
+    name: ESPHome Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        config: [espectre-c6.yaml, espectre-s3.yaml]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install ESPHome
+        run: |
+          python -m pip install --upgrade pip
+          pip install esphome
+      
+      - name: Create secrets.yaml
+        run: |
+          echo 'wifi_ssid: "test"' > secrets.yaml
+          echo 'wifi_password: "test1234"' >> secrets.yaml
+      
+      - name: Compile ${{ matrix.config }}
+        run: esphome compile ${{ matrix.config }}
+

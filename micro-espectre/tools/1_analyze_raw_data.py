@@ -143,12 +143,10 @@ def main():
     elif not baseline_has_lower_variance:
         print("⚠️  VERDICT: Files appear to be SWAPPED or collected incorrectly!")
         print("\nPossible causes:")
-        print("  1. Files were physically swapped (baseline_data.bin ↔ movement_data.bin)")
-        print("  2. Data was collected in wrong order")
-        print("  3. Movement data has less variance than baseline (unusual)")
+        print("  1. Data was collected in wrong order")
+        print("  2. Movement data has less variance than baseline (unusual)")
         print("\nRecommended action:")
-        print("  - Swap the filenames: mv baseline_data.bin temp.bin && mv movement_data.bin baseline_data.bin && mv temp.bin movement_data.bin")
-        print("  - OR re-collect the data ensuring baseline is collected first")
+        print("  - Re-collect the data ensuring baseline is collected first")
     else:
         print("⚠️  VERDICT: Label mismatch detected - check data collection process")
     

@@ -1,6 +1,9 @@
 """
 MVS Utilities - Common module for loading CSI data and MVS detection
 
+Shared utilities for analysis scripts.
+Provides data loading and MVS detection functions for offline analysis.
+
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
@@ -16,8 +19,9 @@ PACKET_SIZE = struct.calcsize(PACKET_FORMAT)
 MAGIC_NUMBER = 0x43534944  # "CSID"
 
 # Fixed file paths
-BASELINE_FILE = Path('baseline_data.bin')
-MOVEMENT_FILE = Path('movement_data.bin')
+DATA_DIR = Path(__file__).parent / 'data'
+BASELINE_FILE = DATA_DIR / 'baseline_data_c6.bin'
+MOVEMENT_FILE = DATA_DIR / 'movement_data_c6.bin'
 
 def load_binary_data(filename):
     """
@@ -75,9 +79,9 @@ def load_baseline_and_movement():
         tuple: (baseline_packets, movement_packets)
     """
     if not BASELINE_FILE.exists():
-        raise FileNotFoundError(f"{BASELINE_FILE} not found. Run: ./deploy.sh --collect-baseline")
+        raise FileNotFoundError(f"{BASELINE_FILE} not found. Run: ../me run --collect-baseline")
     if not MOVEMENT_FILE.exists():
-        raise FileNotFoundError(f"{MOVEMENT_FILE} not found. Run: ./deploy.sh --collect-movement")
+        raise FileNotFoundError(f"{MOVEMENT_FILE} not found. Run: ../me run --collect-movement")
     
     baseline_packets = load_binary_data(BASELINE_FILE)
     movement_packets = load_binary_data(MOVEMENT_FILE)

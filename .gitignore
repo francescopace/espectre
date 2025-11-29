@@ -1,18 +1,39 @@
-# ESP-IDF
-esp-idf/
-build/
-sdkconfig
-sdkconfig.old
-dependencies.lock
-managed_components/
+# PlatformIO
+test/.pio/
+test/.vscode/
+test/.clang_complete
+test/.gcc-flags.json
+*.elf
+*.bin
+*.map
 
-# Project data
-.vscode/
-docs/
-test_results/
-__pycache__
+# Python
+__pycache__/
+*.pyc
+*.pyo
 .cache
 
-# Other
+# Virtual environment
+venv/
+env/
+.venv/
+
+# ESPHome
+.esphome/
+secrets.yaml
+
+# Editor
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
 .DS_Store
+
+# Logs
+*.log
 .log.
+
+# Documentation
+docs/

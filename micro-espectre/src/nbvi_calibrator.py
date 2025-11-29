@@ -1,14 +1,20 @@
 """
 NBVI (Normalized Baseline Variability Index) Calibrator
 
-Automatic subcarrier selection using percentile-based baseline detection.
-Implements NBVI Weighted α=0.3 algorithm for optimal subcarrier selection.
+Automatic subcarrier selection based on baseline variability analysis.
+Identifies optimal subcarriers for motion detection using statistical analysis.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
 import math
+import gc
+import os
+
+# Constants
+NUM_SUBCARRIERS = 64
+BUFFER_FILE = '/nbvi_buffer.bin'
 
 
 class NBVICalibrator:
@@ -17,6 +23,10 @@ class NBVICalibrator:
     
     Collects CSI packets at boot and automatically selects optimal subcarriers
     using NBVI Weighted α=0.3 algorithm with percentile-based detection.
+    
+    Uses file-based storage to avoid RAM limitations. Magnitudes stored as
+    uint8 (max CSI magnitude ~181 fits in 1 byte). This allows collecting
+    thousands of packets without memory issues.
     """
     
     def __init__(self, buffer_size=1000, percentile=10, alpha=0.3, min_spacing=3):
@@ -34,14 +44,21 @@ class NBVICalibrator:
         self.alpha = alpha
         self.min_spacing = min_spacing
         self.noise_gate_percentile = 10
+        self._packet_count = 0
+        self._file = None
         
-        # Buffer: Store only magnitudes (64 per packet)
-        # Using list of lists: [[mag0, mag1, ..., mag63], ...]
-        self.buffer = []
+        # Remove old buffer file if exists
+        try:
+            os.remove(BUFFER_FILE)
+        except OSError:
+            pass
+        
+        # Open file for writing
+        self._file = open(BUFFER_FILE, 'wb')
         
     def add_packet(self, csi_data):
         """
-        Add CSI packet to calibration buffer
+        Add CSI packet to calibration buffer (file-based)
         
         Args:
             csi_data: CSI data array (128 bytes: 64 subcarriers × 2 I/Q)
@@ -49,26 +66,62 @@ class NBVICalibrator:
         Returns:
             int: Current buffer size (progress indicator)
         """
-        if len(self.buffer) >= self.buffer_size:
+        if self._packet_count >= self.buffer_size:
             return self.buffer_size
         
-        # Extract magnitudes for all 64 subcarriers
-        magnitudes = []
-        for sc in range(64):
+        # Extract magnitudes and write directly to file
+        magnitudes = bytearray(NUM_SUBCARRIERS)
+        for sc in range(NUM_SUBCARRIERS):
             i_idx = sc * 2
             q_idx = sc * 2 + 1
             
             if q_idx < len(csi_data):
                 I = csi_data[i_idx]
                 Q = csi_data[q_idx]
-                # Calculate magnitude and store as int16 to save memory
+                # Calculate magnitude as uint8 (max ~181 fits in byte)
                 mag = int(math.sqrt(I*I + Q*Q))
-                magnitudes.append(mag)
+                magnitudes[sc] = min(mag, 255)  # Clamp to uint8
             else:
-                magnitudes.append(0)
+                magnitudes[sc] = 0
         
-        self.buffer.append(magnitudes)
-        return len(self.buffer)
+        # Write to file
+        self._file.write(magnitudes)
+        self._packet_count += 1
+        
+        # Flush periodically to ensure data is written
+        if self._packet_count % 100 == 0:
+            self._file.flush()
+        
+        return self._packet_count
+    
+    def _read_packet(self, packet_idx):
+        """Read a single packet from file"""
+        self._file.seek(packet_idx * NUM_SUBCARRIERS)
+        data = self._file.read(NUM_SUBCARRIERS)
+        return list(data) if data else None
+    
+    def _read_window(self, start_idx, window_size):
+        """Read a window of packets from file"""
+        self._file.seek(start_idx * NUM_SUBCARRIERS)
+        data = self._file.read(window_size * NUM_SUBCARRIERS)
+        if not data:
+            return []
+        
+        # Convert to list of lists
+        window = []
+        for i in range(0, len(data), NUM_SUBCARRIERS):
+            packet = list(data[i:i+NUM_SUBCARRIERS])
+            if len(packet) == NUM_SUBCARRIERS:
+                window.append(packet)
+        return window
+    
+    def _prepare_for_reading(self):
+        """Close write mode and reopen for reading"""
+        if self._file:
+            self._file.flush()  # Assicura scrittura completa
+            self._file.close()
+            gc.collect()
+        self._file = open(BUFFER_FILE, 'rb')
     
     def _calculate_variance_two_pass(self, values):
         """Two-pass variance algorithm (numerically stable)"""
@@ -100,16 +153,19 @@ class NBVICalibrator:
             step: Step size for sliding window (default: 50 packets)
         
         Returns:
-            list: Best baseline window, or None if not found
+            tuple: (best_window, stats_dict) or (None, None) if not found
         """
-        if len(self.buffer) < window_size:
-            return None
+        if self._packet_count < window_size:
+            return None, None
         
-        # Analyze sliding windows
-        window_variances = []
+        # Analyze sliding windows - store only variance and start index to save memory
+        window_results = []
         
-        for i in range(0, len(self.buffer) - window_size, step):
-            window = self.buffer[i:i+window_size]
+        for i in range(0, self._packet_count - window_size, step):
+            # Read window from file
+            window = self._read_window(i, window_size)
+            if len(window) < window_size:
+                continue
             
             # Calculate spatial turbulence for this window
             turbulences = []
@@ -126,35 +182,45 @@ class NBVICalibrator:
             # Calculate variance of turbulence (moving variance)
             if turbulences:
                 turb_variance = self._calculate_variance_two_pass(turbulences)
-                window_variances.append({
-                    'start': i,
-                    'variance': turb_variance,
-                    'window': window
-                })
+                # Store only start index and variance to save memory
+                window_results.append((i, turb_variance))
+            
+            # FIX: Move inside loop - free memory after EACH window iteration
+            del window
+            del turbulences
+            if i % 200 == 0:  # GC every 4 iterations (step=50, so 200/50=4)
+                gc.collect()
         
-        if not window_variances:
-            return None
+        if not window_results:
+            return None, None
         
         # Calculate percentile threshold (adaptive!)
-        variances = [w['variance'] for w in window_variances]
+        variances = [w[1] for w in window_results]
         p_threshold = self._percentile(variances, self.percentile)
         
         # Find windows below percentile
-        baseline_candidates = [w for w in window_variances if w['variance'] <= p_threshold]
+        baseline_candidates = [w for w in window_results if w[1] <= p_threshold]
         
         if not baseline_candidates:
-            return None
+            return None, None
         
         # Use window with minimum variance
-        best_window = min(baseline_candidates, key=lambda x: x['variance'])
+        best_result = min(baseline_candidates, key=lambda x: x[1])
+        best_start = best_result[0]
         
-        print(f"NBVI: Baseline window found")
-        print(f"  Variance: {best_window['variance']:.4f}")
-        print(f"  p{self.percentile} threshold: {p_threshold:.4f} (adaptive)")
-        print(f"  Windows analyzed: {len(window_variances)}")
-        print(f"  Baseline candidates: {len(baseline_candidates)}")
+        # Re-read the best window from file
+        best_window = self._read_window(best_start, window_size)
         
-        return best_window['window']
+        # Return window and stats for logging
+        stats = {
+            'variance': best_result[1],
+            'threshold': p_threshold,
+            'windows_analyzed': len(window_results),
+            'baseline_candidates': len(baseline_candidates),
+            'start_idx': best_start
+        }
+        
+        return best_window, stats
     
     def _percentile(self, values, p):
         """Calculate percentile (simple implementation)"""
@@ -225,8 +291,8 @@ class NBVICalibrator:
         
         filtered = [m for m in subcarrier_metrics if m['mean'] >= threshold]
         
-        print(f"NBVI: Noise Gate excluded {len(subcarrier_metrics) - len(filtered)} weak subcarriers")
-        print(f"  Threshold: {threshold:.2f} (p{self.noise_gate_percentile})")
+        #print(f"NBVI: Noise Gate excluded {len(subcarrier_metrics) - len(filtered)} weak subcarriers")
+        #print(f"  Threshold: {threshold:.2f} (p{self.noise_gate_percentile})")
         
         return filtered
     
@@ -246,8 +312,7 @@ class NBVICalibrator:
             list: Selected subcarrier indices
         """
         # Phase 1: Top 5 absolute best
-        top_5 = [m['subcarrier'] for m in sorted_metrics[:5]]
-        selected = top_5[:]
+        selected = [m['subcarrier'] for m in sorted_metrics[:5]]
         
         # Phase 2: Remaining 7 with spacing
         for candidate in sorted_metrics[5:]:
@@ -273,10 +338,6 @@ class NBVICalibrator:
         
         selected.sort()
         
-        print(f"NBVI: Selected {len(selected)} subcarriers")
-        print(f"  Top 5: {top_5}")
-        print(f"  With spacing Δf≥{self.min_spacing}: {selected[5:]}")
-        
         return selected
     
     def calibrate(self, current_band, window_size=None, step=None):
@@ -300,19 +361,21 @@ class NBVICalibrator:
         if step is None:
             step = config.NBVI_WINDOW_STEP
         
-        print("\nNBVI: Starting calibration...")
-        print(f"  Window size: {window_size} packets")
-        print(f"  Step size: {step} packets")
+        #print("\nNBVI: Starting calibration...")
+        #print(f"  Packets collected: {self._packet_count}")
+        #print(f"  Window size: {window_size} packets")
+        #print(f"  Step size: {step} packets")
+        
+        # Prepare file for reading
+        self._prepare_for_reading()
         
         # Step 1: Find baseline window using percentile
-        baseline_window = self._find_baseline_window_percentile(current_band, window_size, step)
+        baseline_window, baseline_stats = self._find_baseline_window_percentile(current_band, window_size, step)
         
         if baseline_window is None:
             print("NBVI: Failed to find baseline window")
             return None
-        
-        print(f"NBVI: Using {len(baseline_window)} packets for calibration")
-        
+                
         # Step 2: Calculate NBVI for all 64 subcarriers
         all_metrics = []
         
@@ -347,9 +410,22 @@ class NBVICalibrator:
         avg_nbvi = sum(m['nbvi'] for m in selected_metrics) / len(selected_metrics)
         avg_mean = sum(m['mean'] for m in selected_metrics) / len(selected_metrics)
         
-        print(f"NBVI: Calibration successful!")
-        print(f"  Band: {selected_band}")
-        print(f"  Average NBVI: {avg_nbvi:.6f}")
-        print(f"  Average magnitude: {avg_mean:.2f}")
         
         return selected_band
+    
+    def free_buffer(self):
+        """
+        Free resources after calibration is complete.
+        Closes file and removes temporary buffer file.
+        """
+        if self._file:
+            self._file.close()
+            self._file = None
+        
+        # Remove buffer file
+        try:
+            os.remove(BUFFER_FILE)
+        except OSError:
+            pass
+        
+        gc.collect()

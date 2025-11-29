@@ -1,0 +1,70 @@
+esphome:
+  name: espectre-s3
+
+esp32:
+  variant: ESP32S3
+  partitions: partitions.csv
+  framework:
+    type: esp-idf
+    version: 5.5.1
+    sdkconfig_options:
+      # Power Management (critical for CSI reliability)
+      CONFIG_PM_ENABLE: n                             # Disable all power management
+      CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE: n   # No power save when disconnected
+      # CSI Feature
+      CONFIG_ESP_WIFI_CSI_ENABLED: y                  # Enable CSI extraction from WiFi packets
+      # PSRAM Support
+      CONFIG_SPIRAM: y                                # Enable SPIRAM/PSRAM
+      CONFIG_SPIRAM_IGNORE_NOTFOUND: y                # Continue if PSRAM not found (for compatibility)
+      CONFIG_SPIRAM_TYPE_AUTO: y                      # Automatic detection of PSRAM type
+      CONFIG_SPIRAM_SPEED_80M: y                      # 80MHz PSRAM clock
+      CONFIG_SPIRAM_BOOT_INIT: y                      # Initialize at boot
+      CONFIG_SPIRAM_USE_MALLOC: y                     # Use PSRAM for malloc/heap
+      CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL: "8192"     # Small allocations (<8KB) use internal RAM
+      CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL: "32768"  # Reserve 32KB internal for DMA
+      CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY: y    # Required for some operations
+      CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP: n         # Disable WiFi allocation from PSRAM
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+
+ota:
+  - platform: esphome
+
+logger:
+  level: INFO
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [ espectre ]
+
+# ESPectre - WiFi CSI Motion Detection
+espectre:
+  traffic_generator_rate: 100   # DNS queries/sec to gateway to generate CSI data (default 100)
+  segmentation_threshold: 1.0   # Motion detection sensitivity: lower=more sensitive (0.5-10.0, default 1.0)
+  segmentation_window_size: 50  # Analysis window: larger=fewer false positives but slower reaction (10-200, default 50)
+  hampel_enabled: true          # Anti-turbulence filter: removes spikes from air currents/fans (default true)
+
+debug:
+  update_interval: 5s
+
+sensor:
+  - platform: debug
+    free:
+      name: "Free Heap"
+    block:
+      name: "Max Free Block"
+    loop_time:
+      name: "Loop Time"
+
+text_sensor:
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"

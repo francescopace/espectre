@@ -35,20 +35,24 @@ from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 # CONFIGURATION
 # ============================================================================
 
-BUTTERWORTH_ORDER = 4
-BUTTERWORTH_CUTOFF = 4.0  # Hz (optimal for threshold < 2.0, was 8.0)
-SAMPLING_RATE = 100.0     # Hz (assumed)
+# Butterworth low-pass filter parameters
+BUTTERWORTH_ORDER = 4       # - ORDER: Filter steepness (higher = sharper cutoff, more phase distortion)
+BUTTERWORTH_CUTOFF = 4.0    # - CUTOFF: Frequency threshold in Hz (signals above this are attenuated) 
+SAMPLING_RATE = 100.0       # - SAMPLING_RATE: Data acquisition rate in Hz (must match your sensor)
 
-HAMPEL_WINDOW = 5
-HAMPEL_THRESHOLD = 3.0
+# Hampel filter parameters (outlier/spike removal)
+HAMPEL_WINDOW = 7          # - WINDOW: Number of neighboring samples to consider for median calculation
+HAMPEL_THRESHOLD = 4.0     # - THRESHOLD: Number of MADs (Median Absolute Deviations) to flag as outlier
 
-SAVGOL_WINDOW = 5
-SAVGOL_POLYORDER = 2
+# Savitzky-Golay filter parameters (smoothing while preserving peaks)
+SAVGOL_WINDOW = 5          # - WINDOW: Number of points used for polynomial fitting (must be odd)
+SAVGOL_POLYORDER = 2       # - POLYORDER: Degree of the fitting polynomial (must be < WINDOW)
 
+# Wavelet filter parameters (denoising)
 WAVELET_TYPE = 'db4'          # Daubechies 4 (same as C implementation)
-WAVELET_LEVEL = 3             # Decomposition level (1-3)
-WAVELET_THRESHOLD = 1.0       # Noise threshold
-WAVELET_MODE = 'soft'         # 'soft' or 'hard' thresholding
+WAVELET_LEVEL = 3             # - LEVEL: Decomposition level (1-3)
+WAVELET_THRESHOLD = 1.0       # - THRESHOLD: Noise threshold
+WAVELET_MODE = 'soft'         # - MODE: 'soft' or 'hard' thresholding
 
 # ============================================================================
 
