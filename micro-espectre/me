@@ -1,0 +1,928 @@
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import time
+import argparse
+import shlex
+import webbrowser
+import subprocess
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, Any, List, Tuple
+
+FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-alpha"
+FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
+
+try:
+    import yaml
+    import paho.mqtt.client as mqtt
+    from colorama import init, Fore, Style
+    from dotenv import load_dotenv
+    from prompt_toolkit import PromptSession, print_formatted_text
+    from prompt_toolkit.completion import NestedCompleter
+    from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.styles import Style as PromptStyle
+    from prompt_toolkit.formatted_text import HTML, FormattedText
+except ImportError as e:
+    print(f"Error: Missing dependency {e.name}. Please install requirements.txt")
+    print("pip install -r requirements.txt")
+    sys.exit(1)
+
+# Initialize colorama
+init()
+
+# Load environment variables
+load_dotenv()
+
+# Custom Dumper to force inline lists
+class CompactDumper(yaml.SafeDumper):
+    pass
+
+def represent_list(dumper, data):
+    return dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=True)
+
+CompactDumper.add_representer(list, represent_list)
+
+# ============================================================================
+# Port and Chip Detection Functions
+# ============================================================================
+
+def detect_serial_ports():
+    """Auto-detect available serial ports for ESP32 devices"""
+    try:
+        import serial.tools.list_ports
+    except ImportError:
+        print(f"{Fore.RED}❌ pyserial not found. Install it with:{Style.RESET_ALL}")
+        print("   pip install pyserial")
+        sys.exit(1)
+    
+    ports = []
+    for port in serial.tools.list_ports.comports():
+        # Filter for common USB-to-serial adapters used with ESP32
+        desc_lower = port.description.lower()
+        if any(keyword in desc_lower for keyword in ['usb', 'serial', 'uart', 'cp210', 'ch340', 'ftdi']):
+            ports.append(port.device)
+    
+    return ports
+
+
+def get_serial_port(port_arg):
+    """Get serial port from argument or auto-detect"""
+    if port_arg:
+        return port_arg
+    
+    # Auto-detect
+    print(f"{Fore.YELLOW}🔍 Auto-detecting serial ports...{Style.RESET_ALL}")
+    ports = detect_serial_ports()
+    
+    if len(ports) == 0:
+        print(f"{Fore.RED}❌ No serial ports found{Style.RESET_ALL}")
+        print(f"\n{Fore.YELLOW}Please connect your ESP32 device and try again.{Style.RESET_ALL}")
+        sys.exit(1)
+    elif len(ports) == 1:
+        print(f"{Fore.GREEN}✅ Auto-detected port: {ports[0]}{Style.RESET_ALL}\n")
+        return ports[0]
+    else:
+        # Multiple ports - ask user
+        print(f"{Fore.YELLOW}Multiple serial ports found:{Style.RESET_ALL}")
+        for i, port in enumerate(ports, 1):
+            print(f"  {i}. {port}")
+        print()
+        try:
+            choice = int(input(f"{Fore.CYAN}Select port (1-{len(ports)}): {Style.RESET_ALL}"))
+            if 1 <= choice <= len(ports):
+                selected = ports[choice - 1]
+                print(f"{Fore.GREEN}✅ Selected: {selected}{Style.RESET_ALL}\n")
+                return selected
+            else:
+                print(f"{Fore.RED}Invalid choice{Style.RESET_ALL}")
+                sys.exit(1)
+        except (ValueError, KeyboardInterrupt):
+            print(f"\n{Fore.RED}Cancelled{Style.RESET_ALL}")
+            sys.exit(1)
+
+
+def detect_chip_type(port):
+    """Auto-detect ESP32 chip type (S3 or C6)"""
+    try:
+        import esptool
+    except ImportError:
+        return None
+    
+    esp = None
+    try:
+        print(f"{Fore.YELLOW}🔍 Detecting chip type...{Style.RESET_ALL}")
+        
+        # Use esptool to detect chip with required parameters
+        esp = esptool.get_default_connected_device(
+            serial_list=[port],
+            port=port,
+            connect_attempts=3,
+            initial_baud=115200
+        )
+        
+        chip_name = esp.CHIP_NAME
+        
+        # Map to our chip codes
+        if 'ESP32-S3' in chip_name:
+            print(f"{Fore.GREEN}✅ Detected: ESP32-S3{Style.RESET_ALL}\n")
+            return 's3'
+        elif 'ESP32-C6' in chip_name:
+            print(f"{Fore.GREEN}✅ Detected: ESP32-C6{Style.RESET_ALL}\n")
+            return 'c6'
+        else:
+            print(f"{Fore.YELLOW}⚠️  Unknown chip: {chip_name}{Style.RESET_ALL}\n")
+            return None
+            
+    except Exception as e:
+        print(f"{Fore.YELLOW}⚠️  Could not detect chip type: {e}{Style.RESET_ALL}")
+        return None
+    finally:
+        # Close the serial connection to release the port
+        if esp and hasattr(esp, '_port') and esp._port:
+            try:
+                esp._port.close()
+            except Exception:
+                pass
+        # Give the OS time to release the port
+        time.sleep(1)
+
+
+def prompt_chip_type():
+    """Prompt user to manually select chip type"""
+    print(f"\n{Fore.CYAN}Please select your ESP32 chip type:{Style.RESET_ALL}")
+    print(f"  1. ESP32-S3")
+    print(f"  2. ESP32-C6")
+    print()
+    
+    try:
+        choice = input(f"{Fore.CYAN}Select chip (1-2): {Style.RESET_ALL}")
+        if choice == '1':
+            print(f"{Fore.GREEN}✅ Selected: ESP32-S3{Style.RESET_ALL}\n")
+            return 's3'
+        elif choice == '2':
+            print(f"{Fore.GREEN}✅ Selected: ESP32-C6{Style.RESET_ALL}\n")
+            return 'c6'
+        else:
+            print(f"{Fore.RED}Invalid choice{Style.RESET_ALL}")
+            return None
+    except (KeyboardInterrupt, EOFError):
+        print(f"\n{Fore.RED}Cancelled{Style.RESET_ALL}")
+        return None
+
+
+# ============================================================================
+# Device Management Functions
+# ============================================================================
+
+def download_firmware(chip: str, firmware_dir: Path) -> Path:
+    """Download firmware from GitHub releases if not already cached"""
+    import urllib.request
+    import urllib.error
+    
+    chip_name = 'S3' if chip == 's3' else 'C6'
+    firmware_name = f'{FIRMWARE_NAME_PREFIX}{chip_name}.bin'
+    firmware_path = firmware_dir / firmware_name
+    
+    # Check if firmware already exists (cached)
+    if firmware_path.exists():
+        print(f"{Fore.GREEN}✅ Using cached firmware: {firmware_name}{Style.RESET_ALL}")
+        return firmware_path
+    
+    # Create firmware directory if needed
+    firmware_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Download firmware
+    url = f"{FIRMWARE_RELEASE_URL}/{firmware_name}"
+    print(f"{Fore.YELLOW}📥 Downloading firmware from GitHub...{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}   URL: {url}{Style.RESET_ALL}")
+    
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response:
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+            chunk_size = 8192
+            
+            with open(firmware_path, 'wb') as f:
+                while True:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size:
+                        progress = (downloaded * 100) // total_size
+                        print(f"\r{Fore.YELLOW}   Progress: {progress}% ({downloaded // 1024} KB){Style.RESET_ALL}", end='', flush=True)
+            print()  # New line after progress
+        
+        print(f"{Fore.GREEN}✅ Firmware downloaded: {firmware_name}{Style.RESET_ALL}")
+        return firmware_path
+        
+    except urllib.error.URLError as e:
+        print(f"{Fore.RED}❌ Failed to download firmware: {e}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}   Check your internet connection or download manually from:{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}   https://github.com/francescopace/micropython-esp32-csi/releases{Style.RESET_ALL}")
+        sys.exit(1)
+
+
+def flash_firmware(args):
+    """Flash MicroPython firmware to ESP32 using esptool library"""
+    try:
+        import esptool
+    except ImportError:
+        print(f"{Fore.RED}❌ esptool not found. Install it with:{Style.RESET_ALL}")
+        print("   pip install esptool")
+        sys.exit(1)
+    
+    # Auto-detect port if not provided
+    port = get_serial_port(args.port)
+    
+    # Auto-detect chip if not provided
+    chip = args.chip
+    if not chip:
+        chip = detect_chip_type(port)
+        if not chip:
+            # Auto-detect failed, prompt user
+            print(f"\n{Fore.YELLOW}💡 Tip: If the chip is not responding, try:{Style.RESET_ALL}")
+            print(f"   1. Hold the BOOT button on your ESP32")
+            print(f"   2. Press and release the RESET button (while holding BOOT)")
+            print(f"   3. Release the BOOT button")
+            print(f"   4. Try flashing again")
+            print()
+            
+            chip = prompt_chip_type()
+            if not chip:
+                sys.exit(1)
+    
+    # Determine firmware path
+    script_dir = Path(__file__).parent
+    firmware_dir = script_dir / 'firmware'
+    
+    if args.firmware:
+        firmware_path = Path(args.firmware)
+        if not firmware_path.exists():
+            print(f"{Fore.RED}❌ Firmware not found: {firmware_path}{Style.RESET_ALL}")
+            sys.exit(1)
+    else:
+        # Download firmware from GitHub (or use cached version)
+        firmware_path = download_firmware(chip, firmware_dir)
+    
+    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}║          μESPectre - Flashing MicroPython Firmware        ║{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.CYAN}Chip:     {chip.upper()}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}Port:     {port}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}Firmware: {firmware_path.name}{Style.RESET_ALL}")
+    print()
+    
+    # Determine chip name for esptool
+    chip_name = 'esp32s3' if chip == 's3' else 'esp32c6'
+    
+    # Build base command arguments with conservative settings for reliability
+    base_args = [
+        '--chip', chip_name,
+        '--port', port,
+        '--baud', '460800',  # Lower baud rate for more reliable flashing
+    ]
+    
+    try:
+        # Erase flash if requested
+        if args.erase:
+            print(f"{Fore.YELLOW}1️⃣  Erasing flash...{Style.RESET_ALL}")
+            erase_args = base_args + ['erase_flash']
+            esptool.main(erase_args)
+            print(f"{Fore.GREEN}✅ Flash erased{Style.RESET_ALL}\n")
+            
+            # Wait a bit after erase for chip to stabilize
+            print(f"{Fore.YELLOW}⏳ Waiting for chip to stabilize...{Style.RESET_ALL}")
+            time.sleep(2)
+        
+        # Flash firmware with retry logic
+        print(f"{Fore.YELLOW}2️⃣  Flashing firmware...{Style.RESET_ALL}")
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    print(f"{Fore.YELLOW}🔄 Retry attempt {attempt + 1}/{max_retries}...{Style.RESET_ALL}")
+                    time.sleep(2)  # Wait before retry
+                
+                # Use write-flash (not deprecated) with conservative settings
+                flash_args = base_args + [
+                    '--before', 'default_reset',  # Reset before operation
+                    '--after', 'hard_reset',      # Hard reset after flashing
+                    'write-flash',                # Use non-deprecated command
+                    '--flash_mode', 'dio',        # Conservative flash mode
+                    '--flash_freq', '40m',        # Conservative frequency
+                    '--flash_size', 'detect',     # Auto-detect flash size
+                    '0x0',                        # Flash offset
+                    str(firmware_path)
+                ]
+                
+                esptool.main(flash_args)
+                
+                # If we get here, flashing succeeded
+                print()
+                print(f"{Fore.GREEN}✅ Firmware flashed successfully!{Style.RESET_ALL}")
+                print()
+                print(f"{Fore.CYAN}Next steps:{Style.RESET_ALL}")
+                print(f"  1. cp src/config_local.py.example src/config_local.py")
+                print(f"  2. Edit src/config_local.py with your credentials")
+                print(f"  3. {Fore.GREEN}./me deploy{Style.RESET_ALL}")
+                print(f"  4. {Fore.GREEN}./me run{Style.RESET_ALL}")
+                print()
+                return  # Success!
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"{Fore.YELLOW}⚠️  Attempt {attempt + 1} failed: {e}{Style.RESET_ALL}")
+                    continue
+                else:
+                    # Last attempt failed
+                    raise
+        
+    except Exception as e:
+        print(f"\n{Fore.RED}❌ Error flashing firmware: {e}{Style.RESET_ALL}")
+        print(f"\n{Fore.YELLOW}Troubleshooting tips:{Style.RESET_ALL}")
+        print(f"  1. Try holding the BOOT button while connecting")
+        print(f"  2. Use a different USB cable (data cable, not charge-only)")
+        print(f"  3. Try a different USB port (preferably USB 2.0)")
+        print(f"  4. Ensure no other programs are using the serial port")
+        print(f"  5. Try with --erase flag: {Fore.GREEN}./me flash --erase{Style.RESET_ALL}")
+        print()
+        sys.exit(1)
+
+
+def deploy_code(args):
+    """Deploy Python code to MicroPython device using mpremote"""
+    
+    # Check if mpremote is available
+    try:
+        subprocess.run(['mpremote', '--version'], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print(f"{Fore.RED}❌ mpremote not found. Install it with:{Style.RESET_ALL}")
+        print("   pip install mpremote")
+        sys.exit(1)
+    
+    # Auto-detect port if not provided
+    port = get_serial_port(args.port)
+    
+    # Check config_local.py
+    if not Path('src/config_local.py').exists():
+        print(f"{Fore.RED}❌ src/config_local.py not found!{Style.RESET_ALL}")
+        print(f"\n{Fore.YELLOW}Create it from the template:{Style.RESET_ALL}")
+        print(f"  cp src/config_local.py.example src/config_local.py")
+        print(f"  # Then edit src/config_local.py with your credentials")
+        print()
+        sys.exit(1)
+    
+    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}║            μESPectre - Deploying Code to Device           ║{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.CYAN}Port: {port}{Style.RESET_ALL}")
+    print()
+    
+    try:
+        # Create directories
+        print(f"{Fore.YELLOW}📁 Creating directories...{Style.RESET_ALL}")
+        subprocess.run(['mpremote', 'connect', port, 'mkdir', ':src'], 
+                      stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(['mpremote', 'connect', port, 'mkdir', ':src/mqtt'], 
+                      stderr=subprocess.DEVNULL, check=False)
+        
+        # Upload files
+        print(f"{Fore.YELLOW}📤 Uploading files...{Style.RESET_ALL}")
+        
+        files_to_upload: List[Tuple[str, str]] = [
+            ('src/__init__.py', ':src/'),
+            ('src/config.py', ':src/'),
+            ('src/config_local.py', ':src/'),
+            ('src/segmentation.py', ':src/'),
+            ('src/traffic_generator.py', ':src/'),
+            ('src/nvs_storage.py', ':src/'),
+            ('src/filters.py', ':src/'),
+            ('src/features.py', ':src/'),
+            ('src/nbvi_calibrator.py', ':src/'),
+            ('src/main.py', ':src/'),
+            ('src/data_collector.py', ':src/'),
+            ('src/mqtt/__init__.py', ':src/mqtt/'),
+            ('src/mqtt/handler.py', ':src/mqtt/'),
+            ('src/mqtt/commands.py', ':src/mqtt/'),
+        ]
+        
+        for src, dst in files_to_upload:
+            if not Path(src).exists():
+                print(f"{Fore.RED}  ❌ File not found: {src}{Style.RESET_ALL}")
+                continue
+            print(f"  {src} → {dst}")
+            subprocess.run(['mpremote', 'connect', port, 'cp', src, dst], 
+                          check=True, capture_output=True)
+        
+        print()
+        print(f"{Fore.GREEN}✅ Deployment complete!{Style.RESET_ALL}")
+        print()
+        print(f"{Fore.CYAN}To run the application:{Style.RESET_ALL}")
+        print(f"  ./me run")
+        print()
+        
+    except subprocess.CalledProcessError as e:
+        print(f"\n{Fore.RED}❌ Error during deployment: {e}{Style.RESET_ALL}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
+        sys.exit(1)
+
+
+def run_application(args):
+    """Run application or collect CSI data"""
+    
+    # Check if mpremote is available
+    try:
+        subprocess.run(['mpremote', '--version'], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print(f"{Fore.RED}❌ mpremote not found. Install it with:{Style.RESET_ALL}")
+        print("   pip install mpremote")
+        sys.exit(1)
+    
+    # Auto-detect port if not provided
+    port = get_serial_port(args.port)
+    
+    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
+    
+    try:
+        if args.collect_baseline:
+            print(f"{Fore.MAGENTA}║           μESPectre - Collecting Baseline CSI Data        ║{Style.RESET_ALL}")
+            print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+            print()
+            print(f"{Fore.YELLOW}📊 Collecting baseline data...{Style.RESET_ALL}")
+            subprocess.run(['mpremote', 'connect', port, 'exec', 
+                          'from src import data_collector as dc; dc.collect_baseline()'])
+            print(f"{Fore.YELLOW}📥 Downloading baseline_data.bin...{Style.RESET_ALL}")
+            subprocess.run(['mpremote', 'connect', port, 'cp', 
+                          ':baseline_data.bin', 'tools/data/baseline_data.bin'], check=True)
+            print(f"{Fore.GREEN}✅ Downloaded: tools/data/baseline_data.bin{Style.RESET_ALL}")
+        elif args.collect_movement:
+            print(f"{Fore.MAGENTA}║           μESPectre - Collecting Movement CSI Data        ║{Style.RESET_ALL}")
+            print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+            print()
+            print(f"{Fore.YELLOW}📊 Collecting movement data...{Style.RESET_ALL}")
+            subprocess.run(['mpremote', 'connect', port, 'exec',
+                          'from src import data_collector as dc; dc.collect_movement()'])
+            print(f"{Fore.YELLOW}📥 Downloading movement_data.bin...{Style.RESET_ALL}")
+            subprocess.run(['mpremote', 'connect', port, 'cp',
+                          ':movement_data.bin', 'tools/data/movement_data.bin'], check=True)
+            print(f"{Fore.GREEN}✅ Downloaded: tools/data/movement_data.bin{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.MAGENTA}║           μESPectre - Running Application                 ║{Style.RESET_ALL}")
+            print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+            print()
+            print(f"{Fore.YELLOW}🚀 Starting application...{Style.RESET_ALL}")
+            print()
+            subprocess.run(['mpremote', 'connect', port, 'run', 'src/main.py'])
+        
+    except subprocess.CalledProcessError as e:
+        print(f"\n{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
+        sys.exit(1)
+
+
+def verify_installation(args):
+    """Verify MicroPython and CSI module installation"""
+    
+    # Auto-detect port if not provided
+    port = get_serial_port(args.port)
+    
+    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}║             μESPectre - Verifying Installation            ║{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print()
+    
+    try:
+        # Check microcsi module
+        print(f"{Fore.YELLOW}🔍 Checking microcsi module...{Style.RESET_ALL}")
+        result = subprocess.run([
+            'mpremote', 'connect', port, 'exec',
+            'import microcsi; print(microcsi.__version__)'
+        ], capture_output=True, text=True, check=True)
+        
+        version = result.stdout.strip()
+        print(f"{Fore.GREEN}✅ microcsi version: {version}{Style.RESET_ALL}")
+        print()
+        
+        # Check deployed files
+        print(f"{Fore.YELLOW}🔍 Checking deployed files...{Style.RESET_ALL}")
+        result = subprocess.run([
+            'mpremote', 'connect', port, 'exec',
+            'import os; print(os.listdir("/src"))'
+        ], capture_output=True, text=True, check=True)
+        
+        files = result.stdout.strip()
+        print(f"{Fore.GREEN}✅ Source files found: {files}{Style.RESET_ALL}")
+        print()
+        
+        # Check config
+        print(f"{Fore.YELLOW}🔍 Checking configuration...{Style.RESET_ALL}")
+        result = subprocess.run([
+            'mpremote', 'connect', port, 'exec',
+            'import os; print("config_local.py" in os.listdir("/src"))'
+        ], capture_output=True, text=True, check=True)
+        
+        if 'True' in result.stdout:
+            print(f"{Fore.GREEN}✅ config_local.py found{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.YELLOW}⚠️  config_local.py not found (optional){Style.RESET_ALL}")
+        print()
+        
+        print(f"{Fore.GREEN}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}║    μESPectre - ✅ Installation Verified Successfully!     ║{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+        print()
+        print(f"{Fore.CYAN}You can now run the application:{Style.RESET_ALL}")
+        print(f"  ./me run")
+        print()
+        
+    except subprocess.CalledProcessError as e:
+        print(f"\n{Fore.RED}❌ Verification failed{Style.RESET_ALL}")
+        if 'microcsi' in str(e):
+            print(f"{Fore.YELLOW}Hint: Flash the firmware first:{Style.RESET_ALL}")
+            print(f"  ./me flash --erase")
+        else:
+            print(f"{Fore.YELLOW}Hint: Deploy the code first:{Style.RESET_ALL}")
+            print(f"  ./me deploy")
+        print()
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
+        sys.exit(1)
+
+
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+
+def main():
+    """Main entry point with subcommand support"""
+    
+    # Create main parser
+    parser = argparse.ArgumentParser(
+        description="ESPectre CLI - Unified Device Management and Control Tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Flash firmware (auto-detect port and chip)
+  ./me flash --erase
+  
+  # Deploy code
+  ./me deploy
+  
+  # Run application
+  ./me run
+  
+  # Collect CSI data for analysis
+  ./me run --collect-baseline
+  ./me run --collect-movement
+  
+  # Verify installation
+  ./me verify
+  
+  # Interactive MQTT mode
+  ./me
+        """
+    )
+    
+    # Create subparsers
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Flash command
+    flash_parser = subparsers.add_parser('flash', help='Flash MicroPython firmware to ESP32')
+    flash_parser.add_argument('--chip', choices=['s3', 'c6'],
+                             help='ESP32 chip type (auto-detected if not specified)')
+    flash_parser.add_argument('--port',
+                             help='Serial port (auto-detected if not specified)')
+    flash_parser.add_argument('--erase', action='store_true',
+                             help='Erase flash before flashing (recommended)')
+    flash_parser.add_argument('--firmware', help='Custom firmware path (optional)')
+    
+    # Deploy command
+    deploy_parser = subparsers.add_parser('deploy', help='Deploy code to MicroPython device')
+    deploy_parser.add_argument('--port',
+                              help='Serial port (auto-detected if not specified)')
+    
+    # Run command
+    run_parser = subparsers.add_parser('run', help='Run application or collect CSI data')
+    run_parser.add_argument('--port',
+                           help='Serial port (auto-detected if not specified)')
+    run_parser.add_argument('--collect-baseline', action='store_true',
+                           help='Collect baseline CSI data for analysis')
+    run_parser.add_argument('--collect-movement', action='store_true',
+                           help='Collect movement CSI data for analysis')
+    
+    # Verify command
+    verify_parser = subparsers.add_parser('verify', help='Verify installation')
+    verify_parser.add_argument('--port',
+                              help='Serial port (auto-detected if not specified)')
+    
+    # MQTT interactive mode arguments (when no subcommand)
+    parser.add_argument("--broker", default=os.getenv("MQTT_BROKER", "homeassistant.local"),
+                       help="MQTT broker hostname (default: homeassistant.local)")
+    parser.add_argument("--port-mqtt", type=int, default=int(os.getenv("MQTT_PORT", 1883)),
+                       help="MQTT broker port (default: 1883)")
+    parser.add_argument("--topic", default=os.getenv("MQTT_TOPIC", "home/espectre/node1"),
+                       help="Base MQTT topic (default: home/espectre/node1)")
+    parser.add_argument("--username", default=os.getenv("MQTT_USERNAME", "mqtt"),
+                       help="MQTT username")
+    parser.add_argument("--password", default=os.getenv("MQTT_PASSWORD", "mqtt"),
+                       help="MQTT password")
+    
+    args = parser.parse_args()
+    
+    # Route to appropriate handler
+    if args.command == 'flash':
+        flash_firmware(args)
+    elif args.command == 'deploy':
+        deploy_code(args)
+    elif args.command == 'run':
+        run_application(args)
+    elif args.command == 'verify':
+        verify_installation(args)
+    else:
+        # No subcommand = interactive MQTT mode
+        # Create a simple namespace for EspectreCLI compatibility
+        mqtt_args = argparse.Namespace(
+            broker=args.broker,
+            port=args.port_mqtt,
+            topic=args.topic,
+            username=args.username,
+            password=args.password
+        )
+        cli = EspectreCLI_MQTT(mqtt_args)
+        cli.start()
+
+
+class EspectreCLI_MQTT:
+    """Interactive MQTT CLI - renamed to avoid confusion with main CLI"""
+    def __init__(self, args):
+        self.broker = args.broker
+        self.port = args.port
+        self.base_topic = args.topic
+        self.username = args.username
+        self.password = args.password
+        
+        self.topic_cmd = f"{self.base_topic}/cmd"
+        self.topic_response = f"{self.base_topic}/response"
+        
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        if self.username and self.password:
+            self.client.username_pw_set(self.username, self.password)
+            
+        self.client.on_connect = self.on_connect
+        self.client.on_message = self.on_message
+        
+        self.running = True
+
+        # Setup prompt_toolkit session with history and completion
+        hist_file = os.path.join(os.path.expanduser("~"), ".espectre_cli_history")
+        
+        # Create nested completer for commands and their arguments
+        completer_dict = {
+            'segmentation_threshold': None,
+            'segmentation_window_size': None,
+            'info': None,
+            'stats': None,
+            'factory_reset': None,
+            'webui': None,
+            'clear': None,
+            'help': None,
+            'about': None,
+            'exit': None,
+        }
+        
+        # Custom style for the prompt
+        prompt_style = PromptStyle.from_dict({
+            'prompt': '#00aa00 bold',
+        })
+        
+        self.session = PromptSession(
+            history=FileHistory(hist_file),
+            completer=NestedCompleter.from_nested_dict(completer_dict),
+            style=prompt_style,
+            complete_while_typing=True,
+            enable_history_search=True,
+        )
+
+    def on_connect(self, client, userdata, flags, rc, properties=None):
+        if rc == 0:
+            print(f"{Fore.BLUE}Connected to: {self.broker}:{self.port}{Style.RESET_ALL}")
+            print(f"{Fore.BLUE}Command topic: {self.topic_cmd}{Style.RESET_ALL}")
+            print(f"{Fore.BLUE}Listening on: {self.topic_response}{Style.RESET_ALL}")
+            client.subscribe(self.topic_response)
+        else:
+            print(f"{Fore.RED}Failed to connect, return code {rc}{Style.RESET_ALL}")
+
+    def on_message(self, client, userdata, msg):
+        try:
+            payload = msg.payload.decode()
+            data = json.loads(payload)
+            
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            print()
+            
+            formatted_yaml = yaml.dump(data, Dumper=CompactDumper, sort_keys=False, 
+                                      default_flow_style=False, width=1000)
+            
+            print(f"{Fore.GREEN}[{timestamp}]{Style.RESET_ALL} Received:")
+            print_formatted_text(
+                FormattedText([("class:pygments", formatted_yaml)]),
+                style=PromptStyle.from_dict({'pygments': '#ansiwhite'})
+            )
+            print()
+            
+        except Exception as e:
+            print(f"\nError parsing message: {e}")
+
+    def send_command(self, cmd_data: Dict[str, Any]):
+        try:
+            payload = json.dumps(cmd_data)
+            self.client.publish(self.topic_cmd, payload)
+        except Exception as e:
+            print(f"{Fore.RED}Error sending command: {e}{Style.RESET_ALL}")
+
+    def start(self):
+        print(f"{Fore.MAGENTA}")
+        print('')
+        print('  __  __ _                    _____ ____  ____            _            ')
+        print(' |  \\/  (_) ___ _ __ ___     | ____/ ___||  _ \\ ___  ___| |_ _ __ ___ ')
+        print(' | |\\/| | |/ __| \'__/ _ \\ __ |  _| \\___ \\| |_) / _ \\/ __| __| \'__/ _ \\')
+        print(' | |  | | | (__| | | (_) |__|| |___ ___) |  __/  __/ (__| |_| | |  __/')
+        print(' |_|  |_|_|\\___|_|  \\___/    |_____|____/|_|   \\___|\\___|\\__|_|  \\___|')
+        print('')
+        print('Motion detection system based on Wi-Fi spectre analysis - Interactive CLI')
+        print('')
+        print(f"{Style.RESET_ALL}")
+
+
+        try:
+            self.client.connect(self.broker, self.port, 60)
+            self.client.loop_start()
+            
+            time.sleep(0.5)
+            
+            print(f"\n{Fore.YELLOW}Type 'help' for commands, 'exit' to quit{Style.RESET_ALL}\n")
+            print(f"{Fore.YELLOW}Tip: Use TAB for autocompletion, Ctrl+R to search history{Style.RESET_ALL}\n")
+            
+            while self.running:
+                try:
+                    user_input = self.session.prompt(HTML('<prompt>espectre></prompt> '))
+                    self.process_input(user_input)
+                except KeyboardInterrupt:
+                    continue
+                except EOFError:
+                    break
+                    
+        except Exception as e:
+            print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+        finally:
+            self.client.loop_stop()
+            self.client.disconnect()
+            print("\nExiting...")
+
+    def process_input(self, user_input):
+        if not user_input.strip():
+            return
+
+        parts = shlex.split(user_input)
+        cmd = parts[0].lower()
+        args = parts[1:]
+
+        if cmd in ["exit", "quit", "q"]:
+            self.running = False
+            return
+        elif cmd in ["help", "h"]:
+            self.show_help()
+            return
+        elif cmd == "about":
+            self.show_about()
+            return
+        elif cmd in ["clear", "cls"]:
+            os.system('cls' if os.name == 'nt' else 'clear')
+            return
+        elif cmd in ["webui", "web", "ui"]:
+            self.cmd_webui()
+            return
+        
+        try:
+            if cmd in ["segmentation_threshold", "st"]:
+                self.cmd_segmentation_threshold(args)
+            elif cmd in ["segmentation_window_size", "sws"]:
+                self.cmd_segmentation_window_size(args)
+            elif cmd in ["info", "i"]:
+                self.send_command({"cmd": "info"})
+            elif cmd in ["stats", "s"]:
+                self.send_command({"cmd": "stats"})
+            elif cmd in ["factory_reset", "reset", "fr"]:
+                self.cmd_factory_reset()
+            else:
+                print(f"{Fore.RED}Unknown command: {cmd}{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}Error executing command: {e}{Style.RESET_ALL}")
+
+    def cmd_webui(self):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        html_file = os.path.join(script_dir, "espectre-monitor.html")
+        
+        if not os.path.exists(html_file):
+            html_file = os.path.join(os.getcwd(), "espectre-monitor.html")
+        
+        if not os.path.exists(html_file):
+            print(f"{Fore.RED}Error: espectre-monitor.html not found{Style.RESET_ALL}")
+            return
+        
+        file_url = Path(html_file).absolute().as_uri()
+        print(f"{Fore.BLUE}Opening web UI: {os.path.basename(html_file)}...{Style.RESET_ALL}")
+        try:
+            webbrowser.open(file_url)
+        except Exception as e:
+            print(f"{Fore.RED}Error opening browser: {e}{Style.RESET_ALL}")
+
+    def cmd_segmentation_threshold(self, args):
+        if not args:
+            print(f"{Fore.RED}Usage: segmentation_threshold <value>{Style.RESET_ALL}")
+            return
+        self.send_command({"cmd": "segmentation_threshold", "value": float(args[0])})
+
+    def cmd_segmentation_window_size(self, args):
+        if not args:
+            print(f"{Fore.RED}Usage: segmentation_window_size <packets>{Style.RESET_ALL}")
+            return
+        self.send_command({"cmd": "segmentation_window_size", "value": int(args[0])})
+
+    def cmd_factory_reset(self):
+        print(f"{Fore.YELLOW}⚠️  WARNING: This will reset ALL settings to factory defaults!{Style.RESET_ALL}")
+        print("Are you sure you want to continue? (yes/no): ", end="")
+        sys.stdout.flush()
+        confirm = input().lower()
+        if confirm == "yes":
+            print(f"{Fore.BLUE}Performing factory reset...{Style.RESET_ALL}")
+            self.send_command({"cmd": "factory_reset"})
+        else:
+            print(f"{Fore.BLUE}Factory reset cancelled{Style.RESET_ALL}")
+
+    def show_help(self):
+        help_text = HTML("""
+<ansibrightcyan><b>Micro-ESPectre CLI - Interactive Commands</b></ansibrightcyan>
+
+<ansiyellow><b>Configuration Commands:</b></ansiyellow>
+  <ansigreen>segmentation_threshold|st</ansigreen> &lt;val&gt;     Set segmentation threshold (0.5-10.0)
+  <ansigreen>segmentation_window_size|sws</ansigreen> &lt;n&gt;    Set moving variance window (10-200 packets)
+
+<ansiyellow><b>System Commands:</b></ansiyellow>
+  <ansigreen>info|i</ansigreen>                              Show current configuration
+  <ansigreen>stats|s</ansigreen>                             Show runtime statistics (memory, loop time)
+  <ansigreen>factory_reset|reset|fr</ansigreen>              Reset all settings and re-calibrate
+
+<ansiyellow><b>Utility Commands:</b></ansiyellow>
+  <ansigreen>webui|web|ui</ansigreen>                        Open web interface in browser
+  <ansigreen>clear|cls</ansigreen>                           Clear screen
+  <ansigreen>help|h</ansigreen>                              Show this help message
+  <ansigreen>about</ansigreen>                               Show about information
+  <ansigreen>exit|quit|q</ansigreen>                         Exit interactive mode
+""")
+        print()
+        print_formatted_text(help_text)
+        print()
+
+    def show_about(self):
+        about_text = HTML(r"""
+<ansibrightmagenta>
+  __  __ _                    _____ ____  ____            _            
+ |  \/  (_) ___ _ __ ___     | ____/ ___||  _ \ ___  ___| |_ _ __ ___ 
+ | |\/| | |/ __| '__/ _ \ __ |  _| \___ \| |_) / _ \/ __| __| '__/ _ \
+ | |  | | | (__| | | (_) |__|| |___ ___) |  __/  __/ (__| |_| | |  __/
+ |_|  |_|_|\___|_|  \___/    |_____|____/|_|   \___|\___|\__|_|  \___|
+</ansibrightmagenta>
+                                            
+  <ansibrightcyan><b>Wi-Fi Motion Detection System</b></ansibrightcyan>
+  <ansicyan>Based on Channel State Information (CSI)</ansicyan>
+  
+  <ansibrightgreen>Created with ❤️  by <b>Francesco Pace</b></ansibrightgreen>
+  
+  <ansiblue>🔗 GitHub:</ansiblue>   <u>github.com/francescopace</u>
+  <ansiblue>💼 LinkedIn:</ansiblue> <u>linkedin.com/in/francescopace</u>
+  <ansiblue>📧 Email:</ansiblue>    <u>francesco.pace@gmail.com</u>
+    
+  <ansiwhite>This project explores the fascinating world of Wi-Fi sensing,
+  using Channel State Information to detect motion and presence.</ansiwhite>
+""")
+        print()
+        print_formatted_text(about_text)
+        print()
+
+
+if __name__ == "__main__":
+    main()

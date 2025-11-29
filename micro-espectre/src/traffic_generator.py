@@ -1,6 +1,8 @@
 """
 Micro-ESPectre - WiFi Traffic Generator
-Generates continuous DNS queries to ensure CSI data availability
+
+Generates UDP traffic to ensure continuous CSI data flow.
+Essential for maintaining stable CSI packet reception on ESP32-C6.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -9,7 +11,14 @@ import socket
 import time
 import _thread
 import network
-from src.config import TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX
+import gc
+
+# Note: No thread lock needed for simple integer operations on MicroPython/ESP32
+# Integer reads/writes are atomic on 32-bit systems
+
+TRAFFIC_RATE_MIN = 0          # Minimum rate (0=disabled)
+TRAFFIC_RATE_MAX = 1000       # Maximum rate (packets per second)
+GC_INTERVAL = 100             # Garbage collection interval (packets)
 
 class TrafficGenerator:
     """WiFi traffic generator using DNS queries"""
@@ -22,7 +31,9 @@ class TrafficGenerator:
         self.error_count = 0
         self.gateway_ip = None
         self.sock = None
-        self.thread_lock = _thread.allocate_lock()
+        self.start_time = 0  # Time when generator started (ticks_ms)
+        self.avg_loop_time_ms = 0  # Average loop time for diagnostics
+        self.actual_pps = 0  # Actual packets per second (moving window)
         
     def _get_gateway_ip(self):
         """Get gateway IP address from network interface"""
@@ -42,7 +53,6 @@ class TrafficGenerator:
     
     def _dns_task(self): 
         """Background task that sends DNS queries (runs with increased stack)"""
-        import gc
         
         interval_ms = 1000 // self.rate_pps if self.rate_pps > 0 else 1000
         
@@ -57,13 +67,14 @@ class TrafficGenerator:
             self.running = False
             return
         
-        # print(f"📡 Traffic generator task started (DNS queries to {self.gateway_ip}, rate: {self.rate_pps} pps, interval: {interval_ms} ms)")
+        # Pre-resolve destination address (avoid repeated lookups)
+        dest_addr = (self.gateway_ip, 53)
         
         # Periodic garbage collection counter
         gc_counter = 0
         
-        # Simple DNS query for google.com (type A)
-        # This is a minimal DNS query that will get a response
+        # Minimal DNS query for root domain (smallest possible valid query)
+        # 17 bytes instead of 29 for google.com
         dns_query = bytes([
             0x00, 0x01,  # Transaction ID
             0x01, 0x00,  # Flags: standard query
@@ -71,45 +82,73 @@ class TrafficGenerator:
             0x00, 0x00,  # Answer RRs: 0
             0x00, 0x00,  # Authority RRs: 0
             0x00, 0x00,  # Additional RRs: 0
-            # Query: google.com
-            0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65,  # "google"
-            0x03, 0x63, 0x6f, 0x6d,  # "com"
-            0x00,  # End of name
+            0x00,        # Root domain (empty label)
             0x00, 0x01,  # Type: A
             0x00, 0x01   # Class: IN
         ])
         
+        # Track loop time and pps for diagnostics (updated periodically)
+        loop_time_sum = 0
+        window_start_time = time.ticks_ms()
+        window_packet_count = 0
+        
+        # Adaptive interval compensation (starts at 0, adjusted based on actual pps)
+        interval_compensation_ms = 0
+        
         while self.running:
             try:
-                # Periodic garbage collection (every 50 packets to reduce overhead)
-                gc_counter += 1
-                if gc_counter >= 50:
-                    gc.collect()
-                    gc_counter = 0
-                
                 loop_start = time.ticks_ms()
                 
                 # Send DNS query to gateway (port 53)
                 # Gateway will forward and reply, generating incoming traffic → CSI
                 try:
                     # Send DNS query to gateway
-                    # Responses accumulate in socket buffer until full, then OS drops them
-                    # No need to read or manage buffer - OS handles overflow automatically
-                    self.sock.sendto(dns_query, (self.gateway_ip, 53))
-                    
-                    with self.thread_lock:
-                        self.packet_count += 1
+                    self.sock.sendto(dns_query, dest_addr)
+                    self.packet_count += 1
+                    window_packet_count += 1
                         
                 except OSError as e:
-                    # Socket error (e.g., network unavailable)
-                    with self.thread_lock:
-                        self.error_count += 1
-                    if self.error_count % 10 == 1:
+                    # Socket error (e.g., network unavailable, ENOMEM)
+                    self.error_count += 1
+                    if self.error_count % 100 == 1:
                         print(f"Socket error: {e}")
                 
                 # Calculate how long the loop took and sleep for the remainder
                 loop_time = time.ticks_diff(time.ticks_ms(), loop_start)
-                sleep_time = interval_ms - loop_time
+                effective_interval = interval_ms - interval_compensation_ms
+                sleep_time = effective_interval - loop_time
+                
+                # Track loop time for averaging
+                loop_time_sum += loop_time
+                
+                # Periodic garbage collection and metrics update
+                gc_counter += 1
+                if gc_counter >= GC_INTERVAL:
+                    gc.collect()
+                    gc_counter = 0
+                    
+                    # Update average loop time (no lock needed - single writer)
+                    self.avg_loop_time_ms = loop_time_sum / GC_INTERVAL
+                    loop_time_sum = 0
+                    
+                    # Update actual pps (moving window)
+                    window_elapsed = time.ticks_diff(time.ticks_ms(), window_start_time)
+                    if window_elapsed > 0:
+                        self.actual_pps = (window_packet_count * 1000) / window_elapsed
+                        
+                        # Adaptive compensation: adjust interval to reach target pps
+                        if self.actual_pps > 0 and self.actual_pps < self.rate_pps:
+                            # Too slow - reduce interval
+                            # For 100 pps with 91 actual: need ~10% faster = 1ms reduction
+                            pps_ratio = self.actual_pps / self.rate_pps  # 0.91
+                            compensation_needed = interval_ms * (1 - pps_ratio)  # 10 * 0.09 = 0.9
+                            interval_compensation_ms = min(3, max(1, int(compensation_needed + 0.5)))
+                        elif self.actual_pps > self.rate_pps * 1.02:
+                            # Too fast - reduce compensation
+                            interval_compensation_ms = max(0, interval_compensation_ms - 1)
+                    
+                    window_start_time = time.ticks_ms()
+                    window_packet_count = 0
                 
                 # Sleep for the target interval (minimum 1ms to yield to other threads)
                 if sleep_time > 1:
@@ -118,8 +157,7 @@ class TrafficGenerator:
                     time.sleep_ms(1)
                 
             except Exception as e:
-                with self.thread_lock:
-                    self.error_count += 1
+                self.error_count += 1
                 
                 # Log occasional errors
                 if self.error_count % 10 == 1:
@@ -134,12 +172,14 @@ class TrafficGenerator:
         
         #print(f"📡 Traffic generator task stopped ({self.packet_count} packets sent, {self.error_count} errors)")
     
-    def start(self, rate_pps):
+    def start(self, rate_pps, max_retries=3, retry_delay=2):
         """
         Start traffic generator
         
         Args:
             rate_pps: Packets per second (0-1000, recommended: 100)
+            max_retries: Number of retries to get gateway IP (default: 3)
+            retry_delay: Seconds between retries (default: 2)
             
         Returns:
             bool: True if started successfully
@@ -152,16 +192,24 @@ class TrafficGenerator:
             print(f"Invalid rate: {rate_pps} (must be {TRAFFIC_RATE_MIN}-{TRAFFIC_RATE_MAX} packets/sec)")
             return False
         
-        # Get gateway IP
-        self.gateway_ip = self._get_gateway_ip()
+        # Get gateway IP with retries
+        for attempt in range(1, max_retries + 1):
+            self.gateway_ip = self._get_gateway_ip()
+            if self.gateway_ip:
+                break
+            print(f"Failed to get gateway IP (attempt {attempt}/{max_retries})")
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+        
         if not self.gateway_ip:
-            print("Failed to get gateway IP")
+            print(f"ERROR: Could not get gateway IP after {max_retries} attempts")
             return False
         
         # Reset counters
         self.packet_count = 0
         self.error_count = 0
         self.rate_pps = rate_pps
+        self.start_time = time.ticks_ms()
         self.running = True
         
         # Start background task
@@ -191,32 +239,21 @@ class TrafficGenerator:
     
     def get_packet_count(self):
         """Get number of packets sent"""
-        with self.thread_lock:
-            return self.packet_count
+        return self.packet_count
     
     def get_rate(self):
         """Get current rate in packets per second"""
         return self.rate_pps
     
-    def set_rate(self, rate_pps):
-        """
-        Change traffic rate (restarts generator)
-        
-        Args:
-            rate_pps: New rate in packets per second (0-1000)
-        """
-        if not self.running:
-            print("Cannot set rate: traffic generator not running")
-            return False
-        
-        if rate_pps < TRAFFIC_RATE_MIN or rate_pps > TRAFFIC_RATE_MAX:
-            print(f"Invalid rate: {rate_pps} (must be {TRAFFIC_RATE_MIN}-{TRAFFIC_RATE_MAX} packets/sec)")
-            return False
-        
-        if rate_pps == self.rate_pps:
-            return True  # No change needed
-        
-        # Restart with new rate
-        self.stop()
-        time.sleep(0.5)
-        return self.start(rate_pps)
+    def get_actual_pps(self):
+        """Get actual packets per second (moving window)"""
+        return round(self.actual_pps, 1)
+    
+    def get_error_count(self):
+        """Get number of errors"""
+        return self.error_count
+    
+    def get_avg_loop_time_ms(self):
+        """Get average loop time in milliseconds"""
+        return round(self.avg_loop_time_ms, 2)
+    

@@ -1,13 +1,14 @@
 """
 Micro-ESPectre - CSI Data Collector with Metadata
-Collects CSI packets with full metadata (RSSI, noise_floor, SNR, etc.)
+
+Collects CSI packets with full metadata (RSSI, noise_floor, SNR, etc.).
+Used for offline analysis and algorithm development.
 
 Usage:
-    1. Deploy to ESP32: ampy --port /dev/ttyUSB0 put data_collector.py
-    2. Run baseline collection: import data_collector; data_collector.collect_baseline()
-    3. Run movement collection: import data_collector; data_collector.collect_movement()
-    4. Download files: ampy --port /dev/ttyUSB0 get baseline_data.jsonl
-                       ampy --port /dev/ttyUSB0 get movement_data.jsonl
+    1. Collect baseline: ../me run --collect-baseline
+    2. Collect movement: ../me run --collect-movement
+    
+    Files are automatically downloaded to tools/data/
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -80,15 +81,15 @@ def collect_csi_packets(wlan, label, max_packets=MAX_PACKETS):
         while packet_count < max_packets:
             frame = wlan.csi_read()
             if frame:
-                # Extract values with defaults
+                # Extract values using tuple API
                 timestamp_ms = time.ticks_ms()
-                rssi = frame.get('rssi', -100)
-                noise_floor = frame.get('noise_floor', -95)
-                channel = frame.get('channel', 0)
-                mcs = frame.get('mcs', 0)
-                sig_mode = frame.get('sig_mode', 0)
-                cwb = frame.get('cwb', 0)
-                csi_data = frame['data'][:128]
+                rssi = frame[0]           # frame[0] = rssi
+                noise_floor = frame[16]   # frame[16] = noise_floor
+                channel = frame[1]        # frame[1] = channel
+                mcs = frame[8]            # frame[8] = mcs
+                sig_mode = frame[7]       # frame[7] = sig_mode
+                cwb = frame[9]            # frame[9] = cwb
+                csi_data = frame[5][:128] # frame[5] = data
                 
                 # Pack and write directly
                 packed_data = struct.pack(PACKET_FORMAT,
@@ -114,7 +115,7 @@ def collect_csi_packets(wlan, label, max_packets=MAX_PACKETS):
                 time.sleep_us(100)
     
     except KeyboardInterrupt:
-        print(f"\n⏸️ Collection stopped by user at {packet_count} packets")
+        print(f"\nCollection stopped by user at {packet_count} packets")
     finally:
         # Close file
         file_handle.close()
@@ -126,11 +127,11 @@ def collect_csi_packets(wlan, label, max_packets=MAX_PACKETS):
                 if traffic_gen.is_running():
                     traffic_gen.stop()
             except Exception as e:
-                print(f"⚠️  Error stopping traffic generator: {e}")
+                print(f"Error stopping traffic generator: {e}")
     
     elapsed_total = time.ticks_diff(time.ticks_ms(), start_time) / 1000
     total_dropped = wlan.csi_dropped()
-    print(f"\n✅ Collection complete: {packet_count} packets in {elapsed_total:.1f}s")
+    print(f"\nCollection complete: {packet_count} packets in {elapsed_total:.1f}s")
     print(f"   Rate: {packet_count/elapsed_total:.1f} packets/sec")
     print(f"   Dropped: {total_dropped} packets")
     print(f"   File: {filename}\n")
@@ -143,10 +144,10 @@ def collect_baseline():
     print("║          BASELINE DATA COLLECTION                     ║")
     print("╚═══════════════════════════════════════════════════════╝")
     wlan = connect_wifi()
-    print("\n⚠️  IMPORTANT: Leave the room or stay completely still!")
+    print("\nIMPORTANT: Leave the room or stay completely still!")
     packet_count = collect_csi_packets(wlan, 'BASELINE', MAX_PACKETS)
-    print(f"✅ Collected {packet_count} packets")
-    print("📥 File ready: baseline_data.bin\n")
+    print(f"Collected {packet_count} packets")
+    print("File ready: baseline_data.bin\n")
     return packet_count
 
 def collect_movement():
@@ -155,9 +156,9 @@ def collect_movement():
     print("║          MOVEMENT DATA COLLECTION                     ║")
     print("╚═══════════════════════════════════════════════════════╝")
     wlan = connect_wifi()
-    print("\n⚠️  IMPORTANT: Move continuously during collection!")
+    print("\nIMPORTANT: Move continuously during collection!")
     print("   (Walk around, wave arms, etc.)")
     packet_count = collect_csi_packets(wlan, 'MOVEMENT', MAX_PACKETS)
-    print(f"✅ Collected {packet_count} packets")
-    print("📥 File ready: movement_data.bin\n")
+    print(f"Collected {packet_count} packets")
+    print("File ready: movement_data.bin\n")
     return packet_count

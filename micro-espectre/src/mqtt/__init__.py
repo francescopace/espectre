@@ -1,6 +1,8 @@
 """
 MQTT module for Micro-ESPectre
-Handles MQTT connection, publishing, and command processing
+
+Provides MQTT communication and command handling.
+Enables remote monitoring and configuration of the ESPectre system.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3

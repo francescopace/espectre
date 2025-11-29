@@ -1,0 +1,21 @@
+# Micro-ESPectre Requirements
+# Python dependencies for Micro-ESPectre CLI and analysis tools
+
+# Device Management Dependencies
+esptool>=5.1.0          # Flash firmware to ESP32 (used as Python library)
+mpremote>=1.26.1        # Deploy code to MicroPython device (used as CLI tool)
+pyserial>=3.5           # Serial port detection and communication
+
+# CLI Tool Dependencies
+paho-mqtt>=2.1.0        # MQTT client (v2 required for CallbackAPIVersion)
+colorama>=0.4.6         # Terminal colors
+python-dotenv>=1.2.1    # Environment variables support
+PyYAML>=6.0.3           # YAML parsing
+prompt_toolkit>=3.0.0   # Interactive CLI with autocompletion
+Pygments>=2.19.2        # Syntax highlighting
+
+# Analysis Tools Dependencies
+numpy>=2.3.5            # Numerical computing for data analysis
+matplotlib>=3.10.7      # Plotting and visualization
+scipy>=1.16.3           # Scientific computing (signal processing)
+PyWavelets>=1.9.0       # Wavelet transforms (pywt)

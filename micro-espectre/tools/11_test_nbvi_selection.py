@@ -123,8 +123,8 @@ TOTAL_SUBCARRIERS = 64
 DEFAULT_BAND = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 # Test Configuration
-ESP32_BUFFER_SIZE = 500      # Packets to collect for calibration - 1000 on ESP32-C6 is too large
-ESP32_WINDOW_SIZE = 100      # Window size for baseline detection - 200 on ESP32-C6 is too large
+ESP32_BUFFER_SIZE = 1000      # Packets to collect for calibration
+ESP32_WINDOW_SIZE = 100      # Window size for baseline detection
 ESP32_WINDOW_STEP = 50       # Step size for sliding window analysis
 
 def calculate_magnitude(csi_data, subcarrier):

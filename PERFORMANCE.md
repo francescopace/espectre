@@ -1,4 +1,4 @@
-# 📊 ESPectre Performance Metrics
+# 🛜 ESPectre 👻 - Performance Metrics
 
 This document provides detailed performance metrics for ESPectre's motion detection system based on Moving Variance Segmentation (MVS).
 
@@ -18,7 +18,7 @@ This document provides detailed performance metrics for ESPectre's motion detect
 | Subcarriers | [11-22] (12 subcarriers) |
 
 ### Test Environment
-- **Platform**: ESP32-C6
+- **Platform**: ESP32-C6 (results are similar on ESP32-S3)
 - **Distance from router**: ~3 meters
 - **Environment**: Indoor residential
 
@@ -70,24 +70,32 @@ These missed detections are acceptable for most use cases (home automation, pres
 
 ---
 
-## How to Reproduce
+## How to Verify Performance
 
-### Using ESP32 Test Suite (C)
+### Monitor Detection in Real-Time
+
 ```bash
-cd test_app
-idf.py build flash monitor
-# Run: performance_suite_comprehensive test
+# View ESPHome logs (choose your platform)
+esphome logs espectre-c6.yaml   # For ESP32-C6
+esphome logs espectre-s3.yaml   # For ESP32-S3
 ```
 
-### Using Python Tools
-```bash
-cd micro-espectre/tools
-python 2_analyze_system_tuning.py --confusion-matrix
-```
+Watch for state transitions:
+- `state=MOTION` when movement occurs
+- `state=IDLE` when room is quiet
 
-### Requirements
-- Baseline data: `micro-espectre/tools/baseline_data.bin`
-- Movement data: `micro-espectre/tools/movement_data.bin`
+### Home Assistant History
+
+Use Home Assistant's History panel to visualize:
+- **binary_sensor.espectre_motion_detected** - Motion events over time
+- **sensor.espectre_movement_score** - Movement intensity graph
+
+### Collecting Test Data
+
+For rigorous testing, you can:
+1. Record baseline period (no movement) for 10+ seconds
+2. Record movement period (walking, gestures) for 10+ seconds
+3. Compare detection accuracy against ground truth
 
 ---
 
@@ -114,7 +122,7 @@ Real performances may vary based on:
 - **Wall materials**: Drywall vs. concrete
 - **Interference**: Other Wi-Fi devices, microwave ovens
 
-See [CALIBRATION.md](CALIBRATION.md) for detailed tuning instructions.
+See [TUNING.md](TUNING.md) for detailed tuning instructions.
 
 ---
 
@@ -123,3 +131,9 @@ See [CALIBRATION.md](CALIBRATION.md) for detailed tuning instructions.
 | Date | Version | Recall | FP Rate | Notes |
 |------|---------|--------|---------|-------|
 | 2025-11-28 | v1.4.0 | 98.1% | 0.0% | Current release |
+
+---
+
+## 📄 License
+
+GPLv3 - See [LICENSE](LICENSE) for details.

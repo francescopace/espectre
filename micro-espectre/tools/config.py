@@ -1,6 +1,8 @@
 """
 Analysis Configuration
-Centralized configuration for CSI analysis tools
+
+Centralized configuration for CSI analysis tools.
+Contains optimal parameters found by comprehensive grid search.
 
 Optimal parameters found by comprehensive grid search (2_comprehensive_grid_search.py)
 Performance: FP=0, TP=29, Score=29.00
