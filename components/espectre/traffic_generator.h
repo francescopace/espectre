@@ -8,12 +8,12 @@
  * License: GPLv3
  */
 
-#ifndef TRAFFIC_GENERATOR_H
-#define TRAFFIC_GENERATOR_H
+#pragma once
 
-#include <stdint.h>
-#include <stdbool.h>
-#include "espectre.h"
+#include <cstdint>
+
+namespace esphome {
+namespace espectre {
 
 // Initialize traffic generator
 void traffic_generator_init(void);
@@ -33,4 +33,5 @@ uint32_t traffic_generator_get_packet_count(void);
 // Set rate (packets per second) while running
 void traffic_generator_set_rate(uint32_t rate_pps);
 
-#endif // TRAFFIC_GENERATOR_H
+}  // namespace espectre
+}  // namespace esphome

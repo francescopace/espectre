@@ -11,33 +11,51 @@
  * License: GPLv3
  */
 
-#ifndef FILTERS_H
-#define FILTERS_H
+#pragma once
 
-#include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
+#include <cstdint>
+#include <cstddef>
 #include "wavelet.h"
-#include "espectre.h"
+
+namespace esphome {
+namespace espectre {
+
+// Filter design constants
+constexpr int BUTTERWORTH_ORDER = 4;
+constexpr float BUTTERWORTH_CUTOFF = 8.0f;  // Hz
+constexpr int SAVGOL_WINDOW_SIZE = 5;       // must be odd
+constexpr float MAD_SCALE_FACTOR = 1.4826f; // Median Absolute Deviation scale factor
+
+// Hampel filter for turbulence (MVS preprocessing)
+constexpr bool ENABLE_HAMPEL_TURBULENCE_FILTER = true;
+constexpr int HAMPEL_TURBULENCE_WINDOW = 7;
+constexpr float HAMPEL_TURBULENCE_THRESHOLD = 4.0f;
+
+// Hampel turbulence filter state (for MVS preprocessing)
+struct hampel_turbulence_state_t {
+    float buffer[HAMPEL_TURBULENCE_WINDOW];
+    uint8_t index;
+    uint8_t count;
+};
 
 // Butterworth filter state
-typedef struct {
+struct butterworth_filter_t {
     float b[BUTTERWORTH_ORDER + 1];  // numerator coefficients
     float a[BUTTERWORTH_ORDER + 1];  // denominator coefficients
     float x[BUTTERWORTH_ORDER + 1];  // input history
     float y[BUTTERWORTH_ORDER + 1];  // output history
     bool initialized;
-} butterworth_filter_t;
+};
 
 // Filter buffer for windowed operations
-typedef struct {
+struct filter_buffer_t {
     float data[SAVGOL_WINDOW_SIZE];
     size_t index;
     size_t count;
-} filter_buffer_t;
+};
 
 // Filter configuration
-typedef struct {
+struct filter_config_t {
     bool butterworth_enabled;
     bool wavelet_enabled;           // Wavelet denoising (optional, high cost)
     int wavelet_level;              // Decomposition level (1-3)
@@ -45,7 +63,7 @@ typedef struct {
     bool hampel_enabled;
     float hampel_threshold;
     bool savgol_enabled;
-} filter_config_t;
+};
 
 /**
  * Initialize Butterworth low-pass filter
@@ -77,6 +95,23 @@ float butterworth_filter(butterworth_filter_t *filter, float input);
  */
 float hampel_filter(const float *window, size_t window_size, 
                    float current_value, float threshold);
+
+/**
+ * Apply Hampel filter to turbulence value (for MVS preprocessing)
+ * Uses a circular buffer to maintain state
+ * 
+ * @param state Hampel turbulence filter state
+ * @param turbulence Current turbulence value
+ * @return Filtered turbulence value
+ */
+float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulence);
+
+/**
+ * Initialize Hampel turbulence filter state
+ * 
+ * @param state Hampel turbulence filter state
+ */
+void hampel_turbulence_init(hampel_turbulence_state_t *state);
 
 /**
  * Apply Savitzky-Golay filter
@@ -132,4 +167,5 @@ float apply_filter_pipeline(float raw_value,
                             wavelet_state_t *wavelet,
                             filter_buffer_t *buffer);
 
-#endif // FILTERS_H
+}  // namespace espectre
+}  // namespace esphome

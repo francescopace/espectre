@@ -20,7 +20,6 @@
 #include "test_case_esp.h"
 #include "csi_processor.h"
 #include "real_csi_data_esp32.h"
-#include "espectre.h"
 #include "esp_system.h"
 #include <math.h>
 #include <string.h>

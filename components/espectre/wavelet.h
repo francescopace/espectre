@@ -12,22 +12,28 @@
  * License: GPLv3
  */
 
-#ifndef WAVELET_H
-#define WAVELET_H
+#pragma once
 
-#include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
-#include "espectre.h"
+#include <cstdint>
+#include <cstddef>
+
+namespace esphome {
+namespace espectre {
+
+// Wavelet constants
+constexpr int WAVELET_DB4_LENGTH = 8;       // Daubechies db4 filter length
+constexpr int WAVELET_MAX_LEVEL = 3;        // Maximum decomposition level
+constexpr size_t WAVELET_BUFFER_SIZE = 32;  // Circular buffer for streaming (power of 2)
+
 
 // Thresholding methods
-typedef enum {
+enum wavelet_threshold_method_t {
     WAVELET_THRESH_SOFT,    // Soft thresholding (recommended)
     WAVELET_THRESH_HARD     // Hard thresholding
-} wavelet_threshold_method_t;
+};
 
 // Wavelet filter state for streaming operation
-typedef struct {
+struct wavelet_state_t {
     float buffer[WAVELET_BUFFER_SIZE];  // Circular buffer for input samples
     size_t buffer_index;                 // Current position in buffer
     size_t buffer_count;                 // Number of samples in buffer
@@ -35,7 +41,7 @@ typedef struct {
     float threshold;                     // Noise threshold
     wavelet_threshold_method_t method;   // Thresholding method
     bool initialized;
-} wavelet_state_t;
+};
 
 // Daubechies db4 coefficients (pre-computed)
 extern const float WAVELET_DB4_LP[WAVELET_DB4_LENGTH];  // Low-pass decomposition
@@ -133,4 +139,5 @@ void wavelet_decompose_level(const float *input, size_t length,
 void wavelet_reconstruct_level(const float *approx, const float *detail,
                                size_t length, float *output);
 
-#endif // WAVELET_H
+}  // namespace espectre
+}  // namespace esphome

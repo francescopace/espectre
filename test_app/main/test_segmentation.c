@@ -11,7 +11,6 @@
 #include "test_case_esp.h"
 #include "csi_processor.h"
 #include "real_csi_data_esp32.h"
-#include "espectre.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include <stdio.h>
@@ -22,7 +21,7 @@ static const char *TAG = "test_csi_processor";
 // Import CSI data arrays from real_csi_arrays.inc
 #include "real_csi_arrays.inc"
 
-// Default subcarrier selection from espectre.h (production configuration)
+// Default subcarrier selection (production configuration)
 static const uint8_t SELECTED_SUBCARRIERS[] = DEFAULT_SUBCARRIERS;
 static const uint8_t NUM_SUBCARRIERS = sizeof(SELECTED_SUBCARRIERS) / sizeof(SELECTED_SUBCARRIERS[0]);
 

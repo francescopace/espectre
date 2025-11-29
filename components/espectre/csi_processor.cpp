@@ -10,23 +10,15 @@
 #include "csi_processor.h"
 #include "csi_features.h"
 #include "filters.h"
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <stdbool.h>
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
 #include "esp_log.h"
-#include "espectre.h"
-#include "validation.h"
+
+namespace esphome {
+namespace espectre {
 
 static const char *TAG = "CSI_Processor";
-
-// ============================================================================
-// SUBCARRIER SELECTION - Configurable at runtime
-// ============================================================================
-
-// Runtime subcarrier selection (configurable via MQTT/NVS)
-static uint8_t g_selected_subcarriers[64];
-static uint8_t g_num_selected_subcarriers = 0;
 
 // ============================================================================
 // CONTEXT MANAGEMENT
@@ -39,7 +31,8 @@ void csi_processor_init(csi_processor_context_t *ctx) {
         return;
     }
     
-    memset(ctx, 0, sizeof(csi_processor_context_t));
+    // Use C++ aggregate initialization instead of memset
+    *ctx = {};
     
     // Initialize with platform-specific defaults
     ctx->window_size = SEGMENTATION_DEFAULT_WINDOW_SIZE;
@@ -76,16 +69,6 @@ void csi_processor_reset(csi_processor_context_t *ctx) {
 
 // Set window size
 bool csi_processor_set_window_size(csi_processor_context_t *ctx, uint16_t window_size) {
-    if (!ctx) {
-        ESP_LOGE(TAG, "csi_processor_set_window_size: NULL context");
-        return false;
-    }
-    
-    // Validate window size using centralized validation
-    if (!validate_segmentation_window_size(window_size)) {
-        ESP_LOGE(TAG, "Invalid window size: %d", window_size);
-        return false;
-    }
     
     // If changing window size, reset buffer to avoid inconsistencies
     if (window_size != ctx->window_size) {
@@ -108,9 +91,9 @@ bool csi_processor_set_threshold(csi_processor_context_t *ctx, float threshold) 
         return false;
     }
     
-    // Validate threshold using centralized validation
-    if (!validate_segmentation_threshold(threshold)) {
-        ESP_LOGE(TAG, "Invalid threshold: %.2f", threshold);
+    // Inline validation
+    if (std::isnan(threshold) || std::isinf(threshold) || threshold < 0.5f || threshold > 10.0f) {
+        ESP_LOGE(TAG, "Invalid threshold: %.2f (must be 0.5-10.0 and not NaN/Inf)", threshold);
         return false;
     }
     
@@ -193,7 +176,7 @@ static float calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len
         
         float I = (float)csi_data[sc_idx * 2];
         float Q = (float)csi_data[sc_idx * 2 + 1];
-        amplitudes[valid_count++] = sqrtf(I * I + Q * Q);
+        amplitudes[valid_count++] = std::sqrt(I * I + Q * Q);
     }
     
     if (valid_count == 0) {
@@ -203,36 +186,7 @@ static float calculate_spatial_turbulence(const int8_t *csi_data, size_t csi_len
     // Use two-pass variance for numerical stability
     float variance = calculate_variance_two_pass(amplitudes, valid_count);
     
-    return sqrtf(variance);
-}
-
-// ============================================================================
-// HAMPEL FILTER FOR TURBULENCE
-// ============================================================================
-
-// Apply Hampel filter to turbulence value
-// Uses the existing hampel_filter() function from filters.c with a circular buffer
-static float apply_hampel_to_turbulence(csi_processor_context_t *ctx, float turbulence) {
-#if ENABLE_HAMPEL_TURBULENCE_FILTER
-    // Add value to Hampel circular buffer
-    ctx->hampel_buffer[ctx->hampel_index] = turbulence;
-    ctx->hampel_index = (ctx->hampel_index + 1) % HAMPEL_TURBULENCE_WINDOW;
-    if (ctx->hampel_count < HAMPEL_TURBULENCE_WINDOW) {
-        ctx->hampel_count++;
-    }
-    
-    // Need at least 3 values for meaningful Hampel filtering
-    if (ctx->hampel_count < 3) {
-        return turbulence;
-    }
-    
-    // Call existing hampel_filter() function from filters.c
-    return hampel_filter(ctx->hampel_buffer, ctx->hampel_count, 
-                        turbulence, HAMPEL_TURBULENCE_THRESHOLD);
-#else
-    // Hampel filter disabled - return raw value
-    return turbulence;
-#endif
+    return std::sqrt(variance);
 }
 
 // ============================================================================
@@ -253,7 +207,7 @@ static float calculate_moving_variance(const csi_processor_context_t *ctx) {
 // Add turbulence value to buffer and update state
 static void add_turbulence_and_update_state(csi_processor_context_t *ctx, float turbulence) {
     // Apply Hampel filter to remove outliers before adding to MVS buffer
-    float filtered_turbulence = apply_hampel_to_turbulence(ctx, turbulence);
+    float filtered_turbulence = hampel_filter_turbulence(&ctx->hampel_state, turbulence);
     
     // Add filtered value to circular buffer
     ctx->turbulence_buffer[ctx->buffer_index] = filtered_turbulence;
@@ -291,80 +245,35 @@ static void add_turbulence_and_update_state(csi_processor_context_t *ctx, float 
 // ============================================================================
 
 // Main feature extraction function (orchestrator)
-// This function decides which features to calculate and calls the individual
-// feature calculation functions from csi_features.c
+// Extracts all 10 features from CSI data
 void csi_extract_features(const int8_t *csi_data,
                          size_t csi_len,
                          const float *turbulence_buffer,
                          uint16_t turbulence_count,
-                         csi_features_t *features,
-                         const uint8_t *selected_features,
-                         uint8_t num_features) {
+                         csi_features_t *features) {
     if (!csi_data || !features) {
         ESP_LOGE(TAG, "csi_extract_features: NULL pointer");
         return;
     }
     
     // Initialize all features to 0
-    memset(features, 0, sizeof(csi_features_t));
+    *features = {};
     
-    // Flag to track if temporal features have been calculated in this call
-    bool temporal_calculated = false;
+    // Statistical features
+    features->variance = csi_calculate_variance(csi_data, csi_len);
+    features->skewness = csi_calculate_skewness(turbulence_buffer, turbulence_count);
+    features->kurtosis = csi_calculate_kurtosis(turbulence_buffer, turbulence_count);
+    features->entropy = csi_calculate_entropy(csi_data, csi_len);
+    features->iqr = csi_calculate_iqr(csi_data, csi_len);
     
-    // Use original data directly
-    const int8_t *data_to_use = csi_data;
-    size_t len_to_use = csi_len;
+    // Spatial features
+    features->spatial_variance = csi_calculate_spatial_variance(csi_data, csi_len);
+    features->spatial_correlation = csi_calculate_spatial_correlation(csi_data, csi_len);
+    features->spatial_gradient = csi_calculate_spatial_gradient(csi_data, csi_len);
     
-    // Calculate only selected features
-    for (uint8_t i = 0; i < num_features; i++) {
-        uint8_t feat_idx = selected_features[i];
-        
-        switch (feat_idx) {
-            case 0: // variance
-                features->variance = csi_calculate_variance(data_to_use, len_to_use);
-                break;
-            case 1: // skewness (from turbulence buffer)
-                features->skewness = csi_calculate_skewness(turbulence_buffer, turbulence_count);
-                break;
-            case 2: // kurtosis (from turbulence buffer)
-                features->kurtosis = csi_calculate_kurtosis(turbulence_buffer, turbulence_count);
-                break;
-            case 3: // entropy
-                features->entropy = csi_calculate_entropy(data_to_use, len_to_use);
-                break;
-            case 4: // iqr
-                features->iqr = csi_calculate_iqr(data_to_use, len_to_use);
-                break;
-            case 5: // spatial_variance
-                features->spatial_variance = csi_calculate_spatial_variance(data_to_use, len_to_use);
-                break;
-            case 6: // spatial_correlation
-                features->spatial_correlation = csi_calculate_spatial_correlation(data_to_use, len_to_use);
-                break;
-            case 7: // spatial_gradient
-                features->spatial_gradient = csi_calculate_spatial_gradient(data_to_use, len_to_use);
-                break;
-            case 8: // temporal_delta_mean
-            case 9: // temporal_delta_variance
-                // Calculate temporal features only once per packet
-                if (temporal_calculated) {
-                    break;
-                }
-                
-                temporal_calculated = true;
-                
-                // Temporal features use internal state in csi_features.c
-                // Just call the functions - they manage their own previous packet buffer
-                features->temporal_delta_mean = csi_calculate_temporal_delta_mean(
-                    data_to_use, data_to_use, len_to_use);  // Note: csi_features.c manages prev buffer
-                features->temporal_delta_variance = csi_calculate_temporal_delta_variance(
-                    data_to_use, data_to_use, len_to_use);
-                break;
-            default:
-                ESP_LOGW(TAG, "Unknown feature index: %d", feat_idx);
-                break;
-        }
-    }
+    // Temporal features - use internal state in csi_features.cpp
+    features->temporal_delta_mean = csi_calculate_temporal_delta_mean(csi_data, csi_data, csi_len);
+    features->temporal_delta_variance = csi_calculate_temporal_delta_variance(csi_data, csi_data, csi_len);
 }
 
 // ============================================================================
@@ -377,9 +286,7 @@ void csi_process_packet(csi_processor_context_t *ctx,
                         size_t csi_len,
                         const uint8_t *selected_subcarriers,
                         uint8_t num_subcarriers,
-                        csi_features_t *features,
-                        const uint8_t *selected_features,
-                        uint8_t num_features) {
+                        csi_features_t *features) {
     if (!ctx || !csi_data) {
         ESP_LOGE(TAG, "csi_process_packet: NULL pointer");
         return;
@@ -393,11 +300,11 @@ void csi_process_packet(csi_processor_context_t *ctx,
     // Step 2: Add turbulence to buffer and update motion detection state
     add_turbulence_and_update_state(ctx, turbulence);
     
-    // Step 3: Extract features if requested
-    if (features && selected_features && num_features > 0) {
+    // Step 3: Extract all features if requested
+    if (features) {
         csi_extract_features(csi_data, csi_len,
                             ctx->turbulence_buffer, ctx->buffer_count,
-                            features, selected_features, num_features);
+                            features);
     }
 }
 
@@ -405,7 +312,8 @@ void csi_process_packet(csi_processor_context_t *ctx,
 // SUBCARRIER SELECTION
 // ============================================================================
 
-// Set subcarrier selection for feature extraction
+// Note: Subcarrier selection is now managed by ESpectreComponent class
+// This function is kept for API compatibility but is no longer used
 void csi_set_subcarrier_selection(const uint8_t *selected_subcarriers,
                                    uint8_t num_subcarriers) {
     if (!selected_subcarriers || num_subcarriers == 0 || num_subcarriers > 64) {
@@ -413,8 +321,8 @@ void csi_set_subcarrier_selection(const uint8_t *selected_subcarriers,
         return;
     }
     
-    memcpy(g_selected_subcarriers, selected_subcarriers, num_subcarriers * sizeof(uint8_t));
-    g_num_selected_subcarriers = num_subcarriers;
-    
-    ESP_LOGI(TAG, "Subcarrier selection updated: %d subcarriers", num_subcarriers);
+    ESP_LOGI(TAG, "Subcarrier selection updated: %d subcarriers (managed by component)", num_subcarriers);
 }
+
+}  // namespace espectre
+}  // namespace esphome

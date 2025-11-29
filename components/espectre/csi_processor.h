@@ -21,46 +21,44 @@
  * License: GPLv3
  */
 
-#ifndef CSI_PROCESSOR_H
-#define CSI_PROCESSOR_H
+#pragma once
 
 #include "sdkconfig.h"
+#include <cstdint>
+#include <cstddef>
+#include "filters.h"  // For hampel_turbulence_state_t
 
-#include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
-#include "espectre.h"
+namespace esphome {
+namespace espectre {
 
-// Numerical stability constant
-#define EPSILON_SMALL               1e-6f
+// Segmentation constants
+constexpr uint16_t SEGMENTATION_DEFAULT_WINDOW_SIZE = 50;
+constexpr float SEGMENTATION_DEFAULT_THRESHOLD = 1.0f;
 
 // ============================================================================
 // MOTION DETECTION STATE
 // ============================================================================
 
 // Motion detection state
-typedef enum {
+enum csi_motion_state_t {
     CSI_STATE_IDLE,           // No motion detected
     CSI_STATE_MOTION          // Motion in progress
-} csi_motion_state_t;
+};
 
 // ============================================================================
 // CSI PROCESSOR CONTEXT
 // ============================================================================
 
 // Unified CSI processor context (combines feature extraction + motion detection)
-typedef struct {
+struct csi_processor_context_t {
     // Turbulence circular buffer (allocated at max size to support runtime window_size changes)
     // Only the first window_size elements are used (window_size can be 10-200)
-    float turbulence_buffer[SEGMENTATION_WINDOW_SIZE_MAX];
+    float turbulence_buffer[SEGMENTATION_DEFAULT_WINDOW_SIZE];
     uint16_t buffer_index;
     uint16_t buffer_count;
     
-    // Hampel filter buffer for turbulence preprocessing
-    // Used to remove outliers before adding to turbulence_buffer
-    float hampel_buffer[HAMPEL_TURBULENCE_WINDOW];
-    uint8_t hampel_index;
-    uint8_t hampel_count;
+    // Hampel filter state for turbulence preprocessing
+    hampel_turbulence_state_t hampel_state;
     
     // Moving variance state
     float current_moving_variance;
@@ -75,15 +73,14 @@ typedef struct {
     
     // Statistics
     uint32_t total_packets_processed;
-    
-} csi_processor_context_t;
+};
 
 // ============================================================================
 // CSI FEATURES
 // ============================================================================
 
 // CSI features extracted from raw data
-typedef struct {
+struct csi_features_t {
     // Statistical features (5)
     float variance;
     float skewness;
@@ -99,7 +96,7 @@ typedef struct {
     // Temporal features (2) - changes between consecutive packets
     float temporal_delta_mean;      // Average absolute difference from previous packet
     float temporal_delta_variance;  // Variance of differences from previous packet
-} csi_features_t;
+};
 
 // ============================================================================
 // CONTEXT MANAGEMENT
@@ -119,51 +116,40 @@ void csi_processor_init(csi_processor_context_t *ctx);
  * 1. Calculates spatial turbulence from the packet
  * 2. Updates the turbulence buffer and moving variance
  * 3. Updates motion detection state
- * 4. Optionally extracts features if requested
+ * 4. Optionally extracts all features if requested
  * 
  * @param ctx CSI processor context
  * @param csi_data Raw CSI data (int8_t array)
  * @param csi_len Length of CSI data
  * @param selected_subcarriers Array of subcarrier indices for turbulence calculation
  * @param num_subcarriers Number of selected subcarriers
- * @param features Output structure for extracted features (can be NULL to skip)
- * @param selected_features Array of feature indices to calculate (ignored if features is NULL)
- * @param num_features Number of features to calculate (ignored if features is NULL)
+ * @param features Output structure for extracted features (can be NULL to skip feature extraction)
  */
 void csi_process_packet(csi_processor_context_t *ctx,
                         const int8_t *csi_data,
                         size_t csi_len,
                         const uint8_t *selected_subcarriers,
                         uint8_t num_subcarriers,
-                        csi_features_t *features,
-                        const uint8_t *selected_features,
-                        uint8_t num_features);
+                        csi_features_t *features);
 
 /**
- * Extract features from CSI data (orchestrator function)
+ * Extract all features from CSI data (orchestrator function)
  * 
  * This function orchestrates feature extraction by calling individual
- * feature calculation functions from csi_features.c. It has direct access
+ * feature calculation functions from csi_features.cpp. It has direct access
  * to the turbulence buffer for skewness/kurtosis calculation.
- * 
- * Can be called standalone for testing or when features are needed without
- * motion detection.
  * 
  * @param csi_data Raw CSI data (int8_t array)
  * @param csi_len Length of CSI data
  * @param turbulence_buffer Buffer of turbulence values for skewness/kurtosis (can be NULL)
  * @param turbulence_count Number of valid values in turbulence buffer
  * @param features Output structure for extracted features
- * @param selected_features Array of feature indices to calculate
- * @param num_features Number of features to calculate
  */
 void csi_extract_features(const int8_t *csi_data,
                          size_t csi_len,
                          const float *turbulence_buffer,
                          uint16_t turbulence_count,
-                         csi_features_t *features,
-                         const uint8_t *selected_features,
-                         uint8_t num_features);
+                         csi_features_t *features);
 
 /**
  * Reset CSI processor context (clear state machine only)
@@ -266,4 +252,5 @@ uint32_t csi_processor_get_total_packets(const csi_processor_context_t *ctx);
 void csi_set_subcarrier_selection(const uint8_t *selected_subcarriers,
                                    uint8_t num_subcarriers);
 
-#endif // CSI_PROCESSOR_H
+}  // namespace espectre
+}  // namespace esphome

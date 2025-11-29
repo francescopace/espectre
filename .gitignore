@@ -16,3 +16,8 @@ __pycache__
 # Other
 .DS_Store
 .log.
+
+# ESPHome
+esphome-env/
+.esphome/
+secrets.yaml

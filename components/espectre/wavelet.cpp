@@ -6,10 +6,14 @@
  */
 
 #include "wavelet.h"
-#include <string.h>
-#include <math.h>
-#include <stdlib.h>
+#include "utils.h"
+#include <cstring>
+#include <cmath>
+#include <cstdlib>
 #include "esp_log.h"
+
+namespace esphome {
+namespace espectre {
 
 static const char *TAG = "Wavelet";
 
@@ -75,7 +79,7 @@ void wavelet_init(wavelet_state_t *state, int level, float threshold,
         level = (level < 1) ? 1 : WAVELET_MAX_LEVEL;
     }
     
-    memset(state->buffer, 0, sizeof(state->buffer));
+    std::memset(state->buffer, 0, sizeof(state->buffer));
     state->buffer_index = 0;
     state->buffer_count = 0;
     state->decomp_level = level;
@@ -88,7 +92,7 @@ void wavelet_init(wavelet_state_t *state, int level, float threshold,
 }
 
 float wavelet_soft_threshold(float value, float threshold) {
-    float abs_val = fabsf(value);
+    float abs_val = std::abs(value);
     if (abs_val <= threshold) {
         return 0.0f;
     }
@@ -96,15 +100,9 @@ float wavelet_soft_threshold(float value, float threshold) {
 }
 
 float wavelet_hard_threshold(float value, float threshold) {
-    return (fabsf(value) > threshold) ? value : 0.0f;
+    return (std::abs(value) > threshold) ? value : 0.0f;
 }
 
-// Comparison function for qsort (for MAD calculation)
-static int compare_float_abs(const void *a, const void *b) {
-    float fa = fabsf(*(const float*)a);
-    float fb = fabsf(*(const float*)b);
-    return (fa > fb) - (fa < fb);
-}
 
 float wavelet_estimate_noise(const float *coeffs, size_t length) {
     if (!coeffs || length == 0) {
@@ -112,24 +110,24 @@ float wavelet_estimate_noise(const float *coeffs, size_t length) {
     }
     
     // Create temporary array for sorting
-    float *temp = (float*)malloc(length * sizeof(float));
+    float *temp = (float*)std::malloc(length * sizeof(float));
     if (!temp) {
         ESP_LOGE(TAG, "wavelet_estimate_noise: malloc failed");
         return 1.0f;
     }
     
-    memcpy(temp, coeffs, length * sizeof(float));
-    qsort(temp, length, sizeof(float), compare_float_abs);
+    std::memcpy(temp, coeffs, length * sizeof(float));
+    std::qsort(temp, length, sizeof(float), compare_float_abs);
     
     // Calculate median of absolute values
     float median;
     if (length % 2 == 0) {
-        median = (fabsf(temp[length/2 - 1]) + fabsf(temp[length/2])) / 2.0f;
+        median = (std::abs(temp[length/2 - 1]) + std::abs(temp[length/2])) / 2.0f;
     } else {
-        median = fabsf(temp[length/2]);
+        median = std::abs(temp[length/2]);
     }
     
-    free(temp);
+    std::free(temp);
     
     // MAD-based noise estimation: sigma = MAD / 0.6745
     return median / 0.6745f;
@@ -170,7 +168,7 @@ void wavelet_reconstruct_level(const float *approx, const float *detail,
     size_t full_len = length * 2;
     
     // Initialize output
-    memset(output, 0, full_len * sizeof(float));
+    std::memset(output, 0, full_len * sizeof(float));
     
     // Upsampling and convolution
     for (size_t i = 0; i < length; i++) {
@@ -208,33 +206,33 @@ int wavelet_denoise(const float *input, float *output, size_t length,
         return -1;
     }
 
-    float *approx = NULL;
-    float *detail = NULL;
-    float *temp = NULL;
+    float *approx = nullptr;
+    float *detail = nullptr;
+    float *temp = nullptr;
 
-    approx = (float*)calloc(max_size, sizeof(float));
+    approx = (float*)std::calloc(max_size, sizeof(float));
     if (!approx) {
         ESP_LOGE(TAG, "wavelet_denoise: calloc failed for approx");
         return -1;
     }
 
-    detail = (float*)calloc(max_size, sizeof(float));
+    detail = (float*)std::calloc(max_size, sizeof(float));
     if (!detail) {
         ESP_LOGE(TAG, "wavelet_denoise: calloc failed for detail");
-        free(approx);
+        std::free(approx);
         return -1;
     }
 
-    temp = (float*)calloc(max_size, sizeof(float));
+    temp = (float*)std::calloc(max_size, sizeof(float));
     if (!temp) {
         ESP_LOGE(TAG, "wavelet_denoise: calloc failed for temp");
-        free(approx);
-        free(detail);
+        std::free(approx);
+        std::free(detail);
         return -1;
     }
     
     // Copy input to working buffer
-    memcpy(temp, input, length * sizeof(float));
+    std::memcpy(temp, input, length * sizeof(float));
     
     // Forward transform (decomposition)
     size_t current_len = length;
@@ -252,10 +250,10 @@ int wavelet_denoise(const float *input, float *output, size_t length,
         }
         
         // Store thresholded details back
-        memcpy(&temp[half_len], detail, half_len * sizeof(float));
+        std::memcpy(&temp[half_len], detail, half_len * sizeof(float));
         
         // Continue with approximation for next level
-        memcpy(temp, approx, half_len * sizeof(float));
+        std::memcpy(temp, approx, half_len * sizeof(float));
         current_len = half_len;
     }
     
@@ -265,19 +263,19 @@ int wavelet_denoise(const float *input, float *output, size_t length,
         size_t half_len = current_len / 2;
         
         // Get approximation and detail coefficients
-        memcpy(approx, temp, half_len * sizeof(float));
-        memcpy(detail, &temp[half_len], half_len * sizeof(float));
+        std::memcpy(approx, temp, half_len * sizeof(float));
+        std::memcpy(detail, &temp[half_len], half_len * sizeof(float));
         
         // Reconstruct
         wavelet_reconstruct_level(approx, detail, half_len, temp);
     }
     
     // Copy result to output
-    memcpy(output, temp, length * sizeof(float));
+    std::memcpy(output, temp, length * sizeof(float));
     
-    free(approx);
-    free(detail);
-    free(temp);
+    std::free(approx);
+    std::free(detail);
+    std::free(temp);
     
     return 0;
 }
@@ -319,3 +317,6 @@ float wavelet_denoise_sample(wavelet_state_t *state, float input) {
     // Return the middle sample (to minimize edge effects)
     return output_buffer[WAVELET_BUFFER_SIZE / 2];
 }
+
+}  // namespace espectre
+}  // namespace esphome

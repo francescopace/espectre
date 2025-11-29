@@ -6,17 +6,19 @@
  */
 
 #include "csi_features.h"
-#include "espectre.h"
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <stdbool.h>
+#include "utils.h"
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
 #include "esp_log.h"
 
-static const char *TAG = "CSI_Features";
+// Numerical stability constant (used across multiple modules)
+#define EPSILON_SMALL               1e-6f
 
-// Numerical stability constant
-#define EPSILON_SMALL 1e-6f
+namespace esphome {
+namespace espectre {
+
+static const char *TAG = "CSI_Features";
 
 // ============================================================================
 // STATIC BUFFERS AND HELPERS
@@ -29,13 +31,6 @@ static int8_t iqr_sort_buffer[CSI_MAX_LENGTH];
 static int8_t prev_csi_data[CSI_MAX_LENGTH] = {0};
 static size_t prev_csi_len = 0;
 static bool first_packet = true;
-
-// qsort comparator for int8_t
-static int compare_int8(const void *a, const void *b) {
-    int8_t ia = *(const int8_t*)a;
-    int8_t ib = *(const int8_t*)b;
-    return (ia > ib) - (ia < ib);
-}
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -115,7 +110,7 @@ float csi_calculate_skewness(const float *buffer, uint16_t count) {
     m3 /= count;
     
     // Calculate skewness
-    float stddev = sqrtf(m2);
+    float stddev = std::sqrt(m2);
     if (stddev < EPSILON_SMALL) {
         return 0.0f;
     }
@@ -174,7 +169,7 @@ float csi_calculate_entropy(const int8_t *data, size_t len) {
     for (int i = 0; i < 256; i++) {
         if (histogram[i] > 0) {
             float p = (float)histogram[i] / len;
-            entropy -= p * log2f(p);
+            entropy -= p * std::log2(p);
         }
     }
     
@@ -191,8 +186,8 @@ float csi_calculate_iqr(const int8_t *data, size_t len) {
     }
     
     // Copy and sort data
-    memcpy(iqr_sort_buffer, data, len * sizeof(int8_t));
-    qsort(iqr_sort_buffer, len, sizeof(int8_t), compare_int8);
+    std::memcpy(iqr_sort_buffer, data, len * sizeof(int8_t));
+    std::qsort(iqr_sort_buffer, len, sizeof(int8_t), compare_int8);
     
     // Calculate Q1 and Q3
     size_t q1_idx = len / 4;
@@ -217,14 +212,14 @@ float csi_calculate_spatial_variance(const int8_t *data, size_t len) {
     
     // First pass: calculate mean of absolute differences
     for (size_t i = 0; i < n; i++) {
-        mean_diff += fabsf((float)(data[i + 1] - data[i]));
+        mean_diff += std::abs((float)(data[i + 1] - data[i]));
     }
     mean_diff /= n;
     
     // Second pass: calculate variance of differences
     float variance = 0.0f;
     for (size_t i = 0; i < n; i++) {
-        float diff = fabsf((float)(data[i + 1] - data[i]));
+        float diff = std::abs((float)(data[i + 1] - data[i]));
         float deviation = diff - mean_diff;
         variance += deviation * deviation;
     }
@@ -260,7 +255,7 @@ float csi_calculate_spatial_correlation(const int8_t *data, size_t len) {
     if (term1 < 0.0f) term1 = 0.0f;
     if (term2 < 0.0f) term2 = 0.0f;
     
-    float denominator = sqrtf(term1 * term2);
+    float denominator = std::sqrt(term1 * term2);
     
     if (denominator < EPSILON_SMALL) return 0.0f;
     
@@ -272,7 +267,7 @@ float csi_calculate_spatial_gradient(const int8_t *data, size_t len) {
     
     float sum_diff = 0.0f;
     for (size_t i = 0; i < len - 1; i++) {
-        sum_diff += fabsf((float)(data[i + 1] - data[i]));
+        sum_diff += std::abs((float)(data[i + 1] - data[i]));
     }
     
     return sum_diff / (len - 1);
@@ -291,7 +286,7 @@ float csi_calculate_temporal_delta_mean(const int8_t *current_data,
     
     float delta_sum = 0.0f;
     for (size_t i = 0; i < len; i++) {
-        delta_sum += fabsf((float)(current_data[i] - previous_data[i]));
+        delta_sum += std::abs((float)(current_data[i] - previous_data[i]));
     }
     
     return delta_sum / len;
@@ -310,7 +305,7 @@ float csi_calculate_temporal_delta_variance(const int8_t *current_data,
     // Then calculate variance of deltas
     float delta_variance = 0.0f;
     for (size_t i = 0; i < len; i++) {
-        float diff = fabsf((float)(current_data[i] - previous_data[i]));
+        float diff = std::abs((float)(current_data[i] - previous_data[i]));
         float deviation = diff - delta_mean;
         delta_variance += deviation * deviation;
     }
@@ -319,7 +314,10 @@ float csi_calculate_temporal_delta_variance(const int8_t *current_data,
 }
 
 void csi_reset_temporal_buffer(void) {
-    memset(prev_csi_data, 0, sizeof(prev_csi_data));
+    std::memset(prev_csi_data, 0, sizeof(prev_csi_data));
     prev_csi_len = 0;
     first_packet = true;
 }
+
+}  // namespace espectre
+}  // namespace esphome

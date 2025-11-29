@@ -16,12 +16,15 @@
 #include "esp_netif.h"
 #include "ping/ping_sock.h"
 #include "lwip/inet.h"
-#include <string.h>
+#include <cstring>
+
+namespace esphome {
+namespace espectre {
 
 static const char *TAG = "TrafficGen";
 
 // Traffic generator state
-static esp_ping_handle_t g_ping_handle = NULL;
+static esp_ping_handle_t g_ping_handle = nullptr;
 static uint32_t g_packet_count = 0;
 static uint32_t g_timeout_count = 0;
 static uint32_t g_rate_pps = 0;
@@ -59,7 +62,7 @@ static void on_ping_end(esp_ping_handle_t hdl, void *args) {
 }
 
 void traffic_generator_init(void) {
-    g_ping_handle = NULL;
+    g_ping_handle = nullptr;
     g_packet_count = 0;
     g_timeout_count = 0;
     g_rate_pps = 0;
@@ -71,11 +74,6 @@ void traffic_generator_init(void) {
 bool traffic_generator_start(uint32_t rate_pps) {
     if (g_running) {
         ESP_LOGW(TAG, "Traffic generator already running");
-        return false;
-    }
-    
-    if (rate_pps > TRAFFIC_RATE_MAX) {
-        ESP_LOGE(TAG, "Invalid rate: %u (must be 0-%u packets/sec)", (unsigned int)rate_pps, TRAFFIC_RATE_MAX);
         return false;
     }
     
@@ -122,7 +120,7 @@ bool traffic_generator_start(uint32_t rate_pps) {
     
     // Set callbacks
     esp_ping_callbacks_t cbs = {
-        .cb_args = NULL,
+        .cb_args = nullptr,
         .on_ping_success = on_ping_success,
         .on_ping_timeout = on_ping_timeout,
         .on_ping_end = on_ping_end
@@ -138,7 +136,7 @@ bool traffic_generator_start(uint32_t rate_pps) {
     if (esp_ping_start(g_ping_handle) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start ping");
         esp_ping_delete_session(g_ping_handle);
-        g_ping_handle = NULL;
+        g_ping_handle = nullptr;
         return false;
     }
     
@@ -161,7 +159,7 @@ void traffic_generator_stop(void) {
     if (g_ping_handle) {
         esp_ping_stop(g_ping_handle);
         esp_ping_delete_session(g_ping_handle);
-        g_ping_handle = NULL;
+        g_ping_handle = nullptr;
     }
     
     ESP_LOGI(TAG, "📡 Traffic generator stopped (%u packets sent, %u timeouts)", 
@@ -185,11 +183,6 @@ void traffic_generator_set_rate(uint32_t rate_pps) {
         return;
     }
     
-    if (rate_pps > TRAFFIC_RATE_MAX) {
-        ESP_LOGE(TAG, "Invalid rate: %u (must be 0-%u packets/sec)", (unsigned int)rate_pps, TRAFFIC_RATE_MAX);
-        return;
-    }
-    
     if (rate_pps == g_rate_pps) {
         return;  // No change needed
     }
@@ -204,3 +197,6 @@ void traffic_generator_set_rate(uint32_t rate_pps) {
         ESP_LOGE(TAG, "Failed to restart traffic generator with new rate");
     }
 }
+
+}  // namespace espectre
+}  // namespace esphome

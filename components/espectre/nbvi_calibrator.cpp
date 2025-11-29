@@ -8,53 +8,45 @@
 #include "nbvi_calibrator.h"
 #include "csi_features.h"
 #include "csi_processor.h"
-#include "espectre.h"
+#include "utils.h"
 #include "esp_log.h"
 #include "esp_err.h"
-#include <string.h>
-#include <math.h>
-#include <stdlib.h>
+#include <cstring>
+#include <cmath>
+#include <cstdlib>
+
+namespace esphome {
+namespace espectre {
 
 static const char *TAG = "NBVI";
 
 // Number of subcarriers per CSI packet
-#define NUM_SUBCARRIERS 64
+constexpr uint8_t NUM_SUBCARRIERS = 64;
 
 // Number of subcarriers to select
-#define SELECTED_SUBCARRIERS_COUNT 12
+constexpr uint8_t SELECTED_SUBCARRIERS_COUNT = 12;
 
 // ============================================================================
 // INTERNAL STRUCTURES
 // ============================================================================
 
 // NBVI metrics for a single subcarrier
-typedef struct {
+struct nbvi_metrics_t {
     uint8_t subcarrier;     // Subcarrier index (0-63)
     float nbvi;             // NBVI weighted value
     float mean;             // Mean magnitude
     float std;              // Standard deviation
-} nbvi_metrics_t;
+};
 
 // Window variance info for baseline detection
-typedef struct {
+struct window_variance_t {
     uint16_t start_idx;     // Start index in buffer
     float variance;         // Variance of this window
-} window_variance_t;
+};
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
-
-/**
- * qsort comparator for float (ascending order)
- */
-static int compare_float(const void *a, const void *b) {
-    float fa = *(const float*)a;
-    float fb = *(const float*)b;
-    if (fa < fb) return -1;
-    if (fa > fb) return 1;
-    return 0;
-}
 
 /**
  * qsort comparator for nbvi_metrics_t (ascending NBVI)
@@ -114,7 +106,7 @@ static inline float calculate_magnitude(const int8_t *csi_data, uint8_t subcarri
     float I = (float)csi_data[i_idx];
     float Q = (float)csi_data[q_idx];
     
-    return sqrtf(I * I + Q * Q);
+    return std::sqrt(I * I + Q * Q);
 }
 
 /**
@@ -141,7 +133,7 @@ static float calculate_spatial_turbulence(const float *magnitudes,
     }
     float variance = sum_sq_diff / num_subcarriers;
     
-    return sqrtf(variance);
+    return std::sqrt(variance);
 }
 
 // ============================================================================
@@ -165,7 +157,7 @@ esp_err_t nbvi_calibrator_init(nbvi_calibrator_t *cal) {
     
     // Allocate magnitude buffer: buffer_size × 64 floats
     size_t buffer_bytes = cal->buffer_size * NUM_SUBCARRIERS * sizeof(float);
-    cal->magnitude_buffer = (float*)malloc(buffer_bytes);
+    cal->magnitude_buffer = (float*)std::malloc(buffer_bytes);
     
     if (!cal->magnitude_buffer) {
         ESP_LOGE(TAG, "Failed to allocate magnitude buffer (%zu bytes)", buffer_bytes);
@@ -174,7 +166,7 @@ esp_err_t nbvi_calibrator_init(nbvi_calibrator_t *cal) {
     
     cal->buffer_count = 0;
     cal->calibrated = false;
-    memset(cal->selected_band, 0, sizeof(cal->selected_band));
+    std::memset(cal->selected_band, 0, sizeof(cal->selected_band));
     
     ESP_LOGI(TAG, "Calibrator initialized (buffer: %zu bytes)", buffer_bytes);
     
@@ -243,17 +235,17 @@ static esp_err_t find_baseline_window_percentile(nbvi_calibrator_t *cal,
              num_windows, cal->window_size, cal->window_step);
     
     // Allocate window variance array
-    window_variance_t *windows = (window_variance_t*)malloc(num_windows * sizeof(window_variance_t));
+    window_variance_t *windows = (window_variance_t*)std::malloc(num_windows * sizeof(window_variance_t));
     if (!windows) {
         ESP_LOGE(TAG, "Failed to allocate window array");
         return ESP_ERR_NO_MEM;
     }
     
     // Allocate turbulence buffer for variance calculation
-    float *turbulence_buffer = (float*)malloc(cal->window_size * sizeof(float));
+    float *turbulence_buffer = (float*)std::malloc(cal->window_size * sizeof(float));
     if (!turbulence_buffer) {
         ESP_LOGE(TAG, "Failed to allocate turbulence buffer");
-        free(windows);
+        std::free(windows);
         return ESP_ERR_NO_MEM;
     }
     
@@ -277,16 +269,16 @@ static esp_err_t find_baseline_window_percentile(nbvi_calibrator_t *cal,
         window_idx++;
     }
     
-    free(turbulence_buffer);
+    std::free(turbulence_buffer);
     
     // Sort windows by variance
-    qsort(windows, num_windows, sizeof(window_variance_t), compare_window_variance);
+    std::qsort(windows, num_windows, sizeof(window_variance_t), compare_window_variance);
     
     // Calculate percentile threshold
-    float *variances = (float*)malloc(num_windows * sizeof(float));
+    float *variances = (float*)std::malloc(num_windows * sizeof(float));
     if (!variances) {
         ESP_LOGE(TAG, "Failed to allocate variance array");
-        free(windows);
+        std::free(windows);
         return ESP_ERR_NO_MEM;
     }
     
@@ -295,7 +287,7 @@ static esp_err_t find_baseline_window_percentile(nbvi_calibrator_t *cal,
     }
     
     float p_threshold = calculate_percentile(variances, num_windows, cal->percentile);
-    free(variances);
+    std::free(variances);
     
     // Find best window (minimum variance below percentile)
     uint16_t best_window_idx = 0;
@@ -315,7 +307,7 @@ static esp_err_t find_baseline_window_percentile(nbvi_calibrator_t *cal,
     ESP_LOGI(TAG, "  p%d threshold: %.4f (adaptive)", cal->percentile, p_threshold);
     ESP_LOGI(TAG, "  Windows analyzed: %d", num_windows);
     
-    free(windows);
+    std::free(windows);
     
     return ESP_OK;
 }
@@ -352,7 +344,7 @@ static void calculate_nbvi_weighted(const float *magnitudes,
     
     // Calculate standard deviation using two-pass variance
     float variance = calculate_variance_two_pass(magnitudes, count);
-    float std = sqrtf(variance);
+    float std = std::sqrt(variance);
     
     // NBVI Weighted α=0.3
     float cv = std / mean;                      // Coefficient of variation
@@ -373,7 +365,7 @@ static uint8_t apply_noise_gate(nbvi_metrics_t *metrics,
     if (num_metrics == 0) return 0;
     
     // Extract means and sort
-    float *means = (float*)malloc(num_metrics * sizeof(float));
+    float *means = (float*)std::malloc(num_metrics * sizeof(float));
     if (!means) {
         ESP_LOGE(TAG, "Failed to allocate means array");
         return num_metrics;  // Return all if allocation fails
@@ -383,10 +375,10 @@ static uint8_t apply_noise_gate(nbvi_metrics_t *metrics,
         means[i] = metrics[i].mean;
     }
     
-    qsort(means, num_metrics, sizeof(float), compare_float);
+    std::qsort(means, num_metrics, sizeof(float), compare_float);
     
     float threshold = calculate_percentile(means, num_metrics, percentile);
-    free(means);
+    std::free(means);
     
     // Filter metrics
     uint8_t write_idx = 0;
@@ -487,7 +479,7 @@ static void select_with_spacing(const nbvi_metrics_t *sorted_metrics,
         }
     }
     
-    memcpy(output_band, selected, selected_count);
+    std::memcpy(output_band, selected, selected_count);
     *output_size = selected_count;
     
     ESP_LOGI(TAG, "Selected %d subcarriers with spacing Δf≥%d",
@@ -526,16 +518,16 @@ esp_err_t nbvi_calibrator_calibrate(nbvi_calibrator_t *cal,
              cal->window_size, baseline_start);
     
     // Step 2: Calculate NBVI for all 64 subcarriers
-    nbvi_metrics_t *all_metrics = (nbvi_metrics_t*)malloc(NUM_SUBCARRIERS * sizeof(nbvi_metrics_t));
+    nbvi_metrics_t *all_metrics = (nbvi_metrics_t*)std::malloc(NUM_SUBCARRIERS * sizeof(nbvi_metrics_t));
     if (!all_metrics) {
         ESP_LOGE(TAG, "Failed to allocate metrics array");
         return ESP_ERR_NO_MEM;
     }
     
-    float *subcarrier_magnitudes = (float*)malloc(cal->window_size * sizeof(float));
+    float *subcarrier_magnitudes = (float*)std::malloc(cal->window_size * sizeof(float));
     if (!subcarrier_magnitudes) {
         ESP_LOGE(TAG, "Failed to allocate subcarrier magnitudes");
-        free(all_metrics);
+        std::free(all_metrics);
         return ESP_ERR_NO_MEM;
     }
     
@@ -552,7 +544,7 @@ esp_err_t nbvi_calibrator_calibrate(nbvi_calibrator_t *cal,
                                &all_metrics[sc]);
     }
     
-    free(subcarrier_magnitudes);
+    std::free(subcarrier_magnitudes);
     
     // Step 3: Apply Noise Gate
     uint8_t filtered_count = apply_noise_gate(all_metrics, NUM_SUBCARRIERS,
@@ -561,12 +553,12 @@ esp_err_t nbvi_calibrator_calibrate(nbvi_calibrator_t *cal,
     if (filtered_count < SELECTED_SUBCARRIERS_COUNT) {
         ESP_LOGE(TAG, "Not enough subcarriers after Noise Gate (%d < %d)",
                  filtered_count, SELECTED_SUBCARRIERS_COUNT);
-        free(all_metrics);
+        std::free(all_metrics);
         return ESP_FAIL;
     }
     
     // Step 4: Sort by NBVI (ascending - lower is better)
-    qsort(all_metrics, filtered_count, sizeof(nbvi_metrics_t), compare_nbvi_metrics);
+    std::qsort(all_metrics, filtered_count, sizeof(nbvi_metrics_t), compare_nbvi_metrics);
     
     // Step 5: Select with spectral spacing
     select_with_spacing(all_metrics, filtered_count, cal->min_spacing,
@@ -574,7 +566,7 @@ esp_err_t nbvi_calibrator_calibrate(nbvi_calibrator_t *cal,
     
     if (*output_size != SELECTED_SUBCARRIERS_COUNT) {
         ESP_LOGE(TAG, "Invalid band size (%d != %d)", *output_size, SELECTED_SUBCARRIERS_COUNT);
-        free(all_metrics);
+        std::free(all_metrics);
         return ESP_FAIL;
     }
     
@@ -602,19 +594,22 @@ esp_err_t nbvi_calibrator_calibrate(nbvi_calibrator_t *cal,
     ESP_LOGI(TAG, "  Average magnitude: %.2f", avg_mean);
     
     // Store results
-    memcpy(cal->selected_band, output_band, SELECTED_SUBCARRIERS_COUNT);
+    std::memcpy(cal->selected_band, output_band, SELECTED_SUBCARRIERS_COUNT);
     cal->calibrated = true;
     
-    free(all_metrics);
+    std::free(all_metrics);
     
     return ESP_OK;
 }
 
 void nbvi_calibrator_free(nbvi_calibrator_t *cal) {
     if (cal && cal->magnitude_buffer) {
-        free(cal->magnitude_buffer);
-        cal->magnitude_buffer = NULL;
+        std::free(cal->magnitude_buffer);
+        cal->magnitude_buffer = nullptr;
         cal->buffer_count = 0;
         ESP_LOGI(TAG, "Calibrator memory freed");
     }
 }
+
+}  // namespace espectre
+}  // namespace esphome

@@ -29,12 +29,16 @@
  * License: GPLv3
  */
 
-#ifndef NBVI_CALIBRATOR_H
-#define NBVI_CALIBRATOR_H
+#pragma once
 
-#include <stdint.h>
-#include <stdbool.h>
+#include <cstdint>
 #include "esp_err.h"
+
+namespace esphome {
+namespace espectre {
+
+// NBVI calibration constants
+constexpr uint16_t NBVI_BUFFER_SIZE = 500;  // Packets to collect (5s @ 100Hz)
 
 // ============================================================================
 // NBVI CALIBRATOR CONTEXT
@@ -46,7 +50,7 @@
  * Manages CSI packet collection and NBVI-based subcarrier selection.
  * Memory footprint: ~128KB for magnitude buffer (500 packets × 64 subcarriers × 4 bytes)
  */
-typedef struct {
+struct nbvi_calibrator_t {
     // Configuration parameters
     uint16_t buffer_size;           // Number of packets to collect (default: 500)
     uint16_t window_size;           // Window size for baseline detection (default: 100)
@@ -64,7 +68,7 @@ typedef struct {
     // Results
     uint8_t selected_band[12];      // Output: 12 selected subcarrier indices
     bool calibrated;                // Calibration status
-} nbvi_calibrator_t;
+};
 
 // ============================================================================
 // NBVI CALIBRATOR API
@@ -127,4 +131,5 @@ esp_err_t nbvi_calibrator_calibrate(nbvi_calibrator_t *cal,
  */
 void nbvi_calibrator_free(nbvi_calibrator_t *cal);
 
-#endif // NBVI_CALIBRATOR_H
+}  // namespace espectre
+}  // namespace esphome

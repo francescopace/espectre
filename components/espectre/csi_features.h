@@ -8,18 +8,23 @@
  * - Temporal: delta mean, delta variance (between consecutive packets)
  * 
  * Note: The csi_features_t struct is defined in csi_processor.h
- * Note: Feature extraction orchestration (csi_extract_features) is in csi_processor.c
+ * Note: Feature extraction orchestration (csi_extract_features) is in csi_processor.cpp
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
 
-#ifndef CSI_FEATURES_H
-#define CSI_FEATURES_H
+#pragma once
 
-#include <stdint.h>
-#include <stddef.h>
+#include <cstdint>
+#include <cstddef>
 #include "csi_processor.h"  // For csi_features_t definition
+
+namespace esphome {
+namespace espectre {
+
+// CSI processing constants
+constexpr size_t CSI_MAX_LENGTH = 512;  // Maximum CSI data length (ESP32-S3: 256, ESP32-C6: 128, buffer sized for largest)
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -160,4 +165,5 @@ float csi_calculate_temporal_delta_variance(const int8_t *current_data,
  */
 void csi_reset_temporal_buffer(void);
 
-#endif // CSI_FEATURES_H
+}  // namespace espectre
+}  // namespace esphome
