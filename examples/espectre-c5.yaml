@@ -1,0 +1,59 @@
+# ESPectre - ESP32-C5 Configuration
+# WiFi CSI-based motion detection with Home Assistant integration
+#
+# ⚠️ EXPERIMENTAL: This platform has NOT been tested yet.
+# ESP32-C5 uses the same modern CSI API as ESP32-C6 with WiFi 6 support.
+# Please report your results on GitHub Discussions!
+#
+# Compatible boards:
+# - ESP32-C5-DevKitC
+# - ESP32-C5-DevKitM
+# - Any ESP32-C5 board
+#
+# Quick Start:
+# 1. Copy this file to your ESPHome config directory
+# 2. Edit wifi ssid and password below
+# 3. Run: esphome run espectre-c5.yaml
+
+esphome:
+  name: espectre
+
+esp32:
+  variant: ESP32C5
+  framework:
+    type: esp-idf
+    version: 5.5.1
+    sdkconfig_options:
+      # Power Management (critical for CSI reliability)
+      CONFIG_PM_ENABLE: n                             # Disable all power management
+      CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE: n   # No power save when disconnected
+      # CSI Feature
+      CONFIG_ESP_WIFI_CSI_ENABLED: y                  # Enable CSI extraction from WiFi packets
+      CONFIG_ESP_WIFI_11AX_SUPPORT: y                 # Enable WiFi 6 (802.11ax)
+
+wifi:
+  ssid: "YOUR_WIFI_SSID"
+  password: "YOUR_WIFI_PASSWORD"
+
+# Load ESPectre component from GitHub
+external_components:
+  - source:
+      type: git
+      url: https://github.com/francescopace/espectre
+      ref: main
+    components: [ espectre ]
+    refresh: always
+
+# ESPectre - WiFi CSI Motion Detection
+espectre:
+
+# Enable logging
+logger:
+
+# Enable API for Home Assistant
+api:
+
+# Enable OTA updates via ESPHome
+ota:
+  - platform: esphome
+

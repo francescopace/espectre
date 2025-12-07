@@ -151,8 +151,8 @@ esp_err_t CSIManager::disable() {
 }
 
 esp_err_t CSIManager::configure_platform_specific_() {
-#if CONFIG_IDF_TARGET_ESP32C6
-  // ESP32-C6 configuration
+#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C5
+  // ESP32-C5/C6: Modern CSI API with WiFi 6 support
   wifi_csi_config_t csi_config = {
     .enable = 1,                    // Master enable (REQUIRED)
     .acquire_csi_legacy = 1,        // L-LTF from 802.11a/g (fallback for legacy routers)
@@ -162,25 +162,27 @@ esp_err_t CSIManager::configure_platform_specific_() {
     .acquire_csi_mu = 0,            // MU-MIMO disabled (rarely used in home environments)
     .acquire_csi_dcm = 0,           // DCM disabled (long-range feature, not needed)
     .acquire_csi_beamformed = 0,    // Beamformed disabled (alters channel estimation)
-    .acquire_csi_he_stbc = 0,       // HE-STBC disabled (requires multiple antennas)
-    .val_scale_cfg = 0,             // Manual-scaling (0 for auto)
+#if CONFIG_IDF_TARGET_ESP32C6
+    .acquire_csi_he_stbc = 0,       // HE-STBC disabled (requires multiple antennas) - C6 only
+#endif
+    .val_scale_cfg = 0,             // Auto-scaling (0 for auto)
     .dump_ack_en = 0,               // ACK frames disabled (adds noise, not useful)
   };
-  ESP_LOGD(TAG, "Using ESP32-C6 CSI configuration");
 #else
-  // ESP32-S3 configuration
+  // ESP32, ESP32-S2, ESP32-S3, ESP32-C3: Legacy CSI API
   wifi_csi_config_t csi_config = {
-    .lltf_en = false,               // Disabled - HT-LTF only (same as C6 acquire_csi_legacy=0)
-    .htltf_en = true,               // HT-LTF only (same as C6 acquire_csi_ht20=1)
-    .stbc_htltf2_en = false,        // Disabled for consistency with C6 (acquire_csi_he_stbc=0)
+    .lltf_en = false,               // Disabled - HT-LTF only
+    .htltf_en = true,               // HT-LTF only (PRIMARY - best SNR)
+    .stbc_htltf2_en = false,        // Disabled for consistency
     .ltf_merge_en = false,          // No merge (only HT-LTF enabled)
-    .channel_filter_en = false,     // Raw subcarriers (C6 doesn't have this option)
+    .channel_filter_en = false,     // Raw subcarriers
     .manu_scale = true,             // Manual scaling
     .shift = 4,                     // Shift=4 → values/16, calibrated to match C6 auto-scale range
   };
-  ESP_LOGD(TAG, "Using ESP32-S3 CSI configuration");
 #endif
   
+  ESP_LOGI(TAG, "Using %s CSI configuration", CONFIG_IDF_TARGET);
+
   return esp_wifi_set_csi_config(&csi_config);
 }
 

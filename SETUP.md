@@ -9,7 +9,7 @@ Complete guide to install and configure ESPectre with ESPHome.
 ---
 
 **Hardware:**
-- **ESP32-S3** or **ESP32-C6** development board
+- **ESP32 with CSI support** - ESP32-S3 or ESP32-C6 tested. Other variants (ESP32, S2, C3, C5) also supported experimentally.
 - USB-C or Micro-USB cable (depending on board)
 - Wi-Fi router (2.4 GHz, 802.11b|g|n|ax)
 
@@ -40,12 +40,18 @@ pip install esphome
 
 Download the example configuration for your hardware:
 
-| Platform | Configuration File |
-|----------|-------------------|
-| **ESP32-C6** | [examples/espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) |
-| **ESP32-S3** | [examples/espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) |
+| Platform | Configuration File | Status |
+|----------|-------------------|--------|
+| **ESP32-C6** | [examples/espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) | ✅ Tested |
+| **ESP32-S3** | [examples/espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) | ✅ Tested |
+| **ESP32-C5** | [examples/espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | ⚠️ Experimental |
+| **ESP32-C3** | [examples/espectre-c3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c3.yaml) | ⚠️ Experimental |
+| **ESP32-S2** | [examples/espectre-s2.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s2.yaml) | ⚠️ Experimental |
+| **ESP32** | [examples/espectre-esp32.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-esp32.yaml) | ⚠️ Experimental |
 
 These files are pre-configured to download the component automatically from GitHub.
+
+> ⚠️ **Experimental platforms**: ESP32, ESP32-S2, ESP32-C3, and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
 
 ### 3. Edit WiFi credentials
 
@@ -332,11 +338,11 @@ To force recalibration: erase flash and re-flash.
 
 ---
 
-## Other Hardware (Untested)
+## Custom Hardware Configuration
 
 ---
 
-If you have a different ESP32 variant (not C6 or S3), you can create a custom configuration based on these guidelines:
+ESPectre now provides example configurations for all ESP32 variants with CSI support. If you need to customize further, use these guidelines:
 
 ### Required sdkconfig options
 

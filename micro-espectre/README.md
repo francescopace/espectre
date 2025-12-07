@@ -117,7 +117,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 ## 📋 Requirements
 
 ### Hardware
-- ESP32-S3 or ESP32-C6 board
+- ESP32 with CSI support (S3/C6 recommended, other variants supported)
 - 2.4GHz WiFi router
 
 ### Software
@@ -143,7 +143,7 @@ The `me` CLI provides these essential commands:
 
 ### Key Features
 
-- 🔍 **Auto-detection**: Automatically detects serial port and chip type (ESP32-S3/C6)
+- 🔍 **Auto-detection**: Automatically detects serial port and chip type
 - ⚡ **Fast deployment**: Updates code in ~5 seconds (no compilation)
 - 🎯 **Simple syntax**: Intuitive commands for all operations
 - 🔧 **Manual override**: Specify port/chip manually if needed
@@ -208,7 +208,7 @@ The precompiled firmware with CSI support is automatically downloaded from [micr
 
 The CLI will:
 - 🔍 Auto-detect your serial port
-- 🔍 Auto-detect your chip type (ESP32-S3 or ESP32-C6)
+- 🔍 Auto-detect your chip type
 - 📦 Download the correct firmware (cached locally)
 - ⚡ Flash it to your device
 

@@ -433,7 +433,7 @@ if selected_band:
 
 ### Configuration Parameters
 
-**Recommended for ESP32-C6**:
+**Recommended settings**:
 
 ```python
 # Percentile-based (recommended)
@@ -460,7 +460,7 @@ NBVICalibrator(
 **Note**: 
 - The Python implementation (`src/nbvi_calibrator.py`) uses **only percentile-based detection**
 - The test script (`11_test_nbvi_selection.py`) tests **both percentile and threshold modes** for comparison
-- Test script uses `buffer_size=500` and `window_size=100` to simulate ESP32-C6 memory constraints
+- Test script uses `buffer_size=500` and `window_size=100` to simulate ESP32 memory constraints
 - README recommends `buffer_size=1000` for optimal performance when memory allows
 
 ### C++ Implementation (ESPHome)
@@ -519,7 +519,7 @@ python 11_test_nbvi_selection.py
 - Pure data: **F1=97.1%** (gap -0.2% vs manual)
 - Mixed data: **F1=91.2%** (4/4 calibrated)
 - **Zero configuration** (no threshold needed)
-- **Production-ready** for ESP32-C6
+- **Production-ready** for ESP32
 
 ### Comparison with Other Methods
 
@@ -712,7 +712,7 @@ baseline_windows = [0.3, 0.2, 0.3]  # Automatically found!
 **Complexity**: O(N·L) - Linear in subcarriers and packets
 - Mean/std calculation: O(L) per subcarrier
 - Total: O(N·L) = O(64·1000) = ~64k operations
-- Suitable for ESP32-C6 (160MHz RISC-V)
+- Suitable for all ESP32 variants
 
 **Avoids**:
 - ❌ PCA (Principal Component Analysis): O(N³) - too expensive

@@ -18,7 +18,7 @@ This document provides detailed performance metrics for ESPectre's motion detect
 | Subcarriers | [11-22] (12 subcarriers) |
 
 ### Test Environment
-- **Platform**: ESP32-C6 (results are similar on ESP32-S3)
+- **Platform**: ESP32-C6 (results expected to be similar on other ESP32 variants)
 - **Distance from router**: ~3 meters
 - **Environment**: Indoor residential
 

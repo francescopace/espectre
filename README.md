@@ -40,7 +40,7 @@
 ## 🎯 In 3 Points
 
 1. **What it does**: Detects movement using Wi-Fi (no cameras, no microphones)
-2. **What you need**: A ~€10 device (ESP32-S3 or ESP32-C6)
+2. **What you need**: A ~€10 ESP32 device (S3 and C6 recommended, other variants supported)
 3. **Setup time**: 10-15 minutes
 
 ---
@@ -52,7 +52,7 @@
 ### Key Points
 
 - ✅ **No ML training required**: Works out-of-the-box with mathematical algorithms
-- ✅ **Real-time processing**: Low latency detection on ESP32 hardware (S3/C6)
+- ✅ **Real-time processing**: Low latency detection on ESP32 hardware
 - ✅ **Production-ready**: Focused on reliable motion detection for smart home
 - ✅ **R&D platform available**: [Micro-ESPectre](micro-espectre/) provides features extraction for ML research
 
@@ -65,7 +65,7 @@ The mathematical approach provides excellent movement detection without the comp
 ### Hardware
 
 - ✅ **2.4GHz Wi-Fi Router** - the one you already have at home works fine
-- ✅ **ESP32-S3 or ESP32-C6** - Available on Amazon, AliExpress, or electronics stores (~€10)
+- ✅ **ESP32 with CSI support** - ESP32-S3 or ESP32-C6 tested. Other variants (ESP32, S2, C3, C5) also supported experimentally.
 
 ![3 x ESP32-S3 DevKit bundle with external antennas](images/home_lab.jpg)
 *ESP32-S3 DevKit with external antennas*
@@ -261,7 +261,7 @@ A: No! ESPectre uses YAML configuration files. Just copy the example, modify WiF
 A: Yes, if your router has 2.4GHz Wi-Fi (virtually all modern routers have it).
 
 **Q: How much does it cost in total?**  
-A: Hardware: ~€10 for an ESP32-S3 or ESP32-C6 device. Software: All free and open source. You'll also need Home Assistant running somewhere (Raspberry Pi ~€35-50, or any existing PC/NAS).
+A: Hardware: ~€10 for an ESP32 device (S3/C6 recommended, other variants also work). Software: All free and open source. You'll also need Home Assistant running somewhere (Raspberry Pi ~€35-50, or any existing PC/NAS).
 
 **Q: Do I need to modify anything on the router?**  
 A: No! The router works normally. The sensor "listens" to Wi-Fi signals without modifying anything.
@@ -383,7 +383,8 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ### Hardware Requirements
 
-**ESP32-S3:** or **ESP32-C6:**
+**Tested:** ESP32-S3 or ESP32-C6  
+**Experimental:** ESP32, ESP32-S2, ESP32-C3, ESP32-C5
 
 ### Software Requirements
 - **Framework**: ESPHome with ESP-IDF backend
@@ -426,10 +427,19 @@ ESPectre supports multiple ESP32 platforms with **dedicated configuration files*
 |----------|-------------|-----|------|-------|--------|
 | **ESP32-C6** | `examples/espectre-c6.yaml` | Single-core RISC-V @ 160MHz | WiFi 6 (802.11ax) | ❌ | ✅ Tested |
 | **ESP32-S3** | `examples/espectre-s3.yaml` | Dual-core Xtensa @ 240MHz | WiFi 4 (802.11n) | ✅ 8MB | ✅ Tested |
+| **ESP32-C5** | `examples/espectre-c5.yaml` | Single-core RISC-V @ 240MHz | WiFi 6 (802.11ax) | ❌ | ⚠️ Experimental |
+| **ESP32-C3** | `examples/espectre-c3.yaml` | Single-core RISC-V @ 160MHz | WiFi 4 (802.11n) | ❌ | ⚠️ Experimental |
+| **ESP32-S2** | `examples/espectre-s2.yaml` | Single-core Xtensa @ 240MHz | WiFi 4 (802.11n) | Optional | ⚠️ Experimental |
+| **ESP32** | `examples/espectre-esp32.yaml` | Dual-core Xtensa @ 240MHz | WiFi 4 (802.11n) | Optional | ⚠️ Experimental |
 
 **Recommendations**:
 - **ESP32-C6**: Best for WiFi 6 environments, standard motion detection
 - **ESP32-S3**: Best for advanced applications, future ML features (more memory)
+- **ESP32-C5**: Similar to C6 with WiFi 6 support, newer chip
+- **ESP32-C3**: Budget-friendly option, compact form factor
+- **ESP32-S2/ESP32**: Use if you already have one, but S3/C6 recommended for new purchases
+
+> ⚠️ **Experimental platforms**: ESP32, ESP32-S2, ESP32-C3, and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
 
 See [SETUP.md](SETUP.md) for platform-specific configurations and PSRAM settings.
 
