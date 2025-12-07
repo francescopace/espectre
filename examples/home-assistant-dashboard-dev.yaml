@@ -1,0 +1,95 @@
+# ESPectre - Home Assistant Dashboard for Development
+#
+# Extended dashboard with debug sensors for monitoring device health:
+# - Free Heap: Available memory (should stay stable)
+# - Max Free Block: Largest contiguous memory block
+# - Loop Time: Main loop execution time (lower is better)
+#
+# Use this with espectre-*-dev.yaml configurations that include debug sensors.
+# For production, use home-assistant-dashboard.yaml instead.
+#
+# How to use:
+# 1. Go to Settings → Dashboards → Add Dashboard
+# 2. Click "Edit" on the new dashboard
+# 3. Click the three dots menu → "Raw configuration editor"
+# 4. Paste this YAML content
+#
+# Note: If you changed the device name from "espectre", replace all
+# occurrences of "espectre_" with your device name (e.g., "espectre_living_room_")
+
+title: 🛜 ESPectre 👻 - Dev
+type: sections
+cards: []
+max_columns: 4
+sections:
+  - type: grid
+    cards:
+      - type: gauge
+        entity: sensor.espectre_movement_score
+        name: Movement Level
+        min: 0
+        max: 10
+        needle: true
+        segments:
+          - from: 0
+            color: green
+          - from: 0.5
+            color: yellow
+          - from: 1
+            color: orange
+          - from: 2
+            color: red
+      - type: history-graph
+        hours_to_show: 1
+        entities:
+          - entity: sensor.espectre_movement_score
+            name: Movement
+          - entity: number.espectrethreshold
+            name: Threshold
+        grid_options:
+          columns: 12
+          rows: 4
+        title: ESPectre
+  - type: grid
+    cards:
+      - type: tile
+        grid_options:
+          columns: 12
+          rows: 1
+        entity: binary_sensor.espectre_motion_detected
+        name: Motion
+        show_entity_picture: false
+        hide_state: false
+        state_content:
+          - state
+          - last_changed
+        vertical: false
+        features_position: bottom
+      - type: entities
+        entities:
+          - entity: number.espectre_threshold
+            icon: mdi:tune-vertical
+            name: Threshold
+        show_header_toggle: false
+        state_color: false
+      - type: tile
+        grid_options:
+          columns: 12
+          rows: 1
+        entity: sensor.espectre_free_heap
+        vertical: false
+        features_position: bottom
+      - type: tile
+        grid_options:
+          columns: 12
+          rows: 1
+        entity: sensor.espectre_max_free_block
+        vertical: false
+        features_position: bottom
+      - type: tile
+        grid_options:
+          columns: 12
+          rows: 1
+        entity: sensor.espectre_loop_time
+        vertical: false
+        features_position: bottom

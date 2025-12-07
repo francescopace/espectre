@@ -14,8 +14,7 @@ After flashing your device with ESPHome:
 
 ```bash
 # View logs to monitor calibration
-esphome logs espectre-c6.yaml   # For ESP32-C6
-esphome logs espectre-s3.yaml   # For ESP32-S3
+esphome logs <your-config>.yaml
 ```
 
 ### 2. Wait for NBVI Calibration
@@ -36,7 +35,7 @@ Look for log messages like:
 Walk around the room while monitoring logs:
 
 ```bash
-esphome logs espectre-c6.yaml   # or espectre-s3.yaml
+esphome logs <your-config>.yaml
 ```
 
 Look for state changes:
@@ -58,7 +57,7 @@ espectre:
 
 After changing, re-flash:
 ```bash
-esphome run espectre-c6.yaml   # or espectre-s3.yaml
+esphome run <your-config>.yaml
 ```
 
 ---
@@ -223,7 +222,7 @@ espectre:
 
 4. **Re-flash and test:**
    ```bash
-   esphome run espectre-c6.yaml   # or espectre-s3.yaml
+   esphome run <your-config>.yaml
    ```
 
 ### Missing Movements
@@ -248,7 +247,7 @@ espectre:
 
 4. **Check logs for CSI packets:**
    ```bash
-   esphome logs espectre-c6.yaml   # or espectre-s3.yaml
+   esphome logs <your-config>.yaml
    ```
 
 ### Unstable Detection
@@ -277,7 +276,7 @@ espectre:
 
 1. Erase flash completely:
    ```bash
-   esphome run espectre-c6.yaml --device /dev/ttyUSB0   # or espectre-s3.yaml
+   esphome run <your-config>.yaml --device /dev/ttyUSB0
    # Choose "Erase flash before uploading" if available
    ```
 
@@ -296,11 +295,10 @@ espectre:
 
 ```bash
 # Via USB
-esphome logs espectre-c6.yaml   # or espectre-s3.yaml
+esphome logs <your-config>.yaml
 
 # Via network (after first flash)
-esphome logs espectre-c6.yaml --device espectre-c6.local
-esphome logs espectre-s3.yaml --device espectre-s3.local
+esphome logs <your-config>.yaml --device espectre.local
 ```
 
 ### Home Assistant

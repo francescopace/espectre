@@ -1,0 +1,96 @@
+# ESPectre - ESP32-S3 Development Configuration
+# WiFi CSI-based motion detection - LOCAL DEVELOPMENT VERSION
+#
+# This file uses local components for development.
+# For production use, see espectre-s3.yaml (uses GitHub source).
+#
+# Usage:
+# 1. Clone the repository: git clone https://github.com/francescopace/espectre.git
+# 2. cd espectre
+# 3. Create secrets.yaml with wifi_ssid and wifi_password
+# 4. Run: esphome run examples/espectre-s3-dev.yaml
+
+esphome:
+  name: espectre
+
+esp32:
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+    version: 5.5.1
+    sdkconfig_options:
+      # Power Management (critical for CSI reliability)
+      CONFIG_PM_ENABLE: n                             # Disable all power management
+      CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE: n   # No power save when disconnected
+      # CSI Feature
+      CONFIG_ESP_WIFI_CSI_ENABLED: y                  # Enable CSI extraction from WiFi packets
+      # PSRAM Support (8MB on most S3 boards)
+      CONFIG_SPIRAM: y                                # Enable SPIRAM/PSRAM
+      CONFIG_SPIRAM_IGNORE_NOTFOUND: y                # Continue if PSRAM not found
+      CONFIG_SPIRAM_TYPE_AUTO: y                      # Automatic detection of PSRAM type
+      CONFIG_SPIRAM_SPEED_80M: y                      # 80MHz PSRAM clock
+      CONFIG_SPIRAM_BOOT_INIT: y                      # Initialize at boot
+      CONFIG_SPIRAM_USE_MALLOC: y                     # Use PSRAM for malloc/heap
+      CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL: "8192"     # Small allocations (<8KB) use internal RAM
+      CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL: "32768"  # Reserve 32KB internal for DMA
+      CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY: y    # Required for some operations
+      CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP: n         # Disable WiFi allocation from PSRAM
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+
+# Local component for development
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ espectre ]
+
+# ESPectre - WiFi CSI Motion Detection
+# All parameters shown with defaults
+espectre:
+  # Motion detection
+  traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
+  segmentation_threshold: 1.0   # Motion sensitivity: lower=more sensitive (0.5-10.0)
+  segmentation_window_size: 50  # Analysis window size in packets (10-200)
+  # Hampel filter (anti-turbulence)
+  hampel_enabled: true          # Enable outlier removal filter
+  hampel_window: 7              # Filter window size (3-11, odd numbers)
+  hampel_threshold: 4.0         # Outlier detection threshold (1.0-10.0)  
+  # Subcarrier selection (optional - leave commented for auto-calibration at boot)
+  # selected_subcarriers: [6, 7, 8, 20, 21, 22, 35, 36, 50, 51, 52, 53]
+
+# Enable API for Home Assistant
+api:
+
+# Enable OTA updates via ESPHome
+ota:
+  - platform: esphome
+
+# Debug sensors for development
+debug:
+  update_interval: 5s
+
+sensor:
+  - platform: debug
+    free:
+      name: "Free Heap"
+    block:
+      name: "Max Free Block"
+    loop_time:
+      name: "Loop Time"
+
+text_sensor:
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"
+
+logger:
+  level: DEBUG
+  logs:
+    sensor: INFO
+    binary_sensor: INFO

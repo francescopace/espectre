@@ -420,12 +420,12 @@ CSI data represents only the properties of the transmission medium and does not 
 <details>
 <summary>🔧 Multi-Platform Support (click to expand)</summary>
 
-ESPectre supports multiple ESP32 platforms with **dedicated configuration files**:
+ESPectre supports multiple ESP32 platforms with **dedicated configuration files** in the `examples/` folder:
 
 | Platform | Config File | CPU | WiFi | PSRAM | Status |
 |----------|-------------|-----|------|-------|--------|
-| **ESP32-C6** | `espectre-c6.yaml` | Single-core RISC-V @ 160MHz | WiFi 6 (802.11ax) | ❌ | ✅ Tested |
-| **ESP32-S3** | `espectre-s3.yaml` | Dual-core Xtensa @ 240MHz | WiFi 4 (802.11n) | ✅ 8MB | ✅ Tested |
+| **ESP32-C6** | `examples/espectre-c6.yaml` | Single-core RISC-V @ 160MHz | WiFi 6 (802.11ax) | ❌ | ✅ Tested |
+| **ESP32-S3** | `examples/espectre-s3.yaml` | Dual-core Xtensa @ 240MHz | WiFi 4 (802.11n) | ✅ 8MB | ✅ Tested |
 
 **Recommendations**:
 - **ESP32-C6**: Best for WiFi 6 environments, standard motion detection

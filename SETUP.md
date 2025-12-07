@@ -36,38 +36,112 @@ source venv/bin/activate  # On macOS/Linux
 pip install esphome
 ```
 
-### 2. Create secrets file
+### 2. Download a configuration file
 
-Create a `secrets.yaml` file in the project directory:
+Download the example configuration for your hardware:
 
-```yaml
-# secrets.yaml
-wifi_ssid: "YourWiFiName"
-wifi_password: "YourWiFiPassword"
-```
+| Platform | Configuration File |
+|----------|-------------------|
+| **ESP32-C6** | [examples/espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) |
+| **ESP32-S3** | [examples/espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) |
 
-### 3. Choose your configuration file
+These files are pre-configured to download the component automatically from GitHub.
 
-ESPectre provides **pre-configured and tested files** for supported platforms:
+### 3. Edit WiFi credentials
 
-| File | Platform | Key Features |
-|------|----------|--------------|
-| `espectre-c6.yaml` | ESP32-C6 | WiFi 6 (802.11ax), single-core RISC-V |
-| `espectre-s3.yaml` | ESP32-S3 | Dual-core, 8MB PSRAM (Octal) |
-
-**Use the file that matches your hardware.** These configurations are tested and optimized.
+Open the downloaded file and replace `YOUR_WIFI_SSID` and `YOUR_WIFI_PASSWORD` with your WiFi credentials.
 
 ### 4. Build and flash
 
 ```bash
-# For ESP32-C6
-esphome run espectre-c6.yaml
-
-# For ESP32-S3
-esphome run espectre-s3.yaml
+esphome run espectre-c6.yaml  # or espectre-s3.yaml
 ```
 
 That's it! 🎉 The device will be automatically discovered by Home Assistant.
+
+---
+
+## Development Setup
+
+---
+
+For development, contributions, or offline use, use the pre-configured development files.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/francescopace/espectre.git
+cd espectre
+```
+
+### 2. Install ESPHome
+
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On macOS/Linux
+pip install esphome
+```
+
+### 3. Create secrets file
+
+```bash
+cat > secrets.yaml << EOF
+wifi_ssid: "YourWiFiName"
+wifi_password: "YourWiFiPassword"
+EOF
+```
+
+### 4. Build and flash
+
+Use the development configuration files (with debug sensors and local component path):
+
+| Platform | Development File |
+|----------|-----------------|
+| **ESP32-C6** | `examples/espectre-c6-dev.yaml` |
+| **ESP32-S3** | `examples/espectre-s3-dev.yaml` |
+
+```bash
+# For ESP32-C6
+esphome run examples/espectre-c6-dev.yaml
+
+# For ESP32-S3
+esphome run examples/espectre-s3-dev.yaml
+```
+
+### Development vs Production Files
+
+| File | Component Source | WiFi | Logger | Debug Sensors |
+|------|-----------------|------|--------|---------------|
+| `espectre-c6.yaml` | GitHub | Placeholder | INFO | ❌ |
+| `espectre-c6-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
+| `espectre-s3.yaml` | GitHub | Placeholder | INFO | ❌ |
+| `espectre-s3-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
+
+---
+
+## Docker / Home Assistant Add-on
+
+---
+
+If you run ESPHome in Docker or as a Home Assistant add-on, just download an example file to your config directory.
+
+**Example for Docker with bind mount:**
+
+```bash
+# Your docker-compose.yml mounts /home/user/esphome/config:/config
+cd /home/user/esphome/config
+
+# Download the configuration file
+curl -O https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml
+
+# Edit WiFi credentials in the file
+vi espectre-c6.yaml  # Replace YOUR_WIFI_SSID and YOUR_WIFI_PASSWORD
+
+# Run ESPHome
+docker compose exec esphome esphome run espectre-c6.yaml
+```
+
+No need to copy any files manually - the component is downloaded automatically from GitHub!
 
 ---
 
@@ -125,9 +199,13 @@ ESPHome provides **automatic Home Assistant integration**. Once the device is fl
 
 ### Entities Created
 
+Entity names are based on the device name in your YAML (default: `espectre`):
+
 - **binary_sensor.espectre_motion_detected** - Motion state (on/off)
 - **sensor.espectre_movement_score** - Movement intensity value
 - **number.espectre_threshold** - Detection threshold (adjustable from Home Assistant)
+
+> **Note:** If you change the device name, replace `espectre` with your device name in automations and dashboards.
 
 ### Automation Example
 
@@ -177,70 +255,33 @@ automation:
           message: "No movement detected for 4 hours"
 ```
 
-### Dashboard Example
+### Dashboard Examples
 
-Create a dedicated dashboard for ESPectre monitoring. Go to **Settings** → **Dashboards** → **Add Dashboard**, then edit and paste this YAML:
+Two dashboard examples are available:
 
-```yaml
-title: 🛜 ESPectre 👻
-type: sections
-sections:
-  - type: grid
-    cards:
-      - type: gauge
-        entity: sensor.espectre_movement_score
-        name: Movement Level
-        min: 0
-        max: 10
-        needle: true
-        segments:
-          - from: 0
-            color: green
-          - from: 0.5
-            color: yellow
-          - from: 1
-            color: orange
-          - from: 2
-            color: red
-      - type: tile
-        grid_options:
-          columns: 12
-          rows: 1
-        entity: binary_sensor.espectre_motion_detected
-        name: Motion
-        show_entity_picture: false
-        hide_state: false
-        state_content:
-          - state
-          - last_changed
-        vertical: false
-        features_position: bottom
-      - type: entities
-        entities:
-          - entity: number.espectre_threshold
-            icon: mdi:tune-vertical
-            name: Threshold
-        show_header_toggle: false
-        state_color: false
-  - type: grid
-    cards:
-      - type: history-graph
-        title: Motion History
-        hours_to_show: 24
-        entities:
-          - entity: sensor.espectre_movement_score
-            name: Movement
-          - entity: number.espectre_threshold
-            name: Threshold
-        grid_options:
-          columns: 12
-          rows: 5
-```
+| Dashboard | Description |
+|-----------|-------------|
+| [home-assistant-dashboard.yaml](examples/home-assistant-dashboard.yaml) | Production dashboard with motion sensors |
+| [home-assistant-dashboard-dev.yaml](examples/home-assistant-dashboard-dev.yaml) | Development dashboard with debug sensors (Free Heap, Loop Time, etc.) |
 
-This dashboard includes:
+**How to use:**
+1. Go to **Settings** → **Dashboards** → **Add Dashboard**
+2. Click **Edit** on the new dashboard
+3. Click the three dots menu → **Raw configuration editor**
+4. Paste the YAML content from the file
+
+> **Note:** If you changed the device name from `espectre`, replace all occurrences of `espectre_` with your device name (e.g., `espectre_living_room_`).
+
+**Production dashboard includes:**
 - **Gauge**: Visual representation of movement score with color-coded severity
-- **Entity cards**: Current motion state and adjustable threshold
-- **History graph**: 24-hour view of movement and motion detection
+- **Motion tile**: Current motion state with last changed time
+- **Threshold control**: Adjustable detection threshold
+- **History graph**: 24-hour view of movement and threshold
+
+**Development dashboard adds:**
+- **Free Heap**: Available memory (monitor for leaks)
+- **Max Free Block**: Largest contiguous memory block
+- **Loop Time**: Main loop execution time
 
 ---
 
@@ -355,10 +396,10 @@ esp32:
 
 ```bash
 # Via USB
-esphome logs espectre-c6.yaml
+esphome logs <your-config>.yaml
 
 # Via network (after first flash)
-esphome logs espectre-c6.yaml --device espectre-c6.local
+esphome logs <your-config>.yaml --device espectre.local
 ```
 
 ---

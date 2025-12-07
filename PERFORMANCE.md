@@ -76,8 +76,7 @@ These missed detections are acceptable for most use cases (home automation, pres
 
 ```bash
 # View ESPHome logs (choose your platform)
-esphome logs espectre-c6.yaml   # For ESP32-C6
-esphome logs espectre-s3.yaml   # For ESP32-S3
+esphome logs <your-config>.yaml
 ```
 
 Watch for state transitions:

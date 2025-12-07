@@ -1,9 +1,16 @@
+# ESPectre - ESP32-S3 Configuration
+# WiFi CSI-based motion detection with Home Assistant integration
+#
+# Quick Start:
+# 1. Copy this file to your ESPHome config directory
+# 2. Edit wifi ssid and password below
+# 3. Run: esphome run espectre-s3.yaml
+
 esphome:
-  name: espectre-s3
+  name: espectre
 
 esp32:
   variant: ESP32S3
-  partitions: partitions.csv
   framework:
     type: esp-idf
     version: 5.5.1
@@ -13,9 +20,9 @@ esp32:
       CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE: n   # No power save when disconnected
       # CSI Feature
       CONFIG_ESP_WIFI_CSI_ENABLED: y                  # Enable CSI extraction from WiFi packets
-      # PSRAM Support
+      # PSRAM Support (8MB on most S3 boards)
       CONFIG_SPIRAM: y                                # Enable SPIRAM/PSRAM
-      CONFIG_SPIRAM_IGNORE_NOTFOUND: y                # Continue if PSRAM not found (for compatibility)
+      CONFIG_SPIRAM_IGNORE_NOTFOUND: y                # Continue if PSRAM not found
       CONFIG_SPIRAM_TYPE_AUTO: y                      # Automatic detection of PSRAM type
       CONFIG_SPIRAM_SPEED_80M: y                      # 80MHz PSRAM clock
       CONFIG_SPIRAM_BOOT_INIT: y                      # Initialize at boot
@@ -26,45 +33,27 @@ esp32:
       CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP: n         # Disable WiFi allocation from PSRAM
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  ssid: "YOUR_WIFI_SSID"
+  password: "YOUR_WIFI_PASSWORD"
 
-api:
-
-ota:
-  - platform: esphome
-
-logger:
-  level: INFO
-
+# Load ESPectre component from GitHub
 external_components:
   - source:
-      type: local
-      path: components
+      type: git
+      url: https://github.com/francescopace/espectre
+      ref: main
     components: [ espectre ]
+    refresh: always
 
 # ESPectre - WiFi CSI Motion Detection
 espectre:
-  traffic_generator_rate: 100   # DNS queries/sec to gateway to generate CSI data (default 100)
-  segmentation_threshold: 1.0   # Motion detection sensitivity: lower=more sensitive (0.5-10.0, default 1.0)
-  segmentation_window_size: 50  # Analysis window: larger=fewer false positives but slower reaction (10-200, default 50)
-  hampel_enabled: true          # Anti-turbulence filter: removes spikes from air currents/fans (default true)
 
-debug:
-  update_interval: 5s
+# Enable logging
+logger:
 
-sensor:
-  - platform: debug
-    free:
-      name: "Free Heap"
-    block:
-      name: "Max Free Block"
-    loop_time:
-      name: "Loop Time"
+# Enable API for Home Assistant
+api:
 
-text_sensor:
-  - platform: debug
-    device:
-      name: "Device Info"
-    reset_reason:
-      name: "Reset Reason"
+# Enable OTA updates via ESPHome
+ota:
+  - platform: esphome

@@ -6,15 +6,13 @@ on:
     paths:
       - 'components/espectre/**'
       - 'test/**'
-      - 'espectre-c6.yaml'
-      - 'espectre-s3.yaml'
+      - 'examples/*.yaml'
   pull_request:
     branches: [main]
     paths:
       - 'components/espectre/**'
       - 'test/**'
-      - 'espectre-c6.yaml'
-      - 'espectre-s3.yaml'
+      - 'examples/*.yaml'
 
 jobs:
   test:
@@ -43,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        config: [espectre-c6.yaml, espectre-s3.yaml]
+        config: [examples/espectre-c6.yaml, examples/espectre-s3.yaml]
     
     steps:
       - uses: actions/checkout@v4
@@ -58,11 +56,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install esphome
       
-      - name: Create secrets.yaml
-        run: |
-          echo 'wifi_ssid: "test"' > secrets.yaml
-          echo 'wifi_password: "test1234"' >> secrets.yaml
-      
       - name: Compile ${{ matrix.config }}
         run: esphome compile ${{ matrix.config }}
-

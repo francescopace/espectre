@@ -8,9 +8,12 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
+from pathlib import Path
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, binary_sensor, number
+from esphome.components.esp32 import add_extra_build_file
 from esphome.const import (
     CONF_ID,
     STATE_CLASS_MEASUREMENT,
@@ -87,6 +90,14 @@ CONFIG_SCHEMA = cv.Schema({
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
+    
+    # Add custom partitions.csv with SPIFFS for calibration buffer
+    # This allows the component to work without requiring users to manually copy partitions.csv
+    partitions_path = Path(__file__).parent / "partitions.csv"
+    if partitions_path.exists():
+        add_extra_build_file("partitions.csv", partitions_path)
+        # Tell PlatformIO to use our custom partition table
+        cg.add_platformio_option("board_build.partitions", "partitions.csv")
     
     # Configure parameters
     cg.add(var.set_segmentation_threshold(config[CONF_SEGMENTATION_THRESHOLD]))

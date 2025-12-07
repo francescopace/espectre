@@ -1,0 +1,65 @@
+# ESPectre - Home Assistant Dashboard
+#
+# How to use:
+# 1. Go to Settings → Dashboards → Add Dashboard
+# 2. Click "Edit" on the new dashboard
+# 3. Click the three dots menu → "Raw configuration editor"
+# 4. Paste this YAML content
+#
+# Note: If you changed the device name from "espectre", replace all
+# occurrences of "espectre_" with your device name (e.g., "espectre_living_room_")
+
+title: 🛜 ESPectre 👻
+type: sections
+sections:
+  - type: grid
+    cards:
+      - type: gauge
+        entity: sensor.espectre_movement_score
+        name: Movement Level
+        min: 0
+        max: 10
+        needle: true
+        segments:
+          - from: 0
+            color: green
+          - from: 0.5
+            color: yellow
+          - from: 1
+            color: orange
+          - from: 2
+            color: red
+      - type: tile
+        grid_options:
+          columns: 12
+          rows: 1
+        entity: binary_sensor.espectre_motion_detected
+        name: Motion
+        show_entity_picture: false
+        hide_state: false
+        state_content:
+          - state
+          - last_changed
+        vertical: false
+        features_position: bottom
+      - type: entities
+        entities:
+          - entity: number.espectre_threshold
+            icon: mdi:tune-vertical
+            name: Threshold
+        show_header_toggle: false
+        state_color: false
+  - type: grid
+    cards:
+      - type: history-graph
+        title: Motion History
+        hours_to_show: 24
+        entities:
+          - entity: sensor.espectre_movement_score
+            name: Movement
+          - entity: number.espectre_threshold
+            name: Threshold
+        grid_options:
+          columns: 12
+          rows: 5
+

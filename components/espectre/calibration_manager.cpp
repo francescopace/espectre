@@ -16,6 +16,8 @@
 #include <cmath>
 #include <cstring>
 #include <cstdio>
+#include <cerrno>
+#include <unistd.h>
 #include "esp_spiffs.h"
 
 namespace esphome {
@@ -592,7 +594,11 @@ void CalibrationManager::close_buffer_file_() {
 }
 
 void CalibrationManager::remove_buffer_file_() {
-  remove(BUFFER_FILE_PATH);
+  // truncate the file
+  FILE* f = fopen(BUFFER_FILE_PATH, "wb");
+  if (f) {
+    fclose(f);
+  }
 }
 
 std::vector<uint8_t> CalibrationManager::read_window_(uint16_t start_idx, uint16_t window_size) {
