@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.0.1] - in progress
+
+### ⚡ Performance Optimization
+
+**Unified variance algorithm and optimized Hampel filter across both platforms**
+
+This release focuses on code uniformity between MicroPython and C++ implementations, improving numerical stability and performance.
+
+#### Algorithm Uniformity
+- **Two-pass variance**: Both platforms now use the same numerically stable algorithm
+  - Formula: `Var(X) = Σ(x - μ)² / n` (more stable than `E[X²] - E[X]²`)
+  - Eliminates catastrophic cancellation risk with float32
+  - Identical behavior between MicroPython and C++
+
+#### Hampel Filter Optimization
+- **C++ (ESPHome)**: Eliminated dynamic memory allocation
+  - Pre-allocated static buffers in `hampel_turbulence_state_t`
+  - Insertion sort replaces `qsort()` for small arrays (N=3-11)
+  - **~20-25μs saved per packet** (no malloc/free overhead)
+  
+- **MicroPython**: Pre-allocated buffers and circular buffer
+  - Eliminated list creation per call
+  - Insertion sort for small arrays
+  - **~120μs saved per packet**
+
+#### Validation
+- New test script `16_test_optimization_equivalence.py` using real CSI data
+- Verified with 2000 real CSI packets (baseline + movement)
+- Maximum variance difference: 9.41e-14 (effectively zero)
+
+| Change | C++ Impact | MicroPython Impact |
+|--------|------------|-------------------|
+| Two-pass variance | Unchanged (already used) | +25μs (acceptable) |
+| Hampel optimization | -20-25μs | -120μs |
+| **Net improvement** | **-20-25μs/pkt** | **-95μs/pkt** |
+
+### 🧪 Test Suite & Code Coverage
+
+- **140 test cases** (+72 from 2.0.0) with real CSI data
+- **Full device testing**: All tests run on both native and ESP32-C6 via `IWiFiCSI` dependency injection
+- **Codecov integration**: Coverage badge, PR comments, 80% threshold
+- **82% line coverage**, 98% function coverage
+- **Refactoring**: Shared utilities in `utils.h`, configurable `CalibrationManager`
+
+---
+
 ## [2.0.0] - 2025-12-06
 
 ### 🚀 Major - ESPHome Native Integration

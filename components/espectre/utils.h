@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdarg>
 #include <cstdio>
+#include <cmath>
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -48,6 +49,103 @@ inline float calculate_variance_two_pass(const float *values, size_t n) {
     variance /= n;
     
     return variance;
+}
+
+/**
+ * Calculate magnitude (amplitude) from I/Q components
+ * 
+ * @param i In-phase component
+ * @param q Quadrature component
+ * @return Magnitude = sqrt(I² + Q²)
+ */
+inline float calculate_magnitude(int8_t i, int8_t q) {
+    float fi = static_cast<float>(i);
+    float fq = static_cast<float>(q);
+    return std::sqrt(fi * fi + fq * fq);
+}
+
+/**
+ * Calculate spatial turbulence from pre-calculated magnitudes
+ * 
+ * Spatial turbulence is the standard deviation of magnitudes across
+ * selected subcarriers. It measures the spatial variability of the
+ * Wi-Fi channel - higher values indicate motion/disturbance.
+ * 
+ * @param magnitudes Array of magnitude values (one per subcarrier, 64 elements)
+ * @param subcarriers Array of selected subcarrier indices
+ * @param num_subcarriers Number of selected subcarriers
+ * @param max_subcarrier Maximum valid subcarrier index (default: 64)
+ * @return Standard deviation of magnitudes (0.0 if no valid subcarriers)
+ */
+inline float calculate_spatial_turbulence(const float* magnitudes,
+                                          const uint8_t* subcarriers,
+                                          uint8_t num_subcarriers,
+                                          uint8_t max_subcarrier = 64) {
+    if (num_subcarriers == 0 || !magnitudes || !subcarriers) {
+        return 0.0f;
+    }
+    
+    // Collect valid magnitudes
+    float valid_mags[64];
+    uint8_t valid_count = 0;
+    
+    for (uint8_t i = 0; i < num_subcarriers && i < 64; i++) {
+        if (subcarriers[i] < max_subcarrier) {
+            valid_mags[valid_count++] = magnitudes[subcarriers[i]];
+        }
+    }
+    
+    if (valid_count == 0) {
+        return 0.0f;
+    }
+    
+    return std::sqrt(calculate_variance_two_pass(valid_mags, valid_count));
+}
+
+/**
+ * Calculate spatial turbulence directly from raw CSI data (I/Q pairs)
+ * 
+ * This is a convenience wrapper that calculates magnitudes internally
+ * before computing the spatial turbulence.
+ * 
+ * @param csi_data Raw CSI data (interleaved I/Q pairs)
+ * @param csi_len Length of CSI data in bytes
+ * @param subcarriers Array of selected subcarrier indices
+ * @param num_subcarriers Number of selected subcarriers
+ * @return Standard deviation of magnitudes (0.0 if invalid input)
+ */
+inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
+                                                   size_t csi_len,
+                                                   const uint8_t* subcarriers,
+                                                   uint8_t num_subcarriers) {
+    if (!csi_data || csi_len < 2 || num_subcarriers == 0 || !subcarriers) {
+        return 0.0f;
+    }
+    
+    // Use int to avoid uint8_t overflow for large csi_len
+    int total_subcarriers = static_cast<int>(csi_len / 2);
+    
+    // Calculate magnitudes only for selected subcarriers (more efficient)
+    float amplitudes[64];
+    int valid_count = 0;
+    
+    for (int i = 0; i < num_subcarriers && i < 64; i++) {
+        int sc_idx = subcarriers[i];
+        
+        if (sc_idx >= total_subcarriers) {
+            continue;
+        }
+        
+        float I = static_cast<float>(csi_data[sc_idx * 2]);
+        float Q = static_cast<float>(csi_data[sc_idx * 2 + 1]);
+        amplitudes[valid_count++] = std::sqrt(I * I + Q * Q);
+    }
+    
+    if (valid_count == 0) {
+        return 0.0f;
+    }
+    
+    return std::sqrt(calculate_variance_two_pass(amplitudes, valid_count));
 }
 
 /**

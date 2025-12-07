@@ -13,6 +13,7 @@
 #include "esp_wifi.h"
 #include "esp_err.h"
 #include "csi_processor.h"
+#include "wifi_csi_interface.h"
 #include <functional>
 
 namespace esphome {
@@ -44,6 +45,7 @@ class CSIManager {
    * @param hampel_enabled Whether Hampel filter is enabled
    * @param hampel_window Hampel window size (3-11)
    * @param hampel_threshold Hampel threshold (MAD multiplier)
+   * @param wifi_csi WiFi CSI interface (nullptr for real implementation)
    */
   void init(csi_processor_context_t* processor,
             const uint8_t selected_subcarriers[12],
@@ -52,7 +54,8 @@ class CSIManager {
             uint32_t publish_rate,
             bool hampel_enabled,
             uint8_t hampel_window,
-            float hampel_threshold);
+            float hampel_threshold,
+            IWiFiCSI* wifi_csi = nullptr);
   
   /**
    * Update subcarrier selection
@@ -119,6 +122,10 @@ class CSIManager {
   csi_processed_callback_t packet_callback_;
   uint32_t publish_rate_{100};
   uint32_t packets_processed_{0};
+  
+  // WiFi CSI interface (injected or default real implementation)
+  IWiFiCSI* wifi_csi_{nullptr};
+  WiFiCSIReal default_wifi_csi_;
   
   static constexpr uint8_t NUM_SUBCARRIERS = 12;
   

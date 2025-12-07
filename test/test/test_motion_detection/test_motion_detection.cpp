@@ -375,18 +375,9 @@ int process(void) {
     return UNITY_END();
 }
 
-#ifdef ARDUINO
-void setup() {
-    delay(2000);
-    process();
-}
-
-void loop() {
-    // Empty
-}
+#if defined(ESP_PLATFORM)
+extern "C" void app_main(void) { process(); }
 #else
-int main(int argc, char **argv) {
-    return process();
-}
+int main(int argc, char **argv) { return process(); }
 #endif
 

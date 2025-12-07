@@ -16,13 +16,48 @@
 #include <vector>
 #include "esp_log.h"
 
+#if defined(ESP_PLATFORM)
+#include "esp_spiffs.h"
+#endif
+
 static const char *TAG = "test_file_storage";
 
 // Constants matching CalibrationManager
 static constexpr uint8_t NUM_SUBCARRIERS = 64;
+
+// Test buffer file path - different for native vs ESP32
+#if defined(ESP_PLATFORM)
+static const char* TEST_BUFFER_FILE = "/spiffs/test_buffer.bin";
+static bool spiffs_mounted = false;
+#else
 static const char* TEST_BUFFER_FILE = "/tmp/test_nbvi_buffer.bin";
+#endif
+
+#if defined(ESP_PLATFORM)
+static void init_spiffs(void) {
+    if (spiffs_mounted) return;
+    
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 5,
+        .format_if_mount_failed = true
+    };
+    
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+    if (ret == ESP_OK) {
+        spiffs_mounted = true;
+        ESP_LOGI(TAG, "SPIFFS mounted successfully");
+    } else {
+        ESP_LOGE(TAG, "Failed to mount SPIFFS: %s", esp_err_to_name(ret));
+    }
+}
+#endif
 
 void setUp(void) {
+#if defined(ESP_PLATFORM)
+    init_spiffs();
+#endif
     // Remove test file before each test
     remove(TEST_BUFFER_FILE);
 }
@@ -353,9 +388,8 @@ int process(void) {
     return UNITY_END();
 }
 
-#ifdef ARDUINO
-void setup() { delay(2000); process(); }
-void loop() {}
+#if defined(ESP_PLATFORM)
+extern "C" void app_main(void) { process(); }
 #else
 int main(int argc, char **argv) { return process(); }
 #endif

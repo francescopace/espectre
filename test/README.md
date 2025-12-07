@@ -8,14 +8,14 @@ Test suite based on **PlatformIO Unity** to validate ESPectre CSI algorithms.
 # Activate virtualenv
 source ../venv/bin/activate
 
-# Run all tests locally
+# Run all tests locally (native)
 cd test && pio test -e native
 
 # Run specific suite
 pio test -e native -f test_motion_detection
 
-# Run on ESP32 device
-pio test -e esp32dev
+# Run on ESP32-C6 device
+pio test -e esp32c6
 ```
 
 ---
@@ -24,13 +24,20 @@ pio test -e esp32dev
 
 | Suite | Type | Data | Tests | Focus |
 |-------|------|------|-------|-------|
-| `test_csi_processor` | Unit | Real | 19 | API, validation, memory |
-| `test_hampel_filter` | Unit | Synthetic | 16 | Outlier removal filter |
-| `test_calibration` | Unit | Synthetic | 21 | NBVI calibration algorithm |
+| `test_csi_processor` | Unit | **Real** | 39 | API, getters, state machine |
+| `test_hampel_filter` | Unit | **Real** | 20 | Outlier removal filter |
+| `test_calibration` | Unit | **Real** | 33 | NBVI, magnitude, turbulence, compare, end-to-end CalibrationManager |
+| `test_calibration_manager` | Integration | **Real** | 17 | CalibrationManager API, file I/O, NBVI ranking |
+| `test_csi_manager` | Integration | **Real** | 19 | CSIManager API, callbacks, motion detection |
 | `test_calibration_file_storage` | Unit | Synthetic | 9 | File-based magnitude storage |
-| `test_motion_detection` | Integration | **Real** | 3 | MVS performance |
+| `test_motion_detection` | Integration | **Real** | 3 | MVS performance metrics |
 
-**Total: 68 test cases**
+### Test Counts
+
+| Environment | Tests | Notes |
+|-------------|-------|-------|
+| **Native** | 140 | Full suite with WiFiCSIMock |
+| **ESP32-C6** | 140 | Full suite with WiFiCSIMock (dependency injection) |
 
 ### Target Metrics (Motion Detection)
 - **Recall**: ≥95% (detect real movements)
@@ -43,6 +50,43 @@ pio test -e esp32dev
 The `data/` folder contains **2000 real CSI packets**:
 - 1000 baseline (empty room)
 - 1000 movement (person walking)
+
+---
+
+## 📊 Code Coverage
+
+Run tests with coverage instrumentation:
+
+```bash
+./run_coverage.sh
+```
+
+### Current Coverage
+
+| File | Lines | Functions | Branches |
+|------|-------|-----------|----------|
+| `utils.h` | 93.9% | 100% | 68.0% |
+| `csi_processor.cpp` | 91.4% | 100% | 83.9% |
+| `csi_manager.cpp` | 78.9% | 87.5% | 62.5% |
+| `calibration_manager.cpp` | 74.6% | 100% | 63.4% |
+| **Total** | **81.8%** | **98.2%** | **70.8%** |
+
+> **Note**: Coverage is measured using LLVM instrumentation. Tests use real CSI data from ESP32-C6 captures.
+
+---
+
+## 📁 Project Structure
+
+```
+test/
+├── mocks/              # Mock implementations
+│   ├── esp_idf/        # ESP-IDF mocks (native only)
+│   └── esphome/        # ESPHome mocks (native only)
+├── data/               # Real CSI test data
+├── test/               # Test suites (one folder per suite)
+├── platformio.ini      # PlatformIO configuration
+└── run_coverage.sh     # Coverage script
+```
 
 ---
 
@@ -66,9 +110,8 @@ int process(void) {
     return UNITY_END();
 }
 
-#ifdef ARDUINO
-void setup() { delay(2000); process(); }
-void loop() {}
+#if defined(ESP_PLATFORM)
+extern "C" void app_main(void) { process(); }
 #else
 int main(int argc, char **argv) { return process(); }
 #endif

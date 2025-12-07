@@ -7,6 +7,11 @@ test/.gcc-flags.json
 *.bin
 *.map
 
+# Code Coverage
+*.profraw
+*.profdata
+coverage.lcov
+
 # Python
 __pycache__/
 *.pyc

@@ -22,10 +22,14 @@ void CSIManager::init(csi_processor_context_t* processor,
                      uint32_t publish_rate,
                      bool hampel_enabled,
                      uint8_t hampel_window,
-                     float hampel_threshold) {
+                     float hampel_threshold,
+                     IWiFiCSI* wifi_csi) {
   processor_ = processor;
   selected_subcarriers_ = selected_subcarriers;
   publish_rate_ = publish_rate;
+  
+  // Use injected WiFi CSI interface or default real implementation
+  wifi_csi_ = wifi_csi ? wifi_csi : &default_wifi_csi_;
   
   // Set subcarrier selection
   csi_set_subcarrier_selection(selected_subcarriers_, NUM_SUBCARRIERS);
@@ -113,15 +117,15 @@ esp_err_t CSIManager::enable(csi_processed_callback_t packet_callback) {
     return err;
   }
   
-  // Register internal wrapper callback
-  err = esp_wifi_set_csi_rx_cb(&CSIManager::csi_rx_callback_wrapper_, this);
+  // Register internal wrapper callback (using injected interface)
+  err = wifi_csi_->set_csi_rx_cb(&CSIManager::csi_rx_callback_wrapper_, this);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to set CSI callback: %s", esp_err_to_name(err));
     return err;
   }
   
-  // Enable CSI
-  err = esp_wifi_set_csi(true);
+  // Enable CSI (using injected interface)
+  err = wifi_csi_->set_csi(true);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to enable CSI: %s", esp_err_to_name(err));
     return err;
@@ -138,7 +142,8 @@ esp_err_t CSIManager::disable() {
     return ESP_OK;
   }
   
-  esp_err_t err = esp_wifi_set_csi(false);
+  // Disable CSI (using injected interface)
+  esp_err_t err = wifi_csi_->set_csi(false);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to disable CSI: %s", esp_err_to_name(err));
     return err;
@@ -183,7 +188,8 @@ esp_err_t CSIManager::configure_platform_specific_() {
   
   ESP_LOGI(TAG, "Using %s CSI configuration", CONFIG_IDF_TARGET);
 
-  return esp_wifi_set_csi_config(&csi_config);
+  // Configure CSI (using injected interface)
+  return wifi_csi_->set_csi_config(&csi_config);
 }
 
 }  // namespace espectre

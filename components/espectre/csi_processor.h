@@ -45,7 +45,9 @@ constexpr float HAMPEL_TURBULENCE_THRESHOLD_DEFAULT = 4.0f;
 
 // Hampel turbulence filter state (for MVS preprocessing)
 struct hampel_turbulence_state_t {
-    float buffer[HAMPEL_TURBULENCE_WINDOW_MAX];  // Max size buffer
+    float buffer[HAMPEL_TURBULENCE_WINDOW_MAX];       // Circular buffer for values
+    float sorted_buffer[HAMPEL_TURBULENCE_WINDOW_MAX]; // Pre-allocated for sorting
+    float deviations[HAMPEL_TURBULENCE_WINDOW_MAX];    // Pre-allocated for MAD calc
     uint8_t window_size;  // Actual window size (3-11)
     uint8_t index;
     uint8_t count;

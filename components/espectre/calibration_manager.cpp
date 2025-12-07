@@ -29,9 +29,10 @@ static const char *TAG = "Calibration";
 // PUBLIC API
 // ============================================================================
 
-void CalibrationManager::init(CSIManager* csi_manager) {
+void CalibrationManager::init(CSIManager* csi_manager, const char* buffer_path) {
   csi_manager_ = csi_manager;
-  ESP_LOGD(TAG, "Calibration Manager initialized");
+  buffer_path_ = buffer_path;
+  ESP_LOGD(TAG, "Calibration Manager initialized (buffer: %s)", buffer_path_);
 }
 
 esp_err_t CalibrationManager::start_auto_calibration(const uint8_t* current_band,
@@ -85,7 +86,9 @@ bool CalibrationManager::add_packet(const int8_t* csi_data, size_t csi_len) {
   uint8_t magnitudes[NUM_SUBCARRIERS];
   
   for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
-    float mag = calculate_magnitude_(csi_data, sc);
+    int8_t i_val = csi_data[sc * 2];
+    int8_t q_val = csi_data[sc * 2 + 1];
+    float mag = calculate_magnitude(i_val, q_val);
     magnitudes[sc] = static_cast<uint8_t>(std::min(mag, 255.0f));
   }
   
@@ -275,9 +278,9 @@ esp_err_t CalibrationManager::find_baseline_window_(uint16_t* out_window_start) 
         float_mags[sc] = static_cast<float>(packet_magnitudes[sc]);
       }
       
-      turbulence_buffer[j] = calculate_spatial_turbulence_(float_mags,
-                                                           current_band_.data(),
-                                                           current_band_.size());
+      turbulence_buffer[j] = calculate_spatial_turbulence(float_mags,
+                                                          current_band_.data(),
+                                                          static_cast<uint8_t>(current_band_.size()));
     }
     
     // Calculate variance of turbulence
@@ -433,38 +436,6 @@ void CalibrationManager::select_with_spacing_(const std::vector<NBVIMetrics>& so
 // UTILITY METHODS
 // ============================================================================
 
-float CalibrationManager::calculate_magnitude_(const int8_t* csi_data, uint8_t subcarrier) const {
-  size_t i_idx = subcarrier * 2;
-  size_t q_idx = subcarrier * 2 + 1;
-  
-  float I = static_cast<float>(csi_data[i_idx]);
-  float Q = static_cast<float>(csi_data[q_idx]);
-  
-  return std::sqrt(I * I + Q * Q);
-}
-
-float CalibrationManager::calculate_spatial_turbulence_(const float* magnitudes,
-                                                       const uint8_t* subcarriers,
-                                                       uint8_t num_subcarriers) const {
-  if (num_subcarriers == 0) return 0.0f;
-  
-  // Calculate mean
-  float sum = 0.0f;
-  for (uint8_t i = 0; i < num_subcarriers; i++) {
-    sum += magnitudes[subcarriers[i]];
-  }
-  float mean = sum / num_subcarriers;
-  
-  // Calculate variance
-  float sum_sq_diff = 0.0f;
-  for (uint8_t i = 0; i < num_subcarriers; i++) {
-    float diff = magnitudes[subcarriers[i]] - mean;
-    sum_sq_diff += diff * diff;
-  }
-  float variance = sum_sq_diff / num_subcarriers;
-  
-  return std::sqrt(variance);
-}
 
 float CalibrationManager::calculate_percentile_(const std::vector<float>& sorted_values,
                                                uint8_t percentile) const {
@@ -530,7 +501,7 @@ void CalibrationManager::calculate_nbvi_weighted_(const std::vector<float>& magn
 
 bool CalibrationManager::ensure_spiffs_mounted_() {
   // Check if already mounted
-  FILE* test = fopen(BUFFER_FILE_PATH, "rb");
+  FILE* test = fopen(buffer_path_, "rb");
   if (test) {
     fclose(test);
     return true;  // SPIFFS is working
@@ -569,18 +540,18 @@ bool CalibrationManager::open_buffer_file_for_writing_() {
     return false;
   }
   
-  buffer_file_ = fopen(BUFFER_FILE_PATH, "wb");
+  buffer_file_ = fopen(buffer_path_, "wb");
   if (!buffer_file_) {
-    ESP_LOGE(TAG, "Failed to open %s for writing", BUFFER_FILE_PATH);
+    ESP_LOGE(TAG, "Failed to open %s for writing", buffer_path_);
     return false;
   }
   return true;
 }
 
 bool CalibrationManager::open_buffer_file_for_reading_() {
-  buffer_file_ = fopen(BUFFER_FILE_PATH, "rb");
+  buffer_file_ = fopen(buffer_path_, "rb");
   if (!buffer_file_) {
-    ESP_LOGE(TAG, "Failed to open %s for reading", BUFFER_FILE_PATH);
+    ESP_LOGE(TAG, "Failed to open %s for reading", buffer_path_);
     return false;
   }
   return true;
@@ -595,7 +566,7 @@ void CalibrationManager::close_buffer_file_() {
 
 void CalibrationManager::remove_buffer_file_() {
   // truncate the file
-  FILE* f = fopen(BUFFER_FILE_PATH, "wb");
+  FILE* f = fopen(buffer_path_, "wb");
   if (f) {
     fclose(f);
   }

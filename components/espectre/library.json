@@ -1,0 +1,28 @@
+{
+  "name": "espectre",
+  "version": "1.0.0",
+  "description": "ESPectre CSI Motion Detection",
+  "keywords": ["csi", "motion", "detection", "esp32"],
+  "authors": [
+    {
+      "name": "Francesco Pace",
+      "email": "francesco.pace@gmail.com"
+    }
+  ],
+  "license": "GPL-3.0",
+  "frameworks": "*",
+  "platforms": "*",
+  "build": {
+    "srcFilter": [
+      "+<*.cpp>",
+      "-<espectre_component.cpp>",
+      "-<config_manager.cpp>",
+      "-<sensor_publisher.cpp>",
+      "-<threshold_number.cpp>",
+      "-<traffic_generator_manager.cpp>",
+      "-<wifi_lifecycle.cpp>"
+    ]
+  }
+}
+
+

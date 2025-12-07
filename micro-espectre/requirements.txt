@@ -19,3 +19,6 @@ numpy>=2.3.5            # Numerical computing for data analysis
 matplotlib>=3.10.7      # Plotting and visualization
 scipy>=1.16.3           # Scientific computing (signal processing)
 PyWavelets>=1.9.0       # Wavelet transforms (pywt)
+
+# Test Coverage
+gcovr>=8.4              # Code coverage reports for C++ tests

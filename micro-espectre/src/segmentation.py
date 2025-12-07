@@ -3,7 +3,7 @@ Micro-ESPectre - Moving Variance Segmentation (MVS)
 
 Pure Python implementation for MicroPython.
 Implements the MVS algorithm for motion detection using CSI turbulence variance.
-Uses O(1) running variance (Welford's algorithm) for efficient real-time processing.
+Uses two-pass variance calculation for numerical stability (matches C++ implementation).
 
 Features are calculated at publish time (not per-packet) using:
   - Current packet amplitudes (W=1 features)
@@ -26,11 +26,11 @@ class SegmentationContext:
     """
     Moving Variance Segmentation for motion detection
     
-    Uses O(1) running variance algorithm instead of O(N) two-pass.
-    This is 25x faster and produces identical results.
+    Uses two-pass variance calculation for numerical stability.
+    This matches the C++ implementation and avoids catastrophic cancellation
+    that can occur with running variance on float32.
     
-    Running variance formula: Var(X) = E[X²] - E[X]²
-    Updated incrementally when values enter/exit the sliding window.
+    Two-pass variance formula: Var(X) = Σ(x - μ)² / n
     
     Features are calculated on-demand at publish time, not per-packet.
     """
@@ -50,14 +50,10 @@ class SegmentationContext:
         self.window_size = window_size
         self.threshold = threshold
         
-        # Turbulence circular buffer
+        # Turbulence circular buffer (pre-allocated)
         self.turbulence_buffer = [0.0] * window_size
         self.buffer_index = 0
         self.buffer_count = 0
-        
-        # Running statistics for O(1) variance calculation
-        self.sum = 0.0       # Sum of values in buffer
-        self.sum_sq = 0.0    # Sum of squared values in buffer
         
         # State machine
         self.state = self.STATE_IDLE
@@ -145,12 +141,12 @@ class SegmentationContext:
         
         return math.sqrt(variance)
     
-    def _get_running_variance(self):
+    def _calculate_variance_two_pass(self):
         """
-        Get variance from running statistics - O(1) operation
+        Calculate variance using two-pass algorithm (numerically stable)
         
-        Formula: Var(X) = E[X²] - E[X]²
-                        = (sum_sq / n) - (sum / n)²
+        Two-pass algorithm: variance = sum((x - mean)^2) / n
+        More stable than single-pass E[X²] - E[X]² for float32 arithmetic.
         
         Returns:
             float: Variance (0.0 if buffer not full)
@@ -160,17 +156,27 @@ class SegmentationContext:
             return 0.0
         
         n = self.buffer_count
-        mean = self.sum / n
-        mean_sq = self.sum_sq / n
         
-        # Var = E[X²] - E[X]², clamp to 0 for numerical stability
-        return max(0.0, mean_sq - mean * mean)
+        # First pass: calculate mean
+        total = 0.0
+        for i in range(n):
+            total += self.turbulence_buffer[i]
+        mean = total / n
+        
+        # Second pass: calculate variance
+        variance = 0.0
+        for i in range(n):
+            diff = self.turbulence_buffer[i] - mean
+            variance += diff * diff
+        variance /= n
+        
+        return variance
     
     def add_turbulence(self, turbulence):
         """
         Add turbulence value and update segmentation state
         
-        Uses O(1) running variance update instead of O(N) two-pass.
+        Uses two-pass variance for numerical stability (matches C++ implementation).
         
         Args:
             turbulence: Spatial turbulence value
@@ -186,26 +192,14 @@ class SegmentationContext:
         
         self.last_turbulence = filtered_turbulence
         
-        # Update running statistics - O(1) operation
-        if self.buffer_count < self.window_size:
-            # Buffer not full yet - just add
-            self.sum += filtered_turbulence
-            self.sum_sq += filtered_turbulence * filtered_turbulence
-            self.buffer_count += 1
-        else:
-            # Buffer full - remove oldest value, add new
-            old_value = self.turbulence_buffer[self.buffer_index]
-            self.sum -= old_value
-            self.sum_sq -= old_value * old_value
-            self.sum += filtered_turbulence
-            self.sum_sq += filtered_turbulence * filtered_turbulence
-        
-        # Store value in circular buffer (needed for removing old values)
+        # Store value in circular buffer
         self.turbulence_buffer[self.buffer_index] = filtered_turbulence
         self.buffer_index = (self.buffer_index + 1) % self.window_size
+        if self.buffer_count < self.window_size:
+            self.buffer_count += 1
         
-        # Get variance from running statistics - O(1)
-        self.current_moving_variance = self._get_running_variance()
+        # Calculate variance using two-pass algorithm
+        self.current_moving_variance = self._calculate_variance_two_pass()
         
         # State machine (simplified)
         if self.state == self.STATE_IDLE:

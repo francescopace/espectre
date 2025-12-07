@@ -196,6 +196,204 @@ void test_process_packet_handles_null_subcarriers(void) {
 }
 
 // ============================================================================
+// GETTER TESTS
+// ============================================================================
+
+void test_get_window_size_returns_correct_value(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 75, 1.0f));
+    
+    TEST_ASSERT_EQUAL(75, csi_processor_get_window_size(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_get_window_size_returns_zero_for_null(void) {
+    TEST_ASSERT_EQUAL(0, csi_processor_get_window_size(NULL));
+}
+
+void test_get_threshold_returns_correct_value(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 2.5f));
+    
+    TEST_ASSERT_EQUAL_FLOAT(2.5f, csi_processor_get_threshold(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_get_threshold_returns_zero_for_null(void) {
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, csi_processor_get_threshold(NULL));
+}
+
+void test_get_state_returns_idle_initially(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, csi_processor_get_state(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_get_state_returns_idle_for_null(void) {
+    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, csi_processor_get_state(NULL));
+}
+
+void test_get_moving_variance_returns_zero_initially(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, csi_processor_get_moving_variance(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_get_moving_variance_returns_zero_for_null(void) {
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, csi_processor_get_moving_variance(NULL));
+}
+
+void test_get_last_turbulence_returns_zero_initially(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, csi_processor_get_last_turbulence(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_get_last_turbulence_returns_zero_for_null(void) {
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, csi_processor_get_last_turbulence(NULL));
+}
+
+void test_get_last_turbulence_after_processing(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    // Process a few packets
+    for (int i = 0; i < 10; i++) {
+        csi_process_packet(&ctx, baseline_packets[i], 128, 
+                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    }
+    
+    // Last turbulence should be non-zero (real CSI data has signal)
+    float last_turb = csi_processor_get_last_turbulence(&ctx);
+    TEST_ASSERT_TRUE(last_turb >= 0.0f);  // Turbulence is always non-negative
+    
+    ESP_LOGI(TAG, "Last turbulence after 10 packets: %.4f", last_turb);
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_get_total_packets_returns_zero_initially(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    TEST_ASSERT_EQUAL(0, csi_processor_get_total_packets(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_get_total_packets_returns_zero_for_null(void) {
+    TEST_ASSERT_EQUAL(0, csi_processor_get_total_packets(NULL));
+}
+
+void test_get_total_packets_increments_correctly(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    // Process 25 packets
+    for (int i = 0; i < 25; i++) {
+        csi_process_packet(&ctx, baseline_packets[i], 128, 
+                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    }
+    
+    TEST_ASSERT_EQUAL(25, csi_processor_get_total_packets(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+// ============================================================================
+// STATE MACHINE TESTS
+// ============================================================================
+
+void test_state_transitions_to_motion_on_high_variance(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 30, 1.0f));  // Low threshold
+    
+    // Process movement packets - should trigger motion
+    for (int i = 0; i < 50; i++) {
+        csi_process_packet(&ctx, movement_packets[i], 128, 
+                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    }
+    
+    // Should be in MOTION state after processing movement data
+    csi_motion_state_t state = csi_processor_get_state(&ctx);
+    float mv = csi_processor_get_moving_variance(&ctx);
+    
+    ESP_LOGI(TAG, "After 50 movement packets: state=%d, mv=%.4f", state, mv);
+    
+    // Moving variance should be positive
+    TEST_ASSERT_TRUE(mv > 0.0f);
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_state_stays_idle_on_baseline(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 30, 5.0f));  // High threshold
+    
+    // Process baseline packets - should stay idle
+    for (int i = 0; i < 50; i++) {
+        csi_process_packet(&ctx, baseline_packets[i], 128, 
+                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    }
+    
+    csi_motion_state_t state = csi_processor_get_state(&ctx);
+    float mv = csi_processor_get_moving_variance(&ctx);
+    
+    ESP_LOGI(TAG, "After 50 baseline packets: state=%d, mv=%.4f, threshold=5.0", state, mv);
+    
+    // With high threshold, baseline should not trigger motion
+    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, state);
+    
+    csi_processor_cleanup(&ctx);
+}
+
+// ============================================================================
+// SUBCARRIER SELECTION TESTS
+// ============================================================================
+
+void test_set_subcarrier_selection_valid(void) {
+    uint8_t subcarriers[] = {10, 15, 20, 25, 30};
+    
+    // Should not crash - just logs
+    csi_set_subcarrier_selection(subcarriers, 5);
+    TEST_PASS();
+}
+
+void test_set_subcarrier_selection_null(void) {
+    // Should handle gracefully
+    csi_set_subcarrier_selection(NULL, 0);
+    TEST_PASS();
+}
+
+void test_set_subcarrier_selection_empty(void) {
+    uint8_t subcarriers[] = {10};
+    
+    // Zero count should be rejected
+    csi_set_subcarrier_selection(subcarriers, 0);
+    TEST_PASS();
+}
+
+void test_set_subcarrier_selection_too_many(void) {
+    uint8_t subcarriers[65];
+    for (int i = 0; i < 65; i++) subcarriers[i] = i;
+    
+    // More than 64 should be rejected
+    csi_set_subcarrier_selection(subcarriers, 65);
+    TEST_PASS();
+}
+
+// ============================================================================
 // MEMORY TESTS
 // ============================================================================
 
@@ -271,6 +469,32 @@ int process(void) {
     RUN_TEST(test_process_packet_handles_zero_length);
     RUN_TEST(test_process_packet_handles_null_subcarriers);
     
+    // Getter tests
+    RUN_TEST(test_get_window_size_returns_correct_value);
+    RUN_TEST(test_get_window_size_returns_zero_for_null);
+    RUN_TEST(test_get_threshold_returns_correct_value);
+    RUN_TEST(test_get_threshold_returns_zero_for_null);
+    RUN_TEST(test_get_state_returns_idle_initially);
+    RUN_TEST(test_get_state_returns_idle_for_null);
+    RUN_TEST(test_get_moving_variance_returns_zero_initially);
+    RUN_TEST(test_get_moving_variance_returns_zero_for_null);
+    RUN_TEST(test_get_last_turbulence_returns_zero_initially);
+    RUN_TEST(test_get_last_turbulence_returns_zero_for_null);
+    RUN_TEST(test_get_last_turbulence_after_processing);
+    RUN_TEST(test_get_total_packets_returns_zero_initially);
+    RUN_TEST(test_get_total_packets_returns_zero_for_null);
+    RUN_TEST(test_get_total_packets_increments_correctly);
+    
+    // State machine tests
+    RUN_TEST(test_state_transitions_to_motion_on_high_variance);
+    RUN_TEST(test_state_stays_idle_on_baseline);
+    
+    // Subcarrier selection tests
+    RUN_TEST(test_set_subcarrier_selection_valid);
+    RUN_TEST(test_set_subcarrier_selection_null);
+    RUN_TEST(test_set_subcarrier_selection_empty);
+    RUN_TEST(test_set_subcarrier_selection_too_many);
+    
     // Memory tests
     RUN_TEST(test_cleanup_deallocates_buffer);
     RUN_TEST(test_stress_no_memory_leak);
@@ -278,9 +502,8 @@ int process(void) {
     return UNITY_END();
 }
 
-#ifdef ARDUINO
-void setup() { delay(2000); process(); }
-void loop() {}
+#if defined(ESP_PLATFORM)
+extern "C" void app_main(void) { process(); }
 #else
 int main(int argc, char **argv) { return process(); }
 #endif

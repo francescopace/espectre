@@ -3,7 +3,7 @@
 [![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
 [![Release](https://img.shields.io/github/v/release/francescopace/espectre)](https://github.com/francescopace/espectre/releases/latest)
 [![CI main](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI%20main)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
-[![CI develop](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=develop&label=CI%20develop)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Adevelop)
+[![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
 
 # 🛜 ESPectre 👻
 

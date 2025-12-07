@@ -1,0 +1,30 @@
+# Codecov Configuration
+# https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  status:
+    project:
+      default:
+        target: 80%      # Overall coverage target
+        threshold: 2%    # Allow 2% drop without failing
+    patch:
+      default:
+        target: 70%      # New code coverage target
+        threshold: 5%
+
+  # Only consider these files for coverage
+  paths:
+    - "components/espectre/"
+
+# Ignore test files and mocks
+ignore:
+  - "test/**"
+  - "**/mock_*.h"
+  - "**/mock_*.cpp"
+
+# Comment on PRs
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: true  # Only comment if coverage changed
+

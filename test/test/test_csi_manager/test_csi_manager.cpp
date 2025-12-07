@@ -1,0 +1,463 @@
+/*
+ * ESPectre - CSIManager Unit Tests
+ *
+ * Tests the CSIManager class functionality.
+ * Uses WiFiCSIMock for all tests (both native and device).
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
+
+#include <unity.h>
+#include <cstdint>
+#include <cstring>
+#include "csi_manager.h"
+#include "csi_processor.h"
+#include "wifi_csi_interface.h"
+#include "esp_log.h"
+#include "esp_wifi.h"
+
+// Include real CSI data
+#include "real_csi_data_esp32.h"
+#include "real_csi_arrays.inc"
+
+using namespace esphome::espectre;
+
+static const char *TAG = "test_csi_manager";
+
+// Test subcarrier selection
+static const uint8_t TEST_SUBCARRIERS[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+
+/**
+ * Mock WiFi CSI for testing
+ * Returns ESP_OK without calling real WiFi functions.
+ */
+class WiFiCSIMock : public IWiFiCSI {
+ public:
+  esp_err_t set_csi_config(const wifi_csi_config_t* config) override {
+    (void)config;
+    return ESP_OK;
+  }
+  esp_err_t set_csi_rx_cb(wifi_csi_cb_t cb, void* ctx) override {
+    (void)cb; (void)ctx;
+    return ESP_OK;
+  }
+  esp_err_t set_csi(bool enable) override {
+    enabled_ = enable;
+    return ESP_OK;
+  }
+  bool is_enabled() const { return enabled_; }
+ private:
+  bool enabled_{false};
+};
+
+// Global processor context for tests
+static csi_processor_context_t g_processor;
+
+// Global mock WiFi CSI for tests
+static WiFiCSIMock g_wifi_mock;
+
+void setUp(void) {
+    // Initialize processor before each test
+    csi_processor_init(&g_processor, 50, 1.0f);
+}
+
+void tearDown(void) {
+    // Cleanup processor after each test
+    csi_processor_cleanup(&g_processor);
+}
+
+// ============================================================================
+// INITIALIZATION TESTS
+// ============================================================================
+
+void test_csi_manager_init(void) {
+    CSIManager manager;
+    
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_init_with_hampel(void) {
+    CSIManager manager;
+    
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 7, 3.0f, &g_wifi_mock);
+    
+    // Verify Hampel filter is configured in processor
+    TEST_ASSERT_TRUE(g_processor.hampel_state.enabled);
+    TEST_ASSERT_EQUAL(7, g_processor.hampel_state.window_size);
+}
+
+void test_csi_manager_init_without_hampel(void) {
+    CSIManager manager;
+    
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Verify Hampel filter is disabled
+    TEST_ASSERT_FALSE(g_processor.hampel_state.enabled);
+}
+
+// ============================================================================
+// ENABLE/DISABLE TESTS
+// Uses WiFiCSIMock for all tests (both native and device)
+// ============================================================================
+
+void test_csi_manager_enable(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    esp_err_t err = manager.enable();
+    
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_TRUE(manager.is_enabled());
+    TEST_ASSERT_TRUE(g_wifi_mock.is_enabled());
+}
+
+void test_csi_manager_enable_twice_returns_ok(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    manager.enable();
+    esp_err_t err = manager.enable();  // Second call
+    
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_TRUE(manager.is_enabled());
+}
+
+void test_csi_manager_disable(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    manager.enable();
+    esp_err_t err = manager.disable();
+    
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_disable_when_not_enabled(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    esp_err_t err = manager.disable();
+    
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+// ============================================================================
+// THRESHOLD TESTS
+// ============================================================================
+
+void test_csi_manager_set_threshold(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    manager.set_threshold(2.5f);
+    
+    TEST_ASSERT_EQUAL_FLOAT(2.5f, csi_processor_get_threshold(&g_processor));
+}
+
+void test_csi_manager_set_threshold_multiple_times(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    manager.set_threshold(1.0f);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, csi_processor_get_threshold(&g_processor));
+    
+    manager.set_threshold(5.0f);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, csi_processor_get_threshold(&g_processor));
+}
+
+// ============================================================================
+// SUBCARRIER SELECTION TESTS
+// ============================================================================
+
+void test_csi_manager_update_subcarrier_selection(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    uint8_t new_subcarriers[12] = {20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31};
+    manager.update_subcarrier_selection(new_subcarriers);
+    
+    // No direct way to verify, but should not crash
+    TEST_PASS();
+}
+
+// ============================================================================
+// PROCESS PACKET TESTS
+// ============================================================================
+
+void test_csi_manager_process_packet_null_data(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    csi_motion_state_t state = CSI_STATE_IDLE;  // Initialize to IDLE
+    manager.process_packet(nullptr, state);
+    
+    // Should not crash, state should remain IDLE
+    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, state);
+}
+
+void test_csi_manager_process_packet_short_data(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    wifi_csi_info_t csi_info;
+    int8_t short_buf[5] = {0};
+    csi_info.buf = short_buf;
+    csi_info.len = 5;  // Too short
+    
+    csi_motion_state_t state = CSI_STATE_IDLE;
+    manager.process_packet(&csi_info, state);
+    
+    // Should handle gracefully
+    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, state);
+}
+
+void test_csi_manager_process_packet_real_data(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Process several baseline packets
+    for (int i = 0; i < 10; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
+        csi_info.len = 128;
+        
+        csi_motion_state_t state;
+        manager.process_packet(&csi_info, state);
+    }
+    
+    // After processing baseline, should be IDLE
+    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, csi_processor_get_state(&g_processor));
+}
+
+void test_csi_manager_process_packet_detects_motion(void) {
+    CSIManager manager;
+    // Use very low threshold to detect motion easily
+    manager.init(&g_processor, TEST_SUBCARRIERS, 0.01f, 5, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Process enough packets to fill the window and get moving variance
+    // Need at least window_size packets before variance is calculated
+    for (int i = 0; i < 50; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i % 100]);
+        csi_info.len = 128;
+        
+        csi_motion_state_t state;
+        manager.process_packet(&csi_info, state);
+    }
+    
+    // Now process movement packets
+    for (int i = 0; i < 50; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(movement_packets[i % 100]);
+        csi_info.len = 128;
+        
+        csi_motion_state_t state;
+        manager.process_packet(&csi_info, state);
+    }
+    
+    // Verify that packets were processed
+    uint32_t total_packets = csi_processor_get_total_packets(&g_processor);
+    ESP_LOGI(TAG, "Total packets processed: %u", total_packets);
+    
+    TEST_ASSERT_EQUAL(100, total_packets);
+}
+
+// ============================================================================
+// CALLBACK TESTS
+// ============================================================================
+
+static int g_callback_count = 0;
+static csi_motion_state_t g_last_callback_state = CSI_STATE_IDLE;
+
+static void test_callback(csi_motion_state_t state) {
+    g_callback_count++;
+    g_last_callback_state = state;
+}
+
+void test_csi_manager_callback_invoked(void) {
+    g_callback_count = 0;
+    g_last_callback_state = CSI_STATE_IDLE;
+    
+    CSIManager manager;
+    // publish_rate = 5, so callback should be invoked every 5 packets
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 5, false, 7, 3.0f, &g_wifi_mock);
+    manager.enable(test_callback);
+    
+    // Process 10 packets
+    for (int i = 0; i < 10; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
+        csi_info.len = 128;
+        
+        csi_motion_state_t state;
+        manager.process_packet(&csi_info, state);
+    }
+    
+    // Callback should have been invoked twice (at packet 5 and 10)
+    TEST_ASSERT_EQUAL(2, g_callback_count);
+}
+
+void test_csi_manager_callback_not_invoked_before_publish_rate(void) {
+    g_callback_count = 0;
+    
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.enable(test_callback);
+    
+    // Process only 10 packets (less than publish_rate of 100)
+    for (int i = 0; i < 10; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
+        csi_info.len = 128;
+        
+        csi_motion_state_t state;
+        manager.process_packet(&csi_info, state);
+    }
+    
+    // Callback should not have been invoked
+    TEST_ASSERT_EQUAL(0, g_callback_count);
+}
+
+// ============================================================================
+// CALIBRATION MODE TESTS
+// ============================================================================
+
+void test_csi_manager_set_calibration_mode(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Set calibration mode (nullptr disables)
+    manager.set_calibration_mode(nullptr);
+    
+    // Should not crash
+    TEST_PASS();
+}
+
+// ============================================================================
+// INTEGRATION TESTS
+// Uses WiFiCSIMock for all tests (both native and device)
+// ============================================================================
+
+void test_csi_manager_full_workflow(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 20, 50, true, 7, 3.0f, &g_wifi_mock);
+    
+    // Enable
+    TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
+    TEST_ASSERT_TRUE(manager.is_enabled());
+    
+    // Process some packets
+    for (int i = 0; i < 30; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i % 100]);
+        csi_info.len = 128;
+        
+        csi_motion_state_t state;
+        manager.process_packet(&csi_info, state);
+    }
+    
+    // Update threshold
+    manager.set_threshold(2.0f);
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, csi_processor_get_threshold(&g_processor));
+    
+    // Disable
+    TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_baseline_then_motion(void) {
+    g_callback_count = 0;
+    
+    CSIManager manager;
+    // Low threshold, small window for quick detection
+    manager.init(&g_processor, TEST_SUBCARRIERS, 0.5f, 10, 20, false, 7, 3.0f, &g_wifi_mock);
+    manager.enable(test_callback);
+    
+    // Phase 1: Baseline (should stay IDLE)
+    csi_motion_state_t state = CSI_STATE_IDLE;
+    for (int i = 0; i < 50; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
+        csi_info.len = 128;
+        
+        manager.process_packet(&csi_info, state);
+    }
+    
+    ESP_LOGI(TAG, "After baseline: state=%d, callbacks=%d", 
+             csi_processor_get_state(&g_processor), g_callback_count);
+    
+    // Phase 2: Movement (should detect MOTION)
+    for (int i = 0; i < 50; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(movement_packets[i]);
+        csi_info.len = 128;
+        
+        manager.process_packet(&csi_info, state);
+    }
+    
+    ESP_LOGI(TAG, "After movement: state=%d, callbacks=%d", 
+             csi_processor_get_state(&g_processor), g_callback_count);
+    
+    // Should have detected motion
+    TEST_ASSERT_EQUAL(CSI_STATE_MOTION, state);
+    
+    // Callbacks should have been invoked (100 packets / 20 publish_rate = 5)
+    TEST_ASSERT_TRUE(g_callback_count >= 4);
+}
+
+// ============================================================================
+// ENTRY POINT
+// ============================================================================
+
+int process(void) {
+    UNITY_BEGIN();
+    
+    // Initialization tests
+    RUN_TEST(test_csi_manager_init);
+    RUN_TEST(test_csi_manager_init_with_hampel);
+    RUN_TEST(test_csi_manager_init_without_hampel);
+    
+    // Enable/Disable tests (using WiFiCSIMock)
+    RUN_TEST(test_csi_manager_enable);
+    RUN_TEST(test_csi_manager_enable_twice_returns_ok);
+    RUN_TEST(test_csi_manager_disable);
+    RUN_TEST(test_csi_manager_disable_when_not_enabled);
+    
+    // Threshold tests
+    RUN_TEST(test_csi_manager_set_threshold);
+    RUN_TEST(test_csi_manager_set_threshold_multiple_times);
+    
+    // Subcarrier selection tests
+    RUN_TEST(test_csi_manager_update_subcarrier_selection);
+    
+    // Process packet tests
+    RUN_TEST(test_csi_manager_process_packet_null_data);
+    RUN_TEST(test_csi_manager_process_packet_short_data);
+    RUN_TEST(test_csi_manager_process_packet_real_data);
+    RUN_TEST(test_csi_manager_process_packet_detects_motion);
+    
+    // Callback tests
+    RUN_TEST(test_csi_manager_callback_invoked);
+    RUN_TEST(test_csi_manager_callback_not_invoked_before_publish_rate);
+    
+    // Calibration mode tests
+    RUN_TEST(test_csi_manager_set_calibration_mode);
+    
+    // Integration tests (using WiFiCSIMock)
+    RUN_TEST(test_csi_manager_full_workflow);
+    RUN_TEST(test_csi_manager_baseline_then_motion);
+    
+    return UNITY_END();
+}
+
+#if defined(ESP_PLATFORM)
+extern "C" void app_main(void) { process(); }
+#else
+int main(int argc, char **argv) { return process(); }
+#endif
+

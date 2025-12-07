@@ -27,21 +27,42 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install PlatformIO
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install platformio
+          pip install platformio gcovr
       
-      - name: Run Tests
+      - name: Run Tests with Coverage
         working-directory: test
-        run: pio test -e native
+        run: ./run_coverage.sh --ci
+      
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: test/coverage.lcov
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   build:
-    name: ESPHome Build
+    name: Build ${{ matrix.chip }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        config: [examples/espectre-c6.yaml, examples/espectre-s3.yaml]
+        include:
+          - chip: ESP32
+            config: examples/espectre-esp32.yaml
+          - chip: ESP32-S2
+            config: examples/espectre-s2.yaml
+          - chip: ESP32-S3
+            config: examples/espectre-s3.yaml
+          - chip: ESP32-C3
+            config: examples/espectre-c3.yaml
+          - chip: ESP32-C5
+            config: examples/espectre-c5.yaml
+          - chip: ESP32-C6
+            config: examples/espectre-c6.yaml
     
     steps:
       - uses: actions/checkout@v4
@@ -56,5 +77,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install esphome
       
-      - name: Compile ${{ matrix.config }}
+      - name: Compile
         run: esphome compile ${{ matrix.config }}

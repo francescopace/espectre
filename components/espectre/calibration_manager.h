@@ -46,8 +46,9 @@ class CalibrationManager {
    * Initialize calibration manager
    * 
    * @param csi_manager CSI manager instance
+   * @param buffer_path Path for temporary calibration file (default: /spiffs/nbvi_buffer.bin)
    */
-  void init(CSIManager* csi_manager);
+  void init(CSIManager* csi_manager, const char* buffer_path = "/spiffs/nbvi_buffer.bin");
   
   /**
    * Start automatic calibration
@@ -118,10 +119,6 @@ class CalibrationManager {
                            uint8_t* output_size);
   
   // Utility methods
-  float calculate_magnitude_(const int8_t* csi_data, uint8_t subcarrier) const;
-  float calculate_spatial_turbulence_(const float* magnitudes,
-                                     const uint8_t* subcarriers,
-                                     uint8_t num_subcarriers) const;
   float calculate_percentile_(const std::vector<float>& sorted_values, uint8_t percentile) const;
   void calculate_nbvi_weighted_(const std::vector<float>& magnitudes,
                                 NBVIMetrics& out_metrics) const;
@@ -142,7 +139,7 @@ class CalibrationManager {
   // File-based storage (saves RAM - magnitudes stored as uint8)
   FILE* buffer_file_{nullptr};
   uint16_t buffer_count_{0};
-  static constexpr const char* BUFFER_FILE_PATH = "/spiffs/nbvi_buffer.bin";
+  const char* buffer_path_{"/spiffs/nbvi_buffer.bin"};
   
   // Configuration parameters
   uint16_t buffer_size_{1000};        // Number of packets to collect
