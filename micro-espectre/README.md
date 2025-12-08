@@ -78,7 +78,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Spectral De-correlation | ✅ | ✅ | ✅ Implemented |
 | **CSI Features** |
 | `features_enable` | ❌ | ✅ | `ENABLE_FEATURES = True` in config.py |
-| 5 CSI Features | ❌ | ✅ | entropy_turb, iqr_turb, variance_turb, skewness, kurtosis |
+| CSI Features | ❌ | ✅ | entropy_turb, iqr_turb, variance_turb, skewness, kurtosis |
 | Feature Extraction | ❌| ✅ | Publish-time calculation (no buffer, 92% memory saved) |
 | Hampel Filter | ❌ | ✅ | Applied to turbulence (configurable) |
 
@@ -315,7 +315,7 @@ micro-espectre/
 │   ├── 1_analyze_raw_data.py  # Raw CSI data visualization
 │   └── ...
 ├── requirements.txt           # Python dependencies
-├── espectre-monitor.html      # Web-based monitoring dashboard
+├── espectre-monitor.html      # Web Monitor: real-time analysis & configuration
 ├── espectre-theremin.html     # Audio sonification tool (experimental)
 ├── me                         # Unified CLI tool (flash/deploy/run/verify/MQTT)
 ├── .gitignore                 # Git ignore rules
@@ -351,7 +351,7 @@ ENABLE_FEATURES = False       # Enable/disable feature extraction and MQTT publi
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `ENABLE_FEATURES` | `False` | Enable 10-feature extraction and MQTT publishing |
+| `ENABLE_FEATURES` | `True` | Enable feature extraction |
 | `SEG_WINDOW_SIZE` | `50` | Shared window size for both MVS and features |
 | `ENABLE_HAMPEL_FILTER` | `True` | Shared Hampel filter enable (used by both MVS and features) |
 | `HAMPEL_WINDOW` | `7` | Shared Hampel window size |
@@ -401,7 +401,7 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
 
 | Field | Description |
 |-------|-------------|
-| `features` | 5 CSI features calculated at publish time |
+| `features` | CSI features calculated at publish time |
 | `confidence` | Detection confidence (0.0-1.0) based on weighted feature voting |
 | `triggered` | List of features that exceeded their motion thresholds |
 
@@ -641,14 +641,71 @@ Beyond the basic commands covered in the [CLI Tool Overview](#-cli-tool-overview
 | `about` | Show about information |
 | `exit` | Exit CLI |
 
-### Web Tools
+## 🌐 Web Monitor
 
-Two HTML-based tools are included for visualization:
+Micro-ESPectre includes a powerful **Web-based monitoring dashboard** for real-time analysis and configuration. This tool is essential for parameter tuning, algorithm validation, and live visualization of motion detection.
 
-- **`espectre-monitor.html`**: Real-time motion monitoring dashboard with charts
-- **`espectre-theremin.html`**: Audio sonification of CSI data (experimental)
+### Features
 
-**Usage**: Run `webui` command from the interactive CLI to open the web monitor. The CLI starts a local HTTP server automatically.
+| Feature | Description |
+|---------|-------------|
+| 📡 **MQTT Connection** | Direct WebSocket connection to your MQTT broker |
+| 🖥️ **Device Info** | View device model, IP, MAC, WiFi protocol, bandwidth, and channel |
+| ⚙️ **Live Configuration** | Adjust detection parameters (response speed, threshold) in real-time |
+| 📊 **Real-Time Chart** | Live visualization of movement, threshold, packets/sec, and dropped packets |
+| 📈 **Runtime Statistics** | Memory usage, loop timing, and Traffic Generator diagnostics |
+| 🔄 **Factory Reset** | Reset device to default configuration and re-calibrate NBVI |
+
+### Screenshots
+
+**Real-Time Chart View**
+
+![Web Monitor Chart](../images/web_monitor_chart.png)
+
+The dashboard displays:
+- **State**: Current detection state (MOTION in red, IDLE in green)
+- **Confidence**: Detection confidence percentage with progress bar
+- **Movement**: Current moving variance value
+- **Last Update**: Timestamp of last MQTT message
+
+The chart shows:
+- **Movement** (red line): Current moving variance output
+- **Threshold** (dashed blue): Detection threshold level
+- **Packets/sec** (green): CSI packet rate from traffic generator
+- **Dropped** (orange): Dropped packets count
+
+**Configuration Panel**
+
+![Web Monitor Configuration](../images/web_monitor_configurations.png)
+
+**Device Configuration** section shows:
+- Model, IP address, MAC address, WiFi protocol
+- Bandwidth (HT20/HT40), Channel, CSI status
+
+**Detection Parameters** (adjustable via sliders):
+- **Response Speed** (10-200): How fast the system reacts to changes (window size)
+- **Motion Threshold** (0.5-10.0): Minimum threshold to detect movement
+- **Active Subcarriers**: WiFi frequency channels used for detection
+
+**Action Buttons**:
+- **RELOAD INFO**: Refresh device information
+- **STATISTICS**: View runtime statistics
+- **FACTORY RESET**: Reset device to default configuration
+
+### Usage
+
+**Launch from CLI** (recommended):
+```bash
+./me          # Start interactive mode
+webui         # Open web monitor in browser
+```
+
+The CLI automatically serves the HTML file and opens it in your default browser.
+
+**Manual launch**:
+Open `micro-espectre/espectre-monitor.html` directly in your browser and configure the MQTT connection manually.
+
+### Browser Compatibility
 
 > ⚠️ **Chrome Users**: If MQTT WebSocket connection fails, you need to enable local network WebSocket access:
 > 1. Open `chrome://flags/#local-network-access-check-websockets`
@@ -656,6 +713,10 @@ Two HTML-based tools are included for visualization:
 > 3. Restart Chrome
 >
 > This is required because Chrome blocks WebSocket connections to private network addresses (like `homeassistant.local`) by default.
+
+### Additional Tools
+
+- **`espectre-theremin.html`**: Audio sonification of CSI data (experimental) - converts motion data to sound for auditory feedback
 
 ## 📡 MQTT Integration
 
@@ -665,16 +726,15 @@ Micro-ESPectre uses MQTT for communication with Home Assistant and runtime confi
 
 ### Available MQTT Commands
 
-Publish commands to `home/espectre/node1/cmd`:
+Publish JSON commands to `home/espectre/node1/cmd`:
 
-| Command | Example | Description |
-|---------|---------|-------------|
-| `info` | `info` | Get system information (network, device, config) |
-| `stats` | `stats` | Get runtime statistics (memory, state, metrics) |
-| `segmentation_threshold` | `segmentation_threshold 1.5` | Set detection threshold |
-| `segmentation_window_size` | `segmentation_window_size 100` | Set window size |
-| `subcarrier_selection` | `subcarrier_selection 11,12,13,...` | Set subcarriers |
-| `factory_reset` | `factory_reset` | Reset to defaults |
+| Command | Example Payload | Description |
+|---------|-----------------|-------------|
+| `info` | `{"cmd": "info"}` | Get system information (network, device, config) |
+| `stats` | `{"cmd": "stats"}` | Get runtime statistics (memory, state, metrics) |
+| `segmentation_threshold` | `{"cmd": "segmentation_threshold", "value": 1.5}` | Set detection threshold (0.0-10.0) |
+| `segmentation_window_size` | `{"cmd": "segmentation_window_size", "value": 100}` | Set window size (10-200 packets) |
+| `factory_reset` | `{"cmd": "factory_reset"}` | Reset to defaults and re-calibrate NBVI |
 
 ### Command Responses
 
@@ -691,6 +751,11 @@ Publish commands to `home/espectre/node1/cmd`:
     "traffic_generator_rate": 100
   },
   "device": {"type": "esp32"},
+  "mqtt": {
+    "base_topic": "home/espectre/node1",
+    "cmd_topic": "home/espectre/node1/cmd",
+    "response_topic": "home/espectre/node1/response"
+  },
   "segmentation": {"threshold": 1.0, "window_size": 50},
   "subcarriers": {"indices": [6, 9, 10, 15, 18, 19, 30, 33, 36, 40, 49, 52]}
 }

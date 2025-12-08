@@ -2,7 +2,7 @@
 [![ESPHome](https://img.shields.io/badge/ESPHome-Component-blue.svg)](https://esphome.io/)
 [![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
 [![Release](https://img.shields.io/github/v/release/francescopace/espectre)](https://github.com/francescopace/espectre/releases/latest)
-[![CI main](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI%20main)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
 
 # 🛜 ESPectre 👻
@@ -493,19 +493,19 @@ This project follows a **dual-platform approach** to balance innovation speed wi
 
 ESPectre focuses on **production-ready motion detection** using mathematical algorithms (MVS + NBVI).
 
-For **advanced applications** requiring feature extraction and machine learning:
+For **advanced applications** requiring feature extraction and machine learning, see **[Micro-ESPectre](micro-espectre/)** which provides:
+- ✅ CSI features for ML training
+- ✅ Analysis tools for dataset collection
+- ✅ Scientific references and ML approaches
+- ✅ Public datasets information
+
+Micro-ESPectre gives you the fundamentals for:
 - 🔬 **People counting**
 - 🏃 **Activity recognition** (walking, falling, sitting, sleeping)
 - 📍 **Localization and tracking**
 - 👋 **Gesture recognition**
 
-See **[Micro-ESPectre](micro-espectre/)** which provides:
-- ✅ 10 CSI features for ML training
-- ✅ Analysis tools for dataset collection
-- ✅ Scientific references and ML approaches
-- ✅ Public datasets information
-
-📚 **Full documentation**: [Micro-ESPectre README](micro-espectre/README.md#advanced-applications--machine-learning)
+📚 **Jump to section**: [Micro-ESPectre - Advanced Applications & Machine Learning](micro-espectre/README.md#-advanced-applications--machine-learning)
 
 ---
 
