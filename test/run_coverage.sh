@@ -132,11 +132,22 @@ if [ "$COMPILER" = "clang" ]; then
     # Generate lcov format for CI/Codecov
     if [ "$CI_MODE" = true ]; then
         echo -e "\n${YELLOW}Generating lcov report for Codecov...${NC}"
+        
+        # Get workspace root for path conversion
+        WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+        
         $LLVM_COV export "$PROGRAM" \
             -instr-profile=coverage.profdata \
             -format=lcov \
-            ../components/espectre/ > coverage.lcov 2>/dev/null
+            ../components/espectre/ > coverage.lcov.tmp 2>/dev/null
+        
+        # Convert absolute paths to relative paths for Codecov
+        sed "s|SF:$WORKSPACE_ROOT/|SF:|g" coverage.lcov.tmp > coverage.lcov
+        rm -f coverage.lcov.tmp
+        
         echo -e "${GREEN}Generated: coverage.lcov${NC}"
+        echo -e "${YELLOW}Coverage file preview:${NC}"
+        head -20 coverage.lcov
     else
         rm -f *.profraw *.profdata
     fi
@@ -155,22 +166,36 @@ else
     if command -v gcovr &> /dev/null; then
         echo "Using gcovr for coverage report..."
         
+        # Get absolute paths
+        WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+        ESPECTRE_DIR="$WORKSPACE_ROOT/components/espectre"
+        
         # Print text report
-        gcovr --root ../components/espectre/ \
-              --filter '../components/espectre/.*' \
+        gcovr --root "$ESPECTRE_DIR" \
+              --filter "$ESPECTRE_DIR/.*" \
               --exclude '.*test.*' \
               --print-summary \
               .pio/build/native_coverage/
         
-        # Generate lcov format for CI
+        # Generate coverage reports for CI
         if [ "$CI_MODE" = true ]; then
-            echo -e "\n${YELLOW}Generating lcov report for Codecov...${NC}"
-            gcovr --root ../components/espectre/ \
-                  --filter '../components/espectre/.*' \
+            echo -e "\n${YELLOW}Generating coverage reports for Codecov...${NC}"
+            
+            # Generate Cobertura XML format
+            gcovr --root "$WORKSPACE_ROOT" \
+                  --filter "$ESPECTRE_DIR/.*" \
+                  --exclude '.*test.*' \
+                  --xml coverage.xml \
+                  .pio/build/native_coverage/
+            
+            # Generate LCOV format
+            gcovr --root "$WORKSPACE_ROOT" \
+                  --filter "$ESPECTRE_DIR/.*" \
                   --exclude '.*test.*' \
                   --lcov coverage.lcov \
                   .pio/build/native_coverage/
-            echo -e "${GREEN}Generated: coverage.lcov${NC}"
+            
+            echo -e "${GREEN}Generated: coverage.xml and coverage.lcov${NC}"
         fi
     elif command -v lcov &> /dev/null; then
         echo "Using lcov for coverage report..."

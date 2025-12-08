@@ -13,6 +13,7 @@
 #include <cstring>
 #include "csi_manager.h"
 #include "csi_processor.h"
+#include "calibration_manager.h"
 #include "wifi_csi_interface.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
@@ -36,19 +37,40 @@ class WiFiCSIMock : public IWiFiCSI {
  public:
   esp_err_t set_csi_config(const wifi_csi_config_t* config) override {
     (void)config;
-    return ESP_OK;
+    return config_error_;
   }
   esp_err_t set_csi_rx_cb(wifi_csi_cb_t cb, void* ctx) override {
-    (void)cb; (void)ctx;
-    return ESP_OK;
+    callback_ = cb;
+    callback_ctx_ = ctx;
+    return callback_error_;
   }
   esp_err_t set_csi(bool enable) override {
+    if (csi_error_ != ESP_OK) return csi_error_;
     enabled_ = enable;
     return ESP_OK;
   }
   bool is_enabled() const { return enabled_; }
+  
+  // Methods to simulate errors
+  void set_config_error(esp_err_t err) { config_error_ = err; }
+  void set_callback_error(esp_err_t err) { callback_error_ = err; }
+  void set_csi_error(esp_err_t err) { csi_error_ = err; }
+  void reset_errors() { config_error_ = ESP_OK; callback_error_ = ESP_OK; csi_error_ = ESP_OK; }
+  
+  // Method to trigger the callback (simulates receiving CSI data)
+  void trigger_callback(wifi_csi_info_t* data) {
+    if (callback_ && callback_ctx_) {
+      callback_(callback_ctx_, data);
+    }
+  }
+  
  private:
   bool enabled_{false};
+  esp_err_t config_error_{ESP_OK};
+  esp_err_t callback_error_{ESP_OK};
+  esp_err_t csi_error_{ESP_OK};
+  wifi_csi_cb_t callback_{nullptr};
+  void* callback_ctx_{nullptr};
 };
 
 // Global processor context for tests
@@ -60,6 +82,8 @@ static WiFiCSIMock g_wifi_mock;
 void setUp(void) {
     // Initialize processor before each test
     csi_processor_init(&g_processor, 50, 1.0f);
+    // Reset mock errors
+    g_wifi_mock.reset_errors();
 }
 
 void tearDown(void) {
@@ -339,6 +363,124 @@ void test_csi_manager_set_calibration_mode(void) {
 }
 
 // ============================================================================
+// CALIBRATION DELEGATION TESTS
+// ============================================================================
+
+void test_csi_manager_with_calibrator_not_calibrating(void) {
+    // Test that CSIManager processes normally when calibrator is set but not calibrating
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Create a real CalibrationManager (not calibrating by default)
+    CalibrationManager calibrator;
+    calibrator.init(nullptr, "/tmp/test_cal.bin");  // No CSI manager, won't actually calibrate
+    
+    // Verify calibrator is not calibrating
+    TEST_ASSERT_FALSE(calibrator.is_calibrating());
+    
+    // Set calibration mode
+    manager.set_calibration_mode(&calibrator);
+    
+    // Process packets - should process normally since calibrator is not calibrating
+    for (int i = 0; i < 5; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
+        csi_info.len = 128;
+        
+        csi_motion_state_t state;
+        manager.process_packet(&csi_info, state);
+    }
+    
+    // Processor should have processed them (calibrator was not calibrating)
+    TEST_ASSERT_EQUAL(5, csi_processor_get_total_packets(&g_processor));
+}
+
+void test_csi_manager_null_calibrator_processes_normally(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // No calibrator set (nullptr)
+    manager.set_calibration_mode(nullptr);
+    
+    // Process packets - should process normally
+    for (int i = 0; i < 5; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
+        csi_info.len = 128;
+        
+        csi_motion_state_t state;
+        manager.process_packet(&csi_info, state);
+    }
+    
+    // Processor should have processed them
+    TEST_ASSERT_EQUAL(5, csi_processor_get_total_packets(&g_processor));
+}
+
+void test_csi_manager_delegates_when_calibrating(void) {
+    // Test that CSIManager delegates packets to calibrator when calibrating
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Create CalibrationManager and start calibration
+    CalibrationManager calibrator;
+    calibrator.init(&manager, "/tmp/test_cal_delegate.bin");
+    calibrator.set_buffer_size(50);  // Small buffer for testing
+    
+    // Start calibration - this sets calibrator to "calibrating" state
+    uint8_t dummy_band[12] = {10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
+    esp_err_t err = calibrator.start_auto_calibration(dummy_band, 12, nullptr);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_TRUE(calibrator.is_calibrating());
+    
+    // Set calibration mode on manager
+    manager.set_calibration_mode(&calibrator);
+    
+    // Process packets - should delegate to calibrator (lines 70-72)
+    uint32_t initial_packets = csi_processor_get_total_packets(&g_processor);
+    
+    for (int i = 0; i < 10; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
+        csi_info.len = 128;
+        
+        csi_motion_state_t state;
+        manager.process_packet(&csi_info, state);
+    }
+    
+    // Processor should NOT have processed them (delegated to calibrator)
+    TEST_ASSERT_EQUAL(initial_packets, csi_processor_get_total_packets(&g_processor));
+    
+    // Cleanup
+    manager.set_calibration_mode(nullptr);
+    remove("/tmp/test_cal_delegate.bin");
+}
+
+void test_csi_manager_calibrator_lifecycle(void) {
+    // Test setting and clearing calibration mode
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    CalibrationManager calibrator;
+    calibrator.init(nullptr, "/tmp/test_cal2.bin");
+    
+    // Set calibration mode
+    manager.set_calibration_mode(&calibrator);
+    
+    // Clear calibration mode
+    manager.set_calibration_mode(nullptr);
+    
+    // Process packets - should work normally
+    wifi_csi_info_t csi_info;
+    csi_info.buf = const_cast<int8_t*>(baseline_packets[0]);
+    csi_info.len = 128;
+    
+    csi_motion_state_t state;
+    manager.process_packet(&csi_info, state);
+    
+    TEST_PASS();
+}
+
+// ============================================================================
 // INTEGRATION TESTS
 // Uses WiFiCSIMock for all tests (both native and device)
 // ============================================================================
@@ -411,6 +553,104 @@ void test_csi_manager_baseline_then_motion(void) {
 }
 
 // ============================================================================
+// ERROR PATH TESTS
+// ============================================================================
+
+void test_csi_manager_enable_config_error(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Simulate config error
+    g_wifi_mock.set_config_error(ESP_ERR_INVALID_ARG);
+    
+    esp_err_t result = manager.enable(nullptr);
+    
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, result);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_enable_callback_error(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Simulate callback registration error
+    g_wifi_mock.set_callback_error(ESP_ERR_NO_MEM);
+    
+    esp_err_t result = manager.enable(nullptr);
+    
+    TEST_ASSERT_EQUAL(ESP_ERR_NO_MEM, result);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_enable_csi_error(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Simulate CSI enable error
+    g_wifi_mock.set_csi_error(ESP_FAIL);
+    
+    esp_err_t result = manager.enable(nullptr);
+    
+    TEST_ASSERT_EQUAL(ESP_FAIL, result);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_disable_error(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // First enable successfully
+    esp_err_t result = manager.enable(nullptr);
+    TEST_ASSERT_EQUAL(ESP_OK, result);
+    TEST_ASSERT_TRUE(manager.is_enabled());
+    
+    // Now simulate disable error
+    g_wifi_mock.set_csi_error(ESP_FAIL);
+    
+    result = manager.disable();
+    
+    TEST_ASSERT_EQUAL(ESP_FAIL, result);
+    // Manager should still think it's enabled since disable failed
+    TEST_ASSERT_TRUE(manager.is_enabled());
+}
+
+void test_csi_manager_callback_wrapper_triggered(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Enable to register callback
+    esp_err_t result = manager.enable(nullptr);
+    TEST_ASSERT_EQUAL(ESP_OK, result);
+    
+    // Create CSI data
+    wifi_csi_info_t csi_info;
+    csi_info.buf = const_cast<int8_t*>(baseline_packets[0]);
+    csi_info.len = 128;
+    
+    // Trigger callback through mock (simulates ESP-IDF calling the callback)
+    g_wifi_mock.trigger_callback(&csi_info);
+    
+    // Verify packet was processed (total packets should be > 0)
+    TEST_ASSERT_TRUE(csi_processor_get_total_packets(&g_processor) > 0);
+}
+
+void test_csi_manager_callback_wrapper_null_data(void) {
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Enable to register callback
+    manager.enable(nullptr);
+    
+    uint32_t packets_before = csi_processor_get_total_packets(&g_processor);
+    
+    // Trigger callback with null data (should be handled gracefully)
+    g_wifi_mock.trigger_callback(nullptr);
+    
+    // Verify no packet was processed
+    TEST_ASSERT_EQUAL(packets_before, csi_processor_get_total_packets(&g_processor));
+}
+
+// ============================================================================
 // ENTRY POINT
 // ============================================================================
 
@@ -447,6 +687,20 @@ int process(void) {
     
     // Calibration mode tests
     RUN_TEST(test_csi_manager_set_calibration_mode);
+    
+    // Calibration delegation tests
+    RUN_TEST(test_csi_manager_with_calibrator_not_calibrating);
+    RUN_TEST(test_csi_manager_null_calibrator_processes_normally);
+    RUN_TEST(test_csi_manager_delegates_when_calibrating);
+    RUN_TEST(test_csi_manager_calibrator_lifecycle);
+    
+    // Error path tests
+    RUN_TEST(test_csi_manager_enable_config_error);
+    RUN_TEST(test_csi_manager_enable_callback_error);
+    RUN_TEST(test_csi_manager_enable_csi_error);
+    RUN_TEST(test_csi_manager_disable_error);
+    RUN_TEST(test_csi_manager_callback_wrapper_triggered);
+    RUN_TEST(test_csi_manager_callback_wrapper_null_data);
     
     // Integration tests (using WiFiCSIMock)
     RUN_TEST(test_csi_manager_full_workflow);

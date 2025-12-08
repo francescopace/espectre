@@ -27,8 +27,8 @@ pio test -e esp32c6
 | `test_csi_processor` | Unit | **Real** | 39 | API, getters, state machine |
 | `test_hampel_filter` | Unit | **Real** | 20 | Outlier removal filter |
 | `test_calibration` | Unit | **Real** | 33 | NBVI, magnitude, turbulence, compare, end-to-end CalibrationManager |
-| `test_calibration_manager` | Integration | **Real** | 17 | CalibrationManager API, file I/O, NBVI ranking |
-| `test_csi_manager` | Integration | **Real** | 19 | CSIManager API, callbacks, motion detection |
+| `test_calibration_manager` | Integration | **Real** | 24 | CalibrationManager API, file I/O, NBVI ranking, edge cases |
+| `test_csi_manager` | Integration | **Real** | 29 | CSIManager API, callbacks, motion detection, error paths |
 | `test_calibration_file_storage` | Unit | Synthetic | 9 | File-based magnitude storage |
 | `test_motion_detection` | Integration | **Real** | 3 | MVS performance metrics |
 
@@ -36,8 +36,8 @@ pio test -e esp32c6
 
 | Environment | Tests | Notes |
 |-------------|-------|-------|
-| **Native** | 140 | Full suite with WiFiCSIMock |
-| **ESP32-C6** | 140 | Full suite with WiFiCSIMock (dependency injection) |
+| **Native** | 157 | Full suite with WiFiCSIMock |
+| **ESP32-C6** | 157 | Full suite with WiFiCSIMock (dependency injection) |
 
 ### Target Metrics (Motion Detection)
 - **Recall**: ≥95% (detect real movements)
@@ -65,13 +65,13 @@ Run tests with coverage instrumentation:
 
 | File | Lines | Functions | Branches |
 |------|-------|-----------|----------|
-| `utils.h` | 93.9% | 100% | 68.0% |
-| `csi_processor.cpp` | 91.4% | 100% | 83.9% |
-| `csi_manager.cpp` | 78.9% | 87.5% | 62.5% |
-| `calibration_manager.cpp` | 74.6% | 100% | 63.4% |
-| **Total** | **81.8%** | **98.2%** | **70.8%** |
+| `csi_manager.cpp` | **100%** | 100% | 94% |
+| `utils.h` | 96% | 100% | 69% |
+| `csi_processor.cpp` | 91% | 100% | 84% |
+| `calibration_manager.cpp` | 86% | 100% | 63% |
+| **Total** | **90%** | **96%** | **63%** |
 
-> **Note**: Coverage is measured using LLVM instrumentation. Tests use real CSI data from ESP32-C6 captures.
+> **Note**: Coverage measured on Codecov (CI). Tests use real CSI data from ESP32-C6 captures.
 
 ---
 

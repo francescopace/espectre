@@ -13,6 +13,7 @@
 #include <unity.h>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 #include <algorithm>
 #include "utils.h"

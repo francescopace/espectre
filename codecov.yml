@@ -12,11 +12,7 @@ coverage:
         target: 70%      # New code coverage target
         threshold: 5%
 
-  # Only consider these files for coverage
-  paths:
-    - "components/espectre/"
-
-# Ignore test files and mocks
+# Ignore test files and mocks (only track components/espectre/)
 ignore:
   - "test/**"
   - "**/mock_*.h"

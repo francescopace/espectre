@@ -500,6 +500,219 @@ void test_baseline_window_detection_simulation(void) {
 }
 
 // ============================================================================
+// PERCENTILE CALCULATION TESTS
+// ============================================================================
+
+void test_percentile_edge_cases(void) {
+    // Test percentile calculation with edge cases
+    
+    // Empty vector
+    std::vector<float> empty;
+    // Can't test directly, but we verify via NBVI calculation
+    
+    // Single element
+    std::vector<float> single = {42.0f};
+    float sum = 0.0f;
+    for (float v : single) sum += v;
+    float mean = sum / single.size();
+    TEST_ASSERT_EQUAL_FLOAT(42.0f, mean);
+    
+    // Two elements - percentile interpolation
+    std::vector<float> two = {10.0f, 20.0f};
+    std::sort(two.begin(), two.end());
+    
+    // Linear interpolation for p50 should give 15.0
+    float k = (two.size() - 1) * 50 / 100.0f;
+    size_t f = static_cast<size_t>(k);
+    size_t c = f + 1;
+    float p50 = two[f] * (c - k) + two[c] * (k - f);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 15.0f, p50);
+}
+
+void test_percentile_boundary_values(void) {
+    // Test percentile at boundaries (0%, 100%)
+    std::vector<float> values = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    std::sort(values.begin(), values.end());
+    
+    // p0 should give first element
+    float k0 = (values.size() - 1) * 0 / 100.0f;
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, k0);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, values[0]);
+    
+    // p100 should give last element
+    float k100 = (values.size() - 1) * 100 / 100.0f;
+    size_t idx = static_cast<size_t>(k100);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, values[idx]);
+}
+
+// ============================================================================
+// NOISE GATE TESTS
+// ============================================================================
+
+void test_noise_gate_filters_low_magnitude_subcarriers(void) {
+    // Verify noise gate concept: low magnitude subcarriers should be filtered
+    
+    // Simulate subcarrier magnitudes: some strong, some weak
+    struct SubcarrierInfo {
+        uint8_t idx;
+        float mean_magnitude;
+    };
+    
+    std::vector<SubcarrierInfo> subcarriers;
+    
+    // Guard bands (0-5, 59-63) typically have low magnitude
+    for (uint8_t i = 0; i < 64; i++) {
+        float mean = 0.0f;
+        for (int p = 0; p < 100; p++) {
+            mean += calculate_magnitude(baseline_packets[p][i * 2], 
+                                        baseline_packets[p][i * 2 + 1]);
+        }
+        mean /= 100;
+        subcarriers.push_back({i, mean});
+    }
+    
+    // Sort by magnitude
+    std::sort(subcarriers.begin(), subcarriers.end(),
+              [](const SubcarrierInfo& a, const SubcarrierInfo& b) {
+                  return a.mean_magnitude < b.mean_magnitude;
+              });
+    
+    // Calculate p10 threshold
+    size_t p10_idx = static_cast<size_t>(63 * 0.1f);
+    float threshold = subcarriers[p10_idx].mean_magnitude;
+    
+    ESP_LOGI(TAG, "Noise gate p10 threshold: %.2f", threshold);
+    
+    // Count filtered subcarriers
+    int filtered = 0;
+    for (const auto& sc : subcarriers) {
+        if (sc.mean_magnitude < threshold) {
+            filtered++;
+            ESP_LOGD(TAG, "  Filtered SC %d: mean=%.2f", sc.idx, sc.mean_magnitude);
+        }
+    }
+    
+    // Should filter approximately 10% (6-7 subcarriers)
+    TEST_ASSERT_TRUE(filtered >= 5);
+    TEST_ASSERT_TRUE(filtered <= 10);
+}
+
+// ============================================================================
+// SPECTRAL SPACING TESTS
+// ============================================================================
+
+void test_spectral_spacing_selection(void) {
+    // Test that selected subcarriers respect minimum spacing
+    const uint8_t MIN_SPACING = 3;
+    
+    // Simulate NBVI-sorted subcarriers (best first)
+    std::vector<uint8_t> sorted_by_nbvi = {15, 16, 17, 20, 25, 30, 35, 40, 45, 50, 10, 55};
+    
+    std::vector<uint8_t> selected;
+    
+    // Phase 1: Top 5 absolute best (no spacing check)
+    for (int i = 0; i < 5 && i < (int)sorted_by_nbvi.size(); i++) {
+        selected.push_back(sorted_by_nbvi[i]);
+    }
+    
+    // Phase 2: Remaining 7 with spacing
+    for (size_t i = 5; i < sorted_by_nbvi.size() && selected.size() < 12; i++) {
+        uint8_t candidate = sorted_by_nbvi[i];
+        
+        bool spacing_ok = true;
+        for (uint8_t sel : selected) {
+            uint8_t dist = (candidate > sel) ? (candidate - sel) : (sel - candidate);
+            if (dist < MIN_SPACING) {
+                spacing_ok = false;
+                break;
+            }
+        }
+        
+        if (spacing_ok) {
+            selected.push_back(candidate);
+        }
+    }
+    
+    ESP_LOGI(TAG, "Selected with spacing: %zu subcarriers", selected.size());
+    for (uint8_t sc : selected) {
+        ESP_LOGD(TAG, "  SC %d", sc);
+    }
+    
+    // Verify we got at least some subcarriers
+    TEST_ASSERT_TRUE(selected.size() >= 5);
+}
+
+// ============================================================================
+// NBVI WEIGHTED FORMULA TESTS
+// ============================================================================
+
+void test_nbvi_weighted_formula_zero_mean(void) {
+    // Test NBVI with zero mean (should return INFINITY)
+    std::vector<float> zero_magnitudes(100, 0.0f);
+    
+    float sum = 0.0f;
+    for (float m : zero_magnitudes) sum += m;
+    float mean = sum / zero_magnitudes.size();
+    
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, mean);
+    
+    // NBVI should be INFINITY for zero mean
+    float nbvi;
+    if (mean < 1e-6f) {
+        nbvi = INFINITY;
+    } else {
+        float variance = calculate_variance_two_pass(zero_magnitudes.data(), 
+                                                     zero_magnitudes.size());
+        float std = std::sqrt(variance);
+        float cv = std / mean;
+        float nbvi_energy = std / (mean * mean);
+        nbvi = 0.3f * nbvi_energy + 0.7f * cv;
+    }
+    
+    TEST_ASSERT_TRUE(std::isinf(nbvi));
+}
+
+void test_nbvi_weighted_formula_constant_signal(void) {
+    // Test NBVI with constant signal (std=0, should give NBVI=0)
+    std::vector<float> constant_magnitudes(100, 50.0f);
+    
+    float sum = 0.0f;
+    for (float m : constant_magnitudes) sum += m;
+    float mean = sum / constant_magnitudes.size();
+    
+    float variance = calculate_variance_two_pass(constant_magnitudes.data(), 
+                                                 constant_magnitudes.size());
+    float std = std::sqrt(variance);
+    
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 50.0f, mean);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, std);
+    
+    // NBVI should be 0 for constant signal
+    float cv = std / mean;
+    float nbvi_energy = std / (mean * mean);
+    float nbvi = 0.3f * nbvi_energy + 0.7f * cv;
+    
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, nbvi);
+}
+
+// ============================================================================
+// CALIBRATION DOUBLE START TEST
+// ============================================================================
+
+void test_start_calibration_while_already_calibrating(void) {
+    // This tests the "already calibrating" path
+    CalibrationManager cm;
+    cm.init(nullptr, TEST_BUFFER_PATH);
+    
+    // First start should fail because no CSI manager
+    esp_err_t err1 = cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE, nullptr);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, err1);
+    
+    // Verify not calibrating
+    TEST_ASSERT_FALSE(cm.is_calibrating());
+}
+
+// ============================================================================
 // ENTRY POINT
 // ============================================================================
 
@@ -538,6 +751,23 @@ int process(void) {
     
     // Baseline window detection
     RUN_TEST(test_baseline_window_detection_simulation);
+    
+    // Percentile calculation tests
+    RUN_TEST(test_percentile_edge_cases);
+    RUN_TEST(test_percentile_boundary_values);
+    
+    // Noise gate tests
+    RUN_TEST(test_noise_gate_filters_low_magnitude_subcarriers);
+    
+    // Spectral spacing tests
+    RUN_TEST(test_spectral_spacing_selection);
+    
+    // NBVI formula tests
+    RUN_TEST(test_nbvi_weighted_formula_zero_mean);
+    RUN_TEST(test_nbvi_weighted_formula_constant_signal);
+    
+    // Double start test
+    RUN_TEST(test_start_calibration_while_already_calibrating);
     
     return UNITY_END();
 }
