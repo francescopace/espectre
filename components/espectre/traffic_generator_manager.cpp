@@ -21,8 +21,8 @@ namespace espectre {
 
 static const char *TAG = "TrafficGen";
 
-// Pre-built DNS query for google.com (type A)
-// This is a minimal DNS query that will generate a response
+// Minimal DNS query for root domain (type A)
+// 17 bytes - smallest valid DNS query that generates a response
 static const uint8_t DNS_QUERY[] = {
     0x00, 0x01,  // Transaction ID
     0x01, 0x00,  // Flags: standard query
@@ -30,10 +30,7 @@ static const uint8_t DNS_QUERY[] = {
     0x00, 0x00,  // Answer RRs: 0
     0x00, 0x00,  // Authority RRs: 0
     0x00, 0x00,  // Additional RRs: 0
-    // Query: google.com
-    0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65,  // "google"
-    0x03, 0x63, 0x6f, 0x6d,  // "com"
-    0x00,  // End of name
+    0x00,        // Root domain (empty label)
     0x00, 0x01,  // Type: A
     0x00, 0x01   // Class: IN
 };
@@ -156,33 +153,6 @@ void TrafficGeneratorManager::stop() {
   ESP_LOGI(TAG, "📡 Traffic generator stopped");
 }
 
-void TrafficGeneratorManager::set_rate(uint32_t rate_pps) {
-  if (!running_) {
-    ESP_LOGW(TAG, "Cannot set rate: traffic generator not running");
-    return;
-  }
-  
-  // Validate rate
-  if (rate_pps == 0) {
-    ESP_LOGE(TAG, "Invalid rate: 0 pps (must be > 0)");
-    return;
-  }
-  
-  if (rate_pps == rate_pps_) {
-    return;  // No change needed
-  }
-  
-  // Update rate and restart
-  rate_pps_ = rate_pps;
-  stop();
-  
-  // Start new session with new rate
-  if (start()) {
-    ESP_LOGI(TAG, "📡 Traffic rate changed to %u packets/sec", rate_pps);
-  } else {
-    ESP_LOGE(TAG, "Failed to restart traffic generator with new rate");
-  }
-}
 
 // ============================================================================
 // PRIVATE TASK

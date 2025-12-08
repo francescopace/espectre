@@ -184,7 +184,6 @@ class MQTTCommands:
         uptime_sec = current_time - self.start_time
         
         # Get free memory in KB using gc module (Python heap)
-        gc.collect()
         free_mem_kb = round(gc.mem_free() / 1024, 1)
         
         # Get loop time from global state (in microseconds, convert to ms)

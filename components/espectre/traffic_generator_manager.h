@@ -55,28 +55,7 @@ class TrafficGeneratorManager {
    */
   bool is_running() const { return running_; }
   
-  /**
-   * Get total packet count
-   * 
-   * @return Number of packets sent
-   */
-  uint32_t get_packet_count() const { return packet_count_; }
   
-  /**
-   * Get error count
-   * 
-   * @return Number of send errors
-   */
-  uint32_t get_error_count() const { return error_count_; }
-  
-  /**
-   * Set rate while running
-   * 
-   * Stops and restarts the generator with new rate.
-   * 
-   * @param rate_pps New packets per second rate
-   */
-  void set_rate(uint32_t rate_pps);
   
  private:
   // FreeRTOS task function (static wrapper)
@@ -85,8 +64,6 @@ class TrafficGeneratorManager {
   // State
   TaskHandle_t task_handle_{nullptr};
   int sock_{-1};
-  uint32_t packet_count_{0};
-  uint32_t error_count_{0};
   uint32_t rate_pps_{0};
   bool running_{false};
 };

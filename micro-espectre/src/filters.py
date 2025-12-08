@@ -44,12 +44,12 @@ class HampelFilter:
                       Higher values = less aggressive filtering
         """
         self.window_size = window_size
-        self.threshold = threshold
+        # Pre-calculate threshold * 1.4826 to avoid runtime multiplication
+        self.scaled_threshold = threshold * 1.4826
         
         # Pre-allocated buffers (no allocation during filter())
         self.buffer = [0.0] * window_size
         self.sorted_buffer = [0.0] * window_size
-        self.deviations = [0.0] * window_size
         
         # Circular buffer state
         self.count = 0
@@ -95,29 +95,31 @@ class HampelFilter:
             return value
         
         n = self.count
+        mid = n >> 1  # n // 2 using bit shift
         
-        # Copy to sorted buffer (no allocation)
+        # Copy to sorted buffer and calculate deviations in single pass
+        # First pass: copy and sort for median
         for i in range(n):
             self.sorted_buffer[i] = self.buffer[i]
         
-        # Insertion sort (faster than Timsort for small N)
         self._insertion_sort(self.sorted_buffer, n)
+        median = self.sorted_buffer[mid]
         
-        median = self.sorted_buffer[n // 2]
-        
-        # Calculate deviations (reuse buffer)
+        # Second pass: calculate deviations and sort for MAD
+        # Reuse sorted_buffer for deviations (saves one buffer)
         for i in range(n):
-            self.deviations[i] = abs(self.buffer[i] - median)
+            diff = self.buffer[i] - median
+            self.sorted_buffer[i] = diff if diff >= 0 else -diff  # inline abs
         
-        self._insertion_sort(self.deviations, n)
-        
-        mad = self.deviations[n // 2]
+        self._insertion_sort(self.sorted_buffer, n)
+        mad = self.sorted_buffer[mid]
         
         # Check if current value is an outlier
-        # Using 1.4826 as scaling factor (converts MAD to std deviation equivalent)
+        # scaled_threshold = threshold * 1.4826 (pre-calculated)
         if mad > 1e-6:  # Avoid division by zero
-            deviation = abs(value - median) / (1.4826 * mad)
-            if deviation > self.threshold:
+            diff = value - median
+            deviation = (diff if diff >= 0 else -diff) / mad  # inline abs
+            if deviation > self.scaled_threshold:
                 # Value is an outlier - replace with median
                 return median
         

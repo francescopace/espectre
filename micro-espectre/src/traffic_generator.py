@@ -11,14 +11,13 @@ import socket
 import time
 import _thread
 import network
-import gc
 
 # Note: No thread lock needed for simple integer operations on MicroPython/ESP32
 # Integer reads/writes are atomic on 32-bit systems
 
 TRAFFIC_RATE_MIN = 0          # Minimum rate (0=disabled)
 TRAFFIC_RATE_MAX = 1000       # Maximum rate (packets per second)
-GC_INTERVAL = 100             # Garbage collection interval (packets)
+METRICS_INTERVAL = 500        # Metrics update interval (packets, ~5s at 100pps)
 
 class TrafficGenerator:
     """WiFi traffic generator using DNS queries"""
@@ -54,8 +53,6 @@ class TrafficGenerator:
     def _dns_task(self): 
         """Background task that sends DNS queries (runs with increased stack)"""
         
-        interval_ms = 1000 // self.rate_pps if self.rate_pps > 0 else 1000
-        
         # Use DNS queries to generate bidirectional traffic
         # DNS always generates a reply, which triggers CSI
         try:
@@ -69,9 +66,6 @@ class TrafficGenerator:
         
         # Pre-resolve destination address (avoid repeated lookups)
         dest_addr = (self.gateway_ip, 53)
-        
-        # Periodic garbage collection counter
-        gc_counter = 0
         
         # Minimal DNS query for root domain (smallest possible valid query)
         # 17 bytes instead of 29 for google.com
@@ -88,21 +82,25 @@ class TrafficGenerator:
         ])
         
         # Track loop time and pps for diagnostics (updated periodically)
-        loop_time_sum = 0
-        window_start_time = time.ticks_ms()
+        loop_time_sum_us = 0
+        window_start_time = time.ticks_us()
         window_packet_count = 0
         
-        # Adaptive interval compensation (starts at 0, adjusted based on actual pps)
-        interval_compensation_ms = 0
+        # Microsecond timing with fractional accumulator (aligned with C++ implementation)
+        # This compensates for integer division error (e.g., 1000000/100 = 10000µs exact)
+        interval_us = 1000000 // self.rate_pps
+        remainder_us = 1000000 % self.rate_pps
+        accumulator = 0
+        
+        next_send_time = time.ticks_us()
         
         while self.running:
             try:
-                loop_start = time.ticks_ms()
+                loop_start = time.ticks_us()
                 
                 # Send DNS query to gateway (port 53)
                 # Gateway will forward and reply, generating incoming traffic → CSI
                 try:
-                    # Send DNS query to gateway
                     self.sock.sendto(dns_query, dest_addr)
                     self.packet_count += 1
                     window_packet_count += 1
@@ -113,48 +111,48 @@ class TrafficGenerator:
                     if self.error_count % 100 == 1:
                         print(f"Socket error: {e}")
                 
-                # Calculate how long the loop took and sleep for the remainder
-                loop_time = time.ticks_diff(time.ticks_ms(), loop_start)
-                effective_interval = interval_ms - interval_compensation_ms
-                sleep_time = effective_interval - loop_time
+                # Calculate next send time with fractional accumulator for precise rate
+                accumulator += remainder_us
+                extra_us = accumulator // self.rate_pps
+                accumulator %= self.rate_pps
+                
+                next_send_time += interval_us + extra_us
                 
                 # Track loop time for averaging
-                loop_time_sum += loop_time
+                loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                loop_time_sum_us += loop_time_us
                 
-                # Periodic garbage collection and metrics update
-                gc_counter += 1
-                if gc_counter >= GC_INTERVAL:
-                    gc.collect()
-                    gc_counter = 0
-                    
+                # Periodic metrics update (no GC needed - no allocations in loop)
+                if window_packet_count >= METRICS_INTERVAL:
                     # Update average loop time (no lock needed - single writer)
-                    self.avg_loop_time_ms = loop_time_sum / GC_INTERVAL
-                    loop_time_sum = 0
+                    self.avg_loop_time_ms = (loop_time_sum_us / METRICS_INTERVAL) / 1000
+                    loop_time_sum_us = 0
                     
                     # Update actual pps (moving window)
-                    window_elapsed = time.ticks_diff(time.ticks_ms(), window_start_time)
+                    window_elapsed = time.ticks_diff(time.ticks_us(), window_start_time)
                     if window_elapsed > 0:
-                        self.actual_pps = (window_packet_count * 1000) / window_elapsed
-                        
-                        # Adaptive compensation: adjust interval to reach target pps
-                        if self.actual_pps > 0 and self.actual_pps < self.rate_pps:
-                            # Too slow - reduce interval
-                            # For 100 pps with 91 actual: need ~10% faster = 1ms reduction
-                            pps_ratio = self.actual_pps / self.rate_pps  # 0.91
-                            compensation_needed = interval_ms * (1 - pps_ratio)  # 10 * 0.09 = 0.9
-                            interval_compensation_ms = min(3, max(1, int(compensation_needed + 0.5)))
-                        elif self.actual_pps > self.rate_pps * 1.02:
-                            # Too fast - reduce compensation
-                            interval_compensation_ms = max(0, interval_compensation_ms - 1)
+                        self.actual_pps = (window_packet_count * 1000000) / window_elapsed
                     
-                    window_start_time = time.ticks_ms()
+                    window_start_time = time.ticks_us()
                     window_packet_count = 0
                 
-                # Sleep for the target interval (minimum 1ms to yield to other threads)
-                if sleep_time > 1:
-                    time.sleep_ms(sleep_time)
+                # Sleep until next send time
+                now = time.ticks_us()
+                sleep_us = time.ticks_diff(next_send_time, now)
+                
+                if sleep_us > 100:
+                    # Convert to ms for sleep (minimum 1ms to yield to other threads)
+                    sleep_ms = sleep_us // 1000
+                    if sleep_ms > 0:
+                        time.sleep_ms(sleep_ms)
+                    else:
+                        time.sleep_us(sleep_us)
+                elif sleep_us < -100000:
+                    # We're more than 100ms behind, reset timing
+                    next_send_time = time.ticks_us()
                 else:
-                    time.sleep_ms(1)
+                    # Small sleep to yield
+                    time.sleep_us(100)
                 
             except Exception as e:
                 self.error_count += 1
@@ -163,7 +161,7 @@ class TrafficGenerator:
                 if self.error_count % 10 == 1:
                     print(f"Traffic generator error: {e}")
                 
-                time.sleep_ms(interval_ms)
+                time.sleep_ms(interval_us // 1000)
         
         # Cleanup
         if self.sock:

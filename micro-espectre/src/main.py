@@ -182,7 +182,6 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen):
                 print(f"Collecting {calibration_progress}/{config.NBVI_BUFFER_SIZE} packets... (pps:{pps}, TG:{tg_pps}, drop:{dropped})")
                 last_progress_time = current_time
                 last_progress_count = calibration_progress
-                gc.collect()  # Garbage collect during progress
         else:
             time.sleep_us(100)
             timeout_counter += 1
@@ -387,9 +386,6 @@ def main():
                     )
                     publish_counter = 0
                     last_publish_time = current_time
-                
-                    # Periodic garbage collection (every 100 packets)
-                    gc.collect()
 
                 # Update loop time metric
                 g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
