@@ -19,7 +19,7 @@
 #include "csi_manager.h"
 #include "csi_processor.h"
 #include "utils.h"
-#include "esp_log.h"
+#include "esphome/core/log.h"
 
 #if defined(ESP_PLATFORM)
 #include "esp_spiffs.h"

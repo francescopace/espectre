@@ -14,7 +14,7 @@
 #include <cstring>
 #include <cmath>
 #include <vector>
-#include "esp_log.h"
+#include "esphome/core/log.h"
 
 #if defined(ESP_PLATFORM)
 #include "esp_spiffs.h"

@@ -11,7 +11,7 @@
 #include "calibration_manager.h"
 #include "csi_manager.h"
 #include "utils.h"
-#include "esp_log.h"
+#include "esphome/core/log.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>

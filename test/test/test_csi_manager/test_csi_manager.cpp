@@ -15,7 +15,7 @@
 #include "csi_processor.h"
 #include "calibration_manager.h"
 #include "wifi_csi_interface.h"
-#include "esp_log.h"
+#include "esphome/core/log.h"
 #include "esp_wifi.h"
 
 // Include real CSI data

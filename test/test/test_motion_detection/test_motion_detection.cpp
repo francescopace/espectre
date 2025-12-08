@@ -22,7 +22,7 @@
 
 // Include headers from lib/espectre
 #include "csi_processor.h"
-#include "esp_log.h"
+#include "esphome/core/log.h"
 #include "esp_system.h"
 
 using namespace esphome::espectre;

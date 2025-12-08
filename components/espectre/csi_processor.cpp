@@ -14,7 +14,7 @@
 #include <cstring>
 #include <cmath>
 #include <new>  // For std::nothrow
-#include "esp_log.h"
+#include "esphome/core/log.h"
 
 namespace esphome {
 namespace espectre {

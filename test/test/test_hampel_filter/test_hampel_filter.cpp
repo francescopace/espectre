@@ -11,7 +11,7 @@
 #include <cmath>
 #include "csi_processor.h"
 #include "utils.h"
-#include "esp_log.h"
+#include "esphome/core/log.h"
 
 using namespace esphome::espectre;
 
