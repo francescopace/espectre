@@ -52,16 +52,24 @@ Download the example configuration for your hardware:
 These files are pre-configured to download the component automatically from GitHub.
 
 > ⚠️ **Experimental platforms**: ESP32, ESP32-S2, ESP32-C3, and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
+>
+> ⚠️ **ESP32-C5 note**: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
 
-### 3. Edit WiFi credentials
-
-Open the downloaded file and replace `YOUR_WIFI_SSID` and `YOUR_WIFI_PASSWORD` with your WiFi credentials.
-
-### 4. Build and flash
+### 3. Build and flash
 
 ```bash
 esphome run espectre-c6.yaml  # or espectre-s3.yaml
 ```
+
+### 4. Configure WiFi
+
+After flashing, configure WiFi using one of these methods:
+
+| Method | How |
+|--------|-----|
+| **BLE** (easiest) | Use ESPHome app or Home Assistant Companion app |
+| **USB** | Go to [web.esphome.io](https://web.esphome.io) → Connect → Configure WiFi |
+| **Captive Portal** | Connect to "ESPectre Fallback" WiFi → Configure in browser |
 
 That's it! 🎉 The device will be automatically discovered by Home Assistant.
 
@@ -118,9 +126,9 @@ esphome run examples/espectre-s3-dev.yaml
 
 | File | Component Source | WiFi | Logger | Debug Sensors |
 |------|-----------------|------|--------|---------------|
-| `espectre-c6.yaml` | GitHub | Placeholder | INFO | ❌ |
+| `espectre-c6.yaml` | GitHub | Provisioning (BLE/USB/AP) | INFO | ❌ |
 | `espectre-c6-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
-| `espectre-s3.yaml` | GitHub | Placeholder | INFO | ❌ |
+| `espectre-s3.yaml` | GitHub | Provisioning (BLE/USB/AP) | INFO | ❌ |
 | `espectre-s3-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
 
 ---
@@ -140,11 +148,10 @@ cd /home/user/esphome/config
 # Download the configuration file
 curl -O https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml
 
-# Edit WiFi credentials in the file
-vi espectre-c6.yaml  # Replace YOUR_WIFI_SSID and YOUR_WIFI_PASSWORD
-
 # Run ESPHome
 docker compose exec esphome esphome run espectre-c6.yaml
+
+# After flashing, configure WiFi via BLE, USB, or Captive Portal
 ```
 
 No need to copy any files manually - the component is downloaded automatically from GitHub!

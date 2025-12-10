@@ -8,7 +8,7 @@
  * License: GPLv3
  */
 
-#include "espectre_component.h"
+#include "espectre.h"
 #include "threshold_number.h"
 #include "utils.h"
 #include "esphome/core/log.h"

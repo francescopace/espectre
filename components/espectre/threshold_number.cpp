@@ -6,7 +6,7 @@
  */
 
 #include "threshold_number.h"
-#include "espectre_component.h"
+#include "espectre.h"
 #include "esphome/core/log.h"
 
 namespace esphome {

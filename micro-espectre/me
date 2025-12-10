@@ -291,7 +291,7 @@ def flash_firmware(args):
         # Erase flash if requested
         if args.erase:
             print(f"{Fore.YELLOW}1️⃣  Erasing flash...{Style.RESET_ALL}")
-            erase_args = base_args + ['erase_flash']
+            erase_args = base_args + ['erase-flash']
             esptool.main(erase_args)
             print(f"{Fore.GREEN}✅ Flash erased{Style.RESET_ALL}\n")
             

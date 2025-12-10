@@ -4,7 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.0.1] - in progress
+## [2.1.0] - 2025-12-10
+
+### 🏷️ Made for ESPHome Compliance
+
+**All example configurations now meet "Made for ESPHome" requirements**
+
+#### WiFi Provisioning
+- **BLE provisioning**: `esp32_improv` for easy setup via ESPHome/HA Companion app
+- **USB provisioning**: `improv_serial` for web.esphome.io configuration (not yet supported on ESP32-C5)
+- **Captive Portal**: Fallback AP "ESPectre Fallback" for WiFi configuration
+- **No hardcoded credentials**: Removed `YOUR_WIFI_SSID` placeholders
+
+#### Dashboard Adoption
+- **`dashboard_import`**: One-click adoption from ESPHome Dashboard
+- **`project` metadata**: Version tracking for firmware updates
+
+#### Code Cleanup
+- Renamed `espectre_component.cpp/.h` → `espectre.cpp/.h`
+- Component ID standardized to `espectre_csi`
+- Updated `me` CLI: `erase_flash` → `erase-flash` (esptool deprecation fix)
 
 ### ⚡ Performance Optimization
 
@@ -45,7 +64,7 @@ This release focuses on code uniformity between MicroPython and C++ implementati
 - **140 test cases** (+72 from 2.0.0) with real CSI data
 - **Full device testing**: All tests run on both native and ESP32-C6 via `IWiFiCSI` dependency injection
 - **Codecov integration**: Coverage badge, PR comments, 80% threshold
-- **82% line coverage**, 98% function coverage
+- **84% line coverage**, 94% function coverage
 - **Refactoring**: Shared utilities in `utils.h`, configurable `CalibrationManager`
 
 ---

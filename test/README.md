@@ -66,10 +66,12 @@ Run tests with coverage instrumentation:
 | File | Lines | Functions | Branches |
 |------|-------|-----------|----------|
 | `csi_manager.cpp` | **100%** | 100% | 94% |
-| `utils.h` | 96% | 100% | 69% |
+| `csi_manager.h` | **100%** | 100% | - |
+| `calibration_manager.h` | **100%** | 100% | - |
+| `utils.h` | 92% | 100% | 69% |
 | `csi_processor.cpp` | 91% | 100% | 84% |
-| `calibration_manager.cpp` | 86% | 100% | 63% |
-| **Total** | **90%** | **96%** | **63%** |
+| `calibration_manager.cpp` | 75% | 100% | 63% |
+| **Total** | **84%** | **95%** | **74%** |
 
 > **Note**: Coverage measured on Codecov (CI). Tests use real CSI data from ESP32-C6 captures.
 

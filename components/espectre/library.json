@@ -15,7 +15,7 @@
   "build": {
     "srcFilter": [
       "+<*.cpp>",
-      "-<espectre_component.cpp>",
+      "-<espectre.cpp>",
       "-<config_manager.cpp>",
       "-<sensor_publisher.cpp>",
       "-<threshold_number.cpp>",

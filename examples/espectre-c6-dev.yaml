@@ -12,23 +12,20 @@
 
 esphome:
   name: espectre
+  friendly_name: ESPectre Dev
 
 esp32:
   variant: ESP32C6
   framework:
     type: esp-idf
     version: 5.5.1
-    sdkconfig_options: 
+    sdkconfig_options:
       # Power Management (critical for CSI reliability)
       CONFIG_PM_ENABLE: n                             # Disable all power management
       CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE: n   # No power save when disconnected
       # CSI Feature
       CONFIG_ESP_WIFI_CSI_ENABLED: y                  # Enable CSI extraction from WiFi packets
       CONFIG_ESP_WIFI_11AX_SUPPORT: y                 # Enable WiFi 6 (802.11ax)
-
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
 
 # Local component for development
 external_components:
@@ -40,21 +37,34 @@ external_components:
 # ESPectre - WiFi CSI Motion Detection
 # All parameters shown with defaults
 espectre:
+  id: espectre_csi
   # Motion detection
   traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
   segmentation_threshold: 1.0   # Motion sensitivity: lower=more sensitive (0.5-10.0)
-  segmentation_window_size: 50  # Analysis window size in packets (10-200)  
+  segmentation_window_size: 50  # Analysis window size in packets (10-200)
   # Hampel filter (anti-turbulence)
   hampel_enabled: true          # Enable outlier removal filter
   hampel_window: 7              # Filter window size (3-11, odd numbers)
-  hampel_threshold: 4.0         # Outlier detection threshold (1.0-10.0)  
+  hampel_threshold: 4.0         # Outlier detection threshold (1.0-10.0)
   # Subcarrier selection (optional - leave commented for auto-calibration at boot)
   # selected_subcarriers: [6, 7, 8, 20, 21, 22, 35, 36, 50, 51, 52, 53]
 
-# Enable API for Home Assistant
+# WiFi (using secrets for development)
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Logging (DEBUG level for development)
+logger:
+  level: DEBUG
+  logs:
+    sensor: INFO
+    binary_sensor: INFO
+
+# Home Assistant API
 api:
 
-# Enable OTA updates via ESPHome
+# OTA updates
 ota:
   - platform: esphome
 
@@ -77,9 +87,3 @@ text_sensor:
       name: "Device Info"
     reset_reason:
       name: "Reset Reason"
-
-logger:
-  level: DEBUG
-  logs:
-    sensor: INFO
-    binary_sensor: INFO

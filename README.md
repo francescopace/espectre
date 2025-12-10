@@ -255,7 +255,7 @@ NBVI automatically selects the optimal 12 subcarriers from the 64 available in W
 <summary>Click to expand FAQ</summary>
 
 **Q: Do I need programming knowledge to use it?**  
-A: No! ESPectre uses YAML configuration files. Just copy the example, modify WiFi credentials, and flash.
+A: No! ESPectre uses YAML configuration files. Just download the example, flash it, and configure WiFi via the ESPHome app or web interface.
 
 **Q: Does it work with my router?**  
 A: Yes, if your router has 2.4GHz Wi-Fi (virtually all modern routers have it).
@@ -427,7 +427,7 @@ ESPectre supports multiple ESP32 platforms with **dedicated configuration files*
 |----------|-------------|-----|------|-------|--------|
 | **ESP32-C6** | `examples/espectre-c6.yaml` | Single-core RISC-V @ 160MHz | WiFi 6 (802.11ax) | ❌ | ✅ Tested |
 | **ESP32-S3** | `examples/espectre-s3.yaml` | Dual-core Xtensa @ 240MHz | WiFi 4 (802.11n) | ✅ 8MB | ✅ Tested |
-| **ESP32-C5** | `examples/espectre-c5.yaml` | Single-core RISC-V @ 240MHz | WiFi 6 (802.11ax) | ❌ | ⚠️ Experimental |
+| **ESP32-C5** | `examples/espectre-c5.yaml` | Single-core RISC-V @ 240MHz | WiFi 6 (802.11ax) | ❌ | ⚠️ Experimental ¹ |
 | **ESP32-C3** | `examples/espectre-c3.yaml` | Single-core RISC-V @ 160MHz | WiFi 4 (802.11n) | ❌ | ⚠️ Experimental |
 | **ESP32-S2** | `examples/espectre-s2.yaml` | Single-core Xtensa @ 240MHz | WiFi 4 (802.11n) | Optional | ⚠️ Experimental |
 | **ESP32** | `examples/espectre-esp32.yaml` | Dual-core Xtensa @ 240MHz | WiFi 4 (802.11n) | Optional | ⚠️ Experimental |
@@ -435,11 +435,13 @@ ESPectre supports multiple ESP32 platforms with **dedicated configuration files*
 **Recommendations**:
 - **ESP32-C6**: Best for WiFi 6 environments, standard motion detection
 - **ESP32-S3**: Best for advanced applications, future ML features (more memory)
-- **ESP32-C5**: Similar to C6 with WiFi 6 support, newer chip
+- **ESP32-C5**: Similar to C6 with WiFi 6 support, newer chip (USB provisioning not yet supported)
 - **ESP32-C3**: Budget-friendly option, compact form factor
 - **ESP32-S2/ESP32**: Use if you already have one, but S3/C6 recommended for new purchases
 
 > ⚠️ **Experimental platforms**: ESP32, ESP32-S2, ESP32-C3, and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
+>
+> ¹ ESP32-C5: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
 
 See [SETUP.md](SETUP.md) for platform-specific configurations and PSRAM settings.
 

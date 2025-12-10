@@ -1,8 +1,12 @@
 # ESPectre - ESP32-S2 Configuration
 # WiFi CSI-based motion detection with Home Assistant integration
 #
+# Made for ESPHome - https://github.com/francescopace/espectre
+#
 # ⚠️ EXPERIMENTAL: This platform has NOT been tested yet.
 # Please report your results on GitHub Discussions!
+#
+# ⚠️ NOTE: ESP32-S2 does NOT have Bluetooth, so only USB and WiFi provisioning are available.
 #
 # Compatible boards:
 # - ESP32-S2-DevKitM
@@ -10,13 +14,17 @@
 # - LOLIN S2 Mini
 # - Any ESP32-S2 board
 #
-# Quick Start:
-# 1. Copy this file to your ESPHome config directory
-# 2. Edit wifi ssid and password below
-# 3. Run: esphome run espectre-s2.yaml
+# Provisioning:
+# - Via USB: Use ESPHome web tools (https://web.esphome.io)
+# - Via WiFi: Connect to "ESPectre Fallback" AP and configure
 
 esphome:
   name: espectre
+  friendly_name: ESPectre
+  name_add_mac_suffix: true
+  project:
+    name: francescopace.espectre
+    version: "1.0.0"
 
 esp32:
   variant: ESP32S2
@@ -30,10 +38,6 @@ esp32:
       # CSI Feature
       CONFIG_ESP_WIFI_CSI_ENABLED: y                  # Enable CSI extraction from WiFi packets
 
-wifi:
-  ssid: "YOUR_WIFI_SSID"
-  password: "YOUR_WIFI_PASSWORD"
-
 # Load ESPectre component from GitHub
 external_components:
   - source:
@@ -45,14 +49,31 @@ external_components:
 
 # ESPectre - WiFi CSI Motion Detection
 espectre:
+  id: espectre_csi
 
-# Enable logging
+# Dashboard import for easy adoption
+dashboard_import:
+  package_import_url: github://francescopace/espectre/examples/espectre-s2.yaml@main
+  import_full_config: true
+
+# WiFi with fallback AP for provisioning
+wifi:
+  ap:
+    ssid: "ESPectre Fallback"
+
+captive_portal:
+
+# NOTE: ESP32-S2 does NOT have Bluetooth - no esp32_improv available
+
+# Improv provisioning via USB
+improv_serial:
+
+# Logging
 logger:
 
-# Enable API for Home Assistant
+# Home Assistant API
 api:
 
-# Enable OTA updates via ESPHome
+# OTA updates
 ota:
   - platform: esphome
-

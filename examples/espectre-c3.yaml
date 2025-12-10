@@ -1,6 +1,8 @@
 # ESPectre - ESP32-C3 Configuration
 # WiFi CSI-based motion detection with Home Assistant integration
 #
+# Made for ESPHome - https://github.com/francescopace/espectre
+#
 # ⚠️ EXPERIMENTAL: This platform has NOT been tested yet.
 # Please report your results on GitHub Discussions!
 #
@@ -11,13 +13,18 @@
 # - Seeed XIAO ESP32C3
 # - Any ESP32-C3 board
 #
-# Quick Start:
-# 1. Copy this file to your ESPHome config directory
-# 2. Edit wifi ssid and password below
-# 3. Run: esphome run espectre-c3.yaml
+# Provisioning:
+# - Via BLE: Use the ESPHome app or Home Assistant companion app
+# - Via USB: Use ESPHome web tools (https://web.esphome.io)
+# - Via WiFi: Connect to "ESPectre Fallback" AP and configure
 
 esphome:
   name: espectre
+  friendly_name: ESPectre
+  name_add_mac_suffix: true
+  project:
+    name: francescopace.espectre
+    version: "1.0.0"
 
 esp32:
   variant: ESP32C3
@@ -31,10 +38,6 @@ esp32:
       # CSI Feature
       CONFIG_ESP_WIFI_CSI_ENABLED: y                  # Enable CSI extraction from WiFi packets
 
-wifi:
-  ssid: "YOUR_WIFI_SSID"
-  password: "YOUR_WIFI_PASSWORD"
-
 # Load ESPectre component from GitHub
 external_components:
   - source:
@@ -46,14 +49,33 @@ external_components:
 
 # ESPectre - WiFi CSI Motion Detection
 espectre:
+  id: espectre_csi
 
-# Enable logging
+# Dashboard import for easy adoption
+dashboard_import:
+  package_import_url: github://francescopace/espectre/examples/espectre-c3.yaml@main
+  import_full_config: true
+
+# WiFi with fallback AP for provisioning
+wifi:
+  ap:
+    ssid: "ESPectre Fallback"
+
+captive_portal:
+
+# Improv provisioning via BLE
+esp32_improv:
+  authorizer: none
+
+# Improv provisioning via USB
+improv_serial:
+
+# Logging
 logger:
 
-# Enable API for Home Assistant
+# Home Assistant API
 api:
 
-# Enable OTA updates via ESPHome
+# OTA updates
 ota:
   - platform: esphome
-
