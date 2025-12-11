@@ -263,10 +263,14 @@ def main():
         scale=csi_scale # Chip-specific scale for comparable MVS values
     )
     
-    # Initialize segmentation
+    # Initialize segmentation with full configuration
     seg = SegmentationContext(
         window_size=config.SEG_WINDOW_SIZE,
-        threshold=config.SEG_THRESHOLD
+        threshold=config.SEG_THRESHOLD,
+        enable_hampel=config.ENABLE_HAMPEL_FILTER,
+        hampel_window=config.HAMPEL_WINDOW,
+        hampel_threshold=config.HAMPEL_THRESHOLD,
+        enable_features=config.ENABLE_FEATURES
     )
     
     # Load saved configuration (segmentation parameters only)

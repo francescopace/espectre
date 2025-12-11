@@ -8,26 +8,11 @@ This section presents the advanced analysis tools developed to optimize the ESPe
 
 ## 📋 Table of Contents
 
-- [Data Collection](#data-collection)
 - [Analysis Scripts](#analysis-scripts)
 - [NBVI Algorithm](#nbvi-automatic-subcarrier-selection)
 - [Usage Examples](#usage-examples)
 
-## 📂 Data Collection
-
-Before running analysis tools, collect CSI data samples:
-
-```bash
-# From micro-espectre root directory
-
-# Collect baseline data (no movement)
-../me run --collect-baseline
-
-# Collect movement data (with movement)
-../me run --collect-movement
-```
-
-This creates `baseline_data.bin` and `movement_data.bin` in the `tools/data/` directory.
+> 📊 **Data Collection**: For CSI streaming, data collection, and ML dataset creation, see [ML_DATA_COLLECTION.md](../ML_DATA_COLLECTION.md).
 
 ## 🔧 Analysis Scripts
 
@@ -754,9 +739,8 @@ For the complete list of scientific references and academic papers that informed
 
 ## 📚 Additional Resources
 
-- [ESPectre (ESPHome)](https://github.com/francescopace/espectre) - Main project with native Home Assistant integration
 - [Micro-ESPectre](../README.md) - Python implementation for MicroPython
-- [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) - MicroPython CSI module
+- [ESPectre ](../../README.md) - Main project with native Home Assistant integration
 
 ## 📄 License
 

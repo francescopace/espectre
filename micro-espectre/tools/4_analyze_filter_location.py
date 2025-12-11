@@ -17,7 +17,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 from scipy import signal
-from mvs_utils import load_baseline_and_movement
+from csi_utils import load_baseline_and_movement, HampelFilter
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
 # ============================================================================
@@ -26,37 +26,6 @@ from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
 HAMPEL_WINDOW = 5
 HAMPEL_THRESHOLD = 3.0
-
-# ============================================================================
-# FILTERS
-# ============================================================================
-
-class HampelFilter:
-    """Hampel filter for outlier detection"""
-    
-    def __init__(self, window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD):
-        self.window_size = window_size
-        self.threshold = threshold
-        self.buffer = []
-    
-    def filter(self, value):
-        self.buffer.append(value)
-        if len(self.buffer) > self.window_size:
-            self.buffer.pop(0)
-        if len(self.buffer) < 3:
-            return value
-        
-        median = np.median(self.buffer)
-        mad = np.median(np.abs(np.array(self.buffer) - median))
-        
-        if mad > 1e-6:
-            deviation = abs(value - median) / (1.4826 * mad)
-            if deviation > self.threshold:
-                return median
-        return value
-    
-    def reset(self):
-        self.buffer = []
 
 # ============================================================================
 # TURBULENCE CALCULATION

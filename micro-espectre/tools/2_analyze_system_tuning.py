@@ -13,7 +13,7 @@ License: GPLv3
 
 import numpy as np
 import argparse
-from mvs_utils import load_baseline_and_movement, test_mvs_configuration, MVSDetector, calculate_spatial_turbulence
+from csi_utils import load_baseline_and_movement, test_mvs_configuration, MVSDetector, calculate_spatial_turbulence
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 from itertools import combinations
 

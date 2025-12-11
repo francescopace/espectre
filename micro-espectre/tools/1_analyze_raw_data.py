@@ -11,13 +11,13 @@ License: GPLv3
 """
 
 import numpy as np
-from mvs_utils import calculate_spatial_turbulence, load_baseline_and_movement, MAGIC_NUMBER, BASELINE_FILE, MOVEMENT_FILE
+from csi_utils import calculate_spatial_turbulence, load_baseline_and_movement
 from config import SELECTED_SUBCARRIERS
 
-def analyze_packets(packets, filename):
+def analyze_packets(packets, label_name):
     """Analyze a list of packets and return statistics"""
     print(f"\n{'='*70}")
-    print(f"  Analyzing: {filename}")
+    print(f"  Analyzing: {label_name}")
     print(f"{'='*70}")
     
     if not packets:
@@ -25,31 +25,30 @@ def analyze_packets(packets, filename):
         return None
     
     # Extract label from first packet
-    label = packets[0]['label']
-    label_byte = 0 if label == 'BASELINE' else 1
+    label = packets[0].get('label', 'unknown')
     
-    print(f"\nHeader Information:")
-    print(f"  Magic Number: 0x{MAGIC_NUMBER:08X} ✅")
-    print(f"  Label Byte: {label_byte} ({label})")
+    print(f"\nDataset Information:")
+    print(f"  Label: {label}")
+    print(f"  Format: NPZ (compressed)")
     
     # Calculate turbulence for each packet
     turbulences = []
-    snrs = []
+    rssi_values = []
     
     for pkt in packets:
         turb = calculate_spatial_turbulence(pkt['csi_data'], SELECTED_SUBCARRIERS)
         turbulences.append(turb)
-        snrs.append(pkt['snr'])
+        rssi_values.append(pkt.get('rssi', 0))
         
     print(f"\nPacket Statistics:")
     print(f"  Total Packets: {len(packets)}")
         
     if len(turbulences) > 0:
-        print(f"\nSNR Statistics:")
-        print(f"  Mean: {np.mean(snrs):.2f} dB")
-        print(f"  Std:  {np.std(snrs):.2f} dB")
-        print(f"  Min:  {np.min(snrs):.2f} dB")
-        print(f"  Max:  {np.max(snrs):.2f} dB")
+        print(f"\nRSSI Statistics:")
+        print(f"  Mean: {np.mean(rssi_values):.2f} dBm")
+        print(f"  Std:  {np.std(rssi_values):.2f} dBm")
+        print(f"  Min:  {np.min(rssi_values):.2f} dBm")
+        print(f"  Max:  {np.max(rssi_values):.2f} dBm")
         
         print(f"\nTurbulence Statistics:")
         print(f"  Mean: {np.mean(turbulences):.2f}")
@@ -63,11 +62,10 @@ def analyze_packets(packets, filename):
         print(f"  (This is what MVS uses to detect motion)")
     
     return {
-        'label_byte': label_byte,
         'label_name': label,
         'packet_count': len(packets),
         'turbulences': turbulences,
-        'snrs': snrs,
+        'rssi_values': rssi_values,
         'turb_mean': np.mean(turbulences) if turbulences else 0,
         'turb_std': np.std(turbulences) if turbulences else 0,
         'turb_variance': np.var(turbulences) if turbulences else 0
@@ -78,7 +76,7 @@ def main():
     print("║       Data File Verification Tool                    ║")
     print("╚═══════════════════════════════════════════════════════╝")
     
-    # Load data using mvs_utils
+    # Load data
     try:
         baseline_packets, movement_packets = load_baseline_and_movement()
     except FileNotFoundError as e:
@@ -86,47 +84,41 @@ def main():
         return
     
     # Analyze both datasets
-    baseline_stats = analyze_packets(baseline_packets, BASELINE_FILE)
-    movement_stats = analyze_packets(movement_packets, MOVEMENT_FILE)
+    baseline_stats = analyze_packets(baseline_packets, "baseline")
+    movement_stats = analyze_packets(movement_packets, "movement")
     
     if baseline_stats is None or movement_stats is None:
         return
     
-    # Compare and detect issues
+    # Summary comparison
     print(f"\n{'='*70}")
-    print("  COMPARISON & DIAGNOSIS")
+    print("  SUMMARY COMPARISON")
     print(f"{'='*70}")
     
-    print(f"\nFile Labels (from header):")
-    print(f"  {BASELINE_FILE}: {baseline_stats['label_name']}")
-    print(f"  {MOVEMENT_FILE}: {movement_stats['label_name']}")
+    print(f"\nLabels:")
+    print(f"  baseline: {baseline_stats['label_name']}")
+    print(f"  movement: {movement_stats['label_name']}")
     
-    print(f"\nTurbulence Variance Comparison:")
-    print(f"  {BASELINE_FILE}: {baseline_stats['turb_variance']:.2f}")
-    print(f"  {MOVEMENT_FILE}: {movement_stats['turb_variance']:.2f}")
+    print(f"\nTurbulence Variance:")
+    print(f"  baseline: {baseline_stats['turb_variance']:.2f}")
+    print(f"  movement: {movement_stats['turb_variance']:.2f}")
     
-    # Diagnosis
-    print(f"\n{'='*70}")
-    print("  DIAGNOSIS")
-    print(f"{'='*70}\n")
+    # Check if labels match expected
+    baseline_has_baseline_label = baseline_stats['label_name'].lower() == 'baseline'
+    movement_has_movement_label = movement_stats['label_name'].lower() == 'movement'
     
-    # Check if labels match expectations
-    baseline_has_baseline_label = baseline_stats['label_byte'] == 0
-    movement_has_movement_label = movement_stats['label_byte'] == 1
+    print(f"\nLabel Consistency Check:")
+    if baseline_has_baseline_label and movement_has_movement_label:
+        print("  ✅ Labels are correctly assigned")
+    else:
+        print("  ❌ Label mismatch detected!")
+        print(f"     baseline has label: {baseline_stats['label_name']}")
+        print(f"     movement has label: {movement_stats['label_name']}")
     
-    # Check if turbulence variance matches expectations
-    # Baseline should have LOWER variance than movement
+    # Check variance relationship
     baseline_has_lower_variance = baseline_stats['turb_variance'] < movement_stats['turb_variance']
     
-    if baseline_has_baseline_label and movement_has_movement_label:
-        print("✅ File labels are correct (baseline=0, movement=1)")
-    else:
-        print("⚠️  File labels don't match filenames!")
-        print(f"   {BASELINE_FILE} has label: {baseline_stats['label_name']}")
-        print(f"   {MOVEMENT_FILE} has label: {movement_stats['label_name']}")
-    
-    print()
-    
+    print(f"\nVariance Relationship Check:")
     if baseline_has_lower_variance:
         print("✅ Turbulence variance is as expected:")
         print(f"   Baseline ({baseline_stats['turb_variance']:.2f}) < Movement ({movement_stats['turb_variance']:.2f})")

@@ -11,7 +11,6 @@
 
 **📰 Featured Article**: Read the complete story behind ESPectre on Medium **[🇮🇹 Italian](https://medium.com/@francesco.pace/come-ho-trasformato-il-mio-wi-fi-in-un-sensore-di-movimento-40053fd83128?source=friends_link&sk=46d9cfa026790ae807ecc291ac5eac67&utm_source=github&utm_medium=readme&utm_campaign=espectre)**, **[🇬🇧 English](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-61a631a9b4ec?sk=c7f79130d78b0545fce4a228a6a79af3&utm_source=github&utm_medium=readme&utm_campaign=espectre)**
 
-**⚠️ Disclaimer**: This is an experimental project for educational and research purposes. The author assumes no responsibility for misuse or damage resulting from the use of this system. Use responsibly and in compliance with applicable laws.
 
 ---
 
@@ -65,7 +64,7 @@ The mathematical approach provides excellent movement detection without the comp
 ### Hardware
 
 - ✅ **2.4GHz Wi-Fi Router** - the one you already have at home works fine
-- ✅ **ESP32 with CSI support** - ESP32-S3 or ESP32-C6 tested. Other variants (ESP32, S2, C3, C5) also supported experimentally.
+- ✅ **ESP32 with CSI support** - ESP32-S3, ESP32-C6 or ESP32-C3 tested. Other variants (ESP32, S2, C5) also supported experimentally.
 
 ![3 x ESP32-S3 DevKit bundle with external antennas](images/home_lab.jpg)
 *ESP32-S3 DevKit with external antennas*
@@ -383,8 +382,8 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ### Hardware Requirements
 
-**Tested:** ESP32-S3 or ESP32-C6  
-**Experimental:** ESP32, ESP32-S2, ESP32-C3, ESP32-C5
+**Tested:** ESP32-S3, ESP32-C6, ESP32-C3  
+**Experimental:** ESP32, ESP32-S2, ESP32-C5
 
 ### Software Requirements
 - **Framework**: ESPHome with ESP-IDF backend
@@ -428,7 +427,7 @@ ESPectre supports multiple ESP32 platforms with **dedicated configuration files*
 | **ESP32-C6** | `examples/espectre-c6.yaml` | Single-core RISC-V @ 160MHz | WiFi 6 (802.11ax) | ❌ | ✅ Tested |
 | **ESP32-S3** | `examples/espectre-s3.yaml` | Dual-core Xtensa @ 240MHz | WiFi 4 (802.11n) | ✅ 8MB | ✅ Tested |
 | **ESP32-C5** | `examples/espectre-c5.yaml` | Single-core RISC-V @ 240MHz | WiFi 6 (802.11ax) | ❌ | ⚠️ Experimental ¹ |
-| **ESP32-C3** | `examples/espectre-c3.yaml` | Single-core RISC-V @ 160MHz | WiFi 4 (802.11n) | ❌ | ⚠️ Experimental |
+| **ESP32-C3** | `examples/espectre-c3.yaml` | Single-core RISC-V @ 160MHz | WiFi 4 (802.11n) | ❌ | ✅ Tested |
 | **ESP32-S2** | `examples/espectre-s2.yaml` | Single-core Xtensa @ 240MHz | WiFi 4 (802.11n) | Optional | ⚠️ Experimental |
 | **ESP32** | `examples/espectre-esp32.yaml` | Dual-core Xtensa @ 240MHz | WiFi 4 (802.11n) | Optional | ⚠️ Experimental |
 
@@ -439,7 +438,7 @@ ESPectre supports multiple ESP32 platforms with **dedicated configuration files*
 - **ESP32-C3**: Budget-friendly option, compact form factor
 - **ESP32-S2/ESP32**: Use if you already have one, but S3/C6 recommended for new purchases
 
-> ⚠️ **Experimental platforms**: ESP32, ESP32-S2, ESP32-C3, and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
+> ⚠️ **Experimental platforms**: ESP32, ESP32-S2, and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
 >
 > ¹ ESP32-C5: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
 
@@ -507,7 +506,7 @@ Micro-ESPectre gives you the fundamentals for:
 - 📍 **Localization and tracking**
 - 👋 **Gesture recognition**
 
-📚 **Jump to section**: [Micro-ESPectre - Advanced Applications & Machine Learning](micro-espectre/README.md#-advanced-applications--machine-learning)
+📚 **Jump to section**: [Micro-ESPectre - Machine Learning & Advanced Applications](micro-espectre/README.md#-machine-learning--advanced-applications)
 
 ---
 
@@ -540,6 +539,8 @@ GPLv3 ensures that:
 - ✅ Protects end-user rights and software freedom
 
 See [LICENSE](LICENSE) for the full license text.
+
+**⚠️ Disclaimer**: This is an experimental project for educational and research purposes. The author assumes no responsibility for misuse or damage resulting from the use of this system. Use responsibly and in compliance with applicable laws.
 
 ---
 

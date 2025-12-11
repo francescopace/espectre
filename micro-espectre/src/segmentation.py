@@ -1,7 +1,7 @@
 """
 Micro-ESPectre - Moving Variance Segmentation (MVS)
 
-Pure Python implementation for MicroPython.
+Pure Python implementation compatible with both MicroPython and standard Python.
 Implements the MVS algorithm for motion detection using CSI turbulence variance.
 Uses two-pass variance calculation for numerical stability (matches C++ implementation).
 
@@ -13,13 +13,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 import math
-from src.config import SEG_WINDOW_SIZE, SEG_THRESHOLD, ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD
-
-# Feature extraction config (optional)
-try:
-    from src.config import ENABLE_FEATURES
-except ImportError:
-    ENABLE_FEATURES = False
 
 
 class SegmentationContext:
@@ -33,19 +26,34 @@ class SegmentationContext:
     Two-pass variance formula: Var(X) = Σ(x - μ)² / n
     
     Features are calculated on-demand at publish time, not per-packet.
+    
+    All configuration is passed as parameters (dependency injection),
+    making this class usable in both MicroPython and standard Python.
     """
     
     # States
     STATE_IDLE = 0
     STATE_MOTION = 1
     
-    def __init__(self, window_size=SEG_WINDOW_SIZE, threshold=SEG_THRESHOLD):
+    def __init__(self, 
+                 window_size=50,
+                 threshold=1.0,
+                 enable_hampel=False,
+                 hampel_window=7,
+                 hampel_threshold=4.0,
+                 enable_features=False,
+                 feature_min_confidence=0.5):
         """
         Initialize segmentation context
         
         Args:
-            window_size: Moving variance window size
-            threshold: Motion detection threshold value
+            window_size: Moving variance window size (default: 50)
+            threshold: Motion detection threshold value (default: 1.0)
+            enable_hampel: Enable Hampel filter for outlier removal (default: False)
+            hampel_window: Hampel filter window size (default: 7)
+            hampel_threshold: Hampel filter threshold in MAD units (default: 4.0)
+            enable_features: Enable feature extraction at publish time (default: False)
+            feature_min_confidence: Minimum confidence for feature detector (default: 0.5)
         """
         self.window_size = window_size
         self.threshold = threshold
@@ -68,12 +76,16 @@ class SegmentationContext:
         
         # Initialize Hampel filter if enabled
         self.hampel_filter = None
-        if ENABLE_HAMPEL_FILTER:
+        if enable_hampel:
             try:
-                from src.filters import HampelFilter
+                # Try MicroPython path first, then standard Python path
+                try:
+                    from src.filters import HampelFilter
+                except ImportError:
+                    from filters import HampelFilter
                 self.hampel_filter = HampelFilter(
-                    window_size=HAMPEL_WINDOW,
-                    threshold=HAMPEL_THRESHOLD
+                    window_size=hampel_window,
+                    threshold=hampel_threshold
                 )
             except Exception as e:
                 print(f"[ERROR] Failed to initialize HampelFilter: {e}")
@@ -82,19 +94,103 @@ class SegmentationContext:
         # Initialize feature extractor if enabled (publish-time only)
         self.feature_extractor = None
         self.feature_detector = None
-        if ENABLE_FEATURES:
+        if enable_features:
             try:
-                from src.features import PublishTimeFeatureExtractor, MultiFeatureDetector
+                # Try MicroPython path first, then standard Python path
+                try:
+                    from src.features import PublishTimeFeatureExtractor, MultiFeatureDetector
+                except ImportError:
+                    from features import PublishTimeFeatureExtractor, MultiFeatureDetector
                 self.feature_extractor = PublishTimeFeatureExtractor()
-                self.feature_detector = MultiFeatureDetector(min_confidence=0.5)
+                self.feature_detector = MultiFeatureDetector(min_confidence=feature_min_confidence)
             except Exception as e:
                 print(f"[ERROR] Failed to initialize FeatureExtractor: {e}")
                 self.feature_extractor = None
                 self.feature_detector = None
         
+    @staticmethod
+    def compute_variance_two_pass(values):
+        """
+        Calculate variance using two-pass algorithm (numerically stable) - static version
+        
+        Two-pass algorithm: variance = sum((x - mean)^2) / n
+        More stable than single-pass E[X²] - E[X]² for float32 arithmetic.
+        
+        Args:
+            values: List or array of float values
+        
+        Returns:
+            float: Variance (0.0 if empty)
+        """
+        n = len(values)
+        if n == 0:
+            return 0.0
+        
+        # First pass: calculate mean
+        total = 0.0
+        for i in range(n):
+            total += values[i]
+        mean = total / n
+        
+        # Second pass: calculate variance
+        variance = 0.0
+        for i in range(n):
+            diff = values[i] - mean
+            variance += diff * diff
+        variance /= n
+        
+        return variance
+    
+    @staticmethod
+    def compute_spatial_turbulence(csi_data, selected_subcarriers=None):
+        """
+        Calculate spatial turbulence (std of subcarrier amplitudes) - static version
+        
+        Args:
+            csi_data: array of int8 I/Q values (alternating real, imag)
+            selected_subcarriers: list of subcarrier indices to use (default: all up to 64)
+            
+        Returns:
+            tuple: (turbulence, amplitudes) - turbulence value and amplitude list
+        """
+        if len(csi_data) < 2:
+            return 0.0, []
+        
+        # Calculate amplitudes for selected subcarriers
+        amplitudes = []
+        
+        # If no selection provided, use all available up to 64 subcarriers
+        if selected_subcarriers is None:
+            max_values = min(128, len(csi_data))
+            for i in range(0, max_values, 2):
+                if i + 1 < max_values:
+                    # Convert to float to avoid int8 overflow
+                    real = float(csi_data[i])
+                    imag = float(csi_data[i + 1])
+                    amplitudes.append(math.sqrt(real * real + imag * imag))
+        else:
+            # Use only selected subcarriers (matches C version)
+            for sc_idx in selected_subcarriers:
+                i = sc_idx * 2
+                if i + 1 < len(csi_data):
+                    # Convert to float to avoid int8 overflow
+                    real = float(csi_data[i])
+                    imag = float(csi_data[i + 1])
+                    amplitudes.append(math.sqrt(real * real + imag * imag))
+        
+        if len(amplitudes) < 2:
+            return 0.0, amplitudes
+        
+        # Calculate variance using two-pass for spatial turbulence (small N=12)
+        n = len(amplitudes)
+        mean = sum(amplitudes) / n
+        variance = sum((x - mean) ** 2 for x in amplitudes) / n
+        
+        return math.sqrt(variance), amplitudes
+    
     def calculate_spatial_turbulence(self, csi_data, selected_subcarriers=None):
         """
-        Calculate spatial turbulence (std of subcarrier amplitudes)
+        Calculate spatial turbulence and store amplitudes for features
         
         Args:
             csi_data: array of int8 I/Q values (alternating real, imag)
@@ -105,48 +201,13 @@ class SegmentationContext:
         
         Note: Stores last amplitudes for feature calculation at publish time.
         """
-        if len(csi_data) < 2:
-            return 0.0
-        
-        # Calculate amplitudes for selected subcarriers
-        amplitudes = []
-        
-        # If no selection provided, use all available up to 64 subcarriers
-        if selected_subcarriers is None:
-            max_values = min(128, len(csi_data))
-            for i in range(0, max_values, 2):
-                if i + 1 < max_values:
-                    real = csi_data[i]
-                    imag = csi_data[i + 1]
-                    amplitudes.append(math.sqrt(real * real + imag * imag))
-        else:
-            # Use only selected subcarriers (matches C version)
-            for sc_idx in selected_subcarriers:
-                i = sc_idx * 2
-                if i + 1 < len(csi_data):
-                    real = csi_data[i]
-                    imag = csi_data[i + 1]
-                    amplitudes.append(math.sqrt(real * real + imag * imag))
-        
-        if len(amplitudes) < 2:
-            return 0.0
-        
-        # Store amplitudes for feature calculation at publish time
+        turbulence, amplitudes = self.compute_spatial_turbulence(csi_data, selected_subcarriers)
         self.last_amplitudes = amplitudes
-        
-        # Calculate variance using two-pass for spatial turbulence (small N=12)
-        n = len(amplitudes)
-        mean = sum(amplitudes) / n
-        variance = sum((x - mean) ** 2 for x in amplitudes) / n
-        
-        return math.sqrt(variance)
+        return turbulence
     
     def _calculate_variance_two_pass(self):
         """
-        Calculate variance using two-pass algorithm (numerically stable)
-        
-        Two-pass algorithm: variance = sum((x - mean)^2) / n
-        More stable than single-pass E[X²] - E[X]² for float32 arithmetic.
+        Calculate variance of turbulence buffer
         
         Returns:
             float: Variance (0.0 if buffer not full)
@@ -155,22 +216,8 @@ class SegmentationContext:
         if self.buffer_count < self.window_size:
             return 0.0
         
-        n = self.buffer_count
-        
-        # First pass: calculate mean
-        total = 0.0
-        for i in range(n):
-            total += self.turbulence_buffer[i]
-        mean = total / n
-        
-        # Second pass: calculate variance
-        variance = 0.0
-        for i in range(n):
-            diff = self.turbulence_buffer[i] - mean
-            variance += diff * diff
-        variance /= n
-        
-        return variance
+        # Delegate to static method
+        return self.compute_variance_two_pass(self.turbulence_buffer[:self.buffer_count])
     
     def add_turbulence(self, turbulence):
         """
@@ -277,7 +324,21 @@ class SegmentationContext:
             self.buffer_count >= self.window_size
         )
     
-    def reset(self):
-        """Reset state machine (keep buffer warm)"""
+    def reset(self, full=False):
+        """
+        Reset state machine
+        
+        Args:
+            full: If True, also reset buffer (cold start). 
+                  If False (default), keep buffer warm for faster re-detection.
+        """
         self.state = self.STATE_IDLE
         self.packet_index = 0
+        
+        if full:
+            self.turbulence_buffer = [0.0] * self.window_size
+            self.buffer_index = 0
+            self.buffer_count = 0
+            self.current_moving_variance = 0.0
+            self.last_turbulence = 0.0
+            self.last_amplitudes = None

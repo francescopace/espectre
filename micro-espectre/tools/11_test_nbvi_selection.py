@@ -115,7 +115,7 @@ License: GPLv3
 """
 
 import numpy as np
-from mvs_utils import load_baseline_and_movement, test_mvs_configuration, calculate_spatial_turbulence
+from csi_utils import load_baseline_and_movement, test_mvs_configuration, calculate_spatial_turbulence
 from config import WINDOW_SIZE, THRESHOLD
 
 BAND_SIZE = 12
@@ -370,7 +370,7 @@ class OpportunisticNBVICalibrator:
         sample = self.packet_history[:100]
         turbulences = [calculate_spatial_turbulence(pkt['csi_data'], self.current_band) 
                       for pkt in sample]
-        from mvs_utils import calculate_variance_two_pass
+        from csi_utils import calculate_variance_two_pass
         estimated_baseline_var = calculate_variance_two_pass(turbulences)
         
         return estimated_baseline_var * 2.0
@@ -397,7 +397,7 @@ class OpportunisticNBVICalibrator:
         # Calculate variance
         turbulences = [calculate_spatial_turbulence(pkt['csi_data'], self.current_band) 
                       for pkt in recent_window]
-        from mvs_utils import calculate_variance_two_pass
+        from csi_utils import calculate_variance_two_pass
         variance = calculate_variance_two_pass(turbulences)
         
         # If variance is low → baseline detected!
@@ -422,7 +422,7 @@ class OpportunisticNBVICalibrator:
         
         # Calculate variance for sliding windows
         window_variances = []
-        from mvs_utils import calculate_variance_two_pass
+        from csi_utils import calculate_variance_two_pass
         
         for i in range(0, len(buffer) - self.detection_window, ESP32_WINDOW_STEP):
             window = buffer[i:i+self.detection_window]

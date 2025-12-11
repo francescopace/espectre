@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from mvs_utils import (
+from csi_utils import (
     load_baseline_and_movement,
     calculate_variance_two_pass,
     calculate_spatial_turbulence

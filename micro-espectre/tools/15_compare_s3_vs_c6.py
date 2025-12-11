@@ -20,66 +20,17 @@ License: GPLv3
 """
 
 import argparse
-import struct
 import numpy as np
 import math
 from pathlib import Path
-
-# Binary format (must match data_collector.py)
-PACKET_FORMAT = '<IHbbBBBB128b'
-PACKET_SIZE = struct.calcsize(PACKET_FORMAT)
-MAGIC_NUMBER = 0x43534944  # "CSID"
+from csi_utils import load_baseline_and_movement
+from segmentation import SegmentationContext
 
 # Data paths
 DATA_DIR = Path(__file__).parent / 'data'
-S3_BASELINE = DATA_DIR / 'baseline_data_s3.bin'
-S3_MOVEMENT = DATA_DIR / 'movement_data_s3.bin'
-C6_BASELINE = DATA_DIR / 'baseline_data_c6.bin'
-C6_MOVEMENT = DATA_DIR / 'movement_data_c6.bin'
 
 # Configuration
 from config import SELECTED_SUBCARRIERS, WINDOW_SIZE, THRESHOLD
-
-
-def load_binary_data(filename):
-    """Load CSI data from binary file"""
-    packets = []
-    
-    with open(filename, 'rb') as f:
-        # Read header
-        header = f.read(5)
-        if len(header) < 5:
-            raise ValueError("Invalid file: header too short")
-        
-        magic, label_byte = struct.unpack('<IB', header)
-        if magic != MAGIC_NUMBER:
-            raise ValueError(f"Invalid file: wrong magic number {magic:08x}")
-        
-        label = 'BASELINE' if label_byte == 0 else 'MOVEMENT'
-        
-        # Read packets
-        while True:
-            data = f.read(PACKET_SIZE)
-            if len(data) < PACKET_SIZE:
-                break
-            
-            values = struct.unpack(PACKET_FORMAT, data)
-            packet = {
-                'timestamp_ms': values[0],
-                'packet_id': values[1],
-                'rssi': values[2],
-                'noise_floor': values[3],
-                'snr': float(values[2] - values[3]),
-                'channel': values[4],
-                'mcs': values[5],
-                'sig_mode': values[6],
-                'cwb': values[7],
-                'csi_data': np.array(values[8:], dtype=np.int8),
-                'label': label
-            }
-            packets.append(packet)
-    
-    return packets
 
 
 def analyze_iq_values(packets, name):
@@ -150,20 +101,8 @@ def analyze_amplitudes_per_subcarrier(packets, name):
 
 
 def calculate_spatial_turbulence(csi_data, selected_subcarriers):
-    """Calculate spatial turbulence (standard deviation of amplitudes)"""
-    amplitudes = []
-    for sc_idx in selected_subcarriers:
-        i = sc_idx * 2
-        if i + 1 < len(csi_data):
-            I = float(csi_data[i])
-            Q = float(csi_data[i + 1])
-            amplitudes.append(math.sqrt(I*I + Q*Q))
-    
-    if len(amplitudes) < 2:
-        return 0.0, amplitudes
-    
-    variance = np.var(amplitudes)
-    return math.sqrt(variance), amplitudes
+    """Calculate spatial turbulence - delegates to SegmentationContext"""
+    return SegmentationContext.compute_spatial_turbulence(csi_data, selected_subcarriers)
 
 
 def analyze_turbulence_and_mvs(packets, name, selected_subcarriers, window_size):
@@ -233,32 +172,25 @@ def main():
     print("  ESP32-S3 vs ESP32-C6 CSI Data Comparison")
     print("="*70)
     
-    # Check file existence
-    files_exist = {
-        'S3 Baseline': S3_BASELINE.exists(),
-        'S3 Movement': S3_MOVEMENT.exists(),
-        'C6 Baseline': C6_BASELINE.exists(),
-        'C6 Movement': C6_MOVEMENT.exists()
-    }
+    # Load data for both chips
+    print("\nLoading data...")
+    try:
+        s3_baseline, s3_movement = load_baseline_and_movement(chip='s3')
+        print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets")
+    except FileNotFoundError as e:
+        print(f"  ❌ S3 data not found: {e}")
+        s3_baseline, s3_movement = [], []
     
-    print("\nFile Status:")
-    for name, exists in files_exist.items():
-        status = "✅" if exists else "❌"
-        print(f"  {status} {name}")
+    try:
+        c6_baseline, c6_movement = load_baseline_and_movement(chip='c6')
+        print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets")
+    except FileNotFoundError as e:
+        print(f"  ❌ C6 data not found: {e}")
+        c6_baseline, c6_movement = [], []
     
-    if not all(files_exist.values()):
+    if not s3_baseline or not c6_baseline:
         print("\n❌ Missing data files. Please collect data from both chips.")
         return
-    
-    # Load data
-    print("\nLoading data...")
-    s3_baseline = load_binary_data(S3_BASELINE)
-    s3_movement = load_binary_data(S3_MOVEMENT)
-    c6_baseline = load_binary_data(C6_BASELINE)
-    c6_movement = load_binary_data(C6_MOVEMENT)
-    
-    print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets")
-    print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets")
     
     # =========================================================================
     # 1. RAW I/Q VALUE ANALYSIS

@@ -58,7 +58,7 @@ License: GPLv3
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
-from mvs_utils import load_baseline_and_movement
+from csi_utils import load_baseline_and_movement, HampelFilter
 from config import SELECTED_SUBCARRIERS
 
 # Default subcarriers if not configured
@@ -656,42 +656,10 @@ OPTIMAL_WINDOWS = {
 
 
 # ============================================================================
-# Signal Filters (from 5_analyze_filter_turbulence.py)
+# Signal Filters
 # ============================================================================
 
-class HampelFilter:
-    """Hampel filter for outlier detection and removal."""
-    
-    def __init__(self, window_size=5, threshold=3.0):
-        self.window_size = window_size
-        self.threshold = threshold
-        self.buffer = []
-    
-    def filter(self, value):
-        self.buffer.append(value)
-        if len(self.buffer) > self.window_size:
-            self.buffer.pop(0)
-        
-        if len(self.buffer) < 3:
-            return value
-        
-        sorted_buffer = sorted(self.buffer)
-        n = len(sorted_buffer)
-        median = sorted_buffer[n // 2]
-        
-        deviations = sorted([abs(v - median) for v in self.buffer])
-        mad = deviations[n // 2]
-        
-        if mad > 1e-6:
-            deviation = abs(value - median) / (1.4826 * mad)
-            if deviation > self.threshold:
-                return median
-        
-        return value
-    
-    def reset(self):
-        self.buffer = []
-
+# HampelFilter imported from csi_utils (src/filters.py)
 
 class ButterworthFilter:
     """Butterworth IIR low-pass filter."""

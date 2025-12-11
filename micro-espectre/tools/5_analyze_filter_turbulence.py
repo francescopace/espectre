@@ -28,7 +28,8 @@ import matplotlib.pyplot as plt
 import argparse
 from scipy import signal
 import pywt
-from mvs_utils import load_baseline_and_movement
+from csi_utils import calculate_spatial_turbulence, HampelFilter
+from csi_utils import load_baseline_and_movement
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
 # ============================================================================
@@ -56,22 +57,6 @@ WAVELET_MODE = 'soft'         # - MODE: 'soft' or 'hard' thresholding
 
 # ============================================================================
 
-
-# ============================================================================
-# SPATIAL TURBULENCE CALCULATION
-# ============================================================================
-
-def calculate_spatial_turbulence(csi_packet, selected_subcarriers=None):
-    """Calculate spatial turbulence (std of subcarrier amplitudes)"""
-    sc_list = selected_subcarriers if selected_subcarriers is not None else SELECTED_SUBCARRIERS
-    
-    amplitudes = []
-    for sc_idx in sc_list:
-        I = float(csi_packet[sc_idx * 2])
-        Q = float(csi_packet[sc_idx * 2 + 1])
-        amplitudes.append(np.sqrt(I*I + Q*Q))
-    
-    return np.std(amplitudes)
 
 # ============================================================================
 # FILTER IMPLEMENTATIONS
@@ -109,43 +94,6 @@ class ButterworthFilter:
         """Reset filter state"""
         self.zi = signal.lfilter_zi(self.b, self.a)
         self.initialized = False
-
-
-class HampelFilter:
-    """Hampel filter for outlier detection and removal"""
-    
-    def __init__(self, window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD):
-        self.window_size = window_size
-        self.threshold = threshold
-        self.buffer = []
-    
-    def filter(self, value):
-        """Apply Hampel filter to single value"""
-        self.buffer.append(value)
-        
-        # Keep only window_size values
-        if len(self.buffer) > self.window_size:
-            self.buffer.pop(0)
-        
-        # Need at least 3 values for MAD calculation
-        if len(self.buffer) < 3:
-            return value
-        
-        # Calculate median and MAD
-        median = np.median(self.buffer)
-        mad = np.median(np.abs(np.array(self.buffer) - median))
-        
-        # Check if current value is outlier
-        if mad > 1e-6:  # Avoid division by zero
-            deviation = abs(value - median) / (1.4826 * mad)
-            if deviation > self.threshold:
-                return median  # Replace outlier with median
-        
-        return value
-    
-    def reset(self):
-        """Reset filter state"""
-        self.buffer = []
 
 
 class SavitzkyGolayFilter:
@@ -440,8 +388,8 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, tr
         
         # Test baseline
         seg.reset()
-        for pkt in baseline_packets[:num_packets]:
-            turbulence = calculate_spatial_turbulence(pkt)
+        for csi_data in baseline_packets[:num_packets]:
+            turbulence = calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS)
             seg.add_turbulence(turbulence)
         
         baseline_fp = seg.motion_packets
@@ -460,8 +408,8 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, tr
         
         # Test movement
         seg.reset()
-        for pkt in movement_packets[:num_packets]:
-            turbulence = calculate_spatial_turbulence(pkt)
+        for csi_data in movement_packets[:num_packets]:
+            turbulence = calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS)
             seg.add_turbulence(turbulence)
         
         movement_tp = seg.motion_packets
@@ -624,14 +572,14 @@ def optimize_filter_parameters(baseline_packets, movement_packets):
         
         # Test baseline
         seg.reset()
-        for pkt in baseline_packets[:500]:
-            seg.add_turbulence(calculate_spatial_turbulence(pkt))
+        for csi_data in baseline_packets[:500]:
+            seg.add_turbulence(calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS))
         fp = seg.motion_packets
         
         # Test movement
         seg.reset()
-        for pkt in movement_packets[:500]:
-            seg.add_turbulence(calculate_spatial_turbulence(pkt))
+        for csi_data in movement_packets[:500]:
+            seg.add_turbulence(calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS))
         tp = seg.motion_packets
         
         score = tp - fp * 10

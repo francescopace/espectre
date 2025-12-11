@@ -14,7 +14,7 @@ License: GPLv3
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
-from mvs_utils import load_baseline_and_movement, MVSDetector, calculate_spatial_turbulence
+from csi_utils import load_baseline_and_movement, MVSDetector, calculate_spatial_turbulence
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
 def calculate_rssi(csi_packet):

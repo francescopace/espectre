@@ -14,7 +14,7 @@ License: GPLv3
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
-from mvs_utils import load_baseline_and_movement, MVSDetector
+from csi_utils import load_baseline_and_movement, MVSDetector
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
 def plot_mvs_visualization(baseline_packets, movement_packets, subcarriers, threshold, window_size, metrics):

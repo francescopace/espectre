@@ -15,7 +15,7 @@ License: GPLv3
 import math
 import time
 import numpy as np
-from mvs_utils import load_baseline_and_movement
+from csi_utils import load_baseline_and_movement
 from config import SELECTED_SUBCARRIERS, WINDOW_SIZE
 
 

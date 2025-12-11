@@ -29,10 +29,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from mvs_utils import (
+from csi_utils import (
     load_baseline_and_movement,
     calculate_spatial_turbulence,
-    calculate_variance_two_pass
+    calculate_variance_two_pass,
+    calc_skewness,
+    calc_kurtosis
 )
 from config import SELECTED_SUBCARRIERS
 
@@ -61,39 +63,7 @@ def extract_amplitudes(csi_data, selected_subcarriers):
 # W=1 Features (Current Packet)
 # ============================================================================
 
-def calc_skewness(amplitudes):
-    """Fisher's skewness (third standardized moment)."""
-    n = len(amplitudes)
-    if n < 3:
-        return 0.0
-    
-    mean = sum(amplitudes) / n
-    variance = sum((x - mean) ** 2 for x in amplitudes) / n
-    std = math.sqrt(variance) if variance > 0 else 0
-    
-    if std < 1e-10:
-        return 0.0
-    
-    m3 = sum((x - mean) ** 3 for x in amplitudes) / n
-    return m3 / (std ** 3)
-
-
-def calc_kurtosis(amplitudes):
-    """Fisher's excess kurtosis (fourth standardized moment - 3)."""
-    n = len(amplitudes)
-    if n < 4:
-        return 0.0
-    
-    mean = sum(amplitudes) / n
-    variance = sum((x - mean) ** 2 for x in amplitudes) / n
-    std = math.sqrt(variance) if variance > 0 else 0
-    
-    if std < 1e-10:
-        return 0.0
-    
-    m4 = sum((x - mean) ** 4 for x in amplitudes) / n
-    return (m4 / (std ** 4)) - 3.0
-
+# calc_skewness and calc_kurtosis imported from csi_utils (src/features.py)
 
 def calc_spatial_correlation(amplitudes):
     """Pearson correlation between adjacent subcarriers."""

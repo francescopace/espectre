@@ -149,7 +149,7 @@ License: GPLv3
 """
 
 import numpy as np
-from mvs_utils import load_baseline_and_movement, test_mvs_configuration, calculate_spatial_turbulence, calculate_variance_two_pass
+from csi_utils import load_baseline_and_movement, test_mvs_configuration, calculate_spatial_turbulence, calculate_variance_two_pass
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
 BAND_SIZE = 12

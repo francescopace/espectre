@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Tuple
 
-FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-beta"
+FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc2"
 FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 
 try:
@@ -407,7 +407,7 @@ def deploy_code(args):
             ('src/features.py', ':src/'),
             ('src/nbvi_calibrator.py', ':src/'),
             ('src/main.py', ':src/'),
-            ('src/data_collector.py', ':src/'),
+            ('src/csi_streamer.py', ':src/'),
             ('src/mqtt/__init__.py', ':src/mqtt/'),
             ('src/mqtt/handler.py', ':src/mqtt/'),
             ('src/mqtt/commands.py', ':src/mqtt/'),
@@ -436,8 +436,58 @@ def deploy_code(args):
         sys.exit(1)
 
 
+def stream_csi(args):
+    """Stream CSI data via UDP for real-time visualization"""
+    
+    # Check if mpremote is available
+    try:
+        subprocess.run(['mpremote', '--version'], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print(f"{Fore.RED}❌ mpremote not found. Install it with:{Style.RESET_ALL}")
+        print("   pip install mpremote")
+        sys.exit(1)
+    
+    # Auto-detect port if not provided
+    port = get_serial_port(args.port)
+    
+    # Validate IP address
+    dest_ip = args.ip
+    if not dest_ip:
+        print(f"{Fore.RED}❌ Destination IP address required{Style.RESET_ALL}")
+        print(f"\n{Fore.YELLOW}Usage: ./me stream --ip <PC_IP_ADDRESS>{Style.RESET_ALL}")
+        print(f"\n{Fore.CYAN}Example: ./me stream --ip 192.168.1.100{Style.RESET_ALL}")
+        sys.exit(1)
+    
+    duration = args.duration if args.duration else 0
+    
+    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}║           μESPectre - CSI UDP Streaming                   ║{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.CYAN}Destination: {dest_ip}:5001{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}Duration:    {'infinite' if duration == 0 else f'{duration}s'}{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.YELLOW}On the PC, run:{Style.RESET_ALL}")
+    print(f"  python tools/csi_receiver.py -v  {Fore.CYAN}# Monitor packets{Style.RESET_ALL}")
+    print()
+    
+    try:
+        # Build the exec command
+        exec_cmd = f"from src.csi_streamer import stream_csi; stream_csi('{dest_ip}', duration_sec={duration})"
+        subprocess.run(['mpremote', 'connect', port, 'exec', exec_cmd])
+        
+    except subprocess.CalledProcessError as e:
+        print(f"\n{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print(f"\n{Fore.YELLOW}Streaming stopped{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
+        sys.exit(1)
+
+
 def run_application(args):
-    """Run application or collect CSI data"""
+    """Run application on ESP32"""
     
     # Check if mpremote is available
     try:
@@ -451,43 +501,113 @@ def run_application(args):
     port = get_serial_port(args.port)
     
     print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}║           μESPectre - Running Application                 ║{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.YELLOW}🚀 Starting application...{Style.RESET_ALL}")
+    print()
     
     try:
-        if args.collect_baseline:
-            print(f"{Fore.MAGENTA}║           μESPectre - Collecting Baseline CSI Data        ║{Style.RESET_ALL}")
-            print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
-            print()
-            print(f"{Fore.YELLOW}📊 Collecting baseline data...{Style.RESET_ALL}")
-            subprocess.run(['mpremote', 'connect', port, 'exec', 
-                          'from src import data_collector as dc; dc.collect_baseline()'])
-            print(f"{Fore.YELLOW}📥 Downloading baseline_data.bin...{Style.RESET_ALL}")
-            subprocess.run(['mpremote', 'connect', port, 'cp', 
-                          ':baseline_data.bin', 'tools/data/baseline_data.bin'], check=True)
-            print(f"{Fore.GREEN}✅ Downloaded: tools/data/baseline_data.bin{Style.RESET_ALL}")
-        elif args.collect_movement:
-            print(f"{Fore.MAGENTA}║           μESPectre - Collecting Movement CSI Data        ║{Style.RESET_ALL}")
-            print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
-            print()
-            print(f"{Fore.YELLOW}📊 Collecting movement data...{Style.RESET_ALL}")
-            subprocess.run(['mpremote', 'connect', port, 'exec',
-                          'from src import data_collector as dc; dc.collect_movement()'])
-            print(f"{Fore.YELLOW}📥 Downloading movement_data.bin...{Style.RESET_ALL}")
-            subprocess.run(['mpremote', 'connect', port, 'cp',
-                          ':movement_data.bin', 'tools/data/movement_data.bin'], check=True)
-            print(f"{Fore.GREEN}✅ Downloaded: tools/data/movement_data.bin{Style.RESET_ALL}")
-        else:
-            print(f"{Fore.MAGENTA}║           μESPectre - Running Application                 ║{Style.RESET_ALL}")
-            print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
-            print()
-            print(f"{Fore.YELLOW}🚀 Starting application...{Style.RESET_ALL}")
-            print()
-            subprocess.run(['mpremote', 'connect', port, 'run', 'src/main.py'])
+        subprocess.run(['mpremote', 'connect', port, 'run', 'src/main.py'])
         
     except subprocess.CalledProcessError as e:
         print(f"\n{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
         sys.exit(1)
     except Exception as e:
         print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
+        sys.exit(1)
+
+
+def collect_csi_data(args):
+    """Collect labeled CSI data for training (runs on PC, receives UDP from ESP32)"""
+    
+    # Add tools directory to path
+    tools_dir = Path(__file__).parent / 'tools'
+    sys.path.insert(0, str(tools_dir))
+    
+    try:
+        from csi_utils import CSICollector, get_dataset_stats
+    except ImportError as e:
+        print(f"{Fore.RED}❌ Failed to import csi_utils: {e}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Make sure tools/csi_utils.py exists{Style.RESET_ALL}")
+        sys.exit(1)
+    
+    # Show dataset info
+    if args.info:
+        stats = get_dataset_stats()
+        print(f"\n{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
+        print(f"{Fore.MAGENTA}║           μESPectre - Dataset Statistics                  ║{Style.RESET_ALL}")
+        print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+        print()
+        
+        if not stats['labels']:
+            print(f"  {Fore.YELLOW}No samples collected yet.{Style.RESET_ALL}")
+            print()
+            print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
+            print(f"    1. Start streaming on ESP32: ./me stream --ip <PC_IP>")
+            print(f"    2. Collect samples: ./me collect --label wave --samples 10")
+        else:
+            print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10} {'ID':>6}{Style.RESET_ALL}")
+            print(f"  {'-' * 38}")
+            for label, info in stats['labels'].items():
+                print(f"  {label:<20} {info['samples']:>10} {info['id']:>6}")
+            print(f"  {'-' * 38}")
+            print(f"  {Fore.GREEN}{'Total':<20} {stats['total_samples']:>10}{Style.RESET_ALL}")
+        print()
+        return
+    
+    # Check required arguments
+    if not args.label:
+        print(f"{Fore.RED}❌ Label required. Use --label <name>{Style.RESET_ALL}")
+        print(f"\n{Fore.YELLOW}Examples:{Style.RESET_ALL}")
+        print(f"  ./me collect --label wave --samples 10")
+        print(f"  ./me collect --label baseline --duration 10")
+        print(f"  ./me collect --info")
+        sys.exit(1)
+    
+    print(f"\n{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}║           μESPectre - CSI Data Collection                 ║{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
+    print()
+    print(f"  {Fore.CYAN}Label:{Style.RESET_ALL}     {args.label}")
+    print(f"  {Fore.CYAN}Samples:{Style.RESET_ALL}   {args.samples}")
+    print(f"  {Fore.CYAN}Duration:{Style.RESET_ALL}  {args.duration}s per sample")
+    print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
+    if args.subject:
+        print(f"  {Fore.CYAN}Subject:{Style.RESET_ALL}   {args.subject}")
+    if args.environment:
+        print(f"  {Fore.CYAN}Environment:{Style.RESET_ALL} {args.environment}")
+    print()
+    print(f"  {Fore.YELLOW}⚠️  Make sure ESP32 is streaming: ./me stream --ip <PC_IP>{Style.RESET_ALL}")
+    print()
+    
+    # Create collector
+    collector = CSICollector(
+        label=args.label,
+        port=args.udp_port,
+        subject=args.subject,
+        environment=args.environment
+    )
+    
+    try:
+        if args.interactive:
+            saved = collector.collect_interactive(num_samples=args.samples)
+        else:
+            saved = collector.collect_timed(
+                duration=args.duration,
+                num_samples=args.samples,
+                countdown=3
+            )
+        
+        if saved:
+            print(f"{Fore.GREEN}✅ Collected {len(saved)} samples for label '{args.label}'{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.RED}❌ No samples collected{Style.RESET_ALL}")
+            
+    except KeyboardInterrupt:
+        print(f"\n{Fore.YELLOW}Collection cancelled{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"\n{Fore.RED}❌ Error during collection: {e}{Style.RESET_ALL}")
         sys.exit(1)
 
 
@@ -584,9 +704,13 @@ Examples:
   # Run application
   ./me run
   
-  # Collect CSI data for analysis
-  ./me run --collect-baseline
-  ./me run --collect-movement
+  # Stream CSI via UDP (on ESP32)
+  ./me stream --ip 192.168.1.100
+  
+  # Collect labeled CSI data (on PC, while ESP32 is streaming)
+  ./me collect --label baseline --duration 10
+  ./me collect --label wave --samples 30
+  ./me collect --info
   
   # Verify installation
   ./me verify
@@ -615,18 +739,42 @@ Examples:
                               help='Serial port (auto-detected if not specified)')
     
     # Run command
-    run_parser = subparsers.add_parser('run', help='Run application or collect CSI data')
+    run_parser = subparsers.add_parser('run', help='Run application on ESP32')
     run_parser.add_argument('--port',
                            help='Serial port (auto-detected if not specified)')
-    run_parser.add_argument('--collect-baseline', action='store_true',
-                           help='Collect baseline CSI data for analysis')
-    run_parser.add_argument('--collect-movement', action='store_true',
-                           help='Collect movement CSI data for analysis')
+    
+    # Stream command
+    stream_parser = subparsers.add_parser('stream', help='Stream CSI data via UDP for visualization')
+    stream_parser.add_argument('--ip', required=True,
+                              help='Destination IP address (PC running viewer)')
+    stream_parser.add_argument('--port',
+                              help='Serial port (auto-detected if not specified)')
+    stream_parser.add_argument('--duration', type=int, default=0,
+                              help='Streaming duration in seconds (0 = infinite, default: 0)')
     
     # Verify command
     verify_parser = subparsers.add_parser('verify', help='Verify installation')
     verify_parser.add_argument('--port',
                               help='Serial port (auto-detected if not specified)')
+    
+    # Collect command (runs on PC, receives UDP from ESP32)
+    collect_parser = subparsers.add_parser('collect', help='Collect labeled CSI data for training')
+    collect_parser.add_argument('--label', '-l',
+                               help='Label for collected data (e.g., wave, baseline, idle)')
+    collect_parser.add_argument('--samples', '-n', type=int, default=1,
+                               help='Number of samples to collect (default: 1)')
+    collect_parser.add_argument('--duration', '-d', type=float, default=3.0,
+                               help='Duration per sample in seconds (default: 3.0)')
+    collect_parser.add_argument('--subject', '-s',
+                               help='Subject/contributor ID (optional)')
+    collect_parser.add_argument('--environment', '-e',
+                               help='Environment description (optional)')
+    collect_parser.add_argument('--info', '-i', action='store_true',
+                               help='Show dataset statistics')
+    collect_parser.add_argument('--interactive', action='store_true',
+                               help='Interactive mode (press ENTER for each sample)')
+    collect_parser.add_argument('--udp-port', type=int, default=5001,
+                               help='UDP port for CSI reception (default: 5001)')
     
     # MQTT interactive mode arguments (when no subcommand)
     parser.add_argument("--broker", default=os.getenv("MQTT_BROKER", "homeassistant.local"),
@@ -649,8 +797,12 @@ Examples:
         deploy_code(args)
     elif args.command == 'run':
         run_application(args)
+    elif args.command == 'stream':
+        stream_csi(args)
     elif args.command == 'verify':
         verify_installation(args)
+    elif args.command == 'collect':
+        collect_csi_data(args)
     else:
         # No subcommand = interactive MQTT mode
         # Create a simple namespace for EspectreCLI compatibility

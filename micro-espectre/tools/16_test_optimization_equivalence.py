@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Micro-ESPectre - Optimization Equivalence Test
 
@@ -22,7 +23,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 # Import data loader and turbulence calculation
-from mvs_utils import load_binary_data, calculate_spatial_turbulence, BASELINE_FILE, MOVEMENT_FILE
+from csi_utils import load_baseline_and_movement, calculate_spatial_turbulence
+from segmentation import SegmentationContext
 
 # Test configuration
 WINDOW_SIZE = 50
@@ -136,26 +138,11 @@ class OptimizedTwoPassVariance:
         return self._calculate_variance_two_pass()
     
     def _calculate_variance_two_pass(self):
-        """Two-pass variance calculation (numerically stable)"""
+        """Two-pass variance calculation - delegates to SegmentationContext"""
         if self.buffer_count < self.window_size:
             return 0.0
         
-        n = self.buffer_count
-        
-        # First pass: calculate mean
-        total = 0.0
-        for i in range(n):
-            total += self.buffer[i]
-        mean = total / n
-        
-        # Second pass: calculate variance
-        variance = 0.0
-        for i in range(n):
-            diff = self.buffer[i] - mean
-            variance += diff * diff
-        variance /= n
-        
-        return variance
+        return SegmentationContext.compute_variance_two_pass(self.buffer[:self.buffer_count])
 
 
 class OptimizedHampelFilter:
@@ -228,32 +215,23 @@ def load_turbulence_from_real_data():
     
     turbulence_values = []
     
-    # Load baseline data
+    # Load data
     try:
-        baseline_packets = load_binary_data(BASELINE_FILE)
-        print(f"  Loaded {len(baseline_packets)} baseline packets from {BASELINE_FILE.name}")
+        baseline_packets, movement_packets = load_baseline_and_movement()
+        print(f"  Loaded {len(baseline_packets)} baseline packets")
+        print(f"  Loaded {len(movement_packets)} movement packets")
         
         for packet in baseline_packets:
             csi_data = packet['csi_data']
-            # Use mvs_utils calculate_spatial_turbulence (handles numpy properly)
             turbulence = calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS)
             turbulence_values.append(float(turbulence))
-    except Exception as e:
-        print(f"  Warning: Could not load baseline data: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # Load movement data
-    try:
-        movement_packets = load_binary_data(MOVEMENT_FILE)
-        print(f"  Loaded {len(movement_packets)} movement packets from {MOVEMENT_FILE.name}")
         
         for packet in movement_packets:
             csi_data = packet['csi_data']
             turbulence = calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS)
             turbulence_values.append(float(turbulence))
     except Exception as e:
-        print(f"  Warning: Could not load movement data: {e}")
+        print(f"  Warning: Could not load data: {e}")
         import traceback
         traceback.print_exc()
     

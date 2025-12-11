@@ -18,7 +18,7 @@ License: GPLv3
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
-from mvs_utils import load_baseline_and_movement
+from csi_utils import load_baseline_and_movement
 from config import SELECTED_SUBCARRIERS
 
 def extract_iq_data(packets, subcarriers, num_packets=100, offset=0):

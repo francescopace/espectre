@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.2.0] - in progress
+
+### 🤖 ML Data Collection Infrastructure
+
+**New tools for building labeled CSI datasets for machine learning**
+
+This release lays the groundwork for advanced Wi-Fi sensing features (gesture recognition, HAR, people counting) planned for release 3.x. The focus is on creating a robust data collection and labeling infrastructure to train ML models.
+
+#### Data Collection CLI
+- **`me collect`**: New subcommand for recording labeled CSI samples
+  - `me collect start <label> [duration]`: Record samples with label (e.g., wave, idle)
+  - `me collect stop`: Stop current recording
+  - `me collect --info`: Show dataset statistics
+- **`.npz` format**: NumPy compressed files for ML-ready datasets
+- **Organized structure**: `data/<label>/<label>_001.npz` with `dataset_info.json`
+
+#### Code Consolidation
+- **`csi_utils.py`**: Unified module for CSI data collection and analysis
+  - `CSIReceiver`: Real-time UDP packet reception from ESP32
+  - `CSICollector`: Labeled sample recording with metadata
+  - `MVSDetector`: Wrapper around production `SegmentationContext`
+
+---
+
 ## [2.1.0] - 2025-12-10
 
 ### 🏷️ Made for ESPHome Compliance
