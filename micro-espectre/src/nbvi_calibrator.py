@@ -16,6 +16,37 @@ import os
 NUM_SUBCARRIERS = 64
 BUFFER_FILE = '/nbvi_buffer.bin'
 
+# DC subcarrier is always null on all ESP32 variants
+DC_SUBCARRIER = 0
+
+# HT20 null subcarriers for legacy chips (ESP32, S2, S3, C3)
+# These are the guard bands that carry no signal in standard HT20
+# Index 0: DC subcarrier
+# Index 27-37: Guard bands (11 subcarriers)
+HT20_NULL_SUBCARRIERS = frozenset({0} | set(range(27, 38)))
+
+# For C5/C6 (WiFi 6), the null pattern is different (0-4 typically)
+# We let the Noise Gate handle those dynamically
+
+
+def get_valid_subcarriers(chip_type=None):
+    """
+    Get valid subcarrier indices based on chip type.
+    
+    Args:
+        chip_type: 'C5', 'C6', 'S3', 'S2', 'C3', 'ESP32', or None (auto-detect not possible)
+    
+    Returns:
+        tuple: Valid subcarrier indices for calibration
+    """
+    if chip_type in ('C5', 'C6'):
+        # C5/C6 use WiFi 6 API with different null pattern
+        # Only exclude DC, let Noise Gate handle the rest
+        return tuple(sc for sc in range(NUM_SUBCARRIERS) if sc != DC_SUBCARRIER)
+    else:
+        # Legacy chips (ESP32, S2, S3, C3) use HT20 with known null pattern
+        return tuple(sc for sc in range(NUM_SUBCARRIERS) if sc not in HT20_NULL_SUBCARRIERS)
+
 
 class NBVICalibrator:
     """
@@ -29,7 +60,7 @@ class NBVICalibrator:
     thousands of packets without memory issues.
     """
     
-    def __init__(self, buffer_size=1000, percentile=10, alpha=0.3, min_spacing=3):
+    def __init__(self, buffer_size=1000, percentile=10, alpha=0.3, min_spacing=3, chip_type=None):
         """
         Initialize NBVI calibrator
         
@@ -38,12 +69,15 @@ class NBVICalibrator:
             percentile: Percentile for baseline detection (default: 10)
             alpha: NBVI weighting factor (default: 0.3)
             min_spacing: Minimum spacing between subcarriers (default: 3)
+            chip_type: Chip type for subcarrier filtering ('C5', 'C6', 'S3', etc.)
         """
         self.buffer_size = buffer_size
         self.percentile = percentile
         self.alpha = alpha
         self.min_spacing = min_spacing
         self.noise_gate_percentile = 10
+        self.chip_type = chip_type
+        self.valid_subcarriers = get_valid_subcarriers(chip_type)
         self._packet_count = 0
         self._file = None
         
@@ -376,10 +410,12 @@ class NBVICalibrator:
             print("NBVI: Failed to find baseline window")
             return None
                 
-        # Step 2: Calculate NBVI for all 64 subcarriers
+        # Step 2: Calculate NBVI for valid subcarriers only
+        # For legacy chips (S3, etc.): excludes DC (0) and guard bands (27-37) = 52 candidates
+        # For C5/C6: excludes only DC (0) = 63 candidates, Noise Gate handles the rest
         all_metrics = []
-        
-        for sc in range(64):
+
+        for sc in self.valid_subcarriers:
             # Extract magnitude series for this subcarrier
             magnitudes = [packet_mags[sc] for packet_mags in baseline_window]
             

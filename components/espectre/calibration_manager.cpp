@@ -17,6 +17,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cerrno>
+#include <limits>
 #include <unistd.h>
 #include "esp_spiffs.h"
 
@@ -337,7 +338,26 @@ void CalibrationManager::calculate_nbvi_metrics_(uint16_t baseline_start,
   
   std::vector<float> subcarrier_magnitudes(window_size_);
   
+  // Determine if this is a WiFi 6 chip (C5/C6) at compile time
+  #if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C5)
+  constexpr bool is_wifi6_chip = true;
+  #else
+  constexpr bool is_wifi6_chip = false;
+  #endif
+  
+  // Only process valid subcarriers
+  // For legacy chips (S3, etc.): exclude DC (0) and guard bands (27-37)
+  // For C5/C6: exclude only DC, Noise Gate handles the rest
   for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
+    if (!is_valid_subcarrier(sc, is_wifi6_chip)) {
+      // Mark null subcarriers with infinite NBVI so they're never selected
+      metrics[sc].subcarrier = sc;
+      metrics[sc].nbvi = std::numeric_limits<float>::infinity();
+      metrics[sc].mean = 0.0f;
+      metrics[sc].std = 0.0f;
+      continue;
+    }
+    
     // Extract magnitude series for this subcarrier from baseline window
     for (uint16_t i = 0; i < window_size_; i++) {
       subcarrier_magnitudes[i] = static_cast<float>(window_data[i * NUM_SUBCARRIERS + sc]);

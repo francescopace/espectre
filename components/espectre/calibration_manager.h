@@ -161,6 +161,26 @@ class CalibrationManager {
   // Constants
   static constexpr uint8_t NUM_SUBCARRIERS = 64;
   static constexpr uint8_t SELECTED_SUBCARRIERS_COUNT = 12;
+  
+  // DC subcarrier is always null on all ESP32 variants
+  static constexpr uint8_t DC_SUBCARRIER = 0;
+  
+  // HT20 null subcarriers for legacy chips (ESP32, S2, S3, C3)
+  // These are the guard bands: DC (0) + guard bands (27-37)
+  static constexpr bool is_ht20_null_subcarrier(uint8_t sc) {
+    return sc == 0 || (sc >= 27 && sc <= 37);
+  }
+  
+  // Check if subcarrier is valid based on chip type
+  // For C5/C6 (WiFi 6): only exclude DC, Noise Gate handles the rest
+  // For legacy chips: exclude DC and guard bands (27-37)
+  static bool is_valid_subcarrier(uint8_t sc, bool is_wifi6_chip = false) {
+    if (is_wifi6_chip) {
+      return sc != DC_SUBCARRIER;
+    } else {
+      return !is_ht20_null_subcarrier(sc);
+    }
+  }
 };
 
 }  // namespace espectre

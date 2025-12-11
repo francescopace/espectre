@@ -308,8 +308,11 @@ class MQTTCommands:
             self.send_response("Factory reset complete. Starting re-calibration...")
             print("Starting re-calibration...")
             
-            # Run calibration
-            success = self.nbvi_calibration_func(self.wlan, self.nvs, self.seg, self.traffic_gen)
+            # Get chip_type from global_state if available
+            chip_type = getattr(self.global_state, 'chip_type', None) if self.global_state else None
+            
+            # Run calibration with chip_type for proper subcarrier filtering
+            success = self.nbvi_calibration_func(self.wlan, self.nvs, self.seg, self.traffic_gen, chip_type)
             
             if success:
                 band = getattr(self.config, 'SELECTED_SUBCARRIERS')

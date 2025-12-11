@@ -53,6 +53,7 @@ class GlobalState:
     def __init__(self):
         self.calibration_mode = False  # Flag to suspend main loop during calibration
         self.loop_time_us = 0  # Last loop iteration time in microseconds
+        self.chip_type = None  # Detected chip type (S3, C6, etc.)
 
 
 g_state = GlobalState()
@@ -118,7 +119,7 @@ def format_progress_bar(score, threshold, width=20):
     return f"{bar} {percent}%"
 
 
-def run_nbvi_calibration(wlan, nvs, seg, traffic_gen):
+def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     """
     Run NBVI calibration
     
@@ -127,6 +128,7 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen):
         nvs: NVSStorage instance
         seg: SegmentationContext instance
         traffic_gen: TrafficGenerator instance
+        chip_type: Chip type ('C5', 'C6', 'S3', etc.) for subcarrier filtering
     
     Returns:
         bool: True if calibration successful
@@ -146,13 +148,15 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen):
     print('Collecting CSI data for automatic subcarrier selection')
     print('')
     
-    # Initialize Subcarrier calibrator
+    # Initialize Subcarrier calibrator with chip-specific subcarrier filtering
     nbvi_calibrator = NBVICalibrator(
         buffer_size=config.NBVI_BUFFER_SIZE,
         percentile=config.NBVI_PERCENTILE,
         alpha=config.NBVI_ALPHA,
-        min_spacing=config.NBVI_MIN_SPACING
+        min_spacing=config.NBVI_MIN_SPACING,
+        chip_type=chip_type
     )
+    print(f'Chip: {chip_type}, valid subcarriers: {len(nbvi_calibrator.valid_subcarriers)}')
     
     # Collect packets for calibration
     calibration_progress = 0
@@ -247,6 +251,7 @@ def main():
     
     # Detect chip type and get CSI scale
     chip_type, csi_scale = detect_chip()
+    g_state.chip_type = chip_type  # Save for MQTT factory_reset
     print(f'Detected chip: {chip_type}, CSI scale: {csi_scale}')
     
     # Connect to WiFi
@@ -288,7 +293,7 @@ def main():
     
     if needs_calibration:
         # Set default fallback before calibration
-        run_nbvi_calibration(wlan, nvs, seg, traffic_gen)
+        run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type)
     else:
         print(f'Using configured subcarriers: {config.SELECTED_SUBCARRIERS}')
     
