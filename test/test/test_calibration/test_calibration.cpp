@@ -160,7 +160,8 @@ void test_calibration_manager_full_calibration(void) {
     
     // Start calibration
     esp_err_t err = cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, bool success) {
+        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+            (void)normalization_scale;  // Not tested here
             if (success && size > 0) {
                 memcpy(result_band, band, size);
                 result_size = size;
@@ -210,7 +211,8 @@ void test_calibration_manager_alpha_affects_selection(void) {
     uint8_t size1 = 0;
     
     cm1.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, bool success) {
+        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+            (void)normalization_scale;
             if (success) { memcpy(band1, band, size); size1 = size; }
         });
     
@@ -233,7 +235,8 @@ void test_calibration_manager_alpha_affects_selection(void) {
     uint8_t size2 = 0;
     
     cm2.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, bool success) {
+        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+            (void)normalization_scale;
             if (success) { memcpy(band2, band, size); size2 = size; }
         });
     
@@ -264,7 +267,8 @@ void test_calibration_manager_percentile_affects_baseline(void) {
     bool calibration_success = false;
     
     cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, bool success) {
+        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+            (void)band; (void)size; (void)normalization_scale;
             calibration_success = success;
         });
     
@@ -295,7 +299,8 @@ void test_calibration_manager_noise_gate(void) {
     uint8_t result_size = 0;
     
     cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, bool success) {
+        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+            (void)normalization_scale;
             if (success) { memcpy(result_band, band, size); result_size = size; }
         });
     

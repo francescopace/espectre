@@ -138,7 +138,7 @@ void CalibrationManager::on_collection_complete_() {
   if (!open_buffer_file_for_reading_()) {
     ESP_LOGE(TAG, "Failed to open buffer file for reading");
     if (result_callback_) {
-      result_callback_(nullptr, 0, false);
+      result_callback_(nullptr, 0, 1.0f, false);
     }
     calibrating_ = false;
     csi_manager_->set_calibration_mode(nullptr);
@@ -150,9 +150,9 @@ void CalibrationManager::on_collection_complete_() {
   
   bool success = (err == ESP_OK && selected_band_size_ == SELECTED_SUBCARRIERS_COUNT);
   
-  // Call user callback with results
+  // Call user callback with results (including normalization scale)
   if (result_callback_) {
-    result_callback_(selected_band_, selected_band_size_, success);
+    result_callback_(selected_band_, selected_band_size_, normalization_scale_, success);
   }
   
   // Cleanup
@@ -225,12 +225,24 @@ esp_err_t CalibrationManager::run_calibration_() {
   avg_nbvi /= SELECTED_SUBCARRIERS_COUNT;
   avg_mean /= SELECTED_SUBCARRIERS_COUNT;
   
+  // Calculate normalization scale to bring all devices to a common scale
+  // This compensates for different CSI amplitude ranges across ESP32 variants (S3, C6, etc.)
+  if (avg_mean > 1.0f) {
+    normalization_scale_ = NORMALIZATION_TARGET_MEAN / avg_mean;
+    // Clamp to reasonable range
+    if (normalization_scale_ < 0.1f) normalization_scale_ = 0.1f;
+    if (normalization_scale_ > 10.0f) normalization_scale_ = 10.0f;
+  } else {
+    normalization_scale_ = 1.0f;  // Fallback if mean is too low
+  }
+  
   ESP_LOGI(TAG, "✓ Calibration successful: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d]",
            selected_band_[0], selected_band_[1], selected_band_[2], selected_band_[3],
            selected_band_[4], selected_band_[5], selected_band_[6], selected_band_[7],
            selected_band_[8], selected_band_[9], selected_band_[10], selected_band_[11]);
   ESP_LOGD(TAG, "  Average NBVI: %.6f", avg_nbvi);
   ESP_LOGD(TAG, "  Average magnitude: %.2f", avg_mean);
+  ESP_LOGI(TAG, "  Normalization scale: %.3f (target: %.0f)", normalization_scale_, NORMALIZATION_TARGET_MEAN);
   
   return ESP_OK;
 }
@@ -337,27 +349,11 @@ void CalibrationManager::calculate_nbvi_metrics_(uint16_t baseline_start,
   }
   
   std::vector<float> subcarrier_magnitudes(window_size_);
+  uint8_t null_count = 0;
   
-  // Determine if this is a WiFi 6 chip (C5/C6) at compile time
-  #if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C5)
-  constexpr bool is_wifi6_chip = true;
-  #else
-  constexpr bool is_wifi6_chip = false;
-  #endif
-  
-  // Only process valid subcarriers
-  // For legacy chips (S3, etc.): exclude DC (0) and guard bands (27-37)
-  // For C5/C6: exclude only DC, Noise Gate handles the rest
+  // Process ALL subcarriers - detect null ones dynamically based on signal strength
+  // This is environment-aware: works with any chip and adapts to local RF conditions
   for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
-    if (!is_valid_subcarrier(sc, is_wifi6_chip)) {
-      // Mark null subcarriers with infinite NBVI so they're never selected
-      metrics[sc].subcarrier = sc;
-      metrics[sc].nbvi = std::numeric_limits<float>::infinity();
-      metrics[sc].mean = 0.0f;
-      metrics[sc].std = 0.0f;
-      continue;
-    }
-    
     // Extract magnitude series for this subcarrier from baseline window
     for (uint16_t i = 0; i < window_size_; i++) {
       subcarrier_magnitudes[i] = static_cast<float>(window_data[i * NUM_SUBCARRIERS + sc]);
@@ -366,21 +362,39 @@ void CalibrationManager::calculate_nbvi_metrics_(uint16_t baseline_start,
     // Calculate NBVI
     metrics[sc].subcarrier = sc;
     calculate_nbvi_weighted_(subcarrier_magnitudes, metrics[sc]);
+    
+    // Auto-detect null subcarriers: if mean < threshold, mark as invalid
+    // This catches hardware nulls (DC, guard bands) and environment-specific issues
+    if (metrics[sc].mean < NULL_SUBCARRIER_THRESHOLD) {
+      metrics[sc].nbvi = std::numeric_limits<float>::infinity();
+      null_count++;
+    }
   }
+  
+  ESP_LOGD(TAG, "Auto-detected %d null subcarriers (threshold: %.1f)", 
+           null_count, NULL_SUBCARRIER_THRESHOLD);
 }
 
 uint8_t CalibrationManager::apply_noise_gate_(std::vector<NBVIMetrics>& metrics) {
   if (metrics.empty()) return 0;
   
-  // Extract means and sort
-  std::vector<float> means(metrics.size());
+  // Extract NON-ZERO means only (skip invalid subcarriers with mean=0)
+  std::vector<float> valid_means;
+  valid_means.reserve(metrics.size());
   for (size_t i = 0; i < metrics.size(); i++) {
-    means[i] = metrics[i].mean;
+    if (metrics[i].mean > 1.0f) {  // Only consider subcarriers with actual signal
+      valid_means.push_back(metrics[i].mean);
+    }
   }
   
-  std::sort(means.begin(), means.end());
+  if (valid_means.empty()) {
+    ESP_LOGW(TAG, "Noise Gate: No valid subcarriers found");
+    return 0;
+  }
   
-  float threshold = calculate_percentile_(means, noise_gate_percentile_);
+  std::sort(valid_means.begin(), valid_means.end());
+  
+  float threshold = calculate_percentile_(valid_means, noise_gate_percentile_);
   
   // Filter metrics (move valid ones to front)
   auto new_end = std::remove_if(metrics.begin(), metrics.end(),
@@ -391,8 +405,8 @@ uint8_t CalibrationManager::apply_noise_gate_(std::vector<NBVIMetrics>& metrics)
   uint8_t filtered_count = std::distance(metrics.begin(), new_end);
   uint8_t excluded = metrics.size() - filtered_count;
   
-  ESP_LOGD(TAG, "Noise Gate: %d subcarriers excluded (threshold: %.2f)",
-           excluded, threshold);
+  ESP_LOGD(TAG, "Noise Gate: %d subcarriers excluded (threshold: %.2f, valid: %zu)",
+           excluded, threshold, valid_means.size());
   
   return filtered_count;
 }
@@ -503,16 +517,16 @@ void CalibrationManager::calculate_nbvi_weighted_(const std::vector<float>& magn
   
   // Calculate standard deviation
   float variance = calculate_variance_two_pass(magnitudes.data(), count);
-  float std = std::sqrt(variance);
+  float stddev = std::sqrt(variance);
   
   // NBVI Weighted α=0.3
-  float cv = std / mean;                      // Coefficient of variation
-  float nbvi_energy = std / (mean * mean);    // Energy normalization
+  float cv = stddev / mean;                      // Coefficient of variation
+  float nbvi_energy = stddev / (mean * mean);    // Energy normalization
   float nbvi_weighted = alpha_ * nbvi_energy + (1.0f - alpha_) * cv;
   
   out_metrics.nbvi = nbvi_weighted;
   out_metrics.mean = mean;
-  out_metrics.std = std;
+  out_metrics.std = stddev;
 }
 
 // ============================================================================

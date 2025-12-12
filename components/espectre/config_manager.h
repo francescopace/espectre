@@ -21,14 +21,22 @@ namespace espectre {
  * 
  * Stores all configurable parameters for ESPectre.
  * Persisted to flash using ESPHome preferences.
+ * Fields ordered by size to minimize struct padding.
+ * 
+ * Note: Changes to this struct require updating the preference hash
+ * in espectre.cpp to avoid loading stale data.
  */
 struct ESpectreConfig {
+  // 4-byte fields first
   float segmentation_threshold;
-  uint16_t segmentation_window_size;
-  uint32_t traffic_generator_rate;
-  bool hampel_enabled;
-  uint8_t hampel_window;
   float hampel_threshold;
+  float normalization_scale;        // CSI amplitude normalization factor (default: 1.0)
+  uint32_t traffic_generator_rate;
+  // 2-byte fields
+  uint16_t segmentation_window_size;
+  // 1-byte fields last
+  uint8_t hampel_window;
+  bool hampel_enabled;
 };
 
 /**

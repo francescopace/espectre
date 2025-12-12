@@ -42,7 +42,8 @@ class SegmentationContext:
                  hampel_window=7,
                  hampel_threshold=4.0,
                  enable_features=False,
-                 feature_min_confidence=0.5):
+                 feature_min_confidence=0.5,
+                 normalization_scale=1.0):
         """
         Initialize segmentation context
         
@@ -54,9 +55,11 @@ class SegmentationContext:
             hampel_threshold: Hampel filter threshold in MAD units (default: 4.0)
             enable_features: Enable feature extraction at publish time (default: False)
             feature_min_confidence: Minimum confidence for feature detector (default: 0.5)
+            normalization_scale: Amplitude normalization factor (default: 1.0)
         """
         self.window_size = window_size
         self.threshold = threshold
+        self.normalization_scale = normalization_scale
         
         # Turbulence circular buffer (pre-allocated)
         self.turbulence_buffer = [0.0] * window_size
@@ -219,6 +222,15 @@ class SegmentationContext:
         # Delegate to static method
         return self.compute_variance_two_pass(self.turbulence_buffer[:self.buffer_count])
     
+    def set_normalization_scale(self, scale):
+        """
+        Set normalization scale factor
+        
+        Args:
+            scale: Normalization scale (calculated during calibration)
+        """
+        self.normalization_scale = max(0.1, min(10.0, scale))
+    
     def add_turbulence(self, turbulence):
         """
         Add turbulence value and update segmentation state
@@ -228,14 +240,17 @@ class SegmentationContext:
         Args:
             turbulence: Spatial turbulence value
         """
+        # Apply normalization scale (compensates for different CSI amplitude scales across ESP32 variants)
+        normalized_turbulence = turbulence * self.normalization_scale
+        
         # Apply Hampel filter if enabled
-        filtered_turbulence = turbulence
+        filtered_turbulence = normalized_turbulence
         if self.hampel_filter is not None:
             try:
-                filtered_turbulence = self.hampel_filter.filter(turbulence)
+                filtered_turbulence = self.hampel_filter.filter(normalized_turbulence)
             except Exception as e:
                 print(f"[ERROR] Hampel filter failed: {e}")
-                filtered_turbulence = turbulence
+                filtered_turbulence = normalized_turbulence
         
         self.last_turbulence = filtered_turbulence
         

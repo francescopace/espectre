@@ -27,8 +27,10 @@ void ESpectreComponent::setup() {
   this->wifi_lifecycle_.init();
   
   // 1. Initialize configuration manager (load config before initializing managers)
+  // Note: hash changed to "espectre_cfg_v3" for normalization_scale field addition
+  // Previous versions: "espectre_cfg" (v1), "espectre_cfg_v2" (v2.2.0 struct reorder)
   this->config_manager_.init(
-      global_preferences->make_preference<ESpectreConfig>(fnv1_hash("espectre_cfg"))
+      global_preferences->make_preference<ESpectreConfig>(fnv1_hash("espectre_cfg_v3"))
   );
   
   // 2. Load configuration from preferences
@@ -40,6 +42,9 @@ void ESpectreComponent::setup() {
     this->hampel_enabled_ = config.hampel_enabled;
     this->hampel_window_ = config.hampel_window;
     this->hampel_threshold_ = config.hampel_threshold;
+    // Load normalization scale (use 1.0 if not set or invalid)
+    this->normalization_scale_ = (config.normalization_scale > 0.0f && config.normalization_scale <= 10.0f) 
+                                  ? config.normalization_scale : 1.0f;
   }
   
   // 3. Initialize CSI processor (allocates buffer internally)
@@ -49,6 +54,9 @@ void ESpectreComponent::setup() {
     ESP_LOGE(TAG, "Failed to initialize CSI processor");
     return;  // Component initialization failed
   }
+  
+  // Apply loaded normalization scale (will be recalculated during calibration if needed)
+  csi_processor_set_normalization_scale(&this->csi_processor_, this->normalization_scale_);
   
   // 4. Initialize managers (each manager handles its own internal initialization)
   this->calibration_manager_.init(&this->csi_manager_);
@@ -98,7 +106,7 @@ void ESpectreComponent::on_wifi_connected_() {
   }
   
   // Start traffic generator
-  ESP_LOGD(TAG, "Startingtart traffic generator (rate: %u pps)...", this->traffic_generator_rate_);
+  ESP_LOGD(TAG, "Starting traffic generator (rate: %u pps)...", this->traffic_generator_rate_);
   if (!this->traffic_generator_.is_running()) {
     if (!this->traffic_generator_.start()) {
       ESP_LOGW(TAG, "Failed to start traffic generator");
@@ -114,10 +122,27 @@ void ESpectreComponent::on_wifi_connected_() {
     this->calibration_manager_.start_auto_calibration(
       this->selected_subcarriers_,
       12,  // Always 12 subcarriers
-      [this](const uint8_t* band, uint8_t size, bool success) {
+      [this](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
         if (success) {
           memcpy(this->selected_subcarriers_, band, size);
           this->csi_manager_.update_subcarrier_selection(band);
+          // Apply normalization scale to compensate for different ESP32 CSI amplitude ranges
+          this->normalization_scale_ = normalization_scale;
+          csi_processor_set_normalization_scale(&this->csi_processor_, normalization_scale);
+          
+          // Clear buffer to avoid stale calibration data causing high initial values
+          csi_processor_clear_buffer(&this->csi_processor_);
+          
+          // Save calibration results to preferences (including normalization scale)
+          ESpectreConfig config;
+          config.segmentation_threshold = this->segmentation_threshold_;
+          config.segmentation_window_size = this->segmentation_window_size_;
+          config.traffic_generator_rate = this->traffic_generator_rate_;
+          config.hampel_enabled = this->hampel_enabled_;
+          config.hampel_window = this->hampel_window_;
+          config.hampel_threshold = this->hampel_threshold_;
+          config.normalization_scale = normalization_scale;
+          this->config_manager_.save(config);
         }
       }
     );
@@ -164,6 +189,7 @@ void ESpectreComponent::set_threshold_runtime(float threshold) {
   config.hampel_enabled = this->hampel_enabled_;
   config.hampel_window = this->hampel_window_;
   config.hampel_threshold = this->hampel_threshold_;
+  config.normalization_scale = this->normalization_scale_;
   this->config_manager_.save(config);
   
   ESP_LOGI(TAG, "Threshold updated to %.2f (saved to flash)", threshold);
@@ -181,7 +207,8 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f", this->segmentation_threshold_);
-  ESP_LOGCONFIG(TAG, " └─ Window ............. %d pkts", this->segmentation_window_size_);
+  ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", this->segmentation_window_size_);
+  ESP_LOGCONFIG(TAG, " └─ Norm. Scale ........ %.3f", this->normalization_scale_);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
                 this->selected_subcarriers_[0], this->selected_subcarriers_[1],

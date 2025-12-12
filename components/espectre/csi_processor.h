@@ -70,29 +70,24 @@ enum csi_motion_state_t {
 // ============================================================================
 
 // Unified CSI processor context (combines feature extraction + motion detection)
+// Fields ordered by size to minimize padding (pointers/32-bit first, then 16-bit, then 8-bit)
 struct csi_processor_context_t {
-    // Turbulence circular buffer (pointer to buffer allocated by owner)
-    // Buffer size must be at least window_size elements
-    float *turbulence_buffer;
-    uint16_t buffer_index;
-    uint16_t buffer_count;
+    // 32-bit aligned fields first (pointers, floats, uint32_t)
+    float *turbulence_buffer;           // Turbulence circular buffer (allocated by owner)
+    float current_moving_variance;      // Moving variance state
+    float threshold;                    // Motion detection threshold value
+    float normalization_scale;          // Amplitude normalization factor (default: 1.0)
+    uint32_t packet_index;              // Global packet counter
+    uint32_t total_packets_processed;   // Statistics
+    csi_motion_state_t state;           // State machine (enum = 4 bytes)
     
-    // Hampel filter state for turbulence preprocessing
-    hampel_turbulence_state_t hampel_state;
+    // 16-bit fields grouped together
+    uint16_t buffer_index;              // Circular buffer write index
+    uint16_t buffer_count;              // Number of values in buffer
+    uint16_t window_size;               // Moving variance window size (packets)
     
-    // Moving variance state
-    float current_moving_variance;
-    
-    // Configurable parameters
-    uint16_t window_size;        // Moving variance window size (packets)
-    float threshold;             // Motion detection threshold value
-    
-    // State machine
-    csi_motion_state_t state;
-    uint32_t packet_index;         // Global packet counter
-    
-    // Statistics
-    uint32_t total_packets_processed;
+    // Large struct last (already internally aligned)
+    hampel_turbulence_state_t hampel_state;  // Hampel filter state for preprocessing
 };
 
 // ============================================================================
@@ -145,6 +140,20 @@ void csi_process_packet(csi_processor_context_t *ctx,
 void csi_processor_reset(csi_processor_context_t *ctx);
 
 /**
+ * Clear turbulence buffer and reset to cold start
+ * 
+ * Call this after calibration to avoid stale data causing
+ * high initial movement values. Clears:
+ * - Turbulence buffer (all zeros)
+ * - Buffer index and count
+ * - Moving variance
+ * - Hampel filter state
+ * 
+ * @param ctx CSI processor context
+ */
+void csi_processor_clear_buffer(csi_processor_context_t *ctx);
+
+/**
  * Cleanup CSI processor context (deallocate buffer)
  * 
  * Deallocates the turbulence buffer allocated by csi_processor_init().
@@ -166,6 +175,26 @@ void csi_processor_cleanup(csi_processor_context_t *ctx);
  * @return true if value is valid and was set
  */
 bool csi_processor_set_threshold(csi_processor_context_t *ctx, float threshold);
+
+/**
+ * Set normalization scale factor
+ * 
+ * This factor is applied to turbulence values to normalize CSI amplitudes
+ * across different ESP32 variants (S3, C6, etc.). Calculated during
+ * calibration as TARGET_MEAN / avg_mean.
+ * 
+ * @param ctx CSI processor context
+ * @param scale Normalization scale factor (default: 1.0)
+ */
+void csi_processor_set_normalization_scale(csi_processor_context_t *ctx, float scale);
+
+/**
+ * Get current normalization scale factor
+ * 
+ * @param ctx CSI processor context
+ * @return Current normalization scale (1.0 if not set)
+ */
+float csi_processor_get_normalization_scale(const csi_processor_context_t *ctx);
 
 // ============================================================================
 // PARAMETER GETTERS

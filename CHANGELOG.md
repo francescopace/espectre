@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 ---
 
 ## [2.2.0] - in progress
+### 📐 CSI Amplitude Auto-Normalization
+
+**Automatic cross-device CSI amplitude normalization**
+
+Different ESP32 variants (S3, C6, etc.) produce CSI data with different amplitude ranges. This release introduces automatic normalization during calibration to ensure consistent motion detection behavior across all devices.
+
+#### Auto-Normalization Feature
+- **Automatic scale calculation**: During NBVI calibration, the average amplitude of selected subcarriers is used to calculate a normalization factor
+- **Cross-device consistency**: All devices are normalized to a common reference scale (target mean: 50)
+- **Persistent storage**: Normalization scale saved to NVS alongside calibration results
+- **No manual tuning required**: Replaces the need for manual `shift` parameter adjustments
+
+#### Implementation Details
+- **New field**: `normalization_scale` in `csi_processor_context_t` and `ESpectreConfig`
+- **New functions**: `csi_processor_set_normalization_scale()`, `csi_processor_get_normalization_scale()`
+- **Calibration callback**: Now includes `normalization_scale` parameter
+- **Config version bump**: `espectre_cfg_v2` → `espectre_cfg_v3` for struct compatibility
+
+#### How It Works
+1. During calibration, average magnitude of selected subcarriers is calculated
+2. Normalization scale = `TARGET_MEAN (50.0) / avg_magnitude`
+3. Scale is applied to turbulence values before motion detection
+4. Devices with higher raw amplitudes get lower scale factors, and vice versa
+
+### 🎯 Dynamic Null Subcarrier Detection
+
+**Environment-aware null subcarrier detection during calibration**
+
+#### Problem Solved
+- Different ESP32 chip variants have different null subcarrier patterns (hardware-specific)
+- Hardcoded exclusion lists required chip identification and manual maintenance
+- Environmental factors can also affect which subcarriers are usable
+
+#### Solution
+- **Dynamic detection**: Subcarriers with mean amplitude < 1.0 are automatically marked as null
+- **Environment-aware**: Works with any chip type and adapts to local RF conditions
+- **Simplified code**: Removed hardcoded `HT20_NULL_SUBCARRIERS` and `WIFI6_NULL_SUBCARRIERS` lists
+- **Robust filtering**: Noise Gate percentile calculated only on valid subcarriers (mean > 1.0)
+
+#### Implementation
+- C++: `calibration_manager.cpp` now processes all 64 subcarriers and marks nulls based on `NULL_SUBCARRIER_THRESHOLD`
+- Python: `nbvi_calibrator.py` uses the same dynamic approach
+- Log output shows how many null subcarriers were auto-detected
 
 ### 🤖 ML Data Collection Infrastructure
 
@@ -25,6 +68,28 @@ This release lays the groundwork for advanced Wi-Fi sensing features (gesture re
   - `CSIReceiver`: Real-time UDP packet reception from ESP32
   - `CSICollector`: Labeled sample recording with metadata
   - `MVSDetector`: Wrapper around production `SegmentationContext`
+
+### ⚡ CSI Initialization & Memory Optimization
+
+**Reviewed c++ implementation for improved reliability and performance**
+
+#### WiFi Protocol Configuration
+- **Platform-specific WiFi protocol**: `esp_wifi_set_protocol()` now called explicitly
+  - ESP32-C5/C6: WiFi 6 (802.11ax) enabled for improved CSI precision
+  - ESP32/S2/S3/C3: WiFi 4 (802.11b/g/n)
+- **Correct initialization order**: protocol → bandwidth → promiscuous (per ESP-IDF requirements)
+
+#### CSI Lifecycle Fixes
+- **Callback deregistration**: `CSIManager::disable()` now properly unregisters callback with `set_csi_rx_cb(nullptr, nullptr)`
+- **Prevents memory leaks** and potential crashes on WiFi reconnect
+
+#### Performance Optimizations
+- **`IRAM_ATTR`**: CSI callback wrapper kept in IRAM for consistent low-latency execution
+- **Struct padding optimization**: `csi_processor_context_t` fields reordered by size to minimize padding (~4-8 bytes saved)
+- **`volatile` for ISR counter**: `packets_processed_` marked volatile for correct ISR access
+
+#### Test Infrastructure
+- **New mock**: `esp_attr.h` for native testing support
 
 ---
 
@@ -170,8 +235,8 @@ The test suite has been migrated from ESP-IDF's Unity framework to PlatformIO Un
 | `test_motion_detection` | 3 | MVS performance with real CSI data (2000 packets) |
 
 ```bash
-# Run tests locally
-cd test && pio test -e native
+# Run tests locally (native is the default environment)
+cd test && pio test
 ```
 
 ### 🔄 CI/CD Pipeline
