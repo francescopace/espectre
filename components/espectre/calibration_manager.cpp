@@ -503,16 +503,16 @@ void CalibrationManager::calculate_nbvi_weighted_(const std::vector<float>& magn
   
   // Calculate standard deviation
   float variance = calculate_variance_two_pass(magnitudes.data(), count);
-  float std = std::sqrt(variance);
+  float stddev = std::sqrt(variance);
   
   // NBVI Weighted α=0.3
-  float cv = std / mean;                      // Coefficient of variation
-  float nbvi_energy = std / (mean * mean);    // Energy normalization
+  float cv = stddev / mean;                      // Coefficient of variation
+  float nbvi_energy = stddev / (mean * mean);    // Energy normalization
   float nbvi_weighted = alpha_ * nbvi_energy + (1.0f - alpha_) * cv;
   
   out_metrics.nbvi = nbvi_weighted;
   out_metrics.mean = mean;
-  out_metrics.std = std;
+  out_metrics.std = stddev;
 }
 
 // ============================================================================

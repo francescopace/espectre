@@ -65,7 +65,7 @@ class TrafficGeneratorManager {
   TaskHandle_t task_handle_{nullptr};
   int sock_{-1};
   uint32_t rate_pps_{0};
-  bool running_{false};
+  volatile bool running_{false};  // volatile: accessed from main task and FreeRTOS task
 };
 
 }  // namespace espectre

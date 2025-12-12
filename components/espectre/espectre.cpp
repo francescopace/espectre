@@ -27,8 +27,10 @@ void ESpectreComponent::setup() {
   this->wifi_lifecycle_.init();
   
   // 1. Initialize configuration manager (load config before initializing managers)
+  // Note: hash changed from "espectre_cfg" to "espectre_cfg_v2" in v2.2.0
+  // due to ESpectreConfig struct reordering for padding optimization
   this->config_manager_.init(
-      global_preferences->make_preference<ESpectreConfig>(fnv1_hash("espectre_cfg"))
+      global_preferences->make_preference<ESpectreConfig>(fnv1_hash("espectre_cfg_v2"))
   );
   
   // 2. Load configuration from preferences
@@ -98,7 +100,7 @@ void ESpectreComponent::on_wifi_connected_() {
   }
   
   // Start traffic generator
-  ESP_LOGD(TAG, "Startingtart traffic generator (rate: %u pps)...", this->traffic_generator_rate_);
+  ESP_LOGD(TAG, "Starting traffic generator (rate: %u pps)...", this->traffic_generator_rate_);
   if (!this->traffic_generator_.is_running()) {
     if (!this->traffic_generator_.start()) {
       ESP_LOGW(TAG, "Failed to start traffic generator");
