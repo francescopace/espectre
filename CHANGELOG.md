@@ -5,7 +5,6 @@ All notable changes to this project will be documented in this file.
 ---
 
 ## [2.2.0] - in progress
-
 ### 🤖 ML Data Collection Infrastructure
 
 **New tools for building labeled CSI datasets for machine learning**
@@ -25,6 +24,28 @@ This release lays the groundwork for advanced Wi-Fi sensing features (gesture re
   - `CSIReceiver`: Real-time UDP packet reception from ESP32
   - `CSICollector`: Labeled sample recording with metadata
   - `MVSDetector`: Wrapper around production `SegmentationContext`
+
+### ⚡ CSI Initialization & Memory Optimization
+
+**Reviewed c++ implementation for improved reliability and performance**
+
+#### WiFi Protocol Configuration
+- **Platform-specific WiFi protocol**: `esp_wifi_set_protocol()` now called explicitly
+  - ESP32-C5/C6: WiFi 6 (802.11ax) enabled for improved CSI precision
+  - ESP32/S2/S3/C3: WiFi 4 (802.11b/g/n)
+- **Correct initialization order**: protocol → bandwidth → promiscuous (per ESP-IDF requirements)
+
+#### CSI Lifecycle Fixes
+- **Callback deregistration**: `CSIManager::disable()` now properly unregisters callback with `set_csi_rx_cb(nullptr, nullptr)`
+- **Prevents memory leaks** and potential crashes on WiFi reconnect
+
+#### Performance Optimizations
+- **`IRAM_ATTR`**: CSI callback wrapper kept in IRAM for consistent low-latency execution
+- **Struct padding optimization**: `csi_processor_context_t` fields reordered by size to minimize padding (~4-8 bytes saved)
+- **`volatile` for ISR counter**: `packets_processed_` marked volatile for correct ISR access
+
+#### Test Infrastructure
+- **New mock**: `esp_attr.h` for native testing support
 
 ---
 
@@ -170,8 +191,8 @@ The test suite has been migrated from ESP-IDF's Unity framework to PlatformIO Un
 | `test_motion_detection` | 3 | MVS performance with real CSI data (2000 packets) |
 
 ```bash
-# Run tests locally
-cd test && pio test -e native
+# Run tests locally (native is the default environment)
+cd test && pio test
 ```
 
 ### 🔄 CI/CD Pipeline

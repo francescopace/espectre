@@ -8,11 +8,11 @@ Test suite based on **PlatformIO Unity** to validate ESPectre CSI algorithms.
 # Activate virtualenv
 source ../venv/bin/activate
 
-# Run all tests locally (native)
-cd test && pio test -e native
+# Run all tests (native is the default environment)
+cd test && pio test
 
 # Run specific suite
-pio test -e native -f test_motion_detection
+pio test -f test_motion_detection
 
 # Run on ESP32-C6 device
 pio test -e esp32c6

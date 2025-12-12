@@ -17,9 +17,45 @@ static const char *TAG = "WiFiLifecycle";
   
 // Configure WiFi for optimal CSI capture
 esp_err_t WiFiLifecycleManager::init() {
-    
-  esp_wifi_set_promiscuous(false); // false default, just to be sure
-  esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20); // HT20 required for 64 subcarriers
+  esp_err_t ret;
+  
+  // Configure WiFi protocol mode (MUST be done before CSI configuration)
+  // This initializes internal WiFi structures required for CSI
+#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C5
+  // ESP32-C5/C6: Enable WiFi 6 (802.11ax) for improved CSI precision
+  ret = esp_wifi_set_protocol(WIFI_IF_STA,
+      WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G |
+      WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AX);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to set WiFi protocol: 0x%x", ret);
+    return ret;
+  }
+  ESP_LOGI(TAG, "WiFi protocol set to 802.11b/g/n/ax (WiFi 6 enabled)");
+#else
+  // ESP32, ESP32-S2, ESP32-S3, ESP32-C3: WiFi 4 only (802.11b/g/n)
+  ret = esp_wifi_set_protocol(WIFI_IF_STA,
+      WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to set WiFi protocol: 0x%x", ret);
+    return ret;
+  }
+  ESP_LOGI(TAG, "WiFi protocol set to 802.11b/g/n");
+#endif
+
+  // Configure bandwidth (HT20 for 64 subcarriers, more stable than HT40)
+  ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to set bandwidth: 0x%x", ret);
+    // Non-fatal: continue anyway
+  }
+
+  // IMPORTANT: Promiscuous mode MUST be called BEFORE configuring CSI
+  // This initializes internal WiFi structures required for CSI, even when set to false
+  ret = esp_wifi_set_promiscuous(false);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to set promiscuous mode: 0x%x", ret);
+    return ret;
+  }
 
   return ESP_OK;
 }

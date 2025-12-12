@@ -12,6 +12,7 @@
 
 #include "esp_wifi.h"
 #include "esp_err.h"
+#include "esp_attr.h"  // For IRAM_ATTR
 #include "csi_processor.h"
 #include "wifi_csi_interface.h"
 #include <functional>
@@ -113,7 +114,8 @@ class CSIManager {
   
  private:
   // Static wrapper for ESP-IDF C callback
-  static void csi_rx_callback_wrapper_(void* ctx, wifi_csi_info_t* data);
+  // IRAM_ATTR: Keep in IRAM for consistent low-latency execution from ISR context
+  static void IRAM_ATTR csi_rx_callback_wrapper_(void* ctx, wifi_csi_info_t* data);
   
   bool enabled_{false};
   csi_processor_context_t* processor_{nullptr};
@@ -121,7 +123,7 @@ class CSIManager {
   CalibrationManager* calibrator_{nullptr};
   csi_processed_callback_t packet_callback_;
   uint32_t publish_rate_{100};
-  uint32_t packets_processed_{0};
+  volatile uint32_t packets_processed_{0};  // volatile: modified from ISR callback
   
   // WiFi CSI interface (injected or default real implementation)
   IWiFiCSI* wifi_csi_{nullptr};

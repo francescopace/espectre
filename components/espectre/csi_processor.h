@@ -70,29 +70,23 @@ enum csi_motion_state_t {
 // ============================================================================
 
 // Unified CSI processor context (combines feature extraction + motion detection)
+// Fields ordered by size to minimize padding (pointers/32-bit first, then 16-bit, then 8-bit)
 struct csi_processor_context_t {
-    // Turbulence circular buffer (pointer to buffer allocated by owner)
-    // Buffer size must be at least window_size elements
-    float *turbulence_buffer;
-    uint16_t buffer_index;
-    uint16_t buffer_count;
+    // 32-bit aligned fields first (pointers, floats, uint32_t)
+    float *turbulence_buffer;           // Turbulence circular buffer (allocated by owner)
+    float current_moving_variance;      // Moving variance state
+    float threshold;                    // Motion detection threshold value
+    uint32_t packet_index;              // Global packet counter
+    uint32_t total_packets_processed;   // Statistics
+    csi_motion_state_t state;           // State machine (enum = 4 bytes)
     
-    // Hampel filter state for turbulence preprocessing
-    hampel_turbulence_state_t hampel_state;
+    // 16-bit fields grouped together
+    uint16_t buffer_index;              // Circular buffer write index
+    uint16_t buffer_count;              // Number of values in buffer
+    uint16_t window_size;               // Moving variance window size (packets)
     
-    // Moving variance state
-    float current_moving_variance;
-    
-    // Configurable parameters
-    uint16_t window_size;        // Moving variance window size (packets)
-    float threshold;             // Motion detection threshold value
-    
-    // State machine
-    csi_motion_state_t state;
-    uint32_t packet_index;         // Global packet counter
-    
-    // Statistics
-    uint32_t total_packets_processed;
+    // Large struct last (already internally aligned)
+    hampel_turbulence_state_t hampel_state;  // Hampel filter state for preprocessing
 };
 
 // ============================================================================

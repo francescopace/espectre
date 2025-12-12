@@ -9,6 +9,7 @@
 #include "calibration_manager.h"
 #include "esphome/core/log.h"
 #include "esp_timer.h"
+#include "esp_attr.h"  // For IRAM_ATTR
 
 namespace esphome {
 namespace espectre {
@@ -92,8 +93,8 @@ void CSIManager::process_packet(wifi_csi_info_t* data,
 }
 
 // Static wrapper for ESP-IDF C callback
-void CSIManager::csi_rx_callback_wrapper_(void* ctx, wifi_csi_info_t* data) {
-  
+// IRAM_ATTR: Keep in IRAM for consistent low-latency execution from ISR context
+void IRAM_ATTR CSIManager::csi_rx_callback_wrapper_(void* ctx, wifi_csi_info_t* data) {
   CSIManager* manager = static_cast<CSIManager*>(ctx);
   if (manager && data) {
     // Process packet directly in the manager
@@ -142,15 +143,23 @@ esp_err_t CSIManager::disable() {
     return ESP_OK;
   }
   
-  // Disable CSI (using injected interface)
+  // Disable CSI first to stop new callbacks from being invoked
   esp_err_t err = wifi_csi_->set_csi(false);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to disable CSI: %s", esp_err_to_name(err));
     return err;
   }
   
+  // Then unregister callback (safe now that CSI is disabled)
+  err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to unregister CSI callback: %s", esp_err_to_name(err));
+    return err;
+  }
+  
   enabled_ = false;
-  ESP_LOGI(TAG, "CSI disabled");
+  packet_callback_ = nullptr;
+  ESP_LOGI(TAG, "CSI disabled and callback unregistered");
   
   return ESP_OK;
 }
