@@ -316,16 +316,11 @@ For CSI streaming, labeled data collection, and ML dataset creation:
 
 ```
 micro-espectre/
+├── data/                      # Collected CSI datasets (.npz files)
 ├── firmware/                  # Downloaded firmware cache (gitignored)
 ├── src/                       # Main package
-│   ├── main.py                # Main application entry point
-│   ├── csi_streamer.py        # UDP streaming for real-time CSI data
-│   └── ...
+├── tests/                     # Pytest test suite
 ├── tools/                     # Analysis and optimization tools
-│   ├── csi_utils.py           # CSI utilities (receiver, collector, MVS)
-│   ├── data/                  # Collected CSI datasets (.npz files)
-│   ├── 1_analyze_raw_data.py  # Raw CSI data visualization
-│   └── ...
 ├── requirements.txt           # Python dependencies
 ├── espectre-monitor.html      # Web Monitor: real-time analysis & configuration
 ├── espectre-theremin.html     # Audio sonification tool (experimental)
@@ -341,9 +336,55 @@ micro-espectre/
 - **`firmware/`**: Downloaded firmware cache (auto-created on first flash)
 - **`src/`**: Core Python implementation of motion detection algorithms
 - **`src/csi_streamer.py`**: UDP streaming module for real-time CSI data
+- **`tests/`**: Pytest test suite for all core modules
 - **`tools/`**: Analysis scripts for algorithm development and validation
 - **`tools/csi_utils.py`**: CSI utilities (receiver, collector, MVS detector) for PC-side processing
 - **`ML_DATA_COLLECTION.md`**: Guide for collecting labeled CSI datasets for ML
+
+## 🧪 Testing
+
+Micro-ESPectre includes a comprehensive test suite using pytest.
+
+### Running Tests
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ -v --cov=src --cov-report=term-missing
+
+# Run specific test file
+pytest tests/test_filters.py -v
+
+# Run specific test class or function
+pytest tests/test_segmentation.py::TestStateMachine -v
+```
+
+### Test Coverage
+
+The test suite covers all core modules:
+
+| Module | Test File | Coverage |
+|--------|-----------|----------|
+| `filters.py` | `test_filters.py` | HampelFilter, insertion sort, outlier detection |
+| `segmentation.py` | `test_segmentation.py` | MVS algorithm, state machine, variance calculation |
+| `features.py` | `test_features.py` | Skewness, kurtosis, IQR, entropy, feature detector |
+| `nbvi_calibrator.py` | `test_nbvi_calibrator.py` | NBVI calculation, noise gate, spectral spacing |
+
+Additional validation tests:
+- `test_running_variance.py`: Compares O(1) running variance with two-pass algorithm
+- `test_optimization_equivalence.py`: Validates optimization correctness
+- `test_validation_real_data.py`: Validates algorithms with real CSI data (baseline/movement)
+
+**Total: 160 tests (using real CSI data from `data/`)**
+
+### CI Integration
+
+Tests run automatically on every push/PR via GitHub Actions. See `.github/workflows/ci.yml`.
 
 ## ⚙️ Configuration
 
@@ -452,12 +493,11 @@ The `tools/` directory contains a comprehensive suite of Python scripts for CSI 
 # Run analysis
 cd tools
 python 2_analyze_system_tuning.py --quick
-python 11_test_nbvi_selection.py
 ```
 
 ### Available Tools
 
-The tools directory includes **14 analysis scripts** covering:
+The tools directory includes **9 analysis scripts** covering:
 - 📊 Raw data visualization and system tuning
 - 🔬 MVS algorithm validation and optimization
 - 🎨 I/Q constellation analysis
@@ -528,7 +568,7 @@ Micro-ESPectre extracts **5 CSI features** for ML applications:
 | **entropy_turb** | 2.08 | Shannon entropy |
 | **variance_turb** | 1.21 | Moving variance (from MVS) |
 
-See `12_test_csi_features.py` in [tools/](tools/README.md) for feature analysis.
+See `tests/test_features.py` and `tests/test_validation_real_data.py` for feature validation.
 
 <details>
 <summary>🛜 Standardized Wi-Fi Sensing (IEEE 802.11bf) (click to expand)</summary>

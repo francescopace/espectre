@@ -6,6 +6,8 @@ This section presents the advanced analysis tools developed to optimize the ESPe
 
 📊 **For ESPectre production performance metrics and benchmarks**, see [PERFORMANCE.md](../../PERFORMANCE.md) in the main repository.
 
+> 🧪 **Unit Tests**: For automated unit tests of the core modules, see `micro-espectre/tests/`. Run with `pytest tests/ -v` from the `micro-espectre` directory.
+
 ## 📋 Table of Contents
 
 - [Analysis Scripts](#analysis-scripts)
@@ -105,21 +107,7 @@ python 6_optimize_hampel_parameters.py
 
 ---
 
-### 7. Variance Algorithm Comparison (`7_analyze_variance_algo.py`)
-**Purpose**: Compare variance calculation algorithms
-
-- One-pass vs two-pass variance algorithms
-- Analyzes numerical stability with large values
-- Validates algorithm selection for production
-
-**Usage**:
-```bash
-python 7_analyze_variance_algo.py
-```
-
----
-
-### 8. Detection Methods Comparison (`8_compare_detection_methods.py`)
+### 7. Detection Methods Comparison (`7_compare_detection_methods.py`)
 **Purpose**: Compare different motion detection methods
 
 - Compares RSSI, Mean Amplitude, Turbulence, and MVS
@@ -128,41 +116,15 @@ python 7_analyze_variance_algo.py
 
 **Usage**:
 ```bash
-python 8_compare_detection_methods.py
-python 8_compare_detection_methods.py --plot  # Show 4×2 comparison
+python 7_compare_detection_methods.py
+python 7_compare_detection_methods.py --plot  # Show 4×2 comparison
 ```
 
 ![Detection Methods Comparison](../../images/detection_method_comparison.png)
 
 ---
 
-### 9. Retroactive Auto-Calibration (`9_test_retroactive_calibration.py`)
-**Purpose**: Test automatic subcarrier selection with retrospective baseline detection
-
-**Includes**:
-- Variance-based calibration (6 tests)
-- **Ring Geometry Analysis** (17 strategies)
-- Adaptive threshold validation
-- Random starting bands test
-- Realistic mixed data test
-
-**Key Findings**:
-- Variance-based: F1=96.7% on pure baseline blocks
-- Adaptive threshold: 6/6 success from ANY starting band
-- Ring Geometry: Best is movement_instability (F1=92.2%)
-- Hybrid (variance + geometry): NO improvement (0.0%)
-- Mixed data (80/20): Fails (0/3) - threshold too permissive
-
-**Conclusion**: Variance-only most reliable; ring geometry insightful but doesn't improve performance
-
-**Usage**:
-```bash
-python 9_test_retroactive_calibration.py
-```
-
----
-
-### 10. I/Q Constellation Plotter (`10_plot_constellation.py`)
+### 8. I/Q Constellation Plotter (`8_plot_constellation.py`)
 **Purpose**: Visualize I/Q constellation diagrams
 
 - Compares baseline (stable) vs movement (dispersed) patterns
@@ -171,122 +133,26 @@ python 9_test_retroactive_calibration.py
 
 **Usage**:
 ```bash
-python 10_plot_constellation.py
-python 10_plot_constellation.py --packets 1000
-python 10_plot_constellation.py --subcarriers 47,48,49,50
-python 10_plot_constellation.py --grid  # One subplot per subcarrier
+python 8_plot_constellation.py
+python 8_plot_constellation.py --packets 1000
+python 8_plot_constellation.py --subcarriers 47,48,49,50
+python 8_plot_constellation.py --grid  # One subplot per subcarrier
 ```
 
 ---
 
-### 11. NBVI Subcarrier Selection (`11_test_nbvi_selection.py`) ⭐ **BREAKTHROUGH**
-**Purpose**: Validate NBVI algorithm for automatic subcarrier selection
+### 9. ESP32-S3 vs ESP32-C6 Comparison (`9_compare_s3_vs_c6.py`)
+**Purpose**: Compare CSI characteristics between different ESP32 variants
 
-**NBVI Formula**:
-```
-NBVI_weighted = 0.3 × (σ/μ²) + 0.7 × (σ/μ)
-```
-
-**Tests Included**:
-- **Phase 1**: 6 NBVI variants on pure data
-- **Phase 2**: Threshold-based on mixed data (80/20)
-- **Phase 3**: Percentile vs Threshold comparison
-
-**Performance Results**:
-
-| Scenario | NBVI Percentile | NBVI Threshold | Variance-only | Manual |
-|----------|-----------------|----------------|---------------|--------|
-| Pure Data | **97.1%** | 97.1% | 92.4% | 97.3% |
-| Mixed Data | **91.2%** (4/4) | 86.9% (3/3) | FAIL (0/3) | N/A |
-| Gap to Manual | **-0.2%** | -0.2% | -4.9% | --- |
-
-**Key Features**:
-- ✅ **Noise Gate**: Excludes weak subcarriers (10th percentile)
-- ✅ **Spectral Spacing**: Δf≥3 for diversity
-- ✅ **Percentile-based**: NO threshold configuration needed
-- ✅ **Threshold-free**: Adapts automatically to any environment
-
-**Percentile vs Threshold**:
-- Percentile: 4/4 calibrated, F1=91.2%, +3.0% improvement
-- Threshold: 1/1 calibrated, F1=86.9%
-- **Percentile finds better baseline windows** (variance 0.26 vs 0.58)
-
-**Conclusion**: **NBVI Percentile p10 is PRODUCTION-READY** - best automatic method ever tested
+- Compares signal quality between S3 and C6 chips
+- Analyzes SNR differences and detection performance
+- Helps choose optimal hardware for specific environments
 
 **Usage**:
 ```bash
-python 11_test_nbvi_selection.py
+python 9_compare_s3_vs_c6.py
+python 9_compare_s3_vs_c6.py --plot
 ```
-
----
-
-### 12. CSI Feature Extraction & Analysis (`12_test_csi_features.py`) ⭐ **NEW**
-**Purpose**: Implement and evaluate CSI features for advanced motion detection and ML applications
-
-**10 CSI Features Analyzed** (research tool):
-
-| Category | Features | Description |
-|----------|----------|-------------|
-| **Statistical** | Variance, Skewness, Kurtosis, Entropy, IQR | Distribution characteristics across subcarriers |
-| **Spatial** | Spatial Variance, Spatial Correlation, Spatial Gradient | Cross-subcarrier relationships |
-| **Temporal** | Temporal Delta Mean, Temporal Delta Variance | Frame-to-frame changes |
-
-**Key Analyses**:
-- **Fisher's Criterion (J)**: Evaluates feature separation capability
-- **Window Size Testing**: Compares W=1, W=10, W=50, W=100
-- **Hybrid Strategy**: Different window sizes for different features
-- **Multi-Feature Detection**: Weighted voting with confidence score
-- **Hampel Filter Impact**: Tests outlier removal on feature quality
-
-**Usage**:
-```bash
-python 12_test_csi_features.py                    # Basic analysis
-python 12_test_csi_features.py --plot             # Generate plots
-python 12_test_csi_features.py --test-windows     # Test window sizes
-python 12_test_csi_features.py --hybrid           # Test hybrid strategy
-python 12_test_csi_features.py --simulate         # Multi-feature detection
-python 12_test_csi_features.py --hampel           # Test with Hampel filter
-```
-
----
-
-### 13. Running Variance Test (`13_test_running_variance.py`)
-**Purpose**: Validate O(1) running variance algorithm vs O(N) two-pass
-
-Compares Welford's running variance algorithm with the traditional two-pass approach:
-- **Performance**: 25x faster (0.56µs vs 14.18µs per update)
-- **Accuracy**: Identical results (diff < 10⁻¹³)
-- **Detection**: 0 state mismatches on real CSI data
-
----
-
-### 14. Publish-Time Features Test (`14_test_publish_time_features.py`) ⭐ **BREAKTHROUGH**
-**Purpose**: Test features calculated ONLY at publish time (no per-packet buffer)
-
-**Publish-Time Approach**:
-- Features calculated only when publishing (every ~100 packets)
-- Uses turbulence buffer (already maintained by MVS) + current packet amplitudes
-- **92% memory saved** (400 bytes vs 4800 bytes)
-- No background thread needed
-- Features synchronized with MVS state (no lag)
-
-**Top 5 Features Selected for Runtime** (Fisher J > 1.0, tested with `--window 50`):
-
-| Feature | Fisher's J | Type | Threshold |
-|---------|-----------|------|-----------|
-| iqr_turb | 3.56 | Turbulence buffer | 2.18 |
-| skewness | 2.54 | W=1 (current pkt) | 0.57 |
-| kurtosis | 2.24 | W=1 (current pkt) | -1.33 |
-| entropy_turb | 2.08 | Turbulence buffer | 2.94 |
-| variance_turb | 1.21 | Turbulence buffer | 0.99 (already calculated by MVS!) |
-
-**Usage**:
-```bash
-python 14_test_publish_time_features.py           # Basic analysis
-python 14_test_publish_time_features.py --plot    # Generate plots
-```
-
-**Conclusion**: Publish-time features achieve better separation (5 features with J>1.0) with minimal memory footprint (92% saved) and no background thread.
 
 ---
 
@@ -444,8 +310,7 @@ NBVICalibrator(
 
 **Note**: 
 - The Python implementation (`src/nbvi_calibrator.py`) uses **only percentile-based detection**
-- The test script (`11_test_nbvi_selection.py`) tests **both percentile and threshold modes** for comparison
-- Test script uses `buffer_size=500` and `window_size=100` to simulate ESP32 memory constraints
+- Unit tests in `tests/test_nbvi_calibrator.py` validate the algorithm correctness
 - README recommends `buffer_size=1000` for optimal performance when memory allows
 
 ### C++ Implementation (ESPHome)
@@ -461,7 +326,7 @@ See the main [ESPectre documentation](https://github.com/francescopace/espectre)
 ```bash
 cd tools
 
-# 1. Collect data (files will be saved in tools/data/)
+# 1. Collect data (files will be saved in data/)
 cd ..
 ./me run --collect-baseline
 ./me run --collect-movement
@@ -476,24 +341,22 @@ python 2_analyze_system_tuning.py --quick
 # 4. Visualize MVS
 python 3_analyze_moving_variance_segmentation.py --plot
 
-# 5. Test NBVI (automatic selection)
-python 11_test_nbvi_selection.py
+# 5. Run unit tests
+cd ..
+pytest tests/ -v
 ```
 
 ### Advanced Analysis
 
 ```bash
 # Compare detection methods
-python 8_compare_detection_methods.py --plot
+python 7_compare_detection_methods.py --plot
 
 # Plot I/Q constellations
-python 10_plot_constellation.py --packets 1000 --grid
+python 8_plot_constellation.py --packets 1000 --grid
 
-# Test all calibration strategies
-python 9_test_retroactive_calibration.py
-
-# Validate NBVI algorithm
-python 11_test_nbvi_selection.py
+# Compare ESP32 variants
+python 9_compare_s3_vs_c6.py --plot
 ```
 
 ## 🎯 Key Results Summary
@@ -690,7 +553,7 @@ baseline_windows = [0.3, 0.2, 0.3]  # Automatically found!
 - Requires threshold tuning for different environments
 - Less robust than percentile-based (-4.3% performance)
 
-**Note**: The Python implementation (`src/nbvi_calibrator.py`) implements **only percentile-based detection**. The threshold-based mode exists only in the test script (`11_test_nbvi_selection.py`) for performance comparison purposes.
+**Note**: The Python implementation (`src/nbvi_calibrator.py`) implements **only percentile-based detection**. Unit tests in `tests/test_nbvi_calibrator.py` validate the algorithm correctness.
 
 ### Computational Efficiency
 

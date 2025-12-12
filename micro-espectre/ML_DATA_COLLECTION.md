@@ -102,7 +102,7 @@ Dataset: 5 labels, 47 samples
 ### Directory Structure
 
 ```
-tools/data/
+data/
 ├── dataset_info.json          # Global metadata
 ├── idle/
 │   ├── idle_001.npz
@@ -199,7 +199,7 @@ gesture1      # non-descriptive
 2. **Record baseline first**: `./me collect start idle 60`
 3. **Record gestures**: One gesture type at a time
 4. **Verify dataset**: `./me collect --info`
-5. **Backup data**: Copy `tools/data/` to safe location
+5. **Backup data**: Copy `data/` to safe location
 
 ---
 
@@ -215,9 +215,6 @@ python 1_analyze_raw_data.py
 
 # Test MVS detection on your data
 python 3_analyze_moving_variance_segmentation.py --plot
-
-# Extract features for ML
-python 12_test_csi_features.py --plot
 ```
 
 See [tools/README.md](tools/README.md) for complete documentation of all analysis scripts.
@@ -274,7 +271,7 @@ Help build a diverse CSI dataset for the community! Your contributions will impr
    - Room type (living room, office, etc.)
    - Any notable characteristics
 4. **Share via GitHub**:
-   - Add your data to `tools/data/<label>/`
+   - Add your data to `data/<label>/`
    - Submit a Pull Request to the `develop` branch
 
 ### What We're Looking For

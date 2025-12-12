@@ -20,5 +20,9 @@ matplotlib>=3.10.7      # Plotting and visualization
 scipy>=1.16.3           # Scientific computing (signal processing)
 PyWavelets>=1.9.0       # Wavelet transforms (pywt)
 
-# Test Coverage
+# Test Dependencies
+pytest>=8.0.0           # Test framework
+pytest-cov>=4.1.0       # Coverage plugin for pytest
+
+# Code Coverage (C++ tests)
 gcovr>=8.4              # Code coverage reports for C++ tests

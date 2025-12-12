@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 ---
 
 ## [2.2.0] - in progress
+
+### 🧪 Python Test Suite for Micro-ESPectre
+
+**Comprehensive pytest test suite for the R&D platform**
+
+Added automated unit tests for all core Python modules in micro-espectre, with CI integration via GitHub Actions.
+
+#### New Test Suite (`micro-espectre/tests/`)
+- **`test_filters.py`**: HampelFilter unit tests (initialization, outlier detection, edge cases)
+- **`test_segmentation.py`**: SegmentationContext unit tests (MVS algorithm, state machine, variance)
+- **`test_features.py`**: Feature extraction unit tests (skewness, kurtosis, IQR, entropy)
+- **`test_nbvi_calibrator.py`**: NBVI calibrator unit tests (calculation, noise gate, spacing)
+- **`test_running_variance.py`**: Running variance algorithm validation (from `13_test_running_variance.py`)
+- **`test_optimization_equivalence.py`**: Optimization correctness verification (from `16_test_optimization_equivalence.py`)
+- **`test_validation_real_data.py`**: Validation with real CSI data (from `10_*`, `11_*`, `12_*`, `14_*`)
+- **`conftest.py`**: Shared pytest fixtures for CSI data and configuration
+
+**Total: 163 tests passed**
+
+#### Removed Redundant Scripts
+The following `tools/` scripts were **removed** as their functionality is now covered by pytest tests:
+- `10_test_retroactive_calibration.py` → `test_validation_real_data.py`
+- `11_test_nbvi_selection.py` → `test_nbvi_calibrator.py`
+- `12_test_csi_features.py` → `test_features.py`, `test_validation_real_data.py`
+- `13_test_running_variance.py` → `test_running_variance.py`
+- `14_test_publish_time_features.py` → `test_validation_real_data.py`
+- `16_test_optimization_equivalence.py` → `test_optimization_equivalence.py`
+- `7_analyze_variance_algo.py` → `test_running_variance.py`, `test_validation_real_data.py` (float32 stability tests)
+
+Scripts renumbered: `15_compare_s3_vs_c6.py` → `9_compare_s3_vs_c6.py`, etc.
+
+#### Simplified Scripts
+- `1_analyze_raw_data.py`: Reduced from 149 to 95 lines, removed duplicate code
+- `3_analyze_moving_variance_segmentation.py`: Reduced from 181 to 115 lines, uses MVSDetector
+- `4_analyze_filter_location.py`: Reduced from 443 to 212 lines, imports from `src/`
+
+#### Data Directory Reorganization
+- Moved `tools/data/` to `micro-espectre/data/` (same level as `src/`, `tests/`, `tools/`)
+- Updated all references in code and documentation
+
+#### CI Integration
+- **New CI job**: `test-python` runs pytest on every push/PR
+- **Coverage reporting**: Python coverage uploaded to Codecov with `flags: python`
+- **Path triggers**: CI triggers on changes to `micro-espectre/src/` and `micro-espectre/tests/`
+
+#### Dependencies
+- Added `pytest>=8.0.0` and `pytest-cov>=4.1.0` to `micro-espectre/requirements.txt`
+
 ### 📐 CSI Amplitude Auto-Normalization
 
 **Automatic cross-device CSI amplitude normalization**
