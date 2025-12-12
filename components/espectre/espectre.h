@@ -91,6 +91,7 @@ class ESpectreComponent : public Component {
   bool hampel_enabled_{true};
   uint8_t hampel_window_{7};
   float hampel_threshold_{4.0f};
+  float normalization_scale_{1.0f};  // CSI amplitude normalization (calculated during calibration)
   uint8_t selected_subcarriers_[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
   
   bool user_specified_subcarriers_{false};  // True if user specified in YAML

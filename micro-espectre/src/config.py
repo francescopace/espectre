@@ -49,8 +49,7 @@ HAMPEL_THRESHOLD = 4.0        # Outlier detection threshold in MAD units (2.0-4.
 # CSI Feature Extraction Configuration
 ENABLE_FEATURES = True        # Enable/disable CSI feature extraction and confidence calculation
 
-# CSI Scaling configuration per chip type. Set scale to None for auto-scaling
-CSI_SCALE_CONFIG = [
-    ('C6', None),
-    ('S3', 4),
-]
+# CSI Amplitude Normalization
+# Automatically calculated during NBVI calibration to normalize amplitudes across devices
+# Default 1.0 = no normalization. Will be updated after calibration.
+NORMALIZATION_SCALE = 1.0

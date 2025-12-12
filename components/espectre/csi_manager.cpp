@@ -190,8 +190,8 @@ esp_err_t CSIManager::configure_platform_specific_() {
     .stbc_htltf2_en = false,        // Disabled for consistency
     .ltf_merge_en = false,          // No merge (only HT-LTF enabled)
     .channel_filter_en = false,     // Raw subcarriers
-    .manu_scale = true,             // Manual scaling
-    .shift = 4,                     // Shift=4 → values/16, calibrated to match C6 auto-scale range
+    .manu_scale = false,            // Manual scaling
+    .shift = 0,                     // Shift=4 → values/16
   };
 #endif
   

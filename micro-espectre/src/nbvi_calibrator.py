@@ -16,36 +16,31 @@ import os
 NUM_SUBCARRIERS = 64
 BUFFER_FILE = '/nbvi_buffer.bin'
 
-# DC subcarrier is always null on all ESP32 variants
-DC_SUBCARRIER = 0
+# Target mean amplitude for normalization (common reference scale)
+# This value is chosen to produce reasonable turbulence values (~1-5) for motion
+NORMALIZATION_TARGET_MEAN = 50.0
 
-# HT20 null subcarriers for legacy chips (ESP32, S2, S3, C3)
-# These are the guard bands that carry no signal in standard HT20
-# Index 0: DC subcarrier
-# Index 27-37: Guard bands (11 subcarriers)
-HT20_NULL_SUBCARRIERS = frozenset({0} | set(range(27, 38)))
-
-# For C5/C6 (WiFi 6), the null pattern is different (0-4 typically)
-# We let the Noise Gate handle those dynamically
+# Threshold for null subcarrier detection (mean amplitude below this = null)
+# This is environment-aware: works with any chip and adapts to local RF conditions
+NULL_SUBCARRIER_THRESHOLD = 1.0
 
 
 def get_valid_subcarriers(chip_type=None):
     """
-    Get valid subcarrier indices based on chip type.
+    Get all subcarrier indices for calibration.
+    
+    Null subcarrier detection is now dynamic during calibration based on
+    actual signal strength (mean < NULL_SUBCARRIER_THRESHOLD = null).
+    This is environment-aware and works with any chip type.
     
     Args:
-        chip_type: 'C5', 'C6', 'S3', 'S2', 'C3', 'ESP32', or None (auto-detect not possible)
+        chip_type: Ignored (kept for backward compatibility)
     
     Returns:
-        tuple: Valid subcarrier indices for calibration
+        tuple: All subcarrier indices (0-63)
     """
-    if chip_type in ('C5', 'C6'):
-        # C5/C6 use WiFi 6 API with different null pattern
-        # Only exclude DC, let Noise Gate handle the rest
-        return tuple(sc for sc in range(NUM_SUBCARRIERS) if sc != DC_SUBCARRIER)
-    else:
-        # Legacy chips (ESP32, S2, S3, C3) use HT20 with known null pattern
-        return tuple(sc for sc in range(NUM_SUBCARRIERS) if sc not in HT20_NULL_SUBCARRIERS)
+    # Return all subcarriers - null detection happens during calibration
+    return tuple(range(NUM_SUBCARRIERS))
 
 
 class NBVICalibrator:
@@ -69,15 +64,14 @@ class NBVICalibrator:
             percentile: Percentile for baseline detection (default: 10)
             alpha: NBVI weighting factor (default: 0.3)
             min_spacing: Minimum spacing between subcarriers (default: 3)
-            chip_type: Chip type for subcarrier filtering ('C5', 'C6', 'S3', etc.)
+            chip_type: Ignored (kept for backward compatibility)
         """
         self.buffer_size = buffer_size
         self.percentile = percentile
         self.alpha = alpha
         self.min_spacing = min_spacing
         self.noise_gate_percentile = 10
-        self.chip_type = chip_type
-        self.valid_subcarriers = get_valid_subcarriers(chip_type)
+        self.chip_type = chip_type  # Kept for backward compatibility
         self._packet_count = 0
         self._file = None
         
@@ -320,13 +314,19 @@ class NBVICalibrator:
         Returns:
             list: Filtered metrics (strong subcarriers only)
         """
-        means = [m['mean'] for m in subcarrier_metrics]
-        threshold = self._percentile(means, self.noise_gate_percentile)
+        # Extract NON-ZERO means only (skip invalid subcarriers with mean <= 1.0)
+        valid_means = [m['mean'] for m in subcarrier_metrics if m['mean'] > 1.0]
+        
+        if not valid_means:
+            print("NBVI: Noise Gate - no valid subcarriers found")
+            return []
+        
+        threshold = self._percentile(valid_means, self.noise_gate_percentile)
         
         filtered = [m for m in subcarrier_metrics if m['mean'] >= threshold]
         
         #print(f"NBVI: Noise Gate excluded {len(subcarrier_metrics) - len(filtered)} weak subcarriers")
-        #print(f"  Threshold: {threshold:.2f} (p{self.noise_gate_percentile})")
+        #print(f"  Threshold: {threshold:.2f} (p{self.noise_gate_percentile}, valid: {len(valid_means)})")
         
         return filtered
     
@@ -384,7 +384,9 @@ class NBVICalibrator:
             step: Step size for sliding window (default: from config)
         
         Returns:
-            list: Selected subcarrier band (12 subcarriers), or None if failed
+            tuple: (selected_band, normalization_scale) or (None, 1.0) if failed
+                - selected_band: List of 12 subcarrier indices
+                - normalization_scale: Factor to normalize CSI amplitudes across devices
         """
         # Import config here to get current values
         import src.config as config
@@ -408,28 +410,37 @@ class NBVICalibrator:
         
         if baseline_window is None:
             print("NBVI: Failed to find baseline window")
-            return None
+            return None, 1.0
                 
-        # Step 2: Calculate NBVI for valid subcarriers only
-        # For legacy chips (S3, etc.): excludes DC (0) and guard bands (27-37) = 52 candidates
-        # For C5/C6: excludes only DC (0) = 63 candidates, Noise Gate handles the rest
+        # Step 2: Calculate NBVI for ALL subcarriers
+        # Null subcarriers are detected dynamically based on signal strength
         all_metrics = []
+        null_count = 0
 
-        for sc in self.valid_subcarriers:
+        for sc in range(NUM_SUBCARRIERS):
             # Extract magnitude series for this subcarrier
             magnitudes = [packet_mags[sc] for packet_mags in baseline_window]
             
             # Calculate NBVI
             metrics = self._calculate_nbvi_weighted(magnitudes)
             metrics['subcarrier'] = sc
+            
+            # Auto-detect null subcarriers: if mean < threshold, mark as invalid
+            # This catches hardware nulls (DC, guard bands) and environment-specific issues
+            if metrics['mean'] < NULL_SUBCARRIER_THRESHOLD:
+                metrics['nbvi'] = float('inf')
+                null_count += 1
+            
             all_metrics.append(metrics)
+        
+        print(f"NBVI: Auto-detected {null_count} null subcarriers (threshold: {NULL_SUBCARRIER_THRESHOLD})")
         
         # Step 3: Apply Noise Gate
         filtered_metrics = self._apply_noise_gate(all_metrics)
         
         if len(filtered_metrics) < 12:
             print(f"NBVI: Not enough subcarriers after Noise Gate ({len(filtered_metrics)} < 12)")
-            return None
+            return None, 1.0
         
         # Step 4: Sort by NBVI (ascending - lower is better)
         sorted_metrics = sorted(filtered_metrics, key=lambda x: x['nbvi'])
@@ -439,15 +450,29 @@ class NBVICalibrator:
         
         if len(selected_band) != 12:
             print(f"NBVI: Invalid band size ({len(selected_band)} != 12)")
-            return None
+            return None, 1.0
         
         # Calculate average metrics for selected band
         selected_metrics = [m for m in all_metrics if m['subcarrier'] in selected_band]
         avg_nbvi = sum(m['nbvi'] for m in selected_metrics) / len(selected_metrics)
         avg_mean = sum(m['mean'] for m in selected_metrics) / len(selected_metrics)
         
+        # Calculate normalization scale to bring all devices to a common scale
+        # This compensates for different CSI amplitude ranges across ESP32 variants
+        if avg_mean > 1.0:
+            normalization_scale = NORMALIZATION_TARGET_MEAN / avg_mean
+            # Clamp to reasonable range
+            normalization_scale = max(0.1, min(10.0, normalization_scale))
+        else:
+            normalization_scale = 1.0
         
-        return selected_band
+        print(f"NBVI: Calibration successful")
+        print(f"  Band: {selected_band}")
+        print(f"  Avg NBVI: {avg_nbvi:.6f}")
+        print(f"  Avg magnitude: {avg_mean:.2f}")
+        print(f"  Normalization scale: {normalization_scale:.3f} (target: {NORMALIZATION_TARGET_MEAN:.0f})")
+        
+        return selected_band, normalization_scale
     
     def free_buffer(self):
         """

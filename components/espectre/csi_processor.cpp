@@ -234,6 +234,7 @@ bool csi_processor_init(csi_processor_context_t *ctx,
     // Set parameters
     ctx->window_size = window_size;
     ctx->threshold = threshold;
+    ctx->normalization_scale = 1.0f;  // Default: no normalization
     ctx->state = CSI_STATE_IDLE;
     
     // Initialize Hampel filter with defaults (will be reconfigured by csi_manager)
@@ -256,6 +257,27 @@ void csi_processor_reset(csi_processor_context_t *ctx) {
     ctx->state = CSI_STATE_IDLE;
     ctx->packet_index = 0;
     ctx->total_packets_processed = 0;
+}
+
+void csi_processor_clear_buffer(csi_processor_context_t *ctx) {
+    if (!ctx) return;
+    
+    // Clear turbulence buffer to avoid stale data after calibration
+    if (ctx->turbulence_buffer) {
+        std::memset(ctx->turbulence_buffer, 0, ctx->window_size * sizeof(float));
+    }
+    ctx->buffer_index = 0;
+    ctx->buffer_count = 0;
+    ctx->current_moving_variance = 0.0f;
+    ctx->state = CSI_STATE_IDLE;
+    
+    // Also reset Hampel filter buffer
+    hampel_turbulence_init(&ctx->hampel_state, 
+                           ctx->hampel_state.window_size,
+                           ctx->hampel_state.threshold,
+                           ctx->hampel_state.enabled);
+    
+    ESP_LOGD(TAG, "Buffer cleared (window_size=%d)", ctx->window_size);
 }
 
 void csi_processor_cleanup(csi_processor_context_t *ctx) {
@@ -290,6 +312,24 @@ bool csi_processor_set_threshold(csi_processor_context_t *ctx, float threshold) 
     ctx->threshold = threshold;
     ESP_LOGI(TAG, "Threshold updated: %.2f", threshold);
     return true;
+}
+
+void csi_processor_set_normalization_scale(csi_processor_context_t *ctx, float scale) {
+    if (!ctx) {
+        ESP_LOGE(TAG, "csi_processor_set_normalization_scale: NULL context");
+        return;
+    }
+    
+    // Clamp to reasonable range (0.1 to 10.0)
+    if (scale < 0.1f) scale = 0.1f;
+    if (scale > 10.0f) scale = 10.0f;
+    
+    ctx->normalization_scale = scale;
+    ESP_LOGI(TAG, "Normalization scale updated: %.3f", scale);
+}
+
+float csi_processor_get_normalization_scale(const csi_processor_context_t *ctx) {
+    return ctx ? ctx->normalization_scale : 1.0f;
 }
 
 // ============================================================================
@@ -344,8 +384,11 @@ static float calculate_moving_variance(const csi_processor_context_t *ctx) {
 }
 
 static void add_turbulence_and_update_state(csi_processor_context_t *ctx, float turbulence) {
+    // Apply normalization scale (compensates for different CSI amplitude scales across ESP32 variants)
+    float normalized_turbulence = turbulence * ctx->normalization_scale;
+    
     // Apply Hampel filter to remove outliers
-    float filtered_turbulence = hampel_filter_turbulence(&ctx->hampel_state, turbulence);
+    float filtered_turbulence = hampel_filter_turbulence(&ctx->hampel_state, normalized_turbulence);
     
     // Add to circular buffer
     ctx->turbulence_buffer[ctx->buffer_index] = filtered_turbulence;

@@ -101,7 +101,8 @@ class NVSStorage:
         config_data = {
             "segmentation": {
                 "threshold": seg.threshold,
-                "window_size": seg.window_size
+                "window_size": seg.window_size,
+                "normalization_scale": seg.normalization_scale
             }
         }
                 
@@ -126,12 +127,13 @@ class NVSStorage:
             seg_cfg = config_data["segmentation"]
             seg.threshold = seg_cfg.get("threshold", seg.threshold)
             seg.window_size = seg_cfg.get("window_size", seg.window_size)
+            seg.normalization_scale = seg_cfg.get("normalization_scale", seg.normalization_scale)
             
             # Reset buffer if window size changed
             seg.turbulence_buffer = [0.0] * seg.window_size
             seg.buffer_index = 0
             seg.buffer_count = 0
             
-            #print(f"Segmentation config loaded: threshold={seg.threshold:.2f}, window={seg.window_size}")
+            #print(f"Segmentation config loaded: threshold={seg.threshold:.2f}, window={seg.window_size}, norm_scale={seg.normalization_scale:.3f}")
         
         return config_data

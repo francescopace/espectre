@@ -207,19 +207,22 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     
     # Calibrate using percentile-based approach
     success = False
-    config.SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS;
+    config.SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+    config.NORMALIZATION_SCALE = 1.0
     try:
-        selected_band = nbvi_calibrator.calibrate(config.SELECTED_SUBCARRIERS)
+        selected_band, normalization_scale = nbvi_calibrator.calibrate(config.SELECTED_SUBCARRIERS)
         
         if selected_band and len(selected_band) == 12:
             # Calibration successful
             config.SELECTED_SUBCARRIERS = selected_band
+            config.NORMALIZATION_SCALE = normalization_scale
             success = True
             
             print('')
             print('='*60)
             print('Subcarrier Calibration Successful!')
             print(f'   Selected band: {selected_band}')
+            print(f'   Normalization scale: {normalization_scale:.3f}')
             print('='*60)
             print('')
         else:
@@ -270,7 +273,8 @@ def main():
         enable_hampel=config.ENABLE_HAMPEL_FILTER,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
-        enable_features=config.ENABLE_FEATURES
+        enable_features=config.ENABLE_FEATURES,
+        normalization_scale=config.NORMALIZATION_SCALE
     )
     
     # Load saved configuration (segmentation parameters only)
