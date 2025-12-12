@@ -31,8 +31,8 @@ from typing import Callable, List, Optional, Dict, Any, Tuple
 MAGIC_STREAM = 0x4353  # "CS" in little-endian
 DEFAULT_PORT = 5001
 
-# Dataset paths
-DATA_DIR = Path(__file__).parent / 'data'
+# Dataset paths (shared between tools and tests)
+DATA_DIR = Path(__file__).parent.parent / 'data'
 DATASET_INFO_FILE = DATA_DIR / 'dataset_info.json'
 
 # Dataset format version
