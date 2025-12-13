@@ -52,8 +52,8 @@ espectre:
   traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
   segmentation_threshold: 1.0   # Motion sensitivity: lower=more sensitive (0.5-10.0)
   segmentation_window_size: 50  # Analysis window size in packets (10-200)
-  # Hampel filter (anti-turbulence)
-  hampel_enabled: true          # Enable outlier removal filter
+  # Hampel filter (anti-spikes in turbulence)
+  hampel_enabled: false         # Enable outlier removal filter
   hampel_window: 7              # Filter window size (3-11, odd numbers)
   hampel_threshold: 4.0         # Outlier detection threshold (1.0-10.0)
   # Subcarrier selection (optional - leave commented for auto-calibration at boot)

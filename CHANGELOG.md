@@ -6,138 +6,62 @@ All notable changes to this project will be documented in this file.
 
 ## [2.2.0] - in progress
 
-### 🧪 Python Test Suite for Micro-ESPectre
+### 🚀 New Features
 
-**Comprehensive pytest test suite for the R&D platform**
+#### CSI Amplitude Auto-Normalization
+Different ESP32 variants (S3, C6, etc.) produce CSI data with different amplitude ranges. This release introduces **automatic normalization** during calibration to ensure consistent motion detection across all devices.
 
-Added automated unit tests for all core Python modules in micro-espectre, with CI integration via GitHub Actions.
+- Automatic scale calculation during NBVI calibration (target mean: 50)
+- Cross-device consistency without manual tuning
+- Persistent storage in NVS alongside calibration results
+- New API: `csi_processor_set/get_normalization_scale()`
+- Config version bump: `espectre_cfg_v2` → `espectre_cfg_v3`
 
-#### New Test Suite (`micro-espectre/tests/`)
-- **`test_filters.py`**: HampelFilter unit tests (initialization, outlier detection, edge cases)
-- **`test_segmentation.py`**: SegmentationContext unit tests (MVS algorithm, state machine, variance)
-- **`test_features.py`**: Feature extraction unit tests (skewness, kurtosis, IQR, entropy)
-- **`test_nbvi_calibrator.py`**: NBVI calibrator unit tests (calculation, noise gate, spacing)
-- **`test_running_variance.py`**: Running variance algorithm validation (from `13_test_running_variance.py`)
-- **`test_optimization_equivalence.py`**: Optimization correctness verification (from `16_test_optimization_equivalence.py`)
-- **`test_validation_real_data.py`**: Validation with real CSI data (from `10_*`, `11_*`, `12_*`, `14_*`)
-- **`conftest.py`**: Shared pytest fixtures for CSI data and configuration
+#### Dynamic Null Subcarrier Detection
+Environment-aware null subcarrier detection during calibration.
 
-**Total: 163 tests passed**
+- Subcarriers with mean amplitude < 1.0 automatically marked as null
+- Removed hardcoded `HT20_NULL_SUBCARRIERS` and `WIFI6_NULL_SUBCARRIERS` lists
+- Works with any chip type and adapts to local RF conditions
 
-#### Removed Redundant Scripts
-The following `tools/` scripts were **removed** as their functionality is now covered by pytest tests:
-- `10_test_retroactive_calibration.py` → `test_validation_real_data.py`
-- `11_test_nbvi_selection.py` → `test_nbvi_calibrator.py`
-- `12_test_csi_features.py` → `test_features.py`, `test_validation_real_data.py`
-- `13_test_running_variance.py` → `test_running_variance.py`
-- `14_test_publish_time_features.py` → `test_validation_real_data.py`
-- `16_test_optimization_equivalence.py` → `test_optimization_equivalence.py`
-- `7_analyze_variance_algo.py` → `test_running_variance.py`, `test_validation_real_data.py` (float32 stability tests)
+#### ML Data Collection Infrastructure
+New tools for building labeled CSI datasets for machine learning (groundwork for 3.x features).
 
-Scripts renumbered: `15_compare_s3_vs_c6.py` → `9_compare_s3_vs_c6.py`, etc.
+- **`me collect`**: New CLI subcommand for recording labeled CSI samples
+- **`.npz` format**: NumPy compressed files for ML-ready datasets
+- **`csi_utils.py`**: Unified module with `CSIReceiver`, `CSICollector`, `MVSDetector`
 
-#### Simplified Scripts
-- `1_analyze_raw_data.py`: Reduced from 149 to 95 lines, removed duplicate code
-- `3_analyze_moving_variance_segmentation.py`: Reduced from 181 to 115 lines, uses MVSDetector
-- `4_analyze_filter_location.py`: Reduced from 443 to 212 lines, imports from `src/`
+### ⚙️ Configuration Changes
 
-#### Data Directory Reorganization
-- Moved `tools/data/` to `micro-espectre/data/` (same level as `src/`, `tests/`, `tools/`)
-- Updated all references in code and documentation
+#### Hampel Filter Disabled by Default
+After extensive testing, the Hampel filter is now **disabled by default**.
+
+| Config | Before | After |
+|--------|--------|-------|
+| `hampel_enabled` | `true` | `false` |
+
+**Why?** MVS already achieves 0% FP without Hampel. Enabling it reduces Recall from 98.1% to 96.3%.
+
+Enable only in environments with high electromagnetic interference (industrial settings, proximity to microwave ovens).
+
+### 🧪 Testing
+
+#### Python Test Suite for Micro-ESPectre
+Comprehensive pytest test suite with CI integration. **163 tests passed**.
 
 #### CI Integration
-- **New CI job**: `test-python` runs pytest on every push/PR
-- **Coverage reporting**: Python coverage uploaded to Codecov with `flags: python`
-- **Path triggers**: CI triggers on changes to `micro-espectre/src/` and `micro-espectre/tests/`
+- New `test-python` job runs pytest on every push/PR
+- Python coverage uploaded to Codecov with `flags: python`
 
-#### Dependencies
-- Added `pytest>=8.0.0` and `pytest-cov>=4.1.0` to `micro-espectre/requirements.txt`
+#### Code Cleanup
+- Removed 7 redundant test scripts from `tools/` (migrated to pytest)
+- Simplified analysis scripts (reduced ~40% LOC)
+- Moved `tools/data/` to `micro-espectre/data/`
 
-### 📐 CSI Amplitude Auto-Normalization
+### 📚 Documentation
 
-**Automatic cross-device CSI amplitude normalization**
-
-Different ESP32 variants (S3, C6, etc.) produce CSI data with different amplitude ranges. This release introduces automatic normalization during calibration to ensure consistent motion detection behavior across all devices.
-
-#### Auto-Normalization Feature
-- **Automatic scale calculation**: During NBVI calibration, the average amplitude of selected subcarriers is used to calculate a normalization factor
-- **Cross-device consistency**: All devices are normalized to a common reference scale (target mean: 50)
-- **Persistent storage**: Normalization scale saved to NVS alongside calibration results
-- **No manual tuning required**: Replaces the need for manual `shift` parameter adjustments
-
-#### Implementation Details
-- **New field**: `normalization_scale` in `csi_processor_context_t` and `ESpectreConfig`
-- **New functions**: `csi_processor_set_normalization_scale()`, `csi_processor_get_normalization_scale()`
-- **Calibration callback**: Now includes `normalization_scale` parameter
-- **Config version bump**: `espectre_cfg_v2` → `espectre_cfg_v3` for struct compatibility
-
-#### How It Works
-1. During calibration, average magnitude of selected subcarriers is calculated
-2. Normalization scale = `TARGET_MEAN (50.0) / avg_magnitude`
-3. Scale is applied to turbulence values before motion detection
-4. Devices with higher raw amplitudes get lower scale factors, and vice versa
-
-### 🎯 Dynamic Null Subcarrier Detection
-
-**Environment-aware null subcarrier detection during calibration**
-
-#### Problem Solved
-- Different ESP32 chip variants have different null subcarrier patterns (hardware-specific)
-- Hardcoded exclusion lists required chip identification and manual maintenance
-- Environmental factors can also affect which subcarriers are usable
-
-#### Solution
-- **Dynamic detection**: Subcarriers with mean amplitude < 1.0 are automatically marked as null
-- **Environment-aware**: Works with any chip type and adapts to local RF conditions
-- **Simplified code**: Removed hardcoded `HT20_NULL_SUBCARRIERS` and `WIFI6_NULL_SUBCARRIERS` lists
-- **Robust filtering**: Noise Gate percentile calculated only on valid subcarriers (mean > 1.0)
-
-#### Implementation
-- C++: `calibration_manager.cpp` now processes all 64 subcarriers and marks nulls based on `NULL_SUBCARRIER_THRESHOLD`
-- Python: `nbvi_calibrator.py` uses the same dynamic approach
-- Log output shows how many null subcarriers were auto-detected
-
-### 🤖 ML Data Collection Infrastructure
-
-**New tools for building labeled CSI datasets for machine learning**
-
-This release lays the groundwork for advanced Wi-Fi sensing features (gesture recognition, HAR, people counting) planned for release 3.x. The focus is on creating a robust data collection and labeling infrastructure to train ML models.
-
-#### Data Collection CLI
-- **`me collect`**: New subcommand for recording labeled CSI samples
-  - `me collect start <label> [duration]`: Record samples with label (e.g., wave, idle)
-  - `me collect stop`: Stop current recording
-  - `me collect --info`: Show dataset statistics
-- **`.npz` format**: NumPy compressed files for ML-ready datasets
-- **Organized structure**: `data/<label>/<label>_001.npz` with `dataset_info.json`
-
-#### Code Consolidation
-- **`csi_utils.py`**: Unified module for CSI data collection and analysis
-  - `CSIReceiver`: Real-time UDP packet reception from ESP32
-  - `CSICollector`: Labeled sample recording with metadata
-  - `MVSDetector`: Wrapper around production `SegmentationContext`
-
-### ⚡ CSI Initialization & Memory Optimization
-
-**Reviewed c++ implementation for improved reliability and performance**
-
-#### WiFi Protocol Configuration
-- **Platform-specific WiFi protocol**: `esp_wifi_set_protocol()` now called explicitly
-  - ESP32-C5/C6: WiFi 6 (802.11ax) enabled for improved CSI precision
-  - ESP32/S2/S3/C3: WiFi 4 (802.11b/g/n)
-- **Correct initialization order**: protocol → bandwidth → promiscuous (per ESP-IDF requirements)
-
-#### CSI Lifecycle Fixes
-- **Callback deregistration**: `CSIManager::disable()` now properly unregisters callback with `set_csi_rx_cb(nullptr, nullptr)`
-- **Prevents memory leaks** and potential crashes on WiFi reconnect
-
-#### Performance Optimizations
-- **`IRAM_ATTR`**: CSI callback wrapper kept in IRAM for consistent low-latency execution
-- **Struct padding optimization**: `csi_processor_context_t` fields reordered by size to minimize padding (~4-8 bytes saved)
-- **`volatile` for ISR counter**: `packets_processed_` marked volatile for correct ISR access
-
-#### Test Infrastructure
-- **New mock**: `esp_attr.h` for native testing support
+#### New Documentation
+- **`micro-espectre/ALGORITHMS.md`**: Complete scientific documentation of MVS, NBVI, and Hampel filter algorithms
 
 ---
 

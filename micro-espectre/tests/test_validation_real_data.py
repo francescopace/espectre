@@ -454,44 +454,97 @@ class TestHampelFilterRealData:
 class TestPerformanceMetrics:
     """Test that we achieve expected performance metrics"""
     
-    def test_f1_score_above_threshold(self, real_data, selected_subcarriers):
-        """Test that MVS achieves minimum F1 score"""
+    def test_mvs_detection_accuracy(self, real_data, selected_subcarriers):
+        """
+        Test MVS motion detection accuracy with real CSI data.
+        
+        This test replicates the C++ test methodology exactly:
+        - Process ALL packets (no warmup skip)
+        - Process baseline first, then movement (continuous context)
+        - Same window_size=50, threshold=1.0
+        - Same subcarriers [11-22]
+        - Hampel filter disabled (pure MVS algorithm performance)
+        
+        Target: >95% Recall, <1% FP Rate
+        """
         baseline_packets, movement_packets = real_data
         
-        # Calculate confusion matrix elements
-        ctx = SegmentationContext(window_size=50, threshold=1.0)
+        # Initialize with same defaults as C++ (Hampel disabled for pure MVS test)
+        ctx = SegmentationContext(window_size=50, threshold=1.0, enable_hampel=False)
         
-        # True Negatives (baseline detected as idle)
-        tn = 0
-        fp = 0
-        for pkt in baseline_packets[50:]:  # Skip warmup
-            turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_subcarriers)
-            ctx.add_turbulence(turb)
-            if ctx.get_state() == SegmentationContext.STATE_IDLE:
-                tn += 1
-            else:
-                fp += 1
+        num_baseline = len(baseline_packets)
+        num_movement = len(movement_packets)
         
-        ctx.reset(full=True)
+        # ========================================
+        # Process baseline (expecting IDLE)
+        # ========================================
+        baseline_motion_packets = 0
         
-        # True Positives (movement detected as motion)
-        tp = 0
-        fn = 0
-        for pkt in movement_packets[50:]:  # Skip warmup
+        for pkt in baseline_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_subcarriers)
             ctx.add_turbulence(turb)
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
-                tp += 1
+                baseline_motion_packets += 1
+        
+        # ========================================
+        # Process movement (expecting MOTION)
+        # Continue with same context (no reset)
+        # ========================================
+        movement_with_motion = 0
+        movement_without_motion = 0
+        
+        for pkt in movement_packets:
+            turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_subcarriers)
+            ctx.add_turbulence(turb)
+            if ctx.get_state() == SegmentationContext.STATE_MOTION:
+                movement_with_motion += 1
             else:
-                fn += 1
+                movement_without_motion += 1
         
-        # Calculate metrics
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+        # ========================================
+        # Calculate metrics (same as C++)
+        # ========================================
+        pkt_tp = movement_with_motion
+        pkt_fn = movement_without_motion
+        pkt_tn = num_baseline - baseline_motion_packets
+        pkt_fp = baseline_motion_packets
         
-        # Should achieve at least 80% F1 score
-        assert f1 > 0.80, f"F1 score too low: {f1:.1%} (P={precision:.1%}, R={recall:.1%})"
+        pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0
+        pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0
+        pkt_fp_rate = pkt_fp / num_baseline * 100.0 if num_baseline > 0 else 0
+        pkt_f1 = 2 * (pkt_precision / 100) * (pkt_recall / 100) / ((pkt_precision + pkt_recall) / 100) * 100 if (pkt_precision + pkt_recall) > 0 else 0
+        
+        # ========================================
+        # Print results (same format as C++)
+        # ========================================
+        print("\n")
+        print("=" * 70)
+        print("                         TEST SUMMARY")
+        print("=" * 70)
+        print()
+        print(f"CONFUSION MATRIX ({num_baseline} baseline + {num_movement} movement packets):")
+        print("                    Predicted")
+        print("                IDLE      MOTION")
+        print(f"Actual IDLE     {pkt_tn:4d} (TN)  {pkt_fp:4d} (FP)")
+        print(f"    MOTION      {pkt_fn:4d} (FN)  {pkt_tp:4d} (TP)")
+        print()
+        print("MOTION DETECTION METRICS:")
+        print(f"  * True Positives (TP):   {pkt_tp}")
+        print(f"  * True Negatives (TN):   {pkt_tn}")
+        print(f"  * False Positives (FP):  {pkt_fp}")
+        print(f"  * False Negatives (FN):  {pkt_fn}")
+        print(f"  * Recall:     {pkt_recall:.1f}% (target: >90%)")
+        print(f"  * Precision:  {pkt_precision:.1f}%")
+        print(f"  * FP Rate:    {pkt_fp_rate:.1f}% (target: <10%)")
+        print(f"  * F1-Score:   {pkt_f1:.1f}%")
+        print()
+        print("=" * 70)
+        
+        # ========================================
+        # Assertions (same thresholds as C++)
+        # ========================================
+        assert movement_with_motion > 950, f"Recall too low: {movement_with_motion}/1000 ({pkt_recall:.1f}%)"
+        assert pkt_fp_rate < 1.0, f"FP Rate too high: {pkt_fp_rate:.1f}%"
 
 
 # ============================================================================

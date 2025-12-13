@@ -24,7 +24,14 @@ This document provides detailed performance metrics for ESPectre's motion detect
 
 ---
 
-## Confusion Matrix
+## Results
+
+Both platforms produce **identical results** using the same test methodology:
+- Process all 1000 baseline packets first (expecting IDLE)
+- Then process all 1000 movement packets (expecting MOTION)
+- Continuous context (no reset between baseline and movement)
+- Same parameters: window_size=50, threshold=1.0, subcarriers=[11-22]
+- Hampel filter disabled for pure MVS algorithm performance measurement
 
 ```
 CONFUSION MATRIX (1000 baseline + 1000 movement packets):
@@ -33,8 +40,6 @@ CONFUSION MATRIX (1000 baseline + 1000 movement packets):
 Actual IDLE     1000 (TN)   0 (FP)
 Actual MOTION   19 (FN)     981 (TP)
 ```
-
-### Metrics Breakdown
 
 | Metric | Value | Target | Status |
 |--------|-------|--------|--------|
@@ -50,6 +55,8 @@ Actual MOTION   19 (FN)     981 (TP)
 | True Negatives (TN) | 1000 | Idle correctly identified |
 | False Positives (FP) | 0 | No false alarms |
 | False Negatives (FN) | 19 | Missed movement detections |
+
+> **Note on Hampel Filter**: The Hampel filter is disabled by default because MVS already achieves 0% false positives without it. Enabling Hampel reduces Recall from 98.1% to ~96% while maintaining 0% FP rate. The filter can be enabled via `hampel_enabled: true` in YAML configuration for environments with high electromagnetic interference.
 
 ---
 
@@ -89,12 +96,56 @@ Use Home Assistant's History panel to visualize:
 - **binary_sensor.espectre_motion_detected** - Motion events over time
 - **sensor.espectre_movement_score** - Movement intensity graph
 
-### Collecting Test Data
+---
 
-For rigorous testing, you can:
-1. Record baseline period (no movement) for 10+ seconds
-2. Record movement period (walking, gestures) for 10+ seconds
-3. Compare detection accuracy against ground truth
+## Reproducing These Results
+
+### Test Data Location
+
+Both platforms use the **same real CSI data** captured from ESP32-C6:
+
+| Platform | Baseline Data | Movement Data |
+|----------|---------------|---------------|
+| **C++** | `test/data/real_csi_data_esp32.h` | `test/data/real_csi_arrays.inc` |
+| **Python** | `micro-espectre/data/baseline/baseline_c6_001.npz` | `micro-espectre/data/movement/movement_c6_001.npz` |
+
+### Running the Tests
+
+**C++ (ESPHome component)**:
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run motion detection test suite (shows confusion matrix)
+cd test
+pio test -f test_motion_detection -vvv
+```
+
+**Python (Micro-ESPectre)**:
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run performance test
+cd micro-espectre/tests
+pytest test_validation_real_data.py::TestPerformanceMetrics::test_mvs_detection_accuracy -v -s
+```
+
+### Test Implementation
+
+| Platform | Test File | Test Function |
+|----------|-----------|---------------|
+| **C++** | `test/test/test_motion_detection/test_motion_detection.cpp` | `test_mvs_detection_accuracy()` |
+| **Python** | `micro-espectre/tests/test_validation_real_data.py` | `TestPerformanceMetrics::test_mvs_detection_accuracy()` |
+
+Both tests use identical methodology:
+1. Initialize MVS with `window_size=50`, `threshold=1.0`, `subcarriers=[11-22]`
+2. Process all 1000 baseline packets (no reset)
+3. Continue processing all 1000 movement packets (same context)
+4. Count TP, TN, FP, FN based on detected state vs expected state
+5. Assert: Recall > 95%, FP Rate < 1%
 
 ---
 
@@ -127,9 +178,10 @@ See [TUNING.md](TUNING.md) for detailed tuning instructions.
 
 ## Version History
 
-| Date | Version | Recall | FP Rate | Notes |
-|------|---------|--------|---------|-------|
-| 2025-11-28 | v1.4.0 | 98.1% | 0.0% | Current release |
+| Date | Version | Recall | Precision | FP Rate | F1-Score | Notes |
+|------|---------|--------|-----------|---------|----------|-------|
+| 2025-12-13 | v2.2.0 | 98.1% | 100.0% | 0.0% | 99.0% | ESPHome Port |
+| 2025-11-28 | v1.4.0 | 98.1% | 100.0% | 0.0% | 99.0% | Initial MVS implementation |
 
 ---
 

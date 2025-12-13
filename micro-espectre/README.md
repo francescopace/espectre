@@ -76,11 +76,12 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Percentile-based Detection | ✅ | ✅ | ✅ Implemented |
 | Noise Gate | ✅ | ✅ | ✅ Implemented |
 | Spectral De-correlation | ✅ | ✅ | ✅ Implemented |
+| **Filters** |
+| Hampel Filter | ✅ | ✅ | Applied to turbulence (configurable) |
 | **CSI Features** |
 | `features_enable` | ❌ | ✅ | `ENABLE_FEATURES = True` in config.py |
 | CSI Features | ❌ | ✅ | entropy_turb, iqr_turb, variance_turb, skewness, kurtosis |
 | Feature Extraction | ❌| ✅ | Publish-time calculation (no buffer, 92% memory saved) |
-| Hampel Filter | ❌ | ✅ | Applied to turbulence (configurable) |
 
 ### Performance Comparison
 
@@ -94,7 +95,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Update Time | ~15 seconds (OTA) | ~5 seconds |
 | HA Integration | ⭐⭐⭐⭐⭐ (Native) | ⭐⭐⭐ (MQTT) |
 
-📊 **For detailed ESPectre performance metrics and test methodology**, see [PERFORMANCE.md](../PERFORMANCE.md) in the main repository.
+📊 **For detailed performance metrics** (confusion matrix, F1-score, benchmarks), see [PERFORMANCE.md](../PERFORMANCE.md).
 
 ### When to Use Which Version?
 
@@ -380,8 +381,6 @@ Additional validation tests:
 - `test_optimization_equivalence.py`: Validates optimization correctness
 - `test_validation_real_data.py`: Validates algorithms with real CSI data (baseline/movement)
 
-**Total: 160 tests (using real CSI data from `data/`)**
-
 ### CI Integration
 
 Tests run automatically on every push/PR via GitHub Actions. See `.github/workflows/ci.yml`.
@@ -392,27 +391,14 @@ Tests run automatically on every push/PR via GitHub Actions. See `.github/workfl
 
 ```python
 SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
-                          # Larger = smoother, slower response
-                          # Smaller = faster response, more noise
-
-SEG_THRESHOLD = 1.0       # Motion detection threshold (0.0-10.0)
-                          # Lower values = more sensitive to motion
+SEG_THRESHOLD = 1.0        # Motion detection threshold (0.0-10.0)
+ENABLE_FEATURES = False    # Enable/disable feature extraction
+ENABLE_HAMPEL_FILTER = False
+HAMPEL_WINDOW = 7
+HAMPEL_THRESHOLD = 4.0
 ```
 
-### Feature Extraction Parameters (config.py)
-
-```python
-
-ENABLE_FEATURES = False       # Enable/disable feature extraction and MQTT publishing
-```
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `ENABLE_FEATURES` | `True` | Enable feature extraction |
-| `SEG_WINDOW_SIZE` | `50` | Shared window size for both MVS and features |
-| `ENABLE_HAMPEL_FILTER` | `True` | Shared Hampel filter enable (used by both MVS and features) |
-| `HAMPEL_WINDOW` | `7` | Shared Hampel window size |
-| `HAMPEL_THRESHOLD` | `4.0` | Shared Hampel threshold (MAD multiplier) |
+📚 **For detailed parameter tuning guide**, see [TUNING.md](../TUNING.md).
 
 ### Published Data (MQTT Payload)
 
@@ -481,58 +467,35 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
 
 ## 🔧 Analysis Tools
 
-The `tools/` directory contains a comprehensive suite of Python scripts for CSI data analysis, algorithm optimization, and subcarrier selection. These tools were instrumental in developing and validating the MVS algorithm and the breakthrough **NBVI (Normalized Baseline Variability Index)** automatic subcarrier selection method.
-
-### Quick Start
+The `tools/` directory contains Python scripts for CSI data analysis and algorithm validation.
 
 ```bash
-# Collect CSI data samples (auto-detect port)
+# Collect CSI data samples
 ./me run --collect-baseline
 ./me run --collect-movement
 
 # Run analysis
 cd tools
 python 2_analyze_system_tuning.py --quick
+python 3_analyze_moving_variance_segmentation.py --plot
 ```
 
-### Available Tools
-
-The tools directory includes **9 analysis scripts** covering:
+**9 analysis scripts** covering:
 - 📊 Raw data visualization and system tuning
 - 🔬 MVS algorithm validation and optimization
 - 🎨 I/Q constellation analysis
-- 🧬 **NBVI automatic subcarrier selection** (F1=97.1%)
-- 🔍 Ring geometry analysis (23+ strategies tested)
 - 📈 Detection methods comparison
-- 🧮 **CSI features extraction and analysis**
+- 🧮 CSI features extraction
 
-**For complete documentation**, see **[tools/README.md](tools/README.md)** which includes:
-- Detailed description of all 12 scripts
-- Usage examples and options
-- NBVI algorithm explanation and results
-- Performance comparisons and scientific findings
-
-### 🧬 NBVI: Breakthrough in Automatic Subcarrier Selection
-
-**NBVI (Normalized Baseline Variability Index)** achieves **F1=97.1%** (pure data) and **F1=91.2%** (mixed data) with **zero manual configuration** - the best automatic method tested among 23+ strategies.
-
-**Key Results**:
-- ✅ Gap to manual optimization: only **-0.2%**
-- ✅ Outperforms variance-only by **+4.7%** (pure), **∞** (mixed - variance fails)
-- ✅ **Percentile-based**: NO threshold configuration needed
-- ✅ **Production-ready**: Validated on real CSI data
-
-For complete NBVI documentation, algorithm details, and performance analysis, see **[tools/README.md](tools/README.md)**.
+📚 See [tools/README.md](tools/README.md) for complete script documentation.
 
 ## 🧬 Automatic Subcarrier Selection (NBVI)
 
-Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving near-optimal performance (F1=97.1%) with **zero manual configuration**.
+Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving **F1=97.1%** with **zero manual configuration**.
 
-NBVI automatically selects the optimal 12 subcarriers from the 64 available in WiFi CSI by analyzing their stability and signal strength during a baseline period. The calibration runs automatically:
-- **At first boot** (if no saved configuration exists)
-- **After factory_reset** command
+> ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
 
-For complete NBVI documentation, algorithm details, performance analysis, and configuration parameters, see **[tools/README.md](tools/README.md)**.
+📚 **For complete NBVI algorithm documentation**, see [ALGORITHMS.md](ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
 
 ## 🤖 Machine Learning & Advanced Applications
 
@@ -839,83 +802,13 @@ mqtt:
       device_class: motion
 ```
 
-## 📚 Scientific References
+## 📚 References
 
-This section contains extensive research references in Wi-Fi sensing and CSI-based movement detection. These academic works and theses provide valuable insights into mathematical signal processing approaches and machine learning techniques for human activity recognition using Wi-Fi Channel State Information.
-
-### University Theses
-
-1. **Wi-Fi Sensing per Human Identification attraverso CSI**  
-   University thesis (in Italian) covering CSI data collection for human recognition through Wi-Fi signal analysis, with in-depth exploration of mathematical signal processing methods.  
-   📄 [Read thesis](https://amslaurea.unibo.it/id/eprint/29166/1/tesi.pdf)
-
-2. **Channel State Information (CSI) Features Collection in Wi-Fi**  
-   Detailed analysis of CSI feature collection and processing in Wi-Fi environments, with methods for extraction and analysis suitable for mathematical processing.  
-   📄 [Read thesis](https://www.politesi.polimi.it/handle/10589/196727)
-
-3. **Wi-Fi CSI for Human Activity Recognition** - UBC  
-   Baseline detection and calibration-free approaches for activity recognition.  
-   📄 [Read thesis](https://open.library.ubc.ca/media/stream/pdf/24/1.0365967/4)
-
-### Scientific Papers
-
-4. **Indoor Motion Detection Using Wi-Fi Channel State Information (2018)**  
-   Scientific article describing indoor movement detection using CSI with approaches based on signal mathematics and physics. False positive reduction and sensitivity optimization.  
-   📄 [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6068568/)
-
-5. **WiFi Motion Detection: A Study into Efficacy and Performance (2019)**  
-   Study using CSI data collected from standard devices to detect movements, with analysis of signal processing methods to extract movement events without relying on ML.  
-   📄 [Read paper](https://arxiv.org/abs/1908.08476)
-
-6. **CSI-HC: A WiFi-Based Indoor Complex Human Motion Recognition Using Channel State Information (2020)**  
-   Recognition of complex indoor movements through CSI with methods based on mathematical signal features, ideal for projects with signal-based analysis without advanced ML.  
-   📄 [Read paper](https://onlinelibrary.wiley.com/doi/10.1155/2020/3185416)
-
-7. **Location Intelligence System for People Estimation in Indoor Environment During Emergency Operation (2022)**  
-   Demonstrates the use of ESP32 with wavelet filtering (Daubechies db4) for people detection in emergency scenarios. This paper directly influenced ESPectre's wavelet filter implementation.  
-   📄 [Read paper](https://scholarspace.manoa.hawaii.edu/server/api/core/bitstreams/a2d2de7c-7697-485b-97c5-62f4bf1260d0/content)
-
-8. **Mitigation of CSI Temporal Phase Rotation** - PMC  
-   B2B calibration methods for phase analysis in CSI-based sensing.  
-   📄 [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6263436/)
-
-9. **CSI-based Passive Intrusion Detection** - NIH  
-   Multipath components and subcarrier sensitivity analysis for intrusion detection.  
-   📄 [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC11630712/)
-
-10. **Time-Selective RNN for Multi-Room Detection** - arXiv  
-    Environment-dependent channel optimization for multi-room scenarios.  
-    📄 [Read paper](https://arxiv.org/html/2304.13107v2)
-
-11. **CIRSense: Rethinking WiFi Sensing** - arXiv  
-    SSNR (Sensing Signal-to-Noise Ratio) optimization for sensing applications.  
-    📄 [Read paper](https://arxiv.org/html/2510.11374v1)
-
-12. **MVS Segmentation** - ResearchGate  
-    Moving Variance Segmentation algorithm: the fused CSI stream and corresponding moving variance sequence.  
-    📄 [Read paper](https://www.researchgate.net/figure/MVS-segmentation-a-the-fused-CSI-stream-b-corresponding-moving-variance-sequence_fig6_326244454)
-
-13. **CSI-F: Feature Fusion Method** - MDPI  
-    Hampel filter and statistical robustness for CSI feature extraction.  
-    📄 [Read paper](https://www.mdpi.com/1424-8220/24/3/862)
-
-14. **Linear-Complexity Subcarrier Selection** - ResearchGate  
-    Computational efficiency strategies for embedded systems.  
-    📄 [Read paper](https://www.researchgate.net/publication/397240630)
-
-15. **Passive Indoor Localization** - PMC  
-    SNR considerations and noise gate strategies for indoor localization.  
-    📄 [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6412876/)
-
-16. **Subcarrier Selection for Indoor Localization** - ResearchGate  
-    Spectral de-correlation and feature diversity for optimal subcarrier selection.  
-    📄 [Read paper](https://www.researchgate.net/publication/326195991)
-
-These references demonstrate that effective Wi-Fi sensing can be achieved through both mathematical and machine learning approaches, supporting Micro-ESPectre's role as the R&D platform for algorithm development and validation.
+For scientific references and algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md).
 
 ## Related Projects
 
-- [ESPectre]((../README.md)) - Main project with native Home Assistant integration
+- [ESPectre](../README.md) - Main project with native Home Assistant integration
 - [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) - MicroPython CSI module
 
 ## 📄 License

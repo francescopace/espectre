@@ -41,7 +41,7 @@ SEG_WINDOW_SIZE = 50          # Moving variance window (packets) - used by both 
 SEG_THRESHOLD = 1.0           # Motion detection threshold (Lower values = more sensitive to motion)
 
 # Filtering Configuration
-ENABLE_HAMPEL_FILTER = True   # Enable/disable Hampel outlier filter
+ENABLE_HAMPEL_FILTER = False   # Enable/disable Hampel outlier filter (spikes in turbulence)
 HAMPEL_WINDOW = 7             # Window size for median calculation (3-9 recommended)
 HAMPEL_THRESHOLD = 4.0        # Outlier detection threshold in MAD units (2.0-4.0 recommended)
                               # Higher values = less aggressive filtering

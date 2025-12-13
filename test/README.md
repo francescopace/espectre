@@ -32,12 +32,6 @@ pio test -e esp32c6
 | `test_calibration_file_storage` | Unit | Synthetic | 9 | File-based magnitude storage |
 | `test_motion_detection` | Integration | **Real** | 3 | MVS performance metrics |
 
-### Test Counts
-
-| Environment | Tests | Notes |
-|-------------|-------|-------|
-| **Native** | 157 | Full suite with WiFiCSIMock |
-| **ESP32-C6** | 157 | Full suite with WiFiCSIMock (dependency injection) |
 
 ### Target Metrics (Motion Detection)
 - **Recall**: ≥95% (detect real movements)

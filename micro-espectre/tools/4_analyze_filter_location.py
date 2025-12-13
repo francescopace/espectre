@@ -5,6 +5,7 @@ Compares filtering at different stages:
 1. No filtering (baseline)
 2. Filter turbulence values AFTER calculation  
 3. Filter I/Q raw data BEFORE calculating turbulence
+4. Filter amplitudes BEFORE calculating turbulence (paper-style)
 
 Usage:
     python tools/4_analyze_filter_location.py
@@ -14,13 +15,8 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import sys
 import numpy as np
 import argparse
-from pathlib import Path
-
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from csi_utils import load_baseline_and_movement, HampelFilter, calculate_spatial_turbulence
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
@@ -101,9 +97,27 @@ def calculate_turbulence_filtered_iq(csi_packet, hampel_I, hampel_Q, subcarriers
     return np.std(amplitudes)
 
 
+def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarriers):
+    """Calculate turbulence from Hampel-filtered amplitudes (paper-style approach).
+    
+    This applies Hampel filter to each subcarrier's amplitude time series,
+    as described in CSI preprocessing literature.
+    """
+    amplitudes = []
+    for i, sc_idx in enumerate(subcarriers):
+        I = float(csi_packet[sc_idx * 2])
+        Q = float(csi_packet[sc_idx * 2 + 1])
+        raw_amp = np.sqrt(I*I + Q*Q)
+        # Apply Hampel to the amplitude time series for this subcarrier
+        filtered_amp = hampel_amps[i].filter(raw_amp)
+        amplitudes.append(filtered_amp)
+    return np.std(amplitudes)
+
+
 def run_comparison(baseline_packets, movement_packets, track_data=False):
-    """Compare 3 filtering approaches"""
+    """Compare 4 filtering approaches"""
     results = {}
+    num_sc = len(SELECTED_SUBCARRIERS)
     
     # 1. No Filter
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
@@ -121,7 +135,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         'movement_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     }
     
-    # 2. Filter Turbulence
+    # 2. Filter Turbulence (current ESPectre implementation)
     seg = FilteredTurbulenceSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
     for pkt in baseline_packets:
         seg.add_turbulence(calculate_spatial_turbulence(pkt['csi_data'], SELECTED_SUBCARRIERS))
@@ -137,8 +151,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         'movement_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     }
     
-    # 3. Filter I/Q Raw
-    num_sc = len(SELECTED_SUBCARRIERS)
+    # 3. Filter I/Q Raw (separate I and Q filtering)
     hampel_I = [HampelFilter() for _ in range(num_sc)]
     hampel_Q = [HampelFilter() for _ in range(num_sc)]
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
@@ -161,6 +174,27 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         'movement_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     }
     
+    # 4. Filter Amplitudes (paper-style: Hampel on amplitude time series per subcarrier)
+    hampel_amps = [HampelFilter() for _ in range(num_sc)]
+    seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
+    
+    for pkt in baseline_packets:
+        turb = calculate_turbulence_filtered_amplitudes(pkt['csi_data'], hampel_amps, SELECTED_SUBCARRIERS)
+        seg.add_turbulence(turb)
+    baseline_fp = seg.motion_packets
+    baseline_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+    
+    hampel_amps = [HampelFilter() for _ in range(num_sc)]
+    seg.reset()
+    for pkt in movement_packets:
+        turb = calculate_turbulence_filtered_amplitudes(pkt['csi_data'], hampel_amps, SELECTED_SUBCARRIERS)
+        seg.add_turbulence(turb)
+    results['Filter Amplitudes'] = {
+        'fp': baseline_fp, 'tp': seg.motion_packets,
+        'baseline_data': baseline_data,
+        'movement_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+    }
+    
     return results
 
 
@@ -168,7 +202,8 @@ def plot_comparison(results, threshold):
     """Visualize comparison"""
     import matplotlib.pyplot as plt
     
-    fig, axes = plt.subplots(3, 2, figsize=(14, 12))
+    num_results = len(results)
+    fig, axes = plt.subplots(num_results, 2, figsize=(14, 4 * num_results))
     fig.suptitle('Filter Location Comparison', fontsize=14, fontweight='bold')
     
     for i, (name, result) in enumerate(results.items()):
@@ -193,7 +228,7 @@ def plot_comparison(results, threshold):
         ax.set_ylabel('Moving Variance')
         ax.grid(True, alpha=0.3)
         
-        if i == 2:
+        if i == num_results - 1:
             axes[i, 0].set_xlabel('Time (seconds)')
             axes[i, 1].set_xlabel('Time (seconds)')
     

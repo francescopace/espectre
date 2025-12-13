@@ -122,6 +122,10 @@ void test_mvs_detection_accuracy(void) {
     csi_processor_context_t ctx;
     TEST_ASSERT_TRUE(csi_processor_init(&ctx, SEGMENTATION_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD));
     
+    // Disable Hampel filter for pure MVS performance measurement
+    // (Hampel is useful in production but reduces Recall by ~2% in controlled tests)
+    hampel_turbulence_init(&ctx.hampel_state, HAMPEL_TURBULENCE_WINDOW_DEFAULT, HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
+    
     float threshold = csi_processor_get_threshold(&ctx);
     printf("Using default threshold: %.4f\n", threshold);
     printf("Window size: %d\n", csi_processor_get_window_size(&ctx));

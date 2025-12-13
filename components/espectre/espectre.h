@@ -88,7 +88,7 @@ class ESpectreComponent : public Component {
   float segmentation_threshold_{1.0f};
   uint16_t segmentation_window_size_{50};
   uint32_t traffic_generator_rate_{100};
-  bool hampel_enabled_{true};
+  bool hampel_enabled_{false};
   uint8_t hampel_window_{7};
   float hampel_threshold_{4.0f};
   float normalization_scale_{1.0f};  // CSI amplitude normalization (calculated during calibration)

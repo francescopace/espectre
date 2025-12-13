@@ -40,20 +40,25 @@ pip install esphome
 
 Download the example configuration for your hardware:
 
-| Platform | Configuration File | Status |
-|----------|-------------------|--------|
-| **ESP32-C6** | [examples/espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) | ✅ Tested |
-| **ESP32-S3** | [examples/espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) | ✅ Tested |
-| **ESP32-C5** | [examples/espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | ⚠️ Experimental |
-| **ESP32-C3** | [examples/espectre-c3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c3.yaml) | ✅ Tested |
-| **ESP32-S2** | [examples/espectre-s2.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s2.yaml) | ⚠️ Experimental |
-| **ESP32** | [examples/espectre-esp32.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-esp32.yaml) | ⚠️ Experimental |
+| Platform | Configuration File | CPU | WiFi | PSRAM | Status |
+|----------|-------------------|-----|------|-------|--------|
+| **ESP32-C6** | [espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) | RISC-V @ 160MHz | WiFi 6 | ❌ | ✅ Tested |
+| **ESP32-S3** | [espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) | Xtensa @ 240MHz | WiFi 4 | ✅ 8MB | ✅ Tested |
+| **ESP32-C3** | [espectre-c3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c3.yaml) | RISC-V @ 160MHz | WiFi 4 | ❌ | ✅ Tested |
+| **ESP32-C5** | [espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | RISC-V @ 240MHz | WiFi 6 | ❌ | ⚠️ Experimental ¹ |
+| **ESP32-S2** | [espectre-s2.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s2.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
+| **ESP32** | [espectre-esp32.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-esp32.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
+
+**Recommendations**:
+- **ESP32-C6**: Best for WiFi 6 environments, standard motion detection
+- **ESP32-S3**: Best for advanced applications, future ML features (more memory)
+- **ESP32-C3**: Budget-friendly option, compact form factor
 
 These files are pre-configured to download the component automatically from GitHub.
 
 > ⚠️ **Experimental platforms**: ESP32, ESP32-S2, and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
 >
-> ⚠️ **ESP32-C5 note**: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
+> ¹ ESP32-C5: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
 
 ### 3. Build and flash
 
@@ -166,15 +171,17 @@ No need to copy any files manually - the component is downloaded automatically f
 
 All parameters can be adjusted in the YAML file under the `espectre:` section:
 
-| Parameter | Type | Default | Range | Description |
-|-----------|------|---------|-------|-------------|
-| `traffic_generator_rate` | int | 100 | 0-1000 | Packets/sec for CSI generation (0=disabled) |
-| `segmentation_threshold` | float | 1.0 | 0.5-10.0 | Motion sensitivity (lower=more sensitive) |
-| `segmentation_window_size` | int | 50 | 10-200 | Moving variance window in packets |
-| `selected_subcarriers` | list | auto | 0-63 | Fixed subcarriers (omit for auto-calibration) |
-| `hampel_enabled` | bool | true | - | Enable Hampel outlier filter |
-| `hampel_window` | int | 7 | 3-11 | Hampel filter window size |
-| `hampel_threshold` | float | 4.0 | 1.0-10.0 | Hampel filter sensitivity (MAD multiplier) |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0=disabled) |
+| `segmentation_threshold` | float | 1.0 | Motion sensitivity (lower=more sensitive) |
+| `segmentation_window_size` | int | 50 | Moving variance window in packets |
+| `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
+| `hampel_enabled` | bool | true | Enable Hampel outlier filter |
+| `hampel_window` | int | 7 | Hampel filter window size |
+| `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) |
+
+📚 **For detailed parameter tuning** (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 ### Integrated Sensors (Created Automatically)
 
 All sensors are created automatically when the `espectre` component is configured. You can optionally customize their names.
@@ -304,27 +311,14 @@ Two dashboard examples are available:
 
 **⚠️ IMPORTANT:** The traffic generator is **ESSENTIAL** for CSI packet generation. Without it, the ESP32 receives zero CSI packets and detection will not work.
 
-### What it does
-
-- Generates UDP broadcast packets at configurable rate
-- Each packet triggers a CSI callback from the WiFi driver
-- Ensures continuous CSI data availability
-
-### Recommended rates
-
-| Rate | Use Case |
-|------|----------|
-| 50 pps | Basic presence detection, minimal overhead |
-| 100 pps | **Recommended** - Activity recognition |
-| 600-1000 pps | Fast motion detection, precision localization |
-| 0 pps | Disabled (only if you have other continuous WiFi traffic) |
-
-### Configuration
+The traffic generator creates UDP broadcast packets that trigger CSI callbacks from the WiFi driver. Default rate is **100 pps** (packets per second).
 
 ```yaml
 espectre:
-  traffic_generator_rate: 100  # packets per second
+  traffic_generator_rate: 100  # packets per second (0-1000)
 ```
+
+📚 For detailed rate recommendations and Nyquist-Shannon sampling theory, see [TUNING.md](TUNING.md#traffic-generator-rate-0-1000-pps).
 
 ---
 
