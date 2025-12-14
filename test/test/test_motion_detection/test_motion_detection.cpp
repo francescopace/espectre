@@ -397,12 +397,8 @@ void test_mvs_end_to_end_with_calibration(void) {
     CalibrationManager cm;
     cm.init(&csi_manager, "/tmp/test_e2e_buffer.bin");
     cm.set_buffer_size(200);  // Use first 200 baseline packets for calibration
-    cm.set_window_size(100);
-    cm.set_window_step(50);
-    cm.set_percentile(10);
-    cm.set_alpha(0.3f);
-    cm.set_min_spacing(3);
-    cm.set_noise_gate_percentile(10);
+    // Use default parameters from CalibrationManager - no hardcoded values
+    // This ensures tests reflect real production behavior
     
     // Variables to capture calibration results
     uint8_t calibrated_band[12] = {0};

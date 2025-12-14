@@ -25,6 +25,12 @@ NORMALIZATION_TARGET_MEAN_DEFAULT = 28.0
 # This is environment-aware: works with any chip and adapts to local RF conditions
 NULL_SUBCARRIER_THRESHOLD = 1.0
 
+# OFDM 20MHz guard band limits - these subcarriers should always be excluded
+# [0-5] and [59-63] are guard bands, [32] is DC null
+GUARD_BAND_LOW = 6    # First valid subcarrier
+GUARD_BAND_HIGH = 58  # Last valid subcarrier
+DC_SUBCARRIER = 32    # DC null (always excluded)
+
 
 def get_valid_subcarriers(chip_type=None):
     """
@@ -56,7 +62,7 @@ class NBVICalibrator:
     thousands of packets without memory issues.
     """
     
-    def __init__(self, buffer_size=1000, percentile=10, alpha=0.3, min_spacing=3, chip_type=None,
+    def __init__(self, buffer_size=1000, percentile=10, alpha=0.3, min_spacing=2, chip_type=None,
                  normalization_enabled=True, normalization_target=None):
         """
         Initialize NBVI calibrator
@@ -65,7 +71,7 @@ class NBVICalibrator:
             buffer_size: Number of packets to collect (default: 1000)
             percentile: Percentile for baseline detection (default: 10)
             alpha: NBVI weighting factor (default: 0.3)
-            min_spacing: Minimum spacing between subcarriers (default: 3)
+            min_spacing: Minimum spacing between subcarriers (default: 2)
             chip_type: Ignored (kept for backward compatibility)
             normalization_enabled: Enable/disable auto-normalization (default: True)
             normalization_target: Target mean amplitude (default: NORMALIZATION_TARGET_MEAN_DEFAULT)
@@ -440,15 +446,19 @@ class NBVICalibrator:
             metrics = self._calculate_nbvi_weighted(magnitudes)
             metrics['subcarrier'] = sc
             
-            # Auto-detect null subcarriers: if mean < threshold, mark as invalid
-            # This catches hardware nulls (DC, guard bands) and environment-specific issues
-            if metrics['mean'] < NULL_SUBCARRIER_THRESHOLD:
+            # Exclude guard bands and DC subcarrier (always invalid regardless of signal)
+            # OFDM 20MHz: [0-5] lower guard, [32] DC, [59-63] upper guard
+            if sc < GUARD_BAND_LOW or sc > GUARD_BAND_HIGH or sc == DC_SUBCARRIER:
+                metrics['nbvi'] = float('inf')
+                null_count += 1
+            # Auto-detect weak subcarriers: if mean < threshold, mark as invalid
+            elif metrics['mean'] < NULL_SUBCARRIER_THRESHOLD:
                 metrics['nbvi'] = float('inf')
                 null_count += 1
             
             all_metrics.append(metrics)
         
-        print(f"NBVI: Auto-detected {null_count} null subcarriers (threshold: {NULL_SUBCARRIER_THRESHOLD})")
+        print(f"NBVI: Excluded {null_count} subcarriers (guard bands + weak signals)")
         
         # Step 3: Apply Noise Gate
         filtered_metrics = self._apply_noise_gate(all_metrics)

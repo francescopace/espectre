@@ -367,16 +367,20 @@ void CalibrationManager::calculate_nbvi_metrics_(uint16_t baseline_start,
     metrics[sc].subcarrier = sc;
     calculate_nbvi_weighted_(subcarrier_magnitudes, metrics[sc]);
     
-    // Auto-detect null subcarriers: if mean < threshold, mark as invalid
-    // This catches hardware nulls (DC, guard bands) and environment-specific issues
-    if (metrics[sc].mean < NULL_SUBCARRIER_THRESHOLD) {
+    // Exclude guard bands and DC subcarrier (always invalid regardless of signal)
+    // OFDM 20MHz: [0-5] lower guard, [32] DC, [59-63] upper guard
+    if (sc < GUARD_BAND_LOW || sc > GUARD_BAND_HIGH || sc == DC_SUBCARRIER) {
+      metrics[sc].nbvi = std::numeric_limits<float>::infinity();
+      null_count++;
+    }
+    // Auto-detect weak subcarriers: if mean < threshold, mark as invalid
+    else if (metrics[sc].mean < NULL_SUBCARRIER_THRESHOLD) {
       metrics[sc].nbvi = std::numeric_limits<float>::infinity();
       null_count++;
     }
   }
   
-  ESP_LOGD(TAG, "Auto-detected %d null subcarriers (threshold: %.1f)", 
-           null_count, NULL_SUBCARRIER_THRESHOLD);
+  ESP_LOGD(TAG, "Excluded %d subcarriers (guard bands + weak signals)", null_count);
 }
 
 uint8_t CalibrationManager::apply_noise_gate_(std::vector<NBVIMetrics>& metrics) {

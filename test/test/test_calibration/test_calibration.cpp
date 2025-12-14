@@ -146,12 +146,8 @@ void test_calibration_manager_full_calibration(void) {
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
     cm.set_buffer_size(200);  // Use 200 packets for calibration
-    cm.set_window_size(50);
-    cm.set_window_step(25);
-    cm.set_percentile(10);
-    cm.set_alpha(0.3f);
-    cm.set_min_spacing(3);
-    cm.set_noise_gate_percentile(10);
+    // Use default parameters from CalibrationManager - no hardcoded values
+    // This ensures tests reflect real production behavior
     
     // Variables to capture callback results
     uint8_t result_band[12] = {0};

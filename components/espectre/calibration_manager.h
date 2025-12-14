@@ -154,7 +154,7 @@ class CalibrationManager {
   uint16_t window_step_{50};         // Step size for sliding window
   uint8_t percentile_{10};           // Percentile for baseline detection
   float alpha_{0.3f};                // NBVI weighting factor
-  uint8_t min_spacing_{3};           // Minimum spectral spacing
+  uint8_t min_spacing_{2};           // Minimum spectral spacing
   uint8_t noise_gate_percentile_{10}; // Noise gate threshold
   bool normalization_enabled_{true};   // Enable/disable auto-normalization
   float normalization_target_{NORMALIZATION_TARGET_MEAN_DEFAULT}; // Target mean amplitude
@@ -171,6 +171,12 @@ class CalibrationManager {
   // Constants
   static constexpr uint8_t NUM_SUBCARRIERS = 64;
   static constexpr uint8_t SELECTED_SUBCARRIERS_COUNT = 12;
+  
+  // OFDM 20MHz guard band limits - these subcarriers should always be excluded
+  // [0-5] and [59-63] are guard bands, [32] is DC null
+  static constexpr uint8_t GUARD_BAND_LOW = 6;   // First valid subcarrier
+  static constexpr uint8_t GUARD_BAND_HIGH = 58; // Last valid subcarrier
+  static constexpr uint8_t DC_SUBCARRIER = 32;   // DC null (always excluded)
   
   // Threshold for null subcarrier detection (mean amplitude below this = null)
   static constexpr float NULL_SUBCARRIER_THRESHOLD = 1.0f;

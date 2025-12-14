@@ -128,7 +128,7 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 📊 **For detailed performance metrics** (confusion matrix, test methodology, benchmarks), see [PERFORMANCE.md](../PERFORMANCE.md).
 
-**Reference**: [8] MVS segmentation: the fused CSI stream and corresponding moving variance sequence (ResearchGate)
+**Reference**: [1] MVS segmentation: the fused CSI stream and corresponding moving variance sequence (ResearchGate)
 
 ---
 
@@ -211,7 +211,7 @@ magnitude_threshold = np.percentile(mean_magnitudes, 10)
 valid_subcarriers = [i for i in range(64) if mean[i] > magnitude_threshold]
 ```
 
-**Reference**: [13] A Novel Passive Indoor Localization Method by Fusion CSI Amplitude and Phase Information
+**Reference**: [4] Passive Indoor Localization - SNR considerations and noise gate strategies
 
 #### 3. Spectral De-correlation
 
@@ -219,11 +219,11 @@ valid_subcarriers = [i for i in range(64) if mean[i] > magnitude_threshold]
 
 **Solution**: Hybrid spacing strategy:
 - **Top 5**: Always include (absolute priority by NBVI score)
-- **Remaining 7**: Select with minimum spacing Δf≥3
+- **Remaining 7**: Select with minimum spacing Δf≥2
 
 This balances quality (NBVI score) with diversity (spectral separation).
 
-**Reference**: [16] Subcarrier selection for efficient CSI-based indoor localization
+**Reference**: [5] Subcarrier Selection for Indoor Localization - Spectral de-correlation and feature diversity
 
 ### Complete Algorithm
 
@@ -254,9 +254,9 @@ def nbvi_calibrate(csi_buffer, num_subcarriers=12):
     # Top 5 always included
     selected = sorted_by_nbvi[:5]
     
-    # Remaining 7 with spacing >= 3
+    # Remaining 7 with spacing >= 2
     for candidate in sorted_by_nbvi[5:]:
-        if all(abs(candidate - s) >= 3 for s in selected):
+        if all(abs(candidate - s) >= 2 for s in selected):
             selected.append(candidate)
         if len(selected) == 12:
             break
@@ -272,7 +272,7 @@ NBVICalibrator(
     buffer_size=1000,      # 10s @ 100Hz
     percentile=10,         # 10th percentile for baseline
     alpha=0.3,             # NBVI weighting factor
-    min_spacing=3          # Minimum subcarrier spacing
+    min_spacing=2          # Minimum subcarrier spacing
 )
 ```
 
@@ -401,7 +401,7 @@ Testing showed that in clean environments:
 
 The filter reduces recall because it treats the first packets of real movement as "outliers" and replaces them with the baseline median, delaying detection.
 
-**Reference**: [9] CSI-F: Feature Fusion Method (MDPI Sensors)
+**Reference**: [6] CSI-F: Feature Fusion Method (MDPI Sensors)
 
 ---
 

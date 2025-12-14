@@ -182,16 +182,20 @@ When using NBVI (Normalized Baseline Variability Index) for automatic subcarrier
 
 | Metric | Fixed Band [11-22] | NBVI Auto-Calibration |
 |--------|--------------------|-----------------------|
-| **Recall** | 98.1% | 95.3% |
+| **Recall** | 98.1% | 96.5% |
 | **Precision** | 100.0% | 100.0% |
 | **FP Rate** | 0.0% | 0.0% |
-| **F1-Score** | 99.0% | 97.6% |
+| **F1-Score** | 99.0% | 98.2% |
 
-NBVI is recommended when:
-- Environment conditions vary significantly from reference test setup
-- Automatic calibration is preferred over manual tuning
+**Why use NBVI instead of fixed band?**
 
-The fixed band [11-22] remains the default and provides the best performance for ESP32-C6 in test environment.
+The fixed band [11-22] achieves slightly better performance in the reference test environment, but **subcarrier quality varies significantly between environments** due to:
+- Room geometry and materials (walls, furniture, metal objects)
+- WiFi interference from neighboring networks
+- Distance and orientation relative to the access point
+- ESP32 variant and antenna characteristics
+
+**NBVI automatically selects the optimal subcarriers for each specific environment**, making it the recommended choice for production deployments. The fixed band is useful only for controlled test environments where optimal subcarriers have been manually identified.
 
 ---
 

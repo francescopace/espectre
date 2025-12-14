@@ -199,6 +199,26 @@ python 9_compare_s3_vs_c6.py --plot
 
 ---
 
+### 10. NBVI Parameters Optimization (`10_optimize_nbvi_params.py`)
+
+**Purpose**: Grid search for optimal NBVI calibration parameters
+
+- Optimizes alpha (NBVI weighting factor), min_spacing, and percentile
+- Compares NBVI-selected band vs fixed band [11-22]
+- Generates optimal configuration for config.py
+
+```bash
+python 10_optimize_nbvi_params.py              # Full grid search
+python 10_optimize_nbvi_params.py c6           # Use only C6 data
+python 10_optimize_nbvi_params.py --quick      # Quick search (fewer combinations)
+```
+
+**Current optimal configuration:**
+- `NBVI_ALPHA = 0.3`, `NBVI_MIN_SPACING = 2`, `NBVI_PERCENTILE = 10`
+- Achieves **Recall 96.5%, F1 98.2%** with zero configuration
+
+---
+
 ## 📊 Usage Examples
 
 ### Basic Analysis Workflow
@@ -254,7 +274,7 @@ Tested on 60-second noisy baseline with C6 chip:
 
 ### NBVI Automatic Subcarrier Selection
 
-**NBVI Weighted α=0.3 with Percentile p10** achieves **F1=97.6%** with zero configuration.
+**NBVI with min_spacing=2** achieves **F1=98.2%** (Recall 96.5%) with zero configuration.
 
 📚 **For complete NBVI algorithm documentation**, see [ALGORITHMS.md](../ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
 

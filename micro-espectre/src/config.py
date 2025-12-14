@@ -39,7 +39,7 @@ NBVI_WINDOW_SIZE = 100        # Window size for baseline detection (1s @ 100Hz)
 NBVI_WINDOW_STEP = 50         # Step size for sliding window analysis
 NBVI_PERCENTILE = 10          # Percentile for baseline detection (10 = p10)
 NBVI_ALPHA = 0.3              # NBVI weighting factor (0.3 = optimal)
-NBVI_MIN_SPACING = 3          # Minimum spacing between subcarriers (Δf≥3)
+NBVI_MIN_SPACING = 2          # Minimum spacing between subcarriers (Δf≥2)
 NBVI_NOISE_GATE_PERCENTILE = 10  # Exclude weak subcarriers below this percentile
 
 # Segmentation Window and Threshold

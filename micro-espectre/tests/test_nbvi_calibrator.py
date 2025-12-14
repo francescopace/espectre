@@ -58,7 +58,7 @@ class TestNBVICalibrator:
         assert calibrator.buffer_size == 500
         assert calibrator.percentile == 10
         assert calibrator.alpha == 0.3
-        assert calibrator.min_spacing == 3
+        assert calibrator.min_spacing == 2
         assert calibrator._packet_count == 0
         
         # Cleanup
