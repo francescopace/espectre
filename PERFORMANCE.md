@@ -31,7 +31,7 @@ Both platforms produce **identical results** using the same test methodology:
 - Then process all 1000 movement packets (expecting MOTION)
 - Continuous context (no reset between baseline and movement)
 - Same parameters: window_size=50, threshold=1.0, subcarriers=[11-22]
-- Hampel filter disabled for pure MVS algorithm performance measurement
+- All filters disabled (lowpass, hampel, normalization off by default)
 
 ```
 CONFUSION MATRIX (1000 baseline + 1000 movement packets):
@@ -56,7 +56,7 @@ Actual MOTION   19 (FN)     981 (TP)
 | False Positives (FP) | 0 | No false alarms |
 | False Negatives (FN) | 19 | Missed movement detections |
 
-> **Note on Hampel Filter**: The Hampel filter is disabled by default because MVS already achieves 0% false positives without it. Enabling Hampel reduces Recall from 98.1% to ~96% while maintaining 0% FP rate. The filter can be enabled via `hampel_enabled: true` in YAML configuration for environments with high electromagnetic interference.
+> **Note**: These tests were performed with all filters and normalization disabled (default settings). See [TUNING.md](TUNING.md) for filter configuration options.
 
 ---
 
@@ -182,17 +182,16 @@ When using NBVI (Normalized Baseline Variability Index) for automatic subcarrier
 
 | Metric | Fixed Band [11-22] | NBVI Auto-Calibration |
 |--------|--------------------|-----------------------|
-| **Recall** | 98.1% | 97.1% |
+| **Recall** | 98.1% | 95.3% |
 | **Precision** | 100.0% | 100.0% |
 | **FP Rate** | 0.0% | 0.0% |
-| **F1-Score** | 99.0% | 98.5% |
+| **F1-Score** | 99.0% | 97.6% |
 
 NBVI is recommended when:
-- Deploying on multiple ESP32 variants with different RF characteristics
 - Environment conditions vary significantly from reference test setup
 - Automatic calibration is preferred over manual tuning
 
-The fixed band [11-22] remains the default and provides the best performance for ESP32-C6.
+The fixed band [11-22] remains the default and provides the best performance for ESP32-C6 in test environment.
 
 ---
 

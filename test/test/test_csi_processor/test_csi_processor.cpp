@@ -325,6 +325,9 @@ void test_state_transitions_to_motion_on_high_variance(void) {
                           TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
     }
     
+    // Update state (lazy evaluation - must be called explicitly)
+    csi_processor_update_state(&ctx);
+    
     // Should be in MOTION state after processing movement data
     csi_motion_state_t state = csi_processor_get_state(&ctx);
     float mv = csi_processor_get_moving_variance(&ctx);
@@ -346,6 +349,9 @@ void test_state_stays_idle_on_baseline(void) {
         csi_process_packet(&ctx, baseline_packets[i], 128, 
                           TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
     }
+    
+    // Update state (lazy evaluation - must be called explicitly)
+    csi_processor_update_state(&ctx);
     
     csi_motion_state_t state = csi_processor_get_state(&ctx);
     float mv = csi_processor_get_moving_variance(&ctx);
@@ -444,6 +450,138 @@ void test_normalization_scale_affects_turbulence(void) {
     
     csi_processor_cleanup(&ctx1);
     csi_processor_cleanup(&ctx2);
+}
+
+// ============================================================================
+// LOW-PASS FILTER TESTS
+// ============================================================================
+
+void test_lowpass_filter_init_default(void) {
+    lowpass_filter_state_t state;
+    lowpass_filter_init(&state, LOWPASS_CUTOFF_DEFAULT, LOWPASS_SAMPLE_RATE, true);
+    
+    TEST_ASSERT_TRUE(state.enabled);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, LOWPASS_CUTOFF_DEFAULT, state.cutoff_hz);
+    TEST_ASSERT_FALSE(state.initialized);  // Not initialized until first sample
+}
+
+void test_lowpass_filter_disabled_passthrough(void) {
+    lowpass_filter_state_t state;
+    lowpass_filter_init(&state, 10.0f, 100.0f, false);  // Disabled
+    
+    // Should pass through unchanged
+    float input = 5.0f;
+    float output = lowpass_filter_apply(&state, input);
+    TEST_ASSERT_EQUAL_FLOAT(input, output);
+}
+
+void test_lowpass_filter_enabled_smooths(void) {
+    lowpass_filter_state_t state;
+    lowpass_filter_init(&state, 10.0f, 100.0f, true);
+    
+    // First sample initializes state
+    float out1 = lowpass_filter_apply(&state, 10.0f);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, out1);  // First sample returns same value
+    
+    // Sudden step input - filter should smooth it
+    float out2 = lowpass_filter_apply(&state, 0.0f);
+    // Output should be between 0 and 10 (smoothed)
+    TEST_ASSERT_TRUE(out2 > 0.0f && out2 < 10.0f);
+    ESP_LOGI(TAG, "Lowpass smoothing: step from 10 to 0, output=%.3f", out2);
+}
+
+void test_lowpass_filter_reset(void) {
+    lowpass_filter_state_t state;
+    lowpass_filter_init(&state, 10.0f, 100.0f, true);
+    
+    // Process some samples
+    lowpass_filter_apply(&state, 10.0f);
+    lowpass_filter_apply(&state, 20.0f);
+    TEST_ASSERT_TRUE(state.initialized);
+    
+    // Reset
+    lowpass_filter_reset(&state);
+    TEST_ASSERT_FALSE(state.initialized);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, state.x_prev);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, state.y_prev);
+}
+
+void test_lowpass_filter_cutoff_clamping(void) {
+    lowpass_filter_state_t state;
+    
+    // Too low - should clamp to minimum
+    lowpass_filter_init(&state, 1.0f, 100.0f, true);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, LOWPASS_CUTOFF_MIN, state.cutoff_hz);
+    
+    // Too high - should clamp to maximum
+    lowpass_filter_init(&state, 50.0f, 100.0f, true);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, LOWPASS_CUTOFF_MAX, state.cutoff_hz);
+}
+
+void test_lowpass_disabled_by_default_in_context(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    // Low-pass filter should be disabled by default
+    TEST_ASSERT_FALSE(ctx.lowpass_state.enabled);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, LOWPASS_CUTOFF_DEFAULT, ctx.lowpass_state.cutoff_hz);
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_lowpass_setters_getters(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    // Test set/get enabled
+    csi_processor_set_lowpass_enabled(&ctx, false);
+    TEST_ASSERT_FALSE(csi_processor_get_lowpass_enabled(&ctx));
+    
+    csi_processor_set_lowpass_enabled(&ctx, true);
+    TEST_ASSERT_TRUE(csi_processor_get_lowpass_enabled(&ctx));
+    
+    // Test set/get cutoff
+    csi_processor_set_lowpass_cutoff(&ctx, 8.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 8.0f, csi_processor_get_lowpass_cutoff(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_lowpass_in_processing_pipeline(void) {
+    csi_processor_context_t ctx_lp, ctx_no_lp;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx_lp, 50, 1.0f));
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx_no_lp, 50, 1.0f));
+    
+    // Enable low-pass on one, disable on other
+    csi_processor_set_lowpass_enabled(&ctx_lp, true);
+    csi_processor_set_lowpass_enabled(&ctx_no_lp, false);
+    
+    // Also disable Hampel to isolate low-pass effect
+    hampel_turbulence_init(&ctx_lp.hampel_state, 7, 4.0f, false);
+    hampel_turbulence_init(&ctx_no_lp.hampel_state, 7, 4.0f, false);
+    
+    csi_set_subcarrier_selection(TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    
+    // Process multiple packets - low-pass should smooth variations
+    for (int i = 0; i < 10; i++) {
+        csi_process_packet(&ctx_lp, baseline_packets[i % 5], 128,
+                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+        csi_process_packet(&ctx_no_lp, baseline_packets[i % 5], 128,
+                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    }
+    
+    // Both should have valid moving variance, but low-pass should be smoother
+    float mv_lp = csi_processor_get_moving_variance(&ctx_lp);
+    float mv_no_lp = csi_processor_get_moving_variance(&ctx_no_lp);
+    
+    ESP_LOGI(TAG, "Moving variance with lowpass: %.4f, without: %.4f", mv_lp, mv_no_lp);
+    
+    // Low-pass filter reduces high-frequency noise, so variance should be <= without filter
+    // (may be equal if signal is already smooth)
+    TEST_ASSERT_TRUE(mv_lp <= mv_no_lp + 0.1f);  // Allow small tolerance
+    
+    csi_processor_cleanup(&ctx_lp);
+    csi_processor_cleanup(&ctx_no_lp);
 }
 
 // ============================================================================
@@ -584,6 +722,16 @@ int process(void) {
     RUN_TEST(test_normalization_scale_clamps_maximum);
     RUN_TEST(test_get_normalization_scale_returns_one_for_null);
     RUN_TEST(test_normalization_scale_affects_turbulence);
+    
+    // Low-pass filter tests
+    RUN_TEST(test_lowpass_filter_init_default);
+    RUN_TEST(test_lowpass_filter_disabled_passthrough);
+    RUN_TEST(test_lowpass_filter_enabled_smooths);
+    RUN_TEST(test_lowpass_filter_reset);
+    RUN_TEST(test_lowpass_filter_cutoff_clamping);
+    RUN_TEST(test_lowpass_disabled_by_default_in_context);
+    RUN_TEST(test_lowpass_setters_getters);
+    RUN_TEST(test_lowpass_in_processing_pipeline);
     
     // Subcarrier selection tests
     RUN_TEST(test_set_subcarrier_selection_valid);

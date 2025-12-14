@@ -10,6 +10,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [Processing Pipeline](#processing-pipeline)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
 - [NBVI: Automatic Subcarrier Selection](#nbvi-automatic-subcarrier-selection)
+- [Low-Pass Filter](#low-pass-filter)
 - [Hampel Filter](#hampel-filter)
 - [CSI Features](#csi-features-for-ml)
 - [References](#references)
@@ -49,31 +50,33 @@ When a person moves in an environment, they alter multipath reflections, change 
 ## Processing Pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         CSI PROCESSING PIPELINE                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌──────────┐    ┌──────────────┐    ┌─────────────┐    ┌────────────────┐  │
-│  │ CSI Data │───▶│ NBVI Select  │───▶│ Turbulence  │───▶│ Hampel Filter  │  │
-│  │ 64 subcs │    │ 12 subcs     │    │ σ(amps)     │    │ (optional)     │  │
-│  └──────────┘    └──────────────┘    └─────────────┘    └───────┬────────┘  │
-│                   (one-time)                                    │           │
-│                                                                 ▼           │
-│                  ┌───────────┐    ┌───────────────┐    ┌─────────────────┐  │
-│                  │ IDLE or   │◀───│ Threshold     │◀───│ Moving Variance │  │
-│                  │ MOTION    │    │ Comparison    │    │ (window=50)     │  │
-│                  └───────────┘    └───────────────┘    └─────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                           CSI PROCESSING PIPELINE                                  │
+├───────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│  ┌──────────┐    ┌──────────────┐    ┌─────────────┐    ┌──────────────────────┐  │
+│  │ CSI Data │───▶│ NBVI Select  │───▶│ Turbulence  │───▶│ Normalize + Filter   │  │
+│  │ 64 subcs │    │ 12 subcs     │    │ σ(amps)     │    │ LowPass + Hampel     │  │
+│  └──────────┘    └──────────────┘    └─────────────┘    └──────────┬───────────┘  │
+│                   (one-time)                                       │              │
+│                                                                    ▼              │
+│                  ┌───────────┐    ┌───────────────┐    ┌─────────────────┐        │
+│                  │ IDLE or   │◀───│ Threshold     │◀───│ Moving Variance │        │
+│                  │ MOTION    │    │ Comparison    │    │ (window=50)     │        │
+│                  └───────────┘    └───────────────┘    └─────────────────┘        │
+│                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Data flow per packet:**
 1. **CSI Data**: Raw I/Q values for 64 subcarriers (128 int8 values)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
 3. **Spatial Turbulence**: `σ = std(amplitudes)` - variability across subcarriers
-4. **Hampel Filter**: Remove outliers using MAD (Median Absolute Deviation)
-5. **Moving Variance**: `Var(turbulence)` over sliding window
-6. **State Machine**: Compare variance to threshold → IDLE or MOTION
+4. **Normalization**: Scale turbulence by normalization factor (from NBVI calibration)
+5. **Low-Pass Filter**: Remove high-frequency noise (Butterworth 1st order, 11 Hz cutoff)
+6. **Hampel Filter**: Remove outliers using MAD (optional, disabled by default)
+7. **Moving Variance**: `Var(turbulence)` over sliding window
+8. **State Machine**: Compare variance to threshold → IDLE or MOTION
 
 ---
 
@@ -133,7 +136,7 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 ### Overview
 
-**NBVI (Normalized Baseline Variability Index)** is an algorithm for automatic subcarrier selection, achieving **F1=97.1%** with **zero manual configuration**. It was developed as part of ESPectre and represents a key scientific contribution.
+**NBVI (Normalized Baseline Variability Index)** is an algorithm for automatic subcarrier selection, achieving **F1=97.6%** with **zero manual configuration**. It was developed as part of ESPectre and represents a key scientific contribution.
 
 ![Subcarrier Analysis](../images/subcarriers_constellation_diagram.png)
 *I/Q constellation diagrams showing the geometric representation of WiFi signal propagation in the complex plane. The baseline (idle) state exhibits a stable, compact pattern, while movement introduces entropic 
@@ -272,6 +275,67 @@ NBVICalibrator(
     min_spacing=3          # Minimum subcarrier spacing
 )
 ```
+
+---
+
+## Low-Pass Filter
+
+### Overview
+
+The **Low-Pass Filter** removes high-frequency noise from turbulence values. This is particularly useful in noisy RF environments where NBVI may select subcarriers susceptible to interference.
+
+> ℹ️ **Default: Disabled** - The low-pass filter is disabled by default for simplicity. Enable it (11 Hz cutoff recommended) if you experience false positives in noisy RF environments.
+
+### How It Works
+
+The filter uses a **1st-order Butterworth IIR filter** implemented for real-time processing:
+
+1. **Bilinear transform** to convert analog filter to digital
+2. **Difference equation**: `y[n] = b₀·x[n] + b₀·x[n-1] - a₁·y[n-1]`
+3. **Single sample latency** for real-time processing
+
+### Algorithm
+
+```python
+class LowPassFilter:
+    def __init__(self, cutoff_hz=11.0, sample_rate_hz=100.0):
+        # Bilinear transform
+        wc = tan(π × cutoff / sample_rate)
+        k = 1.0 + wc
+        self.b0 = wc / k
+        self.a1 = (wc - 1.0) / k
+        
+        self.x_prev = 0.0
+        self.y_prev = 0.0
+    
+    def filter(self, x):
+        y = self.b0 * x + self.b0 * self.x_prev - self.a1 * self.y_prev
+        self.x_prev = x
+        self.y_prev = y
+        return y
+```
+
+### Parameters
+
+| Parameter | Default | Range | Effect |
+|-----------|---------|-------|--------|
+| `lowpass_enabled` | false | - | Enable/disable filter |
+| `lowpass_cutoff` | 11.0 | 5-20 Hz | Lower = more smoothing, slower response |
+
+### Why 11 Hz Cutoff
+
+Human movement generates signal variations typically in the **0.5-10 Hz** range. RF noise and interference are usually **>15 Hz**. The 11 Hz cutoff:
+- **Preserves** motion signal (>90% recall)
+- **Removes** high-frequency noise
+- **Reduces** false positives in noisy environments
+
+### Performance (60s noisy baseline)
+
+| Configuration | Recall | FP Rate | F1 Score |
+|---------------|--------|---------|----------|
+| No filter | 98.3% | 51.2% | N/A |
+| Low-pass 11 Hz | **92.4%** | **2.34%** | **88.9%** |
+| Low-pass 11 Hz + Hampel | **92.1%** | **0.84%** | **93.2%** |
 
 ---
 

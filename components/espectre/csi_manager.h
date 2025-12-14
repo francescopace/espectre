@@ -43,6 +43,8 @@ class CSIManager {
    * @param segmentation_threshold Motion detection threshold
    * @param segmentation_window_size Moving variance window size
    * @param publish_rate Number of packets before triggering callback
+   * @param lowpass_enabled Whether low-pass filter is enabled
+   * @param lowpass_cutoff Low-pass filter cutoff frequency in Hz
    * @param hampel_enabled Whether Hampel filter is enabled
    * @param hampel_window Hampel window size (3-11)
    * @param hampel_threshold Hampel threshold (MAD multiplier)
@@ -53,6 +55,8 @@ class CSIManager {
             float segmentation_threshold,
             uint16_t segmentation_window_size,
             uint32_t publish_rate,
+            bool lowpass_enabled,
+            float lowpass_cutoff,
             bool hampel_enabled,
             uint8_t hampel_window,
             float hampel_threshold,

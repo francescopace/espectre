@@ -1433,27 +1433,6 @@
             html += `</div>`;
             html += `</div>`;
 
-            // Detection Metrics Section
-            html += `<div class="stat-section">`;
-            html += `<div class="stat-section-title">🎯 Detection Metrics</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">${stateIcon} State</span>`;
-            html += `<span class="stat-value ${stateClass}">${(stats.state || 'N/A').toUpperCase()}</span>`;
-            html += `</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">🌊 Turbulence</span>`;
-            html += `<span class="stat-value highlight">${stats.turbulence?.toFixed(3) || 'N/A'}</span>`;
-            html += `</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">📈 Movement</span>`;
-            html += `<span class="stat-value highlight">${stats.movement?.toFixed(3) || 'N/A'}</span>`;
-            html += `</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">🎚️ Threshold</span>`;
-            html += `<span class="stat-value">${stats.threshold?.toFixed(3) || 'N/A'}</span>`;
-            html += `</div>`;
-            html += `</div>`;
-
             // Traffic Generator Section (if available)
             if (stats.traffic_generator) {
                 const tg = stats.traffic_generator;
@@ -1494,6 +1473,27 @@
                 }
                 html += `</div>`;
             }
+
+            // Detection Metrics Section
+            html += `<div class="stat-section">`;
+            html += `<div class="stat-section-title">🎯 Detection Metrics</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">${stateIcon} State</span>`;
+            html += `<span class="stat-value ${stateClass}">${(stats.state || 'N/A').toUpperCase()}</span>`;
+            html += `</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">🌊 Turbulence</span>`;
+            html += `<span class="stat-value highlight">${stats.turbulence?.toFixed(3) || 'N/A'}</span>`;
+            html += `</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">📈 Movement</span>`;
+            html += `<span class="stat-value highlight">${stats.movement?.toFixed(3) || 'N/A'}</span>`;
+            html += `</div>`;
+            html += `<div class="stat-line">`;
+            html += `<span class="stat-label">🎚️ Threshold</span>`;
+            html += `<span class="stat-value">${stats.threshold?.toFixed(3) || 'N/A'}</span>`;
+            html += `</div>`;
+            html += `</div>`;
 
             body.innerHTML = html;
 

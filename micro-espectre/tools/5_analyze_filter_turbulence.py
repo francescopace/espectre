@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 """
-ESPectre - Filtered Segmentation Test
-Tests the effect of applying filters BEFORE calculating moving variance.
+ESPectre - Filter Comparison Tool
 
-This script compares different filtering strategies:
-1. No filtering (baseline)
-2. Butterworth only (low-pass 8Hz)
-3. Butterworth + Hampel (outlier removal)
-4. Full pipeline (Butterworth + Hampel + Savitzky-Golay)
+Visualizes how different filters affect the turbulence signal:
+1. No Filter (raw signal)
+2. Hampel Only (outlier removal)
+3. Lowpass Only (frequency smoothing)
+4. Hampel + Lowpass (combined)
+
+The key insight is that these filters have DIFFERENT purposes:
+- Hampel: Removes spikes/outliers without smoothing the signal
+- Lowpass: Smooths high-frequency noise but introduces lag
+- Combined: Best of both - spike removal + noise smoothing
 
 Usage:
-    # Run comparison test
-    python test_segmentation_filtered.py
+    # Show filter comparison visualization
+    python 5_analyze_filter_turbulence.py --plot
     
-    # Show visualization
-    python test_segmentation_filtered.py --plot
+    # Run all filter configurations comparison
+    python 5_analyze_filter_turbulence.py
     
     # Optimize filter parameters
-    python test_segmentation_filtered.py --optimize-filters
+    python 5_analyze_filter_turbulence.py --optimize-filters
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -36,10 +40,30 @@ from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 # CONFIGURATION
 # ============================================================================
 
-# Butterworth low-pass filter parameters
-BUTTERWORTH_ORDER = 4       # - ORDER: Filter steepness (higher = sharper cutoff, more phase distortion)
-BUTTERWORTH_CUTOFF = 4.0    # - CUTOFF: Frequency threshold in Hz (signals above this are attenuated) 
+# Sampling rate
 SAMPLING_RATE = 100.0       # - SAMPLING_RATE: Data acquisition rate in Hz (must match your sensor)
+
+# EMA (Exponential Moving Average) filter parameters
+# fc ≈ Fs × α / (2π) → for fc=20Hz @ 100Hz: α ≈ 0.8 (actually ~12.7 Hz)
+# For fc=25Hz: α ≈ 0.95
+EMA_ALPHA = 0.95            # - ALPHA: Very light smoothing, ~24 Hz cutoff
+
+# SMA (Simple Moving Average) filter parameters
+# fc ≈ 0.44 × Fs / N → for fc=20Hz: N ≈ 2.2 → use 2
+SMA_WINDOW = 2              # - WINDOW: Minimal averaging for ~22 Hz cutoff
+
+# Butterworth low-pass filter parameters
+BUTTERWORTH_ORDER = 2       # - ORDER: Lower order = gentler slope
+BUTTERWORTH_CUTOFF = 20.0   # - CUTOFF: 20 Hz preserves movement (5-20 Hz has 20-25x contrast)
+
+# Chebyshev low-pass filter parameters
+CHEBYSHEV_ORDER = 2         # - ORDER: Filter steepness
+CHEBYSHEV_CUTOFF = 20.0     # - CUTOFF: 20 Hz cutoff
+CHEBYSHEV_RIPPLE = 0.5      # - RIPPLE: Lower ripple = flatter passband
+
+# Bessel low-pass filter parameters (best for preserving transients)
+BESSEL_ORDER = 2            # - ORDER: Filter steepness
+BESSEL_CUTOFF = 20.0        # - CUTOFF: 20 Hz cutoff
 
 # Hampel filter parameters (outlier/spike removal)
 HAMPEL_WINDOW = 7          # - WINDOW: Number of neighboring samples to consider for median calculation
@@ -62,8 +86,75 @@ WAVELET_MODE = 'soft'         # - MODE: 'soft' or 'hard' thresholding
 # FILTER IMPLEMENTATIONS
 # ============================================================================
 
+class EMAFilter:
+    """Exponential Moving Average (EMA) low-pass filter.
+    
+    Simplest IIR filter with minimal memory (O(1)) and low latency.
+    Formula: y[n] = α × x[n] + (1-α) × y[n-1]
+    Cutoff frequency: fc ≈ Fs × α / (2π)
+    
+    Pro: Minimal memory, low latency, simple
+    Con: Slow roll-off (-20 dB/decade), phase distortion
+    """
+    
+    def __init__(self, alpha=EMA_ALPHA):
+        self.alpha = alpha
+        self.last_output = None
+    
+    def filter(self, value):
+        """Apply EMA filter to single value"""
+        if self.last_output is None:
+            self.last_output = value
+            return value
+        
+        self.last_output = self.alpha * value + (1 - self.alpha) * self.last_output
+        return self.last_output
+    
+    def reset(self):
+        """Reset filter state"""
+        self.last_output = None
+
+
+class SMAFilter:
+    """Simple Moving Average (SMA) low-pass filter.
+    
+    FIR filter with linear phase (no distortion).
+    Cutoff frequency: fc ≈ 0.44 × Fs / N
+    
+    Pro: Linear phase, always stable, simple
+    Con: High latency (N/2 samples), requires buffer O(N)
+    """
+    
+    def __init__(self, window_size=SMA_WINDOW):
+        self.window_size = window_size
+        self.buffer = []
+        self.sum = 0.0
+    
+    def filter(self, value):
+        """Apply SMA filter to single value"""
+        self.buffer.append(value)
+        self.sum += value
+        
+        if len(self.buffer) > self.window_size:
+            self.sum -= self.buffer.pop(0)
+        
+        return self.sum / len(self.buffer)
+    
+    def reset(self):
+        """Reset filter state"""
+        self.buffer = []
+        self.sum = 0.0
+
+
 class ButterworthFilter:
-    """Butterworth IIR low-pass filter (4th order, 8Hz cutoff @ 100Hz sampling)"""
+    """Butterworth IIR low-pass filter.
+    
+    Maximally flat frequency response in passband.
+    Roll-off: -20N dB/decade (N = order)
+    
+    Pro: Flat passband, precise cutoff, efficient
+    Con: Phase distortion, potential overshoot
+    """
     
     def __init__(self, order=BUTTERWORTH_ORDER, cutoff=BUTTERWORTH_CUTOFF, fs=SAMPLING_RATE):
         self.order = order
@@ -87,6 +178,85 @@ class ButterworthFilter:
             self.initialized = True
         
         # Apply filter
+        filtered, self.zi = signal.lfilter(self.b, self.a, [value], zi=self.zi)
+        return filtered[0]
+    
+    def reset(self):
+        """Reset filter state"""
+        self.zi = signal.lfilter_zi(self.b, self.a)
+        self.initialized = False
+
+
+class ChebyshevFilter:
+    """Chebyshev Type I IIR low-pass filter.
+    
+    Steeper roll-off than Butterworth, but with ripple in passband.
+    
+    Pro: Steepest roll-off for given order
+    Con: Ripple in passband, more phase distortion
+    """
+    
+    def __init__(self, order=CHEBYSHEV_ORDER, cutoff=CHEBYSHEV_CUTOFF, 
+                 ripple=CHEBYSHEV_RIPPLE, fs=SAMPLING_RATE):
+        self.order = order
+        self.cutoff = cutoff
+        self.ripple = ripple
+        self.fs = fs
+        
+        # Design filter
+        nyquist = fs / 2.0
+        normal_cutoff = cutoff / nyquist
+        self.b, self.a = signal.cheby1(order, ripple, normal_cutoff, btype='low', analog=False)
+        
+        # Initialize state
+        self.zi = signal.lfilter_zi(self.b, self.a)
+        self.initialized = False
+    
+    def filter(self, value):
+        """Apply filter to single value"""
+        if not self.initialized:
+            self.zi = self.zi * value
+            self.initialized = True
+        
+        filtered, self.zi = signal.lfilter(self.b, self.a, [value], zi=self.zi)
+        return filtered[0]
+    
+    def reset(self):
+        """Reset filter state"""
+        self.zi = signal.lfilter_zi(self.b, self.a)
+        self.initialized = False
+
+
+class BesselFilter:
+    """Bessel IIR low-pass filter.
+    
+    Optimized for linear phase (constant group delay).
+    Preserves signal shape better than Butterworth.
+    
+    Pro: Near-linear phase, preserves transients, no overshoot
+    Con: Slower roll-off than Butterworth
+    """
+    
+    def __init__(self, order=BESSEL_ORDER, cutoff=BESSEL_CUTOFF, fs=SAMPLING_RATE):
+        self.order = order
+        self.cutoff = cutoff
+        self.fs = fs
+        
+        # Design filter (bessel uses 'norm' parameter)
+        nyquist = fs / 2.0
+        normal_cutoff = cutoff / nyquist
+        self.b, self.a = signal.bessel(order, normal_cutoff, btype='low', analog=False, norm='phase')
+        
+        # Initialize state
+        self.zi = signal.lfilter_zi(self.b, self.a)
+        self.initialized = False
+    
+    def filter(self, value):
+        """Apply filter to single value"""
+        if not self.initialized:
+            self.zi = self.zi * value
+            self.initialized = True
+        
         filtered, self.zi = signal.lfilter(self.b, self.a, [value], zi=self.zi)
         return filtered[0]
     
@@ -185,7 +355,11 @@ class FilterPipeline:
     def __init__(self, config):
         """
         config: dict with keys:
+            - ema: bool
+            - sma: bool
             - butterworth: bool
+            - chebyshev: bool
+            - bessel: bool
             - hampel: bool
             - savgol: bool
             - wavelet: bool
@@ -193,7 +367,11 @@ class FilterPipeline:
         self.config = config
         
         # Initialize filters
+        self.ema = EMAFilter() if config.get('ema', False) else None
+        self.sma = SMAFilter() if config.get('sma', False) else None
         self.butterworth = ButterworthFilter() if config.get('butterworth', False) else None
+        self.chebyshev = ChebyshevFilter() if config.get('chebyshev', False) else None
+        self.bessel = BesselFilter() if config.get('bessel', False) else None
         self.hampel = HampelFilter() if config.get('hampel', False) else None
         self.savgol = SavitzkyGolayFilter() if config.get('savgol', False) else None
         self.wavelet = WaveletFilter() if config.get('wavelet', False) else None
@@ -202,10 +380,23 @@ class FilterPipeline:
         """Apply filter pipeline to single value"""
         filtered = value
         
-        # Apply filters in sequence
+        # Apply low-pass filters first (in order of complexity)
+        if self.ema:
+            filtered = self.ema.filter(filtered)
+        
+        if self.sma:
+            filtered = self.sma.filter(filtered)
+        
         if self.butterworth:
             filtered = self.butterworth.filter(filtered)
         
+        if self.chebyshev:
+            filtered = self.chebyshev.filter(filtered)
+        
+        if self.bessel:
+            filtered = self.bessel.filter(filtered)
+        
+        # Then apply outlier/smoothing filters
         if self.hampel:
             filtered = self.hampel.filter(filtered)
         
@@ -219,8 +410,16 @@ class FilterPipeline:
     
     def reset(self):
         """Reset all filters"""
+        if self.ema:
+            self.ema.reset()
+        if self.sma:
+            self.sma.reset()
         if self.butterworth:
             self.butterworth.reset()
+        if self.chebyshev:
+            self.chebyshev.reset()
+        if self.bessel:
+            self.bessel.reset()
         if self.hampel:
             self.hampel.reset()
         if self.savgol:
@@ -362,18 +561,33 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, tr
         dict: Results for each configuration
     """
     configs = {
-        'No Filter': {'butterworth': False, 'hampel': False, 'savgol': False, 'wavelet': False},
-        'Butterworth': {'butterworth': True, 'hampel': False, 'savgol': False, 'wavelet': False},
-        'Hampel': {'butterworth': False, 'hampel': True, 'savgol': False, 'wavelet': False},
-        'Savitzky-Golay': {'butterworth': False, 'hampel': False, 'savgol': True, 'wavelet': False},
-        'Wavelet': {'butterworth': False, 'hampel': False, 'savgol': False, 'wavelet': True},
-        'Butter+Hampel': {'butterworth': True, 'hampel': True, 'savgol': False, 'wavelet': False},
-        'Butter+SavGol': {'butterworth': True, 'hampel': False, 'savgol': True, 'wavelet': False},
-        'Butter+Wavelet': {'butterworth': True, 'hampel': False, 'savgol': False, 'wavelet': True},
-        'Hampel+SavGol': {'butterworth': False, 'hampel': True, 'savgol': True, 'wavelet': False},
-        'Wavelet+Hampel': {'butterworth': False, 'hampel': True, 'savgol': False, 'wavelet': True},
-        'Full Pipeline': {'butterworth': True, 'hampel': True, 'savgol': True, 'wavelet': False},
-        'Full+Wavelet': {'butterworth': True, 'hampel': True, 'savgol': True, 'wavelet': True},
+        # Baseline
+        'No Filter': {},
+        
+        # Single low-pass filters
+        'EMA': {'ema': True},
+        'SMA': {'sma': True},
+        'Butterworth': {'butterworth': True},
+        'Chebyshev': {'chebyshev': True},
+        'Bessel': {'bessel': True},
+        
+        # Single other filters
+        'Hampel': {'hampel': True},
+        'Savitzky-Golay': {'savgol': True},
+        'Wavelet': {'wavelet': True},
+        
+        # Combinations with Butterworth
+        'Butter+Hampel': {'butterworth': True, 'hampel': True},
+        'Butter+SavGol': {'butterworth': True, 'savgol': True},
+        
+        # Combinations with other low-pass
+        'EMA+Hampel': {'ema': True, 'hampel': True},
+        'Bessel+Hampel': {'bessel': True, 'hampel': True},
+        'Chebyshev+Hampel': {'chebyshev': True, 'hampel': True},
+        
+        # Full pipelines
+        'Full Pipeline': {'butterworth': True, 'hampel': True, 'savgol': True},
+        'Bessel+Full': {'bessel': True, 'hampel': True, 'savgol': True},
     }
     
     results = {}
@@ -449,6 +663,167 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, tr
 # ============================================================================
 # VISUALIZATION
 # ============================================================================
+
+def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
+    """
+    Visualize the effect of different filters on the turbulence signal.
+    
+    Shows 4 filter configurations:
+    1. No Filter (raw signal)
+    2. Hampel Only (outlier removal)
+    3. Lowpass Only (frequency smoothing)  
+    4. Hampel + Lowpass (combined)
+    
+    For each configuration, shows:
+    - Left column: Raw vs Filtered turbulence signal
+    - Right column: Effect on moving variance and detection
+    
+    Args:
+        baseline_packets: numpy array of CSI data (shape: num_packets x num_subcarriers*2)
+        movement_packets: numpy array of CSI data (shape: num_packets x num_subcarriers*2)
+        num_packets: Number of packets to process
+    """
+    from filters import LowPassFilter, HampelFilter as HampelFilterSrc
+    
+    # Configuration for the 4 filter setups
+    filter_configs = [
+        ('No Filter', {'hampel': False, 'lowpass': False}),
+        ('Hampel Only', {'hampel': True, 'lowpass': False}),
+        ('Lowpass Only', {'hampel': False, 'lowpass': True}),
+        ('Hampel + Lowpass', {'hampel': True, 'lowpass': True}),
+    ]
+    
+    # Process movement data with each filter configuration
+    results = {}
+    
+    for name, config in filter_configs:
+        # Create filters
+        hampel = HampelFilterSrc(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) if config['hampel'] else None
+        lowpass = LowPassFilter(cutoff_hz=10.0, sample_rate_hz=SAMPLING_RATE, enabled=True) if config['lowpass'] else None
+        
+        raw_turbulence = []
+        filtered_turbulence = []
+        
+        # Process each packet (movement_packets is a numpy array)
+        for i in range(min(num_packets, len(movement_packets))):
+            csi_data = movement_packets[i]
+            turb = calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS)
+            raw_turbulence.append(turb)
+            
+            # Apply filters in order: Hampel first (outlier removal), then Lowpass (smoothing)
+            filtered = turb
+            if hampel:
+                filtered = hampel.filter(filtered)
+            if lowpass:
+                filtered = lowpass.filter(filtered)
+            
+            filtered_turbulence.append(filtered)
+        
+        # Calculate moving variance on filtered signal
+        moving_var = []
+        buffer = []
+        for val in filtered_turbulence:
+            buffer.append(val)
+            if len(buffer) > WINDOW_SIZE:
+                buffer.pop(0)
+            if len(buffer) >= WINDOW_SIZE:
+                mean = sum(buffer) / len(buffer)
+                var = sum((x - mean) ** 2 for x in buffer) / len(buffer)
+                moving_var.append(var)
+            else:
+                moving_var.append(0.0)
+        
+        # Count motion detections
+        motion_count = sum(1 for v in moving_var if v > THRESHOLD)
+        
+        results[name] = {
+            'raw_turbulence': np.array(raw_turbulence),
+            'filtered_turbulence': np.array(filtered_turbulence),
+            'moving_var': np.array(moving_var),
+            'motion_count': motion_count,
+            'config': config
+        }
+    
+    # Create visualization
+    fig = plt.figure(figsize=(16, 14))
+    fig.suptitle('ESPectre - Filter Effect Comparison\n'
+                 'Left: Turbulence Signal (raw vs filtered) | Right: Moving Variance (detection)', 
+                 fontsize=13, fontweight='bold')
+    
+    # Time axis
+    time = np.arange(num_packets) / SAMPLING_RATE
+    
+    # Colors for each filter type
+    colors = {
+        'No Filter': '#666666',
+        'Hampel Only': '#e74c3c',
+        'Lowpass Only': '#3498db',
+        'Hampel + Lowpass': '#27ae60'
+    }
+    
+    for i, (name, data) in enumerate(results.items()):
+        # Left plot: Turbulence signal comparison
+        ax1 = fig.add_subplot(4, 2, i*2 + 1)
+        
+        # Plot raw signal (light gray)
+        ax1.plot(time, data['raw_turbulence'], color='#cccccc', alpha=0.6, 
+                linewidth=0.8, label='Raw', zorder=1)
+        
+        # Plot filtered signal (colored)
+        if name == 'No Filter':
+            ax1.plot(time, data['filtered_turbulence'], color=colors[name], 
+                    linewidth=1.0, label='Signal', zorder=2)
+        else:
+            ax1.plot(time, data['filtered_turbulence'], color=colors[name], 
+                    linewidth=1.0, label='Filtered', zorder=2)
+        
+        ax1.set_ylabel('Turbulence', fontsize=9)
+        ax1.set_title(f'{name}\nTurbulence Signal', fontsize=10, fontweight='bold',
+                     color=colors[name])
+        ax1.legend(loc='upper right', fontsize=8)
+        ax1.grid(True, alpha=0.3)
+        
+        if i == 3:
+            ax1.set_xlabel('Time (seconds)', fontsize=9)
+        
+        # Right plot: Moving variance
+        ax2 = fig.add_subplot(4, 2, i*2 + 2)
+        
+        ax2.plot(time, data['moving_var'], color=colors[name], 
+                linewidth=1.0, alpha=0.8)
+        ax2.axhline(y=THRESHOLD, color='red', linestyle='--', linewidth=2, 
+                   label=f'Threshold ({THRESHOLD})')
+        
+        # Highlight motion detections
+        for j, var in enumerate(data['moving_var']):
+            if var > THRESHOLD:
+                ax2.axvspan(j/SAMPLING_RATE, (j+1)/SAMPLING_RATE, 
+                           alpha=0.2, color='green')
+        
+        ax2.set_ylabel('Moving Variance', fontsize=9)
+        recall = data['motion_count'] / (num_packets / 100.0)
+        ax2.set_title(f'{name}\nMoving Variance (Motion: {data["motion_count"]} pkts, {recall:.1f}%)', 
+                     fontsize=10, fontweight='bold', color=colors[name])
+        ax2.legend(loc='upper right', fontsize=8)
+        ax2.grid(True, alpha=0.3)
+        
+        if i == 3:
+            ax2.set_xlabel('Time (seconds)', fontsize=9)
+    
+    plt.tight_layout()
+    
+    # Add explanation text
+    fig.text(0.5, 0.01, 
+             'Hampel: Removes spikes/outliers (preserves signal shape) | '
+             'Lowpass: Smooths high-frequency noise (introduces lag) | '
+             'Combined: Best of both',
+             ha='center', fontsize=9, style='italic', color='#666666')
+    
+    plt.subplots_adjust(bottom=0.05)
+    plt.show()
+    
+    return results
+
 
 def plot_comparison(results, threshold):
     """
@@ -620,7 +995,12 @@ def main():
     print("Configuration:")
     print(f"  Window Size: {WINDOW_SIZE} packets")
     print(f"  Threshold: {THRESHOLD}")
+    print(f"  Sampling Rate: {SAMPLING_RATE} Hz")
+    print(f"  EMA: α={EMA_ALPHA} (fc≈{SAMPLING_RATE * EMA_ALPHA / (2*3.14159):.1f} Hz)")
+    print(f"  SMA: window={SMA_WINDOW} (fc≈{0.44 * SAMPLING_RATE / SMA_WINDOW:.1f} Hz)")
     print(f"  Butterworth: {BUTTERWORTH_ORDER}th order, {BUTTERWORTH_CUTOFF}Hz cutoff")
+    print(f"  Chebyshev: {CHEBYSHEV_ORDER}th order, {CHEBYSHEV_CUTOFF}Hz cutoff, {CHEBYSHEV_RIPPLE}dB ripple")
+    print(f"  Bessel: {BESSEL_ORDER}th order, {BESSEL_CUTOFF}Hz cutoff")
     print(f"  Hampel: window={HAMPEL_WINDOW}, threshold={HAMPEL_THRESHOLD}")
     print(f"  Savitzky-Golay: window={SAVGOL_WINDOW}, polyorder={SAVGOL_POLYORDER}")
     print(f"  Wavelet: {WAVELET_TYPE}, level={WAVELET_LEVEL}, threshold={WAVELET_THRESHOLD}, mode={WAVELET_MODE}\n")
@@ -668,17 +1048,24 @@ def main():
     # Print all configurations
     config_order = [
         'No Filter',
+        # Single low-pass
+        'EMA',
+        'SMA',
         'Butterworth',
+        'Chebyshev',
+        'Bessel',
+        # Single other
         'Hampel',
         'Savitzky-Golay',
         'Wavelet',
+        # Combinations
         'Butter+Hampel',
         'Butter+SavGol',
-        'Butter+Wavelet',
-        'Hampel+SavGol',
-        'Wavelet+Hampel',
+        'EMA+Hampel',
+        'Bessel+Hampel',
+        'Chebyshev+Hampel',
         'Full Pipeline',
-        'Full+Wavelet'
+        'Bessel+Full',
     ]
     
     for name in config_order:
@@ -699,29 +1086,34 @@ def main():
     print("="*60 + "\n")
     
     no_filter = results['No Filter']
-    butterworth = results['Butterworth']
-    butter_hampel = results['Butter+Hampel']
-    full_pipeline = results['Full Pipeline']
     
-    print("False Positive Reduction:")
-    if no_filter['baseline_fp'] > 0:
-        butter_reduction = (1 - butterworth['baseline_fp'] / no_filter['baseline_fp']) * 100
-        bh_reduction = (1 - butter_hampel['baseline_fp'] / no_filter['baseline_fp']) * 100
-        full_reduction = (1 - full_pipeline['baseline_fp'] / no_filter['baseline_fp']) * 100
-        
-        print(f"  Butterworth:      {butter_reduction:>6.1f}% reduction")
-        print(f"  Butter+Hampel:    {bh_reduction:>6.1f}% reduction")
-        print(f"  Full Pipeline:    {full_reduction:>6.1f}% reduction")
-    else:
-        print("  No false positives in baseline (already perfect!)")
-    
+    print("Low-Pass Filter Comparison:")
+    print("-" * 50)
+    lowpass_filters = ['EMA', 'SMA', 'Butterworth', 'Chebyshev', 'Bessel']
+    for name in lowpass_filters:
+        if name in results:
+            r = results[name]
+            if no_filter['baseline_fp'] > 0:
+                fp_reduction = (1 - r['baseline_fp'] / no_filter['baseline_fp']) * 100
+            else:
+                fp_reduction = 0
+            recall_diff = r['recall'] - no_filter['recall']
+            print(f"  {name:<12}: FP {fp_reduction:>+6.1f}%, Recall {recall_diff:>+5.1f}%, Score {r['score']:>6.0f}")
     print()
     
-    # Find best configuration
+    # Find best overall configuration
     best_config = max(results.items(), key=lambda x: x[1]['score'])
     print(f"✅ Best Configuration: {best_config[0]}")
     print(f"   Score: {best_config[1]['score']:.2f}")
     print(f"   FP: {best_config[1]['baseline_fp']}, TP: {best_config[1]['movement_tp']}")
+    print(f"   Recall: {best_config[1]['recall']:.1f}%, FP Rate: {best_config[1]['fp_rate']:.1f}%")
+    print()
+    
+    # Find best low-pass only
+    best_lowpass = max([(n, r) for n, r in results.items() if n in lowpass_filters], 
+                       key=lambda x: x[1]['score'])
+    print(f"🔽 Best Low-Pass Filter: {best_lowpass[0]}")
+    print(f"   Score: {best_lowpass[1]['score']:.2f}")
     print()
     
     # ========================================================================
@@ -729,8 +1121,8 @@ def main():
     # ========================================================================
     
     if args.plot:
-        print("Generating visualizations...\n")
-        plot_comparison(results, THRESHOLD)
+        print("Generating filter comparison visualization...\n")
+        plot_filter_effect(baseline_packets, movement_packets, num_packets=500)
 
 if __name__ == "__main__":
     main()

@@ -117,6 +117,7 @@ class TestMVSDetectionRealData:
         for pkt in baseline_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_subcarriers)
             ctx.add_turbulence(turb)
+            ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
                 motion_count += 1
         
@@ -138,6 +139,7 @@ class TestMVSDetectionRealData:
         for pkt in movement_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_subcarriers)
             ctx.add_turbulence(turb)
+            ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
                 motion_count += 1
         
@@ -491,6 +493,7 @@ class TestPerformanceMetrics:
         for pkt in baseline_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_subcarriers)
             ctx.add_turbulence(turb)
+            ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
                 baseline_motion_packets += 1
         
@@ -504,6 +507,7 @@ class TestPerformanceMetrics:
         for pkt in movement_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_subcarriers)
             ctx.add_turbulence(turb)
+            ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
                 movement_with_motion += 1
             else:
@@ -779,12 +783,13 @@ class TestEndToEndWithCalibration:
         # ========================================
         # Step 2: Initialize MVS with calibration results
         # ========================================
-        # Apply the normalization scale calculated by NBVI to match C++ behavior
+        # Initialize MVS with NBVI-selected subcarriers but NO normalization
+        # (normalization is disabled by default, testing pure NBVI band selection)
         print("\nStep 2: Initialize MVS with calibration results...")
         ctx = SegmentationContext(
             window_size=50,
             threshold=1.0,
-            normalization_scale=normalization_scale,  # Use NBVI-calculated scale
+            normalization_scale=1.0,  # Normalization disabled (default)
             enable_hampel=False  # Disable for pure MVS measurement
         )
         
@@ -797,6 +802,7 @@ class TestEndToEndWithCalibration:
         for pkt in baseline_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
+            ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
                 baseline_motion += 1
         
@@ -809,6 +815,7 @@ class TestEndToEndWithCalibration:
         for pkt in movement_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
+            ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
                 movement_motion += 1
         

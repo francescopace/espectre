@@ -52,12 +52,18 @@ espectre:
   traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
   segmentation_threshold: 1.0   # Motion sensitivity: lower=more sensitive (0.5-10.0)
   segmentation_window_size: 50  # Analysis window size in packets (10-200)
+  # Low-pass filter (noise reduction)
+  lowpass_enabled: false        # Enable low-pass filter (default: false)
+  lowpass_cutoff: 11.0          # Cutoff frequency in Hz (5.0-20.0)
   # Hampel filter (anti-spikes in turbulence)
-  hampel_enabled: false         # Enable outlier removal filter
+  hampel_enabled: false         # Enable outlier removal filter (default: false)
   hampel_window: 7              # Filter window size (3-11, odd numbers)
   hampel_threshold: 4.0         # Outlier detection threshold (1.0-10.0)
+  # Normalization (auto-scaling for cross-device consistency)
+  normalization_enabled: false  # Enable amplitude normalization (default: false)
+  normalization_target: 28.0    # Target mean amplitude (10-100, default: 28)
   # Subcarrier selection (optional - leave commented for auto-calibration at boot)
-  # selected_subcarriers: [6, 7, 8, 20, 21, 22, 35, 36, 50, 51, 52, 53]
+  # selected_subcarriers: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 # WiFi (using secrets for development)
 wifi:

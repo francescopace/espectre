@@ -177,9 +177,13 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `segmentation_threshold` | float | 1.0 | Motion sensitivity (lower=more sensitive) |
 | `segmentation_window_size` | int | 50 | Moving variance window in packets |
 | `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
+| `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction |
+| `lowpass_cutoff` | float | 11.0 | Low-pass filter cutoff frequency in Hz (5-20) |
 | `hampel_enabled` | bool | false | Enable Hampel outlier filter |
 | `hampel_window` | int | 7 | Hampel filter window size |
 | `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) |
+| `normalization_enabled` | bool | false | Enable amplitude auto-normalization |
+| `normalization_target` | float | 28.0 | Target mean amplitude for normalization |
 
 📚 **For detailed parameter tuning** (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 ### Integrated Sensors (Created Automatically)

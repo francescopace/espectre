@@ -573,6 +573,8 @@ def collect_csi_data(args):
     print(f"  {Fore.CYAN}Samples:{Style.RESET_ALL}   {args.samples}")
     print(f"  {Fore.CYAN}Duration:{Style.RESET_ALL}  {args.duration}s per sample")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
+    if args.chip:
+        print(f"  {Fore.CYAN}Chip:{Style.RESET_ALL}      {args.chip}")
     if args.subject:
         print(f"  {Fore.CYAN}Subject:{Style.RESET_ALL}   {args.subject}")
     if args.environment:
@@ -586,7 +588,8 @@ def collect_csi_data(args):
         label=args.label,
         port=args.udp_port,
         subject=args.subject,
-        environment=args.environment
+        environment=args.environment,
+        chip=args.chip
     )
     
     try:
@@ -773,6 +776,8 @@ Examples:
                                help='Show dataset statistics')
     collect_parser.add_argument('--interactive', action='store_true',
                                help='Interactive mode (press ENTER for each sample)')
+    collect_parser.add_argument('--chip', '-c',
+                               help='Chip type for filename (e.g., c6, s3)')
     collect_parser.add_argument('--udp-port', type=int, default=5001,
                                help='UDP port for CSI reception (default: 5001)')
     

@@ -77,7 +77,8 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Noise Gate | ✅ | ✅ | ✅ Implemented |
 | Spectral De-correlation | ✅ | ✅ | ✅ Implemented |
 | **Filters** |
-| Hampel Filter | ✅ | ✅ | Applied to turbulence (configurable) |
+| Low-Pass Filter | ✅ | ✅ | Butterworth 1st order, reduces high-freq noise (11 Hz default) |
+| Hampel Filter | ✅ | ✅ | Outlier removal, applied to turbulence (disabled by default) |
 | **CSI Features** |
 | `features_enable` | ❌ | ✅ | `ENABLE_FEATURES = True` in config.py |
 | CSI Features | ❌ | ✅ | entropy_turb, iqr_turb, variance_turb, skewness, kurtosis |
@@ -393,9 +394,17 @@ Tests run automatically on every push/PR via GitHub Actions. See `.github/workfl
 SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
 SEG_THRESHOLD = 1.0        # Motion detection threshold (0.0-10.0)
 ENABLE_FEATURES = False    # Enable/disable feature extraction
-ENABLE_HAMPEL_FILTER = False
+
+# Filter Configuration (all disabled by default)
+ENABLE_LOWPASS_FILTER = False  # Low-pass filter (reduces high-freq noise)
+LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz optimal)
+ENABLE_HAMPEL_FILTER = False   # Hampel filter (outlier removal)
 HAMPEL_WINDOW = 7
 HAMPEL_THRESHOLD = 4.0
+
+# Normalization (auto-scaling for cross-device consistency)
+ENABLE_NORMALIZATION = False   # Enable/disable amplitude normalization
+NORMALIZATION_TARGET = 28.0    # Target mean amplitude (10-100)
 ```
 
 📚 **For detailed parameter tuning guide**, see [TUNING.md](../TUNING.md).
@@ -491,7 +500,7 @@ python 3_analyze_moving_variance_segmentation.py --plot
 
 ## 🧬 Automatic Subcarrier Selection (NBVI)
 
-Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving **F1=97.1%** with **zero manual configuration**.
+Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving **F1=97.6%** with **zero manual configuration**.
 
 > ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
 

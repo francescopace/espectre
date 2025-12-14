@@ -24,7 +24,7 @@ pio test -e esp32c6
 
 | Suite | Type | Data | Focus |
 |-------|------|------|-------|
-| `test_csi_processor` | Unit | **Real** | API, getters, state machine, normalization |
+| `test_csi_processor` | Unit | **Real** | API, getters, state machine, normalization, low-pass filter |
 | `test_hampel_filter` | Unit | **Real** | Outlier removal filter |
 | `test_calibration` | Unit | **Real** | NBVI, magnitude, turbulence, normalization scale |
 | `test_calibration_manager` | Integration | **Real** | CalibrationManager API, file I/O, NBVI ranking |

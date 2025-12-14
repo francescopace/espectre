@@ -32,10 +32,18 @@ CONF_SEGMENTATION_WINDOW_SIZE = "segmentation_window_size"
 CONF_TRAFFIC_GENERATOR_RATE = "traffic_generator_rate"
 CONF_SELECTED_SUBCARRIERS = "selected_subcarriers"
 
+# Low-pass filter
+CONF_LOWPASS_ENABLED = "lowpass_enabled"
+CONF_LOWPASS_CUTOFF = "lowpass_cutoff"
+
 # Hampel filter
 CONF_HAMPEL_ENABLED = "hampel_enabled"
 CONF_HAMPEL_WINDOW = "hampel_window"
 CONF_HAMPEL_THRESHOLD = "hampel_threshold"
+
+# Normalization (auto-scaling)
+CONF_NORMALIZATION_ENABLED = "normalization_enabled"
+CONF_NORMALIZATION_TARGET = "normalization_target"
 
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
@@ -64,10 +72,18 @@ CONFIG_SCHEMA = cv.Schema({
         cv.Length(min=1, max=12)
     ),
     
+    # Low-pass filter for noise reduction (disabled by default)
+    cv.Optional(CONF_LOWPASS_ENABLED, default=False): cv.boolean,
+    cv.Optional(CONF_LOWPASS_CUTOFF, default=11.0): cv.float_range(min=5.0, max=20.0),
+    
     # Hampel filter for turbulence outlier removal
     cv.Optional(CONF_HAMPEL_ENABLED, default=False): cv.boolean,
     cv.Optional(CONF_HAMPEL_WINDOW, default=7): cv.int_range(min=3, max=11),
     cv.Optional(CONF_HAMPEL_THRESHOLD, default=4.0): cv.float_range(min=1.0, max=10.0),
+    
+    # Normalization (auto-scaling for cross-device consistency, disabled by default)
+    cv.Optional(CONF_NORMALIZATION_ENABLED, default=False): cv.boolean,
+    cv.Optional(CONF_NORMALIZATION_TARGET, default=28.0): cv.float_range(min=10.0, max=100.0),
     
     # Sensors - optional with defaults, always created
     cv.Optional(CONF_MOVEMENT_SENSOR, default={"name": "Movement Score"}): sensor.sensor_schema(
@@ -108,10 +124,18 @@ async def to_code(config):
     if CONF_SELECTED_SUBCARRIERS in config:
         cg.add(var.set_selected_subcarriers(config[CONF_SELECTED_SUBCARRIERS]))
     
+    # Configure Low-pass filter
+    cg.add(var.set_lowpass_enabled(config[CONF_LOWPASS_ENABLED]))
+    cg.add(var.set_lowpass_cutoff(config[CONF_LOWPASS_CUTOFF]))
+    
     # Configure Hampel filter
     cg.add(var.set_hampel_enabled(config[CONF_HAMPEL_ENABLED]))
     cg.add(var.set_hampel_window(config[CONF_HAMPEL_WINDOW]))
     cg.add(var.set_hampel_threshold(config[CONF_HAMPEL_THRESHOLD]))
+    
+    # Configure Normalization
+    cg.add(var.set_normalization_enabled(config[CONF_NORMALIZATION_ENABLED]))
+    cg.add(var.set_normalization_target(config[CONF_NORMALIZATION_TARGET]))
     
     # Register sensors (required, always present)
     sens = await sensor.new_sensor(config[CONF_MOVEMENT_SENSOR])

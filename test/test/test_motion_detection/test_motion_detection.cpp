@@ -93,9 +93,12 @@ static void calculate_motion_metrics(motion_metrics_t *metrics,
         (float)metrics->false_negatives / actual_positive * 100.0f : 0.0f;
 }
 
-// Helper function to process a packet
+// Helper function to process a packet and update state
+// Note: In production, update_state() is called only at publish time for efficiency.
+// In tests, we call it after every packet to measure per-packet detection accuracy.
 static void process_packet(csi_processor_context_t *ctx, const int8_t *packet) {
     csi_process_packet(ctx, packet, 128, SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+    csi_processor_update_state(ctx);  // Lazy evaluation: update state for testing
 }
 
 // Test: MVS motion detection accuracy with real CSI data
@@ -124,9 +127,11 @@ void test_mvs_detection_accuracy(void) {
     csi_processor_context_t ctx;
     TEST_ASSERT_TRUE(csi_processor_init(&ctx, SEGMENTATION_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD));
     
-    // Disable Hampel filter for pure MVS performance measurement
-    // (Hampel is useful in production but reduces Recall by ~2% in controlled tests)
+    // Disable Hampel and Low-pass filters for pure MVS performance measurement
+    // (Filters are useful in production but reduce Recall in controlled tests)
+    // Test data was collected without these filters
     hampel_turbulence_init(&ctx.hampel_state, HAMPEL_TURBULENCE_WINDOW_DEFAULT, HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
+    csi_processor_set_lowpass_enabled(&ctx, false);
     
     float threshold = csi_processor_get_threshold(&ctx);
     printf("Using default threshold: %.4f\n", threshold);
@@ -384,8 +389,10 @@ void test_mvs_end_to_end_with_calibration(void) {
     TEST_ASSERT_TRUE(csi_processor_init(&processor, SEGMENTATION_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD));
     
     CSIManager csi_manager;
+    // Disable low-pass filter for backward compatibility with test data
+    // (test data was recorded without low-pass filtering)
     csi_manager.init(&processor, SELECTED_SUBCARRIERS, SEGMENTATION_DEFAULT_THRESHOLD, 
-                     SEGMENTATION_DEFAULT_WINDOW_SIZE, 100, false, 7, 4.0f);
+                     SEGMENTATION_DEFAULT_WINDOW_SIZE, 100, false, 11.0f, false, 7, 4.0f);
     
     CalibrationManager cm;
     cm.init(&csi_manager, "/tmp/test_e2e_buffer.bin");
@@ -439,14 +446,16 @@ void test_mvs_end_to_end_with_calibration(void) {
     printf("]\n");
     printf("  Normalization scale: %.4f\n", calibrated_normalization_scale);
     
-    // Apply calibration to processor
+    // Apply calibration to processor (only subcarriers, NOT normalization)
+    // Normalization is disabled by default - we only test NBVI band selection
     csi_set_subcarrier_selection(calibrated_band, calibrated_size);
-    csi_processor_set_normalization_scale(&processor, calibrated_normalization_scale);
+    csi_processor_set_normalization_scale(&processor, 1.0f);  // Keep default (no normalization)
     csi_processor_clear_buffer(&processor);  // Clear stale data
     
-    // Disable Hampel for pure MVS measurement
+    // Disable Hampel and Low-pass for pure MVS measurement with test data
     hampel_turbulence_init(&processor.hampel_state, HAMPEL_TURBULENCE_WINDOW_DEFAULT, 
                            HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
+    csi_processor_set_lowpass_enabled(&processor, false);
     
     // Now run motion detection with NBVI-selected subcarriers and normalization
     printf("\nRunning motion detection with calibrated settings...\n");
@@ -455,6 +464,7 @@ void test_mvs_end_to_end_with_calibration(void) {
     for (int i = 0; i < num_baseline; i++) {
         csi_process_packet(&processor, (const int8_t*)baseline_packets[i], 128, 
                           calibrated_band, calibrated_size);
+        csi_processor_update_state(&processor);  // Lazy evaluation
         if (csi_processor_get_state(&processor) == CSI_STATE_MOTION) {
             baseline_motion++;
         }
@@ -464,6 +474,7 @@ void test_mvs_end_to_end_with_calibration(void) {
     for (int i = 0; i < num_movement; i++) {
         csi_process_packet(&processor, (const int8_t*)movement_packets[i], 128, 
                           calibrated_band, calibrated_size);
+        csi_processor_update_state(&processor);  // Lazy evaluation
         if (csi_processor_get_state(&processor) == CSI_STATE_MOTION) {
             movement_motion++;
         }

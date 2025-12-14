@@ -22,6 +22,78 @@ namespace espectre {
 static const char *TAG = "CSI_Processor";
 
 // ============================================================================
+// LOW-PASS FILTER IMPLEMENTATION
+// ============================================================================
+
+void lowpass_filter_init(lowpass_filter_state_t *state, float cutoff_hz, float sample_rate_hz, bool enabled) {
+    if (!state) {
+        ESP_LOGE(TAG, "lowpass_filter_init: NULL state pointer");
+        return;
+    }
+    
+    // Clamp cutoff to valid range
+    if (cutoff_hz < LOWPASS_CUTOFF_MIN) cutoff_hz = LOWPASS_CUTOFF_MIN;
+    if (cutoff_hz > LOWPASS_CUTOFF_MAX) cutoff_hz = LOWPASS_CUTOFF_MAX;
+    
+    state->cutoff_hz = cutoff_hz;
+    state->enabled = enabled;
+    state->initialized = false;
+    state->x_prev = 0.0f;
+    state->y_prev = 0.0f;
+    
+    // Calculate filter coefficients using bilinear transform
+    // For 1st order Butterworth: H(s) = 1 / (1 + s/wc)
+    // After bilinear transform with pre-warping
+    float wc = tanf(M_PI * cutoff_hz / sample_rate_hz);
+    float k = 1.0f + wc;
+    
+    state->b0 = wc / k;           // Numerator coefficient
+    state->a1 = (wc - 1.0f) / k;  // Denominator coefficient (negated for difference eq)
+    
+    ESP_LOGD(TAG, "LowPass filter initialized: cutoff=%.1f Hz, enabled=%d, b0=%.4f, a1=%.4f",
+             cutoff_hz, enabled, state->b0, state->a1);
+}
+
+float lowpass_filter_apply(lowpass_filter_state_t *state, float value) {
+    if (!state) {
+        return value;
+    }
+    
+    // If filter disabled, pass through
+    if (!state->enabled) {
+        return value;
+    }
+    
+    // Initialize filter state with first value to avoid transient
+    if (!state->initialized) {
+        state->x_prev = value;
+        state->y_prev = value;
+        state->initialized = true;
+        return value;
+    }
+    
+    // Apply 1st order IIR filter
+    // y[n] = b0 * x[n] + b0 * x[n-1] - a1 * y[n-1]
+    float y = state->b0 * value + state->b0 * state->x_prev - state->a1 * state->y_prev;
+    
+    // Update state
+    state->x_prev = value;
+    state->y_prev = y;
+    
+    return y;
+}
+
+void lowpass_filter_reset(lowpass_filter_state_t *state) {
+    if (!state) {
+        return;
+    }
+    
+    state->x_prev = 0.0f;
+    state->y_prev = 0.0f;
+    state->initialized = false;
+}
+
+// ============================================================================
 // HAMPEL FILTER IMPLEMENTATION
 // ============================================================================
 
@@ -237,14 +309,20 @@ bool csi_processor_init(csi_processor_context_t *ctx,
     ctx->normalization_scale = 1.0f;  // Default: no normalization
     ctx->state = CSI_STATE_IDLE;
     
-    // Initialize Hampel filter with defaults (will be reconfigured by csi_manager)
+    // Initialize low-pass filter with defaults (disabled by default)
+    lowpass_filter_init(&ctx->lowpass_state,
+                        LOWPASS_CUTOFF_DEFAULT,
+                        LOWPASS_SAMPLE_RATE,
+                        false);
+    
+    // Initialize Hampel filter with defaults (disabled by default)
     hampel_turbulence_init(&ctx->hampel_state, 
                         HAMPEL_TURBULENCE_WINDOW_DEFAULT,
                         HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, 
-                        true);
+                        false);
     
-    ESP_LOGI(TAG, "CSI processor initialized (window=%d, threshold=%.2f, buffer=%zu bytes)",
-             ctx->window_size, ctx->threshold, window_size * sizeof(float));
+    ESP_LOGI(TAG, "CSI processor initialized (window=%d, threshold=%.2f, lowpass=%.1fHz, buffer=%zu bytes)",
+             ctx->window_size, ctx->threshold, ctx->lowpass_state.cutoff_hz, window_size * sizeof(float));
     
     return true;
 }
@@ -271,7 +349,8 @@ void csi_processor_clear_buffer(csi_processor_context_t *ctx) {
     ctx->current_moving_variance = 0.0f;
     ctx->state = CSI_STATE_IDLE;
     
-    // Also reset Hampel filter buffer
+    // Also reset filter states
+    lowpass_filter_reset(&ctx->lowpass_state);
     hampel_turbulence_init(&ctx->hampel_state, 
                            ctx->hampel_state.window_size,
                            ctx->hampel_state.threshold,
@@ -332,6 +411,33 @@ float csi_processor_get_normalization_scale(const csi_processor_context_t *ctx) 
     return ctx ? ctx->normalization_scale : 1.0f;
 }
 
+void csi_processor_set_lowpass_enabled(csi_processor_context_t *ctx, bool enabled) {
+    if (!ctx) {
+        ESP_LOGE(TAG, "csi_processor_set_lowpass_enabled: NULL context");
+        return;
+    }
+    ctx->lowpass_state.enabled = enabled;
+    ESP_LOGI(TAG, "Low-pass filter %s", enabled ? "enabled" : "disabled");
+}
+
+void csi_processor_set_lowpass_cutoff(csi_processor_context_t *ctx, float cutoff_hz) {
+    if (!ctx) {
+        ESP_LOGE(TAG, "csi_processor_set_lowpass_cutoff: NULL context");
+        return;
+    }
+    
+    // Re-initialize filter with new cutoff (preserves enabled state)
+    lowpass_filter_init(&ctx->lowpass_state, cutoff_hz, LOWPASS_SAMPLE_RATE, ctx->lowpass_state.enabled);
+}
+
+bool csi_processor_get_lowpass_enabled(const csi_processor_context_t *ctx) {
+    return ctx ? ctx->lowpass_state.enabled : false;
+}
+
+float csi_processor_get_lowpass_cutoff(const csi_processor_context_t *ctx) {
+    return ctx ? ctx->lowpass_state.cutoff_hz : LOWPASS_CUTOFF_DEFAULT;
+}
+
 // ============================================================================
 // PARAMETER GETTERS
 // ============================================================================
@@ -383,12 +489,23 @@ static float calculate_moving_variance(const csi_processor_context_t *ctx) {
     return calculate_variance_two_pass(ctx->turbulence_buffer, ctx->window_size);
 }
 
-static void add_turbulence_and_update_state(csi_processor_context_t *ctx, float turbulence) {
+/**
+ * Add turbulence value to buffer (lazy evaluation - no variance calculation)
+ * 
+ * Filter chain: raw → normalize → hampel → low-pass → buffer
+ * 
+ * Note: Variance is NOT calculated here to save CPU. Call csi_processor_update_state()
+ * at publish time to compute variance and update state machine.
+ */
+static void add_turbulence_to_buffer(csi_processor_context_t *ctx, float turbulence) {
     // Apply normalization scale (compensates for different CSI amplitude scales across ESP32 variants)
     float normalized_turbulence = turbulence * ctx->normalization_scale;
     
     // Apply Hampel filter to remove outliers
-    float filtered_turbulence = hampel_filter_turbulence(&ctx->hampel_state, normalized_turbulence);
+    float hampel_filtered = hampel_filter_turbulence(&ctx->hampel_state, normalized_turbulence);
+    
+    // Apply low-pass filter for noise reduction
+    float filtered_turbulence = lowpass_filter_apply(&ctx->lowpass_state, hampel_filtered);
     
     // Add to circular buffer
     ctx->turbulence_buffer[ctx->buffer_index] = filtered_turbulence;
@@ -397,7 +514,17 @@ static void add_turbulence_and_update_state(csi_processor_context_t *ctx, float 
         ctx->buffer_count++;
     }
     
-    // Calculate moving variance
+    ctx->packet_index++;
+    ctx->total_packets_processed++;
+}
+
+void csi_processor_update_state(csi_processor_context_t *ctx) {
+    if (!ctx) {
+        ESP_LOGE(TAG, "csi_processor_update_state: NULL context");
+        return;
+    }
+    
+    // Calculate moving variance (lazy evaluation - only when needed)
     ctx->current_moving_variance = calculate_moving_variance(ctx);
     
     // State machine
@@ -412,9 +539,6 @@ static void add_turbulence_and_update_state(csi_processor_context_t *ctx, float 
             ESP_LOGV(TAG, "Motion ended at packet %lu", (unsigned long)ctx->packet_index);
         }
     }
-    
-    ctx->packet_index++;
-    ctx->total_packets_processed++;
 }
 
 // ============================================================================
@@ -436,8 +560,8 @@ void csi_process_packet(csi_processor_context_t *ctx,
                                                              selected_subcarriers,
                                                              num_subcarriers);
     
-    // Add turbulence to buffer and update motion detection state
-    add_turbulence_and_update_state(ctx, turbulence);
+    // Add turbulence to buffer (lazy evaluation - no variance calculation)
+    add_turbulence_to_buffer(ctx, turbulence);
 }
 
 // ============================================================================

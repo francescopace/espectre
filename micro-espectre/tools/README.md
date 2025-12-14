@@ -27,11 +27,16 @@ This directory contains analysis tools for developing and validating ESPectre's 
 # Activate virtual environment
 source ../venv/bin/activate
 
-# Collect CSI data samples
+# Collect CSI data samples (requires ESP32 streaming)
 cd ..
-./me run --collect-baseline
-./me run --collect-movement
+./me stream --ip <PC_IP>     # On one terminal
+./me collect --label baseline_noisy --duration 60 --chip c6  # On another
+./me collect --label movement --duration 10 --chip c6
 cd tools
+
+# Optimize filter parameters
+python 6_optimize_filter_params.py c6           # Low-pass optimization
+python 6_optimize_filter_params.py c6 --hampel  # Hampel optimization
 
 # Run analysis
 python 2_analyze_system_tuning.py --quick
@@ -103,31 +108,45 @@ python 4_analyze_filter_location.py --plot  # Show visualizations
 
 ### 5. Filter Turbulence Analysis (`5_analyze_filter_turbulence.py`)
 
-**Purpose**: Analyze turbulence calculation with different filters
+**Purpose**: Compare how different filters affect turbulence and motion detection
 
-- Compares filtered vs unfiltered turbulence
-- Validates Hampel filter effectiveness
-- Optimizes filter parameters
+- **Hampel vs Lowpass comparison**: Shows the fundamental difference between outlier removal and frequency smoothing
+- Tests multiple filter configurations (EMA, SMA, Butterworth, Chebyshev, Bessel, Hampel, Savitzky-Golay, Wavelet)
+- Visualizes raw vs filtered turbulence signal and resulting moving variance
+
+**Key insight**: Hampel and Lowpass are NOT the same type of filter!
+- **Hampel**: Removes spikes/outliers (preserves signal shape)
+- **Lowpass**: Smooths high-frequency noise (introduces lag)
+- **Combined**: Best of both - spike removal + noise smoothing
 
 ```bash
-python 5_analyze_filter_turbulence.py
-python 5_analyze_filter_turbulence.py --plot             # Show plots
-python 5_analyze_filter_turbulence.py --optimize-filters # Optimize
+python 5_analyze_filter_turbulence.py              # Run all filter comparisons
+python 5_analyze_filter_turbulence.py --plot       # Show 4-panel visualization:
+                                                   #   No Filter | Hampel | Lowpass | Combined
+python 5_analyze_filter_turbulence.py --optimize-filters  # Optimize parameters
 ```
 
 ---
 
-### 6. Hampel Parameter Optimization (`6_optimize_hampel_parameters.py`)
+### 6. Filter Parameters Optimization (`6_optimize_filter_params.py`)
 
-**Purpose**: Find optimal Hampel filter parameters
+**Purpose**: Optimize low-pass and Hampel filter parameters
 
-- Grid search over window sizes (3-9) and thresholds (2.0-4.0)
-- Tests outlier detection configurations
-- Validates filter effectiveness
+- Optimizes normalization target and low-pass cutoff frequency
+- Grid search for Hampel filter parameters (window, threshold)
+- Supports chip-specific data filtering (c6, s3)
+- Finds optimal configuration for noisy environments
 
 ```bash
-python 6_optimize_hampel_parameters.py
+python 6_optimize_filter_params.py              # Low-pass optimization
+python 6_optimize_filter_params.py c6           # Use only C6 data
+python 6_optimize_filter_params.py --hampel     # Hampel optimization
+python 6_optimize_filter_params.py c6 --hampel  # C6 + Hampel
 ```
+
+**Current optimal configuration (60s noisy baseline):**
+- Low-pass: Cutoff=11 Hz, Target=28 → Recall 92.4%, FP 2.3%
+- With Hampel: Window=9, Threshold=4.0 → **Recall 92.1%, FP 0.84%, F1 93.2%**
 
 ---
 
@@ -224,9 +243,18 @@ python 9_compare_s3_vs_c6.py --plot
 
 ## 🎯 Key Results
 
+### Filter Optimization (Noisy Environment)
+
+Tested on 60-second noisy baseline with C6 chip:
+
+| Configuration | Recall | FP Rate | F1 Score |
+|---------------|--------|---------|----------|
+| Low-pass 11Hz only | 92.4% | 2.34% | 88.9% |
+| **Low-pass 11Hz + Hampel (W=9, T=4)** | **92.1%** | **0.84%** | **93.2%** |
+
 ### NBVI Automatic Subcarrier Selection
 
-**NBVI Weighted α=0.3 with Percentile p10** achieves **F1=97.1%** with zero configuration.
+**NBVI Weighted α=0.3 with Percentile p10** achieves **F1=97.6%** with zero configuration.
 
 📚 **For complete NBVI algorithm documentation**, see [ALGORITHMS.md](../ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
 

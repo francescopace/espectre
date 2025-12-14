@@ -141,7 +141,7 @@ void test_variance_large_values_numerical_stability(void) {
 void test_calibration_manager_full_calibration(void) {
     // Create CSI Manager and Calibration Manager
     CSIManager csi_manager;
-    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, false, 7, 3.0f);
+    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
@@ -198,7 +198,7 @@ void test_calibration_manager_full_calibration(void) {
 void test_calibration_manager_alpha_affects_selection(void) {
     // Test that different alpha values affect NBVI calculation
     CSIManager csi_manager;
-    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, false, 7, 3.0f);
+    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
     // Run calibration with alpha = 0.0 (pure CV)
     CalibrationManager cm1;
@@ -256,7 +256,7 @@ void test_calibration_manager_alpha_affects_selection(void) {
 void test_calibration_manager_percentile_affects_baseline(void) {
     // Test that percentile parameter affects baseline window detection
     CSIManager csi_manager;
-    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, false, 7, 3.0f);
+    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
@@ -287,7 +287,7 @@ void test_calibration_manager_percentile_affects_baseline(void) {
 void test_calibration_manager_noise_gate(void) {
     // Test that noise gate filters weak subcarriers
     CSIManager csi_manager;
-    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, false, 7, 3.0f);
+    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
@@ -320,7 +320,7 @@ void test_calibration_manager_noise_gate(void) {
 void test_calibration_returns_valid_normalization_scale(void) {
     // Test that calibration callback returns a valid normalization scale
     CSIManager csi_manager;
-    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, false, 7, 3.0f);
+    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);

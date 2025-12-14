@@ -38,6 +38,8 @@ class SegmentationContext:
     def __init__(self, 
                  window_size=50,
                  threshold=1.0,
+                 enable_lowpass=False,
+                 lowpass_cutoff=17.5,
                  enable_hampel=False,
                  hampel_window=7,
                  hampel_threshold=4.0,
@@ -50,6 +52,8 @@ class SegmentationContext:
         Args:
             window_size: Moving variance window size (default: 50)
             threshold: Motion detection threshold value (default: 1.0)
+            enable_lowpass: Enable low-pass filter for noise reduction (default: False)
+            lowpass_cutoff: Low-pass filter cutoff frequency in Hz (default: 17.5)
             enable_hampel: Enable Hampel filter for outlier removal (default: False)
             hampel_window: Hampel filter window size (default: 7)
             hampel_threshold: Hampel filter threshold in MAD units (default: 4.0)
@@ -76,6 +80,24 @@ class SegmentationContext:
         
         # Last amplitudes (for W=1 features at publish time)
         self.last_amplitudes = None
+        
+        # Initialize low-pass filter if enabled
+        self.lowpass_filter = None
+        if enable_lowpass:
+            try:
+                # Try MicroPython path first, then standard Python path
+                try:
+                    from src.filters import LowPassFilter
+                except ImportError:
+                    from filters import LowPassFilter
+                self.lowpass_filter = LowPassFilter(
+                    cutoff_hz=lowpass_cutoff,
+                    sample_rate_hz=100.0,
+                    enabled=True
+                )
+            except Exception as e:
+                print(f"[ERROR] Failed to initialize LowPassFilter: {e}")
+                self.lowpass_filter = None
         
         # Initialize Hampel filter if enabled
         self.hampel_filter = None
@@ -233,9 +255,12 @@ class SegmentationContext:
     
     def add_turbulence(self, turbulence):
         """
-        Add turbulence value and update segmentation state
+        Add turbulence value to buffer (lazy evaluation - no variance calculation)
         
-        Uses two-pass variance for numerical stability (matches C++ implementation).
+        Filter chain: raw → normalize → low-pass → hampel → buffer
+        
+        Note: Variance is NOT calculated here to save CPU. Call update_state() 
+        at publish time to compute variance and update state machine.
         
         Args:
             turbulence: Spatial turbulence value
@@ -243,14 +268,20 @@ class SegmentationContext:
         # Apply normalization scale (compensates for different CSI amplitude scales across ESP32 variants)
         normalized_turbulence = turbulence * self.normalization_scale
         
-        # Apply Hampel filter if enabled
+        # Apply low-pass filter first (removes high-frequency noise)
         filtered_turbulence = normalized_turbulence
+        if self.lowpass_filter is not None:
+            try:
+                filtered_turbulence = self.lowpass_filter.filter(filtered_turbulence)
+            except Exception as e:
+                print(f"[ERROR] LowPass filter failed: {e}")
+        
+        # Apply Hampel filter if enabled (removes outliers/spikes)
         if self.hampel_filter is not None:
             try:
-                filtered_turbulence = self.hampel_filter.filter(normalized_turbulence)
+                filtered_turbulence = self.hampel_filter.filter(filtered_turbulence)
             except Exception as e:
                 print(f"[ERROR] Hampel filter failed: {e}")
-                filtered_turbulence = normalized_turbulence
         
         self.last_turbulence = filtered_turbulence
         
@@ -260,6 +291,18 @@ class SegmentationContext:
         if self.buffer_count < self.window_size:
             self.buffer_count += 1
         
+        self.packet_index += 1
+    
+    def update_state(self):
+        """
+        Calculate variance and update state machine (call at publish time)
+        
+        This implements lazy evaluation - variance is only calculated when needed,
+        saving ~99% CPU compared to per-packet calculation.
+        
+        Returns:
+            dict: Current metrics (moving_variance, threshold, turbulence, state)
+        """
         # Calculate variance using two-pass algorithm
         self.current_moving_variance = self._calculate_variance_two_pass()
         
@@ -275,7 +318,7 @@ class SegmentationContext:
                 # Motion ended
                 self.state = self.STATE_IDLE
         
-        self.packet_index += 1
+        return self.get_metrics()
     
     def get_state(self):
         """Get current state (IDLE or MOTION)"""
@@ -357,3 +400,9 @@ class SegmentationContext:
             self.current_moving_variance = 0.0
             self.last_turbulence = 0.0
             self.last_amplitudes = None
+            
+            # Reset filters
+            if self.lowpass_filter is not None:
+                self.lowpass_filter.reset()
+            if self.hampel_filter is not None:
+                self.hampel_filter.reset()

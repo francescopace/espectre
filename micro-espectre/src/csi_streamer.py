@@ -21,9 +21,10 @@ import socket
 import struct
 import time
 import gc
+import os
 import src.config as config
 from src.traffic_generator import TrafficGenerator
-from src.main import connect_wifi, detect_chip
+from src.main import connect_wifi
 
 # Streaming configuration
 STREAM_PORT = 5001
@@ -47,7 +48,7 @@ def stream_csi(dest_ip, duration_sec=0):
     
     # Connect WiFi
     wlan = connect_wifi()
-    chip_type, csi_scale = detect_chip()
+    chip_type = os.uname().machine
     print(f'Chip: {chip_type}')
     
     # Enable CSI

@@ -36,12 +36,29 @@ constexpr uint16_t SEGMENTATION_MIN_WINDOW_SIZE = 10;  // Minimum buffer size
 constexpr uint16_t SEGMENTATION_MAX_WINDOW_SIZE = 200;  // Maximum buffer size
 constexpr float SEGMENTATION_DEFAULT_THRESHOLD = 1.0f;
 
+// Low-pass filter constants (1st order Butterworth)
+constexpr float LOWPASS_CUTOFF_DEFAULT = 11.0f;    // Cutoff frequency in Hz
+constexpr float LOWPASS_CUTOFF_MIN = 5.0f;
+constexpr float LOWPASS_CUTOFF_MAX = 20.0f;
+constexpr float LOWPASS_SAMPLE_RATE = 100.0f;       // Assumed sample rate in Hz
+
 // Hampel filter constants
 constexpr float MAD_SCALE_FACTOR = 1.4826f; // Median Absolute Deviation scale factor
 constexpr uint8_t HAMPEL_TURBULENCE_WINDOW_MIN = 3;
 constexpr uint8_t HAMPEL_TURBULENCE_WINDOW_MAX = 11;
 constexpr uint8_t HAMPEL_TURBULENCE_WINDOW_DEFAULT = 7;
 constexpr float HAMPEL_TURBULENCE_THRESHOLD_DEFAULT = 4.0f;
+
+// Low-pass filter state (1st order Butterworth IIR)
+struct lowpass_filter_state_t {
+    float b0;           // Numerator coefficient
+    float a1;           // Denominator coefficient (negated)
+    float x_prev;       // Previous input
+    float y_prev;       // Previous output
+    float cutoff_hz;    // Cutoff frequency
+    bool enabled;       // Whether filter is enabled
+    bool initialized;   // Whether filter has been initialized with first sample
+};
 
 // Hampel turbulence filter state (for MVS preprocessing)
 struct hampel_turbulence_state_t {
@@ -86,7 +103,8 @@ struct csi_processor_context_t {
     uint16_t buffer_count;              // Number of values in buffer
     uint16_t window_size;               // Moving variance window size (packets)
     
-    // Large struct last (already internally aligned)
+    // Large structs last (already internally aligned)
+    lowpass_filter_state_t lowpass_state;    // Low-pass filter state for noise reduction
     hampel_turbulence_state_t hampel_state;  // Hampel filter state for preprocessing
 };
 
@@ -196,6 +214,38 @@ void csi_processor_set_normalization_scale(csi_processor_context_t *ctx, float s
  */
 float csi_processor_get_normalization_scale(const csi_processor_context_t *ctx);
 
+/**
+ * Enable or disable low-pass filter
+ * 
+ * @param ctx CSI processor context
+ * @param enabled Whether to enable the filter
+ */
+void csi_processor_set_lowpass_enabled(csi_processor_context_t *ctx, bool enabled);
+
+/**
+ * Set low-pass filter cutoff frequency
+ * 
+ * @param ctx CSI processor context
+ * @param cutoff_hz Cutoff frequency in Hz (5.0-20.0)
+ */
+void csi_processor_set_lowpass_cutoff(csi_processor_context_t *ctx, float cutoff_hz);
+
+/**
+ * Get low-pass filter enabled state
+ * 
+ * @param ctx CSI processor context
+ * @return true if filter is enabled
+ */
+bool csi_processor_get_lowpass_enabled(const csi_processor_context_t *ctx);
+
+/**
+ * Get low-pass filter cutoff frequency
+ * 
+ * @param ctx CSI processor context
+ * @return Current cutoff frequency in Hz
+ */
+float csi_processor_get_lowpass_cutoff(const csi_processor_context_t *ctx);
+
 // ============================================================================
 // PARAMETER GETTERS
 // ============================================================================
@@ -233,6 +283,18 @@ csi_motion_state_t csi_processor_get_state(const csi_processor_context_t *ctx);
 float csi_processor_get_moving_variance(const csi_processor_context_t *ctx);
 
 /**
+ * Update state machine with lazy variance calculation
+ * 
+ * Call this at publish time to calculate the moving variance and update
+ * the motion detection state. This implements lazy evaluation - variance
+ * is only calculated when needed, saving ~99% CPU compared to per-packet
+ * calculation.
+ * 
+ * @param ctx CSI processor context
+ */
+void csi_processor_update_state(csi_processor_context_t *ctx);
+
+/**
  * Get last turbulence value added
  * 
  * @param ctx CSI processor context
@@ -262,6 +324,38 @@ uint32_t csi_processor_get_total_packets(const csi_processor_context_t *ctx);
  */
 void csi_set_subcarrier_selection(const uint8_t *selected_subcarriers,
                                    uint8_t num_subcarriers);
+
+// ============================================================================
+// LOW-PASS FILTER (Noise Reduction)
+// ============================================================================
+
+/**
+ * Initialize low-pass filter state
+ * 
+ * Uses 1st order Butterworth IIR filter with bilinear transform.
+ * 
+ * @param state Low-pass filter state
+ * @param cutoff_hz Cutoff frequency in Hz (5.0-20.0, default: 11.0)
+ * @param sample_rate_hz Sample rate in Hz (default: 100.0)
+ * @param enabled Whether filter is enabled
+ */
+void lowpass_filter_init(lowpass_filter_state_t *state, float cutoff_hz, float sample_rate_hz, bool enabled);
+
+/**
+ * Apply low-pass filter to a single value
+ * 
+ * @param state Low-pass filter state
+ * @param value Input value to filter
+ * @return Filtered value (or original if filter disabled)
+ */
+float lowpass_filter_apply(lowpass_filter_state_t *state, float value);
+
+/**
+ * Reset low-pass filter state
+ * 
+ * @param state Low-pass filter state
+ */
+void lowpass_filter_reset(lowpass_filter_state_t *state);
 
 // ============================================================================
 // HAMPEL FILTER (Turbulence Outlier Removal)

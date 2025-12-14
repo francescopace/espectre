@@ -22,10 +22,16 @@ MQTT_PASSWORD = "mqtt"
 TRAFFIC_GENERATOR_RATE = 100  # Default rate (packets per second, recommended: 100)
 
 # CSI Configuration
-CSI_BUFFER_SIZE = 16  # Circular buffer size (used to store csi packets until processed)
+CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
 
 # Selected subcarriers for turbulence calculation. None (or comment out) to auto-calibrate at boot using NBVI algorithm.
 #SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+
+# CSI Amplitude Normalization
+# Automatically calculated during NBVI calibration to normalize amplitudes across devices
+ENABLE_NORMALIZATION = False    # Enable/disable auto-normalization (default: False)
+NORMALIZATION_TARGET = 28.0    # Target mean amplitude for normalization (10-100, default: 28)
+NORMALIZATION_SCALE = 1.0      # Current scale (calculated during calibration, default: 1.0)
 
 # NBVI Auto-Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
 NBVI_BUFFER_SIZE = 1000       # Packets to collect for calibration (10s @ 100Hz)
@@ -40,7 +46,12 @@ NBVI_NOISE_GATE_PERCENTILE = 10  # Exclude weak subcarriers below this percentil
 SEG_WINDOW_SIZE = 50          # Moving variance window (packets) - used by both MVS and Features
 SEG_THRESHOLD = 1.0           # Motion detection threshold (Lower values = more sensitive to motion)
 
-# Filtering Configuration
+# Low-pass filter (removes high-frequency noise, reduces false positives)
+ENABLE_LOWPASS_FILTER = False   # Recommended: reduces FP in noisy environments
+LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz: 2.3% FP, 92.4% Recall)
+                               # Human movement is typically 0.5-10 Hz, RF noise is >15 Hz
+
+# Hampel filter (removes outliers/spikes in turbulence)
 ENABLE_HAMPEL_FILTER = False   # Enable/disable Hampel outlier filter (spikes in turbulence)
 HAMPEL_WINDOW = 7             # Window size for median calculation (3-9 recommended)
 HAMPEL_THRESHOLD = 4.0        # Outlier detection threshold in MAD units (2.0-4.0 recommended)
@@ -48,8 +59,3 @@ HAMPEL_THRESHOLD = 4.0        # Outlier detection threshold in MAD units (2.0-4.
 
 # CSI Feature Extraction Configuration
 ENABLE_FEATURES = True        # Enable/disable CSI feature extraction and confidence calculation
-
-# CSI Amplitude Normalization
-# Automatically calculated during NBVI calibration to normalize amplitudes across devices
-# Default 1.0 = no normalization. Will be updated after calibration.
-NORMALIZATION_SCALE = 1.0

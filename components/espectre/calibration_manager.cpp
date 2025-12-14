@@ -227,13 +227,13 @@ esp_err_t CalibrationManager::run_calibration_() {
   
   // Calculate normalization scale to bring all devices to a common scale
   // This compensates for different CSI amplitude ranges across ESP32 variants (S3, C6, etc.)
-  if (avg_mean > 1.0f) {
-    normalization_scale_ = NORMALIZATION_TARGET_MEAN / avg_mean;
+  if (normalization_enabled_ && avg_mean > 1.0f) {
+    normalization_scale_ = normalization_target_ / avg_mean;
     // Clamp to reasonable range
     if (normalization_scale_ < 0.1f) normalization_scale_ = 0.1f;
     if (normalization_scale_ > 10.0f) normalization_scale_ = 10.0f;
   } else {
-    normalization_scale_ = 1.0f;  // Fallback if mean is too low
+    normalization_scale_ = 1.0f;  // Disabled or fallback if mean is too low
   }
   
   ESP_LOGI(TAG, "✓ Calibration successful: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d]",
@@ -242,7 +242,11 @@ esp_err_t CalibrationManager::run_calibration_() {
            selected_band_[8], selected_band_[9], selected_band_[10], selected_band_[11]);
   ESP_LOGD(TAG, "  Average NBVI: %.6f", avg_nbvi);
   ESP_LOGD(TAG, "  Average magnitude: %.2f", avg_mean);
-  ESP_LOGI(TAG, "  Normalization scale: %.3f (target: %.0f)", normalization_scale_, NORMALIZATION_TARGET_MEAN);
+  if (normalization_enabled_) {
+    ESP_LOGI(TAG, "  Normalization scale: %.3f (target: %.0f)", normalization_scale_, normalization_target_);
+  } else {
+    ESP_LOGI(TAG, "  Normalization: disabled (scale: 1.0)");
+  }
   
   return ESP_OK;
 }

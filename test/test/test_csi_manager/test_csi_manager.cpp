@@ -98,7 +98,7 @@ void tearDown(void) {
 void test_csi_manager_init(void) {
     CSIManager manager;
     
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     TEST_ASSERT_FALSE(manager.is_enabled());
 }
@@ -106,7 +106,7 @@ void test_csi_manager_init(void) {
 void test_csi_manager_init_with_hampel(void) {
     CSIManager manager;
     
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, true, 7, 3.0f, &g_wifi_mock);
     
     // Verify Hampel filter is configured in processor
     TEST_ASSERT_TRUE(g_processor.hampel_state.enabled);
@@ -116,7 +116,7 @@ void test_csi_manager_init_with_hampel(void) {
 void test_csi_manager_init_without_hampel(void) {
     CSIManager manager;
     
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Verify Hampel filter is disabled
     TEST_ASSERT_FALSE(g_processor.hampel_state.enabled);
@@ -129,7 +129,7 @@ void test_csi_manager_init_without_hampel(void) {
 
 void test_csi_manager_enable(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     esp_err_t err = manager.enable();
     
@@ -140,7 +140,7 @@ void test_csi_manager_enable(void) {
 
 void test_csi_manager_enable_twice_returns_ok(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     manager.enable();
     esp_err_t err = manager.enable();  // Second call
@@ -151,7 +151,7 @@ void test_csi_manager_enable_twice_returns_ok(void) {
 
 void test_csi_manager_disable(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     manager.enable();
     esp_err_t err = manager.disable();
@@ -162,7 +162,7 @@ void test_csi_manager_disable(void) {
 
 void test_csi_manager_disable_when_not_enabled(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     esp_err_t err = manager.disable();
     
@@ -176,7 +176,7 @@ void test_csi_manager_disable_when_not_enabled(void) {
 
 void test_csi_manager_set_threshold(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     manager.set_threshold(2.5f);
     
@@ -185,7 +185,7 @@ void test_csi_manager_set_threshold(void) {
 
 void test_csi_manager_set_threshold_multiple_times(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     manager.set_threshold(1.0f);
     TEST_ASSERT_EQUAL_FLOAT(1.0f, csi_processor_get_threshold(&g_processor));
@@ -200,7 +200,7 @@ void test_csi_manager_set_threshold_multiple_times(void) {
 
 void test_csi_manager_update_subcarrier_selection(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     uint8_t new_subcarriers[12] = {20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31};
     manager.update_subcarrier_selection(new_subcarriers);
@@ -215,7 +215,7 @@ void test_csi_manager_update_subcarrier_selection(void) {
 
 void test_csi_manager_process_packet_null_data(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     csi_motion_state_t state = CSI_STATE_IDLE;  // Initialize to IDLE
     manager.process_packet(nullptr, state);
@@ -226,7 +226,7 @@ void test_csi_manager_process_packet_null_data(void) {
 
 void test_csi_manager_process_packet_short_data(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     wifi_csi_info_t csi_info;
     int8_t short_buf[5] = {0};
@@ -242,7 +242,7 @@ void test_csi_manager_process_packet_short_data(void) {
 
 void test_csi_manager_process_packet_real_data(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Process several baseline packets
     for (int i = 0; i < 10; i++) {
@@ -261,7 +261,7 @@ void test_csi_manager_process_packet_real_data(void) {
 void test_csi_manager_process_packet_detects_motion(void) {
     CSIManager manager;
     // Use very low threshold to detect motion easily
-    manager.init(&g_processor, TEST_SUBCARRIERS, 0.01f, 5, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 0.01f, 5, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Process enough packets to fill the window and get moving variance
     // Need at least window_size packets before variance is calculated
@@ -309,7 +309,7 @@ void test_csi_manager_callback_invoked(void) {
     
     CSIManager manager;
     // publish_rate = 5, so callback should be invoked every 5 packets
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 5, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 5, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     manager.enable(test_callback);
     
     // Process 10 packets
@@ -330,7 +330,7 @@ void test_csi_manager_callback_not_invoked_before_publish_rate(void) {
     g_callback_count = 0;
     
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     manager.enable(test_callback);
     
     // Process only 10 packets (less than publish_rate of 100)
@@ -353,7 +353,7 @@ void test_csi_manager_callback_not_invoked_before_publish_rate(void) {
 
 void test_csi_manager_set_calibration_mode(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Set calibration mode (nullptr disables)
     manager.set_calibration_mode(nullptr);
@@ -369,7 +369,7 @@ void test_csi_manager_set_calibration_mode(void) {
 void test_csi_manager_with_calibrator_not_calibrating(void) {
     // Test that CSIManager processes normally when calibrator is set but not calibrating
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Create a real CalibrationManager (not calibrating by default)
     CalibrationManager calibrator;
@@ -397,7 +397,7 @@ void test_csi_manager_with_calibrator_not_calibrating(void) {
 
 void test_csi_manager_null_calibrator_processes_normally(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // No calibrator set (nullptr)
     manager.set_calibration_mode(nullptr);
@@ -419,7 +419,7 @@ void test_csi_manager_null_calibrator_processes_normally(void) {
 void test_csi_manager_delegates_when_calibrating(void) {
     // Test that CSIManager delegates packets to calibrator when calibrating
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Create CalibrationManager and start calibration
     CalibrationManager calibrator;
@@ -458,7 +458,7 @@ void test_csi_manager_delegates_when_calibrating(void) {
 void test_csi_manager_calibrator_lifecycle(void) {
     // Test setting and clearing calibration mode
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     CalibrationManager calibrator;
     calibrator.init(nullptr, "/tmp/test_cal2.bin");
@@ -487,7 +487,7 @@ void test_csi_manager_calibrator_lifecycle(void) {
 
 void test_csi_manager_full_workflow(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 20, 50, true, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 20, 50, true, 11.0f, true, 7, 3.0f, &g_wifi_mock);
     
     // Enable
     TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
@@ -517,7 +517,8 @@ void test_csi_manager_baseline_then_motion(void) {
     
     CSIManager manager;
     // Low threshold, small window for quick detection
-    manager.init(&g_processor, TEST_SUBCARRIERS, 0.5f, 10, 20, false, 7, 3.0f, &g_wifi_mock);
+    // Disable low-pass filter for this test - test data was collected without low-pass
+    manager.init(&g_processor, TEST_SUBCARRIERS, 0.5f, 10, 20, false, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     manager.enable(test_callback);
     
     // Phase 1: Baseline (should stay IDLE)
@@ -558,7 +559,7 @@ void test_csi_manager_baseline_then_motion(void) {
 
 void test_csi_manager_enable_config_error(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Simulate config error
     g_wifi_mock.set_config_error(ESP_ERR_INVALID_ARG);
@@ -571,7 +572,7 @@ void test_csi_manager_enable_config_error(void) {
 
 void test_csi_manager_enable_callback_error(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Simulate callback registration error
     g_wifi_mock.set_callback_error(ESP_ERR_NO_MEM);
@@ -584,7 +585,7 @@ void test_csi_manager_enable_callback_error(void) {
 
 void test_csi_manager_enable_csi_error(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Simulate CSI enable error
     g_wifi_mock.set_csi_error(ESP_FAIL);
@@ -597,7 +598,7 @@ void test_csi_manager_enable_csi_error(void) {
 
 void test_csi_manager_disable_error(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // First enable successfully
     esp_err_t result = manager.enable(nullptr);
@@ -616,7 +617,7 @@ void test_csi_manager_disable_error(void) {
 
 void test_csi_manager_callback_wrapper_triggered(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Enable to register callback
     esp_err_t result = manager.enable(nullptr);
@@ -636,7 +637,7 @@ void test_csi_manager_callback_wrapper_triggered(void) {
 
 void test_csi_manager_callback_wrapper_null_data(void) {
     CSIManager manager;
-    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, false, 7, 3.0f, &g_wifi_mock);
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
     // Enable to register callback
     manager.enable(nullptr);

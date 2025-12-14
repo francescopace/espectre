@@ -21,6 +21,8 @@ void CSIManager::init(csi_processor_context_t* processor,
                      float segmentation_threshold,
                      uint16_t segmentation_window_size,
                      uint32_t publish_rate,
+                     bool lowpass_enabled,
+                     float lowpass_cutoff,
                      bool hampel_enabled,
                      uint8_t hampel_window,
                      float hampel_threshold,
@@ -35,11 +37,16 @@ void CSIManager::init(csi_processor_context_t* processor,
   // Set subcarrier selection
   csi_set_subcarrier_selection(selected_subcarriers_, NUM_SUBCARRIERS);
   
+  // Configure low-pass filter
+  lowpass_filter_init(&processor_->lowpass_state, lowpass_cutoff, LOWPASS_SAMPLE_RATE, lowpass_enabled);
+  
   // Configure Hampel filter
   hampel_turbulence_init(&processor_->hampel_state, hampel_window, hampel_threshold, hampel_enabled);
   
-  ESP_LOGD(TAG, "CSI Manager initialized (threshold: %.2f, window: %d, hampel: %s, window: %d)",
-           segmentation_threshold, segmentation_window_size, hampel_enabled ? "ON" : "OFF", hampel_window);
+  ESP_LOGD(TAG, "CSI Manager initialized (threshold: %.2f, window: %d, lowpass: %s@%.1fHz, hampel: %s@%d)",
+           segmentation_threshold, segmentation_window_size, 
+           lowpass_enabled ? "ON" : "OFF", lowpass_cutoff,
+           hampel_enabled ? "ON" : "OFF", hampel_window);
 }
 
 void CSIManager::update_subcarrier_selection(const uint8_t subcarriers[12]) {
@@ -73,22 +80,26 @@ void CSIManager::process_packet(wifi_csi_info_t* data,
     return;
   }
   
-  // Process CSI packet
+  // Process CSI packet (adds turbulence to buffer, no variance calculation)
   csi_process_packet(processor_,
                     csi_data, csi_len,
                     selected_subcarriers_,
                     NUM_SUBCARRIERS);
   
-  // Update motion state
-  motion_state = csi_processor_get_state(processor_);
-  
   // Handle periodic callback
   packets_processed_++;
   if (packets_processed_ >= publish_rate_) {
+    // Calculate variance and update state (lazy evaluation - only at publish time)
+    csi_processor_update_state(processor_);
+    motion_state = csi_processor_get_state(processor_);
+    
     if (packet_callback_) {
       packet_callback_(motion_state);
     }
     packets_processed_ = 0;
+  } else {
+    // Between publishes, just return the current state (may be stale)
+    motion_state = csi_processor_get_state(processor_);
   }
 }
 

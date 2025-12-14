@@ -27,7 +27,7 @@ from csi_utils import load_baseline_and_movement
 from segmentation import SegmentationContext
 
 # Data paths
-DATA_DIR = Path(__file__).parent / 'data'
+DATA_DIR = Path(__file__).parent.parent / 'data'
 
 # Configuration
 from config import SELECTED_SUBCARRIERS, WINDOW_SIZE, THRESHOLD
@@ -175,14 +175,20 @@ def main():
     # Load data for both chips
     print("\nLoading data...")
     try:
-        s3_baseline, s3_movement = load_baseline_and_movement(chip='s3')
+        s3_baseline, s3_movement = load_baseline_and_movement(
+            baseline_file=DATA_DIR / 'baseline' / 'baseline_s3_001.npz',
+            movement_file=DATA_DIR / 'movement' / 'movement_s3_001.npz'
+        )
         print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets")
     except FileNotFoundError as e:
         print(f"  ❌ S3 data not found: {e}")
         s3_baseline, s3_movement = [], []
     
     try:
-        c6_baseline, c6_movement = load_baseline_and_movement(chip='c6')
+        c6_baseline, c6_movement = load_baseline_and_movement(
+            baseline_file=DATA_DIR / 'baseline' / 'baseline_c6_001.npz',
+            movement_file=DATA_DIR / 'movement' / 'movement_c6_001.npz'
+        )
         print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets")
     except FileNotFoundError as e:
         print(f"  ❌ C6 data not found: {e}")

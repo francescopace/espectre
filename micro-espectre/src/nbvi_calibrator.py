@@ -16,10 +16,10 @@ import os
 NUM_SUBCARRIERS = 64
 BUFFER_FILE = '/nbvi_buffer.bin'
 
-# Target mean amplitude for normalization (common reference scale)
-# Optimized value: 41 gives best F1 (98.5%) with zero FP at threshold=1.0
-# Higher values increase sensitivity but introduce false positives
-NORMALIZATION_TARGET_MEAN = 41.0
+# Default target mean amplitude for normalization (common reference scale)
+# Optimized with 60s noisy baseline + LowPass 11Hz filter:
+# TARGET=28 → Scale≈1.06, FP=2.3%, Recall=92.4%, F1=88.9%
+NORMALIZATION_TARGET_MEAN_DEFAULT = 28.0
 
 # Threshold for null subcarrier detection (mean amplitude below this = null)
 # This is environment-aware: works with any chip and adapts to local RF conditions
@@ -56,7 +56,8 @@ class NBVICalibrator:
     thousands of packets without memory issues.
     """
     
-    def __init__(self, buffer_size=1000, percentile=10, alpha=0.3, min_spacing=3, chip_type=None):
+    def __init__(self, buffer_size=1000, percentile=10, alpha=0.3, min_spacing=3, chip_type=None,
+                 normalization_enabled=True, normalization_target=None):
         """
         Initialize NBVI calibrator
         
@@ -66,6 +67,8 @@ class NBVICalibrator:
             alpha: NBVI weighting factor (default: 0.3)
             min_spacing: Minimum spacing between subcarriers (default: 3)
             chip_type: Ignored (kept for backward compatibility)
+            normalization_enabled: Enable/disable auto-normalization (default: True)
+            normalization_target: Target mean amplitude (default: NORMALIZATION_TARGET_MEAN_DEFAULT)
         """
         self.buffer_size = buffer_size
         self.percentile = percentile
@@ -73,6 +76,8 @@ class NBVICalibrator:
         self.min_spacing = min_spacing
         self.noise_gate_percentile = 10
         self.chip_type = chip_type  # Kept for backward compatibility
+        self.normalization_enabled = normalization_enabled
+        self.normalization_target = normalization_target if normalization_target is not None else NORMALIZATION_TARGET_MEAN_DEFAULT
         self._packet_count = 0
         self._file = None
         
@@ -469,8 +474,8 @@ class NBVICalibrator:
         
         # Calculate normalization scale to bring all devices to a common scale
         # This compensates for different CSI amplitude ranges across ESP32 variants
-        if avg_mean > 1.0:
-            normalization_scale = NORMALIZATION_TARGET_MEAN / avg_mean
+        if self.normalization_enabled and avg_mean > 1.0:
+            normalization_scale = self.normalization_target / avg_mean
             # Clamp to reasonable range
             normalization_scale = max(0.1, min(10.0, normalization_scale))
         else:
@@ -480,7 +485,10 @@ class NBVICalibrator:
         print(f"  Band: {selected_band}")
         print(f"  Avg NBVI: {avg_nbvi:.6f}")
         print(f"  Avg magnitude: {avg_mean:.2f}")
-        print(f"  Normalization scale: {normalization_scale:.3f} (target: {NORMALIZATION_TARGET_MEAN:.0f})")
+        if self.normalization_enabled:
+            print(f"  Normalization scale: {normalization_scale:.3f} (target: {self.normalization_target:.0f})")
+        else:
+            print(f"  Normalization: disabled (scale: 1.0)")
         
         return selected_band, normalization_scale
     

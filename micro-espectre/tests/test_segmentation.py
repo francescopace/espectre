@@ -52,6 +52,20 @@ class TestSegmentationContextInit:
             hampel_threshold=3.0
         )
         assert ctx.hampel_filter is not None
+    
+    def test_lowpass_disabled_by_default(self):
+        """Test that low-pass filter is disabled by default"""
+        ctx = SegmentationContext()
+        assert ctx.lowpass_filter is None
+    
+    def test_lowpass_enabled(self):
+        """Test low-pass filter initialization when enabled"""
+        ctx = SegmentationContext(
+            enable_lowpass=True,
+            lowpass_cutoff=11.5
+        )
+        assert ctx.lowpass_filter is not None
+        assert ctx.lowpass_filter.cutoff_hz == 11.5
 
 
 class TestComputeVarianceTwoPass:
@@ -170,6 +184,9 @@ class TestAddTurbulence:
         for v in [1.0, 2.0, 3.0, 4.0, 5.0]:
             ctx.add_turbulence(v)
         
+        # Lazy evaluation: must call update_state() to calculate variance
+        ctx.update_state()
+        
         # Variance should be 2.0 for [1,2,3,4,5]
         assert ctx.current_moving_variance == pytest.approx(2.0, rel=1e-6)
     
@@ -205,6 +222,9 @@ class TestStateMachine:
         for v in [1.0, 10.0, 1.0, 10.0, 1.0]:
             ctx.add_turbulence(v)
         
+        # Lazy evaluation: must call update_state() to calculate variance and update state
+        ctx.update_state()
+        
         # Variance should be high -> MOTION
         assert ctx.current_moving_variance > 1.0
         assert ctx.get_state() == SegmentationContext.STATE_MOTION
@@ -217,12 +237,14 @@ class TestStateMachine:
         for v in [1.0, 10.0, 1.0, 10.0, 1.0]:
             ctx.add_turbulence(v)
         
+        ctx.update_state()
         assert ctx.get_state() == SegmentationContext.STATE_MOTION
         
         # Now add low-variance values
         for v in [5.0, 5.0, 5.0, 5.0, 5.0]:
             ctx.add_turbulence(v)
         
+        ctx.update_state()
         # Variance should be low -> IDLE
         assert ctx.get_state() == SegmentationContext.STATE_IDLE
     
@@ -234,6 +256,7 @@ class TestStateMachine:
         for _ in range(20):
             ctx.add_turbulence(5.0)
         
+        ctx.update_state()  # Lazy evaluation: must call to update state
         assert ctx.get_state() == SegmentationContext.STATE_IDLE
 
 
@@ -347,6 +370,71 @@ class TestHampelIntegration:
         assert ctx.last_turbulence < 100.0
 
 
+class TestLowPassIntegration:
+    """Test integration with low-pass filter"""
+    
+    def test_lowpass_smooths_signal(self):
+        """Test that low-pass filter smooths high-frequency noise"""
+        import numpy as np
+        
+        ctx = SegmentationContext(
+            window_size=50,
+            enable_lowpass=True,
+            lowpass_cutoff=10.0
+        )
+        
+        # Generate noisy signal: base + high-freq noise
+        np.random.seed(42)
+        baseline = 5.0
+        noise = np.random.randn(50) * 2.0
+        signal = baseline + noise
+        
+        for v in signal:
+            ctx.add_turbulence(v)
+        
+        # Variance of last_turbulence should be lower than raw input variance
+        # due to smoothing (we can only check it doesn't follow noise exactly)
+        # The filtered value should be closer to baseline than the noisy input
+        assert 3.0 < ctx.last_turbulence < 7.0  # Should be smoothed toward baseline
+    
+    def test_lowpass_preserves_dc(self):
+        """Test that low-pass filter preserves DC component"""
+        ctx = SegmentationContext(
+            window_size=50,
+            enable_lowpass=True,
+            lowpass_cutoff=10.0
+        )
+        
+        # Feed constant value
+        for _ in range(30):
+            ctx.add_turbulence(5.0)
+        
+        # Should pass through unchanged
+        assert ctx.last_turbulence == pytest.approx(5.0, rel=0.01)
+    
+    def test_filter_chain_order(self):
+        """Test that filter chain applies: normalize → lowpass → hampel"""
+        ctx = SegmentationContext(
+            window_size=10,
+            enable_lowpass=True,
+            lowpass_cutoff=10.0,
+            enable_hampel=True,
+            hampel_window=5,
+            hampel_threshold=3.0,
+            normalization_scale=2.0
+        )
+        
+        # Feed values to initialize filter
+        for v in [3.0, 3.1, 2.9, 3.0, 3.2]:
+            ctx.add_turbulence(v)
+        
+        # Feed normal value (should be normalized: 3.0 * 2.0 = 6.0)
+        ctx.add_turbulence(3.0)
+        
+        # Output should be around 6.0 (normalized and slightly smoothed)
+        assert 5.0 < ctx.last_turbulence < 7.0
+
+
 class TestCalculateSpatialTurbulence:
     """Test the instance method calculate_spatial_turbulence"""
     
@@ -371,6 +459,7 @@ class TestEndToEnd:
         for pkt in synthetic_csi_baseline_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
             ctx.add_turbulence(turb)
+            ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
                 motion_count += 1
         
@@ -386,6 +475,7 @@ class TestEndToEnd:
         for pkt in synthetic_csi_movement_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
             ctx.add_turbulence(turb)
+            ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
                 motion_count += 1
         

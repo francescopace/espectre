@@ -60,6 +60,8 @@ void ESpectreComponent::setup() {
   
   // 4. Initialize managers (each manager handles its own internal initialization)
   this->calibration_manager_.init(&this->csi_manager_);
+  this->calibration_manager_.set_normalization_enabled(this->normalization_enabled_);
+  this->calibration_manager_.set_normalization_target(this->normalization_target_);
   this->traffic_generator_.init(this->traffic_generator_rate_);
   this->csi_manager_.init(
     &this->csi_processor_,
@@ -67,6 +69,8 @@ void ESpectreComponent::setup() {
     this->segmentation_threshold_,
     this->segmentation_window_size_,
     this->traffic_generator_rate_,
+    this->lowpass_enabled_,
+    this->lowpass_cutoff_,
     this->hampel_enabled_,
     this->hampel_window_,
     this->hampel_threshold_
@@ -208,7 +212,11 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f", this->segmentation_threshold_);
   ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", this->segmentation_window_size_);
-  ESP_LOGCONFIG(TAG, " └─ Norm. Scale ........ %.3f", this->normalization_scale_);
+  ESP_LOGCONFIG(TAG, " ├─ Normalization ...... %s", this->normalization_enabled_ ? "[ENABLED]" : "[DISABLED]");
+  if (this->normalization_enabled_) {
+    ESP_LOGCONFIG(TAG, " │  ├─ Target .......... %.1f", this->normalization_target_);
+    ESP_LOGCONFIG(TAG, " │  └─ Scale ........... %.3f", this->normalization_scale_);
+  }
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
                 this->selected_subcarriers_[0], this->selected_subcarriers_[1],
@@ -224,6 +232,12 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " ├─ Rate ............... %u pps", this->traffic_generator_rate_);
   ESP_LOGCONFIG(TAG, " └─ Status ............. %s", 
                 this->traffic_generator_.is_running() ? "[RUNNING]" : "[STOPPED]");
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " LOW-PASS FILTER");
+  ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", this->lowpass_enabled_ ? "[ENABLED]" : "[DISABLED]");
+  if (this->lowpass_enabled_) {
+    ESP_LOGCONFIG(TAG, " └─ Cutoff ............. %.1f Hz", this->lowpass_cutoff_);
+  }
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " HAMPEL FILTER");
   ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", this->hampel_enabled_ ? "[ENABLED]" : "[DISABLED]");

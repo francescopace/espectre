@@ -7,6 +7,103 @@ Uses pre-allocated buffers and insertion sort for efficiency.
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
+import math
+
+
+class LowPassFilter:
+    """
+    First-order IIR Butterworth low-pass filter
+    
+    Optimized for real-time processing on MicroPython.
+    Uses pre-calculated coefficients for efficiency.
+    
+    The filter removes high-frequency noise (>17.5 Hz by default) while
+    preserving the motion signal (typically 0.5-10 Hz for human movement).
+    
+    This helps reduce false positives caused by RF interference,
+    especially when NBVI selects subcarriers that are more susceptible to noise.
+    
+    Transfer function (1st order Butterworth):
+        H(z) = b0 * (1 + z^-1) / (1 - a1 * z^-1)
+    
+    Difference equation:
+        y[n] = b0 * x[n] + b0 * x[n-1] + a1 * y[n-1]
+    """
+    
+    def __init__(self, cutoff_hz=17.5, sample_rate_hz=100.0, enabled=True):
+        """
+        Initialize low-pass filter
+        
+        Args:
+            cutoff_hz: Cutoff frequency in Hz (default: 17.5 Hz)
+                       Frequencies above this are attenuated
+            sample_rate_hz: Sampling rate in Hz (default: 100 Hz)
+            enabled: If False, filter passes values through unchanged
+        """
+        self.enabled = enabled
+        self.cutoff_hz = cutoff_hz
+        self.sample_rate_hz = sample_rate_hz
+        
+        # Pre-calculate filter coefficients (1st order Butterworth)
+        # Using bilinear transform: s = 2/T * (1-z^-1)/(1+z^-1)
+        # For 1st order: H(s) = 1 / (1 + s/wc)
+        # After bilinear transform: H(z) = (1 + z^-1) / (k + (k-1)*z^-1)
+        # where k = tan(pi * fc / fs)
+        
+        # Normalized angular frequency
+        wc = math.tan(math.pi * cutoff_hz / sample_rate_hz)
+        
+        # Coefficients
+        k = 1.0 + wc
+        self.b0 = wc / k           # Numerator coefficient
+        self.a1 = (wc - 1.0) / k   # Denominator coefficient (negated for difference eq)
+        
+        # Filter state
+        self.x_prev = 0.0  # Previous input
+        self.y_prev = 0.0  # Previous output
+        self.initialized = False
+    
+    def filter(self, value):
+        """
+        Apply low-pass filter to a single value
+        
+        Args:
+            value: Input value to filter
+            
+        Returns:
+            float: Filtered value
+        """
+        if not self.enabled:
+            return value
+        
+        # Initialize filter state with first value to avoid transient
+        if not self.initialized:
+            self.x_prev = value
+            self.y_prev = value
+            self.initialized = True
+            return value
+        
+        # Apply 1st order IIR filter
+        # y[n] = b0 * x[n] + b0 * x[n-1] - a1 * y[n-1]
+        y = self.b0 * value + self.b0 * self.x_prev - self.a1 * self.y_prev
+        
+        # Update state
+        self.x_prev = value
+        self.y_prev = y
+        
+        return y
+    
+    def reset(self):
+        """Reset filter state"""
+        self.x_prev = 0.0
+        self.y_prev = 0.0
+        self.initialized = False
+    
+    def set_enabled(self, enabled):
+        """Enable or disable the filter"""
+        self.enabled = enabled
+        if not enabled:
+            self.reset()
 
 
 class HampelFilter:

@@ -15,74 +15,66 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
+import sys
+from pathlib import Path
+
 import numpy as np
 import argparse
 
 from csi_utils import load_baseline_and_movement, HampelFilter, calculate_spatial_turbulence
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
+# Add src to path for SegmentationContext import (append to avoid shadowing tools/config.py)
+sys.path.append(str(Path(__file__).parent.parent / 'src'))
+from segmentation import SegmentationContext
 
-class StreamingSegmentation:
-    """Basic segmentation without filtering"""
+
+class StreamingSegmentationWrapper:
+    """Wrapper around SegmentationContext for analysis scripts.
     
-    def __init__(self, window_size=50, threshold=1.0, track_data=False):
+    Provides a simplified interface with moving_var_history tracking
+    for visualization purposes.
+    """
+    
+    def __init__(self, window_size=50, threshold=1.0, track_data=False, 
+                 enable_hampel=False):
         self.window_size = window_size
         self.threshold = threshold
         self.track_data = track_data
-        self.turbulence_buffer = np.zeros(window_size)
-        self.buffer_index = 0
-        self.buffer_count = 0
-        self.state = 'IDLE'
+        
+        self._context = SegmentationContext(
+            window_size=window_size,
+            threshold=threshold,
+            enable_hampel=enable_hampel,
+            enable_lowpass=False  # Disable lowpass for this analysis
+        )
+        
         self.motion_packets = 0
         if track_data:
             self.moving_var_history = []
     
     def add_turbulence(self, turbulence):
-        self.turbulence_buffer[self.buffer_index] = turbulence
-        self.buffer_index = (self.buffer_index + 1) % self.window_size
-        if self.buffer_count < self.window_size:
-            self.buffer_count += 1
+        self._context.add_turbulence(turbulence)
         
-        moving_var = self._calculate_moving_variance()
         if self.track_data:
-            self.moving_var_history.append(moving_var)
+            self.moving_var_history.append(self._context.current_moving_variance)
         
-        if self.state == 'IDLE' and moving_var > self.threshold:
-            self.state = 'MOTION'
-        elif self.state == 'MOTION' and moving_var < self.threshold:
-            self.state = 'IDLE'
-        
-        if self.state == 'MOTION':
+        if self._context.get_state() == SegmentationContext.STATE_MOTION:
             self.motion_packets += 1
     
-    def _calculate_moving_variance(self):
-        if self.buffer_count < self.window_size:
-            return 0.0
-        return np.var(self.turbulence_buffer)
-    
     def reset(self):
-        self.buffer_index = 0
-        self.buffer_count = 0
-        self.state = 'IDLE'
+        self._context.reset(full=True)
         self.motion_packets = 0
         if self.track_data:
             self.moving_var_history = []
 
 
-class FilteredTurbulenceSegmentation(StreamingSegmentation):
-    """Segmentation with Hampel filtering on turbulence"""
-    
-    def __init__(self, window_size=50, threshold=1.0, track_data=False):
-        super().__init__(window_size, threshold, track_data)
-        self.hampel = HampelFilter()
-    
-    def add_turbulence(self, turbulence):
-        filtered = self.hampel.filter(turbulence)
-        super().add_turbulence(filtered)
-    
-    def reset(self):
-        super().reset()
-        self.hampel = HampelFilter()
+# Aliases for backward compatibility
+StreamingSegmentation = lambda window_size=50, threshold=1.0, track_data=False: \
+    StreamingSegmentationWrapper(window_size, threshold, track_data, enable_hampel=False)
+
+FilteredTurbulenceSegmentation = lambda window_size=50, threshold=1.0, track_data=False: \
+    StreamingSegmentationWrapper(window_size, threshold, track_data, enable_hampel=True)
 
 
 def calculate_turbulence_filtered_iq(csi_packet, hampel_I, hampel_Q, subcarriers):

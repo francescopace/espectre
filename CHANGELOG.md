@@ -8,10 +8,23 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 New Features
 
+#### Low-Pass Filter for Noise Reduction
+New 1st order Butterworth IIR low-pass filter to reduce high-frequency RF noise.
+
+- **Disabled by default** with 11 Hz cutoff frequency when enabled
+- Implemented in both C++ (ESPHome) and Python (Micro-ESPectre)
+- Configurable via YAML: `lowpass_enabled`, `lowpass_cutoff` (5-20 Hz)
+- Significantly reduces false positives in noisy environments (51% → 2%)
+- Maintains >90% recall with proper tuning
+
+Processing pipeline order: Normalization → Hampel → **Low-Pass** → Turbulence Buffer
+
 #### CSI Amplitude Auto-Normalization
 Different ESP32 variants (S3, C6, etc.) produce CSI data with different amplitude ranges. This release introduces **automatic normalization** during calibration to ensure consistent motion detection across all devices.
 
-- Automatic scale calculation during NBVI calibration (target mean: 50)
+- **Disabled by default** with normalization target 28 when enabled
+- Automatic scale calculation during NBVI calibration
+- **Configurable via YAML**: `normalization_enabled`, `normalization_target`
 - Cross-device consistency without manual tuning
 - Persistent storage in NVS alongside calibration results
 - New API: `csi_processor_set/get_normalization_scale()`
@@ -31,23 +44,36 @@ New tools for building labeled CSI datasets for machine learning (groundwork for
 - **`.npz` format**: NumPy compressed files for ML-ready datasets
 - **`csi_utils.py`**: Unified module with `CSIReceiver`, `CSICollector`, `MVSDetector`
 
+### ⚡ Performance Improvements
+
+#### Lazy Variance Evaluation
+Moving variance is now calculated only at publish time, not per-packet.
+
+- **~99% CPU savings** for variance calculation
+- New API: `csi_processor_update_state()` (C++), `seg.update_state()` (Python)
+- Same detection accuracy and behavior
+- Variance calculated once per publish interval instead of 100x/second
+
 ### ⚙️ Configuration Changes
 
-#### Hampel Filter Disabled by Default
-After extensive testing, the Hampel filter is now **disabled by default**.
+#### All Filters Disabled by Default
+All filters are now disabled by default for maximum simplicity. Enable them as needed.
 
-| Config | Before | After |
-|--------|--------|-------|
-| `hampel_enabled` | `true` | `false` |
+| Config | Default | Description |
+|--------|---------|-------------|
+| `lowpass_enabled` | `false` | Enable low-pass filter (11 Hz cutoff) |
+| `hampel_enabled` | `false` | Enable Hampel outlier filter |
+| `normalization_enabled` | `false` | Enable amplitude normalization |
 
-**Why?** MVS already achieves 0% FP without Hampel. Enabling it reduces Recall from 98.1% to 96.3%.
-
-Enable only in environments with high electromagnetic interference (industrial settings, proximity to microwave ovens).
+**Why disabled?** MVS already achieves 0% FP and 98.1% Recall without any filters. Enable them only when needed:
+- **Low-pass**: Noisy RF environments with false positives
+- **Hampel**: High interference environments (industrial, microwave ovens, multiple APs)
+- **Normalization**: Multi-device deployments (S3, C6, etc.) requiring consistent behavior
 
 ### 🧪 Testing
 
 #### Python Test Suite for Micro-ESPectre
-Comprehensive pytest test suite with CI integration. **163 tests passed**.
+Comprehensive pytest test suite with CI integration. **184 tests passed**.
 
 #### CI Integration
 - New `test-python` job runs pytest on every push/PR
@@ -174,7 +200,7 @@ Micro-ESPectre is the research and development platform of the ESPectre project,
 **Key Features:**
 - ⚡ **Instant Deploy**: ~5 seconds to update code (no compilation)
 - 🔧 **MQTT Integration**: Runtime configuration via MQTT commands
-- 🧬 **Auto Calibration Algorithm**: Automatic subcarrier selection (F1=97.1%)
+- 🧬 **Auto Calibration Algorithm**: Automatic subcarrier selection (F1=97.6%)
 - 📊 **Analysis Tools**: Complete suite for CSI analysis and algorithm optimization
 - 🧮 **Feature Extraction**: Statistical features (variance, skewness, kurtosis, entropy, IQR)
 - 🎯 **Confidence Score**: Experimental motion detection confidence estimation
@@ -228,7 +254,7 @@ cd test && pio test
 - Zero-configuration subcarrier selection using NBVI (Normalized Baseline Variability Index) algorithm. 
 - Auto-calibration at boot, re-calibration after factory_reset.
 - Formula: `NBVI = 0.3 × (σ/μ²) + 0.7 × (σ/μ)`. 
-- Achieves F1=97.1% (-0.2% gap to manual). 
+- Achieves F1=97.6% (Recall 95.3%, Precision 100%, FP 0%). 
 
 ---
 

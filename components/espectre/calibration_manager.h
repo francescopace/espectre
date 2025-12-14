@@ -37,10 +37,9 @@ class CSIManager;
  * 
  * Uses adaptive baseline detection and spectral spacing for robust selection.
  */
-// Target mean amplitude for normalization (common reference scale)
-// Optimized value: 41 gives best F1 (98.5%) with zero FP at threshold=1.0
-// Higher values increase sensitivity but introduce false positives
-constexpr float NORMALIZATION_TARGET_MEAN = 41.0f;
+// Default target mean amplitude for normalization (common reference scale)
+// Optimized value: 28 balances F1 (93%) with low FP (~1%) when combined with low-pass filter
+constexpr float NORMALIZATION_TARGET_MEAN_DEFAULT = 28.0f;
 
 class CalibrationManager {
  public:
@@ -99,6 +98,8 @@ class CalibrationManager {
   void set_alpha(float alpha) { alpha_ = alpha; }
   void set_min_spacing(uint8_t spacing) { min_spacing_ = spacing; }
   void set_noise_gate_percentile(uint8_t percentile) { noise_gate_percentile_ = percentile; }
+  void set_normalization_enabled(bool enabled) { normalization_enabled_ = enabled; }
+  void set_normalization_target(float target) { normalization_target_ = target; }
   
  private:
   // Internal structures
@@ -155,6 +156,8 @@ class CalibrationManager {
   float alpha_{0.3f};                // NBVI weighting factor
   uint8_t min_spacing_{3};           // Minimum spectral spacing
   uint8_t noise_gate_percentile_{10}; // Noise gate threshold
+  bool normalization_enabled_{true};   // Enable/disable auto-normalization
+  float normalization_target_{NORMALIZATION_TARGET_MEAN_DEFAULT}; // Target mean amplitude
   
   // Current calibration context
   std::vector<uint8_t> current_band_;

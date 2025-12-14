@@ -10,6 +10,7 @@ License: GPLv3
 import network
 import time
 import gc
+import os
 from src.segmentation import SegmentationContext
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
@@ -19,16 +20,6 @@ import src.config as config
 
 # Default subcarriers (used if not configured or for fallback in case of error)
 DEFAULT_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
-
-
-def detect_chip():
-    """Detect ESP32 chip type and return (chip_name, csi_scale)"""
-    import os
-    machine = os.uname().machine
-    for name, scale in config.CSI_SCALE_CONFIG:
-        if name in machine:
-            return name, scale
-    return 'UNKNOWN', None
 
 # Try to import local configuration (overrides config.py defaults)
 try:
@@ -154,9 +145,10 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
         percentile=config.NBVI_PERCENTILE,
         alpha=config.NBVI_ALPHA,
         min_spacing=config.NBVI_MIN_SPACING,
-        chip_type=chip_type
+        chip_type=chip_type,
+        normalization_enabled=config.ENABLE_NORMALIZATION,
+        normalization_target=config.NORMALIZATION_TARGET
     )
-    print(f'Chip: {chip_type}, valid subcarriers: {len(nbvi_calibrator.valid_subcarriers)}')
     
     # Collect packets for calibration
     calibration_progress = 0
@@ -253,23 +245,21 @@ def main():
     print('Micro-ESPectre starting...')
     
     # Detect chip type and get CSI scale
-    chip_type, csi_scale = detect_chip()
-    g_state.chip_type = chip_type  # Save for MQTT factory_reset
-    print(f'Detected chip: {chip_type}, CSI scale: {csi_scale}')
+    g_state.chip_type = os.uname().machine# Save for MQTT factory_reset
+    print(f'Detected chip: {g_state.chip_type}')
     
     # Connect to WiFi
     wlan = connect_wifi()
     
     # Configure and enable CSI
-    wlan.csi_enable(
-        buffer_size=config.CSI_BUFFER_SIZE,
-        scale=csi_scale # Chip-specific scale for comparable MVS values
-    )
+    wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
     
     # Initialize segmentation with full configuration
     seg = SegmentationContext(
         window_size=config.SEG_WINDOW_SIZE,
         threshold=config.SEG_THRESHOLD,
+        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=config.LOWPASS_CUTOFF,
         enable_hampel=config.ENABLE_HAMPEL_FILTER,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
@@ -301,7 +291,7 @@ def main():
     
     if needs_calibration:
         # Set default fallback before calibration
-        run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type)
+        run_nbvi_calibration(wlan, nvs, seg, traffic_gen, g_state.chip_type)
     else:
         print(f'Using configured subcarriers: {config.SELECTED_SUBCARRIERS}')
     
@@ -333,8 +323,7 @@ def main():
     last_publish_time = time.ticks_ms()
     
     # Calculate optimal sleep based on traffic rate
-    traffic_rate = traffic_gen.get_rate() if traffic_gen.is_running() else 100
-    publish_rate = traffic_rate
+    publish_rate = traffic_gen.get_rate() if traffic_gen.is_running() else 100
        
     try:
         while True:
@@ -356,12 +345,13 @@ def main():
                 csi_data = frame[5][:128]  # frame[5] = data (tuple API)
                 turbulence = seg.calculate_spatial_turbulence(csi_data, config.SELECTED_SUBCARRIERS)
                 seg.add_turbulence(turbulence)
-                metrics = seg.get_metrics()
                 
                 publish_counter += 1
                 
-                # Publish every N packets (where N = traffic_rate)
+                # Publish every N packets (where N = publish_rate)
                 if publish_counter >= publish_rate:
+                    # Calculate variance and update state (lazy evaluation)
+                    metrics = seg.update_state()
                     current_time = time.ticks_ms()
                     time_delta = time.ticks_diff(current_time, last_publish_time)
                     

@@ -351,7 +351,7 @@ class CSICollector:
     
     def __init__(self, label: str, port: int = DEFAULT_PORT,
                  subject: str = None, environment: str = None,
-                 notes: str = None):
+                 notes: str = None, chip: str = None):
         """
         Initialize collector.
         
@@ -361,12 +361,14 @@ class CSICollector:
             subject: Optional subject/contributor ID
             environment: Optional environment description
             notes: Optional notes
+            chip: Optional chip identifier (e.g., 'c6', 's3') for filename
         """
         self.label = label
         self.port = port
         self.subject = subject
         self.environment = environment
         self.notes = notes
+        self.chip = chip.lower() if chip else None
         
         self.receiver = CSIReceiver(port=port, buffer_size=2000)
         self._recording = False
@@ -380,9 +382,11 @@ class CSICollector:
         return label_dir
     
     def _generate_filename(self) -> str:
-        """Generate filename for sample"""
+        """Generate filename for sample, including chip type if specified"""
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self._sample_count += 1
+        if self.chip:
+            return f'{self.label}_{self.chip}_{timestamp}_{self._sample_count:03d}.npz'
         return f'{self.label}_{timestamp}_{self._sample_count:03d}.npz'
     
     def save_sample(self, packets: List[CSIPacket]) -> Optional[Path]:
@@ -823,36 +827,43 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     return packets
 
 
-def load_baseline_and_movement(chip: str = 'c6') -> Tuple[List[Dict], List[Dict]]:
+def load_baseline_and_movement(
+    baseline_file: str = None,
+    movement_file: str = None
+) -> Tuple[List[Dict], List[Dict]]:
     """
     Load baseline and movement data from .npz files
     
     Args:
-        chip: Chip type ('c6' or 's3'), default 'c6'
+        baseline_file: Path to baseline data file (optional, uses default if not specified)
+        movement_file: Path to movement data file (optional, uses default if not specified)
     
     Returns:
         tuple: (baseline_packets, movement_packets)
     """
-    baseline_dir = DATA_DIR / 'baseline'
-    movement_dir = DATA_DIR / 'movement'
+    # Apply defaults if not specified
+    if baseline_file is None:
+        baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_001.npz'
+    if movement_file is None:
+        movement_file = DATA_DIR / 'movement' / 'movement_c6_001.npz'
     
-    # Find files matching chip
-    baseline_file = baseline_dir / f'baseline_{chip}_001.npz'
-    movement_file = movement_dir / f'movement_{chip}_001.npz'
+    # Convert to Path if string
+    baseline_path = Path(baseline_file) if isinstance(baseline_file, str) else baseline_file
+    movement_path = Path(movement_file) if isinstance(movement_file, str) else movement_file
     
-    if not baseline_file.exists():
+    if not baseline_path.exists():
         raise FileNotFoundError(
-            f"{baseline_file} not found.\n"
+            f"{baseline_path} not found.\n"
             f"Collect data using: ./me collect --label baseline --duration 10"
         )
-    if not movement_file.exists():
+    if not movement_path.exists():
         raise FileNotFoundError(
-            f"{movement_file} not found.\n"
+            f"{movement_path} not found.\n"
             f"Collect data using: ./me collect --label movement --duration 10"
         )
     
-    baseline_packets = load_npz_as_packets(baseline_file)
-    movement_packets = load_npz_as_packets(movement_file)
+    baseline_packets = load_npz_as_packets(baseline_path)
+    movement_packets = load_npz_as_packets(movement_path)
     
     return baseline_packets, movement_packets
 
@@ -966,6 +977,9 @@ class MVSDetector:
         
         # Add to segmentation context
         self._context.add_turbulence(turb)
+        
+        # Lazy evaluation: must call update_state() to calculate variance and update state
+        self._context.update_state()
         
         # Map state from SegmentationContext to string
         new_state = 'MOTION' if self._context.state == SegmentationContext.STATE_MOTION else 'IDLE'
