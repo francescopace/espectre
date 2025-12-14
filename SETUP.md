@@ -296,6 +296,8 @@ Two dashboard examples are available:
 
 > **Note:** If you changed the device name from `espectre`, replace all occurrences of `espectre_` with your device name (e.g., `espectre_living_room_`).
 
+> ⚠️ **Multiple devices?** If you uncommented `name_add_mac_suffix: true` in your YAML, entity names will include the MAC suffix (e.g., `sensor.espectre_a1b2c3_movement_score`). Update the dashboard entities accordingly.
+
 **Production dashboard includes:**
 - **Gauge**: Visual representation of movement score with color-coded severity
 - **Motion tile**: Current motion state with last changed time

@@ -8,6 +8,10 @@
 #
 # Note: If you changed the device name from "espectre", replace all
 # occurrences of "espectre_" with your device name (e.g., "espectre_living_room_")
+#
+# ⚠️ Multiple devices? If you uncommented "name_add_mac_suffix: true" in your
+# device YAML, entity names will include the MAC suffix (e.g., "espectre_a1b2c3").
+# Replace "espectre_" with "espectre_XXXXXX_" where XXXXXX is your MAC suffix.
 
 title: 🛜 ESPectre 👻
 type: sections

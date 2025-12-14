@@ -21,7 +21,8 @@
 esphome:
   name: espectre
   friendly_name: ESPectre
-  name_add_mac_suffix: true
+  # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
+  # name_add_mac_suffix: true
   project:
     name: francescopace.espectre
     version: "1.0.0"
