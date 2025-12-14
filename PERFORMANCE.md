@@ -176,6 +176,26 @@ See [TUNING.md](TUNING.md) for detailed tuning instructions.
 
 ---
 
+## NBVI Automatic Calibration
+
+When using NBVI (Normalized Baseline Variability Index) for automatic subcarrier selection instead of the fixed band [11-22], performance is slightly lower but still excellent:
+
+| Metric | Fixed Band [11-22] | NBVI Auto-Calibration |
+|--------|--------------------|-----------------------|
+| **Recall** | 98.1% | 97.1% |
+| **Precision** | 100.0% | 100.0% |
+| **FP Rate** | 0.0% | 0.0% |
+| **F1-Score** | 99.0% | 98.5% |
+
+NBVI is recommended when:
+- Deploying on multiple ESP32 variants with different RF characteristics
+- Environment conditions vary significantly from reference test setup
+- Automatic calibration is preferred over manual tuning
+
+The fixed band [11-22] remains the default and provides the best performance for ESP32-C6.
+
+---
+
 ## Version History
 
 | Date | Version | Recall | Precision | FP Rate | F1-Score | Notes |

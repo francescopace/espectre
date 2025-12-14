@@ -177,7 +177,7 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `segmentation_threshold` | float | 1.0 | Motion sensitivity (lower=more sensitive) |
 | `segmentation_window_size` | int | 50 | Moving variance window in packets |
 | `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
-| `hampel_enabled` | bool | true | Enable Hampel outlier filter |
+| `hampel_enabled` | bool | false | Enable Hampel outlier filter |
 | `hampel_window` | int | 7 | Hampel filter window size |
 | `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) |
 

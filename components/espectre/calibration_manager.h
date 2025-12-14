@@ -38,8 +38,9 @@ class CSIManager;
  * Uses adaptive baseline detection and spectral spacing for robust selection.
  */
 // Target mean amplitude for normalization (common reference scale)
-// This value is chosen to produce reasonable turbulence values (~1-5) for motion
-constexpr float NORMALIZATION_TARGET_MEAN = 50.0f;
+// Optimized value: 41 gives best F1 (98.5%) with zero FP at threshold=1.0
+// Higher values increase sensitivity but introduce false positives
+constexpr float NORMALIZATION_TARGET_MEAN = 41.0f;
 
 class CalibrationManager {
  public:

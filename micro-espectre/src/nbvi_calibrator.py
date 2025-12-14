@@ -17,8 +17,9 @@ NUM_SUBCARRIERS = 64
 BUFFER_FILE = '/nbvi_buffer.bin'
 
 # Target mean amplitude for normalization (common reference scale)
-# This value is chosen to produce reasonable turbulence values (~1-5) for motion
-NORMALIZATION_TARGET_MEAN = 50.0
+# Optimized value: 41 gives best F1 (98.5%) with zero FP at threshold=1.0
+# Higher values increase sensitivity but introduce false positives
+NORMALIZATION_TARGET_MEAN = 41.0
 
 # Threshold for null subcarrier detection (mean amplitude below this = null)
 # This is environment-aware: works with any chip and adapts to local RF conditions
@@ -104,8 +105,18 @@ class NBVICalibrator:
             q_idx = sc * 2 + 1
             
             if q_idx < len(csi_data):
+                # CSI I/Q values are signed int8 (-128 to 127)
+                # On MicroPython ESP32: frame[5] is array('b') = signed int8
+                # On Python tests with numpy: already int8
+                # On Python tests with bytes: need conversion from unsigned
                 I = csi_data[i_idx]
                 Q = csi_data[q_idx]
+                # Handle unsigned bytes (0-255) from Python tests
+                # MicroPython array('b') returns signed directly, so no conversion needed there
+                if I > 127:
+                    I = I - 256
+                if Q > 127:
+                    Q = Q - 256
                 # Calculate magnitude as uint8 (max ~181 fits in byte)
                 mag = int(math.sqrt(I*I + Q*Q))
                 magnitudes[sc] = min(mag, 255)  # Clamp to uint8
@@ -388,14 +399,13 @@ class NBVICalibrator:
                 - selected_band: List of 12 subcarrier indices
                 - normalization_scale: Factor to normalize CSI amplitudes across devices
         """
-        # Import config here to get current values
-        import src.config as config
-        
-        # Use config values if not provided
-        if window_size is None:
-            window_size = config.NBVI_WINDOW_SIZE
-        if step is None:
-            step = config.NBVI_WINDOW_STEP
+        # Use config values only if not provided (lazy import to avoid MicroPython deps in tests)
+        if window_size is None or step is None:
+            import src.config as config
+            if window_size is None:
+                window_size = config.NBVI_WINDOW_SIZE
+            if step is None:
+                step = config.NBVI_WINDOW_STEP
         
         #print("\nNBVI: Starting calibration...")
         #print(f"  Packets collected: {self._packet_count}")

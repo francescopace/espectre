@@ -317,6 +317,39 @@ void test_calibration_manager_noise_gate(void) {
     }
 }
 
+void test_calibration_returns_valid_normalization_scale(void) {
+    // Test that calibration callback returns a valid normalization scale
+    CSIManager csi_manager;
+    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, false, 7, 3.0f);
+    
+    CalibrationManager cm;
+    cm.init(&csi_manager, TEST_BUFFER_PATH);
+    cm.set_buffer_size(100);
+    cm.set_window_size(50);
+    
+    float result_normalization_scale = 0.0f;
+    bool calibration_success = false;
+    
+    cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
+        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+            (void)band; (void)size;
+            result_normalization_scale = normalization_scale;
+            calibration_success = success;
+        });
+    
+    for (int i = 0; i < 100; i++) {
+        cm.add_packet(baseline_packets[i], 128);
+    }
+    
+    TEST_ASSERT_TRUE(calibration_success);
+    
+    // Normalization scale should be positive and within reasonable bounds
+    ESP_LOGI(TAG, "Calibration returned normalization_scale: %.4f", result_normalization_scale);
+    TEST_ASSERT_TRUE(result_normalization_scale > 0.0f);
+    TEST_ASSERT_TRUE(result_normalization_scale >= 0.1f);  // Minimum clamped value
+    TEST_ASSERT_TRUE(result_normalization_scale <= 10.0f); // Maximum clamped value
+}
+
 // Note: Spectral spacing is tested in test_spectral_spacing_* tests below
 // and verified in test_calibration_manager_full_calibration via the callback results
 
@@ -797,6 +830,7 @@ int process(void) {
     RUN_TEST(test_calibration_manager_alpha_affects_selection);
     RUN_TEST(test_calibration_manager_percentile_affects_baseline);
     RUN_TEST(test_calibration_manager_noise_gate);
+    RUN_TEST(test_calibration_returns_valid_normalization_scale);
     
     // Spectral spacing tests
     RUN_TEST(test_spectral_spacing_valid);

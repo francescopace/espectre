@@ -359,6 +359,94 @@ void test_state_stays_idle_on_baseline(void) {
 }
 
 // ============================================================================
+// NORMALIZATION SCALE TESTS
+// ============================================================================
+
+void test_normalization_scale_default_is_one(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, csi_processor_get_normalization_scale(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_set_normalization_scale_valid_values(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    csi_processor_set_normalization_scale(&ctx, 2.0f);
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, csi_processor_get_normalization_scale(&ctx));
+    
+    csi_processor_set_normalization_scale(&ctx, 0.5f);
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, csi_processor_get_normalization_scale(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_normalization_scale_clamps_minimum(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    // Values below 0.1 should be clamped to 0.1
+    csi_processor_set_normalization_scale(&ctx, 0.01f);
+    TEST_ASSERT_EQUAL_FLOAT(0.1f, csi_processor_get_normalization_scale(&ctx));
+    
+    csi_processor_set_normalization_scale(&ctx, 0.0f);
+    TEST_ASSERT_EQUAL_FLOAT(0.1f, csi_processor_get_normalization_scale(&ctx));
+    
+    csi_processor_set_normalization_scale(&ctx, -1.0f);
+    TEST_ASSERT_EQUAL_FLOAT(0.1f, csi_processor_get_normalization_scale(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_normalization_scale_clamps_maximum(void) {
+    csi_processor_context_t ctx;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
+    
+    // Values above 10.0 should be clamped to 10.0
+    csi_processor_set_normalization_scale(&ctx, 100.0f);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, csi_processor_get_normalization_scale(&ctx));
+    
+    csi_processor_set_normalization_scale(&ctx, 15.0f);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, csi_processor_get_normalization_scale(&ctx));
+    
+    csi_processor_cleanup(&ctx);
+}
+
+void test_get_normalization_scale_returns_one_for_null(void) {
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, csi_processor_get_normalization_scale(NULL));
+}
+
+void test_normalization_scale_affects_turbulence(void) {
+    csi_processor_context_t ctx1, ctx2;
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx1, 50, 1.0f));
+    TEST_ASSERT_TRUE(csi_processor_init(&ctx2, 50, 1.0f));
+    
+    // Set different normalization scales
+    csi_processor_set_normalization_scale(&ctx1, 1.0f);  // No scaling
+    csi_processor_set_normalization_scale(&ctx2, 2.0f);  // Double scaling
+    
+    // Process same packet in both contexts
+    csi_process_packet(&ctx1, baseline_packets[0], 128, 
+                      TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    csi_process_packet(&ctx2, baseline_packets[0], 128, 
+                      TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    
+    float turb1 = csi_processor_get_last_turbulence(&ctx1);
+    float turb2 = csi_processor_get_last_turbulence(&ctx2);
+    
+    ESP_LOGI(TAG, "Turbulence with scale=1.0: %.4f, scale=2.0: %.4f", turb1, turb2);
+    
+    // Turbulence with scale 2.0 should be approximately double
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, turb1 * 2.0f, turb2);
+    
+    csi_processor_cleanup(&ctx1);
+    csi_processor_cleanup(&ctx2);
+}
+
+// ============================================================================
 // SUBCARRIER SELECTION TESTS
 // ============================================================================
 
@@ -488,6 +576,14 @@ int process(void) {
     // State machine tests
     RUN_TEST(test_state_transitions_to_motion_on_high_variance);
     RUN_TEST(test_state_stays_idle_on_baseline);
+    
+    // Normalization scale tests
+    RUN_TEST(test_normalization_scale_default_is_one);
+    RUN_TEST(test_set_normalization_scale_valid_values);
+    RUN_TEST(test_normalization_scale_clamps_minimum);
+    RUN_TEST(test_normalization_scale_clamps_maximum);
+    RUN_TEST(test_get_normalization_scale_returns_one_for_null);
+    RUN_TEST(test_normalization_scale_affects_turbulence);
     
     // Subcarrier selection tests
     RUN_TEST(test_set_subcarrier_selection_valid);

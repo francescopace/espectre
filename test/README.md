@@ -22,15 +22,15 @@ pio test -e esp32c6
 
 ## 🧪 Test Suites
 
-| Suite | Type | Data | Tests | Focus |
-|-------|------|------|-------|-------|
-| `test_csi_processor` | Unit | **Real** | 39 | API, getters, state machine |
-| `test_hampel_filter` | Unit | **Real** | 20 | Outlier removal filter |
-| `test_calibration` | Unit | **Real** | 33 | NBVI, magnitude, turbulence, compare, end-to-end CalibrationManager |
-| `test_calibration_manager` | Integration | **Real** | 24 | CalibrationManager API, file I/O, NBVI ranking, edge cases |
-| `test_csi_manager` | Integration | **Real** | 29 | CSIManager API, callbacks, motion detection, error paths |
-| `test_calibration_file_storage` | Unit | Synthetic | 9 | File-based magnitude storage |
-| `test_motion_detection` | Integration | **Real** | 3 | MVS performance metrics |
+| Suite | Type | Data | Focus |
+|-------|------|------|-------|
+| `test_csi_processor` | Unit | **Real** | API, getters, state machine, normalization |
+| `test_hampel_filter` | Unit | **Real** | Outlier removal filter |
+| `test_calibration` | Unit | **Real** | NBVI, magnitude, turbulence, normalization scale |
+| `test_calibration_manager` | Integration | **Real** | CalibrationManager API, file I/O, NBVI ranking |
+| `test_csi_manager` | Integration | **Real** | CSIManager API, callbacks, motion detection |
+| `test_calibration_file_storage` | Unit | Synthetic | File-based magnitude storage |
+| `test_motion_detection` | Integration | **Real** | MVS performance, NBVI end-to-end |
 
 
 ### Target Metrics (Motion Detection)

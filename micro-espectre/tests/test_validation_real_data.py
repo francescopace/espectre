@@ -17,7 +17,15 @@ License: GPLv3
 import pytest
 import numpy as np
 import math
+import os
+import tempfile
 from pathlib import Path
+
+# Patch NBVI buffer file path BEFORE importing NBVICalibrator
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+import nbvi_calibrator
+nbvi_calibrator.BUFFER_FILE = os.path.join(tempfile.gettempdir(), 'nbvi_buffer_validation_test.bin')
 
 # Import from src and tools
 from segmentation import SegmentationContext
@@ -663,4 +671,188 @@ class TestFloat32Stability:
             f"Two-pass error too high for CSI range: {error_two_pass:.4%}"
         assert error_single_pass < 0.001, \
             f"Single-pass error too high for CSI range: {error_single_pass:.4%}"
+
+
+# ============================================================================
+# End-to-End Tests with NBVI Calibration and Normalization
+# ============================================================================
+
+class TestEndToEndWithCalibration:
+    """
+    Test complete pipeline: NBVI Calibration → Normalization → MVS Detection
+    
+    These tests verify that the system works end-to-end with:
+    - NBVI auto-calibration selecting subcarriers from real data
+    - Normalization scale applied to turbulence values
+    - MVS motion detection achieving target performance
+    """
+    
+    def test_nbvi_calibration_produces_valid_band(self, real_data):
+        """Test that NBVI calibration produces valid subcarrier selection"""
+        from nbvi_calibrator import NBVICalibrator
+        
+        baseline_packets, _ = real_data
+        
+        # Use first 200 packets for calibration (simulating boot-time collection)
+        calibrator = NBVICalibrator(
+            buffer_size=200,
+            percentile=10,
+            alpha=0.3,
+            min_spacing=3
+        )
+        
+        # Feed baseline packets (convert numpy array to bytes for MicroPython-compatible API)
+        for pkt in baseline_packets[:200]:
+            # Convert int8 numpy array to bytes (same as ESP32 raw CSI data)
+            csi_bytes = bytes(int(x) & 0xFF for x in pkt['csi_data'])
+            calibrator.add_packet(csi_bytes)
+        
+        # Run calibration with default band
+        # Pass window_size and step explicitly to avoid importing src.config (MicroPython deps)
+        default_band = list(range(11, 23))  # [11, 12, ..., 22]
+        selected_band, normalization_scale = calibrator.calibrate(
+            default_band, window_size=100, step=50
+        )
+        
+        # Cleanup
+        calibrator.free_buffer()
+        
+        # Verify calibration results
+        assert selected_band is not None, "NBVI calibration failed"
+        assert len(selected_band) == 12, f"Expected 12 subcarriers, got {len(selected_band)}"
+        
+        # All subcarriers should be valid (not guard bands)
+        for sc in selected_band:
+            assert 0 <= sc < 64, f"Invalid subcarrier index: {sc}"
+        
+        # Normalization scale should be valid
+        assert normalization_scale > 0.0, f"Invalid normalization scale: {normalization_scale}"
+        assert 0.1 <= normalization_scale <= 10.0, \
+            f"Normalization scale out of range: {normalization_scale}"
+        
+        print(f"\nNBVI Calibration Results:")
+        print(f"  Selected band: {selected_band}")
+        print(f"  Normalization scale: {normalization_scale:.4f}")
+    
+    def test_end_to_end_with_nbvi_and_normalization(self, real_data):
+        """
+        Test complete end-to-end flow: NBVI → Normalization → MVS → Detection
+        
+        This test verifies that the system achieves target performance (>90% Recall, <10% FP)
+        when using NBVI-selected subcarriers and auto-calculated normalization scale.
+        """
+        from nbvi_calibrator import NBVICalibrator
+        
+        baseline_packets, movement_packets = real_data
+        
+        # ========================================
+        # Step 1: NBVI Calibration
+        # ========================================
+        print("\n" + "=" * 70)
+        print("  END-TO-END TEST: NBVI Calibration + Normalization + MVS")
+        print("=" * 70)
+        
+        calibrator = NBVICalibrator(
+            buffer_size=200,
+            percentile=10,
+            alpha=0.3,
+            min_spacing=3
+        )
+        
+        # Feed baseline packets for calibration (convert numpy to bytes for MicroPython-compatible API)
+        print("\nStep 1: NBVI Calibration with 200 baseline packets...")
+        for pkt in baseline_packets[:200]:
+            csi_bytes = bytes(int(x) & 0xFF for x in pkt['csi_data'])
+            calibrator.add_packet(csi_bytes)
+        
+        # Run calibration (pass window_size and step explicitly to avoid importing src.config)
+        default_band = list(range(11, 23))
+        selected_band, normalization_scale = calibrator.calibrate(
+            default_band, window_size=100, step=50
+        )
+        calibrator.free_buffer()
+        
+        assert selected_band is not None, "NBVI calibration failed"
+        print(f"  Selected band: {selected_band}")
+        print(f"  Normalization scale: {normalization_scale:.4f}")
+        
+        # ========================================
+        # Step 2: Initialize MVS with calibration results
+        # ========================================
+        # Apply the normalization scale calculated by NBVI to match C++ behavior
+        print("\nStep 2: Initialize MVS with calibration results...")
+        ctx = SegmentationContext(
+            window_size=50,
+            threshold=1.0,
+            normalization_scale=normalization_scale,  # Use NBVI-calculated scale
+            enable_hampel=False  # Disable for pure MVS measurement
+        )
+        
+        # ========================================
+        # Step 3: Process baseline (expecting IDLE)
+        # ========================================
+        print("\nStep 3: Process baseline packets (expecting IDLE)...")
+        baseline_motion = 0
+        
+        for pkt in baseline_packets:
+            turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
+            ctx.add_turbulence(turb)
+            if ctx.get_state() == SegmentationContext.STATE_MOTION:
+                baseline_motion += 1
+        
+        # ========================================
+        # Step 4: Process movement (expecting MOTION)
+        # ========================================
+        print("Step 4: Process movement packets (expecting MOTION)...")
+        movement_motion = 0
+        
+        for pkt in movement_packets:
+            turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
+            ctx.add_turbulence(turb)
+            if ctx.get_state() == SegmentationContext.STATE_MOTION:
+                movement_motion += 1
+        
+        # ========================================
+        # Step 5: Calculate metrics
+        # ========================================
+        num_baseline = len(baseline_packets)
+        num_movement = len(movement_packets)
+        
+        pkt_tp = movement_motion
+        pkt_fn = num_movement - movement_motion
+        pkt_tn = num_baseline - baseline_motion
+        pkt_fp = baseline_motion
+        
+        recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0
+        precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0
+        fp_rate = pkt_fp / num_baseline * 100.0 if num_baseline > 0 else 0
+        f1 = 2 * (precision / 100) * (recall / 100) / ((precision + recall) / 100) * 100 \
+            if (precision + recall) > 0 else 0
+        
+        print()
+        print("=" * 70)
+        print("  END-TO-END RESULTS (NBVI + Normalization + MVS)")
+        print("=" * 70)
+        print()
+        print(f"CONFUSION MATRIX ({num_baseline} baseline + {num_movement} movement packets):")
+        print("                    Predicted")
+        print("                IDLE      MOTION")
+        print(f"Actual IDLE     {pkt_tn:4d} (TN)  {pkt_fp:4d} (FP)")
+        print(f"    MOTION      {pkt_fn:4d} (FN)  {pkt_tp:4d} (TP)")
+        print()
+        print("METRICS:")
+        print(f"  * Recall:     {recall:.1f}% (target: >90%)")
+        print(f"  * Precision:  {precision:.1f}%")
+        print(f"  * FP Rate:    {fp_rate:.1f}% (target: <10%)")
+        print(f"  * F1-Score:   {f1:.1f}%")
+        print()
+        print("=" * 70)
+        
+        # ========================================
+        # Assertions
+        # ========================================
+        # NBVI auto-selects subcarriers that achieve comparable performance to manually optimized band.
+        # With the signed/unsigned fix, NBVI achieves ~95% recall with 0% FP.
+        assert recall > 90.0, f"End-to-end Recall too low: {recall:.1f}% (target: >90%)"
+        assert fp_rate < 10.0, f"End-to-end FP Rate too high: {fp_rate:.1f}% (target: <10%)"
 
