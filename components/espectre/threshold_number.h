@@ -25,6 +25,10 @@ class ESpectreThresholdNumber : public number::Number, public Component {
   
   void set_parent(ESpectreComponent *parent) { this->parent_ = parent; }
   
+  // Re-publish current threshold value to Home Assistant
+  // Called when API connection is ready to ensure HA receives the saved value
+  void republish_state();
+  
  protected:
   void control(float value) override;
   

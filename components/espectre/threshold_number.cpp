@@ -36,6 +36,16 @@ void ESpectreThresholdNumber::control(float value) {
   }
 }
 
+void ESpectreThresholdNumber::republish_state() {
+  // Re-publish current threshold to Home Assistant
+  // This ensures HA receives the saved value after API connection is established
+  if (this->parent_ != nullptr) {
+    float current = this->parent_->get_threshold();
+    this->publish_state(current);
+    ESP_LOGI(TAG_THRESHOLD, "Threshold re-published to HA: %.2f", current);
+  }
+}
+
 }  // namespace espectre
 }  // namespace esphome
 

@@ -100,6 +100,14 @@ void ESpectreComponent::on_wifi_connected_() {
         // Don't publish until ready
         if (!this->ready_to_publish_) return;
         
+        // Re-publish threshold on first sensor update (HA is now connected)
+        // This fixes "unknown" state after power loss
+        if (!this->threshold_republished_ && this->threshold_number_ != nullptr) {
+          auto *threshold_num = static_cast<ESpectreThresholdNumber *>(this->threshold_number_);
+          threshold_num->republish_state();
+          this->threshold_republished_ = true;
+        }
+        
         // Log status with progress bar and CSI rate
         this->sensor_publisher_.log_status(TAG, &this->csi_processor_, state, this->traffic_generator_rate_);
         
@@ -155,6 +163,7 @@ void ESpectreComponent::on_wifi_connected_() {
   // Ready to publish sensors
   if (this->traffic_generator_.is_running()) {
     this->ready_to_publish_ = true;
+    this->threshold_republished_ = false;  // Will republish on first sensor update
   }
 }
 

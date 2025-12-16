@@ -116,7 +116,8 @@ class ESpectreComponent : public Component {
   number::Number *threshold_number_{nullptr};
   
   // State flags
-  bool ready_to_publish_{false};  // True when CSI is ready and calibration done
+  bool ready_to_publish_{false};      // True when CSI is ready and calibration done
+  bool threshold_republished_{false}; // True after threshold has been re-published to HA
 };
 
 }  // namespace espectre
