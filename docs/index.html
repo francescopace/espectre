@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESPectre | Wi-Fi Motion Detection for Home Assistant</title>
+    <meta name="description" content="Open source motion detection using Wi-Fi spectrum analysis (CSI). Privacy-first, no cameras, no microphones. Native ESPHome integration for Home Assistant.">
+    <meta name="keywords" content="ESP32, WiFi sensing, CSI, motion detection, Home Assistant, ESPHome, IoT">
+    <meta name="author" content="Francesco Pace">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:url" content="https://espectre.dev">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="ESPectre | Wi-Fi Motion Detection for Home Assistant">
+    <meta property="og:description" content="Open source motion detection using Wi-Fi spectrum analysis (CSI). Privacy-first, no cameras, no microphones. Native ESPHome integration for Home Assistant.">
+    <meta property="og:image" content="https://espectre.dev/espectre.png">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta property="twitter:domain" content="espectre.dev">
+    <meta property="twitter:url" content="https://espectre.dev">
+    <meta name="twitter:title" content="ESPectre | Wi-Fi Motion Detection for Home Assistant">
+    <meta name="twitter:description" content="Open source motion detection using Wi-Fi spectrum analysis (CSI). Privacy-first, no cameras, no microphones. Native ESPHome integration for Home Assistant.">
+    <meta name="twitter:image" content="https://espectre.dev/espectre.png">
+
+    <!-- Favicon -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-S0NQNG0V11"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-S0NQNG0V11');
+    </script>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap"
+        rel="stylesheet">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="bg-pattern"></div>
+    <div class="wave-container">
+        <div class="wave"></div>
+    </div>
+
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><i class="fas fa-wifi"></i></span>
+            <span>ESPectre</span>
+            <span class="logo-icon"><i class="fas fa-ghost"></i></span>
+        </a>
+        <nav>
+            <a href="https://github.com/francescopace/espectre/issues">Issues</a>
+            <a href="https://github.com/francescopace/espectre/discussions">Discussions</a>
+            <a href="https://github.com/francescopace/espectre/blob/main/ROADMAP.md">Roadmap</a>
+            <a href="https://github.com/francescopace/espectre">GitHub</a>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="hero-badge">
+                <span class="dot"></span>
+                <span>Open Source · GPLv3</span>
+            </div>
+            <h1>Spectral motion sensing.</h1>
+            <p class="hero-subtitle">
+                Motion detection using Wi-Fi spectrum analysis (CSI).<br>
+                No cameras. No microphones. Just math.
+            </p>
+            <div class="hero-buttons">
+                <a href="#config" class="btn btn-primary">
+                    Get Started
+                </a>
+                <a href="https://github.com/francescopace/espectre" class="btn btn-secondary">
+                    View on GitHub
+                </a>
+            </div>
+        </section>
+
+        <section id="config" class="code-section">
+            <div class="section-title">
+                <h2>Simple Configuration</h2>
+                <p>Add to your ESPHome YAML and you're done</p>
+            </div>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-dot red"></span>
+                    <span class="code-dot yellow"></span>
+                    <span class="code-dot green"></span>
+                    <span class="code-title">espectre.yaml</span>
+                </div>
+                <pre><span class="code-key">esp32</span>:
+  <span class="code-key">variant</span>: <span class="code-string">ESP32C6</span>  <span class="code-comment"># or S3, C3, C5...</span>
+  <span class="code-key">framework</span>:
+    <span class="code-key">type</span>: <span class="code-string">esp-idf</span>
+    <span class="code-key">sdkconfig_options</span>:
+      <span class="code-key">CONFIG_PM_ENABLE</span>: <span class="code-string">n</span>
+      <span class="code-key">CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE</span>: <span class="code-string">n</span>
+      <span class="code-key">CONFIG_ESP_WIFI_CSI_ENABLED</span>: <span class="code-string">y</span>
+
+<span class="code-key">external_components</span>:
+  - <span class="code-key">source</span>: <span class="code-string">github://francescopace/espectre</span>
+    <span class="code-key">components</span>: [<span class="code-string">espectre</span>]
+
+<span class="code-key">espectre</span>:</pre>
+            </div>
+        </section>
+
+        <section class="features">
+            <div class="section-title">
+                <h2>Why ESPectre?</h2>
+                <p>A different approach to presence detection</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-wifi"></i></div>
+                    <h3>Through-Wall Detection</h3>
+                    <p>Wi-Fi signals pass through walls and furniture. Detect motion in areas cameras can't see.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-shield-halved"></i></div>
+                    <h3>Privacy First</h3>
+                    <p>No images, no audio. Only anonymous radio signal characteristics. GDPR-friendly by design.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-house-signal"></i></div>
+                    <h3>Home Assistant Native</h3>
+                    <p>Built as an ESPHome component. Seamless integration with your smart home.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-microchip"></i></div>
+                    <h3>ESP32 Powered</h3>
+                    <p>Runs on ESP32-S3, C6, C5, C3, S2 and classic ESP32. Pick your favorite.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-square-root-variable"></i></div>
+                    <h3>Pure Math</h3>
+                    <p>MVS algorithm with NBVI auto-calibration. No ML training required. Works out of the box.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-flask"></i></div>
+                    <h3>Research Ready</h3>
+                    <p>Dual-platform architecture: C++ for production, Python for R&D and algorithm development.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-home"></i></div>
+                    <h3>ESPectre (C++)</h3>
+                    <p>Production platform for Home Assistant users. ESPHome component, plug-and-play setup, 6 ESP32 variants supported.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-flask-vial"></i></div>
+                    <h3>Micro-ESPectre (Python)</h3>
+                    <p>R&D platform for researchers and developers. MicroPython-based, perfect for algorithm prototyping and data collection.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fab fa-github"></i></div>
+                    <h3>100% Open Source</h3>
+                    <p>Fully open source under GPLv3. You know exactly what's going on.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p class="footer-copy">
+            <a href="mailto:contact@espectre.dev"><i class="fas fa-envelope"></i> Contact</a>
+            <a href="mailto:security@espectre.dev"><i class="fas fa-shield-halved"></i> Security</a>
+            <a href="https://linkedin.com/in/francescopace"><i class="fas fa-user"></i> Francesco Pace</a>
+        </p>
+    </footer>
+
+    <!-- Buy Me a Coffee floating widget -->
+    <script data-name="BMC-Widget" data-cfasync="false" src="https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js" data-id="espectre" data-description="Support me on Buy me a coffee!" data-message="Like ESPectre? Support it!" data-color="#40DCA5" data-position="Right" data-x_margin="18" data-y_margin="18"></script>
+</body>
+
+</html>

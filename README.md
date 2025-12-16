@@ -151,7 +151,7 @@ Optimal sensor placement is crucial for reliable movement detection.
 
 ### Processing Pipeline
 
-ESPectre uses a simple, focused processing pipeline for motion detection:
+ESPectre uses a focused processing pipeline for motion detection:
 
 ```
 ┌─────────────┐
@@ -166,8 +166,20 @@ ESPectre uses a simple, focused processing pipeline for motion detection:
        │
        ▼
 ┌─────────────┐
+│Normalization│  Auto-scaling for cross-device consistency
+│             │  (optional, enabled by default)
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
 │   Hampel    │  Turbulence outlier removal
-│   Filter    │  (optional, configurable)
+│   Filter    │  (optional, disabled by default)
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│  Low-pass   │  Noise reduction (smoothing)
+│   Filter    │  (optional, disabled by default)
 └──────┬──────┘
        │
        ▼

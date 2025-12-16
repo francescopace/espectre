@@ -73,8 +73,8 @@ When a person moves in an environment, they alter multipath reflections, change 
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
 3. **Spatial Turbulence**: `σ = std(amplitudes)` - variability across subcarriers
 4. **Normalization**: Scale turbulence by normalization factor (from NBVI calibration)
-5. **Low-Pass Filter**: Remove high-frequency noise (Butterworth 1st order, 11 Hz cutoff)
-6. **Hampel Filter**: Remove outliers using MAD (optional, disabled by default)
+5. **Hampel Filter**: Remove outliers using MAD (optional, disabled by default)
+6. **Low-Pass Filter**: Remove high-frequency noise (Butterworth 1st order, 11 Hz cutoff)
 7. **Moving Variance**: `Var(turbulence)` over sliding window
 8. **State Machine**: Compare variance to threshold → IDLE or MOTION
 
