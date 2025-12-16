@@ -1,4 +1,4 @@
-# 🛜 ESPectre 👻 - Setup Guide
+# Setup Guide
 
 Complete guide to install and configure ESPectre with ESPHome.
 
@@ -76,7 +76,7 @@ After flashing, configure WiFi using one of these methods:
 | **USB** | Go to [web.esphome.io](https://web.esphome.io) → Connect → Configure WiFi |
 | **Captive Portal** | Connect to "ESPectre Fallback" WiFi → Configure in browser |
 
-That's it! 🎉 The device will be automatically discovered by Home Assistant.
+That's it! The device will be automatically discovered by Home Assistant.
 
 ---
 
@@ -185,7 +185,7 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `normalization_enabled` | bool | false | Enable amplitude auto-normalization |
 | `normalization_target` | float | 28.0 | Target mean amplitude for normalization |
 
-📚 **For detailed parameter tuning** (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
+For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 ### Integrated Sensors (Created Automatically)
 
 All sensors are created automatically when the `espectre` component is configured. You can optionally customize their names.
@@ -324,7 +324,7 @@ espectre:
   traffic_generator_rate: 100  # packets per second (0-1000)
 ```
 
-📚 For detailed rate recommendations and Nyquist-Shannon sampling theory, see [TUNING.md](TUNING.md#traffic-generator-rate-0-1000-pps).
+For detailed rate recommendations and Nyquist-Shannon sampling theory, see [TUNING.md](TUNING.md#traffic-generator-rate-0-1000-pps).
 
 ---
 
@@ -426,6 +426,6 @@ esphome logs <your-config>.yaml --device espectre.local
 
 ---
 
-## 📄 License
+## License
 
 GPLv3 - See [LICENSE](LICENSE) for details.

@@ -1,10 +1,10 @@
-# 🛜 ESPectre 👻 - Algorithms
+# Algorithms
 
 Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based motion detection.
 
 ---
 
-## 📑 Table of Contents
+## Table of Contents
 
 - [Overview](#overview)
 - [Processing Pipeline](#processing-pipeline)
@@ -22,7 +22,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 ESPectre uses a combination of signal processing algorithms to detect motion from Wi-Fi Channel State Information (CSI). 
 
 <details>
-<summary>📡 What is CSI? (click to expand)</summary>
+<summary>What is CSI? (click to expand)</summary>
 
 **Channel State Information (CSI)** represents the physical characteristics of the wireless communication channel between transmitter and receiver. Unlike simple RSSI (Received Signal Strength Indicator), CSI provides rich, multi-dimensional data about the radio channel.
 
@@ -145,10 +145,10 @@ dispersion as multipath reflections change.*
 ### The Problem
 
 WiFi CSI provides 64 subcarriers, but not all are equally useful for motion detection:
-- ❌ Some are too weak (low SNR)
-- ❌ Some are too noisy (high variance even at rest)
-- ❌ Some are redundant (correlated with neighbors)
-- ✅ Manual selection works (F1=97.3%) but doesn't scale across environments
+- Some are too weak (low SNR)
+- Some are too noisy (high variance even at rest)
+- Some are redundant (correlated with neighbors)
+- Manual selection works (F1=97.3%) but doesn't scale across environments
 
 **Challenge**: Find an automatic, calibration-free method that adapts to any environment.
 
@@ -196,9 +196,9 @@ best_window = min(baseline_windows, key=lambda x: x.variance)
 ```
 
 **Advantages**:
-- ✅ Adapts to any environment automatically
-- ✅ Zero configuration required
-- ✅ +3.0% improvement over threshold-based detection
+- Adapts to any environment automatically
+- Zero configuration required
+- +3.0% improvement over threshold-based detection
 
 #### 2. Noise Gate
 

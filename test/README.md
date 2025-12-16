@@ -1,8 +1,8 @@
-# 🛜 ESPectre 👻 - Test Suite
+# Test Suite
 
 Test suite based on **PlatformIO Unity** to validate ESPectre CSI algorithms.
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Activate virtualenv
@@ -20,7 +20,7 @@ pio test -e esp32c6
 
 ---
 
-## 🧪 Test Suites
+## Test Suites
 
 | Suite | Type | Data | Focus |
 |-------|------|------|-------|
@@ -39,7 +39,7 @@ pio test -e esp32c6
 
 ---
 
-## 📦 Real CSI Data
+## Real CSI Data
 
 The `data/` folder contains **2000 real CSI packets**:
 - 1000 baseline (empty room)
@@ -47,7 +47,7 @@ The `data/` folder contains **2000 real CSI packets**:
 
 ---
 
-## 📊 Code Coverage
+## Code Coverage
 
 Run tests with coverage instrumentation:
 
@@ -71,7 +71,7 @@ Run tests with coverage instrumentation:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 test/
@@ -86,7 +86,7 @@ test/
 
 ---
 
-## ➕ Adding New Tests
+## Adding New Tests
 
 Create `test/test_my_feature/test_my_feature.cpp`:
 
@@ -117,6 +117,6 @@ int main(int argc, char **argv) { return process(); }
 
 ---
 
-## 📄 License
+## License
 
 GPLv3 - See [LICENSE](../LICENSE) for details.

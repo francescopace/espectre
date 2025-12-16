@@ -1,4 +1,4 @@
-# 🛜 ESPectre 👻 - Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ## [2.2.0] - in progress
 
-### 🚀 New Features
+### New Features
 
 #### Low-Pass Filter for Noise Reduction
 New 1st order Butterworth IIR low-pass filter to reduce high-frequency RF noise.
@@ -44,7 +44,7 @@ New tools for building labeled CSI datasets for machine learning (groundwork for
 - **`.npz` format**: NumPy compressed files for ML-ready datasets
 - **`csi_utils.py`**: Unified module with `CSIReceiver`, `CSICollector`, `MVSDetector`
 
-### ⚡ Performance Improvements
+### Performance Improvements
 
 #### Lazy Variance Evaluation
 Moving variance is now calculated only at publish time, not per-packet.
@@ -54,7 +54,7 @@ Moving variance is now calculated only at publish time, not per-packet.
 - Same detection accuracy and behavior
 - Variance calculated once per publish interval instead of 100x/second
 
-### ⚙️ Configuration Changes
+### Configuration Changes
 
 #### All Filters Disabled by Default
 All filters are now disabled by default for maximum simplicity. Enable them as needed.
@@ -70,7 +70,7 @@ All filters are now disabled by default for maximum simplicity. Enable them as n
 - **Hampel**: High interference environments (industrial, microwave ovens, multiple APs)
 - **Normalization**: Multi-device deployments (S3, C6, etc.) requiring consistent behavior
 
-### 🧪 Testing
+### Testing
 
 #### Python Test Suite for Micro-ESPectre
 Comprehensive pytest test suite with CI integration. **184 tests passed**.
@@ -84,7 +84,7 @@ Comprehensive pytest test suite with CI integration. **184 tests passed**.
 - Simplified analysis scripts (reduced ~40% LOC)
 - Moved `tools/data/` to `micro-espectre/data/`
 
-### 📚 Documentation
+### Documentation
 
 #### New Documentation
 - **`micro-espectre/ALGORITHMS.md`**: Complete scientific documentation of MVS, NBVI, and Hampel filter algorithms
@@ -93,7 +93,7 @@ Comprehensive pytest test suite with CI integration. **184 tests passed**.
 
 ## [2.1.0] - 2025-12-10
 
-### 🏷️ Made for ESPHome Compliance
+### Made for ESPHome Compliance
 
 **All example configurations now meet "Made for ESPHome" requirements**
 
@@ -112,7 +112,7 @@ Comprehensive pytest test suite with CI integration. **184 tests passed**.
 - Component ID standardized to `espectre_csi`
 - Updated `me` CLI: `erase_flash` → `erase-flash` (esptool deprecation fix)
 
-### ⚡ Performance Optimization
+### Performance Optimization
 
 **Unified variance algorithm and optimized Hampel filter across both platforms**
 
@@ -146,7 +146,7 @@ This release focuses on code uniformity between MicroPython and C++ implementati
 | Hampel optimization | -20-25μs | -120μs |
 | **Net improvement** | **-20-25μs/pkt** | **-95μs/pkt** |
 
-### 🧪 Test Suite & Code Coverage
+### Test Suite & Code Coverage
 
 - **140 test cases** (+72 from 2.0.0) with real CSI data
 - **Full device testing**: All tests run on both native and ESP32-C6 via `IWiFiCSI` dependency injection
@@ -158,7 +158,7 @@ This release focuses on code uniformity between MicroPython and C++ implementati
 
 ## [2.0.0] - 2025-12-06
 
-### 🚀 Major - ESPHome Native Integration
+### Major - ESPHome Native Integration
 
 **Complete platform migration from ESP-IDF to ESPHome**
 
@@ -166,7 +166,7 @@ This release represents a major architectural shift from standalone ESP-IDF firm
 
 > ⚠️ **Note**: Extensively tested on ESP32-S3 and ESP32-C6, but bugs may still exist. Community contributions, bug reports, and support for additional ESP32 variants are welcome!
 
-### 🎯 Two-Platform Strategy
+### Two-Platform Strategy
 
 **ESPectre now follows a dual-platform development model:**
 
@@ -191,7 +191,7 @@ This release represents a major architectural shift from standalone ESP-IDF firm
 - Movement score sensor
 - Adjustable threshold (number entity) - controllable from Home Assistant
 
-### 🔄 Micro-ESPectre
+### Micro-ESPectre
 
 **R&D Platform for Wi-Fi CSI Motion Detection - Pure Python implementation for MicroPython**
 
@@ -216,7 +216,7 @@ Micro-ESPectre is the research and development platform of the ESPectre project,
 - [`micropython-esp32-csi`](https://github.com/francescopace/micropython-esp32-csi) - Custom MicroPython fork with native CSI support for ESP32 family 
 - MQTT broker (e.g., Mosquitto)
 
-### 🧪 Test Suite Refactoring
+### Test Suite Refactoring
 
 **Migration from Unity (ESP-IDF) to PlatformIO Unity for ESPHome consistency**
 
@@ -237,7 +237,7 @@ The test suite has been migrated from ESP-IDF's Unity framework to PlatformIO Un
 cd test && pio test
 ```
 
-### 🔄 CI/CD Pipeline
+### CI/CD Pipeline
 
 **GitHub Actions integration for automated quality assurance**
 
@@ -250,7 +250,7 @@ cd test && pio test
 
 ## [1.5.0] - 2025-12-03
 
-### 🧬 Automatic Subcarrier Selection
+### Automatic Subcarrier Selection
 - Zero-configuration subcarrier selection using NBVI (Normalized Baseline Variability Index) algorithm. 
 - Auto-calibration at boot, re-calibration after factory_reset.
 - Formula: `NBVI = 0.3 × (σ/μ²) + 0.7 × (σ/μ)`. 
@@ -260,7 +260,7 @@ cd test && pio test
 
 ## [1.4.0] - 2025-11-28
 
-### 🏗️ Major Refactoring
+### Major Refactoring
 - **Feature extraction module**: Extracted to `csi_features.c/h`, reduced `csi_processor.c` by 50%
 - **Configuration centralization**: All defaults in `espectre.h`, validation in `validation.h/c`
 - **Two-pass variance**: Numerically stable calculation
@@ -273,7 +273,7 @@ cd test && pio test
 
 ## [1.3.0] - 2025-11-22
 
-### 🚀 ESP32-C6 Platform Support
+### ESP32-C6 Platform Support
 - **WiFi 6 (802.11ax)** support with proper CSI configuration
 - **Runtime-configurable parameters**: threshold, window_size via MQTT
 - **Web Monitor**: `espectre-monitor.html` with real-time visualization
@@ -284,14 +284,14 @@ cd test && pio test
 
 ## [1.2.1] - 2025-11-17
 
-### 🔧 Wi-Fi Optimization
+### Wi-Fi Optimization
 ESP-IDF best practices: disabled power save (`WIFI_PS_NONE`), configurable country code, HT20 bandwidth.
 
 ---
 
 ## [1.2.0] - 2025-11-16
 
-### 🏗️ Simplified Architecture
+### Simplified Architecture
 - **MVS algorithm**: Moving Variance Segmentation with adaptive threshold
 - **Amplitude-based features**: +151% separation improvement for skewness/kurtosis
 - **Traffic generator**: ICMP ping-based (was UDP broadcast)
@@ -302,7 +302,7 @@ ESP-IDF best practices: disabled power save (`WIFI_PS_NONE`), configurable count
 
 ## [1.1.0] - 2025-11-08
 
-### 🤖 Auto-Calibration System
+### Auto-Calibration System
 - **Fisher's criterion**: Automatic feature selection (4-6 from 8)
 - **Butterworth filter**: Order 4, cutoff 8Hz
 - **Wavelet filter**: Daubechies db4 for high-noise environments
@@ -313,11 +313,11 @@ ESP-IDF best practices: disabled power save (`WIFI_PS_NONE`), configurable count
 
 ## [1.0.0] - 2025-11-01
 
-### 🎉 Initial Release
+### Initial Release
 CSI-based movement detection for ESP32-S3. Hampel + Savitzky-Golay filters, 15 features, 4-state detection (IDLE/MICRO/DETECTED/INTENSE), MQTT publishing, CLI tool. 10-100 pps, <50ms latency, 3-8m range.
 
 ---
 
-## 📄 License
+## License
 
 GPLv3 - See [LICENSE](LICENSE) for details.

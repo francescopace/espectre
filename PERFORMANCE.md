@@ -1,4 +1,4 @@
-# 🛜 ESPectre 👻 - Performance Metrics
+# Performance Metrics
 
 This document provides detailed performance metrics for ESPectre's motion detection system based on Moving Variance Segmentation (MVS).
 
@@ -208,6 +208,6 @@ The fixed band [11-22] achieves slightly better performance in the reference tes
 
 ---
 
-## 📄 License
+## License
 
 GPLv3 - See [LICENSE](LICENSE) for details.

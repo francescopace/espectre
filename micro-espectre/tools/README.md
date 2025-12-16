@@ -1,18 +1,18 @@
-# 🛜 Micro-ESPectre 👻 - Analysis Tools
+# Analysis Tools
 
 **Python scripts for CSI data analysis, algorithm optimization, and validation**
 
 This directory contains analysis tools for developing and validating ESPectre's motion detection algorithms. These scripts are essential for parameter tuning, algorithm validation, and scientific analysis.
 
-📚 **For algorithm documentation** (MVS, NBVI, Hampel filter), see [ALGORITHMS.md](../ALGORITHMS.md).
+For algorithm documentation (MVS, NBVI, Hampel filter), see [ALGORITHMS.md](../ALGORITHMS.md).
 
-📊 **For production performance metrics**, see [PERFORMANCE.md](../../PERFORMANCE.md).
+For production performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
-📊 **For data collection and ML datasets**, see [ML_DATA_COLLECTION.md](../ML_DATA_COLLECTION.md).
+For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../ML_DATA_COLLECTION.md).
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Quick Start](#quick-start)
 - [Analysis Scripts](#analysis-scripts)
@@ -21,7 +21,7 @@ This directory contains analysis tools for developing and validating ESPectre's 
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Activate virtual environment
@@ -45,7 +45,7 @@ python 3_analyze_moving_variance_segmentation.py --plot
 
 ---
 
-## 🔧 Analysis Scripts
+## Analysis Scripts
 
 ### 1. Raw Data Analysis (`1_analyze_raw_data.py`)
 
@@ -219,7 +219,7 @@ python 10_optimize_nbvi_params.py --quick      # Quick search (fewer combination
 
 ---
 
-## 📊 Usage Examples
+## Usage Examples
 
 ### Basic Analysis Workflow
 
@@ -261,7 +261,7 @@ python 9_compare_s3_vs_c6.py --plot
 
 ---
 
-## 🎯 Key Results
+## Key Results
 
 ### Filter Optimization (Noisy Environment)
 
@@ -276,13 +276,13 @@ Tested on 60-second noisy baseline with C6 chip:
 
 **NBVI with min_spacing=2** achieves **F1=98.2%** (Recall 96.5%) with zero configuration.
 
-📚 **For complete NBVI algorithm documentation**, see [ALGORITHMS.md](../ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
+For complete NBVI algorithm documentation, see [ALGORITHMS.md](../ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
 
-📊 **For detailed performance metrics**, see [PERFORMANCE.md](../../PERFORMANCE.md).
+For detailed performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
 ---
 
-## 📚 Additional Resources
+## Additional Resources
 
 - [ALGORITHMS.md](../ALGORITHMS.md) - Algorithm documentation (MVS, NBVI, Hampel)
 - [Micro-ESPectre](../README.md) - R&D platform documentation
@@ -290,6 +290,6 @@ Tested on 60-second noisy baseline with C6 chip:
 
 ---
 
-## 📄 License
+## License
 
 GPLv3 - See [LICENSE](../../LICENSE) for details.

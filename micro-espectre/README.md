@@ -4,11 +4,11 @@
 
 Micro-ESPectre is the **research and development platform** of the ESPectre project, designed for fast prototyping, algorithm experimentation, and academic/industrial research. It implements the core motion detection algorithms in pure Python, enabling rapid iteration without compilation overhead.
 
-## 🎯 What is Micro-ESPectre?
+## What is Micro-ESPectre?
 
 Micro-ESPectre implements the ESPectre motion-detection algorithms entirely in Python and serves as the **innovation lab** where new approaches and parameters are developed and validated before being migrated to the production ESPHome component.
 
-### 🔬 Role in the ESPectre Ecosystem
+### Role in the ESPectre Ecosystem
 
 Micro-ESPectre is part of a **two-platform strategy**:
 
@@ -19,11 +19,11 @@ Micro-ESPectre is part of a **two-platform strategy**:
 
 **Why MQTT instead of Native API?**
 Micro-ESPectre uses MQTT for maximum flexibility - it's not tied to Home Assistant and can integrate with:
-- 🏭 **Industrial systems** (SCADA, PLCs, factory automation)
-- 🎓 **Academic research** (data collection, algorithm validation)
-- 🔧 **Custom applications** (any MQTT-compatible platform)
+- **Industrial systems** (SCADA, PLCs, factory automation)
+- **Academic research** (data collection, algorithm validation)
+- **Custom applications** (any MQTT-compatible platform)
 
-### 💡 Innovation Flow
+### Innovation Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -40,17 +40,17 @@ Micro-ESPectre uses MQTT for maximum flexibility - it's not tied to Home Assista
 ```
 
 **Key Benefits for R&D:**
-- ⚡ **Instant deployment**: No compilation, ~5 seconds to update
-- 🔧 **Easy experimentation**: Modify parameters and test immediately
-- 📊 **Quick validation**: Test algorithms and configurations rapidly
-- 🔄 **Proven patterns**: Validated algorithms flow to production C++ code
+- **Instant deployment**: No compilation, ~5 seconds to update
+- **Easy experimentation**: Modify parameters and test immediately
+- **Quick validation**: Test algorithms and configurations rapidly
+- **Proven patterns**: Validated algorithms flow to production C++ code
 
 ### What is micropython-esp32-csi?
 
 [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) is a MicroPython fork that I wrote to expose ESP32's CSI (Channel State Information) capabilities to Python. 
 This fork makes CSI-based applications accessible to Python developers and enables rapid prototyping of WiFi sensing applications.
 
-## 🆚 Comparison with C++ Version (ESPHome)
+## Comparison with C++ Version (ESPHome)
 
 ### Feature Comparison
 
@@ -96,27 +96,27 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Update Time | ~15 seconds (OTA) | ~5 seconds |
 | HA Integration | ⭐⭐⭐⭐⭐ (Native) | ⭐⭐⭐ (MQTT) |
 
-📊 **For detailed performance metrics** (confusion matrix, F1-score, benchmarks), see [PERFORMANCE.md](../PERFORMANCE.md).
+For detailed performance metrics (confusion matrix, F1-score, benchmarks), see [PERFORMANCE.md](../PERFORMANCE.md).
 
 ### When to Use Which Version?
 
 **Use Micro-ESPectre (Python) if you want:**
-- ✅ Quick prototyping and experimentation
-- ✅ Easy deployment and updates (~5 seconds)
-- ✅ Core motion detection functionality
-- ✅ Simple Python-based development
-- ✅ MQTT-based runtime configuration
-- ✅ Automatic subcarrier selection
+- Quick prototyping and experimentation
+- Easy deployment and updates (~5 seconds)
+- Core motion detection functionality
+- Simple Python-based development
+- MQTT-based runtime configuration
+- Automatic subcarrier selection
 
 **Use ESPectre (ESPHome) if you need:**
-- ✅ Native Home Assistant integration (auto-discovery)
-- ✅ Maximum performance and efficiency
-- ✅ Advanced CSI feature extraction
-- ✅ Multiple filtering algorithms
-- ✅ Production-grade stability
-- ✅ YAML-based configuration
+- Native Home Assistant integration (auto-discovery)
+- Maximum performance and efficiency
+- Advanced CSI feature extraction
+- Multiple filtering algorithms
+- Production-grade stability
+- YAML-based configuration
 
-## 📋 Requirements
+## Requirements
 
 ### Hardware
 - ESP32 with CSI support (S3/C6 recommended, other variants supported)
@@ -127,7 +127,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 - MQTT broker (Home Assistant, Mosquitto, etc.)
 - Python 3.12 (Recommended for deployment scripts, CLI, and analysis tools)
 
-## 🔧 CLI Tool Overview
+## CLI Tool Overview
 
 Micro-ESPectre includes a unified command-line tool called **`me`** that simplifies all device operations. This tool will be used throughout the Quick Start guide and beyond.
 
@@ -147,10 +147,10 @@ The `me` CLI provides these essential commands:
 
 ### Key Features
 
-- 🔍 **Auto-detection**: Automatically detects serial port and chip type
-- ⚡ **Fast deployment**: Updates code in ~5 seconds (no compilation)
-- 🎯 **Simple syntax**: Intuitive commands for all operations
-- 🔧 **Manual override**: Specify port/chip manually if needed
+- **Auto-detection**: Automatically detects serial port and chip type
+- **Fast deployment**: Updates code in ~5 seconds (no compilation)
+- **Simple syntax**: Intuitive commands for all operations
+- **Manual override**: Specify port/chip manually if needed
 
 **Example workflow:**
 ```bash
@@ -163,9 +163,9 @@ The `me` CLI provides these essential commands:
 ./me stream --ip 192.168.1.100  # Stream to PC
 ```
 
-> **Note**: The interactive mode (`./me` without arguments) provides advanced MQTT control features and is covered in detail in the [Interactive CLI (Advanced)](#-interactive-cli-advanced) section.
+> **Note**: The interactive mode (`./me` without arguments) provides advanced MQTT control features and is covered in detail in the [Interactive CLI (Advanced)](#interactive-cli-advanced) section.
 
-## 🚀 Quick Start
+## Quick Start
 
 Get started in just **6 simple steps** - no compilation required!
 
@@ -214,10 +214,10 @@ The precompiled firmware with CSI support is automatically downloaded from [micr
 ```
 
 The CLI will:
-- 🔍 Auto-detect your serial port
-- 🔍 Auto-detect your chip type
-- 📦 Download the correct firmware (cached locally)
-- ⚡ Flash it to your device
+- Auto-detect your serial port
+- Auto-detect your chip type
+- Download the correct firmware (cached locally)
+- Flash it to your device
 
 **Manual mode** (if auto-detect fails):
 ```bash
@@ -259,7 +259,7 @@ MQTT_PASSWORD = "mqtt"
 ./me run
 ```
 
-That's it! 🎉 The device will now:
+That's it! The device will now:
 - Connect to WiFi
 - Connect to MQTT broker
 - Start publishing motion detection data
@@ -286,7 +286,7 @@ mqtt:
       device_class: motion
 ```
 
-## 🔧 Additional Commands
+## Additional Commands
 
 ### Data Collection & ML
 
@@ -314,7 +314,7 @@ For CSI streaming, labeled data collection, and ML dataset creation:
 ./me run
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 micro-espectre/
@@ -343,7 +343,7 @@ micro-espectre/
 - **`tools/csi_utils.py`**: CSI utilities (receiver, collector, MVS detector) for PC-side processing
 - **`ML_DATA_COLLECTION.md`**: Guide for collecting labeled CSI datasets for ML
 
-## 🧪 Testing
+## Testing
 
 Micro-ESPectre includes a comprehensive test suite using pytest.
 
@@ -386,7 +386,7 @@ Additional validation tests:
 
 Tests run automatically on every push/PR via GitHub Actions. See `.github/workflows/ci.yml`.
 
-## ⚙️ Configuration
+## Configuration
 
 ### Segmentation Parameters (config.py)
 
@@ -407,7 +407,7 @@ ENABLE_NORMALIZATION = False   # Enable/disable amplitude normalization
 NORMALIZATION_TARGET = 28.0    # Target mean amplitude (10-100)
 ```
 
-📚 **For detailed parameter tuning guide**, see [TUNING.md](../TUNING.md).
+For detailed parameter tuning guide, see [TUNING.md](../TUNING.md).
 
 ### Published Data (MQTT Payload)
 
@@ -474,7 +474,7 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
 | 0.5 - 0.7 | Probable movement |
 | 0.7 - 1.0 | Confident motion detection |
 
-## 🔧 Analysis Tools
+## Analysis Tools
 
 The `tools/` directory contains Python scripts for CSI data analysis and algorithm validation.
 
@@ -490,30 +490,30 @@ python 3_analyze_moving_variance_segmentation.py --plot
 ```
 
 **9 analysis scripts** covering:
-- 📊 Raw data visualization and system tuning
-- 🔬 MVS algorithm validation and optimization
-- 🎨 I/Q constellation analysis
-- 📈 Detection methods comparison
-- 🧮 CSI features extraction
+- Raw data visualization and system tuning
+- MVS algorithm validation and optimization
+- I/Q constellation analysis
+- Detection methods comparison
+- CSI features extraction
 
-📚 See [tools/README.md](tools/README.md) for complete script documentation.
+See [tools/README.md](tools/README.md) for complete script documentation.
 
-## 🧬 Automatic Subcarrier Selection (NBVI)
+## Automatic Subcarrier Selection (NBVI)
 
 Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving **F1=97.6%** with **zero manual configuration**.
 
 > ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
 
-📚 **For complete NBVI algorithm documentation**, see [ALGORITHMS.md](ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
+For complete NBVI algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
 
-## 🤖 Machine Learning & Advanced Applications
+## Machine Learning & Advanced Applications
 
 Micro-ESPectre is the **R&D platform** for advanced CSI-based applications. While the core focuses on motion detection using mathematical algorithms (MVS + NBVI), the platform provides infrastructure for ML-based features planned for release 3.x:
 
-- 👋 **Gesture recognition**
-- 🏃 **Human Activity Recognition (HAR)**
-- 🔬 **People counting**
-- 📍 **Localization and tracking**
+- **Gesture recognition**
+- **Human Activity Recognition (HAR)**
+- **People counting**
+- **Localization and tracking**
 
 ### Getting Started with ML
 
@@ -543,7 +543,7 @@ Micro-ESPectre extracts **5 CSI features** for ML applications:
 See `tests/test_features.py` and `tests/test_validation_real_data.py` for feature validation.
 
 <details>
-<summary>🛜 Standardized Wi-Fi Sensing (IEEE 802.11bf) (click to expand)</summary>
+<summary>Standardized Wi-Fi Sensing (IEEE 802.11bf) (click to expand)</summary>
 
 Currently, only a limited number of Wi-Fi chipsets support CSI extraction, which restricts hardware options for Wi-Fi sensing applications. However, the **IEEE 802.11bf (Wi-Fi Sensing)** standard should significantly improve this situation by making CSI extraction a standardized feature.
 
@@ -551,12 +551,12 @@ Currently, only a limited number of Wi-Fi chipsets support CSI extraction, which
 
 The **802.11bf** standard was **[officially published on September 26, 2025](https://standards.ieee.org/ieee/802.11bf/11574/)**, introducing **Wi-Fi Sensing** as a native feature of the Wi-Fi protocol. Main characteristics:
 
-🔹 **Native sensing**: Detection of movements, gestures, presence, and vital signs
-🔹 **Interoperability**: Standardized support across different vendors
-🔹 **Optimizations**: Specific protocols to reduce overhead and power consumption
-🔹 **Privacy by design**: Privacy protection mechanisms integrated into the standard
-🔹 **Greater precision**: Improvements in temporal and spatial granularity
-🔹 **Existing infrastructure**: Works with already present Wi-Fi infrastructure
+- **Native sensing**: Detection of movements, gestures, presence, and vital signs
+- **Interoperability**: Standardized support across different vendors
+- **Optimizations**: Specific protocols to reduce overhead and power consumption
+- **Privacy by design**: Privacy protection mechanisms integrated into the standard
+- **Greater precision**: Improvements in temporal and spatial granularity
+- **Existing infrastructure**: Works with already present Wi-Fi infrastructure
 
 ### Adoption Status (2025)
 
@@ -587,9 +587,9 @@ When 802.11bf is widely adopted, applications like this project will become:
 
 </details>
 
-## 🖥️ Interactive CLI (Advanced)
+## Interactive CLI (Advanced)
 
-Beyond the basic commands covered in the [CLI Tool Overview](#-cli-tool-overview), the `me` tool provides an **interactive mode** for advanced device control and monitoring via MQTT.
+Beyond the basic commands covered in the [CLI Tool Overview](#cli-tool-overview), the `me` tool provides an **interactive mode** for advanced device control and monitoring via MQTT.
 
 **Prerequisites**: Make sure you have completed the [Python Environment Setup](#0-setup-python-environment) before using the CLI.
 
@@ -628,7 +628,7 @@ Beyond the basic commands covered in the [CLI Tool Overview](#-cli-tool-overview
 | `about` | Show about information |
 | `exit` | Exit CLI |
 
-## 🌐 Web Monitor
+## Web Monitor
 
 Micro-ESPectre includes a powerful **Web-based monitoring dashboard** for real-time analysis and configuration. This tool is essential for parameter tuning, algorithm validation, and live visualization of motion detection.
 
@@ -636,12 +636,12 @@ Micro-ESPectre includes a powerful **Web-based monitoring dashboard** for real-t
 
 | Feature | Description |
 |---------|-------------|
-| 📡 **MQTT Connection** | Direct WebSocket connection to your MQTT broker |
-| 🖥️ **Device Info** | View device model, IP, MAC, WiFi protocol, bandwidth, and channel |
-| ⚙️ **Live Configuration** | Adjust detection parameters (response speed, threshold) in real-time |
-| 📊 **Real-Time Chart** | Live visualization of movement, threshold, packets/sec, and dropped packets |
-| 📈 **Runtime Statistics** | Memory usage, loop timing, and Traffic Generator diagnostics |
-| 🔄 **Factory Reset** | Reset device to default configuration and re-calibrate NBVI |
+| **MQTT Connection** | Direct WebSocket connection to your MQTT broker |
+| **Device Info** | View device model, IP, MAC, WiFi protocol, bandwidth, and channel |
+| **Live Configuration** | Adjust detection parameters (response speed, threshold) in real-time |
+| **Real-Time Chart** | Live visualization of movement, threshold, packets/sec, and dropped packets |
+| **Runtime Statistics** | Memory usage, loop timing, and Traffic Generator diagnostics |
+| **Factory Reset** | Reset device to default configuration and re-calibrate NBVI |
 
 ### Screenshots
 
@@ -705,7 +705,7 @@ Open `micro-espectre/espectre-monitor.html` directly in your browser and configu
 
 - **`espectre-theremin.html`**: Audio sonification of CSI data (experimental) - converts motion data to sound for auditory feedback
 
-## 📡 MQTT Integration
+## MQTT Integration
 
 Micro-ESPectre uses MQTT for communication with Home Assistant and runtime configuration.
 
@@ -784,7 +784,7 @@ Publish JSON commands to `home/espectre/node1/cmd`:
 
 All configuration changes made via MQTT commands are **automatically saved** to a JSON file (`espectre_config.json`) on the ESP32 filesystem and **automatically loaded** on startup, ensuring settings persist across reboots.
 
-## 🏠 Home Assistant Integration
+## Home Assistant Integration
 
 For seamless Home Assistant integration with auto-discovery, consider using the main [ESPectre ESPHome component](https://github.com/francescopace/espectre) instead.
 However, if you need to integrate Micro-ESPectre with Home Assistant, you can do it via MQTT.
@@ -811,7 +811,7 @@ mqtt:
       device_class: motion
 ```
 
-## 📚 References
+## References
 
 For scientific references and algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md).
 
@@ -820,6 +820,14 @@ For scientific references and algorithm documentation, see [ALGORITHMS.md](ALGOR
 - [ESPectre](../README.md) - Main project with native Home Assistant integration
 - [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) - MicroPython CSI module
 
-## 📄 License
+## License
 
 GPLv3 - See [LICENSE](../LICENSE) for details.
+
+---
+
+## Author
+
+**Francesco Pace**  
+Email: [francesco.pace@espectre.dev](mailto:francesco.pace@espectre.dev)  
+LinkedIn: [linkedin.com/in/francescopace](https://www.linkedin.com/in/francescopace/)

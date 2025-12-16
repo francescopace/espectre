@@ -1,10 +1,10 @@
-# 🛜 Micro-ESPectre 👻 - ML Data Collection Guide
+# ML Data Collection Guide
 
 **Building labeled CSI datasets for machine learning**
 
 This guide covers how to collect and label CSI data for training ML models. This infrastructure lays the groundwork for advanced Wi-Fi sensing features (gesture recognition, HAR, people counting) planned for ESPectre 3.x.
 
-## 🎯 Roadmap (3.x)
+## Roadmap (3.x)
 
 | Feature | Status |
 |---------|--------|
@@ -19,7 +19,7 @@ This guide covers how to collect and label CSI data for training ML models. This
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Activate Virtual Environment
 
@@ -55,7 +55,7 @@ Start streaming CSI data from ESP32 to your PC:
 
 ---
 
-## 📊 Data Collection with `me collect`
+## Data Collection with `me collect`
 
 The `me collect` subcommand provides a streamlined workflow for recording labeled CSI samples.
 
@@ -97,7 +97,7 @@ Dataset: 5 labels, 47 samples
 
 ---
 
-## 📁 Dataset Format
+## Dataset Format
 
 ### Directory Structure
 
@@ -162,7 +162,7 @@ for pkt in packets:
 
 ---
 
-## 📝 Best Practices
+## Best Practices
 
 ### Recording Guidelines
 
@@ -203,7 +203,7 @@ gesture1      # non-descriptive
 
 ---
 
-## 🔬 Analysis Tools
+## Analysis Tools
 
 After collecting data, use the analysis scripts in `tools/`:
 
@@ -221,7 +221,7 @@ See [tools/README.md](tools/README.md) for complete documentation of all analysi
 
 ---
 
-## 🔧 Advanced: Custom CSI Receiver (Optional)
+## Advanced: Custom CSI Receiver (Optional)
 
 For custom real-time processing, you can use `CSIReceiver` as a library:
 
@@ -257,13 +257,13 @@ Total: 28 bytes per packet
 
 ---
 
-## 🤝 Contributing Your Data
+## Contributing Your Data
 
 Help build a diverse CSI dataset for the community! Your contributions will improve ML models for everyone.
 
 ### How to Contribute
 
-1. **Collect data** following the [Best Practices](#-best-practices) above
+1. **Collect data** following the [Best Practices](#best-practices) above
 2. **Ensure quality**: At least 10 samples per label, 30+ seconds each
 3. **Document your setup**:
    - ESP32 model (S3, C6, etc.)
@@ -290,14 +290,14 @@ Gestures useful for Home Assistant / smart home automation:
 
 ### Data Privacy
 
-- ⚠️ **CSI data is anonymous** - it contains only radio channel characteristics
-- ✅ No personal information, images, or audio
-- ✅ You retain ownership of your contributions
-- ✅ All contributions will be credited
+- **CSI data is anonymous** - it contains only radio channel characteristics
+- No personal information, images, or audio
+- You retain ownership of your contributions
+- All contributions will be credited
 
 ---
 
-## 📚 References
+## References
 
 For scientific background on CSI-based gesture recognition and HAR:
 
@@ -305,13 +305,8 @@ For scientific background on CSI-based gesture recognition and HAR:
 - **Widar 3.0**: Cross-domain gesture recognition dataset
 - **SignFi**: Sign language recognition with WiFi
 
-See [Scientific References](README.md#-scientific-references) in the main README for complete bibliography.
+See [References](README.md#references) in the main README for complete bibliography.
 
-## Related Projects
-
-- [Micro-ESPectre](README.md) - Python implementation for MicroPython
-- [ESPectre ](../README.md) - Main project with native Home Assistant integration
-
-## 📄 License
+## License
 
 GPLv3 - See [LICENSE](../LICENSE) for details.
