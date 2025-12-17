@@ -28,6 +28,7 @@ max_columns: 4
 sections:
   - type: grid
     cards:
+      # Static gauge (default)
       - type: gauge
         entity: sensor.espectre_movement_score
         name: Movement Level
@@ -43,6 +44,32 @@ sections:
             color: orange
           - from: 2
             color: red
+      # Dynamic gauge (alternative) - segments adapt to threshold value
+      # Requires 'Config Template Card' from HACS:
+      # https://github.com/iantrich/config-template-card
+      # Contributed by @jolas
+      #
+      # - type: custom:config-template-card
+      #   entities:
+      #     - sensor.espectre_movement_score
+      #   card:
+      #     type: gauge
+      #     entity: sensor.espectre_movement_score
+      #     name: Movement Level
+      #     min: 0
+      #     max: 10
+      #     needle: true
+      #     segments:
+      #       - from: 0
+      #         color: red
+      #       - from: >-
+      #           ${0.30 * Number(states['number.espectre_threshold'].state)}
+      #         color: orange
+      #       - from: >-
+      #           ${0.60 * Number(states['number.espectre_threshold'].state)}
+      #         color: yellow
+      #       - from: ${Number(states['number.espectre_threshold'].state)}
+      #         color: green
       - type: history-graph
         hours_to_show: 1
         entities:
