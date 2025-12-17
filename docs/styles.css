@@ -38,50 +38,14 @@ body {
     overflow-x: hidden;
 }
 
-/* Animated background */
-.bg-pattern {
+/* WebGL cosmic background */
+#cosmic-bg {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
     z-index: -1;
-    opacity: 0.4;
-    background: 
-        radial-gradient(ellipse at 20% 20%, var(--accent-glow) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 80%, rgba(100, 50, 200, 0.08) 0%, transparent 50%);
-}
-
-/* Wave animation */
-.wave-container {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: -1;
-    overflow: hidden;
-}
-
-.wave {
-    position: absolute;
-    width: 200%;
-    height: 200%;
-    top: -50%;
-    left: -50%;
-    background: repeating-radial-gradient(
-        circle at 50% 50%,
-        transparent 0,
-        transparent 40px,
-        rgba(0, 212, 170, 0.03) 40px,
-        rgba(0, 212, 170, 0.03) 41px
-    );
-    animation: pulse 8s ease-in-out infinite;
-}
-
-@keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 0.5; }
-    50% { transform: scale(1.1); opacity: 0.8; }
 }
 
 /* Header */
@@ -94,7 +58,19 @@ header {
     justify-content: space-between;
     align-items: center;
     z-index: 100;
-    background: linear-gradient(to bottom, var(--bg-primary), transparent);
+    background: rgba(10, 10, 15, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    transition: padding 0.3s ease, background 0.3s ease, border-color 0.3s ease;
+}
+
+header.scrolled {
+    padding: 0.8rem 2rem;
+    background: rgba(10, 10, 15, 0.95);
+    border-bottom: 1px solid var(--accent-dim);
+    box-shadow: 0 4px 30px rgba(0, 212, 170, 0.1);
 }
 
 .logo {
@@ -181,6 +157,18 @@ h1 {
     max-width: 600px;
     margin-bottom: 3rem;
     font-weight: 300;
+}
+
+.icon-ha {
+    width: 1.1em;
+    height: 1.1em;
+    vertical-align: -0.1em;
+    margin-right: 0.2em;
+}
+
+.highlight-ha {
+    color: var(--accent);
+    font-weight: 400;
 }
 
 .hero-buttons {
@@ -298,6 +286,7 @@ h1 {
     padding: 4rem 2rem;
     max-width: 900px;
     margin: 0 auto;
+    scroll-margin-top: 6rem;
 }
 
 .code-block {
@@ -349,7 +338,9 @@ pre {
 footer {
     padding: 2rem 2rem;
     text-align: center;
+    background: var(--bg-primary);
     border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .footer-copy {
@@ -374,14 +365,57 @@ footer {
     color: var(--accent);
 }
 
+.footer-copyright {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    margin-top: 1rem;
+}
+
+/* Mobile menu toggle button */
+.menu-toggle {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.5rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     header {
         padding: 1rem;
+        flex-wrap: wrap;
+    }
+    
+    .menu-toggle {
+        display: block;
     }
     
     nav {
         display: none;
+        width: 100%;
+        flex-direction: column;
+        gap: 0;
+        margin-top: 1rem;
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 0.5rem 0;
+        border: 1px solid var(--border);
+    }
+    
+    nav.open {
+        display: flex;
+    }
+    
+    nav a {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--border);
+    }
+    
+    nav a:last-child {
+        border-bottom: none;
     }
     
     .hero {

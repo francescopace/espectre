@@ -52,10 +52,7 @@
 </head>
 
 <body>
-    <div class="bg-pattern"></div>
-    <div class="wave-container">
-        <div class="wave"></div>
-    </div>
+    <canvas id="cosmic-bg"></canvas>
 
     <header>
         <a href="/" class="logo">
@@ -63,11 +60,14 @@
             <span>ESPectre</span>
             <span class="logo-icon"><i class="fas fa-ghost"></i></span>
         </a>
+        <button class="menu-toggle" aria-label="Toggle menu">
+            <i class="fas fa-bars"></i>
+        </button>
         <nav>
-            <a href="https://github.com/francescopace/espectre/issues">Issues</a>
-            <a href="https://github.com/francescopace/espectre/discussions">Discussions</a>
-            <a href="https://github.com/francescopace/espectre/blob/main/ROADMAP.md">Roadmap</a>
-            <a href="https://github.com/francescopace/espectre">GitHub</a>
+            <a href="https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-61a631a9b4ec?sk=c7f79130d78b0545fce4a228a6a79af3&utm_source=espectre.dev&utm_medium=index.html&utm_campaign=espectre"><i class="fab fa-medium"></i> Medium Story</a>
+            <a href="https://github.com/francescopace/espectre/issues"><i class="fas fa-bug"></i> Issues</a>
+            <a href="https://github.com/francescopace/espectre/discussions"><i class="fas fa-comments"></i> Discussions</a>
+            <a href="https://github.com/francescopace/espectre/blob/main/ROADMAP.md"><i class="fas fa-map"></i> Roadmap</a>
         </nav>
     </header>
 
@@ -77,17 +77,18 @@
                 <span class="dot"></span>
                 <span>Open Source · GPLv3</span>
             </div>
-            <h1>Spectral motion sensing.</h1>
+            <h1>ESPectre Sensor</h1>
             <p class="hero-subtitle">
-                Motion detection using Wi-Fi spectrum analysis (CSI).<br>
-                No cameras. No microphones. Just math.
+                Open source motion detection system for ESP32.<br>
+                Detect motion analyzing interferences in Wi-Fi spectrum.<br>
+                Integrates natively with <span class="highlight-ha">Home Assistant</span> via ESPHome.
             </p>
             <div class="hero-buttons">
                 <a href="#config" class="btn btn-primary">
                     Get Started
                 </a>
                 <a href="https://github.com/francescopace/espectre" class="btn btn-secondary">
-                    View on GitHub
+                    <i class="fab fa-github"></i> View on GitHub
                 </a>
             </div>
         </section>
@@ -182,7 +183,10 @@
             <a href="mailto:security@espectre.dev"><i class="fas fa-shield-halved"></i> Security</a>
             <a href="https://linkedin.com/in/francescopace"><i class="fas fa-user"></i> Francesco Pace</a>
         </p>
+        <p class="footer-copyright">© 2025 ESPectre Project · GPLv3 License</p>
     </footer>
+
+    <script src="main.js"></script>
 
     <!-- Buy Me a Coffee floating widget -->
     <script data-name="BMC-Widget" data-cfasync="false" src="https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js" data-id="espectre" data-description="Support me on Buy me a coffee!" data-message="Like ESPectre? Support it!" data-color="#40DCA5" data-position="Right" data-x_margin="18" data-y_margin="18"></script>
