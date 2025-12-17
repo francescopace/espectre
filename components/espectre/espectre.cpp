@@ -27,24 +27,18 @@ void ESpectreComponent::setup() {
   this->wifi_lifecycle_.init();
   
   // 1. Initialize configuration manager (load config before initializing managers)
-  // Note: hash changed to "espectre_cfg_v3" for normalization_scale field addition
-  // Previous versions: "espectre_cfg" (v1), "espectre_cfg_v2" (v2.2.0 struct reorder)
+  // Note: hash changed to "espectre_cfg_v6" - struct now only contains threshold
+  // All other settings come from YAML or are recalculated at boot (normalization_scale)
   this->config_manager_.init(
-      global_preferences->make_preference<ESpectreConfig>(fnv1_hash("espectre_cfg_v3"))
+      global_preferences->make_preference<ESpectreConfig>(fnv1_hash("espectre_cfg_v6"))
   );
   
-  // 2. Load configuration from preferences
+  // 2. Load runtime-configurable parameters from preferences
+  // Only threshold is persisted - all other settings come from YAML or are
+  // recalculated at boot (normalization_scale is computed during NBVI calibration)
   ESpectreConfig config;
   if (this->config_manager_.load(config)) {
     this->segmentation_threshold_ = config.segmentation_threshold;
-    this->segmentation_window_size_ = config.segmentation_window_size;
-    this->traffic_generator_rate_ = config.traffic_generator_rate;
-    this->hampel_enabled_ = config.hampel_enabled;
-    this->hampel_window_ = config.hampel_window;
-    this->hampel_threshold_ = config.hampel_threshold;
-    // Load normalization scale (use 1.0 if not set or invalid)
-    this->normalization_scale_ = (config.normalization_scale > 0.0f && config.normalization_scale <= 10.0f) 
-                                  ? config.normalization_scale : 1.0f;
   }
   
   // 3. Initialize CSI processor (allocates buffer internally)
@@ -153,17 +147,6 @@ void ESpectreComponent::on_wifi_connected_() {
           
           // Reset rate counter to avoid incorrect rate on first log after calibration
           this->sensor_publisher_.reset_rate_counter();
-          
-          // Save calibration results to preferences (including normalization scale)
-          ESpectreConfig config;
-          config.segmentation_threshold = this->segmentation_threshold_;
-          config.segmentation_window_size = this->segmentation_window_size_;
-          config.traffic_generator_rate = this->traffic_generator_rate_;
-          config.hampel_enabled = this->hampel_enabled_;
-          config.hampel_window = this->hampel_window_;
-          config.hampel_threshold = this->hampel_threshold_;
-          config.normalization_scale = normalization_scale;
-          this->config_manager_.save(config);
         }
 
         // Resume traffic generator after calibration completes
@@ -209,12 +192,6 @@ void ESpectreComponent::set_threshold_runtime(float threshold) {
   // Save to preferences
   ESpectreConfig config;
   config.segmentation_threshold = threshold;
-  config.segmentation_window_size = this->segmentation_window_size_;
-  config.traffic_generator_rate = this->traffic_generator_rate_;
-  config.hampel_enabled = this->hampel_enabled_;
-  config.hampel_window = this->hampel_window_;
-  config.hampel_threshold = this->hampel_threshold_;
-  config.normalization_scale = this->normalization_scale_;
   this->config_manager_.save(config);
   
   ESP_LOGI(TAG, "Threshold updated to %.2f (saved to flash)", threshold);
