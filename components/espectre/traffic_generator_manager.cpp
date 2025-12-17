@@ -129,6 +129,20 @@ bool TrafficGeneratorManager::start() {
   return true;
 }
 
+void TrafficGeneratorManager::pause() {
+  if (!paused_) {
+    paused_ = true;
+    ESP_LOGD(TAG, "Traffic generator paused");
+  }
+}
+
+void TrafficGeneratorManager::resume() {
+  if (paused_) {
+    paused_ = false;
+    ESP_LOGD(TAG, "Traffic generator resumed");
+  }
+}
+
 void TrafficGeneratorManager::stop() {
   if (!running_) {
     return;
@@ -200,6 +214,13 @@ void TrafficGeneratorManager::traffic_task_(void* arg) {
   int64_t next_send_time = esp_timer_get_time();
   
   while (mgr->running_) {
+    // Check if paused (e.g., during calibration)
+    if (mgr->paused_) {
+      vTaskDelay(pdMS_TO_TICKS(50));  // Sleep while paused to save CPU
+      next_send_time = esp_timer_get_time();  // Reset timing on resume
+      continue;
+    }
+    
     // Send DNS query to gateway
     ssize_t sent = sendto(
         mgr->sock_,

@@ -131,6 +131,12 @@ void ESpectreComponent::on_wifi_connected_() {
   
   // Run auto-calibration if user didn't specify subcarriers
   if (this->traffic_generator_.is_running() && !this->user_specified_subcarriers_) {
+    // Set callback to pause traffic generator when collection is complete
+    // This saves CPU during NBVI processing (no packets needed during computation)
+    this->calibration_manager_.set_collection_complete_callback([this]() {
+      this->traffic_generator_.pause();
+    });
+    
     this->calibration_manager_.start_auto_calibration(
       this->selected_subcarriers_,
       12,  // Always 12 subcarriers
@@ -145,6 +151,9 @@ void ESpectreComponent::on_wifi_connected_() {
           // Clear buffer to avoid stale calibration data causing high initial values
           csi_processor_clear_buffer(&this->csi_processor_);
           
+          // Reset rate counter to avoid incorrect rate on first log after calibration
+          this->sensor_publisher_.reset_rate_counter();
+          
           // Save calibration results to preferences (including normalization scale)
           ESpectreConfig config;
           config.segmentation_threshold = this->segmentation_threshold_;
@@ -156,6 +165,9 @@ void ESpectreComponent::on_wifi_connected_() {
           config.normalization_scale = normalization_scale;
           this->config_manager_.save(config);
         }
+
+        // Resume traffic generator after calibration completes
+        this->traffic_generator_.resume();
       }
     );
   }

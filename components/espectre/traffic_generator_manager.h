@@ -55,7 +55,26 @@ class TrafficGeneratorManager {
    */
   bool is_running() const { return running_; }
   
+  /**
+   * Pause traffic generator
+   * 
+   * Temporarily stops sending packets without destroying the task.
+   * Use resume() to continue. Useful during calibration to avoid
+   * wasting CPU cycles on traffic that won't be processed.
+   */
+  void pause();
   
+  /**
+   * Resume traffic generator after pause
+   */
+  void resume();
+  
+  /**
+   * Check if traffic generator is paused
+   * 
+   * @return true if paused, false otherwise
+   */
+  bool is_paused() const { return paused_; }
   
  private:
   // FreeRTOS task function (static wrapper)
@@ -66,6 +85,7 @@ class TrafficGeneratorManager {
   int sock_{-1};
   uint32_t rate_pps_{0};
   volatile bool running_{false};  // volatile: accessed from main task and FreeRTOS task
+  volatile bool paused_{false};   // volatile: accessed from main task and FreeRTOS task
 };
 
 }  // namespace espectre

@@ -47,6 +47,11 @@ class CalibrationManager {
   // Parameters: band, size, normalization_scale, success
   using result_callback_t = std::function<void(const uint8_t* band, uint8_t size, float normalization_scale, bool success)>;
   
+  // Callback type for collection complete notification
+  // Called when all packets have been collected, before NBVI processing starts.
+  // Caller can use this to pause traffic generation during the processing phase.
+  using collection_complete_callback_t = std::function<void()>;
+  
   /**
    * Initialize calibration manager
    * 
@@ -100,6 +105,9 @@ class CalibrationManager {
   void set_noise_gate_percentile(uint8_t percentile) { noise_gate_percentile_ = percentile; }
   void set_normalization_enabled(bool enabled) { normalization_enabled_ = enabled; }
   void set_normalization_target(float target) { normalization_target_ = target; }
+  void set_collection_complete_callback(collection_complete_callback_t callback) { 
+    collection_complete_callback_ = callback; 
+  }
   
  private:
   // Internal structures
@@ -142,6 +150,7 @@ class CalibrationManager {
   CSIManager* csi_manager_{nullptr};
   bool calibrating_{false};
   result_callback_t result_callback_;
+  collection_complete_callback_t collection_complete_callback_;
   
   // File-based storage (saves RAM - magnitudes stored as uint8)
   FILE* buffer_file_{nullptr};

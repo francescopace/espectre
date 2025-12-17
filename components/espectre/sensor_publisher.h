@@ -57,6 +57,14 @@ class SensorPublisher {
   bool has_movement_sensor() const { return movement_sensor_ != nullptr; }
   bool has_motion_binary_sensor() const { return motion_binary_sensor_ != nullptr; }
   
+  /**
+   * Reset rate counter
+   * 
+   * Call after calibration to avoid incorrect rate calculation
+   * on first log after resume.
+   */
+  void reset_rate_counter() { last_log_time_ms_ = 0; }
+  
  private:
   // Motion sensors
   sensor::Sensor *movement_sensor_{nullptr};

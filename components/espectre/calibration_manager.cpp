@@ -133,6 +133,11 @@ bool CalibrationManager::add_packet(const int8_t* csi_data, size_t csi_len) {
 void CalibrationManager::on_collection_complete_() {
   ESP_LOGD(TAG, "NBVI: Collection complete, processing...");
   
+  // Notify caller that collection is complete (can pause traffic generator)
+  if (collection_complete_callback_) {
+    collection_complete_callback_();
+  }
+  
   // Close write mode and reopen for reading
   close_buffer_file_();
   if (!open_buffer_file_for_reading_()) {
@@ -150,16 +155,16 @@ void CalibrationManager::on_collection_complete_() {
   
   bool success = (err == ESP_OK && selected_band_size_ == SELECTED_SUBCARRIERS_COUNT);
   
-  // Call user callback with results (including normalization scale)
-  if (result_callback_) {
-    result_callback_(selected_band_, selected_band_size_, normalization_scale_, success);
-  }
-  
   // Cleanup
   calibrating_ = false;
   csi_manager_->set_calibration_mode(nullptr);
   close_buffer_file_();
   remove_buffer_file_();
+  
+  // Call user callback with results (including normalization scale)
+  if (result_callback_) {
+    result_callback_(selected_band_, selected_band_size_, normalization_scale_, success);
+  }
 }
 
 esp_err_t CalibrationManager::run_calibration_() {
