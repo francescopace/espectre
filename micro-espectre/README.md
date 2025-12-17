@@ -372,15 +372,22 @@ The test suite covers all core modules:
 
 | Module | Test File | Coverage |
 |--------|-----------|----------|
-| `filters.py` | `test_filters.py` | HampelFilter, insertion sort, outlier detection |
-| `segmentation.py` | `test_segmentation.py` | MVS algorithm, state machine, variance calculation |
-| `features.py` | `test_features.py` | Skewness, kurtosis, IQR, entropy, feature detector |
-| `nbvi_calibrator.py` | `test_nbvi_calibrator.py` | NBVI calculation, noise gate, spectral spacing |
+| `config.py` | `test_config.py` | 100% |
+| `filters.py` | `test_filters.py` | 100% |
+| `features.py` | `test_features.py` | 99% |
+| `segmentation.py` | `test_segmentation.py`, `test_segmentation_additional.py` | 90% |
+| `nbvi_calibrator.py` | `test_nbvi_calibrator.py`, `test_nbvi_calibrator_additional.py` | 94% |
+| `nvs_storage.py` | `test_nvs_storage.py` | 95% |
+| `mqtt/handler.py` | `test_mqtt.py` | 88% |
+| `mqtt/commands.py` | `test_mqtt.py` | 94% |
+| `traffic_generator.py` | `test_traffic_generator.py` | 91% |
 
 Additional validation tests:
 - `test_running_variance.py`: Compares O(1) running variance with two-pass algorithm
 - `test_optimization_equivalence.py`: Validates optimization correctness
 - `test_validation_real_data.py`: Validates algorithms with real CSI data (baseline/movement)
+
+**Total: 324 tests, 94% coverage** (MicroPython-only modules excluded)
 
 ### CI Integration
 

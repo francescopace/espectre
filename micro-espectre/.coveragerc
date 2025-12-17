@@ -1,0 +1,23 @@
+[run]
+source = src
+omit =
+    # MicroPython-only modules that require hardware/specific runtime
+    src/main.py
+    src/csi_streamer.py
+    src/config_local.py
+
+[report]
+exclude_lines =
+    # Don't complain about missing debug-only code
+    pragma: no cover
+    
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+    
+    # Don't complain if non-runnable code isn't run
+    if __name__ == .__main__.:
+    
+    # Don't complain about abstract methods
+    @abstractmethod
+

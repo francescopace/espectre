@@ -11,6 +11,11 @@ test/.gcc-flags.json
 *.profraw
 *.profdata
 coverage.lcov
+.coverage
+htmlcov/
+
+# Pytest
+.pytest_cache/
 
 # Python
 __pycache__/
