@@ -394,15 +394,15 @@ void test_normalization_scale_clamps_minimum(void) {
     csi_processor_context_t ctx;
     TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
     
-    // Values below 0.1 should be clamped to 0.1
-    csi_processor_set_normalization_scale(&ctx, 0.01f);
-    TEST_ASSERT_EQUAL_FLOAT(0.1f, csi_processor_get_normalization_scale(&ctx));
+    // Values below 0.001 should be clamped to 0.001
+    csi_processor_set_normalization_scale(&ctx, 0.0001f);
+    TEST_ASSERT_EQUAL_FLOAT(0.001f, csi_processor_get_normalization_scale(&ctx));
     
     csi_processor_set_normalization_scale(&ctx, 0.0f);
-    TEST_ASSERT_EQUAL_FLOAT(0.1f, csi_processor_get_normalization_scale(&ctx));
+    TEST_ASSERT_EQUAL_FLOAT(0.001f, csi_processor_get_normalization_scale(&ctx));
     
     csi_processor_set_normalization_scale(&ctx, -1.0f);
-    TEST_ASSERT_EQUAL_FLOAT(0.1f, csi_processor_get_normalization_scale(&ctx));
+    TEST_ASSERT_EQUAL_FLOAT(0.001f, csi_processor_get_normalization_scale(&ctx));
     
     csi_processor_cleanup(&ctx);
 }
@@ -411,12 +411,12 @@ void test_normalization_scale_clamps_maximum(void) {
     csi_processor_context_t ctx;
     TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
     
-    // Values above 10.0 should be clamped to 10.0
-    csi_processor_set_normalization_scale(&ctx, 100.0f);
-    TEST_ASSERT_EQUAL_FLOAT(10.0f, csi_processor_get_normalization_scale(&ctx));
+    // Values above 100.0 should be clamped to 100.0
+    csi_processor_set_normalization_scale(&ctx, 150.0f);
+    TEST_ASSERT_EQUAL_FLOAT(100.0f, csi_processor_get_normalization_scale(&ctx));
     
-    csi_processor_set_normalization_scale(&ctx, 15.0f);
-    TEST_ASSERT_EQUAL_FLOAT(10.0f, csi_processor_get_normalization_scale(&ctx));
+    csi_processor_set_normalization_scale(&ctx, 200.0f);
+    TEST_ASSERT_EQUAL_FLOAT(100.0f, csi_processor_get_normalization_scale(&ctx));
     
     csi_processor_cleanup(&ctx);
 }

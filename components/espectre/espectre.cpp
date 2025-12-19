@@ -54,8 +54,6 @@ void ESpectreComponent::setup() {
   
   // 4. Initialize managers (each manager handles its own internal initialization)
   this->calibration_manager_.init(&this->csi_manager_);
-  this->calibration_manager_.set_normalization_enabled(this->normalization_enabled_);
-  this->calibration_manager_.set_normalization_target(this->normalization_target_);
   this->traffic_generator_.init(this->traffic_generator_rate_);
   this->csi_manager_.init(
     &this->csi_processor_,
@@ -123,36 +121,57 @@ void ESpectreComponent::on_wifi_connected_() {
     ESP_LOGI(TAG, "Traffic generator already running");
   }
   
-  // Run auto-calibration if user didn't specify subcarriers
-  if (this->traffic_generator_.is_running() && !this->user_specified_subcarriers_) {
-    // Set callback to pause traffic generator when collection is complete
-    // This saves CPU during NBVI processing (no packets needed during computation)
-    this->calibration_manager_.set_collection_complete_callback([this]() {
-      this->traffic_generator_.pause();
-    });
-    
-    this->calibration_manager_.start_auto_calibration(
-      this->selected_subcarriers_,
-      12,  // Always 12 subcarriers
-      [this](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-        if (success) {
-          memcpy(this->selected_subcarriers_, band, size);
-          this->csi_manager_.update_subcarrier_selection(band);
-          // Apply normalization scale to compensate for different ESP32 CSI amplitude ranges
-          this->normalization_scale_ = normalization_scale;
-          csi_processor_set_normalization_scale(&this->csi_processor_, normalization_scale);
-          
-          // Clear buffer to avoid stale calibration data causing high initial values
-          csi_processor_clear_buffer(&this->csi_processor_);
-          
-          // Reset rate counter to avoid incorrect rate on first log after calibration
-          this->sensor_publisher_.reset_rate_counter();
-        }
-
-        // Resume traffic generator after calibration completes
-        this->traffic_generator_.resume();
+  // Two-phase calibration:
+  // 1. Gain Lock (~3 seconds, 300 packets) - locks AGC/FFT for stable CSI
+  // 2. Baseline Calibration (~7 seconds, 700 packets) - calculates normalization scale
+  //    - If user specified subcarriers: only calculates baseline variance
+  //    - If auto (NBVI): also selects optimal subcarriers
+  if (this->traffic_generator_.is_running()) {
+    // Set callback to start baseline calibration AFTER gain is locked
+    this->csi_manager_.set_gain_lock_callback([this]() {
+      if (this->user_specified_subcarriers_) {
+        ESP_LOGI(TAG, "Gain locked, starting baseline calibration (fixed subcarriers)...");
+      } else {
+        ESP_LOGI(TAG, "Gain locked, starting NBVI calibration...");
       }
-    );
+      
+      // Set callback to pause traffic generator when collection is complete
+      this->calibration_manager_.set_collection_complete_callback([this]() {
+        this->traffic_generator_.pause();
+      });
+      
+      // Pass flag to indicate whether to run full NBVI or just baseline calculation
+      this->calibration_manager_.set_skip_subcarrier_selection(this->user_specified_subcarriers_);
+      
+      this->calibration_manager_.start_auto_calibration(
+        this->selected_subcarriers_,
+        12,  // Always 12 subcarriers
+        [this](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+          if (success) {
+            // Only update subcarriers if NBVI was used (not user-specified)
+            if (!this->user_specified_subcarriers_) {
+              memcpy(this->selected_subcarriers_, band, size);
+              this->csi_manager_.update_subcarrier_selection(band);
+            }
+            // Apply normalization scale to compensate for different ESP32 CSI amplitude ranges
+            this->normalization_scale_ = normalization_scale;
+            csi_processor_set_normalization_scale(&this->csi_processor_, normalization_scale);
+            
+            // Store baseline variance for status reporting
+            this->baseline_variance_ = this->calibration_manager_.get_baseline_variance();
+            
+            // Clear buffer to avoid stale calibration data causing high initial values
+            csi_processor_clear_buffer(&this->csi_processor_);
+            
+            // Reset rate counter to avoid incorrect rate on first log after calibration
+            this->sensor_publisher_.reset_rate_counter();
+          }
+
+          // Resume traffic generator after calibration completes
+          this->traffic_generator_.resume();
+        }
+      );
+    });
   }
   
   // Ready to publish sensors
@@ -176,7 +195,7 @@ void ESpectreComponent::on_wifi_disconnected_() {
 }
 
 void ESpectreComponent::loop() {
-  // Event-driven component: all processing handled by managers via callbacks
+  // Currently empty - CSI processing happens in callback
 }
 
 void ESpectreComponent::set_threshold_runtime(float threshold) {
@@ -209,12 +228,8 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f", this->segmentation_threshold_);
-  ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", this->segmentation_window_size_);
-  ESP_LOGCONFIG(TAG, " ├─ Normalization ...... %s", this->normalization_enabled_ ? "[ENABLED]" : "[DISABLED]");
-  if (this->normalization_enabled_) {
-    ESP_LOGCONFIG(TAG, " │  ├─ Target .......... %.1f", this->normalization_target_);
-    ESP_LOGCONFIG(TAG, " │  └─ Scale ........... %.3f", this->normalization_scale_);
-  }
+  ESP_LOGCONFIG(TAG, " └─ Window ............. %d pkts", this->segmentation_window_size_);
+  ESP_LOGCONFIG(TAG, " └─ Norm. Scale ........ %.4f (attenuate if >0.25)", this->normalization_scale_);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
                 this->selected_subcarriers_[0], this->selected_subcarriers_[1],

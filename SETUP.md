@@ -104,9 +104,11 @@ pip install esphome
 ### 3. Create secrets file
 
 ```bash
-cat > secrets.yaml << EOF
+cat > examples/secrets.yaml << EOF
 wifi_ssid: "YourWiFiName"
 wifi_password: "YourWiFiPassword"
+# Optional: lock to specific AP (useful for mesh networks)
+# wifi_bssid: "AA:BB:CC:DD:EE:FF"
 EOF
 ```
 
@@ -182,8 +184,6 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `hampel_enabled` | bool | false | Enable Hampel outlier filter |
 | `hampel_window` | int | 7 | Hampel filter window size |
 | `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) |
-| `normalization_enabled` | bool | false | Enable amplitude auto-normalization |
-| `normalization_target` | float | 28.0 | Target mean amplitude for normalization |
 
 For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 ### Integrated Sensors (Created Automatically)
@@ -334,12 +334,13 @@ For detailed rate recommendations and Nyquist-Shannon sampling theory, see [TUNI
 
 > ⚠️ **CRITICAL**: The room must be **still** during the first 10 seconds after boot. Movement during calibration will result in poor detection accuracy!
 
-ESPectre automatically selects optimal subcarriers using the **NBVI algorithm**:
+ESPectre automatically calibrates in two phases:
 
-1. Collects 1000 CSI packets (~10 seconds)
-2. Analyzes baseline characteristics (Room must be quiet, don't move)
-3. Selects optimal 12 subcarriers
-4. Saves configuration (persists across reboots)
+1. **Gain Lock** (~3 seconds, 300 packets): Stabilizes AGC/FFT for consistent amplitudes
+2. **NBVI Calibration** (~7 seconds, 700 packets): Selects optimal 12 subcarriers
+3. Saves configuration (persists across reboots)
+
+Room must be quiet during the entire ~10 second calibration.
 
 To force recalibration: erase flash and re-flash.
 
@@ -351,27 +352,44 @@ To force recalibration: erase flash and re-flash.
 
 ESPectre now provides example configurations for all ESP32 variants with CSI support. If you need to customize further, use these guidelines:
 
-### Required sdkconfig options
+### Automatic sdkconfig options
+
+ESPectre automatically sets all required and recommended sdkconfig options. You don't need to manually configure anything in most cases.
+
+The component automatically configures:
+
+| Option | Value | Purpose |
+|--------|-------|---------|
+| `CONFIG_ESP_WIFI_CSI_ENABLED` | `y` | Enable CSI (mandatory) |
+| `CONFIG_PM_ENABLE` | `n` | Disable power management |
+| `CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE` | `n` | Disable disconnected PM |
+| `CONFIG_ESP_WIFI_AMPDU_TX_ENABLED` | `n` | More CSI callbacks |
+| `CONFIG_ESP_WIFI_AMPDU_RX_ENABLED` | `n` | More CSI callbacks |
+| `CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM` | `128` | Larger RX buffer |
+| `CONFIG_FREERTOS_HZ` | `1000` | 1ms tick for precise timing |
+
+### Platform-specific options (optional)
+
+You only need to add sdkconfig options for platform-specific features:
 
 ```yaml
 esp32:
-  variant: YOUR_VARIANT  # e.g., ESP32, ESP32C3
+  variant: ESP32C6  # or ESP32S3, etc.
   framework:
     type: esp-idf
     version: 5.5.1
     sdkconfig_options:
-      # Required for CSI (mandatory)
-      CONFIG_ESP_WIFI_CSI_ENABLED: y
+      # WiFi 6 (optional - C5, C6 only)
+      CONFIG_ESP_WIFI_11AX_SUPPORT: y
       
-      # Power management (mandatory - disable for CSI reliability)
-      CONFIG_PM_ENABLE: n
-      CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE: n
+      # CPU frequency (platform-dependent)
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ: "160"  # 160 for C6, 240 for S3
       
-      # WiFi 6 (optional - only if supported by your chip)
-      # CONFIG_ESP_WIFI_11AX_SUPPORT: y
+      # PSRAM (if available on your board)
+      # CONFIG_ESP32S3_SPIRAM_SUPPORT: y
 ```
 
-**Note:** For advanced sdkconfig tuning see official espressif doc: [ESP32 WiFi](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/wifi.html#how-to-configure-parameters).
+**Reference:** For advanced sdkconfig tuning see official Espressif documentation: [ESP32 WiFi](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/wifi.html#how-to-configure-parameters).
 
 ---
 
@@ -383,7 +401,7 @@ esp32:
 
 1. **Verify traffic generator is enabled** (`traffic_generator_rate > 0`)
 2. Check WiFi is connected (look for IP address in logs)
-3. Wait for NBVI calibration to complete (~5-10 seconds after boot)
+3. Wait for NBVI calibration to complete (~10 seconds after boot)
 4. Adjust `segmentation_threshold` (try 0.5-2.0 for more sensitivity)
 
 ### False positives
@@ -397,6 +415,32 @@ esp32:
 1. Ensure room is quiet during calibration (first 5-10 seconds after boot)
 2. Check traffic generator is running
 3. Verify WiFi connection is stable
+
+### Unstable detection with mesh networks
+
+If you have a mesh WiFi network, the sensor may roam between access points causing CSI inconsistencies. Lock it to a specific AP using the BSSID.
+
+**For development files** (`espectre-*-dev.yaml`):
+1. Add `wifi_bssid` to your `secrets.yaml`:
+   ```yaml
+   wifi_bssid: "AA:BB:CC:DD:EE:FF"
+   ```
+2. Uncomment the `bssid` line in your config file:
+   ```yaml
+   wifi:
+     networks:
+       - ssid: !secret wifi_ssid
+         password: !secret wifi_password
+         bssid: !secret wifi_bssid
+   ```
+
+**For production files** (`espectre-*.yaml` with provisioning):
+Add the BSSID directly after configuring WiFi, or use the ESPHome dashboard to edit the configuration.
+
+To find your AP's BSSID:
+- Check your router's admin page
+- Use a WiFi analyzer app on your phone
+- Look in ESPectre logs after connection (shows connected BSSID)
 
 ### Flash failed
 
@@ -421,8 +465,8 @@ esphome logs <your-config>.yaml --device espectre.local
 
 ---
 
-- 📖 **Tuning Guide**: [TUNING.md](TUNING.md) - Optimize for your environment
-- 📖 **Main Documentation**: [README.md](README.md) - Full project overview
+- **Tuning Guide**: [TUNING.md](TUNING.md) - Optimize for your environment
+- **Main Documentation**: [README.md](README.md) - Full project overview
 
 ---
 

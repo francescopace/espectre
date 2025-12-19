@@ -57,25 +57,29 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Feature | ESPHome (C++) | Python (MicroPython) | Status |
 |---------|---------------|----------------------|--------|
 | **Core Algorithm** |
-| MVS Segmentation | ✅ | ✅ | ✅ Aligned |
-| Spatial Turbulence | ✅ | ✅ | ✅ Aligned |
-| Moving Variance | ✅ | ✅ | ✅ Aligned |
+| MVS Segmentation | ✅ | ✅ | Aligned |
+| Spatial Turbulence | ✅ | ✅ | Aligned |
+| Moving Variance | ✅ | ✅ | Aligned |
+| **Gain Lock (AGC/FFT)** |
+| Gain Lock | ✅ | ✅ | Aligned (S3/C3/C5/C6) |
+| Read AGC/FFT values | ✅ | ✅ | Implemented |
+| Force AGC/FFT values | ✅ | ✅ | Implemented |
 | **WiFi Traffic Generator** |
-| Traffic Generation | ✅ | ✅ | ✅ Implemented |
-| Configurable Rate | ✅ | ✅ | ✅ Implemented |
+| Traffic Generation | ✅ | ✅ | Implemented |
+| Configurable Rate | ✅ | ✅ | Implemented |
 | **Configuration** |
 | YAML Configuration | ✅ | ❌ | ESPHome only |
 | MQTT Commands | ❌ | ✅ | Micro-ESPectre only |
 | Runtime Config | ✅ (via HA) | ✅ (via MQTT) | Different methods |
 | **Storage** |
-| NVS Persistence | ✅ | ✅ | ✅ Implemented |
-| Auto-save on config change | ✅ | ✅ | ✅ Implemented |
-| Auto-load on startup | ✅ | ✅ | ✅ Implemented |
+| NVS Persistence | ✅ | ✅ | Implemented |
+| Auto-save on config change | ✅ | ✅ | Implemented |
+| Auto-load on startup | ✅ | ✅ | Implemented |
 | **Automatic Subcarrier Selection** |
-| NBVI Algorithm | ✅ | ✅ | ✅ Implemented |
-| Percentile-based Detection | ✅ | ✅ | ✅ Implemented |
+| NBVI Algorithm | ✅ | ✅ | Implemented |
+| Percentile-based Detection | ✅ | ✅ | Implemented |
 | Noise Gate | ✅ | ✅ | ✅ Implemented |
-| Spectral De-correlation | ✅ | ✅ | ✅ Implemented |
+| Spectral De-correlation | ✅ | ✅ | Implemented |
 | **Filters** |
 | Low-Pass Filter | ✅ | ✅ | Butterworth 1st order, reduces high-freq noise (11 Hz default) |
 | Hampel Filter | ✅ | ✅ | Outlier removal, applied to turbulence (disabled by default) |
@@ -409,9 +413,9 @@ ENABLE_HAMPEL_FILTER = False   # Hampel filter (outlier removal)
 HAMPEL_WINDOW = 7
 HAMPEL_THRESHOLD = 4.0
 
-# Normalization (auto-scaling for cross-device consistency)
-ENABLE_NORMALIZATION = False   # Enable/disable amplitude normalization
-NORMALIZATION_TARGET = 28.0    # Target mean amplitude (10-100)
+# Normalization (always enabled for cross-device consistency)
+# If baseline > 0.25: scale = 0.25 / baseline_variance (attenuate)
+# If baseline ≤ 0.25: scale = 1.0 (no amplification)
 ```
 
 For detailed parameter tuning guide, see [TUNING.md](../TUNING.md).
@@ -507,7 +511,7 @@ See [tools/README.md](tools/README.md) for complete script documentation.
 
 ## Automatic Subcarrier Selection (NBVI)
 
-Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving **F1=97.6%** with **zero manual configuration**.
+Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving **F1=98.2%** with **zero manual configuration**.
 
 > ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
 

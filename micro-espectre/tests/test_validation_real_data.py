@@ -701,8 +701,8 @@ class TestEndToEndWithCalibration:
         calibrator = NBVICalibrator(
             buffer_size=200,
             percentile=10,
-            alpha=0.3,
-            min_spacing=3
+            alpha=0.5,
+            min_spacing=1
         )
         
         # Feed baseline packets (convert numpy array to bytes for MicroPython-compatible API)
@@ -759,8 +759,8 @@ class TestEndToEndWithCalibration:
         calibrator = NBVICalibrator(
             buffer_size=200,
             percentile=10,
-            alpha=0.3,
-            min_spacing=3
+            alpha=0.5,
+            min_spacing=1
         )
         
         # Feed baseline packets for calibration (convert numpy to bytes for MicroPython-compatible API)

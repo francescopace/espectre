@@ -56,8 +56,6 @@ class ESpectreComponent : public Component {
   void set_hampel_enabled(bool enabled) { this->hampel_enabled_ = enabled; }
   void set_hampel_window(uint8_t window) { this->hampel_window_ = window; }
   void set_hampel_threshold(float threshold) { this->hampel_threshold_ = threshold; }
-  void set_normalization_enabled(bool enabled) { this->normalization_enabled_ = enabled; }
-  void set_normalization_target(float target) { this->normalization_target_ = target; }
   
   // Subcarrier selection (optional, defaults to auto-calibrated or DEFAULT_SUBCARRIERS)
   void set_selected_subcarriers(const std::vector<uint8_t> &subcarriers) {
@@ -97,9 +95,7 @@ class ESpectreComponent : public Component {
   bool hampel_enabled_{false};
   uint8_t hampel_window_{7};
   float hampel_threshold_{4.0f};
-  bool normalization_enabled_{true};  // Enable/disable auto-normalization
-  float normalization_target_{28.0f}; // Target mean amplitude for normalization
-  float normalization_scale_{1.0f};   // CSI amplitude normalization (calculated during calibration)
+  float normalization_scale_{1.0f};   // Normalization scale (attenuate if baseline > 0.25)
   uint8_t selected_subcarriers_[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
   
   bool user_specified_subcarriers_{false};  // True if user specified in YAML
@@ -114,6 +110,9 @@ class ESpectreComponent : public Component {
   
   // Number controls
   number::Number *threshold_number_{nullptr};
+  
+  // Calibration results (for diagnostics)
+  float baseline_variance_{0.0f};
   
   // State flags
   bool ready_to_publish_{false};      // True when CSI is ready and calibration done

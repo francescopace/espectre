@@ -11,24 +11,17 @@
 esphome:
   name: espectre
   friendly_name: ESPectre
+  min_version: 2025.11.0
   # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
   # name_add_mac_suffix: true
   project:
     name: francescopace.espectre
-    version: "1.0.0"
+    version: "2.2.0"
 
 esp32:
   variant: ESP32C6
   framework:
     type: esp-idf
-    version: 5.5.1
-    sdkconfig_options:
-      # Power Management (critical for CSI reliability)
-      CONFIG_PM_ENABLE: n                             # Disable all power management
-      CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE: n   # No power save when disconnected
-      # CSI Feature
-      CONFIG_ESP_WIFI_CSI_ENABLED: y                  # Enable CSI extraction from WiFi packets
-      CONFIG_ESP_WIFI_11AX_SUPPORT: y                 # Enable WiFi 6 (802.11ax)
 
 # Load ESPectre component from GitHub
 external_components:

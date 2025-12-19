@@ -257,7 +257,7 @@ class SegmentationContext:
         """
         Add turbulence value to buffer (lazy evaluation - no variance calculation)
         
-        Filter chain: raw → normalize → low-pass → hampel → buffer
+        Filter chain: raw → normalize → hampel → low-pass → buffer
         
         Note: Variance is NOT calculated here to save CPU. Call update_state() 
         at publish time to compute variance and update state machine.
@@ -268,20 +268,21 @@ class SegmentationContext:
         # Apply normalization scale (compensates for different CSI amplitude scales across ESP32 variants)
         normalized_turbulence = turbulence * self.normalization_scale
         
-        # Apply low-pass filter first (removes high-frequency noise)
+        # Apply Hampel filter first (removes outliers/spikes)
+        # Filter chain matches C++: normalize → hampel → low-pass → buffer
         filtered_turbulence = normalized_turbulence
-        if self.lowpass_filter is not None:
-            try:
-                filtered_turbulence = self.lowpass_filter.filter(filtered_turbulence)
-            except Exception as e:
-                print(f"[ERROR] LowPass filter failed: {e}")
-        
-        # Apply Hampel filter if enabled (removes outliers/spikes)
         if self.hampel_filter is not None:
             try:
                 filtered_turbulence = self.hampel_filter.filter(filtered_turbulence)
             except Exception as e:
                 print(f"[ERROR] Hampel filter failed: {e}")
+        
+        # Apply low-pass filter (removes high-frequency noise)
+        if self.lowpass_filter is not None:
+            try:
+                filtered_turbulence = self.lowpass_filter.filter(filtered_turbulence)
+            except Exception as e:
+                print(f"[ERROR] LowPass filter failed: {e}")
         
         self.last_turbulence = filtered_turbulence
         

@@ -214,7 +214,7 @@ python 10_optimize_nbvi_params.py --quick      # Quick search (fewer combination
 ```
 
 **Current optimal configuration:**
-- `NBVI_ALPHA = 0.3`, `NBVI_MIN_SPACING = 2`, `NBVI_PERCENTILE = 10`
+- `NBVI_ALPHA = 0.5`, `NBVI_MIN_SPACING = 1`, `NBVI_PERCENTILE = 10`
 - Achieves **Recall 96.5%, F1 98.2%** with zero configuration
 
 ---
@@ -274,7 +274,7 @@ Tested on 60-second noisy baseline with C6 chip:
 
 ### NBVI Automatic Subcarrier Selection
 
-**NBVI with min_spacing=2** achieves **F1=98.2%** (Recall 96.5%) with zero configuration.
+**NBVI with `alpha=0.5`, `min_spacing=1`** achieves excellent results with zero configuration.
 
 For complete NBVI algorithm documentation, see [ALGORITHMS.md](../ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
 

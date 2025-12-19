@@ -31,7 +31,7 @@ Both platforms produce **identical results** using the same test methodology:
 - Then process all 1000 movement packets (expecting MOTION)
 - Continuous context (no reset between baseline and movement)
 - Same parameters: window_size=50, threshold=1.0, subcarriers=[11-22]
-- All filters disabled (lowpass, hampel, normalization off by default)
+- Filters disabled (lowpass, hampel off by default), normalization always enabled
 
 ```
 CONFUSION MATRIX (1000 baseline + 1000 movement packets):
@@ -56,7 +56,7 @@ Actual MOTION   19 (FN)     981 (TP)
 | False Positives (FP) | 0 | No false alarms |
 | False Negatives (FN) | 19 | Missed movement detections |
 
-> **Note**: These tests were performed with all filters and normalization disabled (default settings). See [TUNING.md](TUNING.md) for filter configuration options.
+> **Note**: These tests were performed with optional filters disabled (lowpass, hampel). Normalization is always enabled for cross-device consistency. See [TUNING.md](TUNING.md) for filter configuration options.
 
 ---
 

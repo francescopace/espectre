@@ -61,14 +61,10 @@ class TestConfigConstants:
         """Test normalization configuration"""
         import config
         
-        assert hasattr(config, 'ENABLE_NORMALIZATION')
-        assert hasattr(config, 'NORMALIZATION_TARGET')
+        # Normalization is always enabled, only NORMALIZATION_SCALE is configurable
         assert hasattr(config, 'NORMALIZATION_SCALE')
         
-        assert isinstance(config.ENABLE_NORMALIZATION, bool)
-        assert isinstance(config.NORMALIZATION_TARGET, (int, float))
         assert isinstance(config.NORMALIZATION_SCALE, (int, float))
-        assert config.NORMALIZATION_TARGET > 0
         assert config.NORMALIZATION_SCALE > 0
     
     def test_nbvi_config(self):

@@ -13,7 +13,7 @@ from pathlib import Path
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, binary_sensor, number
-from esphome.components.esp32 import add_extra_build_file
+from esphome.components.esp32 import add_extra_build_file, add_idf_sdkconfig_option
 from esphome.const import (
     CONF_ID,
     STATE_CLASS_MEASUREMENT,
@@ -40,10 +40,6 @@ CONF_LOWPASS_CUTOFF = "lowpass_cutoff"
 CONF_HAMPEL_ENABLED = "hampel_enabled"
 CONF_HAMPEL_WINDOW = "hampel_window"
 CONF_HAMPEL_THRESHOLD = "hampel_threshold"
-
-# Normalization (auto-scaling)
-CONF_NORMALIZATION_ENABLED = "normalization_enabled"
-CONF_NORMALIZATION_TARGET = "normalization_target"
 
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
@@ -81,10 +77,6 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_HAMPEL_WINDOW, default=7): cv.int_range(min=3, max=11),
     cv.Optional(CONF_HAMPEL_THRESHOLD, default=4.0): cv.float_range(min=1.0, max=10.0),
     
-    # Normalization (auto-scaling for cross-device consistency, disabled by default)
-    cv.Optional(CONF_NORMALIZATION_ENABLED, default=False): cv.boolean,
-    cv.Optional(CONF_NORMALIZATION_TARGET, default=28.0): cv.float_range(min=10.0, max=100.0),
-    
     # Sensors - optional with defaults, always created
     cv.Optional(CONF_MOVEMENT_SENSOR, default={"name": "Movement Score"}): sensor.sensor_schema(
         unit_of_measurement=UNIT_EMPTY,
@@ -115,6 +107,18 @@ async def to_code(config):
         # Tell PlatformIO to use our custom partition table
         cg.add_platformio_option("board_build.partitions", "partitions.csv")
     
+    # Set required sdkconfig options for CSI functionality
+    # These are automatically applied - user doesn't need to specify them in YAML
+    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_CSI_ENABLED", True)
+    add_idf_sdkconfig_option("CONFIG_PM_ENABLE", False)
+    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE", False)
+    
+    # CSI optimization options (based on Espressif esp-csi recommendations)
+    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_TX_ENABLED", False)
+    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_RX_ENABLED", False)
+    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM", 128)
+    # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome
+    
     # Configure parameters
     cg.add(var.set_segmentation_threshold(config[CONF_SEGMENTATION_THRESHOLD]))
     cg.add(var.set_segmentation_window_size(config[CONF_SEGMENTATION_WINDOW_SIZE]))
@@ -132,10 +136,6 @@ async def to_code(config):
     cg.add(var.set_hampel_enabled(config[CONF_HAMPEL_ENABLED]))
     cg.add(var.set_hampel_window(config[CONF_HAMPEL_WINDOW]))
     cg.add(var.set_hampel_threshold(config[CONF_HAMPEL_THRESHOLD]))
-    
-    # Configure Normalization
-    cg.add(var.set_normalization_enabled(config[CONF_NORMALIZATION_ENABLED]))
-    cg.add(var.set_normalization_target(config[CONF_NORMALIZATION_TARGET]))
     
     # Register sensors (required, always present)
     sens = await sensor.new_sensor(config[CONF_MOVEMENT_SENSOR])

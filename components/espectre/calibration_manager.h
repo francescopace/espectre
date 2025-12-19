@@ -37,9 +37,6 @@ class CSIManager;
  * 
  * Uses adaptive baseline detection and spectral spacing for robust selection.
  */
-// Default target mean amplitude for normalization (common reference scale)
-// Optimized value: 28 balances F1 (93%) with low FP (~1%) when combined with low-pass filter
-constexpr float NORMALIZATION_TARGET_MEAN_DEFAULT = 28.0f;
 
 class CalibrationManager {
  public:
@@ -103,11 +100,17 @@ class CalibrationManager {
   void set_alpha(float alpha) { alpha_ = alpha; }
   void set_min_spacing(uint8_t spacing) { min_spacing_ = spacing; }
   void set_noise_gate_percentile(uint8_t percentile) { noise_gate_percentile_ = percentile; }
-  void set_normalization_enabled(bool enabled) { normalization_enabled_ = enabled; }
-  void set_normalization_target(float target) { normalization_target_ = target; }
+  void set_skip_subcarrier_selection(bool skip) { skip_subcarrier_selection_ = skip; }
   void set_collection_complete_callback(collection_complete_callback_t callback) { 
     collection_complete_callback_ = callback; 
   }
+  
+  /**
+   * Get the baseline variance calculated during calibration
+   * 
+   * @return Baseline variance (only valid after calibration completes)
+   */
+  float get_baseline_variance() const { return baseline_variance_; }
   
  private:
   // Internal structures
@@ -126,7 +129,7 @@ class CalibrationManager {
   // Internal methods
   void on_collection_complete_();
   esp_err_t run_calibration_();
-  esp_err_t find_baseline_window_(uint16_t* out_window_start);
+  esp_err_t find_baseline_window_(uint16_t* out_window_start, float* out_baseline_variance);
   void calculate_nbvi_metrics_(uint16_t baseline_start, std::vector<NBVIMetrics>& metrics);
   uint8_t apply_noise_gate_(std::vector<NBVIMetrics>& metrics);
   void select_with_spacing_(const std::vector<NBVIMetrics>& sorted_metrics,
@@ -158,15 +161,14 @@ class CalibrationManager {
   const char* buffer_path_{"/spiffs/nbvi_buffer.bin"};
   
   // Configuration parameters
-  uint16_t buffer_size_{1000};        // Number of packets to collect
-  uint16_t window_size_{100};        // Window size for baseline detection
+  uint16_t buffer_size_{700};         // Number of packets to collect (~7 seconds at 100 Hz)
+  uint16_t window_size_{200};        // Window size for baseline detection (2s @ 100Hz)
   uint16_t window_step_{50};         // Step size for sliding window
   uint8_t percentile_{10};           // Percentile for baseline detection
-  float alpha_{0.3f};                // NBVI weighting factor
-  uint8_t min_spacing_{2};           // Minimum spectral spacing
+  float alpha_{0.5f};                // NBVI weighting factor (higher = more weight on signal strength)
+  uint8_t min_spacing_{1};           // Minimum spectral spacing (1 = adjacent allowed)
   uint8_t noise_gate_percentile_{10}; // Noise gate threshold
-  bool normalization_enabled_{true};   // Enable/disable auto-normalization
-  float normalization_target_{NORMALIZATION_TARGET_MEAN_DEFAULT}; // Target mean amplitude
+  bool skip_subcarrier_selection_{false}; // Skip NBVI, only calculate baseline
   
   // Current calibration context
   std::vector<uint8_t> current_band_;
@@ -176,19 +178,27 @@ class CalibrationManager {
   uint8_t selected_band_[12];
   uint8_t selected_band_size_{0};
   float normalization_scale_{1.0f};  // Calculated normalization factor
+  float baseline_variance_{1.0f};    // Baseline variance for normalization
   
   // Constants
   static constexpr uint8_t NUM_SUBCARRIERS = 64;
   static constexpr uint8_t SELECTED_SUBCARRIERS_COUNT = 12;
   
-  // OFDM 20MHz guard band limits - these subcarriers should always be excluded
-  // [0-5] and [59-63] are guard bands, [32] is DC null
-  static constexpr uint8_t GUARD_BAND_LOW = 6;   // First valid subcarrier
-  static constexpr uint8_t GUARD_BAND_HIGH = 58; // Last valid subcarrier
+  // OFDM 20MHz subcarrier limits for NBVI selection
+  // Standard guard bands: [0-5] and [59-63], DC null: [32]
+  // We use a more conservative range [11-52] to avoid edge subcarriers
+  // which tend to be noisier and cause false positives
+  static constexpr uint8_t GUARD_BAND_LOW = 11;  // First valid subcarrier (conservative)
+  static constexpr uint8_t GUARD_BAND_HIGH = 52; // Last valid subcarrier (conservative)
   static constexpr uint8_t DC_SUBCARRIER = 32;   // DC null (always excluded)
   
   // Threshold for null subcarrier detection (mean amplitude below this = null)
   static constexpr float NULL_SUBCARRIER_THRESHOLD = 1.0f;
+  
+  // Helper methods
+  float calculate_baseline_variance_(uint16_t baseline_start);
+  void calculate_normalization_scale_();
+  void log_normalization_status_();
 };
 
 }  // namespace espectre

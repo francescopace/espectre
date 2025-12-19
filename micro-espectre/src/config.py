@@ -28,18 +28,18 @@ CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until pro
 #SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 # CSI Amplitude Normalization
-# Automatically calculated during NBVI calibration to normalize amplitudes across devices
-ENABLE_NORMALIZATION = False    # Enable/disable auto-normalization (default: False)
-NORMALIZATION_TARGET = 28.0    # Target mean amplitude for normalization (10-100, default: 28)
+# Automatically calculated during NBVI calibration
+# If baseline > 0.25: scale = 0.25 / baseline_variance (attenuate)
+# If baseline <= 0.25: scale = 1.0 (no amplification, prevents extreme values)
 NORMALIZATION_SCALE = 1.0      # Current scale (calculated during calibration, default: 1.0)
 
 # NBVI Auto-Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
-NBVI_BUFFER_SIZE = 1000       # Packets to collect for calibration (10s @ 100Hz)
-NBVI_WINDOW_SIZE = 100        # Window size for baseline detection (1s @ 100Hz)
+NBVI_BUFFER_SIZE = 700        # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
+NBVI_WINDOW_SIZE = 200        # Window size for baseline detection (2s @ 100Hz)
 NBVI_WINDOW_STEP = 50         # Step size for sliding window analysis
 NBVI_PERCENTILE = 10          # Percentile for baseline detection (10 = p10)
-NBVI_ALPHA = 0.3              # NBVI weighting factor (0.3 = optimal)
-NBVI_MIN_SPACING = 2          # Minimum spacing between subcarriers (Δf≥2)
+NBVI_ALPHA = 0.5              # NBVI weighting factor (0.5 = balanced)
+NBVI_MIN_SPACING = 1          # Minimum spacing between subcarriers (1 = adjacent allowed)
 NBVI_NOISE_GATE_PERCENTILE = 10  # Exclude weak subcarriers below this percentile
 
 # Segmentation Window and Threshold

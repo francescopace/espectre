@@ -16,10 +16,9 @@ import os
 NUM_SUBCARRIERS = 64
 BUFFER_FILE = '/nbvi_buffer.bin'
 
-# Default target mean amplitude for normalization (common reference scale)
-# Optimized with 60s noisy baseline + LowPass 11Hz filter:
-# TARGET=28 → Scale≈1.06, FP=2.3%, Recall=92.4%, F1=88.9%
-NORMALIZATION_TARGET_MEAN_DEFAULT = 28.0
+# Normalization target: if baseline > 0.25, attenuate to reach this value
+# If baseline <= 0.25, no scaling is applied (prevents over-amplification)
+NORMALIZATION_BASELINE_TARGET = 0.25
 
 # Threshold for null subcarrier detection (mean amplitude below this = null)
 # This is environment-aware: works with any chip and adapts to local RF conditions
@@ -27,8 +26,8 @@ NULL_SUBCARRIER_THRESHOLD = 1.0
 
 # OFDM 20MHz guard band limits - these subcarriers should always be excluded
 # [0-5] and [59-63] are guard bands, [32] is DC null
-GUARD_BAND_LOW = 6    # First valid subcarrier
-GUARD_BAND_HIGH = 58  # Last valid subcarrier
+GUARD_BAND_LOW = 11   # First valid subcarrier (conservative, excludes edge noise)
+GUARD_BAND_HIGH = 52  # Last valid subcarrier (conservative, excludes edge noise)
 DC_SUBCARRIER = 32    # DC null (always excluded)
 
 
@@ -55,26 +54,26 @@ class NBVICalibrator:
     Automatic NBVI calibrator with percentile-based baseline detection
     
     Collects CSI packets at boot and automatically selects optimal subcarriers
-    using NBVI Weighted α=0.3 algorithm with percentile-based detection.
+    using NBVI Weighted α=0.5 algorithm with percentile-based detection.
     
     Uses file-based storage to avoid RAM limitations. Magnitudes stored as
     uint8 (max CSI magnitude ~181 fits in 1 byte). This allows collecting
     thousands of packets without memory issues.
+    
+    Normalization is always enabled: attenuates baseline if > 0.25, otherwise
+    no scaling is applied to prevent over-amplification of weak signals.
     """
     
-    def __init__(self, buffer_size=1000, percentile=10, alpha=0.3, min_spacing=2, chip_type=None,
-                 normalization_enabled=True, normalization_target=None):
+    def __init__(self, buffer_size=700, percentile=10, alpha=0.5, min_spacing=1, chip_type=None):
         """
         Initialize NBVI calibrator
         
         Args:
-            buffer_size: Number of packets to collect (default: 1000)
+            buffer_size: Number of packets to collect (default: 700)
             percentile: Percentile for baseline detection (default: 10)
-            alpha: NBVI weighting factor (default: 0.3)
-            min_spacing: Minimum spacing between subcarriers (default: 2)
+            alpha: NBVI weighting factor (default: 0.5)
+            min_spacing: Minimum spacing between subcarriers (default: 1)
             chip_type: Ignored (kept for backward compatibility)
-            normalization_enabled: Enable/disable auto-normalization (default: True)
-            normalization_target: Target mean amplitude (default: NORMALIZATION_TARGET_MEAN_DEFAULT)
         """
         self.buffer_size = buffer_size
         self.percentile = percentile
@@ -82,10 +81,9 @@ class NBVICalibrator:
         self.min_spacing = min_spacing
         self.noise_gate_percentile = 10
         self.chip_type = chip_type  # Kept for backward compatibility
-        self.normalization_enabled = normalization_enabled
-        self.normalization_target = normalization_target if normalization_target is not None else NORMALIZATION_TARGET_MEAN_DEFAULT
         self._packet_count = 0
         self._file = None
+        self._baseline_variance = 1.0  # Stored for normalization calculation
         
         # Remove old buffer file if exists
         try:
@@ -191,6 +189,42 @@ class NBVICalibrator:
         
         return variance
     
+    def _calculate_baseline_variance(self, baseline_window, selected_band):
+        """
+        Recalculate baseline variance using the SELECTED subcarriers.
+        
+        This is called after NBVI selection to get accurate variance for the actual band used.
+        The initial baseline_variance was calculated with current_band (default [11-22]),
+        but NBVI may select different subcarriers, so we need to recalculate.
+        
+        Args:
+            baseline_window: List of packet magnitudes from the baseline window
+            selected_band: List of selected subcarrier indices from NBVI
+        
+        Returns:
+            float: Recalculated baseline variance for the selected band
+        """
+        if not baseline_window or not selected_band:
+            return 0.0
+        
+        # Calculate spatial turbulence for each packet using the SELECTED subcarriers
+        turbulences = []
+        for packet_mags in baseline_window:
+            # Extract magnitudes for selected band
+            band_mags = [packet_mags[sc] for sc in selected_band if sc < len(packet_mags)]
+            if band_mags:
+                # Spatial turbulence = std of subcarrier magnitudes
+                mean_mag = sum(band_mags) / len(band_mags)
+                variance = sum((m - mean_mag) ** 2 for m in band_mags) / len(band_mags)
+                std = math.sqrt(variance) if variance > 0 else 0.0
+                turbulences.append(std)
+        
+        # Calculate variance of turbulence (moving variance)
+        if turbulences:
+            return self._calculate_variance_two_pass(turbulences)
+        
+        return 0.0
+    
     def _find_baseline_window_percentile(self, current_band, window_size=100, step=50):
         """
         Find baseline window using percentile-based detection
@@ -293,9 +327,9 @@ class NBVICalibrator:
     
     def _calculate_nbvi_weighted(self, magnitudes):
         """
-        Calculate NBVI Weighted α=0.3
+        Calculate NBVI Weighted (configurable alpha, default 0.5)
         
-        NBVI = 0.3 × (σ/μ²) + 0.7 × (σ/μ)
+        NBVI = α × (σ/μ²) + (1-α) × (σ/μ)
         
         Args:
             magnitudes: List of magnitude values for a subcarrier
@@ -315,7 +349,7 @@ class NBVICalibrator:
         variance = sum((m - mean) ** 2 for m in magnitudes) / len(magnitudes)
         std = math.sqrt(variance) if variance > 0 else 0.0
         
-        # NBVI Weighted α=0.3
+        # NBVI Weighted (configurable alpha)
         cv = std / mean
         nbvi_energy = std / (mean * mean)
         nbvi_weighted = self.alpha * nbvi_energy + (1 - self.alpha) * cv
@@ -398,7 +432,7 @@ class NBVICalibrator:
     
     def calibrate(self, current_band, window_size=None, step=None):
         """
-        Calibrate using NBVI Weighted α=0.3 with percentile-based detection
+        Calibrate using NBVI Weighted with percentile-based detection
         
         Args:
             current_band: Current subcarrier band (for baseline detection)
@@ -482,23 +516,34 @@ class NBVICalibrator:
         avg_nbvi = sum(m['nbvi'] for m in selected_metrics) / len(selected_metrics)
         avg_mean = sum(m['mean'] for m in selected_metrics) / len(selected_metrics)
         
-        # Calculate normalization scale to bring all devices to a common scale
-        # This compensates for different CSI amplitude ranges across ESP32 variants
-        if self.normalization_enabled and avg_mean > 1.0:
-            normalization_scale = self.normalization_target / avg_mean
-            # Clamp to reasonable range
-            normalization_scale = max(0.1, min(10.0, normalization_scale))
+        # Step 6: Calculate baseline variance using the SELECTED subcarriers
+        # This is the ONLY variance used for normalization
+        # (find_baseline_window used current_band just to identify the quietest window)
+        baseline_variance = self._calculate_baseline_variance(baseline_window, selected_band)
+        if baseline_variance < 0.01:
+            baseline_variance = 1.0  # Fallback
+        self._baseline_variance = baseline_variance
+        
+        # Normalize only if baseline variance is ABOVE target (0.25)
+        # If baseline <= 0.25, no scaling needed (already in good range)
+        # If baseline > 0.25, attenuate to bring it down to 0.25
+        # This prevents over-amplification of weak signals
+        if baseline_variance > NORMALIZATION_BASELINE_TARGET:
+            # Baseline too high - attenuate to reach 0.25
+            normalization_scale = NORMALIZATION_BASELINE_TARGET / baseline_variance
+            # Clamp to min 0.1 to avoid extreme attenuation
+            if normalization_scale < 0.1:
+                normalization_scale = 0.1
         else:
+            # Baseline already at or below target - no scaling
             normalization_scale = 1.0
         
         print(f"NBVI: Calibration successful")
         print(f"  Band: {selected_band}")
         print(f"  Avg NBVI: {avg_nbvi:.6f}")
         print(f"  Avg magnitude: {avg_mean:.2f}")
-        if self.normalization_enabled:
-            print(f"  Normalization scale: {normalization_scale:.3f} (target: {self.normalization_target:.0f})")
-        else:
-            print(f"  Normalization: disabled (scale: 1.0)")
+        print(f"  Baseline variance: {baseline_variance:.4f}")
+        print(f"  Normalization scale: {normalization_scale:.4f}")
         
         return selected_band, normalization_scale
     

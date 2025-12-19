@@ -160,14 +160,20 @@ ESPectre uses a focused processing pipeline for motion detection:
        │
        ▼
 ┌─────────────┐
-│    Auto     │  Automatic subcarrier selection (once at boot)
-│ Calibration │  Selects optimal 12 subcarriers
+│  Gain Lock  │  AGC/FFT stabilization (~3 seconds)
+│             │  Locks hardware gain for stable measurements
 └──────┬──────┘
        │
        ▼
 ┌─────────────┐
-│Normalization│  Auto-scaling for cross-device consistency
-│             │  (optional, enabled by default)
+│    Auto     │  Automatic subcarrier selection (once at boot)
+│ Calibration │  Selects optimal 12 subcarriers via NBVI
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│Normalization│  Attenuate if baseline > 0.25 (always enabled)
+│             │  Prevents extreme motion values
 └──────┬──────┘
        │
        ▼
@@ -220,7 +226,7 @@ Each sensor is automatically discovered by Home Assistant with:
 
 ### Automatic Subcarrier Selection
 
-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving near-optimal performance (F1=97.6%) with **zero manual configuration**.
+ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving near-optimal performance (F1=98.2%) with **zero manual configuration**.
 
 > ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
 

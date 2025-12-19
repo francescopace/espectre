@@ -7,6 +7,7 @@
 
 #include "csi_manager.h"
 #include "calibration_manager.h"
+#include "gain_controller.h"
 #include "esphome/core/log.h"
 #include "esp_timer.h"
 #include "esp_attr.h"  // For IRAM_ATTR
@@ -43,6 +44,11 @@ void CSIManager::init(csi_processor_context_t* processor,
   // Configure Hampel filter
   hampel_turbulence_init(&processor_->hampel_state, hampel_window, hampel_threshold, hampel_enabled);
   
+  // Initialize gain controller for AGC/FFT locking
+  // Gain lock happens BEFORE NBVI calibration (300 packets, ~3 seconds)
+  // This ensures NBVI calibration has clean data with stable gain
+  gain_controller_.init(300);
+  
   ESP_LOGD(TAG, "CSI Manager initialized (threshold: %.2f, window: %d, lowpass: %s@%.1fHz, hampel: %s@%d)",
            segmentation_threshold, segmentation_window_size, 
            lowpass_enabled ? "ON" : "OFF", lowpass_cutoff,
@@ -74,6 +80,14 @@ void CSIManager::process_packet(wifi_csi_info_t* data,
     return;
   }
   
+  // Process gain calibration (collects packets, then locks AGC/FFT)
+  // During gain lock phase, we DISCARD packets (don't pass to NBVI)
+  // This ensures NBVI calibration only sees data with stable gain
+  if (!gain_controller_.is_locked()) {
+    gain_controller_.process_packet(data);
+    return;  // Discard packet during gain lock phase
+  }
+  
   // If calibration is in progress, delegate to calibration manager
   if (calibrator_ != nullptr && calibrator_->is_calibrating()) {
     calibrator_->add_packet(csi_data, csi_len);
@@ -92,6 +106,21 @@ void CSIManager::process_packet(wifi_csi_info_t* data,
     // Calculate variance and update state (lazy evaluation - only at publish time)
     csi_processor_update_state(processor_);
     motion_state = csi_processor_get_state(processor_);
+    
+    // Debug: verify gain values are still locked (check every publish cycle)
+#if ESPECTRE_GAIN_LOCK_SUPPORTED
+    {
+      const wifi_pkt_rx_ctrl_phy_t* phy_info = reinterpret_cast<const wifi_pkt_rx_ctrl_phy_t*>(data);
+      uint8_t current_agc = phy_info->agc_gain;
+      uint8_t current_fft = phy_info->fft_gain;
+      uint8_t locked_agc = gain_controller_.get_agc_gain();
+      uint8_t locked_fft = gain_controller_.get_fft_gain();
+      if (current_agc != locked_agc || current_fft != locked_fft) {
+        ESP_LOGW(TAG, "Gain drift detected! AGC: %d→%d, FFT: %d→%d", 
+                 locked_agc, current_agc, locked_fft, current_fft);
+      }
+    }
+#endif
     
     if (packet_callback_) {
       packet_callback_(motion_state);
@@ -201,8 +230,8 @@ esp_err_t CSIManager::configure_platform_specific_() {
     .stbc_htltf2_en = false,        // Disabled for consistency
     .ltf_merge_en = false,          // No merge (only HT-LTF enabled)
     .channel_filter_en = false,     // Raw subcarriers
-    .manu_scale = false,            // Manual scaling
-    .shift = 0,                     // Shift=4 → values/16
+    .manu_scale = true,             // Manual scaling
+    .shift = 4,                     // Shift=4 → values/16
   };
 #endif
   

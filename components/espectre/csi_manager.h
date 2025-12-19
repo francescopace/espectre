@@ -15,6 +15,7 @@
 #include "esp_attr.h"  // For IRAM_ATTR
 #include "csi_processor.h"
 #include "wifi_csi_interface.h"
+#include "gain_controller.h"
 #include <functional>
 
 namespace esphome {
@@ -116,6 +117,31 @@ class CSIManager {
    */
   bool is_enabled() const { return enabled_; }
   
+  /**
+   * Check if gain is locked
+   * 
+   * @return true if gain calibration is complete
+   */
+  bool is_gain_locked() const { return gain_controller_.is_locked(); }
+  
+  /**
+   * Get the gain controller (for status reporting)
+   * 
+   * @return Reference to gain controller
+   */
+  const GainController& get_gain_controller() const { return gain_controller_; }
+  
+  /**
+   * Set callback for when gain lock completes
+   * 
+   * Use this to trigger NBVI calibration after gain is locked.
+   * 
+   * @param callback Function to call when gain is locked
+   */
+  void set_gain_lock_callback(GainController::lock_complete_callback_t callback) {
+    gain_controller_.set_lock_complete_callback(callback);
+  }
+  
  private:
   // Static wrapper for ESP-IDF C callback
   // IRAM_ATTR: Keep in IRAM for consistent low-latency execution from ISR context
@@ -132,6 +158,9 @@ class CSIManager {
   // WiFi CSI interface (injected or default real implementation)
   IWiFiCSI* wifi_csi_{nullptr};
   WiFiCSIReal default_wifi_csi_;
+  
+  // Gain controller for AGC/FFT locking
+  GainController gain_controller_;
   
   static constexpr uint8_t NUM_SUBCARRIERS = 12;
   

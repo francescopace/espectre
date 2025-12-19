@@ -8,6 +8,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 
 - [Overview](#overview)
 - [Processing Pipeline](#processing-pipeline)
+- [Gain Lock (Hardware Stabilization)](#gain-lock-hardware-stabilization)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
 - [NBVI: Automatic Subcarrier Selection](#nbvi-automatic-subcarrier-selection)
 - [Low-Pass Filter](#low-pass-filter)
@@ -54,29 +55,132 @@ When a person moves in an environment, they alter multipath reflections, change 
 │                           CSI PROCESSING PIPELINE                                  │
 ├───────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                   │
-│  ┌──────────┐    ┌──────────────┐    ┌─────────────┐    ┌──────────────────────┐  │
-│  │ CSI Data │───▶│ NBVI Select  │───▶│ Turbulence  │───▶│ Normalize + Filter   │  │
-│  │ 64 subcs │    │ 12 subcs     │    │ σ(amps)     │    │ LowPass + Hampel     │  │
-│  └──────────┘    └──────────────┘    └─────────────┘    └──────────┬───────────┘  │
-│                   (one-time)                                       │              │
-│                                                                    ▼              │
-│                  ┌───────────┐    ┌───────────────┐    ┌─────────────────┐        │
-│                  │ IDLE or   │◀───│ Threshold     │◀───│ Moving Variance │        │
-│                  │ MOTION    │    │ Comparison    │    │ (window=50)     │        │
-│                  └───────────┘    └───────────────┘    └─────────────────┘        │
+│  ┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌─────────────┐              │
+│  │ CSI Data │───▶│Gain Lock │───▶│ NBVI Select  │───▶│ Turbulence  │              │
+│  │ 64 subcs │    │ AGC/FFT  │    │ 12 subcs     │    │ σ(amps)     │              │
+│  └──────────┘    └──────────┘    └──────────────┘    └──────┬──────┘              │
+│                  (3s, 300 pkt)    (7s, 700 pkt)             │                     │
+│                                                             ▼                     │
+│  ┌───────────┐    ┌───────────────┐    ┌─────────────────┐  ┌──────────────────┐  │
+│  │ IDLE or   │◀───│ Threshold     │◀───│ Moving Variance │◀─│ Normalize+Filter │  │
+│  │ MOTION    │    │ Comparison    │    │ (window=50)     │  │ LowPass + Hampel │  │
+│  └───────────┘    └───────────────┘    └─────────────────┘  └──────────────────┘  │
 │                                                                                   │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Data flow per packet:**
+**Calibration sequence (at boot):**
+1. **Gain Lock** (3s, 300 packets): Collect AGC/FFT, lock values
+2. **NBVI Calibration** (7s, 700 packets): Select 12 optimal subcarriers, calculate baseline variance
+
+**Data flow per packet (after calibration):**
 1. **CSI Data**: Raw I/Q values for 64 subcarriers (128 int8 values)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
 3. **Spatial Turbulence**: `σ = std(amplitudes)` - variability across subcarriers
-4. **Normalization**: Scale turbulence by normalization factor (from NBVI calibration)
+4. **Normalization**: If baseline > 0.25, attenuate by `0.25/baseline_variance`; otherwise no scaling
 5. **Hampel Filter**: Remove outliers using MAD (optional, disabled by default)
 6. **Low-Pass Filter**: Remove high-frequency noise (Butterworth 1st order, 11 Hz cutoff)
 7. **Moving Variance**: `Var(turbulence)` over sliding window
 8. **State Machine**: Compare variance to threshold → IDLE or MOTION
+
+---
+
+## Gain Lock (Hardware Stabilization)
+
+### Overview
+
+**Gain Lock** is a hardware-level optimization that stabilizes CSI amplitude measurements by locking the ESP32's automatic gain control (AGC) and FFT scaling. This technique is based on [Espressif's esp-csi recommendations](https://github.com/espressif/esp-csi).
+
+### The Problem
+
+The ESP32 WiFi hardware includes automatic gain control (AGC) that dynamically adjusts signal amplification based on received signal strength. While this improves data decoding reliability, it creates a problem for CSI sensing:
+
+| Without Gain Lock | With Gain Lock |
+|-------------------|----------------|
+| AGC varies dynamically | AGC fixed to calibrated value |
+| CSI amplitudes oscillate ±20-30% | Amplitudes stable |
+| Baseline appears "noisy" | Baseline flat |
+| Potential false positives | Cleaner detection |
+
+### How It Works
+
+The gain lock happens in a **dedicated phase BEFORE NBVI calibration** to ensure clean data:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                    TWO-PHASE CALIBRATION                              │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  PHASE 1: GAIN LOCK (~3 seconds, 300 packets)                        │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │
+│  │  Read PHY   │───▶│  Accumulate │───▶│  Calculate  │              │
+│  │  agc_gain   │    │  agc_sum    │    │  Average    │              │
+│  │  fft_gain   │    │  fft_sum    │    │             │              │
+│  └─────────────┘    └─────────────┘    └──────┬──────┘              │
+│                                               │                      │
+│  Packet 300:                                  ▼                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  phy_fft_scale_force(true, avg_fft)                          │   │
+│  │  phy_force_rx_gain(true, avg_agc)                            │   │
+│  │  → AGC/FFT now LOCKED                                        │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                           │                                          │
+│                           ▼                                          │
+│  PHASE 2: NBVI CALIBRATION (~7 seconds, 700 packets)                │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  Now all packets have stable gain!                           │   │
+│  │  → Baseline variance calculated on clean data                │   │
+│  │  → Subcarrier selection more accurate                        │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Why two phases?** Separating gain lock from NBVI calibration ensures:
+- NBVI only sees data with **stable, locked gain**
+- Baseline variance is **accurate** (not inflated by AGC variations)
+- Normalization works correctly (attenuates only when baseline > 0.25)
+- Total time: ~10 seconds (3s gain lock + 7s NBVI)
+
+### Implementation
+
+The gain lock uses undocumented PHY functions available on newer ESP32 variants:
+
+```c
+// External PHY functions (from ESP-IDF PHY blob)
+extern void phy_fft_scale_force(bool force_en, uint8_t force_value);
+extern void phy_force_rx_gain(int force_en, int force_value);
+
+// Calibration logic (300 packets, ~3 seconds)
+if (packet_count < 300) {
+    agc_sum += phy_info->agc_gain;
+    fft_sum += phy_info->fft_gain;
+} else if (packet_count == 300) {
+    phy_fft_scale_force(true, fft_sum / 300);
+    phy_force_rx_gain(true, agc_sum / 300);
+    // Gain is now locked, trigger NBVI calibration
+    on_gain_locked_callback();
+}
+```
+
+### Platform Support
+
+| Platform | Gain Lock | Notes |
+|----------|-----------|-------|
+| ESP32-S3 | Supported | Full AGC/FFT control |
+| ESP32-C3 | Supported | Full AGC/FFT control |
+| ESP32-C5 | Supported | Full AGC/FFT control |
+| ESP32-C6 | Supported | Full AGC/FFT control |
+| ESP32 (original) | Not available | PHY functions not exposed |
+| ESP32-S2 | Not available | PHY functions not exposed |
+
+On unsupported platforms, ESPectre skips the gain lock process without affecting functionality. Motion detection still works, but may have slightly higher baseline variance.
+
+### Configuration
+
+Gain lock is **always enabled** on supported platforms with no configuration required. It operates transparently during the first ~3 seconds after boot (300 packets at 100 Hz), followed by NBVI calibration (~7 seconds, 700 packets).
+
+**Reference**: [Espressif esp-csi example](https://github.com/espressif/esp-csi/blob/master/examples/get-started/csi_recv_router/main/app_main.c)
 
 ---
 
@@ -121,8 +225,10 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 | Parameter | Default | Range | Effect |
 |-----------|---------|-------|--------|
-| `threshold` | 1.0 | 0.5-10.0 | Lower = more sensitive |
+| `threshold` | 1.0 | 0.5-10.0 | With normalization: "Nx baseline noise" |
 | `window_size` | 50 | 10-200 | Larger = smoother, slower response |
+
+**Note**: Normalization is always enabled. Threshold 1.0 means "4× baseline noise" consistently across all ESP32 variants.
 
 ### Performance
 
@@ -136,7 +242,7 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 ### Overview
 
-**NBVI (Normalized Baseline Variability Index)** is an algorithm for automatic subcarrier selection, achieving **F1=97.6%** with **zero manual configuration**. It was developed as part of ESPectre and represents a key scientific contribution.
+**NBVI (Normalized Baseline Variability Index)** is an algorithm for automatic subcarrier selection, achieving **F1=98.2%** with **zero manual configuration**. It was developed as part of ESPectre and represents a key scientific contribution.
 
 ![Subcarrier Analysis](../images/subcarriers_constellation_diagram.png)
 *I/Q constellation diagrams showing the geometric representation of WiFi signal propagation in the complex plane. The baseline (idle) state exhibits a stable, compact pattern, while movement introduces entropic 
@@ -155,13 +261,15 @@ WiFi CSI provides 64 subcarriers, but not all are equally useful for motion dete
 ### The Solution: NBVI Formula
 
 ```
-NBVI = 0.3 × (σ/μ²) + 0.7 × (σ/μ)
+NBVI = α × (σ/μ²) + (1-α) × (σ/μ)
 ```
+
+**Default: α = 0.5**
 
 **Components**:
 - **σ/μ²** (Energy normalization): Penalizes weak subcarriers (small μ)
 - **σ/μ** (Coefficient of Variation): Rewards stability (small σ relative to μ)
-- **0.3/0.7**: Optimal weighting validated empirically
+- **α = 0.5**: Balanced weighting between signal strength and stability
 
 **Interpretation**: Lower NBVI = Better subcarrier (strong + stable signal)
 
@@ -184,7 +292,7 @@ Instead of using fixed thresholds, NBVI uses percentile analysis to find the qui
 
 ```python
 # Analyze sliding windows
-for window in sliding_windows(buffer, size=100, step=50):
+for window in sliding_windows(buffer, size=200, step=50):
     variances.append(calculate_variance(window))
 
 # Find quietest windows (adaptive threshold)
@@ -217,11 +325,13 @@ valid_subcarriers = [i for i in range(64) if mean[i] > magnitude_threshold]
 
 **Problem**: Adjacent subcarriers are correlated due to OFDM mechanism.
 
-**Solution**: Hybrid spacing strategy:
+**Solution**: Hybrid spacing strategy with minimum spacing Δf≥1:
 - **Top 5**: Always include (absolute priority by NBVI score)
-- **Remaining 7**: Select with minimum spacing Δf≥2
+- **Remaining 7**: Select with minimum spacing constraint
 
-This balances quality (NBVI score) with diversity (spectral separation).
+**Default: min_spacing = 1** (adjacent subcarriers allowed)
+
+This allows selecting adjacent subcarriers when they have good NBVI scores, maximizing the use of high-quality subcarriers in the stable central band.
 
 **Reference**: [5] Subcarrier Selection for Indoor Localization - Spectral de-correlation and feature diversity
 
@@ -229,7 +339,7 @@ This balances quality (NBVI score) with diversity (spectral separation).
 
 ```python
 def nbvi_calibrate(csi_buffer, num_subcarriers=12):
-    # 1. Collect baseline data (1000 packets, ~10s @ 100Hz)
+    # 1. Collect baseline data (700 packets, ~7s @ 100Hz after gain lock)
     magnitudes = calculate_magnitudes(csi_buffer)
     
     # 2. Find quietest window using percentile
@@ -237,11 +347,11 @@ def nbvi_calibrate(csi_buffer, num_subcarriers=12):
     p10 = percentile(window_variances, 10)
     baseline_window = select_best_window(window_variances, p10)
     
-    # 3. Calculate NBVI for all 64 subcarriers
+    # 3. Calculate NBVI for all 64 subcarriers (α=0.5)
     for i in range(64):
         mean = np.mean(baseline_window[:, i])
         std = np.std(baseline_window[:, i])
-        nbvi[i] = 0.3 * (std / mean**2) + 0.7 * (std / mean)
+        nbvi[i] = 0.5 * (std / mean**2) + 0.5 * (std / mean)
     
     # 4. Apply noise gate (exclude weak subcarriers)
     threshold = percentile(means, 10)
@@ -254,9 +364,9 @@ def nbvi_calibrate(csi_buffer, num_subcarriers=12):
     # Top 5 always included
     selected = sorted_by_nbvi[:5]
     
-    # Remaining 7 with spacing >= 2
+    # Remaining 7 with spacing >= 1 (adjacent allowed)
     for candidate in sorted_by_nbvi[5:]:
-        if all(abs(candidate - s) >= 2 for s in selected):
+        if all(abs(candidate - s) >= 1 for s in selected):
             selected.append(candidate)
         if len(selected) == 12:
             break
@@ -269,12 +379,27 @@ def nbvi_calibrate(csi_buffer, num_subcarriers=12):
 ```python
 # Python (Micro-ESPectre)
 NBVICalibrator(
-    buffer_size=1000,      # 10s @ 100Hz
+    buffer_size=700,       # 7s @ 100Hz (after 3s gain lock)
     percentile=10,         # 10th percentile for baseline
-    alpha=0.3,             # NBVI weighting factor
-    min_spacing=2          # Minimum subcarrier spacing
+    alpha=0.5,             # NBVI weighting factor (balanced)
+    min_spacing=1          # Minimum subcarrier spacing (adjacent allowed)
 )
 ```
+
+### NBVI Parameters
+
+| Parameter | Default | Range | Effect |
+|-----------|---------|-------|--------|
+| `buffer_size` | 700 | 500-1000 | Packets for calibration (~7s at 100Hz) |
+| `window_size` | 200 | 50-200 | Sliding window for baseline detection (2s @ 100Hz) |
+| `percentile` | 10 | 5-20 | Percentile for quietest window selection |
+| `alpha` | 0.5 | 0.0-1.0 | Higher = more weight on signal strength |
+| `min_spacing` | 1 | 1-3 | Minimum gap between subcarriers (1=adjacent OK) |
+
+**Tuning notes:**
+- **alpha = 0.5**: Balanced between signal strength (σ/μ²) and stability (σ/μ)
+- **min_spacing = 1**: Allows adjacent subcarriers, maximizing quality selection
+- These defaults work well for most environments; rarely need adjustment
 
 ---
 

@@ -4,90 +4,89 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.2.0] - in progress
+## [2.2.0] - 2025-12-19
 
-### New Features
+### Gain Lock (AGC/FFT Stabilization)
 
-#### Low-Pass Filter for Noise Reduction
-New 1st order Butterworth IIR low-pass filter to reduce high-frequency RF noise.
+Automatic gain control locking for stable CSI measurements, based on [Espressif esp-csi](https://github.com/espressif/esp-csi) recommendations.
 
-- **Disabled by default** with 11 Hz cutoff frequency when enabled
-- Implemented in both C++ (ESPHome) and Python (Micro-ESPectre)
-- Configurable via YAML: `lowpass_enabled`, `lowpass_cutoff` (5-20 Hz)
-- Significantly reduces false positives in noisy environments (51% → 2%)
-- Maintains >90% recall with proper tuning
+- **Two-phase calibration**: Gain Lock (3s, 300 pkt) → NBVI (7s, 700 pkt)
+- Gain lock happens BEFORE NBVI calibration to ensure clean data
+- Eliminates amplitude variations caused by automatic gain control
+- Supported on ESP32-S3, C3, C5, C6 (not available on ESP32, S2)
+- New files: `gain_controller.h`, `gain_controller.cpp`
 
-Processing pipeline order: Normalization → Hampel → **Low-Pass** → Turbulence Buffer
+### Baseline Variance Normalization
 
-#### CSI Amplitude Auto-Normalization
-Different ESP32 variants (S3, C6, etc.) produce CSI data with different amplitude ranges. This release introduces **automatic normalization** during calibration to ensure consistent motion detection across all devices.
+Automatic attenuation for consistent thresholds across devices and environments.
 
-- **Disabled by default** with normalization target 28 when enabled
-- Automatic scale calculation during NBVI calibration
-- **Configurable via YAML**: `normalization_enabled`, `normalization_target`
-- Cross-device consistency without manual tuning
-- Persistent storage in NVS alongside calibration results
-- New API: `csi_processor_set/get_normalization_scale()`
-- Config version bump: `espectre_cfg_v2` → `espectre_cfg_v3`
+- **Always enabled** - no configuration needed
+- During calibration, calculates baseline variance using selected subcarriers
+- If baseline > 0.25: attenuate with `scale = 0.25 / baseline_variance`
+- If baseline ≤ 0.25: no scaling needed (scale = 1.0)
+- Prevents over-amplification of weak signals while taming strong ones
+- Removed `normalization_enabled` and `normalization_target` parameters
 
-#### Dynamic Null Subcarrier Detection
-Environment-aware null subcarrier detection during calibration.
+### Low-Pass Filter
 
-- Subcarriers with mean amplitude < 1.0 automatically marked as null
-- Removed hardcoded `HT20_NULL_SUBCARRIERS` and `WIFI6_NULL_SUBCARRIERS` lists
-- Works with any chip type and adapts to local RF conditions
+New 1st order Butterworth IIR filter to reduce high-frequency RF noise.
 
-#### ML Data Collection Infrastructure
-New tools for building labeled CSI datasets for machine learning (groundwork for 3.x features).
+- Cutoff frequency: 11 Hz (human movement: 0.5-10 Hz, RF noise: >15 Hz)
+- Reduces false positives in noisy environments (51% → 2%)
+- Disabled by default: enable with `lowpass_enabled: true`
+- Processing pipeline: Normalization → Hampel → **Low-Pass** → Buffer
 
-- **`me collect`**: New CLI subcommand for recording labeled CSI samples
-- **`.npz` format**: NumPy compressed files for ML-ready datasets
-- **`csi_utils.py`**: Unified module with `CSIReceiver`, `CSICollector`, `MVSDetector`
+### NBVI Improvements
 
-### Performance Improvements
+Optimized parameters and restricted search range for better subcarrier selection:
 
-#### Lazy Variance Evaluation
-Moving variance is now calculated only at publish time, not per-packet.
+| Parameter | Old | New | Effect |
+|-----------|-----|-----|--------|
+| `alpha` | 0.3 | 0.5 | Balanced weight between signal strength and stability |
+| `min_spacing` | 2 | 1 | Allow adjacent subcarriers for better quality selection |
+| `window_size` | 100 | 200 | Larger window (2s) for more stable baseline detection |
+| `GUARD_BAND_LOW` | 6 | 11 | Exclude noisy edge subcarriers |
+| `GUARD_BAND_HIGH` | 58 | 52 | Exclude noisy edge subcarriers |
 
-- **~99% CPU savings** for variance calculation
+Dynamic null subcarrier detection replaces hardcoded lists - adapts to local RF conditions.
+
+### Performance
+
+**Lazy Variance Evaluation**: Moving variance calculated only at publish time.
+- ~99% CPU savings for variance calculation
 - New API: `csi_processor_update_state()` (C++), `seg.update_state()` (Python)
-- Same detection accuracy and behavior
-- Variance calculated once per publish interval instead of 100x/second
+
+### Automatic sdkconfig
+
+The ESPHome component now auto-configures all required sdkconfig options:
+- `CONFIG_ESP_WIFI_CSI_ENABLED`, `CONFIG_PM_ENABLE`, AMPDU settings, buffer sizes, tick rate
+- YAML files only need platform-specific options (WiFi 6, CPU frequency, PSRAM)
+
+### ML Data Collection
+
+New infrastructure for building labeled CSI datasets (groundwork for 3.x):
+- `me collect` CLI subcommand for recording labeled samples
+- `.npz` format for ML-ready datasets
+- `csi_utils.py` module with `CSIReceiver`, `CSICollector`, `MVSDetector`
 
 ### Configuration Changes
 
-#### All Filters Disabled by Default
-All filters are now disabled by default for maximum simplicity. Enable them as needed.
+**Removed options** (now automatic):
+- `normalization_enabled`, `normalization_target`, manual sdkconfig options
 
-| Config | Default | Description |
-|--------|---------|-------------|
-| `lowpass_enabled` | `false` | Enable low-pass filter (11 Hz cutoff) |
-| `hampel_enabled` | `false` | Enable Hampel outlier filter |
-| `normalization_enabled` | `false` | Enable amplitude normalization |
+**Default values**: All filters disabled, normalization always active.
 
-**Why disabled?** MVS already achieves 0% FP and 98.1% Recall without any filters. Enable them only when needed:
-- **Low-pass**: Noisy RF environments with false positives
-- **Hampel**: High interference environments (industrial, microwave ovens, multiple APs)
-- **Normalization**: Multi-device deployments (S3, C6, etc.) requiring consistent behavior
+**Enhanced logging**: Movement logs now include WiFi channel and RSSI:
 
-### Testing
+```
+[I][espectre]: [######--|----] 43% | mvmt:0.43 thr:1.00 | IDLE | 101 pkt/s | ch:3 rssi:-47
+```
 
-#### Python Test Suite for Micro-ESPectre
-Comprehensive pytest test suite with CI integration. **184 tests passed**.
+### Testing & Documentation
 
-#### CI Integration
-- New `test-python` job runs pytest on every push/PR
-- Python coverage uploaded to Codecov with `flags: python`
-
-#### Code Cleanup
-- Removed 7 redundant test scripts from `tools/` (migrated to pytest)
-- Simplified analysis scripts (reduced ~40% LOC)
-- Moved `tools/data/` to `micro-espectre/data/`
-
-### Documentation
-
-#### New Documentation
-- **`micro-espectre/ALGORITHMS.md`**: Complete scientific documentation of MVS, NBVI, and Hampel filter algorithms
+- **324 pytest tests** with CI integration (`test-python` job)
+- Python coverage uploaded to Codecov
+- New `micro-espectre/ALGORITHMS.md` with scientific documentation of MVS, NBVI, Hampel filter
 
 ---
 
@@ -198,19 +197,19 @@ This release represents a major architectural shift from standalone ESP-IDF firm
 Micro-ESPectre is the research and development platform of the ESPectre project, designed for rapid prototyping, algorithmic experimentation, and academic/industrial research. It implements motion detection algorithms in pure Python, enabling fast iterations without compilation overhead.
 
 **Key Features:**
-- ⚡ **Instant Deploy**: ~5 seconds to update code (no compilation)
-- 🔧 **MQTT Integration**: Runtime configuration via MQTT commands
-- 🧬 **Auto Calibration Algorithm**: Automatic subcarrier selection (F1=97.6%)
-- 📊 **Analysis Tools**: Complete suite for CSI analysis and algorithm optimization
-- 🧮 **Feature Extraction**: Statistical features (variance, skewness, kurtosis, entropy, IQR)
-- 🎯 **Confidence Score**: Experimental motion detection confidence estimation
-- 💾 **NVS Persistence**: Persistent configuration on filesystem
+- **Instant Deploy**: ~5 seconds to update code (no compilation)
+- **MQTT Integration**: Runtime configuration via MQTT commands
+- **Auto Calibration Algorithm**: Automatic subcarrier selection (F1=97.6%)
+- **Analysis Tools**: Complete suite for CSI analysis and algorithm optimization
+- **Feature Extraction**: Statistical features (variance, skewness, kurtosis, entropy, IQR)
+- **Confidence Score**: Experimental motion detection confidence estimation
+- **NVS Persistence**: Persistent configuration on filesystem
 
 **Advanced Applications (ML/DL ready):**
-- 🔬 People counting
-- 🏃 Activity recognition (walking, falling, sitting, sleeping)
-- 📍 Localization and tracking
-- 👋 Gesture recognition
+- People counting
+- Activity recognition (walking, falling, sitting, sleeping)
+- Localization and tracking
+- Gesture recognition
 
 **Dependencies:** 
 - [`micropython-esp32-csi`](https://github.com/francescopace/micropython-esp32-csi) - Custom MicroPython fork with native CSI support for ESP32 family 

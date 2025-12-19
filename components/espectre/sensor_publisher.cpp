@@ -9,6 +9,7 @@
 #include "utils.h"
 #include "esphome/core/log.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
 
 namespace esphome {
 namespace espectre {
@@ -57,16 +58,25 @@ void SensorPublisher::log_status(const char *tag,
   }
   last_log_time_ms_ = now_ms;
   
+  // Get WiFi info for diagnostics
+  wifi_ap_record_t ap_info;
+  int8_t rssi = -127;
+  uint8_t channel = 0;
+  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+    rssi = ap_info.rssi;
+    channel = ap_info.primary;
+  }
+  
   // Calculate progress
   float progress = (threshold > 0) ? (moving_variance / threshold) : 0.0f;
   int percent = (int)(progress * 100);
   
-  // Log with progress bar and rate
+  // Log with progress bar, rate, and WiFi diagnostics
   log_progress_bar(tag, progress, 20, 15,
-                   "%d%% | mvmt:%.4f thr:%.4f | %s | %u pkt/s",
+                   "%d%% | mvmt:%.4f thr:%.4f | %s | %u pkt/s | ch:%d rssi:%d",
                    percent, moving_variance, threshold,
                    is_motion ? "MOTION" : "IDLE",
-                   rate_pps);
+                   rate_pps, channel, rssi);
 }
 
 }  // namespace espectre

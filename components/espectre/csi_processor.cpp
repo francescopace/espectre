@@ -399,9 +399,10 @@ void csi_processor_set_normalization_scale(csi_processor_context_t *ctx, float s
         return;
     }
     
-    // Clamp to reasonable range (0.1 to 10.0)
-    if (scale < 0.1f) scale = 0.1f;
-    if (scale > 10.0f) scale = 10.0f;
+    // Clamp to reasonable range (0.001 to 100.0)
+    // Scale can be very small when baseline variance is high (e.g., 1/50 = 0.02)
+    if (scale < 0.001f) scale = 0.001f;
+    if (scale > 100.0f) scale = 100.0f;
     
     ctx->normalization_scale = scale;
     ESP_LOGI(TAG, "Normalization scale updated: %.3f", scale);

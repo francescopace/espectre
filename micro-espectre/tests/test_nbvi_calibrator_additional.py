@@ -50,9 +50,7 @@ class TestNBVICalibrationFlow:
     def test_calibration_with_good_data(self):
         """Test calibration succeeds with good synthetic data"""
         calibrator = NBVICalibrator(
-            buffer_size=200,
-            normalization_enabled=True,
-            normalization_target=28.0
+            buffer_size=200
         )
         
         np.random.seed(42)
@@ -116,11 +114,10 @@ class TestNBVICalibrationFlow:
         
         calibrator.free_buffer()
     
-    def test_calibration_normalization_disabled(self):
-        """Test calibration with normalization disabled"""
+    def test_calibration_normalization_always_active(self):
+        """Test that normalization is always active (scale = 0.25 / baseline_variance)"""
         calibrator = NBVICalibrator(
-            buffer_size=200,
-            normalization_enabled=False
+            buffer_size=200
         )
         
         np.random.seed(42)
@@ -146,9 +143,10 @@ class TestNBVICalibrationFlow:
             step=25
         )
         
-        # Normalization scale should be 1.0 when disabled
+        # Normalization is always active, scale should be > 0 and within valid range
         if selected_band is not None:
-            assert norm_scale == 1.0
+            assert norm_scale > 0, "Normalization scale should be positive"
+            assert 0.01 <= norm_scale <= 100.0, f"Scale out of range: {norm_scale}"
         
         calibrator.free_buffer()
 

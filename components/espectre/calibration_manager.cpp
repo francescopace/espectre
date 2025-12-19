@@ -177,12 +177,30 @@ esp_err_t CalibrationManager::run_calibration_() {
   ESP_LOGV(TAG, "  Window size: %d packets", window_size_);
   ESP_LOGV(TAG, "  Step size: %d packets", window_step_);
   
-  // Step 1: Find baseline window
+  // Step 1: Find baseline window and its variance (always needed for normalization)
   uint16_t baseline_start;
-  esp_err_t err = find_baseline_window_(&baseline_start);
+  float baseline_variance = 1.0f;
+  esp_err_t err = find_baseline_window_(&baseline_start, &baseline_variance);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to find baseline window");
     return err;
+  }
+  
+  // If skipping subcarrier selection (user specified subcarriers), use variance as-is
+  if (skip_subcarrier_selection_) {
+    // Use the current band as-is (already set in current_band_)
+    selected_band_size_ = current_band_.size();
+    std::memcpy(selected_band_, current_band_.data(), selected_band_size_);
+    
+    // Variance was calculated with current_band_, which is correct for fixed subcarriers
+    baseline_variance_ = baseline_variance;
+    calculate_normalization_scale_();
+    
+    ESP_LOGI(TAG, "✓ Baseline calibration complete (fixed subcarriers)");
+    ESP_LOGD(TAG, "  Baseline variance: %.4f", baseline_variance_);
+    log_normalization_status_();
+    
+    return ESP_OK;
   }
   
   ESP_LOGV(TAG, "Using %d packets for calibration (starting at %d)",
@@ -215,6 +233,15 @@ esp_err_t CalibrationManager::run_calibration_() {
     return ESP_FAIL;
   }
   
+  // Step 6: Calculate baseline variance using the SELECTED subcarriers
+  // For NBVI path, this is the ONLY variance calculation that matters
+  // (find_baseline_window_ used current_band_ just to identify the quietest window)
+  baseline_variance_ = calculate_baseline_variance_(baseline_start);
+  if (baseline_variance_ < 0.01f) {
+    baseline_variance_ = 1.0f;  // Fallback
+  }
+  calculate_normalization_scale_();
+  
   // Calculate average metrics for selected band
   float avg_nbvi = 0.0f;
   float avg_mean = 0.0f;
@@ -230,33 +257,19 @@ esp_err_t CalibrationManager::run_calibration_() {
   avg_nbvi /= SELECTED_SUBCARRIERS_COUNT;
   avg_mean /= SELECTED_SUBCARRIERS_COUNT;
   
-  // Calculate normalization scale to bring all devices to a common scale
-  // This compensates for different CSI amplitude ranges across ESP32 variants (S3, C6, etc.)
-  if (normalization_enabled_ && avg_mean > 1.0f) {
-    normalization_scale_ = normalization_target_ / avg_mean;
-    // Clamp to reasonable range
-    if (normalization_scale_ < 0.1f) normalization_scale_ = 0.1f;
-    if (normalization_scale_ > 10.0f) normalization_scale_ = 10.0f;
-  } else {
-    normalization_scale_ = 1.0f;  // Disabled or fallback if mean is too low
-  }
-  
   ESP_LOGI(TAG, "✓ Calibration successful: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d]",
            selected_band_[0], selected_band_[1], selected_band_[2], selected_band_[3],
            selected_band_[4], selected_band_[5], selected_band_[6], selected_band_[7],
            selected_band_[8], selected_band_[9], selected_band_[10], selected_band_[11]);
   ESP_LOGD(TAG, "  Average NBVI: %.6f", avg_nbvi);
   ESP_LOGD(TAG, "  Average magnitude: %.2f", avg_mean);
-  if (normalization_enabled_) {
-    ESP_LOGI(TAG, "  Normalization scale: %.3f (target: %.0f)", normalization_scale_, normalization_target_);
-  } else {
-    ESP_LOGI(TAG, "  Normalization: disabled (scale: 1.0)");
-  }
+  ESP_LOGD(TAG, "  Baseline variance: %.4f", baseline_variance_);
+  log_normalization_status_();
   
   return ESP_OK;
 }
 
-esp_err_t CalibrationManager::find_baseline_window_(uint16_t* out_window_start) {
+esp_err_t CalibrationManager::find_baseline_window_(uint16_t* out_window_start, float* out_baseline_variance) {
   if (buffer_count_ < window_size_) {
     ESP_LOGE(TAG, "Not enough packets for baseline detection (%d < %d)",
              buffer_count_, window_size_);
@@ -339,6 +352,7 @@ esp_err_t CalibrationManager::find_baseline_window_(uint16_t* out_window_start) 
   }
   
   *out_window_start = windows[best_window_idx].start_idx;
+  *out_baseline_variance = min_variance;
   
   ESP_LOGD(TAG, "Baseline window found:");
   ESP_LOGD(TAG, "  Variance: %.4f", min_variance);
@@ -532,7 +546,7 @@ void CalibrationManager::calculate_nbvi_weighted_(const std::vector<float>& magn
   float variance = calculate_variance_two_pass(magnitudes.data(), count);
   float stddev = std::sqrt(variance);
   
-  // NBVI Weighted α=0.3
+  // NBVI Weighted (configurable alpha, default 0.5)
   float cv = stddev / mean;                      // Coefficient of variation
   float nbvi_energy = stddev / (mean * mean);    // Energy normalization
   float nbvi_weighted = alpha_ * nbvi_energy + (1.0f - alpha_) * cv;
@@ -646,6 +660,60 @@ std::vector<uint8_t> CalibrationManager::read_window_(uint16_t start_idx, uint16
   }
   
   return data;
+}
+
+float CalibrationManager::calculate_baseline_variance_(uint16_t baseline_start) {
+  // Recalculate baseline variance using the SELECTED subcarriers (selected_band_)
+  // This is called after NBVI selection to get accurate variance for the actual band used
+  
+  std::vector<uint8_t> window_data = read_window_(baseline_start, window_size_);
+  if (window_data.size() != window_size_ * NUM_SUBCARRIERS) {
+    ESP_LOGW(TAG, "Failed to read window for variance recalculation");
+    return 0.0f;
+  }
+  
+  std::vector<float> turbulence_buffer(window_size_);
+  
+  // Calculate turbulence for each packet using the SELECTED subcarriers
+  for (uint16_t j = 0; j < window_size_; j++) {
+    const uint8_t* packet_magnitudes = &window_data[j * NUM_SUBCARRIERS];
+    
+    // Convert uint8 magnitudes to float for turbulence calculation
+    float float_mags[NUM_SUBCARRIERS];
+    for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
+      float_mags[sc] = static_cast<float>(packet_magnitudes[sc]);
+    }
+    
+    // Use selected_band_ instead of current_band_
+    turbulence_buffer[j] = calculate_spatial_turbulence(float_mags,
+                                                        selected_band_,
+                                                        selected_band_size_);
+  }
+  
+  // Calculate variance of turbulence
+  return calculate_variance_two_pass(turbulence_buffer.data(), window_size_);
+}
+
+void CalibrationManager::calculate_normalization_scale_() {
+  // Normalize only if baseline variance is ABOVE target (0.25)
+  // If baseline <= 0.25, no scaling needed (already in good range)
+  // If baseline > 0.25, attenuate to bring it down to 0.25
+  // This prevents over-amplification of weak signals
+  constexpr float TARGET_BASELINE = 0.25f;
+  
+  if (baseline_variance_ > TARGET_BASELINE) {
+    // Baseline too high - attenuate to reach 0.25
+    normalization_scale_ = TARGET_BASELINE / baseline_variance_;
+    // Clamp to min 0.1 to avoid extreme attenuation
+    if (normalization_scale_ < 0.1f) normalization_scale_ = 0.1f;
+  } else {
+    // Baseline already at or below target - no scaling
+    normalization_scale_ = 1.0f;
+  }
+}
+
+void CalibrationManager::log_normalization_status_() {
+  ESP_LOGI(TAG, "  Normalization scale: %.4f", normalization_scale_);
 }
 
 }  // namespace espectre
