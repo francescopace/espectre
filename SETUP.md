@@ -393,6 +393,81 @@ esp32:
 
 ---
 
+## Flash Size and Partitions
+
+---
+
+### ESPectre Flash Footprint
+
+ESPectre itself is very lightweight. The actual code overhead is minimal:
+
+| Configuration | Flash | RAM | Notes |
+|---------------|-------|-----|-------|
+| ESPHome base + provisioning | 1,464 KB | 49.9 KB | BLE, captive portal, improv |
+| ESPectre production | 1,535 KB | 50.0 KB | Full featured |
+| **ESPectre overhead** | **~70 KB** | **88 bytes** | Just the CSI code |
+
+The ESPectre component adds only **~70KB of Flash** and less than **100 bytes of RAM**. The majority of flash usage comes from standard ESPHome components (WiFi, API, OTA, provisioning).
+
+### Custom Partition Table
+
+ESPectre includes a custom partition table (`partitions.csv`) that is automatically applied during compilation. This partition table:
+
+- Supports **OTA updates** (dual app partitions)
+- Includes **SPIFFS** for calibration buffer (192KB, used during boot only)
+- App partition size: **~1.87MB** per slot
+
+```
+# ESPectre Partition Table (4MB flash)
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x5000
+otadata,  data, ota,     0xe000,   0x2000
+app0,     app,  ota_0,   0x10000,  0x1E0000   # ~1.87MB
+app1,     app,  ota_1,   0x1F0000, 0x1E0000   # ~1.87MB
+spiffs,   data, spiffs,  0x3D0000, 0x30000    # 192KB
+```
+
+### Combining with Other Components
+
+If you want to add ESPectre to an existing ESPHome configuration with other heavy components, be aware that ESPectre's partition table may override your existing partitions.
+
+**To use your own partition table**, you can override it in your YAML using an **absolute path**:
+
+```yaml
+esphome:
+  name: my-device
+  platformio_options:
+    board_build.partitions: /path/to/partitions_custom.csv
+```
+
+Then create the `partitions_custom.csv` file at that location.
+
+**Example for 4MB flash** (no OTA, ~3.7MB for app):
+
+```
+# Name,   Type, SubType, Offset,  Size
+nvs,      data, nvs,     0x9000,  0x5000,
+phy_init, data, phy,     0xe000,  0x1000,
+app0,     app,  factory, 0x10000, 0x3C0000,
+spiffs,   data, spiffs,  0x3D0000,0x30000,
+```
+
+**Example for 8MB flash** (no OTA, ~7.7MB for app):
+
+```
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x5000,
+phy_init, data, phy,     0xe000,   0x1000,
+app0,     app,  factory, 0x10000,  0x7C0000,
+spiffs,   data, spiffs,  0x7D0000, 0x30000,
+```
+
+**Notes**:
+- SPIFFS is required. ESPectre uses it as a temporary buffer during calibration. Removing SPIFFS will cause the component to fail during initialization.
+- If you remove OTA partitions, you must also remove the `ota:` section from your YAML (OTA updates won't work without the partitions).
+
+---
+
 ## Troubleshooting
 
 ---
