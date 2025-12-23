@@ -1,0 +1,81 @@
+# ESPectre - ESP32-C3 Configuration
+# WiFi CSI-based motion detection with Home Assistant integration
+#
+# Made for ESPHome - https://github.com/francescopace/espectre
+#
+# ⚠️ EXPERIMENTAL: This platform has NOT been tested yet.
+# Please report your results on GitHub Discussions!
+#
+# Compatible boards:
+# - ESP32-C3-DevKitM
+# - ESP32-C3-DevKitC
+# - LOLIN C3 Mini
+# - Seeed XIAO ESP32C3
+# - Any ESP32-C3 board
+#
+# Provisioning:
+# - Via BLE: Use the ESPHome app or Home Assistant companion app
+# - Via USB: Use ESPHome web tools (https://web.esphome.io)
+# - Via WiFi: Connect to "ESPectre Fallback" AP and configure
+
+esphome:
+  name: espectre
+  friendly_name: ESPectre
+  min_version: 2025.11.0
+  # If your board does not support QIO, uncomment the next 2 lines
+  # platformio_options:
+  #   board_build.flash_mode: dio
+  # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
+  # name_add_mac_suffix: true
+  project:
+    name: francescopace.espectre
+    version: "2.2.0"
+
+esp32:
+  variant: ESP32C3
+  board: lolin_c3_mini # can also be esp32-c3-devkitm-1 depending on your clone
+  framework:
+    type: esp-idf
+
+# Load ESPectre component from GitHub
+external_components:
+  - source:
+      type: git
+      url: https://github.com/francescopace/espectre
+      ref: main
+    components: [ espectre ]
+    refresh: always
+
+# ESPectre - WiFi CSI Motion Detection
+espectre:
+  id: espectre_csi
+  traffic_generator_rate: 94 # Because of lower specs of C3 super mini clones, this needs to be <= 94 otherwise it overloads the hardware and you get 1h30m calibration instead of 10s
+
+# Dashboard import for easy adoption
+dashboard_import:
+  package_import_url: github://francescopace/espectre/examples/espectre-c3.yaml@main
+  import_full_config: true
+
+# WiFi with fallback AP for provisioning
+wifi:
+  ap:
+    ssid: "ESPectre Fallback"
+
+captive_portal:
+
+# Improv provisioning via BLE
+esp32_improv:
+  authorizer: none
+
+# Improv provisioning via USB
+improv_serial:
+
+# Logging
+logger:
+
+# Home Assistant API
+api:
+
+# OTA updates
+ota:
+  - platform: esphome
