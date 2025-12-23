@@ -44,7 +44,7 @@ Download the example configuration for your hardware:
 |----------|-------------------|-----|------|-------|--------|
 | **ESP32-C6** | [espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) | RISC-V @ 160MHz | WiFi 6 | ❌ | ✅ Tested |
 | **ESP32-S3** | [espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) | Xtensa @ 240MHz | WiFi 4 | ✅ 8MB | ✅ Tested |
-| **ESP32-C3** | [espectre-c3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c3.yaml) | RISC-V @ 160MHz | WiFi 4 | ❌ | ✅ Tested |
+| **ESP32-C3** | [espectre-c3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c3.yaml) | RISC-V @ 160MHz | WiFi 4 | ❌ | ✅ Tested ² |
 | **ESP32-C5** | [espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | RISC-V @ 240MHz | WiFi 6 | ❌ | ⚠️ Experimental ¹ |
 | **ESP32-S2** | [espectre-s2.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s2.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
 | **ESP32** | [espectre-esp32.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-esp32.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
@@ -59,6 +59,8 @@ These files are pre-configured to download the component automatically from GitH
 > ⚠️ **Experimental platforms**: ESP32, ESP32-S2, and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
 >
 > ¹ ESP32-C5: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
+>
+> ² ESP32-C3 Super Mini: Set `traffic_generator_rate` to 94 or less. Higher values cause calibration issues (tested on multiple boards). Some cheap clones may require DIO flash mode instead of QIO.
 
 ### 3. Build and flash
 
@@ -290,9 +292,10 @@ Two dashboard examples are available:
 
 **How to use:**
 1. Go to **Settings** → **Dashboards** → **Add Dashboard**
-2. Click **Edit** on the new dashboard
+2. Open the new dashboard and click **Edit** (pencil icon)
 3. Click the three dots menu → **Raw configuration editor**
-4. Paste the YAML content from the file
+4. Replace ALL content with the YAML from the file (delete the default content first)
+5. Click **Save**
 
 > **Note:** If you changed the device name from `espectre`, replace all occurrences of `espectre_` with your device name (e.g., `espectre_living_room_`).
 
@@ -516,6 +519,19 @@ To find your AP's BSSID:
 - Check your router's admin page
 - Use a WiFi analyzer app on your phone
 - Look in ESPectre logs after connection (shows connected BSSID)
+
+### ESP32-C3 Super Mini issues
+
+If you're using an ESP32-C3 Super Mini (popular budget boards from AliExpress/Temu):
+
+1. **Calibration takes very long or fails**: Set `traffic_generator_rate: 94` or lower. Values of 95+ cause calibration to hang for 90+ minutes.
+
+2. **Flash fails or board doesn't respond**: Some cheap clones don't support QIO flash mode. Add this to your YAML:
+   ```yaml
+   esphome:
+     platformio_options:
+       board_build.flash_mode: dio
+   ```
 
 ### Flash failed
 

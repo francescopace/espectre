@@ -45,6 +45,7 @@ Add any other context, mockups, or references here.
 ## Checklist
 
 - [ ] I have searched existing issues to ensure this is not a duplicate
-- [ ] I have checked the [ROADMAP](../../ROADMAP.md) to see if this is already planned
+- [ ] I have checked the [ROADMAP](https://github.com/francescopace/espectre/blob/main/ROADMAP.md) to see if this is already planned
 - [ ] I am willing to help implement this feature (optional)
+
 

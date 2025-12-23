@@ -10,9 +10,10 @@
 #
 # How to use:
 # 1. Go to Settings → Dashboards → Add Dashboard
-# 2. Click "Edit" on the new dashboard
+# 2. Open the new dashboard and click "Edit" (pencil icon)
 # 3. Click the three dots menu → "Raw configuration editor"
-# 4. Paste this YAML content
+# 4. Replace ALL content with this YAML (delete the default content first)
+# 5. Click "Save"
 #
 # Note: If you changed the device name from "espectre", replace all
 # occurrences of "espectre_" with your device name (e.g., "espectre_living_room_")
@@ -21,106 +22,105 @@
 # device YAML, entity names will include the MAC suffix (e.g., "espectre_a1b2c3").
 # Replace "espectre_" with "espectre_XXXXXX_" where XXXXXX is your MAC suffix.
 
-title: 🛜 ESPectre 👻 - Dev
-type: sections
-cards: []
-max_columns: 4
-sections:
-  - type: grid
-    cards:
-      # Static gauge (default)
-      - type: gauge
-        entity: sensor.espectre_movement_score
-        name: Movement Level
-        min: 0
-        max: 10
-        needle: true
-        segments:
-          - from: 0
-            color: green
-          - from: 0.5
-            color: yellow
-          - from: 1
-            color: orange
-          - from: 2
-            color: red
-      # Dynamic gauge (alternative) - segments adapt to threshold value
-      # Requires 'Config Template Card' from HACS:
-      # https://github.com/iantrich/config-template-card
-      # Contributed by @jolas
-      #
-      # - type: custom:config-template-card
-      #   entities:
-      #     - sensor.espectre_movement_score
-      #   card:
-      #     type: gauge
-      #     entity: sensor.espectre_movement_score
-      #     name: Movement Level
-      #     min: 0
-      #     max: 10
-      #     needle: true
-      #     segments:
-      #       - from: 0
-      #         color: red
-      #       - from: >-
-      #           ${0.30 * Number(states['number.espectre_threshold'].state)}
-      #         color: orange
-      #       - from: >-
-      #           ${0.60 * Number(states['number.espectre_threshold'].state)}
-      #         color: yellow
-      #       - from: ${Number(states['number.espectre_threshold'].state)}
-      #         color: green
-      - type: history-graph
-        hours_to_show: 1
-        entities:
-          - entity: sensor.espectre_movement_score
-            name: Movement
-          - entity: number.espectrethreshold
-            name: Threshold
-        grid_options:
-          columns: 12
-          rows: 4
-        title: ESPectre
-  - type: grid
-    cards:
-      - type: tile
-        grid_options:
-          columns: 12
-          rows: 1
-        entity: binary_sensor.espectre_motion_detected
-        name: Motion
-        show_entity_picture: false
-        hide_state: false
-        state_content:
-          - state
-          - last_changed
-        vertical: false
-        features_position: bottom
-      - type: entities
-        entities:
-          - entity: number.espectre_threshold
-            icon: mdi:tune-vertical
-            name: Threshold
-        show_header_toggle: false
-        state_color: false
-      - type: tile
-        grid_options:
-          columns: 12
-          rows: 1
-        entity: sensor.espectre_free_heap
-        vertical: false
-        features_position: bottom
-      - type: tile
-        grid_options:
-          columns: 12
-          rows: 1
-        entity: sensor.espectre_max_free_block
-        vertical: false
-        features_position: bottom
-      - type: tile
-        grid_options:
-          columns: 12
-          rows: 1
-        entity: sensor.espectre_loop_time
-        vertical: false
-        features_position: bottom
+views:
+  - title: 🛜 ESPectre 👻 - Dev
+    type: sections
+    sections:
+    - type: grid
+      cards:
+        # Static gauge (default)
+        - type: gauge
+          entity: sensor.espectre_movement_score
+          name: Movement Level
+          min: 0
+          max: 10
+          needle: true
+          segments:
+            - from: 0
+              color: green
+            - from: 0.5
+              color: yellow
+            - from: 1
+              color: orange
+            - from: 2
+              color: red
+        # Dynamic gauge (alternative) - segments adapt to threshold value
+        # Requires 'Config Template Card' from HACS:
+        # https://github.com/iantrich/config-template-card
+        # Contributed by @jolas
+        #
+        # - type: custom:config-template-card
+        #   entities:
+        #     - sensor.espectre_movement_score
+        #   card:
+        #     type: gauge
+        #     entity: sensor.espectre_movement_score
+        #     name: Movement Level
+        #     min: 0
+        #     max: 10
+        #     needle: true
+        #     segments:
+        #       - from: 0
+        #         color: red
+        #       - from: >-
+        #           ${0.30 * Number(states['number.espectre_threshold'].state)}
+        #         color: orange
+        #       - from: >-
+        #           ${0.60 * Number(states['number.espectre_threshold'].state)}
+        #         color: yellow
+        #       - from: ${Number(states['number.espectre_threshold'].state)}
+        #         color: green
+        - type: history-graph
+          hours_to_show: 1
+          entities:
+            - entity: sensor.espectre_movement_score
+              name: Movement
+            - entity: number.espectre_threshold
+              name: Threshold
+          grid_options:
+            columns: 12
+            rows: 4
+          title: ESPectre
+    - type: grid
+      cards:
+        - type: tile
+          grid_options:
+            columns: 12
+            rows: 1
+          entity: binary_sensor.espectre_motion_detected
+          name: Motion
+          show_entity_picture: false
+          hide_state: false
+          state_content:
+            - state
+            - last_changed
+          vertical: false
+          features_position: bottom
+        - type: entities
+          entities:
+            - entity: number.espectre_threshold
+              icon: mdi:tune-vertical
+              name: Threshold
+          show_header_toggle: false
+          state_color: false
+        - type: tile
+          grid_options:
+            columns: 12
+            rows: 1
+          entity: sensor.espectre_free_heap
+          vertical: false
+          features_position: bottom
+        - type: tile
+          grid_options:
+            columns: 12
+            rows: 1
+          entity: sensor.espectre_max_free_block
+          vertical: false
+          features_position: bottom
+        - type: tile
+          grid_options:
+            columns: 12
+            rows: 1
+          entity: sensor.espectre_loop_time
+          vertical: false
+          features_position: bottom
