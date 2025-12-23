@@ -16,11 +16,7 @@ static const char *const TAG_THRESHOLD = "espectre.threshold";
 
 void ESpectreThresholdNumber::setup() {
   // Initialize with current threshold value from parent
-  if (this->parent_ != nullptr) {
-    float current = this->parent_->get_threshold();
-    this->publish_state(current);
-    ESP_LOGI(TAG_THRESHOLD, "Threshold number initialized: %.2f", current);
-  }
+  this->republish_state();
 }
 
 void ESpectreThresholdNumber::dump_config() {
@@ -29,10 +25,9 @@ void ESpectreThresholdNumber::dump_config() {
 
 void ESpectreThresholdNumber::control(float value) {
   // Called when user changes value from HA
+  // set_threshold_runtime handles everything: update, save, and publish
   if (this->parent_ != nullptr) {
     this->parent_->set_threshold_runtime(value);
-    this->publish_state(value);
-    ESP_LOGI(TAG_THRESHOLD, "Threshold changed from HA: %.2f", value);
   }
 }
 

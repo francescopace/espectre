@@ -27,6 +27,9 @@ class CalibrationManager;
 // Callback type for processed CSI data
 using csi_processed_callback_t = std::function<void(csi_motion_state_t)>;
 
+// Callback type for game mode (called every packet with movement and threshold)
+using game_mode_callback_t = std::function<void(float movement, float threshold)>;
+
 /**
  * CSI Manager
  * 
@@ -95,13 +98,11 @@ class CSIManager {
   /**
    * Process incoming CSI packet
    * 
-   * Orchestrates: calibration check → processing
+   * Orchestrates: calibration check → processing → callbacks
    * 
    * @param data CSI packet data
-   * @param motion_state Output for motion state
    */
-  void process_packet(wifi_csi_info_t* data,
-                     csi_motion_state_t& motion_state);
+  void process_packet(wifi_csi_info_t* data);
   
   /**
    * Set calibration mode
@@ -149,6 +150,18 @@ class CSIManager {
     gain_controller_.set_lock_complete_callback(callback);
   }
   
+  /**
+   * Set game mode callback
+   * 
+   * When set, this callback is called every CSI packet with movement and threshold.
+   * Used for low-latency game mode communication.
+   * 
+   * @param callback Function to call every packet (nullptr to disable)
+   */
+  void set_game_mode_callback(game_mode_callback_t callback) {
+    game_mode_callback_ = callback;
+  }
+  
  private:
   // Static wrapper for ESP-IDF C callback
   // IRAM_ATTR: Keep in IRAM for consistent low-latency execution from ISR context
@@ -159,6 +172,7 @@ class CSIManager {
   const uint8_t* selected_subcarriers_{nullptr};
   CalibrationManager* calibrator_{nullptr};
   csi_processed_callback_t packet_callback_;
+  game_mode_callback_t game_mode_callback_;
   uint32_t publish_rate_{100};
   volatile uint32_t packets_processed_{0};  // volatile: modified from ISR callback
   

@@ -66,8 +66,7 @@ void CSIManager::set_threshold(float threshold) {
   ESP_LOGD(TAG, "Threshold updated: %.2f", threshold);
 }
 
-void CSIManager::process_packet(wifi_csi_info_t* data,
-                                csi_motion_state_t& motion_state) {
+void CSIManager::process_packet(wifi_csi_info_t* data) {
   if (!data || !processor_) {
     return;
   }
@@ -100,35 +99,29 @@ void CSIManager::process_packet(wifi_csi_info_t* data,
                     selected_subcarriers_,
                     NUM_SUBCARRIERS);
   
-  // Handle periodic callback
+  // Handle periodic callback (or game mode which needs every packet)
   packets_processed_++;
-  if (packets_processed_ >= publish_rate_) {
-    // Calculate variance and update state (lazy evaluation - only at publish time)
+  const bool should_publish = packets_processed_ >= publish_rate_;
+  
+  if (game_mode_callback_ || should_publish) {
+    // Calculate variance and update state
     csi_processor_update_state(processor_);
-    motion_state = csi_processor_get_state(processor_);
     
-    // Debug: verify gain values are still locked (check every publish cycle)
-#if ESPECTRE_GAIN_LOCK_SUPPORTED
-    {
-      const wifi_pkt_rx_ctrl_phy_t* phy_info = reinterpret_cast<const wifi_pkt_rx_ctrl_phy_t*>(data);
-      uint8_t current_agc = phy_info->agc_gain;
-      uint8_t current_fft = phy_info->fft_gain;
-      uint8_t locked_agc = gain_controller_.get_agc_gain();
-      uint8_t locked_fft = gain_controller_.get_fft_gain();
-      if (current_agc != locked_agc || current_fft != locked_fft) {
-        ESP_LOGW(TAG, "Gain drift detected! AGC: %d→%d, FFT: %d→%d", 
-                 locked_agc, current_agc, locked_fft, current_fft);
+    // Game mode callback: send data every packet for low-latency gameplay
+    if (game_mode_callback_) {
+      float movement = csi_processor_get_moving_variance(processor_);
+      float threshold = csi_processor_get_threshold(processor_);
+      game_mode_callback_(movement, threshold);
+    }
+  
+    // Periodic publish callback
+    if (should_publish) {
+      if (packet_callback_) {
+        csi_motion_state_t state = csi_processor_get_state(processor_);
+        packet_callback_(state);
       }
+      packets_processed_ = 0;
     }
-#endif
-    
-    if (packet_callback_) {
-      packet_callback_(motion_state);
-    }
-    packets_processed_ = 0;
-  } else {
-    // Between publishes, just return the current state (may be stale)
-    motion_state = csi_processor_get_state(processor_);
   }
 }
 
@@ -137,9 +130,7 @@ void CSIManager::process_packet(wifi_csi_info_t* data,
 void IRAM_ATTR CSIManager::csi_rx_callback_wrapper_(void* ctx, wifi_csi_info_t* data) {
   CSIManager* manager = static_cast<CSIManager*>(ctx);
   if (manager && data) {
-    // Process packet directly in the manager
-    csi_motion_state_t dummy_state;
-    manager->process_packet(data, dummy_state);
+    manager->process_packet(data);
   }
 }
 

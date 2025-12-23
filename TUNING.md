@@ -60,6 +60,8 @@ After changing, re-flash:
 esphome run <your-config>.yaml
 ```
 
+**Interactive tuning:** You can also adjust the threshold in real-time using [ESPectre - The Game](https://espectre.dev/game). Connect via USB, drag the threshold slider, and see immediate visual feedback. Changes are saved to flash and apply to Home Assistant as well.
+
 ---
 
 ## Understanding Parameters
@@ -438,6 +440,7 @@ Use **History** graphs to visualize detection patterns over time.
 4. **Seasonal adjustments:** Retune when furniture changes or new interference sources appear
 5. **Distance matters:** Keep sensor 3-8m from router for optimal performance
 6. **Quiet calibration:** Ensure no movement during first 5-10 seconds after boot
+7. **Try the game:** Use [ESPectre - The Game](https://espectre.dev/game) for interactive threshold tuning with real-time visual feedback
 
 ---
 

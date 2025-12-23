@@ -30,6 +30,7 @@
 #include "config_manager.h"
 #include "calibration_manager.h"
 #include "traffic_generator_manager.h"
+#include "serial_streamer.h"
 
 namespace esphome {
 namespace espectre {
@@ -82,6 +83,9 @@ class ESpectreComponent : public Component {
   void on_wifi_connected_();
   void on_wifi_disconnected_();
   
+  // Send system info over serial (for game display)
+  void send_system_info_();
+  
   // C state (core modules)
   csi_processor_context_t csi_processor_{};
   csi_motion_state_t motion_state_{};
@@ -107,6 +111,7 @@ class ESpectreComponent : public Component {
   ConfigurationManager config_manager_;
   CalibrationManager calibration_manager_;
   TrafficGeneratorManager traffic_generator_;
+  SerialStreamer serial_streamer_;
   
   // Number controls
   number::Number *threshold_number_{nullptr};

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESPectre - The Game | WiFi Motion Reaction Game</title>
+    <meta name="description" content="A reaction game powered by ESPectre WiFi motion detection. Stay still. Move fast. No controller needed - just your body and WiFi.">
+    <meta name="keywords" content="ESPectre, WiFi sensing, CSI, motion detection, game, reaction game, ESP32">
+    <meta name="author" content="Francesco Pace">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:url" content="https://espectre.dev/game">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="ESPectre - The Game | WiFi Motion Reaction Game">
+    <meta property="og:description" content="A reaction game powered by WiFi motion detection. No controller needed - just your body and WiFi.">
+    <meta property="og:image" content="https://espectre.dev/espectre.png">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta property="twitter:domain" content="espectre.dev">
+    <meta property="twitter:url" content="https://espectre.dev/game">
+    <meta name="twitter:title" content="ESPectre - The Game | WiFi Motion Reaction Game">
+    <meta name="twitter:description" content="A reaction game powered by WiFi motion detection. No controller needed - just your body and WiFi.">
+    <meta name="twitter:image" content="https://espectre.dev/espectre.png">
+
+    <!-- Favicon -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-S0NQNG0V11"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-S0NQNG0V11');
+    </script>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="game.css">
+</head>
+
+<body>
+    <canvas id="cosmic-bg"></canvas>
+
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><i class="fas fa-wifi"></i></span>
+            <span>ESPectre</span>
+            <span class="logo-icon"><i class="fas fa-ghost"></i></span>
+        </a>
+        <button class="menu-toggle" aria-label="Toggle menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <nav>
+            <a href="/"><i class="fas fa-home"></i> Home</a>
+            <a href="https://github.com/francescopace/espectre"><i class="fab fa-github"></i> GitHub</a>
+            <a href="https://github.com/francescopace/espectre/blob/main/SETUP.md"><i class="fas fa-book"></i> Setup Guide</a>
+        </nav>
+    </header>
+
+    <main class="game-container">
+        <!-- Global Movement Bar (shown after USB connection) -->
+        <div id="global-movement-bar" class="global-movement-bar hidden">
+            <div class="movement-bar">
+                <div id="movement-fill" class="movement-fill"></div>
+                <div id="movement-threshold-marker" class="movement-threshold"></div>
+            </div>
+            <div class="movement-values">
+                <span id="movement-value">0.00</span>
+                <span class="movement-separator">/</span>
+                <span id="threshold-value">0.00</span>
+            </div>
+        </div>
+
+        <!-- Connection Screen -->
+        <div id="screen-connect" class="game-screen active">
+            <div class="game-title">
+                <h1>ESPectre</h1>
+                <span class="game-subtitle">THE GAME</span>
+            </div>
+            
+            <p class="game-tagline">Stay still. Move fast. React to survive.</p>
+            
+            <div id="connection-box" class="connection-box">
+                <!-- Pre-connection state -->
+                <div id="connection-pre" class="connection-pre">
+                    <button id="btn-connect" class="btn btn-primary btn-large">
+                        <i class="fab fa-usb"></i> Connect USB
+                    </button>
+                    <p class="connection-hint">Connect your device via USB cable</p>
+                    <div id="connection-status" class="connection-status"></div>
+                </div>
+                
+                <!-- Post-connection state (USB ready) -->
+                <div id="connection-ready" class="connection-ready hidden">
+                    <div class="usb-ready-status">
+                        <i class="fas fa-check-circle"></i>
+                        <span id="usb-device-name">ESP32 Connected</span>
+                    </div>
+                    
+                    <!-- System Info Panel -->
+                    <div id="system-info" class="system-info hidden">
+                        <div class="system-info-grid">
+                            <span class="info-label">Threshold</span>
+                            <span id="info-threshold" class="info-value">--</span>
+                            <span class="info-label">Window</span>
+                            <span id="info-window" class="info-value">--</span>
+                            <span class="info-label">Subcarriers</span>
+                            <span id="info-subcarriers" class="info-value">--</span>
+                            <span class="info-label">Low-pass</span>
+                            <span id="info-lowpass" class="info-value">--</span>
+                            <span class="info-label">Hampel</span>
+                            <span id="info-hampel" class="info-value">--</span>
+                            <span class="info-label">Traffic</span>
+                            <span id="info-traffic" class="info-value">--</span>
+                        </div>
+                    </div>
+                    
+                    <div class="connection-buttons">
+                        <button id="btn-start-game" class="btn btn-primary btn-large">
+                            <i class="fas fa-play"></i> Start Game
+                        </button>
+                        <button id="btn-disconnect" class="btn btn-secondary btn-small">
+                            <i class="fas fa-unlink"></i> Disconnect
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="divider-mouse" class="divider">
+                <span>or</span>
+            </div>
+            
+            <button id="btn-mouse" class="btn btn-secondary">
+                <i class="fas fa-mouse"></i> Play with Mouse
+            </button>
+            <p id="mouse-hint" class="keyboard-hint">Move your mouse to simulate motion detection</p>
+            
+            <div class="how-to-play">
+                <h3><i class="fas fa-question-circle"></i> How to Play</h3>
+                <ol>
+                    <li>Connect your ESP32 via USB (close any serial monitor first!)</li>
+                    <li>When a Spectre appears, <strong>stay still</strong></li>
+                    <li>When you see <strong>"MOVE!"</strong>, move quickly!</li>
+                    <li>React faster than the Spectre to win</li>
+                </ol>
+                <p class="compatibility-note"><i class="fas fa-info-circle"></i> Requires Chrome/Edge.</p>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="screen-game" class="game-screen">
+            <div class="game-hud">
+                <div class="hud-left">
+                    <div class="hud-item">
+                        <span class="hud-label">STREAK</span>
+                        <span id="streak" class="hud-value">0</span>
+                    </div>
+                    <div class="hud-item">
+                        <span class="hud-label">WAVE</span>
+                        <span id="wave" class="hud-value">1</span>
+                    </div>
+                </div>
+                <div class="hud-center">
+                    <div class="input-mode" id="input-mode">
+                        <i class="fas fa-mouse"></i> MOUSE
+                    </div>
+                    <button id="btn-mute" class="btn-mute" title="Toggle sound">
+                        <i class="fas fa-volume-up"></i>
+                    </button>
+                </div>
+                <div class="hud-right">
+                    <div class="hud-item">
+                        <span class="hud-label">BEST</span>
+                        <span id="best-time" class="hud-value">---</span>
+                    </div>
+                    <div class="hud-item">
+                        <span class="hud-label">SCORE</span>
+                        <span id="score" class="hud-value">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="game-arena">
+                <!-- Enemy Spectre -->
+                <div id="enemy" class="enemy">
+                    <div class="enemy-glow"></div>
+                    <div class="enemy-body">👻</div>
+                    <div class="enemy-name" id="enemy-name">WISP</div>
+                    <!-- Enemy HP Bar (for multi-HP enemies) -->
+                    <div id="enemy-hp-bar" class="enemy-hp-bar hidden">
+                        <div id="enemy-hp-fill" class="enemy-hp-fill"></div>
+                        <span id="enemy-hp-text" class="enemy-hp-text">3/3</span>
+                    </div>
+                </div>
+                
+                <!-- Hit Strength Indicator -->
+                <div id="hit-strength" class="hit-strength hidden">STRONG!</div>
+
+                <!-- Game Message -->
+                <div id="game-message" class="game-message">
+                    <span class="message-text">GET READY...</span>
+                </div>
+
+                <!-- Reaction Time Display -->
+                <div id="reaction-time" class="reaction-time hidden">
+                    <span class="reaction-value">287</span>
+                    <span class="reaction-unit">ms</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Screen -->
+        <div id="screen-results" class="game-screen">
+            <h2 class="results-title">GAME OVER</h2>
+            
+            <div class="results-stats">
+                <div class="stat-item">
+                    <span class="stat-value" id="result-spectres">0</span>
+                    <span class="stat-label">Spectres Dissolved</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="result-best">---</span>
+                    <span class="stat-label">Best Reaction</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="result-streak">0</span>
+                    <span class="stat-label">Max Streak</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="result-score">0</span>
+                    <span class="stat-label">Total Score</span>
+                </div>
+                <div class="stat-item highlight">
+                    <span class="stat-value" id="result-avg-power">0.0x</span>
+                    <span class="stat-label">Avg Power</span>
+                </div>
+                <div class="stat-item highlight">
+                    <span class="stat-value" id="result-critical">0</span>
+                    <span class="stat-label">Critical Hits</span>
+                </div>
+            </div>
+
+            <div class="result-grade" id="result-grade">A</div>
+
+            <div class="results-actions">
+                <button id="btn-play-again" class="btn btn-primary">
+                    <i class="fas fa-redo"></i> Play Again
+                </button>
+                <button id="btn-share" class="btn btn-secondary">
+                    <i class="fas fa-share"></i> Share
+                </button>
+                <button id="btn-home" class="btn btn-secondary">
+                    <i class="fas fa-home"></i> Home
+                </button>
+            </div>
+
+            <div class="powered-by">
+                <p>Powered by <a href="/">ESPectre</a></p>
+                <p class="tagline">No cameras. No wearables. Just WiFi.</p>
+            </div>
+        </div>
+    </main>
+
+    <script src="../cosmic-bg.js"></script>
+    <script src="game.js"></script>
+</body>
+
+</html>
+

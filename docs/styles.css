@@ -382,6 +382,51 @@ footer {
     padding: 0.5rem;
 }
 
+/* Game Promo Section */
+.game-promo {
+    padding: 5rem 2rem;
+    text-align: center;
+}
+
+.game-card {
+    max-width: 600px;
+    margin: 0 auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 3rem;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.game-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    border-color: var(--accent);
+}
+
+.game-icon {
+    font-size: 3rem;
+    color: var(--accent);
+    margin-bottom: 1.5rem;
+}
+
+.game-card h3 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}
+
+.game-card p {
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
+    line-height: 1.7;
+}
+
+.game-card .btn {
+    font-size: 1.1rem;
+    padding: 1rem 2.5rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     header {
