@@ -3,6 +3,9 @@
 #
 # Made for ESPHome - https://github.com/francescopace/espectre
 #
+# Tested boards:
+# - Waveshare ESP32-C6-DEV (WROOM-1-N8)
+#
 # Provisioning:
 # - Via BLE: Use the ESPHome app or Home Assistant companion app
 # - Via USB: Use ESPHome web tools (https://web.esphome.io)

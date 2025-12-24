@@ -9,7 +9,7 @@ Complete guide to install and configure ESPectre with ESPHome.
 ---
 
 **Hardware:**
-- **ESP32 with CSI support** - ESP32-S3, ESP32-C6 or ESP32-C3 tested. Other variants (ESP32, S2, C5) also supported experimentally.
+- **ESP32 with CSI support** - ESP32-S3, ESP32-C6, ESP32-C3 or ESP32 (original) tested. Other variants (S2, C5) also supported experimentally.
 - USB-C or Micro-USB cable (depending on board)
 - Wi-Fi router (2.4 GHz, 802.11b|g|n|ax)
 
@@ -45,9 +45,9 @@ Download the example configuration for your hardware:
 | **ESP32-C6** | [espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) | RISC-V @ 160MHz | WiFi 6 | ❌ | ✅ Tested |
 | **ESP32-S3** | [espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) | Xtensa @ 240MHz | WiFi 4 | ✅ 8MB | ✅ Tested |
 | **ESP32-C3** | [espectre-c3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c3.yaml) | RISC-V @ 160MHz | WiFi 4 | ❌ | ✅ Tested ² |
+| **ESP32** | [espectre-esp32.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-esp32.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ✅ Tested ³ |
 | **ESP32-C5** | [espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | RISC-V @ 240MHz | WiFi 6 | ❌ | ⚠️ Experimental ¹ |
 | **ESP32-S2** | [espectre-s2.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s2.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
-| **ESP32** | [espectre-esp32.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-esp32.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
 
 **Recommendations**:
 - **ESP32-C6**: Best for WiFi 6 environments, standard motion detection
@@ -56,11 +56,13 @@ Download the example configuration for your hardware:
 
 These files are pre-configured to download the component automatically from GitHub.
 
-> ⚠️ **Experimental platforms**: ESP32, ESP32-S2, and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
+> ⚠️ **Experimental platforms**: ESP32-S2 and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
 >
 > ¹ ESP32-C5: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
 >
 > ² ESP32-C3 Super Mini: Set `traffic_generator_rate` to 94 or less. Higher values cause calibration issues (tested on multiple boards). Some cheap clones may require DIO flash mode instead of QIO.
+>
+> ³ ESP32 (original/WROOM-32): AGC/FFT gain lock is not available on this platform. NBVI calibration works but CSI amplitudes may have more variance than newer chips.
 
 ### 3. Build and flash
 
@@ -122,6 +124,7 @@ Use the development configuration files (with debug sensors and local component 
 |----------|-----------------|
 | **ESP32-C6** | `examples/espectre-c6-dev.yaml` |
 | **ESP32-S3** | `examples/espectre-s3-dev.yaml` |
+| **ESP32** | `examples/espectre-esp32-dev.yaml` |
 
 ```bash
 # For ESP32-C6
@@ -129,6 +132,9 @@ esphome run examples/espectre-c6-dev.yaml
 
 # For ESP32-S3
 esphome run examples/espectre-s3-dev.yaml
+
+# For ESP32 (original)
+esphome run examples/espectre-esp32-dev.yaml
 ```
 
 ### Development vs Production Files
@@ -139,6 +145,8 @@ esphome run examples/espectre-s3-dev.yaml
 | `espectre-c6-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
 | `espectre-s3.yaml` | GitHub | Provisioning (BLE/USB/AP) | INFO | ❌ |
 | `espectre-s3-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
+| `espectre-esp32.yaml` | GitHub | Provisioning (BLE/USB/AP) | INFO | ❌ |
+| `espectre-esp32-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
 
 ---
 

@@ -4,6 +4,9 @@
 # This file uses local components for development.
 # For production use, see espectre-c6.yaml (uses GitHub source).
 #
+# Tested boards:
+# - Waveshare ESP32-C6-DEV (WROOM-1-N8)
+#
 # Usage:
 # 1. Clone the repository: git clone https://github.com/francescopace/espectre.git
 # 2. cd espectre

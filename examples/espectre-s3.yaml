@@ -3,6 +3,9 @@
 #
 # Made for ESPHome - https://github.com/francescopace/espectre
 #
+# Tested boards:
+# - ESP32-S3-DevKitC-1 (WROOM-1-N16R8)
+#
 # Provisioning:
 # - Via BLE: Use the ESPHome app or Home Assistant companion app
 # - Via USB: Use ESPHome web tools (https://web.esphome.io)

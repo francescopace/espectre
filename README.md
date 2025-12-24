@@ -61,7 +61,7 @@ For algorithm details (MVS, NBVI, Hampel filter), see [ALGORITHMS.md](micro-espe
 ### Hardware
 
 - **2.4GHz Wi-Fi Router** - the one you already have at home works fine
-- **ESP32 with CSI support** - ESP32-C6, ESP32-S3, ESP32-C3 or other variants. See [SETUP.md](SETUP.md) for the complete platform comparison table.
+- **ESP32 with CSI support** - ESP32-C6, ESP32-S3, ESP32-C3, ESP32 (original) or other variants. See [SETUP.md](SETUP.md) for the complete platform comparison table.
 
 ![3 x ESP32-S3 DevKit bundle with external antennas](images/home_lab.jpg)
 *ESP32-S3 DevKit with external antennas*

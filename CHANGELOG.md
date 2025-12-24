@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.3.0] - in progress
+
+### ESP32 (Original/WROOM-32) Tested
+
+- Tested on ESP32-WROOM-32D Mini (CH340) board
+- Fixed NBVI calibration not starting on platforms without gain lock support
+- ESP32 moved from "experimental" to "tested" in documentation
+- Note: AGC/FFT gain lock is not available on ESP32 original; CSI amplitudes may have higher variance compared to S3/C6
+
+---
+
 ## [2.2.0] - 2025-12-19
 
 ### Gain Lock (AGC/FFT Stabilization)

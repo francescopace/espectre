@@ -29,6 +29,7 @@ void GainController::init(uint16_t calibration_packets) {
 #else
   // On unsupported platforms, mark as locked immediately (no calibration phase)
   locked_ = true;
+  skip_gain_lock_ = true;
   ESP_LOGD(TAG, "Gain lock not supported on this platform (skipping)");
 #endif
 }

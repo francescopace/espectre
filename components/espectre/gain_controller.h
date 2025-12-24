@@ -114,10 +114,17 @@ class GainController {
   /**
    * Set callback for when gain lock completes
    * 
+   * If gain lock is not supported on this platform, the callback is
+   * invoked immediately since gain is already considered "locked".
+   * 
    * @param callback Function to call when gain is locked
    */
   void set_lock_complete_callback(lock_complete_callback_t callback) {
     lock_complete_callback_ = callback;
+    // If gain lock was skipped (unsupported platform), call callback immediately
+    if (skip_gain_lock_ && callback) {
+      callback();
+    }
   }
   
   /**
@@ -180,6 +187,7 @@ class GainController {
   uint8_t agc_gain_locked_{0};
   uint8_t fft_gain_locked_{0};
   bool locked_{false};
+  bool skip_gain_lock_{false};  // Set true on platforms without gain lock support
   lock_complete_callback_t lock_complete_callback_{nullptr};
 };
 
