@@ -37,6 +37,15 @@ Optimized subcarrier selection with multi-window validation for better accuracy.
 - **Noise gate**: Updated percentile from 10% to 25% for better noise floor detection
 - **Percentile fix**: Proper sorting before threshold calculation
 
+### Calibration Fallback with Normalization
+
+Improved resilience when NBVI calibration cannot find optimal subcarriers.
+
+- **Normalization always calculated**: Even when subcarrier selection fails, baseline variance normalization is computed
+- **Default subcarriers used**: Falls back to [11-22] band instead of returning an error
+- **Prevents false positives**: Without fallback, calibration failure caused 2000%+ motion values due to missing normalization
+- **Aligned C++ and Python**: Both platforms now implement identical fallback behavior
+
 ### ESP32 (Original/WROOM-32) Tested
 
 - Tested on ESP32-WROOM-32D Mini (CH340) board

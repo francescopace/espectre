@@ -346,6 +346,64 @@ void test_calibration_returns_valid_normalization_scale(void) {
     TEST_ASSERT_TRUE(result_normalization_scale <= 10.0f); // Maximum clamped value
 }
 
+void test_calibration_normalization_always_calculated(void) {
+    // Test that normalization is always calculated, regardless of subcarrier selection outcome
+    // Even with high-variance data, normalization scale should be valid
+    CSIManager csi_manager;
+    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
+    
+    CalibrationManager cm;
+    cm.init(&csi_manager, TEST_BUFFER_PATH);
+    cm.set_buffer_size(100);
+    cm.set_window_size(50);
+    
+    float result_normalization_scale = 0.0f;
+    bool callback_called = false;
+    const uint8_t* result_band = nullptr;
+    uint8_t result_size = 0;
+    
+    cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
+        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+            (void)success;  // We don't care if it succeeded or not
+            result_band = band;
+            result_size = size;
+            result_normalization_scale = normalization_scale;
+            callback_called = true;
+        });
+    
+    // Feed movement packets (high variance data)
+    for (int i = 0; i < 100; i++) {
+        cm.add_packet(movement_packets[i], 128);
+    }
+    
+    TEST_ASSERT_TRUE_MESSAGE(callback_called, "Callback should be called");
+    
+    // Regardless of success/failure, these should always be valid:
+    ESP_LOGI(TAG, "Normalization test: band=%p, size=%d, norm_scale=%.4f, baseline_var=%.4f",
+             (void*)result_band, result_size, result_normalization_scale, 
+             cm.get_baseline_variance());
+    
+    // 1. Band pointer should be valid (either NBVI-selected or default fallback)
+    TEST_ASSERT_NOT_NULL_MESSAGE(result_band,
+        "Band should never be null (either NBVI or fallback)");
+    
+    // 2. Band size should be 12
+    TEST_ASSERT_EQUAL_MESSAGE(12, result_size,
+        "Band size should always be 12");
+    
+    // 3. Normalization scale should be calculated and valid
+    TEST_ASSERT_TRUE_MESSAGE(result_normalization_scale > 0.0f,
+        "Normalization scale should be positive");
+    TEST_ASSERT_TRUE_MESSAGE(result_normalization_scale >= 0.1f,
+        "Normalization scale should be >= 0.1 (minimum clamp)");
+    TEST_ASSERT_TRUE_MESSAGE(result_normalization_scale <= 10.0f,
+        "Normalization scale should be <= 10.0 (maximum clamp)");
+    
+    // 4. Baseline variance should be calculated (not zero)
+    TEST_ASSERT_TRUE_MESSAGE(cm.get_baseline_variance() > 0.0f,
+        "Baseline variance should be calculated");
+}
+
 // Note: Spectral spacing is tested in test_spectral_spacing_* tests below
 // and verified in test_calibration_manager_full_calibration via the callback results
 
@@ -827,6 +885,7 @@ int process(void) {
     RUN_TEST(test_calibration_manager_percentile_affects_baseline);
     RUN_TEST(test_calibration_manager_noise_gate);
     RUN_TEST(test_calibration_returns_valid_normalization_scale);
+    RUN_TEST(test_calibration_normalization_always_calculated);
     
     // Spectral spacing tests
     RUN_TEST(test_spectral_spacing_valid);

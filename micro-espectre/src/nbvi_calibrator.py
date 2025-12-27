@@ -582,8 +582,34 @@ class NBVICalibrator:
             gc.collect()
         
         if best_band is None:
-            print("NBVI: All candidate windows failed validation")
-            return None, 1.0
+            # Fallback: keep default subcarriers but still calculate normalization
+            # Use the first (best) candidate window for baseline variance
+            print("NBVI: All candidate windows failed - using default subcarriers with normalization fallback")
+            
+            # Read first candidate window for baseline variance calculation
+            first_start_idx, _ = candidates[0]
+            fallback_window = self._read_window(first_start_idx, window_size)
+            
+            # Calculate baseline variance using current (default) subcarriers
+            baseline_variance = self._calculate_baseline_variance(fallback_window, list(current_band))
+            if baseline_variance < 0.01:
+                baseline_variance = 1.0  # Fallback
+            self._baseline_variance = baseline_variance
+            
+            # Calculate normalization scale
+            if baseline_variance > NORMALIZATION_BASELINE_TARGET:
+                normalization_scale = NORMALIZATION_BASELINE_TARGET / baseline_variance
+                if normalization_scale < 0.1:
+                    normalization_scale = 0.1
+            else:
+                normalization_scale = 1.0
+            
+            print(f"NBVI: Fallback calibration: default subcarriers with normalization")
+            print(f"  Baseline variance: {baseline_variance:.4f}")
+            print(f"  Normalization scale: {normalization_scale:.4f}")
+            
+            # Return default subcarriers (as list) with calculated normalization
+            return list(current_band), normalization_scale
         
         print(f"NBVI: Selected window {best_window_idx + 1}/{len(candidates)} with FP rate {best_fp_rate * 100:.1f}%")
         

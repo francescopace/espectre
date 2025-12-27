@@ -273,7 +273,26 @@ esp_err_t CalibrationManager::run_calibration_() {
   }
   
   if (!found_valid) {
-    ESP_LOGE(TAG, "All %zu candidate windows failed", candidates.size());
+    ESP_LOGW(TAG, "All %zu candidate windows failed - using default subcarriers with normalization fallback", candidates.size());
+    
+    // Fallback: keep default subcarriers but still calculate normalization
+    // Use the first (best) candidate window for baseline variance
+    selected_band_size_ = current_band_.size();
+    std::memcpy(selected_band_, current_band_.data(), selected_band_size_);
+    
+    // Calculate baseline variance using current (default) subcarriers
+    baseline_variance_ = calculate_baseline_variance_(candidates[0].start_idx);
+    if (baseline_variance_ < 0.01f) {
+      baseline_variance_ = 1.0f;  // Fallback
+    }
+    calculate_normalization_scale_();
+    
+    ESP_LOGI(TAG, "⚠ Fallback calibration: default subcarriers with normalization");
+    ESP_LOGD(TAG, "  Baseline variance: %.4f", baseline_variance_);
+    log_normalization_status_();
+    
+    // Return ESP_FAIL to signal subcarrier selection failed,
+    // but normalization_scale_ is now set correctly
     return ESP_FAIL;
   }
   

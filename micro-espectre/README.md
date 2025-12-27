@@ -416,6 +416,7 @@ HAMPEL_THRESHOLD = 4.0
 # Normalization (always enabled for cross-device consistency)
 # If baseline > 0.25: scale = 0.25 / baseline_variance (attenuate)
 # If baseline ≤ 0.25: scale = 1.0 (no amplification)
+# Note: If NBVI calibration fails, normalization is still applied using default subcarriers
 ```
 
 For detailed parameter tuning guide, see [TUNING.md](../TUNING.md).

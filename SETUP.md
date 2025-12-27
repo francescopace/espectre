@@ -502,6 +502,8 @@ spiffs,   data, spiffs,  0x7D0000, 0x30000,
 2. Check traffic generator is running
 3. Verify WiFi connection is stable
 
+**Note:** If NBVI subcarrier selection fails, the system automatically falls back to default subcarriers [11-22] while still applying baseline normalization. Motion detection will work but may be less optimal. Look for the log message `⚠ Fallback calibration: default subcarriers with normalization`.
+
 ### SPIFFS partition not found
 
 If you see `SPIFFS partition could not be found` in logs, ESPectre's partition table was not applied correctly. This commonly happens when:

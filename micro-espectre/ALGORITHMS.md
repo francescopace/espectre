@@ -378,6 +378,16 @@ def nbvi_calibrate(csi_buffer, num_subcarriers=12):
     return sorted(selected)
 ```
 
+### Fallback Behavior
+
+When NBVI calibration cannot find valid subcarriers (e.g., poor signal quality, high noise environment), a fallback mechanism ensures motion detection remains functional:
+
+1. **Default subcarriers used**: The system falls back to the default band [11-22]
+2. **Normalization still calculated**: Baseline variance is computed using the first candidate window
+3. **Motion detection works**: With proper normalization, even default subcarriers provide usable detection
+
+This fallback ensures ESPectre remains operational even in challenging WiFi environments where optimal subcarrier selection fails.
+
 ### Configuration
 
 ```python

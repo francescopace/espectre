@@ -26,10 +26,11 @@ pio test -e esp32c6
 |-------|------|------|-------|
 | `test_csi_processor` | Unit | **Real** | API, getters, state machine, normalization, low-pass filter |
 | `test_hampel_filter` | Unit | **Real** | Outlier removal filter |
-| `test_calibration` | Unit | **Real** | NBVI, magnitude, turbulence, normalization scale |
+| `test_calibration` | Unit | **Real** | NBVI, magnitude, turbulence, normalization scale, fallback |
 | `test_calibration_manager` | Integration | **Real** | CalibrationManager API, file I/O, NBVI ranking |
 | `test_csi_manager` | Integration | **Real** | CSIManager API, callbacks, motion detection |
 | `test_calibration_file_storage` | Unit | Synthetic | File-based magnitude storage |
+| `test_traffic_generator` | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
 | `test_motion_detection` | Integration | **Real** | MVS performance, NBVI end-to-end |
 
 
@@ -59,13 +60,12 @@ Run tests with coverage instrumentation:
 
 | File | Lines | Functions | Branches |
 |------|-------|-----------|----------|
-| `csi_manager.cpp` | **100%** | 100% | 94% |
-| `csi_manager.h` | **100%** | 100% | - |
-| `calibration_manager.h` | **100%** | 100% | - |
+| `csi_manager.cpp` | 92% | 100% | 85% |
+| `csi_processor.cpp` | 89% | 100% | 81% |
+| `calibration_manager.cpp` | 74% | 100% | 65% |
 | `utils.h` | 92% | 100% | 69% |
-| `csi_processor.cpp` | 91% | 100% | 84% |
-| `calibration_manager.cpp` | 75% | 100% | 63% |
-| **Total** | **84%** | **95%** | **74%** |
+| `gain_controller.cpp` | 75% | 50% | - |
+| **Total** | **76%** | **75%** | **70%** |
 
 > **Note**: Coverage measured on Codecov (CI). Tests use real CSI data from ESP32-C6 captures.
 

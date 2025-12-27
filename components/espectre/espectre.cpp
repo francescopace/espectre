@@ -170,7 +170,12 @@ void ESpectreComponent::on_wifi_connected_() {
               memcpy(this->selected_subcarriers_, band, size);
               this->csi_manager_.update_subcarrier_selection(band);
             }
-            // Apply normalization scale to compensate for different ESP32 CSI amplitude ranges
+          }
+          
+          // Apply normalization if calibration produced valid data
+          // band == nullptr means critical failure (e.g., SPIFFS error) - skip normalization
+          // band != nullptr means at least partial success - apply normalization
+          if (band != nullptr) {
             this->normalization_scale_ = normalization_scale;
             csi_processor_set_normalization_scale(&this->csi_processor_, normalization_scale);
             

@@ -409,7 +409,7 @@ class TestNBVICalibrationFailurePaths:
     """Test calibration failure paths"""
     
     def test_calibration_no_valid_subcarriers(self):
-        """Test calibration when all subcarriers are invalid"""
+        """Test calibration when all subcarriers are invalid - uses fallback"""
         calibrator = NBVICalibrator(buffer_size=200)
         
         # All zeros - all subcarriers will be null
@@ -424,14 +424,15 @@ class TestNBVICalibrationFailurePaths:
             step=25
         )
         
-        # Should fail gracefully
-        assert selected_band is None
-        assert norm_scale == 1.0
+        # Should use fallback: return default subcarriers with calculated normalization
+        assert selected_band == list(current_band)  # Default subcarriers used
+        assert norm_scale > 0  # Normalization still calculated
+        assert norm_scale <= 1.0  # Won't amplify (only attenuate or no-op)
         
         calibrator.free_buffer()
     
     def test_calibration_few_valid_subcarriers(self):
-        """Test calibration when too few valid subcarriers"""
+        """Test calibration when too few valid subcarriers - uses fallback"""
         calibrator = NBVICalibrator(buffer_size=200)
         
         # Only a few strong subcarriers
@@ -453,8 +454,9 @@ class TestNBVICalibrationFailurePaths:
             step=25
         )
         
-        # Should fail (fewer than 12 valid subcarriers)
-        assert selected_band is None
+        # Should use fallback: return default subcarriers with calculated normalization
+        assert selected_band == list(current_band)  # Default subcarriers used
+        assert norm_scale > 0  # Normalization still calculated
         
         calibrator.free_buffer()
 
