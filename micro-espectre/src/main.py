@@ -18,6 +18,13 @@ from src.nvs_storage import NVSStorage
 from src.nbvi_calibrator import NBVICalibrator
 import src.config as config
 
+# Optional display support (Waveshare ESP32-S3 1.47" Touch Display)
+try:
+    from src.display import get_display, is_display_available
+    DISPLAY_AVAILABLE = is_display_available()
+except ImportError:
+    DISPLAY_AVAILABLE = False
+
 # Default subcarriers (used if not configured or for fallback in case of error)
 DEFAULT_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
@@ -49,9 +56,32 @@ class GlobalState:
         self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.current_channel = 0  # Track WiFi channel for change detection
+        self.display = None  # Optional display instance
+        self.ip_addr = None  # IP address for display
 
 
 g_state = GlobalState()
+
+
+def init_display():
+    """Initialize display if available"""
+    if not DISPLAY_AVAILABLE:
+        return None
+    
+    try:
+        print("Initializing display...")
+        import machine
+        # Small delay to let system stabilize
+        time.sleep_ms(100)
+        display = get_display(rotation=0)
+        display.show_boot_screen("Starting...")
+        print("Display initialized")
+        return display
+    except Exception as e:
+        print(f"Display init failed: {e}")
+        import sys
+        sys.print_exception(e)
+        return None
 
 
 def connect_wifi():
@@ -334,12 +364,18 @@ def main():
     """Main application loop"""
     print('Micro-ESPectre starting...')
     
+    # Display will be initialized AFTER calibration to avoid interference
+    g_state.display = None
+    
     # Detect chip type and get CSI scale
     g_state.chip_type = os.uname().machine  # Save for MQTT factory_reset
     print(f'Detected chip: {g_state.chip_type}')
     
     # Connect to WiFi
     wlan = connect_wifi()
+    
+    # Store IP for display
+    g_state.ip_addr = wlan.ifconfig()[0]
     
     # Configure and enable CSI with platform-specific scaling
     # Legacy platforms (ESP32, S2, S3, C3): scale=4 (divide by 16)
@@ -408,6 +444,9 @@ def main():
     print(' Motion detection system based on Wi-Fi spectre analysis')
     print('')
     
+    # Initialize display AFTER calibration (to avoid WiFi/SPI interference)
+    g_state.display = init_display()
+    
     # Force garbage collection before main loop
     gc.collect()
     print(f'Free memory before main loop: {gc.mem_free()} bytes')
@@ -472,6 +511,19 @@ def main():
                     progress_bar = format_progress_bar(progress, metrics['threshold'])
                     print(f"{progress_bar} | pkts:{publish_counter} drop:{dropped_delta} pps:{pps} | "
                           f"mvmt:{metrics['moving_variance']:.4f} thr:{metrics['threshold']:.4f} | {state_str}")
+                    
+                    # Update display (every 5 publish cycles to reduce SPI overhead)
+                    if g_state.display and (publish_counter == 0):  # After reset
+                        try:
+                            g_state.display.update(
+                                state=metrics['state'],
+                                moving_variance=metrics['moving_variance'],
+                                threshold=metrics['threshold'],
+                                pps=pps,
+                                ip_addr=g_state.ip_addr
+                            )
+                        except Exception as e:
+                            print(f"Display error: {e}")
                     
                     # Compute features at publish time (not per-packet)
                     features = None

@@ -61,7 +61,7 @@ def detect_serial_ports():
     for port in serial.tools.list_ports.comports():
         # Filter for common USB-to-serial adapters used with ESP32
         desc_lower = port.description.lower()
-        if any(keyword in desc_lower for keyword in ['usb', 'serial', 'uart', 'cp210', 'ch340', 'ftdi']):
+        if any(keyword in desc_lower for keyword in ['usb', 'serial', 'uart', 'cp210', 'ch340', 'ftdi', 'espressif']):
             ports.append(port.device)
     
     return ports
@@ -406,6 +406,7 @@ def deploy_code(args):
             ('src/filters.py', ':src/'),
             ('src/features.py', ':src/'),
             ('src/nbvi_calibrator.py', ':src/'),
+            ('src/display.py', ':src/'),
             ('src/main.py', ':src/'),
             ('src/csi_streamer.py', ':src/'),
             ('src/mqtt/__init__.py', ':src/mqtt/'),
