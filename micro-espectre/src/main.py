@@ -48,6 +48,7 @@ class GlobalState:
         self.calibration_mode = False  # Flag to suspend main loop during calibration
         self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
+        self.current_channel = 0  # Track WiFi channel for change detection
 
 
 g_state = GlobalState()
@@ -444,6 +445,16 @@ def main():
                 
                 # Publish every N packets (where N = publish_rate)
                 if publish_counter >= publish_rate:
+                    # Detect WiFi channel changes (AP may switch channels automatically)
+                    # Channel changes cause CSI spikes that trigger false motion detection
+                    # Check only at publish time to reduce overhead
+                    # frame[1] = channel (from CSI packet metadata)
+                    packet_channel = frame[1]
+                    if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
+                        print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
+                        seg.reset(full=True)
+                    g_state.current_channel = packet_channel
+                    
                     # Calculate variance and update state (lazy evaluation)
                     metrics = seg.update_state()
                     current_time = time.ticks_ms()

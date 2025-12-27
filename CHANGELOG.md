@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ## [2.3.0] - in progress
 
+### WiFi Channel Change Detection
+
+Automatic detection of WiFi channel changes to prevent false motion detection.
+
+- **Problem**: When the AP switches channel (auto-channel, roaming), CSI data spikes cause false positives
+- **Solution**: Track channel from CSI packet metadata; reset detection buffer on change
+- **Implementation**: Check at publish time (every ~100 packets) to minimize overhead
+- **Log output**: `[W][CSIManager]: WiFi channel changed: 6 -> 11, resetting detection buffer`
+- **Aligned C++ and Python**: Both platforms use packet channel metadata (`data->channel` / `frame[1]`)
+
+Fixes [#46](https://github.com/francescopace/espectre/issues/46).
+
 ### ESPectre - The Game
 
 A browser-based reaction game that demonstrates ESPectre motion detection capabilities. No controller needed - your physical movement controls the game through WiFi sensing.

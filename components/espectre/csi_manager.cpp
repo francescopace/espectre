@@ -116,6 +116,17 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
   
     // Periodic publish callback
     if (should_publish) {
+      // Detect WiFi channel changes (AP may switch channels automatically)
+      // Channel changes cause CSI spikes that trigger false motion detection
+      // Check only at publish time to reduce overhead
+      uint8_t packet_channel = data->rx_ctrl.channel;
+      if (current_channel_ != 0 && packet_channel != current_channel_) {
+        ESP_LOGW(TAG, "WiFi channel changed: %d -> %d, resetting detection buffer",
+                 current_channel_, packet_channel);
+        csi_processor_clear_buffer(processor_);
+      }
+      current_channel_ = packet_channel;
+      
       if (packet_callback_) {
         csi_motion_state_t state = csi_processor_get_state(processor_);
         packet_callback_(state);

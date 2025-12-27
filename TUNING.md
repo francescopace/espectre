@@ -388,6 +388,22 @@ espectre:
      lowpass_enabled: true
    ```
 
+### False Positives After WiFi Channel Change
+
+**Symptoms:** Sudden MOTION detection when no one is moving, typically after router auto-channel switch.
+
+**Automatic handling:** ESPectre v2.3.0+ automatically detects channel changes and resets the detection buffer. Look for this log message:
+
+```
+[W][CSIManager]: WiFi channel changed: 6 -> 11, resetting detection buffer
+```
+
+**If you see frequent channel changes:**
+
+1. **Fix router channel:** Disable auto-channel and set a fixed channel in your router settings
+2. **Avoid DFS channels:** Channels 52-144 (5GHz DFS) may switch unexpectedly due to radar detection
+3. **Check for interference:** Nearby networks on the same channel can cause instability
+
 ### Reset Calibration
 
 **When needed:** Start fresh with new subcarrier selection.

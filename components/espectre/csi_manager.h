@@ -175,6 +175,7 @@ class CSIManager {
   game_mode_callback_t game_mode_callback_;
   uint32_t publish_rate_{100};
   volatile uint32_t packets_processed_{0};  // volatile: modified from ISR callback
+  uint8_t current_channel_{0};  // Track WiFi channel for change detection
   
   // WiFi CSI interface (injected or default real implementation)
   IWiFiCSI* wifi_csi_{nullptr};
