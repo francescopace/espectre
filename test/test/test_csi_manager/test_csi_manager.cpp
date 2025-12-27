@@ -445,6 +445,43 @@ void test_csi_manager_delegates_when_calibrating(void) {
     remove("/tmp/test_cal_delegate.bin");
 }
 
+void test_csi_manager_calibration_triggers_periodic_yield(void) {
+    // Test that calibration processes 100+ packets to trigger the periodic yield
+    // This covers the vTaskDelay(1) path in add_packet when buffer_count_ % 100 == 0
+    CSIManager manager;
+    manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
+    
+    // Create CalibrationManager with buffer size > 100 to trigger periodic flush/yield
+    CalibrationManager calibrator;
+    calibrator.init(&manager, "/tmp/test_cal_yield.bin");
+    calibrator.set_buffer_size(150);  // Need > 100 to trigger the yield path
+    
+    // Start calibration
+    uint8_t dummy_band[12] = {10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
+    esp_err_t err = calibrator.start_auto_calibration(dummy_band, 12, nullptr);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_TRUE(calibrator.is_calibrating());
+    
+    // Set calibration mode on manager
+    manager.set_calibration_mode(&calibrator);
+    
+    // Process 120 packets - this should trigger the periodic yield at packet 100
+    for (int i = 0; i < 120; i++) {
+        wifi_csi_info_t csi_info;
+        csi_info.buf = const_cast<int8_t*>(baseline_packets[i % 100]);
+        csi_info.len = 128;
+        
+        manager.process_packet(&csi_info);
+    }
+    
+    // Calibrator should still be calibrating (buffer not full yet, need 150)
+    TEST_ASSERT_TRUE(calibrator.is_calibrating());
+    
+    // Cleanup
+    manager.set_calibration_mode(nullptr);
+    remove("/tmp/test_cal_yield.bin");
+}
+
 void test_csi_manager_calibrator_lifecycle(void) {
     // Test setting and clearing calibration mode
     CSIManager manager;
@@ -680,6 +717,7 @@ int process(void) {
     RUN_TEST(test_csi_manager_with_calibrator_not_calibrating);
     RUN_TEST(test_csi_manager_null_calibrator_processes_normally);
     RUN_TEST(test_csi_manager_delegates_when_calibrating);
+    RUN_TEST(test_csi_manager_calibration_triggers_periodic_yield);
     RUN_TEST(test_csi_manager_calibrator_lifecycle);
     
     // Error path tests

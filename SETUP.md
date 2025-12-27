@@ -502,6 +502,27 @@ spiffs,   data, spiffs,  0x7D0000, 0x30000,
 2. Check traffic generator is running
 3. Verify WiFi connection is stable
 
+### SPIFFS partition not found
+
+If you see `SPIFFS partition could not be found` in logs, ESPectre's partition table was not applied correctly. This commonly happens when:
+
+- Combining ESPectre with other components like `bluetooth_proxy` or `esp32_ble_tracker`
+- Using a custom YAML instead of the provided examples
+- Another component is overriding the partition table
+
+**Solution:**
+
+1. First, try a full flash erase and reflash:
+   ```bash
+   # Erase flash completely (replace /dev/ttyUSB0 with your port)
+   esptool.py --port /dev/ttyUSB0 erase_flash
+   # Then reflash
+   esphome run your-config.yaml
+   ```
+   Or use the ESPHome dashboard: click the three dots menu → "Install" → "Erase device before installing".
+
+2. If the problem persists, create a custom partition table that includes SPIFFS. See the "Combining with Other Components" section above for examples.
+
 ### Unstable detection with mesh networks
 
 If you have a mesh WiFi network, the sensor may roam between access points causing CSI inconsistencies. Lock it to a specific AP using the BSSID.

@@ -213,6 +213,9 @@ void TrafficGeneratorManager::traffic_task_(void* arg) {
   
   int64_t next_send_time = esp_timer_get_time();
   
+  // Error state for rate-limited logging
+  SendErrorState error_state;
+  
   while (mgr->running_) {
     // Check if paused (e.g., during calibration)
     if (mgr->paused_) {
@@ -232,8 +235,15 @@ void TrafficGeneratorManager::traffic_task_(void* arg) {
     );
     
     if (sent <= 0) {
-      // Log occasional errors
-      ESP_LOGW(TAG, "Send error: %zd (errno: %d)", sent, errno);
+      // Handle error with rate-limited logging
+      bool needs_backoff = handle_send_error(error_state, sent, errno, esp_timer_get_time());
+      
+      // Adaptive backoff on ENOMEM: give WiFi stack time to recover
+      // This commonly happens during SPIFFS operations (calibration) which compete
+      // for memory with the LwIP network stack.
+      if (needs_backoff) {
+        vTaskDelay(pdMS_TO_TICKS(5));  // 5ms backoff on memory pressure
+      }
     }
     
     // Calculate next send time with fractional accumulator for precise rate

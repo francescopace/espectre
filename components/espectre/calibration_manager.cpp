@@ -20,6 +20,8 @@
 #include <limits>
 #include <unistd.h>
 #include "esp_spiffs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 namespace esphome {
 namespace espectre {
@@ -103,8 +105,12 @@ bool CalibrationManager::add_packet(const int8_t* csi_data, size_t csi_len) {
   buffer_count_++;
   
   // Flush periodically to ensure data is written
+  // Also yield to allow other tasks (especially WiFi/LwIP) to process
+  // This helps prevent ENOMEM errors in the traffic generator on ESP32-S3
+  // where PSRAM, SPIFFS, and WiFi compete for bus access
   if (buffer_count_ % 100 == 0) {
     fflush(buffer_file_);
+    vTaskDelay(1);  // Minimal yield to prevent WiFi starvation
   }
   
   // Log progress bar every 10%
@@ -622,7 +628,7 @@ bool CalibrationManager::ensure_spiffs_mounted_() {
   esp_err_t ret = esp_vfs_spiffs_register(&conf);
   if (ret != ESP_OK) {
     if (ret == ESP_ERR_NOT_FOUND) {
-      ESP_LOGE(TAG, "SPIFFS partition not found");
+      ESP_LOGE(TAG, "SPIFFS partition not found! ESPectre requires SPIFFS for calibration.");
     } else if (ret == ESP_FAIL) {
       ESP_LOGE(TAG, "Failed to mount or format SPIFFS");
     } else {
