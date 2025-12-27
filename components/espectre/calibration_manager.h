@@ -96,6 +96,10 @@ class CalibrationManager {
   void set_buffer_size(uint16_t size) { buffer_size_ = size; }
   void set_window_size(uint16_t size) { window_size_ = size; }
   void set_window_step(uint16_t step) { window_step_ = step; }
+  
+  uint16_t get_buffer_size() const { return buffer_size_; }
+  uint16_t get_window_size() const { return window_size_; }
+  uint16_t get_window_step() const { return window_step_; }
   void set_percentile(uint8_t percentile) { percentile_ = percentile; }
   void set_alpha(float alpha) { alpha_ = alpha; }
   void set_min_spacing(uint8_t spacing) { min_spacing_ = spacing; }
@@ -129,12 +133,13 @@ class CalibrationManager {
   // Internal methods
   void on_collection_complete_();
   esp_err_t run_calibration_();
-  esp_err_t find_baseline_window_(uint16_t* out_window_start, float* out_baseline_variance);
+  esp_err_t find_candidate_windows_(std::vector<WindowVariance>& candidates);
   void calculate_nbvi_metrics_(uint16_t baseline_start, std::vector<NBVIMetrics>& metrics);
   uint8_t apply_noise_gate_(std::vector<NBVIMetrics>& metrics);
   void select_with_spacing_(const std::vector<NBVIMetrics>& sorted_metrics,
                            uint8_t* output_band,
                            uint8_t* output_size);
+  bool validate_subcarriers_(const uint8_t* band, uint8_t band_size, float* out_fp_rate);
   
   // Utility methods
   float calculate_percentile_(const std::vector<float>& sorted_values, uint8_t percentile) const;
@@ -167,7 +172,7 @@ class CalibrationManager {
   uint8_t percentile_{10};           // Percentile for baseline detection
   float alpha_{0.5f};                // NBVI weighting factor (higher = more weight on signal strength)
   uint8_t min_spacing_{1};           // Minimum spectral spacing (1 = adjacent allowed)
-  uint8_t noise_gate_percentile_{10}; // Noise gate threshold
+  uint8_t noise_gate_percentile_{25}; // Noise gate threshold
   bool skip_subcarrier_selection_{false}; // Skip NBVI, only calculate baseline
   
   // Current calibration context

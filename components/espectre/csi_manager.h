@@ -125,6 +125,13 @@ class CSIManager {
   bool is_gain_locked() const { return gain_controller_.is_locked(); }
   
   /**
+   * Get the number of packets used for gain lock calibration
+   * 
+   * @return Calibration packet count (default: 300)
+   */
+  uint16_t get_gain_lock_packets() const { return gain_controller_.get_calibration_packets(); }
+  
+  /**
    * Get the gain controller (for status reporting)
    * 
    * @return Reference to gain controller

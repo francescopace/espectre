@@ -214,8 +214,8 @@ python 10_optimize_nbvi_params.py --quick      # Quick search (fewer combination
 ```
 
 **Current optimal configuration:**
-- `NBVI_ALPHA = 0.5`, `NBVI_MIN_SPACING = 1`, `NBVI_PERCENTILE = 10`
-- Achieves **Recall 96.5%, F1 98.2%** with zero configuration
+- `NBVI_ALPHA = 0.5`, `NBVI_MIN_SPACING = 1`, `NBVI_PERCENTILE = 10`, `NOISE_GATE_PERCENTILE = 25`
+- Achieves **Recall 96.4%, F1 98.2%** with zero configuration
 
 ---
 

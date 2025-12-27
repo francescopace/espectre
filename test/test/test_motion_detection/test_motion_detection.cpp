@@ -396,9 +396,7 @@ void test_mvs_end_to_end_with_calibration(void) {
     
     CalibrationManager cm;
     cm.init(&csi_manager, "/tmp/test_e2e_buffer.bin");
-    cm.set_buffer_size(200);  // Use first 200 baseline packets for calibration
-    // Use default parameters from CalibrationManager - no hardcoded values
-    // This ensures tests reflect real production behavior
+    // Use production parameters (as defined in calibration_manager.h defaults)
     
     // Variables to capture calibration results
     uint8_t calibrated_band[12] = {0};
@@ -420,10 +418,14 @@ void test_mvs_end_to_end_with_calibration(void) {
     TEST_ASSERT_EQUAL(ESP_OK, err);
     TEST_ASSERT_TRUE(cm.is_calibrating());
     
-    // Feed baseline packets for calibration
-    printf("Calibrating with %d baseline packets...\n", 200);
-    for (int i = 0; i < 200 && i < num_baseline; i++) {
-        cm.add_packet(baseline_packets[i], 128);
+    // Feed baseline packets for calibration (use production buffer size)
+    // Skip gain lock period - in production, NBVI starts after AGC stabilization
+    const int gain_lock_skip = csi_manager.get_gain_lock_packets();
+    const int calibration_packets = cm.get_buffer_size();
+    printf("Calibrating with %d baseline packets (skipping first %d for gain lock)...\n", 
+           calibration_packets, gain_lock_skip);
+    for (int i = 0; i < calibration_packets && (i + gain_lock_skip) < num_baseline; i++) {
+        cm.add_packet(baseline_packets[i + gain_lock_skip], 128);
     }
     
     // Calibration should complete

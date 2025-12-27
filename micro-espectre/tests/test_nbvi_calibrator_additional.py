@@ -305,12 +305,12 @@ class TestNBVIBaselineWindow:
         calibrator._prepare_for_reading()
         
         current_band = list(range(11, 23))
-        window, stats = calibrator._find_baseline_window_percentile(
+        # _find_candidate_windows returns empty list when insufficient packets
+        candidates = calibrator._find_candidate_windows(
             current_band, window_size=50, step=25
         )
         
-        assert window is None
-        assert stats is None
+        assert candidates == []
         
         calibrator.free_buffer()
     
@@ -335,14 +335,16 @@ class TestNBVIBaselineWindow:
         calibrator._prepare_for_reading()
         
         current_band = list(range(11, 23))
-        window, stats = calibrator._find_baseline_window_percentile(
+        # _find_candidate_windows returns list of (start_idx, variance) tuples
+        candidates = calibrator._find_candidate_windows(
             current_band, window_size=100, step=50
         )
         
-        assert window is not None
-        assert stats is not None
-        assert 'variance' in stats
-        assert 'threshold' in stats
+        # Should find at least one candidate window
+        assert len(candidates) > 0
+        # Each candidate is a tuple of (start_idx, variance)
+        assert isinstance(candidates[0], tuple)
+        assert len(candidates[0]) == 2
         
         calibrator.free_buffer()
 

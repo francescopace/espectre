@@ -55,6 +55,11 @@ void ESpectreComponent::setup() {
   // 4. Initialize managers (each manager handles its own internal initialization)
   this->calibration_manager_.init(&this->csi_manager_);
   this->traffic_generator_.init(this->traffic_generator_rate_);
+  this->serial_streamer_.init();
+  this->serial_streamer_.set_threshold_callback([this](float threshold) {
+    this->set_threshold_runtime(threshold);
+  });
+  
   this->csi_manager_.init(
     &this->csi_processor_,
     this->selected_subcarriers_,
@@ -212,6 +217,11 @@ void ESpectreComponent::set_threshold_runtime(float threshold) {
   ESpectreConfig config;
   config.segmentation_threshold = threshold;
   this->config_manager_.save(config);
+  
+  // Publish to Home Assistant
+  if (this->threshold_number_ != nullptr) {
+    this->threshold_number_->publish_state(threshold);
+  }
   
   ESP_LOGI(TAG, "Threshold updated to %.2f (saved to flash)", threshold);
 }

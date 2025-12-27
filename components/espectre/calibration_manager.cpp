@@ -177,23 +177,22 @@ esp_err_t CalibrationManager::run_calibration_() {
   ESP_LOGV(TAG, "  Window size: %d packets", window_size_);
   ESP_LOGV(TAG, "  Step size: %d packets", window_step_);
   
-  // Step 1: Find baseline window and its variance (always needed for normalization)
-  uint16_t baseline_start;
-  float baseline_variance = 1.0f;
-  esp_err_t err = find_baseline_window_(&baseline_start, &baseline_variance);
+  // Step 1: Find all candidate baseline windows (sorted by variance, best first)
+  std::vector<WindowVariance> candidates;
+  esp_err_t err = find_candidate_windows_(candidates);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to find baseline window");
+    ESP_LOGE(TAG, "Failed to find candidate windows");
     return err;
   }
   
-  // If skipping subcarrier selection (user specified subcarriers), use variance as-is
+  // If skipping subcarrier selection (user specified subcarriers), use first candidate
   if (skip_subcarrier_selection_) {
     // Use the current band as-is (already set in current_band_)
     selected_band_size_ = current_band_.size();
     std::memcpy(selected_band_, current_band_.data(), selected_band_size_);
     
     // Variance was calculated with current_band_, which is correct for fixed subcarriers
-    baseline_variance_ = baseline_variance;
+    baseline_variance_ = candidates[0].variance;
     calculate_normalization_scale_();
     
     ESP_LOGI(TAG, "✓ Baseline calibration complete (fixed subcarriers)");
@@ -203,40 +202,84 @@ esp_err_t CalibrationManager::run_calibration_() {
     return ESP_OK;
   }
   
-  ESP_LOGV(TAG, "Using %d packets for calibration (starting at %d)",
-           window_size_, baseline_start);
+  // Step 2: Try all candidate windows and select the one with minimum FP rate
+  float best_fp_rate = 1.0f;
+  size_t best_idx = 0;
+  bool found_valid = false;
+  uint8_t best_band[SELECTED_SUBCARRIERS_COUNT] = {0};
+  uint16_t best_baseline_start = 0;
+  std::vector<NBVIMetrics> best_metrics;
+  uint8_t best_filtered_count = 0;
   
-  // Step 2: Calculate NBVI for all subcarriers
-  std::vector<NBVIMetrics> all_metrics(NUM_SUBCARRIERS);
-  calculate_nbvi_metrics_(baseline_start, all_metrics);
+  for (size_t candidate_idx = 0; candidate_idx < candidates.size(); candidate_idx++) {
+    uint16_t baseline_start = candidates[candidate_idx].start_idx;
+    float window_variance = candidates[candidate_idx].variance;
+    
+    ESP_LOGV(TAG, "Evaluating candidate window %zu/%zu (start=%d, variance=%.4f)",
+             candidate_idx + 1, candidates.size(), baseline_start, window_variance);
+    
+    // Step 2a: Calculate NBVI for all subcarriers using this window
+    std::vector<NBVIMetrics> all_metrics(NUM_SUBCARRIERS);
+    calculate_nbvi_metrics_(baseline_start, all_metrics);
+    
+    // Step 2b: Apply Noise Gate
+    uint8_t filtered_count = apply_noise_gate_(all_metrics);
+    
+    if (filtered_count < SELECTED_SUBCARRIERS_COUNT) {
+      ESP_LOGV(TAG, "  Skipping: not enough subcarriers after Noise Gate (%d < %d)",
+               filtered_count, SELECTED_SUBCARRIERS_COUNT);
+      continue;
+    }
+    
+    // Step 2c: Sort by NBVI (ascending - lower is better)
+    std::sort(all_metrics.begin(), all_metrics.begin() + filtered_count,
+              [](const NBVIMetrics& a, const NBVIMetrics& b) {
+                return a.nbvi < b.nbvi;
+              });
+    
+    // Step 2d: Select with spectral spacing
+    uint8_t temp_band[SELECTED_SUBCARRIERS_COUNT] = {0};
+    uint8_t temp_band_size = 0;
+    select_with_spacing_(all_metrics, temp_band, &temp_band_size);
+    
+    if (temp_band_size != SELECTED_SUBCARRIERS_COUNT) {
+      ESP_LOGV(TAG, "  Skipping: invalid band size (%d != %d)",
+               temp_band_size, SELECTED_SUBCARRIERS_COUNT);
+      continue;
+    }
+    
+    // Step 2e: Validate - run MVS on entire buffer with selected subcarriers
+    float fp_rate = 0.0f;
+    validate_subcarriers_(temp_band, temp_band_size, &fp_rate);
+    
+    ESP_LOGV(TAG, "  Window %zu: FP rate %.1f%%", candidate_idx + 1, fp_rate * 100.0f);
+    
+    // Track best result (minimum FP rate)
+    if (fp_rate < best_fp_rate) {
+      best_fp_rate = fp_rate;
+      best_idx = candidate_idx;
+      best_baseline_start = baseline_start;
+      std::memcpy(best_band, temp_band, SELECTED_SUBCARRIERS_COUNT);
+      best_metrics = all_metrics;
+      best_filtered_count = filtered_count;
+      found_valid = true;
+    }
+  }
   
-  // Step 3: Apply Noise Gate
-  uint8_t filtered_count = apply_noise_gate_(all_metrics);
-  
-  if (filtered_count < SELECTED_SUBCARRIERS_COUNT) {
-    ESP_LOGE(TAG, "Not enough subcarriers after Noise Gate (%d < %d)",
-             filtered_count, SELECTED_SUBCARRIERS_COUNT);
+  if (!found_valid) {
+    ESP_LOGE(TAG, "All %zu candidate windows failed", candidates.size());
     return ESP_FAIL;
   }
   
-  // Step 4: Sort by NBVI (ascending - lower is better)
-  std::sort(all_metrics.begin(), all_metrics.begin() + filtered_count,
-            [](const NBVIMetrics& a, const NBVIMetrics& b) {
-              return a.nbvi < b.nbvi;
-            });
+  // Use the best result
+  std::memcpy(selected_band_, best_band, SELECTED_SUBCARRIERS_COUNT);
+  selected_band_size_ = SELECTED_SUBCARRIERS_COUNT;
   
-  // Step 5: Select with spectral spacing
-  select_with_spacing_(all_metrics, selected_band_, &selected_band_size_);
+  ESP_LOGD(TAG, "Selected window %zu/%zu with minimum FP rate %.1f%%",
+           best_idx + 1, candidates.size(), best_fp_rate * 100.0f);
   
-  if (selected_band_size_ != SELECTED_SUBCARRIERS_COUNT) {
-    ESP_LOGE(TAG, "Invalid band size (%d != %d)", selected_band_size_, SELECTED_SUBCARRIERS_COUNT);
-    return ESP_FAIL;
-  }
-  
-  // Step 6: Calculate baseline variance using the SELECTED subcarriers
-  // For NBVI path, this is the ONLY variance calculation that matters
-  // (find_baseline_window_ used current_band_ just to identify the quietest window)
-  baseline_variance_ = calculate_baseline_variance_(baseline_start);
+  // Step 3: Calculate baseline variance using the SELECTED subcarriers
+  baseline_variance_ = calculate_baseline_variance_(best_baseline_start);
   if (baseline_variance_ < 0.01f) {
     baseline_variance_ = 1.0f;  // Fallback
   }
@@ -246,10 +289,10 @@ esp_err_t CalibrationManager::run_calibration_() {
   float avg_nbvi = 0.0f;
   float avg_mean = 0.0f;
   for (uint8_t i = 0; i < SELECTED_SUBCARRIERS_COUNT; i++) {
-    for (uint8_t j = 0; j < filtered_count; j++) {
-      if (all_metrics[j].subcarrier == selected_band_[i]) {
-        avg_nbvi += all_metrics[j].nbvi;
-        avg_mean += all_metrics[j].mean;
+    for (uint8_t j = 0; j < best_filtered_count; j++) {
+      if (best_metrics[j].subcarrier == selected_band_[i]) {
+        avg_nbvi += best_metrics[j].nbvi;
+        avg_mean += best_metrics[j].mean;
         break;
       }
     }
@@ -264,12 +307,13 @@ esp_err_t CalibrationManager::run_calibration_() {
   ESP_LOGD(TAG, "  Average NBVI: %.6f", avg_nbvi);
   ESP_LOGD(TAG, "  Average magnitude: %.2f", avg_mean);
   ESP_LOGD(TAG, "  Baseline variance: %.4f", baseline_variance_);
+  ESP_LOGD(TAG, "  Best of %zu windows (FP rate: %.1f%%)", candidates.size(), best_fp_rate * 100.0f);
   log_normalization_status_();
   
   return ESP_OK;
 }
 
-esp_err_t CalibrationManager::find_baseline_window_(uint16_t* out_window_start, float* out_baseline_variance) {
+esp_err_t CalibrationManager::find_candidate_windows_(std::vector<WindowVariance>& candidates) {
   if (buffer_count_ < window_size_) {
     ESP_LOGE(TAG, "Not enough packets for baseline detection (%d < %d)",
              buffer_count_, window_size_);
@@ -290,8 +334,12 @@ esp_err_t CalibrationManager::find_baseline_window_(uint16_t* out_window_start, 
   ESP_LOGV(TAG, "Analyzing %d windows (size=%d, step=%d)",
            num_windows, window_size_, window_step_);
   
-  std::vector<WindowVariance> windows(num_windows);
+  candidates.resize(num_windows);
   std::vector<float> turbulence_buffer(window_size_);
+  
+  // Note: CalibrationManager expects data collected AFTER gain lock completes.
+  // The gain lock period (first 300 packets after boot) is handled by CSIManager
+  // which only starts feeding CalibrationManager after AGC stabilization.
   
   // Analyze each window - read from file
   uint16_t window_idx = 0;
@@ -321,45 +369,40 @@ esp_err_t CalibrationManager::find_baseline_window_(uint16_t* out_window_start, 
     // Calculate variance of turbulence
     float variance = calculate_variance_two_pass(turbulence_buffer.data(), window_size_);
     
-    windows[window_idx].start_idx = i;
-    windows[window_idx].variance = variance;
+    candidates[window_idx].start_idx = i;
+    candidates[window_idx].variance = variance;
     window_idx++;
   }
   
-  // Sort windows by variance
-  std::sort(windows.begin(), windows.begin() + window_idx,
+  // Resize to actual count
+  candidates.resize(window_idx);
+  
+  // Calculate percentile threshold (variances must be sorted!)
+  std::vector<float> variances(window_idx);
+  for (uint16_t i = 0; i < window_idx; i++) {
+    variances[i] = candidates[i].variance;
+  }
+  std::sort(variances.begin(), variances.end());
+  
+  float p_threshold = calculate_percentile_(variances, percentile_);
+  
+  // Filter: keep only windows below percentile threshold
+  auto new_end = std::remove_if(candidates.begin(), candidates.end(),
+                                [p_threshold](const WindowVariance& w) {
+                                  return w.variance > p_threshold;
+                                });
+  candidates.erase(new_end, candidates.end());
+  
+  // Sort by variance (ascending - best first)
+  std::sort(candidates.begin(), candidates.end(),
             [](const WindowVariance& a, const WindowVariance& b) {
               return a.variance < b.variance;
             });
   
-  // Calculate percentile threshold
-  std::vector<float> variances(window_idx);
-  for (uint16_t i = 0; i < window_idx; i++) {
-    variances[i] = windows[i].variance;
-  }
+  ESP_LOGD(TAG, "Found %zu candidate windows (p%d threshold: %.4f)",
+           candidates.size(), percentile_, p_threshold);
   
-  float p_threshold = calculate_percentile_(variances, percentile_);
-  
-  // Find best window (minimum variance below percentile)
-  uint16_t best_window_idx = 0;
-  float min_variance = windows[0].variance;
-  
-  for (uint16_t i = 0; i < window_idx; i++) {
-    if (windows[i].variance <= p_threshold && windows[i].variance < min_variance) {
-      min_variance = windows[i].variance;
-      best_window_idx = i;
-    }
-  }
-  
-  *out_window_start = windows[best_window_idx].start_idx;
-  *out_baseline_variance = min_variance;
-  
-  ESP_LOGD(TAG, "Baseline window found:");
-  ESP_LOGD(TAG, "  Variance: %.4f", min_variance);
-  ESP_LOGD(TAG, "  p%d threshold: %.4f (adaptive)", percentile_, p_threshold);
-  ESP_LOGD(TAG, "  Windows analyzed: %d", window_idx);
-  
-  return ESP_OK;
+  return candidates.empty() ? ESP_FAIL : ESP_OK;
 }
 
 void CalibrationManager::calculate_nbvi_metrics_(uint16_t baseline_start,
@@ -660,6 +703,75 @@ std::vector<uint8_t> CalibrationManager::read_window_(uint16_t start_idx, uint16
   }
   
   return data;
+}
+
+bool CalibrationManager::validate_subcarriers_(const uint8_t* band, uint8_t band_size, float* out_fp_rate) {
+  // Validate selected subcarriers by running MVS detection on the ENTIRE buffer
+  // and checking for false positives (motion detected in baseline data)
+  //
+  // The calibration buffer contains ONLY baseline data (quiet room), so any
+  // motion detection is a false positive.
+  //
+  // Returns true always (caller decides based on fp_rate)
+  
+  constexpr uint16_t MVS_WINDOW_SIZE = SEGMENTATION_DEFAULT_WINDOW_SIZE;  // Use production MVS window (50)
+  constexpr float MVS_THRESHOLD = SEGMENTATION_DEFAULT_THRESHOLD;  // Use production threshold (1.0)
+  
+  if (buffer_count_ < MVS_WINDOW_SIZE) {
+    ESP_LOGW(TAG, "Not enough packets for validation");
+    *out_fp_rate = 0.0f;
+    return true;  // Skip validation if not enough data
+  }
+  
+  // Create a temporary turbulence buffer for MVS (filled sequentially, not circular)
+  std::vector<float> turbulence_buffer(MVS_WINDOW_SIZE);
+  uint16_t motion_count = 0;
+  uint16_t total_packets = 0;
+  
+  // Process entire buffer packet by packet
+  for (uint16_t pkt = 0; pkt < buffer_count_; pkt++) {
+    // Read single packet
+    std::vector<uint8_t> packet_data = read_window_(pkt, 1);
+    if (packet_data.size() != NUM_SUBCARRIERS) {
+      continue;
+    }
+    
+    // Convert to float
+    float float_mags[NUM_SUBCARRIERS];
+    for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
+      float_mags[sc] = static_cast<float>(packet_data[sc]);
+    }
+    
+    // Calculate turbulence with the candidate subcarriers
+    float turbulence = calculate_spatial_turbulence(float_mags, band, band_size);
+    
+    // Shift buffer and add new value (like real MVS does)
+    for (uint16_t i = 0; i < MVS_WINDOW_SIZE - 1; i++) {
+      turbulence_buffer[i] = turbulence_buffer[i + 1];
+    }
+    turbulence_buffer[MVS_WINDOW_SIZE - 1] = turbulence;
+    
+    // Skip warmup (need full window before calculating variance)
+    if (pkt < MVS_WINDOW_SIZE) {
+      continue;
+    }
+    
+    // Calculate variance (MVS) - this is the moving variance
+    float variance = calculate_variance_two_pass(turbulence_buffer.data(), MVS_WINDOW_SIZE);
+    
+    // Check if this would trigger motion detection
+    if (variance > MVS_THRESHOLD) {
+      motion_count++;
+    }
+    total_packets++;
+  }
+  
+  *out_fp_rate = (total_packets > 0) ? (float)motion_count / total_packets : 0.0f;
+  
+  ESP_LOGV(TAG, "Validation: %d/%d packets detected as motion (FP rate: %.1f%%)",
+           motion_count, total_packets, *out_fp_rate * 100.0f);
+  
+  return true;  // Always succeed, caller selects best based on fp_rate
 }
 
 float CalibrationManager::calculate_baseline_variance_(uint16_t baseline_start) {

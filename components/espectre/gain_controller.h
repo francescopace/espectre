@@ -179,6 +179,13 @@ class GainController {
    */
   uint16_t get_packet_count() const { return packet_count_; }
   
+  /**
+   * Get the number of packets used for gain lock calibration
+   * 
+   * @return Calibration packet count (default: 300)
+   */
+  uint16_t get_calibration_packets() const { return calibration_packets_; }
+  
  private:
   uint16_t calibration_packets_{300};
   uint16_t packet_count_{0};

@@ -291,31 +291,31 @@ Optimal subcarriers show **maximum contrast** between these states.
 Instead of using fixed thresholds, NBVI uses percentile analysis to find the quietest windows automatically:
 
 ```python
-# Analyze sliding windows
-for window in sliding_windows(buffer, size=200, step=50):
+# Analyze sliding windows (skip first 300 packets used for gain lock)
+for window in sliding_windows(buffer[300:], size=200, step=50):
     variances.append(calculate_variance(window))
 
 # Find quietest windows (adaptive threshold)
 p10_threshold = np.percentile(variances, 10)
-baseline_windows = [w for w in windows if variance <= p10_threshold]
+candidate_windows = [w for w in windows if variance <= p10_threshold]
 
-# Use best window for calibration
-best_window = min(baseline_windows, key=lambda x: x.variance)
+# Validate each candidate and select with minimum FP rate
+best_window = min(candidate_windows, key=lambda w: validate_fp_rate(w))
 ```
 
 **Advantages**:
+- Multi-window validation ensures selected subcarriers produce stable detection
 - Adapts to any environment automatically
 - Zero configuration required
-- +3.0% improvement over threshold-based detection
 
 #### 2. Noise Gate
 
 **Problem**: Weak subcarriers appear stable (low σ) but have low SNR.
 
-**Solution**: Exclude subcarriers below 10th percentile of mean magnitude.
+**Solution**: Exclude subcarriers below 25th percentile of mean magnitude.
 
 ```python
-magnitude_threshold = np.percentile(mean_magnitudes, 10)
+magnitude_threshold = np.percentile(mean_magnitudes, 25)
 valid_subcarriers = [i for i in range(64) if mean[i] > magnitude_threshold]
 ```
 
@@ -339,25 +339,29 @@ This allows selecting adjacent subcarriers when they have good NBVI scores, maxi
 
 ```python
 def nbvi_calibrate(csi_buffer, num_subcarriers=12):
-    # 1. Collect baseline data (700 packets, ~7s @ 100Hz after gain lock)
-    magnitudes = calculate_magnitudes(csi_buffer)
+    # 1. Collect baseline data (700 packets, ~7s @ 100Hz)
+    #    Skip first 300 packets (used for gain lock)
+    magnitudes = calculate_magnitudes(csi_buffer[300:])
     
-    # 2. Find quietest window using percentile
-    window_variances = [var(window) for window in sliding_windows(magnitudes)]
+    # 2. Find candidate windows using percentile threshold
+    window_variances = [var(window) for window in sliding_windows(magnitudes, 200, 50)]
     p10 = percentile(window_variances, 10)
-    baseline_window = select_best_window(window_variances, p10)
+    candidates = [w for w in windows if variance(w) <= p10]
     
-    # 3. Calculate NBVI for all 64 subcarriers (α=0.5)
+    # 3. Validate each candidate and select with minimum FP rate
+    best_window = min(candidates, key=lambda w: validate_fp_rate(w))
+    
+    # 4. Calculate NBVI for all 64 subcarriers (α=0.5)
     for i in range(64):
-        mean = np.mean(baseline_window[:, i])
-        std = np.std(baseline_window[:, i])
+        mean = np.mean(best_window[:, i])
+        std = np.std(best_window[:, i])
         nbvi[i] = 0.5 * (std / mean**2) + 0.5 * (std / mean)
     
-    # 4. Apply noise gate (exclude weak subcarriers)
-    threshold = percentile(means, 10)
+    # 5. Apply noise gate (exclude weak subcarriers, 25th percentile)
+    threshold = percentile(means, 25)
     valid = [i for i in range(64) if means[i] > threshold]
     
-    # 5. Select with spacing
+    # 6. Select with spacing
     selected = []
     sorted_by_nbvi = sorted(valid, key=lambda i: nbvi[i])
     
@@ -379,10 +383,12 @@ def nbvi_calibrate(csi_buffer, num_subcarriers=12):
 ```python
 # Python (Micro-ESPectre)
 NBVICalibrator(
-    buffer_size=700,       # 7s @ 100Hz (after 3s gain lock)
-    percentile=10,         # 10th percentile for baseline
-    alpha=0.5,             # NBVI weighting factor (balanced)
-    min_spacing=1          # Minimum subcarrier spacing (adjacent allowed)
+    buffer_size=700,             # 7s @ 100Hz (after 3s gain lock)
+    window_size=200,             # 2s sliding window for baseline detection
+    percentile=10,               # 10th percentile for quietest window selection
+    noise_gate_percentile=25,    # 25th percentile for noise gate
+    alpha=0.5,                   # NBVI weighting factor (balanced)
+    min_spacing=1                # Minimum subcarrier spacing (adjacent allowed)
 )
 ```
 
@@ -391,13 +397,15 @@ NBVICalibrator(
 | Parameter | Default | Range | Effect |
 |-----------|---------|-------|--------|
 | `buffer_size` | 700 | 500-1000 | Packets for calibration (~7s at 100Hz) |
-| `window_size` | 200 | 50-200 | Sliding window for baseline detection (2s @ 100Hz) |
+| `window_size` | 200 | 100-300 | Sliding window for baseline detection (2s @ 100Hz) |
 | `percentile` | 10 | 5-20 | Percentile for quietest window selection |
+| `noise_gate_percentile` | 25 | 10-50 | Percentile for excluding weak subcarriers |
 | `alpha` | 0.5 | 0.0-1.0 | Higher = more weight on signal strength |
 | `min_spacing` | 1 | 1-3 | Minimum gap between subcarriers (1=adjacent OK) |
 
 **Tuning notes:**
 - **alpha = 0.5**: Balanced between signal strength (σ/μ²) and stability (σ/μ)
+- **noise_gate_percentile = 25**: Excludes the weakest 25% of subcarriers by signal strength
 - **min_spacing = 1**: Allows adjacent subcarriers, maximizing quality selection
 - These defaults work well for most environments; rarely need adjustment
 

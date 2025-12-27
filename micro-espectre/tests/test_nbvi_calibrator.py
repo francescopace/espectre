@@ -290,8 +290,9 @@ class TestNoiseGate:
         
         filtered = calibrator._apply_noise_gate(metrics)
         
-        # Most should be kept (only bottom 10% excluded by percentile)
-        assert len(filtered) >= 18
+        # Most should be kept (bottom 25% excluded by percentile with default noise_gate_percentile=25)
+        # 20 subcarriers, 25% = 5 excluded, 15 kept
+        assert len(filtered) >= 15
         
         calibrator.free_buffer()
 

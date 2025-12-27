@@ -697,25 +697,30 @@ class TestEndToEndWithCalibration:
         
         baseline_packets, _ = real_data
         
-        # Use first 200 packets for calibration (simulating boot-time collection)
+        # Production parameters: 300 packets for gain lock, 700 packets for NBVI
+        # Skip first 300 packets (gain lock phase), then use 700 for calibration
+        gain_lock_skip = 300
+        buffer_size = 700
+        
         calibrator = NBVICalibrator(
-            buffer_size=200,
+            buffer_size=buffer_size,
             percentile=10,
             alpha=0.5,
-            min_spacing=1
+            min_spacing=1,
+            noise_gate_percentile=25  # Production value
         )
         
-        # Feed baseline packets (convert numpy array to bytes for MicroPython-compatible API)
-        for pkt in baseline_packets[:200]:
+        # Feed baseline packets, skipping gain lock phase
+        # (convert numpy array to bytes for MicroPython-compatible API)
+        for pkt in baseline_packets[gain_lock_skip:gain_lock_skip + buffer_size]:
             # Convert int8 numpy array to bytes (same as ESP32 raw CSI data)
             csi_bytes = bytes(int(x) & 0xFF for x in pkt['csi_data'])
             calibrator.add_packet(csi_bytes)
         
-        # Run calibration with default band
-        # Pass window_size and step explicitly to avoid importing src.config (MicroPython deps)
+        # Run calibration with default band (production window_size=200, step=50)
         default_band = list(range(11, 23))  # [11, 12, ..., 22]
         selected_band, normalization_scale = calibrator.calibrate(
-            default_band, window_size=100, step=50
+            default_band, window_size=200, step=50
         )
         
         # Cleanup
@@ -750,29 +755,34 @@ class TestEndToEndWithCalibration:
         baseline_packets, movement_packets = real_data
         
         # ========================================
-        # Step 1: NBVI Calibration
+        # Step 1: NBVI Calibration (Production parameters)
         # ========================================
         print("\n" + "=" * 70)
         print("  END-TO-END TEST: NBVI Calibration + Normalization + MVS")
         print("=" * 70)
         
+        # Production parameters: 300 packets for gain lock, 700 packets for NBVI
+        gain_lock_skip = 300
+        buffer_size = 700
+        
         calibrator = NBVICalibrator(
-            buffer_size=200,
+            buffer_size=buffer_size,
             percentile=10,
             alpha=0.5,
-            min_spacing=1
+            min_spacing=1,
+            noise_gate_percentile=25  # Production value
         )
         
-        # Feed baseline packets for calibration (convert numpy to bytes for MicroPython-compatible API)
-        print("\nStep 1: NBVI Calibration with 200 baseline packets...")
-        for pkt in baseline_packets[:200]:
+        # Feed baseline packets, skipping gain lock phase
+        print(f"\nStep 1: NBVI Calibration with {buffer_size} baseline packets (skipping first {gain_lock_skip} for gain lock)...")
+        for pkt in baseline_packets[gain_lock_skip:gain_lock_skip + buffer_size]:
             csi_bytes = bytes(int(x) & 0xFF for x in pkt['csi_data'])
             calibrator.add_packet(csi_bytes)
         
-        # Run calibration (pass window_size and step explicitly to avoid importing src.config)
+        # Run calibration with production parameters (window_size=200, step=50)
         default_band = list(range(11, 23))
         selected_band, normalization_scale = calibrator.calibrate(
-            default_band, window_size=100, step=50
+            default_band, window_size=200, step=50
         )
         calibrator.free_buffer()
         

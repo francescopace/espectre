@@ -217,11 +217,10 @@ void test_csi_manager_process_packet_null_data(void) {
     CSIManager manager;
     manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, &g_wifi_mock);
     
-    csi_motion_state_t state = CSI_STATE_IDLE;  // Initialize to IDLE
-    manager.process_packet(nullptr, state);
+    manager.process_packet(nullptr);
     
     // Should not crash, state should remain IDLE
-    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, state);
+    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, csi_processor_get_state(&g_processor));
 }
 
 void test_csi_manager_process_packet_short_data(void) {
@@ -233,11 +232,10 @@ void test_csi_manager_process_packet_short_data(void) {
     csi_info.buf = short_buf;
     csi_info.len = 5;  // Too short
     
-    csi_motion_state_t state = CSI_STATE_IDLE;
-    manager.process_packet(&csi_info, state);
+    manager.process_packet(&csi_info);
     
     // Should handle gracefully
-    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, state);
+    TEST_ASSERT_EQUAL(CSI_STATE_IDLE, csi_processor_get_state(&g_processor));
 }
 
 void test_csi_manager_process_packet_real_data(void) {
@@ -250,8 +248,7 @@ void test_csi_manager_process_packet_real_data(void) {
         csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
         csi_info.len = 128;
         
-        csi_motion_state_t state;
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     // After processing baseline, should be IDLE
@@ -270,8 +267,7 @@ void test_csi_manager_process_packet_detects_motion(void) {
         csi_info.buf = const_cast<int8_t*>(baseline_packets[i % 100]);
         csi_info.len = 128;
         
-        csi_motion_state_t state;
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     // Now process movement packets
@@ -280,8 +276,7 @@ void test_csi_manager_process_packet_detects_motion(void) {
         csi_info.buf = const_cast<int8_t*>(movement_packets[i % 100]);
         csi_info.len = 128;
         
-        csi_motion_state_t state;
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     // Verify that packets were processed
@@ -318,8 +313,7 @@ void test_csi_manager_callback_invoked(void) {
         csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
         csi_info.len = 128;
         
-        csi_motion_state_t state;
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     // Callback should have been invoked twice (at packet 5 and 10)
@@ -339,8 +333,7 @@ void test_csi_manager_callback_not_invoked_before_publish_rate(void) {
         csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
         csi_info.len = 128;
         
-        csi_motion_state_t state;
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     // Callback should not have been invoked
@@ -387,8 +380,7 @@ void test_csi_manager_with_calibrator_not_calibrating(void) {
         csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
         csi_info.len = 128;
         
-        csi_motion_state_t state;
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     // Processor should have processed them (calibrator was not calibrating)
@@ -408,8 +400,7 @@ void test_csi_manager_null_calibrator_processes_normally(void) {
         csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
         csi_info.len = 128;
         
-        csi_motion_state_t state;
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     // Processor should have processed them
@@ -443,8 +434,7 @@ void test_csi_manager_delegates_when_calibrating(void) {
         csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
         csi_info.len = 128;
         
-        csi_motion_state_t state;
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     // Processor should NOT have processed them (delegated to calibrator)
@@ -474,8 +464,7 @@ void test_csi_manager_calibrator_lifecycle(void) {
     csi_info.buf = const_cast<int8_t*>(baseline_packets[0]);
     csi_info.len = 128;
     
-    csi_motion_state_t state;
-    manager.process_packet(&csi_info, state);
+    manager.process_packet(&csi_info);
     
     TEST_PASS();
 }
@@ -499,8 +488,7 @@ void test_csi_manager_full_workflow(void) {
         csi_info.buf = const_cast<int8_t*>(baseline_packets[i % 100]);
         csi_info.len = 128;
         
-        csi_motion_state_t state;
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     // Update threshold
@@ -522,13 +510,12 @@ void test_csi_manager_baseline_then_motion(void) {
     manager.enable(test_callback);
     
     // Phase 1: Baseline (should stay IDLE)
-    csi_motion_state_t state = CSI_STATE_IDLE;
     for (int i = 0; i < 50; i++) {
         wifi_csi_info_t csi_info;
         csi_info.buf = const_cast<int8_t*>(baseline_packets[i]);
         csi_info.len = 128;
         
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
     ESP_LOGI(TAG, "After baseline: state=%d, callbacks=%d", 
@@ -540,11 +527,11 @@ void test_csi_manager_baseline_then_motion(void) {
         csi_info.buf = const_cast<int8_t*>(movement_packets[i]);
         csi_info.len = 128;
         
-        manager.process_packet(&csi_info, state);
+        manager.process_packet(&csi_info);
     }
     
-    ESP_LOGI(TAG, "After movement: state=%d, callbacks=%d", 
-             csi_processor_get_state(&g_processor), g_callback_count);
+    csi_motion_state_t state = csi_processor_get_state(&g_processor);
+    ESP_LOGI(TAG, "After movement: state=%d, callbacks=%d", state, g_callback_count);
     
     // Should have detected motion
     TEST_ASSERT_EQUAL(CSI_STATE_MOTION, state);

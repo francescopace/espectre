@@ -182,7 +182,7 @@ When using NBVI (Normalized Baseline Variability Index) for automatic subcarrier
 
 | Metric | Fixed Band [11-22] | NBVI Auto-Calibration |
 |--------|--------------------|-----------------------|
-| **Recall** | 98.1% | 96.5% |
+| **Recall** | 98.1% | 96.4% |
 | **Precision** | 100.0% | 100.0% |
 | **FP Rate** | 0.0% | 0.0% |
 | **F1-Score** | 99.0% | 98.2% |
@@ -201,10 +201,13 @@ The fixed band [11-22] achieves slightly better performance in the reference tes
 
 ## Version History
 
-| Date | Version | Recall | Precision | FP Rate | F1-Score | Notes |
-|------|---------|--------|-----------|---------|----------|-------|
-| 2025-12-13 | v2.2.0 | 98.1% | 100.0% | 0.0% | 99.0% | ESPHome Port |
-| 2025-11-28 | v1.4.0 | 98.1% | 100.0% | 0.0% | 99.0% | Initial MVS implementation |
+| Date | Version | Mode | Recall | Precision | FP Rate | F1-Score | Notes |
+|------|---------|------|--------|-----------|---------|----------|-------|
+| 2025-12-27 | v2.3.0 | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | Multi-window validation |
+| 2025-12-27 | v2.3.0 | NBVI | 96.4% | 100.0% | 0.0% | 98.2% | Multi-window validation |
+| 2025-12-13 | v2.2.0 | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | ESPHome Port |
+| 2025-12-13 | v2.2.0 | NBVI | 96.5% | 100.0% | 0.0% | 98.2% | ESPHome Port |
+| 2025-11-28 | v1.4.0 | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | Initial MVS implementation |
 
 ---
 
