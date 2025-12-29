@@ -6,6 +6,59 @@ All notable changes to this project will be documented in this file.
 
 ## [2.3.0] - in progress
 
+### Sensor Entity Customization
+
+Full control over exposed sensor entities with standard ESPHome options.
+
+- **`internal`**: Hide sensors from Home Assistant while keeping internal processing
+- **`icon`**: Custom MDI icons for dashboard aesthetics
+- **`filters`**: Apply ESPHome sensor filters to `movement_sensor` (multiply, round, offset, etc.)
+- **`disabled_by_default`**: Create entity but keep disabled until manually enabled
+
+Example configuration:
+```yaml
+espectre:
+  movement_sensor:
+    name: "Movement"
+    internal: true              # Hide from Home Assistant
+    filters:
+      - multiply: 100           # Scale 0-1 to 0-100
+  motion_sensor:
+    name: "Presence"
+    icon: "mdi:motion-sensor"
+```
+
+Fixes [#51](https://github.com/francescopace/espectre/issues/51).
+
+### External Traffic Mode
+
+Support for multi-device deployments with reduced network overhead.
+
+- **`traffic_generator_rate: 0`**: Disable internal traffic generator and rely on external WiFi traffic
+- **`publish_interval`**: New parameter to control sensor update rate independently from traffic source
+- **UDP Listener**: Opens port 5555 to receive external UDP packets for CSI generation
+- **Single broadcast source**: One UDP broadcast generator can feed all ESPectre devices on the network
+- **95% less network overhead**: External broadcast eliminates per-device DNS traffic and responses
+
+Example configuration:
+```yaml
+espectre:
+  traffic_generator_rate: 0  # Disable internal traffic
+  publish_interval: 100      # Update sensors every 100 CSI packets
+```
+
+External traffic source (Python):
+```python
+import socket, time
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+while True:
+    sock.sendto(b"csi", ("192.168.1.255", 5555))
+    time.sleep(0.01)  # 100 pps
+```
+
+Fixes [#50](https://github.com/francescopace/espectre/issues/50).
+
 ### WiFi Channel Change Detection
 
 Automatic detection of WiFi channel changes to prevent false motion detection.

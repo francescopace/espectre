@@ -207,17 +207,53 @@ All sensors are created automatically when the `espectre` component is configure
 | `motion_sensor` | binary_sensor | "Motion Detected" | Motion state (on/off) |
 | `threshold_number` | number | "Threshold" | Detection threshold (adjustable from HA) |
 
-### Customizing Sensor Names
+### Customizing Sensors
+
+All sensor entities support standard ESPHome options:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `name` | string | Custom entity name |
+| `internal` | bool | If `true`, hide from Home Assistant (still processes data) |
+| `icon` | string | Custom MDI icon (e.g., `mdi:motion-sensor`) |
+| `disabled_by_default` | bool | Entity disabled until manually enabled in HA |
+
+The `movement_sensor` also supports ESPHome [sensor filters](https://esphome.io/components/sensor/#sensor-filters) for data transformation.
+
+Common filters:
+
+| Filter | Example | Description |
+|--------|---------|-------------|
+| `multiply` | `multiply: 100` | Scale values (e.g., 0-1 → 0-100) |
+| `round` | `round: 1` | Round to N decimal places |
+| `clamp` | `min_value: 0, max_value: 100` | Limit value range |
+| `offset` | `offset: -0.5` | Add/subtract constant |
+| `sliding_window_moving_average` | `window_size: 5` | Smooth noisy readings |
+
+See the [ESPHome sensor filters documentation](https://esphome.io/components/sensor/#sensor-filters) for the complete list.
+
+**Example:**
 
 ```yaml
 espectre:
   movement_sensor:
     name: "Living Room Movement"
+    internal: true              # Hide from Home Assistant
+    icon: "mdi:sine-wave"
+    filters:
+      - multiply: 100           # Scale 0-1 to 0-100
+      - clamp:
+          min_value: 0
+          max_value: 100        # Cap at 100%
+      - round: 1                # Round to 1 decimal
   motion_sensor:
     name: "Living Room Motion"
+    icon: "mdi:motion-sensor"
   threshold_number:
     name: "Living Room Threshold"
 ```
+
+> **Tip:** Use `internal: true` on `movement_sensor` to reduce data sent to Home Assistant while keeping `motion_sensor` for automations.
 
 ---
 
