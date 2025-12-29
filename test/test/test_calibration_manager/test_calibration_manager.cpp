@@ -359,7 +359,7 @@ void test_turbulence_variance_baseline_vs_movement(void) {
 
 void test_nbvi_calculation_real_data(void) {
     const uint8_t TEST_SC = 15;
-    const float ALPHA = 0.3f;
+    const float ALPHA = 0.5f;
     
     // Collect magnitudes for 100 baseline packets using utils.h
     std::vector<float> magnitudes(100);
@@ -390,7 +390,7 @@ void test_nbvi_calculation_real_data(void) {
 }
 
 void test_nbvi_ranking_identifies_best_subcarriers(void) {
-    const float ALPHA = 0.3f;
+    const float ALPHA = 0.5f;
     
     struct NBVIResult {
         uint8_t subcarrier;

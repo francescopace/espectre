@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from segmentation import SegmentationContext
 import nbvi_calibrator
+from config import NBVI_ALPHA, NBVI_MIN_SPACING, NBVI_PERCENTILE
 
 
 def find_latest_file(data_dir, prefix, chip_filter=None):
@@ -319,9 +320,9 @@ def main():
         print("=" * 75)
         print()
         print(f"  # Current defaults:")
-        print(f"  # NBVI_ALPHA = 0.3")
-        print(f"  # NBVI_MIN_SPACING = 3")
-        print(f"  # NBVI_PERCENTILE = 10")
+        print(f"  # NBVI_ALPHA = {NBVI_ALPHA}")
+        print(f"  # NBVI_MIN_SPACING = {NBVI_MIN_SPACING}")
+        print(f"  # NBVI_PERCENTILE = {NBVI_PERCENTILE}")
         print()
         print(f"  # Optimized for this dataset:")
         print(f"  NBVI_ALPHA = {best['alpha']}")

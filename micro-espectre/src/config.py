@@ -40,7 +40,7 @@ NBVI_WINDOW_STEP = 50         # Step size for sliding window analysis
 NBVI_PERCENTILE = 10          # Percentile for baseline detection (10 = p10)
 NBVI_ALPHA = 0.5              # NBVI weighting factor (0.5 = balanced)
 NBVI_MIN_SPACING = 1          # Minimum spacing between subcarriers (1 = adjacent allowed)
-NBVI_NOISE_GATE_PERCENTILE = 10  # Exclude weak subcarriers below this percentile
+NBVI_NOISE_GATE_PERCENTILE = 25  # Exclude weak subcarriers below this percentile
 
 # Segmentation Window and Threshold
 SEG_WINDOW_SIZE = 50          # Moving variance window (packets) - used by both MVS and Features
