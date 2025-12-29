@@ -40,6 +40,7 @@ espectre:
   id: espectre_csi
   # Motion detection
   traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
+  traffic_generator_mode: dns  # dns (default) or ping
   segmentation_threshold: 1.0   # Motion sensitivity (default: 1.0)
   segmentation_window_size: 50  # Analysis window size in packets (10-200)
   # Low-pass filter (noise reduction)

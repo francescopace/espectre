@@ -59,6 +59,24 @@ while True:
 
 Fixes [#50](https://github.com/francescopace/espectre/issues/50).
 
+### Traffic Generator Mode
+
+New `traffic_generator_mode` option with two modes for CSI traffic generation.
+
+- **`dns`** (default): UDP DNS queries to gateway:53. Works with most routers.
+- **`ping`**: ICMP echo requests to gateway. More compatible - use when DNS mode has low packet rates.
+
+Some routers don't respond to root domain DNS queries, causing low CSI packet rates (~18 pps instead of ~100 pps). Ping mode provides a fallback using the ESP-IDF `esp_ping` API with minimal 8-byte ICMP packets.
+
+Example configuration:
+```yaml
+espectre:
+  traffic_generator_rate: 100
+  traffic_generator_mode: ping  # Use ICMP instead of DNS
+```
+
+See [#48](https://github.com/francescopace/espectre/issues/48).
+
 ### WiFi Channel Change Detection
 
 Automatic detection of WiFi channel changes to prevent false motion detection.

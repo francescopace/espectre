@@ -54,7 +54,7 @@ void ESpectreComponent::setup() {
   
   // 4. Initialize managers (each manager handles its own internal initialization)
   this->calibration_manager_.init(&this->csi_manager_);
-  this->traffic_generator_.init(this->traffic_generator_rate_);
+  this->traffic_generator_.init(this->traffic_generator_rate_, this->traffic_generator_mode_);
   this->udp_listener_.init(5555);  // UDP listener for external traffic mode
   this->serial_streamer_.init();
   this->serial_streamer_.set_threshold_callback([this](float threshold) {
@@ -313,6 +313,8 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
   if (this->traffic_generator_rate_ > 0) {
+    const char* mode_str = (this->traffic_generator_mode_ == TrafficGeneratorMode::PING) ? "ping" : "dns";
+    ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", mode_str);
     ESP_LOGCONFIG(TAG, " ├─ Rate ............... %u pps", this->traffic_generator_rate_);
     ESP_LOGCONFIG(TAG, " └─ Status ............. %s", 
                   this->traffic_generator_.is_running() ? "[RUNNING]" : "[STOPPED]");

@@ -42,6 +42,9 @@ CONF_HAMPEL_ENABLED = "hampel_enabled"
 CONF_HAMPEL_WINDOW = "hampel_window"
 CONF_HAMPEL_THRESHOLD = "hampel_threshold"
 
+# Traffic generator mode
+CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
+
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
 CONF_MOTION_SENSOR = "motion_sensor"
@@ -62,6 +65,9 @@ CONFIG_SCHEMA = cv.Schema({
     
     # Traffic generator (0 = disabled, use external WiFi traffic)
     cv.Optional(CONF_TRAFFIC_GENERATOR_RATE, default=100): cv.int_range(min=0, max=1000),
+    
+    # Traffic generator mode: dns (default) or ping (ICMP, more compatible)
+    cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default="dns"): cv.one_of("dns", "ping", lower=True),
     
     # Publish interval in packets (default: same as traffic_generator_rate, or 100 if traffic is 0)
     cv.Optional(CONF_PUBLISH_INTERVAL): cv.int_range(min=1, max=1000),
@@ -140,6 +146,7 @@ async def to_code(config):
     cg.add(var.set_segmentation_threshold(config[CONF_SEGMENTATION_THRESHOLD]))
     cg.add(var.set_segmentation_window_size(config[CONF_SEGMENTATION_WINDOW_SIZE]))
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
+    cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
     
     # Configure subcarriers if specified

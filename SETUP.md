@@ -186,6 +186,7 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0=disabled, use external traffic) |
+| `traffic_generator_mode` | string | dns | Traffic generator mode: `dns` (UDP queries) or `ping` (ICMP) |
 | `publish_interval` | int | auto | Packets between sensor updates (default: same as traffic_generator_rate, or 100 if traffic is 0) |
 | `segmentation_threshold` | float | 1.0 | Motion sensitivity (lower=more sensitive) |
 | `segmentation_window_size` | int | 50 | Moving variance window in packets |
@@ -363,11 +364,34 @@ Two dashboard examples are available:
 
 ---
 
-The traffic generator creates UDP packets that trigger CSI callbacks from the WiFi driver. Default rate is **100 pps** (packets per second).
+The traffic generator creates network packets that trigger CSI callbacks from the WiFi driver. Default rate is **100 pps** (packets per second).
 
 ```yaml
 espectre:
   traffic_generator_rate: 100  # packets per second (0-1000)
+  traffic_generator_mode: dns  # dns (default) or ping
+```
+
+### Traffic Generator Mode
+
+Two modes are available:
+
+| Mode | Protocol | Description |
+|------|----------|-------------|
+| `dns` | UDP | Sends DNS queries to gateway:53. Works with most routers. (default) |
+| `ping` | ICMP | Sends ICMP echo requests to gateway. Alternative if DNS doesn't work. |
+
+Both modes generate minimal network traffic (<20 bytes per packet). 
+
+**Choosing a mode:**
+- Start with `dns` (default) - works with most home routers
+- Try `ping` if you get low packet rates - some routers don't respond to root domain DNS queries
+- Note: some routers/firewalls may rate-limit or block ICMP ping responses
+
+```yaml
+espectre:
+  traffic_generator_rate: 100
+  traffic_generator_mode: ping  # Use ICMP ping instead of DNS
 ```
 
 For detailed rate recommendations and Nyquist-Shannon sampling theory, see [TUNING.md](TUNING.md#traffic-generator-rate-0-1000-pps).
@@ -499,20 +523,25 @@ For 10 devices at 100 pps, ping broadcast generates 1100 packets/sec (100 reques
 
 ### Network Impact: Internal vs External Traffic
 
-| Method | Packets/sec | On-wire size | Responses |
-|--------|-------------|--------------|-----------|
-| Internal traffic gen (per device) | 100 | ~91 bytes | Yes (DNS reply) |
-| **UDP broadcast (1 source, N devices)** | 100 | ~75 bytes | **None** |
+**Packet sizes by mode:**
+
+| Mode | Payload | IP packet | On-wire (with MAC) |
+|------|---------|-----------|-------------------|
+| DNS (default) | 17 bytes | 45 bytes | ~75 bytes |
+| Ping | 8 bytes | 28 bytes | ~58 bytes |
+| External UDP | 3 bytes | 31 bytes | ~61 bytes |
+
+*On-wire size includes WiFi MAC header (~30 bytes). Actual size varies with encryption and PHY rate.*
 
 **Comparison for 10 devices at 100 pps:**
 
 | Approach | Total packets/sec | Total airtime |
 |----------|-------------------|---------------|
-| Internal traffic generator | 1000 + 1000 replies | ~14% |
+| Internal traffic generator (DNS) | 1000 + 1000 replies | ~14% |
+| Internal traffic generator (Ping) | 1000 + 1000 replies | ~11% |
 | **UDP broadcast (recommended)** | **100** | **~0.5%** |
-| **Savings** | **95%** | **96%** |
 
-UDP broadcast is the most efficient option: one packet reaches all devices, with no response traffic.
+UDP broadcast is the most efficient option for multi-device deployments: one packet reaches all devices, with no response traffic.
 
 <details>
 <summary><b>What is airtime?</b></summary>
@@ -520,7 +549,7 @@ UDP broadcast is the most efficient option: one packet reaches all devices, with
 Airtime is the percentage of time the WiFi channel is occupied by transmissions. Since WiFi is a shared medium, only one device can transmit at a time.
 
 Each packet occupies the channel for:
-- **Transmission time**: packet size / PHY rate (e.g., 75 bytes at 54 Mbps ≈ 11 µs)
+- **Transmission time**: packet size / PHY rate (e.g., 60 bytes at 54 Mbps ≈ 9 µs)
 - **Protocol overhead**: preamble, inter-frame spacing, ACK (~40 µs)
 
 At 100 pps with ~50 µs per packet: **airtime = 0.5%**
