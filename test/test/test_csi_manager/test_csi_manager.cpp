@@ -292,10 +292,12 @@ void test_csi_manager_process_packet_detects_motion(void) {
 
 static int g_callback_count = 0;
 static csi_motion_state_t g_last_callback_state = CSI_STATE_IDLE;
+static uint32_t g_last_packets_received = 0;
 
-static void test_callback(csi_motion_state_t state) {
+static void test_callback(csi_motion_state_t state, uint32_t packets_received) {
     g_callback_count++;
     g_last_callback_state = state;
+    g_last_packets_received = packets_received;
 }
 
 void test_csi_manager_callback_invoked(void) {
