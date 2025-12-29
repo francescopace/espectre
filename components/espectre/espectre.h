@@ -30,6 +30,7 @@
 #include "config_manager.h"
 #include "calibration_manager.h"
 #include "traffic_generator_manager.h"
+#include "udp_listener.h"
 #include "serial_streamer.h"
 
 namespace esphome {
@@ -52,6 +53,7 @@ class ESpectreComponent : public Component {
   void set_segmentation_threshold(float threshold) { this->segmentation_threshold_ = threshold; }
   void set_segmentation_window_size(uint16_t size) { this->segmentation_window_size_ = size; }
   void set_traffic_generator_rate(uint32_t rate) { this->traffic_generator_rate_ = rate; }
+  void set_publish_interval(uint32_t interval) { this->publish_interval_ = interval; }
   void set_lowpass_enabled(bool enabled) { this->lowpass_enabled_ = enabled; }
   void set_lowpass_cutoff(float cutoff) { this->lowpass_cutoff_ = cutoff; }
   void set_hampel_enabled(bool enabled) { this->hampel_enabled_ = enabled; }
@@ -94,6 +96,7 @@ class ESpectreComponent : public Component {
   float segmentation_threshold_{1.0f};
   uint16_t segmentation_window_size_{50};
   uint32_t traffic_generator_rate_{100};
+  uint32_t publish_interval_{100};  // Publish interval in packets (default: same as traffic_generator_rate)
   bool lowpass_enabled_{true};      // Low-pass filter enabled by default
   float lowpass_cutoff_{11.0f};     // Default cutoff frequency in Hz
   bool hampel_enabled_{false};
@@ -111,6 +114,7 @@ class ESpectreComponent : public Component {
   ConfigurationManager config_manager_;
   CalibrationManager calibration_manager_;
   TrafficGeneratorManager traffic_generator_;
+  UDPListener udp_listener_;
   SerialStreamer serial_streamer_;
   
   // Number controls

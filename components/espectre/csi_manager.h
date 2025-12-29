@@ -25,7 +25,8 @@ namespace espectre {
 class CalibrationManager;
 
 // Callback type for processed CSI data
-using csi_processed_callback_t = std::function<void(csi_motion_state_t)>;
+// Parameters: motion_state, packets_since_last_publish
+using csi_processed_callback_t = std::function<void(csi_motion_state_t, uint32_t)>;
 
 // Callback type for game mode (called every packet with movement and threshold)
 using game_mode_callback_t = std::function<void(float movement, float threshold)>;

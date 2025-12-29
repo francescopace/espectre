@@ -30,6 +30,7 @@ AUTO_LOAD = ["sensor", "binary_sensor", "number"]
 CONF_SEGMENTATION_THRESHOLD = "segmentation_threshold"
 CONF_SEGMENTATION_WINDOW_SIZE = "segmentation_window_size"
 CONF_TRAFFIC_GENERATOR_RATE = "traffic_generator_rate"
+CONF_PUBLISH_INTERVAL = "publish_interval"
 CONF_SELECTED_SUBCARRIERS = "selected_subcarriers"
 
 # Low-pass filter
@@ -59,8 +60,11 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_SEGMENTATION_THRESHOLD, default=1.0): cv.float_range(min=0.5, max=10.0),
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=50): cv.int_range(min=10, max=200),
     
-    # Traffic generator (ESSENTIAL!)
+    # Traffic generator (0 = disabled, use external WiFi traffic)
     cv.Optional(CONF_TRAFFIC_GENERATOR_RATE, default=100): cv.int_range(min=0, max=1000),
+    
+    # Publish interval in packets (default: same as traffic_generator_rate, or 100 if traffic is 0)
+    cv.Optional(CONF_PUBLISH_INTERVAL): cv.int_range(min=1, max=1000),
     
     # Subcarrier selection (optional - if not specified, auto-calibrates at every boot)
     cv.Optional(CONF_SELECTED_SUBCARRIERS): cv.All(
@@ -95,6 +99,19 @@ CONFIG_SCHEMA = cv.Schema({
     ),
 }).extend(cv.COMPONENT_SCHEMA)
 
+
+def _compute_publish_interval(config):
+    """Compute publish_interval default based on traffic_generator_rate."""
+    traffic_rate = config[CONF_TRAFFIC_GENERATOR_RATE]
+    if CONF_PUBLISH_INTERVAL not in config or config[CONF_PUBLISH_INTERVAL] is None:
+        # Default: use traffic rate, or 100 if traffic is disabled
+        config[CONF_PUBLISH_INTERVAL] = traffic_rate if traffic_rate > 0 else 100
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _compute_publish_interval
+
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -123,6 +140,7 @@ async def to_code(config):
     cg.add(var.set_segmentation_threshold(config[CONF_SEGMENTATION_THRESHOLD]))
     cg.add(var.set_segmentation_window_size(config[CONF_SEGMENTATION_WINDOW_SIZE]))
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
+    cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
     
     # Configure subcarriers if specified
     if CONF_SELECTED_SUBCARRIERS in config:

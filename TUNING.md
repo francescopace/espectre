@@ -139,13 +139,34 @@ For general movement detection, a window is recommended that captures transient 
 | 50 pps | Basic presence detection, minimal overhead |
 | 100 pps | **Recommended** - Activity recognition |
 | 600-1000 pps | Fast motion detection, precision localization |
-| 0 pps | Disabled (only if you have other continuous WiFi traffic) |
+| 0 pps | Disabled - use external WiFi traffic (see [External Traffic Mode](SETUP.md#external-traffic-mode)) |
 
 **Configuration:**
 ```yaml
 espectre:
   traffic_generator_rate: 100
 ```
+
+### Publish Interval (1-1000 packets)
+
+**What it does:** Controls how many CSI packets are processed before updating Home Assistant sensors.
+
+**Default:** Same as `traffic_generator_rate` (or 100 if traffic generator is disabled)
+
+| Scenario | Configuration | Update Frequency |
+|----------|---------------|------------------|
+| Default | `traffic_generator_rate: 100` | ~1 update/sec |
+| Faster updates | `publish_interval: 50` | ~2 updates/sec |
+| External traffic | `traffic_generator_rate: 0`, `publish_interval: 100` | Depends on traffic |
+
+**Configuration:**
+```yaml
+espectre:
+  traffic_generator_rate: 100
+  publish_interval: 50  # Optional: override publish rate
+```
+
+> **Note:** Lower `publish_interval` values increase CPU usage and Home Assistant traffic but provide more responsive detection.
 
 <details>
 <summary><b>Understanding Sampling Rates (Nyquist-Shannon Theorem)</b></summary>

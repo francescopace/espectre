@@ -55,6 +55,7 @@ void ESpectreComponent::setup() {
   // 4. Initialize managers (each manager handles its own internal initialization)
   this->calibration_manager_.init(&this->csi_manager_);
   this->traffic_generator_.init(this->traffic_generator_rate_);
+  this->udp_listener_.init(5555);  // UDP listener for external traffic mode
   this->serial_streamer_.init();
   this->serial_streamer_.set_threshold_callback([this](float threshold) {
     this->set_threshold_runtime(threshold);
@@ -68,7 +69,7 @@ void ESpectreComponent::setup() {
     this->selected_subcarriers_,
     this->segmentation_threshold_,
     this->segmentation_window_size_,
-    this->traffic_generator_rate_,
+    this->publish_interval_,  // Use publish_interval (not traffic_generator_rate)
     this->lowpass_enabled_,
     this->lowpass_cutoff_,
     this->hampel_enabled_,
@@ -95,7 +96,7 @@ void ESpectreComponent::on_wifi_connected_() {
   // Enable CSI using CSI Manager with periodic callback
   if (!this->csi_manager_.is_enabled()) {
     ESP_ERROR_CHECK(this->csi_manager_.enable(
-      [this](csi_motion_state_t state) {
+      [this](csi_motion_state_t state, uint32_t packets_received) {
 
         // Don't publish until ready
         if (!this->ready_to_publish_) return;
@@ -108,8 +109,8 @@ void ESpectreComponent::on_wifi_connected_() {
           this->threshold_republished_ = true;
         }
         
-        // Log status with progress bar and CSI rate
-        this->sensor_publisher_.log_status(TAG, &this->csi_processor_, state, this->traffic_generator_rate_);
+        // Log status with progress bar and actual CSI rate
+        this->sensor_publisher_.log_status(TAG, &this->csi_processor_, state, packets_received);
         
         // Publish all sensors
         this->sensor_publisher_.publish_all(&this->csi_processor_, state);
@@ -126,16 +127,26 @@ void ESpectreComponent::on_wifi_connected_() {
     );
   }
   
-  // Start traffic generator
-  ESP_LOGD(TAG, "Starting traffic generator (rate: %u pps)...", this->traffic_generator_rate_);
-  if (!this->traffic_generator_.is_running()) {
-    if (!this->traffic_generator_.start()) {
-      ESP_LOGW(TAG, "Failed to start traffic generator");
-      return;
+  // Start traffic generator or UDP listener (external traffic mode)
+  if (this->traffic_generator_rate_ > 0) {
+    ESP_LOGD(TAG, "Starting traffic generator (rate: %u pps)...", this->traffic_generator_rate_);
+    if (!this->traffic_generator_.is_running()) {
+      if (!this->traffic_generator_.start()) {
+        ESP_LOGW(TAG, "Failed to start traffic generator");
+        return;
+      }
+      ESP_LOGI(TAG, "Traffic generator started successfully");
+    } else {
+      ESP_LOGI(TAG, "Traffic generator already running");
     }
-    ESP_LOGI(TAG, "Traffic generator started successfully");
   } else {
-    ESP_LOGI(TAG, "Traffic generator already running");
+    // External traffic mode: start UDP listener
+    ESP_LOGI(TAG, "Traffic generator disabled (rate: 0) - starting UDP listener for external traffic");
+    if (!this->udp_listener_.is_running()) {
+      if (!this->udp_listener_.start()) {
+        ESP_LOGW(TAG, "Failed to start UDP listener");
+      }
+    }
   }
   
   // Two-phase calibration:
@@ -143,64 +154,61 @@ void ESpectreComponent::on_wifi_connected_() {
   // 2. Baseline Calibration (~7 seconds, 700 packets) - calculates normalization scale
   //    - If user specified subcarriers: only calculates baseline variance
   //    - If auto (NBVI): also selects optimal subcarriers
-  if (this->traffic_generator_.is_running()) {
-    // Set callback to start baseline calibration AFTER gain is locked
-    this->csi_manager_.set_gain_lock_callback([this]() {
-      if (this->user_specified_subcarriers_) {
-        ESP_LOGI(TAG, "Gain locked, starting baseline calibration (fixed subcarriers)...");
-      } else {
-        ESP_LOGI(TAG, "Gain locked, starting NBVI calibration...");
-      }
-      
-      // Set callback to pause traffic generator when collection is complete
-      this->calibration_manager_.set_collection_complete_callback([this]() {
-        this->traffic_generator_.pause();
-      });
-      
-      // Pass flag to indicate whether to run full NBVI or just baseline calculation
-      this->calibration_manager_.set_skip_subcarrier_selection(this->user_specified_subcarriers_);
-      
-      this->calibration_manager_.start_auto_calibration(
-        this->selected_subcarriers_,
-        12,  // Always 12 subcarriers
-        [this](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-          if (success) {
-            // Only update subcarriers if NBVI was used (not user-specified)
-            if (!this->user_specified_subcarriers_) {
-              memcpy(this->selected_subcarriers_, band, size);
-              this->csi_manager_.update_subcarrier_selection(band);
-            }
-          }
-          
-          // Apply normalization if calibration produced valid data
-          // band == nullptr means critical failure (e.g., SPIFFS error) - skip normalization
-          // band != nullptr means at least partial success - apply normalization
-          if (band != nullptr) {
-            this->normalization_scale_ = normalization_scale;
-            csi_processor_set_normalization_scale(&this->csi_processor_, normalization_scale);
-            
-            // Store baseline variance for status reporting
-            this->baseline_variance_ = this->calibration_manager_.get_baseline_variance();
-            
-            // Clear buffer to avoid stale calibration data causing high initial values
-            csi_processor_clear_buffer(&this->csi_processor_);
-            
-            // Reset rate counter to avoid incorrect rate on first log after calibration
-            this->sensor_publisher_.reset_rate_counter();
-          }
-
-          // Resume traffic generator after calibration completes
-          this->traffic_generator_.resume();
-        }
-      );
+  // Note: calibration works with both internal and external traffic
+  // Set callback to start baseline calibration AFTER gain is locked
+  this->csi_manager_.set_gain_lock_callback([this]() {
+    if (this->user_specified_subcarriers_) {
+      ESP_LOGI(TAG, "Gain locked, starting baseline calibration (fixed subcarriers)...");
+    } else {
+      ESP_LOGI(TAG, "Gain locked, starting NBVI calibration...");
+    }
+    
+    // Set callback to pause traffic generator when collection is complete
+    this->calibration_manager_.set_collection_complete_callback([this]() {
+      this->traffic_generator_.pause();
     });
-  }
+    
+    // Pass flag to indicate whether to run full NBVI or just baseline calculation
+    this->calibration_manager_.set_skip_subcarrier_selection(this->user_specified_subcarriers_);
+    
+    this->calibration_manager_.start_auto_calibration(
+      this->selected_subcarriers_,
+      12,  // Always 12 subcarriers
+      [this](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+        if (success) {
+          // Only update subcarriers if NBVI was used (not user-specified)
+          if (!this->user_specified_subcarriers_) {
+            memcpy(this->selected_subcarriers_, band, size);
+            this->csi_manager_.update_subcarrier_selection(band);
+          }
+        }
+        
+        // Apply normalization if calibration produced valid data
+        // band == nullptr means critical failure (e.g., SPIFFS error) - skip normalization
+        // band != nullptr means at least partial success - apply normalization
+        if (band != nullptr) {
+          this->normalization_scale_ = normalization_scale;
+          csi_processor_set_normalization_scale(&this->csi_processor_, normalization_scale);
+          
+          // Store baseline variance for status reporting
+          this->baseline_variance_ = this->calibration_manager_.get_baseline_variance();
+          
+          // Clear buffer to avoid stale calibration data causing high initial values
+          csi_processor_clear_buffer(&this->csi_processor_);
+          
+          // Reset rate counter to avoid incorrect rate on first log after calibration
+          this->sensor_publisher_.reset_rate_counter();
+        }
+
+        // Resume traffic generator after calibration completes
+        this->traffic_generator_.resume();
+      }
+    );
+  });
   
-  // Ready to publish sensors
-  if (this->traffic_generator_.is_running()) {
-    this->ready_to_publish_ = true;
-    this->threshold_republished_ = false;  // Will republish on first sensor update
-  }
+  // Ready to publish sensors (with internal or external traffic)
+  this->ready_to_publish_ = true;
+  this->threshold_republished_ = false;  // Will republish on first sensor update
 }
 
 void ESpectreComponent::on_wifi_disconnected_() {
@@ -212,6 +220,11 @@ void ESpectreComponent::on_wifi_disconnected_() {
     this->traffic_generator_.stop();
   }
   
+  // Stop UDP listener
+  if (this->udp_listener_.is_running()) {
+    this->udp_listener_.stop();
+  }
+  
   // Reset flags
   this->ready_to_publish_ = false;
 }
@@ -219,6 +232,11 @@ void ESpectreComponent::on_wifi_disconnected_() {
 void ESpectreComponent::loop() {
   // Check for game mode Serial commands
   this->serial_streamer_.check_commands();
+  
+  // Drain UDP packets in external traffic mode
+  if (this->udp_listener_.is_running()) {
+    this->udp_listener_.loop();
+  }
 }
 
 void ESpectreComponent::set_threshold_runtime(float threshold) {
@@ -263,6 +281,7 @@ void ESpectreComponent::send_system_info_() {
     ESP_LOGI(TAG, "[sysinfo] hampel_threshold=%.1f", this->hampel_threshold_);
   }
   ESP_LOGI(TAG, "[sysinfo] traffic_rate=%u", this->traffic_generator_rate_);
+  ESP_LOGI(TAG, "[sysinfo] publish_interval=%u", this->publish_interval_);
   ESP_LOGI(TAG, "[sysinfo] norm_scale=%.4f", this->normalization_scale_);
   ESP_LOGI(TAG, "[sysinfo] END");
 }
@@ -293,9 +312,16 @@ void ESpectreComponent::dump_config() {
                 this->user_specified_subcarriers_ ? "YAML" : "Auto (NBVI)");
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
-  ESP_LOGCONFIG(TAG, " ├─ Rate ............... %u pps", this->traffic_generator_rate_);
-  ESP_LOGCONFIG(TAG, " └─ Status ............. %s", 
-                this->traffic_generator_.is_running() ? "[RUNNING]" : "[STOPPED]");
+  if (this->traffic_generator_rate_ > 0) {
+    ESP_LOGCONFIG(TAG, " ├─ Rate ............... %u pps", this->traffic_generator_rate_);
+    ESP_LOGCONFIG(TAG, " └─ Status ............. %s", 
+                  this->traffic_generator_.is_running() ? "[RUNNING]" : "[STOPPED]");
+  } else {
+    ESP_LOGCONFIG(TAG, " └─ Mode ............... External Traffic");
+  }
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");
+  ESP_LOGCONFIG(TAG, " └─ Packets ............ %u", this->publish_interval_);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " LOW-PASS FILTER");
   ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", this->lowpass_enabled_ ? "[ENABLED]" : "[DISABLED]");

@@ -185,7 +185,8 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0=disabled) |
+| `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0=disabled, use external traffic) |
+| `publish_interval` | int | auto | Packets between sensor updates (default: same as traffic_generator_rate, or 100 if traffic is 0) |
 | `segmentation_threshold` | float | 1.0 | Motion sensitivity (lower=more sensitive) |
 | `segmentation_window_size` | int | 50 | Moving variance window in packets |
 | `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
@@ -326,9 +327,7 @@ Two dashboard examples are available:
 
 ---
 
-**⚠️ IMPORTANT:** The traffic generator is **ESSENTIAL** for CSI packet generation. Without it, the ESP32 receives zero CSI packets and detection will not work.
-
-The traffic generator creates UDP broadcast packets that trigger CSI callbacks from the WiFi driver. Default rate is **100 pps** (packets per second).
+The traffic generator creates UDP packets that trigger CSI callbacks from the WiFi driver. Default rate is **100 pps** (packets per second).
 
 ```yaml
 espectre:
@@ -336,6 +335,163 @@ espectre:
 ```
 
 For detailed rate recommendations and Nyquist-Shannon sampling theory, see [TUNING.md](TUNING.md#traffic-generator-rate-0-1000-pps).
+
+### Network Impact
+
+Each ESPectre device generates continuous WiFi traffic. Here's the approximate impact per device:
+
+| Rate | Packets/sec | Approximate Bandwidth |
+|------|-------------|----------------------|
+| 50 pps | 50 | ~4.5 KB/s |
+| 100 pps (default) | 100 | ~9 KB/s |
+| 200 pps | 200 | ~18 KB/s |
+
+For single devices or small deployments (< 5 devices), the default 100 pps has negligible impact on most networks.
+
+### Multi-Device Deployments
+
+For larger deployments, consider:
+
+1. **Lower the rate**: 50 pps is sufficient for basic presence detection
+2. **Use external traffic**: Set `traffic_generator_rate: 0` and use an external broadcast source
+
+### External Traffic Mode
+
+You can disable the internal traffic generator and rely on external WiFi traffic:
+
+```yaml
+espectre:
+  traffic_generator_rate: 0      # Disable internal generator
+  publish_interval: 100          # Publish sensors every 100 packets
+```
+
+This is useful when:
+- You have multiple ESPectre devices and want to reduce total network traffic
+- You already have continuous WiFi traffic on your network
+- You want centralized control over traffic generation
+
+**Generating external traffic:**
+
+When `traffic_generator_rate: 0`, ESPectre opens a UDP listener on **port 5555**. Send UDP packets to this port to generate CSI data.
+
+**Option 1: Single device (unicast)**
+
+For a single ESPectre device, send UDP directly to its IP:
+
+```python
+#!/usr/bin/env python3
+"""CSI Traffic Generator - Single ESPectre device"""
+import socket, time
+
+TARGET_IP = '192.168.1.16'  # Your ESPectre device IP
+PORT = 5555
+RATE = 100  # packets per second
+
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+interval = 1.0 / RATE
+next_time = time.perf_counter()
+
+print(f"Sending UDP to {TARGET_IP}:{PORT} at {RATE} pps...")
+while True:
+    s.sendto(b'.', (TARGET_IP, PORT))
+    next_time += interval
+    sleep_time = next_time - time.perf_counter()
+    if sleep_time > 0:
+        time.sleep(sleep_time)
+```
+
+**Option 2: Multiple devices (broadcast)**
+
+For multiple ESPectre devices, use broadcast to reach all at once:
+
+```python
+#!/usr/bin/env python3
+"""CSI Traffic Generator - All ESPectre devices via broadcast"""
+import socket, time
+
+# Use a dedicated subnet for ESPectre devices (recommended for multiple devices)
+# Example: 192.168.10.0/24 for sensors, 192.168.1.0/24 for other devices
+BROADCAST_IP = '192.168.10.255'  # Dedicated ESPectre subnet broadcast
+PORT = 5555
+RATE = 100  # packets per second
+
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+interval = 1.0 / RATE
+next_time = time.perf_counter()
+
+print(f"Broadcasting UDP to {BROADCAST_IP}:{PORT} at {RATE} pps...")
+while True:
+    s.sendto(b'.', (BROADCAST_IP, PORT))
+    next_time += interval
+    sleep_time = next_time - time.perf_counter()
+    if sleep_time > 0:
+        time.sleep(sleep_time)
+```
+
+Save as `csi_traffic.py` and run on any device on the network (Raspberry Pi, NAS, Home Assistant server):
+
+```bash
+python3 csi_traffic.py
+```
+
+| RATE value | Packets per second |
+|------------|-------------------|
+| `50` | 50 pps |
+| `100` | 100 pps (recommended) |
+| `200` | 200 pps |
+
+**Tip: Dedicated subnet for large deployments**
+
+For multiple ESPectre devices, consider creating a dedicated VLAN or subnet (e.g., `192.168.10.0/24`). This isolates CSI traffic from your main network.
+
+<details>
+<summary><b>Why UDP instead of ping?</b></summary>
+
+You might wonder why we don't just use `ping -b` (broadcast ping) for external traffic. While ping works for CSI generation, UDP has significant advantages:
+
+| Aspect | Ping broadcast | UDP broadcast |
+|--------|----------------|---------------|
+| Response traffic | Yes (ICMP Echo Reply from each device) | None |
+| Network overhead | N+1 packets (1 request + N replies) | 1 packet |
+| Root required | Yes (for broadcast and high-rate) | No |
+
+For 10 devices at 100 pps, ping broadcast generates 1100 packets/sec (100 requests + 1000 replies), while UDP broadcast generates only 100 packets/sec total.
+
+</details>
+
+### Network Impact: Internal vs External Traffic
+
+| Method | Packets/sec | On-wire size | Responses |
+|--------|-------------|--------------|-----------|
+| Internal traffic gen (per device) | 100 | ~91 bytes | Yes (DNS reply) |
+| **UDP broadcast (1 source, N devices)** | 100 | ~75 bytes | **None** |
+
+**Comparison for 10 devices at 100 pps:**
+
+| Approach | Total packets/sec | Total airtime |
+|----------|-------------------|---------------|
+| Internal traffic generator | 1000 + 1000 replies | ~14% |
+| **UDP broadcast (recommended)** | **100** | **~0.5%** |
+| **Savings** | **95%** | **96%** |
+
+UDP broadcast is the most efficient option: one packet reaches all devices, with no response traffic.
+
+<details>
+<summary><b>What is airtime?</b></summary>
+
+Airtime is the percentage of time the WiFi channel is occupied by transmissions. Since WiFi is a shared medium, only one device can transmit at a time.
+
+Each packet occupies the channel for:
+- **Transmission time**: packet size / PHY rate (e.g., 75 bytes at 54 Mbps ≈ 11 µs)
+- **Protocol overhead**: preamble, inter-frame spacing, ACK (~40 µs)
+
+At 100 pps with ~50 µs per packet: **airtime = 0.5%**
+
+High airtime (>30-50%) causes network congestion, increased latency, and packet loss. The UDP broadcast approach keeps airtime minimal even with many ESPectre devices.
+
+</details>
 
 ---
 

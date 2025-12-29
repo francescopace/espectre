@@ -129,7 +129,7 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
       
       if (packet_callback_) {
         csi_motion_state_t state = csi_processor_get_state(processor_);
-        packet_callback_(state);
+        packet_callback_(state, packets_processed_);
       }
       packets_processed_ = 0;
     }

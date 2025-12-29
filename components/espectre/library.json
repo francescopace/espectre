@@ -20,6 +20,7 @@
       "-<sensor_publisher.cpp>",
       "-<threshold_number.cpp>",
       "-<traffic_generator_manager.cpp>",
+      "-<udp_listener.cpp>",
       "-<wifi_lifecycle.cpp>"
     ]
   }
