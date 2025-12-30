@@ -74,7 +74,8 @@ void ESpectreComponent::setup() {
     this->lowpass_cutoff_,
     this->hampel_enabled_,
     this->hampel_window_,
-    this->hampel_threshold_
+    this->hampel_threshold_,
+    this->gain_lock_mode_
   );
   
   // 5. Register WiFi lifecycle handlers
@@ -337,6 +338,15 @@ void ESpectreComponent::dump_config() {
     ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", this->hampel_window_);
     ESP_LOGCONFIG(TAG, " └─ Threshold .......... %.1f MAD", this->hampel_threshold_);
   }
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " GAIN LOCK");
+  const char* gain_mode_str = "auto";
+  if (this->gain_lock_mode_ == GainLockMode::ENABLED) {
+    gain_mode_str = "enabled";
+  } else if (this->gain_lock_mode_ == GainLockMode::DISABLED) {
+    gain_mode_str = "disabled";
+  }
+  ESP_LOGCONFIG(TAG, " └─ Mode ............... %s", gain_mode_str);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SENSORS");
   ESP_LOGCONFIG(TAG, " ├─ Movement ........... %s", 

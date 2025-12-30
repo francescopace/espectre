@@ -27,6 +27,7 @@ void CSIManager::init(csi_processor_context_t* processor,
                      bool hampel_enabled,
                      uint8_t hampel_window,
                      float hampel_threshold,
+                     GainLockMode gain_lock_mode,
                      IWiFiCSI* wifi_csi) {
   processor_ = processor;
   selected_subcarriers_ = selected_subcarriers;
@@ -47,7 +48,7 @@ void CSIManager::init(csi_processor_context_t* processor,
   // Initialize gain controller for AGC/FFT locking
   // Gain lock happens BEFORE NBVI calibration (300 packets, ~3 seconds)
   // This ensures NBVI calibration has clean data with stable gain
-  gain_controller_.init(300);
+  gain_controller_.init(300, gain_lock_mode);
   
   ESP_LOGD(TAG, "CSI Manager initialized (threshold: %.2f, window: %d, lowpass: %s@%.1fHz, hampel: %s@%d)",
            segmentation_threshold, segmentation_window_size, 

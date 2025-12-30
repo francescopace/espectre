@@ -406,6 +406,10 @@ SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
 SEG_THRESHOLD = 1.0        # Motion detection threshold (0.0-10.0)
 ENABLE_FEATURES = False    # Enable/disable feature extraction
 
+# Gain Lock Configuration
+GAIN_LOCK_MODE = "auto"       # "auto", "enabled", or "disabled"
+GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC (used in auto mode)
+
 # Filter Configuration (all disabled by default)
 ENABLE_LOWPASS_FILTER = False  # Low-pass filter (reduces high-freq noise)
 LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz optimal)
@@ -418,6 +422,16 @@ HAMPEL_THRESHOLD = 4.0
 # If baseline ≤ 0.25: scale = 1.0 (no amplification)
 # Note: If NBVI calibration fails, normalization is still applied using default subcarriers
 ```
+
+**Gain Lock Modes:**
+
+| Mode | Description |
+|------|-------------|
+| `auto` (default) | Lock gain, but skip if signal too strong (AGC < 30) |
+| `enabled` | Always force gain lock (may freeze if too close to AP) |
+| `disabled` | Never lock gain (works at any distance, less stable CSI) |
+
+When the sensor is too close to the AP (RSSI > -40 dB), gain lock with very low AGC values can freeze CSI reception. In `auto` mode, gain lock is skipped if AGC < 30, with a warning logged. See [Sensor Placement](../TUNING.md#sensor-placement) for optimal positioning.
 
 For detailed parameter tuning guide, see [TUNING.md](../TUNING.md).
 

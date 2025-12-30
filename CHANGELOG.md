@@ -69,6 +69,36 @@ espectre:
 
 See [#48](https://github.com/francescopace/espectre/issues/48).
 
+### Gain Lock Mode
+
+New `gain_lock` option to control AGC/FFT gain locking behavior.
+
+- **`auto`** (default): Enable gain lock but skip if signal too strong (AGC < 30)
+- **`enabled`**: Always force gain lock (may freeze if too close to AP)
+- **`disabled`**: Never lock gain (less stable CSI but works at any distance)
+
+**Problem solved**: When the ESP32 is too close to the access point (RSSI > -40 dB), forcing gain lock can cause the CSI reception to freeze, blocking calibration and motion detection. This was particularly problematic for users testing with the device very close to their router.
+
+**How it works**: In `auto` mode, ESPectre measures the AGC value during the calibration phase. If AGC < 30 (indicating very strong signal), gain lock is skipped with a warning:
+```
+[W][GainController]: Signal too strong (AGC=14 < 30) - skipping gain lock
+[W][GainController]: Move sensor 2-3 meters from AP for optimal performance
+```
+
+Example configuration:
+```yaml
+espectre:
+  gain_lock: auto  # auto (default), enabled, disabled
+```
+
+| AGC Range | Signal Strength | Auto Mode Behavior |
+|-----------|-----------------|-------------------|
+| >= 40 | Normal | Gain lock enabled |
+| 30-40 | Strong | Gain lock enabled (may have NBVI issues) |
+| < 30 | Very strong | Gain lock skipped (warning logged) |
+
+See [#48](https://github.com/francescopace/espectre/issues/48).
+
 ### WiFi Channel Change Detection
 
 Automatic detection of WiFi channel changes to prevent false motion detection.

@@ -39,6 +39,8 @@ espectre:
   traffic_generator_mode: dns   # dns (default) or ping
   segmentation_threshold: 1.0   # Motion sensitivity (default: 1.0)
   segmentation_window_size: 50  # Analysis window size in packets (10-200)
+  # Gain lock mode: auto (default), enabled, or disabled
+  gain_lock: auto              # auto (default), enabled, disabled
   # Low-pass filter (noise reduction)
   lowpass_enabled: false        # Enable low-pass filter (default: false)
   lowpass_cutoff: 11.0          # Cutoff frequency in Hz (5.0-20.0)

@@ -48,6 +48,8 @@ espectre:
   # Low-pass filter (noise reduction)
   lowpass_enabled: false        # Enable low-pass filter (default: false)
   lowpass_cutoff: 11.0          # Cutoff frequency in Hz (5.0-20.0)
+  # Gain lock mode: auto (default), enabled, or disabled
+  gain_lock: auto              # auto (default), enabled, disabled
   # Hampel filter (anti-spikes in turbulence)
   hampel_enabled: false         # Enable outlier removal filter (default: false)
   hampel_window: 7              # Filter window size (3-11, odd numbers)

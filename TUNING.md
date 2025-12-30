@@ -264,6 +264,50 @@ espectre:
 
 ---
 
+## Gain Lock
+
+### AGC/FFT Gain Lock
+
+**What it does:** Locks the AGC (Automatic Gain Control) and FFT gain values after initial calibration to eliminate amplitude variations caused by the WiFi hardware. This improves CSI stability and motion detection accuracy.
+
+**Default:** auto
+
+**Configuration:**
+```yaml
+espectre:
+  gain_lock: auto  # auto (default), enabled, disabled
+```
+
+| Mode | Description |
+|------|-------------|
+| `auto` | Enable gain lock but skip if signal too strong (AGC < 30). **Recommended.** |
+| `enabled` | Always force gain lock. May freeze if too close to AP. |
+| `disabled` | Never lock gain. Less stable CSI but works at any distance. |
+
+**How it works:**
+1. During the first 300 packets (~3 seconds), ESPectre measures average AGC/FFT values
+2. These values are then "locked" (forced) to eliminate hardware-induced variations
+3. In `auto` mode, if AGC < 30 (signal too strong), gain lock is skipped with a warning
+
+**When to change from `auto`:**
+
+| Situation | Recommended Setting |
+|-----------|---------------------|
+| Normal operation (3-8m from AP) | `auto` (default) |
+| Testing very close to AP (< 2m) | `disabled` |
+| Debugging calibration issues | `disabled` |
+| Maximum CSI stability needed | `enabled` (if RSSI < -40 dB) |
+
+**Warning log when signal too strong:**
+```
+[W][GainController]: Signal too strong (AGC=14 < 30) - skipping gain lock
+[W][GainController]: Move sensor 2-3 meters from AP for optimal performance
+```
+
+> **Note:** Gain lock is only available on ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. On ESP32 (original) and ESP32-S2, it's automatically skipped (not supported by hardware).
+
+---
+
 ## Low-Pass Filter
 
 ### Low-Pass Filter (Noise Reduction)
@@ -294,6 +338,49 @@ espectre:
 **When to adjust:**
 - Increase cutoff if detecting fast movements (sports, rapid gestures)
 - Decrease cutoff in very noisy RF environments with persistent FP
+
+---
+
+## Sensor Placement
+
+### Distance from Access Point
+
+The distance between the ESP32 sensor and your WiFi access point (AP) significantly impacts CSI quality and system stability.
+
+| Distance | RSSI | AGC | Status | Notes |
+|----------|------|-----|--------|-------|
+| < 0.5m | > -30 dB | 0-15 | System may freeze | Too close, signal saturated |
+| 0.5-2m | -30 to -40 dB | 15-30 | Marginal | Works with `gain_lock: disabled` |
+| **2-8m** | -40 to -70 dB | **30-60** | **Optimal** | Best CSI quality and stability |
+| 8-15m | -70 to -80 dB | 60-80 | Good | Still reliable detection |
+| > 15m | < -80 dB | > 80 | Reduced quality | Weaker signal, more noise |
+
+**Why distance matters:**
+
+When the sensor is too close to the AP, the received signal is extremely strong, causing:
+1. **AGC saturation**: The automatic gain control cannot reduce amplification enough
+2. **CSI distortion**: Signal clipping leads to unreliable CSI data
+3. **Gain lock freeze**: When `phy_force_rx_gain()` is called with a very low AGC value, the WiFi driver may fail to decode frames, halting CSI reception entirely
+
+**Symptoms of being too close:**
+- System freezes after "Auto-Calibration Starting" log
+- Repeated "ping_sock: send error=0" messages
+- Low AGC values in logs (< 30)
+- High RSSI (> -40 dB)
+
+**Solution:**
+1. Move the sensor 2-3 meters away from the AP
+2. Or set `gain_lock: disabled` (less optimal but works at any distance)
+
+**Checking your placement:**
+
+Look at the gain lock log after WiFi connection:
+```
+[I][GainController]: Gain locked: AGC=51, FFT=234 (after 300 packets)
+```
+
+- **AGC > 30**: Good placement, gain lock works correctly
+- **AGC < 30**: Consider moving the sensor further from the AP
 
 ---
 
@@ -384,6 +471,47 @@ espectre:
 3. **Verify ESP-IDF configuration:** Ensure `CONFIG_ESP_WIFI_CSI_ENABLED: y` in sdkconfig
 
 4. **Check router compatibility:** Some mesh routers or WiFi 6E may have issues
+
+### System Freezes During Calibration
+
+**Symptoms:** Device freezes after "Auto-Calibration Starting (file-based storage)" message. May show watchdog timeout or repeated "ping_sock: send error=0" messages.
+
+**Cause:** Sensor is too close to the access point. When RSSI > -40 dB, the AGC value is very low (< 30), and forcing this gain causes the WiFi driver to fail decoding frames.
+
+**Solutions:**
+
+1. **Move the sensor further from the AP** (recommended):
+   - Place at least 2-3 meters away
+   - Optimal distance: 3-8 meters
+   - Check logs for AGC value > 30 after gain lock
+
+2. **Disable gain lock** (workaround):
+   ```yaml
+   espectre:
+     gain_lock: disabled
+   ```
+   This allows operation at any distance but with slightly less stable CSI.
+
+3. **Use `auto` mode** (default, v2.4.0+):
+   ```yaml
+   espectre:
+     gain_lock: auto  # Default - skips gain lock if AGC < 30
+   ```
+   In `auto` mode, ESPectre automatically skips gain lock when the signal is too strong, logging a warning instead of freezing.
+
+**Diagnosis:**
+
+Check the gain lock log:
+```
+[I][GainController]: Gain locked: AGC=51, FFT=234  # Good - AGC > 30
+```
+
+vs.
+```
+[W][GainController]: Signal too strong (AGC=14 < 30) - skipping gain lock  # Auto mode protection
+```
+
+---
 
 ### Unstable Detection (Flickering)
 
@@ -477,9 +605,10 @@ Use **History** graphs to visualize detection patterns over time.
 2. **One change at a time:** Adjust one parameter, re-flash, test for 5-10 minutes
 3. **Document your settings:** Note what works for your environment
 4. **Seasonal adjustments:** Retune when furniture changes or new interference sources appear
-5. **Distance matters:** Keep sensor 3-8m from router for optimal performance
-6. **Quiet calibration:** Ensure no movement during first 5-10 seconds after boot
-7. **Try the game:** Use [ESPectre - The Game](https://espectre.dev/game) for interactive threshold tuning with real-time visual feedback
+5. **Distance matters:** Keep sensor 2-8m from router (RSSI between -40 and -70 dB for best results)
+6. **Check AGC value:** After boot, look for "Gain locked: AGC=XX" - values 30-60 are optimal
+7. **Quiet calibration:** Ensure no movement during first 5-10 seconds after boot
+8. **Try the game:** Use [ESPectre - The Game](https://espectre.dev/game) for interactive threshold tuning with real-time visual feedback
 
 ---
 

@@ -45,6 +45,9 @@ CONF_HAMPEL_THRESHOLD = "hampel_threshold"
 # Traffic generator mode
 CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 
+# Gain lock mode
+CONF_GAIN_LOCK = "gain_lock"
+
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
 CONF_MOTION_SENSOR = "motion_sensor"
@@ -68,6 +71,12 @@ CONFIG_SCHEMA = cv.Schema({
     
     # Traffic generator mode: dns (default) or ping (ICMP, more compatible)
     cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default="dns"): cv.one_of("dns", "ping", lower=True),
+    
+    # Gain lock mode: auto (default), enabled, or disabled
+    # Auto: enables gain lock but skips if signal too strong (AGC < 30)
+    # Enabled: always force gain lock (may freeze if too close to AP)
+    # Disabled: never lock gain (less stable CSI but works at any distance)
+    cv.Optional(CONF_GAIN_LOCK, default="auto"): cv.one_of("auto", "enabled", "disabled", lower=True),
     
     # Publish interval in packets (default: same as traffic_generator_rate, or 100 if traffic is 0)
     cv.Optional(CONF_PUBLISH_INTERVAL): cv.int_range(min=1, max=1000),
@@ -147,6 +156,7 @@ async def to_code(config):
     cg.add(var.set_segmentation_window_size(config[CONF_SEGMENTATION_WINDOW_SIZE]))
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
+    cg.add(var.set_gain_lock_mode(config[CONF_GAIN_LOCK]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
     
     # Configure subcarriers if specified

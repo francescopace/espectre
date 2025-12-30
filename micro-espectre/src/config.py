@@ -33,6 +33,12 @@ CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until pro
 # If baseline <= 0.25: scale = 1.0 (no amplification, prevents extreme values)
 NORMALIZATION_SCALE = 1.0      # Current scale (calculated during calibration, default: 1.0)
 
+# Gain Lock Configuration
+# Controls AGC/FFT gain locking for stable CSI amplitudes
+# Modes: "auto" (skip if signal too strong), "enabled" (always lock), "disabled" (never lock)
+GAIN_LOCK_MODE = "auto"       # Recommended: "auto" - skips gain lock if AGC < 30
+GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is skipped in auto mode)
+
 # NBVI Auto-Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
 NBVI_BUFFER_SIZE = 700        # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
 NBVI_WINDOW_SIZE = 200        # Window size for baseline detection (2s @ 100Hz)

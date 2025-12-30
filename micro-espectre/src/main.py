@@ -121,20 +121,33 @@ def run_gain_lock(wlan):
     Collects AGC/FFT gain values from first packets and locks them
     to stabilize CSI amplitudes for consistent motion detection.
     
+    Respects config.GAIN_LOCK_MODE:
+    - "auto": Lock gain, but skip if signal too strong (AGC < MIN_SAFE_AGC)
+    - "enabled": Always force gain lock
+    - "disabled": Never lock gain
+    
     Args:
         wlan: WLAN instance with CSI enabled
         
     Returns:
-        tuple: (agc_gain, fft_gain) or (None, None) if not supported
+        tuple: (agc_gain, fft_gain, skipped) where skipped=True if gain lock was skipped
     """
+    # Check configuration mode
+    mode = getattr(config, 'GAIN_LOCK_MODE', 'auto').lower()
+    min_safe_agc = getattr(config, 'GAIN_LOCK_MIN_SAFE_AGC', 30)
+    
+    if mode == 'disabled':
+        print("Gain lock: Disabled by configuration")
+        return None, None, False
+    
     # Check if gain lock is supported on this platform
     if not hasattr(wlan, 'csi_gain_lock_supported') or not wlan.csi_gain_lock_supported():
         print("Gain lock: Not supported on this platform (skipping)")
-        return None, None
+        return None, None, False
     
     print('')
     print('-'*60)
-    print('Gain Lock Calibration (~3 seconds)')
+    print(f'Gain Lock Calibration (~3 seconds) [mode: {mode}]')
     print('-'*60)
     
     agc_sum = 0
@@ -161,11 +174,17 @@ def run_gain_lock(wlan):
     avg_agc = agc_sum // GAIN_LOCK_PACKETS
     avg_fft = fft_sum // GAIN_LOCK_PACKETS
     
+    # In auto mode, skip gain lock if signal is too strong
+    if mode == 'auto' and avg_agc < min_safe_agc:
+        print(f"WARNING: Signal too strong (AGC={avg_agc} < {min_safe_agc}) - skipping gain lock")
+        print(f"         Move sensor 2-3 meters from AP for optimal performance")
+        return avg_agc, avg_fft, True  # skipped=True
+    
     # Lock the gain values
     wlan.csi_force_gain(avg_agc, avg_fft)
     print(f"Gain locked: AGC={avg_agc}, FFT={avg_fft} (after {GAIN_LOCK_PACKETS} packets)")
     
-    return avg_agc, avg_fft
+    return avg_agc, avg_fft, False  # skipped=False
 
 
 def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
@@ -197,7 +216,9 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     
     # Phase 1: Gain Lock (~3 seconds)
     # Stabilizes AGC/FFT before NBVI to ensure clean data
-    run_gain_lock(wlan)
+    agc, fft, skipped = run_gain_lock(wlan)
+    if skipped:
+        print("Note: Proceeding with NBVI calibration without gain lock")
     
     print('')
     print('-'*60)

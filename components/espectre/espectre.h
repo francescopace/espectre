@@ -56,6 +56,15 @@ class ESpectreComponent : public Component {
   void set_traffic_generator_mode(const std::string &mode) { 
     this->traffic_generator_mode_ = (mode == "ping") ? TrafficGeneratorMode::PING : TrafficGeneratorMode::DNS; 
   }
+  void set_gain_lock_mode(const std::string &mode) {
+    if (mode == "enabled") {
+      this->gain_lock_mode_ = GainLockMode::ENABLED;
+    } else if (mode == "disabled") {
+      this->gain_lock_mode_ = GainLockMode::DISABLED;
+    } else {
+      this->gain_lock_mode_ = GainLockMode::AUTO;  // default
+    }
+  }
   void set_publish_interval(uint32_t interval) { this->publish_interval_ = interval; }
   void set_lowpass_enabled(bool enabled) { this->lowpass_enabled_ = enabled; }
   void set_lowpass_cutoff(float cutoff) { this->lowpass_cutoff_ = cutoff; }
@@ -100,6 +109,7 @@ class ESpectreComponent : public Component {
   uint16_t segmentation_window_size_{50};
   uint32_t traffic_generator_rate_{100};
   TrafficGeneratorMode traffic_generator_mode_{TrafficGeneratorMode::DNS};
+  GainLockMode gain_lock_mode_{GainLockMode::AUTO};
   uint32_t publish_interval_{100};  // Publish interval in packets (default: same as traffic_generator_rate)
   bool lowpass_enabled_{true};      // Low-pass filter enabled by default
   float lowpass_cutoff_{11.0f};     // Default cutoff frequency in Hz

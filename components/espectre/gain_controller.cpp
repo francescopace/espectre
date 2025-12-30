@@ -15,17 +15,28 @@ namespace espectre {
 
 static const char *TAG = "GainController";
 
-void GainController::init(uint16_t calibration_packets) {
+void GainController::init(uint16_t calibration_packets, GainLockMode mode) {
   calibration_packets_ = calibration_packets;
+  mode_ = mode;
   packet_count_ = 0;
   agc_gain_sum_ = 0;
   fft_gain_sum_ = 0;
   agc_gain_locked_ = 0;
   fft_gain_locked_ = 0;
+  skipped_strong_signal_ = false;
   
 #if ESPECTRE_GAIN_LOCK_SUPPORTED
-  locked_ = false;
-  ESP_LOGD(TAG, "Gain controller initialized (calibration packets: %d)", calibration_packets);
+  if (mode == GainLockMode::DISABLED) {
+    // User explicitly disabled gain lock
+    locked_ = true;
+    skip_gain_lock_ = true;
+    ESP_LOGD(TAG, "Gain lock disabled by configuration");
+  } else {
+    locked_ = false;
+    const char* mode_str = (mode == GainLockMode::AUTO) ? "auto" : "enabled";
+    ESP_LOGD(TAG, "Gain controller initialized (mode: %s, calibration packets: %d)", 
+             mode_str, calibration_packets);
+  }
 #else
   // On unsupported platforms, mark as locked immediately (no calibration phase)
   locked_ = true;
@@ -60,9 +71,25 @@ void GainController::process_packet(const wifi_csi_info_t* info) {
                packet_count_, calibration_packets_);
     }
   } else if (packet_count_ == calibration_packets_) {
-    // Calculate averages and lock
+    // Calculate averages
     agc_gain_locked_ = static_cast<uint8_t>(agc_gain_sum_ / calibration_packets_);
     fft_gain_locked_ = static_cast<uint8_t>(fft_gain_sum_ / calibration_packets_);
+    
+    // Check if we should skip gain lock due to strong signal (AUTO mode only)
+    if (mode_ == GainLockMode::AUTO && agc_gain_locked_ < MIN_SAFE_AGC) {
+      // Signal too strong - skip gain lock to prevent CSI freeze
+      locked_ = true;
+      skipped_strong_signal_ = true;
+      ESP_LOGW(TAG, "Signal too strong (AGC=%d < %d) - skipping gain lock", 
+               agc_gain_locked_, MIN_SAFE_AGC);
+      ESP_LOGW(TAG, "Move sensor 2-3 meters from AP for optimal performance");
+      
+      // Notify callback (calibration will proceed without gain lock)
+      if (lock_complete_callback_) {
+        lock_complete_callback_();
+      }
+      return;
+    }
     
     // Force the gain values
     phy_fft_scale_force(true, fft_gain_locked_);

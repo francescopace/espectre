@@ -53,6 +53,7 @@ class CSIManager {
    * @param hampel_enabled Whether Hampel filter is enabled
    * @param hampel_window Hampel window size (3-11)
    * @param hampel_threshold Hampel threshold (MAD multiplier)
+   * @param gain_lock_mode Gain lock mode (auto/enabled/disabled)
    * @param wifi_csi WiFi CSI interface (nullptr for real implementation)
    */
   void init(csi_processor_context_t* processor,
@@ -65,6 +66,7 @@ class CSIManager {
             bool hampel_enabled,
             uint8_t hampel_window,
             float hampel_threshold,
+            GainLockMode gain_lock_mode = GainLockMode::AUTO,
             IWiFiCSI* wifi_csi = nullptr);
   
   /**

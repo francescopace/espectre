@@ -35,6 +35,28 @@ namespace espectre {
 #endif
 
 /**
+ * Gain Lock Mode
+ * 
+ * Controls how AGC/FFT gain locking behaves:
+ * - AUTO: Enable gain lock but skip if signal too strong (AGC < MIN_SAFE_AGC)
+ * - ENABLED: Always force gain lock (may freeze if too close to AP)
+ * - DISABLED: Never lock gain (less stable CSI but works at any distance)
+ */
+enum class GainLockMode {
+  AUTO,      // Default: enable but skip if signal too strong
+  ENABLED,   // Always enable (risk of freeze with strong signal)
+  DISABLED   // Never enable (works everywhere but less stable)
+};
+
+// Minimum safe AGC value for gain locking in AUTO mode.
+// Below this threshold, forcing the gain may cause CSI reception to freeze.
+// Empirically determined from user reports:
+//   AGC >= 40: works well
+//   AGC 30-40: borderline (NBVI may fail but fallback works)
+//   AGC < 30: freezes after gain lock
+static constexpr uint8_t MIN_SAFE_AGC = 30;
+
+/**
  * PHY RX Control structure with gain fields
  * 
  * This structure overlays wifi_csi_info_t to access undocumented
@@ -108,8 +130,23 @@ class GainController {
    * Initialize the gain controller
    * 
    * @param calibration_packets Number of packets to collect before locking (default: 300, ~3 seconds)
+   * @param mode Gain lock mode (auto/enabled/disabled)
    */
-  void init(uint16_t calibration_packets = 300);
+  void init(uint16_t calibration_packets = 300, GainLockMode mode = GainLockMode::AUTO);
+  
+  /**
+   * Get the current gain lock mode
+   * 
+   * @return Current mode
+   */
+  GainLockMode get_mode() const { return mode_; }
+  
+  /**
+   * Check if gain lock was skipped due to strong signal (AUTO mode only)
+   * 
+   * @return true if gain lock was skipped because AGC < MIN_SAFE_AGC
+   */
+  bool was_skipped_due_to_strong_signal() const { return skipped_strong_signal_; }
   
   /**
    * Set callback for when gain lock completes
@@ -195,6 +232,8 @@ class GainController {
   uint8_t fft_gain_locked_{0};
   bool locked_{false};
   bool skip_gain_lock_{false};  // Set true on platforms without gain lock support
+  bool skipped_strong_signal_{false};  // Set true if skipped due to AGC < MIN_SAFE_AGC
+  GainLockMode mode_{GainLockMode::AUTO};
   lock_complete_callback_t lock_complete_callback_{nullptr};
 };
 

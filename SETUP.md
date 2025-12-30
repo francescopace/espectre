@@ -196,6 +196,7 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `hampel_enabled` | bool | false | Enable Hampel outlier filter |
 | `hampel_window` | int | 7 | Hampel filter window size |
 | `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) |
+| `gain_lock` | string | auto | AGC/FFT gain lock: `auto`, `enabled`, `disabled` |
 
 For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 ### Integrated Sensors (Created Automatically)
@@ -538,6 +539,10 @@ ESPectre automatically calibrates in two phases:
 3. Saves configuration (persists across reboots)
 
 Room must be quiet during the entire ~10 second calibration.
+
+**Sensor placement:** Position the sensor 2-8 meters from your access point for optimal performance. See [Sensor Placement](TUNING.md#sensor-placement) in the Tuning Guide for details.
+
+**Gain lock modes:** The `gain_lock` parameter (`auto`/`enabled`/`disabled`) controls AGC stabilization. See [Gain Lock](TUNING.md#gain-lock) in the Tuning Guide.
 
 To force recalibration: erase flash and re-flash.
 
