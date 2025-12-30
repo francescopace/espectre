@@ -688,7 +688,7 @@ bool CalibrationManager::open_buffer_file_for_reading_() {
   // Close any existing handle before reopening
   close_buffer_file_();
 
-  buffer_file_ = fopen(buffer_path_, "rb");
+  buffer_file_ = safe_fopen_wrapper(buffer_path_, "rb");
   if (!buffer_file_) {
     ESP_LOGE(TAG, "Failed to open %s for reading", buffer_path_);
     return false;
