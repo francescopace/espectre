@@ -366,6 +366,8 @@ Two dashboard examples are available:
 
 The traffic generator creates network packets that trigger CSI callbacks from the WiFi driver. Default rate is **100 pps** (packets per second).
 
+> ⚠️ **Important**: The traffic generator runs **continuously** while the device is powered on, not just during calibration. Each ESPectre device constantly sends packets to generate CSI data for motion detection. See [Network Impact](#network-impact) below to understand the bandwidth and airtime implications for your WiFi network.
+
 ```yaml
 espectre:
   traffic_generator_rate: 100  # packets per second (0-1000)
@@ -398,7 +400,7 @@ For detailed rate recommendations and Nyquist-Shannon sampling theory, see [TUNI
 
 ### Network Impact
 
-Each ESPectre device generates continuous WiFi traffic. Here's the approximate impact per device:
+Each ESPectre device generates **continuous** WiFi traffic as long as it's powered on. This is required for motion detection to work. Here's the approximate impact per device:
 
 | Rate | Packets/sec | Approximate Bandwidth |
 |------|-------------|----------------------|
@@ -406,14 +408,9 @@ Each ESPectre device generates continuous WiFi traffic. Here's the approximate i
 | 100 pps (default) | 100 | ~9 KB/s |
 | 200 pps | 200 | ~18 KB/s |
 
-For single devices or small deployments (< 5 devices), the default 100 pps has negligible impact on most networks.
+For single devices or small deployments (< 5 devices), the default 100 pps has negligible impact on most home networks (typically <1% of available bandwidth).
 
-### Multi-Device Deployments
-
-For larger deployments, consider:
-
-1. **Lower the rate**: 50 pps is sufficient for basic presence detection
-2. **Use external traffic**: Set `traffic_generator_rate: 0` and use an external broadcast source
+> ⚠️ **Planning a large deployment?** With many ESPectre devices, the cumulative traffic can consume noticeable WiFi airtime. For example, 10 devices at 100 pps each = 2000 packets/sec (1000 requests + 1000 responses), using approximately 10-15% of airtime. Consider using [External Traffic Mode](#external-traffic-mode) with UDP broadcast to reduce this to ~0.5% airtime.
 
 ### External Traffic Mode
 
@@ -434,77 +431,45 @@ This is useful when:
 
 When `traffic_generator_rate: 0`, ESPectre opens a UDP listener on **port 5555**. Send UDP packets to this port to generate CSI data.
 
-**Option 1: Single device (unicast)**
+Use the standalone Python script: [`csi_traffic_generator.py`](examples/csi_traffic_generator.py)
 
-For a single ESPectre device, send UDP directly to its IP:
-
-```python
-#!/usr/bin/env python3
-"""CSI Traffic Generator - Single ESPectre device"""
-import socket, time
-
-TARGET_IP = '192.168.1.16'  # Your ESPectre device IP
-PORT = 5555
-RATE = 100  # packets per second
-
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-interval = 1.0 / RATE
-next_time = time.perf_counter()
-
-print(f"Sending UDP to {TARGET_IP}:{PORT} at {RATE} pps...")
-while True:
-    s.sendto(b'.', (TARGET_IP, PORT))
-    next_time += interval
-    sleep_time = next_time - time.perf_counter()
-    if sleep_time > 0:
-        time.sleep(sleep_time)
-```
-
-**Option 2: Multiple devices (broadcast)**
-
-For multiple ESPectre devices, use broadcast to reach all at once:
+**Configuration:** Edit the script and set your device IP(s):
 
 ```python
-#!/usr/bin/env python3
-"""CSI Traffic Generator - All ESPectre devices via broadcast"""
-import socket, time
-
-# Use a dedicated subnet for ESPectre devices (recommended for multiple devices)
-# Example: 192.168.10.0/24 for sensors, 192.168.1.0/24 for other devices
-BROADCAST_IP = '192.168.10.255'  # Dedicated ESPectre subnet broadcast
+TARGETS = ['192.168.1.255']  # Broadcast address (recommended for multiple devices)
+# TARGETS = ['192.168.1.100', '192.168.1.101']  # Or list specific device IPs
 PORT = 5555
-RATE = 100  # packets per second
-
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-
-interval = 1.0 / RATE
-next_time = time.perf_counter()
-
-print(f"Broadcasting UDP to {BROADCAST_IP}:{PORT} at {RATE} pps...")
-while True:
-    s.sendto(b'.', (BROADCAST_IP, PORT))
-    next_time += interval
-    sleep_time = next_time - time.perf_counter()
-    if sleep_time > 0:
-        time.sleep(sleep_time)
+RATE = 100  # packets per second (recommended: 100)
 ```
 
-Save as `csi_traffic.py` and run on any device on the network (Raspberry Pi, NAS, Home Assistant server):
+**Usage:**
 
 ```bash
-python3 csi_traffic.py
+python3 csi_traffic_generator.py run      # Foreground (Ctrl+C to stop)
+python3 csi_traffic_generator.py start    # Background daemon
+python3 csi_traffic_generator.py stop     # Stop daemon
+python3 csi_traffic_generator.py status   # Check if running
 ```
 
-| RATE value | Packets per second |
-|------------|-------------------|
-| `50` | 50 pps |
-| `100` | 100 pps (recommended) |
-| `200` | 200 pps |
+Run on any device on the network: Raspberry Pi, NAS, Home Assistant server, etc.
 
-**Tip: Dedicated subnet for large deployments**
+**Home Assistant integration:**
 
-For multiple ESPectre devices, consider creating a dedicated VLAN or subnet (e.g., `192.168.10.0/24`). This isolates CSI traffic from your main network.
+Copy the script to `/config/scripts/csi_traffic_generator.py` and add to `configuration.yaml`:
+
+```yaml
+switch:
+  - platform: command_line
+    switches:
+      espectre_traffic:
+        friendly_name: "ESPectre Traffic Generator"
+        command_on: "python3 /config/scripts/csi_traffic_generator.py start"
+        command_off: "python3 /config/scripts/csi_traffic_generator.py stop"
+        command_state: "python3 /config/scripts/csi_traffic_generator.py status"
+        value_template: '{{ "Running" in value }}'
+```
+
+This creates a `switch.espectre_traffic` entity you can toggle from dashboards or use in automations.
 
 <details>
 <summary><b>Why UDP instead of ping?</b></summary>

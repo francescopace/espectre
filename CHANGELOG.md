@@ -47,15 +47,7 @@ espectre:
   publish_interval: 100      # Update sensors every 100 CSI packets
 ```
 
-External traffic source (Python):
-```python
-import socket, time
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-while True:
-    sock.sendto(b"csi", ("192.168.1.255", 5555))
-    time.sleep(0.01)  # 100 pps
-```
+External traffic source: [`csi_traffic_generator.py`](examples/csi_traffic_generator.py) - standalone script with daemon mode and Home Assistant integration.
 
 Fixes [#50](https://github.com/francescopace/espectre/issues/50).
 
