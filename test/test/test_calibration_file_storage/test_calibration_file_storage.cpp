@@ -355,7 +355,7 @@ void test_file_removal(void) {
     TEST_ASSERT_EQUAL(0, result);
     
     // Verify removed
-    f = fopen(TEST_BUFFER_FILE, "rb");
+    f = safe_fopen_wrapper(TEST_BUFFER_FILE, "rb");
     TEST_ASSERT_NULL(f);
 }
 
