@@ -71,16 +71,18 @@ class CSIReceiver:
         receiver.run()
     """
     
-    def __init__(self, port: int = DEFAULT_PORT, buffer_size: int = 500):
+    def __init__(self, port: int = DEFAULT_PORT, buffer_size: int = 500, bind_host: str = '127.0.0.1'):
         """
         Initialize CSI receiver.
         
         Args:
             port: UDP port to listen on
             buffer_size: Circular buffer size (packets)
+            bind_host: Host/interface to bind (default loopback for safer local use)
         """
         self.port = port
         self.buffer_size = buffer_size
+        self.bind_host = bind_host
         
         # Packet buffer (circular)
         self.buffer: deque[CSIPacket] = deque(maxlen=buffer_size)
@@ -242,6 +244,13 @@ class CSIReceiver:
         self._last_pps_time = time.time()
         self.buffer.clear()
     
+    def _create_socket(self, timeout: float) -> socket.socket:
+        """Create and bind UDP socket respecting configured host/port."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((self.bind_host, self.port))
+        sock.settimeout(timeout)
+        return sock
+
     def run(self, timeout: float = 0, quiet: bool = False):
         """
         Start receiving packets (blocking).
@@ -251,9 +260,7 @@ class CSIReceiver:
             quiet: Suppress output messages
         """
         # Create socket
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(('0.0.0.0', self.port))
-        self.sock.settimeout(1.0)  # 1 second timeout for graceful shutdown
+        self.sock = self._create_socket(timeout=1.0)  # 1 second timeout for graceful shutdown
         
         if not quiet:
             print(f'CSI Receiver listening on UDP port {self.port}')
@@ -535,9 +542,7 @@ class CSICollector:
             print(f'{"=" * 60}\n')
         
         # Create socket once
-        self.receiver.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.receiver.sock.bind(('0.0.0.0', self.port))
-        self.receiver.sock.settimeout(0.1)
+        self.receiver.sock = self.receiver._create_socket(timeout=0.1)
         
         try:
             for sample_idx in range(num_samples):
@@ -612,9 +617,7 @@ class CSICollector:
         print(f'{"=" * 60}\n')
         
         # Create socket once
-        self.receiver.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.receiver.sock.bind(('0.0.0.0', self.port))
-        self.receiver.sock.settimeout(0.1)
+        self.receiver.sock = self.receiver._create_socket(timeout=0.1)
         
         try:
             sample_idx = 0

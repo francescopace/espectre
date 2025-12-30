@@ -40,6 +40,7 @@ class CSIManager;
 
 class CalibrationManager {
  public:
+  ~CalibrationManager();
   // Callback type for calibration results
   // Parameters: band, size, normalization_scale, success
   using result_callback_t = std::function<void(const uint8_t* band, uint8_t size, float normalization_scale, bool success)>;
