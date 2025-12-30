@@ -28,7 +28,7 @@ espectre:
     icon: "mdi:motion-sensor"
 ```
 
-Fixes [#51](https://github.com/francescopace/espectre/issues/51).
+See [#51](https://github.com/francescopace/espectre/issues/51).
 
 ### External Traffic Mode
 
@@ -47,9 +47,9 @@ espectre:
   publish_interval: 100      # Update sensors every 100 CSI packets
 ```
 
-External traffic source: [`csi_traffic_generator.py`](examples/csi_traffic_generator.py) - standalone script with daemon mode and Home Assistant integration.
+External traffic source: [`espectre_traffic_generator.py`](examples/espectre_traffic_generator.py) - standalone script with daemon mode and Home Assistant integration.
 
-Fixes [#50](https://github.com/francescopace/espectre/issues/50).
+See [#50](https://github.com/francescopace/espectre/issues/50).
 
 ### Traffic Generator Mode
 

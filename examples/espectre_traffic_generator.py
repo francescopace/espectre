@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-CSI Traffic Generator for ESPectre
+ESPectre Traffic Generator
 
 Generates UDP traffic to trigger CSI extraction on ESPectre devices.
 Works on all platforms: Linux, macOS, Windows, Home Assistant.
 
 Usage:
-  python3 csi_traffic_generator.py start              # Start in background
-  python3 csi_traffic_generator.py stop               # Stop running instance
-  python3 csi_traffic_generator.py status             # Check if running
-  python3 csi_traffic_generator.py run                # Run in foreground (Ctrl+C to stop)
+  python3 espectre_traffic_generator.py start         # Start in background
+  python3 espectre_traffic_generator.py stop          # Stop running instance
+  python3 espectre_traffic_generator.py status        # Check if running
+  python3 espectre_traffic_generator.py run           # Run in foreground (Ctrl+C to stop)
 
 Configuration:
   Edit TARGETS, PORT, RATE below.
@@ -18,6 +18,8 @@ Home Assistant integration:
   See SETUP.md for command_line switch configuration.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
+Thanks to: https://github.com/phoenixtechnam
+
 License: GPLv3
 """
 import socket
@@ -31,7 +33,7 @@ TARGETS = ['192.168.1.255']  # Broadcast address (recommended for multiple devic
 # TARGETS = ['192.168.1.100', '192.168.1.101']  # Or list specific device IPs
 PORT = 5555
 RATE = 100  # packets per second (recommended: 100)
-PID_FILE = '/tmp/csi_traffic.pid'
+PID_FILE = '/tmp/espectre_traffic.pid'
 # =========================================
 
 

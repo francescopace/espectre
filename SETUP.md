@@ -432,7 +432,7 @@ This is useful when:
 
 When `traffic_generator_rate: 0`, ESPectre opens a UDP listener on **port 5555**. Send UDP packets to this port to generate CSI data.
 
-Use the standalone Python script: [`csi_traffic_generator.py`](examples/csi_traffic_generator.py)
+Use the standalone Python script: [`espectre_traffic_generator.py`](examples/espectre_traffic_generator.py)
 
 **Configuration:** Edit the script and set your device IP(s):
 
@@ -446,31 +446,30 @@ RATE = 100  # packets per second (recommended: 100)
 **Usage:**
 
 ```bash
-python3 csi_traffic_generator.py run      # Foreground (Ctrl+C to stop)
-python3 csi_traffic_generator.py start    # Background daemon
-python3 csi_traffic_generator.py stop     # Stop daemon
-python3 csi_traffic_generator.py status   # Check if running
+python3 espectre_traffic_generator.py run      # Foreground (Ctrl+C to stop)
+python3 espectre_traffic_generator.py start    # Background daemon
+python3 espectre_traffic_generator.py stop     # Stop daemon
+python3 espectre_traffic_generator.py status   # Check if running
 ```
 
 Run on any device on the network: Raspberry Pi, NAS, Home Assistant server, etc.
 
 **Home Assistant integration:**
 
-Copy the script to `/config/scripts/csi_traffic_generator.py` and add to `configuration.yaml`:
+Copy the script to `/config/python_scripts/espectre_traffic_generator.py` and add to `configuration.yaml` (see [command_line integration docs](https://www.home-assistant.io/integrations/command_line/)):
 
 ```yaml
-switch:
-  - platform: command_line
-    switches:
-      espectre_traffic:
-        friendly_name: "ESPectre Traffic Generator"
-        command_on: "python3 /config/scripts/csi_traffic_generator.py start"
-        command_off: "python3 /config/scripts/csi_traffic_generator.py stop"
-        command_state: "python3 /config/scripts/csi_traffic_generator.py status"
-        value_template: '{{ "Running" in value }}'
+command_line:
+  - switch:
+      name: "ESPectre Traffic Generator"
+      command_on: "python3 /config/python_scripts/espectre_traffic_generator.py start"
+      command_off: "python3 /config/python_scripts/espectre_traffic_generator.py stop"
+      command_state: "python3 /config/python_scripts/espectre_traffic_generator.py status"
+      value_template: '{{ "Running" in value }}'
+      unique_id: espectre_traffic_generator
 ```
 
-This creates a `switch.espectre_traffic` entity you can toggle from dashboards or use in automations.
+This creates a `switch.espectre_traffic_generator` entity you can toggle from dashboards or use in automations.
 
 <details>
 <summary><b>Why UDP instead of ping?</b></summary>
