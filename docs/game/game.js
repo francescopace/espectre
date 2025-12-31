@@ -308,16 +308,22 @@ class ESPectreGame {
             await this.connectSerial();
         } catch (e) {
             console.error('Serial connection failed:', e);
+            let errorType = 'unknown';
             if (e.message.includes('No port selected')) {
                 this.showConnectionStatus('No device selected', 'error');
+                errorType = 'no_port_selected';
             } else if (e.message.includes('already open') || e.message.includes('in use')) {
                 this.showConnectionStatus(
                     'Port in use! Close esphome logs or other serial monitors.',
                     'error'
                 );
+                errorType = 'port_in_use';
             } else {
                 this.showConnectionStatus('Connection failed: ' + e.message, 'error');
+                errorType = e.message.substring(0, 50);
             }
+            // Track failed connection attempt
+            trackEvent('usb_connect_fail', { error: errorType });
         }
     }
     
@@ -332,6 +338,9 @@ class ESPectreGame {
         
         this.inputMode = 'serial';
         this.showConnectionStatus('Connected via USB Serial!', 'connected');
+        
+        // Track successful USB connection
+        trackEvent('usb_connect');
         
         // Setup reader/writer with TransformStreams for text encoding/decoding
         const textDecoder = new TextDecoderStream();
@@ -451,6 +460,8 @@ class ESPectreGame {
                 if (this.elements.usbDeviceName) {
                     this.elements.usbDeviceName.textContent = value.toUpperCase() + ' Connected';
                 }
+                // Track device type
+                trackEvent('usb_device_info', { chip: value.toUpperCase() });
                 break;
             case 'threshold':
                 if (this.elements.infoThreshold) {
@@ -676,6 +687,9 @@ class ESPectreGame {
         this.hitCount = 0;
         this.criticalHits = 0;
         this.strongHits = 0;
+        
+        // Track game start
+        trackEvent('game_start', { input_mode: this.inputMode });
         
         this.updateHUD();
         this.showScreen('game');
@@ -1035,6 +1049,18 @@ class ESPectreGame {
         gradeEl.textContent = grade;
         gradeEl.className = 'result-grade grade-' + grade.toLowerCase();
         
+        // Track game over with all stats
+        trackEvent('game_over', {
+            input_mode: this.inputMode,
+            score: this.score,
+            spectres: this.spectresDefeated,
+            max_streak: this.maxStreak,
+            best_time: this.bestTime || 0,
+            grade: grade,
+            critical_hits: this.criticalHits,
+            avg_power: avgPower.toFixed(1)
+        });
+        
         this.showScreen('results');
     }
     
@@ -1085,6 +1111,7 @@ class ESPectreGame {
     
     share() {
         const avgPower = this.hitCount > 0 ? (this.totalPower / this.hitCount).toFixed(1) : '0.0';
+        const grade = this.calculateGrade();
         const text = `ESPectre - The Game\n\n` +
             `Spectres Dissolved: ${this.spectresDefeated}\n` +
             `Best Reaction: ${this.bestTime ? this.bestTime + 'ms' : '---'}\n` +
@@ -1092,8 +1119,15 @@ class ESPectreGame {
             `Avg Power: ${avgPower}x\n` +
             `Critical Hits: ${this.criticalHits}\n` +
             `Score: ${this.score}\n` +
-            `Grade: ${this.calculateGrade()}\n\n` +
+            `Grade: ${grade}\n\n` +
             `Play at https://espectre.dev/game`;
+        
+        // Track share action
+        trackEvent('share', {
+            score: this.score,
+            grade: grade,
+            method: navigator.share ? 'native' : 'clipboard'
+        });
         
         if (navigator.share) {
             navigator.share({ text });

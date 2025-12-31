@@ -1,0 +1,41 @@
+# Dependabot Configuration
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+#
+# Supported ecosystems:
+#   - pip: Python dependencies (includes ESPHome)
+#   - github-actions: Workflow action versions
+#
+# Not supported by Dependabot:
+#   - PlatformIO: No native support (libraries managed via platformio.ini)
+#   - C/C++: No standard package manager
+
+version: 2
+updates:
+  # Python dependencies (micro-espectre)
+  # Includes: numpy, scipy, matplotlib, pytest, paho-mqtt, etc.
+  - package-ecosystem: "pip"
+    directory: "/micro-espectre"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(python)"
+    labels:
+      - "dependencies"
+      - "python"
+
+  # GitHub Actions
+  # Monitors: actions/checkout, actions/setup-python, codecov/codecov-action, etc.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(ci)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
