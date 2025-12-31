@@ -4,159 +4,96 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.3.0] - in progress
+## [2.3.0] - 2025-12-31 
 
-### Sensor Entity Customization
+### ESPectre - The Game 
 
-Full control over exposed sensor entities with standard ESPHome options.
+As a thank you to the community, I'm closing the year with something fun: a browser-based reaction game where your physical movement controls the gameplay through WiFi sensing. No controller needed!
 
-- **`internal`**: Hide sensors from Home Assistant while keeping internal processing
-- **`icon`**: Custom MDI icons for dashboard aesthetics
-- **`filters`**: Apply ESPHome sensor filters to `movement_sensor` (multiply, round, offset, etc.)
-- **`disabled_by_default`**: Create entity but keep disabled until manually enabled
+Beyond the fun, it's actually useful for threshold tuning, calibration verification, and coverage testing. Uses Web Serial API (Chrome/Edge) with real-time CSI streaming at ~100 Hz.
 
-Example configuration:
+**Play now:** [espectre.dev/game](https://espectre.dev/game)
+
+### Features
+
+#### Sensor Entity Customization
+
+Full control over exposed sensor entities with standard ESPHome options: `internal`, `icon`, `filters`, `disabled_by_default`.
+
 ```yaml
 espectre:
   movement_sensor:
     name: "Movement"
-    internal: true              # Hide from Home Assistant
+    internal: true
     filters:
-      - multiply: 100           # Scale 0-1 to 0-100
+      - multiply: 100
   motion_sensor:
-    name: "Presence"
     icon: "mdi:motion-sensor"
 ```
 
 See [#51](https://github.com/francescopace/espectre/issues/51).
 
-### External Traffic Mode
+#### External Traffic Mode
 
 Support for multi-device deployments with reduced network overhead.
 
 - **`traffic_generator_rate: 0`**: Disable internal traffic generator and rely on external WiFi traffic
-- **`publish_interval`**: New parameter to control sensor update rate independently from traffic source
+- **`publish_interval`**: Control sensor update rate independently from traffic source
 - **UDP Listener**: Opens port 5555 to receive external UDP packets for CSI generation
-- **Single broadcast source**: One UDP broadcast generator can feed all ESPectre devices on the network
-- **95% less network overhead**: External broadcast eliminates per-device DNS traffic and responses
-
-Example configuration:
-```yaml
-espectre:
-  traffic_generator_rate: 0  # Disable internal traffic
-  publish_interval: 100      # Update sensors every 100 CSI packets
-```
+- **95% less network overhead**: One broadcast source feeds all ESPectre devices
 
 External traffic source: [`espectre_traffic_generator.py`](examples/espectre_traffic_generator.py) - standalone script with daemon mode and Home Assistant integration.
 
 See [#50](https://github.com/francescopace/espectre/issues/50).
 
-### Traffic Generator Mode
+#### Traffic Generator Ping Mode
 
-New `traffic_generator_mode` option with two modes for CSI traffic generation.
-
-- **`dns`** (default): UDP DNS queries to gateway:53. Works with most routers.
-- **`ping`**: ICMP echo requests to gateway. More compatible - use when DNS mode has low packet rates.
-
-Some routers don't respond to root domain DNS queries, causing low CSI packet rates (~18 pps instead of ~100 pps). Ping mode provides a fallback using the ESP-IDF `esp_ping` API with minimal 8-byte ICMP packets.
-
-Example configuration:
-```yaml
-espectre:
-  traffic_generator_rate: 100
-  traffic_generator_mode: ping  # Use ICMP instead of DNS
-```
+New `traffic_generator_mode: ping` option using ICMP echo requests instead of DNS queries. Use when DNS mode has low packet rates (~18 pps instead of ~100 pps) due to routers not responding to root domain queries.
 
 See [#48](https://github.com/francescopace/espectre/issues/48).
 
-### Gain Lock Mode
+#### Gain Lock Mode
 
-New `gain_lock` option to control AGC/FFT gain locking behavior.
+New `gain_lock` option to control AGC/FFT gain locking behavior:
 
 - **`auto`** (default): Enable gain lock but skip if signal too strong (AGC < 30)
 - **`enabled`**: Always force gain lock (may freeze if too close to AP)
 - **`disabled`**: Never lock gain (less stable CSI but works at any distance)
 
-**Problem solved**: When the ESP32 is too close to the access point (RSSI > -40 dB), forcing gain lock can cause the CSI reception to freeze, blocking calibration and motion detection. This was particularly problematic for users testing with the device very close to their router.
+Solves the issue where devices too close to the AP (RSSI > -40 dB) would freeze during calibration. See [TUNING.md](TUNING.md) for AGC threshold details.
 
-**How it works**: In `auto` mode, ESPectre measures the AGC value during the calibration phase. If AGC < 30 (indicating very strong signal), gain lock is skipped with a warning:
-```
-[W][GainController]: Signal too strong (AGC=14 < 30) - skipping gain lock
-[W][GainController]: Move sensor 2-3 meters from AP for optimal performance
-```
+### Improvements
 
-Example configuration:
-```yaml
-espectre:
-  gain_lock: auto  # auto (default), enabled, disabled
-```
+#### WiFi Channel Change Detection
 
-| AGC Range | Signal Strength | Auto Mode Behavior |
-|-----------|-----------------|-------------------|
-| >= 40 | Normal | Gain lock enabled |
-| 30-40 | Strong | Gain lock enabled (may have NBVI issues) |
-| < 30 | Very strong | Gain lock skipped (warning logged) |
-
-See [#48](https://github.com/francescopace/espectre/issues/48).
-
-### WiFi Channel Change Detection
-
-Automatic detection of WiFi channel changes to prevent false motion detection.
-
-- **Problem**: When the AP switches channel (auto-channel, roaming), CSI data spikes cause false positives
-- **Solution**: Track channel from CSI packet metadata; reset detection buffer on change
-- **Implementation**: Check at publish time (every ~100 packets) to minimize overhead
-- **Log output**: `[W][CSIManager]: WiFi channel changed: 6 -> 11, resetting detection buffer`
-- **Aligned C++ and Python**: Both platforms use packet channel metadata (`data->channel` / `frame[1]`)
+Automatic detection and buffer reset when AP switches channel (auto-channel, roaming), preventing false positives from CSI data spikes.
 
 Fixes [#46](https://github.com/francescopace/espectre/issues/46).
 
-### ESPectre - The Game
+#### Multi-Window NBVI Calibration
 
-A browser-based reaction game that demonstrates ESPectre motion detection capabilities. No controller needed - your physical movement controls the game through WiFi sensing.
+Optimized subcarrier selection with multi-window validation, gain lock phase exclusion (first 300 packets), and updated noise gate percentile (10% → 25%).
 
-**Gameplay:**
-- You are a Spectrum Guardian protecting WiFi frequencies from malicious Spectres
-- When an enemy appears, stay still; when you see "MOVE!", react fast to dissolve it
-- Move harder for more damage (weak/normal/strong/critical hits)
-- Progressive difficulty with 5 enemy types across 15 waves
+#### Calibration Fallback with Normalization
 
-**Practical uses:**
-- **Threshold tuning**: Drag the threshold slider and see immediate visual feedback; changes are saved to flash and apply to Home Assistant
-- **Calibration verification**: System info panel shows current configuration (chip model, subcarrier selection mode, filters) to confirm device is properly calibrated
-- **Coverage testing**: Walk around the room while watching the movement bar to find optimal sensor placement
+When NBVI calibration fails, normalization is still calculated and default subcarriers [11-22] are used, preventing 2000%+ motion values from missing normalization.
 
-**Technical:**
-- Web Serial API for USB communication (Chrome/Edge)
-- Real-time CSI streaming at ~100 Hz
-- Ping keep-alive protocol (auto-stops streaming on browser disconnect)
+### Platform Support
 
-**Files:** `docs/game/` (game.js, game.css, index.html, README.md)
+#### ESP32-C3 Super Mini Tested
 
-### Multi-Window NBVI Calibration
+Added example configuration `espectre-c3.yaml`. Full feature support including gain lock and NBVI calibration.
 
-Optimized subcarrier selection with multi-window validation for better accuracy.
+#### ESP32 (Original/WROOM-32) Tested
 
-- **Multi-window validation**: Evaluate all candidate window sizes, select by minimum false positive rate
-- **Gain lock skip**: First 300 packets (gain lock phase) excluded from calibration data
-- **Noise gate**: Updated percentile from 10% to 25% for better noise floor detection
-- **Percentile fix**: Proper sorting before threshold calculation
+Tested on ESP32-WROOM-32D Mini (CH340). Fixed NBVI calibration not starting on platforms without gain lock.
 
-### Calibration Fallback with Normalization
+**Known limitations** (ESP32 original only):
+- AGC/FFT gain lock not available
+- External traffic generator must start **after** ESP32 connects to WiFi
+- Broadcast mode not supported; use unicast instead
 
-Improved resilience when NBVI calibration cannot find optimal subcarriers.
-
-- **Normalization always calculated**: Even when subcarrier selection fails, baseline variance normalization is computed
-- **Default subcarriers used**: Falls back to [11-22] band instead of returning an error
-- **Prevents false positives**: Without fallback, calibration failure caused 2000%+ motion values due to missing normalization
-- **Aligned C++ and Python**: Both platforms now implement identical fallback behavior
-
-### ESP32 (Original/WROOM-32) Tested
-
-- Tested on ESP32-WROOM-32D Mini (CH340) board
-- Fixed NBVI calibration not starting on platforms without gain lock support
-- ESP32 moved from "experimental" to "tested" in documentation
-- Note: AGC/FFT gain lock is not available on ESP32 original; CSI amplitudes may have higher variance compared to S3/C6
+See [espressif/esp-csi#247](https://github.com/espressif/esp-csi/issues/247).
 
 ---
 
