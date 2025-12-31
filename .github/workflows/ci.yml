@@ -7,16 +7,20 @@ on:
       - 'components/espectre/**'
       - 'micro-espectre/src/**'
       - 'micro-espectre/tests/**'
+      - 'micro-espectre/requirements.txt'
       - 'test/**'
       - 'examples/*.yaml'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
     paths:
       - 'components/espectre/**'
       - 'micro-espectre/src/**'
       - 'micro-espectre/tests/**'
+      - 'micro-espectre/requirements.txt'
       - 'test/**'
       - 'examples/*.yaml'
+      - '.github/workflows/**'
 
 jobs:
   test-cpp:
