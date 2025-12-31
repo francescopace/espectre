@@ -14,34 +14,9 @@ For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../ML_DATA_COLL
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
 - [Analysis Scripts](#analysis-scripts)
 - [Usage Examples](#usage-examples)
 - [Key Results](#key-results)
-
----
-
-## Quick Start
-
-```bash
-# Activate virtual environment
-source ../venv/bin/activate
-
-# Collect CSI data samples (requires ESP32 streaming)
-cd ..
-./me stream --ip <PC_IP>     # On one terminal
-./me collect --label baseline_noisy --duration 60 --chip c6  # On another
-./me collect --label movement --duration 10 --chip c6
-cd tools
-
-# Optimize filter parameters
-python 6_optimize_filter_params.py c6           # Low-pass optimization
-python 6_optimize_filter_params.py c6 --hampel  # Hampel optimization
-
-# Run analysis
-python 2_analyze_system_tuning.py --quick
-python 3_analyze_moving_variance_segmentation.py --plot
-```
 
 ---
 
@@ -142,6 +117,7 @@ python 6_optimize_filter_params.py              # Low-pass optimization
 python 6_optimize_filter_params.py c6           # Use only C6 data
 python 6_optimize_filter_params.py --hampel     # Hampel optimization
 python 6_optimize_filter_params.py c6 --hampel  # C6 + Hampel
+python 6_optimize_filter_params.py --all        # Combined optimization (low-pass + Hampel)
 ```
 
 **Current optimal configuration (60s noisy baseline):**
@@ -178,6 +154,7 @@ python 7_compare_detection_methods.py --plot  # Show 4×2 comparison
 ```bash
 python 8_plot_constellation.py
 python 8_plot_constellation.py --packets 1000
+python 8_plot_constellation.py --packets 200 --offset 50  # Start from packet 50
 python 8_plot_constellation.py --subcarriers 47,48,49,50
 python 8_plot_constellation.py --grid  # One subplot per subcarrier
 ```
@@ -226,22 +203,23 @@ python 10_optimize_nbvi_params.py --quick      # Quick search (fewer combination
 ```bash
 cd tools
 
-# 1. Collect data (files saved in data/)
-cd ..
-./me run --collect-baseline
-./me run --collect-movement
-cd tools
+# 0. Collect data (files saved in data/)
+# Requires two terminals:
+#   Terminal 1: ./me stream --ip <PC_IP>
+#   Terminal 2: ./me collect --label baseline --duration 60
+#               ./me collect --label movement --duration 30
+# see ../ML_DATA_COLLECTION.md for details
 
-# 2. Analyze raw data
+# 1. Analyze raw data
 python 1_analyze_raw_data.py
 
-# 3. Optimize parameters
+# 2. Optimize parameters
 python 2_analyze_system_tuning.py --quick
 
-# 4. Visualize MVS
+# 3. Visualize MVS
 python 3_analyze_moving_variance_segmentation.py --plot
 
-# 5. Run unit tests
+# 4. Run unit tests
 cd ..
 pytest tests/ -v
 ```

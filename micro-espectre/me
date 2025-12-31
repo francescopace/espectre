@@ -467,8 +467,8 @@ def stream_csi(args):
     print(f"{Fore.CYAN}Destination: {dest_ip}:5001{Style.RESET_ALL}")
     print(f"{Fore.CYAN}Duration:    {'infinite' if duration == 0 else f'{duration}s'}{Style.RESET_ALL}")
     print()
-    print(f"{Fore.YELLOW}On the PC, run:{Style.RESET_ALL}")
-    print(f"  python tools/csi_receiver.py -v  {Fore.CYAN}# Monitor packets{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}On another terminal (PC), run:{Style.RESET_ALL}")
+    print(f"  ./me collect --label <name> --duration <sec>  {Fore.CYAN}# Collect labeled data{Style.RESET_ALL}")
     print()
     
     try:

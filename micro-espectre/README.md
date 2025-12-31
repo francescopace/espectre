@@ -290,34 +290,6 @@ mqtt:
       device_class: motion
 ```
 
-## Additional Commands
-
-### Data Collection & ML
-
-For CSI streaming, labeled data collection, and ML dataset creation:
-
-```bash
-# Stream CSI to PC
-./me stream --ip 192.168.1.100
-
-# Collect labeled samples
-./me collect --label idle --duration 60
-./me collect --label wave --duration 30
-./me collect --info
-```
-
-👉 See [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) for complete guide.
-
-### Update Code (during development)
-
-```bash
-# Deploy updated code (auto-detect port)
-./me deploy
-
-# Run application (auto-detect port)
-./me run
-```
-
 ## Project Structure
 
 ```
@@ -504,24 +476,6 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
 
 The `tools/` directory contains Python scripts for CSI data analysis and algorithm validation.
 
-```bash
-# Collect CSI data samples
-./me run --collect-baseline
-./me run --collect-movement
-
-# Run analysis
-cd tools
-python 2_analyze_system_tuning.py --quick
-python 3_analyze_moving_variance_segmentation.py --plot
-```
-
-**9 analysis scripts** covering:
-- Raw data visualization and system tuning
-- MVS algorithm validation and optimization
-- I/Q constellation analysis
-- Detection methods comparison
-- CSI features extraction
-
 See [tools/README.md](tools/README.md) for complete script documentation.
 
 ## Automatic Subcarrier Selection (NBVI)
@@ -542,15 +496,6 @@ Micro-ESPectre is the **R&D platform** for advanced CSI-based applications. Whil
 - **Localization and tracking**
 
 ### Getting Started with ML
-
-```bash
-# Stream CSI data to PC
-./me stream --ip 192.168.1.100
-
-# Collect labeled samples
-./me collect start idle 60
-./me collect start wave 30
-```
 
 👉 **[ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md)** - Complete guide for data collection, labeling, and dataset format.
 

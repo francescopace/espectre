@@ -196,7 +196,7 @@ gesture1      # non-descriptive
 ### Session Workflow
 
 1. **Prepare environment**: Ensure room is quiet for baseline
-2. **Record baseline first**: `./me collect start idle 60`
+2. **Record baseline first**: `./me collect --label idle --duration 60`
 3. **Record gestures**: One gesture type at a time
 4. **Verify dataset**: `./me collect --info`
 5. **Backup data**: Copy `data/` to safe location
