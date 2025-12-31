@@ -397,6 +397,21 @@ espectre:
   traffic_generator_mode: ping  # Use ICMP ping instead of DNS
 ```
 
+**Community test results** (thanks to [@gasment](https://github.com/francescopace/espectre/issues/48)):
+
+| Board | Antenna | Mode | Rate | RSSI | AGC | Result |
+|-------|---------|------|------|------|-----|--------|
+| ESP32-S3-N16R8 | built-in | DNS | 100 | -15±5 | 15±5 | ✅ |
+| ESP32-S3-N16R8 | built-in | PING | 100 | -15±5 | 10±5 | ✅ |
+| ESP32-S3-N16R8 | external | DNS | 100 | -10±5 | 5±5 | ✅ |
+| ESP32-S3-N16R8 | external | PING | 100 | -5±5 | 5±5 | ✅ |
+| ESP32-C6 Super Mini | built-in | DNS | 100 | -20±5 | 15±5 | ✅ |
+| ESP32-C6 Super Mini | built-in | PING | 100 | -20±5 | 15±5 | ✅ |
+| ESP32-C3 Core | built-in | DNS | 94 | -20±5 | 15±5 | ✅ |
+| ESP32-C3 Core | built-in | PING | 94 | -20±5 | 15±5 | ✅ |
+
+Both modes work reliably across different boards and antenna configurations.
+
 For detailed rate recommendations and Nyquist-Shannon sampling theory, see [TUNING.md](TUNING.md#traffic-generator-rate-0-1000-pps).
 
 ### Network Impact
@@ -442,6 +457,8 @@ TARGETS = ['192.168.1.255']  # Broadcast address (recommended for multiple devic
 PORT = 5555
 RATE = 100  # packets per second (recommended: 100)
 ```
+
+> ⚠️ **ESP32 (original) limitation:** The CSI driver on ESP32 has a known issue where it doesn't detect traffic that was already flowing when CSI was enabled. You must start the external traffic generator **after** the ESP32 connects to WiFi. Additionally, broadcast mode is not supported - use unicast (specific device IP) instead. ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3 don't have these limitations. See [espressif/esp-csi#247](https://github.com/espressif/esp-csi/issues/247) for details.
 
 **Usage:**
 
@@ -745,9 +762,15 @@ To find your AP's BSSID:
 
 If you're using an ESP32-C3 Super Mini (popular budget boards from AliExpress/Temu):
 
-1. **Calibration takes very long or fails**: Set `traffic_generator_rate: 94` or lower. Values of 95+ cause calibration to hang for 90+ minutes.
+1. **No logs visible via USB**: ESPHome defaults to native USB Serial/JTAG on C3, but boards with external USB-UART bridges (like CH343, CP2102) need explicit UART0 configuration. Add this to your YAML:
+   ```yaml
+   logger:
+     hardware_uart: UART0
+   ```
 
-2. **Flash fails or board doesn't respond**: Some cheap clones don't support QIO flash mode. Add this to your YAML:
+2. **Calibration takes very long or fails**: Set `traffic_generator_rate: 94` or lower. Values of 95+ cause calibration to hang for 90+ minutes.
+
+3. **Flash fails or board doesn't respond**: Some cheap clones don't support QIO flash mode. Add this to your YAML:
    ```yaml
    esphome:
      platformio_options:

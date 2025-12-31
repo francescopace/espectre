@@ -9,6 +9,7 @@
 #
 # ESP32-C3 Super Mini Notes:
 # - Set traffic_generator_rate to 94 or less (higher values cause calibration issues)
+# - Boards with USB-UART bridges (CH343, CP2102): uncomment hardware_uart in logger section (tested by @gasment)
 # - Some cheap clones may require DIO flash mode - see platformio_options below
 #
 # Provisioning:
@@ -69,7 +70,10 @@ esp32_improv:
 improv_serial:
 
 # Logging
+# Note: ESPHome defaults to native USB Serial/JTAG on C3. Boards with external USB-UART
+# bridges (like CH343, CP2102) need hardware_uart: UART0 to see logs.
 logger:
+  # hardware_uart: UART0
 
 # Home Assistant API
 api:
