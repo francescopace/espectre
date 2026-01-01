@@ -6,8 +6,6 @@ Complete guide to install and configure ESPectre with ESPHome.
 
 ## What You Need
 
----
-
 **Hardware:**
 - **ESP32 with CSI support** - ESP32-S3, ESP32-C6, ESP32-C3 or ESP32 (original) tested. Other variants (S2, C5) also supported experimentally.
 - USB-C or Micro-USB cable (depending on board)
@@ -21,8 +19,6 @@ Complete guide to install and configure ESPectre with ESPHome.
 ---
 
 ## Quick Start
-
----
 
 ### 1. Install ESPHome
 
@@ -85,8 +81,6 @@ That's it! The device will be automatically discovered by Home Assistant.
 ---
 
 ## Development Setup
-
----
 
 For development, contributions, or offline use, use the pre-configured development files.
 
@@ -152,8 +146,6 @@ esphome run examples/espectre-esp32-dev.yaml
 
 ## Docker / Home Assistant Add-on
 
----
-
 If you run ESPHome in Docker or as a Home Assistant add-on, just download an example file to your config directory.
 
 **Example for Docker with bind mount:**
@@ -176,8 +168,6 @@ No need to copy any files manually - the component is downloaded automatically f
 ---
 
 ## Configuration Parameters
-
----
 
 ### ESPectre Component
 
@@ -260,8 +250,6 @@ espectre:
 ---
 
 ## Home Assistant Integration
-
----
 
 ESPHome provides **automatic Home Assistant integration**. Once the device is flashed and connected to WiFi:
 
@@ -362,8 +350,6 @@ Two dashboard examples are available:
 ---
 
 ## Traffic Generator
-
----
 
 The traffic generator creates network packets that trigger CSI callbacks from the WiFi driver. Default rate is **100 pps** (packets per second).
 
@@ -544,8 +530,6 @@ High airtime (>30-50%) causes network congestion, increased latency, and packet 
 
 ## NBVI Auto-Calibration
 
----
-
 > ⚠️ **CRITICAL**: The room must be **still** during the first 10 seconds after boot. Movement during calibration will result in poor detection accuracy!
 
 ESPectre automatically calibrates in two phases:
@@ -565,8 +549,6 @@ To force recalibration: erase flash and re-flash.
 ---
 
 ## Custom Hardware Configuration
-
----
 
 ESPectre now provides example configurations for all ESP32 variants with CSI support. If you need to customize further, use these guidelines:
 
@@ -612,8 +594,6 @@ esp32:
 ---
 
 ## Flash Size and Partitions
-
----
 
 ### ESPectre Flash Footprint
 
@@ -687,8 +667,6 @@ spiffs,   data, spiffs,  0x7D0000, 0x30000,
 ---
 
 ## Troubleshooting
-
----
 
 ### No motion detection
 
@@ -797,8 +775,6 @@ esphome logs <your-config>.yaml --device espectre.local
 ---
 
 ## Next Steps
-
----
 
 - **Tuning Guide**: [TUNING.md](TUNING.md) - Optimize for your environment
 - **Main Documentation**: [README.md](README.md) - Full project overview

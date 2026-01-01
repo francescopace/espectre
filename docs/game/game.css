@@ -16,14 +16,26 @@
     --warning: #ffa502;
 }
 
+/* Full viewport layout - no scroll */
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+}
+
 /* Game Container */
 .game-container {
-    min-height: 100vh;
+    flex: 1;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding: 6rem 2rem 2rem;
+    padding: 1rem 2rem;
+    overflow: hidden;
 }
 
 /* Screens */
@@ -118,9 +130,11 @@
 }
 
 .connection-status {
-    margin-top: 1rem;
     font-size: 0.9rem;
-    min-height: 1.5rem;
+}
+
+.connection-status:not(:empty) {
+    margin-top: 1rem;
 }
 
 .connection-status.connecting {
@@ -172,10 +186,36 @@
     margin-top: 1rem;
 }
 
+/* Mobile USB hint */
+.mobile-usb-hint {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-top: 1.5rem;
+    padding: 1rem 1.5rem;
+    background: rgba(0, 212, 170, 0.05);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-width: 400px;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.mobile-usb-hint i {
+    color: var(--accent);
+    font-size: 1.1rem;
+}
+
+/* Hide connection box on mobile */
+.connection-box.mobile-hidden {
+    display: none;
+}
+
 /* Large button */
 .btn-large {
     padding: 1.25rem 2.5rem;
     font-size: 1.1rem;
+    cursor: pointer;
 }
 
 /* Compatibility note */
@@ -239,10 +279,12 @@
 .connection-buttons .btn-small {
     padding: 0.5rem 1rem;
     font-size: 0.85rem;
+    cursor: pointer;
 }
 
 .connection-ready .btn {
     width: 100%;
+    cursor: pointer;
 }
 
 /* System Info Panel */
@@ -333,6 +375,8 @@ kbd {
     max-width: 100%;
     height: calc(100vh - 8rem);
     padding: 0;
+    position: relative;
+    z-index: 50;
 }
 
 #screen-game.active {
@@ -346,6 +390,8 @@ kbd {
     align-items: flex-start;
     width: 100%;
     padding: 0 2rem;
+    position: relative;
+    z-index: 100;
 }
 
 .hud-left,
@@ -424,7 +470,9 @@ kbd {
 .hud-center {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
+    flex: 1;
 }
 
 /* Game Arena */
@@ -721,136 +769,130 @@ kbd {
     margin-left: 0.25rem;
 }
 
-/* Global Movement Bar */
-.global-movement-bar {
+/* Vertical Movement Bar (always visible, left side) */
+/* Movement Bar (left edge) */
+.movement-bar-vertical {
     position: fixed;
-    bottom: 2rem;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100%;
-    max-width: 500px;
-    padding: 1rem 2rem;
-    background: rgba(10, 10, 15, 0.9);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    backdrop-filter: blur(10px);
-    z-index: 100;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 14px;
+    z-index: 1000;
+    pointer-events: none;
 }
 
-.global-movement-bar.hidden {
-    display: none;
-}
-
-/* Movement Bar */
-.movement-bar-container {
-    width: 100%;
-    max-width: 400px;
-    padding: 0 2rem 1rem;
-}
-
-.movement-bar {
-    height: 8px;
-    background: var(--bg-secondary);
-    border-radius: 4px;
-    overflow: hidden;
-    position: relative;
-}
-
-.movement-fill {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-dim) 100%);
-    border-radius: 4px;
-    transition: width 0.1s ease;
-}
-
-.movement-fill.warning {
-    background: linear-gradient(90deg, var(--warning) 0%, #ff7f00 100%);
-}
-
-.movement-fill.danger {
-    background: linear-gradient(90deg, var(--danger) 0%, #ff0000 100%);
-}
-
-.movement-fill.power {
-    background: linear-gradient(90deg, var(--accent) 0%, #00ff88 50%, #fff 100%);
-    box-shadow: 0 0 10px var(--accent);
-}
-
-.movement-threshold {
+.movement-bar-track {
     position: absolute;
-    top: -6px;
-    bottom: -6px;
-    width: 16px;
-    margin-left: -8px;
-    background: transparent;
-    z-index: 2;
-    cursor: ew-resize;
-    touch-action: none;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
 }
 
-.movement-threshold::after {
-    content: '';
+.movement-bar-fill {
     position: absolute;
-    top: 6px;
-    bottom: 6px;
-    left: 50%;
-    width: 3px;
-    margin-left: -1.5px;
-    background: var(--accent);
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 0%;
+    background: linear-gradient(to top, var(--accent) 0%, #00ff88 50%, #fff 100%);
+    box-shadow: 0 0 15px var(--accent), 0 0 30px rgba(0, 212, 170, 0.5);
+    /* No transition - instant updates for accurate visual feedback */
+}
+
+/* Threshold Marker (draggable) */
+.threshold-marker {
+    position: absolute;
+    left: -4px;
+    right: -4px;
+    bottom: 50%; /* Default position, updated by JS */
+    height: 3px;
+    background: var(--text-primary);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+    cursor: ns-resize;
+    pointer-events: auto;
+    z-index: 10;
+    transition: bottom 0.1s ease-out;
     border-radius: 2px;
-    box-shadow: 0 0 6px var(--accent);
-    transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
-.movement-threshold:hover::after,
-.movement-threshold.dragging::after {
-    transform: scaleX(1.5);
-    box-shadow: 0 0 12px var(--accent);
-}
-
-.movement-threshold::before {
-    content: '▼';
+/* Handle/grip indicator */
+.threshold-marker::after {
+    content: '⋮⋮';
     position: absolute;
-    top: -8px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 8px;
-    color: var(--accent);
-    transition: transform 0.1s ease;
-}
-
-.movement-threshold:hover::before,
-.movement-threshold.dragging::before {
-    transform: translateX(-50%) scale(1.2);
-}
-
-.movement-values {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.85rem;
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--text-dim);
-    margin-top: 0.5rem;
-}
-
-.movement-values #movement-value {
+    left: calc(100% + 6px);
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.9rem;
     color: var(--text-primary);
-    min-width: 3.5em;
-    text-align: right;
+    letter-spacing: -3px;
+    opacity: 0.7;
 }
 
-.movement-values #threshold-value {
-    color: var(--accent);
-    min-width: 3.5em;
-    text-align: left;
+/* Threshold container with label */
+.threshold-value {
+    position: absolute;
+    left: calc(100% + 22px);
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    pointer-events: auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    cursor: ns-resize;
+    animation: thresholdPulse 2.5s ease-in-out infinite;
 }
 
-.movement-separator {
+@keyframes thresholdPulse {
+    0%, 100% { 
+        border-color: var(--border);
+        box-shadow: none;
+    }
+    50% { 
+        border-color: var(--text-secondary);
+        box-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
+    }
+}
+
+.threshold-value::before {
+    content: 'threshold: ';
+    opacity: 0.7;
+}
+
+/* Global Controls (always visible, bottom left) */
+/* Mute Button */
+.btn-mute {
+    background: transparent;
+    border: none;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--text-dim);
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
     opacity: 0.5;
+    border-left: 1px solid var(--border);
+    padding-left: 0.75rem;
+    margin-left: 0.25rem;
+}
+
+.btn-mute:hover {
+    color: var(--accent);
+    opacity: 1;
+}
+
+.btn-mute.unmuted {
+    color: var(--accent);
+    opacity: 1;
+    filter: drop-shadow(0 0 6px var(--accent));
 }
 
 /* ==================== RESULTS SCREEN ==================== */
@@ -902,19 +944,40 @@ kbd {
     color: #ffd700;
 }
 
-.result-grade {
-    font-size: 6rem;
-    font-weight: 700;
-    color: var(--accent);
-    text-shadow: 0 0 50px var(--accent-glow);
-    margin: 1rem 0 2rem;
+/* Score Highlight */
+.result-score-highlight {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 2rem;
 }
 
-.result-grade.grade-s { color: #ffd700; text-shadow: 0 0 50px rgba(255, 215, 0, 0.5); }
-.result-grade.grade-a { color: var(--accent); }
-.result-grade.grade-b { color: #2ed573; }
-.result-grade.grade-c { color: var(--warning); }
-.result-grade.grade-d { color: var(--danger); }
+.result-score-highlight .score-label {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    letter-spacing: 0.2em;
+    margin-bottom: 0.5rem;
+}
+
+.result-score-highlight .score-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    font-weight: 700;
+    color: var(--accent);
+    text-shadow: 0 0 40px var(--accent-glow);
+    animation: scorePulse 2s ease-in-out infinite;
+}
+
+@keyframes scorePulse {
+    0%, 100% { 
+        transform: scale(1);
+        text-shadow: 0 0 40px var(--accent-glow);
+    }
+    50% { 
+        transform: scale(1.02);
+        text-shadow: 0 0 60px var(--accent-glow), 0 0 80px var(--accent);
+    }
+}
 
 .results-actions {
     display: flex;
@@ -944,7 +1007,7 @@ kbd {
 
 @media (max-width: 768px) {
     .game-container {
-        padding: 5rem 1rem 1rem;
+        padding: 0.5rem 1rem;
     }
 
     .game-hud {
@@ -978,6 +1041,16 @@ kbd {
     .results-actions .btn {
         width: 100%;
         justify-content: center;
+    }
+
+    /* Hide threshold bar on mobile */
+    .movement-bar-vertical {
+        display: none;
+    }
+
+    /* Hide threshold instruction on mobile */
+    .how-to-play .threshold-hint {
+        display: none;
     }
 }
 

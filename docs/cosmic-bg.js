@@ -149,10 +149,15 @@
     const iMouse = gl.getUniformLocation(program, 'iMouse');
     
     let mouseX = 0, mouseY = 0;
-    document.addEventListener('mousemove', (e) => {
-        mouseX = e.clientX;
-        mouseY = canvas.height - e.clientY;
-    });
+    
+    // Only track mouse on non-touch devices (avoids interference on mobile)
+    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (!isMobile) {
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = canvas.height - e.clientY;
+        });
+    }
     
     function resize() {
         canvas.width = window.innerWidth;

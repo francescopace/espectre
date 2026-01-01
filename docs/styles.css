@@ -28,6 +28,7 @@
 
 html {
     scroll-behavior: smooth;
+    overflow-x: hidden;
 }
 
 body {
@@ -87,9 +88,180 @@ header.scrolled {
     font-size: 1.8rem;
 }
 
+/* Life ghost in logo (for game page) */
+.life-ghost {
+    transition: all 0.3s ease;
+}
+
+.life-ghost i {
+    transition: all 0.3s ease;
+}
+
+/* Default/Home - white */
+.life-ghost i {
+    color: var(--text-primary);
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.4));
+}
+
+/* 3 lives - ESPectre green (game start) */
+.life-ghost[data-lives="3"] i {
+    color: var(--accent);
+    filter: drop-shadow(0 0 10px var(--accent));
+}
+
+/* 2 lives - warning yellow/orange */
+.life-ghost[data-lives="2"] i {
+    color: #ffaa00;
+    filter: drop-shadow(0 0 10px rgba(255, 170, 0, 0.7));
+}
+
+/* 1 life - danger red, pulsing */
+.life-ghost[data-lives="1"] i {
+    color: #ff3333;
+    filter: drop-shadow(0 0 12px rgba(255, 50, 50, 0.9));
+    animation: ghostPulse 0.8s ease-in-out infinite;
+}
+
+/* 0 lives - game over, gray */
+.life-ghost[data-lives="0"] i {
+    color: #666;
+    filter: grayscale(1);
+    opacity: 0.5;
+}
+
+@keyframes ghostPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+}
+
+.life-ghost.losing i {
+    animation: ghostHit 0.6s ease !important;
+}
+
+@keyframes ghostHit {
+    0% { transform: scale(1) rotate(0deg); }
+    20% { transform: scale(1.5) rotate(-20deg); color: #fff; filter: drop-shadow(0 0 20px #ff0000); }
+    40% { transform: scale(0.8) rotate(15deg); }
+    60% { transform: scale(1.2) rotate(-8deg); }
+    100% { transform: scale(1) rotate(0deg); }
+}
+
+/* Header Left - groups logo and controls together */
+.header-left {
+    display: flex;
+    align-items: center;
+}
+
+/* Header Controls Group */
+.header-controls-group {
+    display: flex;
+    align-items: center;
+}
+
+/* Header Separator */
+.header-separator {
+    margin: 0 0.3rem 0 1rem;
+    color: var(--text-primary);
+    font-size: 1.5rem;
+    font-weight: 200;
+    opacity: 0.6;
+}
+
+/* Header Controls (inline after ghost) */
+.header-control {
+    margin-left: 0.4rem;
+    transition: all 0.2s ease;
+}
+
+/* USB Button */
+.header-control.btn-usb {
+    background: transparent;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 1.5rem;
+    cursor: pointer;
+    opacity: 0.5;
+    padding: 0;
+    vertical-align: middle;
+    transition: all 0.2s ease;
+    animation: usbPulse 2s ease-in-out infinite 2s;
+}
+
+.header-control.btn-usb:hover {
+    color: var(--accent);
+    opacity: 1;
+}
+
+.header-control.btn-usb.connected {
+    color: var(--accent);
+    opacity: 1;
+    filter: drop-shadow(0 0 8px var(--accent));
+    animation: none;
+}
+
+@keyframes usbPulse {
+    0%, 100% { 
+        color: var(--text-dim);
+        filter: none;
+    }
+    50% { 
+        color: var(--accent);
+        filter: drop-shadow(0 0 6px var(--accent));
+    }
+}
+
+/* Mute Button */
+.header-control.btn-mute {
+    background: transparent;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 1.5rem;
+    cursor: pointer;
+    opacity: 0.5;
+    padding: 0;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+    animation: mutePulse 2s ease-in-out infinite 2s;
+}
+
+.header-control.btn-mute:hover {
+    color: var(--accent);
+    opacity: 1;
+}
+
+.header-control.btn-mute.unmuted {
+    color: var(--accent);
+    opacity: 1;
+    filter: drop-shadow(0 0 8px var(--accent));
+    animation: none;
+}
+
+@keyframes mutePulse {
+    0%, 100% { 
+        color: var(--text-dim);
+        filter: none;
+    }
+    50% { 
+        color: var(--accent);
+        filter: drop-shadow(0 0 8px var(--accent));
+    }
+}
+
+/* Hide header controls group on non-game pages */
+body:not(.game-page) .header-controls-group {
+    display: none !important;
+}
+
 nav {
     display: flex;
     gap: 2rem;
+    font-size: 1rem;
 }
 
 nav a {
@@ -99,8 +271,94 @@ nav a {
     transition: color 0.2s;
 }
 
+nav a i {
+    font-size: 1rem;
+}
+
 nav a:hover {
     color: var(--accent);
+}
+
+/* Navigation dropdown */
+.nav-dropdown {
+    position: relative;
+}
+
+.nav-dropdown-toggle {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.nav-dropdown-toggle .fa-chevron-down {
+    font-size: 0.75rem;
+    transition: transform 0.2s;
+}
+
+.nav-dropdown:hover .fa-chevron-down {
+    transform: rotate(180deg);
+}
+
+.nav-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0;
+    min-width: 180px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+    z-index: 1000;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    white-space: nowrap;
+}
+
+.nav-dropdown:hover .nav-dropdown-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.nav-dropdown-menu a {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: all 0.15s;
+}
+
+.nav-dropdown-menu a:hover {
+    background: var(--accent-glow);
+    color: var(--accent);
+}
+
+.nav-dropdown-menu a i {
+    width: 1rem;
+    text-align: center;
+}
+
+.nav-dropdown-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 0.5rem 0;
+}
+
+/* Right-aligned dropdown (for last menu items to avoid clipping) */
+.nav-dropdown-right .nav-dropdown-menu {
+    left: auto;
+    right: 0;
+    transform: translateY(8px);
+}
+
+.nav-dropdown-right:hover .nav-dropdown-menu {
+    transform: translateY(0);
 }
 
 /* Hero */
@@ -188,6 +446,7 @@ h1 {
     text-decoration: none;
     transition: all 0.2s;
     font-size: 1rem;
+    cursor: pointer;
 }
 
 .btn-primary {
@@ -336,7 +595,7 @@ pre {
 
 /* Footer */
 footer {
-    padding: 2rem 2rem;
+    padding: 2rem 0 1rem;
     text-align: center;
     background: var(--bg-primary);
     border-top: 1px solid var(--border);
@@ -345,7 +604,7 @@ footer {
 
 .footer-copy {
     color: var(--text-dim);
-    font-size: 0.9rem;
+    font-size: 1rem;
     display: flex;
     justify-content: center;
     gap: 2rem;
@@ -361,13 +620,17 @@ footer {
     gap: 0.4rem;
 }
 
+.footer-copy a i {
+    font-size: 1rem;
+}
+
 .footer-copy a:hover {
     color: var(--accent);
 }
 
 .footer-copyright {
     color: var(--text-dim);
-    font-size: 0.8rem;
+    font-size: 1rem;
     margin-top: 1rem;
 }
 
@@ -380,6 +643,16 @@ footer {
     font-size: 1.5rem;
     cursor: pointer;
     padding: 0.5rem;
+    min-width: 44px;
+    min-height: 44px;
+}
+
+.menu-toggle i {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    font-size: 1.5rem;
+    color: var(--text-primary);
 }
 
 /* Game Promo Section */
@@ -427,6 +700,161 @@ footer {
     padding: 1rem 2.5rem;
 }
 
+/* Documentation styles */
+.doc-section {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 8rem 2rem 4rem;
+    color: var(--text-primary);
+    line-height: 1.8;
+    overflow-x: hidden;
+}
+
+.doc-section-inner {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem 3rem;
+    transition: all 0.3s;
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.doc-section.hidden {
+    display: none;
+}
+
+#landing-content.hidden {
+    display: none;
+}
+
+.doc-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--accent);
+    text-decoration: none;
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+}
+
+.doc-back-link:hover {
+    text-decoration: underline;
+}
+
+.doc-section h1,
+.doc-section h2,
+.doc-section h3,
+.doc-section h4 {
+    scroll-margin-top: 6rem;
+}
+
+.doc-section h1 { font-size: 2rem; margin: 2rem 0 1rem; color: var(--text-primary); }
+.doc-section h2 { font-size: 1.6rem; margin: 2rem 0 1rem; color: var(--text-primary); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+.doc-section h3 { font-size: 1.3rem; margin: 1.5rem 0 0.75rem; color: var(--text-primary); }
+.doc-section h4 { font-size: 1.1rem; margin: 1.25rem 0 0.5rem; color: var(--text-secondary); }
+
+.doc-section p { margin: 1rem 0; }
+
+.doc-section a { color: var(--accent); text-decoration: none; }
+.doc-section a:hover { text-decoration: underline; }
+
+.doc-section ul, .doc-section ol { margin: 1rem 0; padding-left: 2rem; }
+.doc-section li { margin: 0.5rem 0; }
+
+.doc-section code {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg-card);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: var(--accent);
+}
+
+.doc-section pre {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+}
+
+.doc-section pre code {
+    background: none;
+    padding: 0;
+    color: var(--text-primary);
+}
+
+.doc-section table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    display: block;
+    overflow-x: auto;
+}
+
+.doc-section th, .doc-section td {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    text-align: left;
+}
+
+.doc-section th {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.doc-section td {
+    background: var(--bg-secondary);
+}
+
+.doc-section blockquote {
+    border-left: 4px solid var(--accent);
+    margin: 1.5rem 0;
+    padding: 1rem 1.5rem;
+    background: var(--bg-card);
+    border-radius: 0 8px 8px 0;
+}
+
+.doc-section blockquote p { margin: 0; }
+
+.doc-section img {
+    max-width: 100%;
+    border-radius: 8px;
+    margin: 1.5rem 0;
+}
+
+.doc-section hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2rem 0;
+}
+
+.doc-loading {
+    text-align: center;
+    padding: 4rem;
+    color: var(--text-secondary);
+}
+
+.doc-loading i {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.doc-error {
+    text-align: center;
+    padding: 4rem;
+    color: #ff5f56;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     header {
@@ -454,13 +882,46 @@ footer {
         display: flex;
     }
     
-    nav a {
+    nav > a,
+    nav > .nav-dropdown > .nav-dropdown-toggle {
         padding: 1rem 1.5rem;
         border-bottom: 1px solid var(--border);
     }
     
-    nav a:last-child {
+    nav > a:last-child {
         border-bottom: none;
+    }
+    
+    /* Mobile dropdown */
+    .nav-dropdown {
+        width: 100%;
+    }
+    
+    .nav-dropdown-toggle {
+        width: 100%;
+        justify-content: flex-start;
+    }
+    
+    .nav-dropdown-menu {
+        position: static;
+        opacity: 1;
+        visibility: visible;
+        transform: none;
+        border: none;
+        border-radius: 0;
+        background: var(--bg-card);
+        box-shadow: none;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s;
+    }
+    
+    .nav-dropdown.open .nav-dropdown-menu {
+        max-height: 500px;
+    }
+    
+    .nav-dropdown.open .fa-chevron-down {
+        transform: rotate(180deg);
     }
     
     .hero {
@@ -469,6 +930,15 @@ footer {
     
     .features, .code-section {
         padding: 3rem 1.5rem;
+    }
+    
+    .doc-section {
+        padding: 6rem 1rem 2rem;
+    }
+    
+    .doc-section-inner {
+        padding: 1.5rem 1rem;
+        border-radius: 12px;
     }
 }
 

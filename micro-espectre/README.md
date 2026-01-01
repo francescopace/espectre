@@ -14,8 +14,8 @@ Micro-ESPectre is part of a **two-platform strategy**:
 
 | Platform | Purpose | Target Users |
 |----------|---------|--------------|
-| **[ESPectre](https://github.com/francescopace/espectre)** (ESPHome) | Production deployment | Smart home users, Home Assistant |
-| **Micro-ESPectre** (Python) | R&D and prototyping | Researchers, developers, academics |
+| **[ESPectre](https://github.com/francescopace/espectre)** (C++) | Production deployment | Smart home users, Home Assistant |
+| **[Micro-ESPectre](https://github.com/francescopace/espectre/tree/main/micro-espectre)** (Python) | R&D and prototyping | Researchers, developers, academics |
 
 **Why MQTT instead of Native API?**
 Micro-ESPectre uses MQTT for maximum flexibility - it's not tied to Home Assistant and can integrate with:

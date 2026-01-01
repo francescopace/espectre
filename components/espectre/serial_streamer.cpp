@@ -8,6 +8,7 @@
  */
 
 #include "serial_streamer.h"
+#include "esphome/core/defines.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 #include <cstring>
