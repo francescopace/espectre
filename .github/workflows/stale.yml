@@ -1,0 +1,46 @@
+name: Stale Issues and PRs
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Every day at 2:00 AM UTC
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # Issue settings
+          stale-issue-message: >
+            This issue has been automatically marked as stale because it has not had
+            recent activity. It will be closed in 7 days if no further activity occurs.
+            If this issue is still relevant, please leave a comment or remove the stale label.
+          close-issue-message: >
+            This issue has been automatically closed due to inactivity.
+            Feel free to reopen if this is still relevant.
+          stale-issue-label: 'stale'
+          
+          # PR settings
+          stale-pr-message: >
+            This PR has been automatically marked as stale because it has not had
+            recent activity. It will be closed in 7 days if no further activity occurs.
+            If you're still working on this, please leave a comment or push new commits.
+          close-pr-message: >
+            This PR has been automatically closed due to inactivity.
+            Feel free to reopen if you'd like to continue working on it.
+          stale-pr-label: 'stale'
+          
+          # Timing
+          days-before-stale: 30
+          days-before-close: 7
+          
+          # Exempt labels (these issues/PRs won't be marked stale)
+          exempt-issue-labels: 'roadmap,help wanted,good first issue,priority: high,security'
+          exempt-pr-labels: 'help wanted,priority: high,security'
+          
+          # Don't stale issues/PRs with recent activity from maintainers
+          exempt-all-milestones: true
+          
+          # Operations per run (GitHub API limit friendly)
+          operations-per-run: 50
+
