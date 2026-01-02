@@ -28,8 +28,6 @@ document.addEventListener('DOMContentLoaded', function() {
             link.addEventListener('click', () => trackOutboundClick('click_issues', link.href));
         } else if (link.href.includes('/discussions')) {
             link.addEventListener('click', () => trackOutboundClick('click_discussions', link.href));
-        } else if (link.href.includes('/ROADMAP.md')) {
-            link.addEventListener('click', () => trackOutboundClick('click_roadmap', link.href));
         } else {
             link.addEventListener('click', () => trackOutboundClick('click_github', link.href));
         }

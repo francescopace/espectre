@@ -143,7 +143,6 @@
             <button id="btn-touch" class="btn btn-primary btn-large" style="display: none;">
                 <i class="fas fa-hand-pointer"></i> Play with Swipe
             </button>
-            <p id="touch-hint" class="keyboard-hint" style="display: none;">Swipe fast on screen when you see "MOVE!"</p>
             <p id="mobile-usb-hint" class="mobile-usb-hint" style="display: none;">
                 <i class="fas fa-laptop"></i> For real WiFi motion detection, play on a PC with USB connection
             </p>
@@ -155,14 +154,22 @@
             
             <div class="how-to-play">
                 <h3><i class="fas fa-question-circle"></i> How to Play</h3>
-                <ol>
+                <!-- Desktop instructions -->
+                <ol class="desktop-only">
                     <li>Connect your device via USB (close any serial monitor first!)</li>
                     <li class="threshold-hint">Drag the <strong>threshold</strong> slider on the left to adjust sensitivity</li>
-                    <li>Once started the game, <strong>stay still</strong> and wait for the Spectre</li>
+                    <li>Once started, <strong>stay still</strong> and wait for the Spectre</li>
                     <li>When the Spectre appears, <strong>move quickly</strong> to defeat it!</li>
                     <li>React faster than the Spectre to win</li>
                 </ol>
-                <p class="compatibility-note"><i class="fas fa-info-circle"></i> Requires Chrome/Edge.</p>
+                <!-- Mobile instructions -->
+                <ol class="mobile-only">
+                    <li>Tap <strong>Play with Swipe</strong> to start</li>
+                    <li><strong>Stay still</strong> and wait for the Spectre</li>
+                    <li><strong>Swipe fast</strong> to defeat the spectre</li>
+                    <li>React faster than the Spectre to win</li>
+                </ol>
+                <p class="compatibility-note desktop-only"><i class="fas fa-info-circle"></i> Requires Chrome/Edge.</p>
             </div>
         </div>
 
@@ -264,16 +271,8 @@
                     <i class="fas fa-redo"></i> Play Again
                 </button>
                 <button id="btn-share" class="btn btn-secondary">
-                    <i class="fas fa-share"></i> Share
+                    <i class="fas fa-share"></i> Share Results
                 </button>
-                <button id="btn-home" class="btn btn-secondary">
-                    <i class="fas fa-home"></i> Home
-                </button>
-            </div>
-
-            <div class="powered-by">
-                <p>Powered by <a href="/">ESPectre</a></p>
-                <p class="tagline">No cameras. No wearables. Just WiFi.</p>
             </div>
         </div>
     </main>
@@ -285,9 +284,6 @@
     <script src="../cosmic-bg.js"></script>
     <script src="../analytics.js"></script>
     <script src="game.js"></script>
-
-    <!-- Buy Me a Coffee floating widget -->
-    <script data-name="BMC-Widget" data-cfasync="false" src="https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js" data-id="espectre" data-description="Support me on Buy me a coffee!" data-message="Like ESPectre? Support it!" data-color="#40DCA5" data-position="Right" data-x_margin="18" data-y_margin="18"></script>
 </body>
 
 </html>

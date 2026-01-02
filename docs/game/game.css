@@ -16,26 +16,26 @@
     --warning: #ffa502;
 }
 
-/* Full viewport layout - no scroll */
-html, body {
-    height: 100%;
-    overflow: hidden;
-}
-
-body {
+/* Page layout: footer at bottom of viewport */
+body.game-page {
     display: flex;
     flex-direction: column;
+    min-height: 100vh;
 }
 
-/* Game Container */
+/* Game Container fills available space */
 .game-container {
     flex: 1;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding: 1rem 2rem;
-    overflow: hidden;
+    padding: 6rem 2rem 2rem;  /* Top padding for fixed header */
+}
+
+/* Footer at bottom */
+body.game-page footer {
+    flex-shrink: 0;
 }
 
 /* Screens */
@@ -101,32 +101,6 @@ body {
     font-size: 0.9rem;
     margin-bottom: 0.75rem;
     text-align: left;
-}
-
-.input-group {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.input-group input {
-    flex: 1;
-    padding: 0.875rem 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1rem;
-    outline: none;
-    transition: border-color 0.2s;
-}
-
-.input-group input:focus {
-    border-color: var(--accent);
-}
-
-.input-group input::placeholder {
-    color: var(--text-dim);
 }
 
 .connection-status {
@@ -319,11 +293,6 @@ body {
     text-align: right;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
 kbd {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -369,6 +338,15 @@ kbd {
     color: var(--accent);
 }
 
+/* Desktop/Mobile visibility */
+.mobile-only {
+    display: none;
+}
+
+.desktop-only {
+    display: block;
+}
+
 /* ==================== GAME SCREEN ==================== */
 
 #screen-game {
@@ -381,6 +359,11 @@ kbd {
 
 #screen-game.active {
     justify-content: space-between;
+}
+
+/* Hide footer when game screen is active */
+body.game-page:has(#screen-game.active) footer {
+    display: none;
 }
 
 /* HUD */
@@ -418,53 +401,6 @@ kbd {
     font-size: 1.5rem;
     font-weight: 600;
     color: var(--text-primary);
-}
-
-.input-mode {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 100px;
-    padding: 0.5rem 1rem;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.input-mode.esp32 {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-
-.input-mode i {
-    font-size: 0.9rem;
-}
-
-/* Mute Button */
-.btn-mute {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    width: 36px;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.2s ease;
-    margin-left: 0.75rem;
-}
-
-.btn-mute:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-
-.btn-mute.muted {
-    color: var(--text-dim);
-    opacity: 0.6;
 }
 
 .hud-center {
@@ -1007,7 +943,7 @@ kbd {
 
 @media (max-width: 768px) {
     .game-container {
-        padding: 0.5rem 1rem;
+        padding: 5rem 1rem 0.5rem;  /* Smaller header on mobile */
     }
 
     .game-hud {
@@ -1050,6 +986,15 @@ kbd {
 
     /* Hide threshold instruction on mobile */
     .how-to-play .threshold-hint {
+        display: none;
+    }
+    
+    /* Show mobile instructions, hide desktop */
+    .mobile-only {
+        display: block;
+    }
+    
+    .desktop-only {
         display: none;
     }
 }

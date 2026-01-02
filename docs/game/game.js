@@ -141,7 +141,7 @@ class ESPectreGame {
             movementFill: document.getElementById('movement-fill'),
             // USB button in header
             btnUsb: document.getElementById('btn-usb'),
-            // Life ghost display
+            // Life ghost display (in header, from components.js)
             lifeGhost: document.getElementById('life-ghost'),
             // USB ready elements
             connectionPre: document.getElementById('connection-pre'),
@@ -155,7 +155,6 @@ class ESPectreGame {
             btnDisconnect: document.getElementById('btn-disconnect'),
             btnPlayAgain: document.getElementById('btn-play-again'),
             btnShare: document.getElementById('btn-share'),
-            btnHome: document.getElementById('btn-home'),
             btnMute: document.getElementById('btn-mute'),
             // System info elements
             systemInfo: document.getElementById('system-info'),
@@ -179,13 +178,15 @@ class ESPectreGame {
     }
     
     init() {
+        // Enable scrolling on initial load (connection screen should be scrollable on mobile)
+        this.enableTouchGestures();
+        
         // Event listeners
         this.elements.btnConnect.addEventListener('click', () => this.connect());
         this.elements.btnMouse.addEventListener('click', () => this.startMouseMode());
         
         // Touch mode button (only if element exists)
         this.elements.btnTouch = document.getElementById('btn-touch');
-        this.elements.touchHint = document.getElementById('touch-hint');
         if (this.elements.btnTouch) {
             this.elements.btnTouch.addEventListener('click', () => this.startTouchMode());
         }
@@ -193,7 +194,6 @@ class ESPectreGame {
         this.elements.btnDisconnect.addEventListener('click', () => this.disconnect());
         this.elements.btnPlayAgain.addEventListener('click', () => this.restart());
         this.elements.btnShare.addEventListener('click', () => this.share());
-        this.elements.btnHome.addEventListener('click', () => this.goHome());
         
         // Mute button
         if (this.elements.btnMute) {
@@ -227,7 +227,7 @@ class ESPectreGame {
             }
             this.handleTouchStart(e);
         }, { passive: true });
-        document.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
+        document.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: true });
         document.addEventListener('touchend', (e) => this.handleTouchEnd(e), { passive: true });
         document.addEventListener('touchcancel', (e) => this.handleTouchEnd(e), { passive: true });
         
@@ -268,7 +268,6 @@ class ESPectreGame {
             if (this.elements.btnMouse) this.elements.btnMouse.style.display = 'none';
             if (this.elements.mouseHint) this.elements.mouseHint.style.display = 'none';
             if (this.elements.btnTouch) this.elements.btnTouch.style.display = '';
-            if (this.elements.touchHint) this.elements.touchHint.style.display = '';
             // Show mobile hint about USB option on desktop
             if (this.elements.mobileUsbHint) this.elements.mobileUsbHint.style.display = '';
         } else {
@@ -286,7 +285,6 @@ class ESPectreGame {
             if (this.elements.btnMouse) this.elements.btnMouse.style.display = '';
             if (this.elements.mouseHint) this.elements.mouseHint.style.display = '';
             if (this.elements.btnTouch) this.elements.btnTouch.style.display = 'none';
-            if (this.elements.touchHint) this.elements.touchHint.style.display = 'none';
             if (this.elements.mobileUsbHint) this.elements.mobileUsbHint.style.display = 'none';
         }
     }
@@ -330,14 +328,14 @@ class ESPectreGame {
     }
     
     startThresholdDrag(e) {
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
         this.isDraggingThreshold = true;
         this.elements.thresholdMarker.classList.add('dragging');
     }
     
     handleThresholdDrag(e) {
         if (!this.isDraggingThreshold) return;
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
         
         const track = this.elements.thresholdMarker.parentElement;
         const rect = track.getBoundingClientRect();
@@ -488,11 +486,6 @@ class ESPectreGame {
         }
         // Update USB button in header
         this.updateUsbButton();
-        
-        // Show USB icon
-        if (this.elements.iconUsb) {
-            this.elements.iconUsb.classList.remove('hidden');
-        }
         
         // Hide mouse mode section
         if (this.elements.dividerMouse) {
@@ -711,28 +704,19 @@ class ESPectreGame {
         this.lastTouchY = 0;
         this.lastTouchTime = 0;
         
-        // Disable scroll/zoom gestures during swipe mode
-        this.disableTouchGestures();
-        
         this.startGame();
     }
     
     disableTouchGestures() {
-        // Prevent scroll, zoom, and other gestures on the game screen
-        document.body.style.overflow = 'hidden';
-        document.body.style.touchAction = 'none';
-        
-        // Also set on html element for iOS Safari
-        document.documentElement.style.overflow = 'hidden';
-        document.documentElement.style.touchAction = 'none';
+        // No-op: scroll control removed for simplicity
     }
     
     enableTouchGestures() {
-        // Restore normal touch behavior
-        document.body.style.overflow = '';
-        document.body.style.touchAction = '';
-        document.documentElement.style.overflow = '';
-        document.documentElement.style.touchAction = '';
+        // Reset any stuck drag state that could block scrolling
+        this.isDraggingThreshold = false;
+        if (this.elements.thresholdMarker) {
+            this.elements.thresholdMarker.classList.remove('dragging');
+        }
     }
     
     handleMouseMove(e) {
@@ -774,11 +758,6 @@ class ESPectreGame {
         if (this.inputMode === 'serial') return;
         
         if (e.touches.length === 0) return;
-        
-        // Prevent scroll during active game
-        if (this.state !== GameState.IDLE && this.state !== GameState.GAME_OVER) {
-            e.preventDefault();
-        }
         
         const now = performance.now();
         const dt = now - this.lastTouchTime;
@@ -848,6 +827,9 @@ class ESPectreGame {
     // ==================== GAME LOGIC ====================
     
     startGame() {
+        // Block scroll during gameplay (for all input modes)
+        this.disableTouchGestures();
+        
         // Reset stats
         this.score = 0;
         this.streak = 0;
@@ -866,6 +848,9 @@ class ESPectreGame {
         
         // Track game start
         trackEvent('game_start', { input_mode: this.inputMode });
+        
+        // Play game start sound
+        this.playSound('gamestart');
         
         this.updateHUD();
         this.showScreen('game');
@@ -1221,7 +1206,7 @@ class ESPectreGame {
         this.updateHUD();
         
         // Clear enemy state
-        this.elements.enemy.classList.remove('attacking', 'corrupt', 'defeated');
+        this.elements.enemy.classList.remove('attacking', 'corrupt');
         
         // Start a new round at the current wave
         this.startRound();
@@ -1229,6 +1214,9 @@ class ESPectreGame {
     
     async gameOver() {
         this.state = GameState.GAME_OVER;
+        
+        // Play game over sound
+        this.playSound('gameover');
         
         // Re-enable touch gestures for scrolling on results screen
         this.enableTouchGestures();
@@ -1360,13 +1348,10 @@ class ESPectreGame {
     }
     
     async restart() {
-        // Re-disable touch gestures if in touch mode
-        if (this.inputMode === 'touch') {
-            this.disableTouchGestures();
+        // Send START command (for serial mode)
+        if (this.inputMode === 'serial') {
+            await this.sendSerialCommand('START');
         }
-        
-        // Send START command
-        await this.sendSerialCommand('START');
         this.startGame();
     }
     
@@ -1512,11 +1497,6 @@ class ESPectreGame {
             this.elements.systemInfo.classList.add('hidden');
         }
         this.systemInfo = {};
-        
-        // Hide USB icon
-        if (this.elements.iconUsb) {
-            this.elements.iconUsb.classList.add('hidden');
-        }
         
         // Show mouse mode section again
         if (this.elements.dividerMouse) {
@@ -1738,16 +1718,13 @@ class ESPectreGame {
         }
     }
     
-    playSound(type, options = {}) {
+    playSound(type) {
         if (!this.audioEnabled || !this.audioContext) return;
         
         // Resume audio context if suspended (browser autoplay policy)
         if (this.audioContext.state === 'suspended') {
             this.audioContext.resume();
         }
-        
-        const ctx = this.audioContext;
-        const now = ctx.currentTime;
         
         switch (type) {
             case 'move':
@@ -1801,6 +1778,38 @@ class ESPectreGame {
                 // Ethereal whoosh
                 this.playTone(200, 0.3, 'sine', 0.1);
                 setTimeout(() => this.playTone(300, 0.2, 'sine', 0.08), 100);
+                break;
+                
+            case 'gameover':
+                // Dramatic descending minor chord sequence
+                this.playTone(392, 0.4, 'sine', 0.25);      // G4
+                this.playTone(466, 0.4, 'sine', 0.2);       // Bb4 (minor third)
+                setTimeout(() => {
+                    this.playTone(330, 0.4, 'sine', 0.25);  // E4
+                    this.playTone(392, 0.4, 'sine', 0.2);   // G4
+                }, 300);
+                setTimeout(() => {
+                    this.playTone(262, 0.5, 'sine', 0.25);  // C4
+                    this.playTone(311, 0.5, 'sine', 0.2);   // Eb4 (minor)
+                }, 600);
+                setTimeout(() => {
+                    this.playTone(196, 0.8, 'sine', 0.3);   // G3 - final low note
+                    this.playTone(233, 0.8, 'sine', 0.15);  // Bb3
+                }, 900);
+                break;
+                
+            case 'gamestart':
+                // Energetic ascending fanfare
+                this.playTone(262, 0.1, 'triangle', 0.25);  // C4
+                setTimeout(() => this.playTone(330, 0.1, 'triangle', 0.25), 80);   // E4
+                setTimeout(() => this.playTone(392, 0.1, 'triangle', 0.25), 160);  // G4
+                setTimeout(() => this.playTone(523, 0.2, 'triangle', 0.3), 240);   // C5 - hold
+                setTimeout(() => {
+                    // Final power chord
+                    this.playTone(523, 0.3, 'sawtooth', 0.2);  // C5
+                    this.playTone(659, 0.3, 'triangle', 0.15); // E5
+                    this.playTone(784, 0.3, 'sine', 0.1);      // G5
+                }, 400);
                 break;
         }
     }

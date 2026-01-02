@@ -1,30 +1,11 @@
 /*
  * ESPectre - Landing Page Scripts
  * 
- * Interactive effects for the ESPectre project landing page.
- * Scroll effects and markdown documentation loader.
+ * Markdown documentation loader for the ESPectre project landing page.
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
-
-// Dynamic header - shrink and glow on scroll
-let lastScroll = 0;
-
-window.addEventListener('scroll', function() {
-    const header = document.getElementById('site-header');
-    if (!header) return;
-    
-    const currentScroll = window.scrollY;
-    
-    if (currentScroll > 50) {
-        header.classList.add('scrolled');
-    } else {
-        header.classList.remove('scrolled');
-    }
-    
-    lastScroll = currentScroll;
-});
 
 // Documentation loader
 (function() {
@@ -34,6 +15,7 @@ window.addEventListener('scroll', function() {
         'TUNING': 'TUNING.md',
         'PERFORMANCE': 'PERFORMANCE.md',
         'MICRO_ESPECTRE': 'micro-espectre/README.md',
+        'ALGORITHMS': 'micro-espectre/ALGORITHMS.md',
         'TESTING': 'test/README.md',
         'CHANGELOG': 'CHANGELOG.md',
         'CONTRIBUTING': 'CONTRIBUTING.md',

@@ -58,6 +58,7 @@ function loadHeader(options = {}) {
                     <a href="${docsPath}?doc=CHANGELOG"><i class="fas fa-list"></i> Changelog</a>
                     <a href="${docsPath}?doc=ROADMAP"><i class="fas fa-map"></i> Roadmap</a>
                     <div class="nav-dropdown-divider"></div>
+                    <a href="${docsPath}?doc=ALGORITHMS"><i class="fas fa-square-root-variable"></i> Algorithms</a>
                     <a href="${docsPath}?doc=MICRO_ESPECTRE"><i class="fas fa-flask"></i> Micro-ESPectre</a>
                 </div>
             </div>
@@ -91,6 +92,15 @@ function loadHeader(options = {}) {
             if (nav) nav.classList.remove('open');
         });
     });
+    
+    // Dynamic header - shrink and glow on scroll
+    window.addEventListener('scroll', function() {
+        if (window.scrollY > 50) {
+            headerEl.classList.add('scrolled');
+        } else {
+            headerEl.classList.remove('scrolled');
+        }
+    });
 }
 
 function loadFooter() {
@@ -105,5 +115,20 @@ function loadFooter() {
         </p>
         <p class="footer-copyright">© 2025 ESPectre · GPLv3 License</p>
     `;
+    
+    // Load Buy Me a Coffee widget (desktop only)
+    if (window.innerWidth > 768) {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js';
+        s.setAttribute('data-name', 'BMC-Widget');
+        s.setAttribute('data-id', 'espectre');
+        s.setAttribute('data-description', 'Support me on Buy me a coffee!');
+        s.setAttribute('data-message', 'Like ESPectre? Support it!');
+        s.setAttribute('data-color', '#40DCA5');
+        s.setAttribute('data-position', 'Right');
+        s.setAttribute('data-x_margin', '18');
+        s.setAttribute('data-y_margin', '18');
+        document.body.appendChild(s);
+    }
 }
 
