@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.4.0] - in progress
+
+### Features
+
+#### Calibrate Switch
+
+New Home Assistant switch entity for triggering NBVI recalibration without reflashing.
+
+- **`switch.espectre_calibrate`**: Turn ON to start calibration, automatically turns OFF when complete
+- **State feedback**: Switch reflects real calibration state (ON during calibration, OFF when idle)
+- **Interaction blocking**: Switch ignores user input during calibration to prevent interruption
+
+Useful for recalibrating after room layout changes (furniture, sensor position) without needing to erase flash.
+
+---
+
 ## [2.3.0] - 2025-12-31 
 
 ### ESPectre - The Game 

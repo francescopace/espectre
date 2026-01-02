@@ -198,6 +198,7 @@ All sensors are created automatically when the `espectre` component is configure
 | `movement_sensor` | sensor | "Movement Score" | Current motion intensity value |
 | `motion_sensor` | binary_sensor | "Motion Detected" | Motion state (on/off) |
 | `threshold_number` | number | "Threshold" | Detection threshold (adjustable from HA) |
+| `calibrate_switch` | switch | "Calibrate" | Trigger NBVI recalibration (ON during calibration) |
 
 ### Customizing Sensors
 
@@ -265,6 +266,7 @@ Entity names are based on the device name in your YAML (default: `espectre`):
 - **binary_sensor.espectre_motion_detected** - Motion state (on/off)
 - **sensor.espectre_movement_score** - Movement intensity value
 - **number.espectre_threshold** - Detection threshold (adjustable from Home Assistant)
+- **switch.espectre_calibrate** - Trigger recalibration (ON during calibration)
 
 > **Note:** If you change the device name, replace `espectre` with your device name in automations and dashboards.
 
@@ -544,7 +546,7 @@ Room must be quiet during the entire ~10 second calibration.
 
 **Gain lock modes:** The `gain_lock` parameter (`auto`/`enabled`/`disabled`) controls AGC stabilization. See [Gain Lock](TUNING.md#gain-lock) in the Tuning Guide.
 
-To force recalibration: erase flash and re-flash.
+**Runtime recalibration:** You can trigger recalibration from Home Assistant using the Calibrate switch (`switch.espectre_calibrate`). The switch is automatically disabled during calibration to prevent accidental interruption. For a complete reset, erase flash and re-flash.
 
 ---
 

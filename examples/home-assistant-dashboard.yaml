@@ -82,6 +82,13 @@ views:
               name: Threshold
           show_header_toggle: false
           state_color: false
+        - type: entities
+          entities:
+            - entity: switch.espectre_calibrate
+              icon: mdi:refresh
+              name: Recalibrate
+          show_header_toggle: false
+          state_color: false
     - type: grid
       cards:
         - type: history-graph

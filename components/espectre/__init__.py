@@ -12,7 +12,7 @@ from pathlib import Path
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import sensor, binary_sensor, number
+from esphome.components import sensor, binary_sensor, number, switch
 from esphome.components.esp32 import add_extra_build_file, add_idf_sdkconfig_option
 from esphome.const import (
     CONF_ID,
@@ -24,7 +24,7 @@ from esphome.const import (
 )
 
 DEPENDENCIES = ["wifi"]
-AUTO_LOAD = ["sensor", "binary_sensor", "number"]
+AUTO_LOAD = ["sensor", "binary_sensor", "number", "switch"]
 
 # Configuration parameters
 CONF_SEGMENTATION_THRESHOLD = "segmentation_threshold"
@@ -55,9 +55,13 @@ CONF_MOTION_SENSOR = "motion_sensor"
 # Number controls
 CONF_THRESHOLD_NUMBER = "threshold_number"
 
+# Switch controls
+CONF_CALIBRATE_SWITCH = "calibrate_switch"
+
 espectre_ns = cg.esphome_ns.namespace("espectre")
 ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
 ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.Number, cg.Component)
+ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
 
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(ESpectreComponent),
@@ -111,6 +115,13 @@ CONFIG_SCHEMA = cv.Schema({
         ESpectreThresholdNumber,
         entity_category=ENTITY_CATEGORY_CONFIG,
         icon=ICON_PULSE,
+    ),
+    
+    # Switch control for manual recalibration from HA
+    # ON = calibrating, OFF = idle. Switch auto-turns off when calibration completes.
+    cv.Optional(CONF_CALIBRATE_SWITCH, default={"name": "Calibrate"}): switch.switch_schema(
+        ESpectreCalibrateSwitch,
+        entity_category=ENTITY_CATEGORY_CONFIG,
     ),
 }).extend(cv.COMPONENT_SCHEMA)
 
@@ -187,5 +198,12 @@ async def to_code(config):
         max_value=10.0,
         step=0.1,
     )
+    await cg.register_component(num, config[CONF_THRESHOLD_NUMBER])
     cg.add(num.set_parent(var))
     cg.add(var.set_threshold_number(num))
+    
+    # Register calibrate switch control
+    sw = await switch.new_switch(config[CONF_CALIBRATE_SWITCH])
+    await cg.register_component(sw, config[CONF_CALIBRATE_SWITCH])
+    cg.add(sw.set_parent(var))
+    cg.add(var.set_calibrate_switch(sw))

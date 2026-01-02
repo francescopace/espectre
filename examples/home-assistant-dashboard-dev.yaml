@@ -103,24 +103,21 @@ views:
               name: Threshold
           show_header_toggle: false
           state_color: false
-        - type: tile
-          grid_options:
-            columns: 12
-            rows: 1
-          entity: sensor.espectre_free_heap
-          vertical: false
-          features_position: bottom
-        - type: tile
-          grid_options:
-            columns: 12
-            rows: 1
-          entity: sensor.espectre_max_free_block
-          vertical: false
-          features_position: bottom
-        - type: tile
-          grid_options:
-            columns: 12
-            rows: 1
-          entity: sensor.espectre_loop_time
-          vertical: false
-          features_position: bottom
+        - type: entities
+          entities:
+            - entity: switch.espectre_calibrate
+              icon: mdi:refresh
+              name: Recalibrate
+          show_header_toggle: false
+          state_color: false
+        - type: entities
+          title: Debug Sensors
+          entities:
+            - entity: sensor.espectre_free_heap
+              name: Free Heap
+            - entity: sensor.espectre_max_free_block
+              name: Max Free Block
+            - entity: sensor.espectre_loop_time
+              name: Loop Time
+          show_header_toggle: false
+          state_color: false

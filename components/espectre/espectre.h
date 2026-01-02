@@ -16,6 +16,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/number/number.h"
+#include "esphome/components/switch/switch.h"
 
 // Include ESP-IDF WiFi headers
 #include "esp_wifi.h"
@@ -92,7 +93,18 @@ class ESpectreComponent : public Component {
   void set_threshold_runtime(float threshold);
   float get_threshold() const { return this->segmentation_threshold_; }
   
+  // Runtime calibration trigger (called from HA via switch component)
+  void trigger_recalibration();
+  
+  // Check if calibration is in progress
+  bool is_calibrating() const { return this->calibration_manager_.is_calibrating(); }
+  
+  // Setter for calibrate switch control
+  void set_calibrate_switch(switch_::Switch *sw) { this->calibrate_switch_ = sw; }
+  
  protected:
+  // Start NBVI/baseline calibration (shared by boot and runtime trigger)
+  void start_calibration_();
   // WiFi lifecycle callbacks
   void on_wifi_connected_();
   void on_wifi_disconnected_();
@@ -133,6 +145,9 @@ class ESpectreComponent : public Component {
   
   // Number controls
   number::Number *threshold_number_{nullptr};
+  
+  // Switch controls
+  switch_::Switch *calibrate_switch_{nullptr};
   
   // Calibration results (for diagnostics)
   float baseline_variance_{0.0f};

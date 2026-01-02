@@ -16,6 +16,7 @@
     "srcFilter": [
       "+<*.cpp>",
       "-<espectre.cpp>",
+      "-<calibrate_switch.cpp>",
       "-<config_manager.cpp>",
       "-<sensor_publisher.cpp>",
       "-<threshold_number.cpp>",

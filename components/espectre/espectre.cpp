@@ -10,6 +10,7 @@
 
 #include "espectre.h"
 #include "threshold_number.h"
+#include "calibrate_switch.h"
 #include "utils.h"
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
@@ -158,53 +159,8 @@ void ESpectreComponent::on_wifi_connected_() {
   // Note: calibration works with both internal and external traffic
   // Set callback to start baseline calibration AFTER gain is locked
   this->csi_manager_.set_gain_lock_callback([this]() {
-    if (this->user_specified_subcarriers_) {
-      ESP_LOGI(TAG, "Gain locked, starting baseline calibration (fixed subcarriers)...");
-    } else {
-      ESP_LOGI(TAG, "Gain locked, starting NBVI calibration...");
-    }
-    
-    // Set callback to pause traffic generator when collection is complete
-    this->calibration_manager_.set_collection_complete_callback([this]() {
-      this->traffic_generator_.pause();
-    });
-    
-    // Pass flag to indicate whether to run full NBVI or just baseline calculation
-    this->calibration_manager_.set_skip_subcarrier_selection(this->user_specified_subcarriers_);
-    
-    this->calibration_manager_.start_auto_calibration(
-      this->selected_subcarriers_,
-      12,  // Always 12 subcarriers
-      [this](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-        if (success) {
-          // Only update subcarriers if NBVI was used (not user-specified)
-          if (!this->user_specified_subcarriers_) {
-            memcpy(this->selected_subcarriers_, band, size);
-            this->csi_manager_.update_subcarrier_selection(band);
-          }
-        }
-        
-        // Apply normalization if calibration produced valid data
-        // band == nullptr means critical failure (e.g., SPIFFS error) - skip normalization
-        // band != nullptr means at least partial success - apply normalization
-        if (band != nullptr) {
-          this->normalization_scale_ = normalization_scale;
-          csi_processor_set_normalization_scale(&this->csi_processor_, normalization_scale);
-          
-          // Store baseline variance for status reporting
-          this->baseline_variance_ = this->calibration_manager_.get_baseline_variance();
-          
-          // Clear buffer to avoid stale calibration data causing high initial values
-          csi_processor_clear_buffer(&this->csi_processor_);
-          
-          // Reset rate counter to avoid incorrect rate on first log after calibration
-          this->sensor_publisher_.reset_rate_counter();
-        }
-
-        // Resume traffic generator after calibration completes
-        this->traffic_generator_.resume();
-      }
-    );
+    ESP_LOGI(TAG, "Gain locked");
+    this->start_calibration_();
   });
   
   // Ready to publish sensors (with internal or external traffic)
@@ -261,6 +217,85 @@ void ESpectreComponent::set_threshold_runtime(float threshold) {
   }
   
   ESP_LOGI(TAG, "Threshold updated to %.2f (saved to flash)", threshold);
+}
+
+void ESpectreComponent::start_calibration_() {
+  if (this->user_specified_subcarriers_) {
+    ESP_LOGI(TAG, "Starting baseline calibration (fixed subcarriers)...");
+  } else {
+    ESP_LOGI(TAG, "Starting NBVI calibration...");
+  }
+  
+  // Update switch state to ON (calibrating)
+  if (this->calibrate_switch_ != nullptr) {
+    static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(true);
+  }
+  
+  // Set callback to pause traffic generator when collection is complete
+  this->calibration_manager_.set_collection_complete_callback([this]() {
+    this->traffic_generator_.pause();
+  });
+  
+  // Pass flag to indicate whether to run full NBVI or just baseline calculation
+  this->calibration_manager_.set_skip_subcarrier_selection(this->user_specified_subcarriers_);
+  
+  this->calibration_manager_.start_auto_calibration(
+    this->selected_subcarriers_,
+    12,  // Always 12 subcarriers
+    [this](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+      if (success) {
+        // Only update subcarriers if NBVI was used (not user-specified)
+        if (!this->user_specified_subcarriers_) {
+          memcpy(this->selected_subcarriers_, band, size);
+          this->csi_manager_.update_subcarrier_selection(band);
+        }
+      }
+      
+      // Apply normalization if calibration produced valid data
+      // band == nullptr means critical failure (e.g., SPIFFS error) - skip normalization
+      // band != nullptr means at least partial success - apply normalization
+      if (band != nullptr) {
+        this->normalization_scale_ = normalization_scale;
+        csi_processor_set_normalization_scale(&this->csi_processor_, normalization_scale);
+        
+        // Store baseline variance for status reporting
+        this->baseline_variance_ = this->calibration_manager_.get_baseline_variance();
+        
+        // Clear buffer to avoid stale calibration data causing high initial values
+        csi_processor_clear_buffer(&this->csi_processor_);
+        
+        // Reset rate counter to avoid incorrect rate on first log after calibration
+        this->sensor_publisher_.reset_rate_counter();
+      }
+
+      // Resume traffic generator after calibration completes
+      this->traffic_generator_.resume();
+      
+      // Update switch state to OFF (calibration complete)
+      if (this->calibrate_switch_ != nullptr) {
+        static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
+      }
+      
+      ESP_LOGI(TAG, "Calibration %s", success ? "completed successfully" : "failed");
+    }
+  );
+}
+
+void ESpectreComponent::trigger_recalibration() {
+  // Check if calibration already in progress
+  if (this->calibration_manager_.is_calibrating()) {
+    ESP_LOGW(TAG, "Calibration already in progress");
+    return;
+  }
+  
+  // Check if gain is locked (required for calibration)
+  if (!this->csi_manager_.is_gain_locked()) {
+    ESP_LOGW(TAG, "Cannot recalibrate: gain not yet locked");
+    return;
+  }
+  
+  ESP_LOGI(TAG, "Manual recalibration triggered");
+  this->start_calibration_();
 }
 
 void ESpectreComponent::send_system_info_() {

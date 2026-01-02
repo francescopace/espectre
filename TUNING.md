@@ -553,9 +553,32 @@ vs.
 2. **Avoid DFS channels:** Channels 52-144 (5GHz DFS) may switch unexpectedly due to radar detection
 3. **Check for interference:** Nearby networks on the same channel can cause instability
 
-### Reset Calibration
+### Runtime Recalibration
 
-**When needed:** Start fresh with new subcarrier selection.
+**When needed:** Recalibrate without reflashing (e.g., after moving furniture or changing room layout).
+
+**How to recalibrate from Home Assistant:**
+
+1. Go to your ESPectre device in Home Assistant
+2. Find the **Calibrate** switch (`switch.espectre_calibrate`)
+3. Turn it ON to start calibration
+4. The switch will automatically turn OFF when calibration completes
+
+**Important:**
+- Keep the room quiet and empty during calibration (~10 seconds)
+- The switch is disabled during calibration to prevent interruption
+- You cannot cancel calibration once started
+
+**Logs during recalibration:**
+```
+[I][espectre]: Manual recalibration triggered
+[I][espectre]: Starting NBVI calibration...
+[I][espectre]: Calibration completed successfully
+```
+
+### Reset Calibration (Full Erase)
+
+**When needed:** Start completely fresh with new subcarrier selection and clear all saved settings.
 
 **How to reset:**
 
