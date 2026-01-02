@@ -93,6 +93,15 @@ class SerialStreamer {
    */
   void stop();
   
+  /**
+   * Process a command string (for testing)
+   * 
+   * Exposed for unit testing. In production, commands come via check_commands().
+   * 
+   * @param cmd Command string (e.g., "START", "STOP", "T:1.50")
+   */
+  void process_command(const char* cmd) { process_command_(cmd); }
+  
  private:
   bool active_{false};  // Streaming currently active
   ThresholdCallback threshold_callback_{nullptr};

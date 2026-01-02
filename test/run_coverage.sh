@@ -62,10 +62,18 @@ find . -name "*.gcno" -delete 2>/dev/null || true
 
 # Run tests with coverage
 echo -e "\n${YELLOW}Running tests with coverage instrumentation...${NC}"
+TEST_RESULT=0
 if [ "$COMPILER" = "clang" ]; then
-    LLVM_PROFILE_FILE="coverage_%p.profraw" pio test -e native_coverage || true
+    LLVM_PROFILE_FILE="coverage_%p.profraw" pio test -e native_coverage || TEST_RESULT=$?
 else
-    pio test -e native_coverage || true
+    pio test -e native_coverage || TEST_RESULT=$?
+fi
+
+# Check if tests failed
+if [ $TEST_RESULT -ne 0 ]; then
+    echo -e "${RED}Tests failed with exit code $TEST_RESULT${NC}"
+    # In CI mode, we still want to generate coverage report before failing
+    # but we'll exit with error at the end
 fi
 
 # Find the test executable
@@ -225,6 +233,12 @@ else
         find . -name "*.gcda" -delete 2>/dev/null || true
         find . -name "*.gcno" -delete 2>/dev/null || true
     fi
+fi
+
+# Exit with test result (fail if tests failed)
+if [ $TEST_RESULT -ne 0 ]; then
+    echo -e "\n${RED}CI failed: Tests did not pass${NC}"
+    exit $TEST_RESULT
 fi
 
 echo -e "\n${GREEN}Done!${NC}"

@@ -59,7 +59,7 @@ jobs:
         with:
           files: test/coverage.xml,test/coverage.lcov
           flags: cpp
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           verbose: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -89,7 +89,7 @@ jobs:
         with:
           files: micro-espectre/coverage.xml
           flags: python
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           verbose: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
