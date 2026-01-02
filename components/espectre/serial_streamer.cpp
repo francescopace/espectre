@@ -18,11 +18,13 @@
 #include "sdkconfig.h"
 
 // USB Serial JTAG is only available on ESP32-C3, C6, S2, S3, H2
-// AND only when ESPHome logger is configured to use USB Serial JTAG (default)
-// If user sets hardware_uart: UART0, the USB Serial JTAG driver won't be initialized
-// and calling usb_serial_jtag_read_bytes() will crash.
+// AND only when ESPHome logger is actually configured to use USB Serial JTAG.
+// ESPHome defines USE_LOGGER_UART_SELECTION_USB_SERIAL_JTAG only when logger
+// is set to use USB Serial JTAG (the default on supported chips).
+// If user sets hardware_uart: UART0/UART1, this macro won't be defined and
+// calling usb_serial_jtag_read_bytes() would crash (driver not initialized).
 // See: https://github.com/francescopace/espectre/issues/48
-#if defined(CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED) && CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED && defined(USE_LOGGER_USB_SERIAL_JTAG)
+#if defined(CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED) && CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED && defined(USE_LOGGER_UART_SELECTION_USB_SERIAL_JTAG)
 #include "driver/usb_serial_jtag.h"
 #define USE_USB_SERIAL_JTAG 1
 #else
