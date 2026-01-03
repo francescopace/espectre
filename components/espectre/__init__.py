@@ -192,18 +192,21 @@ async def to_code(config):
     cg.add(var.set_motion_binary_sensor(sens))
     
     # Register threshold number control
+    # Note: number.new_number() handles component registration internally
+    # Do NOT call register_component separately - it causes double initialization
+    # that leads to "Load access fault" crash on boot (null pointer in early setup)
     num = await number.new_number(
         config[CONF_THRESHOLD_NUMBER],
         min_value=0.5,
         max_value=10.0,
         step=0.1,
     )
-    await cg.register_component(num, config[CONF_THRESHOLD_NUMBER])
     cg.add(num.set_parent(var))
     cg.add(var.set_threshold_number(num))
     
     # Register calibrate switch control
+    # Note: switch.new_switch() handles component registration internally
+    # Do NOT call register_component separately - same reason as above
     sw = await switch.new_switch(config[CONF_CALIBRATE_SWITCH])
-    await cg.register_component(sw, config[CONF_CALIBRATE_SWITCH])
     cg.add(sw.set_parent(var))
     cg.add(var.set_calibrate_switch(sw))

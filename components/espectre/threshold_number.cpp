@@ -15,8 +15,10 @@ namespace espectre {
 static const char *const TAG_THRESHOLD = "espectre.threshold";
 
 void ESpectreThresholdNumber::setup() {
-  // Initialize with current threshold value from parent
-  this->republish_state();
+  // Don't publish state here - parent will call republish_state() when ready.
+  // Calling publish_state() too early (before API/WiFi is connected) can cause
+  // crashes or "unknown" state in Home Assistant.
+  // The parent calls republish_state() on first sensor update (after API is connected).
 }
 
 void ESpectreThresholdNumber::dump_config() {
