@@ -78,6 +78,39 @@ runs:
           echo ""
           echo "SMOKE TEST FAILED - CRASH DETECTED!"
           grep -iE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output.log
+          
+          # Decode stack trace if backtrace is present
+          BACKTRACE=$(grep -oE "Backtrace: [0-9a-fx: ]+" qemu_output.log | head -1 | sed 's/Backtrace: //')
+          if [ -n "$BACKTRACE" ]; then
+            echo ""
+            echo "=== Stack Trace Analysis ==="
+            FIRMWARE_ELF=$(find examples -name "firmware.elf" -type f | head -1)
+            if [ -n "$FIRMWARE_ELF" ]; then
+              # Extract addresses and decode with addr2line
+              ADDRS=$(echo "$BACKTRACE" | grep -oE "0x[0-9a-f]+" | tr '\n' ' ')
+              
+              # Select addr2line based on architecture
+              if [ "${{ inputs.arch }}" = "xtensa" ]; then
+                ADDR2LINE=$(find ~/.platformio/tools -name "xtensa-*-elf-addr2line" 2>/dev/null | head -1)
+              else
+                ADDR2LINE=$(find ~/.platformio/tools -name "riscv32-*-elf-addr2line" 2>/dev/null | head -1)
+              fi
+              
+              if [ -n "$ADDR2LINE" ]; then
+                echo "Using: $ADDR2LINE"
+                echo "ELF: $FIRMWARE_ELF"
+                echo ""
+                $ADDR2LINE -pfiaC -e "$FIRMWARE_ELF" $ADDRS
+              else
+                echo "addr2line not found, showing raw addresses:"
+                echo "$BACKTRACE"
+              fi
+            else
+              echo "ELF file not found, showing raw backtrace:"
+              echo "$BACKTRACE"
+            fi
+          fi
+          
           exit 1
         fi
         

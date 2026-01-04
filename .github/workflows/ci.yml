@@ -150,12 +150,8 @@ jobs:
             config: examples/espectre-c5.yaml
           - chip: ESP32-C6
             config: examples/espectre-c6.yaml
-          # QEMU boot tests (examples/uart/)
-          - chip: ESP32
-            config: examples/uart/espectre-esp32.yaml
-            qemu_chip: esp32
-            qemu_arch: xtensa
-            qemu_machine: esp32
+          # QEMU smoke tests (examples/uart/)
+          # Note: ESP32 original excluded - QEMU doesn't emulate PHY registers correctly
           - chip: ESP32-S3
             config: examples/uart/espectre-s3.yaml
             qemu_chip: esp32s3

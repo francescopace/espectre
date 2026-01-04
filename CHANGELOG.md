@@ -24,11 +24,14 @@ Useful for recalibrating after room layout changes (furniture, sensor position) 
 
 Added automated smoke tests using QEMU emulation to catch firmware crashes early.
 
-- **Supported chips**: ESP32, ESP32-S3, ESP32-C3, ESP32-C6
+- **Supported chips**: ESP32-S3, ESP32-C3, ESP32-C6
 - **Detection**: Kernel panics, Guru Meditation errors, assertion failures, stack smashing
-- **Architecture coverage**: Both Xtensa (ESP32, S3) and RISC-V (C3, C6)
+- **Stack trace analysis**: Automatic `addr2line` decoding on crash for easier debugging
+- **Architecture coverage**: Both Xtensa (S3) and RISC-V (C3, C6)
 
 New UART configurations in `examples/uart/` for boards with USB-UART bridges (CH340, CP2102, CH343) and QEMU smoke tests.
+
+> Note: ESP32 original is excluded from QEMU testing as the emulator doesn't correctly emulate PHY/radio registers, causing false positive crashes.
 
 ---
 
