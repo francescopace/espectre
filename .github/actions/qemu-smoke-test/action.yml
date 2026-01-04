@@ -43,7 +43,7 @@ runs:
 
     - name: Pull Docker image
       shell: bash
-      run: docker pull espressif/idf:release-v5.4
+      run: docker pull espressif/idf:release-v5.5
 
     - name: Run QEMU
       shell: bash
@@ -57,7 +57,7 @@ runs:
         
         docker run --rm \
           -v /tmp/flash_qemu.bin:/flash.bin \
-          espressif/idf:release-v5.4 bash -c "
+          espressif/idf:release-v5.5 bash -c "
             timeout 60 $QEMU_PATH \
               -nographic \
               -machine ${{ inputs.machine }} \
