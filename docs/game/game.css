@@ -941,7 +941,7 @@ body.game-page:has(#screen-game.active) footer {
 
 /* ==================== RESPONSIVE ==================== */
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
     .game-container {
         padding: 5rem 1rem 0.5rem;  /* Smaller header on mobile */
     }
@@ -996,6 +996,11 @@ body.game-page:has(#screen-game.active) footer {
     
     .desktop-only {
         display: none;
+    }
+    
+    /* Hide Buy Me a Coffee widget on mobile */
+    #bmc-wbtn {
+        display: none !important;
     }
 }
 

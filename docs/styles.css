@@ -856,7 +856,7 @@ footer {
 }
 
 /* Responsive */
-@media (max-width: 768px) {
+@media (max-width: 900px) {
     header {
         padding: 1rem;
         flex-wrap: wrap;
@@ -939,6 +939,11 @@ footer {
     .doc-section-inner {
         padding: 1.5rem 1rem;
         border-radius: 12px;
+    }
+    
+    /* Hide Buy Me a Coffee widget on mobile */
+    #bmc-wbtn {
+        display: none !important;
     }
 }
 

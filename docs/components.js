@@ -115,20 +115,5 @@ function loadFooter() {
         </p>
         <p class="footer-copyright">© 2025 ESPectre · GPLv3 License</p>
     `;
-    
-    // Load Buy Me a Coffee widget (desktop only)
-    if (window.innerWidth > 768) {
-        const s = document.createElement('script');
-        s.src = 'https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js';
-        s.setAttribute('data-name', 'BMC-Widget');
-        s.setAttribute('data-id', 'espectre');
-        s.setAttribute('data-description', 'Support me on Buy me a coffee!');
-        s.setAttribute('data-message', 'Like ESPectre? Support it!');
-        s.setAttribute('data-color', '#40DCA5');
-        s.setAttribute('data-position', 'Right');
-        s.setAttribute('data-x_margin', '18');
-        s.setAttribute('data-y_margin', '18');
-        document.body.appendChild(s);
-    }
 }
 
