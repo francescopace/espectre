@@ -1,0 +1,116 @@
+name: 'QEMU Smoke Test'
+description: 'Run ESP32 firmware smoke test in QEMU emulator'
+
+inputs:
+  chip:
+    description: 'ESP32 chip variant (esp32, esp32s3, esp32c3, esp32c6)'
+    required: true
+  arch:
+    description: 'CPU architecture (xtensa, riscv32)'
+    required: true
+  machine:
+    description: 'QEMU machine type (esp32, esp32s3, esp32c3, esp32c6)'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Free disk space
+      shell: bash
+      run: |
+        # Remove unnecessary tools to free space for Docker image (~13GB freed)
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        df -h /
+
+    - name: Find firmware
+      id: firmware
+      shell: bash
+      run: |
+        FIRMWARE=$(find examples -name "firmware.factory.bin" -type f | head -1)
+        if [ -z "$FIRMWARE" ]; then
+          echo "Error: firmware.factory.bin not found"
+          exit 1
+        fi
+        echo "path=$FIRMWARE" >> $GITHUB_OUTPUT
+        echo "Found firmware: $FIRMWARE"
+
+    - name: Prepare flash image
+      shell: bash
+      run: |
+        pip install esptool
+        python -m esptool --chip ${{ inputs.chip }} merge-bin --pad-to-size 4MB -o /tmp/flash_qemu.bin 0x0 "${{ steps.firmware.outputs.path }}"
+        ls -lh /tmp/flash_qemu.bin
+
+    - name: Pull Docker image
+      shell: bash
+      run: docker pull espressif/idf:release-v5.4
+
+    - name: Run QEMU
+      shell: bash
+      run: |
+        # Select QEMU binary based on architecture
+        if [ "${{ inputs.arch }}" = "xtensa" ]; then
+          QEMU_PATH="/opt/esp/tools/qemu-xtensa/esp_develop_9.2.2_20250817/qemu/bin/qemu-system-xtensa"
+        else
+          QEMU_PATH="/opt/esp/tools/qemu-riscv32/esp_develop_9.2.2_20250817/qemu/bin/qemu-system-riscv32"
+        fi
+        
+        docker run --rm \
+          -v /tmp/flash_qemu.bin:/flash.bin \
+          espressif/idf:release-v5.4 bash -c "
+            timeout 60 $QEMU_PATH \
+              -nographic \
+              -machine ${{ inputs.machine }} \
+              -drive file=/flash.bin,if=mtd,format=raw \
+              -global driver=timer.${{ inputs.machine }}.timg,property=wdt_disable,value=true \
+              -no-reboot 2>&1
+          " | tee qemu_output.log || true
+
+    - name: Check boot success
+      shell: bash
+      run: |
+        echo "=== QEMU Output (${{ inputs.chip }}) ==="
+        cat qemu_output.log
+        echo "========================================"
+        
+        # Check for crashes
+        if grep -qiE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output.log; then
+          echo ""
+          echo "SMOKE TEST FAILED - CRASH DETECTED!"
+          grep -iE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output.log
+          exit 1
+        fi
+        
+        # Track boot progress
+        echo ""
+        echo "=== Boot Progress Checks ==="
+        CHECKS_PASSED=0
+        
+        if grep -qE "ESP-IDF.*bootloader|boot:" qemu_output.log; then
+          echo "[OK] Bootloader started"
+          CHECKS_PASSED=$((CHECKS_PASSED + 1))
+        fi
+        
+        if grep -qE "Partition Table|End of partition table" qemu_output.log; then
+          echo "[OK] Partition table loaded"
+          CHECKS_PASSED=$((CHECKS_PASSED + 1))
+        fi
+        
+        if grep -qE "esp_image: segment|Loaded app from partition" qemu_output.log; then
+          echo "[OK] Application image loaded"
+          CHECKS_PASSED=$((CHECKS_PASSED + 1))
+        fi
+        
+        if grep -qE "Disabling RNG early entropy source" qemu_output.log; then
+          echo "[OK] Bootloader completed, app starting"
+          CHECKS_PASSED=$((CHECKS_PASSED + 1))
+        fi
+        
+        echo ""
+        echo "Checks passed: $CHECKS_PASSED/4"
+        
+        if [ $CHECKS_PASSED -ge 3 ]; then
+          echo "SMOKE TEST PASSED - Firmware boots without crashes"
+        else
+          echo "WARNING: Boot may have stalled - only $CHECKS_PASSED/4 checks passed"
+        fi

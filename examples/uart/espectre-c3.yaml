@@ -35,7 +35,7 @@ espectre:
 
 # Dashboard import
 dashboard_import:
-  package_import_url: github://francescopace/espectre/examples/espectre-c3-uart.yaml@main
+  package_import_url: github://francescopace/espectre/examples/uart/espectre-c3.yaml@main
   import_full_config: true
 
 # WiFi with fallback AP for provisioning

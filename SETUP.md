@@ -59,6 +59,8 @@ These files are pre-configured to download the component automatically from GitH
 > ² ESP32-C3 Super Mini: Set `traffic_generator_rate` to 94 or less. Higher values cause calibration issues (tested on multiple boards). Some cheap clones may require DIO flash mode instead of QIO.
 >
 > ³ ESP32 (original/WROOM-32): AGC/FFT gain lock is not available on this platform. NBVI calibration works but CSI amplitudes may have more variance than newer chips.
+>
+> ⁴ **Boards with USB-UART bridges** (CH340, CP2102, CH343): If you don't see logs after flashing, use the UART configurations in [`examples/uart/`](https://github.com/francescopace/espectre/tree/main/examples/uart) which enable logging on UART0.
 
 ### 3. Build and flash
 

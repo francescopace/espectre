@@ -1,0 +1,81 @@
+# ESPectre - ESP32-S3 Configuration with UART0 Logging
+# This configuration is suitable for:
+# 1. ESP32-S3 boards with external USB-UART bridges
+# 2. QEMU boot testing in CI (experimental S3 support)
+#
+# For standard ESP32-S3 boards with native USB, use espectre-s3.yaml instead.
+#
+# Made for ESPHome - https://github.com/francescopace/espectre
+#
+# Tested boards:
+# - ESP32-S3-DevKitC-1 (WROOM-1-N16R8)
+#
+# Provisioning:
+# - Via BLE: Use the ESPHome app or Home Assistant companion app
+# - Via USB: Use ESPHome web tools (https://web.esphome.io)
+# - Via WiFi: Connect to "ESPectre Fallback" AP and configure
+
+esphome:
+  name: espectre_uart
+  friendly_name: ESPectre UART
+  min_version: 2025.11.0
+  # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
+  # name_add_mac_suffix: true
+  project:
+    name: francescopace.espectre
+    version: "2.2.0"
+
+esp32:
+  variant: ESP32S3
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+
+# PSRAM support (8MB on most S3 boards)
+psram:
+  mode: octal
+  speed: 80MHz
+
+# Load ESPectre component from GitHub
+external_components:
+  - source:
+      type: git
+      url: https://github.com/francescopace/espectre
+      ref: main
+    components: [ espectre ]
+    refresh: always
+
+# ESPectre - WiFi CSI Motion Detection
+espectre:
+  id: espectre_csi
+
+# Dashboard import for easy adoption
+dashboard_import:
+  package_import_url: github://francescopace/espectre/examples/uart/espectre-s3.yaml@main
+  import_full_config: true
+
+# WiFi with fallback AP for provisioning
+wifi:
+  ap:
+    ssid: "ESPectre Fallback"
+
+captive_portal:
+
+# Improv provisioning via BLE
+esp32_improv:
+  authorizer: none
+
+# Improv provisioning via USB
+improv_serial:
+
+# Logging - UART0 for QEMU compatibility
+logger:
+  hardware_uart: UART0
+
+# Home Assistant API
+api:
+
+# OTA updates
+ota:
+  - platform: esphome
+

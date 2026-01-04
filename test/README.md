@@ -86,6 +86,40 @@ test/
 
 ---
 
+## Smoke Tests (QEMU)
+
+Smoke tests run automatically in CI using the composite action `.github/actions/qemu-smoke-test/`.
+
+To run locally with `act`:
+
+```bash
+# Install act (https://github.com/nektos/act)
+brew install act  # macOS
+
+# Run a specific smoke test
+act -j build --matrix chip:"QEMU ESP32-C3" -P ubuntu-latest=catthehacker/ubuntu:act-latest
+```
+
+### What it detects
+
+- Kernel panics
+- Guru Meditation errors
+- Assertion failures
+- Stack smashing
+
+### Supported chips
+
+| Chip | Architecture | QEMU Machine |
+|------|--------------|--------------|
+| ESP32 | Xtensa | esp32 |
+| ESP32-S3 | Xtensa | esp32s3 |
+| ESP32-C3 | RISC-V | esp32c3 |
+| ESP32-C6 | RISC-V | esp32c6 |
+
+> **Note**: Smoke tests appear as "Smoke Test ESP32-C3" etc. in CI.
+
+---
+
 ## Adding New Tests
 
 Create `test/test_my_feature/test_my_feature.cpp`:
