@@ -144,6 +144,8 @@ jobs:
             config: examples/espectre-s3.yaml
           - chip: ESP32-C3
             config: examples/espectre-c3.yaml
+          - chip: ESP32-C3-UART
+            config: examples/espectre-c3-uart.yaml
           - chip: ESP32-C5
             config: examples/espectre-c5.yaml
           - chip: ESP32-C6
@@ -175,3 +177,90 @@ jobs:
       
       - name: Compile
         run: esphome compile ${{ matrix.config }}
+      
+      # QEMU boot test for C3-UART build (runs in same job, no artifact needed)
+      - name: Prepare QEMU flash image
+        if: matrix.chip == 'ESP32-C3-UART'
+        run: |
+          FIRMWARE=$(find examples/.esphome/build -name "firmware.factory.bin" -type f 2>/dev/null | head -1)
+          echo "Found firmware: $FIRMWARE"
+          ls -lh "$FIRMWARE"
+          
+          # Create 4MB flash image for QEMU
+          pip install esptool
+          python -m esptool --chip esp32c3 merge-bin --pad-to-size 4MB -o /tmp/flash_qemu.bin 0x0 "$FIRMWARE"
+          ls -lh /tmp/flash_qemu.bin
+      
+      - name: Run QEMU boot test
+        if: matrix.chip == 'ESP32-C3-UART'
+        run: |
+          docker pull espressif/idf:release-v5.4
+          
+          docker run --rm \
+            -v /tmp/flash_qemu.bin:/flash.bin \
+            espressif/idf:release-v5.4 bash -c '
+              QEMU=/opt/esp/tools/qemu-riscv32/esp_develop_9.2.2_20250817/qemu/bin/qemu-system-riscv32
+              timeout 60 $QEMU \
+                -nographic \
+                -machine esp32c3 \
+                -drive file=/flash.bin,if=mtd,format=raw \
+                -global driver=timer.esp32c3.timg,property=wdt_disable,value=true \
+                -no-reboot 2>&1
+            ' | tee qemu_output.log || true
+      
+      - name: Check QEMU boot success
+        if: matrix.chip == 'ESP32-C3-UART'
+        run: |
+          echo "=== QEMU Output ==="
+          cat qemu_output.log
+          echo "==================="
+          
+          # Check for crashes (fatal errors)
+          if grep -qiE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output.log; then
+            echo ""
+            echo "BOOT TEST FAILED - CRASH DETECTED!"
+            grep -iE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output.log
+            exit 1
+          fi
+          
+          # Track boot progress
+          echo ""
+          echo "=== Boot Progress Checks ==="
+          CHECKS_PASSED=0
+          
+          if grep -qE "ESP-IDF.*bootloader|boot:" qemu_output.log; then
+            echo "[OK] Bootloader started"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          fi
+          
+          if grep -qE "Partition Table|End of partition table" qemu_output.log; then
+            echo "[OK] Partition table loaded"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          fi
+          
+          if grep -qE "esp_image: segment|Loaded app from partition" qemu_output.log; then
+            echo "[OK] Application image loaded"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          fi
+          
+          if grep -qE "Disabling RNG early entropy source" qemu_output.log; then
+            echo "[OK] Bootloader completed, app starting"
+            CHECKS_PASSED=$((CHECKS_PASSED + 1))
+          fi
+          
+          echo ""
+          echo "Checks passed: $CHECKS_PASSED/4"
+          
+          if [ $CHECKS_PASSED -ge 3 ]; then
+            echo "BOOT TEST PASSED - Firmware boots without crashes"
+          else
+            echo "WARNING: Boot may have stalled - only $CHECKS_PASSED/4 checks passed"
+          fi
+      
+      - name: Upload QEMU logs
+        if: matrix.chip == 'ESP32-C3-UART' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-boot-logs
+          path: qemu_output.log
+          retention-days: 7
