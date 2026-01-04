@@ -28,7 +28,7 @@ What actually happened.
 ## Environment
 
 - **ESP32 Model**: [e.g., ESP32-S3, ESP32-C6]
-- **ESPectre Version**: [e.g., v1.0.0 or commit hash]
+- **ESPectre Version/Commit**: [e.g., v1.0.0, main branch, or commit hash like `a1b2c3d`]
 - **Platform**: [ESPHome / Micro-ESPectre]
 - **Home Assistant Version** (if applicable): [e.g., 2024.1.0]
 - **ESPHome Version** (if applicable): [e.g., 2024.1.0]
@@ -48,6 +48,16 @@ Relevant log output:
 ```
 # Paste logs here
 ```
+
+## Crash Debug Files (if applicable)
+
+If your bug involves a crash (kernel panic, guru meditation, stack overflow, segmentation fault, etc.), please attach the following files to help with debugging:
+
+- **`.elf` file**: The compiled firmware binary with debug symbols
+- **`.map` file**: The memory map file showing symbol addresses
+
+These files are located in your build directory:
+- ESPHome: `.esphome/build/<device-name>/.pioenvs/<device-name>/firmware.elf` and `firmware.map`
 
 ## Additional Context
 
