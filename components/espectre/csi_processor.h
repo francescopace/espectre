@@ -35,6 +35,8 @@ constexpr uint16_t SEGMENTATION_DEFAULT_WINDOW_SIZE = 50;
 constexpr uint16_t SEGMENTATION_MIN_WINDOW_SIZE = 10;  // Minimum buffer size
 constexpr uint16_t SEGMENTATION_MAX_WINDOW_SIZE = 200;  // Maximum buffer size
 constexpr float SEGMENTATION_DEFAULT_THRESHOLD = 1.0f;
+constexpr float SEGMENTATION_MIN_THRESHOLD = 0.1f;
+constexpr float SEGMENTATION_MAX_THRESHOLD = 10.0f;
 
 // Low-pass filter constants (1st order Butterworth)
 constexpr float LOWPASS_CUTOFF_DEFAULT = 11.0f;    // Cutoff frequency in Hz
@@ -119,7 +121,7 @@ struct csi_processor_context_t {
  * 
  * @param ctx CSI processor context to initialize
  * @param window_size Moving variance window size (10-200 packets)
- * @param threshold Motion detection threshold (0.5-10.0)
+ * @param threshold Motion detection threshold (0.1-10.0)
  * @return true on success, false on allocation failure
  */
 bool csi_processor_init(csi_processor_context_t *ctx, 

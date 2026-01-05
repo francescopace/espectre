@@ -87,7 +87,7 @@ void test_init_fails_with_negative_threshold(void) {
 
 void test_init_fails_with_threshold_below_minimum(void) {
     csi_processor_context_t ctx;
-    TEST_ASSERT_FALSE(csi_processor_init(&ctx, 50, 0.4f));  // min is 0.5
+    TEST_ASSERT_FALSE(csi_processor_init(&ctx, 50, 0.05f));  // min is 0.1
 }
 
 void test_init_fails_with_threshold_above_maximum(void) {

@@ -287,8 +287,10 @@ bool csi_processor_init(csi_processor_context_t *ctx,
     }
     
     // Validate threshold
-    if (std::isnan(threshold) || std::isinf(threshold) || threshold < 0.5f || threshold > 10.0f) {
-        ESP_LOGE(TAG, "csi_processor_init: Invalid threshold: %.2f (must be 0.5-10.0)", threshold);
+    if (std::isnan(threshold) || std::isinf(threshold) || 
+        threshold < SEGMENTATION_MIN_THRESHOLD || threshold > SEGMENTATION_MAX_THRESHOLD) {
+        ESP_LOGE(TAG, "csi_processor_init: Invalid threshold: %.2f (must be %.1f-%.1f)", 
+                 threshold, SEGMENTATION_MIN_THRESHOLD, SEGMENTATION_MAX_THRESHOLD);
         return false;
     }
     
@@ -383,8 +385,10 @@ bool csi_processor_set_threshold(csi_processor_context_t *ctx, float threshold) 
     }
     
     // Inline validation
-    if (std::isnan(threshold) || std::isinf(threshold) || threshold < 0.5f || threshold > 10.0f) {
-        ESP_LOGE(TAG, "Invalid threshold: %.2f (must be 0.5-10.0 and not NaN/Inf)", threshold);
+    if (std::isnan(threshold) || std::isinf(threshold) || 
+        threshold < SEGMENTATION_MIN_THRESHOLD || threshold > SEGMENTATION_MAX_THRESHOLD) {
+        ESP_LOGE(TAG, "Invalid threshold: %.2f (must be %.1f-%.1f and not NaN/Inf)", 
+                 threshold, SEGMENTATION_MIN_THRESHOLD, SEGMENTATION_MAX_THRESHOLD);
         return false;
     }
     

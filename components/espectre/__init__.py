@@ -48,6 +48,11 @@ CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 # Gain lock mode
 CONF_GAIN_LOCK = "gain_lock"
 
+# Threshold limits (keep in sync with csi_processor.h)
+THRESHOLD_MIN = 0.1
+THRESHOLD_MAX = 10.0
+THRESHOLD_DEFAULT = 1.0
+
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
 CONF_MOTION_SENSOR = "motion_sensor"
@@ -67,7 +72,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(ESpectreComponent),
     
     # Motion detection parameters
-    cv.Optional(CONF_SEGMENTATION_THRESHOLD, default=1.0): cv.float_range(min=0.5, max=10.0),
+    cv.Optional(CONF_SEGMENTATION_THRESHOLD, default=THRESHOLD_DEFAULT): cv.float_range(min=THRESHOLD_MIN, max=THRESHOLD_MAX),
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=50): cv.int_range(min=10, max=200),
     
     # Traffic generator (0 = disabled, use external WiFi traffic)
@@ -197,8 +202,8 @@ async def to_code(config):
     # that leads to "Load access fault" crash on boot (null pointer in early setup)
     num = await number.new_number(
         config[CONF_THRESHOLD_NUMBER],
-        min_value=0.5,
-        max_value=10.0,
+        min_value=THRESHOLD_MIN,
+        max_value=THRESHOLD_MAX,
         step=0.1,
     )
     cg.add(num.set_parent(var))

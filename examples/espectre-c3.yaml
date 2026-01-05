@@ -4,7 +4,7 @@
 # Made for ESPHome - https://github.com/francescopace/espectre
 #
 # Tested boards (community verified):
-# - ESP32-C3 Super Mini (AliExpress/Temu, tested by @mvfc)
+# - ESP32-C3 Super Mini (AliExpress/Temu, tested by @mvfc, @francescopace)
 # - AirM2M Core ESP32-C3 (tested by @WLaoDuo)
 #
 # ESP32-C3 Super Mini Notes:
