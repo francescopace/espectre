@@ -206,7 +206,7 @@ jobs:
       
       - name: Upload QEMU logs
         if: matrix.qemu_chip && always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: qemu-logs-${{ matrix.qemu_machine }}
           path: qemu_output.log
