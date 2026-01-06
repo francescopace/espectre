@@ -14,6 +14,12 @@ from typing import Dict, Any, List, Tuple
 FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc3"
 FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 
+# SHA256 hashes for firmware verification (update when releasing new firmware)
+FIRMWARE_HASHES = {
+    'ESP32_CSI_S3.bin': 'cfd769e13cb54c24e2b9c43893d5c9356dd2670d246abfb8ebe79529c92fa5c0',
+    'ESP32_CSI_C6.bin': '183c795d1f110fff99c38e3b0a0485f9329dd6fa53c98cfe55c23b2543ffdb1d',
+}
+
 try:
     import yaml
     import paho.mqtt.client as mqtt
@@ -177,18 +183,40 @@ def prompt_chip_type():
 # ============================================================================
 
 def download_firmware(chip: str, firmware_dir: Path) -> Path:
-    """Download firmware from GitHub releases if not already cached"""
+    """Download firmware from GitHub releases if not already cached or hash mismatch"""
     import urllib.request
     import urllib.error
+    import hashlib
     
     chip_name = 'S3' if chip == 's3' else 'C6'
     firmware_name = f'{FIRMWARE_NAME_PREFIX}{chip_name}.bin'
     firmware_path = firmware_dir / firmware_name
+    expected_hash = FIRMWARE_HASHES.get(firmware_name)
     
-    # Check if firmware already exists (cached)
+    def calculate_sha256(filepath: Path) -> str:
+        """Calculate SHA256 hash of a file"""
+        sha256 = hashlib.sha256()
+        with open(filepath, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+    
+    # Check if firmware already exists and hash matches
     if firmware_path.exists():
-        print(f"{Fore.GREEN}✅ Using cached firmware: {firmware_name}{Style.RESET_ALL}")
-        return firmware_path
+        if expected_hash:
+            current_hash = calculate_sha256(firmware_path)
+            if current_hash == expected_hash:
+                print(f"{Fore.GREEN}✅ Using cached firmware: {firmware_name} (hash verified){Style.RESET_ALL}")
+                return firmware_path
+            else:
+                print(f"{Fore.YELLOW}⚠️  Cached firmware hash mismatch, re-downloading...{Style.RESET_ALL}")
+                print(f"   Expected: {expected_hash[:16]}...")
+                print(f"   Found:    {current_hash[:16]}...")
+                firmware_path.unlink()  # Remove outdated file
+        else:
+            # No hash available, use cached (backward compatibility)
+            print(f"{Fore.GREEN}✅ Using cached firmware: {firmware_name}{Style.RESET_ALL}")
+            return firmware_path
     
     # Create firmware directory if needed
     firmware_dir.mkdir(parents=True, exist_ok=True)
@@ -216,7 +244,19 @@ def download_firmware(chip: str, firmware_dir: Path) -> Path:
                         print(f"\r{Fore.YELLOW}   Progress: {progress}% ({downloaded // 1024} KB){Style.RESET_ALL}", end='', flush=True)
             print()  # New line after progress
         
-        print(f"{Fore.GREEN}✅ Firmware downloaded: {firmware_name}{Style.RESET_ALL}")
+        # Verify downloaded file hash
+        if expected_hash:
+            downloaded_hash = calculate_sha256(firmware_path)
+            if downloaded_hash != expected_hash:
+                print(f"{Fore.RED}❌ Downloaded firmware hash mismatch!{Style.RESET_ALL}")
+                print(f"   Expected: {expected_hash[:16]}...")
+                print(f"   Got:      {downloaded_hash[:16]}...")
+                firmware_path.unlink()
+                sys.exit(1)
+            print(f"{Fore.GREEN}✅ Firmware downloaded and verified: {firmware_name}{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.GREEN}✅ Firmware downloaded: {firmware_name}{Style.RESET_ALL}")
+        
         return firmware_path
         
     except urllib.error.URLError as e:
@@ -521,12 +561,13 @@ def run_application(args):
 def collect_csi_data(args):
     """Collect labeled CSI data for training (runs on PC, receives UDP from ESP32)"""
     
-    # Add tools directory to path
-    tools_dir = Path(__file__).parent / 'tools'
-    sys.path.insert(0, str(tools_dir))
+    # Add parent directory to path to enable tools package import
+    parent_dir = Path(__file__).parent
+    if str(parent_dir) not in sys.path:
+        sys.path.insert(0, str(parent_dir))
     
     try:
-        from csi_utils import CSICollector, get_dataset_stats
+        from tools.csi_utils import CSICollector, get_dataset_stats
     except ImportError as e:
         print(f"{Fore.RED}❌ Failed to import csi_utils: {e}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Make sure tools/csi_utils.py exists{Style.RESET_ALL}")
