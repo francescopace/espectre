@@ -49,9 +49,9 @@ Start streaming CSI data from ESP32 to your PC:
 
 **Features:**
 - Auto-calibration NBVI at boot (if subcarriers not configured)
-- Raw I/Q data for 12 selected subcarriers
+- Raw I/Q data for 64 subcarriers (128 bytes)
 - Sequence numbers for packet loss detection
-- ~100 packets/second @ 28 bytes/packet
+- ~100 packets/second @ 132 bytes/packet
 
 ---
 
@@ -121,11 +121,22 @@ Each `.npz` file contains:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `csi_data` | `int8[N, 24]` | Raw I/Q data (N packets × 12 subcarriers × 2) |
-| `timestamps` | `uint32[N]` | Packet timestamps (ms) |
-| `rssi` | `int8[N]` | RSSI values |
-| `noise_floor` | `int8[N]` | Noise floor values |
+| `amplitudes` | `float32[N, 64]` | Amplitude per subcarrier |
+| `phases` | `float32[N, 64]` | Phase per subcarrier (radians) |
+| `iq_raw` | `int8[N, 128]` | Raw I/Q data (N packets × 64 subcarriers × 2) |
+| `timestamps` | `float64[N]` | Packet timestamps (seconds, relative to first packet) |
 | `label` | `str` | Sample label |
+| `label_id` | `int` | Numeric label ID |
+| `num_packets` | `int` | Number of packets in sample |
+| `num_subcarriers` | `int` | Number of subcarriers (64) |
+| `duration_ms` | `float` | Sample duration in milliseconds |
+| `sample_rate_hz` | `float` | Packet rate in Hz |
+| `dropped_packets` | `int` | Number of dropped packets detected |
+| `collected_at` | `str` | ISO timestamp of collection |
+| `subject` | `str` | Subject/contributor ID (optional) |
+| `environment` | `str` | Environment description (optional) |
+| `notes` | `str` | Additional notes (optional) |
+| `format_version` | `int` | NPZ format version (1) |
 
 ### Loading Data
 
@@ -134,30 +145,35 @@ import numpy as np
 
 # Load single sample
 data = np.load('data/wave/wave_001.npz')
-csi = data['csi_data']      # Shape: (N, 24)
-label = str(data['label'])  # 'wave'
+amplitudes = data['amplitudes']  # Shape: (N, 64)
+phases = data['phases']          # Shape: (N, 64)
+iq_raw = data['iq_raw']          # Shape: (N, 128)
+label = str(data['label'])       # 'wave'
 
-# Extract amplitudes
-amplitudes = []
-for i in range(12):
-    I = csi[:, i*2].astype(float)
-    Q = csi[:, i*2+1].astype(float)
-    amplitudes.append(np.sqrt(I**2 + Q**2))
-amplitudes = np.array(amplitudes).T  # Shape: (N, 12)
+# Amplitudes are pre-calculated, but you can also compute from iq_raw:
+I = iq_raw[:, 0::2].astype(float)  # Shape: (N, 64)
+Q = iq_raw[:, 1::2].astype(float)  # Shape: (N, 64)
+amplitudes_manual = np.sqrt(I**2 + Q**2)  # Shape: (N, 64)
 ```
 
 ### Using csi_utils
 
 ```python
-from csi_utils import load_npz_as_packets
+from csi_utils import load_samples, load_dataset
 
-# Load as list of packet dicts (compatible with analysis scripts)
-packets = load_npz_as_packets('data/wave/wave_001.npz')
+# Load all samples as list of dicts
+samples = load_samples()  # All labels
+samples = load_samples(labels=['wave', 'idle'])  # Specific labels
 
-for pkt in packets:
-    csi_data = pkt['csi_data']
-    rssi = pkt['rssi']
+for sample in samples:
+    amplitudes = sample['amplitudes']  # Shape: (N, 64)
+    label = sample['label']
     # Process...
+
+# Load as ML-ready arrays
+X, y = load_dataset(labels=['wave', 'idle'])
+# X: list of amplitude arrays
+# y: array of label IDs
 ```
 
 ---
@@ -229,12 +245,15 @@ For custom real-time processing, you can use `CSIReceiver` as a library:
 from csi_utils import CSIReceiver
 
 def my_callback(packet):
-    # packet is a dict with:
-    # - timestamp_ms: Reception timestamp
+    # packet is a CSIPacket dataclass with:
+    # - timestamp: Reception timestamp (seconds since epoch)
     # - seq_num: Sequence number (0-255)
-    # - csi_data: Raw I/Q as numpy array
-    # - rssi, noise_floor: Signal quality
-    print(f"Seq: {packet['seq_num']}, RSSI: {packet['rssi']}")
+    # - num_subcarriers: Number of subcarriers (64)
+    # - iq_raw: Raw I/Q values as int8 array
+    # - iq_complex: Complex representation
+    # - amplitudes: Amplitude per subcarrier
+    # - phases: Phase per subcarrier (radians)
+    print(f"Seq: {packet.seq_num}, Subcarriers: {packet.num_subcarriers}")
 
 receiver = CSIReceiver(port=5001)
 receiver.add_callback(my_callback)
@@ -246,14 +265,16 @@ receiver.run(timeout=60)  # Run for 60 seconds
 ```
 Header (4 bytes):
   - Magic: 0x4353 ("CS") - 2 bytes
-  - Num subcarriers: 1 byte
+  - Num subcarriers: 1 byte (64)
   - Sequence number: 1 byte (0-255, wrapping)
 
-Payload (N × 2 bytes = 24 bytes for 12 SC):
-  - I0, Q0, I1, Q1, ... (int8 each)
+Payload (64 × 2 bytes = 128 bytes):
+  - I0, Q0, I1, Q1, ... I63, Q63 (int8 each)
 
-Total: 28 bytes per packet
+Total: 132 bytes per packet
 ```
+
+Note: ESP32-C6 with WiFi 6 routers may provide up to 256 subcarriers (512 bytes), but only the first 64 subcarriers (128 bytes) are used for compatibility.
 
 ---
 
