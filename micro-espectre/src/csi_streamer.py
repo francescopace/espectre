@@ -74,7 +74,8 @@ def stream_csi(dest_ip, duration_sec=0):
     while num_sc is None:
         frame = wlan.csi_read()
         if frame:
-            csi_data = frame[5]
+            # ESP32-C6 may provide up to 512 bytes, use only first 128 (64 subcarriers)
+            csi_data = frame[5][:128]
             num_sc = len(csi_data) // 2
             print(f'CSI: {num_sc} subcarriers ({len(csi_data)} bytes)')
         else:
@@ -110,7 +111,8 @@ def stream_csi(dest_ip, duration_sec=0):
             
             frame = wlan.csi_read()
             if frame:
-                csi_data = frame[5]
+                # ESP32-C6 may provide up to 512 bytes, use only first 128 (64 subcarriers)
+                csi_data = frame[5][:128]
                 
                 # Extract I/Q values
                 iq_values = [int(v) for v in csi_data]
