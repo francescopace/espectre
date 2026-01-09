@@ -48,10 +48,11 @@ Start streaming CSI data from ESP32 to your PC:
 ```
 
 **Features:**
-- Auto-calibration NBVI at boot (if subcarriers not configured)
-- Raw I/Q data for 64 subcarriers (128 bytes)
+- Gain lock phase (~3s) to determine dominant subcarrier count (64, 128, or 256)
+- Protocol v2 supports full 256 subcarriers (512 bytes payload)
 - Sequence numbers for packet loss detection
-- ~100 packets/second @ 132 bytes/packet
+- Packet filtering to ensure consistent SC count
+- ~100 packets/second
 
 ---
 
@@ -121,14 +122,14 @@ Each `.npz` file contains:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `amplitudes` | `float32[N, 64]` | Amplitude per subcarrier |
-| `phases` | `float32[N, 64]` | Phase per subcarrier (radians) |
-| `iq_raw` | `int8[N, 128]` | Raw I/Q data (N packets × 64 subcarriers × 2) |
+| `amplitudes` | `float32[N, SC]` | Amplitude per subcarrier (SC = 64, 128, or 256) |
+| `phases` | `float32[N, SC]` | Phase per subcarrier (radians) |
+| `iq_raw` | `int8[N, SC*2]` | Raw I/Q data (N packets × SC subcarriers × 2) |
 | `timestamps` | `float64[N]` | Packet timestamps (seconds, relative to first packet) |
 | `label` | `str` | Sample label |
 | `label_id` | `int` | Numeric label ID |
 | `num_packets` | `int` | Number of packets in sample |
-| `num_subcarriers` | `int` | Number of subcarriers (64) |
+| `num_subcarriers` | `int` | Number of subcarriers (64, 128, or 256) |
 | `duration_ms` | `float` | Sample duration in milliseconds |
 | `sample_rate_hz` | `float` | Packet rate in Hz |
 | `dropped_packets` | `int` | Number of dropped packets detected |
@@ -262,19 +263,34 @@ receiver.run(timeout=60)  # Run for 60 seconds
 
 ### UDP Packet Format
 
+The streamer uses protocol v2 which supports up to 65535 subcarriers:
+
 ```
-Header (4 bytes):
+Header v2 (6 bytes):
   - Magic: 0x4353 ("CS") - 2 bytes
-  - Num subcarriers: 1 byte (64)
+  - Version: 0x02 - 1 byte
   - Sequence number: 1 byte (0-255, wrapping)
+  - Num subcarriers: 2 bytes (uint16, little-endian)
 
-Payload (64 × 2 bytes = 128 bytes):
-  - I0, Q0, I1, Q1, ... I63, Q63 (int8 each)
+Payload (N × 2 bytes):
+  - I0, Q0, I1, Q1, ... (int8 each)
 
-Total: 132 bytes per packet
+Examples:
+  - 64 SC:  6 + 128 = 134 bytes
+  - 128 SC: 6 + 256 = 262 bytes
+  - 256 SC: 6 + 512 = 518 bytes
 ```
 
-Note: ESP32-C6 with WiFi 6 routers may provide up to 256 subcarriers (512 bytes), but only the first 64 subcarriers (128 bytes) are used for compatibility.
+The receiver (`csi_utils.py`) also supports legacy v1 format for backward compatibility:
+
+```
+Header v1 (4 bytes, legacy):
+  - Magic: 0x4353 ("CS") - 2 bytes
+  - Num subcarriers: 1 byte (max 255)
+  - Sequence number: 1 byte (0-255, wrapping)
+```
+
+Note: The streamer performs a gain lock phase (~3 seconds) at startup to determine the dominant subcarrier count (64, 128, or 256). Packets with different SC counts are filtered out during streaming for consistency.
 
 ---
 

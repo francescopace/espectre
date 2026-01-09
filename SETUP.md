@@ -620,17 +620,17 @@ The ESPectre component adds only **~70KB of Flash** and less than **100 bytes of
 ESPectre includes a custom partition table (`partitions.csv`) that is automatically applied during compilation. This partition table:
 
 - Supports **OTA updates** (dual app partitions)
-- Includes **SPIFFS** for calibration buffer (192KB, used during boot only)
-- App partition size: **~1.87MB** per slot
+- Includes **SPIFFS** for calibration buffer (320KB, used during boot only)
+- App partition size: **~1.8MB** per slot
 
 ```
 # ESPectre Partition Table (4MB flash)
 # Name,   Type, SubType, Offset,   Size
 nvs,      data, nvs,     0x9000,   0x5000
 otadata,  data, ota,     0xe000,   0x2000
-app0,     app,  ota_0,   0x10000,  0x1E0000   # ~1.87MB
-app1,     app,  ota_1,   0x1F0000, 0x1E0000   # ~1.87MB
-spiffs,   data, spiffs,  0x3D0000, 0x30000    # 192KB
+app0,     app,  ota_0,   0x10000,  0x1D0000   # ~1.8MB
+app1,     app,  ota_1,   0x1E0000, 0x1D0000   # ~1.8MB
+spiffs,   data, spiffs,  0x3B0000, 0x50000    # 320KB
 ```
 
 ### Combining with Other Components

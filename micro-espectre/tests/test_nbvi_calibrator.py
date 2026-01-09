@@ -425,6 +425,57 @@ class TestVarianceTwoPass:
         calibrator.free_buffer()
 
 
+class TestCalculateGuardBands:
+    """Test IEEE 802.11 guard band calculation"""
+    
+    def test_ht20_guard_bands(self):
+        """Test HT20 (64 SC) guard bands per IEEE 802.11n"""
+        from nbvi_calibrator import calculate_guard_bands
+        
+        low, high, dc = calculate_guard_bands(64)
+        # IEEE 802.11n HT20: subcarriers -28 to +28 (56 data + 4 pilot)
+        # FFT indices: 6-31 (lower), 33-58 (upper) are valid
+        # Guard bands: 0-5 (6 indices) and 59-63 (5 indices)
+        # Conservative guard bands tested and optimized for motion detection:
+        # Exclude noisy edge subcarriers (0-10 and 53-63)
+        assert low == 11
+        assert high == 52
+        assert dc == 32
+    
+    def test_ht40_guard_bands(self):
+        """Test HT40 (128 SC) guard bands per IEEE 802.11n"""
+        from nbvi_calibrator import calculate_guard_bands
+        
+        low, high, dc = calculate_guard_bands(128)
+        
+        # IEEE 802.11n HT40: subcarriers -58 to +58
+        assert low == 7
+        assert high == 120
+        assert dc == 64
+    
+    def test_he_su_guard_bands(self):
+        """Test HE-SU (256 SC) guard bands per IEEE 802.11ax"""
+        from nbvi_calibrator import calculate_guard_bands
+        
+        low, high, dc = calculate_guard_bands(256)
+        
+        # IEEE 802.11ax HE-SU 80MHz: subcarriers -122 to +122
+        assert low == 7
+        assert high == 248
+        assert dc == 128
+    
+    def test_fallback_for_unknown_count(self):
+        """Test fallback proportional calculation for unknown SC count"""
+        from nbvi_calibrator import calculate_guard_bands
+        
+        low, high, dc = calculate_guard_bands(100)
+        
+        # Fallback: 10% guard on each side
+        assert low == 10
+        assert high == 89
+        assert dc == 50
+
+
 class TestGetValidSubcarriers:
     """Test valid subcarrier indices"""
     
@@ -437,16 +488,21 @@ class TestGetValidSubcarriers:
         assert len(subcarriers) == 64
         assert subcarriers == tuple(range(64))
     
-    def test_chip_type_ignored(self):
-        """Test that chip_type parameter is ignored"""
+    def test_different_subcarrier_counts(self):
+        """Test that get_valid_subcarriers works with different SC counts"""
         from nbvi_calibrator import get_valid_subcarriers
         
-        # Should return same result regardless of chip_type
-        result1 = get_valid_subcarriers(chip_type='c6')
-        result2 = get_valid_subcarriers(chip_type='s3')
-        result3 = get_valid_subcarriers(chip_type=None)
+        # Should return all subcarriers for each count
+        result64 = get_valid_subcarriers(64)
+        result128 = get_valid_subcarriers(128)
+        result256 = get_valid_subcarriers(256)
         
-        assert result1 == result2 == result3
+        assert len(result64) == 64
+        assert len(result128) == 128
+        assert len(result256) == 256
+        assert result64 == tuple(range(64))
+        assert result128 == tuple(range(128))
+        assert result256 == tuple(range(256))
 
 
 class TestCalibrationIntegration:

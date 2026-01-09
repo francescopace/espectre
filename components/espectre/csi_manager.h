@@ -187,6 +187,9 @@ class CSIManager {
   // Gain controller for AGC/FFT locking
   GainController gain_controller_;
   
+  // Expected subcarrier count (set after gain lock, used to filter packets)
+  uint16_t expected_subcarriers_{64};
+  
   static constexpr uint8_t NUM_SUBCARRIERS = 12;
   
   /**

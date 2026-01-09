@@ -24,7 +24,7 @@ import nbvi_calibrator
 _temp_dir = tempfile.gettempdir()
 nbvi_calibrator.BUFFER_FILE = os.path.join(_temp_dir, 'nbvi_buffer_additional_test.bin')
 
-from nbvi_calibrator import NBVICalibrator, get_valid_subcarriers, NUM_SUBCARRIERS
+from nbvi_calibrator import NBVICalibrator, get_valid_subcarriers
 
 
 @pytest.fixture(autouse=True)

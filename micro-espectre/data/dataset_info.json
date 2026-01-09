@@ -1,0 +1,80 @@
+{
+  "format_version": "1.0",
+  "created_at": "2026-01-10T18:23:57.538444",
+  "updated_at": "2026-01-10T18:24:43.713113",
+  "labels": {
+    "baseline": {
+      "id": 0,
+      "samples": 3,
+      "description": "Quiet room, no motion"
+    },
+    "baseline_noisy": {
+      "id": 2,
+      "samples": 1,
+      "description": "Room with environmental noise (fans, HVAC, etc.)"
+    },
+    "movement": {
+      "id": 1,
+      "samples": 3,
+      "description": "Human movement in room"
+    }
+  },
+  "total_samples": 7,
+  "files": {
+    "baseline": [
+      {
+        "filename": "baseline_c6_001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "description": "HT20 baseline sample"
+      },
+      {
+        "filename": "baseline_c6_256sc_001.npz",
+        "chip": "C6",
+        "subcarriers": 256,
+        "description": "HE-SU 80MHz baseline sample"
+      },
+      {
+        "filename": "baseline_s3_001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "description": "HT20 baseline sample"
+      }
+    ],
+    "baseline_noisy": [
+      {
+        "filename": "baseline_noisy_c6_20251214_025208_001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "description": "Noisy environment baseline"
+      }
+    ],
+    "movement": [
+      {
+        "filename": "movement_c6_001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "description": "HT20 movement sample"
+      },
+      {
+        "filename": "movement_c6_256sc_001.npz",
+        "chip": "C6",
+        "subcarriers": 256,
+        "description": "HE-SU 80MHz movement sample"
+      },
+      {
+        "filename": "movement_s3_001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "description": "HT20 movement sample"
+      }
+    ]
+  },
+  "contributors": ["francescopace"],
+  "environments": [
+    {
+      "id": "home_lab",
+      "description": "Home laboratory environment"
+    }
+  ]
+}

@@ -122,23 +122,38 @@ class CSIReceiver:
         self._buffer_callbacks.append((callback, interval))
     
     def _parse_packet(self, data: bytes) -> Optional[CSIPacket]:
-        """Parse raw UDP data into CSIPacket"""
+        """Parse raw UDP data into CSIPacket
+        
+        Supports two protocol versions:
+        - v1 (legacy): <magic:2><num_sc:1><seq:1><payload>
+        - v2 (256 SC): <magic:2><version:1><seq:1><num_sc:2><payload>
+        """
         if len(data) < 4:
             return None
         
-        # Parse header
-        magic, num_sc, seq_num = struct.unpack('<HBB', data[:4])
+        # Parse magic and detect version
+        magic = struct.unpack('<H', data[:2])[0]
         
         if magic != MAGIC_STREAM:
             return None
         
+        # Check for v2 format (version byte = 0x02)
+        if len(data) >= 6 and data[2] == 0x02:
+            # v2 format: <magic:2><version:1><seq:1><num_sc:2><payload>
+            _, version, seq_num, num_sc = struct.unpack('<HBBH', data[:6])
+            header_size = 6
+        else:
+            # v1 format: <magic:2><num_sc:1><seq:1><payload>
+            _, num_sc, seq_num = struct.unpack('<HBB', data[:4])
+            header_size = 4
+        
         # Parse I/Q data
         iq_size = num_sc * 2
-        if len(data) < 4 + iq_size:
+        if len(data) < header_size + iq_size:
             return None
         
         iq_raw = np.array(
-            struct.unpack(f'<{iq_size}b', data[4:4+iq_size]),
+            struct.unpack(f'<{iq_size}b', data[header_size:header_size+iq_size]),
             dtype=np.int8
         )
         
@@ -273,7 +288,7 @@ class CSIReceiver:
                         break
                 
                 try:
-                    data, addr = self.sock.recvfrom(512)
+                    data, addr = self.sock.recvfrom(1024)  # 518 bytes max for 256 SC
                 except socket.timeout:
                     self._update_pps()
                     continue
@@ -454,8 +469,9 @@ class CSICollector:
         
         np.savez_compressed(filepath, **sample)
         
-        # Update dataset info
-        self._update_dataset_info()
+        # Update dataset info with file details
+        num_subcarriers = packets[0].num_subcarriers
+        self._update_dataset_info(filename=filename, num_subcarriers=num_subcarriers)
         
         return filepath
     
@@ -479,8 +495,8 @@ class CSICollector:
         
         return new_id
     
-    def _update_dataset_info(self):
-        """Update dataset info with current sample counts"""
+    def _update_dataset_info(self, filename: str = None, num_subcarriers: int = None):
+        """Update dataset info with current sample counts and file details"""
         info = load_dataset_info()
         
         # Count samples for this label
@@ -499,6 +515,22 @@ class CSICollector:
         
         # Update total
         info['total_samples'] = sum(l['samples'] for l in info['labels'].values())
+        
+        # Track file details if provided
+        if filename and num_subcarriers:
+            info.setdefault('files', {})
+            info['files'].setdefault(self.label, [])
+            
+            # Check if file already exists in list
+            existing_files = [f['filename'] for f in info['files'][self.label]]
+            if filename not in existing_files:
+                file_info = {
+                    'filename': filename,
+                    'chip': self.chip.upper() if self.chip else 'unknown',
+                    'subcarriers': num_subcarriers,
+                    'description': ''
+                }
+                info['files'][self.label].append(file_info)
         
         # Track contributors
         if self.subject and self.subject not in info.get('contributors', []):
@@ -558,7 +590,7 @@ class CSICollector:
                 
                 while time.time() - start_time < duration:
                     try:
-                        data, addr = self.receiver.sock.recvfrom(512)
+                        data, addr = self.receiver.sock.recvfrom(1024)  # 518 bytes max for 256 SC
                         packet = self.receiver._parse_packet(data)
                         if packet:
                             packets.append(packet)
@@ -635,7 +667,7 @@ class CSICollector:
                     
                     while time.time() - start_time < 2.0:
                         try:
-                            data, addr = self.receiver.sock.recvfrom(512)
+                            data, addr = self.receiver.sock.recvfrom(1024)  # 518 bytes max for 256 SC
                             packet = self.receiver._parse_packet(data)
                             if packet:
                                 packets.append(packet)
@@ -684,6 +716,7 @@ def load_dataset_info() -> Dict[str, Any]:
         'updated_at': datetime.now().isoformat(),
         'labels': {},
         'total_samples': 0,
+        'files': {},
         'contributors': [],
         'environments': []
     }
@@ -801,6 +834,8 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     """
     Load .npz file and convert to list of packet dicts (for backward compatibility)
     
+    Supports both old format (csi_data array) and new format (iq_raw, amplitudes, phases).
+    
     Args:
         filepath: Path to .npz file
     
@@ -808,21 +843,44 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
         list: Packets with CSI data and metadata
     """
     data = np.load(filepath, allow_pickle=True)
-    csi_array = data['csi_data']
-    timestamps = data.get('timestamps', np.zeros(len(csi_array), dtype=np.uint32))
-    rssi = data.get('rssi', np.zeros(len(csi_array), dtype=np.int8))
-    noise_floor = data.get('noise_floor', np.zeros(len(csi_array), dtype=np.int8))
-    label = str(data.get('label', 'unknown'))
     
-    packets = []
-    for i in range(len(csi_array)):
-        packets.append({
-            'timestamp_ms': int(timestamps[i]) if i < len(timestamps) else 0,
-            'rssi': int(rssi[i]) if i < len(rssi) else 0,
-            'noise_floor': int(noise_floor[i]) if i < len(noise_floor) else 0,
-            'csi_data': csi_array[i],
-            'label': label
-        })
+    # Detect format: new format has 'iq_raw', old format has 'csi_data'
+    if 'iq_raw' in data.files:
+        # New format (v1.0): iq_raw, amplitudes, phases, timestamps
+        iq_raw = data['iq_raw']
+        timestamps = data.get('timestamps', np.zeros(len(iq_raw)))
+        label = str(data.get('label', 'unknown'))
+        num_subcarriers = int(data.get('num_subcarriers', iq_raw.shape[1] // 2))
+        
+        packets = []
+        for i in range(len(iq_raw)):
+            # Convert iq_raw row to int8 array (csi_data format)
+            csi_data = np.array(iq_raw[i], dtype=np.int8)
+            packets.append({
+                'timestamp_ms': int(timestamps[i] * 1000) if i < len(timestamps) else 0,
+                'rssi': 0,  # Not available in new format
+                'noise_floor': 0,  # Not available in new format
+                'csi_data': csi_data,
+                'label': label,
+                'num_subcarriers': num_subcarriers
+            })
+    else:
+        # Old format: csi_data array with packets dict
+        csi_array = data['csi_data']
+        timestamps = data.get('timestamps', np.zeros(len(csi_array), dtype=np.uint32))
+        rssi = data.get('rssi', np.zeros(len(csi_array), dtype=np.int8))
+        noise_floor = data.get('noise_floor', np.zeros(len(csi_array), dtype=np.int8))
+        label = str(data.get('label', 'unknown'))
+        
+        packets = []
+        for i in range(len(csi_array)):
+            packets.append({
+                'timestamp_ms': int(timestamps[i]) if i < len(timestamps) else 0,
+                'rssi': int(rssi[i]) if i < len(rssi) else 0,
+                'noise_floor': int(noise_floor[i]) if i < len(noise_floor) else 0,
+                'csi_data': csi_array[i],
+                'label': label
+            })
     
     return packets
 

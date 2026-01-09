@@ -49,6 +49,7 @@ class GlobalState:
         self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.current_channel = 0  # Track WiFi channel for change detection
+        self.expected_subcarriers = 64  # Expected SC count from gain lock (64, 128, 256)
 
 
 g_state = GlobalState()
@@ -182,6 +183,7 @@ def run_gain_lock(wlan):
     
     Collects AGC/FFT gain values from first packets and locks them
     to stabilize CSI amplitudes for consistent motion detection.
+    Also counts subcarrier types to determine the dominant type for the session.
     
     Respects config.GAIN_LOCK_MODE:
     - "auto": Lock gain, but skip if signal too strong (AGC < MIN_SAFE_AGC)
@@ -192,7 +194,9 @@ def run_gain_lock(wlan):
         wlan: WLAN instance with CSI enabled
         
     Returns:
-        tuple: (agc_gain, fft_gain, skipped) where skipped=True if gain lock was skipped
+        tuple: (agc_gain, fft_gain, skipped, dominant_sc) where:
+            - skipped=True if gain lock was skipped
+            - dominant_sc = dominant subcarrier count (64, 128, or 256)
     """
     # Check configuration mode
     mode = getattr(config, 'GAIN_LOCK_MODE', 'auto').lower()
@@ -200,12 +204,12 @@ def run_gain_lock(wlan):
     
     if mode == 'disabled':
         print("Gain lock: Disabled by configuration")
-        return None, None, False
+        return None, None, False, 64
     
     # Check if gain lock is supported on this platform
     if not hasattr(wlan, 'csi_gain_lock_supported') or not wlan.csi_gain_lock_supported():
         print("Gain lock: Not supported on this platform (skipping)")
-        return None, None, False
+        return None, None, False, 64
     
     print('')
     print('-'*60)
@@ -216,6 +220,9 @@ def run_gain_lock(wlan):
     fft_sum = 0
     count = 0
     
+    # Count subcarrier types (bytes / 2 = subcarriers)
+    sc_counts = {64: 0, 128: 0, 256: 0}
+    
     while count < GAIN_LOCK_PACKETS:
         frame = wlan.csi_read()
         if frame:
@@ -223,6 +230,12 @@ def run_gain_lock(wlan):
             agc_sum += frame[22]
             fft_sum += frame[23]
             count += 1
+            
+            # Count subcarrier type from CSI data length
+            csi_data = frame[5]  # Raw CSI data
+            num_sc = len(csi_data) // 2
+            if num_sc in sc_counts:
+                sc_counts[num_sc] += 1
             
             # Progress every 25%
             if count == GAIN_LOCK_PACKETS // 4:
@@ -236,17 +249,21 @@ def run_gain_lock(wlan):
     avg_agc = agc_sum // GAIN_LOCK_PACKETS
     avg_fft = fft_sum // GAIN_LOCK_PACKETS
     
+    # Determine dominant subcarrier count
+    dominant_sc = max(sc_counts, key=sc_counts.get)
+    print(f"  Subcarrier stats: 64SC={sc_counts[64]}, 128SC={sc_counts[128]}, 256SC={sc_counts[256]} -> using {dominant_sc}")
+    
     # In auto mode, skip gain lock if signal is too strong
     if mode == 'auto' and avg_agc < min_safe_agc:
         print(f"WARNING: Signal too strong (AGC={avg_agc} < {min_safe_agc}) - skipping gain lock")
         print(f"         Move sensor 2-3 meters from AP for optimal performance")
-        return avg_agc, avg_fft, True  # skipped=True
+        return avg_agc, avg_fft, True, dominant_sc
     
     # Lock the gain values
     wlan.csi_force_gain(avg_agc, avg_fft)
     print(f"Gain locked: AGC={avg_agc}, FFT={avg_fft} (after {GAIN_LOCK_PACKETS} packets)")
     
-    return avg_agc, avg_fft, False  # skipped=False
+    return avg_agc, avg_fft, False, dominant_sc
 
 
 def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
@@ -278,23 +295,29 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     
     # Phase 1: Gain Lock (~3 seconds)
     # Stabilizes AGC/FFT before NBVI to ensure clean data
-    agc, fft, skipped = run_gain_lock(wlan)
+    # Also determines dominant subcarrier count for the session
+    agc, fft, skipped, dominant_sc = run_gain_lock(wlan)
+    
+    # Save dominant SC for main loop packet filtering
+    g_state.expected_subcarriers = dominant_sc
+    
     if skipped:
         print("Note: Proceeding with NBVI calibration without gain lock")
     
     print('')
     print('-'*60)
-    print('NBVI Subcarrier Selection (~7 seconds)')
+    print(f'NBVI Subcarrier Selection (~7 seconds) [expecting {dominant_sc} SC]')
     print('-'*60)
     
-    # Initialize Subcarrier calibrator with chip-specific subcarrier filtering
+    # Initialize Subcarrier calibrator with expected subcarrier count
     # Normalization: attenuate if baseline > 0.25, otherwise no scaling
     nbvi_calibrator = NBVICalibrator(
         buffer_size=config.NBVI_BUFFER_SIZE,
         percentile=config.NBVI_PERCENTILE,
         alpha=config.NBVI_ALPHA,
         min_spacing=config.NBVI_MIN_SPACING,
-        chip_type=chip_type
+        chip_type=chip_type,
+        expected_subcarriers=dominant_sc
     )
     
     # Collect packets for calibration (now with stable gain)
@@ -310,7 +333,7 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
         packets_read += 1
         
         if frame:
-            csi_data = frame[5][:128]  # frame[5] = data (tuple API)
+            csi_data = frame[5]  # Pass all CSI data (64-256 subcarriers depending on router)
             calibration_progress = nbvi_calibrator.add_packet(csi_data)
             timeout_counter = 0  # Reset timeout on successful read
             
@@ -487,9 +510,14 @@ def main():
             frame = wlan.csi_read()
             
             if frame:
-                # ESP32-C6 provides 512 bytes but we use only first 128 bytes
-                # This avoids corrupted data in the extended buffer
-                csi_data = frame[5][:128]  # frame[5] = data (tuple API)
+                # Pass all CSI data (64-256 subcarriers depending on router)
+                csi_data = frame[5]
+                
+                # Filter packets by expected subcarrier count (determined during gain lock)
+                packet_sc = len(csi_data) // 2
+                if packet_sc != g_state.expected_subcarriers:
+                    continue  # Skip packets with wrong SC count
+                
                 turbulence = seg.calculate_spatial_turbulence(csi_data, config.SELECTED_SUBCARRIERS)
                 seg.add_turbulence(turbulence)
                 

@@ -148,7 +148,7 @@ python 7_compare_detection_methods.py --plot  # Show 4×2 comparison
 **Purpose**: Visualize I/Q constellation diagrams
 
 - Compares baseline (stable) vs movement (dispersed) patterns
-- Shows all 64 subcarriers + selected subcarriers
+- Shows all subcarriers (64, 128, or 256) + selected subcarriers
 - Reveals geometric signal characteristics
 
 ```bash

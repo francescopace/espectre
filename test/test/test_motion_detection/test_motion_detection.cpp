@@ -396,7 +396,10 @@ void test_mvs_end_to_end_with_calibration(void) {
     
     CalibrationManager cm;
     cm.init(&csi_manager, "/tmp/test_e2e_buffer.bin");
-    // Use production parameters (as defined in calibration_manager.h defaults)
+    
+    // Simulate production flow: set expected subcarriers after gain lock
+    // This triggers guard band calculation (must use conservative values for 64 SC)
+    cm.set_expected_subcarriers(64);
     
     // Variables to capture calibration results
     uint8_t calibrated_band[12] = {0};

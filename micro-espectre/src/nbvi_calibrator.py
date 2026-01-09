@@ -13,7 +13,6 @@ import gc
 import os
 
 # Constants
-NUM_SUBCARRIERS = 64
 BUFFER_FILE = '/nbvi_buffer.bin'
 
 # Normalization target: if baseline > 0.25, attenuate to reach this value
@@ -24,14 +23,48 @@ NORMALIZATION_BASELINE_TARGET = 0.25
 # This is environment-aware: works with any chip and adapts to local RF conditions
 NULL_SUBCARRIER_THRESHOLD = 1.0
 
-# OFDM 20MHz guard band limits - these subcarriers should always be excluded
-# [0-5] and [59-63] are guard bands, [32] is DC null
-GUARD_BAND_LOW = 11   # First valid subcarrier (conservative, excludes edge noise)
-GUARD_BAND_HIGH = 52  # Last valid subcarrier (conservative, excludes edge noise)
-DC_SUBCARRIER = 32    # DC null (always excluded)
+
+def calculate_guard_bands(num_subcarriers):
+    """
+    Calculate guard band limits based on IEEE 802.11 standards.
+    
+    Uses standard guard bands defined in IEEE 802.11n (HT20/HT40) and 
+    802.11ax (HE20) specifications.
+    
+    Args:
+        num_subcarriers: Total number of subcarriers (64, 128, or 256)
+    
+    Returns:
+        tuple: (guard_band_low, guard_band_high, dc_subcarrier)
+    """
+    # IEEE 802.11 standard guard bands:
+    # HT20 (64 SC):  6 guard per side, indices 0-5 and 59-63, DC=32
+    # HT40 (128 SC): 7 guard per side, indices 0-6 and 121-127, DC=64
+    # HE20 (256 SC): 7 guard per side, indices 0-6 and 249-255, DC=128
+    if num_subcarriers == 64:
+        # HT20: Conservative guard bands (tested, optimized for motion detection)
+        # Edge subcarriers 0-10 and 53-63 are noisier and less motion-sensitive
+        guard_band_low = 11
+        guard_band_high = 52
+        dc_subcarrier = 32
+    elif num_subcarriers == 128:
+        guard_band_low = 7       # indices 0-6 are guard
+        guard_band_high = 120    # indices 121-127 are guard
+        dc_subcarrier = 64
+    elif num_subcarriers == 256:
+        guard_band_low = 7       # indices 0-6 are guard
+        guard_band_high = 248    # indices 249-255 are guard
+        dc_subcarrier = 128
+    else:
+        # Fallback: ~10% guard bands
+        guard_band_low = num_subcarriers // 10
+        guard_band_high = num_subcarriers - 1 - (num_subcarriers // 10)
+        dc_subcarrier = num_subcarriers // 2
+    
+    return guard_band_low, guard_band_high, dc_subcarrier
 
 
-def get_valid_subcarriers(chip_type=None):
+def get_valid_subcarriers(num_subcarriers=64):
     """
     Get all subcarrier indices for calibration.
     
@@ -40,13 +73,13 @@ def get_valid_subcarriers(chip_type=None):
     This is environment-aware and works with any chip type.
     
     Args:
-        chip_type: Ignored (kept for backward compatibility)
+        num_subcarriers: Total number of subcarriers (default: 64)
     
     Returns:
-        tuple: All subcarrier indices (0-63)
+        tuple: All subcarrier indices (0 to num_subcarriers-1)
     """
     # Return all subcarriers - null detection happens during calibration
-    return tuple(range(NUM_SUBCARRIERS))
+    return tuple(range(num_subcarriers))
 
 
 class NBVICalibrator:
@@ -65,7 +98,7 @@ class NBVICalibrator:
     """
     
     def __init__(self, buffer_size=700, percentile=10, alpha=0.5, min_spacing=1, 
-                 noise_gate_percentile=25, chip_type=None):
+                 noise_gate_percentile=25, chip_type=None, expected_subcarriers=None):
         """
         Initialize NBVI calibrator
         
@@ -76,6 +109,8 @@ class NBVICalibrator:
             min_spacing: Minimum spacing between subcarriers (default: 1)
             noise_gate_percentile: Percentile for noise gate (default: 25)
             chip_type: Ignored (kept for backward compatibility)
+            expected_subcarriers: Expected subcarrier count from gain lock (64, 128, 256).
+                                  If set, packets with different SC count are filtered out.
         """
         self.buffer_size = buffer_size
         self.percentile = percentile
@@ -83,9 +118,15 @@ class NBVICalibrator:
         self.min_spacing = min_spacing
         self.noise_gate_percentile = noise_gate_percentile
         self.chip_type = chip_type  # Kept for backward compatibility
+        self.expected_subcarriers = expected_subcarriers
         self._packet_count = 0
+        self._filtered_count = 0  # Track filtered packets
         self._file = None
         self._baseline_variance = 1.0  # Stored for normalization calculation
+        self._num_subcarriers = None  # Determined from first packet
+        self._guard_band_low = None
+        self._guard_band_high = None
+        self._dc_subcarrier = None
         
         # Remove old buffer file if exists
         try:
@@ -101,7 +142,7 @@ class NBVICalibrator:
         Add CSI packet to calibration buffer (file-based)
         
         Args:
-            csi_data: CSI data array (128 bytes: 64 subcarriers × 2 I/Q)
+            csi_data: CSI data array (N bytes: N/2 subcarriers × 2 I/Q)
         
         Returns:
             int: Current buffer size (progress indicator)
@@ -109,9 +150,24 @@ class NBVICalibrator:
         if self._packet_count >= self.buffer_size:
             return self.buffer_size
         
+        # Get subcarrier count from this packet
+        packet_sc = len(csi_data) // 2
+        
+        # Filter packets by expected subcarrier count (if set)
+        if self.expected_subcarriers is not None and packet_sc != self.expected_subcarriers:
+            self._filtered_count += 1
+            return self._packet_count  # Return current count, don't increment
+        
+        # Determine number of subcarriers from first accepted packet
+        if self._num_subcarriers is None:
+            self._num_subcarriers = packet_sc
+            self._guard_band_low, self._guard_band_high, self._dc_subcarrier = \
+                calculate_guard_bands(self._num_subcarriers)
+            print(f'NBVI: {self._num_subcarriers} subcarriers, guard bands [{self._guard_band_low}-{self._guard_band_high}], DC={self._dc_subcarrier}')
+        
         # Extract magnitudes and write directly to file
-        magnitudes = bytearray(NUM_SUBCARRIERS)
-        for sc in range(NUM_SUBCARRIERS):
+        magnitudes = bytearray(self._num_subcarriers)
+        for sc in range(self._num_subcarriers):
             i_idx = sc * 2
             q_idx = sc * 2 + 1
             
@@ -146,22 +202,22 @@ class NBVICalibrator:
     
     def _read_packet(self, packet_idx):
         """Read a single packet from file"""
-        self._file.seek(packet_idx * NUM_SUBCARRIERS)
-        data = self._file.read(NUM_SUBCARRIERS)
+        self._file.seek(packet_idx * self._num_subcarriers)
+        data = self._file.read(self._num_subcarriers)
         return list(data) if data else None
     
     def _read_window(self, start_idx, window_size):
         """Read a window of packets from file"""
-        self._file.seek(start_idx * NUM_SUBCARRIERS)
-        data = self._file.read(window_size * NUM_SUBCARRIERS)
+        self._file.seek(start_idx * self._num_subcarriers)
+        data = self._file.read(window_size * self._num_subcarriers)
         if not data:
             return []
         
         # Convert to list of lists
         window = []
-        for i in range(0, len(data), NUM_SUBCARRIERS):
-            packet = list(data[i:i+NUM_SUBCARRIERS])
-            if len(packet) == NUM_SUBCARRIERS:
+        for i in range(0, len(data), self._num_subcarriers):
+            packet = list(data[i:i+self._num_subcarriers])
+            if len(packet) == self._num_subcarriers:
                 window.append(packet)
         return window
     
@@ -527,7 +583,7 @@ class NBVICalibrator:
             all_metrics = []
             null_count = 0
             
-            for sc in range(NUM_SUBCARRIERS):
+            for sc in range(self._num_subcarriers):
                 # Extract magnitude series for this subcarrier
                 magnitudes = [packet_mags[sc] for packet_mags in baseline_window]
                 
@@ -536,7 +592,7 @@ class NBVICalibrator:
                 metrics['subcarrier'] = sc
                 
                 # Exclude guard bands and DC subcarrier
-                if sc < GUARD_BAND_LOW or sc > GUARD_BAND_HIGH or sc == DC_SUBCARRIER:
+                if sc < self._guard_band_low or sc > self._guard_band_high or sc == self._dc_subcarrier:
                     metrics['nbvi'] = float('inf')
                     null_count += 1
                 # Auto-detect weak subcarriers
@@ -634,6 +690,8 @@ class NBVICalibrator:
         print(f"  Baseline variance: {baseline_variance:.4f}")
         print(f"  Normalization scale: {normalization_scale:.4f}")
         print(f"  Validated FP rate: {best_fp_rate * 100:.1f}%")
+        if self._filtered_count > 0:
+            print(f"  Filtered packets: {self._filtered_count} (wrong SC count)")
         
         return best_band, normalization_scale
     

@@ -231,6 +231,11 @@ void ESpectreComponent::start_calibration_() {
     static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(true);
   }
   
+  // Set expected subcarrier count based on gain lock statistics
+  // This ensures consistent handling in mixed HT20/HE-SU environments
+  uint16_t dominant_sc = this->csi_manager_.get_gain_controller().get_dominant_subcarrier_count();
+  this->calibration_manager_.set_expected_subcarriers(dominant_sc);
+  
   // Set callback to pause traffic generator when collection is complete
   this->calibration_manager_.set_collection_complete_callback([this]() {
     this->traffic_generator_.pause();

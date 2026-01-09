@@ -15,6 +15,9 @@
 #pragma once
 
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -97,6 +100,16 @@ class CalibrationManager {
   void set_window_size(uint16_t size) { window_size_ = size; }
   void set_window_step(uint16_t step) { window_step_ = step; }
   
+  /**
+   * Set expected number of subcarriers (from GainController stats)
+   * 
+   * Should be called before start_auto_calibration() to ensure consistent
+   * packet handling. Packets with different SC count will be discarded.
+   * 
+   * @param num_sc Expected subcarrier count (64, 128, or 256)
+   */
+  void set_expected_subcarriers(uint16_t num_sc);
+  
   uint16_t get_buffer_size() const { return buffer_size_; }
   uint16_t get_window_size() const { return window_size_; }
   uint16_t get_window_step() const { return window_step_; }
@@ -133,6 +146,8 @@ class CalibrationManager {
   // Internal methods
   void on_collection_complete_();
   esp_err_t run_calibration_();
+  static void calibration_task_(void* arg);
+  void finish_calibration_(bool success);
   esp_err_t find_candidate_windows_(std::vector<WindowVariance>& candidates);
   void calculate_nbvi_metrics_(uint16_t baseline_start, std::vector<NBVIMetrics>& metrics);
   uint8_t apply_noise_gate_(std::vector<NBVIMetrics>& metrics);
@@ -156,9 +171,10 @@ class CalibrationManager {
   
   // Members
   CSIManager* csi_manager_{nullptr};
-  bool calibrating_{false};
+  std::atomic<bool> calibrating_{false};
   result_callback_t result_callback_;
   collection_complete_callback_t collection_complete_callback_;
+  TaskHandle_t calibration_task_handle_{nullptr};
   
   // File-based storage (saves RAM - magnitudes stored as uint8)
   FILE* buffer_file_{nullptr};
@@ -185,17 +201,14 @@ class CalibrationManager {
   float normalization_scale_{1.0f};  // Calculated normalization factor
   float baseline_variance_{1.0f};    // Baseline variance for normalization
   
-  // Constants
-  static constexpr uint8_t NUM_SUBCARRIERS = 64;
-  static constexpr uint8_t SELECTED_SUBCARRIERS_COUNT = 12;
+  // Dynamic subcarrier configuration (determined from first CSI packet)
+  uint16_t num_subcarriers_{64};     // Number of subcarriers (64, 128, or 256)
+  uint16_t guard_band_low_{11};      // First valid subcarrier
+  uint16_t guard_band_high_{52};     // Last valid subcarrier
+  uint16_t dc_subcarrier_{32};       // DC null subcarrier
   
-  // OFDM 20MHz subcarrier limits for NBVI selection
-  // Standard guard bands: [0-5] and [59-63], DC null: [32]
-  // We use a more conservative range [11-52] to avoid edge subcarriers
-  // which tend to be noisier and cause false positives
-  static constexpr uint8_t GUARD_BAND_LOW = 11;  // First valid subcarrier (conservative)
-  static constexpr uint8_t GUARD_BAND_HIGH = 52; // Last valid subcarrier (conservative)
-  static constexpr uint8_t DC_SUBCARRIER = 32;   // DC null (always excluded)
+  // Constants
+  static constexpr uint8_t SELECTED_SUBCARRIERS_COUNT = 12;
   
   // Threshold for null subcarrier detection (mean amplitude below this = null)
   static constexpr float NULL_SUBCARRIER_THRESHOLD = 1.0f;

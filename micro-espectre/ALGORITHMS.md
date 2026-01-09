@@ -30,7 +30,7 @@ ESPectre uses a combination of signal processing algorithms to detect motion fro
 **What CSI Captures:**
 
 *Per-subcarrier information:*
-- **Amplitude**: Signal strength for each OFDM subcarrier (up to 64)
+- **Amplitude**: Signal strength for each OFDM subcarrier (64-256 depending on WiFi mode)
 - **Phase**: Phase shift of each subcarrier
 - **Frequency response**: How the channel affects different frequencies
 
@@ -57,7 +57,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 │                                                                                   │
 │  ┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌─────────────┐              │
 │  │ CSI Data │───▶│Gain Lock │───▶│ NBVI Select  │───▶│ Turbulence  │              │
-│  │ 64 subcs │    │ AGC/FFT  │    │ 12 subcs     │    │ σ(amps)     │              │
+│  │ N subcs  │    │ AGC/FFT  │    │ 12 subcs     │    │ σ(amps)     │              │
 │  └──────────┘    └──────────┘    └──────────────┘    └──────┬──────┘              │
 │                  (3s, 300 pkt)    (7s, 700 pkt)             │                     │
 │                                                             ▼                     │
@@ -74,7 +74,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 2. **NBVI Calibration** (7s, 700 packets): Select 12 optimal subcarriers, calculate baseline variance
 
 **Data flow per packet (after calibration):**
-1. **CSI Data**: Raw I/Q values for 64 subcarriers (128 int8 values)
+1. **CSI Data**: Raw I/Q values for N subcarriers (64-256 depending on WiFi mode)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
 3. **Spatial Turbulence**: `σ = std(amplitudes)` - variability across subcarriers
 4. **Normalization**: If baseline > 0.25, attenuate by `0.25/baseline_variance`; otherwise no scaling
@@ -250,7 +250,7 @@ dispersion as multipath reflections change.*
 
 ### The Problem
 
-WiFi CSI provides 64 subcarriers, but not all are equally useful for motion detection:
+WiFi CSI provides 64-256 subcarriers (depending on WiFi mode: HT20=64, HT40=128, HE-SU=256), but not all are equally useful for motion detection:
 - Some are too weak (low SNR)
 - Some are too noisy (high variance even at rest)
 - Some are redundant (correlated with neighbors)
@@ -316,7 +316,7 @@ best_window = min(candidate_windows, key=lambda w: validate_fp_rate(w))
 
 ```python
 magnitude_threshold = np.percentile(mean_magnitudes, 25)
-valid_subcarriers = [i for i in range(64) if mean[i] > magnitude_threshold]
+valid_subcarriers = [i for i in range(num_subcarriers) if mean[i] > magnitude_threshold]
 ```
 
 **Reference**: [4] Passive Indoor Localization - SNR considerations and noise gate strategies
@@ -351,15 +351,16 @@ def nbvi_calibrate(csi_buffer, num_subcarriers=12):
     # 3. Validate each candidate and select with minimum FP rate
     best_window = min(candidates, key=lambda w: validate_fp_rate(w))
     
-    # 4. Calculate NBVI for all 64 subcarriers (α=0.5)
-    for i in range(64):
+    # 4. Calculate NBVI for all subcarriers (α=0.5)
+    # num_subcarriers determined dynamically: 64 (HT20), 128 (HT40), 256 (HE-SU)
+    for i in range(num_subcarriers):
         mean = np.mean(best_window[:, i])
         std = np.std(best_window[:, i])
         nbvi[i] = 0.5 * (std / mean**2) + 0.5 * (std / mean)
     
     # 5. Apply noise gate (exclude weak subcarriers, 25th percentile)
     threshold = percentile(means, 25)
-    valid = [i for i in range(64) if means[i] > threshold]
+    valid = [i for i in range(num_subcarriers) if means[i] > threshold]
     
     # 6. Select with spacing
     selected = []

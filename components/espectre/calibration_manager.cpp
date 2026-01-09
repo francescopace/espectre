@@ -74,21 +74,57 @@ esp_err_t CalibrationManager::start_auto_calibration(const uint8_t* current_band
   return ESP_OK;
 }
 
+void CalibrationManager::set_expected_subcarriers(uint16_t num_sc) {
+  num_subcarriers_ = num_sc;
+  
+  // Guard bands for motion detection calibration
+  // HT20 (64 SC): Conservative values tested and optimized for motion detection
+  // HT40/HE-SU (128/256 SC): IEEE 802.11 standard (not yet validated with real data)
+  switch (num_sc) {
+    case 64:   // HT20: Conservative (tested) - exclude noisy edges 0-10 and 53-63
+      guard_band_low_ = 11;
+      guard_band_high_ = 52;
+      dc_subcarrier_ = 32;
+      break;
+    case 128:  // HT40 (802.11n): 7 guard per side, DC at 64
+      guard_band_low_ = 7;      // indices 0-6 are guard
+      guard_band_high_ = 120;   // indices 121-127 are guard
+      dc_subcarrier_ = 64;
+      break;
+    case 256:  // HE20 (802.11ax): 7 guard per side, DC at 128
+      guard_band_low_ = 7;      // indices 0-6 are guard
+      guard_band_high_ = 248;   // indices 249-255 are guard
+      dc_subcarrier_ = 128;
+      break;
+    default:   // Fallback: ~10% guard bands
+      guard_band_low_ = num_subcarriers_ / 10;
+      guard_band_high_ = num_subcarriers_ - 1 - (num_subcarriers_ / 10);
+      dc_subcarrier_ = num_subcarriers_ / 2;
+      break;
+  }
+  
+  ESP_LOGI(TAG, "NBVI: expecting %d subcarriers, valid range [%d-%d], DC=%d",
+           num_subcarriers_, guard_band_low_, guard_band_high_, dc_subcarrier_);
+}
+
 bool CalibrationManager::add_packet(const int8_t* csi_data, size_t csi_len) {
   if (!calibrating_ || buffer_count_ >= buffer_size_ || !buffer_file_) {
     return buffer_count_ >= buffer_size_;
   }
   
-  if (csi_len < 128) {
-    ESP_LOGW(TAG, "CSI data too short: %zu bytes (need 128)", csi_len);
+  // Validate packet has expected number of subcarriers
+  uint16_t packet_sc = csi_len / 2;
+  if (packet_sc != num_subcarriers_) {
+    // Discard packets with wrong SC count (mixed HT20/HE-SU environment)
     return false;
   }
   
   // Calculate magnitudes and write directly to file as uint8
   // (max CSI magnitude ~181 fits in 1 byte, saves RAM)
-  uint8_t magnitudes[NUM_SUBCARRIERS];
+  // Max 256 subcarriers for WiFi 6 HE-SU packets
+  uint8_t magnitudes[256];
   
-  for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
+  for (uint16_t sc = 0; sc < num_subcarriers_; sc++) {
     int8_t i_val = csi_data[sc * 2];
     int8_t q_val = csi_data[sc * 2 + 1];
     float mag = calculate_magnitude(i_val, q_val);
@@ -96,8 +132,8 @@ bool CalibrationManager::add_packet(const int8_t* csi_data, size_t csi_len) {
   }
   
   // Write to file
-  size_t written = fwrite(magnitudes, 1, NUM_SUBCARRIERS, buffer_file_);
-  if (written != NUM_SUBCARRIERS) {
+  size_t written = fwrite(magnitudes, 1, num_subcarriers_, buffer_file_);
+  if (written != num_subcarriers_) {
     ESP_LOGE(TAG, "Failed to write magnitudes to file");
     return false;
   }
@@ -144,28 +180,59 @@ void CalibrationManager::on_collection_complete_() {
     collection_complete_callback_();
   }
   
-  // Close write mode and reopen for reading
+  // Close write mode - file will be reopened in calibration task
   close_buffer_file_();
-  if (!open_buffer_file_for_reading_()) {
+  
+  // Stop receiving CSI packets during processing
+  csi_manager_->set_calibration_mode(nullptr);
+  
+  // Launch calibration in a separate task to avoid blocking main loop
+  // This prevents watchdog timeouts with 256 subcarriers
+  BaseType_t result = xTaskCreate(
+      calibration_task_,
+      "nbvi_cal",
+      8192,  // 8KB stack for NBVI calculations
+      this,
+      1,     // Low priority - doesn't need to be fast
+      &calibration_task_handle_
+  );
+  
+  if (result != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create calibration task");
+    finish_calibration_(false);
+  }
+}
+
+void CalibrationManager::calibration_task_(void* arg) {
+  CalibrationManager* self = static_cast<CalibrationManager*>(arg);
+  
+  // Open buffer file for reading
+  if (!self->open_buffer_file_for_reading_()) {
     ESP_LOGE(TAG, "Failed to open buffer file for reading");
-    if (result_callback_) {
-      result_callback_(nullptr, 0, 1.0f, false);
-    }
-    calibrating_ = false;
-    csi_manager_->set_calibration_mode(nullptr);
+    self->finish_calibration_(false);
+    vTaskDelete(NULL);
     return;
   }
   
-  // Run calibration
-  esp_err_t err = run_calibration_();
+  // Run calibration (can take several seconds with 256 SC)
+  esp_err_t err = self->run_calibration_();
   
-  bool success = (err == ESP_OK && selected_band_size_ == SELECTED_SUBCARRIERS_COUNT);
+  bool success = (err == ESP_OK && self->selected_band_size_ == SELECTED_SUBCARRIERS_COUNT);
   
-  // Cleanup
+  // Cleanup file
+  self->close_buffer_file_();
+  self->remove_buffer_file_();
+  
+  // Notify completion
+  self->finish_calibration_(success);
+  
+  // Self-terminate
+  vTaskDelete(NULL);
+}
+
+void CalibrationManager::finish_calibration_(bool success) {
   calibrating_ = false;
-  csi_manager_->set_calibration_mode(nullptr);
-  close_buffer_file_();
-  remove_buffer_file_();
+  calibration_task_handle_ = nullptr;
   
   // Call user callback with results (including normalization scale)
   if (result_callback_) {
@@ -225,7 +292,7 @@ esp_err_t CalibrationManager::run_calibration_() {
              candidate_idx + 1, candidates.size(), baseline_start, window_variance);
     
     // Step 2a: Calculate NBVI for all subcarriers using this window
-    std::vector<NBVIMetrics> all_metrics(NUM_SUBCARRIERS);
+    std::vector<NBVIMetrics> all_metrics(num_subcarriers_);
     calculate_nbvi_metrics_(baseline_start, all_metrics);
     
     // Step 2b: Apply Noise Gate
@@ -367,26 +434,28 @@ esp_err_t CalibrationManager::find_candidate_windows_(std::vector<WindowVariance
   // which only starts feeding CalibrationManager after AGC stabilization.
   
   // Analyze each window - read from file
+  // Note: This runs in a dedicated task, so no yield needed for watchdog
   uint16_t window_idx = 0;
   for (uint16_t i = 0; i <= buffer_count_ - window_size_; i += window_step_) {
     // Read window from file
     std::vector<uint8_t> window_data = read_window_(i, window_size_);
-    if (window_data.size() != window_size_ * NUM_SUBCARRIERS) {
+    if (window_data.size() != window_size_ * num_subcarriers_) {
       ESP_LOGW(TAG, "Failed to read window at %d", i);
       continue;
     }
     
     // Calculate turbulence for each packet in window
     for (uint16_t j = 0; j < window_size_; j++) {
-      const uint8_t* packet_magnitudes = &window_data[j * NUM_SUBCARRIERS];
+      const uint8_t* packet_magnitudes = &window_data[j * num_subcarriers_];
       
       // Convert uint8 magnitudes to float for turbulence calculation
-      float float_mags[NUM_SUBCARRIERS];
-      for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
+      // Use heap allocation for large subcarrier counts (256 max)
+      std::vector<float> float_mags(num_subcarriers_);
+      for (uint16_t sc = 0; sc < num_subcarriers_; sc++) {
         float_mags[sc] = static_cast<float>(packet_magnitudes[sc]);
       }
       
-      turbulence_buffer[j] = calculate_spatial_turbulence(float_mags,
+      turbulence_buffer[j] = calculate_spatial_turbulence(float_mags.data(),
                                                           current_band_.data(),
                                                           static_cast<uint8_t>(current_band_.size()));
     }
@@ -434,20 +503,21 @@ void CalibrationManager::calculate_nbvi_metrics_(uint16_t baseline_start,
                                                 std::vector<NBVIMetrics>& metrics) {
   // Read baseline window from file
   std::vector<uint8_t> window_data = read_window_(baseline_start, window_size_);
-  if (window_data.size() != window_size_ * NUM_SUBCARRIERS) {
+  if (window_data.size() != window_size_ * num_subcarriers_) {
     ESP_LOGE(TAG, "Failed to read baseline window");
     return;
   }
   
   std::vector<float> subcarrier_magnitudes(window_size_);
-  uint8_t null_count = 0;
+  uint16_t null_count = 0;
   
   // Process ALL subcarriers - detect null ones dynamically based on signal strength
   // This is environment-aware: works with any chip and adapts to local RF conditions
-  for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
+  // Note: This runs in a dedicated task, so no yield needed for watchdog
+  for (uint16_t sc = 0; sc < num_subcarriers_; sc++) {
     // Extract magnitude series for this subcarrier from baseline window
     for (uint16_t i = 0; i < window_size_; i++) {
-      subcarrier_magnitudes[i] = static_cast<float>(window_data[i * NUM_SUBCARRIERS + sc]);
+      subcarrier_magnitudes[i] = static_cast<float>(window_data[i * num_subcarriers_ + sc]);
     }
     
     // Calculate NBVI
@@ -455,8 +525,8 @@ void CalibrationManager::calculate_nbvi_metrics_(uint16_t baseline_start,
     calculate_nbvi_weighted_(subcarrier_magnitudes, metrics[sc]);
     
     // Exclude guard bands and DC subcarrier (always invalid regardless of signal)
-    // OFDM 20MHz: [0-5] lower guard, [32] DC, [59-63] upper guard
-    if (sc < GUARD_BAND_LOW || sc > GUARD_BAND_HIGH || sc == DC_SUBCARRIER) {
+    // Guard bands are ~17% on each side, DC is at center
+    if (sc < guard_band_low_ || sc > guard_band_high_ || sc == dc_subcarrier_) {
       metrics[sc].nbvi = std::numeric_limits<float>::infinity();
       null_count++;
     }
@@ -709,11 +779,11 @@ std::vector<uint8_t> CalibrationManager::read_window_(uint16_t start_idx, uint16
     return data;
   }
   
-  size_t bytes_to_read = window_size * NUM_SUBCARRIERS;
+  size_t bytes_to_read = window_size * num_subcarriers_;
   data.resize(bytes_to_read);
   
   // Seek to window start
-  long offset = static_cast<long>(start_idx) * NUM_SUBCARRIERS;
+  long offset = static_cast<long>(start_idx) * num_subcarriers_;
   if (fseek(buffer_file_, offset, SEEK_SET) != 0) {
     ESP_LOGE(TAG, "Failed to seek to offset %ld", offset);
     data.clear();
@@ -754,21 +824,22 @@ bool CalibrationManager::validate_subcarriers_(const uint8_t* band, uint8_t band
   uint16_t total_packets = 0;
   
   // Process entire buffer packet by packet
+  // Note: This runs in a dedicated task, so no yield needed for watchdog
   for (uint16_t pkt = 0; pkt < buffer_count_; pkt++) {
     // Read single packet
     std::vector<uint8_t> packet_data = read_window_(pkt, 1);
-    if (packet_data.size() != NUM_SUBCARRIERS) {
+    if (packet_data.size() != num_subcarriers_) {
       continue;
     }
     
     // Convert to float
-    float float_mags[NUM_SUBCARRIERS];
-    for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
+    std::vector<float> float_mags(num_subcarriers_);
+    for (uint16_t sc = 0; sc < num_subcarriers_; sc++) {
       float_mags[sc] = static_cast<float>(packet_data[sc]);
     }
     
     // Calculate turbulence with the candidate subcarriers
-    float turbulence = calculate_spatial_turbulence(float_mags, band, band_size);
+    float turbulence = calculate_spatial_turbulence(float_mags.data(), band, band_size);
     
     // Shift buffer and add new value (like real MVS does)
     for (uint16_t i = 0; i < MVS_WINDOW_SIZE - 1; i++) {
@@ -804,7 +875,7 @@ float CalibrationManager::calculate_baseline_variance_(uint16_t baseline_start) 
   // This is called after NBVI selection to get accurate variance for the actual band used
   
   std::vector<uint8_t> window_data = read_window_(baseline_start, window_size_);
-  if (window_data.size() != window_size_ * NUM_SUBCARRIERS) {
+  if (window_data.size() != window_size_ * num_subcarriers_) {
     ESP_LOGW(TAG, "Failed to read window for variance recalculation");
     return 0.0f;
   }
@@ -813,16 +884,16 @@ float CalibrationManager::calculate_baseline_variance_(uint16_t baseline_start) 
   
   // Calculate turbulence for each packet using the SELECTED subcarriers
   for (uint16_t j = 0; j < window_size_; j++) {
-    const uint8_t* packet_magnitudes = &window_data[j * NUM_SUBCARRIERS];
+    const uint8_t* packet_magnitudes = &window_data[j * num_subcarriers_];
     
     // Convert uint8 magnitudes to float for turbulence calculation
-    float float_mags[NUM_SUBCARRIERS];
-    for (uint8_t sc = 0; sc < NUM_SUBCARRIERS; sc++) {
+    std::vector<float> float_mags(num_subcarriers_);
+    for (uint16_t sc = 0; sc < num_subcarriers_; sc++) {
       float_mags[sc] = static_cast<float>(packet_magnitudes[sc]);
     }
     
     // Use selected_band_ instead of current_band_
-    turbulence_buffer[j] = calculate_spatial_turbulence(float_mags,
+    turbulence_buffer[j] = calculate_spatial_turbulence(float_mags.data(),
                                                         selected_band_,
                                                         selected_band_size_);
   }

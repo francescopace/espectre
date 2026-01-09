@@ -3,7 +3,16 @@ Micro-ESPectre - CSI UDP Streamer
 
 Streams raw CSI I/Q data via UDP for real-time processing.
 
-Packet format:
+Packet format v2 (for 256 SC support):
+  Header (6 bytes):
+    - Magic: 0x4353 ("CS") - 2 bytes
+    - Version: 1 byte (0x02 for v2)
+    - Sequence number: 1 byte (0-255, wrapping)
+    - Num subcarriers: 2 bytes (uint16, little-endian)
+  Payload (N × 2 bytes):
+    - I0, Q0, I1, Q1, ... (int8 each)
+
+Packet format v1 (legacy, max 255 SC):
   Header (4 bytes):
     - Magic: 0x4353 ("CS") - 2 bytes
     - Num subcarriers: 1 byte
@@ -24,11 +33,12 @@ import gc
 import os
 import src.config as config
 from src.traffic_generator import TrafficGenerator
-from src.main import connect_wifi, cleanup_wifi
+from src.main import connect_wifi, cleanup_wifi, run_gain_lock
 
 # Streaming configuration
 STREAM_PORT = 5001
 MAGIC_STREAM = 0x4353  # "CS" in little-endian
+PROTOCOL_VERSION = 0x02  # v2 supports up to 65535 subcarriers
 
 
 def stream_csi(dest_ip, duration_sec=0):
@@ -64,25 +74,17 @@ def stream_csi(dest_ip, duration_sec=0):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     dest_addr = (dest_ip, STREAM_PORT)
     
-    # Wait for first frame to determine subcarrier count
-    print('Waiting for first CSI frame...')
-    num_sc = None
+    # Phase 1: Gain lock (stabilizes AGC/FFT and determines dominant SC count)
+    agc_gain, fft_gain, skipped, num_sc = run_gain_lock(wlan)
     
-    while num_sc is None:
-        frame = wlan.csi_read()
-        if frame:
-            # ESP32-C6 may provide up to 512 bytes, use only first 128 (64 subcarriers)
-            csi_data = frame[5][:128]
-            num_sc = len(csi_data) // 2
-            print(f'CSI: {num_sc} subcarriers ({len(csi_data)} bytes)')
-        else:
-            time.sleep_ms(10)
-    
-    packet_format = f'<HBB{num_sc * 2}b'
+    # Use v2 protocol format: <magic><version><seq><num_sc_u16><payload>
+    packet_format = f'<HBBH{num_sc * 2}b'
     packet_size = struct.calcsize(packet_format)
     
     print('')
     print(f'Streaming to: {dest_ip}:{STREAM_PORT}')
+    print(f'Protocol:     v2 (supports 256 SC)')
+    print(f'Subcarriers:  {num_sc}')
     print(f'Packet size:  {packet_size} bytes')
     duration_str = "infinite" if duration_sec == 0 else str(duration_sec) + "s"
     print(f'Duration:     {duration_str}')
@@ -94,6 +96,7 @@ def stream_csi(dest_ip, duration_sec=0):
     # Streaming loop
     start_time = time.ticks_ms()
     packet_count = 0
+    filtered_count = 0
     seq_num = 0
     last_progress_time = start_time
     last_progress_count = 0
@@ -108,15 +111,20 @@ def stream_csi(dest_ip, duration_sec=0):
             
             frame = wlan.csi_read()
             if frame:
-                # ESP32-C6 may provide up to 512 bytes, use only first 128 (64 subcarriers)
-                csi_data = frame[5][:128]
+                csi_data = frame[5]
+                
+                # Filter packets by expected subcarrier count
+                packet_sc = len(csi_data) // 2
+                if packet_sc != num_sc:
+                    filtered_count += 1
+                    continue
                 
                 # Extract I/Q values
                 iq_values = [int(v) for v in csi_data]
                 
-                # Build and send packet
+                # Build and send packet (v2 format)
                 try:
-                    packet = struct.pack(packet_format, MAGIC_STREAM, num_sc, seq_num, *iq_values)
+                    packet = struct.pack(packet_format, MAGIC_STREAM, PROTOCOL_VERSION, seq_num, num_sc, *iq_values)
                     sock.sendto(packet, dest_addr)
                     packet_count += 1
                     seq_num = (seq_num + 1) & 0xFF
@@ -130,7 +138,8 @@ def stream_csi(dest_ip, duration_sec=0):
                     delta = packet_count - last_progress_count
                     pps = int((delta * 1000) / elapsed_block) if elapsed_block > 0 else 0
                     
-                    print(f'Sent {packet_count} pkts | {pps} pps | seq: {seq_num}')
+                    filter_str = f' | filtered: {filtered_count}' if filtered_count > 0 else ''
+                    print(f'Sent {packet_count} pkts | {pps} pps | seq: {seq_num}{filter_str}')
                     
                     last_progress_time = current_time
                     last_progress_count = packet_count

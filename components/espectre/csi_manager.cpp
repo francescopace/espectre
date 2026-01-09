@@ -88,6 +88,17 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
     return;  // Discard packet during gain lock phase
   }
   
+  // After gain lock, set expected SC count if not yet set
+  if (expected_subcarriers_ == 64) {
+    expected_subcarriers_ = gain_controller_.get_dominant_subcarrier_count();
+  }
+  
+  // Filter packets with wrong SC count (mixed HT20/HE-SU environment)
+  uint16_t packet_sc = csi_len / 2;
+  if (packet_sc != expected_subcarriers_) {
+    return;  // Discard packet with wrong SC count
+  }
+  
   // If calibration is in progress, delegate to calibration manager
   if (calibrator_ != nullptr && calibrator_->is_calibrating()) {
     calibrator_->add_packet(csi_data, csi_len);
