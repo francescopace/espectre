@@ -56,8 +56,8 @@ def get_available_datasets():
     datasets = []
     
     # 64 SC dataset
-    baseline_64 = DATA_DIR / 'baseline' / 'baseline_c6_001.npz'
-    movement_64 = DATA_DIR / 'movement' / 'movement_c6_001.npz'
+    baseline_64 = DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz'
+    movement_64 = DATA_DIR / 'movement' / 'movement_c6_64sc_20251212_142443.npz'
     if baseline_64.exists() and movement_64.exists():
         datasets.append(pytest.param(
             (baseline_64, movement_64, 64),
@@ -65,8 +65,8 @@ def get_available_datasets():
         ))
     
     # 256 SC dataset
-    baseline_256 = DATA_DIR / 'baseline' / 'baseline_c6_256sc_001.npz'
-    movement_256 = DATA_DIR / 'movement' / 'movement_c6_256sc_001.npz'
+    baseline_256 = DATA_DIR / 'baseline' / 'baseline_c6_256sc_20260110_182357.npz'
+    movement_256 = DATA_DIR / 'movement' / 'movement_c6_256sc_20260110_182443.npz'
     if baseline_256.exists() and movement_256.exists():
         datasets.append(pytest.param(
             (baseline_256, movement_256, 256),

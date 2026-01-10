@@ -13,6 +13,7 @@ License: GPLv3
 
 import socket
 import struct
+import subprocess
 import time
 import json
 import numpy as np
@@ -35,8 +36,6 @@ DEFAULT_PORT = 5001
 DATA_DIR = Path(__file__).parent.parent / 'data'
 DATASET_INFO_FILE = DATA_DIR / 'dataset_info.json'
 
-# Dataset format version
-FORMAT_VERSION = '1.0'
 
 
 # ============================================================================
@@ -53,6 +52,19 @@ class CSIPacket:
     iq_complex: np.ndarray   # Complex representation [I0+jQ0, I1+jQ1, ...]
     amplitudes: np.ndarray   # Amplitude per subcarrier
     phases: np.ndarray       # Phase per subcarrier (radians)
+    chip: str = 'unknown'    # Chip type (e.g., 'C6', 'S3', 'ESP32')
+
+
+# Chip code to name mapping (must match streamer)
+CHIP_CODES = {
+    0: 'unknown',
+    1: 'ESP32',
+    2: 'S2',
+    3: 'S3',
+    4: 'C3',
+    5: 'C5',
+    6: 'C6',
+}
 
 
 # ============================================================================
@@ -124,28 +136,20 @@ class CSIReceiver:
     def _parse_packet(self, data: bytes) -> Optional[CSIPacket]:
         """Parse raw UDP data into CSIPacket
         
-        Supports two protocol versions:
-        - v1 (legacy): <magic:2><num_sc:1><seq:1><payload>
-        - v2 (256 SC): <magic:2><version:1><seq:1><num_sc:2><payload>
+        Packet format (6 byte header):
+            <magic:2><chip:1><seq:1><num_sc:2><payload>
         """
-        if len(data) < 4:
+        if len(data) < 6:
             return None
         
-        # Parse magic and detect version
-        magic = struct.unpack('<H', data[:2])[0]
+        # Parse header
+        magic, chip_code, seq_num, num_sc = struct.unpack('<HBBH', data[:6])
         
         if magic != MAGIC_STREAM:
             return None
         
-        # Check for v2 format (version byte = 0x02)
-        if len(data) >= 6 and data[2] == 0x02:
-            # v2 format: <magic:2><version:1><seq:1><num_sc:2><payload>
-            _, version, seq_num, num_sc = struct.unpack('<HBBH', data[:6])
-            header_size = 6
-        else:
-            # v1 format: <magic:2><num_sc:1><seq:1><payload>
-            _, num_sc, seq_num = struct.unpack('<HBB', data[:4])
-            header_size = 4
+        chip = CHIP_CODES.get(chip_code, 'unknown')
+        header_size = 6
         
         # Parse I/Q data
         iq_size = num_sc * 2
@@ -173,7 +177,8 @@ class CSIReceiver:
             iq_raw=iq_raw,
             iq_complex=iq_complex,
             amplitudes=amplitudes,
-            phases=phases
+            phases=phases,
+            chip=chip
         )
     
     def _check_sequence(self, seq_num: int):
@@ -353,6 +358,21 @@ class CSIReceiver:
 # Data Collection
 # ============================================================================
 
+def get_git_username() -> Optional[str]:
+    """Get GitHub username from git config (user.name or user.email prefix)"""
+    try:
+        result = subprocess.run(
+            ['git', 'config', 'user.name'],
+            capture_output=True, text=True, timeout=2
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # Convert "Francesco Pace" -> "francescopace" (lowercase, no spaces)
+            return result.stdout.strip().lower().replace(' ', '')
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return None
+
+
 class CSICollector:
     """
     Collects labeled CSI data for training datasets.
@@ -364,26 +384,22 @@ class CSICollector:
         collector.collect_timed(duration=3.0, num_samples=10)
     """
     
-    def __init__(self, label: str, port: int = DEFAULT_PORT,
-                 subject: str = None, environment: str = None,
-                 notes: str = None, chip: str = None):
+    # File format version - increment when format changes
+    FORMAT_VERSION = '1.0'
+    
+    def __init__(self, label: str, port: int = DEFAULT_PORT, contributor: str = None):
         """
         Initialize collector.
         
         Args:
             label: Label for collected samples (e.g., 'wave', 'baseline')
             port: UDP port for CSI receiver
-            subject: Optional subject/contributor ID
-            environment: Optional environment description
-            notes: Optional notes
-            chip: Optional chip identifier (e.g., 'c6', 's3') for filename
+            contributor: GitHub username of the contributor (auto-detected from git if not provided)
         """
         self.label = label
         self.port = port
-        self.subject = subject
-        self.environment = environment
-        self.notes = notes
-        self.chip = chip.lower() if chip else None
+        self.chip = None  # Auto-detected from CSI packets
+        self.contributor = contributor or get_git_username()
         
         self.receiver = CSIReceiver(port=port, buffer_size=2000)
         self._recording = False
@@ -396,13 +412,11 @@ class CSICollector:
         label_dir.mkdir(parents=True, exist_ok=True)
         return label_dir
     
-    def _generate_filename(self) -> str:
-        """Generate filename for sample, including chip type if specified"""
+    def _generate_filename(self, num_subcarriers: int) -> str:
+        """Generate filename with format: {label}_{chip}_{num_sc}sc_{timestamp}.npz"""
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self._sample_count += 1
-        if self.chip:
-            return f'{self.label}_{self.chip}_{timestamp}_{self._sample_count:03d}.npz'
-        return f'{self.label}_{timestamp}_{self._sample_count:03d}.npz'
+        chip = self.chip or 'unknown'
+        return f'{self.label}_{chip}_{num_subcarriers}sc_{timestamp}.npz'
     
     def save_sample(self, packets: List[CSIPacket]) -> Optional[Path]:
         """
@@ -413,65 +427,69 @@ class CSICollector:
         
         Returns:
             Path to saved file, or None if no packets
+        
+        File format (unified, compact):
+            csi_data: int8[N, num_sc*2] - Raw I/Q values
+            num_subcarriers: int - Number of subcarriers (64, 128, 256)
+            label: str - Label name
+            label_id: int - Numeric label ID
+            chip: str - Chip type (C6, S3, etc.)
+            collected_at: str - ISO timestamp
+            duration_ms: float - Total duration
+            format_version: str - Format version
         """
         if not packets:
             return None
         
-        # Extract arrays
-        amplitudes = np.array([p.amplitudes for p in packets])
-        phases = np.array([p.phases for p in packets])
-        iq_raw = np.array([p.iq_raw for p in packets])
+        # Auto-detect chip from first packet (v2 protocol)
+        if packets[0].chip and packets[0].chip != 'unknown':
+            self.chip = packets[0].chip.lower()
+        
+        # Extract I/Q raw data (compact int8 format)
+        csi_data = np.array([p.iq_raw for p in packets], dtype=np.int8)
+        
+        # Calculate duration from timestamps
         timestamps = np.array([p.timestamp for p in packets])
-        
-        # Make timestamps relative to first packet
-        timestamps = timestamps - timestamps[0]
-        
-        # Calculate metadata
-        duration_ms = (timestamps[-1]) * 1000 if len(timestamps) > 1 else 0
-        sample_rate = len(packets) / (duration_ms / 1000) if duration_ms > 0 else 0
+        duration_ms = (timestamps[-1] - timestamps[0]) * 1000 if len(timestamps) > 1 else 0
         
         # Get label ID from dataset info
         label_id = self._get_or_create_label_id()
         
-        # Build sample dict
+        # Build sample dict (unified format)
         sample = {
-            # CSI data
-            'amplitudes': amplitudes,
-            'phases': phases,
-            'iq_raw': iq_raw,
-            'timestamps': timestamps,
+            # CSI data (essential)
+            'csi_data': csi_data,
+            'num_subcarriers': packets[0].num_subcarriers,
             
-            # Label
+            # Label (ground truth)
             'label': self.label,
             'label_id': label_id,
             
+            # Context
+            'chip': self.chip or 'unknown',
+            
             # Metadata
-            'num_packets': len(packets),
-            'num_subcarriers': packets[0].num_subcarriers,
-            'duration_ms': duration_ms,
-            'sample_rate_hz': sample_rate,
-            'dropped_packets': self.receiver.dropped_count,
-            
-            # Collection info
             'collected_at': datetime.now().isoformat(),
-            'subject': self.subject or '',
-            'environment': self.environment or '',
-            'notes': self.notes or '',
-            
-            # Version
-            'format_version': FORMAT_VERSION,
+            'duration_ms': duration_ms,
+            'format_version': self.FORMAT_VERSION,
         }
         
         # Save file
         label_dir = self._get_label_dir()
-        filename = self._generate_filename()
+        num_subcarriers = packets[0].num_subcarriers
+        filename = self._generate_filename(num_subcarriers)
         filepath = label_dir / filename
         
         np.savez_compressed(filepath, **sample)
         
         # Update dataset info with file details
-        num_subcarriers = packets[0].num_subcarriers
-        self._update_dataset_info(filename=filename, num_subcarriers=num_subcarriers)
+        self._update_dataset_info(
+            filename=filename,
+            num_subcarriers=num_subcarriers,
+            num_packets=len(packets),
+            duration_ms=duration_ms,
+            collected_at=sample['collected_at']
+        )
         
         return filepath
     
@@ -495,7 +513,9 @@ class CSICollector:
         
         return new_id
     
-    def _update_dataset_info(self, filename: str = None, num_subcarriers: int = None):
+    def _update_dataset_info(self, filename: str = None, num_subcarriers: int = None,
+                                num_packets: int = None, duration_ms: float = None,
+                                collected_at: str = None):
         """Update dataset info with current sample counts and file details"""
         info = load_dataset_info()
         
@@ -528,17 +548,13 @@ class CSICollector:
                     'filename': filename,
                     'chip': self.chip.upper() if self.chip else 'unknown',
                     'subcarriers': num_subcarriers,
+                    'contributor': self.contributor or '',
+                    'collected_at': collected_at or '',
+                    'duration_ms': int(duration_ms) if duration_ms else 0,
+                    'num_packets': num_packets or 0,
                     'description': ''
                 }
                 info['files'][self.label].append(file_info)
-        
-        # Track contributors
-        if self.subject and self.subject not in info.get('contributors', []):
-            info.setdefault('contributors', []).append(self.subject)
-        
-        # Track environments
-        if self.environment and self.environment not in info.get('environments', []):
-            info.setdefault('environments', []).append(self.environment)
         
         save_dataset_info(info)
     
@@ -711,7 +727,7 @@ def load_dataset_info() -> Dict[str, Any]:
     
     # Create default info
     return {
-        'format_version': FORMAT_VERSION,
+        'format_version': CSICollector.FORMAT_VERSION,
         'created_at': datetime.now().isoformat(),
         'updated_at': datetime.now().isoformat(),
         'labels': {},
@@ -832,9 +848,11 @@ def load_samples_as_arrays(labels: List[str] = None) -> Tuple[np.ndarray, np.nda
 
 def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     """
-    Load .npz file and convert to list of packet dicts (for backward compatibility)
+    Load .npz file and convert to list of packet dicts.
     
-    Supports both old format (csi_data array) and new format (iq_raw, amplitudes, phases).
+    Supports:
+    - Unified format: csi_data (int8), num_subcarriers, label, chip, etc.
+    - Legacy format with iq_raw: converts to csi_data
     
     Args:
         filepath: Path to .npz file
@@ -844,43 +862,28 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     """
     data = np.load(filepath, allow_pickle=True)
     
-    # Detect format: new format has 'iq_raw', old format has 'csi_data'
-    if 'iq_raw' in data.files:
-        # New format (v1.0): iq_raw, amplitudes, phases, timestamps
-        iq_raw = data['iq_raw']
-        timestamps = data.get('timestamps', np.zeros(len(iq_raw)))
-        label = str(data.get('label', 'unknown'))
-        num_subcarriers = int(data.get('num_subcarriers', iq_raw.shape[1] // 2))
-        
-        packets = []
-        for i in range(len(iq_raw)):
-            # Convert iq_raw row to int8 array (csi_data format)
-            csi_data = np.array(iq_raw[i], dtype=np.int8)
-            packets.append({
-                'timestamp_ms': int(timestamps[i] * 1000) if i < len(timestamps) else 0,
-                'rssi': 0,  # Not available in new format
-                'noise_floor': 0,  # Not available in new format
-                'csi_data': csi_data,
-                'label': label,
-                'num_subcarriers': num_subcarriers
-            })
-    else:
-        # Old format: csi_data array with packets dict
+    # Get CSI data (unified format uses 'csi_data', legacy may use 'iq_raw')
+    if 'csi_data' in data.files:
         csi_array = data['csi_data']
-        timestamps = data.get('timestamps', np.zeros(len(csi_array), dtype=np.uint32))
-        rssi = data.get('rssi', np.zeros(len(csi_array), dtype=np.int8))
-        noise_floor = data.get('noise_floor', np.zeros(len(csi_array), dtype=np.int8))
-        label = str(data.get('label', 'unknown'))
-        
-        packets = []
-        for i in range(len(csi_array)):
-            packets.append({
-                'timestamp_ms': int(timestamps[i]) if i < len(timestamps) else 0,
-                'rssi': int(rssi[i]) if i < len(rssi) else 0,
-                'noise_floor': int(noise_floor[i]) if i < len(noise_floor) else 0,
-                'csi_data': csi_array[i],
-                'label': label
-            })
+    elif 'iq_raw' in data.files:
+        csi_array = data['iq_raw']
+    else:
+        raise ValueError(f"No CSI data found in {filepath}")
+    
+    # Get metadata
+    label = str(data.get('label', 'unknown'))
+    num_subcarriers = int(data.get('num_subcarriers', csi_array.shape[1] // 2))
+    chip = str(data.get('chip', 'unknown'))
+    
+    # Build packet list
+    packets = []
+    for i in range(len(csi_array)):
+        packets.append({
+            'csi_data': np.array(csi_array[i], dtype=np.int8),
+            'label': label,
+            'num_subcarriers': num_subcarriers,
+            'chip': chip
+        })
     
     return packets
 
@@ -901,9 +904,9 @@ def load_baseline_and_movement(
     """
     # Apply defaults if not specified
     if baseline_file is None:
-        baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_001.npz'
+        baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz'
     if movement_file is None:
-        movement_file = DATA_DIR / 'movement' / 'movement_c6_001.npz'
+        movement_file = DATA_DIR / 'movement' / 'movement_c6_64sc_20251212_142443.npz'
     
     # Convert to Path if string
     baseline_path = Path(baseline_file) if isinstance(baseline_file, str) else baseline_file

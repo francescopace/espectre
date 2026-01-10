@@ -176,8 +176,8 @@ def main():
     print("\nLoading data...")
     try:
         s3_baseline, s3_movement = load_baseline_and_movement(
-            baseline_file=DATA_DIR / 'baseline' / 'baseline_s3_001.npz',
-            movement_file=DATA_DIR / 'movement' / 'movement_s3_001.npz'
+            baseline_file=DATA_DIR / 'baseline' / 'baseline_s3_64sc_20251212_142443.npz',
+            movement_file=DATA_DIR / 'movement' / 'movement_s3_64sc_20251212_142443.npz'
         )
         print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets")
     except FileNotFoundError as e:
@@ -186,8 +186,8 @@ def main():
     
     try:
         c6_baseline, c6_movement = load_baseline_and_movement(
-            baseline_file=DATA_DIR / 'baseline' / 'baseline_c6_001.npz',
-            movement_file=DATA_DIR / 'movement' / 'movement_c6_001.npz'
+            baseline_file=DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz',
+            movement_file=DATA_DIR / 'movement' / 'movement_c6_64sc_20251212_142443.npz'
         )
         print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets")
     except FileNotFoundError as e:

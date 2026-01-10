@@ -172,8 +172,8 @@ def synthetic_csi_movement_packets():
 @pytest.fixture
 def real_csi_data_available():
     """Check if real CSI data files are available"""
-    baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_001.npz'
-    movement_file = DATA_DIR / 'movement' / 'movement_c6_001.npz'
+    baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz'
+    movement_file = DATA_DIR / 'movement' / 'movement_c6_64sc_20251212_142443.npz'
     return baseline_file.exists() and movement_file.exists()
 
 

@@ -107,7 +107,7 @@ Both platforms use the **same real CSI data** captured from ESP32-C6:
 | Platform | Baseline Data | Movement Data |
 |----------|---------------|---------------|
 | **C++** | `test/data/real_csi_data_esp32.h` | `test/data/real_csi_arrays.inc` |
-| **Python** | `micro-espectre/data/baseline/baseline_c6_001.npz` | `micro-espectre/data/movement/movement_c6_001.npz` |
+| **Python** | `micro-espectre/data/baseline/baseline_c6_64sc_20251212_142443.npz` | `micro-espectre/data/movement/movement_c6_64sc_20251212_142443.npz` |
 
 ### Running the Tests
 

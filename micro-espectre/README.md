@@ -145,7 +145,7 @@ The `me` CLI provides these essential commands:
 | `deploy` | Deploy Python code to device | `./me deploy` |
 | `run` | Run the application | `./me run` |
 | `stream` | Stream raw CSI data via UDP | `./me stream --ip 192.168.1.100` |
-| `collect` | Collect labeled CSI data for ML | `./me collect --label wave --duration 30` |
+| `collect` | Collect labeled CSI data for ML | `./me collect --label movement --duration 30` |
 | `verify` | Verify firmware installation | `./me verify` |
 | *(interactive)* | Interactive MQTT control | `./me` |
 

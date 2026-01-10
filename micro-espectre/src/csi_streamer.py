@@ -3,22 +3,19 @@ Micro-ESPectre - CSI UDP Streamer
 
 Streams raw CSI I/Q data via UDP for real-time processing.
 
-Packet format v2 (for 256 SC support):
+Packet format:
   Header (6 bytes):
     - Magic: 0x4353 ("CS") - 2 bytes
-    - Version: 1 byte (0x02 for v2)
+    - Chip type: 1 byte (0=unknown, 1=ESP32, 2=S2, 3=S3, 4=C3, 5=C5, 6=C6)
     - Sequence number: 1 byte (0-255, wrapping)
     - Num subcarriers: 2 bytes (uint16, little-endian)
   Payload (N × 2 bytes):
     - I0, Q0, I1, Q1, ... (int8 each)
 
-Packet format v1 (legacy, max 255 SC):
-  Header (4 bytes):
-    - Magic: 0x4353 ("CS") - 2 bytes
-    - Num subcarriers: 1 byte
-    - Sequence number: 1 byte (0-255, wrapping)
-  Payload (N × 2 bytes):
-    - I0, Q0, I1, Q1, ... (int8 each)
+Examples:
+  - 64 SC:  6 + 128 = 134 bytes
+  - 128 SC: 6 + 256 = 262 bytes
+  - 256 SC: 6 + 512 = 518 bytes
 
 Usage:
     ./me stream --ip 192.168.1.100
@@ -38,7 +35,33 @@ from src.main import connect_wifi, cleanup_wifi, run_gain_lock
 # Streaming configuration
 STREAM_PORT = 5001
 MAGIC_STREAM = 0x4353  # "CS" in little-endian
-PROTOCOL_VERSION = 0x02  # v2 supports up to 65535 subcarriers
+
+# Chip type codes (must match receiver)
+CHIP_UNKNOWN = 0
+CHIP_ESP32 = 1
+CHIP_S2 = 2
+CHIP_S3 = 3
+CHIP_C3 = 4
+CHIP_C5 = 5
+CHIP_C6 = 6
+
+
+def detect_chip_code():
+    """Detect chip type and return code for protocol"""
+    machine = os.uname().machine.upper()
+    if 'ESP32-C6' in machine or 'ESP32C6' in machine:
+        return CHIP_C6
+    elif 'ESP32-C5' in machine or 'ESP32C5' in machine:
+        return CHIP_C5
+    elif 'ESP32-C3' in machine or 'ESP32C3' in machine:
+        return CHIP_C3
+    elif 'ESP32-S3' in machine or 'ESP32S3' in machine:
+        return CHIP_S3
+    elif 'ESP32-S2' in machine or 'ESP32S2' in machine:
+        return CHIP_S2
+    elif 'ESP32' in machine:
+        return CHIP_ESP32
+    return CHIP_UNKNOWN
 
 
 def stream_csi(dest_ip, duration_sec=0):
@@ -59,7 +82,8 @@ def stream_csi(dest_ip, duration_sec=0):
     # Connect WiFi (also enables CSI)
     wlan = connect_wifi()
     chip_type = os.uname().machine
-    print(f'Chip: {chip_type}')
+    chip_code = detect_chip_code()
+    print(f'Chip: {chip_type} (code: {chip_code})')
     
     # Start traffic generator
     traffic_gen = TrafficGenerator()
@@ -77,13 +101,12 @@ def stream_csi(dest_ip, duration_sec=0):
     # Phase 1: Gain lock (stabilizes AGC/FFT and determines dominant SC count)
     agc_gain, fft_gain, skipped, num_sc = run_gain_lock(wlan)
     
-    # Use v2 protocol format: <magic><version><seq><num_sc_u16><payload>
+    # Packet format: <magic><chip><seq><num_sc_u16><payload>
     packet_format = f'<HBBH{num_sc * 2}b'
     packet_size = struct.calcsize(packet_format)
     
     print('')
     print(f'Streaming to: {dest_ip}:{STREAM_PORT}')
-    print(f'Protocol:     v2 (supports 256 SC)')
     print(f'Subcarriers:  {num_sc}')
     print(f'Packet size:  {packet_size} bytes')
     duration_str = "infinite" if duration_sec == 0 else str(duration_sec) + "s"
@@ -122,9 +145,9 @@ def stream_csi(dest_ip, duration_sec=0):
                 # Extract I/Q values
                 iq_values = [int(v) for v in csi_data]
                 
-                # Build and send packet (v2 format)
+                # Build and send packet
                 try:
-                    packet = struct.pack(packet_format, MAGIC_STREAM, PROTOCOL_VERSION, seq_num, num_sc, *iq_values)
+                    packet = struct.pack(packet_format, MAGIC_STREAM, chip_code, seq_num, num_sc, *iq_values)
                     sock.sendto(packet, dest_addr)
                     packet_count += 1
                     seq_num = (seq_num + 1) & 0xFF

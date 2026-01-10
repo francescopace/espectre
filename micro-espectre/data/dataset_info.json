@@ -23,54 +23,81 @@
   "files": {
     "baseline": [
       {
-        "filename": "baseline_c6_001.npz",
+        "filename": "baseline_c6_64sc_20251212_142443.npz",
         "chip": "C6",
         "subcarriers": 64,
-        "description": "HT20 baseline sample"
+        "contributor": "francescopace",
+        "description": "HT20 baseline sample",
+        "collected_at": "2025-12-12T14:24:43.381306",
+        "duration_ms": 10000,
+        "num_packets": 1000
       },
       {
-        "filename": "baseline_c6_256sc_001.npz",
+        "filename": "baseline_c6_256sc_20260110_182357.npz",
         "chip": "C6",
         "subcarriers": 256,
-        "description": "HE-SU 80MHz baseline sample"
+        "contributor": "francescopace",
+        "description": "HE-SU 80MHz baseline sample",
+        "collected_at": "2026-01-10T18:23:57.539633",
+        "duration_ms": 10002,
+        "num_packets": 1212
       },
       {
-        "filename": "baseline_s3_001.npz",
+        "filename": "baseline_s3_64sc_20251212_142443.npz",
         "chip": "S3",
         "subcarriers": 64,
-        "description": "HT20 baseline sample"
+        "contributor": "francescopace",
+        "description": "HT20 baseline sample",
+        "collected_at": "2025-12-12T14:24:43.413630",
+        "duration_ms": 10000,
+        "num_packets": 1000
       }
     ],
     "baseline_noisy": [
       {
-        "filename": "baseline_noisy_c6_20251214_025208_001.npz",
+        "filename": "baseline_noisy_c6_64sc_20251214_025208.npz",
         "chip": "C6",
         "subcarriers": 64,
-        "description": "Noisy environment baseline"
+        "contributor": "francescopace",
+        "description": "Noisy environment baseline",
+        "collected_at": "2025-12-14T02:52:08.067424",
+        "duration_ms": 60005,
+        "num_packets": 6379
       }
     ],
     "movement": [
       {
-        "filename": "movement_c6_001.npz",
+        "filename": "movement_c6_64sc_20251212_142443.npz",
         "chip": "C6",
         "subcarriers": 64,
-        "description": "HT20 movement sample"
+        "contributor": "francescopace",
+        "description": "HT20 movement sample",
+        "collected_at": "2025-12-12T14:24:43.402600",
+        "duration_ms": 10000,
+        "num_packets": 1000
       },
       {
-        "filename": "movement_c6_256sc_001.npz",
+        "filename": "movement_c6_256sc_20260110_182443.npz",
         "chip": "C6",
         "subcarriers": 256,
-        "description": "HE-SU 80MHz movement sample"
+        "contributor": "francescopace",
+        "description": "HE-SU 80MHz movement sample",
+        "collected_at": "2026-01-10T18:24:43.598759",
+        "duration_ms": 9999,
+        "num_packets": 1210
       },
       {
-        "filename": "movement_s3_001.npz",
+        "filename": "movement_s3_64sc_20251212_142443.npz",
         "chip": "S3",
         "subcarriers": 64,
-        "description": "HT20 movement sample"
+        "contributor": "francescopace",
+        "description": "HT20 movement sample",
+        "collected_at": "2025-12-12T14:24:43.423847",
+        "duration_ms": 10000,
+        "num_packets": 1000
       }
     ]
   },
-  "contributors": ["francescopace"],
   "environments": [
     {
       "id": "home_lab",

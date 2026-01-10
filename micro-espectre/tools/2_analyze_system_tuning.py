@@ -36,11 +36,11 @@ def load_dataset(use_256sc=False):
         tuple: (baseline_packets, movement_packets, num_subcarriers)
     """
     if use_256sc:
-        baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_256sc_001.npz'
-        movement_file = DATA_DIR / 'movement' / 'movement_c6_256sc_001.npz'
+        baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_256sc_20260110_182357.npz'
+        movement_file = DATA_DIR / 'movement' / 'movement_c6_256sc_20260110_182443.npz'
     else:
-        baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_001.npz'
-        movement_file = DATA_DIR / 'movement' / 'movement_c6_001.npz'
+        baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz'
+        movement_file = DATA_DIR / 'movement' / 'movement_c6_64sc_20251212_142443.npz'
     
     if not baseline_file.exists():
         raise FileNotFoundError(f"{baseline_file} not found")
