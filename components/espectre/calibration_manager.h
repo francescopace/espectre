@@ -1,8 +1,9 @@
 /*
  * ESPectre - Calibration Manager
  * 
- * Manages NBVI (Normalized Baseline Variability Index) auto-calibration.
- * Automatically selects optimal 12 subcarriers for motion detection.
+ * Automatic subcarrier band selection using P95 moving variance optimization.
+ * Selects optimal 12-subcarrier band for motion detection by minimizing
+ * false positive rate.
  * 
  * Uses file-based storage to avoid RAM limitations. Magnitudes stored as
  * uint8 (max CSI magnitude ~181 fits in 1 byte). This allows collecting
@@ -33,12 +34,12 @@ class CSIManager;
 /**
  * Calibration Manager
  * 
- * Orchestrates NBVI auto-calibration process:
+ * Orchestrates P95-based band calibration process:
  * 1. Collects CSI packets during baseline period
- * 2. Analyzes subcarrier stability using NBVI algorithm
- * 3. Selects optimal 12 subcarriers for motion detection
+ * 2. Evaluates candidate bands using P95 of moving variance
+ * 3. Selects optimal 12-subcarrier band for motion detection
  * 
- * Uses adaptive baseline detection and spectral spacing for robust selection.
+ * Uses P95 optimization to minimize false positive rate.
  */
 
 class CalibrationManager {
@@ -48,7 +49,7 @@ class CalibrationManager {
   using result_callback_t = std::function<void(const uint8_t* band, uint8_t size, float normalization_scale, bool success)>;
   
   // Callback type for collection complete notification
-  // Called when all packets have been collected, before NBVI processing starts.
+  // Called when all packets have been collected, before P95 processing starts.
   // Caller can use this to pause traffic generation during the processing phase.
   using collection_complete_callback_t = std::function<void()>;
   
@@ -56,9 +57,9 @@ class CalibrationManager {
    * Initialize calibration manager
    * 
    * @param csi_manager CSI manager instance
-   * @param buffer_path Path for temporary calibration file (default: /spiffs/nbvi_buffer.bin)
+   * @param buffer_path Path for temporary calibration file (default: /spiffs/band_buffer.bin)
    */
-  void init(CSIManager* csi_manager, const char* buffer_path = "/spiffs/nbvi_buffer.bin");
+  void init(CSIManager* csi_manager, const char* buffer_path = "/spiffs/band_buffer.bin");
   
   /**
    * Start automatic calibration
@@ -97,8 +98,6 @@ class CalibrationManager {
    * Configuration setters (optional, use before start_auto_calibration)
    */
   void set_buffer_size(uint16_t size) { buffer_size_ = size; }
-  void set_window_size(uint16_t size) { window_size_ = size; }
-  void set_window_step(uint16_t step) { window_step_ = step; }
   
   /**
    * Set expected number of subcarriers (from GainController stats)
@@ -111,14 +110,8 @@ class CalibrationManager {
   void set_expected_subcarriers(uint16_t num_sc);
   
   uint16_t get_buffer_size() const { return buffer_size_; }
-  uint16_t get_window_size() const { return window_size_; }
-  uint16_t get_window_step() const { return window_step_; }
   uint16_t get_guard_band_low() const { return guard_band_low_; }
   uint16_t get_guard_band_high() const { return guard_band_high_; }
-  void set_percentile(uint8_t percentile) { percentile_ = percentile; }
-  void set_alpha(float alpha) { alpha_ = alpha; }
-  void set_min_spacing(uint8_t spacing) { min_spacing_ = spacing; }
-  void set_noise_gate_percentile(uint8_t percentile) { noise_gate_percentile_ = percentile; }
   void set_skip_subcarrier_selection(bool skip) { skip_subcarrier_selection_ = skip; }
   void set_collection_complete_callback(collection_complete_callback_t callback) { 
     collection_complete_callback_ = callback; 
@@ -133,16 +126,11 @@ class CalibrationManager {
   
  private:
   // Internal structures
-  struct NBVIMetrics {
-    uint8_t subcarrier;
-    float nbvi;
-    float mean;
-    float std;
-  };
-  
-  struct WindowVariance {
-    uint16_t start_idx;
-    float variance;
+  struct BandResult {
+    uint8_t start_sc;      // First subcarrier in band
+    float p95;             // P95 of moving variance
+    float mean_mv;         // Mean moving variance
+    float fp_estimate;     // Estimated FP rate
   };
   
   // Internal methods
@@ -150,18 +138,9 @@ class CalibrationManager {
   esp_err_t run_calibration_();
   static void calibration_task_(void* arg);
   void finish_calibration_(bool success);
-  esp_err_t find_candidate_windows_(std::vector<WindowVariance>& candidates);
-  void calculate_nbvi_metrics_(uint16_t baseline_start, std::vector<NBVIMetrics>& metrics);
-  uint8_t apply_noise_gate_(std::vector<NBVIMetrics>& metrics);
-  void select_with_spacing_(const std::vector<NBVIMetrics>& sorted_metrics,
-                           uint8_t* output_band,
-                           uint8_t* output_size);
-  bool validate_subcarriers_(const uint8_t* band, uint8_t band_size, float* out_fp_rate);
-  
-  // Utility methods
-  float calculate_percentile_(const std::vector<float>& sorted_values, uint8_t percentile) const;
-  void calculate_nbvi_weighted_(const std::vector<float>& magnitudes,
-                                NBVIMetrics& out_metrics) const;
+  void get_candidate_bands_(std::vector<std::vector<uint8_t>>& candidates);
+  BandResult evaluate_band_(const std::vector<uint8_t>& window_data, const uint8_t* band, uint8_t band_size);
+  float calculate_p95_(const std::vector<float>& values) const;
   
   // File I/O helpers
   bool ensure_spiffs_mounted_();
@@ -181,17 +160,16 @@ class CalibrationManager {
   // File-based storage (saves RAM - magnitudes stored as uint8)
   FILE* buffer_file_{nullptr};
   uint16_t buffer_count_{0};
-  const char* buffer_path_{"/spiffs/nbvi_buffer.bin"};
+  const char* buffer_path_{"/spiffs/band_buffer.bin"};
   
   // Configuration parameters
   uint16_t buffer_size_{700};         // Number of packets to collect (~7 seconds at 100 Hz)
-  uint16_t window_size_{200};        // Window size for baseline detection (2s @ 100Hz)
-  uint16_t window_step_{50};         // Step size for sliding window
-  uint8_t percentile_{10};           // Percentile for baseline detection
-  float alpha_{0.5f};                // NBVI weighting factor (higher = more weight on signal strength)
-  uint8_t min_spacing_{1};           // Minimum spectral spacing (1 = adjacent allowed)
-  uint8_t noise_gate_percentile_{25}; // Noise gate threshold
-  bool skip_subcarrier_selection_{false}; // Skip NBVI, only calculate baseline
+  bool skip_subcarrier_selection_{false}; // Skip band selection, only calculate baseline
+  
+  // P95 algorithm constants
+  static constexpr uint16_t MVS_WINDOW_SIZE = 50;  // Window size for moving variance
+  static constexpr float MVS_THRESHOLD = 1.0f;     // Detection threshold
+  static constexpr float SAFE_MARGIN = 0.15f;      // Safety margin below threshold
   
   // Current calibration context
   std::vector<uint8_t> current_band_;

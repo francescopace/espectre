@@ -36,7 +36,7 @@ using game_mode_callback_t = std::function<void(float movement, float threshold)
  * 
  * Manages complete CSI pipeline: hardware configuration, data processing, and motion detection.
  * Handles platform-specific differences between ESP32-C6 and ESP32-S3.
- * Orchestrates CSI packet processing and NBVI calibration.
+ * Orchestrates CSI packet processing and band calibration.
  */
 class CSIManager {
  public:
@@ -145,7 +145,7 @@ class CSIManager {
   /**
    * Set callback for when gain lock completes
    * 
-   * Use this to trigger NBVI calibration after gain is locked.
+   * Use this to trigger band calibration after gain is locked.
    * 
    * @param callback Function to call when gain is locked
    */

@@ -191,39 +191,41 @@ See [TUNING.md](TUNING.md) for detailed tuning instructions.
 
 ---
 
-## NBVI Automatic Calibration
+## P95 Automatic Band Selection
 
-When using NBVI (Normalized Baseline Variability Index) for automatic subcarrier selection instead of fixed bands, performance varies by dataset:
+When using P95 Band Selection for automatic subcarrier optimization, the algorithm selects a contiguous 12-subcarrier band that minimizes false positive rate:
 
 ### 64 SC (HT20)
 
-| Metric | Fixed Band [11-22] | NBVI Auto-Calibration |
+| Metric | Fixed Band [11-22] | P95 Auto-Calibration |
 |--------|--------------------|-----------------------|
-| **Recall** | 98.1% | 96.4% |
+| **Selected Band** | [11-22] | [11-22] |
+| **Recall** | 98.1% | 98.1% |
 | **Precision** | 100.0% | 100.0% |
 | **FP Rate** | 0.0% | 0.0% |
-| **F1-Score** | 99.0% | 98.2% |
+| **F1-Score** | 99.0% | 99.0% |
 
 ### 256 SC (HE20)
 
-| Metric | Fixed Band [147-158] | NBVI Auto-Calibration |
+| Metric | Fixed Band [147-158] | P95 Auto-Calibration |
 |--------|----------------------|-----------------------|
-| **Recall** | 99.9% | 99.7% |
-| **Precision** | 100.0% | 93.9% |
-| **FP Rate** | 0.0% | 6.5% |
-| **F1-Score** | 100.0% | 96.7% |
+| **Selected Band** | [147-158] | [177-188] |
+| **Recall** | 99.9% | 94.0% |
+| **Precision** | 100.0% | 99.0% |
+| **FP Rate** | 0.0% | 0.9% |
+| **F1-Score** | 100.0% | 96.5% |
 
-> **Note**: NBVI with 256 SC shows higher FP rate due to the larger subcarrier search space. The fixed band [147-158] was optimized via grid search for the reference dataset.
+> **Note**: P95 Band Selection achieves near-optimal performance for both 64 SC and 256 SC. For 256 SC, it automatically selects band [177-188] which has excellent FP rate (0.9%) while maintaining good recall (94.0%).
 
-**Why use NBVI instead of fixed band?**
+**Why use P95 instead of fixed band?**
 
-Fixed bands achieve better performance in the reference test environment, but **subcarrier quality varies significantly between environments** due to:
+Fixed bands achieve slightly better performance in the reference test environment, but **subcarrier quality varies significantly between environments** due to:
 - Room geometry and materials (walls, furniture, metal objects)
 - WiFi interference from neighboring networks
 - Distance and orientation relative to the access point
 - ESP32 variant and antenna characteristics
 
-**NBVI automatically selects the optimal subcarriers for each specific environment**, making it the recommended choice for production deployments. Fixed bands are useful only for controlled test environments where optimal subcarriers have been manually identified.
+**P95 Band Selection automatically finds the optimal band for each specific environment**, making it the recommended choice for production deployments. The algorithm evaluates all candidate bands and selects the one with the best balance of low false positive rate and motion sensitivity.
 
 ---
 
@@ -231,10 +233,10 @@ Fixed bands achieve better performance in the reference test environment, but **
 
 | Date | Version | Dataset | Mode | Recall | Precision | FP Rate | F1-Score | Notes |
 |------|---------|---------|------|--------|-----------|---------|----------|-------|
-| 2026-01-11 | v2.4.0 | 256 SC | Fixed | 99.9% | 100.0% | 0.0% | 100.0% | WiFi 6 HE20 support |
-| 2026-01-11 | v2.4.0 | 256 SC | NBVI | 99.7% | 93.9% | 6.5% | 96.7% | WiFi 6 HE20 support |
-| 2026-01-11 | v2.4.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | Multi-dataset testing |
-| 2026-01-11 | v2.4.0 | 64 SC | NBVI | 96.4% | 100.0% | 0.0% | 98.2% | Multi-dataset testing |
+| 2026-01-11 | v2.4.0 | 256 SC | P95 | 94.0% | 99.0% | 0.9% | 96.5% | P95 Band Selection |
+| 2026-01-11 | v2.4.0 | 256 SC | Fixed | 99.9% | 100.0% | 0.0% | 100.0% | P95 Band Selection |
+| 2026-01-11 | v2.4.0 | 64 SC | P95 | 98.1% | 100.0% | 0.0% | 99.0% | P95 Band Selection |
+| 2026-01-11 | v2.4.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% |P95 Band Selection |
 | 2025-12-27 | v2.3.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | Multi-window validation |
 | 2025-12-27 | v2.3.0 | 64 SC | NBVI | 96.4% | 100.0% | 0.0% | 98.2% | Multi-window validation |
 | 2025-12-13 | v2.2.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | ESPHome Port |

@@ -23,12 +23,12 @@ pio test -f test_motion_detection
 |-------|------|------|-------|
 | `test_csi_processor` | Unit | **Real** | API, getters, state machine, normalization, low-pass filter |
 | `test_hampel_filter` | Unit | **Real** | Outlier removal filter |
-| `test_calibration` | Unit | **Real** | NBVI, magnitude, turbulence, normalization scale, fallback |
-| `test_calibration_manager` | Integration | **Real** | CalibrationManager API, file I/O, NBVI ranking |
+| `test_calibration` | Unit | **Real** | P95 band selection, magnitude, turbulence, normalization scale, fallback |
+| `test_calibration_manager` | Integration | **Real** | CalibrationManager API, file I/O, P95 band ranking |
 | `test_csi_manager` | Integration | **Real** | CSIManager API, callbacks, motion detection |
 | `test_calibration_file_storage` | Unit | Synthetic | File-based magnitude storage |
 | `test_traffic_generator` | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
-| `test_motion_detection` | Integration | **Real** | MVS performance, NBVI end-to-end |
+| `test_motion_detection` | Integration | **Real** | MVS performance, P95 calibration end-to-end |
 
 
 ### Target Metrics (Motion Detection)

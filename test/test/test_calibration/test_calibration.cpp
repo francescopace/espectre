@@ -1,7 +1,7 @@
 /*
  * ESPectre - Calibration Algorithm Unit Tests
  *
- * Unit tests for NBVI (Normalized Baseline Variability Index) calculations
+ * Unit tests for subcarrier band calculations
  * and utility functions used in auto-calibration.
  *
  * Tests utils.h functions directly and CalibrationManager end-to-end.
@@ -141,7 +141,7 @@ void test_variance_large_values_numerical_stability(void) {
 // ============================================================================
 // CALIBRATION MANAGER END-TO-END TESTS
 // These tests run CalibrationManager with real CSI data to exercise
-// calculate_nbvi_weighted_ and calculate_percentile_ internally
+// calculate_band_weighted_ and calculate_percentile_ internally
 // ============================================================================
 
 void test_calibration_manager_full_calibration(void) {
@@ -176,7 +176,7 @@ void test_calibration_manager_full_calibration(void) {
     TEST_ASSERT_TRUE(cm.is_calibrating());
     
     // Feed 200 baseline packets to CalibrationManager
-    // This will trigger run_calibration_() which calls calculate_nbvi_weighted_ and calculate_percentile_
+    // This will trigger run_calibration_() which calculates P95 moving variance for band selection
     for (int i = 0; i < 200; i++) {
         bool buffer_full = cm.add_packet(baseline_packets[i % 100], packet_size);
         if (buffer_full) {
@@ -201,68 +201,45 @@ void test_calibration_manager_full_calibration(void) {
     }
 }
 
-void test_calibration_manager_alpha_affects_selection(void) {
-    // Test that different alpha values affect NBVI calculation
+void test_calibration_manager_p95_produces_valid_band(void) {
+    // Test that P95 calibration produces valid band selection
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
-    // Run calibration with alpha = 0.0 (pure CV)
-    CalibrationManager cm1;
-    cm1.init(&csi_manager, TEST_BUFFER_PATH);
-    cm1.set_expected_subcarriers(csi_test_data::num_subcarriers());
-    cm1.set_buffer_size(100);
-    cm1.set_window_size(50);
-    cm1.set_alpha(0.0f);  // Pure CV
+    CalibrationManager cm;
+    cm.init(&csi_manager, TEST_BUFFER_PATH);
+    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
+    cm.set_buffer_size(100);
     
-    uint8_t band1[12] = {0};
-    uint8_t size1 = 0;
+    uint8_t result_band[12] = {0};
+    uint8_t result_size = 0;
+    bool calibration_success = false;
     
-    cm1.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
+    cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
         [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
             (void)normalization_scale;
-            if (success) { memcpy(band1, band, size); size1 = size; }
+            if (success) { memcpy(result_band, band, size); result_size = size; }
+            calibration_success = success;
         });
     
     for (int i = 0; i < 100; i++) {
-        cm1.add_packet(baseline_packets[i], packet_size);
+        cm.add_packet(baseline_packets[i], packet_size);
     }
     
-    // Clean up and run with alpha = 1.0 (pure energy)
-    remove(TEST_BUFFER_PATH);
-    csi_processor_cleanup(&g_processor);
-    csi_processor_init(&g_processor, 50, 1.0f);
+    // P95 calibration should succeed and produce 12 subcarriers
+    TEST_ASSERT_TRUE(calibration_success);
+    TEST_ASSERT_EQUAL(12, result_size);
     
-    CalibrationManager cm2;
-    cm2.init(&csi_manager, TEST_BUFFER_PATH);
-    cm2.set_expected_subcarriers(csi_test_data::num_subcarriers());
-    cm2.set_buffer_size(100);
-    cm2.set_window_size(50);
-    cm2.set_alpha(1.0f);  // Pure energy
-    
-    uint8_t band2[12] = {0};
-    uint8_t size2 = 0;
-    
-    cm2.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)normalization_scale;
-            if (success) { memcpy(band2, band, size); size2 = size; }
-        });
-    
-    for (int i = 0; i < 100; i++) {
-        cm2.add_packet(baseline_packets[i], packet_size);
+    // Selected band should be consecutive subcarriers
+    for (int i = 1; i < 12; i++) {
+        TEST_ASSERT_EQUAL(result_band[0] + i, result_band[i]);
     }
     
-    TEST_ASSERT_EQUAL(12, size1);
-    TEST_ASSERT_EQUAL(12, size2);
-    
-    // The selections might be different due to different alpha
-    // At minimum, both should produce valid results
-    ESP_LOGI(TAG, "Alpha=0 first 3: %d, %d, %d", band1[0], band1[1], band1[2]);
-    ESP_LOGI(TAG, "Alpha=1 first 3: %d, %d, %d", band2[0], band2[1], band2[2]);
+    ESP_LOGI(TAG, "P95 selected band: [%d-%d]", result_band[0], result_band[11]);
 }
 
-void test_calibration_manager_percentile_affects_baseline(void) {
-    // Test that percentile parameter affects baseline window detection
+void test_calibration_manager_handles_mixed_data(void) {
+    // Test that P95 calibration handles mixed baseline/movement data
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
@@ -270,8 +247,6 @@ void test_calibration_manager_percentile_affects_baseline(void) {
     cm.init(&csi_manager, TEST_BUFFER_PATH);
     cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
     cm.set_buffer_size(200);
-    cm.set_window_size(50);
-    cm.set_percentile(5);  // Very strict - only 5th percentile
     
     bool calibration_success = false;
     
@@ -281,7 +256,7 @@ void test_calibration_manager_percentile_affects_baseline(void) {
             calibration_success = success;
         });
     
-    // Mix baseline and movement packets
+    // Mix baseline and movement packets (P95 should still work)
     for (int i = 0; i < 100; i++) {
         cm.add_packet(baseline_packets[i], packet_size);
     }
@@ -289,12 +264,12 @@ void test_calibration_manager_percentile_affects_baseline(void) {
         cm.add_packet(movement_packets[i], packet_size);
     }
     
-    // Should still succeed - percentile helps find the quietest window
+    // P95 calibration should still succeed - it finds band with lowest P95
     TEST_ASSERT_TRUE(calibration_success);
 }
 
-void test_calibration_manager_noise_gate(void) {
-    // Test that noise gate filters weak subcarriers
+void test_calibration_manager_respects_guard_bands(void) {
+    // Test that P95 calibration respects guard bands and DC zone
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
@@ -302,8 +277,6 @@ void test_calibration_manager_noise_gate(void) {
     cm.init(&csi_manager, TEST_BUFFER_PATH);
     cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
     cm.set_buffer_size(100);
-    cm.set_window_size(50);
-    cm.set_noise_gate_percentile(20);  // Filter bottom 20% by signal strength
     
     uint8_t result_band[12] = {0};
     uint8_t result_size = 0;
@@ -320,10 +293,17 @@ void test_calibration_manager_noise_gate(void) {
     
     TEST_ASSERT_EQUAL(12, result_size);
     
-    // Guard bands (0-5, 59-63) have weak signal and should be filtered
+    // Selected subcarriers should be within valid range (not in guard bands)
+    // For 64 SC: guard_low=11, guard_high=52, DC=32
+    // For 256 SC: guard_low=30, guard_high=225, DC zone=[108-147]
+    uint16_t guard_low = cm.get_guard_band_low();
+    uint16_t guard_high = cm.get_guard_band_high();
+    
     for (int i = 0; i < result_size; i++) {
-        TEST_ASSERT_TRUE(result_band[i] >= 6);
-        TEST_ASSERT_TRUE(result_band[i] <= 58);
+        TEST_ASSERT_TRUE_MESSAGE(result_band[i] >= guard_low, 
+            "Subcarrier below guard_low");
+        TEST_ASSERT_TRUE_MESSAGE(result_band[i] <= guard_high,
+            "Subcarrier above guard_high");
     }
 }
 
@@ -336,7 +316,6 @@ void test_calibration_returns_valid_normalization_scale(void) {
     cm.init(&csi_manager, TEST_BUFFER_PATH);
     cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
     cm.set_buffer_size(100);
-    cm.set_window_size(50);
     
     float result_normalization_scale = 0.0f;
     bool calibration_success = false;
@@ -371,7 +350,6 @@ void test_calibration_normalization_always_calculated(void) {
     cm.init(&csi_manager, TEST_BUFFER_PATH);
     cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
     cm.set_buffer_size(100);
-    cm.set_window_size(50);
     
     float result_normalization_scale = 0.0f;
     bool callback_called = false;
@@ -399,9 +377,9 @@ void test_calibration_normalization_always_calculated(void) {
              (void*)result_band, result_size, result_normalization_scale, 
              cm.get_baseline_variance());
     
-    // 1. Band pointer should be valid (either NBVI-selected or default fallback)
+    // 1. Band pointer should be valid (either P95-selected or default fallback)
     TEST_ASSERT_NOT_NULL_MESSAGE(result_band,
-        "Band should never be null (either NBVI or fallback)");
+        "Band should never be null (either P95-selected or fallback)");
     
     // 2. Band size should be 12
     TEST_ASSERT_EQUAL_MESSAGE(12, result_size,
@@ -472,33 +450,33 @@ void test_spectral_spacing_edge_case(void) {
 // SUBCARRIER RANKING TESTS
 // ============================================================================
 
-void test_subcarrier_ranking_by_nbvi(void) {
-    // Simulate NBVI values for different subcarriers
-    struct SubcarrierNBVI {
-        uint8_t index;
-        float nbvi;
+void test_subcarrier_ranking_by_p95(void) {
+    // Simulate P95 moving variance values for different bands
+    struct BandP95 {
+        uint8_t start_index;
+        float p95_mv;
     };
     
-    SubcarrierNBVI metrics[] = {
-        {10, 0.05f},  // Most stable
+    BandP95 metrics[] = {
+        {10, 0.05f},  // Low P95, low FP
         {15, 0.08f},
         {20, 0.12f},
-        {25, 0.03f},  // Best
+        {25, 0.03f},  // Best (lowest P95)
         {30, 0.15f},
         {35, 0.07f},
     };
     
-    // Sort by NBVI (ascending - lower is better)
-    std::sort(metrics, metrics + 6, [](const SubcarrierNBVI& a, const SubcarrierNBVI& b) {
-        return a.nbvi < b.nbvi;
+    // Sort by P95 moving variance (ascending - lower is better for FP rate)
+    std::sort(metrics, metrics + 6, [](const BandP95& a, const BandP95& b) {
+        return a.p95_mv < b.p95_mv;
     });
     
-    // Best subcarrier should be first
-    TEST_ASSERT_EQUAL(25, metrics[0].index);
-    TEST_ASSERT_EQUAL_FLOAT(0.03f, metrics[0].nbvi);
+    // Best band (lowest P95) should be first
+    TEST_ASSERT_EQUAL(25, metrics[0].start_index);
+    TEST_ASSERT_EQUAL_FLOAT(0.03f, metrics[0].p95_mv);
     
     // Worst should be last
-    TEST_ASSERT_EQUAL(30, metrics[5].index);
+    TEST_ASSERT_EQUAL(30, metrics[5].start_index);
 }
 
 // ============================================================================
@@ -832,7 +810,7 @@ void test_turbulence_from_csi_different_csi_lengths(void) {
 // Note: test_subcarrier_variance_ranking_real_data was removed.
 // It tested properties of raw data (variance distribution) rather than algorithm behavior.
 // The real test is test_calibration_manager_full_calibration which verifies that
-// CalibrationManager correctly excludes guard bands via NBVI algorithm.
+// CalibrationManager correctly excludes guard bands via P95 band selection algorithm.
 
 // Tests that don't depend on real CSI data (run once)
 void run_synthetic_tests() {
@@ -850,7 +828,7 @@ void run_synthetic_tests() {
     RUN_TEST(test_spectral_spacing_edge_case);
     
     // Subcarrier ranking tests (synthetic)
-    RUN_TEST(test_subcarrier_ranking_by_nbvi);
+    RUN_TEST(test_subcarrier_ranking_by_p95);
     
     // Magnitude calculation tests (utils.h)
     RUN_TEST(test_magnitude_zero_iq);
@@ -875,9 +853,9 @@ void run_synthetic_tests() {
 void run_real_data_tests() {
     // CalibrationManager end-to-end tests
     RUN_TEST(test_calibration_manager_full_calibration);
-    RUN_TEST(test_calibration_manager_alpha_affects_selection);
-    RUN_TEST(test_calibration_manager_percentile_affects_baseline);
-    RUN_TEST(test_calibration_manager_noise_gate);
+    RUN_TEST(test_calibration_manager_p95_produces_valid_band);
+    RUN_TEST(test_calibration_manager_handles_mixed_data);
+    RUN_TEST(test_calibration_manager_respects_guard_bands);
     RUN_TEST(test_calibration_returns_valid_normalization_scale);
     RUN_TEST(test_calibration_normalization_always_calculated);
     

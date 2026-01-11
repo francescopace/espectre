@@ -46,8 +46,8 @@ void CSIManager::init(csi_processor_context_t* processor,
   hampel_turbulence_init(&processor_->hampel_state, hampel_window, hampel_threshold, hampel_enabled);
   
   // Initialize gain controller for AGC/FFT locking
-  // Gain lock happens BEFORE NBVI calibration (300 packets, ~3 seconds)
-  // This ensures NBVI calibration has clean data with stable gain
+  // Gain lock happens BEFORE band calibration (300 packets, ~3 seconds)
+  // This ensures band calibration has clean data with stable gain
   gain_controller_.init(300, gain_lock_mode);
   
   ESP_LOGD(TAG, "CSI Manager initialized (threshold: %.2f, window: %d, lowpass: %s@%.1fHz, hampel: %s@%d)",
@@ -81,8 +81,8 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
   }
   
   // Process gain calibration (collects packets, then locks AGC/FFT)
-  // During gain lock phase, we DISCARD packets (don't pass to NBVI)
-  // This ensures NBVI calibration only sees data with stable gain
+  // During gain lock phase, we DISCARD packets (don't pass to calibrator)
+  // This ensures band calibration only sees data with stable gain
   if (!gain_controller_.is_locked()) {
     gain_controller_.process_packet(data);
     return;  // Discard packet during gain lock phase
@@ -244,8 +244,8 @@ esp_err_t CSIManager::configure_platform_specific_() {
     .stbc_htltf2_en = false,        // Disabled for consistency
     .ltf_merge_en = false,          // No merge (only HT-LTF enabled)
     .channel_filter_en = false,     // Raw subcarriers
-    .manu_scale = true,             // Manual scaling
-    .shift = 4,                     // Shift=4 → values/16
+    .manu_scale = false,            // Auto-scaling (0 for auto)
+    .shift = 0,                     // Shift=4 → values/16
   };
 #endif
   

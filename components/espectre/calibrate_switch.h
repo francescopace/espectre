@@ -1,7 +1,7 @@
 /*
  * ESPectre - Calibrate Switch Component
  * 
- * ESPHome switch component for triggering NBVI recalibration from Home Assistant.
+ * ESPHome switch component for triggering band recalibration from Home Assistant.
  * Switch is ON during calibration, OFF when idle.
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>

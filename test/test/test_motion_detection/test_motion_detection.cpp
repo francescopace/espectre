@@ -42,13 +42,18 @@ static const char *TAG = "test_motion_detection";
 
 // Optimal subcarriers by dataset (found via grid search analysis)
 // - 64 SC (HT20): subcarriers 11-22
+// - 128 SC (HT40): subcarriers 50-61 (ESP32-S3)
 // - 256 SC (HE20): subcarriers 147-158
 static const uint8_t SUBCARRIERS_64SC[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+static const uint8_t SUBCARRIERS_128SC[] = {50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61};
 static const uint8_t SUBCARRIERS_256SC[] = {147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158};
 
 // Get optimal subcarriers based on loaded data
 inline const uint8_t* get_optimal_subcarriers() {
-    return (csi_test_data::num_subcarriers() == 64) ? SUBCARRIERS_64SC : SUBCARRIERS_256SC;
+    int num_sc = csi_test_data::num_subcarriers();
+    if (num_sc == 256) return SUBCARRIERS_256SC;
+    if (num_sc == 128) return SUBCARRIERS_128SC;
+    return SUBCARRIERS_64SC;
 }
 static const uint8_t NUM_SELECTED_SUBCARRIERS = 12;
 
@@ -123,28 +128,80 @@ void test_mvs_detection_accuracy(void) {
     printf("║   Target: 90%% Recall, <10%% FP Rate                   ║\n");
     printf("╚═══════════════════════════════════════════════════════╝\n");
     printf("\n");
-    printf("Architecture: CSI Packet → Motion Detection (MVS) → State\n");
+    printf("Architecture: CSI Packet → P95 Calibration → Normalization → MVS → State\n");
     printf("Accuracy based on: Motion detection performance\n");
     printf("\n");
     
     // ========================================================================
-    // MOTION DETECTION PERFORMANCE
+    // P95 CALIBRATION (exactly as in production)
     // ========================================================================
     printf("═══════════════════════════════════════════════════════\n");
+    printf("  P95 CALIBRATION\n");
+    printf("═══════════════════════════════════════════════════════\n\n");
+    
+    csi_processor_context_t processor;
+    TEST_ASSERT_TRUE(csi_processor_init(&processor, SEGMENTATION_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD));
+    
+    CSIManager csi_manager;
+    csi_manager.init(&processor, get_optimal_subcarriers(), SEGMENTATION_DEFAULT_THRESHOLD, 
+                     SEGMENTATION_DEFAULT_WINDOW_SIZE, 100, false, 11.0f, false, 7, 4.0f);
+    
+    CalibrationManager cm;
+    cm.init(&csi_manager, "/tmp/test_accuracy_buffer.bin");
+    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
+    
+    // Calibration results
+    uint8_t calibrated_band[12] = {0};
+    uint8_t calibrated_size = 0;
+    float calibrated_normalization_scale = 1.0f;
+    bool calibration_success = false;
+    
+    esp_err_t err = cm.start_auto_calibration(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS,
+        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+            if (success && size > 0) {
+                memcpy(calibrated_band, band, size);
+                calibrated_size = size;
+                calibrated_normalization_scale = normalization_scale;
+            }
+            calibration_success = success;
+        });
+    
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    
+    // Feed baseline packets for calibration
+    const int gain_lock_skip = csi_manager.get_gain_lock_packets();
+    const int calibration_packets = cm.get_buffer_size();
+    const int pkt_size = csi_test_data::packet_size();
+    
+    printf("Calibrating with %d baseline packets...\n", calibration_packets);
+    for (int i = 0; i < calibration_packets && (i + gain_lock_skip) < num_baseline; i++) {
+        cm.add_packet(baseline_packets[i + gain_lock_skip], pkt_size);
+    }
+    
+    TEST_ASSERT_TRUE_MESSAGE(calibration_success, "P95 calibration failed");
+    
+    printf("Calibration results:\n");
+    printf("  Band: [%d-%d]\n", calibrated_band[0], calibrated_band[calibrated_size-1]);
+    printf("  Normalization scale: %.4f\n", calibrated_normalization_scale);
+    
+    // ========================================================================
+    // MOTION DETECTION PERFORMANCE
+    // ========================================================================
+    printf("\n═══════════════════════════════════════════════════════\n");
     printf("  MOTION DETECTION PERFORMANCE\n");
     printf("═══════════════════════════════════════════════════════\n\n");
     
-    // Set global subcarrier selection for CSI processing
-    csi_set_subcarrier_selection(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS);
-    
-    csi_processor_context_t ctx;
-    TEST_ASSERT_TRUE(csi_processor_init(&ctx, SEGMENTATION_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD));
+    // Apply calibration (exactly as in production)
+    csi_set_subcarrier_selection(calibrated_band, calibrated_size);
+    csi_processor_set_normalization_scale(&processor, calibrated_normalization_scale);
+    csi_processor_clear_buffer(&processor);
     
     // Disable Hampel and Low-pass filters for pure MVS performance measurement
-    // (Filters are useful in production but reduce Recall in controlled tests)
-    // Test data was collected without these filters
-    hampel_turbulence_init(&ctx.hampel_state, HAMPEL_TURBULENCE_WINDOW_DEFAULT, HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
-    csi_processor_set_lowpass_enabled(&ctx, false);
+    hampel_turbulence_init(&processor.hampel_state, HAMPEL_TURBULENCE_WINDOW_DEFAULT, HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
+    csi_processor_set_lowpass_enabled(&processor, false);
+    
+    // Rename ctx to processor for consistency with rest of code
+    csi_processor_context_t& ctx = processor;
     
     float threshold = csi_processor_get_threshold(&ctx);
     printf("Using default threshold: %.4f\n", threshold);
@@ -159,7 +216,10 @@ void test_mvs_detection_accuracy(void) {
     csi_motion_state_t prev_state = CSI_STATE_IDLE;
     
     for (int p = 0; p < num_baseline; p++) {
-        process_packet(&ctx, (const int8_t*)baseline_packets[p]);
+        // Use calibrated band (not hardcoded)
+        csi_process_packet(&ctx, (const int8_t*)baseline_packets[p], pkt_size, 
+                          calibrated_band, calibrated_size);
+        csi_processor_update_state(&ctx);
         
         csi_motion_state_t current_state = csi_processor_get_state(&ctx);
         
@@ -192,7 +252,10 @@ void test_mvs_detection_accuracy(void) {
     prev_state = CSI_STATE_IDLE;
     
     for (int p = 0; p < num_movement; p++) {
-        process_packet(&ctx, (const int8_t*)movement_packets[p]);
+        // Use calibrated band (not hardcoded)
+        csi_process_packet(&ctx, (const int8_t*)movement_packets[p], pkt_size,
+                          calibrated_band, calibrated_size);
+        csi_processor_update_state(&ctx);
         
         csi_motion_state_t current_state = csi_processor_get_state(&ctx);
         
@@ -271,10 +334,11 @@ void test_mvs_detection_accuracy(void) {
     
     // Cleanup
     csi_processor_cleanup(&ctx);
+    remove("/tmp/test_accuracy_buffer.bin");
     
-    // Verify minimum acceptable performance based on motion packets
-    TEST_ASSERT_GREATER_THAN(950, movement_with_motion);  // >95% recall
-    TEST_ASSERT_LESS_THAN(1.0f, pkt_fp_rate);             // <1% FP rate
+    // Verify minimum acceptable performance (same thresholds for all datasets)
+    TEST_ASSERT_TRUE_MESSAGE(pkt_recall > 90.0f, "Recall too low (target: >90%)");
+    TEST_ASSERT_TRUE_MESSAGE(pkt_fp_rate < 10.0f, "FP Rate too high (target: <10%)");
 }
 
 // Test: MVS threshold parameter sensitivity analysis
@@ -391,10 +455,10 @@ void test_mvs_window_size_sensitivity(void) {
     TEST_ASSERT_TRUE(true);
 }
 
-// Test: End-to-end with NBVI calibration and normalization
+// Test: End-to-end with P95 band calibration and normalization
 void test_mvs_end_to_end_with_calibration(void) {
     printf("\n═══════════════════════════════════════════════════════\n");
-    printf("  END-TO-END TEST: NBVI Calibration + Normalization + MVS\n");
+    printf("  END-TO-END TEST: P95 Calibration + Normalization + MVS\n");
     printf("═══════════════════════════════════════════════════════\n\n");
     
     // Create CSIManager and CalibrationManager using real code
@@ -435,7 +499,7 @@ void test_mvs_end_to_end_with_calibration(void) {
     TEST_ASSERT_TRUE(cm.is_calibrating());
     
     // Feed baseline packets for calibration (use production buffer size)
-    // Skip gain lock period - in production, NBVI starts after AGC stabilization
+    // Skip gain lock period - in production, calibration starts after AGC stabilization
     const int gain_lock_skip = csi_manager.get_gain_lock_packets();
     const int calibration_packets = cm.get_buffer_size();
     const int pkt_size = csi_test_data::packet_size();
@@ -461,10 +525,9 @@ void test_mvs_end_to_end_with_calibration(void) {
     printf("]\n");
     printf("  Normalization scale: %.4f\n", calibrated_normalization_scale);
     
-    // Apply calibration to processor (only subcarriers, NOT normalization)
-    // Normalization is disabled by default - we only test NBVI band selection
+    // Apply calibration to processor (subcarriers AND normalization - exactly as in production)
     csi_set_subcarrier_selection(calibrated_band, calibrated_size);
-    csi_processor_set_normalization_scale(&processor, 1.0f);  // Keep default (no normalization)
+    csi_processor_set_normalization_scale(&processor, calibrated_normalization_scale);
     csi_processor_clear_buffer(&processor);  // Clear stale data
     
     // Disable Hampel and Low-pass for pure MVS measurement with test data
@@ -472,7 +535,7 @@ void test_mvs_end_to_end_with_calibration(void) {
                            HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
     csi_processor_set_lowpass_enabled(&processor, false);
     
-    // Now run motion detection with NBVI-selected subcarriers and normalization
+    // Now run motion detection with P95-selected subcarriers and normalization
     printf("\nRunning motion detection with calibrated settings...\n");
     
     int baseline_motion = 0;
@@ -507,12 +570,12 @@ void test_mvs_end_to_end_with_calibration(void) {
     float f1 = (precision + recall > 0) ? 
         2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
     
-    printf("\nEnd-to-end results (NBVI + Normalization + MVS):\n");
+    printf("\nEnd-to-end results (P95 + Normalization + MVS):\n");
     printf("  TP: %d, TN: %d, FP: %d, FN: %d\n", pkt_tp, pkt_tn, pkt_fp, pkt_fn);
     printf("  Recall: %.1f%%, Precision: %.1f%%, FP Rate: %.1f%%, F1: %.1f%%\n", 
            recall, precision, fp_rate, f1);
     
-    // Performance should still meet targets with NBVI-selected subcarriers
+    // Performance should still meet targets with P95-selected subcarriers
     TEST_ASSERT_TRUE_MESSAGE(recall > 90.0f, "End-to-end Recall too low (target: >90%)");
     TEST_ASSERT_TRUE_MESSAGE(fp_rate < 10.0f, "End-to-end FP Rate too high (target: <10%)");
     

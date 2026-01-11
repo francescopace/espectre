@@ -58,7 +58,7 @@ These files are pre-configured to download the component automatically from GitH
 >
 > ² ESP32-C3 Super Mini: Set `traffic_generator_rate` to 94 or less. Higher values cause calibration issues (tested on multiple boards). Some cheap clones may require DIO flash mode instead of QIO.
 >
-> ³ ESP32 (original/WROOM-32): AGC/FFT gain lock is not available on this platform. NBVI calibration works but CSI amplitudes may have more variance than newer chips.
+> ³ ESP32 (original/WROOM-32): AGC/FFT gain lock is not available on this platform. Band calibration works but CSI amplitudes may have more variance than newer chips.
 >
 > ⁴ **Boards with USB-UART bridges** (CH340, CP2102, CH343): If you don't see logs after flashing, use the UART configurations in [`examples/uart/`](https://github.com/francescopace/espectre/tree/main/examples/uart) which enable logging on UART0.
 
@@ -200,7 +200,7 @@ All sensors are created automatically when the `espectre` component is configure
 | `movement_sensor` | sensor | "Movement Score" | Current motion intensity value |
 | `motion_sensor` | binary_sensor | "Motion Detected" | Motion state (on/off) |
 | `threshold_number` | number | "Threshold" | Detection threshold (adjustable from HA) |
-| `calibrate_switch` | switch | "Calibrate" | Trigger NBVI recalibration (ON during calibration) |
+| `calibrate_switch` | switch | "Calibrate" | Trigger band recalibration (ON during calibration) |
 
 ### Customizing Sensors
 
@@ -536,14 +536,14 @@ High airtime (>30-50%) causes network congestion, increased latency, and packet 
 
 ---
 
-## NBVI Auto-Calibration
+## Auto-Calibration
 
 > ⚠️ **CRITICAL**: The room must be **still** during the first 10 seconds after boot. Movement during calibration will result in poor detection accuracy!
 
 ESPectre automatically calibrates in two phases:
 
 1. **Gain Lock** (~3 seconds, 300 packets): Stabilizes AGC/FFT for consistent amplitudes
-2. **NBVI Calibration** (~7 seconds, 700 packets): Selects optimal 12 subcarriers
+2. **P95 Band Calibration** (~7 seconds, 700 packets): Selects optimal 12-subcarrier band
 3. Saves configuration (persists across reboots)
 
 Room must be quiet during the entire ~10 second calibration.
@@ -680,7 +680,7 @@ spiffs,   data, spiffs,  0x7D0000, 0x30000,
 
 1. **Verify traffic generator is enabled** (`traffic_generator_rate > 0`)
 2. Check WiFi is connected (look for IP address in logs)
-3. Wait for NBVI calibration to complete (~10 seconds after boot)
+3. Wait for band calibration to complete (~10 seconds after boot)
 4. Adjust `segmentation_threshold` (try 0.5-2.0 for more sensitivity)
 
 ### False positives
@@ -695,7 +695,7 @@ spiffs,   data, spiffs,  0x7D0000, 0x30000,
 2. Check traffic generator is running
 3. Verify WiFi connection is stable
 
-**Note:** If NBVI subcarrier selection fails, the system automatically falls back to default subcarriers [11-22] while still applying baseline normalization. Motion detection will work but may be less optimal. Look for the log message `⚠ Fallback calibration: default subcarriers with normalization`.
+**Note:** If band selection fails, the system automatically falls back to default subcarriers [11-22] while still applying baseline normalization. Motion detection will work but may be less optimal. Look for the log message `⚠ Fallback calibration: default subcarriers with normalization`.
 
 ### SPIFFS partition not found
 

@@ -52,7 +52,7 @@ enum class GainLockMode {
 // Below this threshold, forcing the gain may cause CSI reception to freeze.
 // Empirically determined from user reports:
 //   AGC >= 40: works well
-//   AGC 30-40: borderline (NBVI may fail but fallback works)
+//   AGC 30-40: borderline (calibration may fail but fallback works)
 //   AGC < 30: freezes after gain lock
 static constexpr uint8_t MIN_SAFE_AGC = 30;
 
@@ -117,9 +117,9 @@ extern "C" {
  * This eliminates amplitude variations caused by the WiFi hardware's automatic
  * gain control, which can otherwise cause false motion detections.
  * 
- * The gain lock phase happens BEFORE NBVI calibration to ensure clean data:
+ * The gain lock phase happens BEFORE band calibration to ensure clean data:
  * - Phase 1: Gain Lock (~3 seconds, 300 packets) - locks AGC/FFT
- * - Phase 2: NBVI Calibration (~7 seconds, 700 packets) - with stable gain
+ * - Phase 2: Band Calibration (~7 seconds, 700 packets) - with stable gain
  */
 class GainController {
  public:

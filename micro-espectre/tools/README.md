@@ -4,7 +4,7 @@
 
 This directory contains analysis tools for developing and validating ESPectre's motion detection algorithms. These scripts are essential for parameter tuning, algorithm validation, and scientific analysis.
 
-For algorithm documentation (MVS, NBVI, Hampel filter), see [ALGORITHMS.md](../ALGORITHMS.md).
+For algorithm documentation (MVS, P95 Band Selection, Hampel filter), see [ALGORITHMS.md](../ALGORITHMS.md).
 
 For production performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
@@ -109,7 +109,8 @@ python 5_analyze_filter_turbulence.py --optimize-filters  # Optimize parameters
 
 - Optimizes normalization target and low-pass cutoff frequency
 - Grid search for Hampel filter parameters (window, threshold)
-- Supports chip-specific data filtering (c6, s3)
+- Auto-detects chip from baseline file metadata (ensures matching movement data)
+- Automatically selects optimal subcarrier band based on subcarrier count
 - Finds optimal configuration for noisy environments
 
 ```bash
@@ -176,26 +177,6 @@ python 9_compare_s3_vs_c6.py --plot
 
 ---
 
-### 10. NBVI Parameters Optimization (`10_optimize_nbvi_params.py`)
-
-**Purpose**: Grid search for optimal NBVI calibration parameters
-
-- Optimizes alpha (NBVI weighting factor), min_spacing, and percentile
-- Compares NBVI-selected band vs fixed band [11-22]
-- Generates optimal configuration for config.py
-
-```bash
-python 10_optimize_nbvi_params.py              # Full grid search
-python 10_optimize_nbvi_params.py c6           # Use only C6 data
-python 10_optimize_nbvi_params.py --quick      # Quick search (fewer combinations)
-```
-
-**Current optimal configuration:**
-- `NBVI_ALPHA = 0.5`, `NBVI_MIN_SPACING = 1`, `NBVI_PERCENTILE = 10`, `NOISE_GATE_PERCENTILE = 25`
-- Achieves **Recall 96.4%, F1 98.2%** with zero configuration
-
----
-
 ## Usage Examples
 
 ### Basic Analysis Workflow
@@ -250,11 +231,11 @@ Tested on 60-second noisy baseline with C6 chip:
 | Low-pass 11Hz only | 92.4% | 2.34% | 88.9% |
 | **Low-pass 11Hz + Hampel (W=9, T=4)** | **92.1%** | **0.84%** | **93.2%** |
 
-### NBVI Automatic Subcarrier Selection
+### P95 Automatic Band Selection
 
-**NBVI with `alpha=0.5`, `min_spacing=1`** achieves excellent results with zero configuration.
+**P95 Band Selection** achieves excellent results with zero configuration, automatically selecting the optimal 12-subcarrier band for each environment.
 
-For complete NBVI algorithm documentation, see [ALGORITHMS.md](../ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
+For complete algorithm documentation, see [ALGORITHMS.md](../ALGORITHMS.md#automatic-subcarrier-selection).
 
 For detailed performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
@@ -262,7 +243,7 @@ For detailed performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
 ## Additional Resources
 
-- [ALGORITHMS.md](../ALGORITHMS.md) - Algorithm documentation (MVS, NBVI, Hampel)
+- [ALGORITHMS.md](../ALGORITHMS.md) - Algorithm documentation (MVS, P95 Band Selection, Hampel)
 - [Micro-ESPectre](../README.md) - R&D platform documentation
 - [ESPectre](../../README.md) - Main project with Home Assistant integration
 

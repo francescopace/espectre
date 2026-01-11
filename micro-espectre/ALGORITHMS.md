@@ -10,7 +10,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [Processing Pipeline](#processing-pipeline)
 - [Gain Lock (Hardware Stabilization)](#gain-lock-hardware-stabilization)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
-- [NBVI: Automatic Subcarrier Selection](#nbvi-automatic-subcarrier-selection)
+- [Automatic Subcarrier Selection](#automatic-subcarrier-selection)
 - [Low-Pass Filter](#low-pass-filter)
 - [Hampel Filter](#hampel-filter)
 - [CSI Features](#csi-features-for-ml)
@@ -56,7 +56,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 ├───────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                   │
 │  ┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌─────────────┐              │
-│  │ CSI Data │───▶│Gain Lock │───▶│ NBVI Select  │───▶│ Turbulence  │              │
+│  │ CSI Data │───▶│Gain Lock │───▶│ Band Select  │───▶│ Turbulence  │              │
 │  │ N subcs  │    │ AGC/FFT  │    │ 12 subcs     │    │ σ(amps)     │              │
 │  └──────────┘    └──────────┘    └──────────────┘    └──────┬──────┘              │
 │                  (3s, 300 pkt)    (7s, 700 pkt)             │                     │
@@ -71,7 +71,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 
 **Calibration sequence (at boot):**
 1. **Gain Lock** (3s, 300 packets): Collect AGC/FFT, lock values
-2. **NBVI Calibration** (7s, 700 packets): Select 12 optimal subcarriers, calculate baseline variance
+2. **Band Calibration** (7s, 700 packets): Select 12 optimal subcarriers, calculate baseline variance
 
 **Data flow per packet (after calibration):**
 1. **CSI Data**: Raw I/Q values for N subcarriers (64-256 depending on WiFi mode)
@@ -104,7 +104,7 @@ The ESP32 WiFi hardware includes automatic gain control (AGC) that dynamically a
 
 ### How It Works
 
-The gain lock happens in a **dedicated phase BEFORE NBVI calibration** to ensure clean data:
+The gain lock happens in a **dedicated phase BEFORE band calibration** to ensure clean data:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -126,7 +126,7 @@ The gain lock happens in a **dedicated phase BEFORE NBVI calibration** to ensure
 │  └──────────────────────────────────────────────────────────────┘   │
 │                           │                                          │
 │                           ▼                                          │
-│  PHASE 2: NBVI CALIBRATION (~7 seconds, 700 packets)                │
+│  PHASE 2: BAND CALIBRATION (~7 seconds, 700 packets)                │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │  Now all packets have stable gain!                           │   │
 │  │  → Baseline variance calculated on clean data                │   │
@@ -136,11 +136,11 @@ The gain lock happens in a **dedicated phase BEFORE NBVI calibration** to ensure
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Why two phases?** Separating gain lock from NBVI calibration ensures:
-- NBVI only sees data with **stable, locked gain**
+**Why two phases?** Separating gain lock from band calibration ensures:
+- Calibration only sees data with **stable, locked gain**
 - Baseline variance is **accurate** (not inflated by AGC variations)
-- Normalization works correctly (attenuates only when baseline > 0.25)
-- Total time: ~10 seconds (3s gain lock + 7s NBVI)
+- Normalization works correctly (attenuates only when baseline > target)
+- Total time: ~10 seconds (3s gain lock + 7s calibration)
 
 ### Implementation
 
@@ -158,7 +158,7 @@ if (packet_count < 300) {
 } else if (packet_count == 300) {
     phy_fft_scale_force(true, fft_sum / 300);
     phy_force_rx_gain(true, agc_sum / 300);
-    // Gain is now locked, trigger NBVI calibration
+    // Gain is now locked, trigger band calibration
     on_gain_locked_callback();
 }
 ```
@@ -178,7 +178,7 @@ On unsupported platforms, ESPectre skips the gain lock process without affecting
 
 ### Configuration
 
-Gain lock is **always enabled** on supported platforms with no configuration required. It operates transparently during the first ~3 seconds after boot (300 packets at 100 Hz), followed by NBVI calibration (~7 seconds, 700 packets).
+Gain lock is **always enabled** on supported platforms with no configuration required. It operates transparently during the first ~3 seconds after boot (300 packets at 100 Hz), followed by band calibration (~7 seconds, 700 packets).
 
 **Reference**: [Espressif esp-csi example](https://github.com/espressif/esp-csi/blob/master/examples/get-started/csi_recv_router/main/app_main.c)
 
@@ -238,187 +238,146 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 ---
 
-## NBVI: Normalized Baseline Variability Index
+## Automatic Subcarrier Selection
 
 ### Overview
 
-**NBVI (Normalized Baseline Variability Index)** is an algorithm for automatic subcarrier selection, achieving **F1=98.2%** with **zero manual configuration**. It was developed as part of ESPectre and represents a key scientific contribution.
+ESPectre uses **P95 Moving Variance** optimization for automatic subcarrier band selection, achieving **F1=98.2%** with **zero manual configuration**.
 
 ![Subcarrier Analysis](../images/subcarriers_constellation_diagram.png)
-*I/Q constellation diagrams showing the geometric representation of WiFi signal propagation in the complex plane. The baseline (idle) state exhibits a stable, compact pattern, while movement introduces entropic 
-dispersion as multipath reflections change.*
+*I/Q constellation diagrams showing the geometric representation of WiFi signal propagation in the complex plane. The baseline (idle) state exhibits a stable, compact pattern, while movement introduces entropic dispersion as multipath reflections change.*
 
 ### The Problem
 
 WiFi CSI provides 64-256 subcarriers (depending on WiFi mode: HT20=64, HT40=128, HE-SU=256), but not all are equally useful for motion detection:
 - Some are too weak (low SNR)
 - Some are too noisy (high variance even at rest)
-- Some are redundant (correlated with neighbors)
-- Manual selection works (F1=97.3%) but doesn't scale across environments
+- Some are in guard bands or DC zones
+- Manual selection works but doesn't scale across environments
 
-**Challenge**: Find an automatic, calibration-free method that adapts to any environment.
+**Challenge**: Find an automatic method that selects the optimal band for motion detection.
 
-### The Solution: NBVI Formula
+### The Solution: P95 Moving Variance
 
-```
-NBVI = α × (σ/μ²) + (1-α) × (σ/μ)
-```
+The key insight is that the **95th percentile of moving variance (P95 MV)** during baseline directly predicts the false positive rate:
+- If P95 MV < detection threshold → near-zero false positives
+- If P95 MV > detection threshold → high false positive rate
 
-**Default: α = 0.5**
+The algorithm evaluates all candidate 12-subcarrier bands and selects the one with:
+1. P95 MV below a safety margin (threshold - 0.15 = 0.85 for threshold=1.0)
+2. Highest P95 MV among safe bands (most responsive to movement)
 
-**Components**:
-- **σ/μ²** (Energy normalization): Penalizes weak subcarriers (small μ)
-- **σ/μ** (Coefficient of Variation): Rewards stability (small σ relative to μ)
-- **α = 0.5**: Balanced weighting between signal strength and stability
-
-**Interpretation**: Lower NBVI = Better subcarrier (strong + stable signal)
-
-### Geometric Insight
-
-From I/Q constellation analysis:
-
-| State | Radius (μ) | Ring Width (σ) | Pattern |
-|-------|------------|----------------|---------|
-| **Baseline (Idle)** | Large | Thin | Compact circle - strong, stable |
-| **Movement** | Small | Thick | Scattered - weak, dispersed |
-
-Optimal subcarriers show **maximum contrast** between these states.
-
-### Algorithm Components
-
-#### 1. Percentile-Based Baseline Detection
-
-Instead of using fixed thresholds, NBVI uses percentile analysis to find the quietest windows automatically:
+### Algorithm
 
 ```python
-# Analyze sliding windows (skip first 300 packets used for gain lock)
-for window in sliding_windows(buffer[300:], size=200, step=50):
-    variances.append(calculate_variance(window))
-
-# Find quietest windows (adaptive threshold)
-p10_threshold = np.percentile(variances, 10)
-candidate_windows = [w for w in windows if variance <= p10_threshold]
-
-# Validate each candidate and select with minimum FP rate
-best_window = min(candidate_windows, key=lambda w: validate_fp_rate(w))
-```
-
-**Advantages**:
-- Multi-window validation ensures selected subcarriers produce stable detection
-- Adapts to any environment automatically
-- Zero configuration required
-
-#### 2. Noise Gate
-
-**Problem**: Weak subcarriers appear stable (low σ) but have low SNR.
-
-**Solution**: Exclude subcarriers below 25th percentile of mean magnitude.
-
-```python
-magnitude_threshold = np.percentile(mean_magnitudes, 25)
-valid_subcarriers = [i for i in range(num_subcarriers) if mean[i] > magnitude_threshold]
-```
-
-**Reference**: [4] Passive Indoor Localization - SNR considerations and noise gate strategies
-
-#### 3. Spectral De-correlation
-
-**Problem**: Adjacent subcarriers are correlated due to OFDM mechanism.
-
-**Solution**: Hybrid spacing strategy with minimum spacing Δf≥1:
-- **Top 5**: Always include (absolute priority by NBVI score)
-- **Remaining 7**: Select with minimum spacing constraint
-
-**Default: min_spacing = 1** (adjacent subcarriers allowed)
-
-This allows selecting adjacent subcarriers when they have good NBVI scores, maximizing the use of high-quality subcarriers in the stable central band.
-
-**Reference**: [5] Subcarrier Selection for Indoor Localization - Spectral de-correlation and feature diversity
-
-### Complete Algorithm
-
-```python
-def nbvi_calibrate(csi_buffer, num_subcarriers=12):
+def band_calibrate(csi_buffer, band_size=12):
     # 1. Collect baseline data (700 packets, ~7s @ 100Hz)
     #    Skip first 300 packets (used for gain lock)
     magnitudes = calculate_magnitudes(csi_buffer[300:])
     
-    # 2. Find candidate windows using percentile threshold
-    window_variances = [var(window) for window in sliding_windows(magnitudes, 200, 50)]
-    p10 = percentile(window_variances, 10)
-    candidates = [w for w in windows if variance(w) <= p10]
+    # 2. Generate candidate bands (12 consecutive subcarriers)
+    #    Avoiding guard bands and DC zone
+    #    Use step=2 for 256 SC to reduce candidates (performance optimization)
+    step = 2 if num_subcarriers >= 256 else 1
+    candidates = generate_candidate_bands(num_subcarriers, band_size, step)
     
-    # 3. Validate each candidate and select with minimum FP rate
-    best_window = min(candidates, key=lambda w: validate_fp_rate(w))
+    # 3. Evaluate each candidate
+    results = []
+    for band in candidates:
+        # Extract ONLY the 12 subcarriers needed (not all 256)
+        turbulences = [spatial_turbulence(pkt, band) for pkt in magnitudes]
+        
+        # Calculate moving variance series
+        mv_series = moving_variance(turbulences, window=50)
+        
+        # Calculate P95 of moving variance
+        p95 = percentile(mv_series, 95)
+        
+        results.append({'band': band, 'p95': p95})
     
-    # 4. Calculate NBVI for all subcarriers (α=0.5)
-    # num_subcarriers determined dynamically: 64 (HT20), 128 (HT40), 256 (HE-SU)
-    for i in range(num_subcarriers):
-        mean = np.mean(best_window[:, i])
-        std = np.std(best_window[:, i])
-        nbvi[i] = 0.5 * (std / mean**2) + 0.5 * (std / mean)
+    # 4. Select optimal band
+    safe_margin = 0.15  # Safety below threshold
+    safe_bands = [r for r in results if r['p95'] < (threshold - safe_margin)]
     
-    # 5. Apply noise gate (exclude weak subcarriers, 25th percentile)
-    threshold = percentile(means, 25)
-    valid = [i for i in range(num_subcarriers) if means[i] > threshold]
+    if safe_bands:
+        # Select most "active" safe band (highest P95 still under limit)
+        best = max(safe_bands, key=lambda r: r['p95'])
+    else:
+        # Fallback: select band with lowest P95
+        best = min(results, key=lambda r: r['p95'])
     
-    # 6. Select with spacing
-    selected = []
-    sorted_by_nbvi = sorted(valid, key=lambda i: nbvi[i])
-    
-    # Top 5 always included
-    selected = sorted_by_nbvi[:5]
-    
-    # Remaining 7 with spacing >= 1 (adjacent allowed)
-    for candidate in sorted_by_nbvi[5:]:
-        if all(abs(candidate - s) >= 1 for s in selected):
-            selected.append(candidate)
-        if len(selected) == 12:
-            break
-    
-    return sorted(selected)
+    return best['band']
 ```
+
+### Why P95?
+
+The 95th percentile captures the "worst case" behavior during baseline:
+- Mean MV may look good but hide occasional spikes
+- Max MV is too sensitive to outliers
+- P95 represents the upper bound of normal variance
+
+If P95 < threshold, 95% of samples are below threshold → very low FP rate.
+
+### Computational Complexity
+
+Let B = candidate bands, P = packets (700), N = subcarriers, W = window size (50), K = band size (12).
+
+**Algorithm complexity:**
+
+| Operation | Complexity | Notes |
+|-----------|------------|-------|
+| Turbulence per packet | O(K) | std of 12 values |
+| Moving variance | O(P × W) | sliding window |
+| P95 calculation | O(P log P) | sorting |
+| **Total per band** | O(P × W) | dominated by MV |
+| **Total all bands** | O(B × P × W) | ~2.3M ops for 256 SC |
+
+### Calibration Time
+
+| WiFi Mode | Candidate Bands | Step | Time (measured) |
+|-----------|-----------------|------|-----------------|
+| HT20 (64 SC) | ~40 | 1 | ~1-2s |
+| HE-SU (256 SC) | ~68 | 2 | **~5-6s** |
+
+### Guard Bands and DC Zone
+
+Different WiFi modes have different valid subcarrier ranges:
+
+| Mode | Total SC | Guard Low | Guard High | DC Zone | Valid SC | Bands |
+|------|----------|-----------|------------|---------|----------|-------|
+| HT20 (64 SC) | 64 | 11 | 52 | 32 | 41 | 19 |
+| HT40 (128 SC) | 128 | 7 | 120 | 64 | 113 | 91 |
+| HE-SU (256 SC) | 256 | 20 | 235 | 120-136 | 199 | 89 |
+
+The 256 SC configuration was empirically optimized on ESP32-C6:
+- Tight DC zone `[120-136]` instead of conservative `[108-147]`
+- Extended guard bands `[20-235]` instead of `[30-225]`
+- Results: 43 more valid subcarriers, P95 improved from 0.60 to 0.56
 
 ### Fallback Behavior
 
-When NBVI calibration cannot find valid subcarriers (e.g., poor signal quality, high noise environment), a fallback mechanism ensures motion detection remains functional:
+When calibration cannot find valid bands (e.g., poor signal quality), a fallback mechanism ensures motion detection remains functional:
 
-1. **Default subcarriers used**: The system falls back to the default band [11-22]
-2. **Normalization still calculated**: Baseline variance is computed using the first candidate window
-3. **Motion detection works**: With proper normalization, even default subcarriers provide usable detection
-
-This fallback ensures ESPectre remains operational even in challenging WiFi environments where optimal subcarrier selection fails.
+1. **Lowest P95 band used**: The band with minimum P95 is selected
+2. **Motion detection works**: Even suboptimal bands provide usable detection
 
 ### Configuration
 
 ```python
 # Python (Micro-ESPectre)
-NBVICalibrator(
+BandCalibrator(
     buffer_size=700,             # 7s @ 100Hz (after 3s gain lock)
-    window_size=200,             # 2s sliding window for baseline detection
-    percentile=10,               # 10th percentile for quietest window selection
-    noise_gate_percentile=25,    # 25th percentile for noise gate
-    alpha=0.5,                   # NBVI weighting factor (balanced)
-    min_spacing=1                # Minimum subcarrier spacing (adjacent allowed)
+    expected_subcarriers=None    # Auto-detect from first packet
 )
 ```
 
-### NBVI Parameters
+### Parameters
 
 | Parameter | Default | Range | Effect |
 |-----------|---------|-------|--------|
 | `buffer_size` | 700 | 500-1000 | Packets for calibration (~7s at 100Hz) |
-| `window_size` | 200 | 100-300 | Sliding window for baseline detection (2s @ 100Hz) |
-| `percentile` | 10 | 5-20 | Percentile for quietest window selection |
-| `noise_gate_percentile` | 25 | 10-50 | Percentile for excluding weak subcarriers |
-| `alpha` | 0.5 | 0.0-1.0 | Higher = more weight on signal strength |
-| `min_spacing` | 1 | 1-3 | Minimum gap between subcarriers (1=adjacent OK) |
 
-**Tuning notes:**
-- **alpha = 0.5**: Balanced between signal strength (σ/μ²) and stability (σ/μ)
-- **noise_gate_percentile = 25**: Excludes the weakest 25% of subcarriers by signal strength
-- **min_spacing = 1**: Allows adjacent subcarriers, maximizing quality selection
-- These defaults work well for most environments; rarely need adjustment
+The algorithm has minimal configuration - it automatically adapts to the environment by analyzing the P95 moving variance of each candidate band
 
 ---
 
@@ -426,7 +385,7 @@ NBVICalibrator(
 
 ### Overview
 
-The **Low-Pass Filter** removes high-frequency noise from turbulence values. This is particularly useful in noisy RF environments where NBVI may select subcarriers susceptible to interference.
+The **Low-Pass Filter** removes high-frequency noise from turbulence values. This is particularly useful in noisy RF environments where the selected band may include subcarriers susceptible to interference.
 
 > ℹ️ **Default: Disabled** - The low-pass filter is disabled by default for simplicity. Enable it (11 Hz cutoff recommended) if you experience false positives in noisy RF environments.
 

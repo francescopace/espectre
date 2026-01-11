@@ -8,18 +8,40 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+#### P95 Band Selection replaces NBVI
+
+The NBVI (Normalized Baseline Variability Index) algorithm has been completely replaced with a new **P95 Band Selection** algorithm for automatic subcarrier optimization.
+
+**Why this change?**
+- NBVI selected subcarriers with low amplitude variability, but this didn't correlate with low false positive rates
+- The new algorithm uses the 95th percentile of moving variance (P95 MV) during baseline calibration
+- P95 MV directly predicts false positive rate: bands with P95 below threshold have near-zero FP
+
+**Performance improvements:**
+- 64 SC: P95 selects exact optimal band `[11-22]`, achieving 98.1% Recall, 0% FP (same as fixed band)
+- 256 SC: P95 selects band `[177-188]`, achieving 94.0% Recall, 0.9% FP (vs NBVI's 6.5% FP)
+
+**Migration notes:**
+- No user action required - calibration runs automatically at boot
+- Configuration parameters unchanged (`CALIBRATION_BUFFER_SIZE` replaces `NBVI_BUFFER_SIZE`)
+- Existing NVS calibration data will be replaced on first boot
+
 #### WiFi 6 (802.11ax) 256 Subcarriers Support
 
 Full support for 256 subcarriers on WiFi 6 HE-SU mode (ESP32-C6).
 
-- **Dynamic guard bands**: Conservative bands for 64 SC (HT20), IEEE standard for 128/256 SC
-- **Automatic detection**: NBVI calibration adapts to subcarrier count from CSI stream
+- **Optimized guard bands**: Empirically validated configuration for 256 SC
+  - Guard bands: `[20-235]` (vs conservative `[30-225]`)
+  - DC zone: `[120-136]` (vs wide `[108-147]`)
+  - 199 valid subcarriers (vs 156), 89 candidate bands (vs 68)
+  - P95 improved: 0.56 vs 0.60 (7% more stable)
+- **Automatic detection**: Band calibration adapts to subcarrier count from CSI stream
 - **Chip auto-detection**: CSI streaming protocol now includes chip type metadata
 - **Unified NPZ format**: Compact `csi_data` field with standardized naming convention
 
 #### Calibrate Switch
 
-New Home Assistant switch entity for triggering NBVI recalibration without reflashing.
+New Home Assistant switch entity for triggering band recalibration without reflashing.
 
 - **`switch.espectre_calibrate`**: Turn ON to start calibration, automatically turns OFF when complete
 - **State feedback**: Switch reflects real calibration state (ON during calibration, OFF when idle)

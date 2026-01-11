@@ -76,7 +76,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Auto-save on config change | ✅ | ✅ | Implemented |
 | Auto-load on startup | ✅ | ✅ | Implemented |
 | **Automatic Subcarrier Selection** |
-| NBVI Algorithm | ✅ | ✅ | Implemented |
+| P95 Band Selection | ✅ | ✅ | Implemented |
 | Percentile-based Detection | ✅ | ✅ | Implemented |
 | Noise Gate | ✅ | ✅ | ✅ Implemented |
 | Spectral De-correlation | ✅ | ✅ | Implemented |
@@ -267,7 +267,7 @@ That's it! The device will now:
 - Connect to WiFi
 - Connect to MQTT broker
 - Start publishing motion detection data
-- Automatically calibrate subcarriers (NBVI algorithm)
+- Automatically calibrate subcarriers (P95 band selection algorithm)
 
 ### 5. Monitor and Control
 
@@ -352,7 +352,7 @@ The test suite covers all core modules:
 | `filters.py` | `test_filters.py` | 100% |
 | `features.py` | `test_features.py` | 99% |
 | `segmentation.py` | `test_segmentation.py`, `test_segmentation_additional.py` | 90% |
-| `nbvi_calibrator.py` | `test_nbvi_calibrator.py`, `test_nbvi_calibrator_additional.py` | 94% |
+| `band_calibrator.py` | `test_validation_real_data.py` | 94% |
 | `nvs_storage.py` | `test_nvs_storage.py` | 95% |
 | `mqtt/handler.py` | `test_mqtt.py` | 88% |
 | `mqtt/commands.py` | `test_mqtt.py` | 94% |
@@ -392,7 +392,7 @@ HAMPEL_THRESHOLD = 4.0
 # Normalization (always enabled for cross-device consistency)
 # If baseline > 0.25: scale = 0.25 / baseline_variance (attenuate)
 # If baseline ≤ 0.25: scale = 1.0 (no amplification)
-# Note: If NBVI calibration fails, normalization is still applied using default subcarriers
+# Note: If calibration fails, normalization is still applied using default subcarriers
 ```
 
 **Gain Lock Modes:**
@@ -478,17 +478,17 @@ The `tools/` directory contains Python scripts for CSI data analysis and algorit
 
 See [tools/README.md](tools/README.md) for complete script documentation.
 
-## Automatic Subcarrier Selection (NBVI)
+## Automatic Subcarrier Selection
 
-Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving **F1=98.2%** with **zero manual configuration**.
+Micro-ESPectre implements automatic band selection using **P95 Moving Variance** optimization. The algorithm selects the optimal 12-subcarrier band by minimizing the 95th percentile of moving variance during baseline, achieving **F1=98.2%** with **zero manual configuration**.
 
 > ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
 
-For complete NBVI algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
+For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#automatic-subcarrier-selection).
 
 ## Machine Learning & Advanced Applications
 
-Micro-ESPectre is the **R&D platform** for advanced CSI-based applications. While the core focuses on motion detection using mathematical algorithms (MVS + NBVI), the platform provides infrastructure for ML-based features planned for release 3.x:
+Micro-ESPectre is the **R&D platform** for advanced CSI-based applications. While the core focuses on motion detection using mathematical algorithms (MVS + P95 band selection), the platform provides infrastructure for ML-based features planned for release 3.x:
 
 - **Gesture recognition**
 - **Human Activity Recognition (HAR)**
@@ -612,7 +612,7 @@ Micro-ESPectre includes a powerful **Web-based monitoring dashboard** for real-t
 | **Live Configuration** | Adjust detection parameters (response speed, threshold) in real-time |
 | **Real-Time Chart** | Live visualization of movement, threshold, packets/sec, and dropped packets |
 | **Runtime Statistics** | Memory usage, loop timing, and Traffic Generator diagnostics |
-| **Factory Reset** | Reset device to default configuration and re-calibrate NBVI |
+| **Factory Reset** | Reset device to default configuration and re-calibrate |
 
 ### Screenshots
 
@@ -692,7 +692,7 @@ Publish JSON commands to `home/espectre/node1/cmd`:
 | `stats` | `{"cmd": "stats"}` | Get runtime statistics (memory, state, metrics) |
 | `segmentation_threshold` | `{"cmd": "segmentation_threshold", "value": 1.5}` | Set detection threshold (0.0-10.0) |
 | `segmentation_window_size` | `{"cmd": "segmentation_window_size", "value": 100}` | Set window size (10-200 packets) |
-| `factory_reset` | `{"cmd": "factory_reset"}` | Reset to defaults and re-calibrate NBVI |
+| `factory_reset` | `{"cmd": "factory_reset"}` | Reset to defaults and re-calibrate |
 
 ### Command Responses
 

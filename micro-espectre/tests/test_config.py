@@ -67,22 +67,14 @@ class TestConfigConstants:
         assert isinstance(config.NORMALIZATION_SCALE, (int, float))
         assert config.NORMALIZATION_SCALE > 0
     
-    def test_nbvi_config(self):
-        """Test NBVI calibration configuration"""
+    def test_calibration_config(self):
+        """Test band calibration configuration"""
         import config
         
-        assert hasattr(config, 'NBVI_BUFFER_SIZE')
-        assert hasattr(config, 'NBVI_WINDOW_SIZE')
-        assert hasattr(config, 'NBVI_WINDOW_STEP')
-        assert hasattr(config, 'NBVI_PERCENTILE')
-        assert hasattr(config, 'NBVI_ALPHA')
-        assert hasattr(config, 'NBVI_MIN_SPACING')
-        assert hasattr(config, 'NBVI_NOISE_GATE_PERCENTILE')
+        assert hasattr(config, 'CALIBRATION_BUFFER_SIZE')
         
-        assert isinstance(config.NBVI_BUFFER_SIZE, int)
-        assert isinstance(config.NBVI_WINDOW_SIZE, int)
-        assert isinstance(config.NBVI_ALPHA, (int, float))
-        assert 0 <= config.NBVI_ALPHA <= 1
+        assert isinstance(config.CALIBRATION_BUFFER_SIZE, int)
+        assert config.CALIBRATION_BUFFER_SIZE >= 100
     
     def test_segmentation_config(self):
         """Test segmentation configuration"""
@@ -153,14 +145,11 @@ class TestConfigDefaultValues:
         # Should be between 0.1 and 10
         assert 0.1 <= config.SEG_THRESHOLD <= 10
     
-    def test_default_nbvi_parameters(self):
-        """Test default NBVI parameters are reasonable"""
+    def test_default_calibration_parameters(self):
+        """Test default calibration parameters are reasonable"""
         import config
         
-        assert config.NBVI_BUFFER_SIZE >= 100
-        assert config.NBVI_WINDOW_SIZE >= 10
-        assert 0 < config.NBVI_ALPHA < 1
-        assert 0 < config.NBVI_PERCENTILE < 100
+        assert config.CALIBRATION_BUFFER_SIZE >= 100
     
     def test_mqtt_port_standard(self):
         """Test MQTT port is standard"""

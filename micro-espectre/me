@@ -445,7 +445,7 @@ def deploy_code(args):
             ('src/nvs_storage.py', ':src/'),
             ('src/filters.py', ':src/'),
             ('src/features.py', ':src/'),
-            ('src/nbvi_calibrator.py', ':src/'),
+            ('src/band_calibrator.py', ':src/'),
             ('src/main.py', ':src/'),
             ('src/csi_streamer.py', ':src/'),
             ('src/mqtt/__init__.py', ':src/mqtt/'),

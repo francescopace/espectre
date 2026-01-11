@@ -133,7 +133,7 @@ Sent once when `START` command is received. Used to display device configuration
 | `chip` | ESP32 chip model (e.g., `esp32c6`) |
 | `threshold` | Current motion detection threshold |
 | `window` | Segmentation window size (packets) |
-| `subcarriers` | Subcarrier selection mode (`yaml` or `nbvi`) |
+| `subcarriers` | Subcarrier selection mode (`yaml` or `auto`) |
 | `lowpass` | Low-pass filter status (`on`/`off`) |
 | `lowpass_cutoff` | Low-pass cutoff frequency (Hz) |
 | `hampel` | Hampel filter status (`on`/`off`) |
@@ -266,7 +266,7 @@ After connecting via USB, the game displays a **System Info** panel showing the 
 |-------|-------------|
 | Threshold | Motion detection threshold |
 | Window | Segmentation window size |
-| Subcarriers | Selection mode (YAML config or NBVI auto-calibration) |
+| Subcarriers | Selection mode (YAML config or P95 auto-calibration) |
 | Low-pass | Filter status and cutoff frequency |
 | Hampel | Filter status |
 | Traffic | Traffic generator rate |

@@ -15,7 +15,7 @@ from src.segmentation import SegmentationContext
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
 from src.nvs_storage import NVSStorage
-from src.nbvi_calibrator import NBVICalibrator
+from src.band_calibrator import BandCalibrator
 import src.config as config
 
 # Default subcarriers (used if not configured or for fallback in case of error)
@@ -266,9 +266,9 @@ def run_gain_lock(wlan):
     return avg_agc, avg_fft, False, dominant_sc
 
 
-def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
+def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     """
-    Run NBVI calibration (with gain lock phase first)
+    Run P95 band calibration (with gain lock phase first)
     
     Args:
         wlan: WLAN instance
@@ -294,7 +294,7 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     print('Please remain still for calibration...')
     
     # Phase 1: Gain Lock (~3 seconds)
-    # Stabilizes AGC/FFT before NBVI to ensure clean data
+    # Stabilizes AGC/FFT before calibration to ensure clean data
     # Also determines dominant subcarrier count for the session
     agc, fft, skipped, dominant_sc = run_gain_lock(wlan)
     
@@ -302,21 +302,17 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     g_state.expected_subcarriers = dominant_sc
     
     if skipped:
-        print("Note: Proceeding with NBVI calibration without gain lock")
+        print("Note: Proceeding with band calibration without gain lock")
     
     print('')
     print('-'*60)
-    print(f'NBVI Subcarrier Selection (~7 seconds) [expecting {dominant_sc} SC]')
+    print(f'Band Calibration (~7 seconds) [expecting {dominant_sc} SC]')
     print('-'*60)
     
-    # Initialize Subcarrier calibrator with expected subcarrier count
-    # Normalization: attenuate if baseline > 0.25, otherwise no scaling
-    nbvi_calibrator = NBVICalibrator(
-        buffer_size=config.NBVI_BUFFER_SIZE,
-        percentile=config.NBVI_PERCENTILE,
-        alpha=config.NBVI_ALPHA,
-        min_spacing=config.NBVI_MIN_SPACING,
-        chip_type=chip_type,
+    # Initialize band calibrator with expected subcarrier count
+    # Uses P95 moving variance optimization for optimal band selection
+    band_calibrator = BandCalibrator(
+        buffer_size=config.CALIBRATION_BUFFER_SIZE,
         expected_subcarriers=dominant_sc
     )
     
@@ -328,13 +324,13 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     last_progress_time = time.ticks_ms()
     last_progress_count = 0
     
-    while calibration_progress < config.NBVI_BUFFER_SIZE:
+    while calibration_progress < config.CALIBRATION_BUFFER_SIZE:
         frame = wlan.csi_read()
         packets_read += 1
         
         if frame:
             csi_data = frame[5]  # Pass all CSI data (64-256 subcarriers depending on router)
-            calibration_progress = nbvi_calibrator.add_packet(csi_data)
+            calibration_progress = band_calibrator.add_packet(csi_data)
             timeout_counter = 0  # Reset timeout on successful read
             
             # Print progress every 100 packets with pps
@@ -345,7 +341,7 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
                 pps = int((packets_delta * 1000) / elapsed) if elapsed > 0 else 0
                 dropped = wlan.csi_dropped()
                 tg_pps = traffic_gen.get_actual_pps()
-                print(f"Collecting {calibration_progress}/{config.NBVI_BUFFER_SIZE} packets... (pps:{pps}, TG:{tg_pps}, drop:{dropped})")
+                print(f"Collecting {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE} packets... (pps:{pps}, TG:{tg_pps}, drop:{dropped})")
                 last_progress_time = current_time
                 last_progress_count = calibration_progress
         else:
@@ -361,18 +357,18 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
                 print(f"Waiting for CSI... ({timeout_counter/1000:.0f}s, progress: {calibration_progress}, TG running: {tg_running}, TG packets: {tg_count}, dropped: {dropped})")
             
             if timeout_counter >= max_timeout:
-                print(f"Timeout waiting for CSI packets (collected {calibration_progress}/{config.NBVI_BUFFER_SIZE})")
+                print(f"Timeout waiting for CSI packets (collected {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE})")
                 print("Calibration aborted - using default band")
                 return False
     
     gc.collect()  # Free any temporary objects before calibration
     
-    # Calibrate using percentile-based approach
+    # Calibrate using P95 moving variance approach
     success = False
     config.SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
     config.NORMALIZATION_SCALE = 1.0
     try:
-        selected_band, normalization_scale = nbvi_calibrator.calibrate(config.SELECTED_SUBCARRIERS)
+        selected_band, normalization_scale = band_calibrator.calibrate()
         
         if selected_band and len(selected_band) == 12:
             # Calibration successful
@@ -403,15 +399,14 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
         print(f"Using default band: {config.SELECTED_SUBCARRIERS}")
     
     # Free calibrator memory explicitly
-    nbvi_calibrator.free_buffer()
-    nbvi_calibrator = None
+    band_calibrator.free_buffer()
+    band_calibrator = None
     gc.collect()
     
     # Resume main loop
     g_state.calibration_mode = False
     
     return success
-
 
 def main():
     """Main application loop"""
@@ -454,19 +449,19 @@ def main():
         print(f'Traffic generator started ({config.TRAFFIC_GENERATOR_RATE} pps)')
         time.sleep(1)  # Wait for traffic to start generating CSI packets
     
-    # NBVI Auto-Calibration at boot if subcarriers not configured
+    # P95 Auto-Calibration at boot if subcarriers not configured
     # Handle case where SELECTED_SUBCARRIERS is None, empty, or not defined (commented out)
     current_subcarriers = getattr(config, 'SELECTED_SUBCARRIERS', None)
     needs_calibration = not current_subcarriers
     
     if needs_calibration:
         # Set default fallback before calibration
-        run_nbvi_calibration(wlan, nvs, seg, traffic_gen, g_state.chip_type)
+        run_band_calibration(wlan, nvs, seg, traffic_gen, g_state.chip_type)
     else:
         print(f'Using configured subcarriers: {config.SELECTED_SUBCARRIERS}')
     
     # Initialize MQTT (pass calibration function for factory_reset and global state for metrics)
-    mqtt_handler = MQTTHandler(config, seg, wlan, traffic_gen, run_nbvi_calibration, g_state)
+    mqtt_handler = MQTTHandler(config, seg, wlan, traffic_gen, run_band_calibration, g_state)
     mqtt_handler.connect()
     
     # Publish info after boot (always, to show current configuration)

@@ -107,7 +107,7 @@ void GainController::process_packet(const wifi_csi_info_t* info) {
     ESP_LOGI(TAG, "SC stats: 64=%d, 128=%d, 256=%d → using %d SC",
              packets_64sc_, packets_128sc_, packets_256sc_, get_dominant_subcarrier_count());
     
-    // Notify callback that gain is now locked (triggers NBVI calibration)
+    // Notify callback that gain is now locked (triggers band calibration)
     if (lock_complete_callback_) {
       lock_complete_callback_();
     }

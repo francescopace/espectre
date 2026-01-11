@@ -36,7 +36,7 @@ void ESpectreComponent::setup() {
   
   // 2. Load runtime-configurable parameters from preferences
   // Only threshold is persisted - all other settings come from YAML or are
-  // recalculated at boot (normalization_scale is computed during NBVI calibration)
+  // recalculated at boot (normalization_scale is computed during band calibration)
   ESpectreConfig config;
   if (this->config_manager_.load(config)) {
     this->segmentation_threshold_ = config.segmentation_threshold;
@@ -155,7 +155,7 @@ void ESpectreComponent::on_wifi_connected_() {
   // 1. Gain Lock (~3 seconds, 300 packets) - locks AGC/FFT for stable CSI
   // 2. Baseline Calibration (~7 seconds, 700 packets) - calculates normalization scale
   //    - If user specified subcarriers: only calculates baseline variance
-  //    - If auto (NBVI): also selects optimal subcarriers
+  //    - If auto (P95): also selects optimal subcarriers
   // Note: calibration works with both internal and external traffic
   // Set callback to start baseline calibration AFTER gain is locked
   this->csi_manager_.set_gain_lock_callback([this]() {
@@ -223,7 +223,7 @@ void ESpectreComponent::start_calibration_() {
   if (this->user_specified_subcarriers_) {
     ESP_LOGI(TAG, "Starting baseline calibration (fixed subcarriers)...");
   } else {
-    ESP_LOGI(TAG, "Starting NBVI calibration...");
+    ESP_LOGI(TAG, "Starting band calibration...");
   }
   
   // Update switch state to ON (calibrating)
@@ -241,7 +241,7 @@ void ESpectreComponent::start_calibration_() {
     this->traffic_generator_.pause();
   });
   
-  // Pass flag to indicate whether to run full NBVI or just baseline calculation
+  // Pass flag to indicate whether to run full P95 selection or just baseline calculation
   this->calibration_manager_.set_skip_subcarrier_selection(this->user_specified_subcarriers_);
   
   this->calibration_manager_.start_auto_calibration(
@@ -249,7 +249,7 @@ void ESpectreComponent::start_calibration_() {
     12,  // Always 12 subcarriers
     [this](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
       if (success) {
-        // Only update subcarriers if NBVI was used (not user-specified)
+        // Only update subcarriers if P95 was used (not user-specified)
         if (!this->user_specified_subcarriers_) {
           memcpy(this->selected_subcarriers_, band, size);
           this->csi_manager_.update_subcarrier_selection(band);
@@ -311,7 +311,7 @@ void ESpectreComponent::send_system_info_() {
   ESP_LOGI(TAG, "[sysinfo] chip=" CONFIG_IDF_TARGET);
   ESP_LOGI(TAG, "[sysinfo] threshold=%.2f", this->segmentation_threshold_);
   ESP_LOGI(TAG, "[sysinfo] window=%d", this->segmentation_window_size_);
-  ESP_LOGI(TAG, "[sysinfo] subcarriers=%s", this->user_specified_subcarriers_ ? "yaml" : "nbvi");
+  ESP_LOGI(TAG, "[sysinfo] subcarriers=%s", this->user_specified_subcarriers_ ? "yaml" : "auto");
   ESP_LOGI(TAG, "[sysinfo] lowpass=%s", this->lowpass_enabled_ ? "on" : "off");
   if (this->lowpass_enabled_) {
     ESP_LOGI(TAG, "[sysinfo] lowpass_cutoff=%.1f", this->lowpass_cutoff_);
@@ -350,7 +350,7 @@ void ESpectreComponent::dump_config() {
                 this->selected_subcarriers_[8], this->selected_subcarriers_[9],
                 this->selected_subcarriers_[10], this->selected_subcarriers_[11]);
   ESP_LOGCONFIG(TAG, " └─ Source ............. %s", 
-                this->user_specified_subcarriers_ ? "YAML" : "Auto (NBVI)");
+                this->user_specified_subcarriers_ ? "YAML" : "Auto (P95)");
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
   if (this->traffic_generator_rate_ > 0) {

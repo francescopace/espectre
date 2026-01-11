@@ -26,7 +26,7 @@ namespace espectre {
  * parameter adjustable at runtime via the Home Assistant slider.
  * 
  * All other settings come from YAML (compile-time) or are recalculated
- * at boot (e.g., normalization_scale during NBVI calibration).
+ * at boot (e.g., normalization_scale during band calibration).
  * 
  * Note: Changes to this struct require updating the preference hash
  * in espectre.cpp to avoid loading stale data.

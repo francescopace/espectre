@@ -26,7 +26,7 @@ SEG_THRESHOLD_MAX = 10.0
 class MQTTCommands:
     """MQTT command processor"""
     
-    def __init__(self, mqtt_client, config, segmentation, response_topic, wlan, traffic_generator=None, nbvi_calibration_func=None, global_state=None):
+    def __init__(self, mqtt_client, config, segmentation, response_topic, wlan, traffic_generator=None, band_calibration_func=None, global_state=None):
         """
         Initialize MQTT commands
         
@@ -37,7 +37,7 @@ class MQTTCommands:
             response_topic: MQTT topic for responses
             wlan: wlan instance
             traffic_generator: TrafficGenerator instance (optional)
-            nbvi_calibration_func: Function to run NBVI calibration (optional)
+            band_calibration_func: Function to run band calibration (optional)
             global_state: GlobalState instance for accessing loop metrics (optional)
         """
         self.mqtt = mqtt_client
@@ -45,7 +45,7 @@ class MQTTCommands:
         self.seg = segmentation
         self.wlan = wlan
         self.traffic_gen = traffic_generator
-        self.nbvi_calibration_func = nbvi_calibration_func
+        self.band_calibration_func = band_calibration_func
         self.global_state = global_state
         self.response_topic = response_topic
         self.start_time = time.time()
@@ -281,7 +281,7 @@ class MQTTCommands:
             self.send_response("ERROR: Invalid window size value (must be integer)")
     
     def cmd_factory_reset(self, cmd_obj):
-        """Reset all parameters to defaults and trigger NBVI re-calibration"""
+        """Reset all parameters to defaults and trigger band re-calibration"""
         print("Factory reset requested")
         
         # Reset segmentation to defaults (use constants from config.py)
@@ -303,8 +303,8 @@ class MQTTCommands:
 
         print("Factory reset complete")
         
-        # Run NBVI calibration immediately if function provided
-        if self.nbvi_calibration_func:
+        # Run band calibration immediately if function provided
+        if self.band_calibration_func:
             self.send_response("Factory reset complete. Starting re-calibration...")
             print("Starting re-calibration...")
             
@@ -312,7 +312,7 @@ class MQTTCommands:
             chip_type = getattr(self.global_state, 'chip_type', None) if self.global_state else None
             
             # Run calibration with chip_type for proper subcarrier filtering
-            success = self.nbvi_calibration_func(self.wlan, self.nvs, self.seg, self.traffic_gen, chip_type)
+            success = self.band_calibration_func(self.wlan, self.nvs, self.seg, self.traffic_gen, chip_type)
             
             if success:
                 band = getattr(self.config, 'SELECTED_SUBCARRIERS')

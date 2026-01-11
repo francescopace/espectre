@@ -1,7 +1,7 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-01-10T18:24:43.713113",
+  "updated_at": "2026-01-11T06:33:54.968119",
   "labels": {
     "baseline": {
       "id": 0,
@@ -43,14 +43,14 @@
         "num_packets": 1212
       },
       {
-        "filename": "baseline_s3_64sc_20251212_142443.npz",
+        "filename": "baseline_s3_128sc_20260111_063243.npz",
         "chip": "S3",
-        "subcarriers": 64,
+        "subcarriers": 128,
         "contributor": "francescopace",
-        "description": "HT20 baseline sample",
-        "collected_at": "2025-12-12T14:24:43.413630",
-        "duration_ms": 10000,
-        "num_packets": 1000
+        "collected_at": "2026-01-11T06:32:43.564454",
+        "duration_ms": 10010,
+        "num_packets": 1358,
+        "description": "HT40 baseline sample (validated)"
       }
     ],
     "baseline_noisy": [
@@ -87,14 +87,14 @@
         "num_packets": 1210
       },
       {
-        "filename": "movement_s3_64sc_20251212_142443.npz",
+        "filename": "movement_s3_128sc_20260111_063354.npz",
         "chip": "S3",
-        "subcarriers": 64,
+        "subcarriers": 128,
         "contributor": "francescopace",
-        "description": "HT20 movement sample",
-        "collected_at": "2025-12-12T14:24:43.423847",
-        "duration_ms": 10000,
-        "num_packets": 1000
+        "collected_at": "2026-01-11T06:33:54.944832",
+        "duration_ms": 10003,
+        "num_packets": 1402,
+        "description": "HT40 movement sample (validated)"
       }
     ]
   },

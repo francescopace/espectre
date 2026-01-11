@@ -4,7 +4,7 @@
 # Made for ESPHome - https://github.com/francescopace/espectre
 #
 # Note: AGC/FFT gain lock is not available on ESP32 original.
-# NBVI calibration works but CSI amplitudes may have more variance than newer chips.
+# Band calibration works but CSI amplitudes may have more variance than newer chips.
 #
 # Tested boards:
 # - ESP32-WROOM-32D Mini (CH340)

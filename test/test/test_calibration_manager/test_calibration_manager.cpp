@@ -103,8 +103,6 @@ void test_init_with_custom_buffer_path(void) {
     
     // Verify we can set configuration parameters
     cm.set_buffer_size(100);
-    cm.set_window_size(50);
-    cm.set_window_step(25);
     
     TEST_ASSERT_FALSE(cm.is_calibrating());
 }
@@ -165,24 +163,13 @@ void test_set_buffer_size(void) {
     TEST_PASS();
 }
 
-void test_set_window_parameters(void) {
+void test_set_skip_subcarrier_selection(void) {
     CalibrationManager cm;
     cm.init(nullptr, TEST_BUFFER_PATH);
     
-    cm.set_window_size(200);
-    cm.set_window_step(100);
-    cm.set_percentile(15);
-    
-    TEST_PASS();
-}
-
-void test_set_nbvi_parameters(void) {
-    CalibrationManager cm;
-    cm.init(nullptr, TEST_BUFFER_PATH);
-    
-    cm.set_alpha(0.5f);
-    cm.set_min_spacing(5);
-    cm.set_noise_gate_percentile(20);
+    // Test that we can configure skip_subcarrier_selection
+    cm.set_skip_subcarrier_selection(true);
+    cm.set_skip_subcarrier_selection(false);
     
     TEST_PASS();
 }
@@ -360,12 +347,11 @@ void test_turbulence_variance_baseline_vs_movement(void) {
 }
 
 // ============================================================================
-// NBVI CALCULATION FROM REAL DATA
+// BAND METRICS CALCULATION FROM REAL DATA
 // ============================================================================
 
-void test_nbvi_calculation_real_data(void) {
+void test_band_metric_calculation_real_data(void) {
     const uint8_t TEST_SC = 15;
-    const float ALPHA = 0.5f;
     
     // Collect magnitudes for 100 baseline packets using utils.h
     std::vector<float> magnitudes(100);
@@ -383,30 +369,26 @@ void test_nbvi_calculation_real_data(void) {
     float variance = calculate_variance_two_pass(magnitudes.data(), magnitudes.size());
     float std_dev = std::sqrt(variance);
     
-    // Calculate NBVI (same formula as CalibrationManager)
+    // Calculate coefficient of variation (used for band ranking)
     float cv = std_dev / mean;
-    float nbvi_energy = std_dev / (mean * mean);
-    float nbvi = ALPHA * nbvi_energy + (1.0f - ALPHA) * cv;
     
-    ESP_LOGI(TAG, "NBVI for subcarrier %d: %.6f (mean=%.2f, std=%.2f, cv=%.4f)",
-             TEST_SC, nbvi, mean, std_dev, cv);
+    ESP_LOGI(TAG, "Band metric for subcarrier %d: cv=%.4f (mean=%.2f, std=%.2f)",
+             TEST_SC, cv, mean, std_dev);
     
-    TEST_ASSERT_TRUE(nbvi > 0.0f);
-    TEST_ASSERT_TRUE(nbvi < 1.0f);  // Should be reasonable for stable signal
+    TEST_ASSERT_TRUE(cv > 0.0f);
+    TEST_ASSERT_TRUE(cv < 1.0f);  // Should be reasonable for stable signal
 }
 
-void test_nbvi_ranking_identifies_best_subcarriers(void) {
-    const float ALPHA = 0.5f;
-    
-    struct NBVIResult {
+void test_band_ranking_identifies_best_subcarriers(void) {
+    struct BandResult {
         uint8_t subcarrier;
-        float nbvi;
+        float variance;
         float mean;
     };
     
-    std::vector<NBVIResult> results(64);
+    std::vector<BandResult> results(64);
     
-    // Calculate NBVI for all subcarriers using utils.h
+    // Calculate variance for all subcarriers using utils.h
     for (uint8_t sc = 0; sc < 64; sc++) {
         std::vector<float> magnitudes(100);
         for (int p = 0; p < 100; p++) {
@@ -419,40 +401,29 @@ void test_nbvi_ranking_identifies_best_subcarriers(void) {
         float mean = sum / 100;
         
         float variance = calculate_variance_two_pass(magnitudes.data(), magnitudes.size());
-        float std_dev = std::sqrt(variance);
-        
-        float nbvi;
-        if (mean < 1e-6f) {
-            nbvi = INFINITY;
-        } else {
-            float cv = std_dev / mean;
-            float nbvi_energy = std_dev / (mean * mean);
-            nbvi = ALPHA * nbvi_energy + (1.0f - ALPHA) * cv;
-        }
         
         results[sc].subcarrier = sc;
-        results[sc].nbvi = nbvi;
+        results[sc].variance = variance;
         results[sc].mean = mean;
     }
     
-    // Sort by NBVI (ascending)
+    // Sort by variance (ascending - lower variance = more stable = better for P95)
     std::sort(results.begin(), results.end(), 
-              [](const NBVIResult& a, const NBVIResult& b) {
-                  return a.nbvi < b.nbvi;
+              [](const BandResult& a, const BandResult& b) {
+                  return a.variance < b.variance;
               });
     
     // Log top 12
-    ESP_LOGI(TAG, "Top 12 subcarriers by NBVI:");
+    ESP_LOGI(TAG, "Top 12 subcarriers by variance:");
     for (int i = 0; i < 12; i++) {
-        ESP_LOGI(TAG, "  %2d. SC %2d: NBVI=%.6f, mean=%.2f",
-                 i+1, results[i].subcarrier, results[i].nbvi, results[i].mean);
+        ESP_LOGI(TAG, "  %2d. SC %2d: variance=%.6f, mean=%.2f",
+                 i+1, results[i].subcarrier, results[i].variance, results[i].mean);
     }
     
-    // Verify guard bands are NOT in top 12
-    for (int i = 0; i < 12; i++) {
-        TEST_ASSERT_TRUE(results[i].subcarrier >= 6);
-        TEST_ASSERT_TRUE(results[i].subcarrier <= 58);
-    }
+    // Verify ranking produces valid results
+    // Note: Guard band exclusion is done by CalibrationManager, not by ranking
+    TEST_ASSERT_TRUE(results[0].variance <= results[11].variance);  // Sorted correctly
+    TEST_ASSERT_TRUE(results[0].variance >= 0.0f);  // Non-negative variance
 }
 
 // ============================================================================
@@ -514,7 +485,7 @@ void test_percentile_edge_cases(void) {
     
     // Empty vector
     std::vector<float> empty;
-    // Can't test directly, but we verify via NBVI calculation
+    // Can't test directly, but we verify via band metric calculation
     
     // Single element
     std::vector<float> single = {42.0f};
@@ -611,19 +582,19 @@ void test_spectral_spacing_selection(void) {
     // Test that selected subcarriers respect minimum spacing
     const uint8_t MIN_SPACING = 3;
     
-    // Simulate NBVI-sorted subcarriers (best first)
-    std::vector<uint8_t> sorted_by_nbvi = {15, 16, 17, 20, 25, 30, 35, 40, 45, 50, 10, 55};
+    // Simulate ranked subcarriers by P95 moving variance (best first)
+    std::vector<uint8_t> sorted_by_p95 = {15, 16, 17, 20, 25, 30, 35, 40, 45, 50, 10, 55};
     
     std::vector<uint8_t> selected;
     
     // Phase 1: Top 5 absolute best (no spacing check)
-    for (int i = 0; i < 5 && i < (int)sorted_by_nbvi.size(); i++) {
-        selected.push_back(sorted_by_nbvi[i]);
+    for (int i = 0; i < 5 && i < (int)sorted_by_p95.size(); i++) {
+        selected.push_back(sorted_by_p95[i]);
     }
     
     // Phase 2: Remaining 7 with spacing
-    for (size_t i = 5; i < sorted_by_nbvi.size() && selected.size() < 12; i++) {
-        uint8_t candidate = sorted_by_nbvi[i];
+    for (size_t i = 5; i < sorted_by_p95.size() && selected.size() < 12; i++) {
+        uint8_t candidate = sorted_by_p95[i];
         
         bool spacing_ok = true;
         for (uint8_t sel : selected) {
@@ -649,11 +620,11 @@ void test_spectral_spacing_selection(void) {
 }
 
 // ============================================================================
-// NBVI WEIGHTED FORMULA TESTS
+// BAND METRIC EDGE CASE TESTS
 // ============================================================================
 
-void test_nbvi_weighted_formula_zero_mean(void) {
-    // Test NBVI with zero mean (should return INFINITY)
+void test_band_metric_zero_mean(void) {
+    // Test band metric with zero mean (should be handled gracefully)
     std::vector<float> zero_magnitudes(100, 0.0f);
     
     float sum = 0.0f;
@@ -662,24 +633,15 @@ void test_nbvi_weighted_formula_zero_mean(void) {
     
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, mean);
     
-    // NBVI should be INFINITY for zero mean
-    float nbvi;
-    if (mean < 1e-6f) {
-        nbvi = INFINITY;
-    } else {
-        float variance = calculate_variance_two_pass(zero_magnitudes.data(), 
-                                                     zero_magnitudes.size());
-        float std = std::sqrt(variance);
-        float cv = std / mean;
-        float nbvi_energy = std / (mean * mean);
-        nbvi = 0.3f * nbvi_energy + 0.7f * cv;
-    }
+    // Variance should be zero for zero signal
+    float variance = calculate_variance_two_pass(zero_magnitudes.data(), 
+                                                 zero_magnitudes.size());
     
-    TEST_ASSERT_TRUE(std::isinf(nbvi));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, variance);
 }
 
-void test_nbvi_weighted_formula_constant_signal(void) {
-    // Test NBVI with constant signal (std=0, should give NBVI=0)
+void test_band_metric_constant_signal(void) {
+    // Test band metric with constant signal (variance=0)
     std::vector<float> constant_magnitudes(100, 50.0f);
     
     float sum = 0.0f;
@@ -693,12 +655,8 @@ void test_nbvi_weighted_formula_constant_signal(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 50.0f, mean);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, std);
     
-    // NBVI should be 0 for constant signal
-    float cv = std / mean;
-    float nbvi_energy = std / (mean * mean);
-    float nbvi = 0.3f * nbvi_energy + 0.7f * cv;
-    
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, nbvi);
+    // Variance should be 0 for constant signal
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, variance);
 }
 
 // ============================================================================
@@ -742,8 +700,7 @@ int process(void) {
     
     // Configuration tests
     RUN_TEST(test_set_buffer_size);
-    RUN_TEST(test_set_window_parameters);
-    RUN_TEST(test_set_nbvi_parameters);
+    RUN_TEST(test_set_skip_subcarrier_selection);
     
     // File I/O simulation tests
     RUN_TEST(test_file_write_via_add_packet_simulation);
@@ -757,9 +714,9 @@ int process(void) {
     RUN_TEST(test_spatial_turbulence_calculation);
     RUN_TEST(test_turbulence_variance_baseline_vs_movement);
     
-    // NBVI tests
-    RUN_TEST(test_nbvi_calculation_real_data);
-    RUN_TEST(test_nbvi_ranking_identifies_best_subcarriers);
+    // Band metric tests
+    RUN_TEST(test_band_metric_calculation_real_data);
+    RUN_TEST(test_band_ranking_identifies_best_subcarriers);
     
     // Baseline window detection
     RUN_TEST(test_baseline_window_detection_simulation);
@@ -774,9 +731,9 @@ int process(void) {
     // Spectral spacing tests
     RUN_TEST(test_spectral_spacing_selection);
     
-    // NBVI formula tests
-    RUN_TEST(test_nbvi_weighted_formula_zero_mean);
-    RUN_TEST(test_nbvi_weighted_formula_constant_signal);
+    // Band metric edge case tests
+    RUN_TEST(test_band_metric_zero_mean);
+    RUN_TEST(test_band_metric_constant_signal);
     
     // Double start test
     RUN_TEST(test_start_calibration_while_already_calibrating);

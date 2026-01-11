@@ -24,13 +24,10 @@ TRAFFIC_GENERATOR_RATE = 100  # Default rate (packets per second, recommended: 1
 # CSI Configuration
 CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
 
-# Selected subcarriers for turbulence calculation. None (or comment out) to auto-calibrate at boot using NBVI algorithm.
+# Selected subcarriers for turbulence calculation. None to auto-calibrate at boot.
 #SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
-# CSI Amplitude Normalization
-# Automatically calculated during NBVI calibration
-# If baseline > 0.25: scale = 0.25 / baseline_variance (attenuate)
-# If baseline <= 0.25: scale = 1.0 (no amplification, prevents extreme values)
+# CSI Amplitude Normalization (automatically calculated during calibration)
 NORMALIZATION_SCALE = 1.0      # Current scale (calculated during calibration, default: 1.0)
 
 # Gain Lock Configuration
@@ -39,14 +36,9 @@ NORMALIZATION_SCALE = 1.0      # Current scale (calculated during calibration, d
 GAIN_LOCK_MODE = "auto"       # Recommended: "auto" - skips gain lock if AGC < 30
 GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is skipped in auto mode)
 
-# NBVI Auto-Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
-NBVI_BUFFER_SIZE = 700        # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
-NBVI_WINDOW_SIZE = 200        # Window size for baseline detection (2s @ 100Hz)
-NBVI_WINDOW_STEP = 50         # Step size for sliding window analysis
-NBVI_PERCENTILE = 10          # Percentile for baseline detection (10 = p10)
-NBVI_ALPHA = 0.5              # NBVI weighting factor (0.5 = balanced)
-NBVI_MIN_SPACING = 1          # Minimum spacing between subcarriers (1 = adjacent allowed)
-NBVI_NOISE_GATE_PERCENTILE = 25  # Exclude weak subcarriers below this percentile
+# Band Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
+# Uses P95 moving variance optimization to select optimal 12-subcarrier band
+CALIBRATION_BUFFER_SIZE = 700  # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
 
 # Segmentation Window and Threshold
 SEG_WINDOW_SIZE = 50          # Moving variance window (packets) - used by both MVS and Features

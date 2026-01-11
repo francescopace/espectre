@@ -28,6 +28,8 @@
 // ============================================================================
 #define BASELINE_64SC  "../micro-espectre/data/baseline/baseline_c6_64sc_20251212_142443.npz"
 #define MOVEMENT_64SC  "../micro-espectre/data/movement/movement_c6_64sc_20251212_142443.npz"
+#define BASELINE_128SC "../micro-espectre/data/baseline/baseline_s3_128sc_20260111_063243.npz"
+#define MOVEMENT_128SC "../micro-espectre/data/movement/movement_s3_128sc_20260111_063354.npz"
 #define BASELINE_256SC "../micro-espectre/data/baseline/baseline_c6_256sc_20260110_182357.npz"
 #define MOVEMENT_256SC "../micro-espectre/data/movement/movement_c6_256sc_20260110_182443.npz"
 
@@ -141,6 +143,9 @@ inline bool load(int num_sc = 0) {
     if (num_sc == 256) {
         baseline_file = BASELINE_256SC;
         movement_file = MOVEMENT_256SC;
+    } else if (num_sc == 128) {
+        baseline_file = BASELINE_128SC;
+        movement_file = MOVEMENT_128SC;
     } else {
         // Default to 64 SC
         baseline_file = BASELINE_64SC;
@@ -185,7 +190,7 @@ inline bool switch_dataset(int num_sc) {
  * Get list of available SC configurations for parametrized testing.
  */
 inline std::vector<int> get_available_configs() {
-    return {64, 256};
+    return {64, 128, 256};
 }
 
 // ============================================================================

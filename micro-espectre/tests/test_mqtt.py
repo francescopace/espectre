@@ -443,7 +443,7 @@ class TestMQTTCommands:
             "test/espectre/response",
             mock_wlan,
             mock_traffic_gen,
-            None,  # nbvi_calibration_func
+            None,  # band_calibration_func
             mock_global_state
         )
     
@@ -586,9 +586,9 @@ class TestMQTTCommands:
         mock_nvs.erase.assert_called_once()
     
     def test_cmd_factory_reset_with_calibration(self, commands_instance, mock_mqtt_client_instance, mock_nvs, mock_global_state):
-        """Test factory reset with NBVI re-calibration"""
+        """Test factory reset with band re-calibration"""
         mock_calibration_func = MagicMock(return_value=True)
-        commands_instance.nbvi_calibration_func = mock_calibration_func
+        commands_instance.band_calibration_func = mock_calibration_func
         
         commands_instance.cmd_factory_reset({})
         

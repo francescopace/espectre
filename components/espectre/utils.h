@@ -80,16 +80,16 @@ inline float calculate_magnitude(int8_t i, int8_t q) {
 inline float calculate_spatial_turbulence(const float* magnitudes,
                                           const uint8_t* subcarriers,
                                           uint8_t num_subcarriers,
-                                          uint8_t max_subcarrier = 64) {
+                                          uint16_t max_subcarrier = 256) {
     if (num_subcarriers == 0 || !magnitudes || !subcarriers) {
         return 0.0f;
     }
     
-    // Collect valid magnitudes
-    float valid_mags[64];
+    // Collect valid magnitudes (max 12 subcarriers for band selection)
+    float valid_mags[12];
     uint8_t valid_count = 0;
     
-    for (uint8_t i = 0; i < num_subcarriers && i < 64; i++) {
+    for (uint8_t i = 0; i < num_subcarriers && valid_count < 12; i++) {
         if (subcarriers[i] < max_subcarrier) {
             valid_mags[valid_count++] = magnitudes[subcarriers[i]];
         }

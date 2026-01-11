@@ -251,7 +251,7 @@ class SegmentationContext:
         Args:
             scale: Normalization scale (calculated during calibration)
         """
-        self.normalization_scale = max(0.1, min(10.0, scale))
+        self.normalization_scale = max(0.4, min(10.0, scale))
     
     def add_turbulence(self, turbulence):
         """

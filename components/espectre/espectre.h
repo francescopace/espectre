@@ -103,7 +103,7 @@ class ESpectreComponent : public Component {
   void set_calibrate_switch(switch_::Switch *sw) { this->calibrate_switch_ = sw; }
   
  protected:
-  // Start NBVI/baseline calibration (shared by boot and runtime trigger)
+  // Start band/baseline calibration (shared by boot and runtime trigger)
   void start_calibration_();
   // WiFi lifecycle callbacks
   void on_wifi_connected_();

@@ -2,7 +2,7 @@
  * ESPectre - WiFi Lifecycle Manager
  * 
  * Manages WiFi connection lifecycle and coordinates service startup/shutdown.
- * Handles CSI, Traffic Generator, and NBVI Calibration orchestration.
+ * Handles CSI, Traffic Generator, and Band Calibration orchestration.
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -25,7 +25,7 @@ using wifi_disconnected_callback_t = std::function<void()>;
  * WiFi Lifecycle Manager
  * 
  * Manages WiFi connection events and coordinates service lifecycle.
- * Handles startup sequence: CSI → Traffic Generator → NBVI Calibration
+ * Handles startup sequence: CSI → Traffic Generator → Band Calibration
  */
 class WiFiLifecycleManager {
  public:
