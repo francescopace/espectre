@@ -113,6 +113,8 @@ class CalibrationManager {
   uint16_t get_buffer_size() const { return buffer_size_; }
   uint16_t get_window_size() const { return window_size_; }
   uint16_t get_window_step() const { return window_step_; }
+  uint16_t get_guard_band_low() const { return guard_band_low_; }
+  uint16_t get_guard_band_high() const { return guard_band_high_; }
   void set_percentile(uint8_t percentile) { percentile_ = percentile; }
   void set_alpha(float alpha) { alpha_ = alpha; }
   void set_min_spacing(uint8_t spacing) { min_spacing_ = spacing; }
@@ -205,7 +207,8 @@ class CalibrationManager {
   uint16_t num_subcarriers_{64};     // Number of subcarriers (64, 128, or 256)
   uint16_t guard_band_low_{11};      // First valid subcarrier
   uint16_t guard_band_high_{52};     // Last valid subcarrier
-  uint16_t dc_subcarrier_{32};       // DC null subcarrier
+  uint16_t dc_low_{32};              // DC zone start (for 64/128 SC: single point)
+  uint16_t dc_high_{32};             // DC zone end (for 256 SC: range [dc_low_, dc_high_])
   
   // Constants
   static constexpr uint8_t SELECTED_SUBCARRIERS_COUNT = 12;

@@ -8,15 +8,15 @@ Grid search for optimal NBVI calibration parameters:
 - percentile: Percentile for top subcarrier selection (5-20)
 
 Usage:
-    python tools/7_optimize_nbvi_params.py [chip] [--quick]
+    python tools/10_optimize_nbvi_params.py [--256sc] [--quick]
     
-    chip: Optional chip type filter (c6, s3, etc.)
+    --256sc: Use 256 subcarrier data instead of 64
     --quick: Quick mode with fewer parameter combinations
 
 Examples:
-    python tools/7_optimize_nbvi_params.py          # Full optimization
-    python tools/7_optimize_nbvi_params.py c6       # Use only C6 data
-    python tools/7_optimize_nbvi_params.py --quick  # Quick search
+    python tools/10_optimize_nbvi_params.py          # Full optimization (64 SC)
+    python tools/10_optimize_nbvi_params.py --256sc  # Use 256 SC data
+    python tools/10_optimize_nbvi_params.py --quick  # Quick search
 
 Requires:
     - data/baseline/*.npz (baseline data for calibration)
@@ -39,14 +39,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from segmentation import SegmentationContext
 import nbvi_calibrator
+from nbvi_calibrator import calculate_guard_bands
 from config import NBVI_ALPHA, NBVI_MIN_SPACING, NBVI_PERCENTILE
 
 
-def find_latest_file(data_dir, prefix, chip_filter=None):
-    """Find the latest .npz file with given prefix and optional chip filter"""
-    files = list(Path(data_dir).glob(f'{prefix}*.npz'))
-    if chip_filter:
-        files = [f for f in files if chip_filter.lower() in f.name.lower()]
+def find_file_by_pattern(data_dir, prefix, num_sc=64, chip='c6'):
+    """Find the .npz file matching the prefix, chip, and subcarrier count"""
+    # Try to find chip-specific file first
+    pattern = f'{prefix}_{chip}_{num_sc}sc_*.npz'
+    files = list(Path(data_dir).glob(pattern))
+    if not files:
+        # Fallback to any chip with matching SC count
+        pattern = f'{prefix}*_{num_sc}sc_*.npz'
+        files = list(Path(data_dir).glob(pattern))
     if not files:
         return None
     return max(files, key=lambda f: f.stat().st_mtime)
@@ -104,7 +109,7 @@ def test_configuration(baseline_iq, movement_iq, subcarriers, threshold=1.0, win
     }
 
 
-def calibrate_nbvi(baseline_iq, alpha, min_spacing, percentile, buffer_size=200):
+def calibrate_nbvi(baseline_iq, alpha, min_spacing, percentile, num_subcarriers=64, buffer_size=200):
     """Run NBVI calibration with specific parameters"""
     
     # Create temp buffer file
@@ -128,8 +133,10 @@ def calibrate_nbvi(baseline_iq, alpha, min_spacing, percentile, buffer_size=200)
             csi_bytes = bytes(int(x) & 0xFF for x in pkt)
             calibrator.add_packet(csi_bytes)
         
-        # Run calibration
-        default_band = list(range(11, 23))
+        # Calculate dynamic default band based on num_subcarriers
+        guard_low, guard_high, dc_low, dc_high = calculate_guard_bands(num_subcarriers)
+        default_band = list(range(guard_low, guard_low + 12))
+        
         selected_band, norm_scale = calibrator.calibrate(default_band, window_size=100, step=50)
         calibrator.free_buffer()
         
@@ -148,29 +155,27 @@ def main():
         description='NBVI Parameters Optimization',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument('chip', nargs='?', default=None,
-                       help='Chip type filter (c6, s3, etc.)')
+    parser.add_argument('--256sc', dest='use_256sc', action='store_true',
+                       help='Use 256 subcarrier data instead of 64')
     parser.add_argument('--quick', action='store_true',
                        help='Quick mode with fewer combinations')
     
     args = parser.parse_args()
-    chip_filter = args.chip
+    num_sc = 256 if args.use_256sc else 64
     
     print()
     print("╔═══════════════════════════════════════════════════════╗")
     print("║         NBVI Parameters Grid Search                   ║")
     print("╚═══════════════════════════════════════════════════════╝")
     print()
-    
-    if chip_filter:
-        print(f"Filtering for chip: {chip_filter}")
-        print()
+    print(f"Subcarrier count: {num_sc}")
+    print()
     
     # Find data files
     data_dir = Path(__file__).parent.parent / 'data'
     
-    baseline_file = find_latest_file(data_dir / 'baseline', 'baseline', chip_filter)
-    movement_file = find_latest_file(data_dir / 'movement', 'movement', chip_filter)
+    baseline_file = find_file_by_pattern(data_dir / 'baseline', 'baseline', num_sc)
+    movement_file = find_file_by_pattern(data_dir / 'movement', 'movement', num_sc)
     
     if baseline_file is None:
         print("ERROR: No baseline data found in data/baseline/")
@@ -211,11 +216,22 @@ def main():
     print(f"Testing {total_tests} parameter combinations...")
     print()
     
-    # Reference: fixed band [11-22]
+    # Calculate guard bands and reference band
+    guard_low, guard_high, dc_low, dc_high = calculate_guard_bands(num_sc)
+    
+    # Use optimal fixed bands for each SC count
+    if num_sc == 64:
+        fixed_band = list(range(11, 23))  # Optimized for 64 SC
+    elif num_sc == 256:
+        fixed_band = list(range(147, 159))  # Optimized for 256 SC
+    else:
+        fixed_band = list(range(guard_low, guard_low + 12))  # Fallback
+    
+    # Reference: fixed band
     print("=" * 75)
-    print("  REFERENCE: Fixed Band [11-22]")
+    print(f"  REFERENCE: Fixed Band {fixed_band}")
     print("=" * 75)
-    fixed_metrics = test_configuration(baseline_iq, movement_iq, list(range(11, 23)))
+    fixed_metrics = test_configuration(baseline_iq, movement_iq, fixed_band)
     print(f"  Recall: {fixed_metrics['recall']:.1f}%, F1: {fixed_metrics['f1']:.1f}%, FP: {fixed_metrics['fp']}")
     print()
     
@@ -243,7 +259,8 @@ def main():
                         baseline_iq, 
                         alpha=alpha, 
                         min_spacing=spacing, 
-                        percentile=percentile
+                        percentile=percentile,
+                        num_subcarriers=num_sc
                     )
                 except Exception as e:
                     print(f"{alpha:<8} {spacing:<10} ERROR: {e}")
@@ -305,7 +322,7 @@ def main():
         print()
         
         # Compare with fixed band
-        print("  Comparison with Fixed Band [11-22]:")
+        print(f"  Comparison with Fixed Band {fixed_band}:")
         diff_recall = best['recall'] - fixed_metrics['recall']
         diff_f1 = best['f1'] - fixed_metrics['f1']
         symbol_recall = "+" if diff_recall >= 0 else ""

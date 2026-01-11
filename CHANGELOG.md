@@ -8,6 +8,15 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+#### WiFi 6 (802.11ax) 256 Subcarriers Support
+
+Full support for 256 subcarriers on WiFi 6 HE-SU mode (ESP32-C6).
+
+- **Dynamic guard bands**: Conservative bands for 64 SC (HT20), IEEE standard for 128/256 SC
+- **Automatic detection**: NBVI calibration adapts to subcarrier count from CSI stream
+- **Chip auto-detection**: CSI streaming protocol now includes chip type metadata
+- **Unified NPZ format**: Compact `csi_data` field with standardized naming convention
+
 #### Calibrate Switch
 
 New Home Assistant switch entity for triggering NBVI recalibration without reflashing.
@@ -18,7 +27,60 @@ New Home Assistant switch entity for triggering NBVI recalibration without refla
 
 Useful for recalibrating after room layout changes (furniture, sensor position) without needing to erase flash.
 
+#### ESP32-C3 Development Config
+
+Added `espectre-c3-dev.yaml` for ESP32-C3 development boards.
+
+#### Lower Threshold Minimum
+
+- Threshold minimum lowered from 0.5 to **0.1** for high-sensitivity applications
+
+### Micro-ESPectre (R&D Platform)
+
+#### SHA256 Firmware Verification
+
+New `verify` command to detect outdated firmware causing CSI collection failures.
+
+- **Automatic hash check**: Compares deployed vs. source file hashes
+- **Clear warnings**: Identifies mismatched files that need redeployment
+
+#### CSI Stream Protocol v2
+
+- **Chip type in header**: Auto-detected from device, no manual `--chip` option needed
+- **Contributor tracking**: Auto-detected from `git config user.name`
+- **File naming**: `{label}_{chip}_{num_sc}sc_{timestamp}.npz` format
+
+### Bug Fixes
+
+- **ESP32-C3 boot crash**: Fixed duplicate `register_component` calls
+- **USB Serial JTAG**: Use correct ESPHome macro for detection
+- **CSI data overflow**: Limit to 128 bytes to prevent `num_sc` overflow
+- **Game mobile view**: Fixed visualization issues on mobile devices
+
 ### CI/CD
+
+#### Test Suite Simplification
+
+Removed on-device test environment (`esp32c6`) from PlatformIO. All tests now run only in `native` mode, which is faster and more reliable for CI. Real CSI data from ESP32-C6 captures is still used for validation.
+
+#### NPZ Data Loading with cnpy
+
+C++ tests now load CSI data directly from NPZ files using [cnpy](https://github.com/rogersce/cnpy), eliminating the need for duplicate data in C header files.
+
+- **Same data source**: Both Python and C++ tests use the same NPZ files in `micro-espectre/data/`
+- **ZIP64 support**: Added ZIP64 extended information parsing to cnpy for NumPy compatibility
+- **Compressed NPZ**: Added `npz_save_compressed()` function with zlib deflate compression
+- **Automatic path detection**: Test loader finds files from any working directory
+
+> Note: cnpy improvements submitted upstream as [PR](https://github.com/rogersce/cnpy/pull/103)
+
+#### Multi-Dataset Testing
+
+Tests that use real CSI data now run with **both 64 SC and 256 SC datasets**, similar to pytest parametrization.
+
+- **223 test cases** (up from 208) covering both HT20 (64 SC) and HE20 (256 SC) modes
+- **Dynamic subcarrier selection**: Tests automatically use optimal subcarriers for each dataset
+- **Guard band validation**: Uses `CalibrationManager` getters instead of hardcoded values
 
 #### Smoke Tests (QEMU)
 
@@ -28,10 +90,23 @@ Added automated smoke tests using QEMU emulation to catch firmware crashes early
 - **Detection**: Kernel panics, Guru Meditation errors, assertion failures, stack smashing
 - **Stack trace analysis**: Automatic `addr2line` decoding on crash for easier debugging
 - **Architecture coverage**: Both Xtensa (S3) and RISC-V (C3, C6)
+- **IDF 5.5**: Upgraded Docker image for smoke tests
 
 New UART configurations in `examples/uart/` for boards with USB-UART bridges (CH340, CP2102, CH343) and QEMU smoke tests.
 
 > Note: ESP32 original is excluded from QEMU testing as the emulator doesn't correctly emulate PHY/radio registers, causing false positive crashes.
+
+#### Other CI Improvements
+
+- **Stale bot**: Auto-close inactive issues/PRs after 30+7 days
+- **Build caching**: Faster CI builds with PlatformIO/ESPHome cache
+- **Coverage threshold**: CI fails if coverage drops below 80%
+- **Dependency updates**: `actions/stale@10`, `actions/upload-artifact@6`
+
+### Documentation
+
+- Added Part 2 Medium article link to README
+- Updated bug report template with crash debug files section
 
 ---
 

@@ -18,9 +18,14 @@
 #include "esphome/core/log.h"
 #include "esp_wifi.h"
 
-// Include real CSI data
-#include "real_csi_data_esp32.h"
-#include "real_csi_arrays.inc"
+// Include CSI data loader (loads from NPZ files)
+#include "csi_test_data.h"
+
+// Compatibility macros for existing test code
+#define baseline_packets csi_test_data::baseline_packets()
+#define movement_packets csi_test_data::movement_packets()
+#define num_baseline csi_test_data::num_baseline()
+#define num_movement csi_test_data::num_movement()
 
 using namespace esphome::espectre;
 
@@ -761,6 +766,12 @@ void test_csi_manager_callback_wrapper_null_data(void) {
 // ============================================================================
 
 int process(void) {
+    // Load CSI test data from NPZ files
+    if (!csi_test_data::load()) {
+        printf("ERROR: Failed to load CSI test data from NPZ files\n");
+        return 1;
+    }
+    
     UNITY_BEGIN();
     
     // Initialization tests

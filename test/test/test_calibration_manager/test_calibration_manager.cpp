@@ -25,9 +25,15 @@
 #include "esp_spiffs.h"
 #endif
 
-// Include real CSI data
-#include "real_csi_data_esp32.h"
-#include "real_csi_arrays.inc"
+// Include CSI data loader (loads from NPZ files)
+#include "csi_test_data.h"
+
+// Compatibility macros for existing test code
+#define baseline_packets csi_test_data::baseline_packets()
+#define movement_packets csi_test_data::movement_packets()
+#define num_baseline csi_test_data::num_baseline()
+#define num_movement csi_test_data::num_movement()
+#define packet_size csi_test_data::packet_size()
 
 using namespace esphome::espectre;
 
@@ -140,7 +146,7 @@ void test_add_packet_not_calibrating_returns_early(void) {
     cm.init(nullptr, TEST_BUFFER_PATH);
     
     // Try to add packet when not calibrating
-    bool result = cm.add_packet(baseline_packets[0], 128);
+    bool result = cm.add_packet(baseline_packets[0], packet_size);
     
     // Should return false (buffer_count >= buffer_size is false)
     TEST_ASSERT_FALSE(result);
@@ -320,7 +326,7 @@ void test_magnitude_consistency_across_packets(void) {
 void test_spatial_turbulence_calculation(void) {
     // Calculate spatial turbulence for a real packet using utils.h
     float turbulence = calculate_spatial_turbulence_from_csi(
-        baseline_packets[0], 128, DEFAULT_BAND, DEFAULT_BAND_SIZE);
+        baseline_packets[0], packet_size, DEFAULT_BAND, DEFAULT_BAND_SIZE);
     
     ESP_LOGI(TAG, "Spatial turbulence for packet 0: %.4f", turbulence);
     
@@ -335,9 +341,9 @@ void test_turbulence_variance_baseline_vs_movement(void) {
     for (int p = 0; p < 100; p++) {
         // Calculate turbulence using utils.h functions
         baseline_turbulences[p] = calculate_spatial_turbulence_from_csi(
-            baseline_packets[p], 128, DEFAULT_BAND, DEFAULT_BAND_SIZE);
+            baseline_packets[p], packet_size, DEFAULT_BAND, DEFAULT_BAND_SIZE);
         movement_turbulences[p] = calculate_spatial_turbulence_from_csi(
-            movement_packets[p], 128, DEFAULT_BAND, DEFAULT_BAND_SIZE);
+            movement_packets[p], packet_size, DEFAULT_BAND, DEFAULT_BAND_SIZE);
     }
     
     // Calculate variance of turbulences using utils.h
@@ -465,12 +471,12 @@ void test_baseline_window_detection_simulation(void) {
     // First 100 packets: baseline, next 100: movement
     for (int p = 0; p < 100; p++) {
         all_turbulences[p] = calculate_spatial_turbulence_from_csi(
-            baseline_packets[p], 128, DEFAULT_BAND, DEFAULT_BAND_SIZE);
+            baseline_packets[p], packet_size, DEFAULT_BAND, DEFAULT_BAND_SIZE);
     }
     
     for (int p = 0; p < 100; p++) {
         all_turbulences[100 + p] = calculate_spatial_turbulence_from_csi(
-            movement_packets[p], 128, DEFAULT_BAND, DEFAULT_BAND_SIZE);
+            movement_packets[p], packet_size, DEFAULT_BAND, DEFAULT_BAND_SIZE);
     }
     
     // Calculate variance for each window
@@ -717,6 +723,12 @@ void test_start_calibration_while_already_calibrating(void) {
 // ============================================================================
 
 int process(void) {
+    // Load CSI test data from NPZ files
+    if (!csi_test_data::load()) {
+        printf("ERROR: Failed to load CSI test data from NPZ files\n");
+        return 1;
+    }
+    
     UNITY_BEGIN();
     
     // Initialization tests

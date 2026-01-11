@@ -26,42 +26,51 @@ NULL_SUBCARRIER_THRESHOLD = 1.0
 
 def calculate_guard_bands(num_subcarriers):
     """
-    Calculate guard band limits based on IEEE 802.11 standards.
-    
-    Uses standard guard bands defined in IEEE 802.11n (HT20/HT40) and 
-    802.11ax (HE20) specifications.
+    Calculate guard band limits optimized for motion detection.
     
     Args:
         num_subcarriers: Total number of subcarriers (64, 128, or 256)
     
     Returns:
-        tuple: (guard_band_low, guard_band_high, dc_subcarrier)
+        tuple: (guard_band_low, guard_band_high, dc_low, dc_high)
+        - Valid subcarriers: [guard_band_low, dc_low) and (dc_high, guard_band_high]
+        - For 64/128 SC: dc_low == dc_high (single DC subcarrier)
+        - For 256 SC: dc_low < dc_high (DC zone exclusion)
     """
-    # IEEE 802.11 standard guard bands:
-    # HT20 (64 SC):  6 guard per side, indices 0-5 and 59-63, DC=32
-    # HT40 (128 SC): 7 guard per side, indices 0-6 and 121-127, DC=64
-    # HE20 (256 SC): 7 guard per side, indices 0-6 and 249-255, DC=128
+    # Guard bands optimized for motion detection (empirically validated):
+    # - 64 SC (HT20): Conservative [11-52], excludes noisy edges
+    # - 128 SC (HT40): IEEE standard [7-120], not yet validated
+    # - 256 SC (HE20): Conservative, excludes edges [0-29] and [226-255], plus DC zone [108-147]
+    #                  Valid zones: [30-107] and [148-225]
     if num_subcarriers == 64:
         # HT20: Conservative guard bands (tested, optimized for motion detection)
         # Edge subcarriers 0-10 and 53-63 are noisier and less motion-sensitive
         guard_band_low = 11
         guard_band_high = 52
-        dc_subcarrier = 32
+        dc_low = 32
+        dc_high = 32  # Single DC subcarrier
     elif num_subcarriers == 128:
+        # HT40: IEEE standard (not yet validated with real data)
         guard_band_low = 7       # indices 0-6 are guard
         guard_band_high = 120    # indices 121-127 are guard
-        dc_subcarrier = 64
+        dc_low = 64
+        dc_high = 64  # Single DC subcarrier
     elif num_subcarriers == 256:
-        guard_band_low = 7       # indices 0-6 are guard
-        guard_band_high = 248    # indices 249-255 are guard
-        dc_subcarrier = 128
+        # HE20: Conservative guard bands (tested, optimized for motion detection)
+        # Excludes: edges [0-29] and [226-255], DC zone [108-147]
+        # Valid zones: [30-107] and [148-225] = 156 subcarriers
+        guard_band_low = 30
+        guard_band_high = 225
+        dc_low = 108
+        dc_high = 147  # DC zone exclusion
     else:
         # Fallback: ~10% guard bands
         guard_band_low = num_subcarriers // 10
         guard_band_high = num_subcarriers - 1 - (num_subcarriers // 10)
-        dc_subcarrier = num_subcarriers // 2
+        dc_low = num_subcarriers // 2
+        dc_high = num_subcarriers // 2
     
-    return guard_band_low, guard_band_high, dc_subcarrier
+    return guard_band_low, guard_band_high, dc_low, dc_high
 
 
 def get_valid_subcarriers(num_subcarriers=64):
@@ -126,7 +135,8 @@ class NBVICalibrator:
         self._num_subcarriers = None  # Determined from first packet
         self._guard_band_low = None
         self._guard_band_high = None
-        self._dc_subcarrier = None
+        self._dc_low = None
+        self._dc_high = None
         
         # Remove old buffer file if exists
         try:
@@ -161,9 +171,12 @@ class NBVICalibrator:
         # Determine number of subcarriers from first accepted packet
         if self._num_subcarriers is None:
             self._num_subcarriers = packet_sc
-            self._guard_band_low, self._guard_band_high, self._dc_subcarrier = \
+            self._guard_band_low, self._guard_band_high, self._dc_low, self._dc_high = \
                 calculate_guard_bands(self._num_subcarriers)
-            print(f'NBVI: {self._num_subcarriers} subcarriers, guard bands [{self._guard_band_low}-{self._guard_band_high}], DC={self._dc_subcarrier}')
+            if self._dc_low == self._dc_high:
+                print(f'NBVI: {self._num_subcarriers} subcarriers, guard bands [{self._guard_band_low}-{self._guard_band_high}], DC={self._dc_low}')
+            else:
+                print(f'NBVI: {self._num_subcarriers} subcarriers, guard bands [{self._guard_band_low}-{self._guard_band_high}], DC zone [{self._dc_low}-{self._dc_high}]')
         
         # Extract magnitudes and write directly to file
         magnitudes = bytearray(self._num_subcarriers)
@@ -591,8 +604,8 @@ class NBVICalibrator:
                 metrics = self._calculate_nbvi_weighted(magnitudes)
                 metrics['subcarrier'] = sc
                 
-                # Exclude guard bands and DC subcarrier
-                if sc < self._guard_band_low or sc > self._guard_band_high or sc == self._dc_subcarrier:
+                # Exclude guard bands and DC zone
+                if sc < self._guard_band_low or sc > self._guard_band_high or (self._dc_low <= sc <= self._dc_high):
                     metrics['nbvi'] = float('inf')
                     null_count += 1
                 # Auto-detect weak subcarriers

@@ -29,15 +29,28 @@
 
 using namespace esphome::espectre;
 
-// Include CSI data
-#include "real_csi_data_esp32.h"
-#include "real_csi_arrays.inc"
+// Include CSI data loader (loads from NPZ files)
+#include "csi_test_data.h"
+
+// Compatibility macros for existing test code
+#define baseline_packets csi_test_data::baseline_packets()
+#define movement_packets csi_test_data::movement_packets()
+#define num_baseline csi_test_data::num_baseline()
+#define num_movement csi_test_data::num_movement()
 
 static const char *TAG = "test_motion_detection";
 
-// Default subcarrier selection for all tests (optimized based on PCA analysis)
-static const uint8_t SELECTED_SUBCARRIERS[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
-static const uint8_t NUM_SUBCARRIERS = sizeof(SELECTED_SUBCARRIERS) / sizeof(SELECTED_SUBCARRIERS[0]);
+// Optimal subcarriers by dataset (found via grid search analysis)
+// - 64 SC (HT20): subcarriers 11-22
+// - 256 SC (HE20): subcarriers 147-158
+static const uint8_t SUBCARRIERS_64SC[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+static const uint8_t SUBCARRIERS_256SC[] = {147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158};
+
+// Get optimal subcarriers based on loaded data
+inline const uint8_t* get_optimal_subcarriers() {
+    return (csi_test_data::num_subcarriers() == 64) ? SUBCARRIERS_64SC : SUBCARRIERS_256SC;
+}
+static const uint8_t NUM_SELECTED_SUBCARRIERS = 12;
 
 // Motion detection metrics structure
 typedef struct {
@@ -97,7 +110,7 @@ static void calculate_motion_metrics(motion_metrics_t *metrics,
 // Note: In production, update_state() is called only at publish time for efficiency.
 // In tests, we call it after every packet to measure per-packet detection accuracy.
 static void process_packet(csi_processor_context_t *ctx, const int8_t *packet) {
-    csi_process_packet(ctx, packet, 128, SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+    csi_process_packet(ctx, packet, csi_test_data::packet_size(), get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS);
     csi_processor_update_state(ctx);  // Lazy evaluation: update state for testing
 }
 
@@ -122,7 +135,7 @@ void test_mvs_detection_accuracy(void) {
     printf("═══════════════════════════════════════════════════════\n\n");
     
     // Set global subcarrier selection for CSI processing
-    csi_set_subcarrier_selection(SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+    csi_set_subcarrier_selection(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS);
     
     csi_processor_context_t ctx;
     TEST_ASSERT_TRUE(csi_processor_init(&ctx, SEGMENTATION_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD));
@@ -271,7 +284,7 @@ void test_mvs_threshold_sensitivity(void) {
     printf("  THRESHOLD SENSITIVITY ANALYSIS\n");
     printf("═══════════════════════════════════════════════════════\n\n");
     
-    csi_set_subcarrier_selection(SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+    csi_set_subcarrier_selection(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS);
     
     float thresholds[] = {0.5f, 0.75f, 1.0f, 1.5f, 2.0f, 3.0f};
     int num_thresholds = sizeof(thresholds) / sizeof(thresholds[0]);
@@ -328,7 +341,7 @@ void test_mvs_window_size_sensitivity(void) {
     printf("  WINDOW SIZE SENSITIVITY ANALYSIS\n");
     printf("═══════════════════════════════════════════════════════\n\n");
     
-    csi_set_subcarrier_selection(SELECTED_SUBCARRIERS, NUM_SUBCARRIERS);
+    csi_set_subcarrier_selection(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS);
     
     uint16_t window_sizes[] = {20, 30, 50, 75, 100, 150};
     int num_sizes = sizeof(window_sizes) / sizeof(window_sizes[0]);
@@ -391,15 +404,15 @@ void test_mvs_end_to_end_with_calibration(void) {
     CSIManager csi_manager;
     // Disable low-pass filter for backward compatibility with test data
     // (test data was recorded without low-pass filtering)
-    csi_manager.init(&processor, SELECTED_SUBCARRIERS, SEGMENTATION_DEFAULT_THRESHOLD, 
+    csi_manager.init(&processor, get_optimal_subcarriers(), SEGMENTATION_DEFAULT_THRESHOLD, 
                      SEGMENTATION_DEFAULT_WINDOW_SIZE, 100, false, 11.0f, false, 7, 4.0f);
     
     CalibrationManager cm;
     cm.init(&csi_manager, "/tmp/test_e2e_buffer.bin");
     
     // Simulate production flow: set expected subcarriers after gain lock
-    // This triggers guard band calculation (must use conservative values for 64 SC)
-    cm.set_expected_subcarriers(64);
+    // This triggers guard band calculation based on loaded data
+    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
     
     // Variables to capture calibration results
     uint8_t calibrated_band[12] = {0};
@@ -408,7 +421,7 @@ void test_mvs_end_to_end_with_calibration(void) {
     bool calibration_success = false;
     
     // Start calibration with callback
-    esp_err_t err = cm.start_auto_calibration(SELECTED_SUBCARRIERS, NUM_SUBCARRIERS,
+    esp_err_t err = cm.start_auto_calibration(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS,
         [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
             if (success && size > 0) {
                 memcpy(calibrated_band, band, size);
@@ -425,10 +438,11 @@ void test_mvs_end_to_end_with_calibration(void) {
     // Skip gain lock period - in production, NBVI starts after AGC stabilization
     const int gain_lock_skip = csi_manager.get_gain_lock_packets();
     const int calibration_packets = cm.get_buffer_size();
+    const int pkt_size = csi_test_data::packet_size();
     printf("Calibrating with %d baseline packets (skipping first %d for gain lock)...\n", 
            calibration_packets, gain_lock_skip);
     for (int i = 0; i < calibration_packets && (i + gain_lock_skip) < num_baseline; i++) {
-        cm.add_packet(baseline_packets[i + gain_lock_skip], 128);
+        cm.add_packet(baseline_packets[i + gain_lock_skip], pkt_size);
     }
     
     // Calibration should complete
@@ -463,7 +477,7 @@ void test_mvs_end_to_end_with_calibration(void) {
     
     int baseline_motion = 0;
     for (int i = 0; i < num_baseline; i++) {
-        csi_process_packet(&processor, (const int8_t*)baseline_packets[i], 128, 
+        csi_process_packet(&processor, (const int8_t*)baseline_packets[i], pkt_size, 
                           calibrated_band, calibrated_size);
         csi_processor_update_state(&processor);  // Lazy evaluation
         if (csi_processor_get_state(&processor) == CSI_STATE_MOTION) {
@@ -473,7 +487,7 @@ void test_mvs_end_to_end_with_calibration(void) {
     
     int movement_motion = 0;
     for (int i = 0; i < num_movement; i++) {
-        csi_process_packet(&processor, (const int8_t*)movement_packets[i], 128, 
+        csi_process_packet(&processor, (const int8_t*)movement_packets[i], pkt_size, 
                           calibrated_band, calibrated_size);
         csi_processor_update_state(&processor);  // Lazy evaluation
         if (csi_processor_get_state(&processor) == CSI_STATE_MOTION) {
@@ -507,13 +521,34 @@ void test_mvs_end_to_end_with_calibration(void) {
     csi_processor_cleanup(&processor);
 }
 
-int process(void) {
+// Run tests with a specific SC configuration
+int run_tests_for_config(int num_sc) {
+    printf("\n========================================\n");
+    printf("Running tests with %d SC dataset\n", num_sc);
+    printf("========================================\n");
+    
+    if (!csi_test_data::switch_dataset(num_sc)) {
+        printf("ERROR: Failed to load %d SC dataset\n", num_sc);
+        return 1;
+    }
+    
     UNITY_BEGIN();
     RUN_TEST(test_mvs_detection_accuracy);
     RUN_TEST(test_mvs_threshold_sensitivity);
     RUN_TEST(test_mvs_window_size_sensitivity);
     RUN_TEST(test_mvs_end_to_end_with_calibration);
     return UNITY_END();
+}
+
+int process(void) {
+    int failures = 0;
+    
+    // Run tests with both 64 SC and 256 SC datasets
+    for (int num_sc : csi_test_data::get_available_configs()) {
+        failures += run_tests_for_config(num_sc);
+    }
+    
+    return failures;
 }
 
 #if defined(ESP_PLATFORM)

@@ -77,34 +77,43 @@ esp_err_t CalibrationManager::start_auto_calibration(const uint8_t* current_band
 void CalibrationManager::set_expected_subcarriers(uint16_t num_sc) {
   num_subcarriers_ = num_sc;
   
-  // Guard bands for motion detection calibration
-  // HT20 (64 SC): Conservative values tested and optimized for motion detection
-  // HT40/HE-SU (128/256 SC): IEEE 802.11 standard (not yet validated with real data)
+  // Guard bands optimized for motion detection (empirically validated)
   switch (num_sc) {
     case 64:   // HT20: Conservative (tested) - exclude noisy edges 0-10 and 53-63
       guard_band_low_ = 11;
       guard_band_high_ = 52;
-      dc_subcarrier_ = 32;
+      dc_low_ = 32;
+      dc_high_ = 32;  // Single DC subcarrier
       break;
-    case 128:  // HT40 (802.11n): 7 guard per side, DC at 64
+    case 128:  // HT40 (802.11n): IEEE standard (not yet validated)
       guard_band_low_ = 7;      // indices 0-6 are guard
       guard_band_high_ = 120;   // indices 121-127 are guard
-      dc_subcarrier_ = 64;
+      dc_low_ = 64;
+      dc_high_ = 64;  // Single DC subcarrier
       break;
-    case 256:  // HE20 (802.11ax): 7 guard per side, DC at 128
-      guard_band_low_ = 7;      // indices 0-6 are guard
-      guard_band_high_ = 248;   // indices 249-255 are guard
-      dc_subcarrier_ = 128;
+    case 256:  // HE20: Conservative (tested) - exclude edges + DC zone
+      // Excludes: edges [0-29] and [226-255], DC zone [108-147]
+      // Valid zones: [30-107] and [148-225]
+      guard_band_low_ = 30;
+      guard_band_high_ = 225;
+      dc_low_ = 108;
+      dc_high_ = 147;  // DC zone exclusion
       break;
     default:   // Fallback: ~10% guard bands
       guard_band_low_ = num_subcarriers_ / 10;
       guard_band_high_ = num_subcarriers_ - 1 - (num_subcarriers_ / 10);
-      dc_subcarrier_ = num_subcarriers_ / 2;
+      dc_low_ = num_subcarriers_ / 2;
+      dc_high_ = num_subcarriers_ / 2;
       break;
   }
   
-  ESP_LOGI(TAG, "NBVI: expecting %d subcarriers, valid range [%d-%d], DC=%d",
-           num_subcarriers_, guard_band_low_, guard_band_high_, dc_subcarrier_);
+  if (dc_low_ == dc_high_) {
+    ESP_LOGI(TAG, "NBVI: expecting %d subcarriers, valid range [%d-%d], DC=%d",
+             num_subcarriers_, guard_band_low_, guard_band_high_, dc_low_);
+  } else {
+    ESP_LOGI(TAG, "NBVI: expecting %d subcarriers, valid range [%d-%d], DC zone [%d-%d]",
+             num_subcarriers_, guard_band_low_, guard_band_high_, dc_low_, dc_high_);
+  }
 }
 
 bool CalibrationManager::add_packet(const int8_t* csi_data, size_t csi_len) {
@@ -524,9 +533,8 @@ void CalibrationManager::calculate_nbvi_metrics_(uint16_t baseline_start,
     metrics[sc].subcarrier = sc;
     calculate_nbvi_weighted_(subcarrier_magnitudes, metrics[sc]);
     
-    // Exclude guard bands and DC subcarrier (always invalid regardless of signal)
-    // Guard bands are ~17% on each side, DC is at center
-    if (sc < guard_band_low_ || sc > guard_band_high_ || sc == dc_subcarrier_) {
+    // Exclude guard bands and DC zone (always invalid regardless of signal)
+    if (sc < guard_band_low_ || sc > guard_band_high_ || (sc >= dc_low_ && sc <= dc_high_)) {
       metrics[sc].nbvi = std::numeric_limits<float>::infinity();
       null_count++;
     }

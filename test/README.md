@@ -13,9 +13,6 @@ cd test && pio test
 
 # Run specific suite
 pio test -f test_motion_detection
-
-# Run on ESP32-C6 device
-pio test -e esp32c6
 ```
 
 ---
@@ -42,9 +39,18 @@ pio test -e esp32c6
 
 ## Real CSI Data
 
-The `data/` folder contains **2000 real CSI packets**:
-- 1000 baseline (empty room)
-- 1000 movement (person walking)
+Tests load real CSI data from NPZ files in `micro-espectre/data/` using the [cnpy](https://github.com/rogersce/cnpy) library.
+
+### Datasets
+
+| Config | Baseline | Movement | Packets |
+|--------|----------|----------|---------|
+| 64 SC (HT20) | `baseline_c6_64sc_*.npz` | `movement_c6_64sc_*.npz` | 1000 each |
+| 256 SC (HE20) | `baseline_c6_256sc_*.npz` | `movement_c6_256sc_*.npz` | 1000+ each |
+
+Tests that use real data are executed with **both datasets** (64 SC and 256 SC), similar to pytest parametrization. This ensures algorithms work correctly across different WiFi modes.
+
+Both Python and C++ tests use the same NPZ files, eliminating duplication.
 
 ---
 

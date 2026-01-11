@@ -776,7 +776,7 @@ class TestEndToEndWithCalibration:
         baseline_packets, _ = real_data
         
         # Get guard bands for this SC count
-        guard_low, guard_high, _ = calculate_guard_bands(num_subcarriers)
+        guard_low, guard_high, dc_low, dc_high = calculate_guard_bands(num_subcarriers)
         
         # Production parameters: 300 packets for gain lock, 700 packets for NBVI
         # Skip first 300 packets (gain lock phase), then use 700 for calibration
@@ -838,7 +838,7 @@ class TestEndToEndWithCalibration:
         baseline_packets, movement_packets = real_data
         
         # Get guard bands for this SC count
-        guard_low, guard_high, _ = calculate_guard_bands(num_subcarriers)
+        guard_low, guard_high, dc_low, dc_high = calculate_guard_bands(num_subcarriers)
         
         # ========================================
         # Step 1: NBVI Calibration (Production parameters)

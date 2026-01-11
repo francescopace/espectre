@@ -426,54 +426,57 @@ class TestVarianceTwoPass:
 
 
 class TestCalculateGuardBands:
-    """Test IEEE 802.11 guard band calculation"""
+    """Test guard band calculation optimized for motion detection"""
     
     def test_ht20_guard_bands(self):
-        """Test HT20 (64 SC) guard bands per IEEE 802.11n"""
+        """Test HT20 (64 SC) conservative guard bands"""
         from nbvi_calibrator import calculate_guard_bands
         
-        low, high, dc = calculate_guard_bands(64)
-        # IEEE 802.11n HT20: subcarriers -28 to +28 (56 data + 4 pilot)
-        # FFT indices: 6-31 (lower), 33-58 (upper) are valid
-        # Guard bands: 0-5 (6 indices) and 59-63 (5 indices)
+        low, high, dc_low, dc_high = calculate_guard_bands(64)
         # Conservative guard bands tested and optimized for motion detection:
         # Exclude noisy edge subcarriers (0-10 and 53-63)
         assert low == 11
         assert high == 52
-        assert dc == 32
+        assert dc_low == 32
+        assert dc_high == 32  # Single DC subcarrier
     
     def test_ht40_guard_bands(self):
         """Test HT40 (128 SC) guard bands per IEEE 802.11n"""
         from nbvi_calibrator import calculate_guard_bands
         
-        low, high, dc = calculate_guard_bands(128)
+        low, high, dc_low, dc_high = calculate_guard_bands(128)
         
         # IEEE 802.11n HT40: subcarriers -58 to +58
         assert low == 7
         assert high == 120
-        assert dc == 64
+        assert dc_low == 64
+        assert dc_high == 64  # Single DC subcarrier
     
     def test_he_su_guard_bands(self):
-        """Test HE-SU (256 SC) guard bands per IEEE 802.11ax"""
+        """Test HE-SU (256 SC) conservative guard bands"""
         from nbvi_calibrator import calculate_guard_bands
         
-        low, high, dc = calculate_guard_bands(256)
+        low, high, dc_low, dc_high = calculate_guard_bands(256)
         
-        # IEEE 802.11ax HE-SU 80MHz: subcarriers -122 to +122
-        assert low == 7
-        assert high == 248
-        assert dc == 128
+        # Conservative guard bands for motion detection:
+        # Excludes edges [0-29] and [226-255], DC zone [108-147]
+        # Valid zones: [30-107] and [148-225]
+        assert low == 30
+        assert high == 225
+        assert dc_low == 108
+        assert dc_high == 147  # DC zone exclusion
     
     def test_fallback_for_unknown_count(self):
         """Test fallback proportional calculation for unknown SC count"""
         from nbvi_calibrator import calculate_guard_bands
         
-        low, high, dc = calculate_guard_bands(100)
+        low, high, dc_low, dc_high = calculate_guard_bands(100)
         
         # Fallback: 10% guard on each side
         assert low == 10
         assert high == 89
-        assert dc == 50
+        assert dc_low == 50
+        assert dc_high == 50
 
 
 class TestGetValidSubcarriers:
