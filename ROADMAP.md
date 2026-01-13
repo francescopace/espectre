@@ -14,7 +14,7 @@ This roadmap outlines the evolution from the current mathematical approach (just
 - [Mid-Term (6-12 months)](#mid-term-6-12-months)
 - [Long-Term (12-24 months)](#long-term-12-24-months)
 - [Architecture Overview](#architecture-overview)
-- [Principles & Governance](#principles--governance)
+- [Principles & Governance](#principles-governance)
 - [How to Propose Changes](#how-to-propose-changes)
 
 ---

@@ -702,7 +702,7 @@ footer {
 
 /* Documentation styles */
 .doc-section {
-    max-width: 900px;
+    max-width: 1200px;
     margin: 0 auto;
     padding: 8rem 2rem 4rem;
     color: var(--text-primary);
@@ -947,3 +947,182 @@ footer {
     }
 }
 
+/* Documentation pages - light theme */
+.doc-page .doc-section-inner {
+    background: #fafafa;
+    color: #1a1a2e;
+}
+
+.doc-page .doc-section h1,
+.doc-page .doc-section h2,
+.doc-page .doc-section h3,
+.doc-page .doc-section h4 {
+    color: #1a1a2e;
+}
+
+.doc-page .doc-section h2 {
+    border-bottom-color: #ddd;
+}
+
+.doc-page .doc-section p,
+.doc-page .doc-section li,
+.doc-page .doc-section td {
+    color: #333;
+}
+
+.doc-page .doc-section th {
+    background: #e8e8e8;
+    color: #1a1a2e;
+}
+
+.doc-page .doc-section td {
+    background: #fff;
+}
+
+.doc-page .doc-section th,
+.doc-page .doc-section td {
+    border-color: #ddd;
+}
+
+.doc-page .doc-section code {
+    color: #0d9488;
+}
+
+.doc-page .doc-section blockquote {
+    background: #f0f0f0;
+}
+
+.doc-page .doc-section hr {
+    border-top-color: #ddd;
+}
+
+/* Links - no underline on hover */
+.doc-page .doc-section a {
+    text-decoration: none;
+}
+
+.doc-page .doc-section a:hover {
+    text-decoration: none;
+}
+
+/* Search bar styling */
+.doc-page .pagefind-ui__search-input {
+    background: #fff !important;
+    color: #333 !important;
+    border: 1px solid #ddd !important;
+}
+
+.doc-page .pagefind-ui__search-input::placeholder {
+    color: #999 !important;
+}
+
+.doc-page .pagefind-ui__result {
+    background: #fff !important;
+    border-color: #ddd !important;
+}
+
+.doc-page .pagefind-ui__result:hover {
+    border-color: #0d9488 !important;
+}
+
+.doc-page .pagefind-ui__result-link {
+    color: #0d9488 !important;
+}
+
+.doc-page .pagefind-ui__result-excerpt {
+    color: #666 !important;
+}
+
+.doc-page .pagefind-ui__result-title {
+    color: #1a1a2e !important;
+}
+
+/* Remove gradient from h1 in docs */
+.doc-page .doc-section h1 {
+    background: none;
+    -webkit-background-clip: unset;
+    -webkit-text-fill-color: #1a1a2e;
+    background-clip: unset;
+}
+
+/* H1 link should match other links */
+.doc-page .doc-section h1 a {
+    color: #0d9488;
+}
+
+/* Fix h1 heading-link color */
+.doc-page .doc-section h1 .heading-link {
+    color: #0d9488 !important;
+    -webkit-text-fill-color: #0d9488 !important;
+}
+
+/* Space between search bar and doc content */
+.doc-page .doc-search {
+    margin-bottom: 2rem;
+}
+
+/* Search results box styling */
+.doc-page .pagefind-ui__results-area {
+    background: #fafafa;
+    border-radius: 16px;
+    padding: 1.5rem;
+    border: 1px solid #ddd;
+    margin-top: 1rem;
+}
+
+.doc-page .pagefind-ui__result {
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+}
+
+/* Hide anchor symbols in search results */
+.doc-page .pagefind-ui__result .heading-link,
+.doc-page .pagefind-ui__result a[href^="#"] {
+    color: inherit !important;
+}
+
+.doc-page .pagefind-ui mark {
+    background: #0d9488;
+    color: #fff;
+    border-radius: 2px;
+    padding: 0 2px;
+}
+
+/* Simplify search results - remove nested boxes */
+.doc-page .pagefind-ui__results-area {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin-top: 1rem;
+}
+
+.doc-page .pagefind-ui__result {
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 1px solid #ddd !important;
+    border-radius: 0 !important;
+    padding: 1rem 0 !important;
+    margin-bottom: 0 !important;
+}
+
+.doc-page .pagefind-ui__result:last-child {
+    border-bottom: none !important;
+}
+
+/* Keep outer container, simple inner results */
+.doc-page .pagefind-ui__results-area {
+    background: #fafafa !important;
+    border: 1px solid #ddd !important;
+    border-radius: 16px !important;
+    padding: 1.5rem !important;
+    margin-top: 1rem !important;
+}
+
+.doc-page .doc-section a,
+.doc-page .doc-section a:visited {
+    color: #0d9488 !important;
+}
+
+.doc-page .doc-section a:hover {
+    color: #0f766e !important;
+}

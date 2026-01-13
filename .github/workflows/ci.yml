@@ -11,6 +11,10 @@ on:
       - 'test/**'
       - 'examples/*.yaml'
       - '.github/workflows/**'
+      - '.github/scripts/**'
+      - '*.md'
+      - 'micro-espectre/*.md'
+      - 'docs/**'
   pull_request:
     branches: [main]
     paths:
@@ -21,9 +25,97 @@ on:
       - 'test/**'
       - 'examples/*.yaml'
       - '.github/workflows/**'
+      - '.github/scripts/**'
+      - '*.md'
+      - 'micro-espectre/*.md'
+      - 'docs/**'
   workflow_dispatch:  # Manual trigger to warm up cache
 
+# Permissions for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
+  build-docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      
+      - name: Install Dependencies
+        run: pip install markdown
+      
+      - name: Build Documentation
+        run: python .github/scripts/build_docs.py
+      
+      - name: Build Search Index
+        run: npx -y pagefind --site docs --output-path docs/_pagefind --glob "documentation/**/*.html"
+      
+      - name: Verify Build
+        run: |
+          test -f docs/sitemap.xml
+          test -d docs/documentation
+          test -d docs/_pagefind
+          echo "Documentation build verified!"
+      
+      - name: Setup Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+      
+      - name: Upload Pages Artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy-docs:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: build-docs
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  notify-indexnow:
+    name: Notify IndexNow
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: deploy-docs
+    
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Extract URLs and notify IndexNow
+        run: |
+          # Extract URLs from sitemap
+          URLS=$(grep -oP '(?<=<loc>)[^<]+' docs/sitemap.xml | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          
+          # Notify IndexNow (Bing, Yandex, Seznam, Naver)
+          curl -s -X POST "https://api.indexnow.org/indexnow" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "{\"host\":\"espectre.dev\",\"key\":\"1a2e73ccf9558a06830546c288699e0c\",\"keyLocation\":\"https://espectre.dev/1a2e73ccf9558a06830546c288699e0c.txt\",\"urlList\":$URLS}"
+          
+          echo "Notified IndexNow with $(echo $URLS | jq length) URLs"
+
   test-cpp:
     name: C++ Unit Tests
     runs-on: ubuntu-latest

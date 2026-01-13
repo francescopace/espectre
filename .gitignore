@@ -46,4 +46,9 @@ secrets.yaml
 .log.
 
 # Documentation
-papers/
+.papers/
+
+# Generated documentation (built by CI)
+docs/documentation/
+docs/_pagefind/
+docs/sitemap.xml

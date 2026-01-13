@@ -12,9 +12,8 @@ function loadHeader(options = {}) {
     const headerEl = document.getElementById('site-header');
     if (!headerEl) return;
 
-    // Determine home link and docs path based on page location
+    // Determine home link based on page location
     const homeLink = '/';
-    const docsPath = '/index.html';
     const utmMedium = isGamePage ? 'game.html' : 'index.html';
     
     // First nav item changes based on page
@@ -52,14 +51,14 @@ function loadHeader(options = {}) {
             <div class="nav-dropdown nav-dropdown-right">
                 <a href="#" class="nav-dropdown-toggle"><i class="fas fa-book"></i> Docs <i class="fas fa-chevron-down"></i></a>
                 <div class="nav-dropdown-menu">
-                    <a href="${docsPath}?doc=README"><i class="fas fa-home"></i> Main</a>
-                    <a href="${docsPath}?doc=SETUP"><i class="fas fa-wrench"></i> Setup Guide</a>
-                    <a href="${docsPath}?doc=TUNING"><i class="fas fa-sliders"></i> Tuning Guide</a>
-                    <a href="${docsPath}?doc=CHANGELOG"><i class="fas fa-list"></i> Changelog</a>
-                    <a href="${docsPath}?doc=ROADMAP"><i class="fas fa-map"></i> Roadmap</a>
+                    <a href="/documentation/"><i class="fas fa-home"></i> Main</a>
+                    <a href="/documentation/setup/"><i class="fas fa-wrench"></i> Setup Guide</a>
+                    <a href="/documentation/tuning/"><i class="fas fa-sliders"></i> Tuning Guide</a>
+                    <a href="/documentation/changelog/"><i class="fas fa-list"></i> Changelog</a>
+                    <a href="/documentation/roadmap/"><i class="fas fa-map"></i> Roadmap</a>
                     <div class="nav-dropdown-divider"></div>
-                    <a href="${docsPath}?doc=ALGORITHMS"><i class="fas fa-square-root-variable"></i> Algorithms</a>
-                    <a href="${docsPath}?doc=MICRO_ESPECTRE"><i class="fas fa-flask"></i> Micro-ESPectre</a>
+                    <a href="/documentation/algorithms/"><i class="fas fa-square-root-variable"></i> Algorithms</a>
+                    <a href="/documentation/micro-espectre/"><i class="fas fa-flask"></i> Micro-ESPectre</a>
                 </div>
             </div>
         </nav>

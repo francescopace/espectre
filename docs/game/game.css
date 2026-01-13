@@ -941,7 +941,25 @@ body.game-page:has(#screen-game.active) footer {
 
 /* ==================== RESPONSIVE ==================== */
 
-@media (max-width: 900px) {
+@media (pointer: coarse) {
+    /* Lock viewport when game is active to prevent scrolling */
+    html:has(#screen-game.active),
+    body.game-page:has(#screen-game.active) {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    body.game-page:has(#screen-game.active) .game-container {
+        height: 100vh;
+        padding-top: 4rem;
+        padding-bottom: 0;
+        overflow: hidden;
+    }
+
+    body.game-page:has(#screen-game.active) #screen-game {
+        height: calc(100vh - 4rem);
+    }
+
     .game-container {
         padding: 5rem 1rem 0.5rem;  /* Smaller header on mobile */
     }
