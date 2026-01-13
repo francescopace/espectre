@@ -94,16 +94,31 @@ def stream_csi(dest_ip, duration_sec=0):
             print(f'Traffic generator: {config.TRAFFIC_GENERATOR_RATE} pps')
         time.sleep(1)
     
-    # Create UDP socket
+    # Phase 1: Gain lock (stabilizes AGC/FFT and determines dominant SC count)
+    # Do this BEFORE creating streaming socket to avoid ENOMEM
+    gc.collect()
+    agc_gain, fft_gain, skipped, num_sc = run_gain_lock(wlan)
+    
+    # Create UDP socket for streaming (after gain lock to reduce memory pressure)
+    gc.collect()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     dest_addr = (dest_ip, STREAM_PORT)
     
-    # Phase 1: Gain lock (stabilizes AGC/FFT and determines dominant SC count)
-    agc_gain, fft_gain, skipped, num_sc = run_gain_lock(wlan)
-    
     # Packet format: <magic><chip><seq><num_sc_u16><payload>
-    packet_format = f'<HBBH{num_sc * 2}b'
-    packet_size = struct.calcsize(packet_format)
+    # Pre-allocate packet buffer to avoid memory allocation in loop
+    header_size = 6  # magic(2) + chip(1) + seq(1) + num_sc(2)
+    payload_size = num_sc * 2
+    packet_size = header_size + payload_size
+    
+    # Pre-allocate bytearray (reused every iteration)
+    packet_buf = bytearray(packet_size)
+    # Write static header fields (magic, chip, num_sc) - only seq changes
+    packet_buf[0] = MAGIC_STREAM & 0xFF
+    packet_buf[1] = (MAGIC_STREAM >> 8) & 0xFF
+    packet_buf[2] = chip_code
+    # packet_buf[3] = seq_num (updated in loop)
+    packet_buf[4] = num_sc & 0xFF
+    packet_buf[5] = (num_sc >> 8) & 0xFF
     
     print('')
     print(f'Streaming to: {dest_ip}:{STREAM_PORT}')
@@ -134,25 +149,33 @@ def stream_csi(dest_ip, duration_sec=0):
             
             frame = wlan.csi_read()
             if frame:
-                csi_data = frame[5]
-                
-                # Filter packets by expected subcarrier count
-                packet_sc = len(csi_data) // 2
+                # Filter packets by expected subcarrier count BEFORE truncating
+                packet_sc = len(frame[5]) // 2
                 if packet_sc != num_sc:
+                    del frame
                     filtered_count += 1
                     continue
                 
-                # Extract I/Q values
-                iq_values = [int(v) for v in csi_data]
+                # Extract and truncate to expected size, then free frame
+                csi_data = frame[5][:payload_size]
+                del frame
                 
-                # Build and send packet
+                # Build and send packet using pre-allocated buffer (zero allocation)
                 try:
-                    packet = struct.pack(packet_format, MAGIC_STREAM, chip_code, seq_num, num_sc, *iq_values)
-                    sock.sendto(packet, dest_addr)
+                    # Update seq_num in header
+                    packet_buf[3] = seq_num
+                    # Copy CSI data into payload section
+                    packet_buf[header_size:] = csi_data
+                    # Send packet
+                    sock.sendto(packet_buf, dest_addr)
                     packet_count += 1
                     seq_num = (seq_num + 1) & 0xFF
                 except Exception:
                     pass
+                
+                # GC every 50 packets to prevent ENOMEM
+                if packet_count % 50 == 0:
+                    gc.collect()
                 
                 # Progress every 100 packets
                 if packet_count % 100 == 0:
@@ -166,7 +189,6 @@ def stream_csi(dest_ip, duration_sec=0):
                     
                     last_progress_time = current_time
                     last_progress_count = packet_count
-                    gc.collect()
             else:
                 time.sleep_us(100)
     

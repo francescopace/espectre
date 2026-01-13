@@ -247,9 +247,9 @@ void CalibrationManager::finish_calibration_(bool success) {
   calibrating_ = false;
   calibration_task_handle_ = nullptr;
   
-  // Call user callback with results (including normalization scale)
+  // Call user callback with results (including adaptive threshold)
   if (result_callback_) {
-    result_callback_(selected_band_, selected_band_size_, normalization_scale_, success);
+    result_callback_(selected_band_, selected_band_size_, adaptive_threshold_, success);
   }
 }
 
@@ -276,13 +276,12 @@ esp_err_t CalibrationManager::run_calibration_() {
     std::memcpy(selected_band_, current_band_.data(), selected_band_size_);
     
     BandResult result = evaluate_band_(all_data, selected_band_, selected_band_size_);
-    baseline_variance_ = result.mean_mv;
-    if (baseline_variance_ < 0.01f) baseline_variance_ = 1.0f;
-    calculate_normalization_scale_();
+    best_p95_ = result.p95;
+    calculate_adaptive_threshold_(best_p95_);
     
     ESP_LOGI(TAG, "✓ Baseline calibration complete (fixed subcarriers)");
-    ESP_LOGD(TAG, "  P95: %.4f, Baseline variance: %.4f", result.p95, baseline_variance_);
-    log_normalization_status_();
+    ESP_LOGD(TAG, "  P95: %.4f", best_p95_);
+    log_adaptive_threshold_status_();
     
     return ESP_OK;
   }
@@ -354,19 +353,17 @@ esp_err_t CalibrationManager::run_calibration_() {
   std::memcpy(selected_band_, candidates[best_idx].data(), SELECTED_SUBCARRIERS_COUNT);
   selected_band_size_ = SELECTED_SUBCARRIERS_COUNT;
   
-  // Calculate baseline variance and normalization
-  baseline_variance_ = results[best_idx].mean_mv;
-  if (baseline_variance_ < 0.01f) baseline_variance_ = 1.0f;
-  calculate_normalization_scale_();
+  // Calculate adaptive threshold (P95 × 1.4, same as Python implementation)
+  best_p95_ = best_p95;
+  calculate_adaptive_threshold_(best_p95_);
   
   ESP_LOGI(TAG, "✓ Calibration successful: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d]",
            selected_band_[0], selected_band_[1], selected_band_[2], selected_band_[3],
            selected_band_[4], selected_band_[5], selected_band_[6], selected_band_[7],
            selected_band_[8], selected_band_[9], selected_band_[10], selected_band_[11]);
-  ESP_LOGD(TAG, "  P95 MV: %.4f (threshold: %.1f)", best_p95, MVS_THRESHOLD);
+  ESP_LOGD(TAG, "  P95 MV: %.4f (threshold: %.1f)", best_p95_, MVS_THRESHOLD);
   ESP_LOGD(TAG, "  Est. FP rate: %.1f%%", results[best_idx].fp_estimate * 100.0f);
-  ESP_LOGD(TAG, "  Baseline variance: %.4f", baseline_variance_);
-  log_normalization_status_();
+  log_adaptive_threshold_status_();
   
   return ESP_OK;
 }
@@ -620,26 +617,24 @@ std::vector<uint8_t> CalibrationManager::read_window_(uint16_t start_idx, uint16
   return data;
 }
 
-void CalibrationManager::calculate_normalization_scale_() {
-  // Normalize only if baseline variance is ABOVE target
-  // Target varies by subcarrier count:
-  // - 64/128 SC: 0.25 (lower variance expected)
-  // - 256 SC: 0.60 (higher variance due to more subcarriers)
-  float target_baseline = (num_subcarriers_ >= 256) ? 0.60f : 0.25f;
+void CalibrationManager::calculate_adaptive_threshold_(float p95) {
+  // Adaptive threshold formula (same as Python implementation):
+  // adaptive_threshold = P95 × ADAPTIVE_THRESHOLD_FACTOR (1.4)
+  //
+  // This provides a safety margin above the 95th percentile of baseline
+  // moving variance, ensuring near-zero false positives while maintaining
+  // good sensitivity for actual motion detection.
+  adaptive_threshold_ = p95 * ADAPTIVE_THRESHOLD_FACTOR;
   
-  if (baseline_variance_ > target_baseline) {
-    // Baseline too high - attenuate to reach target
-    normalization_scale_ = target_baseline / baseline_variance_;
-    // Clamp to min 0.4 to preserve motion detection sensitivity
-    if (normalization_scale_ < 0.4f) normalization_scale_ = 0.4f;
-  } else {
-    // Baseline already at or below target - no scaling
-    normalization_scale_ = 1.0f;
+  // Ensure minimum threshold of 1.0 (don't make it too sensitive)
+  if (adaptive_threshold_ < 1.0f) {
+    adaptive_threshold_ = 1.0f;
   }
 }
 
-void CalibrationManager::log_normalization_status_() {
-  ESP_LOGI(TAG, "  Normalization scale: %.4f", normalization_scale_);
+void CalibrationManager::log_adaptive_threshold_status_() {
+  ESP_LOGI(TAG, "  Adaptive threshold: %.4f (P95=%.4f × %.1f)", 
+           adaptive_threshold_, best_p95_, ADAPTIVE_THRESHOLD_FACTOR);
 }
 
 }  // namespace espectre

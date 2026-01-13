@@ -308,7 +308,6 @@ bool csi_processor_init(csi_processor_context_t *ctx,
     // Set parameters
     ctx->window_size = window_size;
     ctx->threshold = threshold;
-    ctx->normalization_scale = 1.0f;  // Default: no normalization
     ctx->state = CSI_STATE_IDLE;
     
     // Initialize low-pass filter with defaults (disabled by default)
@@ -397,25 +396,6 @@ bool csi_processor_set_threshold(csi_processor_context_t *ctx, float threshold) 
     return true;
 }
 
-void csi_processor_set_normalization_scale(csi_processor_context_t *ctx, float scale) {
-    if (!ctx) {
-        ESP_LOGE(TAG, "csi_processor_set_normalization_scale: NULL context");
-        return;
-    }
-    
-    // Clamp to reasonable range (0.001 to 100.0)
-    // Scale can be very small when baseline variance is high (e.g., 1/50 = 0.02)
-    if (scale < 0.001f) scale = 0.001f;
-    if (scale > 100.0f) scale = 100.0f;
-    
-    ctx->normalization_scale = scale;
-    ESP_LOGI(TAG, "Normalization scale updated: %.3f", scale);
-}
-
-float csi_processor_get_normalization_scale(const csi_processor_context_t *ctx) {
-    return ctx ? ctx->normalization_scale : 1.0f;
-}
-
 void csi_processor_set_lowpass_enabled(csi_processor_context_t *ctx, bool enabled) {
     if (!ctx) {
         ESP_LOGE(TAG, "csi_processor_set_lowpass_enabled: NULL context");
@@ -497,17 +477,14 @@ static float calculate_moving_variance(const csi_processor_context_t *ctx) {
 /**
  * Add turbulence value to buffer (lazy evaluation - no variance calculation)
  * 
- * Filter chain: raw → normalize → hampel → low-pass → buffer
+ * Filter chain: raw → hampel → low-pass → buffer
  * 
  * Note: Variance is NOT calculated here to save CPU. Call csi_processor_update_state()
  * at publish time to compute variance and update state machine.
  */
 static void add_turbulence_to_buffer(csi_processor_context_t *ctx, float turbulence) {
-    // Apply normalization scale (compensates for different CSI amplitude scales across ESP32 variants)
-    float normalized_turbulence = turbulence * ctx->normalization_scale;
-    
     // Apply Hampel filter to remove outliers
-    float hampel_filtered = hampel_filter_turbulence(&ctx->hampel_state, normalized_turbulence);
+    float hampel_filtered = hampel_filter_turbulence(&ctx->hampel_state, turbulence);
     
     // Apply low-pass filter for noise reduction
     float filtered_turbulence = lowpass_filter_apply(&ctx->lowpass_state, hampel_filtered);

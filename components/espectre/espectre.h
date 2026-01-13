@@ -128,7 +128,6 @@ class ESpectreComponent : public Component {
   bool hampel_enabled_{false};
   uint8_t hampel_window_{7};
   float hampel_threshold_{4.0f};
-  float normalization_scale_{1.0f};   // Normalization scale (attenuate if baseline > 0.25)
   uint8_t selected_subcarriers_[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
   
   bool user_specified_subcarriers_{false};  // True if user specified in YAML
@@ -150,7 +149,7 @@ class ESpectreComponent : public Component {
   switch_::Switch *calibrate_switch_{nullptr};
   
   // Calibration results (for diagnostics)
-  float baseline_variance_{0.0f};
+  float best_p95_{0.0f};  // P95 from calibration (adaptive threshold = P95 × 1.4)
   
   // State flags
   bool ready_to_publish_{false};      // True when CSI is ready and calibration done

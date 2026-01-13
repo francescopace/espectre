@@ -389,10 +389,9 @@ ENABLE_HAMPEL_FILTER = False   # Hampel filter (outlier removal)
 HAMPEL_WINDOW = 7
 HAMPEL_THRESHOLD = 4.0
 
-# Normalization (always enabled for cross-device consistency)
-# If baseline > 0.25: scale = 0.25 / baseline_variance (attenuate)
-# If baseline ≤ 0.25: scale = 1.0 (no amplification)
-# Note: If calibration fails, normalization is still applied using default subcarriers
+# Adaptive Threshold (calculated automatically during calibration)
+# Formula: P95(baseline_moving_variance) × 1.4
+# Ensures zero false positives while maintaining >98% recall
 ```
 
 **Gain Lock Modes:**

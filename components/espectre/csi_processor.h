@@ -95,7 +95,6 @@ struct csi_processor_context_t {
     float *turbulence_buffer;           // Turbulence circular buffer (allocated by owner)
     float current_moving_variance;      // Moving variance state
     float threshold;                    // Motion detection threshold value
-    float normalization_scale;          // Amplitude normalization factor (default: 1.0)
     uint32_t packet_index;              // Global packet counter
     uint32_t total_packets_processed;   // Statistics
     csi_motion_state_t state;           // State machine (enum = 4 bytes)
@@ -195,26 +194,6 @@ void csi_processor_cleanup(csi_processor_context_t *ctx);
  * @return true if value is valid and was set
  */
 bool csi_processor_set_threshold(csi_processor_context_t *ctx, float threshold);
-
-/**
- * Set normalization scale factor
- * 
- * This factor is applied to turbulence values to normalize CSI amplitudes
- * across different ESP32 variants (S3, C6, etc.). Calculated during
- * calibration as TARGET_MEAN / avg_mean.
- * 
- * @param ctx CSI processor context
- * @param scale Normalization scale factor (default: 1.0)
- */
-void csi_processor_set_normalization_scale(csi_processor_context_t *ctx, float scale);
-
-/**
- * Get current normalization scale factor
- * 
- * @param ctx CSI processor context
- * @return Current normalization scale (1.0 if not set)
- */
-float csi_processor_get_normalization_scale(const csi_processor_context_t *ctx);
 
 /**
  * Enable or disable low-pass filter

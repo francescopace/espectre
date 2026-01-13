@@ -97,12 +97,13 @@ class NVSStorage:
         
         Args:
             seg: SegmentationContext instance
+        
+        Note: threshold may be an adaptive threshold calculated during calibration.
         """
         config_data = {
             "segmentation": {
-                "threshold": seg.threshold,
-                "window_size": seg.window_size,
-                "normalization_scale": seg.normalization_scale
+                "threshold": seg.threshold,  # May be adaptive threshold
+                "window_size": seg.window_size
             }
         }
                 
@@ -117,6 +118,9 @@ class NVSStorage:
             
         Returns:
             dict: Loaded configuration, or None if not found
+        
+        Note: normalization_scale from old config files is ignored (deprecated).
+              Use threshold which may be an adaptive threshold.
         """
         config_data = self.load()
         if not config_data:
@@ -127,13 +131,11 @@ class NVSStorage:
             seg_cfg = config_data["segmentation"]
             seg.threshold = seg_cfg.get("threshold", seg.threshold)
             seg.window_size = seg_cfg.get("window_size", seg.window_size)
-            seg.normalization_scale = seg_cfg.get("normalization_scale", seg.normalization_scale)
+            # normalization_scale is deprecated and ignored
             
             # Reset buffer if window size changed
             seg.turbulence_buffer = [0.0] * seg.window_size
             seg.buffer_index = 0
             seg.buffer_count = 0
-            
-            #print(f"Segmentation config loaded: threshold={seg.threshold:.2f}, window={seg.window_size}, norm_scale={seg.normalization_scale:.3f}")
         
         return config_data

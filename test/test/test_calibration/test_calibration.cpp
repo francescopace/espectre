@@ -163,8 +163,8 @@ void test_calibration_manager_full_calibration(void) {
     
     // Start calibration
     esp_err_t err = cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)normalization_scale;  // Not tested here
+        [&](const uint8_t* band, uint8_t size, float adaptive_threshold, bool success) {
+            (void)adaptive_threshold;  // Not tested here
             if (success && size > 0) {
                 memcpy(result_band, band, size);
                 result_size = size;
@@ -216,8 +216,8 @@ void test_calibration_manager_p95_produces_valid_band(void) {
     bool calibration_success = false;
     
     cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)normalization_scale;
+        [&](const uint8_t* band, uint8_t size, float adaptive_threshold, bool success) {
+            (void)adaptive_threshold;
             if (success) { memcpy(result_band, band, size); result_size = size; }
             calibration_success = success;
         });
@@ -251,8 +251,8 @@ void test_calibration_manager_handles_mixed_data(void) {
     bool calibration_success = false;
     
     cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)band; (void)size; (void)normalization_scale;
+        [&](const uint8_t* band, uint8_t size, float adaptive_threshold, bool success) {
+            (void)band; (void)size; (void)adaptive_threshold;
             calibration_success = success;
         });
     
@@ -282,8 +282,8 @@ void test_calibration_manager_respects_guard_bands(void) {
     uint8_t result_size = 0;
     
     cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)normalization_scale;
+        [&](const uint8_t* band, uint8_t size, float adaptive_threshold, bool success) {
+            (void)adaptive_threshold;
             if (success) { memcpy(result_band, band, size); result_size = size; }
         });
     
@@ -307,8 +307,8 @@ void test_calibration_manager_respects_guard_bands(void) {
     }
 }
 
-void test_calibration_returns_valid_normalization_scale(void) {
-    // Test that calibration callback returns a valid normalization scale
+void test_calibration_returns_valid_adaptive_threshold(void) {
+    // Test that calibration callback returns a valid adaptive threshold (P95 × 1.4)
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
@@ -317,13 +317,13 @@ void test_calibration_returns_valid_normalization_scale(void) {
     cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
     cm.set_buffer_size(100);
     
-    float result_normalization_scale = 0.0f;
+    float result_adaptive_threshold = 0.0f;
     bool calibration_success = false;
     
     cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+        [&](const uint8_t* band, uint8_t size, float adaptive_threshold, bool success) {
             (void)band; (void)size;
-            result_normalization_scale = normalization_scale;
+            result_adaptive_threshold = adaptive_threshold;
             calibration_success = success;
         });
     
@@ -334,15 +334,15 @@ void test_calibration_returns_valid_normalization_scale(void) {
     TEST_ASSERT_TRUE(calibration_success);
     
     // Normalization scale should be positive and within reasonable bounds
-    ESP_LOGI(TAG, "Calibration returned normalization_scale: %.4f", result_normalization_scale);
-    TEST_ASSERT_TRUE(result_normalization_scale > 0.0f);
-    TEST_ASSERT_TRUE(result_normalization_scale >= 0.1f);  // Minimum clamped value
-    TEST_ASSERT_TRUE(result_normalization_scale <= 10.0f); // Maximum clamped value
+    ESP_LOGI(TAG, "Calibration returned adaptive_threshold: %.4f", result_adaptive_threshold);
+    TEST_ASSERT_TRUE(result_adaptive_threshold > 0.0f);
+    TEST_ASSERT_TRUE(result_adaptive_threshold >= 0.1f);  // Minimum clamped value
+    TEST_ASSERT_TRUE(result_adaptive_threshold <= 10.0f); // Maximum clamped value
 }
 
-void test_calibration_normalization_always_calculated(void) {
-    // Test that normalization is always calculated, regardless of subcarrier selection outcome
-    // Even with high-variance data, normalization scale should be valid
+void test_calibration_threshold_always_calculated(void) {
+    // Test that adaptive threshold is always calculated, regardless of subcarrier selection outcome
+    // Even with high-variance data, adaptive threshold should be valid
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
@@ -351,17 +351,17 @@ void test_calibration_normalization_always_calculated(void) {
     cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
     cm.set_buffer_size(100);
     
-    float result_normalization_scale = 0.0f;
+    float result_adaptive_threshold = 0.0f;
     bool callback_called = false;
     const uint8_t* result_band = nullptr;
     uint8_t result_size = 0;
     
     cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+        [&](const uint8_t* band, uint8_t size, float adaptive_threshold, bool success) {
             (void)success;  // We don't care if it succeeded or not
             result_band = band;
             result_size = size;
-            result_normalization_scale = normalization_scale;
+            result_adaptive_threshold = adaptive_threshold;
             callback_called = true;
         });
     
@@ -373,9 +373,9 @@ void test_calibration_normalization_always_calculated(void) {
     TEST_ASSERT_TRUE_MESSAGE(callback_called, "Callback should be called");
     
     // Regardless of success/failure, these should always be valid:
-    ESP_LOGI(TAG, "Normalization test: band=%p, size=%d, norm_scale=%.4f, baseline_var=%.4f",
-             (void*)result_band, result_size, result_normalization_scale, 
-             cm.get_baseline_variance());
+    ESP_LOGI(TAG, "Threshold test: band=%p, size=%d, adaptive_thr=%.4f, best_p95=%.4f",
+             (void*)result_band, result_size, result_adaptive_threshold, 
+             cm.get_best_p95());
     
     // 1. Band pointer should be valid (either P95-selected or default fallback)
     TEST_ASSERT_NOT_NULL_MESSAGE(result_band,
@@ -385,17 +385,13 @@ void test_calibration_normalization_always_calculated(void) {
     TEST_ASSERT_EQUAL_MESSAGE(12, result_size,
         "Band size should always be 12");
     
-    // 3. Normalization scale should be calculated and valid
-    TEST_ASSERT_TRUE_MESSAGE(result_normalization_scale > 0.0f,
-        "Normalization scale should be positive");
-    TEST_ASSERT_TRUE_MESSAGE(result_normalization_scale >= 0.1f,
-        "Normalization scale should be >= 0.1 (minimum clamp)");
-    TEST_ASSERT_TRUE_MESSAGE(result_normalization_scale <= 10.0f,
-        "Normalization scale should be <= 10.0 (maximum clamp)");
+    // 3. Adaptive threshold should be calculated and valid (minimum is 1.0)
+    TEST_ASSERT_TRUE_MESSAGE(result_adaptive_threshold >= 1.0f,
+        "Adaptive threshold should be >= 1.0 (minimum clamp)");
     
-    // 4. Baseline variance should be calculated (not zero)
-    TEST_ASSERT_TRUE_MESSAGE(cm.get_baseline_variance() > 0.0f,
-        "Baseline variance should be calculated");
+    // 4. Best P95 should be calculated (not zero)
+    TEST_ASSERT_TRUE_MESSAGE(cm.get_best_p95() > 0.0f,
+        "Best P95 should be calculated");
 }
 
 // Note: Spectral spacing is tested in test_spectral_spacing_* tests below
@@ -856,8 +852,8 @@ void run_real_data_tests() {
     RUN_TEST(test_calibration_manager_p95_produces_valid_band);
     RUN_TEST(test_calibration_manager_handles_mixed_data);
     RUN_TEST(test_calibration_manager_respects_guard_bands);
-    RUN_TEST(test_calibration_returns_valid_normalization_scale);
-    RUN_TEST(test_calibration_normalization_always_calculated);
+    RUN_TEST(test_calibration_returns_valid_adaptive_threshold);
+    RUN_TEST(test_calibration_threshold_always_calculated);
     
     // Real CSI data tests
     RUN_TEST(test_magnitude_from_real_csi);

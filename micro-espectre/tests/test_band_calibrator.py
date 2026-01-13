@@ -19,8 +19,8 @@ import band_calibrator
 band_calibrator.BUFFER_FILE = os.path.join(tempfile.gettempdir(), 'band_test.bin')
 
 from band_calibrator import (
-    BandCalibrator, calculate_guard_bands, get_normalization_target,
-    NORMALIZATION_BASELINE_TARGET_64, NORMALIZATION_BASELINE_TARGET_256,
+    BandCalibrator, calculate_guard_bands,
+    ADAPTIVE_THRESHOLD_FACTOR,
     BAND_SIZE, MVS_WINDOW_SIZE, MVS_THRESHOLD
 )
 
@@ -38,13 +38,13 @@ class TestCalculateGuardBands:
         assert dc_high == 32  # Single DC
     
     def test_128_subcarriers(self):
-        """Test HT40 guard bands"""
+        """Test HT40 guard bands (optimized, validated on ESP32-S3)"""
         low, high, dc_low, dc_high = calculate_guard_bands(128)
         
         assert low == 7
         assert high == 120
-        assert dc_low == 64
-        assert dc_high == 64  # Single DC
+        assert dc_low == 61
+        assert dc_high == 67  # DC zone [61-67]
     
     def test_256_subcarriers(self):
         """Test HE20 guard bands (optimized configuration)"""
@@ -67,30 +67,12 @@ class TestCalculateGuardBands:
         assert dc_high == 256
 
 
-class TestGetNormalizationTarget:
-    """Test normalization target selection"""
+class TestAdaptiveThresholdConstants:
+    """Test adaptive threshold constants"""
     
-    def test_64_sc_target(self):
-        """64 SC uses lower target"""
-        target = get_normalization_target(64)
-        assert target == NORMALIZATION_BASELINE_TARGET_64
-        assert target == 0.25
-    
-    def test_128_sc_target(self):
-        """128 SC uses lower target"""
-        target = get_normalization_target(128)
-        assert target == NORMALIZATION_BASELINE_TARGET_64
-    
-    def test_256_sc_target(self):
-        """256 SC uses higher target"""
-        target = get_normalization_target(256)
-        assert target == NORMALIZATION_BASELINE_TARGET_256
-        assert target == 0.60
-    
-    def test_512_sc_target(self):
-        """512+ SC uses higher target"""
-        target = get_normalization_target(512)
-        assert target == NORMALIZATION_BASELINE_TARGET_256
+    def test_factor_value(self):
+        """Test default factor for P95 × factor formula"""
+        assert ADAPTIVE_THRESHOLD_FACTOR == 1.4
 
 
 class TestBandCalibratorInit:
@@ -344,8 +326,8 @@ class TestBandCalibratorCalibration:
         
         cal.free_buffer()
     
-    def test_calibration_normalization_scale(self):
-        """Test normalization scale is valid"""
+    def test_calibration_adaptive_threshold(self):
+        """Test adaptive threshold is valid"""
         cal = BandCalibrator(buffer_size=100)
         
         import random
@@ -355,11 +337,11 @@ class TestBandCalibratorCalibration:
             packet = bytes([random.randint(30, 80) for _ in range(128)])
             cal.add_packet(packet)
         
-        band, scale = cal.calibrate()
+        band, adaptive_threshold = cal.calibrate()
         
-        # Scale should be positive and reasonable
-        assert scale > 0
-        assert scale <= 10.0
+        # Adaptive threshold should be positive and reasonable
+        assert adaptive_threshold > 0
+        assert adaptive_threshold <= 10.0
         
         cal.free_buffer()
 
@@ -444,7 +426,6 @@ class TestConstants:
         """Test MVS threshold"""
         assert MVS_THRESHOLD == 1.0
     
-    def test_normalization_targets(self):
-        """Test normalization targets"""
-        assert NORMALIZATION_BASELINE_TARGET_64 == 0.25
-        assert NORMALIZATION_BASELINE_TARGET_256 == 0.60
+    def test_adaptive_threshold_factor(self):
+        """Test adaptive threshold factor (P95 × factor)"""
+        assert ADAPTIVE_THRESHOLD_FACTOR == 1.4

@@ -14,7 +14,7 @@ import sys
 from src.nvs_storage import NVSStorage
 from src.config import (
     TRAFFIC_GENERATOR_RATE,
-    SEG_WINDOW_SIZE, SEG_THRESHOLD
+    SEG_WINDOW_SIZE
 )
 
 # Segmentation limits
@@ -284,8 +284,8 @@ class MQTTCommands:
         """Reset all parameters to defaults and trigger band re-calibration"""
         print("Factory reset requested")
         
-        # Reset segmentation to defaults (use constants from config.py)
-        self.seg.threshold = SEG_THRESHOLD
+        # Reset segmentation to defaults
+        self.seg.threshold = 1.0  # Default threshold
         self.seg.window_size = SEG_WINDOW_SIZE
         
         # Reset buffer

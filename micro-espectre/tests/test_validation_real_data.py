@@ -74,6 +74,9 @@ def get_available_datasets():
         ))
     
     # S3 128 SC dataset
+    # Note: This dataset is very noisy and requires a non-contiguous band calibrator
+    # (like NBVI) to achieve good performance. BandCalibrator with contiguous bands
+    # produces sub-optimal results (baseline MV already exceeds threshold).
     baseline_s3 = DATA_DIR / 'baseline' / 'baseline_s3_128sc_20260111_063243.npz'
     movement_s3 = DATA_DIR / 'movement' / 'movement_s3_128sc_20260111_063354.npz'
     if baseline_s3.exists() and movement_s3.exists():
@@ -196,7 +199,7 @@ def run_p95_calibration(baseline_packets, num_subcarriers):
     Run P95 calibration exactly as in production.
     
     Returns:
-        tuple: (selected_band, normalization_scale)
+        tuple: (selected_band, adaptive_threshold)
     """
     from band_calibrator import BandCalibrator
     import tempfile
@@ -216,11 +219,11 @@ def run_p95_calibration(baseline_packets, num_subcarriers):
         csi_bytes = bytes(int(x) & 0xFF for x in pkt['csi_data'])
         calibrator.add_packet(csi_bytes)
     
-    # Run calibration (P95-based algorithm)
-    selected_band, normalization_scale = calibrator.calibrate()
+    # Run calibration (P95-based algorithm with adaptive threshold)
+    selected_band, adaptive_threshold = calibrator.calibrate()
     calibrator.free_buffer()
     
-    return selected_band, normalization_scale
+    return selected_band, adaptive_threshold
 
 
 class TestMVSDetectionRealData:
@@ -231,9 +234,9 @@ class TestMVSDetectionRealData:
         baseline_packets, _ = real_data
         
         # Run P95 calibration (exactly as in production)
-        selected_band, normalization_scale = run_p95_calibration(baseline_packets, num_subcarriers)
+        selected_band, adaptive_threshold = run_p95_calibration(baseline_packets, num_subcarriers)
         
-        ctx = SegmentationContext(window_size=50, threshold=1.0, normalization_scale=normalization_scale)
+        ctx = SegmentationContext(window_size=50, threshold=adaptive_threshold)
         
         motion_count = 0
         for pkt in baseline_packets:
@@ -256,9 +259,9 @@ class TestMVSDetectionRealData:
         baseline_packets, movement_packets = real_data
         
         # Run P95 calibration (exactly as in production)
-        selected_band, normalization_scale = run_p95_calibration(baseline_packets, num_subcarriers)
+        selected_band, adaptive_threshold = run_p95_calibration(baseline_packets, num_subcarriers)
         
-        ctx = SegmentationContext(window_size=50, threshold=1.0, normalization_scale=normalization_scale)
+        ctx = SegmentationContext(window_size=50, threshold=adaptive_threshold)
         
         motion_count = 0
         for pkt in movement_packets:
@@ -281,11 +284,9 @@ class TestMVSDetectionRealData:
         baseline_packets, movement_packets = real_data
         
         # Run P95 calibration (exactly as in production)
-        selected_band, normalization_scale = run_p95_calibration(baseline_packets, num_subcarriers)
+        selected_band, adaptive_threshold = run_p95_calibration(baseline_packets, num_subcarriers)
         
-        # Note: MVSDetector uses normalization_scale=1.0 internally by default
-        # For a fair test, we should check if it supports normalization
-        # For now, test with the calibrated band
+        # Test with the calibrated band and adaptive threshold
         detector = MVSDetector(
             window_size=50,
             threshold=1.0,
@@ -604,10 +605,10 @@ class TestPerformanceMetrics:
         
         This test uses P95 auto-calibration exactly as in production:
         - P95 band selection from baseline data
-        - Normalization scale from calibration
+        - Adaptive threshold from calibration
         - Process ALL packets (no warmup skip)
         - Process baseline first, then movement (continuous context)
-        - Same window_size=50, threshold=1.0
+        - Same window_size=50, adaptive threshold
         - Hampel filter disabled (pure MVS algorithm performance)
         
         Target: >90% Recall, <10% FP Rate
@@ -615,12 +616,11 @@ class TestPerformanceMetrics:
         baseline_packets, movement_packets = real_data
         
         # Run P95 calibration (exactly as in production)
-        selected_band, normalization_scale = run_p95_calibration(baseline_packets, num_subcarriers)
+        selected_band, adaptive_threshold = run_p95_calibration(baseline_packets, num_subcarriers)
         
-        # Initialize with same defaults as C++ (Hampel disabled for pure MVS test)
+        # Initialize with adaptive threshold from calibration (Hampel disabled for pure MVS test)
         ctx = SegmentationContext(
-            window_size=50, threshold=1.0, enable_hampel=False,
-            normalization_scale=normalization_scale
+            window_size=50, threshold=adaptive_threshold, enable_hampel=False
         )
         
         num_baseline = len(baseline_packets)
@@ -859,7 +859,7 @@ class TestEndToEndWithCalibration:
             calibrator.add_packet(csi_bytes)
         
         # Run calibration
-        selected_band, normalization_scale = calibrator.calibrate()
+        selected_band, adaptive_threshold = calibrator.calibrate()
         
         # Cleanup
         calibrator.free_buffer()
@@ -873,14 +873,14 @@ class TestEndToEndWithCalibration:
             assert guard_low <= sc <= guard_high, \
                 f"Subcarrier {sc} outside valid range [{guard_low}-{guard_high}]"
         
-        # Normalization scale should be valid
-        assert normalization_scale > 0.0, f"Invalid normalization scale: {normalization_scale}"
-        assert 0.1 <= normalization_scale <= 10.0, \
-            f"Normalization scale out of range: {normalization_scale}"
+        # Adaptive threshold should be valid
+        assert adaptive_threshold > 0.0, f"Invalid adaptive threshold: {adaptive_threshold}"
+        assert 0.1 <= adaptive_threshold <= 10.0, \
+            f"Adaptive threshold out of range: {adaptive_threshold}"
         
         print(f"\nBand Calibration Results:")
         print(f"  Selected band: {selected_band}")
-        print(f"  Normalization scale: {normalization_scale:.4f}")
+        print(f"  Adaptive threshold: {adaptive_threshold:.4f}")
     
     def test_end_to_end_with_band_calibration_and_mvs(self, real_data, num_subcarriers):
         """
@@ -905,22 +905,21 @@ class TestEndToEndWithCalibration:
         
         # Run P95 calibration (exactly as in production)
         print(f"\nStep 1: P95 Band Calibration...")
-        selected_band, normalization_scale = run_p95_calibration(baseline_packets, num_subcarriers)
+        selected_band, adaptive_threshold = run_p95_calibration(baseline_packets, num_subcarriers)
         
         assert selected_band is not None, f"Band calibration failed for {num_subcarriers} SC"
         print(f"  Selected band: {selected_band}")
-        print(f"  Normalization scale: {normalization_scale:.4f}")
+        print(f"  Adaptive threshold: {adaptive_threshold:.4f}")
         
         # ========================================
         # Step 2: Initialize MVS with calibration results
         # ========================================
-        # Initialize MVS with calibration-selected subcarriers AND normalization
+        # Initialize MVS with calibration-selected subcarriers AND adaptive threshold
         # This tests the complete production pipeline
         print("\nStep 2: Initialize MVS with calibration results...")
         ctx = SegmentationContext(
             window_size=50,
-            threshold=1.0,
-            normalization_scale=normalization_scale,  # Apply calibration normalization
+            threshold=adaptive_threshold,  # Apply calibration adaptive threshold
             enable_hampel=False  # Disable for pure MVS measurement
         )
         

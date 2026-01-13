@@ -21,9 +21,9 @@ pio test -f test_motion_detection
 
 | Suite | Type | Data | Focus |
 |-------|------|------|-------|
-| `test_csi_processor` | Unit | **Real** | API, getters, state machine, normalization, low-pass filter |
+| `test_csi_processor` | Unit | **Real** | API, getters, state machine, adaptive threshold, low-pass filter |
 | `test_hampel_filter` | Unit | **Real** | Outlier removal filter |
-| `test_calibration` | Unit | **Real** | P95 band selection, magnitude, turbulence, normalization scale, fallback |
+| `test_calibration` | Unit | **Real** | P95 band selection, magnitude, turbulence, adaptive threshold, fallback |
 | `test_calibration_manager` | Integration | **Real** | CalibrationManager API, file I/O, P95 band ranking |
 | `test_csi_manager` | Integration | **Real** | CSIManager API, callbacks, motion detection |
 | `test_calibration_file_storage` | Unit | Synthetic | File-based magnitude storage |

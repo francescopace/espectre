@@ -177,9 +177,8 @@ class TestNVSStorageSaveFullConfig:
         """Test saving full configuration from segmentation"""
         # Mock segmentation object
         seg = MagicMock()
-        seg.threshold = 2.0
+        seg.threshold = 2.0  # May be adaptive threshold
         seg.window_size = 75
-        seg.normalization_scale = 1.5
         
         result = nvs.save_full_config(seg)
         
@@ -191,7 +190,6 @@ class TestNVSStorageSaveFullConfig:
         
         assert saved['segmentation']['threshold'] == 2.0
         assert saved['segmentation']['window_size'] == 75
-        assert saved['segmentation']['normalization_scale'] == 1.5
 
 
 class TestNVSStorageLoadAndApply:
@@ -202,9 +200,8 @@ class TestNVSStorageLoadAndApply:
         # Create config file
         config = {
             "segmentation": {
-                "threshold": 2.5,
-                "window_size": 100,
-                "normalization_scale": 1.2
+                "threshold": 2.5,  # May be adaptive threshold
+                "window_size": 100
             }
         }
         with open(temp_config_file, 'w') as f:
@@ -214,14 +211,12 @@ class TestNVSStorageLoadAndApply:
         seg = MagicMock()
         seg.threshold = 1.0
         seg.window_size = 50
-        seg.normalization_scale = 1.0
         
         result = nvs.load_and_apply(seg)
         
         assert result is not None
         assert seg.threshold == 2.5
         assert seg.window_size == 100
-        assert seg.normalization_scale == 1.2
         # Buffer should be reset
         assert seg.turbulence_buffer == [0.0] * 100
         assert seg.buffer_index == 0
@@ -252,7 +247,6 @@ class TestNVSStorageLoadAndApply:
         seg = MagicMock()
         seg.threshold = 1.0
         seg.window_size = 50
-        seg.normalization_scale = 1.0
         
         result = nvs.load_and_apply(seg)
         

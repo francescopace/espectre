@@ -45,8 +45,8 @@ class CSIManager;
 class CalibrationManager {
  public:
   // Callback type for calibration results
-  // Parameters: band, size, normalization_scale, success
-  using result_callback_t = std::function<void(const uint8_t* band, uint8_t size, float normalization_scale, bool success)>;
+  // Parameters: band, size, adaptive_threshold, success
+  using result_callback_t = std::function<void(const uint8_t* band, uint8_t size, float adaptive_threshold, bool success)>;
   
   // Callback type for collection complete notification
   // Called when all packets have been collected, before P95 processing starts.
@@ -118,11 +118,11 @@ class CalibrationManager {
   }
   
   /**
-   * Get the baseline variance calculated during calibration
+   * Get the P95 calculated during calibration
    * 
-   * @return Baseline variance (only valid after calibration completes)
+   * @return Best P95 value (only valid after calibration completes)
    */
-  float get_baseline_variance() const { return baseline_variance_; }
+  float get_best_p95() const { return best_p95_; }
   
  private:
   // Internal structures
@@ -170,6 +170,7 @@ class CalibrationManager {
   static constexpr uint16_t MVS_WINDOW_SIZE = 50;  // Window size for moving variance
   static constexpr float MVS_THRESHOLD = 1.0f;     // Detection threshold
   static constexpr float SAFE_MARGIN = 0.15f;      // Safety margin below threshold
+  static constexpr float ADAPTIVE_THRESHOLD_FACTOR = 1.4f;  // P95 × factor = adaptive threshold
   
   // Current calibration context
   std::vector<uint8_t> current_band_;
@@ -178,8 +179,8 @@ class CalibrationManager {
   // Results
   uint8_t selected_band_[12];
   uint8_t selected_band_size_{0};
-  float normalization_scale_{1.0f};  // Calculated normalization factor
-  float baseline_variance_{1.0f};    // Baseline variance for normalization
+  float adaptive_threshold_{1.0f};   // Calculated adaptive threshold (P95 × 1.4)
+  float best_p95_{0.0f};             // Best P95 from calibration
   
   // Dynamic subcarrier configuration (determined from first CSI packet)
   uint16_t num_subcarriers_{64};     // Number of subcarriers (64, 128, or 256)
@@ -195,9 +196,8 @@ class CalibrationManager {
   static constexpr float NULL_SUBCARRIER_THRESHOLD = 1.0f;
   
   // Helper methods
-  float calculate_baseline_variance_(uint16_t baseline_start);
-  void calculate_normalization_scale_();
-  void log_normalization_status_();
+  void calculate_adaptive_threshold_(float p95);
+  void log_adaptive_threshold_status_();
 };
 
 }  // namespace espectre

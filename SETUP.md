@@ -695,7 +695,7 @@ spiffs,   data, spiffs,  0x7D0000, 0x30000,
 2. Check traffic generator is running
 3. Verify WiFi connection is stable
 
-**Note:** If band selection fails, the system automatically falls back to default subcarriers [11-22] while still applying baseline normalization. Motion detection will work but may be less optimal. Look for the log message `⚠ Fallback calibration: default subcarriers with normalization`.
+**Note:** If band selection fails, the system automatically falls back to default subcarriers [11-22] with a default threshold of 1.0. Motion detection will work but may be less optimal. Look for the log message `⚠ Fallback calibration: using default subcarriers`.
 
 ### SPIFFS partition not found
 

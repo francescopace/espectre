@@ -29,14 +29,14 @@ void ESpectreComponent::setup() {
   
   // 1. Initialize configuration manager (load config before initializing managers)
   // Note: hash changed to "espectre_cfg_v6" - struct now only contains threshold
-  // All other settings come from YAML or are recalculated at boot (normalization_scale)
+  // All other settings come from YAML or are recalculated at boot
   this->config_manager_.init(
       global_preferences->make_preference<ESpectreConfig>(fnv1_hash("espectre_cfg_v6"))
   );
   
   // 2. Load runtime-configurable parameters from preferences
-  // Only threshold is persisted - all other settings come from YAML or are
-  // recalculated at boot (normalization_scale is computed during band calibration)
+  // Only threshold is persisted - all other settings come from YAML
+  // Note: Adaptive threshold (P95 × 1.4) is computed during band calibration
   ESpectreConfig config;
   if (this->config_manager_.load(config)) {
     this->segmentation_threshold_ = config.segmentation_threshold;
@@ -50,8 +50,8 @@ void ESpectreComponent::setup() {
     return;  // Component initialization failed
   }
   
-  // Apply loaded normalization scale (will be recalculated during calibration if needed)
-  csi_processor_set_normalization_scale(&this->csi_processor_, this->normalization_scale_);
+  // Note: Threshold is loaded from preferences above. Adaptive threshold will be
+  // recalculated during band calibration (P95 × 1.4) if calibration runs.
   
   // 4. Initialize managers (each manager handles its own internal initialization)
   this->calibration_manager_.init(&this->csi_manager_);
@@ -247,7 +247,7 @@ void ESpectreComponent::start_calibration_() {
   this->calibration_manager_.start_auto_calibration(
     this->selected_subcarriers_,
     12,  // Always 12 subcarriers
-    [this](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+    [this](const uint8_t* band, uint8_t size, float adaptive_threshold, bool success) {
       if (success) {
         // Only update subcarriers if P95 was used (not user-specified)
         if (!this->user_specified_subcarriers_) {
@@ -256,15 +256,15 @@ void ESpectreComponent::start_calibration_() {
         }
       }
       
-      // Apply normalization if calibration produced valid data
-      // band == nullptr means critical failure (e.g., SPIFFS error) - skip normalization
-      // band != nullptr means at least partial success - apply normalization
+      // Apply adaptive threshold if calibration produced valid data
+      // band == nullptr means critical failure (e.g., SPIFFS error) - skip threshold update
+      // band != nullptr means at least partial success - apply adaptive threshold
       if (band != nullptr) {
-        this->normalization_scale_ = normalization_scale;
-        csi_processor_set_normalization_scale(&this->csi_processor_, normalization_scale);
+        // Set the adaptive threshold calculated from P95 × 1.4 (same as Python)
+        this->set_threshold_runtime(adaptive_threshold);
         
-        // Store baseline variance for status reporting
-        this->baseline_variance_ = this->calibration_manager_.get_baseline_variance();
+        // Store P95 for status reporting
+        this->best_p95_ = this->calibration_manager_.get_best_p95();
         
         // Clear buffer to avoid stale calibration data causing high initial values
         csi_processor_clear_buffer(&this->csi_processor_);
@@ -323,7 +323,7 @@ void ESpectreComponent::send_system_info_() {
   }
   ESP_LOGI(TAG, "[sysinfo] traffic_rate=%u", this->traffic_generator_rate_);
   ESP_LOGI(TAG, "[sysinfo] publish_interval=%u", this->publish_interval_);
-  ESP_LOGI(TAG, "[sysinfo] norm_scale=%.4f", this->normalization_scale_);
+  ESP_LOGI(TAG, "[sysinfo] best_p95=%.4f", this->best_p95_);
   ESP_LOGI(TAG, "[sysinfo] END");
 }
 
@@ -340,7 +340,7 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f", this->segmentation_threshold_);
   ESP_LOGCONFIG(TAG, " └─ Window ............. %d pkts", this->segmentation_window_size_);
-  ESP_LOGCONFIG(TAG, " └─ Norm. Scale ........ %.4f (attenuate if >0.25)", this->normalization_scale_);
+  ESP_LOGCONFIG(TAG, " └─ P95 (baseline) ..... %.4f (adaptive thr = P95 × 1.4)", this->best_p95_);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
                 this->selected_subcarriers_[0], this->selected_subcarriers_[1],

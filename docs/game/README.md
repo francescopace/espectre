@@ -138,7 +138,7 @@ Sent once when `START` command is received. Used to display device configuration
 | `lowpass_cutoff` | Low-pass cutoff frequency (Hz) |
 | `hampel` | Hampel filter status (`on`/`off`) |
 | `traffic_rate` | Traffic generator rate (packets/sec) |
-| `norm_scale` | Normalization scale factor |
+| `adaptive_thr` | Adaptive threshold value |
 | `END` | Marks end of system info |
 
 ### Data (ESP32 → Browser)

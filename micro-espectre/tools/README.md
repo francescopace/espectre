@@ -107,7 +107,7 @@ python 5_analyze_filter_turbulence.py --optimize-filters  # Optimize parameters
 
 **Purpose**: Optimize low-pass and Hampel filter parameters
 
-- Optimizes normalization target and low-pass cutoff frequency
+- Optimizes low-pass cutoff frequency and threshold parameters
 - Grid search for Hampel filter parameters (window, threshold)
 - Auto-detects chip from baseline file metadata (ensures matching movement data)
 - Automatically selects optimal subcarrier band based on subcarrier count

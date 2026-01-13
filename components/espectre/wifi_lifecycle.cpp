@@ -42,8 +42,12 @@ esp_err_t WiFiLifecycleManager::init() {
   ESP_LOGI(TAG, "WiFi protocol set to 802.11b/g/n");
 #endif
 
-  // Note: esp_wifi_set_bandwidth() removed - testing showed it has no effect on
-  // received CSI subcarrier count. The router sends HT20/HE-SU packets regardless.
+  // Configure bandwidth (HT20 for 64 subcarriers, more stable than HT40)
+  ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to set bandwidth: 0x%x", ret);
+    // Non-fatal: continue anyway
+  }
 
   // IMPORTANT: Promiscuous mode MUST be called BEFORE configuring CSI
   // This initializes internal WiFi structures required for CSI, even when set to false

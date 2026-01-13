@@ -15,7 +15,7 @@ from src.segmentation import SegmentationContext
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
 from src.nvs_storage import NVSStorage
-from src.band_calibrator import BandCalibrator
+from src.band_calibrator import BandCalibrator, cleanup_buffer_file
 import src.config as config
 
 # Default subcarriers (used if not configured or for fallback in case of error)
@@ -23,24 +23,6 @@ DEFAULT_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 # Gain lock configuration
 GAIN_LOCK_PACKETS = 300  # ~3 seconds at 100 Hz
-
-# Try to import local configuration (overrides config.py defaults)
-try:
-    from src.config_local import WIFI_SSID, WIFI_PASSWORD
-except ImportError:
-    WIFI_SSID = config.WIFI_SSID
-    WIFI_PASSWORD = config.WIFI_PASSWORD
-
-# Try to import MQTT settings from config_local (optional)
-try:
-    from src.config_local import MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD
-    config.MQTT_BROKER = MQTT_BROKER
-    config.MQTT_PORT = MQTT_PORT
-    config.MQTT_USERNAME = MQTT_USERNAME
-    config.MQTT_PASSWORD = MQTT_PASSWORD
-except ImportError:
-    pass  # Use defaults from config.py
-
 
 # Global state for calibration mode and performance metrics
 class GlobalState:
@@ -111,6 +93,33 @@ def cleanup_wifi(wlan):
     time.sleep(1)  # Wait for hardware to settle
 
 
+def print_wifi_status(wlan):
+    """Print WiFi connection status with configuration details."""
+    ip = wlan.ifconfig()[0]
+    
+    # Protocol decode using exposed constants
+    PROTOCOL_NAMES = {
+        network.MODE_11B: 'b',
+        network.MODE_11G: 'g', 
+        network.MODE_11N: 'n',
+    }
+    # Add 11ax only if available (ESP32-C5/C6)
+    if hasattr(network, 'MODE_11AX'):
+        PROTOCOL_NAMES[network.MODE_11AX] = 'ax'
+    
+    proto_val = wlan.config('protocol')
+    modes = [name for bit, name in PROTOCOL_NAMES.items() if proto_val & bit]
+    protocol_str = '802.11' + '/'.join(modes) if modes else f'0x{proto_val:02x}'
+    
+    # Bandwidth decode
+    BW_NAMES = {wlan.BW_HT20: 'HT20', wlan.BW_HT40: 'HT40'}
+    bw_str = BW_NAMES.get(wlan.config('bandwidth'), 'unknown')
+    
+    # Promiscuous
+    prom_str = 'ON' if wlan.config('promiscuous') else 'OFF'
+    
+    print(f"WiFi connected - IP: {ip}, Protocol: {protocol_str}, Bandwidth: {bw_str}, Promiscuous: {prom_str}")
+
 def connect_wifi():
     """Connect to WiFi"""
     
@@ -130,13 +139,17 @@ def connect_wifi():
     time.sleep(2)
         
     # Configure WiFi protocol
-    wlan.config(protocol=wlan.PROTOCOL_DEFAULT)  # WiFi 6 on C5/C6, WiFi 4 on others
+    # Force WiFi 4 (802.11b/g/n) only to get 64 subcarriers
+    wlan.config(protocol=network.MODE_11B | network.MODE_11G | network.MODE_11N)
     wlan.config(bandwidth=wlan.BW_HT20)          # HT20 for stable CSI
     wlan.config(promiscuous=False)               # CSI from connected AP only
     
+    # Enable CSI after WiFi is stable
+    wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
+    
     # Connect
     print(f"Connecting to WiFi...")
-    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
     
     # Wait for connection
     timeout = 30
@@ -148,8 +161,6 @@ def connect_wifi():
         print_wifi_status(wlan)
         # Disable power management
         wlan.config(pm=wlan.PM_NONE)
-        # Enable CSI after WiFi is stable
-        wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
         # Stabilization
         time.sleep(1)
         return wlan
@@ -202,14 +213,27 @@ def run_gain_lock(wlan):
     mode = getattr(config, 'GAIN_LOCK_MODE', 'auto').lower()
     min_safe_agc = getattr(config, 'GAIN_LOCK_MIN_SAFE_AGC', 30)
     
-    if mode == 'disabled':
-        print("Gain lock: Disabled by configuration")
-        return None, None, False, 64
+    # Skip gain lock if disabled or not supported
+    gain_lock_supported = hasattr(wlan, 'csi_gain_lock_supported') and wlan.csi_gain_lock_supported()
     
-    # Check if gain lock is supported on this platform
-    if not hasattr(wlan, 'csi_gain_lock_supported') or not wlan.csi_gain_lock_supported():
-        print("Gain lock: Not supported on this platform (skipping)")
-        return None, None, False, 64
+    if mode == 'disabled' or not gain_lock_supported:
+        reason = "Disabled by configuration" if mode == 'disabled' else "Not supported on this platform"
+        print(f"Gain lock: {reason}")
+        # Still need to determine subcarrier count from a few packets
+        print("  Detecting subcarrier count...")
+        sc_counts = {64: 0, 128: 0, 256: 0}
+        scan_count = 0
+        while scan_count < 50:
+            frame = wlan.csi_read()
+            if frame:
+                num_sc = len(frame[5]) // 2
+                if num_sc in sc_counts:
+                    sc_counts[num_sc] += 1
+                scan_count += 1
+                del frame  # Free memory immediately
+        dominant_sc = max(sc_counts, key=sc_counts.get) if any(sc_counts.values()) else 64
+        print(f"  Detected: 64SC={sc_counts[64]}, 128SC={sc_counts[128]}, 256SC={sc_counts[256]} -> using {dominant_sc}")
+        return None, None, False, dominant_sc
     
     print('')
     print('-'*60)
@@ -229,20 +253,24 @@ def run_gain_lock(wlan):
             # frame[22] = agc_gain, frame[23] = fft_gain
             agc_sum += frame[22]
             fft_sum += frame[23]
-            count += 1
             
-            # Count subcarrier type from CSI data length
-            csi_data = frame[5]  # Raw CSI data
-            num_sc = len(csi_data) // 2
+            # Count subcarrier type from CSI data length (avoid storing reference)
+            num_sc = len(frame[5]) // 2
             if num_sc in sc_counts:
                 sc_counts[num_sc] += 1
             
-            # Progress every 25%
+            del frame  # Free memory immediately
+            count += 1
+            
+            # Progress every 25% (with GC to prevent ENOMEM)
             if count == GAIN_LOCK_PACKETS // 4:
+                gc.collect()
                 print(f"  Gain calibration 25%: AGC~{agc_sum // count}, FFT~{fft_sum // count}")
             elif count == GAIN_LOCK_PACKETS // 2:
+                gc.collect()
                 print(f"  Gain calibration 50%: AGC~{agc_sum // count}, FFT~{fft_sum // count}")
             elif count == (GAIN_LOCK_PACKETS * 3) // 4:
+                gc.collect()
                 print(f"  Gain calibration 75%: AGC~{agc_sum // count}, FFT~{fft_sum // count}")
     
     # Calculate averages
@@ -285,6 +313,9 @@ def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     
     # Aggressive garbage collection before allocating calibration buffer
     gc.collect()
+    
+    # Clean up any leftover files from previous interrupted runs
+    cleanup_buffer_file()
     
     print('')
     print('='*60)
@@ -329,7 +360,9 @@ def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
         packets_read += 1
         
         if frame:
-            csi_data = frame[5]  # Pass all CSI data (64-256 subcarriers depending on router)
+            # Truncate to expected SC count to save memory
+            csi_data = frame[5][:g_state.expected_subcarriers * 2]
+            del frame  # Free memory immediately
             calibration_progress = band_calibrator.add_packet(csi_data)
             timeout_counter = 0  # Reset timeout on successful read
             
@@ -348,14 +381,6 @@ def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
             time.sleep_us(100)
             timeout_counter += 1
             
-            # Debug: print if stuck
-            if timeout_counter % 1000 == 0:
-                # Check if traffic generator is still running
-                tg_running = traffic_gen.is_running()
-                tg_count = traffic_gen.get_packet_count()
-                dropped = wlan.csi_dropped()
-                print(f"Waiting for CSI... ({timeout_counter/1000:.0f}s, progress: {calibration_progress}, TG running: {tg_running}, TG packets: {tg_count}, dropped: {dropped})")
-            
             if timeout_counter >= max_timeout:
                 print(f"Timeout waiting for CSI packets (collected {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE})")
                 print("Calibration aborted - using default band")
@@ -366,23 +391,28 @@ def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     # Calibrate using P95 moving variance approach
     success = False
     config.SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
-    config.NORMALIZATION_SCALE = 1.0
+    
+    # Stop traffic generator during band evaluation to free memory
+    tg_was_running = traffic_gen.is_running()
+    if tg_was_running:
+        traffic_gen.stop()
+        gc.collect()
+    
     try:
-        selected_band, normalization_scale = band_calibrator.calibrate()
+        selected_band, adaptive_threshold = band_calibrator.calibrate()
         
         if selected_band and len(selected_band) == 12:
             # Calibration successful
             config.SELECTED_SUBCARRIERS = selected_band
-            config.NORMALIZATION_SCALE = normalization_scale
-            # Apply normalization scale to segmentation context
-            seg.set_normalization_scale(normalization_scale)
+            # Apply adaptive threshold to segmentation context
+            seg.set_adaptive_threshold(adaptive_threshold)
             success = True
             
             print('')
             print('='*60)
             print('Subcarrier Calibration Successful!')
             print(f'   Selected band: {selected_band}')
-            print(f'   Normalization scale: {normalization_scale:.3f}')
+            print(f'   Adaptive threshold: {adaptive_threshold:.4f}')
             print('='*60)
             print('')
         else:
@@ -403,6 +433,14 @@ def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     band_calibrator = None
     gc.collect()
     
+    # Restart traffic generator if it was running
+    if tg_was_running:
+        time.sleep(1)  # Wait for network stack to stabilize
+        if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE):
+            print("Warning: Failed to restart traffic generator, retrying...")
+            time.sleep(2)
+            traffic_gen.start(config.TRAFFIC_GENERATOR_RATE)
+    
     # Resume main loop
     g_state.calibration_mode = False
     
@@ -422,14 +460,13 @@ def main():
     # Initialize segmentation with full configuration
     seg = SegmentationContext(
         window_size=config.SEG_WINDOW_SIZE,
-        threshold=config.SEG_THRESHOLD,
+        threshold=1.0,  # Default, overwritten by adaptive threshold after calibration
         enable_lowpass=config.ENABLE_LOWPASS_FILTER,
         lowpass_cutoff=config.LOWPASS_CUTOFF,
         enable_hampel=config.ENABLE_HAMPEL_FILTER,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
-        enable_features=config.ENABLE_FEATURES,
-        normalization_scale=config.NORMALIZATION_SCALE
+        enable_features=config.ENABLE_FEATURES
     )
     
     # Load saved configuration (segmentation parameters only)
@@ -437,6 +474,7 @@ def main():
     saved_config = nvs.load_and_apply(seg)
     
     # Initialize and start traffic generator (rate is static from config.py)
+    gc.collect()  # Free memory before creating socket
     traffic_gen = TrafficGenerator()
     if config.TRAFFIC_GENERATOR_RATE > 0:
         if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE):
@@ -447,7 +485,21 @@ def main():
             machine.reset()  # Reboot and retry
         
         print(f'Traffic generator started ({config.TRAFFIC_GENERATOR_RATE} pps)')
-        time.sleep(1)  # Wait for traffic to start generating CSI packets
+        time.sleep(2)  # Wait for traffic to start generating CSI packets
+        
+        # Verify CSI packets are flowing before proceeding
+        print('Waiting for CSI packets...')
+        csi_received = 0
+        for _ in range(100):  # Max 100 attempts (~5 seconds)
+            frame = wlan.csi_read()
+            if frame:
+                csi_received += 1
+                if csi_received >= 10:
+                    break
+            time.sleep(0.05)
+        
+        if csi_received < 10:
+            print(f'WARNING: Only {csi_received} CSI packets received - TG may not be working')
     
     # P95 Auto-Calibration at boot if subcarriers not configured
     # Handle case where SELECTED_SUBCARRIERS is None, empty, or not defined (commented out)
@@ -489,6 +541,9 @@ def main():
     
     # Calculate optimal sleep based on traffic rate
     publish_rate = traffic_gen.get_rate() if traffic_gen.is_running() else 100
+    
+    # Pre-calculate payload size (SC count * 2 bytes per I/Q pair)
+    payload_size = g_state.expected_subcarriers * 2
        
     try:
         while True:
@@ -505,13 +560,16 @@ def main():
             frame = wlan.csi_read()
             
             if frame:
-                # Pass all CSI data (64-256 subcarriers depending on router)
-                csi_data = frame[5]
-                
-                # Filter packets by expected subcarrier count (determined during gain lock)
-                packet_sc = len(csi_data) // 2
+                # Filter packets by expected subcarrier count BEFORE truncating
+                packet_sc = len(frame[5]) // 2
                 if packet_sc != g_state.expected_subcarriers:
+                    del frame
                     continue  # Skip packets with wrong SC count
+                
+                # Extract data and free frame immediately to save memory
+                csi_data = frame[5][:payload_size]
+                packet_channel = frame[1]
+                del frame
                 
                 turbulence = seg.calculate_spatial_turbulence(csi_data, config.SELECTED_SUBCARRIERS)
                 seg.add_turbulence(turbulence)
@@ -522,9 +580,6 @@ def main():
                 if publish_counter >= publish_rate:
                     # Detect WiFi channel changes (AP may switch channels automatically)
                     # Channel changes cause CSI spikes that trigger false motion detection
-                    # Check only at publish time to reduce overhead
-                    # frame[1] = channel (from CSI packet metadata)
-                    packet_channel = frame[1]
                     if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
                         print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
                         seg.reset(full=True)

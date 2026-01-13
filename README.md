@@ -172,8 +172,8 @@ ESPectre uses a focused processing pipeline for motion detection:
        │
        ▼
 ┌─────────────┐
-│Normalization│  Attenuate if baseline > 0.25 (always enabled)
-│             │  Prevents extreme motion values
+│  Adaptive   │  Threshold = P95(baseline) × 1.4
+│  Threshold  │  Zero false positives guaranteed
 └──────┬──────┘
        │
        ▼

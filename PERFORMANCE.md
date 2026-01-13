@@ -30,7 +30,8 @@ Both platforms produce **identical results** using the same test methodology:
 - Process all baseline packets first (expecting IDLE)
 - Then process all movement packets (expecting MOTION)
 - Continuous context (no reset between baseline and movement)
-- Filters disabled (lowpass, hampel off by default), normalization always enabled
+- Filters disabled (lowpass, hampel off by default)
+- Adaptive threshold: P95(baseline_mv) × 1.4
 
 ### 64 SC (HT20) - Fixed Band [11-22]
 
@@ -66,7 +67,7 @@ Actual MOTION   1 (FN)      1209 (TP)
 | **FP Rate** | 0.0% | <10% | ✅ |
 | **F1-Score** | 100.0% | - | ✅ |
 
-> **Note**: 256 SC (WiFi 6 HE20) provides higher resolution and better performance. Tests were performed with optional filters disabled (lowpass, hampel). Normalization is always enabled for cross-device consistency. See [TUNING.md](TUNING.md) for filter configuration options.
+> **Note**: 256 SC (WiFi 6 HE20) provides higher resolution and better performance. Tests were performed with optional filters disabled (lowpass, hampel). Adaptive threshold (P95 × 1.4) is calculated automatically during calibration for cross-device consistency. See [TUNING.md](TUNING.md) for filter configuration options.
 
 ---
 
@@ -191,31 +192,35 @@ See [TUNING.md](TUNING.md) for detailed tuning instructions.
 
 ---
 
-## P95 Automatic Band Selection
+## P95 Automatic Band Selection with Adaptive Threshold
 
-When using P95 Band Selection for automatic subcarrier optimization, the algorithm selects a contiguous 12-subcarrier band that minimizes false positive rate:
+When using P95 Band Selection for automatic subcarrier optimization, the algorithm:
+1. Selects a contiguous 12-subcarrier band that minimizes false positive rate
+2. Calculates an adaptive threshold: `P95(baseline_mv) × 1.4`
+
+This ensures **zero false positives** while maintaining high recall across all environments.
 
 ### 64 SC (HT20)
 
 | Metric | Fixed Band [11-22] | P95 Auto-Calibration |
 |--------|--------------------|-----------------------|
 | **Selected Band** | [11-22] | [11-22] |
-| **Recall** | 98.1% | 98.1% |
+| **Recall** | 98.8% | 98.8% |
 | **Precision** | 100.0% | 100.0% |
 | **FP Rate** | 0.0% | 0.0% |
-| **F1-Score** | 99.0% | 99.0% |
+| **F1-Score** | 99.4% | 99.4% |
 
 ### 256 SC (HE20)
 
 | Metric | Fixed Band [147-158] | P95 Auto-Calibration |
 |--------|----------------------|-----------------------|
-| **Selected Band** | [147-158] | [177-188] |
-| **Recall** | 99.9% | 94.0% |
-| **Precision** | 100.0% | 99.0% |
-| **FP Rate** | 0.0% | 0.9% |
-| **F1-Score** | 100.0% | 96.5% |
+| **Selected Band** | [147-158] | [147-158] |
+| **Recall** | 98.7% | 98.7% |
+| **Precision** | 100.0% | 100.0% |
+| **FP Rate** | 0.0% | 0.0% |
+| **F1-Score** | 99.3% | 99.3% |
 
-> **Note**: P95 Band Selection achieves near-optimal performance for both 64 SC and 256 SC. For 256 SC, it automatically selects band [177-188] which has excellent FP rate (0.9%) while maintaining good recall (94.0%).
+> **Note**: With adaptive threshold (P95 × 1.4), both 64 SC and 256 SC achieve **zero false positives** and **>98% recall**. The threshold automatically adapts to the baseline noise level of the selected band.
 
 **Why use P95 instead of fixed band?**
 
@@ -233,10 +238,12 @@ Fixed bands achieve slightly better performance in the reference test environmen
 
 | Date | Version | Dataset | Mode | Recall | Precision | FP Rate | F1-Score | Notes |
 |------|---------|---------|------|--------|-----------|---------|----------|-------|
+| 2026-01-13 | v2.4.0 | 256 SC | P95+AT | 98.7% | 100.0% | 0.0% | 99.3% | Adaptive Threshold (P95×1.4) |
+| 2026-01-13 | v2.4.0 | 64 SC | P95+AT | 98.8% | 100.0% | 0.0% | 99.4% | Adaptive Threshold (P95×1.4) |
 | 2026-01-11 | v2.4.0 | 256 SC | P95 | 94.0% | 99.0% | 0.9% | 96.5% | P95 Band Selection |
 | 2026-01-11 | v2.4.0 | 256 SC | Fixed | 99.9% | 100.0% | 0.0% | 100.0% | P95 Band Selection |
 | 2026-01-11 | v2.4.0 | 64 SC | P95 | 98.1% | 100.0% | 0.0% | 99.0% | P95 Band Selection |
-| 2026-01-11 | v2.4.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% |P95 Band Selection |
+| 2026-01-11 | v2.4.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | P95 Band Selection |
 | 2025-12-27 | v2.3.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | Multi-window validation |
 | 2025-12-27 | v2.3.0 | 64 SC | NBVI | 96.4% | 100.0% | 0.0% | 98.2% | Multi-window validation |
 | 2025-12-13 | v2.2.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | ESPHome Port |

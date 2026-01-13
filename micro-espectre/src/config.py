@@ -27,9 +27,6 @@ CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until pro
 # Selected subcarriers for turbulence calculation. None to auto-calibrate at boot.
 #SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
-# CSI Amplitude Normalization (automatically calculated during calibration)
-NORMALIZATION_SCALE = 1.0      # Current scale (calculated during calibration, default: 1.0)
-
 # Gain Lock Configuration
 # Controls AGC/FFT gain locking for stable CSI amplitudes
 # Modes: "auto" (skip if signal too strong), "enabled" (always lock), "disabled" (never lock)
@@ -40,9 +37,8 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is
 # Uses P95 moving variance optimization to select optimal 12-subcarrier band
 CALIBRATION_BUFFER_SIZE = 700  # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
 
-# Segmentation Window and Threshold
+# Segmentation Window
 SEG_WINDOW_SIZE = 50          # Moving variance window (packets) - used by both MVS and Features
-SEG_THRESHOLD = 1.0           # Motion detection threshold (Lower values = more sensitive to motion)
 
 # Low-pass filter (removes high-frequency noise, reduces false positives)
 ENABLE_LOWPASS_FILTER = False   # Recommended: reduces FP in noisy environments
@@ -57,3 +53,12 @@ HAMPEL_THRESHOLD = 4.0        # Outlier detection threshold in MAD units (2.0-4.
 
 # CSI Feature Extraction Configuration
 ENABLE_FEATURES = True        # Enable/disable CSI feature extraction and confidence calculation
+
+# Optional local overrides (config_local.py is gitignored)
+try:
+    import src.config_local as _local
+    for _name in dir(_local):
+        if _name.isupper():
+            globals()[_name] = getattr(_local, _name)
+except ImportError:
+    pass

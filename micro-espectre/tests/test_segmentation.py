@@ -316,37 +316,36 @@ class TestReset:
         assert ctx.current_moving_variance == 0.0
 
 
-class TestNormalizationScale:
-    """Test normalization scale functionality"""
+class TestAdaptiveThreshold:
+    """Test adaptive threshold functionality"""
     
-    def test_set_normalization_scale(self):
-        """Test setting normalization scale"""
+    def test_set_adaptive_threshold(self):
+        """Test setting adaptive threshold"""
         ctx = SegmentationContext()
-        ctx.set_normalization_scale(2.0)
+        ctx.set_adaptive_threshold(2.0)
         
-        assert ctx.normalization_scale == 2.0
+        assert ctx.threshold == 2.0
     
-    def test_normalization_clamping(self):
-        """Test that normalization scale is clamped"""
+    def test_adaptive_threshold_clamping(self):
+        """Test that adaptive threshold is clamped"""
         ctx = SegmentationContext()
         
-        ctx.set_normalization_scale(0.01)  # Too low
-        assert ctx.normalization_scale == 0.1
+        ctx.set_adaptive_threshold(0.01)  # Too low
+        assert ctx.threshold == 0.1
         
-        ctx.set_normalization_scale(100.0)  # Too high
-        assert ctx.normalization_scale == 10.0
+        ctx.set_adaptive_threshold(100.0)  # Too high
+        assert ctx.threshold == 10.0
     
-    def test_normalization_applied(self):
-        """Test that normalization is applied to turbulence"""
-        ctx = SegmentationContext(window_size=5, normalization_scale=2.0)
+    def test_no_normalization_applied(self):
+        """Test that turbulence is NOT normalized (adaptive threshold approach)"""
+        ctx = SegmentationContext(window_size=5, threshold=2.0)
         
-        # Add turbulence - should be scaled by 2.0
+        # Add turbulence - should NOT be scaled (adaptive threshold doesn't normalize)
         ctx.add_turbulence(5.0)
         
-        # last_turbulence should be 5.0 * 2.0 = 10.0
-        assert ctx.last_turbulence == pytest.approx(10.0, rel=1e-6)
-
-
+        # last_turbulence should be 5.0 (no normalization)
+        assert ctx.last_turbulence == pytest.approx(5.0, rel=1e-6)
+    
 class TestHampelIntegration:
     """Test integration with Hampel filter"""
     
@@ -413,26 +412,25 @@ class TestLowPassIntegration:
         assert ctx.last_turbulence == pytest.approx(5.0, rel=0.01)
     
     def test_filter_chain_order(self):
-        """Test that filter chain applies: normalize → lowpass → hampel"""
+        """Test that filter chain applies: hampel → lowpass (no normalization)"""
         ctx = SegmentationContext(
             window_size=10,
             enable_lowpass=True,
             lowpass_cutoff=10.0,
             enable_hampel=True,
             hampel_window=5,
-            hampel_threshold=3.0,
-            normalization_scale=2.0
+            hampel_threshold=3.0
         )
         
         # Feed values to initialize filter
         for v in [3.0, 3.1, 2.9, 3.0, 3.2]:
             ctx.add_turbulence(v)
         
-        # Feed normal value (should be normalized: 3.0 * 2.0 = 6.0)
+        # Feed normal value (no normalization, just filtering)
         ctx.add_turbulence(3.0)
         
-        # Output should be around 6.0 (normalized and slightly smoothed)
-        assert 5.0 < ctx.last_turbulence < 7.0
+        # Output should be around 3.0 (slightly smoothed by lowpass)
+        assert 2.5 < ctx.last_turbulence < 3.5
 
 
 class TestCalculateSpatialTurbulence:

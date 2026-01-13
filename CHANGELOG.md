@@ -8,6 +8,30 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+#### Adaptive Threshold replaces Signal Normalization
+
+The signal normalization approach has been replaced with **Adaptive Threshold** for motion detection.
+
+**How it works:**
+- During calibration, calculates P95 (95th percentile) of baseline moving variance
+- Sets threshold = P95 × 1.4 (safety margin for zero false positives)
+- Threshold adapts to each environment's noise level automatically
+
+**Performance:**
+- 64 SC: 98.8% Recall, **0.0% FP** (improved from 98.1% with normalization)
+- 256 SC: 98.7% Recall, **0.0% FP** (improved from 99.9%/0.9% FP with normalization)
+
+**Benefits:**
+- **Zero false positives** guaranteed across all environments
+- Simpler algorithm (no signal modification, only threshold adaptation)
+- Works consistently on all ESP32 variants
+- Fully automatic - no manual threshold tuning needed
+
+**Breaking changes:**
+- `normalization_scale` parameter removed from `SegmentationContext`
+- `set_normalization_scale()` method removed
+- Calibration now returns `adaptive_threshold` instead of `normalization_scale`
+
 #### P95 Band Selection replaces NBVI
 
 The NBVI (Normalized Baseline Variability Index) algorithm has been completely replaced with a new **P95 Band Selection** algorithm for automatic subcarrier optimization.

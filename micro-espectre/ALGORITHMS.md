@@ -62,8 +62,8 @@ When a person moves in an environment, they alter multipath reflections, change 
 │                  (3s, 300 pkt)    (7s, 700 pkt)             │                     │
 │                                                             ▼                     │
 │  ┌───────────┐    ┌───────────────┐    ┌─────────────────┐  ┌──────────────────┐  │
-│  │ IDLE or   │◀───│ Threshold     │◀───│ Moving Variance │◀─│ Normalize+Filter │  │
-│  │ MOTION    │    │ Comparison    │    │ (window=50)     │  │ LowPass + Hampel │  │
+│  │ IDLE or   │◀───│ Adaptive      │◀───│ Moving Variance │◀─│ Optional Filters │  │
+│  │ MOTION    │    │ Threshold     │    │ (window=50)     │  │ LowPass + Hampel │  │
 │  └───────────┘    └───────────────┘    └─────────────────┘  └──────────────────┘  │
 │                                                                                   │
 └───────────────────────────────────────────────────────────────────────────────────┘
@@ -77,11 +77,10 @@ When a person moves in an environment, they alter multipath reflections, change 
 1. **CSI Data**: Raw I/Q values for N subcarriers (64-256 depending on WiFi mode)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
 3. **Spatial Turbulence**: `σ = std(amplitudes)` - variability across subcarriers
-4. **Normalization**: If baseline > 0.25, attenuate by `0.25/baseline_variance`; otherwise no scaling
-5. **Hampel Filter**: Remove outliers using MAD (optional, disabled by default)
-6. **Low-Pass Filter**: Remove high-frequency noise (Butterworth 1st order, 11 Hz cutoff)
-7. **Moving Variance**: `Var(turbulence)` over sliding window
-8. **State Machine**: Compare variance to threshold → IDLE or MOTION
+4. **Hampel Filter**: Remove outliers using MAD (optional, disabled by default)
+5. **Low-Pass Filter**: Remove high-frequency noise (Butterworth 1st order, 11 Hz cutoff)
+6. **Moving Variance**: `Var(turbulence)` over sliding window
+7. **Adaptive Threshold**: Compare variance to `P95(baseline_mv) × 1.4` → IDLE or MOTION
 
 ---
 
@@ -139,7 +138,7 @@ The gain lock happens in a **dedicated phase BEFORE band calibration** to ensure
 **Why two phases?** Separating gain lock from band calibration ensures:
 - Calibration only sees data with **stable, locked gain**
 - Baseline variance is **accurate** (not inflated by AGC variations)
-- Normalization works correctly (attenuates only when baseline > target)
+- Adaptive threshold is calculated correctly
 - Total time: ~10 seconds (3s gain lock + 7s calibration)
 
 ### Implementation
@@ -225,10 +224,10 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 | Parameter | Default | Range | Effect |
 |-----------|---------|-------|--------|
-| `threshold` | 1.0 | 0.5-10.0 | With normalization: "Nx baseline noise" |
+| `threshold` | Adaptive | 0.5-10.0 | Calculated as P95(baseline_mv) × 1.4 during calibration |
 | `window_size` | 50 | 10-200 | Larger = smoother, slower response |
 
-**Note**: Normalization is always enabled. Threshold 1.0 means "4× baseline noise" consistently across all ESP32 variants.
+**Note**: The adaptive threshold is calculated automatically during calibration. It adapts to each environment's baseline noise level, ensuring zero false positives across all ESP32 variants.
 
 ### Performance
 

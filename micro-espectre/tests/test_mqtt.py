@@ -77,9 +77,8 @@ class MockSegmentation:
     STATE_MOTION = 1
     
     def __init__(self):
-        self.threshold = 1.0
+        self.threshold = 1.0  # Can be adaptive threshold
         self.window_size = 50
-        self.normalization_scale = 1.0
         self.state = self.STATE_IDLE
         self.current_moving_variance = 0.5
         self.last_turbulence = 2.5

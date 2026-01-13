@@ -153,15 +153,15 @@ void test_mvs_detection_accuracy(void) {
     // Calibration results
     uint8_t calibrated_band[12] = {0};
     uint8_t calibrated_size = 0;
-    float calibrated_normalization_scale = 1.0f;
+    float calibrated_adaptive_threshold = 1.0f;
     bool calibration_success = false;
     
     esp_err_t err = cm.start_auto_calibration(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+        [&](const uint8_t* band, uint8_t size, float adaptive_threshold, bool success) {
             if (success && size > 0) {
                 memcpy(calibrated_band, band, size);
                 calibrated_size = size;
-                calibrated_normalization_scale = normalization_scale;
+                calibrated_adaptive_threshold = adaptive_threshold;
             }
             calibration_success = success;
         });
@@ -182,7 +182,7 @@ void test_mvs_detection_accuracy(void) {
     
     printf("Calibration results:\n");
     printf("  Band: [%d-%d]\n", calibrated_band[0], calibrated_band[calibrated_size-1]);
-    printf("  Normalization scale: %.4f\n", calibrated_normalization_scale);
+    printf("  Adaptive threshold: %.4f (P95 × 1.4)\n", calibrated_adaptive_threshold);
     
     // ========================================================================
     // MOTION DETECTION PERFORMANCE
@@ -193,7 +193,7 @@ void test_mvs_detection_accuracy(void) {
     
     // Apply calibration (exactly as in production)
     csi_set_subcarrier_selection(calibrated_band, calibrated_size);
-    csi_processor_set_normalization_scale(&processor, calibrated_normalization_scale);
+    csi_processor_set_threshold(&processor, calibrated_adaptive_threshold);
     csi_processor_clear_buffer(&processor);
     
     // Disable Hampel and Low-pass filters for pure MVS performance measurement
@@ -481,16 +481,16 @@ void test_mvs_end_to_end_with_calibration(void) {
     // Variables to capture calibration results
     uint8_t calibrated_band[12] = {0};
     uint8_t calibrated_size = 0;
-    float calibrated_normalization_scale = 1.0f;
+    float calibrated_adaptive_threshold = 1.0f;
     bool calibration_success = false;
     
     // Start calibration with callback
     esp_err_t err = cm.start_auto_calibration(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+        [&](const uint8_t* band, uint8_t size, float adaptive_threshold, bool success) {
             if (success && size > 0) {
                 memcpy(calibrated_band, band, size);
                 calibrated_size = size;
-                calibrated_normalization_scale = normalization_scale;
+                calibrated_adaptive_threshold = adaptive_threshold;
             }
             calibration_success = success;
         });
@@ -512,9 +512,8 @@ void test_mvs_end_to_end_with_calibration(void) {
     // Calibration should complete
     TEST_ASSERT_TRUE(calibration_success);
     TEST_ASSERT_EQUAL(12, calibrated_size);
-    TEST_ASSERT_TRUE(calibrated_normalization_scale > 0.0f);
-    TEST_ASSERT_TRUE(calibrated_normalization_scale >= 0.1f);
-    TEST_ASSERT_TRUE(calibrated_normalization_scale <= 10.0f);
+    TEST_ASSERT_TRUE(calibrated_adaptive_threshold > 0.0f);
+    TEST_ASSERT_TRUE(calibrated_adaptive_threshold >= 1.0f);  // Minimum threshold is 1.0
     
     printf("Calibration results:\n");
     printf("  Subcarriers: [");
@@ -523,11 +522,11 @@ void test_mvs_end_to_end_with_calibration(void) {
         if (i < calibrated_size - 1) printf(", ");
     }
     printf("]\n");
-    printf("  Normalization scale: %.4f\n", calibrated_normalization_scale);
+    printf("  Adaptive threshold: %.4f (P95 × 1.4)\n", calibrated_adaptive_threshold);
     
-    // Apply calibration to processor (subcarriers AND normalization - exactly as in production)
+    // Apply calibration to processor (subcarriers AND adaptive threshold - exactly as in production)
     csi_set_subcarrier_selection(calibrated_band, calibrated_size);
-    csi_processor_set_normalization_scale(&processor, calibrated_normalization_scale);
+    csi_processor_set_threshold(&processor, calibrated_adaptive_threshold);
     csi_processor_clear_buffer(&processor);  // Clear stale data
     
     // Disable Hampel and Low-pass for pure MVS measurement with test data
