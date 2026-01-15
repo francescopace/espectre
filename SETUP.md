@@ -459,6 +459,10 @@ python3 espectre_traffic_generator.py stop     # Stop daemon
 python3 espectre_traffic_generator.py status   # Check if running
 ```
 
+**Home Assistant (Docker) note:**
+
+The script starts the background process using `subprocess.Popen` (no `fork()`), which avoids the deprecation warning emitted by Python in multi-threaded Home Assistant environments.
+
 Run on any device on the network: Raspberry Pi, NAS, Home Assistant server, etc.
 
 **Home Assistant integration:**

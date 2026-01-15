@@ -27,6 +27,7 @@ import time
 import signal
 import sys
 import os
+import subprocess
 
 # ============= CONFIGURATION =============
 TARGETS = ['192.168.1.255']  # Broadcast address (recommended for multiple devices)
@@ -49,22 +50,27 @@ def start():
         except OSError:
             os.remove(PID_FILE)
 
-    # Double fork to daemonize
-    if os.fork() > 0:
-        sys.exit(0)
-    os.setsid()
-    if os.fork() > 0:
-        sys.exit(0)
+    script_path = os.path.abspath(__file__)
+    python_exe = sys.executable or "python3"
+
+    with open(os.devnull, 'w') as devnull:
+        popen_kwargs = {
+            "stdin": devnull,
+            "stdout": devnull,
+            "stderr": devnull,
+        }
+        if os.name == "posix":
+            popen_kwargs["start_new_session"] = True
+        else:
+            popen_kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+
+        proc = subprocess.Popen([python_exe, script_path, "run"], **popen_kwargs)
 
     with open(PID_FILE, 'w') as f:
-        f.write(str(os.getpid()))
-
-    # Detach stdio
-    sys.stdin.close()
-    sys.stdout = open('/dev/null', 'w')
-    sys.stderr = open('/dev/null', 'w')
-
-    run_loop()
+        f.write(str(proc.pid))
+    print(f"Started (PID {proc.pid})")
 
 
 def stop():
