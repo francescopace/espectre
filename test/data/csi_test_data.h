@@ -24,14 +24,14 @@
 #define CSI_TEST_DATA_H
 
 // ============================================================================
-// Test Data Files
+// Test Data Files (HT20: 64 subcarriers only)
 // ============================================================================
-#define BASELINE_64SC  "../micro-espectre/data/baseline/baseline_c6_64sc_20251212_142443.npz"
-#define MOVEMENT_64SC  "../micro-espectre/data/movement/movement_c6_64sc_20251212_142443.npz"
-#define BASELINE_128SC "../micro-espectre/data/baseline/baseline_s3_128sc_20260111_063243.npz"
-#define MOVEMENT_128SC "../micro-espectre/data/movement/movement_s3_128sc_20260111_063354.npz"
-#define BASELINE_256SC "../micro-espectre/data/baseline/baseline_c6_256sc_20260110_182357.npz"
-#define MOVEMENT_256SC "../micro-espectre/data/movement/movement_c6_256sc_20260110_182443.npz"
+// C6 dataset (old, validated)
+#define BASELINE_C6_64SC  "../micro-espectre/data/baseline/baseline_c6_64sc_20251212_142443.npz"
+#define MOVEMENT_C6_64SC  "../micro-espectre/data/movement/movement_c6_64sc_20251212_142443.npz"
+// S3 dataset
+#define BASELINE_S3_64SC  "../micro-espectre/data/baseline/baseline_s3_64sc_20260117_191447.npz"
+#define MOVEMENT_S3_64SC  "../micro-espectre/data/movement/movement_s3_64sc_20260117_191505.npz"
 
 // Include cnpy implementation (with ZIP64 support)
 #include "cnpy.cpp"
@@ -118,6 +118,23 @@ inline std::vector<const int8_t*> get_packet_pointers(const CsiData& csi_data) {
 
 
 // ============================================================================
+// Dataset Configuration
+// ============================================================================
+
+enum class ChipType {
+    C6,
+    S3
+};
+
+inline const char* chip_name(ChipType chip) {
+    switch (chip) {
+        case ChipType::C6: return "C6";
+        case ChipType::S3: return "S3";
+        default: return "Unknown";
+    }
+}
+
+// ============================================================================
 // Global Data Storage
 // ============================================================================
 
@@ -126,35 +143,32 @@ static CsiData g_movement_data;
 static std::vector<const int8_t*> g_baseline_ptrs;
 static std::vector<const int8_t*> g_movement_ptrs;
 static bool g_loaded = false;
-static int g_current_sc = 0;  // Current subcarrier count (64 or 256)
+static ChipType g_current_chip = ChipType::C6;
 
 /**
- * Load CSI test data from NPZ files.
- * @param num_sc Number of subcarriers (64 or 256). Default 0 = load both and start with 64.
+ * Load CSI test data from NPZ files for a specific chip.
+ * @param chip Chip type (C6 or S3)
  */
-inline bool load(int num_sc = 0) {
-    // If already loaded with same SC count, skip
-    if (g_loaded && (num_sc == 0 || num_sc == g_current_sc)) return true;
+inline bool load(ChipType chip = ChipType::C6) {
+    // If already loaded with same chip, skip
+    if (g_loaded && chip == g_current_chip) return true;
     
-    // Determine which files to load
     const char* baseline_file = nullptr;
     const char* movement_file = nullptr;
     
-    if (num_sc == 256) {
-        baseline_file = BASELINE_256SC;
-        movement_file = MOVEMENT_256SC;
-    } else if (num_sc == 128) {
-        baseline_file = BASELINE_128SC;
-        movement_file = MOVEMENT_128SC;
-    } else {
-        // Default to 64 SC
-        baseline_file = BASELINE_64SC;
-        movement_file = MOVEMENT_64SC;
-        num_sc = 64;
+    switch (chip) {
+        case ChipType::C6:
+            baseline_file = BASELINE_C6_64SC;
+            movement_file = MOVEMENT_C6_64SC;
+            break;
+        case ChipType::S3:
+            baseline_file = BASELINE_S3_64SC;
+            movement_file = MOVEMENT_S3_64SC;
+            break;
     }
     
     try {
-        printf("\n[CSI Test Data] Loading %d SC dataset...\n", num_sc);
+        printf("\n[CSI Test Data] Loading %s 64 SC dataset (HT20)...\n", chip_name(chip));
         printf("[CSI Test Data] Baseline: %s\n", baseline_file);
         g_baseline_data = load_npz(baseline_file);
         g_baseline_ptrs = get_packet_pointers(g_baseline_data);
@@ -168,7 +182,7 @@ inline bool load(int num_sc = 0) {
                g_movement_data.num_packets, g_movement_data.packet_size);
         
         g_loaded = true;
-        g_current_sc = num_sc;
+        g_current_chip = chip;
         return true;
         
     } catch (const std::exception& e) {
@@ -178,19 +192,19 @@ inline bool load(int num_sc = 0) {
 }
 
 /**
- * Switch to a different dataset (64 or 256 SC).
+ * Switch to a different dataset.
  * Forces reload even if already loaded.
  */
-inline bool switch_dataset(int num_sc) {
+inline bool switch_dataset(ChipType chip) {
     g_loaded = false;  // Force reload
-    return load(num_sc);
+    return load(chip);
 }
 
 /**
- * Get list of available SC configurations for parametrized testing.
+ * Get list of available chip configurations for parametrized testing.
  */
-inline std::vector<int> get_available_configs() {
-    return {64, 128, 256};
+inline std::vector<ChipType> get_available_chips() {
+    return {ChipType::C6, ChipType::S3};
 }
 
 // ============================================================================
@@ -204,7 +218,7 @@ inline int num_baseline() { return g_baseline_data.num_packets; }
 inline int num_movement() { return g_movement_data.num_packets; }
 inline int num_subcarriers() { return g_baseline_data.num_subcarriers; }
 inline int packet_size() { return g_baseline_data.packet_size; }
-inline int current_config() { return g_current_sc; }
+inline ChipType current_chip() { return g_current_chip; }
 
 } // namespace csi_test_data
 

@@ -5,7 +5,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-# WiFi Configuration (override in wifi_config.py)
+# WiFi Configuration
 WIFI_SSID = "YourSSID"
 WIFI_PASSWORD = "YourPassword"
 
@@ -53,6 +53,14 @@ HAMPEL_THRESHOLD = 4.0        # Outlier detection threshold in MAD units (2.0-4.
 
 # CSI Feature Extraction Configuration
 ENABLE_FEATURES = True        # Enable/disable CSI feature extraction and confidence calculation
+
+# HT20 Constants (64 subcarriers - do not change)
+NUM_SUBCARRIERS = 64           # HT20: 64 subcarriers
+EXPECTED_CSI_LEN = 128         # 64 SC × 2 bytes (I/Q pairs)
+GUARD_BAND_LOW = 11            # First valid subcarrier
+GUARD_BAND_HIGH = 52           # Last valid subcarrier  
+DC_SUBCARRIER = 32             # DC null subcarrier
+BAND_SIZE = 12                 # Selected subcarriers for motion detection
 
 # Optional local overrides (config_local.py is gitignored)
 try:

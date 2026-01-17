@@ -11,11 +11,11 @@ This document provides detailed performance metrics for ESPectre's motion detect
 - **Packet Rate**: 100 packets/second
 
 ### Configuration
-| Parameter | 64 SC (HT20) | 256 SC (HE20) |
-|-----------|--------------|---------------|
-| Window Size | 50 packets | 50 packets |
-| Threshold | 1.0 | 1.0 |
-| Subcarriers | [11-22] | [147-158] |
+| Parameter | 64 SC (HT20) |
+|-----------|--------------|
+| Window Size | 50 packets |
+| Threshold | 1.0 |
+| Subcarriers | [11-22] |
 
 ### Test Environment
 - **Platform**: ESP32-C6 (results expected to be similar on other ESP32 variants)
@@ -49,25 +49,6 @@ Actual MOTION   19 (FN)     981 (TP)
 | **Precision** | 100.0% | - | ✅ |
 | **FP Rate** | 0.0% | <10% | ✅ |
 | **F1-Score** | 99.0% | - | ✅ |
-
-### 256 SC (HE20) - Fixed Band [147-158]
-
-```
-CONFUSION MATRIX (1212 baseline + 1210 movement packets):
-                    Predicted
-                IDLE        MOTION
-Actual IDLE     1212 (TN)   0 (FP)
-Actual MOTION   1 (FN)      1209 (TP)
-```
-
-| Metric | Value | Target | Status |
-|--------|-------|--------|--------|
-| **Recall** | 99.9% | >90% | ✅ |
-| **Precision** | 100.0% | - | ✅ |
-| **FP Rate** | 0.0% | <10% | ✅ |
-| **F1-Score** | 100.0% | - | ✅ |
-
-> **Note**: 256 SC (WiFi 6 HE20) provides higher resolution and better performance. Tests were performed with optional filters disabled (lowpass, hampel). Adaptive threshold (P95 × 1.4) is calculated automatically during calibration for cross-device consistency. See [TUNING.md](TUNING.md) for filter configuration options.
 
 ---
 
@@ -238,10 +219,7 @@ Fixed bands achieve slightly better performance in the reference test environmen
 
 | Date | Version | Dataset | Mode | Recall | Precision | FP Rate | F1-Score | Notes |
 |------|---------|---------|------|--------|-----------|---------|----------|-------|
-| 2026-01-13 | v2.4.0 | 256 SC | P95+AT | 98.7% | 100.0% | 0.0% | 99.3% | Adaptive Threshold (P95×1.4) |
 | 2026-01-13 | v2.4.0 | 64 SC | P95+AT | 98.8% | 100.0% | 0.0% | 99.4% | Adaptive Threshold (P95×1.4) |
-| 2026-01-11 | v2.4.0 | 256 SC | P95 | 94.0% | 99.0% | 0.9% | 96.5% | P95 Band Selection |
-| 2026-01-11 | v2.4.0 | 256 SC | Fixed | 99.9% | 100.0% | 0.0% | 100.0% | P95 Band Selection |
 | 2026-01-11 | v2.4.0 | 64 SC | P95 | 98.1% | 100.0% | 0.0% | 99.0% | P95 Band Selection |
 | 2026-01-11 | v2.4.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | P95 Band Selection |
 | 2025-12-27 | v2.3.0 | 64 SC | Fixed | 98.1% | 100.0% | 0.0% | 99.0% | Multi-window validation |

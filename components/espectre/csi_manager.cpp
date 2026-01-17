@@ -88,15 +88,15 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
     return;  // Discard packet during gain lock phase
   }
   
-  // After gain lock, set expected SC count if not yet set
-  if (expected_subcarriers_ == 64) {
-    expected_subcarriers_ = gain_controller_.get_dominant_subcarrier_count();
-  }
-  
-  // Filter packets with wrong SC count (mixed HT20/HE-SU environment)
-  uint16_t packet_sc = csi_len / 2;
-  if (packet_sc != expected_subcarriers_) {
-    return;  // Discard packet with wrong SC count
+  // Filter packets with wrong SC count (HT20 only: 64 SC = 128 bytes)
+  if (csi_len != HT20_CSI_LEN) {
+    packets_filtered_++;
+    // Log warning every 100 filtered packets
+    if (packets_filtered_ % 100 == 1) {
+      ESP_LOGW(TAG, "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d)",
+               (unsigned long)packets_filtered_, csi_len, HT20_CSI_LEN);
+    }
+    return;
   }
   
   // If calibration is in progress, delegate to calibration manager
@@ -220,13 +220,13 @@ esp_err_t CSIManager::disable() {
 
 esp_err_t CSIManager::configure_platform_specific_() {
 #if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C5
-  // ESP32-C5/C6: Modern CSI API with WiFi 6 support
+  // ESP32-C5/C6: Modern CSI API (WiFi 4 only for stable 64 subcarriers)
   wifi_csi_config_t csi_config = {
     .enable = 1,                    // Master enable (REQUIRED)
     .acquire_csi_legacy = 1,        // L-LTF from 802.11a/g (fallback for legacy routers)
     .acquire_csi_ht20 = 1,          // HT-LTF from 802.11n HT20 (PRIMARY - best SNR)
     .acquire_csi_ht40 = 0,          // HT40 disabled (less stable, enable only if router uses HT40)
-    .acquire_csi_su = 1,            // HE-LTF from 802.11ax SU (WiFi 6 - better precision if supported)
+    .acquire_csi_su = 0,            // HE-SU disabled (WiFi 6 would give 256 SC instead of 64)
     .acquire_csi_mu = 0,            // MU-MIMO disabled (rarely used in home environments)
     .acquire_csi_dcm = 0,           // DCM disabled (long-range feature, not needed)
     .acquire_csi_beamformed = 0,    // Beamformed disabled (alters channel estimation)

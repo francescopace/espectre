@@ -100,18 +100,14 @@ class CalibrationManager {
   void set_buffer_size(uint16_t size) { buffer_size_ = size; }
   
   /**
-   * Set expected number of subcarriers (from GainController stats)
+   * Initialize subcarrier configuration (HT20 only)
    * 
-   * Should be called before start_auto_calibration() to ensure consistent
-   * packet handling. Packets with different SC count will be discarded.
-   * 
-   * @param num_sc Expected subcarrier count (64, 128, or 256)
+   * Sets up guard bands for 64 subcarriers. Called automatically
+   * before calibration starts.
    */
-  void set_expected_subcarriers(uint16_t num_sc);
+  void init_subcarrier_config();
   
   uint16_t get_buffer_size() const { return buffer_size_; }
-  uint16_t get_guard_band_low() const { return guard_band_low_; }
-  uint16_t get_guard_band_high() const { return guard_band_high_; }
   void set_skip_subcarrier_selection(bool skip) { skip_subcarrier_selection_ = skip; }
   void set_collection_complete_callback(collection_complete_callback_t callback) { 
     collection_complete_callback_ = callback; 
@@ -182,12 +178,8 @@ class CalibrationManager {
   float adaptive_threshold_{1.0f};   // Calculated adaptive threshold (P95 × 1.4)
   float best_p95_{0.0f};             // Best P95 from calibration
   
-  // Dynamic subcarrier configuration (determined from first CSI packet)
-  uint16_t num_subcarriers_{64};     // Number of subcarriers (64, 128, or 256)
-  uint16_t guard_band_low_{11};      // First valid subcarrier
-  uint16_t guard_band_high_{52};     // Last valid subcarrier
-  uint16_t dc_low_{32};              // DC zone start (for 64/128 SC: single point)
-  uint16_t dc_high_{32};             // DC zone end (for 256 SC: range [dc_low_, dc_high_])
+  // Use central HT20 constants from csi_processor.h
+  // (HT20_NUM_SUBCARRIERS, HT20_GUARD_BAND_LOW, HT20_GUARD_BAND_HIGH, HT20_DC_SUBCARRIER)
   
   // Constants
   static constexpr uint8_t SELECTED_SUBCARRIERS_COUNT = 12;

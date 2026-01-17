@@ -148,7 +148,7 @@ void test_mvs_detection_accuracy(void) {
     
     CalibrationManager cm;
     cm.init(&csi_manager, "/tmp/test_accuracy_buffer.bin");
-    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
+    cm.init_subcarrier_config();
     
     // Calibration results
     uint8_t calibrated_band[12] = {0};
@@ -476,7 +476,7 @@ void test_mvs_end_to_end_with_calibration(void) {
     
     // Simulate production flow: set expected subcarriers after gain lock
     // This triggers guard band calculation based on loaded data
-    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
+    cm.init_subcarrier_config();
     
     // Variables to capture calibration results
     uint8_t calibrated_band[12] = {0};
@@ -583,14 +583,14 @@ void test_mvs_end_to_end_with_calibration(void) {
     csi_processor_cleanup(&processor);
 }
 
-// Run tests with a specific SC configuration
-int run_tests_for_config(int num_sc) {
+// Run tests for a specific chip
+int run_tests_for_chip(csi_test_data::ChipType chip) {
     printf("\n========================================\n");
-    printf("Running tests with %d SC dataset\n", num_sc);
+    printf("Running tests with %s 64 SC dataset (HT20)\n", csi_test_data::chip_name(chip));
     printf("========================================\n");
     
-    if (!csi_test_data::switch_dataset(num_sc)) {
-        printf("ERROR: Failed to load %d SC dataset\n", num_sc);
+    if (!csi_test_data::switch_dataset(chip)) {
+        printf("ERROR: Failed to load %s dataset\n", csi_test_data::chip_name(chip));
         return 1;
     }
     
@@ -605,9 +605,9 @@ int run_tests_for_config(int num_sc) {
 int process(void) {
     int failures = 0;
     
-    // Run tests with both 64 SC and 256 SC datasets
-    for (int num_sc : csi_test_data::get_available_configs()) {
-        failures += run_tests_for_config(num_sc);
+    // Run tests with both C6 and S3 datasets
+    for (auto chip : csi_test_data::get_available_chips()) {
+        failures += run_tests_for_chip(chip);
     }
     
     return failures;

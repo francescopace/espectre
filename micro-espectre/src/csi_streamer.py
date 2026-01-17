@@ -12,10 +12,7 @@ Packet format:
   Payload (N × 2 bytes):
     - I0, Q0, I1, Q1, ... (int8 each)
 
-Examples:
-  - 64 SC:  6 + 128 = 134 bytes
-  - 128 SC: 6 + 256 = 262 bytes
-  - 256 SC: 6 + 512 = 518 bytes
+HT20 only: 64 subcarriers, packet size = 6 + 128 = 134 bytes
 
 Usage:
     ./me stream --ip 192.168.1.100
@@ -29,6 +26,7 @@ import time
 import gc
 import os
 import src.config as config
+from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN
 from src.traffic_generator import TrafficGenerator
 from src.main import connect_wifi, cleanup_wifi, run_gain_lock
 
@@ -94,10 +92,10 @@ def stream_csi(dest_ip, duration_sec=0):
             print(f'Traffic generator: {config.TRAFFIC_GENERATOR_RATE} pps')
         time.sleep(1)
     
-    # Phase 1: Gain lock (stabilizes AGC/FFT and determines dominant SC count)
+    # Phase 1: Gain lock (stabilizes AGC/FFT)
     # Do this BEFORE creating streaming socket to avoid ENOMEM
     gc.collect()
-    agc_gain, fft_gain, skipped, num_sc = run_gain_lock(wlan)
+    agc_gain, fft_gain, skipped = run_gain_lock(wlan)
     
     # Create UDP socket for streaming (after gain lock to reduce memory pressure)
     gc.collect()
@@ -107,7 +105,7 @@ def stream_csi(dest_ip, duration_sec=0):
     # Packet format: <magic><chip><seq><num_sc_u16><payload>
     # Pre-allocate packet buffer to avoid memory allocation in loop
     header_size = 6  # magic(2) + chip(1) + seq(1) + num_sc(2)
-    payload_size = num_sc * 2
+    payload_size = EXPECTED_CSI_LEN  # 64 SC × 2 bytes
     packet_size = header_size + payload_size
     
     # Pre-allocate bytearray (reused every iteration)
@@ -117,12 +115,12 @@ def stream_csi(dest_ip, duration_sec=0):
     packet_buf[1] = (MAGIC_STREAM >> 8) & 0xFF
     packet_buf[2] = chip_code
     # packet_buf[3] = seq_num (updated in loop)
-    packet_buf[4] = num_sc & 0xFF
-    packet_buf[5] = (num_sc >> 8) & 0xFF
+    packet_buf[4] = NUM_SUBCARRIERS & 0xFF
+    packet_buf[5] = (NUM_SUBCARRIERS >> 8) & 0xFF
     
     print('')
     print(f'Streaming to: {dest_ip}:{STREAM_PORT}')
-    print(f'Subcarriers:  {num_sc}')
+    print(f'Subcarriers:  {NUM_SUBCARRIERS} (HT20)')
     print(f'Packet size:  {packet_size} bytes')
     duration_str = "infinite" if duration_sec == 0 else str(duration_sec) + "s"
     print(f'Duration:     {duration_str}')
@@ -149,15 +147,17 @@ def stream_csi(dest_ip, duration_sec=0):
             
             frame = wlan.csi_read()
             if frame:
-                # Filter packets by expected subcarrier count BEFORE truncating
-                packet_sc = len(frame[5]) // 2
-                if packet_sc != num_sc:
-                    del frame
+                # Filter packets by expected CSI length (HT20: 128 bytes)
+                if len(frame[5]) != EXPECTED_CSI_LEN:
                     filtered_count += 1
+                    # Log warning every 100 filtered packets
+                    if filtered_count % 100 == 1:
+                        print(f'[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes)')
+                    del frame
                     continue
                 
-                # Extract and truncate to expected size, then free frame
-                csi_data = frame[5][:payload_size]
+                # Extract CSI data (HT20: 128 bytes)
+                csi_data = frame[5][:EXPECTED_CSI_LEN]
                 del frame
                 
                 # Build and send packet using pre-allocated buffer (zero allocation)

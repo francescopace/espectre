@@ -16,8 +16,8 @@ FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 
 # SHA256 hashes for firmware verification (update when releasing new firmware)
 FIRMWARE_HASHES = {
-    'ESP32_CSI_S3.bin': 'a561b0f7e50471cafe39bb6d051584ee81acd1d3a7f8b1aeb138a7a2cbbc31f9',
-    'ESP32_CSI_C6.bin': '22792bf14bad3684cbeeab095e2d553ec8a938afb24f695906927555fb55f540',
+    'ESP32_CSI_S3.bin': '388f77fccf69e96bec16f1a40d2f6bce51e9413a7a1a6effa8ba82820c80cee3',
+    'ESP32_CSI_C6.bin': 'b4504262e57ec3dc3e8cda9cf64c774fed38bc60954f170c4575c7eb8d92513e',
 }
 
 try:

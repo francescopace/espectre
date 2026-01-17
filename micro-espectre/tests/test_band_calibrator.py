@@ -83,10 +83,8 @@ class TestBandCalibratorInit:
         cal = BandCalibrator()
         
         assert cal.buffer_size == 700
-        assert cal.expected_subcarriers is None
         assert cal._packet_count == 0
         assert cal._filtered_count == 0
-        assert cal._num_subcarriers is None
         
         cal.free_buffer()
     
@@ -95,14 +93,6 @@ class TestBandCalibratorInit:
         cal = BandCalibrator(buffer_size=500)
         
         assert cal.buffer_size == 500
-        
-        cal.free_buffer()
-    
-    def test_expected_subcarriers(self):
-        """Test expected subcarrier filtering"""
-        cal = BandCalibrator(expected_subcarriers=64)
-        
-        assert cal.expected_subcarriers == 64
         
         cal.free_buffer()
 
@@ -140,13 +130,13 @@ class TestBandCalibratorAddPacket:
         cal.free_buffer()
     
     def test_filter_wrong_sc_count(self):
-        """Test packets with wrong SC count are filtered"""
-        cal = BandCalibrator(buffer_size=10, expected_subcarriers=64)
+        """Test packets with wrong SC count are filtered (HT20: 64 SC only)"""
+        cal = BandCalibrator(buffer_size=10)
         
-        # 64 SC packet (128 bytes)
+        # 64 SC packet (128 bytes) - HT20 standard
         packet_64 = bytes([50, 50] * 64)
         
-        # 256 SC packet (512 bytes)
+        # 256 SC packet (512 bytes) - not supported
         packet_256 = bytes([50, 50] * 256)
         
         # Add 64 SC - should be accepted
@@ -263,25 +253,6 @@ class TestBandCalibratorHelpers:
         
         cal.free_buffer()
     
-    def test_get_candidate_bands_256sc(self):
-        """Test candidate bands for 256 SC with DC zone"""
-        cal = BandCalibrator(buffer_size=10)
-        cal._num_subcarriers = 256
-        cal._guard_band_low = 30
-        cal._guard_band_high = 225
-        cal._dc_low = 108
-        cal._dc_high = 147
-        
-        candidates = cal._get_candidate_bands()
-        
-        assert len(candidates) > 0
-        
-        # No band should overlap DC zone
-        for band in candidates:
-            for sc in band:
-                assert not (108 <= sc <= 147)
-        
-        cal.free_buffer()
 
 
 class TestBandCalibratorCalibration:

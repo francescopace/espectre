@@ -22,6 +22,12 @@ import math
 import gc
 import os
 
+# Import HT20 constants from config
+from src.config import (
+    NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
+    GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE
+)
+
 # Constants
 BUFFER_FILE = '/band_buffer.bin'
 
@@ -42,55 +48,9 @@ def cleanup_buffer_file():
 # Threshold for null subcarrier detection
 NULL_SUBCARRIER_THRESHOLD = 1.0
 
-# Band size (number of subcarriers to select)
-BAND_SIZE = 12
-
 # MVS parameters for P95 calculation
 MVS_WINDOW_SIZE = 50
 MVS_THRESHOLD = 1.0
-
-
-def calculate_guard_bands(num_subcarriers):
-    """
-    Calculate guard band limits optimized for motion detection.
-    
-    Args:
-        num_subcarriers: Total number of subcarriers (64, 128, or 256)
-    
-    Returns:
-        tuple: (guard_band_low, guard_band_high, dc_low, dc_high)
-    """
-    if num_subcarriers == 64:
-        # HT20: Conservative guard bands (tested, optimized)
-        guard_band_low = 11
-        guard_band_high = 52
-        dc_low = 32
-        dc_high = 32
-    elif num_subcarriers == 128:
-        # HT40: Optimized (validated on ESP32-S3)
-        # Based on grid search: best bands [50-61], [1-12], [116-127]
-        # Valid zones: [7-60] and [68-120]
-        guard_band_low = 7
-        guard_band_high = 120
-        dc_low = 59
-        dc_high = 69
-    elif num_subcarriers == 256:
-        # HE20: Optimized (validated on ESP32-C6)
-        # Excludes: edges [0-19] and [236-255], DC zone [120-136]
-        # Valid zones: [20-119] and [137-235] = 199 valid subcarriers
-        # Empirically validated: P95=0.56 (vs 0.60 conservative), Recall=99.7%
-        guard_band_low = 20
-        guard_band_high = 235
-        dc_low = 120
-        dc_high = 136
-    else:
-        # Fallback
-        guard_band_low = num_subcarriers // 10
-        guard_band_high = num_subcarriers - 1 - (num_subcarriers // 10)
-        dc_low = num_subcarriers // 2
-        dc_high = num_subcarriers // 2
-    
-    return guard_band_low, guard_band_high, dc_low, dc_high
 
 
 
@@ -103,27 +63,21 @@ class BandCalibrator:
     lowest P95 of moving variance during baseline (minimizes FP rate).
     
     Uses file-based storage to avoid RAM limitations on ESP32.
+    HT20 only: 64 subcarriers.
     """
     
-    def __init__(self, buffer_size=700, expected_subcarriers=None):
+    def __init__(self, buffer_size=700):
         """
         Initialize band calibrator.
         
         Args:
             buffer_size: Number of packets to collect (default: 700)
-            expected_subcarriers: Expected subcarrier count (64, 128, 256).
-                                  If set, packets with different SC count are filtered.
         """
         self.buffer_size = buffer_size
-        self.expected_subcarriers = expected_subcarriers
         self._packet_count = 0
         self._filtered_count = 0
         self._file = None
-        self._num_subcarriers = None
-        self._guard_band_low = None
-        self._guard_band_high = None
-        self._dc_low = None
-        self._dc_high = None
+        self._initialized = False
         
         # Remove old buffer file
         try:
@@ -140,8 +94,10 @@ class BandCalibrator:
         Stores raw I/Q data to ensure float-precision magnitude calculation
         during calibration (matching segmentation.py runtime behavior).
         
+        HT20 only: expects 128 bytes (64 subcarriers × 2 I/Q).
+        
         Args:
-            csi_data: CSI data array (N bytes: N/2 subcarriers × 2 I/Q)
+            csi_data: CSI data array (128 bytes for HT20)
         
         Returns:
             int: Current buffer size (progress indicator)
@@ -149,38 +105,29 @@ class BandCalibrator:
         if self._packet_count >= self.buffer_size:
             return self.buffer_size
         
-        packet_sc = len(csi_data) // 2
-        
-        # Filter by expected subcarrier count
-        if self.expected_subcarriers is not None and packet_sc != self.expected_subcarriers:
+        # Filter by expected CSI length (HT20: 128 bytes)
+        if len(csi_data) != EXPECTED_CSI_LEN:
             self._filtered_count += 1
+            # Log warning every 50 filtered packets during calibration
+            if self._filtered_count % 50 == 1:
+                print(f'[WARN] Filtered {self._filtered_count} packets with wrong SC count (got {len(csi_data)} bytes)')
             return self._packet_count
         
         # Initialize on first packet
-        if self._num_subcarriers is None:
-            self._num_subcarriers = packet_sc
-            self._guard_band_low, self._guard_band_high, self._dc_low, self._dc_high = \
-                calculate_guard_bands(self._num_subcarriers)
-            
-            if self._dc_low == self._dc_high:
-                print(f'Band: {self._num_subcarriers} SC, guard [{self._guard_band_low}-{self._guard_band_high}], DC={self._dc_low}')
-            else:
-                print(f'Band: {self._num_subcarriers} SC, guard [{self._guard_band_low}-{self._guard_band_high}], DC [{self._dc_low}-{self._dc_high}]')
+        if not self._initialized:
+            self._initialized = True
+            print(f'Band: HT20 mode, {NUM_SUBCARRIERS} SC, guard [{GUARD_BAND_LOW}-{GUARD_BAND_HIGH}], DC={DC_SUBCARRIER}')
         
         # Store raw I/Q data (2 bytes per subcarrier)
         # This allows float-precision magnitude calculation during calibration
-        iq_data = bytearray(self._num_subcarriers * 2)
-        for sc in range(self._num_subcarriers):
+        iq_data = bytearray(EXPECTED_CSI_LEN)
+        for sc in range(NUM_SUBCARRIERS):
             i_idx = sc * 2
             q_idx = sc * 2 + 1
             
-            if q_idx < len(csi_data):
-                # Convert to int to handle numpy int8 arrays
-                iq_data[i_idx] = int(csi_data[i_idx]) & 0xFF
-                iq_data[q_idx] = int(csi_data[q_idx]) & 0xFF
-            else:
-                iq_data[i_idx] = 0
-                iq_data[q_idx] = 0
+            # Convert to int to handle numpy int8 arrays
+            iq_data[i_idx] = int(csi_data[i_idx]) & 0xFF
+            iq_data[q_idx] = int(csi_data[q_idx]) & 0xFF
         
         self._file.write(iq_data)
         self._packet_count += 1
@@ -203,17 +150,17 @@ class BandCalibrator:
         self._file.seek(0)
         data = self._file.read()
         
-        packet_size = self._num_subcarriers * 2  # 2 bytes per subcarrier (I/Q)
-        num_packets = len(data) // packet_size
+        # HT20: 64 subcarriers × 2 bytes = 128 bytes per packet
+        num_packets = len(data) // EXPECTED_CSI_LEN
         print(f"Band: File size {len(data)} bytes = {num_packets} packets")
         
-        # Pre-compute all magnitudes (N packets × M subcarriers)
+        # Pre-compute all magnitudes (N packets × 64 subcarriers)
         # This avoids repeated I/Q → magnitude conversion for each band
         packets_mags = []
         for pkt_idx in range(num_packets):
-            offset = pkt_idx * packet_size
+            offset = pkt_idx * EXPECTED_CSI_LEN
             mags = []
-            for sc in range(self._num_subcarriers):
+            for sc in range(NUM_SUBCARRIERS):
                 i_idx = offset + sc * 2
                 q_idx = i_idx + 1
                 I = data[i_idx]
@@ -285,28 +232,21 @@ class BandCalibrator:
         """
         Generate valid candidate bands of 12 consecutive subcarriers.
         
-        Avoids guard bands and DC zone.
-        Uses step=2 for 256 SC to reduce candidates from 134 to 67 (performance optimization).
+        HT20: Avoids guard bands (0-10, 53-63) and DC (32).
         """
         candidates = []
         
-        # Use step to reduce candidate bands for 256 SC (WiFi 6)
-        # step=1 for 64 SC (~40 bands), step=2 for 256 SC (~67 bands instead of 134)
-        step = 2 if self._num_subcarriers >= 256 else 1
-        
-        # Zone before DC
-        for start in range(self._guard_band_low, self._dc_low - BAND_SIZE + 1, step):
+        # Zone before DC (subcarriers 11-31)
+        for start in range(GUARD_BAND_LOW, DC_SUBCARRIER - BAND_SIZE + 1):
             band = list(range(start, start + BAND_SIZE))
-            # Verify all subcarriers are valid
-            if all(self._guard_band_low <= sc <= self._guard_band_high and 
-                   not (self._dc_low <= sc <= self._dc_high) for sc in band):
+            # Verify all subcarriers are valid and not DC
+            if all(GUARD_BAND_LOW <= sc <= GUARD_BAND_HIGH and sc != DC_SUBCARRIER for sc in band):
                 candidates.append(band)
         
-        # Zone after DC
-        for start in range(self._dc_high + 1, self._guard_band_high - BAND_SIZE + 2, step):
+        # Zone after DC (subcarriers 33-52)
+        for start in range(DC_SUBCARRIER + 1, GUARD_BAND_HIGH - BAND_SIZE + 2):
             band = list(range(start, start + BAND_SIZE))
-            if all(self._guard_band_low <= sc <= self._guard_band_high and 
-                   not (self._dc_low <= sc <= self._dc_high) for sc in band):
+            if all(GUARD_BAND_LOW <= sc <= GUARD_BAND_HIGH and sc != DC_SUBCARRIER for sc in band):
                 candidates.append(band)
         
         return candidates

@@ -75,49 +75,11 @@ esp_err_t CalibrationManager::start_auto_calibration(const uint8_t* current_band
   return ESP_OK;
 }
 
-void CalibrationManager::set_expected_subcarriers(uint16_t num_sc) {
-  num_subcarriers_ = num_sc;
-  
-  // Guard bands optimized for motion detection (empirically validated)
-  switch (num_sc) {
-    case 64:   // HT20: Conservative (tested) - exclude noisy edges 0-10 and 53-63
-      guard_band_low_ = 11;
-      guard_band_high_ = 52;
-      dc_low_ = 32;
-      dc_high_ = 32;  // Single DC subcarrier
-      break;
-    case 128:  // HT40 (802.11n): Optimized (validated on ESP32-S3)
-      // Based on grid search: best bands [50-61], [1-12], [116-127]
-      // Valid zones: [7-60] and [68-120]
-      guard_band_low_ = 7;      // indices 0-6 are guard
-      guard_band_high_ = 120;   // indices 121-127 are guard
-      dc_low_ = 61;
-      dc_high_ = 67;  // DC zone exclusion
-      break;
-    case 256:  // HE20: Optimized (validated on ESP32-C6)
-      // Excludes: edges [0-19] and [236-255], DC zone [120-136]
-      // Valid zones: [20-119] and [137-235] = 199 valid subcarriers
-      // Empirically validated: P95=0.56 (vs 0.60 conservative), Recall=99.7%
-      guard_band_low_ = 20;
-      guard_band_high_ = 235;
-      dc_low_ = 120;
-      dc_high_ = 136;  // DC zone exclusion (centered on null SC 128)
-      break;
-    default:   // Fallback: ~10% guard bands
-      guard_band_low_ = num_subcarriers_ / 10;
-      guard_band_high_ = num_subcarriers_ - 1 - (num_subcarriers_ / 10);
-      dc_low_ = num_subcarriers_ / 2;
-      dc_high_ = num_subcarriers_ / 2;
-      break;
-  }
-  
-  if (dc_low_ == dc_high_) {
-    ESP_LOGI(TAG, "Band: expecting %d subcarriers, valid range [%d-%d], DC=%d",
-             num_subcarriers_, guard_band_low_, guard_band_high_, dc_low_);
-  } else {
-    ESP_LOGI(TAG, "Band: expecting %d subcarriers, valid range [%d-%d], DC zone [%d-%d]",
-             num_subcarriers_, guard_band_low_, guard_band_high_, dc_low_, dc_high_);
-  }
+void CalibrationManager::init_subcarrier_config() {
+  // HT20 only: 64 subcarriers with fixed guard bands
+  // Exclude noisy edges 0-10 and 53-63, DC at 32
+  ESP_LOGI(TAG, "Band: HT20 mode, %d subcarriers, valid range [%d-%d], DC=%d",
+           HT20_NUM_SUBCARRIERS, HT20_GUARD_BAND_LOW, HT20_GUARD_BAND_HIGH, HT20_DC_SUBCARRIER);
 }
 
 bool CalibrationManager::add_packet(const int8_t* csi_data, size_t csi_len) {
@@ -125,19 +87,19 @@ bool CalibrationManager::add_packet(const int8_t* csi_data, size_t csi_len) {
     return buffer_count_ >= buffer_size_;
   }
   
-  // Validate packet has expected number of subcarriers
+  // Validate packet has 64 subcarriers (HT20 only)
   uint16_t packet_sc = csi_len / 2;
-  if (packet_sc != num_subcarriers_) {
-    // Discard packets with wrong SC count (mixed HT20/HE-SU environment)
+  if (packet_sc != HT20_NUM_SUBCARRIERS) {
+    // Discard packets with wrong SC count
     return false;
   }
   
   // Calculate magnitudes and write directly to file as uint8
   // (max CSI magnitude ~181 fits in 1 byte, saves RAM)
-  // Max 256 subcarriers for WiFi 6 HE-SU packets
-  uint8_t magnitudes[256];
+  // HT20: 64 subcarriers
+  uint8_t magnitudes[HT20_NUM_SUBCARRIERS];
   
-  for (uint16_t sc = 0; sc < num_subcarriers_; sc++) {
+  for (uint16_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
     int8_t i_val = csi_data[sc * 2];
     int8_t q_val = csi_data[sc * 2 + 1];
     float mag = calculate_magnitude(i_val, q_val);
@@ -145,8 +107,8 @@ bool CalibrationManager::add_packet(const int8_t* csi_data, size_t csi_len) {
   }
   
   // Write to file
-  size_t written = fwrite(magnitudes, 1, num_subcarriers_, buffer_file_);
-  if (written != num_subcarriers_) {
+  size_t written = fwrite(magnitudes, 1, HT20_NUM_SUBCARRIERS, buffer_file_);
+  if (written != HT20_NUM_SUBCARRIERS) {
     ESP_LOGE(TAG, "Failed to write magnitudes to file");
     return false;
   }
@@ -200,7 +162,6 @@ void CalibrationManager::on_collection_complete_() {
   csi_manager_->set_calibration_mode(nullptr);
   
   // Launch calibration in a separate task to avoid blocking main loop
-  // This prevents watchdog timeouts with 256 subcarriers
   BaseType_t result = xTaskCreate(
       calibration_task_,
       "band_cal",
@@ -227,7 +188,7 @@ void CalibrationManager::calibration_task_(void* arg) {
     return;
   }
   
-  // Run calibration (can take several seconds with 256 SC)
+  // Run P95 band calibration
   esp_err_t err = self->run_calibration_();
   
   bool success = (err == ESP_OK && self->selected_band_size_ == SELECTED_SUBCARRIERS_COUNT);
@@ -265,7 +226,7 @@ esp_err_t CalibrationManager::run_calibration_() {
   
   // Read all packets from file
   std::vector<uint8_t> all_data = read_window_(0, buffer_count_);
-  if (all_data.size() != buffer_count_ * num_subcarriers_) {
+  if (all_data.size() != buffer_count_ * HT20_NUM_SUBCARRIERS) {
     ESP_LOGE(TAG, "Failed to read calibration data");
     return ESP_FAIL;
   }
@@ -371,21 +332,16 @@ esp_err_t CalibrationManager::run_calibration_() {
 void CalibrationManager::get_candidate_bands_(std::vector<std::vector<uint8_t>>& candidates) {
   candidates.clear();
   
-  // Use step to reduce candidate bands for 256 SC (WiFi 6)
-  // step=1 for 64 SC (~40 bands), step=2 for 256 SC (~67 bands instead of 134)
-  uint8_t step = (num_subcarriers_ >= 256) ? 2 : 1;
-  
-  // Generate valid bands of 12 consecutive subcarriers with step
-  // Zone before DC
-  for (uint16_t start = guard_band_low_; start + SELECTED_SUBCARRIERS_COUNT <= dc_low_; start += step) {
+  // HT20: Generate valid bands of 12 consecutive subcarriers
+  // Zone before DC (subcarriers 11-31)
+  for (uint16_t start = HT20_GUARD_BAND_LOW; start + SELECTED_SUBCARRIERS_COUNT <= HT20_DC_SUBCARRIER; start++) {
     std::vector<uint8_t> band;
     bool valid = true;
     
     for (uint8_t i = 0; i < SELECTED_SUBCARRIERS_COUNT; i++) {
       uint8_t sc = start + i;
-      // Check if in valid range and not in DC zone
-      if (sc < guard_band_low_ || sc > guard_band_high_ || 
-          (sc >= dc_low_ && sc <= dc_high_)) {
+      // Check if in valid range and not DC
+      if (sc < HT20_GUARD_BAND_LOW || sc > HT20_GUARD_BAND_HIGH || sc == HT20_DC_SUBCARRIER) {
         valid = false;
         break;
       }
@@ -397,15 +353,14 @@ void CalibrationManager::get_candidate_bands_(std::vector<std::vector<uint8_t>>&
     }
   }
   
-  // Zone after DC
-  for (uint16_t start = dc_high_ + 1; start + SELECTED_SUBCARRIERS_COUNT <= guard_band_high_ + 1; start += step) {
+  // Zone after DC (subcarriers 33-52)
+  for (uint16_t start = HT20_DC_SUBCARRIER + 1; start + SELECTED_SUBCARRIERS_COUNT <= HT20_GUARD_BAND_HIGH + 1; start++) {
     std::vector<uint8_t> band;
     bool valid = true;
     
     for (uint8_t i = 0; i < SELECTED_SUBCARRIERS_COUNT; i++) {
       uint8_t sc = start + i;
-      if (sc < guard_band_low_ || sc > guard_band_high_ || 
-          (sc >= dc_low_ && sc <= dc_high_)) {
+      if (sc < HT20_GUARD_BAND_LOW || sc > HT20_GUARD_BAND_HIGH || sc == HT20_DC_SUBCARRIER) {
         valid = false;
         break;
       }
@@ -417,7 +372,7 @@ void CalibrationManager::get_candidate_bands_(std::vector<std::vector<uint8_t>>&
     }
   }
   
-  ESP_LOGD(TAG, "Generated %zu candidate bands (step=%d)", candidates.size(), step);
+  ESP_LOGD(TAG, "Generated %zu candidate bands (HT20)", candidates.size());
 }
 
 CalibrationManager::BandResult CalibrationManager::evaluate_band_(
@@ -427,22 +382,21 @@ CalibrationManager::BandResult CalibrationManager::evaluate_band_(
   
   BandResult result = {0, std::numeric_limits<float>::infinity(), 0.0f, 1.0f};
   
-  if (all_data.size() < MVS_WINDOW_SIZE * num_subcarriers_) {
+  if (all_data.size() < MVS_WINDOW_SIZE * HT20_NUM_SUBCARRIERS) {
     return result;
   }
   
-  uint16_t num_packets = all_data.size() / num_subcarriers_;
+  uint16_t num_packets = all_data.size() / HT20_NUM_SUBCARRIERS;
   
   // Calculate turbulence for each packet
-  // OPTIMIZATION: Extract only the 12 subcarriers we need (not all 256)
-  // This reduces conversions from 256 to 12 per packet = 21x speedup
+  // Extract only the 12 subcarriers we need (not all 64)
   std::vector<float> turbulences(num_packets);
   float valid_mags[SELECTED_SUBCARRIERS_COUNT];  // Stack-allocated, reused
   
   for (uint16_t pkt = 0; pkt < num_packets; pkt++) {
-    const uint8_t* packet_data = &all_data[pkt * num_subcarriers_];
+    const uint8_t* packet_data = &all_data[pkt * HT20_NUM_SUBCARRIERS];
     
-    // Extract ONLY the subcarriers for this band (12 values, not 256)
+    // Extract ONLY the subcarriers for this band (12 values)
     for (uint8_t i = 0; i < band_size && i < SELECTED_SUBCARRIERS_COUNT; i++) {
       valid_mags[i] = static_cast<float>(packet_data[band[i]]);
     }
@@ -596,11 +550,11 @@ std::vector<uint8_t> CalibrationManager::read_window_(uint16_t start_idx, uint16
     return data;
   }
   
-  size_t bytes_to_read = window_size * num_subcarriers_;
+  size_t bytes_to_read = window_size * HT20_NUM_SUBCARRIERS;
   data.resize(bytes_to_read);
   
   // Seek to window start
-  long offset = static_cast<long>(start_idx) * num_subcarriers_;
+  long offset = static_cast<long>(start_idx) * HT20_NUM_SUBCARRIERS;
   if (fseek(buffer_file_, offset, SEEK_SET) != 0) {
     ESP_LOGE(TAG, "Failed to seek to offset %ld", offset);
     data.clear();

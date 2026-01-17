@@ -51,12 +51,6 @@ void GainController::process_packet(const wifi_csi_info_t* info) {
     return;
   }
   
-  // Count packets by subcarrier type (CSI length)
-  size_t csi_len = info->len;
-  if (csi_len == 128) packets_64sc_++;
-  else if (csi_len == 256) packets_128sc_++;
-  else if (csi_len >= 512) packets_256sc_++;
-  
   // Cast to PHY structure to access hidden gain fields
   const wifi_pkt_rx_ctrl_phy_t* phy_info = reinterpret_cast<const wifi_pkt_rx_ctrl_phy_t*>(info);
   
@@ -104,8 +98,7 @@ void GainController::process_packet(const wifi_csi_info_t* info) {
     locked_ = true;
     ESP_LOGI(TAG, "Gain locked: AGC=%d, FFT=%d (after %d packets)", 
              agc_gain_locked_, fft_gain_locked_, calibration_packets_);
-    ESP_LOGI(TAG, "SC stats: 64=%d, 128=%d, 256=%d → using %d SC",
-             packets_64sc_, packets_128sc_, packets_256sc_, get_dominant_subcarrier_count());
+    ESP_LOGI(TAG, "HT20 mode: 64 subcarriers");
     
     // Notify callback that gain is now locked (triggers band calibration)
     if (lock_complete_callback_) {
@@ -117,17 +110,6 @@ void GainController::process_packet(const wifi_csi_info_t* info) {
   // The lock is already set to true in init() on unsupported platforms
   (void)info;
 #endif
-}
-
-uint16_t GainController::get_dominant_subcarrier_count() const {
-  // Return the most frequent subcarrier count
-  // Default to 64 if no packets or tie (safest option)
-  if (packets_256sc_ > packets_64sc_ && packets_256sc_ > packets_128sc_) {
-    return 256;
-  } else if (packets_128sc_ > packets_64sc_ && packets_128sc_ > packets_256sc_) {
-    return 128;
-  }
-  return 64;  // Default: HT20 (most compatible)
 }
 
 }  // namespace espectre

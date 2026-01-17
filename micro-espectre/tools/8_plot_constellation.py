@@ -22,23 +22,18 @@ from pathlib import Path
 from csi_utils import load_baseline_and_movement, DATA_DIR
 from config import SELECTED_SUBCARRIERS
 
-# Dataset configuration: maps subcarrier count to file paths
+# Dataset configuration (HT20: 64 subcarriers only)
 # Optimal subcarriers determined by grid search (see tests/test_validation_real_data.py)
 DATASET_CONFIG = {
-    64: {
-        'baseline': 'baseline/baseline_c6_64sc_20251212_142443.npz',
-        'movement': 'movement/movement_c6_64sc_20251212_142443.npz',
+    'c6_64': {
+        'baseline': 'baseline/baseline_c6_64sc_20260117_190503.npz',
+        'movement': 'movement/movement_c6_64sc_20260117_190552.npz',
         'default_subcarriers': [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],  # Optimal band
     },
-    128: {
-        'baseline': 'baseline/baseline_s3_128sc_20260111_063243.npz',
-        'movement': 'movement/movement_s3_128sc_20260111_063354.npz',
-        'default_subcarriers': [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61],  # Optimal band
-    },
-    256: {
-        'baseline': 'baseline/baseline_c6_256sc_20260110_182357.npz',
-        'movement': 'movement/movement_c6_256sc_20260110_182443.npz',
-        'default_subcarriers': [147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158],  # Optimal band
+    's3_64': {
+        'baseline': 'baseline/baseline_s3_64sc_20260117_191447.npz',
+        'movement': 'movement/movement_s3_64sc_20260117_191505.npz',
+        'default_subcarriers': [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],  # Optimal band
     },
 }
 

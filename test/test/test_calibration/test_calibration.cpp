@@ -151,7 +151,7 @@ void test_calibration_manager_full_calibration(void) {
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
-    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());  // Set for 256 SC data
+    cm.init_subcarrier_config();  // HT20: 64 SC
     cm.set_buffer_size(200);  // Use 200 packets for calibration
     // Use default parameters from CalibrationManager - no hardcoded values
     // This ensures tests reflect real production behavior
@@ -189,15 +189,13 @@ void test_calibration_manager_full_calibration(void) {
     TEST_ASSERT_TRUE(calibration_success);
     TEST_ASSERT_EQUAL(12, result_size);
     
-    // Verify selected subcarriers are within valid range (guard bands from CalibrationManager)
-    int guard_low = cm.get_guard_band_low();
-    int guard_high = cm.get_guard_band_high();
-    
-    ESP_LOGI(TAG, "Calibration selected subcarriers (valid range: %d-%d):", guard_low, guard_high);
+    // Verify selected subcarriers are within valid range (HT20: 64 SC)
+    ESP_LOGI(TAG, "Calibration selected subcarriers (valid range: %d-%d):", 
+             HT20_GUARD_BAND_LOW, HT20_GUARD_BAND_HIGH);
     for (int i = 0; i < result_size; i++) {
         ESP_LOGI(TAG, "  %d: SC %d", i+1, result_band[i]);
-        TEST_ASSERT_TRUE(result_band[i] >= guard_low);
-        TEST_ASSERT_TRUE(result_band[i] <= guard_high);
+        TEST_ASSERT_TRUE(result_band[i] >= HT20_GUARD_BAND_LOW);
+        TEST_ASSERT_TRUE(result_band[i] <= HT20_GUARD_BAND_HIGH);
     }
 }
 
@@ -208,7 +206,7 @@ void test_calibration_manager_p95_produces_valid_band(void) {
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
-    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
+    cm.init_subcarrier_config();
     cm.set_buffer_size(100);
     
     uint8_t result_band[12] = {0};
@@ -245,7 +243,7 @@ void test_calibration_manager_handles_mixed_data(void) {
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
-    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
+    cm.init_subcarrier_config();
     cm.set_buffer_size(200);
     
     bool calibration_success = false;
@@ -275,7 +273,7 @@ void test_calibration_manager_respects_guard_bands(void) {
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
-    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
+    cm.init_subcarrier_config();
     cm.set_buffer_size(100);
     
     uint8_t result_band[12] = {0};
@@ -293,16 +291,12 @@ void test_calibration_manager_respects_guard_bands(void) {
     
     TEST_ASSERT_EQUAL(12, result_size);
     
-    // Selected subcarriers should be within valid range (not in guard bands)
-    // For 64 SC: guard_low=11, guard_high=52, DC=32
-    // For 256 SC: guard_low=30, guard_high=225, DC zone=[108-147]
-    uint16_t guard_low = cm.get_guard_band_low();
-    uint16_t guard_high = cm.get_guard_band_high();
-    
+    // Selected subcarriers should be within valid range (HT20: 64 SC)
+    // guard_low=11, guard_high=52, DC=32
     for (int i = 0; i < result_size; i++) {
-        TEST_ASSERT_TRUE_MESSAGE(result_band[i] >= guard_low, 
+        TEST_ASSERT_TRUE_MESSAGE(result_band[i] >= HT20_GUARD_BAND_LOW, 
             "Subcarrier below guard_low");
-        TEST_ASSERT_TRUE_MESSAGE(result_band[i] <= guard_high,
+        TEST_ASSERT_TRUE_MESSAGE(result_band[i] <= HT20_GUARD_BAND_HIGH,
             "Subcarrier above guard_high");
     }
 }
@@ -314,7 +308,7 @@ void test_calibration_returns_valid_adaptive_threshold(void) {
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
-    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
+    cm.init_subcarrier_config();
     cm.set_buffer_size(100);
     
     float result_adaptive_threshold = 0.0f;
@@ -348,7 +342,7 @@ void test_calibration_threshold_always_calculated(void) {
     
     CalibrationManager cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
-    cm.set_expected_subcarriers(csi_test_data::num_subcarriers());
+    cm.init_subcarrier_config();
     cm.set_buffer_size(100);
     
     float result_adaptive_threshold = 0.0f;
@@ -876,19 +870,11 @@ int process(void) {
     printf("========================================\n");
     run_synthetic_tests();
     
-    // Run real data tests with 64 SC dataset
+    // Run real data tests with 64 SC dataset (HT20 only)
     printf("\n========================================\n");
-    printf("Running real data tests with 64 SC dataset\n");
+    printf("Running real data tests with 64 SC dataset (HT20)\n");
     printf("========================================\n");
-    if (csi_test_data::switch_dataset(64)) {
-        run_real_data_tests();
-    }
-    
-    // Run real data tests with 256 SC dataset
-    printf("\n========================================\n");
-    printf("Running real data tests with 256 SC dataset\n");
-    printf("========================================\n");
-    if (csi_test_data::switch_dataset(256)) {
+    if (csi_test_data::load()) {
         run_real_data_tests();
     }
     

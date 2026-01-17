@@ -52,37 +52,25 @@ DATA_DIR = Path(__file__).parent.parent / 'data'
 # ============================================================================
 
 def get_available_datasets():
-    """Get list of available datasets (C6 64/256 SC, S3 128 SC)"""
+    """Get list of available datasets (HT20: 64 SC only)"""
     datasets = []
     
-    # C6 64 SC dataset
-    baseline_64 = DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz'
-    movement_64 = DATA_DIR / 'movement' / 'movement_c6_64sc_20251212_142443.npz'
-    if baseline_64.exists() and movement_64.exists():
+    # C6 64 SC dataset (HT20) - old validated data
+    baseline_c6 = DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz'
+    movement_c6 = DATA_DIR / 'movement' / 'movement_c6_64sc_20251212_142443.npz'
+    if baseline_c6.exists() and movement_c6.exists():
         datasets.append(pytest.param(
-            (baseline_64, movement_64, 64),
+            (baseline_c6, movement_c6, 64),
             id="c6_64sc"
         ))
     
-    # C6 256 SC dataset
-    baseline_256 = DATA_DIR / 'baseline' / 'baseline_c6_256sc_20260110_182357.npz'
-    movement_256 = DATA_DIR / 'movement' / 'movement_c6_256sc_20260110_182443.npz'
-    if baseline_256.exists() and movement_256.exists():
-        datasets.append(pytest.param(
-            (baseline_256, movement_256, 256),
-            id="c6_256sc"
-        ))
-    
-    # S3 128 SC dataset
-    # Note: This dataset is very noisy and requires a non-contiguous band calibrator
-    # (like NBVI) to achieve good performance. BandCalibrator with contiguous bands
-    # produces sub-optimal results (baseline MV already exceeds threshold).
-    baseline_s3 = DATA_DIR / 'baseline' / 'baseline_s3_128sc_20260111_063243.npz'
-    movement_s3 = DATA_DIR / 'movement' / 'movement_s3_128sc_20260111_063354.npz'
+    # S3 64 SC dataset (HT20)
+    baseline_s3 = DATA_DIR / 'baseline' / 'baseline_s3_64sc_20260117_191447.npz'
+    movement_s3 = DATA_DIR / 'movement' / 'movement_s3_64sc_20260117_191505.npz'
     if baseline_s3.exists() and movement_s3.exists():
         datasets.append(pytest.param(
-            (baseline_s3, movement_s3, 128),
-            id="s3_128sc"
+            (baseline_s3, movement_s3, 64),
+            id="s3_64sc"
         ))
     
     return datasets
@@ -126,26 +114,14 @@ def num_subcarriers(dataset_config):
 @pytest.fixture
 def selected_subcarriers(num_subcarriers):
     """
-    Optimized subcarrier band for testing.
+    Optimized subcarrier band for testing (HT20: 64 SC only).
     
     These values are determined by grid search optimization
     (see tools/2_analyze_system_tuning.py) to achieve maximum
     recall with zero false positives.
     """
-    if num_subcarriers == 64:
-        # Optimized for 64 SC (see PERFORMANCE.md)
-        return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
-    elif num_subcarriers == 128:
-        # 128 SC (HT40): Optimized via grid search on ESP32-S3 data
-        # Best band: [50-61] with 100% recall, 0% FP
-        return [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]
-    elif num_subcarriers == 256:
-        # Optimized for 256 SC via grid search: 99.9% recall, 0% FP
-        return [147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158]
-    else:
-        # Fallback: use indices proportional to spectrum size
-        start = num_subcarriers // 6
-        return list(range(start, start + 12))
+    # HT20: 64 subcarriers (optimized, see PERFORMANCE.md)
+    return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 
 @pytest.fixture
@@ -209,10 +185,7 @@ def run_p95_calibration(baseline_packets, num_subcarriers):
     gain_lock_skip = 300
     buffer_size = min(700, len(baseline_packets) - gain_lock_skip)
     
-    calibrator = BandCalibrator(
-        buffer_size=buffer_size,
-        expected_subcarriers=num_subcarriers
-    )
+    calibrator = BandCalibrator(buffer_size=buffer_size)
     
     # Feed baseline packets, skipping gain lock phase
     for pkt in baseline_packets[gain_lock_skip:gain_lock_skip + buffer_size]:

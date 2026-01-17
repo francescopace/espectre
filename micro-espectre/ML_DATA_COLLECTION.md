@@ -108,7 +108,6 @@ data/
 ├── dataset_info.json          # Global metadata
 ├── baseline/
 │   ├── baseline_c6_64sc_20251212_142443.npz
-│   ├── baseline_c6_256sc_20260110_182357.npz
 │   └── ...
 ├── movement/
 │   ├── movement_c6_64sc_20251212_142443.npz
@@ -116,6 +115,8 @@ data/
 └── baseline_noisy/
     └── ...
 ```
+
+**Note**: HT20 only - all datasets use 64 subcarriers.
 
 File naming convention: `{label}_{chip}_{num_sc}sc_{timestamp}.npz`
 

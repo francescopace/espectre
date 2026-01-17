@@ -36,17 +36,19 @@ pip install esphome
 
 Download the example configuration for your hardware:
 
-| Platform | Configuration File | CPU | WiFi | PSRAM | Status |
-|----------|-------------------|-----|------|-------|--------|
-| **ESP32-C6** | [espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) | RISC-V @ 160MHz | WiFi 6 | ❌ | ✅ Tested |
+| Platform | Configuration File | CPU | WiFi Chip | PSRAM | Status |
+|----------|-------------------|-----|-----------|-------|--------|
+| **ESP32-C6** | [espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) | RISC-V @ 160MHz | WiFi 6 capable | ❌ | ✅ Tested |
 | **ESP32-S3** | [espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) | Xtensa @ 240MHz | WiFi 4 | ✅ 8MB | ✅ Tested |
 | **ESP32-C3** | [espectre-c3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c3.yaml) | RISC-V @ 160MHz | WiFi 4 | ❌ | ✅ Tested ² |
 | **ESP32** | [espectre-esp32.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-esp32.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ✅ Tested ³ |
-| **ESP32-C5** | [espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | RISC-V @ 240MHz | WiFi 6 | ❌ | ⚠️ Experimental ¹ |
+| **ESP32-C5** | [espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | RISC-V @ 240MHz | WiFi 6 capable | ❌ | ⚠️ Experimental ¹ |
 | **ESP32-S2** | [espectre-s2.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s2.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
 
+> **Note**: ESPectre uses WiFi 4 (802.11b/g/n) mode for stable 64 subcarriers and faster calibration, even on WiFi 6 capable chips (C5, C6). This ensures consistent performance across all platforms.
+
 **Recommendations**:
-- **ESP32-C6**: Best for WiFi 6 environments, standard motion detection
+- **ESP32-C6**: Modern RISC-V platform, good performance, compact form factor
 - **ESP32-S3**: Best for advanced applications, future ML features (more memory)
 - **ESP32-C3**: Budget-friendly option, compact form factor
 
@@ -587,9 +589,6 @@ esp32:
     type: esp-idf
     version: 5.5.1
     sdkconfig_options:
-      # WiFi 6 (optional - C5, C6 only)
-      CONFIG_ESP_WIFI_11AX_SUPPORT: y
-      
       # CPU frequency (platform-dependent)
       CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ: "160"  # 160 for C6, 240 for S3
       

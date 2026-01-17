@@ -178,6 +178,7 @@ class CSIManager {
   game_mode_callback_t game_mode_callback_;
   uint32_t publish_rate_{100};
   volatile uint32_t packets_processed_{0};  // volatile: modified from ISR callback
+  volatile uint32_t packets_filtered_{0};   // Packets with wrong SC count
   uint8_t current_channel_{0};  // Track WiFi channel for change detection
   
   // WiFi CSI interface (injected or default real implementation)
@@ -187,10 +188,8 @@ class CSIManager {
   // Gain controller for AGC/FFT locking
   GainController gain_controller_;
   
-  // Expected subcarrier count (set after gain lock, used to filter packets)
-  uint16_t expected_subcarriers_{64};
-  
-  static constexpr uint8_t NUM_SUBCARRIERS = 12;
+  // Use central HT20 constants from csi_processor.h
+  static constexpr uint8_t NUM_SUBCARRIERS = HT20_SELECTED_BAND_SIZE;
   
   /**
    * Configure CSI based on platform

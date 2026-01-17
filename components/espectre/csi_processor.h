@@ -30,6 +30,16 @@
 namespace esphome {
 namespace espectre {
 
+// =============================================================================
+// HT20 Constants (64 subcarriers - do not change)
+// =============================================================================
+constexpr uint16_t HT20_NUM_SUBCARRIERS = 64;      // HT20: 64 subcarriers
+constexpr uint16_t HT20_CSI_LEN = 128;             // 64 SC × 2 bytes (I/Q pairs)
+constexpr uint8_t HT20_GUARD_BAND_LOW = 11;        // First valid subcarrier
+constexpr uint8_t HT20_GUARD_BAND_HIGH = 52;       // Last valid subcarrier
+constexpr uint8_t HT20_DC_SUBCARRIER = 32;         // DC null subcarrier
+constexpr uint8_t HT20_SELECTED_BAND_SIZE = 12;    // Selected subcarriers for motion detection
+
 // Segmentation constants
 constexpr uint16_t SEGMENTATION_DEFAULT_WINDOW_SIZE = 50;
 constexpr uint16_t SEGMENTATION_MIN_WINDOW_SIZE = 10;  // Minimum buffer size

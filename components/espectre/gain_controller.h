@@ -224,14 +224,11 @@ class GainController {
   uint16_t get_calibration_packets() const { return calibration_packets_; }
   
   /**
-   * Get the dominant subcarrier count detected during gain lock
+   * Get the subcarrier count (HT20 only)
    * 
-   * Counts packets by CSI length during calibration and returns the most
-   * frequent type: 64 (HT20), 128 (HT40), or 256 (HE-SU/WiFi6)
-   * 
-   * @return Dominant subcarrier count (64, 128, or 256)
+   * @return Always 64 for HT20 mode
    */
-  uint16_t get_dominant_subcarrier_count() const;
+  static constexpr uint16_t get_subcarrier_count() { return 64; }
   
  private:
   uint16_t calibration_packets_{300};
@@ -245,11 +242,6 @@ class GainController {
   bool skipped_strong_signal_{false};  // Set true if skipped due to AGC < MIN_SAFE_AGC
   GainLockMode mode_{GainLockMode::AUTO};
   lock_complete_callback_t lock_complete_callback_{nullptr};
-  
-  // Subcarrier count statistics (collected during gain lock)
-  uint16_t packets_64sc_{0};   // HT20 packets (64 subcarriers, 128 bytes)
-  uint16_t packets_128sc_{0};  // HT40 packets (128 subcarriers, 256 bytes)
-  uint16_t packets_256sc_{0};  // HE-SU packets (256 subcarriers, 512 bytes)
 };
 
 }  // namespace espectre

@@ -24,6 +24,9 @@ DEFAULT_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 # Gain lock configuration
 GAIN_LOCK_PACKETS = 300  # ~3 seconds at 100 Hz
 
+# Import HT20 constants from config
+from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN
+
 # Global state for calibration mode and performance metrics
 class GlobalState:
     def __init__(self):
@@ -31,37 +34,9 @@ class GlobalState:
         self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.current_channel = 0  # Track WiFi channel for change detection
-        self.expected_subcarriers = 64  # Expected SC count from gain lock (64, 128, 256)
 
 
 g_state = GlobalState()
-
-def print_wifi_status(wlan):
-    """Print WiFi connection status with configuration details."""
-    ip = wlan.ifconfig()[0]
-    
-    # Protocol decode using exposed constants
-    PROTOCOL_NAMES = {
-        network.MODE_11B: 'b',
-        network.MODE_11G: 'g', 
-        network.MODE_11N: 'n',
-    }
-    # Add 11ax only if available (ESP32-C5/C6)
-    if hasattr(network, 'MODE_11AX'):
-        PROTOCOL_NAMES[network.MODE_11AX] = 'ax'
-    
-    proto_val = wlan.config('protocol')
-    modes = [name for bit, name in PROTOCOL_NAMES.items() if proto_val & bit]
-    protocol_str = '802.11' + '/'.join(modes) if modes else f'0x{proto_val:02x}'
-    
-    # Bandwidth decode
-    BW_NAMES = {wlan.BW_HT20: 'HT20', wlan.BW_HT40: 'HT40'}
-    bw_str = BW_NAMES.get(wlan.config('bandwidth'), 'unknown')
-    
-    # Promiscuous
-    prom_str = 'ON' if wlan.config('promiscuous') else 'OFF'
-    
-    print(f"WiFi connected - IP: {ip}, Protocol: {protocol_str}, Bandwidth: {bw_str}, Promiscuous: {prom_str}")
 
 def cleanup_wifi(wlan):
     """
@@ -97,23 +72,19 @@ def print_wifi_status(wlan):
     """Print WiFi connection status with configuration details."""
     ip = wlan.ifconfig()[0]
     
-    # Protocol decode using exposed constants
+    # Protocol decode (HT20 only: 802.11b/g/n)
     PROTOCOL_NAMES = {
         network.MODE_11B: 'b',
         network.MODE_11G: 'g', 
         network.MODE_11N: 'n',
     }
-    # Add 11ax only if available (ESP32-C5/C6)
-    if hasattr(network, 'MODE_11AX'):
-        PROTOCOL_NAMES[network.MODE_11AX] = 'ax'
     
     proto_val = wlan.config('protocol')
     modes = [name for bit, name in PROTOCOL_NAMES.items() if proto_val & bit]
     protocol_str = '802.11' + '/'.join(modes) if modes else f'0x{proto_val:02x}'
     
-    # Bandwidth decode
-    BW_NAMES = {wlan.BW_HT20: 'HT20', wlan.BW_HT40: 'HT40'}
-    bw_str = BW_NAMES.get(wlan.config('bandwidth'), 'unknown')
+    # Bandwidth decode (HT20 only)
+    bw_str = 'HT20' if wlan.config('bandwidth') == wlan.BW_HT20 else 'unknown'
     
     # Promiscuous
     prom_str = 'ON' if wlan.config('promiscuous') else 'OFF'
@@ -194,7 +165,8 @@ def run_gain_lock(wlan):
     
     Collects AGC/FFT gain values from first packets and locks them
     to stabilize CSI amplitudes for consistent motion detection.
-    Also counts subcarrier types to determine the dominant type for the session.
+    
+    HT20 only: 64 subcarriers.
     
     Respects config.GAIN_LOCK_MODE:
     - "auto": Lock gain, but skip if signal too strong (AGC < MIN_SAFE_AGC)
@@ -205,9 +177,8 @@ def run_gain_lock(wlan):
         wlan: WLAN instance with CSI enabled
         
     Returns:
-        tuple: (agc_gain, fft_gain, skipped, dominant_sc) where:
+        tuple: (agc_gain, fft_gain, skipped) where:
             - skipped=True if gain lock was skipped
-            - dominant_sc = dominant subcarrier count (64, 128, or 256)
     """
     # Check configuration mode
     mode = getattr(config, 'GAIN_LOCK_MODE', 'auto').lower()
@@ -219,21 +190,8 @@ def run_gain_lock(wlan):
     if mode == 'disabled' or not gain_lock_supported:
         reason = "Disabled by configuration" if mode == 'disabled' else "Not supported on this platform"
         print(f"Gain lock: {reason}")
-        # Still need to determine subcarrier count from a few packets
-        print("  Detecting subcarrier count...")
-        sc_counts = {64: 0, 128: 0, 256: 0}
-        scan_count = 0
-        while scan_count < 50:
-            frame = wlan.csi_read()
-            if frame:
-                num_sc = len(frame[5]) // 2
-                if num_sc in sc_counts:
-                    sc_counts[num_sc] += 1
-                scan_count += 1
-                del frame  # Free memory immediately
-        dominant_sc = max(sc_counts, key=sc_counts.get) if any(sc_counts.values()) else 64
-        print(f"  Detected: 64SC={sc_counts[64]}, 128SC={sc_counts[128]}, 256SC={sc_counts[256]} -> using {dominant_sc}")
-        return None, None, False, dominant_sc
+        print(f"  HT20 mode: {NUM_SUBCARRIERS} subcarriers")
+        return None, None, False
     
     print('')
     print('-'*60)
@@ -244,20 +202,12 @@ def run_gain_lock(wlan):
     fft_sum = 0
     count = 0
     
-    # Count subcarrier types (bytes / 2 = subcarriers)
-    sc_counts = {64: 0, 128: 0, 256: 0}
-    
     while count < GAIN_LOCK_PACKETS:
         frame = wlan.csi_read()
         if frame:
             # frame[22] = agc_gain, frame[23] = fft_gain
             agc_sum += frame[22]
             fft_sum += frame[23]
-            
-            # Count subcarrier type from CSI data length (avoid storing reference)
-            num_sc = len(frame[5]) // 2
-            if num_sc in sc_counts:
-                sc_counts[num_sc] += 1
             
             del frame  # Free memory immediately
             count += 1
@@ -277,21 +227,19 @@ def run_gain_lock(wlan):
     avg_agc = agc_sum // GAIN_LOCK_PACKETS
     avg_fft = fft_sum // GAIN_LOCK_PACKETS
     
-    # Determine dominant subcarrier count
-    dominant_sc = max(sc_counts, key=sc_counts.get)
-    print(f"  Subcarrier stats: 64SC={sc_counts[64]}, 128SC={sc_counts[128]}, 256SC={sc_counts[256]} -> using {dominant_sc}")
+    print(f"  HT20 mode: {NUM_SUBCARRIERS} subcarriers")
     
     # In auto mode, skip gain lock if signal is too strong
     if mode == 'auto' and avg_agc < min_safe_agc:
         print(f"WARNING: Signal too strong (AGC={avg_agc} < {min_safe_agc}) - skipping gain lock")
         print(f"         Move sensor 2-3 meters from AP for optimal performance")
-        return avg_agc, avg_fft, True, dominant_sc
+        return avg_agc, avg_fft, True
     
     # Lock the gain values
     wlan.csi_force_gain(avg_agc, avg_fft)
     print(f"Gain locked: AGC={avg_agc}, FFT={avg_fft} (after {GAIN_LOCK_PACKETS} packets)")
     
-    return avg_agc, avg_fft, False, dominant_sc
+    return avg_agc, avg_fft, False
 
 
 def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
@@ -326,25 +274,20 @@ def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     
     # Phase 1: Gain Lock (~3 seconds)
     # Stabilizes AGC/FFT before calibration to ensure clean data
-    # Also determines dominant subcarrier count for the session
-    agc, fft, skipped, dominant_sc = run_gain_lock(wlan)
-    
-    # Save dominant SC for main loop packet filtering
-    g_state.expected_subcarriers = dominant_sc
+    agc, fft, skipped = run_gain_lock(wlan)
     
     if skipped:
         print("Note: Proceeding with band calibration without gain lock")
     
     print('')
     print('-'*60)
-    print(f'Band Calibration (~7 seconds) [expecting {dominant_sc} SC]')
+    print(f'Band Calibration (~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
     
-    # Initialize band calibrator with expected subcarrier count
+    # Initialize band calibrator (HT20: 64 subcarriers)
     # Uses P95 moving variance optimization for optimal band selection
     band_calibrator = BandCalibrator(
-        buffer_size=config.CALIBRATION_BUFFER_SIZE,
-        expected_subcarriers=dominant_sc
+        buffer_size=config.CALIBRATION_BUFFER_SIZE
     )
     
     # Collect packets for calibration (now with stable gain)
@@ -360,8 +303,8 @@ def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
         packets_read += 1
         
         if frame:
-            # Truncate to expected SC count to save memory
-            csi_data = frame[5][:g_state.expected_subcarriers * 2]
+            # HT20: 64 SC × 2 bytes = 128 bytes
+            csi_data = frame[5][:EXPECTED_CSI_LEN]
             del frame  # Free memory immediately
             calibration_progress = band_calibrator.add_packet(csi_data)
             timeout_counter = 0  # Reset timeout on successful read
@@ -537,13 +480,11 @@ def main():
     # Main CSI processing loop with integrated MQTT publishing
     publish_counter = 0
     last_dropped = 0
+    filtered_count = 0  # Packets with wrong SC count
     last_publish_time = time.ticks_ms()
     
     # Calculate optimal sleep based on traffic rate
     publish_rate = traffic_gen.get_rate() if traffic_gen.is_running() else 100
-    
-    # Pre-calculate payload size (SC count * 2 bytes per I/Q pair)
-    payload_size = g_state.expected_subcarriers * 2
        
     try:
         while True:
@@ -560,14 +501,17 @@ def main():
             frame = wlan.csi_read()
             
             if frame:
-                # Filter packets by expected subcarrier count BEFORE truncating
-                packet_sc = len(frame[5]) // 2
-                if packet_sc != g_state.expected_subcarriers:
+                # Filter packets by expected CSI length (HT20: 128 bytes)
+                if len(frame[5]) != EXPECTED_CSI_LEN:
+                    filtered_count += 1
+                    # Log warning every 100 filtered packets
+                    if filtered_count % 100 == 1:
+                        print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
                     del frame
-                    continue  # Skip packets with wrong SC count
+                    continue
                 
                 # Extract data and free frame immediately to save memory
-                csi_data = frame[5][:payload_size]
+                csi_data = frame[5][:EXPECTED_CSI_LEN]
                 packet_channel = frame[1]
                 del frame
                 
