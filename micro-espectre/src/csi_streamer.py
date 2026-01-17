@@ -24,7 +24,7 @@ import gc
 import os
 import src.config as config
 from src.traffic_generator import TrafficGenerator
-from src.main import connect_wifi
+from src.main import connect_wifi, cleanup_wifi
 
 # Streaming configuration
 STREAM_PORT = 5001
@@ -46,13 +46,10 @@ def stream_csi(dest_ip, duration_sec=0):
     print('  CSI UDP Streamer')
     print('=' * 60)
     
-    # Connect WiFi
+    # Connect WiFi (also enables CSI)
     wlan = connect_wifi()
     chip_type = os.uname().machine
     print(f'Chip: {chip_type}')
-    
-    # Enable CSI
-    wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
     
     # Start traffic generator
     traffic_gen = TrafficGenerator()
@@ -145,10 +142,11 @@ def stream_csi(dest_ip, duration_sec=0):
         print('\n\nStreaming stopped by user')
     
     finally:
+        print('Cleaning up...')
         sock.close()
-        wlan.csi_disable()
         if traffic_gen_started and traffic_gen.is_running():
             traffic_gen.stop()
+        cleanup_wifi(wlan)
     
     elapsed = time.ticks_diff(time.ticks_ms(), start_time) / 1000
     avg_pps = packet_count / elapsed if elapsed > 0 else 0
