@@ -11,13 +11,13 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Tuple
 
-FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc3"
+FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc4"
 FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 
 # SHA256 hashes for firmware verification (update when releasing new firmware)
 FIRMWARE_HASHES = {
-    'ESP32_CSI_S3.bin': 'cfd769e13cb54c24e2b9c43893d5c9356dd2670d246abfb8ebe79529c92fa5c0',
-    'ESP32_CSI_C6.bin': '183c795d1f110fff99c38e3b0a0485f9329dd6fa53c98cfe55c23b2543ffdb1d',
+    'ESP32_CSI_S3.bin': 'a561b0f7e50471cafe39bb6d051584ee81acd1d3a7f8b1aeb138a7a2cbbc31f9',
+    'ESP32_CSI_C6.bin': '22792bf14bad3684cbeeab095e2d553ec8a938afb24f695906927555fb55f540',
 }
 
 try:
@@ -511,16 +511,38 @@ def stream_csi(args):
     print(f"  ./me collect --label <name> --duration <sec>  {Fore.CYAN}# Collect labeled data{Style.RESET_ALL}")
     print()
     
+    process = None
     try:
         # Build the exec command
         exec_cmd = f"from src.csi_streamer import stream_csi; stream_csi('{dest_ip}', duration_sec={duration})"
-        subprocess.run(['mpremote', 'connect', port, 'exec', exec_cmd])
+        process = subprocess.Popen(['mpremote', 'connect', port, 'exec', exec_cmd])
+        process.wait()
         
     except subprocess.CalledProcessError as e:
         print(f"\n{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
         sys.exit(1)
     except KeyboardInterrupt:
-        print(f"\n{Fore.YELLOW}Streaming stopped{Style.RESET_ALL}")
+        print(f"\n{Fore.YELLOW}Streaming stopped - cleaning up ESP32...{Style.RESET_ALL}")
+        # Terminate mpremote gracefully
+        if process:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        # Send hard reset to ESP32 to fully cleanup WiFi/CSI/PHY state
+        # (soft_reset doesn't fully reset ESP-IDF WiFi driver state)
+        time.sleep(0.5)  # Wait for port to be released
+        try:
+            subprocess.run(
+                ['mpremote', 'connect', port, 'exec', 'import machine; machine.reset()'],
+                timeout=5,
+                capture_output=True
+            )
+            print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
+        except Exception as e:
+            # machine.reset() causes immediate reboot, so timeout/error is expected
+            print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
     except Exception as e:
         print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
         sys.exit(1)
@@ -547,12 +569,36 @@ def run_application(args):
     print(f"{Fore.YELLOW}🚀 Starting application...{Style.RESET_ALL}")
     print()
     
+    process = None
     try:
-        subprocess.run(['mpremote', 'connect', port, 'run', 'src/main.py'])
+        process = subprocess.Popen(['mpremote', 'connect', port, 'run', 'src/main.py'])
+        process.wait()
         
     except subprocess.CalledProcessError as e:
         print(f"\n{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
         sys.exit(1)
+    except KeyboardInterrupt:
+        print(f"\n{Fore.YELLOW}Application stopped - cleaning up ESP32...{Style.RESET_ALL}")
+        # Terminate mpremote gracefully
+        if process:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        # Send hard reset to ESP32 to fully cleanup WiFi/CSI/PHY state
+        # (soft_reset doesn't fully reset ESP-IDF WiFi driver state)
+        time.sleep(0.5)  # Wait for port to be released
+        try:
+            subprocess.run(
+                ['mpremote', 'connect', port, 'exec', 'import machine; machine.reset()'],
+                timeout=5,
+                capture_output=True
+            )
+            print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
+        except Exception as e:
+            # machine.reset() causes immediate reboot, so timeout/error is expected
+            print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
     except Exception as e:
         print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
         sys.exit(1)

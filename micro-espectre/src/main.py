@@ -53,31 +53,88 @@ class GlobalState:
 
 g_state = GlobalState()
 
+def print_wifi_status(wlan):
+    """Print WiFi connection status with configuration details."""
+    ip = wlan.ifconfig()[0]
+    
+    # Protocol decode using exposed constants
+    PROTOCOL_NAMES = {
+        network.MODE_11B: 'b',
+        network.MODE_11G: 'g', 
+        network.MODE_11N: 'n',
+    }
+    # Add 11ax only if available (ESP32-C5/C6)
+    if hasattr(network, 'MODE_11AX'):
+        PROTOCOL_NAMES[network.MODE_11AX] = 'ax'
+    
+    proto_val = wlan.config('protocol')
+    modes = [name for bit, name in PROTOCOL_NAMES.items() if proto_val & bit]
+    protocol_str = '802.11' + '/'.join(modes) if modes else f'0x{proto_val:02x}'
+    
+    # Bandwidth decode
+    BW_NAMES = {wlan.BW_HT20: 'HT20', wlan.BW_HT40: 'HT40'}
+    bw_str = BW_NAMES.get(wlan.config('bandwidth'), 'unknown')
+    
+    # Promiscuous
+    prom_str = 'ON' if wlan.config('promiscuous') else 'OFF'
+    
+    print(f"WiFi connected - IP: {ip}, Protocol: {protocol_str}, Bandwidth: {bw_str}, Promiscuous: {prom_str}")
+
+def cleanup_wifi(wlan):
+    """
+    Force cleanup of WiFi/CSI state.
+    
+    Handles stale state from previous interrupted runs (e.g., Ctrl+C without proper cleanup).
+    Safe to call even if WiFi/CSI is not active.
+    
+    Args:
+        wlan: WLAN instance
+    """
+    if not wlan.active():
+        return
+    
+    print("Forcing WiFi/CSI cleanup...")
+    
+    # Disable CSI first (may fail if not enabled, that's ok)
+    try:
+        wlan.csi_disable()
+    except:
+        pass
+    
+    # Disconnect if connected
+    if wlan.isconnected():
+        wlan.disconnect()
+    
+    # Deactivate interface
+    wlan.active(False)
+    time.sleep(1)  # Wait for hardware to settle
+
 
 def connect_wifi():
     """Connect to WiFi"""
     
-    print(f"Connecting to WiFi...")
+    print(f"Activating WiFi interface...")
     
     gc.collect()
     wlan = network.WLAN(network.STA_IF)
     
-    # Initialize WiFi
-    if wlan.active():
-        wlan.active(False)
-    wlan.active(True)
+    # Force cleanup of any stale state from previous interrupted run
+    cleanup_wifi(wlan)
     
+    wlan.active(True)    
     if not wlan.active():
         raise Exception("WiFi failed to activate")
     
-    # Disconnect if already connected
-    if wlan.isconnected():
-        wlan.disconnect()
-    
     # Wait for hardware initialization
-    time.sleep(2)  
+    time.sleep(2)
+        
+    # Configure WiFi protocol
+    wlan.config(protocol=wlan.PROTOCOL_DEFAULT)  # WiFi 6 on C5/C6, WiFi 4 on others
+    wlan.config(bandwidth=wlan.BW_HT20)          # HT20 for stable CSI
+    wlan.config(promiscuous=False)               # CSI from connected AP only
     
     # Connect
+    print(f"Connecting to WiFi...")
     wlan.connect(WIFI_SSID, WIFI_PASSWORD)
     
     # Wait for connection
@@ -87,8 +144,13 @@ def connect_wifi():
         timeout -= 1
     
     if wlan.isconnected():
-        print(f"WiFi connected - IP: {wlan.ifconfig()[0]}")
-        time.sleep(1)  # Stabilization
+        print_wifi_status(wlan)
+        # Disable power management
+        wlan.config(pm=wlan.PM_NONE)
+        # Enable CSI after WiFi is stable
+        wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
+        # Stabilization
+        time.sleep(1)
         return wlan
     else:
         raise Exception("Connection timeout")
@@ -327,29 +389,6 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     
     return success
 
-def get_csi_scale(chip_type):
-    """
-    Get CSI scale value based on chip type.
-    
-    Legacy platforms (ESP32, S2, S3, C3) need manual scaling (shift=4) to match
-    the C++ ESPectre behavior. Modern platforms (C5, C6) use auto-scaling.
-    
-    Returns:
-        int or None: Scale value (4 for legacy platforms, None for modern)
-    """
-    # Normalize chip type string for comparison
-    chip_lower = chip_type.lower() if chip_type else ""
-    
-    # Modern platforms (C5, C6): use auto-scaling (val_scale_cfg=0)
-    if 'esp32c5' in chip_lower or 'esp32c6' in chip_lower:
-        return None  # Auto-scaling
-    
-    # Legacy platforms (ESP32, S2, S3, C3): use manual scaling
-    # Note: shift works as LEFT shift on amplitudes (multiply by 2^shift)
-    # Variance scales quadratically: shift=4 → amplitudes ×16, variance ×256
-    # shift=4 provides good dynamic range for motion detection
-    return 4
-
 
 def main():
     """Main application loop"""
@@ -361,14 +400,6 @@ def main():
     
     # Connect to WiFi
     wlan = connect_wifi()
-    
-    # Configure and enable CSI with platform-specific scaling
-    # Legacy platforms (ESP32, S2, S3, C3): scale=4 (divide by 16)
-    # Modern platforms (C5, C6): scale=None (auto-scaling)
-    csi_scale = get_csi_scale(g_state.chip_type)
-    wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE, scale=csi_scale)
-    if csi_scale is not None:
-        print(f'CSI scale: {csi_scale} (manual scaling, divide by {2**csi_scale})')
     
     # Initialize segmentation with full configuration
     seg = SegmentationContext(
@@ -530,10 +561,11 @@ def main():
         print('\n\nStopping...')
     
     finally:
-        wlan.csi_disable()
+        print('Cleaning up...')
         mqtt_handler.disconnect()        
         if traffic_gen.is_running():
             traffic_gen.stop()
+        cleanup_wifi(wlan)
 
 if __name__ == '__main__':
     main()
