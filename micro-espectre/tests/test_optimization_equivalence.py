@@ -14,11 +14,11 @@ from segmentation import SegmentationContext
 from csi_utils import calculate_spatial_turbulence
 
 # Test configuration
+from config import SELECTED_SUBCARRIERS
 WINDOW_SIZE = 50
 HAMPEL_WINDOW = 7
 HAMPEL_THRESHOLD = 4.0
 TOLERANCE = 1e-6
-SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 
 class OriginalRunningVariance:

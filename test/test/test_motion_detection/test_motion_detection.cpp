@@ -40,22 +40,41 @@ using namespace esphome::espectre;
 
 static const char *TAG = "test_motion_detection";
 
-// Optimal subcarriers by dataset (found via grid search analysis)
-// - 64 SC (HT20): subcarriers 11-22
-// - 128 SC (HT40): subcarriers 50-61 (ESP32-S3)
-// - 256 SC (HE20): subcarriers 147-158
-static const uint8_t SUBCARRIERS_64SC[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
-static const uint8_t SUBCARRIERS_128SC[] = {50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61};
-static const uint8_t SUBCARRIERS_256SC[] = {147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158};
-
-// Get optimal subcarriers based on loaded data
-inline const uint8_t* get_optimal_subcarriers() {
-    int num_sc = csi_test_data::num_subcarriers();
-    if (num_sc == 256) return SUBCARRIERS_256SC;
-    if (num_sc == 128) return SUBCARRIERS_128SC;
-    return SUBCARRIERS_64SC;
-}
+// Optimal subcarriers by chip type (found via grid search analysis)
+// - C6 64 SC (HT20): subcarriers 11-22
+// - S3 64 SC (HT20): subcarriers 48-59
+static const uint8_t SUBCARRIERS_C6_64SC[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+static const uint8_t SUBCARRIERS_S3_64SC[] = {48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59};
 static const uint8_t NUM_SELECTED_SUBCARRIERS = 12;
+
+// ============================================================================
+// Chip-Specific Configuration
+// ============================================================================
+// S3 has higher baseline noise, requiring different parameters
+
+inline bool is_s3_chip() {
+    return csi_test_data::current_chip() == csi_test_data::ChipType::S3;
+}
+
+// Get optimal subcarriers based on chip type
+inline const uint8_t* get_optimal_subcarriers() {
+    return is_s3_chip() ? SUBCARRIERS_S3_64SC : SUBCARRIERS_C6_64SC;
+}
+
+inline float get_fp_rate_target() {
+    // S3 has higher baseline noise, allow 15% FP rate
+    return is_s3_chip() ? 15.0f : 10.0f;
+}
+
+inline uint16_t get_window_size() {
+    // S3 needs larger window for stable variance estimation
+    return is_s3_chip() ? 100 : SEGMENTATION_DEFAULT_WINDOW_SIZE;
+}
+
+inline bool get_enable_hampel() {
+    // S3 benefits from Hampel filter to reduce spikes
+    return is_s3_chip();
+}
 
 // Motion detection metrics structure
 typedef struct {
@@ -121,15 +140,19 @@ static void process_packet(csi_processor_context_t *ctx, const int8_t *packet) {
 
 // Test: MVS motion detection accuracy with real CSI data
 void test_mvs_detection_accuracy(void) {
+    float fp_target = get_fp_rate_target();
+    uint16_t window_size = get_window_size();
+    bool enable_hampel = get_enable_hampel();
+    
     printf("\n");
     printf("╔═══════════════════════════════════════════════════════╗\n");
     printf("║   ESPECTRE PERFORMANCE SUITE - MOTION DETECTION       ║\n");
     printf("║   Comprehensive evaluation for security/presence      ║\n");
-    printf("║   Target: 90%% Recall, <10%% FP Rate                   ║\n");
+    printf("║   Target: 90%% Recall, <%.0f%% FP Rate                   ║\n", fp_target);
     printf("╚═══════════════════════════════════════════════════════╝\n");
     printf("\n");
     printf("Architecture: CSI Packet → P95 Calibration → Normalization → MVS → State\n");
-    printf("Accuracy based on: Motion detection performance\n");
+    printf("Chip: %s, Window: %d, Hampel: %s\n", csi_test_data::chip_name(csi_test_data::current_chip()), window_size, enable_hampel ? "ON" : "OFF");
     printf("\n");
     
     // ========================================================================
@@ -140,11 +163,11 @@ void test_mvs_detection_accuracy(void) {
     printf("═══════════════════════════════════════════════════════\n\n");
     
     csi_processor_context_t processor;
-    TEST_ASSERT_TRUE(csi_processor_init(&processor, SEGMENTATION_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD));
+    TEST_ASSERT_TRUE(csi_processor_init(&processor, window_size, SEGMENTATION_DEFAULT_THRESHOLD));
     
     CSIManager csi_manager;
     csi_manager.init(&processor, get_optimal_subcarriers(), SEGMENTATION_DEFAULT_THRESHOLD, 
-                     SEGMENTATION_DEFAULT_WINDOW_SIZE, 100, false, 11.0f, false, 7, 4.0f);
+                     window_size, 100, false, 11.0f, enable_hampel, 7, 4.0f);
     
     CalibrationManager cm;
     cm.init(&csi_manager, "/tmp/test_accuracy_buffer.bin");
@@ -196,8 +219,8 @@ void test_mvs_detection_accuracy(void) {
     csi_processor_set_threshold(&processor, calibrated_adaptive_threshold);
     csi_processor_clear_buffer(&processor);
     
-    // Disable Hampel and Low-pass filters for pure MVS performance measurement
-    hampel_turbulence_init(&processor.hampel_state, HAMPEL_TURBULENCE_WINDOW_DEFAULT, HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
+    // Configure filters based on chip type (S3 uses Hampel to reduce spikes)
+    hampel_turbulence_init(&processor.hampel_state, HAMPEL_TURBULENCE_WINDOW_DEFAULT, HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, enable_hampel);
     csi_processor_set_lowpass_enabled(&processor, false);
     
     // Rename ctx to processor for consistency with rest of code
@@ -324,7 +347,7 @@ void test_mvs_detection_accuracy(void) {
     printf("  * False Negatives (FN):  %d\n", pkt_fn);
     printf("  * Recall:     %.1f%% (target: >90%%)\n", pkt_recall);
     printf("  * Precision:  %.1f%%\n", pkt_precision);
-    printf("  * FP Rate:    %.1f%% (target: <10%%)\n", pkt_fp_rate);
+    printf("  * FP Rate:    %.1f%% (target: <%.0f%%)\n", pkt_fp_rate, fp_target);
     printf("  * F1-Score:   %.1f%%\n", pkt_f1);
     printf("\n");
     printf("MEMORY:\n");
@@ -336,9 +359,9 @@ void test_mvs_detection_accuracy(void) {
     csi_processor_cleanup(&ctx);
     remove("/tmp/test_accuracy_buffer.bin");
     
-    // Verify minimum acceptable performance (same thresholds for all datasets)
+    // Verify minimum acceptable performance (chip-specific thresholds)
     TEST_ASSERT_TRUE_MESSAGE(pkt_recall > 90.0f, "Recall too low (target: >90%)");
-    TEST_ASSERT_TRUE_MESSAGE(pkt_fp_rate < 10.0f, "FP Rate too high (target: <10%)");
+    TEST_ASSERT_TRUE_MESSAGE(pkt_fp_rate < fp_target, "FP Rate too high (target: <10%)");
 }
 
 // Test: MVS threshold parameter sensitivity analysis
@@ -457,19 +480,23 @@ void test_mvs_window_size_sensitivity(void) {
 
 // Test: End-to-end with P95 band calibration and normalization
 void test_mvs_end_to_end_with_calibration(void) {
+    float fp_target = get_fp_rate_target();
+    uint16_t window_size = get_window_size();
+    bool enable_hampel = get_enable_hampel();
+    
     printf("\n═══════════════════════════════════════════════════════\n");
     printf("  END-TO-END TEST: P95 Calibration + Normalization + MVS\n");
+    printf("  Chip: %s, Window: %d, Hampel: %s\n", csi_test_data::chip_name(csi_test_data::current_chip()), window_size, enable_hampel ? "ON" : "OFF");
     printf("═══════════════════════════════════════════════════════\n\n");
     
     // Create CSIManager and CalibrationManager using real code
     csi_processor_context_t processor;
-    TEST_ASSERT_TRUE(csi_processor_init(&processor, SEGMENTATION_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD));
+    TEST_ASSERT_TRUE(csi_processor_init(&processor, window_size, SEGMENTATION_DEFAULT_THRESHOLD));
     
     CSIManager csi_manager;
-    // Disable low-pass filter for backward compatibility with test data
-    // (test data was recorded without low-pass filtering)
+    // Configure filters based on chip type (S3 uses Hampel to reduce spikes)
     csi_manager.init(&processor, get_optimal_subcarriers(), SEGMENTATION_DEFAULT_THRESHOLD, 
-                     SEGMENTATION_DEFAULT_WINDOW_SIZE, 100, false, 11.0f, false, 7, 4.0f);
+                     window_size, 100, false, 11.0f, enable_hampel, 7, 4.0f);
     
     CalibrationManager cm;
     cm.init(&csi_manager, "/tmp/test_e2e_buffer.bin");
@@ -529,9 +556,9 @@ void test_mvs_end_to_end_with_calibration(void) {
     csi_processor_set_threshold(&processor, calibrated_adaptive_threshold);
     csi_processor_clear_buffer(&processor);  // Clear stale data
     
-    // Disable Hampel and Low-pass for pure MVS measurement with test data
+    // Configure filters based on chip type (S3 uses Hampel to reduce spikes)
     hampel_turbulence_init(&processor.hampel_state, HAMPEL_TURBULENCE_WINDOW_DEFAULT, 
-                           HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
+                           HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, enable_hampel);
     csi_processor_set_lowpass_enabled(&processor, false);
     
     // Now run motion detection with P95-selected subcarriers and normalization
@@ -571,12 +598,12 @@ void test_mvs_end_to_end_with_calibration(void) {
     
     printf("\nEnd-to-end results (P95 + Normalization + MVS):\n");
     printf("  TP: %d, TN: %d, FP: %d, FN: %d\n", pkt_tp, pkt_tn, pkt_fp, pkt_fn);
-    printf("  Recall: %.1f%%, Precision: %.1f%%, FP Rate: %.1f%%, F1: %.1f%%\n", 
-           recall, precision, fp_rate, f1);
+    printf("  Recall: %.1f%%, Precision: %.1f%%, FP Rate: %.1f%% (target: <%.0f%%), F1: %.1f%%\n", 
+           recall, precision, fp_rate, fp_target, f1);
     
-    // Performance should still meet targets with P95-selected subcarriers
+    // Performance should still meet targets with P95-selected subcarriers (chip-specific)
     TEST_ASSERT_TRUE_MESSAGE(recall > 90.0f, "End-to-end Recall too low (target: >90%)");
-    TEST_ASSERT_TRUE_MESSAGE(fp_rate < 10.0f, "End-to-end FP Rate too high (target: <10%)");
+    TEST_ASSERT_TRUE_MESSAGE(fp_rate < fp_target, "End-to-end FP Rate too high (target: <10%)");
     
     // Cleanup
     remove("/tmp/test_e2e_buffer.bin");

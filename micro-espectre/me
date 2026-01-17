@@ -442,7 +442,6 @@ def deploy_code(args):
             ('src/config_local.py', ':src/'),
             ('src/segmentation.py', ':src/'),
             ('src/traffic_generator.py', ':src/'),
-            ('src/nvs_storage.py', ':src/'),
             ('src/filters.py', ':src/'),
             ('src/features.py', ':src/'),
             ('src/band_calibrator.py', ':src/'),

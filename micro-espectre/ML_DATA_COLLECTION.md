@@ -48,10 +48,9 @@ Start streaming CSI data from ESP32 to your PC:
 ```
 
 **Features:**
-- Gain lock phase (~3s) to determine dominant subcarrier count (64, 128, or 256)
-- Protocol v2 supports full 256 subcarriers (512 bytes payload)
+- Gain lock phase (~3s) for stable CSI acquisition
+- 64 subcarriers (HT20 mode)
 - Sequence numbers for packet loss detection
-- Packet filtering to ensure consistent SC count
 - ~100 packets/second
 
 ---
@@ -128,10 +127,9 @@ Central metadata file for the dataset:
 {
   "format_version": "1.0",
   "labels": {
-    "baseline": { "id": 0, "samples": 3, "description": "Quiet room, no motion" },
-    "movement": { "id": 1, "samples": 3, "description": "Human movement in room" }
+    "baseline": { "id": 0, "description": "Quiet room, no motion" },
+    "movement": { "id": 1, "description": "Human movement in room" }
   },
-  "total_samples": 7,
   "files": {
     "baseline": [
       {
@@ -154,7 +152,7 @@ Central metadata file for the dataset:
 |-------|-------------|
 | `filename` | NPZ file name |
 | `chip` | ESP32 chip type (C6, S3) |
-| `subcarriers` | Number of subcarriers (64, 128, 256) |
+| `subcarriers` | Number of subcarriers (64 for HT20) |
 | `contributor` | GitHub username of data collector |
 | `collected_at` | ISO timestamp of collection |
 | `duration_ms` | Sample duration in milliseconds |
@@ -168,7 +166,7 @@ Each `.npz` file contains a minimal, compact format optimized for ML training:
 | Field | Type | Description |
 |-------|------|-------------|
 | `csi_data` | `int8[N, SC*2]` | Raw I/Q data (N packets × SC subcarriers × 2) |
-| `num_subcarriers` | `int` | Number of subcarriers (64, 128, or 256) |
+| `num_subcarriers` | `int` | Number of subcarriers (64 for HT20) |
 | `label` | `str` | Sample label (e.g., "baseline", "movement") |
 | `label_id` | `int` | Numeric label ID for ML |
 | `chip` | `str` | ESP32 chip type (e.g., "c6", "s3") |
@@ -293,7 +291,7 @@ def my_callback(packet):
     # packet is a CSIPacket dataclass with:
     # - timestamp: Reception timestamp (seconds since epoch)
     # - seq_num: Sequence number (0-255)
-    # - num_subcarriers: Number of subcarriers (64, 128, or 256)
+    # - num_subcarriers: Number of subcarriers (64 for HT20)
     # - iq_raw: Raw I/Q values as int8 array
     # - chip: Chip type (e.g., 'c6', 's3') - auto-detected from stream
     print(f"Chip: {packet.chip}, Seq: {packet.seq_num}, SC: {packet.num_subcarriers}")
@@ -315,13 +313,11 @@ Header (6 bytes):
 Payload (N × 2 bytes):
   - I0, Q0, I1, Q1, ... (int8 each)
 
-Examples:
-  - 64 SC:  6 + 128 = 134 bytes
-  - 128 SC: 6 + 256 = 262 bytes
-  - 256 SC: 6 + 512 = 518 bytes
+Example (HT20, 64 SC):
+  - 6 + 128 = 134 bytes
 ```
 
-Note: The streamer performs a gain lock phase (~3 seconds) at startup to determine the dominant subcarrier count (64, 128, or 256). Packets with different SC counts are filtered out during streaming for consistency. The chip type is automatically detected and included in each packet.
+Note: ESPectre uses HT20 mode (64 subcarriers) for consistent performance across all ESP32 variants. The chip type is automatically detected and included in each packet.
 
 ---
 

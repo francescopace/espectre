@@ -19,52 +19,21 @@ import band_calibrator
 band_calibrator.BUFFER_FILE = os.path.join(tempfile.gettempdir(), 'band_test.bin')
 
 from band_calibrator import (
-    BandCalibrator, calculate_guard_bands,
+    BandCalibrator,
     ADAPTIVE_THRESHOLD_FACTOR,
     BAND_SIZE, MVS_WINDOW_SIZE, MVS_THRESHOLD
 )
+from src.config import GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER
 
 
-class TestCalculateGuardBands:
-    """Test guard band calculation for different SC counts"""
+class TestHT20Constants:
+    """Test HT20-only constants (64 subcarriers)"""
     
-    def test_64_subcarriers(self):
-        """Test HT20 guard bands"""
-        low, high, dc_low, dc_high = calculate_guard_bands(64)
-        
-        assert low == 11
-        assert high == 52
-        assert dc_low == 32
-        assert dc_high == 32  # Single DC
-    
-    def test_128_subcarriers(self):
-        """Test HT40 guard bands (optimized, validated on ESP32-S3)"""
-        low, high, dc_low, dc_high = calculate_guard_bands(128)
-        
-        assert low == 7
-        assert high == 120
-        assert dc_low == 61
-        assert dc_high == 67  # DC zone [61-67]
-    
-    def test_256_subcarriers(self):
-        """Test HE20 guard bands (optimized configuration)"""
-        low, high, dc_low, dc_high = calculate_guard_bands(256)
-        
-        # Optimized guard bands validated on ESP32-C6
-        assert low == 20
-        assert high == 235
-        assert dc_low == 120
-        assert dc_high == 136  # Tight DC zone centered on null SC 128
-    
-    def test_fallback_unknown_sc(self):
-        """Test fallback for unknown SC count"""
-        low, high, dc_low, dc_high = calculate_guard_bands(512)
-        
-        # Should be ~10% guard bands
-        assert low == 51  # 512 // 10
-        assert high == 460  # 512 - 1 - 51
-        assert dc_low == 256  # 512 // 2
-        assert dc_high == 256
+    def test_guard_bands(self):
+        """Test HT20 guard band constants"""
+        assert GUARD_BAND_LOW == 11
+        assert GUARD_BAND_HIGH == 52
+        assert DC_SUBCARRIER == 32
 
 
 class TestAdaptiveThresholdConstants:
@@ -154,18 +123,13 @@ class TestBandCalibratorAddPacket:
         
         cal.free_buffer()
     
-    def test_initializes_on_first_packet(self):
-        """Test SC count is detected from first packet"""
+    def test_accepts_ht20_packets(self):
+        """Test HT20 packets (64 SC) are accepted"""
         cal = BandCalibrator(buffer_size=10)
         
-        assert cal._num_subcarriers is None
-        
         packet = bytes([50, 50] * 64)
-        cal.add_packet(packet)
-        
-        assert cal._num_subcarriers == 64
-        assert cal._guard_band_low == 11
-        assert cal._guard_band_high == 52
+        count = cal.add_packet(packet)
+        assert count == 1
         
         cal.free_buffer()
 
@@ -176,7 +140,6 @@ class TestBandCalibratorHelpers:
     def test_calculate_spatial_turbulence(self):
         """Test spatial turbulence calculation"""
         cal = BandCalibrator(buffer_size=10)
-        cal._num_subcarriers = 64
         
         # Constant magnitudes -> 0 turbulence
         packet = [50] * 64
@@ -225,13 +188,8 @@ class TestBandCalibratorHelpers:
         cal.free_buffer()
     
     def test_get_candidate_bands(self):
-        """Test candidate band generation"""
+        """Test candidate band generation for HT20 (64 SC)"""
         cal = BandCalibrator(buffer_size=10)
-        cal._num_subcarriers = 64
-        cal._guard_band_low = 11
-        cal._guard_band_high = 52
-        cal._dc_low = 32
-        cal._dc_high = 32
         
         candidates = cal._get_candidate_bands()
         
@@ -242,14 +200,14 @@ class TestBandCalibratorHelpers:
         for band in candidates:
             assert len(band) == BAND_SIZE
         
-        # No band should include DC
+        # No band should include DC (subcarrier 32)
         for band in candidates:
-            assert 32 not in band
+            assert DC_SUBCARRIER not in band
         
         # All subcarriers should be in valid range
         for band in candidates:
             for sc in band:
-                assert 11 <= sc <= 52
+                assert GUARD_BAND_LOW <= sc <= GUARD_BAND_HIGH
         
         cal.free_buffer()
     

@@ -23,7 +23,7 @@ On first boot, keep the room **empty and still** for 10 seconds. The system will
 1. Collect ~700 CSI packets during baseline
 2. Analyze P95 moving variance for each candidate band
 3. Select optimal 12-subcarrier band
-4. Save configuration (persists across reboots)
+4. Calculate adaptive threshold (P95 × 1.4)
 
 Look for log messages like:
 ```
@@ -44,11 +44,14 @@ Look for state changes:
 
 ### 4. Adjust Threshold if Needed
 
-If detection isn't working well, modify `segmentation_threshold` in your YAML:
+By default, ESPectre uses an **adaptive threshold** calculated automatically during calibration (`P95 × 1.4`). This works well in most environments.
+
+If detection isn't working well, you can override the adaptive threshold in your YAML:
 
 ```yaml
 espectre:
-  segmentation_threshold: 1.0  # Default
+  # Uncomment to override adaptive threshold
+  segmentation_threshold: 1.0
 ```
 
 **Rule of thumb:**
@@ -60,21 +63,21 @@ After changing, re-flash:
 esphome run <your-config>.yaml
 ```
 
-**Interactive tuning:** You can also adjust the threshold in real-time using [ESPectre - The Game](https://espectre.dev/game). Connect via USB, drag the threshold slider, and see immediate visual feedback. Changes are saved to flash and apply to Home Assistant as well.
+**Interactive tuning:** You can also adjust the threshold in real-time using [ESPectre - The Game](https://espectre.dev/game). Connect via USB, drag the threshold slider, and see immediate visual feedback. Note that runtime adjustments are temporary (session-only) - the adaptive threshold is recalculated on every boot.
 
 ---
 
 ## Understanding Parameters
 
-### Segmentation Threshold (0.5-10.0)
+### Segmentation Threshold (0.1-10.0)
 
-**What it does:** Determines sensitivity for motion detection. The threshold is automatically calculated during calibration as `P95(baseline_mv) × 1.4`, but can be manually overridden.
+**What it does:** Determines sensitivity for motion detection.
 
-**Default:** Adaptive (calculated during calibration, typically 0.5-2.0)
+**Default:** Adaptive (calculated during calibration as `P95 × 1.4`, typically 0.5-2.0)
 
 | Value | Sensitivity | Use Case |
 |-------|-------------|----------|
-| 0.5-1.0 | High | **Default** - Detect subtle movements |
+| 0.5-1.0 | High | Detect subtle movements |
 | 1.5-3.0 | Medium | General purpose, most environments |
 | 3.0-5.0 | Low | Noisy environments, reduce false positives |
 | 5.0-10.0 | Very Low | Only detect significant movements |
@@ -82,10 +85,15 @@ esphome run <your-config>.yaml
 **Configuration:**
 ```yaml
 espectre:
-  segmentation_threshold: 1.0  # Override adaptive threshold if needed
+  # Segmentation threshold (optional - leave commented for adaptive threshold)
+  #segmentation_threshold: 1.0
 ```
 
-**Note:** The adaptive threshold is calculated automatically during calibration (`P95 × 1.4`). Only override if you need manual tuning. The adaptive approach works consistently across all ESP32 variants and environments.
+**Behavior:**
+- **Commented out (default)**: Adaptive threshold calculated automatically during calibration
+- **Uncommented**: Uses specified value, disables adaptive threshold
+
+**Note:** Runtime adjustments via Home Assistant slider are temporary (session-only). The adaptive threshold is recalculated on every boot.
 
 ### Window Size (10-200 packets)
 
@@ -617,7 +625,7 @@ After integration, monitor sensors in Home Assistant:
 
 Use **History** graphs to visualize detection patterns over time.
 
-**Tip:** You can adjust the threshold directly from Home Assistant without re-flashing. Changes are saved to device preferences and persist across reboots.
+**Tip:** You can adjust the threshold directly from Home Assistant without re-flashing. Changes are session-only - the adaptive threshold (P95 × 1.4) is recalculated on every boot.
 
 ---
 

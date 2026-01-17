@@ -71,10 +71,6 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | YAML Configuration | ✅ | ❌ | ESPHome only |
 | MQTT Commands | ❌ | ✅ | Micro-ESPectre only |
 | Runtime Config | ✅ (via HA) | ✅ (via MQTT) | Different methods |
-| **Storage** |
-| NVS Persistence | ✅ | ✅ | Implemented |
-| Auto-save on config change | ✅ | ✅ | Implemented |
-| Auto-load on startup | ✅ | ✅ | Implemented |
 | **Automatic Subcarrier Selection** |
 | P95 Band Selection | ✅ | ✅ | Implemented |
 | Percentile-based Detection | ✅ | ✅ | Implemented |
@@ -353,7 +349,6 @@ The test suite covers all core modules:
 | `features.py` | `test_features.py` | 99% |
 | `segmentation.py` | `test_segmentation.py`, `test_segmentation_additional.py` | 90% |
 | `band_calibrator.py` | `test_validation_real_data.py` | 94% |
-| `nvs_storage.py` | `test_nvs_storage.py` | 95% |
 | `mqtt/handler.py` | `test_mqtt.py` | 88% |
 | `mqtt/commands.py` | `test_mqtt.py` | 94% |
 | `traffic_generator.py` | `test_traffic_generator.py` | 91% |
@@ -363,7 +358,7 @@ Additional validation tests:
 - `test_optimization_equivalence.py`: Validates optimization correctness
 - `test_validation_real_data.py`: Validates algorithms with real CSI data (baseline/movement)
 
-**Total: 324 tests, 94% coverage** (MicroPython-only modules excluded)
+**Total: 304 tests, 94% coverage** (MicroPython-only modules excluded)
 
 ### CI Integration
 
@@ -375,7 +370,7 @@ Tests run automatically on every push/PR via GitHub Actions. See `.github/workfl
 
 ```python
 SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
-SEG_THRESHOLD = 1.0        # Motion detection threshold (0.0-10.0)
+# SEG_THRESHOLD = 1.0      # Uncomment to override adaptive threshold (P95 × 1.4)
 ENABLE_FEATURES = False    # Enable/disable feature extraction
 
 # Gain Lock Configuration
@@ -637,7 +632,7 @@ The chart shows:
 
 **Device Configuration** section shows:
 - Model, IP address, MAC address, WiFi protocol
-- Bandwidth (HT20/HT40), Channel, CSI status
+- Bandwidth (HT20), Channel, CSI status
 
 **Detection Parameters** (adjustable via sliders):
 - **Response Speed** (10-200): How fast the system reacts to changes (window size)
@@ -750,9 +745,9 @@ Publish JSON commands to `home/espectre/node1/cmd`:
   - `packets_sent`: Total packets sent since start
   - `errors`: Socket errors count
 
-### Configuration Persistence
+### Runtime Configuration
 
-All configuration changes made via MQTT commands are **automatically saved** to a JSON file (`espectre_config.json`) on the ESP32 filesystem and **automatically loaded** on startup, ensuring settings persist across reboots.
+Configuration changes made via MQTT commands are **session-only** and reset on reboot. The adaptive threshold (P95 × 1.4) is recalculated automatically at each boot for optimal performance.
 
 ## Home Assistant Integration
 

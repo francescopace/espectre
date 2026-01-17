@@ -4,8 +4,9 @@ MVS (Moving Variance Segmentation) Visualization Tool
 Visualizes the MVS algorithm behavior with current configuration
 
 Usage:
-    python tools/3_analyze_moving_variance_segmentation.py
-    python tools/3_analyze_moving_variance_segmentation.py --plot
+    python tools/3_analyze_moving_variance_segmentation.py              # Use C6 dataset
+    python tools/3_analyze_moving_variance_segmentation.py --chip S3    # Use S3 dataset
+    python tools/3_analyze_moving_variance_segmentation.py --plot       # Show visualization
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -13,7 +14,7 @@ License: GPLv3
 
 import numpy as np
 import argparse
-from csi_utils import load_baseline_and_movement, MVSDetector
+from csi_utils import load_baseline_and_movement, MVSDetector, find_dataset
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
 
@@ -63,16 +64,21 @@ def plot_mvs_visualization(detector_baseline, detector_movement, threshold, metr
 
 def main():
     parser = argparse.ArgumentParser(description='Visualize MVS algorithm behavior')
+    parser.add_argument('--chip', type=str, default='C6',
+                        help='Chip type to use: C6, S3, etc. (default: C6)')
     parser.add_argument('--plot', action='store_true', help='Show visualization plots')
     args = parser.parse_args()
     
-    print("\n📂 Loading data...")
+    chip = args.chip.upper()
+    print(f"\n📂 Loading {chip} data...")
     try:
-        baseline_packets, movement_packets = load_baseline_and_movement()
+        baseline_path, movement_path, chip_name = find_dataset(chip=chip)
+        baseline_packets, movement_packets = load_baseline_and_movement(chip=chip)
     except FileNotFoundError as e:
         print(f"❌ Error: {e}")
         return
     
+    print(f"   Chip: {chip_name}")
     print(f"   Loaded {len(baseline_packets)} baseline, {len(movement_packets)} movement packets")
     
     # Process with MVS detector

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
 Detection Methods Comparison
-Compares RSSI, Mean Amplitude, Turbulence, and MVS to demonstrate MVS superiority
+Compares RSSI, Turbulence, MVS, and P95 to demonstrate MVS superiority
 
 Usage:
-    python tools/8_compare_detection_methods.py
-    python tools/8_compare_detection_methods.py --plot
+    python tools/7_compare_detection_methods.py              # Use C6 dataset
+    python tools/7_compare_detection_methods.py --chip S3    # Use S3 dataset
+    python tools/7_compare_detection_methods.py --plot       # Show visualization
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -14,7 +15,7 @@ License: GPLv3
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
-from csi_utils import load_baseline_and_movement, MVSDetector, calculate_spatial_turbulence
+from csi_utils import load_baseline_and_movement, MVSDetector, calculate_spatial_turbulence, find_dataset
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 
 def calculate_rssi(csi_packet):
@@ -27,15 +28,15 @@ def calculate_rssi(csi_packet):
         amplitudes.append(amplitude)
     return np.mean(amplitudes)
 
-def calculate_mean_amplitude(csi_packet, selected_subcarriers):
-    """Calculate mean amplitude of selected subcarriers"""
-    amplitudes = []
-    for sc_idx in selected_subcarriers:
-        I = float(csi_packet[sc_idx * 2])
-        Q = float(csi_packet[sc_idx * 2 + 1])
-        amplitude = np.sqrt(I*I + Q*Q)
-        amplitudes.append(amplitude)
-    return np.mean(amplitudes)
+
+def calculate_adaptive_threshold(mvs_values):
+    """Calculate adaptive threshold from MVS values.
+    
+    Uses min(P95 × 1.4, P100) to ensure threshold doesn't exceed observed maximum.
+    """
+    p95 = np.percentile(mvs_values, 95)
+    p100 = np.percentile(mvs_values, 100)  # max value
+    return min(p95 * 1.4, p100)
 
 def compare_detection_methods(baseline_packets, movement_packets, subcarriers, window_size, threshold):
     """
@@ -45,23 +46,20 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     # Calculate metrics for each method
     methods = {
         'RSSI': {'baseline': [], 'movement': []},
-        'Mean Amplitude': {'baseline': [], 'movement': []},
         'Turbulence': {'baseline': [], 'movement': []},
-        'MVS': {'baseline': [], 'movement': []}
+        'MVS': {'baseline': [], 'movement': []},
+        'P95': {'baseline': [], 'movement': [], 'threshold': None}
     }
     
     # Process baseline
     rssi_values = []
-    mean_amp_values = []
     turbulence_values = []
     
     for pkt in baseline_packets:
         rssi_values.append(calculate_rssi(pkt['csi_data']))
-        mean_amp_values.append(calculate_mean_amplitude(pkt['csi_data'], subcarriers))
         turbulence_values.append(calculate_spatial_turbulence(pkt['csi_data'], subcarriers))
     
     methods['RSSI']['baseline'] = np.array(rssi_values)
-    methods['Mean Amplitude']['baseline'] = np.array(mean_amp_values)
     methods['Turbulence']['baseline'] = np.array(turbulence_values)
     
     # Calculate MVS for baseline
@@ -70,18 +68,20 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
         detector_baseline.process_packet(pkt['csi_data'])
     methods['MVS']['baseline'] = np.array(detector_baseline.moving_var_history)
     
+    # Calculate adaptive threshold from baseline MVS: min(P95 × 1.4, P100)
+    adaptive_threshold = calculate_adaptive_threshold(methods['MVS']['baseline'])
+    methods['P95']['threshold'] = adaptive_threshold
+    methods['P95']['baseline'] = methods['MVS']['baseline'].copy()  # Same data, different threshold
+    
     # Process movement
     rssi_values = []
-    mean_amp_values = []
     turbulence_values = []
     
     for pkt in movement_packets:
         rssi_values.append(calculate_rssi(pkt['csi_data']))
-        mean_amp_values.append(calculate_mean_amplitude(pkt['csi_data'], subcarriers))
         turbulence_values.append(calculate_spatial_turbulence(pkt['csi_data'], subcarriers))
     
     methods['RSSI']['movement'] = np.array(rssi_values)
-    methods['Mean Amplitude']['movement'] = np.array(mean_amp_values)
     methods['Turbulence']['movement'] = np.array(turbulence_values)
     
     # Calculate MVS for movement
@@ -89,6 +89,7 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     for pkt in movement_packets:
         detector_movement.process_packet(pkt['csi_data'])
     methods['MVS']['movement'] = np.array(detector_movement.moving_var_history)
+    methods['P95']['movement'] = methods['MVS']['movement'].copy()  # Same data, different threshold
     
     return methods, detector_baseline, detector_movement
 
@@ -100,17 +101,20 @@ def plot_comparison(methods, detector_baseline, detector_movement, threshold, su
     fig.suptitle(f'Detection Methods Comparison - Subcarriers: {subcarriers}', 
                  fontsize=14, fontweight='bold')
     
-    method_names = ['RSSI', 'Mean Amplitude', 'Turbulence', 'MVS']
+    method_names = ['RSSI', 'Turbulence', 'MVS', 'P95']
     
     for row, method_name in enumerate(method_names):
         baseline_data = methods[method_name]['baseline']
         movement_data = methods[method_name]['movement']
         
-        # Calculate simple threshold for non-MVS methods (mean + 2*std of baseline)
-        if method_name != 'MVS':
-            simple_threshold = np.mean(baseline_data) + 2 * np.std(baseline_data)
-        else:
+        # Calculate threshold based on method
+        if method_name == 'MVS':
             simple_threshold = threshold
+        elif method_name == 'P95':
+            simple_threshold = methods['P95']['threshold']
+        else:
+            # Simple threshold for RSSI, Turbulence: mean + 2*std of baseline
+            simple_threshold = np.mean(baseline_data) + 2 * np.std(baseline_data)
         
         # Time axis
         time_baseline = np.arange(len(baseline_data)) / 100.0
@@ -122,8 +126,8 @@ def plot_comparison(methods, detector_baseline, detector_movement, threshold, su
         ax_baseline = axes[row, 0]
         
         # Plot data
-        color = 'blue' if method_name == 'MVS' else 'green'
-        linewidth = 1.5 if method_name == 'MVS' else 1.0
+        color = 'blue' if method_name in ['MVS', 'P95'] else 'green'
+        linewidth = 1.5 if method_name in ['MVS', 'P95'] else 1.0
         ax_baseline.plot(time_baseline, baseline_data, color=color, alpha=0.7, 
                         linewidth=linewidth, label=method_name)
         ax_baseline.axhline(y=simple_threshold, color='r', linestyle='--', 
@@ -149,7 +153,7 @@ def plot_comparison(methods, detector_baseline, detector_movement, threshold, su
         ax_baseline.legend(fontsize=9)
         
         # Add green border for MVS
-        if method_name == 'MVS':
+        if method_name in ['MVS', 'P95']:
             for spine in ax_baseline.spines.values():
                 spine.set_edgecolor('green')
                 spine.set_linewidth(3)
@@ -194,8 +198,8 @@ def plot_comparison(methods, detector_baseline, detector_movement, threshold, su
         ax_movement.grid(True, alpha=0.3)
         ax_movement.legend(fontsize=9)
         
-        # Add green border for MVS
-        if method_name == 'MVS':
+        # Add green border for MVS and P95
+        if method_name in ['MVS', 'P95']:
             for spine in ax_movement.spines.values():
                 spine.set_edgecolor('green')
                 spine.set_linewidth(3)
@@ -216,18 +220,22 @@ def print_comparison_summary(methods, detector_baseline, detector_movement, thre
     print(f"  Subcarriers: {subcarriers}")
     print(f"  Window Size: {WINDOW_SIZE}")
     print(f"  MVS Threshold: {threshold}")
+    print(f"  Adaptive Threshold: {methods['P95']['threshold']:.2f} (min(P95x1.4, P100))")
     print()
     
-    print(f"{'Method':<20} {'Baseline FP':<15} {'Movement TP':<15} {'Recall':<10}")
-    print("-" * 70)
-    
-    for method_name in ['RSSI', 'Mean Amplitude', 'Turbulence', 'MVS']:
+    # Calculate metrics for each method
+    results = []
+    for method_name in ['RSSI', 'Turbulence', 'MVS', 'P95']:
         baseline_data = methods[method_name]['baseline']
         movement_data = methods[method_name]['movement']
         
         if method_name == 'MVS':
             fp = detector_baseline.get_motion_count()
             tp = detector_movement.get_motion_count()
+        elif method_name == 'P95':
+            p95_threshold = methods['P95']['threshold']
+            fp = np.sum(baseline_data > p95_threshold)
+            tp = np.sum(movement_data > p95_threshold)
         else:
             # Simple threshold: mean + 2*std
             simple_threshold = np.mean(baseline_data) + 2 * np.std(baseline_data)
@@ -236,18 +244,38 @@ def print_comparison_summary(methods, detector_baseline, detector_movement, thre
         
         fn = len(movement_data) - tp
         recall = (tp / (tp + fn) * 100) if (tp + fn) > 0 else 0.0
+        precision = (tp / (tp + fp) * 100) if (tp + fp) > 0 else 0.0
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
         
-        marker = "⭐" if method_name == 'MVS' else "  "
-        print(f"{marker} {method_name:<18} {fp:<15} {tp:<15} {recall:<10.1f}%")
+        results.append({
+            'name': method_name,
+            'fp': fp,
+            'tp': tp,
+            'recall': recall,
+            'precision': precision,
+            'f1': f1
+        })
+    
+    # Find best method by Precision (minimizes false positives)
+    best_method = max(results, key=lambda r: r['precision'])
+    
+    print(f"{'Method':<15} {'FP':<8} {'TP':<8} {'Recall':<10} {'Precision':<12} {'F1':<10}")
+    print("-" * 70)
+    
+    for r in results:
+        marker = " *" if r['name'] == best_method['name'] else "  "
+        print(f"{marker} {r['name']:<13} {r['fp']:<8} {r['tp']:<8} {r['recall']:<10.1f} {r['precision']:<12.1f} {r['f1']:<10.1f}")
     
     print("-" * 70)
-    print("\n✅ MVS provides the best separation between baseline and movement!")
-    print("   - Lowest false positives")
-    print("   - Highest true positives")
-    print("   - Best recall percentage\n")
+    print(f"\n* Best method by Precision: {best_method['name']} (Precision={best_method['precision']:.1f}%)")
+    print(f"   - Recall: {best_method['recall']:.1f}%")
+    print(f"   - F1: {best_method['f1']:.1f}%")
+    print(f"   - FP: {best_method['fp']}\n")
 
 def main():
-    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Amplitude, Turbulence, MVS)')
+    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Turbulence, MVS, P95)')
+    parser.add_argument('--chip', type=str, default='C6',
+                        help='Chip type to use: C6, S3, etc. (default: C6)')
     parser.add_argument('--plot', action='store_true', help='Show visualization plots')
     
     args = parser.parse_args()
@@ -257,13 +285,16 @@ def main():
     print("╚═══════════════════════════════════════════════════════╝\n")
     
     # Load data
-    print("📂 Loading data...")
+    chip = args.chip.upper()
+    print(f"📂 Loading {chip} data...")
     try:
-        baseline_packets, movement_packets = load_baseline_and_movement()
+        baseline_path, movement_path, chip_name = find_dataset(chip=chip)
+        baseline_packets, movement_packets = load_baseline_and_movement(chip=chip)
     except FileNotFoundError as e:
         print(f"❌ Error: {e}")
         return
     
+    print(f"   Chip: {chip_name}")
     print(f"   Loaded {len(baseline_packets)} baseline packets")
     print(f"   Loaded {len(movement_packets)} movement packets\n")
     

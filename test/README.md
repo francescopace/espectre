@@ -43,12 +43,12 @@ Tests load real CSI data from NPZ files in `micro-espectre/data/` using the [cnp
 
 ### Datasets
 
-| Config | Baseline | Movement | Packets |
-|--------|----------|----------|---------|
-| 64 SC (HT20) | `baseline_c6_64sc_*.npz` | `movement_c6_64sc_*.npz` | 1000 each |
-| 256 SC (HE20) | `baseline_c6_256sc_*.npz` | `movement_c6_256sc_*.npz` | 1000+ each |
+| Chip | Baseline | Movement | Packets |
+|------|----------|----------|---------|
+| ESP32-C6 | `baseline_c6_64sc_*.npz` | `movement_c6_64sc_*.npz` | 1000 each |
+| ESP32-S3 | `baseline_s3_64sc_*.npz` | `movement_s3_64sc_*.npz` | 1000 each |
 
-Tests that use real data are executed with **both datasets** (64 SC and 256 SC), similar to pytest parametrization. This ensures algorithms work correctly across different WiFi modes.
+Tests run with **multiple chip datasets** (C6, S3) using 64 SC (HT20 mode).
 
 Both Python and C++ tests use the same NPZ files, eliminating duplication.
 

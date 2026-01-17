@@ -284,7 +284,7 @@ The game doubles as a fun way to tune your ESPectre system. The movement bar at 
 - Drag **left** → Lower threshold = more sensitive (detects smaller movements)
 - Drag **right** → Higher threshold = less sensitive (requires larger movements)
 
-Changes are sent to the ESP32 and **saved to flash**, so they persist after reboot and apply to Home Assistant as well.
+Changes are sent to the ESP32 in real-time and apply to Home Assistant as well. Note: adjustments are session-only - the adaptive threshold is recalculated on every boot.
 
 This provides immediate visual feedback:
 - See exactly how your movements register

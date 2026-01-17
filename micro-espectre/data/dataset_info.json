@@ -1,25 +1,21 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-01-17T19:15:05.706101",
+  "updated_at": "2026-01-17T22:26:26.763375",
   "labels": {
     "baseline": {
       "id": 0,
-      "samples": 2,
       "description": "Quiet room, no motion"
     },
     "baseline_noisy": {
       "id": 2,
-      "samples": 1,
       "description": "Room with environmental noise (fans, HVAC, etc.)"
     },
     "movement": {
       "id": 1,
-      "samples": 2,
       "description": "Human movement in room"
     }
   },
-  "total_samples": 5,
   "files": {
     "baseline": [
       {
@@ -33,23 +29,13 @@
         "num_packets": 1000
       },
       {
-        "filename": "baseline_c6_64sc_20260117_190503.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-01-17T19:05:03.480430",
-        "duration_ms": 9998,
-        "num_packets": 1331,
-        "description": ""
-      },
-      {
-        "filename": "baseline_s3_64sc_20260117_191447.npz",
+        "filename": "baseline_s3_64sc_20260117_222606.npz",
         "chip": "S3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-01-17T19:14:47.189956",
-        "duration_ms": 10007,
-        "num_packets": 1350,
+        "collected_at": "2026-01-17T22:26:06.497945",
+        "duration_ms": 10008,
+        "num_packets": 1353,
         "description": ""
       }
     ],
@@ -77,23 +63,13 @@
         "num_packets": 1000
       },
       {
-        "filename": "movement_c6_64sc_20260117_190552.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-01-17T19:05:52.600520",
-        "duration_ms": 10011,
-        "num_packets": 1369,
-        "description": ""
-      },
-      {
-        "filename": "movement_s3_64sc_20260117_191505.npz",
+        "filename": "movement_s3_64sc_20260117_222626.npz",
         "chip": "S3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-01-17T19:15:05.650800",
-        "duration_ms": 10009,
-        "num_packets": 1369,
+        "collected_at": "2026-01-17T22:26:26.747046",
+        "duration_ms": 10010,
+        "num_packets": 1366,
         "description": ""
       }
     ]

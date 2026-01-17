@@ -293,7 +293,7 @@ class CSIReceiver:
                         break
                 
                 try:
-                    data, addr = self.sock.recvfrom(1024)  # 518 bytes max for 256 SC
+                    data, addr = self.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)
                 except socket.timeout:
                     self._update_pps()
                     continue
@@ -430,7 +430,7 @@ class CSICollector:
         
         File format (unified, compact):
             csi_data: int8[N, num_sc*2] - Raw I/Q values
-            num_subcarriers: int - Number of subcarriers (64, 128, 256)
+            num_subcarriers: int - Number of subcarriers (64 for HT20)
             label: str - Label name
             label_id: int - Numeric label ID
             chip: str - Chip type (C6, S3, etc.)
@@ -526,15 +526,10 @@ class CSICollector:
         if self.label not in info['labels']:
             info['labels'][self.label] = {
                 'id': len(info['labels']),
-                'samples': 0,
                 'description': ''
             }
         
-        info['labels'][self.label]['samples'] = sample_count
         info['updated_at'] = datetime.now().isoformat()
-        
-        # Update total
-        info['total_samples'] = sum(l['samples'] for l in info['labels'].values())
         
         # Track file details if provided
         if filename and num_subcarriers:
@@ -606,7 +601,7 @@ class CSICollector:
                 
                 while time.time() - start_time < duration:
                     try:
-                        data, addr = self.receiver.sock.recvfrom(1024)  # 518 bytes max for 256 SC
+                        data, addr = self.receiver.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)
                         packet = self.receiver._parse_packet(data)
                         if packet:
                             packets.append(packet)
@@ -683,7 +678,7 @@ class CSICollector:
                     
                     while time.time() - start_time < 2.0:
                         try:
-                            data, addr = self.receiver.sock.recvfrom(1024)  # 518 bytes max for 256 SC
+                            data, addr = self.receiver.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)
                             packet = self.receiver._parse_packet(data)
                             if packet:
                                 packets.append(packet)
@@ -731,7 +726,6 @@ def load_dataset_info() -> Dict[str, Any]:
         'created_at': datetime.now().isoformat(),
         'updated_at': datetime.now().isoformat(),
         'labels': {},
-        'total_samples': 0,
         'files': {},
         'contributors': [],
         'environments': []
@@ -888,25 +882,81 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     return packets
 
 
+def find_dataset(chip: str = None, num_sc: int = 64) -> Tuple[Path, Path, str]:
+    """
+    Find the most recent baseline and movement dataset files.
+    
+    Args:
+        chip: Chip type (C6, S3, etc.) or None to find any chip
+        num_sc: Number of subcarriers (default: 64 for HT20)
+    
+    Returns:
+        tuple: (baseline_path, movement_path, chip_name)
+    
+    Raises:
+        FileNotFoundError: If no matching files found
+    """
+    baseline_dir = DATA_DIR / 'baseline'
+    movement_dir = DATA_DIR / 'movement'
+    
+    # Build search pattern
+    if chip:
+        chip_lower = chip.lower()
+        baseline_pattern = f'baseline_{chip_lower}_{num_sc}sc_*.npz'
+        movement_pattern = f'movement_{chip_lower}_{num_sc}sc_*.npz'
+    else:
+        baseline_pattern = f'*_{num_sc}sc_*.npz'
+        movement_pattern = f'*_{num_sc}sc_*.npz'
+    
+    baseline_files = list(baseline_dir.glob(baseline_pattern))
+    movement_files = list(movement_dir.glob(movement_pattern))
+    
+    chip_desc = f"{chip} ({num_sc} SC)" if chip else f"{num_sc} SC"
+    
+    if not baseline_files:
+        raise FileNotFoundError(
+            f"No baseline file found for {chip_desc} in {baseline_dir}\n"
+            f"Collect data using: ./me collect --label baseline --duration 10"
+        )
+    if not movement_files:
+        raise FileNotFoundError(
+            f"No movement file found for {chip_desc} in {movement_dir}\n"
+            f"Collect data using: ./me collect --label movement --duration 10"
+        )
+    
+    # Use the most recent file (sorted by name, which includes timestamp)
+    baseline_file = sorted(baseline_files)[-1]
+    movement_file = sorted(movement_files)[-1]
+    
+    # Extract chip name from filename (e.g., baseline_c6_64sc_... -> C6)
+    chip_name = baseline_file.stem.split('_')[1].upper()
+    
+    return baseline_file, movement_file, chip_name
+
+
 def load_baseline_and_movement(
     baseline_file: str = None,
-    movement_file: str = None
+    movement_file: str = None,
+    chip: str = 'C6'
 ) -> Tuple[List[Dict], List[Dict]]:
     """
     Load baseline and movement data from .npz files
     
     Args:
-        baseline_file: Path to baseline data file (optional, uses default if not specified)
-        movement_file: Path to movement data file (optional, uses default if not specified)
+        baseline_file: Path to baseline data file (optional, auto-finds if not specified)
+        movement_file: Path to movement data file (optional, auto-finds if not specified)
+        chip: Chip type for auto-discovery (default: C6)
     
     Returns:
         tuple: (baseline_packets, movement_packets)
     """
-    # Apply defaults if not specified
-    if baseline_file is None:
-        baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz'
-    if movement_file is None:
-        movement_file = DATA_DIR / 'movement' / 'movement_c6_64sc_20251212_142443.npz'
+    # Auto-find files if not specified
+    if baseline_file is None or movement_file is None:
+        found_baseline, found_movement, _ = find_dataset(chip=chip)
+        if baseline_file is None:
+            baseline_file = found_baseline
+        if movement_file is None:
+            movement_file = found_movement
     
     # Convert to Path if string
     baseline_path = Path(baseline_file) if isinstance(baseline_file, str) else baseline_file

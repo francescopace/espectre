@@ -6,80 +6,75 @@ All notable changes to this project will be documented in this file.
 
 ## [2.4.0] - in progress
 
-### Features
-
-#### Adaptive Threshold replaces Signal Normalization
-
-The signal normalization approach has been replaced with **Adaptive Threshold** for motion detection.
-
-**How it works:**
-- During calibration, calculates P95 (95th percentile) of baseline moving variance
-- Sets threshold = P95 × 1.4 (safety margin for zero false positives)
-- Threshold adapts to each environment's noise level automatically
-
-**Performance:**
-- 64 SC: 98.8% Recall, **0.0% FP** (improved from 98.1% with normalization)
-- 256 SC: 98.7% Recall, **0.0% FP** (improved from 99.9%/0.9% FP with normalization)
-
-**Benefits:**
-- **Zero false positives** guaranteed across all environments
-- Simpler algorithm (no signal modification, only threshold adaptation)
-- Works consistently on all ESP32 variants
-- Fully automatic - no manual threshold tuning needed
-
-**Breaking changes:**
-- `normalization_scale` parameter removed from `SegmentationContext`
-- `set_normalization_scale()` method removed
-- Calibration now returns `adaptive_threshold` instead of `normalization_scale`
+### Algorithm Changes
 
 #### P95 Band Selection replaces NBVI
 
-The NBVI (Normalized Baseline Variability Index) algorithm has been completely replaced with a new **P95 Band Selection** algorithm for automatic subcarrier optimization.
+The NBVI algorithm has been replaced with **P95 Band Selection** for automatic subcarrier optimization.
 
-**Why this change?**
-- NBVI selected subcarriers with low amplitude variability, but this didn't correlate with low false positive rates
-- The new algorithm uses the 95th percentile of moving variance (P95 MV) during baseline calibration
+- Uses 95th percentile of moving variance (P95 MV) during baseline calibration
 - P95 MV directly predicts false positive rate: bands with P95 below threshold have near-zero FP
-
-**Performance improvements:**
-- 64 SC: P95 selects exact optimal band `[11-22]`, achieving 98.1% Recall, 0% FP (same as fixed band)
-- 256 SC: P95 selects band `[177-188]`, achieving 94.0% Recall, 0.9% FP (vs NBVI's 6.5% FP)
-
-**Migration notes:**
 - No user action required - calibration runs automatically at boot
-- Configuration parameters unchanged (`CALIBRATION_BUFFER_SIZE` replaces `NBVI_BUFFER_SIZE`)
-- Existing NVS calibration data will be replaced on first boot
 
-#### WiFi 6 (802.11ax) 256 Subcarriers Support
+#### Adaptive Threshold replaces Signal Normalization
 
-Full support for 256 subcarriers on WiFi 6 HE-SU mode (ESP32-C6).
+Signal normalization replaced with **Adaptive Threshold** for motion detection.
 
-- **Optimized guard bands**: Empirically validated configuration for 256 SC
-  - Guard bands: `[20-235]` (vs conservative `[30-225]`)
-  - DC zone: `[120-136]` (vs wide `[108-147]`)
-  - 199 valid subcarriers (vs 156), 89 candidate bands (vs 68)
-  - P95 improved: 0.56 vs 0.60 (7% more stable)
-- **Automatic detection**: Band calibration adapts to subcarrier count from CSI stream
-- **Chip auto-detection**: CSI streaming protocol now includes chip type metadata
-- **Unified NPZ format**: Compact `csi_data` field with standardized naming convention
+- Calculates P95 of baseline moving variance during calibration
+- Sets threshold = P95 × 1.4 (safety margin for zero false positives)
+- Adapts automatically to each environment's noise level
+
+**Breaking changes:**
+- `normalization_scale` parameter removed from `SegmentationContext`
+- Calibration now returns `adaptive_threshold` instead of `normalization_scale`
+
+#### HT20-Only Mode (64 Subcarriers)
+
+Simplified to WiFi 4 (802.11n) HT20 mode exclusively for stable 64 subcarriers across all ESP32 variants.
+
+- Fixed 64 SC for consistent performance on all chips (C3, C6, S3, original ESP32)
+- Centralized constants in `csi_processor.h` (C++) and `config.py` (Python)
+- Reduced memory footprint with optimized buffer sizes
+
+### Testing
+
+#### Multi-Chip Test Suite (C6 + S3)
+
+Unit tests now run on both ESP32-C6 and ESP32-S3 with dedicated datasets and chip-specific parameters:
+
+| Parameter | ESP32-C6 | ESP32-S3 |
+|-----------|----------|----------|
+| Window Size | 50 | 100 |
+| Subcarriers | [11-22] | [48-59] |
+| Hampel Filter | OFF | ON |
+| FP Rate Target | <10% | <15% |
+
+**Results:**
+- **C6:** 98.8% Recall, 0.0% FP Rate, 99.4% F1-Score
+- **S3:** 99.1% Recall, 14.3% FP Rate, 92.9% F1-Score
+
+S3 dataset requires Hampel filter and larger window to handle higher baseline noise. Both C++ (`pio test`) and Python (`pytest`) test suites validate performance.
+
+### Features
+
+#### Optional Segmentation Threshold
+
+The `segmentation_threshold` parameter is now optional in YAML configuration.
+
+- **Default**: Adaptive threshold calculated as `P95 × 1.4` during calibration
+- **Manual override**: Specify value in YAML to disable adaptive threshold
 
 #### Calibrate Switch
 
-New Home Assistant switch entity for triggering band recalibration without reflashing.
+New Home Assistant switch for triggering band recalibration without reflashing.
 
-- **`switch.espectre_calibrate`**: Turn ON to start calibration, automatically turns OFF when complete
-- **State feedback**: Switch reflects real calibration state (ON during calibration, OFF when idle)
-- **Interaction blocking**: Switch ignores user input during calibration to prevent interruption
+- `switch.espectre_calibrate`: Turn ON to start, automatically turns OFF when complete
+- Useful for recalibrating after room layout changes
 
-Useful for recalibrating after room layout changes (furniture, sensor position) without needing to erase flash.
+#### Other Changes
 
-#### ESP32-C3 Development Config
-
-Added `espectre-c3-dev.yaml` for ESP32-C3 development boards.
-
-#### Lower Threshold Minimum
-
-- Threshold minimum lowered from 0.5 to **0.1** for high-sensitivity applications
+- **ESP32-C3 Development Config**: Added `espectre-c3-dev.yaml`
+- **Lower Threshold Minimum**: Lowered from 0.5 to 0.1 for high-sensitivity applications
 
 ### Micro-ESPectre (R&D Platform)
 
@@ -105,10 +100,6 @@ New `verify` command to detect outdated firmware causing CSI collection failures
 
 ### CI/CD
 
-#### Test Suite Simplification
-
-Removed on-device test environment (`esp32c6`) from PlatformIO. All tests now run only in `native` mode, which is faster and more reliable for CI. Real CSI data from ESP32-C6 captures is still used for validation.
-
 #### NPZ Data Loading with cnpy
 
 C++ tests now load CSI data directly from NPZ files using [cnpy](https://github.com/rogersce/cnpy), eliminating the need for duplicate data in C header files.
@@ -120,13 +111,13 @@ C++ tests now load CSI data directly from NPZ files using [cnpy](https://github.
 
 > Note: cnpy improvements submitted upstream as [PR](https://github.com/rogersce/cnpy/pull/103)
 
-#### Multi-Dataset Testing
+#### Multi-Chip Testing
 
-Tests that use real CSI data now run with **both 64 SC and 256 SC datasets**, similar to pytest parametrization.
+Tests run with real CSI data from multiple ESP32 chips (C6, S3) using 64 SC datasets.
 
-- **223 test cases** (up from 208) covering both HT20 (64 SC) and HE20 (256 SC) modes
-- **Dynamic subcarrier selection**: Tests automatically use optimal subcarriers for each dataset
-- **Guard band validation**: Uses `CalibrationManager` getters instead of hardcoded values
+- **Parameterized tests**: Both C++ and Python tests iterate over available chip datasets
+- **Centralized test data**: `csi_test_data.h` manages chip-specific data loading
+- **Guard band validation**: Uses centralized `HT20_*` constants from `csi_processor.h`
 
 #### Smoke Tests (QEMU)
 

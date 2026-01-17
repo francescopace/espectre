@@ -28,7 +28,6 @@
 #include "sensor_publisher.h"
 #include "csi_manager.h"
 #include "wifi_lifecycle.h"
-#include "config_manager.h"
 #include "calibration_manager.h"
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
@@ -51,7 +50,10 @@ class ESpectreComponent : public Component {
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
   
   // Setters for YAML configuration
-  void set_segmentation_threshold(float threshold) { this->segmentation_threshold_ = threshold; }
+  void set_segmentation_threshold(float threshold) { 
+    this->segmentation_threshold_ = threshold; 
+    this->user_specified_threshold_ = true;  // Mark as user-specified (skip adaptive)
+  }
   void set_segmentation_window_size(uint16_t size) { this->segmentation_window_size_ = size; }
   void set_traffic_generator_rate(uint32_t rate) { this->traffic_generator_rate_ = rate; }
   void set_traffic_generator_mode(const std::string &mode) { 
@@ -131,12 +133,12 @@ class ESpectreComponent : public Component {
   uint8_t selected_subcarriers_[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
   
   bool user_specified_subcarriers_{false};  // True if user specified in YAML
+  bool user_specified_threshold_{false};    // True if user specified in YAML (skip adaptive)
   
   // Managers (handle specific responsibilities)
   SensorPublisher sensor_publisher_;
   CSIManager csi_manager_;
   WiFiLifecycleManager wifi_lifecycle_;
-  ConfigurationManager config_manager_;
   CalibrationManager calibration_manager_;
   TrafficGeneratorManager traffic_generator_;
   UDPListener udp_listener_;

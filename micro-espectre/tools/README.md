@@ -24,14 +24,17 @@ For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../ML_DATA_COLL
 
 ### 1. Raw Data Analysis (`1_analyze_raw_data.py`)
 
-**Purpose**: Visualize raw CSI amplitude data and identify patterns
+**Purpose**: Analyze data quality and verify dataset integrity
 
-- Analyzes subcarrier patterns and noise characteristics
-- Helps identify most informative subcarriers
-- Visualizes signal strength distribution
+- Automatically discovers and analyzes all available chip datasets
+- Verifies labels are correct (baseline vs movement)
+- Compares turbulence variance between states
+- Shows summary table with status for each chip
 
 ```bash
-python 1_analyze_raw_data.py
+python 1_analyze_raw_data.py           # Analyze all datasets (C6, S3, etc.)
+python 1_analyze_raw_data.py --chip C6 # Analyze only C6 dataset
+python 1_analyze_raw_data.py --chip S3 # Analyze only S3 dataset
 ```
 
 ---
@@ -45,8 +48,9 @@ python 1_analyze_raw_data.py
 - Finds optimal parameter combinations
 
 ```bash
-python 2_analyze_system_tuning.py          # Full grid search
-python 2_analyze_system_tuning.py --quick  # Reduced parameter space
+python 2_analyze_system_tuning.py              # Full grid search (default: C6)
+python 2_analyze_system_tuning.py --chip S3    # Use S3 dataset
+python 2_analyze_system_tuning.py --quick      # Reduced parameter space
 ```
 
 ---
@@ -60,8 +64,9 @@ python 2_analyze_system_tuning.py --quick  # Reduced parameter space
 - Validates current configuration
 
 ```bash
-python 3_analyze_moving_variance_segmentation.py
-python 3_analyze_moving_variance_segmentation.py --plot  # Show graphs
+python 3_analyze_moving_variance_segmentation.py              # Use C6 dataset
+python 3_analyze_moving_variance_segmentation.py --chip S3    # Use S3 dataset
+python 3_analyze_moving_variance_segmentation.py --plot       # Show graphs
 ```
 
 ---
@@ -75,8 +80,9 @@ python 3_analyze_moving_variance_segmentation.py --plot  # Show graphs
 - Determines optimal filter location
 
 ```bash
-python 4_analyze_filter_location.py
-python 4_analyze_filter_location.py --plot  # Show visualizations
+python 4_analyze_filter_location.py              # Use C6 dataset
+python 4_analyze_filter_location.py --chip S3    # Use S3 dataset
+python 4_analyze_filter_location.py --plot       # Show visualizations
 ```
 
 ---
@@ -95,9 +101,9 @@ python 4_analyze_filter_location.py --plot  # Show visualizations
 - **Combined**: Best of both - spike removal + noise smoothing
 
 ```bash
-python 5_analyze_filter_turbulence.py              # Run all filter comparisons
-python 5_analyze_filter_turbulence.py --plot       # Show 4-panel visualization:
-                                                   #   No Filter | Hampel | Lowpass | Combined
+python 5_analyze_filter_turbulence.py              # Use C6 dataset
+python 5_analyze_filter_turbulence.py --chip S3    # Use S3 dataset
+python 5_analyze_filter_turbulence.py --plot       # Show 4-panel visualization
 python 5_analyze_filter_turbulence.py --optimize-filters  # Optimize parameters
 ```
 
@@ -136,8 +142,9 @@ python 6_optimize_filter_params.py --all        # Combined optimization (low-pas
 - Shows separation between baseline and movement
 
 ```bash
-python 7_compare_detection_methods.py
-python 7_compare_detection_methods.py --plot  # Show 4×2 comparison
+python 7_compare_detection_methods.py              # Use C6 dataset
+python 7_compare_detection_methods.py --chip S3    # Use S3 dataset
+python 7_compare_detection_methods.py --plot       # Show 4×2 comparison
 ```
 
 ![Detection Methods Comparison](../../images/detection_method_comparison.png)
@@ -149,15 +156,16 @@ python 7_compare_detection_methods.py --plot  # Show 4×2 comparison
 **Purpose**: Visualize I/Q constellation diagrams
 
 - Compares baseline (stable) vs movement (dispersed) patterns
-- Shows all subcarriers (64, 128, or 256) + selected subcarriers
+- Shows all 64 subcarriers (HT20) + selected subcarriers
 - Reveals geometric signal characteristics
 
 ```bash
-python 8_plot_constellation.py
+python 8_plot_constellation.py              # Use C6 dataset
+python 8_plot_constellation.py --chip S3    # Use S3 dataset
 python 8_plot_constellation.py --packets 1000
 python 8_plot_constellation.py --packets 200 --offset 50  # Start from packet 50
 python 8_plot_constellation.py --subcarriers 47,48,49,50
-python 8_plot_constellation.py --grid  # One subplot per subcarrier
+python 8_plot_constellation.py --grid       # One subplot per subcarrier
 ```
 
 ---
@@ -211,10 +219,10 @@ pytest tests/ -v
 # Compare detection methods
 python 7_compare_detection_methods.py --plot
 
-# Plot I/Q constellations
-python 8_plot_constellation.py --packets 1000 --grid
+# Plot I/Q constellations (auto-finds most recent dataset)
+python 8_plot_constellation.py --chip S3 --packets 1000 --grid
 
-# Compare ESP32 variants
+# Compare ESP32 variants (auto-finds most recent C6 and S3 datasets)
 python 9_compare_s3_vs_c6.py --plot
 ```
 

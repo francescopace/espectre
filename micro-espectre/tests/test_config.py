@@ -9,10 +9,19 @@ License: GPLv3
 
 import pytest
 import sys
+import importlib.util
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+# Load src/config.py directly using importlib to avoid conflicts with tools/config.py
+SRC_CONFIG_PATH = Path(__file__).parent.parent / 'src' / 'config.py'
+
+
+def load_src_config():
+    """Load src/config.py directly, bypassing sys.path"""
+    spec = importlib.util.spec_from_file_location("src_config", SRC_CONFIG_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class TestConfigConstants:
@@ -20,7 +29,7 @@ class TestConfigConstants:
     
     def test_wifi_config_exists(self):
         """Test WiFi configuration constants exist"""
-        import config
+        config = load_src_config()
         
         assert hasattr(config, 'WIFI_SSID')
         assert hasattr(config, 'WIFI_PASSWORD')
@@ -29,7 +38,7 @@ class TestConfigConstants:
     
     def test_mqtt_config_exists(self):
         """Test MQTT configuration constants exist"""
-        import config
+        config = load_src_config()
         
         assert hasattr(config, 'MQTT_BROKER')
         assert hasattr(config, 'MQTT_PORT')
@@ -43,7 +52,7 @@ class TestConfigConstants:
     
     def test_traffic_generator_config(self):
         """Test traffic generator configuration"""
-        import config
+        config = load_src_config()
         
         assert hasattr(config, 'TRAFFIC_GENERATOR_RATE')
         assert isinstance(config.TRAFFIC_GENERATOR_RATE, int)
@@ -51,25 +60,15 @@ class TestConfigConstants:
     
     def test_csi_config(self):
         """Test CSI configuration"""
-        import config
+        config = load_src_config()
         
         assert hasattr(config, 'CSI_BUFFER_SIZE')
         assert isinstance(config.CSI_BUFFER_SIZE, int)
         assert config.CSI_BUFFER_SIZE > 0
     
-    def test_normalization_config(self):
-        """Test normalization configuration"""
-        import config
-        
-        # Normalization is always enabled, only NORMALIZATION_SCALE is configurable
-        assert hasattr(config, 'NORMALIZATION_SCALE')
-        
-        assert isinstance(config.NORMALIZATION_SCALE, (int, float))
-        assert config.NORMALIZATION_SCALE > 0
-    
     def test_calibration_config(self):
         """Test band calibration configuration"""
-        import config
+        config = load_src_config()
         
         assert hasattr(config, 'CALIBRATION_BUFFER_SIZE')
         
@@ -78,19 +77,17 @@ class TestConfigConstants:
     
     def test_segmentation_config(self):
         """Test segmentation configuration"""
-        import config
+        config = load_src_config()
         
         assert hasattr(config, 'SEG_WINDOW_SIZE')
-        assert hasattr(config, 'SEG_THRESHOLD')
         
         assert isinstance(config.SEG_WINDOW_SIZE, int)
-        assert isinstance(config.SEG_THRESHOLD, (int, float))
         assert config.SEG_WINDOW_SIZE > 0
-        assert config.SEG_THRESHOLD >= 0
+        # Note: threshold is calculated adaptively (P95 × 1.4), not in config
     
     def test_lowpass_filter_config(self):
         """Test low-pass filter configuration"""
-        import config
+        config = load_src_config()
         
         assert hasattr(config, 'ENABLE_LOWPASS_FILTER')
         assert hasattr(config, 'LOWPASS_CUTOFF')
@@ -101,7 +98,7 @@ class TestConfigConstants:
     
     def test_hampel_filter_config(self):
         """Test Hampel filter configuration"""
-        import config
+        config = load_src_config()
         
         assert hasattr(config, 'ENABLE_HAMPEL_FILTER')
         assert hasattr(config, 'HAMPEL_WINDOW')
@@ -115,7 +112,7 @@ class TestConfigConstants:
     
     def test_features_config(self):
         """Test feature extraction configuration"""
-        import config
+        config = load_src_config()
         
         assert hasattr(config, 'ENABLE_FEATURES')
         assert isinstance(config.ENABLE_FEATURES, bool)
@@ -126,34 +123,27 @@ class TestConfigDefaultValues:
     
     def test_default_traffic_rate(self):
         """Test default traffic generator rate is reasonable"""
-        import config
+        config = load_src_config()
         
         # Should be between 10 and 1000 Hz
         assert 10 <= config.TRAFFIC_GENERATOR_RATE <= 1000
     
     def test_default_segmentation_window(self):
         """Test default segmentation window is reasonable"""
-        import config
+        config = load_src_config()
         
         # Should be between 10 and 200
         assert 10 <= config.SEG_WINDOW_SIZE <= 200
     
-    def test_default_threshold(self):
-        """Test default threshold is reasonable"""
-        import config
-        
-        # Should be between 0.1 and 10
-        assert 0.1 <= config.SEG_THRESHOLD <= 10
-    
     def test_default_calibration_parameters(self):
         """Test default calibration parameters are reasonable"""
-        import config
+        config = load_src_config()
         
         assert config.CALIBRATION_BUFFER_SIZE >= 100
     
     def test_mqtt_port_standard(self):
         """Test MQTT port is standard"""
-        import config
+        config = load_src_config()
         
         # Should be 1883 (standard) or 8883 (TLS)
         assert config.MQTT_PORT in [1883, 8883]

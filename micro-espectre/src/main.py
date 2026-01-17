@@ -14,7 +14,6 @@ import os
 from src.segmentation import SegmentationContext
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
-from src.nvs_storage import NVSStorage
 from src.band_calibrator import BandCalibrator, cleanup_buffer_file
 import src.config as config
 
@@ -242,13 +241,12 @@ def run_gain_lock(wlan):
     return avg_agc, avg_fft, False
 
 
-def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
+def run_band_calibration(wlan, seg, traffic_gen, chip_type=None):
     """
     Run P95 band calibration (with gain lock phase first)
     
     Args:
         wlan: WLAN instance
-        nvs: NVSStorage instance
         seg: SegmentationContext instance
         traffic_gen: TrafficGenerator instance
         chip_type: Chip type ('C5', 'C6', 'S3', etc.) for subcarrier filtering
@@ -347,15 +345,26 @@ def run_band_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
         if selected_band and len(selected_band) == 12:
             # Calibration successful
             config.SELECTED_SUBCARRIERS = selected_band
-            # Apply adaptive threshold to segmentation context
-            seg.set_adaptive_threshold(adaptive_threshold)
+            
+            # Apply adaptive threshold unless user specified one in config.py
+            # (same pattern as C++: user_specified_threshold_ flag)
+            user_threshold = getattr(config, 'SEG_THRESHOLD', None)
+            if user_threshold is not None:
+                seg.threshold = user_threshold
+                threshold_source = "config"
+                print(f'Using manual threshold: {user_threshold:.2f} (adaptive would be: {adaptive_threshold:.2f})')
+            else:
+                seg.set_adaptive_threshold(adaptive_threshold)
+                threshold_source = "adaptive"
+                print(f'Using adaptive threshold: {adaptive_threshold:.2f} (P95 × 1.4)')
+            
             success = True
             
             print('')
             print('='*60)
             print('Subcarrier Calibration Successful!')
             print(f'   Selected band: {selected_band}')
-            print(f'   Adaptive threshold: {adaptive_threshold:.4f}')
+            print(f'   Threshold: {seg.threshold:.4f} ({threshold_source})')
             print('='*60)
             print('')
         else:
@@ -401,9 +410,11 @@ def main():
     wlan = connect_wifi()
     
     # Initialize segmentation with full configuration
+    # Threshold: use config value if defined, otherwise default (will be replaced by adaptive)
+    initial_threshold = getattr(config, 'SEG_THRESHOLD', 1.0)
     seg = SegmentationContext(
         window_size=config.SEG_WINDOW_SIZE,
-        threshold=1.0,  # Default, overwritten by adaptive threshold after calibration
+        threshold=initial_threshold,
         enable_lowpass=config.ENABLE_LOWPASS_FILTER,
         lowpass_cutoff=config.LOWPASS_CUTOFF,
         enable_hampel=config.ENABLE_HAMPEL_FILTER,
@@ -411,10 +422,6 @@ def main():
         hampel_threshold=config.HAMPEL_THRESHOLD,
         enable_features=config.ENABLE_FEATURES
     )
-    
-    # Load saved configuration (segmentation parameters only)
-    nvs = NVSStorage()
-    saved_config = nvs.load_and_apply(seg)
     
     # Initialize and start traffic generator (rate is static from config.py)
     gc.collect()  # Free memory before creating socket
@@ -451,7 +458,7 @@ def main():
     
     if needs_calibration:
         # Set default fallback before calibration
-        run_band_calibration(wlan, nvs, seg, traffic_gen, g_state.chip_type)
+        run_band_calibration(wlan, seg, traffic_gen, g_state.chip_type)
     else:
         print(f'Using configured subcarriers: {config.SELECTED_SUBCARRIERS}')
     

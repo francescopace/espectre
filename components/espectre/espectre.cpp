@@ -27,22 +27,8 @@ void ESpectreComponent::setup() {
   // 0. Initialize WiFi for optimal CSI capture
   this->wifi_lifecycle_.init();
   
-  // 1. Initialize configuration manager (load config before initializing managers)
-  // Note: hash changed to "espectre_cfg_v6" - struct now only contains threshold
-  // All other settings come from YAML or are recalculated at boot
-  this->config_manager_.init(
-      global_preferences->make_preference<ESpectreConfig>(fnv1_hash("espectre_cfg_v6"))
-  );
-  
-  // 2. Load runtime-configurable parameters from preferences
-  // Only threshold is persisted - all other settings come from YAML
-  // Note: Adaptive threshold (P95 × 1.4) is computed during band calibration
-  ESpectreConfig config;
-  if (this->config_manager_.load(config)) {
-    this->segmentation_threshold_ = config.segmentation_threshold;
-  }
-  
-  // 3. Initialize CSI processor (allocates buffer internally)
+  // 1. Initialize CSI processor (allocates buffer internally)
+  // Note: Threshold uses default (1.0) until calibration computes adaptive (P95 × 1.4)
   if (!csi_processor_init(&this->csi_processor_, 
                           this->segmentation_window_size_, 
                           this->segmentation_threshold_)) {
@@ -50,10 +36,7 @@ void ESpectreComponent::setup() {
     return;  // Component initialization failed
   }
   
-  // Note: Threshold is loaded from preferences above. Adaptive threshold will be
-  // recalculated during band calibration (P95 × 1.4) if calibration runs.
-  
-  // 4. Initialize managers (each manager handles its own internal initialization)
+  // 2. Initialize managers (each manager handles its own internal initialization)
   this->calibration_manager_.init(&this->csi_manager_);
   this->traffic_generator_.init(this->traffic_generator_rate_, this->traffic_generator_mode_);
   this->udp_listener_.init(5555);  // UDP listener for external traffic mode
@@ -206,17 +189,13 @@ void ESpectreComponent::set_threshold_runtime(float threshold) {
   // Update CSI manager
   this->csi_manager_.set_threshold(threshold);
   
-  // Save to preferences
-  ESpectreConfig config;
-  config.segmentation_threshold = threshold;
-  this->config_manager_.save(config);
   
   // Publish to Home Assistant
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(threshold);
   }
   
-  ESP_LOGI(TAG, "Threshold updated to %.2f (saved to flash)", threshold);
+  ESP_LOGI(TAG, "Threshold updated to %.2f (session-only, recalculated at boot)", threshold);
 }
 
 void ESpectreComponent::start_calibration_() {
@@ -258,8 +237,14 @@ void ESpectreComponent::start_calibration_() {
       // band == nullptr means critical failure (e.g., SPIFFS error) - skip threshold update
       // band != nullptr means at least partial success - apply adaptive threshold
       if (band != nullptr) {
-        // Set the adaptive threshold calculated from P95 × 1.4 (same as Python)
-        this->set_threshold_runtime(adaptive_threshold);
+        // Only update threshold if not user-specified (same pattern as subcarriers)
+        if (!this->user_specified_threshold_) {
+          // Set the adaptive threshold calculated from P95 × 1.4 (same as Python)
+          this->set_threshold_runtime(adaptive_threshold);
+        } else {
+          ESP_LOGI(TAG, "Using manual threshold: %.2f (adaptive would be: %.2f)", 
+                   this->segmentation_threshold_, adaptive_threshold);
+        }
         
         // Store P95 for status reporting
         this->best_p95_ = this->calibration_manager_.get_best_p95();
@@ -307,7 +292,8 @@ void ESpectreComponent::send_system_info_() {
   
   // CONFIG_IDF_TARGET_ARCH returns e.g. "esp32c6" - we uppercase it
   ESP_LOGI(TAG, "[sysinfo] chip=" CONFIG_IDF_TARGET);
-  ESP_LOGI(TAG, "[sysinfo] threshold=%.2f", this->segmentation_threshold_);
+  ESP_LOGI(TAG, "[sysinfo] threshold=%.2f (%s)", this->segmentation_threshold_,
+           this->user_specified_threshold_ ? "yaml" : "auto");
   ESP_LOGI(TAG, "[sysinfo] window=%d", this->segmentation_window_size_);
   ESP_LOGI(TAG, "[sysinfo] subcarriers=%s", this->user_specified_subcarriers_ ? "yaml" : "auto");
   ESP_LOGI(TAG, "[sysinfo] lowpass=%s", this->lowpass_enabled_ ? "on" : "off");
@@ -336,9 +322,10 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "      Wi-Fi CSI Motion Detection System");
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
-  ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f", this->segmentation_threshold_);
-  ESP_LOGCONFIG(TAG, " └─ Window ............. %d pkts", this->segmentation_window_size_);
-  ESP_LOGCONFIG(TAG, " └─ P95 (baseline) ..... %.4f (adaptive thr = P95 × 1.4)", this->best_p95_);
+  ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f (%s)", this->segmentation_threshold_,
+                this->user_specified_threshold_ ? "YAML" : "Auto");
+  ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", this->segmentation_window_size_);
+  ESP_LOGCONFIG(TAG, " └─ P95 (baseline) ..... %.4f", this->best_p95_);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
                 this->selected_subcarriers_[0], this->selected_subcarriers_[1],

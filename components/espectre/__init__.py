@@ -72,7 +72,8 @@ CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(ESpectreComponent),
     
     # Motion detection parameters
-    cv.Optional(CONF_SEGMENTATION_THRESHOLD, default=THRESHOLD_DEFAULT): cv.float_range(min=THRESHOLD_MIN, max=THRESHOLD_MAX),
+    # segmentation_threshold: if specified, uses manual value; if omitted, uses adaptive (P95×1.4)
+    cv.Optional(CONF_SEGMENTATION_THRESHOLD): cv.float_range(min=THRESHOLD_MIN, max=THRESHOLD_MAX),
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=50): cv.int_range(min=10, max=200),
     
     # Traffic generator (0 = disabled, use external WiFi traffic)
@@ -168,7 +169,9 @@ async def to_code(config):
     # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome
     
     # Configure parameters
-    cg.add(var.set_segmentation_threshold(config[CONF_SEGMENTATION_THRESHOLD]))
+    # If threshold specified, use manual value (skip adaptive)
+    if CONF_SEGMENTATION_THRESHOLD in config:
+        cg.add(var.set_segmentation_threshold(config[CONF_SEGMENTATION_THRESHOLD]))
     cg.add(var.set_segmentation_window_size(config[CONF_SEGMENTATION_WINDOW_SIZE]))
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))

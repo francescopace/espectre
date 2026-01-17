@@ -9,8 +9,8 @@ Analyzes raw CSI data from both chips to identify:
 - Suggested normalization factors
 
 Based on ESP-IDF issue #14271, known differences include:
-- S3: 128 bytes (64 subcarriers), no L-LTF data, different subcarrier order
-- C6: 128 bytes (64 subcarriers), includes L-LTF data, standard order
+- S3: 128 bytes (64 subcarriers in HT20), no L-LTF data, different subcarrier order
+- C6: 128 bytes (64 subcarriers in HT20), includes L-LTF data, standard order
 
 Usage:
     python tools/15_compare_s3_vs_c6.py [--plot]
@@ -172,16 +172,13 @@ def main():
     print("  ESP32-S3 vs ESP32-C6 CSI Data Comparison")
     print("="*70)
     
-    # Load data for both chips
+    # Load data for both chips (auto-find most recent files)
     print("\nLoading data...")
     
-    # S3: 128 SC (HT40)
+    # S3: 64 SC (HT20)
     try:
-        s3_baseline, s3_movement = load_baseline_and_movement(
-            baseline_file=DATA_DIR / 'baseline' / 'baseline_s3_128sc_20260111_060942.npz',
-            movement_file=DATA_DIR / 'movement' / 'movement_s3_128sc_20260111_061013.npz'
-        )
-        s3_num_sc = 128
+        s3_baseline, s3_movement = load_baseline_and_movement(chip='S3')
+        s3_num_sc = 64
         print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets ({s3_num_sc} SC)")
     except FileNotFoundError as e:
         print(f"  S3 data not found: {e}")
@@ -190,10 +187,7 @@ def main():
     
     # C6: 64 SC (HT20)
     try:
-        c6_baseline, c6_movement = load_baseline_and_movement(
-            baseline_file=DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz',
-            movement_file=DATA_DIR / 'movement' / 'movement_c6_64sc_20251212_142443.npz'
-        )
+        c6_baseline, c6_movement = load_baseline_and_movement(chip='C6')
         c6_num_sc = 64
         print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets ({c6_num_sc} SC)")
     except FileNotFoundError as e:
@@ -370,8 +364,6 @@ def main():
     # =========================================================================
     if args.plot:
         try:
-            import matplotlib
-            matplotlib.use('Agg')
             import matplotlib.pyplot as plt
             
             fig, axes = plt.subplots(2, 3, figsize=(15, 10))
@@ -443,10 +435,7 @@ def main():
             ax.legend()
             
             plt.tight_layout()
-            
-            output_path = DATA_DIR / 's3_vs_c6_comparison.png'
-            plt.savefig(output_path, dpi=150)
-            print(f"\n  📊 Plot saved to: {output_path}")
+            plt.show()
             
         except ImportError:
             print("\n  ⚠️  matplotlib not available. Skipping plots.")

@@ -30,7 +30,7 @@ ESPectre uses a combination of signal processing algorithms to detect motion fro
 **What CSI Captures:**
 
 *Per-subcarrier information:*
-- **Amplitude**: Signal strength for each OFDM subcarrier (64-256 depending on WiFi mode)
+- **Amplitude**: Signal strength for each OFDM subcarrier (64 for HT20 mode)
 - **Phase**: Phase shift of each subcarrier
 - **Frequency response**: How the channel affects different frequencies
 
@@ -74,7 +74,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 2. **Band Calibration** (7s, 700 packets): Select 12 optimal subcarriers, calculate baseline variance
 
 **Data flow per packet (after calibration):**
-1. **CSI Data**: Raw I/Q values for N subcarriers (64-256 depending on WiFi mode)
+1. **CSI Data**: Raw I/Q values for 64 subcarriers (HT20 mode)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
 3. **Spatial Turbulence**: `σ = std(amplitudes)` - variability across subcarriers
 4. **Hampel Filter**: Remove outliers using MAD (optional, disabled by default)
@@ -248,7 +248,7 @@ ESPectre uses **P95 Moving Variance** optimization for automatic subcarrier band
 
 ### The Problem
 
-WiFi CSI provides 64-256 subcarriers (depending on WiFi mode: HT20=64, HT40=128, HE-SU=256), but not all are equally useful for motion detection:
+WiFi CSI provides 64 subcarriers in HT20 mode, but not all are equally useful for motion detection:
 - Some are too weak (low SNR)
 - Some are too noisy (high variance even at rest)
 - Some are in guard bands or DC zones
@@ -276,14 +276,12 @@ def band_calibrate(csi_buffer, band_size=12):
     
     # 2. Generate candidate bands (12 consecutive subcarriers)
     #    Avoiding guard bands and DC zone
-    #    Use step=2 for 256 SC to reduce candidates (performance optimization)
-    step = 2 if num_subcarriers >= 256 else 1
-    candidates = generate_candidate_bands(num_subcarriers, band_size, step)
+    candidates = generate_candidate_bands(band_size)
     
     # 3. Evaluate each candidate
     results = []
     for band in candidates:
-        # Extract ONLY the 12 subcarriers needed (not all 256)
+        # Extract ONLY the 12 subcarriers needed (not all 64)
         turbulences = [spatial_turbulence(pkt, band) for pkt in magnitudes]
         
         # Calculate moving variance series
@@ -329,29 +327,26 @@ Let B = candidate bands, P = packets (700), N = subcarriers, W = window size (50
 | Moving variance | O(P × W) | sliding window |
 | P95 calculation | O(P log P) | sorting |
 | **Total per band** | O(P × W) | dominated by MV |
-| **Total all bands** | O(B × P × W) | ~2.3M ops for 256 SC |
+| **Total all bands** | O(B × P × W) | ~40 bands for 64 SC |
 
 ### Calibration Time
 
-| WiFi Mode | Candidate Bands | Step | Time (measured) |
-|-----------|-----------------|------|-----------------|
-| HT20 (64 SC) | ~40 | 1 | ~1-2s |
-| HE-SU (256 SC) | ~68 | 2 | **~5-6s** |
+| WiFi Mode | Candidate Bands | Time (measured) |
+|-----------|-----------------|-----------------|
+| HT20 (64 SC) | ~40 | ~1-2s |
 
 ### Guard Bands and DC Zone
 
-Different WiFi modes have different valid subcarrier ranges:
+HT20 mode (64 subcarriers) configuration:
 
-| Mode | Total SC | Guard Low | Guard High | DC Zone | Valid SC | Bands |
-|------|----------|-----------|------------|---------|----------|-------|
-| HT20 (64 SC) | 64 | 11 | 52 | 32 | 41 | 19 |
-| HT40 (128 SC) | 128 | 7 | 120 | 64 | 113 | 91 |
-| HE-SU (256 SC) | 256 | 20 | 235 | 120-136 | 199 | 89 |
-
-The 256 SC configuration was empirically optimized on ESP32-C6:
-- Tight DC zone `[120-136]` instead of conservative `[108-147]`
-- Extended guard bands `[20-235]` instead of `[30-225]`
-- Results: 43 more valid subcarriers, P95 improved from 0.60 to 0.56
+| Parameter | Value |
+|-----------|-------|
+| Total Subcarriers | 64 |
+| Guard Band Low | 11 |
+| Guard Band High | 52 |
+| DC Subcarrier | 32 |
+| Valid Subcarriers | 41 |
+| Candidate Bands | ~19 |
 
 ### Fallback Behavior
 

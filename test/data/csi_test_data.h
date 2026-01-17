@@ -30,8 +30,8 @@
 #define BASELINE_C6_64SC  "../micro-espectre/data/baseline/baseline_c6_64sc_20251212_142443.npz"
 #define MOVEMENT_C6_64SC  "../micro-espectre/data/movement/movement_c6_64sc_20251212_142443.npz"
 // S3 dataset
-#define BASELINE_S3_64SC  "../micro-espectre/data/baseline/baseline_s3_64sc_20260117_191447.npz"
-#define MOVEMENT_S3_64SC  "../micro-espectre/data/movement/movement_s3_64sc_20260117_191505.npz"
+#define BASELINE_S3_64SC  "../micro-espectre/data/baseline/baseline_s3_64sc_20260117_222606.npz"
+#define MOVEMENT_S3_64SC  "../micro-espectre/data/movement/movement_s3_64sc_20260117_222626.npz"
 
 // Include cnpy implementation (with ZIP64 support)
 #include "cnpy.cpp"

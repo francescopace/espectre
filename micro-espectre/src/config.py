@@ -37,7 +37,8 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is
 # Uses P95 moving variance optimization to select optimal 12-subcarrier band
 CALIBRATION_BUFFER_SIZE = 700  # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
 
-# Segmentation Window
+# Segmentation Parameters
+# SEG_THRESHOLD = 1.0         # Uncomment to override adaptive threshold (P95 × 1.4)
 SEG_WINDOW_SIZE = 50          # Moving variance window (packets) - used by both MVS and Features
 
 # Low-pass filter (removes high-frequency noise, reduces false positives)

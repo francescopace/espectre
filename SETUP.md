@@ -545,8 +545,7 @@ High airtime (>30-50%) causes network congestion, increased latency, and packet 
 ESPectre automatically calibrates in two phases:
 
 1. **Gain Lock** (~3 seconds, 300 packets): Stabilizes AGC/FFT for consistent amplitudes
-2. **P95 Band Calibration** (~7 seconds, 700 packets): Selects optimal 12-subcarrier band
-3. Saves configuration (persists across reboots)
+2. **P95 Band Calibration** (~7 seconds, 700 packets): Selects optimal 12-subcarrier band and calculates adaptive threshold
 
 Room must be quiet during the entire ~10 second calibration.
 

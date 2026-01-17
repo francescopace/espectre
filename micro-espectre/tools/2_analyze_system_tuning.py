@@ -3,12 +3,11 @@
 Comprehensive Grid Search for Optimal MVS Parameters
 Tests all combinations of subcarrier clusters, thresholds, and window sizes
 
-Supports any number of subcarriers (64, 128, 256) via --sc parameter.
+Uses 64 subcarriers (HT20 mode) for consistent performance across all ESP32 variants.
 
 Usage:
-    python tools/2_analyze_system_tuning.py              # Use 64 SC dataset (default)
-    python tools/2_analyze_system_tuning.py --sc 128     # Use 128 SC dataset
-    python tools/2_analyze_system_tuning.py --sc 256     # Use 256 SC dataset
+    python tools/2_analyze_system_tuning.py              # Use default C6 dataset
+    python tools/2_analyze_system_tuning.py --chip S3    # Use S3 dataset
     python tools/2_analyze_system_tuning.py --quick      # Quick mode (fewer tests)
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -18,68 +17,30 @@ License: GPLv3
 import numpy as np
 import argparse
 from pathlib import Path
-from csi_utils import load_npz_as_packets, test_mvs_configuration, MVSDetector, calculate_spatial_turbulence
+from csi_utils import load_npz_as_packets, test_mvs_configuration, MVSDetector, calculate_spatial_turbulence, find_dataset
 from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
 from itertools import combinations
 
-# Data directory
-DATA_DIR = Path(__file__).parent.parent / 'data'
 
-
-def find_dataset(num_sc):
+def load_dataset(chip='C6'):
     """
-    Find baseline and movement dataset files for the specified subcarrier count.
+    Load baseline and movement datasets for the specified chip.
     
     Args:
-        num_sc: Number of subcarriers (64, 128, or 256)
-    
-    Returns:
-        tuple: (baseline_path, movement_path, chip_name) or raises FileNotFoundError
-    """
-    baseline_dir = DATA_DIR / 'baseline'
-    movement_dir = DATA_DIR / 'movement'
-    
-    # Search for matching files
-    baseline_pattern = f'*_{num_sc}sc_*.npz'
-    baseline_files = list(baseline_dir.glob(baseline_pattern))
-    movement_files = list(movement_dir.glob(f'*_{num_sc}sc_*.npz'))
-    
-    if not baseline_files:
-        raise FileNotFoundError(f"No baseline file found for {num_sc} SC in {baseline_dir}")
-    if not movement_files:
-        raise FileNotFoundError(f"No movement file found for {num_sc} SC in {movement_dir}")
-    
-    # Use the most recent file (sorted by name, which includes timestamp)
-    baseline_file = sorted(baseline_files)[-1]
-    movement_file = sorted(movement_files)[-1]
-    
-    # Extract chip name from filename (e.g., baseline_c6_64sc_... -> C6)
-    chip_name = baseline_file.stem.split('_')[1].upper()
-    
-    return baseline_file, movement_file, chip_name
-
-
-def load_dataset(num_sc=64):
-    """
-    Load baseline and movement datasets for the specified subcarrier count.
-    
-    Args:
-        num_sc: Number of subcarriers (64, 128, or 256)
+        chip: Chip type (C6, S3, etc.)
     
     Returns:
         tuple: (baseline_packets, movement_packets, num_subcarriers, chip_name)
     """
-    baseline_file, movement_file, chip_name = find_dataset(num_sc)
+    baseline_file, movement_file, chip_name = find_dataset(chip=chip)
     
     baseline_packets = load_npz_as_packets(baseline_file)
     movement_packets = load_npz_as_packets(movement_file)
     
-    # Verify actual subcarrier count from data
-    actual_sc = len(baseline_packets[0]['csi_data']) // 2
-    if actual_sc != num_sc:
-        print(f"Warning: Requested {num_sc} SC but file contains {actual_sc} SC")
+    # Get actual subcarrier count from data
+    num_sc = len(baseline_packets[0]['csi_data']) // 2
     
-    return baseline_packets, movement_packets, actual_sc, chip_name
+    return baseline_packets, movement_packets, num_sc, chip_name
 
 
 def test_contiguous_clusters(baseline_packets, movement_packets, num_sc, cluster_size=12, quick=False):
@@ -534,8 +495,8 @@ def print_top_results(results, num_sc, top_n=20):
 def main():
     parser = argparse.ArgumentParser(description='Comprehensive grid search for optimal MVS parameters')
     parser.add_argument('--quick', action='store_true', help='Quick mode (fewer tests)')
-    parser.add_argument('--sc', type=int, default=64, choices=[64, 128, 256],
-                        help='Number of subcarriers (default: 64)')
+    parser.add_argument('--chip', type=str, default='C6',
+                        help='Chip type to use: C6, S3, etc. (default: C6)')
     
     args = parser.parse_args()
     
@@ -548,9 +509,10 @@ def main():
         print("\nQUICK MODE: Testing reduced parameter space")
     
     # Load data
-    print(f"\nLoading data for {args.sc} SC...")
+    chip = args.chip.upper()
+    print(f"\nLoading data for {chip}...")
     try:
-        baseline_packets, movement_packets, num_sc, chip_name = load_dataset(args.sc)
+        baseline_packets, movement_packets, num_sc, chip_name = load_dataset(chip)
     except FileNotFoundError as e:
         print(f"Error: {e}")
         return

@@ -11,7 +11,6 @@ import json
 import time
 import gc
 import sys
-from src.nvs_storage import NVSStorage
 from src.config import (
     TRAFFIC_GENERATOR_RATE,
     SEG_WINDOW_SIZE
@@ -49,9 +48,6 @@ class MQTTCommands:
         self.global_state = global_state
         self.response_topic = response_topic
         self.start_time = time.time()
-        
-        # NVS storage for configuration persistence
-        self.nvs = NVSStorage()
         
     def send_response(self, message):
         """Send response message to MQTT"""
@@ -169,6 +165,7 @@ class MQTTCommands:
             },
             "segmentation": {
                 "threshold": round(self.seg.threshold, 2),
+                "threshold_source": "config" if getattr(self.config, 'SEG_THRESHOLD', None) is not None else "auto",
                 "window_size": self.seg.window_size
             },
             "subcarriers": {
@@ -221,7 +218,7 @@ class MQTTCommands:
         self.send_response(response)
     
     def cmd_segmentation_threshold(self, cmd_obj):
-        """Set segmentation threshold"""
+        """Set segmentation threshold (session-only, not persisted)"""
         if 'value' not in cmd_obj:
             self.send_response("ERROR: Missing 'value' field")
             return
@@ -236,11 +233,10 @@ class MQTTCommands:
             old_threshold = self.seg.threshold
             self.seg.threshold = threshold
             
-            # Save to NVS
-            self.nvs.save_full_config(self.seg)
+            # Note: threshold is session-only, adaptive threshold (P95 × 1.4) is recalculated on every boot
             
-            self.send_response(f"Segmentation threshold updated: {old_threshold:.2f} -> {threshold:.2f}")
-            print(f"Threshold updated: {old_threshold:.2f} -> {threshold:.2f}")
+            self.send_response(f"Segmentation threshold updated: {old_threshold:.2f} -> {threshold:.2f} (session-only)")
+            print(f"Threshold updated: {old_threshold:.2f} -> {threshold:.2f} (session-only)")
             
         except ValueError:
             self.send_response("ERROR: Invalid threshold value (must be float)")
@@ -267,15 +263,12 @@ class MQTTCommands:
             self.seg.buffer_count = 0
             self.seg.current_moving_variance = 0.0
             
-            # Save to NVS
-            self.nvs.save_full_config(self.seg)
-            
             # Calculate duration using actual traffic rate
             rate = self.traffic_gen.get_rate() if self.traffic_gen else TRAFFIC_GENERATOR_RATE
             duration = window_size / rate if rate > 0 else 0.0
             reactivity = "more reactive" if window_size < (SEG_WINDOW_SIZE_MAX // 2) else "more stable"
-            self.send_response(f"Window size updated: {old_size} -> {window_size} packets ({duration:.2f}s @ {rate}Hz, {reactivity})")
-            print(f"Window size updated: {old_size} -> {window_size} (buffer reset)")
+            self.send_response(f"Window size updated: {old_size} -> {window_size} packets ({duration:.2f}s @ {rate}Hz, {reactivity}, session-only)")
+            print(f"Window size updated: {old_size} -> {window_size} (session-only)")
             
         except ValueError:
             self.send_response("ERROR: Invalid window size value (must be integer)")
@@ -297,9 +290,6 @@ class MQTTCommands:
         # Reset state machine
         self.seg.state = self.seg.STATE_IDLE
         self.seg.packet_index = 0
-        
-        # Erase saved configuration
-        self.nvs.erase()
 
         print("Factory reset complete")
         
@@ -312,7 +302,7 @@ class MQTTCommands:
             chip_type = getattr(self.global_state, 'chip_type', None) if self.global_state else None
             
             # Run calibration with chip_type for proper subcarrier filtering
-            success = self.band_calibration_func(self.wlan, self.nvs, self.seg, self.traffic_gen, chip_type)
+            success = self.band_calibration_func(self.wlan, self.seg, self.traffic_gen, chip_type)
             
             if success:
                 band = getattr(self.config, 'SELECTED_SUBCARRIERS')

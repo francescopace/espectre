@@ -75,8 +75,7 @@ def test_config(baseline_iq, movement_iq, subcarriers, target, cutoff,
         threshold=threshold,
         enable_lowpass=True,
         lowpass_cutoff=cutoff,
-        enable_hampel=False,
-        normalization_scale=norm_scale
+        enable_hampel=False
     )
     
     # Process baseline
@@ -144,8 +143,7 @@ def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, c
                 lowpass_cutoff=cutoff,
                 enable_hampel=True,
                 hampel_window=window,
-                hampel_threshold=threshold,
-                normalization_scale=norm_scale
+                hampel_threshold=threshold
             )
             
             # Process baseline
@@ -153,6 +151,7 @@ def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, c
             for i in range(len(baseline_iq)):
                 turb = seg.calculate_spatial_turbulence(baseline_iq[i], subcarriers)
                 seg.add_turbulence(turb)
+                seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
                     fp += 1
             
@@ -162,6 +161,7 @@ def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, c
             for i in range(len(movement_iq)):
                 turb = seg.calculate_spatial_turbulence(movement_iq[i], subcarriers)
                 seg.add_turbulence(turb)
+                seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
                     tp += 1
             
@@ -260,14 +260,10 @@ def main():
     print(f"Movement: {len(movement_iq)} packets")
     print()
     
-    # Determine optimal band based on subcarrier count
+    # Determine optimal band (64 SC HT20 mode)
     num_sc = len(baseline_iq[0]) // 2
-    if num_sc >= 256:
-        # 256 SC optimal band (from P95 calibration)
-        selected_band = list(range(148, 160))  # [148-159]
-    else:
-        # 64 SC optimal band (from P95 calibration)
-        selected_band = list(range(11, 23))  # [11-22]
+    # 64 SC optimal band (from P95 calibration)
+    selected_band = list(range(11, 23))  # [11-22]
     print(f"Subcarriers: {num_sc}, using band: [{selected_band[0]}-{selected_band[-1]}]")
     
     # Calculate average magnitude
