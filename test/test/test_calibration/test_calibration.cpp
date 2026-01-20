@@ -1,10 +1,10 @@
 /*
  * ESPectre - Calibration Algorithm Unit Tests
  *
- * Unit tests for NBVI (Normalized Baseline Variability Index) calculations
+ * Unit tests for subcarrier band calculations
  * and utility functions used in auto-calibration.
  *
- * Tests utils.h functions directly and CalibrationManager end-to-end.
+ * Tests utils.h functions directly and P95Calibrator end-to-end.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -17,7 +17,8 @@
 #include <vector>
 #include <algorithm>
 #include "utils.h"
-#include "calibration_manager.h"
+#include "p95_calibrator.h"
+#include "threshold.h"
 #include "csi_manager.h"
 #include "csi_processor.h"
 #include "esphome/core/log.h"
@@ -26,9 +27,15 @@
 #include "esp_spiffs.h"
 #endif
 
-// Include real CSI data
-#include "real_csi_data_esp32.h"
-#include "real_csi_arrays.inc"
+// Include CSI data loader (loads from NPZ files)
+#include "csi_test_data.h"
+
+// Compatibility macros for existing test code
+#define baseline_packets csi_test_data::baseline_packets()
+#define movement_packets csi_test_data::movement_packets()
+#define num_baseline csi_test_data::num_baseline()
+#define num_movement csi_test_data::num_movement()
+#define packet_size csi_test_data::packet_size()
 
 using namespace esphome::espectre;
 
@@ -134,8 +141,8 @@ void test_variance_large_values_numerical_stability(void) {
 
 // ============================================================================
 // CALIBRATION MANAGER END-TO-END TESTS
-// These tests run CalibrationManager with real CSI data to exercise
-// calculate_nbvi_weighted_ and calculate_percentile_ internally
+// These tests run P95Calibrator with real CSI data to exercise
+// calculate_band_weighted_ and calculate_percentile_ internally
 // ============================================================================
 
 void test_calibration_manager_full_calibration(void) {
@@ -143,10 +150,11 @@ void test_calibration_manager_full_calibration(void) {
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
-    CalibrationManager cm;
+    P95Calibrator cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
+    cm.init_subcarrier_config();  // HT20: 64 SC
     cm.set_buffer_size(200);  // Use 200 packets for calibration
-    // Use default parameters from CalibrationManager - no hardcoded values
+    // Use default parameters from P95Calibrator - no hardcoded values
     // This ensures tests reflect real production behavior
     
     // Variables to capture callback results
@@ -155,9 +163,9 @@ void test_calibration_manager_full_calibration(void) {
     bool calibration_success = false;
     
     // Start calibration
-    esp_err_t err = cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)normalization_scale;  // Not tested here
+    esp_err_t err = cm.start_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
+        [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
+            (void)mv_values;  // Not tested here
             if (success && size > 0) {
                 memcpy(result_band, band, size);
                 result_size = size;
@@ -168,10 +176,10 @@ void test_calibration_manager_full_calibration(void) {
     TEST_ASSERT_EQUAL(ESP_OK, err);
     TEST_ASSERT_TRUE(cm.is_calibrating());
     
-    // Feed 200 baseline packets to CalibrationManager
-    // This will trigger run_calibration_() which calls calculate_nbvi_weighted_ and calculate_percentile_
+    // Feed 200 baseline packets to P95Calibrator
+    // This will trigger run_calibration_() which calculates P95 moving variance for band selection
     for (int i = 0; i < 200; i++) {
-        bool buffer_full = cm.add_packet(baseline_packets[i % 100], 128);
+        bool buffer_full = cm.add_packet(baseline_packets[i % 100], packet_size);
         if (buffer_full) {
             break;  // Calibration will run
         }
@@ -182,240 +190,220 @@ void test_calibration_manager_full_calibration(void) {
     TEST_ASSERT_TRUE(calibration_success);
     TEST_ASSERT_EQUAL(12, result_size);
     
-    // Verify selected subcarriers are valid (not guard bands)
-    ESP_LOGI(TAG, "Calibration selected subcarriers:");
+    // Verify selected subcarriers are within valid range (HT20: 64 SC)
+    ESP_LOGI(TAG, "Calibration selected subcarriers (valid range: %d-%d):", 
+             HT20_GUARD_BAND_LOW, HT20_GUARD_BAND_HIGH);
     for (int i = 0; i < result_size; i++) {
         ESP_LOGI(TAG, "  %d: SC %d", i+1, result_band[i]);
-        TEST_ASSERT_TRUE(result_band[i] >= 6);
-        TEST_ASSERT_TRUE(result_band[i] <= 58);
+        TEST_ASSERT_TRUE(result_band[i] >= HT20_GUARD_BAND_LOW);
+        TEST_ASSERT_TRUE(result_band[i] <= HT20_GUARD_BAND_HIGH);
     }
 }
 
-void test_calibration_manager_alpha_affects_selection(void) {
-    // Test that different alpha values affect NBVI calculation
+void test_calibration_manager_p95_produces_valid_band(void) {
+    // Test that P95 calibration produces valid band selection
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
-    // Run calibration with alpha = 0.0 (pure CV)
-    CalibrationManager cm1;
-    cm1.init(&csi_manager, TEST_BUFFER_PATH);
-    cm1.set_buffer_size(100);
-    cm1.set_window_size(50);
-    cm1.set_alpha(0.0f);  // Pure CV
-    
-    uint8_t band1[12] = {0};
-    uint8_t size1 = 0;
-    
-    cm1.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)normalization_scale;
-            if (success) { memcpy(band1, band, size); size1 = size; }
-        });
-    
-    for (int i = 0; i < 100; i++) {
-        cm1.add_packet(baseline_packets[i], 128);
-    }
-    
-    // Clean up and run with alpha = 1.0 (pure energy)
-    remove(TEST_BUFFER_PATH);
-    csi_processor_cleanup(&g_processor);
-    csi_processor_init(&g_processor, 50, 1.0f);
-    
-    CalibrationManager cm2;
-    cm2.init(&csi_manager, TEST_BUFFER_PATH);
-    cm2.set_buffer_size(100);
-    cm2.set_window_size(50);
-    cm2.set_alpha(1.0f);  // Pure energy
-    
-    uint8_t band2[12] = {0};
-    uint8_t size2 = 0;
-    
-    cm2.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)normalization_scale;
-            if (success) { memcpy(band2, band, size); size2 = size; }
-        });
-    
-    for (int i = 0; i < 100; i++) {
-        cm2.add_packet(baseline_packets[i], 128);
-    }
-    
-    TEST_ASSERT_EQUAL(12, size1);
-    TEST_ASSERT_EQUAL(12, size2);
-    
-    // The selections might be different due to different alpha
-    // At minimum, both should produce valid results
-    ESP_LOGI(TAG, "Alpha=0 first 3: %d, %d, %d", band1[0], band1[1], band1[2]);
-    ESP_LOGI(TAG, "Alpha=1 first 3: %d, %d, %d", band2[0], band2[1], band2[2]);
-}
-
-void test_calibration_manager_percentile_affects_baseline(void) {
-    // Test that percentile parameter affects baseline window detection
-    CSIManager csi_manager;
-    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
-    
-    CalibrationManager cm;
+    P95Calibrator cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
-    cm.set_buffer_size(200);
-    cm.set_window_size(50);
-    cm.set_percentile(5);  // Very strict - only 5th percentile
+    cm.init_subcarrier_config();
+    cm.set_buffer_size(100);
     
+    uint8_t result_band[12] = {0};
+    uint8_t result_size = 0;
     bool calibration_success = false;
     
-    cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)band; (void)size; (void)normalization_scale;
+    cm.start_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
+        [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
+            (void)mv_values;
+            if (success) { memcpy(result_band, band, size); result_size = size; }
             calibration_success = success;
         });
     
-    // Mix baseline and movement packets
     for (int i = 0; i < 100; i++) {
-        cm.add_packet(baseline_packets[i], 128);
-    }
-    for (int i = 0; i < 100; i++) {
-        cm.add_packet(movement_packets[i], 128);
+        cm.add_packet(baseline_packets[i], packet_size);
     }
     
-    // Should still succeed - percentile helps find the quietest window
+    // P95 calibration should succeed and produce 12 subcarriers
     TEST_ASSERT_TRUE(calibration_success);
+    TEST_ASSERT_EQUAL(12, result_size);
+    
+    // Selected band should be consecutive subcarriers
+    for (int i = 1; i < 12; i++) {
+        TEST_ASSERT_EQUAL(result_band[0] + i, result_band[i]);
+    }
+    
+    ESP_LOGI(TAG, "P95 selected band: [%d-%d]", result_band[0], result_band[11]);
 }
 
-void test_calibration_manager_noise_gate(void) {
-    // Test that noise gate filters weak subcarriers
+void test_calibration_manager_handles_mixed_data(void) {
+    // Test that P95 calibration handles mixed baseline/movement data
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
-    CalibrationManager cm;
+    P95Calibrator cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
+    cm.init_subcarrier_config();
+    cm.set_buffer_size(200);
+    
+    bool calibration_success = false;
+    
+    cm.start_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
+        [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
+            (void)band; (void)size; (void)mv_values;
+            calibration_success = success;
+        });
+    
+    // Mix baseline and movement packets (P95 should still work)
+    for (int i = 0; i < 100; i++) {
+        cm.add_packet(baseline_packets[i], packet_size);
+    }
+    for (int i = 0; i < 100; i++) {
+        cm.add_packet(movement_packets[i], packet_size);
+    }
+    
+    // P95 calibration should still succeed - it finds band with lowest P95
+    TEST_ASSERT_TRUE(calibration_success);
+}
+
+void test_calibration_manager_respects_guard_bands(void) {
+    // Test that P95 calibration respects guard bands and DC zone
+    CSIManager csi_manager;
+    csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
+    
+    P95Calibrator cm;
+    cm.init(&csi_manager, TEST_BUFFER_PATH);
+    cm.init_subcarrier_config();
     cm.set_buffer_size(100);
-    cm.set_window_size(50);
-    cm.set_noise_gate_percentile(20);  // Filter bottom 20% by signal strength
     
     uint8_t result_band[12] = {0};
     uint8_t result_size = 0;
     
-    cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
-            (void)normalization_scale;
+    cm.start_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
+        [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
+            (void)mv_values;
             if (success) { memcpy(result_band, band, size); result_size = size; }
         });
     
     for (int i = 0; i < 100; i++) {
-        cm.add_packet(baseline_packets[i], 128);
+        cm.add_packet(baseline_packets[i], packet_size);
     }
     
     TEST_ASSERT_EQUAL(12, result_size);
     
-    // Guard bands (0-5, 59-63) have weak signal and should be filtered
+    // Selected subcarriers should be within valid range (HT20: 64 SC)
+    // guard_low=11, guard_high=52, DC=32
     for (int i = 0; i < result_size; i++) {
-        TEST_ASSERT_TRUE(result_band[i] >= 6);
-        TEST_ASSERT_TRUE(result_band[i] <= 58);
+        TEST_ASSERT_TRUE_MESSAGE(result_band[i] >= HT20_GUARD_BAND_LOW, 
+            "Subcarrier below guard_low");
+        TEST_ASSERT_TRUE_MESSAGE(result_band[i] <= HT20_GUARD_BAND_HIGH,
+            "Subcarrier above guard_high");
     }
 }
 
-void test_calibration_returns_valid_normalization_scale(void) {
-    // Test that calibration callback returns a valid normalization scale
+void test_calibration_returns_valid_mv_values(void) {
+    // Test that calibration callback returns valid mv_values for threshold calculation
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
-    CalibrationManager cm;
+    P95Calibrator cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
+    cm.init_subcarrier_config();
     cm.set_buffer_size(100);
-    cm.set_window_size(50);
     
-    float result_normalization_scale = 0.0f;
+    std::vector<float> result_mv_values;
     bool calibration_success = false;
     
-    cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+    cm.start_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
+        [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
             (void)band; (void)size;
-            result_normalization_scale = normalization_scale;
+            result_mv_values = mv_values;
             calibration_success = success;
         });
     
     for (int i = 0; i < 100; i++) {
-        cm.add_packet(baseline_packets[i], 128);
+        cm.add_packet(baseline_packets[i], packet_size);
     }
     
     TEST_ASSERT_TRUE(calibration_success);
+    TEST_ASSERT_TRUE(!result_mv_values.empty());
     
-    // Normalization scale should be positive and within reasonable bounds
-    ESP_LOGI(TAG, "Calibration returned normalization_scale: %.4f", result_normalization_scale);
-    TEST_ASSERT_TRUE(result_normalization_scale > 0.0f);
-    TEST_ASSERT_TRUE(result_normalization_scale >= 0.1f);  // Minimum clamped value
-    TEST_ASSERT_TRUE(result_normalization_scale <= 10.0f); // Maximum clamped value
+    // Calculate adaptive threshold using threshold.h
+    float adaptive_threshold = calculate_adaptive_threshold(result_mv_values, 95, 1.4f);
+    
+    ESP_LOGI(TAG, "MV values count: %zu, Adaptive threshold: %.4f", 
+             result_mv_values.size(), adaptive_threshold);
+    TEST_ASSERT_TRUE(adaptive_threshold > 0.0f);
+    TEST_ASSERT_TRUE(adaptive_threshold <= 10.0f);
 }
 
-void test_calibration_normalization_always_calculated(void) {
-    // Test that normalization is always calculated, regardless of subcarrier selection outcome
-    // Even with high-variance data, normalization scale should be valid
+void test_calibration_mv_values_always_returned(void) {
+    // Test that mv_values are always returned, regardless of subcarrier selection outcome
+    // Even with high-variance data, mv_values should be valid for threshold calculation
     CSIManager csi_manager;
     csi_manager.init(&g_processor, DEFAULT_BAND, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f);
     
-    CalibrationManager cm;
+    P95Calibrator cm;
     cm.init(&csi_manager, TEST_BUFFER_PATH);
+    cm.init_subcarrier_config();
     cm.set_buffer_size(100);
-    cm.set_window_size(50);
     
-    float result_normalization_scale = 0.0f;
+    std::vector<float> result_mv_values;
     bool callback_called = false;
     const uint8_t* result_band = nullptr;
     uint8_t result_size = 0;
     
-    cm.start_auto_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
-        [&](const uint8_t* band, uint8_t size, float normalization_scale, bool success) {
+    cm.start_calibration(DEFAULT_BAND, DEFAULT_BAND_SIZE,
+        [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
             (void)success;  // We don't care if it succeeded or not
             result_band = band;
             result_size = size;
-            result_normalization_scale = normalization_scale;
+            result_mv_values = mv_values;
             callback_called = true;
         });
     
     // Feed movement packets (high variance data)
     for (int i = 0; i < 100; i++) {
-        cm.add_packet(movement_packets[i], 128);
+        cm.add_packet(movement_packets[i], packet_size);
     }
     
     TEST_ASSERT_TRUE_MESSAGE(callback_called, "Callback should be called");
     
     // Regardless of success/failure, these should always be valid:
-    ESP_LOGI(TAG, "Normalization test: band=%p, size=%d, norm_scale=%.4f, baseline_var=%.4f",
-             (void*)result_band, result_size, result_normalization_scale, 
-             cm.get_baseline_variance());
+    ESP_LOGI(TAG, "MV values test: band=%p, size=%d, mv_values_count=%zu",
+             (void*)result_band, result_size, result_mv_values.size());
     
-    // 1. Band pointer should be valid (either NBVI-selected or default fallback)
+    // 1. Band pointer should be valid (either P95-selected or default fallback)
     TEST_ASSERT_NOT_NULL_MESSAGE(result_band,
-        "Band should never be null (either NBVI or fallback)");
+        "Band should never be null (either P95-selected or fallback)");
     
     // 2. Band size should be 12
     TEST_ASSERT_EQUAL_MESSAGE(12, result_size,
         "Band size should always be 12");
     
-    // 3. Normalization scale should be calculated and valid
-    TEST_ASSERT_TRUE_MESSAGE(result_normalization_scale > 0.0f,
-        "Normalization scale should be positive");
-    TEST_ASSERT_TRUE_MESSAGE(result_normalization_scale >= 0.1f,
-        "Normalization scale should be >= 0.1 (minimum clamp)");
-    TEST_ASSERT_TRUE_MESSAGE(result_normalization_scale <= 10.0f,
-        "Normalization scale should be <= 10.0 (maximum clamp)");
+    // 3. MV values should be returned for threshold calculation
+    TEST_ASSERT_TRUE_MESSAGE(!result_mv_values.empty(),
+        "MV values should not be empty");
     
-    // 4. Baseline variance should be calculated (not zero)
-    TEST_ASSERT_TRUE_MESSAGE(cm.get_baseline_variance() > 0.0f,
-        "Baseline variance should be calculated");
+    // 4. Verify we can calculate adaptive threshold from mv_values
+    float adaptive_threshold = calculate_adaptive_threshold(result_mv_values, 95, 1.4f);
+    TEST_ASSERT_TRUE_MESSAGE(adaptive_threshold > 0.0f,
+        "Adaptive threshold should be calculable from mv_values");
 }
 
 // Note: Spectral spacing is tested in test_spectral_spacing_* tests below
 // and verified in test_calibration_manager_full_calibration via the callback results
 
 // ============================================================================
-// PERCENTILE TESTS (via CalibrationManager end-to-end)
-// The calculate_percentile_ function is tested through CalibrationManager
+// PERCENTILE TESTS (via P95Calibrator end-to-end)
+// The calculate_percentile_ function is tested through P95Calibrator
 // ============================================================================
 
 // Note: Percentile calculation is tested indirectly through:
 // - test_calibration_manager_percentile_affects_baseline
 // - test_calibration_manager_full_calibration
-// These tests exercise CalibrationManager::calculate_percentile_ internally
+// These tests exercise P95Calibrator::calculate_percentile_ internally
 
 // ============================================================================
 // SPECTRAL SPACING TESTS
@@ -456,33 +444,33 @@ void test_spectral_spacing_edge_case(void) {
 // SUBCARRIER RANKING TESTS
 // ============================================================================
 
-void test_subcarrier_ranking_by_nbvi(void) {
-    // Simulate NBVI values for different subcarriers
-    struct SubcarrierNBVI {
-        uint8_t index;
-        float nbvi;
+void test_subcarrier_ranking_by_p95(void) {
+    // Simulate P95 moving variance values for different bands
+    struct BandP95 {
+        uint8_t start_index;
+        float p95_mv;
     };
     
-    SubcarrierNBVI metrics[] = {
-        {10, 0.05f},  // Most stable
+    BandP95 metrics[] = {
+        {10, 0.05f},  // Low P95, low FP
         {15, 0.08f},
         {20, 0.12f},
-        {25, 0.03f},  // Best
+        {25, 0.03f},  // Best (lowest P95)
         {30, 0.15f},
         {35, 0.07f},
     };
     
-    // Sort by NBVI (ascending - lower is better)
-    std::sort(metrics, metrics + 6, [](const SubcarrierNBVI& a, const SubcarrierNBVI& b) {
-        return a.nbvi < b.nbvi;
+    // Sort by P95 moving variance (ascending - lower is better for FP rate)
+    std::sort(metrics, metrics + 6, [](const BandP95& a, const BandP95& b) {
+        return a.p95_mv < b.p95_mv;
     });
     
-    // Best subcarrier should be first
-    TEST_ASSERT_EQUAL(25, metrics[0].index);
-    TEST_ASSERT_EQUAL_FLOAT(0.03f, metrics[0].nbvi);
+    // Best band (lowest P95) should be first
+    TEST_ASSERT_EQUAL(25, metrics[0].start_index);
+    TEST_ASSERT_EQUAL_FLOAT(0.03f, metrics[0].p95_mv);
     
     // Worst should be last
-    TEST_ASSERT_EQUAL(30, metrics[5].index);
+    TEST_ASSERT_EQUAL(30, metrics[5].start_index);
 }
 
 // ============================================================================
@@ -561,11 +549,11 @@ void test_turbulence_single_subcarrier(void) {
 }
 
 // ============================================================================
-// NOISE GATE TESTS (via CalibrationManager end-to-end)
+// NOISE GATE TESTS (via P95Calibrator end-to-end)
 // ============================================================================
 
 // Note: Noise gate is tested through test_calibration_manager_noise_gate
-// which exercises CalibrationManager::apply_noise_gate_ internally
+// which exercises P95Calibrator::apply_noise_gate_ internally
 
 // ============================================================================
 // COMPARE FUNCTIONS TESTS
@@ -789,10 +777,10 @@ void test_turbulence_from_csi_different_csi_lengths(void) {
     const uint8_t SUBCARRIERS[] = {5, 10, 15, 20, 25, 30};
     const uint8_t NUM_SC = 6;
     
-    // Test with csi_len = 128 (standard 64 subcarriers)
-    float turb_128 = calculate_spatial_turbulence_from_csi(
-        baseline_packets[0], 128, SUBCARRIERS, NUM_SC);
-    TEST_ASSERT_TRUE_MESSAGE(turb_128 > 0.0f, "Should work with csi_len=128");
+    // Test with actual packet size (from loaded data)
+    float turb_full = calculate_spatial_turbulence_from_csi(
+        baseline_packets[0], packet_size, SUBCARRIERS, NUM_SC);
+    TEST_ASSERT_TRUE_MESSAGE(turb_full > 0.0f, "Should work with full packet size");
     
     // Test with csi_len = 64 (32 subcarriers) - some selected SC will be skipped
     float turb_64 = calculate_spatial_turbulence_from_csi(
@@ -809,68 +797,17 @@ void test_turbulence_from_csi_different_csi_lengths(void) {
     TEST_ASSERT_EQUAL_FLOAT_MESSAGE(0.0f, turb_20, 
         "Should return 0 when only 1 valid subcarrier (variance=0)");
     
-    ESP_LOGI(TAG, "Different csi_len test: 128->%.4f, 64->%.4f, 20->%.4f", 
-             turb_128, turb_64, turb_20);
+    ESP_LOGI(TAG, "Different csi_len test: full(%d)->%.4f, 64->%.4f, 20->%.4f", 
+             packet_size, turb_full, turb_64, turb_20);
 }
 
-void test_subcarrier_variance_ranking_real_data(void) {
-    // Test that variance correctly identifies stable subcarriers
-    const size_t SAMPLE_SIZE = 100;
-    
-    struct SubcarrierVariance {
-        uint8_t index;
-        float variance;
-        float mean;
-    };
-    
-    SubcarrierVariance metrics[64];
-    
-    // Calculate variance for each subcarrier
-    for (uint8_t sc = 0; sc < 64; sc++) {
-        std::vector<float> mags(SAMPLE_SIZE);
-        float sum = 0.0f;
-        for (size_t i = 0; i < SAMPLE_SIZE; i++) {
-            const int8_t* bp = baseline_packets[i];
-            mags[i] = calculate_magnitude(bp[sc * 2], bp[sc * 2 + 1]);
-            sum += mags[i];
-        }
-        
-        metrics[sc].index = sc;
-        metrics[sc].variance = calculate_variance_two_pass(mags.data(), SAMPLE_SIZE);
-        metrics[sc].mean = sum / SAMPLE_SIZE;
-    }
-    
-    // Sort by variance (ascending - lower is better for stability)
-    std::sort(metrics, metrics + 64, [](const SubcarrierVariance& a, const SubcarrierVariance& b) {
-        // Filter out zero-mean subcarriers (guard bands)
-        if (a.mean < 1.0f && b.mean >= 1.0f) return false;
-        if (b.mean < 1.0f && a.mean >= 1.0f) return true;
-        return a.variance < b.variance;
-    });
-    
-    // Log top 12 subcarriers
-    ESP_LOGI(TAG, "Top 12 subcarriers by variance (lower is better):");
-    for (int i = 0; i < 12; i++) {
-        ESP_LOGI(TAG, "  %2d. Subcarrier %2d: var=%.4f, mean=%.2f", 
-                 i+1, metrics[i].index, metrics[i].variance, metrics[i].mean);
-    }
-    
-    // Verify guard bands (subcarriers 0-5, 59-63) are NOT in top 12
-    bool guard_bands_filtered = true;
-    for (int i = 0; i < 12; i++) {
-        if (metrics[i].index < 6 || metrics[i].index > 58) {
-            guard_bands_filtered = false;
-            break;
-        }
-    }
-    
-    TEST_ASSERT_TRUE_MESSAGE(guard_bands_filtered,
-        "Top 12 subcarriers should not include guard bands (0-5, 59-63)");
-}
+// Note: test_subcarrier_variance_ranking_real_data was removed.
+// It tested properties of raw data (variance distribution) rather than algorithm behavior.
+// The real test is test_calibration_manager_full_calibration which verifies that
+// P95Calibrator correctly excludes guard bands via P95 band selection algorithm.
 
-int process(void) {
-    UNITY_BEGIN();
-    
+// Tests that don't depend on real CSI data (run once)
+void run_synthetic_tests() {
     // Variance calculation tests (utils.h)
     RUN_TEST(test_variance_empty_array);
     RUN_TEST(test_variance_single_element);
@@ -879,21 +816,13 @@ int process(void) {
     RUN_TEST(test_variance_with_negative_values);
     RUN_TEST(test_variance_large_values_numerical_stability);
     
-    // CalibrationManager end-to-end tests (exercises calculate_nbvi_weighted_ and calculate_percentile_)
-    RUN_TEST(test_calibration_manager_full_calibration);
-    RUN_TEST(test_calibration_manager_alpha_affects_selection);
-    RUN_TEST(test_calibration_manager_percentile_affects_baseline);
-    RUN_TEST(test_calibration_manager_noise_gate);
-    RUN_TEST(test_calibration_returns_valid_normalization_scale);
-    RUN_TEST(test_calibration_normalization_always_calculated);
-    
     // Spectral spacing tests
     RUN_TEST(test_spectral_spacing_valid);
     RUN_TEST(test_spectral_spacing_invalid);
     RUN_TEST(test_spectral_spacing_edge_case);
     
-    // Subcarrier ranking tests
-    RUN_TEST(test_subcarrier_ranking_by_nbvi);
+    // Subcarrier ranking tests (synthetic)
+    RUN_TEST(test_subcarrier_ranking_by_p95);
     
     // Magnitude calculation tests (utils.h)
     RUN_TEST(test_magnitude_zero_iq);
@@ -912,17 +841,46 @@ int process(void) {
     RUN_TEST(test_compare_float_abs);
     RUN_TEST(test_compare_int8_ascending);
     RUN_TEST(test_compare_int8_with_duplicates);
+}
+
+// Tests that use real CSI data (run for each SC configuration)
+void run_real_data_tests() {
+    // P95Calibrator end-to-end tests
+    RUN_TEST(test_calibration_manager_full_calibration);
+    RUN_TEST(test_calibration_manager_p95_produces_valid_band);
+    RUN_TEST(test_calibration_manager_handles_mixed_data);
+    RUN_TEST(test_calibration_manager_respects_guard_bands);
+    RUN_TEST(test_calibration_returns_valid_mv_values);
+    RUN_TEST(test_calibration_mv_values_always_returned);
     
     // Real CSI data tests
     RUN_TEST(test_magnitude_from_real_csi);
     RUN_TEST(test_variance_baseline_vs_movement);
     RUN_TEST(test_turbulence_baseline_vs_movement);
-    RUN_TEST(test_subcarrier_variance_ranking_real_data);
     
-    // CRITICAL: Tests for calculate_spatial_turbulence_from_csi (production function)
+    // Tests for calculate_spatial_turbulence_from_csi
     RUN_TEST(test_turbulence_from_csi_nonzero_real_data);
     RUN_TEST(test_turbulence_from_csi_movement_higher_variance);
     RUN_TEST(test_turbulence_from_csi_different_csi_lengths);
+}
+
+
+int process(void) {
+    UNITY_BEGIN();
+    
+    // Run synthetic tests once
+    printf("\n========================================\n");
+    printf("Running synthetic tests\n");
+    printf("========================================\n");
+    run_synthetic_tests();
+    
+    // Run real data tests with 64 SC dataset (HT20 only)
+    printf("\n========================================\n");
+    printf("Running real data tests with 64 SC dataset (HT20)\n");
+    printf("========================================\n");
+    if (csi_test_data::load()) {
+        run_real_data_tests();
+    }
     
     return UNITY_END();
 }

@@ -18,7 +18,6 @@ WINDOW_SIZE = 50
 HAMPEL_WINDOW = 7
 HAMPEL_THRESHOLD = 4.0
 TOLERANCE = 1e-6
-SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 
 class OriginalRunningVariance:
@@ -167,7 +166,7 @@ class OptimizedHampelFilter:
 
 @pytest.fixture
 def turbulence_values(real_csi_data_available, real_baseline_packets, 
-                      real_movement_packets):
+                      real_movement_packets, default_subcarriers):
     """Load turbulence values from real CSI data"""
     if not real_csi_data_available:
         # Fall back to synthetic data
@@ -178,11 +177,11 @@ def turbulence_values(real_csi_data_available, real_baseline_packets,
     
     values = []
     for packet in real_baseline_packets:
-        turb = calculate_spatial_turbulence(packet['csi_data'], SELECTED_SUBCARRIERS)
+        turb = calculate_spatial_turbulence(packet['csi_data'], default_subcarriers)
         values.append(float(turb))
     
     for packet in real_movement_packets:
-        turb = calculate_spatial_turbulence(packet['csi_data'], SELECTED_SUBCARRIERS)
+        turb = calculate_spatial_turbulence(packet['csi_data'], default_subcarriers)
         values.append(float(turb))
     
     return values

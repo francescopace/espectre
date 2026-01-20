@@ -14,8 +14,9 @@ import sys
 from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
 
-# Add src to path
+# Add src and tools to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent / 'tools'))
 
 # Mock MicroPython modules before importing mqtt modules
 mock_mqtt_client = MagicMock()
@@ -68,7 +69,8 @@ class MockConfig:
     MQTT_USERNAME = "user"
     MQTT_PASSWORD = "pass"
     MQTT_TOPIC = "test/espectre"
-    SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+    # SELECTED_SUBCARRIERS is set dynamically by mock_config fixture
+    SELECTED_SUBCARRIERS = None
 
 
 class MockSegmentation:
@@ -77,9 +79,8 @@ class MockSegmentation:
     STATE_MOTION = 1
     
     def __init__(self):
-        self.threshold = 1.0
+        self.threshold = 1.0  # Can be adaptive threshold
         self.window_size = 50
-        self.normalization_scale = 1.0
         self.state = self.STATE_IDLE
         self.current_moving_variance = 0.5
         self.last_turbulence = 2.5
@@ -144,9 +145,11 @@ def mock_wlan():
 
 
 @pytest.fixture
-def mock_config():
-    """Create mock config"""
-    return MockConfig()
+def mock_config(default_subcarriers):
+    """Create mock config with default subcarriers from conftest"""
+    config = MockConfig()
+    config.SELECTED_SUBCARRIERS = default_subcarriers
+    return config
 
 
 @pytest.fixture
@@ -424,15 +427,7 @@ class TestMQTTCommands:
     """Test MQTTCommands class"""
     
     @pytest.fixture
-    def mock_nvs(self):
-        """Mock NVS storage"""
-        with patch('mqtt.commands.NVSStorage') as mock:
-            mock_instance = MagicMock()
-            mock.return_value = mock_instance
-            yield mock_instance
-    
-    @pytest.fixture
-    def commands_instance(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_wlan, mock_traffic_gen, mock_global_state, mock_nvs):
+    def commands_instance(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_wlan, mock_traffic_gen, mock_global_state):
         """Create MQTTCommands instance with all mocks"""
         from mqtt.commands import MQTTCommands
         
@@ -443,7 +438,7 @@ class TestMQTTCommands:
             "test/espectre/response",
             mock_wlan,
             mock_traffic_gen,
-            None,  # nbvi_calibration_func
+            None,  # band_calibration_func
             mock_global_state
         )
     
@@ -514,12 +509,11 @@ class TestMQTTCommands:
         assert payload['state'] == 'idle'
         assert 'traffic_generator' in payload
     
-    def test_cmd_segmentation_threshold_success(self, commands_instance, mock_mqtt_client_instance, mock_segmentation, mock_nvs):
-        """Test setting segmentation threshold"""
+    def test_cmd_segmentation_threshold_success(self, commands_instance, mock_mqtt_client_instance, mock_segmentation):
+        """Test setting segmentation threshold (session-only, not persisted)"""
         commands_instance.cmd_segmentation_threshold({'value': 2.5})
         
         assert mock_segmentation.threshold == 2.5
-        mock_nvs.save_full_config.assert_called_once()
     
     def test_cmd_segmentation_threshold_missing_value(self, commands_instance, mock_mqtt_client_instance):
         """Test threshold command without value"""
@@ -545,14 +539,13 @@ class TestMQTTCommands:
         payload = json.loads(call_args[0][1])
         assert 'ERROR' in payload['response']
     
-    def test_cmd_segmentation_window_size_success(self, commands_instance, mock_mqtt_client_instance, mock_segmentation, mock_nvs):
-        """Test setting window size"""
+    def test_cmd_segmentation_window_size_success(self, commands_instance, mock_mqtt_client_instance, mock_segmentation):
+        """Test setting window size (session-only, not persisted)"""
         old_size = mock_segmentation.window_size
         commands_instance.cmd_segmentation_window_size({'value': 100})
         
         assert mock_segmentation.window_size == 100
         assert len(mock_segmentation.turbulence_buffer) == 100
-        mock_nvs.save_full_config.assert_called_once()
     
     def test_cmd_segmentation_window_size_missing_value(self, commands_instance, mock_mqtt_client_instance):
         """Test window size command without value"""
@@ -578,17 +571,17 @@ class TestMQTTCommands:
         payload = json.loads(call_args[0][1])
         assert 'ERROR' in payload['response']
     
-    def test_cmd_factory_reset(self, commands_instance, mock_mqtt_client_instance, mock_segmentation, mock_nvs):
+    def test_cmd_factory_reset(self, commands_instance, mock_mqtt_client_instance, mock_segmentation):
         """Test factory reset command"""
         commands_instance.cmd_factory_reset({})
         
         # Should reset to defaults (from config.py)
-        mock_nvs.erase.assert_called_once()
+        assert mock_segmentation.threshold == 1.0
     
-    def test_cmd_factory_reset_with_calibration(self, commands_instance, mock_mqtt_client_instance, mock_nvs, mock_global_state):
-        """Test factory reset with NBVI re-calibration"""
+    def test_cmd_factory_reset_with_calibration(self, commands_instance, mock_mqtt_client_instance, mock_global_state):
+        """Test factory reset with band re-calibration"""
         mock_calibration_func = MagicMock(return_value=True)
-        commands_instance.nbvi_calibration_func = mock_calibration_func
+        commands_instance.band_calibration_func = mock_calibration_func
         
         commands_instance.cmd_factory_reset({})
         
@@ -651,7 +644,7 @@ class TestMQTTCommands:
         assert 'segmentation' in payload
         assert 'subcarriers' in payload
     
-    def test_cmd_info_with_connected_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_traffic_gen, mock_global_state, mock_nvs):
+    def test_cmd_info_with_connected_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_traffic_gen, mock_global_state):
         """Test info command with connected WLAN"""
         from mqtt.commands import MQTTCommands
         
@@ -686,7 +679,7 @@ class TestMQTTCommands:
         assert payload['network']['mac_address'] == '12:34:56:78:9A:BC'
         assert payload['network']['channel']['primary'] == 6
     
-    def test_cmd_info_with_inactive_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_traffic_gen, mock_global_state, mock_nvs):
+    def test_cmd_info_with_inactive_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_traffic_gen, mock_global_state):
         """Test info command with inactive WLAN"""
         from mqtt.commands import MQTTCommands
         

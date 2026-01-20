@@ -13,14 +13,19 @@
 #include <cstring>
 #include "csi_manager.h"
 #include "csi_processor.h"
-#include "calibration_manager.h"
+#include "p95_calibrator.h"
 #include "wifi_csi_interface.h"
 #include "esphome/core/log.h"
 #include "esp_wifi.h"
 
-// Include real CSI data
-#include "real_csi_data_esp32.h"
-#include "real_csi_arrays.inc"
+// Include CSI data loader (loads from NPZ files)
+#include "csi_test_data.h"
+
+// Compatibility macros for existing test code
+#define baseline_packets csi_test_data::baseline_packets()
+#define movement_packets csi_test_data::movement_packets()
+#define num_baseline csi_test_data::num_baseline()
+#define num_movement csi_test_data::num_movement()
 
 using namespace esphome::espectre;
 
@@ -366,8 +371,8 @@ void test_csi_manager_with_calibrator_not_calibrating(void) {
     CSIManager manager;
     manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, GainLockMode::AUTO, &g_wifi_mock);
     
-    // Create a real CalibrationManager (not calibrating by default)
-    CalibrationManager calibrator;
+    // Create a real P95Calibrator (not calibrating by default)
+    P95Calibrator calibrator;
     calibrator.init(nullptr, "/tmp/test_cal.bin");  // No CSI manager, won't actually calibrate
     
     // Verify calibrator is not calibrating
@@ -414,14 +419,14 @@ void test_csi_manager_delegates_when_calibrating(void) {
     CSIManager manager;
     manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, GainLockMode::AUTO, &g_wifi_mock);
     
-    // Create CalibrationManager and start calibration
-    CalibrationManager calibrator;
+    // Create P95Calibrator and start calibration
+    P95Calibrator calibrator;
     calibrator.init(&manager, "/tmp/test_cal_delegate.bin");
     calibrator.set_buffer_size(50);  // Small buffer for testing
     
     // Start calibration - this sets calibrator to "calibrating" state
     uint8_t dummy_band[12] = {10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
-    esp_err_t err = calibrator.start_auto_calibration(dummy_band, 12, nullptr);
+    esp_err_t err = calibrator.start_calibration(dummy_band, 12, nullptr);
     TEST_ASSERT_EQUAL(ESP_OK, err);
     TEST_ASSERT_TRUE(calibrator.is_calibrating());
     
@@ -453,14 +458,14 @@ void test_csi_manager_calibration_triggers_periodic_yield(void) {
     CSIManager manager;
     manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, GainLockMode::AUTO, &g_wifi_mock);
     
-    // Create CalibrationManager with buffer size > 100 to trigger periodic flush/yield
-    CalibrationManager calibrator;
+    // Create P95Calibrator with buffer size > 100 to trigger periodic flush/yield
+    P95Calibrator calibrator;
     calibrator.init(&manager, "/tmp/test_cal_yield.bin");
     calibrator.set_buffer_size(150);  // Need > 100 to trigger the yield path
     
     // Start calibration
     uint8_t dummy_band[12] = {10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
-    esp_err_t err = calibrator.start_auto_calibration(dummy_band, 12, nullptr);
+    esp_err_t err = calibrator.start_calibration(dummy_band, 12, nullptr);
     TEST_ASSERT_EQUAL(ESP_OK, err);
     TEST_ASSERT_TRUE(calibrator.is_calibrating());
     
@@ -489,7 +494,7 @@ void test_csi_manager_calibrator_lifecycle(void) {
     CSIManager manager;
     manager.init(&g_processor, TEST_SUBCARRIERS, 1.0f, 50, 100, true, 11.0f, false, 7, 3.0f, GainLockMode::AUTO, &g_wifi_mock);
     
-    CalibrationManager calibrator;
+    P95Calibrator calibrator;
     calibrator.init(nullptr, "/tmp/test_cal2.bin");
     
     // Set calibration mode
@@ -761,6 +766,12 @@ void test_csi_manager_callback_wrapper_null_data(void) {
 // ============================================================================
 
 int process(void) {
+    // Load CSI test data from NPZ files
+    if (!csi_test_data::load()) {
+        printf("ERROR: Failed to load CSI test data from NPZ files\n");
+        return 1;
+    }
+    
     UNITY_BEGIN();
     
     // Initialization tests

@@ -1,8 +1,10 @@
-# ESPectre Partition Table with SPIFFS for calibration buffer
+# ESPectre Partition Table
+# - nvs: Required by ESPHome (WiFi credentials, API keys, OTA)
+# - spiffs: Used for calibration buffer during band selection
 # Name,   Type, SubType, Offset,   Size,    Flags
 nvs,      data, nvs,     0x9000,   0x5000,
 otadata,  data, ota,     0xe000,   0x2000,
-app0,     app,  ota_0,   0x10000,  0x1E0000,
-app1,     app,  ota_1,   0x1F0000, 0x1E0000,
-spiffs,   data, spiffs,  0x3D0000, 0x30000,
+app0,     app,  ota_0,   0x10000,  0x1D0000,
+app1,     app,  ota_1,   0x1E0000, 0x1D0000,
+spiffs,   data, spiffs,  0x3B0000, 0x50000,
 

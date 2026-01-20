@@ -98,8 +98,9 @@ void GainController::process_packet(const wifi_csi_info_t* info) {
     locked_ = true;
     ESP_LOGI(TAG, "Gain locked: AGC=%d, FFT=%d (after %d packets)", 
              agc_gain_locked_, fft_gain_locked_, calibration_packets_);
+    ESP_LOGI(TAG, "HT20 mode: 64 subcarriers");
     
-    // Notify callback that gain is now locked (triggers NBVI calibration)
+    // Notify callback that gain is now locked (triggers band calibration)
     if (lock_complete_callback_) {
       lock_complete_callback_();
     }

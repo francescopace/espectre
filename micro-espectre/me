@@ -16,8 +16,8 @@ FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 
 # SHA256 hashes for firmware verification (update when releasing new firmware)
 FIRMWARE_HASHES = {
-    'ESP32_CSI_S3.bin': 'a561b0f7e50471cafe39bb6d051584ee81acd1d3a7f8b1aeb138a7a2cbbc31f9',
-    'ESP32_CSI_C6.bin': '22792bf14bad3684cbeeab095e2d553ec8a938afb24f695906927555fb55f540',
+    'ESP32_CSI_S3.bin': '388f77fccf69e96bec16f1a40d2f6bce51e9413a7a1a6effa8ba82820c80cee3',
+    'ESP32_CSI_C6.bin': 'b4504262e57ec3dc3e8cda9cf64c774fed38bc60954f170c4575c7eb8d92513e',
 }
 
 try:
@@ -440,11 +440,14 @@ def deploy_code(args):
             ('src/__init__.py', ':src/'),
             ('src/config.py', ':src/'),
             ('src/config_local.py', ':src/'),
+            ('src/utils.py', ':src/'),
+            ('src/threshold.py', ':src/'),
             ('src/segmentation.py', ':src/'),
             ('src/traffic_generator.py', ':src/'),
-            ('src/nvs_storage.py', ':src/'),
             ('src/filters.py', ':src/'),
             ('src/features.py', ':src/'),
+            ('src/calibrator_interface.py', ':src/'),
+            ('src/p95_calibrator.py', ':src/'),
             ('src/nbvi_calibrator.py', ':src/'),
             ('src/main.py', ':src/'),
             ('src/csi_streamer.py', ':src/'),
@@ -660,23 +663,16 @@ def collect_csi_data(args):
     print(f"  {Fore.CYAN}Samples:{Style.RESET_ALL}   {args.samples}")
     print(f"  {Fore.CYAN}Duration:{Style.RESET_ALL}  {args.duration}s per sample")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
-    if args.chip:
-        print(f"  {Fore.CYAN}Chip:{Style.RESET_ALL}      {args.chip}")
-    if args.subject:
-        print(f"  {Fore.CYAN}Subject:{Style.RESET_ALL}   {args.subject}")
-    if args.environment:
-        print(f"  {Fore.CYAN}Environment:{Style.RESET_ALL} {args.environment}")
     print()
-    print(f"  {Fore.YELLOW}⚠️  Make sure ESP32 is streaming: ./me stream --ip <PC_IP>{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Chip type auto-detected from CSI stream{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure ESP32 is streaming: ./me stream --ip <PC_IP>{Style.RESET_ALL}")
     print()
     
-    # Create collector
+    # Create collector (chip is auto-detected from CSI packets)
     collector = CSICollector(
         label=args.label,
         port=args.udp_port,
-        subject=args.subject,
-        environment=args.environment,
-        chip=args.chip
+        contributor=args.contributor
     )
     
     try:
@@ -888,18 +884,14 @@ Examples:
                                help='Number of samples to collect (default: 1)')
     collect_parser.add_argument('--duration', '-d', type=float, default=3.0,
                                help='Duration per sample in seconds (default: 3.0)')
-    collect_parser.add_argument('--subject', '-s',
-                               help='Subject/contributor ID (optional)')
-    collect_parser.add_argument('--environment', '-e',
-                               help='Environment description (optional)')
     collect_parser.add_argument('--info', '-i', action='store_true',
                                help='Show dataset statistics')
     collect_parser.add_argument('--interactive', action='store_true',
                                help='Interactive mode (press ENTER for each sample)')
-    collect_parser.add_argument('--chip', '-c',
-                               help='Chip type for filename (e.g., c6, s3)')
     collect_parser.add_argument('--udp-port', type=int, default=5001,
                                help='UDP port for CSI reception (default: 5001)')
+    collect_parser.add_argument('--contributor', '-c',
+                               help='GitHub username of the contributor')
     
     # MQTT interactive mode arguments (when no subcommand)
     parser.add_argument("--broker", default=os.getenv("MQTT_BROKER", "homeassistant.local"),

@@ -42,11 +42,15 @@ CONF_HAMPEL_ENABLED = "hampel_enabled"
 CONF_HAMPEL_WINDOW = "hampel_window"
 CONF_HAMPEL_THRESHOLD = "hampel_threshold"
 
+
 # Traffic generator mode
 CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 
 # Gain lock mode
 CONF_GAIN_LOCK = "gain_lock"
+
+# Calibration algorithm
+CONF_CALIBRATION_ALGORITHM = "calibration_algorithm"
 
 # Threshold limits (keep in sync with csi_processor.h)
 THRESHOLD_MIN = 0.1
@@ -68,11 +72,33 @@ ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
 ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.Number, cg.Component)
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
 
+def validate_segmentation_threshold(value):
+    """Validate segmentation_threshold: accepts 'auto', 'min', or a float."""
+    if isinstance(value, str):
+        value_lower = value.lower()
+        if value_lower in ("auto", "min"):
+            return value_lower
+        # Try to parse as float
+        try:
+            return float(value)
+        except ValueError:
+            raise cv.Invalid(f"Invalid threshold value '{value}'. Use 'auto', 'min', or a number {THRESHOLD_MIN}-{THRESHOLD_MAX}")
+    if isinstance(value, (int, float)):
+        if value < THRESHOLD_MIN or value > THRESHOLD_MAX:
+            raise cv.Invalid(f"Threshold must be between {THRESHOLD_MIN} and {THRESHOLD_MAX}")
+        return float(value)
+    raise cv.Invalid(f"Invalid threshold type. Use 'auto', 'min', or a number {THRESHOLD_MIN}-{THRESHOLD_MAX}")
+
+
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(ESpectreComponent),
     
     # Motion detection parameters
-    cv.Optional(CONF_SEGMENTATION_THRESHOLD, default=THRESHOLD_DEFAULT): cv.float_range(min=THRESHOLD_MIN, max=THRESHOLD_MAX),
+    # segmentation_threshold:
+    #   - auto (default): P95 × 1.4 - zero false positives
+    #   - min: P100 × 1.0 - maximum sensitivity (may have FP)
+    #   - number (0.1-10.0): fixed manual threshold
+    cv.Optional(CONF_SEGMENTATION_THRESHOLD, default="auto"): validate_segmentation_threshold,
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=50): cv.int_range(min=10, max=200),
     
     # Traffic generator (0 = disabled, use external WiFi traffic)
@@ -86,6 +112,11 @@ CONFIG_SCHEMA = cv.Schema({
     # Enabled: always force gain lock (may freeze if too close to AP)
     # Disabled: never lock gain (less stable CSI but works at any distance)
     cv.Optional(CONF_GAIN_LOCK, default="auto"): cv.one_of("auto", "enabled", "disabled", lower=True),
+    
+    # Calibration algorithm: nbvi (default) or p95
+    # NBVI: selects 12 non-consecutive subcarriers based on stability metrics
+    # P95: selects 12 consecutive subcarriers minimizing P95 moving variance
+    cv.Optional(CONF_CALIBRATION_ALGORITHM, default="nbvi"): cv.one_of("p95", "nbvi", lower=True),
     
     # Publish interval in packets (default: same as traffic_generator_rate, or 100 if traffic is 0)
     cv.Optional(CONF_PUBLISH_INTERVAL): cv.int_range(min=1, max=1000),
@@ -168,11 +199,20 @@ async def to_code(config):
     # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome
     
     # Configure parameters
-    cg.add(var.set_segmentation_threshold(config[CONF_SEGMENTATION_THRESHOLD]))
+    # segmentation_threshold can be: "auto", "min", or a float
+    threshold_value = config[CONF_SEGMENTATION_THRESHOLD]
+    if isinstance(threshold_value, str):
+        # "auto" or "min" mode
+        cg.add(var.set_threshold_mode(threshold_value))
+    else:
+        # Numeric value - set as manual threshold
+        cg.add(var.set_segmentation_threshold(threshold_value))
+    
     cg.add(var.set_segmentation_window_size(config[CONF_SEGMENTATION_WINDOW_SIZE]))
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_gain_lock_mode(config[CONF_GAIN_LOCK]))
+    cg.add(var.set_calibration_algorithm(config[CONF_CALIBRATION_ALGORITHM]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
     
     # Configure subcarriers if specified

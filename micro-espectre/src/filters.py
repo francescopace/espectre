@@ -21,7 +21,7 @@ class LowPassFilter:
     preserving the motion signal (typically 0.5-10 Hz for human movement).
     
     This helps reduce false positives caused by RF interference,
-    especially when NBVI selects subcarriers that are more susceptible to noise.
+    especially when auto-calibration selects subcarriers that are more susceptible to noise.
     
     Transfer function (1st order Butterworth):
         H(z) = b0 * (1 + z^-1) / (1 - a1 * z^-1)

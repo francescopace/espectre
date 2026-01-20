@@ -75,8 +75,7 @@ def test_config(baseline_iq, movement_iq, subcarriers, target, cutoff,
         threshold=threshold,
         enable_lowpass=True,
         lowpass_cutoff=cutoff,
-        enable_hampel=False,
-        normalization_scale=norm_scale
+        enable_hampel=False
     )
     
     # Process baseline
@@ -84,6 +83,7 @@ def test_config(baseline_iq, movement_iq, subcarriers, target, cutoff,
     for i in range(len(baseline_iq)):
         turb = seg.calculate_spatial_turbulence(baseline_iq[i], subcarriers)
         seg.add_turbulence(turb)
+        seg.update_state()  # Must call to calculate variance and update state
         if i >= 50 and seg.get_state() == seg.STATE_MOTION:
             fp += 1
     
@@ -93,6 +93,7 @@ def test_config(baseline_iq, movement_iq, subcarriers, target, cutoff,
     for i in range(len(movement_iq)):
         turb = seg.calculate_spatial_turbulence(movement_iq[i], subcarriers)
         seg.add_turbulence(turb)
+        seg.update_state()  # Must call to calculate variance and update state
         if i >= 50 and seg.get_state() == seg.STATE_MOTION:
             tp += 1
     
@@ -142,8 +143,7 @@ def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, c
                 lowpass_cutoff=cutoff,
                 enable_hampel=True,
                 hampel_window=window,
-                hampel_threshold=threshold,
-                normalization_scale=norm_scale
+                hampel_threshold=threshold
             )
             
             # Process baseline
@@ -151,6 +151,7 @@ def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, c
             for i in range(len(baseline_iq)):
                 turb = seg.calculate_spatial_turbulence(baseline_iq[i], subcarriers)
                 seg.add_turbulence(turb)
+                seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
                     fp += 1
             
@@ -160,6 +161,7 @@ def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, c
             for i in range(len(movement_iq)):
                 turb = seg.calculate_spatial_turbulence(movement_iq[i], subcarriers)
                 seg.add_turbulence(turb)
+                seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
                     tp += 1
             
@@ -217,6 +219,16 @@ def main():
         # Fallback to regular baseline
         baseline_file = find_latest_file(data_dir / 'baseline', 'baseline', chip_filter)
     
+    # Extract chip from baseline file metadata to ensure matching movement data
+    if baseline_file and chip_filter is None:
+        try:
+            baseline_meta = np.load(baseline_file, allow_pickle=True)
+            if 'chip' in baseline_meta:
+                chip_filter = str(baseline_meta['chip'].item() if hasattr(baseline_meta['chip'], 'item') else baseline_meta['chip'])
+                print(f"Auto-detected chip from baseline metadata: {chip_filter}")
+        except Exception:
+            pass  # Fall back to no chip filter
+    
     movement_file = find_latest_file(data_dir / 'movement', 'movement', chip_filter)
     
     if baseline_file is None:
@@ -248,17 +260,20 @@ def main():
     print(f"Movement: {len(movement_iq)} packets")
     print()
     
-    # NBVI-like subcarriers (typical selection)
-    nbvi_like = [13, 17, 20, 23, 40, 43, 47, 49, 51, 55, 59, 63]
+    # Determine optimal band (64 SC HT20 mode)
+    num_sc = len(baseline_iq[0]) // 2
+    # 64 SC optimal band (from P95 calibration)
+    selected_band = list(range(11, 23))  # [11-22]
+    print(f"Subcarriers: {num_sc}, using band: [{selected_band[0]}-{selected_band[-1]}]")
     
     # Calculate average magnitude
-    avg_mag = calc_avg_magnitude(baseline_iq, nbvi_like)
+    avg_mag = calc_avg_magnitude(baseline_iq, selected_band)
     print(f"Average magnitude: {avg_mag:.2f}")
     print()
     
     # Handle --hampel mode
     if args.hampel:
-        optimize_hampel(baseline_iq, movement_iq, nbvi_like, avg_mag)
+        optimize_hampel(baseline_iq, movement_iq, selected_band, avg_mag)
         return
     
     # Handle --all mode (low-pass first, then Hampel with best params)
@@ -278,7 +293,7 @@ def main():
     best_f1_target = 0
     
     for target in range(20, 40, 2):
-        m = test_config(baseline_iq, movement_iq, nbvi_like, target, 10.0, 
+        m = test_config(baseline_iq, movement_iq, selected_band, target, 10.0, 
                        avg_mag=avg_mag)
         marker = ''
         if m['f1'] > best_f1_target:
@@ -306,7 +321,7 @@ def main():
     best_f1_cutoff = 0
     
     for cutoff in [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]:
-        m = test_config(baseline_iq, movement_iq, nbvi_like, best_target, cutoff,
+        m = test_config(baseline_iq, movement_iq, selected_band, best_target, cutoff,
                        avg_mag=avg_mag)
         marker = ''
         if m['f1'] > best_f1_cutoff:
@@ -338,7 +353,7 @@ def main():
         for cutoff in range(best_cutoff - 2, best_cutoff + 3):
             if cutoff < 5:
                 continue
-            m = test_config(baseline_iq, movement_iq, nbvi_like, target, cutoff,
+            m = test_config(baseline_iq, movement_iq, selected_band, target, cutoff,
                            avg_mag=avg_mag)
             
             if m['f1'] > best_f1:
@@ -360,6 +375,11 @@ def main():
     print('=' * 70)
     print()
     
+    if best_combo is None:
+        print('No valid configuration found in grid search.')
+        print('Try running with different parameters or check your data.')
+        return
+    
     target, cutoff, m = best_combo
     
     if m['recall'] < 90:
@@ -369,7 +389,7 @@ def main():
         # Try increasing cutoff
         print('Option A: Increase Cutoff')
         for c in range(cutoff, cutoff + 5):
-            m2 = test_config(baseline_iq, movement_iq, nbvi_like, target, c,
+            m2 = test_config(baseline_iq, movement_iq, selected_band, target, c,
                             avg_mag=avg_mag)
             status = '✅' if m2['recall'] >= 90 else ''
             print(f'  Cutoff={c}: Recall={m2["recall"]:.1f}%, FP={m2["fp_rate"]:.2f}% {status}')
@@ -381,7 +401,7 @@ def main():
         # Try increasing target
         print('Option B: Increase Target')
         for t in range(target, target + 5):
-            m2 = test_config(baseline_iq, movement_iq, nbvi_like, t, cutoff,
+            m2 = test_config(baseline_iq, movement_iq, selected_band, t, cutoff,
                             avg_mag=avg_mag)
             status = '✅' if m2['recall'] >= 90 else ''
             print(f'  Target={t}: Recall={m2["recall"]:.1f}%, FP={m2["fp_rate"]:.2f}% {status}')

@@ -15,13 +15,25 @@
 
 using namespace esphome::espectre;
 
-#include "real_csi_data_esp32.h"
-#include "real_csi_arrays.inc"
+// Include CSI data loader (loads from NPZ files)
+#include "csi_test_data.h"
+
+// Compatibility macros for existing test code
+#define baseline_packets csi_test_data::baseline_packets()
+#define movement_packets csi_test_data::movement_packets()
+#define num_baseline csi_test_data::num_baseline()
+#define num_movement csi_test_data::num_movement()
+#define packet_size csi_test_data::packet_size()
 
 static const char *TAG = "test_csi_processor";
 
-static const uint8_t TEST_SUBCARRIERS[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
-static const uint8_t NUM_TEST_SUBCARRIERS = sizeof(TEST_SUBCARRIERS) / sizeof(TEST_SUBCARRIERS[0]);
+// Optimal subcarriers by dataset (found via grid search analysis)
+static const uint8_t SUBCARRIERS_64SC[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+static const uint8_t SUBCARRIERS_256SC[] = {147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158};
+inline const uint8_t* get_test_subcarriers() {
+    return (csi_test_data::num_subcarriers() == 64) ? SUBCARRIERS_64SC : SUBCARRIERS_256SC;
+}
+static const uint8_t NUM_TEST_SUBCARRIERS = 12;
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -135,15 +147,15 @@ void test_set_threshold_rejects_null_context(void) {
 // ============================================================================
 
 void test_reset_clears_state_but_preserves_parameters(void) {
-    csi_set_subcarrier_selection(TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    csi_set_subcarrier_selection(get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     
     csi_processor_context_t ctx;
     TEST_ASSERT_TRUE(csi_processor_init(&ctx, 30, 1.5f));
     
     // Process packets to change state
     for (int i = 0; i < 50 && i < num_movement; i++) {
-        csi_process_packet(&ctx, (const int8_t*)movement_packets[i], 128, 
-                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+        csi_process_packet(&ctx, (const int8_t*)movement_packets[i], packet_size, 
+                          get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     }
     
     float threshold_before = csi_processor_get_threshold(&ctx);
@@ -167,7 +179,7 @@ void test_process_packet_handles_null_data(void) {
     csi_processor_context_t ctx;
     TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
     
-    csi_process_packet(&ctx, NULL, 128, TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    csi_process_packet(&ctx, NULL, packet_size, get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     TEST_ASSERT_EQUAL(CSI_STATE_IDLE, ctx.state);
     
     csi_processor_cleanup(&ctx);
@@ -177,8 +189,8 @@ void test_process_packet_handles_zero_length(void) {
     csi_processor_context_t ctx;
     TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
     
-    int8_t dummy[128] = {0};
-    csi_process_packet(&ctx, dummy, 0, TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    int8_t dummy[512] = {0};
+    csi_process_packet(&ctx, dummy, 0, get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     TEST_ASSERT_EQUAL(CSI_STATE_IDLE, ctx.state);
     
     csi_processor_cleanup(&ctx);
@@ -188,8 +200,8 @@ void test_process_packet_handles_null_subcarriers(void) {
     csi_processor_context_t ctx;
     TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
     
-    int8_t dummy[128] = {0};
-    csi_process_packet(&ctx, dummy, 128, NULL, 0);
+    int8_t dummy[512] = {0};
+    csi_process_packet(&ctx, dummy, packet_size, NULL, 0);
     TEST_ASSERT_EQUAL(CSI_STATE_IDLE, ctx.state);
     
     csi_processor_cleanup(&ctx);
@@ -270,8 +282,8 @@ void test_get_last_turbulence_after_processing(void) {
     
     // Process a few packets
     for (int i = 0; i < 10; i++) {
-        csi_process_packet(&ctx, baseline_packets[i], 128, 
-                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+        csi_process_packet(&ctx, baseline_packets[i], packet_size, 
+                          get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     }
     
     // Last turbulence should be non-zero (real CSI data has signal)
@@ -302,8 +314,8 @@ void test_get_total_packets_increments_correctly(void) {
     
     // Process 25 packets
     for (int i = 0; i < 25; i++) {
-        csi_process_packet(&ctx, baseline_packets[i], 128, 
-                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+        csi_process_packet(&ctx, baseline_packets[i], packet_size, 
+                          get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     }
     
     TEST_ASSERT_EQUAL(25, csi_processor_get_total_packets(&ctx));
@@ -321,8 +333,8 @@ void test_state_transitions_to_motion_on_high_variance(void) {
     
     // Process movement packets - should trigger motion
     for (int i = 0; i < 50; i++) {
-        csi_process_packet(&ctx, movement_packets[i], 128, 
-                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+        csi_process_packet(&ctx, movement_packets[i], packet_size, 
+                          get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     }
     
     // Update state (lazy evaluation - must be called explicitly)
@@ -346,8 +358,8 @@ void test_state_stays_idle_on_baseline(void) {
     
     // Process baseline packets - should stay idle
     for (int i = 0; i < 50; i++) {
-        csi_process_packet(&ctx, baseline_packets[i], 128, 
-                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+        csi_process_packet(&ctx, baseline_packets[i], packet_size, 
+                          get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     }
     
     // Update state (lazy evaluation - must be called explicitly)
@@ -362,94 +374,6 @@ void test_state_stays_idle_on_baseline(void) {
     TEST_ASSERT_EQUAL(CSI_STATE_IDLE, state);
     
     csi_processor_cleanup(&ctx);
-}
-
-// ============================================================================
-// NORMALIZATION SCALE TESTS
-// ============================================================================
-
-void test_normalization_scale_default_is_one(void) {
-    csi_processor_context_t ctx;
-    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
-    
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, csi_processor_get_normalization_scale(&ctx));
-    
-    csi_processor_cleanup(&ctx);
-}
-
-void test_set_normalization_scale_valid_values(void) {
-    csi_processor_context_t ctx;
-    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
-    
-    csi_processor_set_normalization_scale(&ctx, 2.0f);
-    TEST_ASSERT_EQUAL_FLOAT(2.0f, csi_processor_get_normalization_scale(&ctx));
-    
-    csi_processor_set_normalization_scale(&ctx, 0.5f);
-    TEST_ASSERT_EQUAL_FLOAT(0.5f, csi_processor_get_normalization_scale(&ctx));
-    
-    csi_processor_cleanup(&ctx);
-}
-
-void test_normalization_scale_clamps_minimum(void) {
-    csi_processor_context_t ctx;
-    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
-    
-    // Values below 0.001 should be clamped to 0.001
-    csi_processor_set_normalization_scale(&ctx, 0.0001f);
-    TEST_ASSERT_EQUAL_FLOAT(0.001f, csi_processor_get_normalization_scale(&ctx));
-    
-    csi_processor_set_normalization_scale(&ctx, 0.0f);
-    TEST_ASSERT_EQUAL_FLOAT(0.001f, csi_processor_get_normalization_scale(&ctx));
-    
-    csi_processor_set_normalization_scale(&ctx, -1.0f);
-    TEST_ASSERT_EQUAL_FLOAT(0.001f, csi_processor_get_normalization_scale(&ctx));
-    
-    csi_processor_cleanup(&ctx);
-}
-
-void test_normalization_scale_clamps_maximum(void) {
-    csi_processor_context_t ctx;
-    TEST_ASSERT_TRUE(csi_processor_init(&ctx, 50, 1.0f));
-    
-    // Values above 100.0 should be clamped to 100.0
-    csi_processor_set_normalization_scale(&ctx, 150.0f);
-    TEST_ASSERT_EQUAL_FLOAT(100.0f, csi_processor_get_normalization_scale(&ctx));
-    
-    csi_processor_set_normalization_scale(&ctx, 200.0f);
-    TEST_ASSERT_EQUAL_FLOAT(100.0f, csi_processor_get_normalization_scale(&ctx));
-    
-    csi_processor_cleanup(&ctx);
-}
-
-void test_get_normalization_scale_returns_one_for_null(void) {
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, csi_processor_get_normalization_scale(NULL));
-}
-
-void test_normalization_scale_affects_turbulence(void) {
-    csi_processor_context_t ctx1, ctx2;
-    TEST_ASSERT_TRUE(csi_processor_init(&ctx1, 50, 1.0f));
-    TEST_ASSERT_TRUE(csi_processor_init(&ctx2, 50, 1.0f));
-    
-    // Set different normalization scales
-    csi_processor_set_normalization_scale(&ctx1, 1.0f);  // No scaling
-    csi_processor_set_normalization_scale(&ctx2, 2.0f);  // Double scaling
-    
-    // Process same packet in both contexts
-    csi_process_packet(&ctx1, baseline_packets[0], 128, 
-                      TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
-    csi_process_packet(&ctx2, baseline_packets[0], 128, 
-                      TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
-    
-    float turb1 = csi_processor_get_last_turbulence(&ctx1);
-    float turb2 = csi_processor_get_last_turbulence(&ctx2);
-    
-    ESP_LOGI(TAG, "Turbulence with scale=1.0: %.4f, scale=2.0: %.4f", turb1, turb2);
-    
-    // Turbulence with scale 2.0 should be approximately double
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, turb1 * 2.0f, turb2);
-    
-    csi_processor_cleanup(&ctx1);
-    csi_processor_cleanup(&ctx2);
 }
 
 // ============================================================================
@@ -560,14 +484,14 @@ void test_lowpass_in_processing_pipeline(void) {
     hampel_turbulence_init(&ctx_lp.hampel_state, 7, 4.0f, false);
     hampel_turbulence_init(&ctx_no_lp.hampel_state, 7, 4.0f, false);
     
-    csi_set_subcarrier_selection(TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    csi_set_subcarrier_selection(get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     
     // Process multiple packets - low-pass should smooth variations
     for (int i = 0; i < 10; i++) {
-        csi_process_packet(&ctx_lp, baseline_packets[i % 5], 128,
-                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
-        csi_process_packet(&ctx_no_lp, baseline_packets[i % 5], 128,
-                          TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+        csi_process_packet(&ctx_lp, baseline_packets[i % 5], packet_size,
+                          get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
+        csi_process_packet(&ctx_no_lp, baseline_packets[i % 5], packet_size,
+                          get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     }
     
     // Both should have valid moving variance, but low-pass should be smoother
@@ -633,7 +557,7 @@ void test_cleanup_deallocates_buffer(void) {
 }
 
 void test_stress_no_memory_leak(void) {
-    csi_set_subcarrier_selection(TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+    csi_set_subcarrier_selection(get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
     
     size_t heap_before = esp_get_free_heap_size();
     ESP_LOGI(TAG, "Heap before stress test: %zu bytes", heap_before);
@@ -645,13 +569,13 @@ void test_stress_no_memory_leak(void) {
     int total_packets = 0;
     for (int round = 0; round < 5; round++) {
         for (int i = 0; i < num_baseline; i++) {
-            csi_process_packet(&ctx, (const int8_t*)baseline_packets[i], 128,
-                              TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+            csi_process_packet(&ctx, (const int8_t*)baseline_packets[i], packet_size,
+                              get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
             total_packets++;
         }
         for (int i = 0; i < num_movement; i++) {
-            csi_process_packet(&ctx, (const int8_t*)movement_packets[i], 128,
-                              TEST_SUBCARRIERS, NUM_TEST_SUBCARRIERS);
+            csi_process_packet(&ctx, (const int8_t*)movement_packets[i], packet_size,
+                              get_test_subcarriers(), NUM_TEST_SUBCARRIERS);
             total_packets++;
         }
     }
@@ -663,11 +587,19 @@ void test_stress_no_memory_leak(void) {
     
     ESP_LOGI(TAG, "Stress test: %d packets, heap diff: %d bytes", total_packets, heap_diff);
     
-    TEST_ASSERT_EQUAL(10000, total_packets);
+    // Expected: 5 rounds * (baseline + movement) packets
+    int expected_packets = 5 * (num_baseline + num_movement);
+    TEST_ASSERT_EQUAL(expected_packets, total_packets);
     TEST_ASSERT_LESS_THAN(1024, heap_diff);  // Allow 1KB tolerance
 }
 
 int process(void) {
+    // Load CSI test data from NPZ files
+    if (!csi_test_data::load()) {
+        printf("ERROR: Failed to load CSI test data from NPZ files\n");
+        return 1;
+    }
+    
     UNITY_BEGIN();
     
     // Initialization tests
@@ -716,12 +648,6 @@ int process(void) {
     RUN_TEST(test_state_stays_idle_on_baseline);
     
     // Normalization scale tests
-    RUN_TEST(test_normalization_scale_default_is_one);
-    RUN_TEST(test_set_normalization_scale_valid_values);
-    RUN_TEST(test_normalization_scale_clamps_minimum);
-    RUN_TEST(test_normalization_scale_clamps_maximum);
-    RUN_TEST(test_get_normalization_scale_returns_one_for_null);
-    RUN_TEST(test_normalization_scale_affects_turbulence);
     
     // Low-pass filter tests
     RUN_TEST(test_lowpass_filter_init_default);

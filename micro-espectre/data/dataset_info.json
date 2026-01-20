@@ -1,0 +1,83 @@
+{
+  "format_version": "1.0",
+  "created_at": "2026-01-10T18:23:57.538444",
+  "updated_at": "2026-01-17T22:26:26.763375",
+  "labels": {
+    "baseline": {
+      "id": 0,
+      "description": "Quiet room, no motion"
+    },
+    "baseline_noisy": {
+      "id": 2,
+      "description": "Room with environmental noise (fans, HVAC, etc.)"
+    },
+    "movement": {
+      "id": 1,
+      "description": "Human movement in room"
+    }
+  },
+  "files": {
+    "baseline": [
+      {
+        "filename": "baseline_c6_64sc_20251212_142443.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "description": "HT20 baseline sample",
+        "collected_at": "2025-12-12T14:24:43.381306",
+        "duration_ms": 10000,
+        "num_packets": 1000
+      },
+      {
+        "filename": "baseline_s3_64sc_20260117_222606.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-01-17T22:26:06.497945",
+        "duration_ms": 10008,
+        "num_packets": 1353,
+        "description": ""
+      }
+    ],
+    "baseline_noisy": [
+      {
+        "filename": "baseline_noisy_c6_64sc_20251214_025208.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "description": "Noisy environment baseline",
+        "collected_at": "2025-12-14T02:52:08.067424",
+        "duration_ms": 60005,
+        "num_packets": 6379
+      }
+    ],
+    "movement": [
+      {
+        "filename": "movement_c6_64sc_20251212_142443.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "description": "HT20 movement sample",
+        "collected_at": "2025-12-12T14:24:43.402600",
+        "duration_ms": 10000,
+        "num_packets": 1000
+      },
+      {
+        "filename": "movement_s3_64sc_20260117_222626.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-01-17T22:26:26.747046",
+        "duration_ms": 10010,
+        "num_packets": 1366,
+        "description": ""
+      }
+    ]
+  },
+  "environments": [
+    {
+      "id": "home_lab",
+      "description": "Home laboratory environment"
+    }
+  ]
+}

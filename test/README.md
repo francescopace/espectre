@@ -13,9 +13,6 @@ cd test && pio test
 
 # Run specific suite
 pio test -f test_motion_detection
-
-# Run on ESP32-C6 device
-pio test -e esp32c6
 ```
 
 ---
@@ -24,14 +21,14 @@ pio test -e esp32c6
 
 | Suite | Type | Data | Focus |
 |-------|------|------|-------|
-| `test_csi_processor` | Unit | **Real** | API, getters, state machine, normalization, low-pass filter |
+| `test_csi_processor` | Unit | **Real** | API, getters, state machine, adaptive threshold, low-pass filter |
 | `test_hampel_filter` | Unit | **Real** | Outlier removal filter |
-| `test_calibration` | Unit | **Real** | NBVI, magnitude, turbulence, normalization scale, fallback |
-| `test_calibration_manager` | Integration | **Real** | CalibrationManager API, file I/O, NBVI ranking |
+| `test_calibration` | Unit | **Real** | P95 band selection, magnitude, turbulence, adaptive threshold, fallback |
+| `test_calibration_manager` | Integration | **Real** | CalibrationManager API, file I/O, P95 band ranking |
 | `test_csi_manager` | Integration | **Real** | CSIManager API, callbacks, motion detection |
 | `test_calibration_file_storage` | Unit | Synthetic | File-based magnitude storage |
 | `test_traffic_generator` | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
-| `test_motion_detection` | Integration | **Real** | MVS performance, NBVI end-to-end |
+| `test_motion_detection` | Integration | **Real** | MVS performance, P95 calibration end-to-end |
 
 
 ### Target Metrics (Motion Detection)
@@ -42,9 +39,18 @@ pio test -e esp32c6
 
 ## Real CSI Data
 
-The `data/` folder contains **2000 real CSI packets**:
-- 1000 baseline (empty room)
-- 1000 movement (person walking)
+Tests load real CSI data from NPZ files in `micro-espectre/data/` using the [cnpy](https://github.com/rogersce/cnpy) library.
+
+### Datasets
+
+| Chip | Baseline | Movement | Packets |
+|------|----------|----------|---------|
+| ESP32-C6 | `baseline_c6_64sc_*.npz` | `movement_c6_64sc_*.npz` | 1000 each |
+| ESP32-S3 | `baseline_s3_64sc_*.npz` | `movement_s3_64sc_*.npz` | 1000 each |
+
+Tests run with **multiple chip datasets** (C6, S3) using 64 SC (HT20 mode).
+
+Both Python and C++ tests use the same NPZ files, eliminating duplication.
 
 ---
 

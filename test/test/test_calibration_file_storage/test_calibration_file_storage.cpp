@@ -1,7 +1,7 @@
 /*
  * ESPectre - Calibration File Storage Unit Tests
  *
- * Unit tests for file-based magnitude storage in CalibrationManager.
+ * Unit tests for file-based magnitude storage in P95Calibrator.
  * Tests write/read operations, data integrity, and cleanup.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -22,7 +22,7 @@
 
 static const char *TAG = "test_file_storage";
 
-// Constants matching CalibrationManager
+// Constants matching P95Calibrator
 static constexpr uint8_t NUM_SUBCARRIERS = 64;
 
 // Test buffer file path - different for native vs ESP32
@@ -30,7 +30,7 @@ static constexpr uint8_t NUM_SUBCARRIERS = 64;
 static const char* TEST_BUFFER_FILE = "/spiffs/test_buffer.bin";
 static bool spiffs_mounted = false;
 #else
-static const char* TEST_BUFFER_FILE = "/tmp/test_nbvi_buffer.bin";
+static const char* TEST_BUFFER_FILE = "/tmp/test_buffer.bin";
 #endif
 
 #if defined(ESP_PLATFORM)
@@ -268,7 +268,7 @@ void test_subcarrier_extraction_from_window(void) {
     fread(all_data.data(), 1, all_data.size(), f);
     fclose(f);
     
-    // Extract subcarrier 10 across all packets (like calculate_nbvi_metrics_ does)
+    // Extract subcarrier 10 across all packets
     uint8_t target_sc = 10;
     std::vector<float> sc_magnitudes(num_packets);
     

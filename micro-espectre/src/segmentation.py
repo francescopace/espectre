@@ -44,14 +44,14 @@ class SegmentationContext:
                  hampel_window=7,
                  hampel_threshold=4.0,
                  enable_features=False,
-                 feature_min_confidence=0.5,
-                 normalization_scale=1.0):
+                 feature_min_confidence=0.5):
         """
         Initialize segmentation context
         
         Args:
             window_size: Moving variance window size (default: 50)
             threshold: Motion detection threshold value (default: 1.0)
+                       Can be set dynamically via set_adaptive_threshold() after calibration
             enable_lowpass: Enable low-pass filter for noise reduction (default: False)
             lowpass_cutoff: Low-pass filter cutoff frequency in Hz (default: 17.5)
             enable_hampel: Enable Hampel filter for outlier removal (default: False)
@@ -59,11 +59,9 @@ class SegmentationContext:
             hampel_threshold: Hampel filter threshold in MAD units (default: 4.0)
             enable_features: Enable feature extraction at publish time (default: False)
             feature_min_confidence: Minimum confidence for feature detector (default: 0.5)
-            normalization_scale: Amplitude normalization factor (default: 1.0)
         """
         self.window_size = window_size
         self.threshold = threshold
-        self.normalization_scale = normalization_scale
         
         # Turbulence circular buffer (pre-allocated)
         self.turbulence_buffer = [0.0] * window_size
@@ -244,20 +242,28 @@ class SegmentationContext:
         # Delegate to static method
         return self.compute_variance_two_pass(self.turbulence_buffer[:self.buffer_count])
     
-    def set_normalization_scale(self, scale):
+    def set_adaptive_threshold(self, threshold):
         """
-        Set normalization scale factor
+        Set adaptive threshold (calculated during calibration)
+        
+        The adaptive threshold adjusts motion detection sensitivity based on
+        the baseline noise characteristics of the selected band.
+        
+        Formula: adaptive_threshold = Pxx(baseline_mv) × factor
+        
+        Where Pxx and factor are configured via ADAPTIVE_PERCENTILE and
+        ADAPTIVE_FACTOR in config.py (default: P95 × 1.4).
         
         Args:
-            scale: Normalization scale (calculated during calibration)
+            threshold: Adaptive threshold value (typically 0.5 to 5.0)
         """
-        self.normalization_scale = max(0.1, min(10.0, scale))
+        self.threshold = max(0.1, min(10.0, threshold))
     
     def add_turbulence(self, turbulence):
         """
         Add turbulence value to buffer (lazy evaluation - no variance calculation)
         
-        Filter chain: raw → normalize → hampel → low-pass → buffer
+        Filter chain: raw → hampel → low-pass → buffer
         
         Note: Variance is NOT calculated here to save CPU. Call update_state() 
         at publish time to compute variance and update state machine.
@@ -265,12 +271,8 @@ class SegmentationContext:
         Args:
             turbulence: Spatial turbulence value
         """
-        # Apply normalization scale (compensates for different CSI amplitude scales across ESP32 variants)
-        normalized_turbulence = turbulence * self.normalization_scale
-        
         # Apply Hampel filter first (removes outliers/spikes)
-        # Filter chain matches C++: normalize → hampel → low-pass → buffer
-        filtered_turbulence = normalized_turbulence
+        filtered_turbulence = turbulence
         if self.hampel_filter is not None:
             try:
                 filtered_turbulence = self.hampel_filter.filter(filtered_turbulence)

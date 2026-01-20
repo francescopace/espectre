@@ -14,8 +14,6 @@ import os
 from src.segmentation import SegmentationContext
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
-from src.nvs_storage import NVSStorage
-from src.nbvi_calibrator import NBVICalibrator
 import src.config as config
 
 # Default subcarriers (used if not configured or for fallback in case of error)
@@ -24,23 +22,8 @@ DEFAULT_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 # Gain lock configuration
 GAIN_LOCK_PACKETS = 300  # ~3 seconds at 100 Hz
 
-# Try to import local configuration (overrides config.py defaults)
-try:
-    from src.config_local import WIFI_SSID, WIFI_PASSWORD
-except ImportError:
-    WIFI_SSID = config.WIFI_SSID
-    WIFI_PASSWORD = config.WIFI_PASSWORD
-
-# Try to import MQTT settings from config_local (optional)
-try:
-    from src.config_local import MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD
-    config.MQTT_BROKER = MQTT_BROKER
-    config.MQTT_PORT = MQTT_PORT
-    config.MQTT_USERNAME = MQTT_USERNAME
-    config.MQTT_PASSWORD = MQTT_PASSWORD
-except ImportError:
-    pass  # Use defaults from config.py
-
+# Import HT20 constants from config
+from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
 
 # Global state for calibration mode and performance metrics
 class GlobalState:
@@ -52,33 +35,6 @@ class GlobalState:
 
 
 g_state = GlobalState()
-
-def print_wifi_status(wlan):
-    """Print WiFi connection status with configuration details."""
-    ip = wlan.ifconfig()[0]
-    
-    # Protocol decode using exposed constants
-    PROTOCOL_NAMES = {
-        network.MODE_11B: 'b',
-        network.MODE_11G: 'g', 
-        network.MODE_11N: 'n',
-    }
-    # Add 11ax only if available (ESP32-C5/C6)
-    if hasattr(network, 'MODE_11AX'):
-        PROTOCOL_NAMES[network.MODE_11AX] = 'ax'
-    
-    proto_val = wlan.config('protocol')
-    modes = [name for bit, name in PROTOCOL_NAMES.items() if proto_val & bit]
-    protocol_str = '802.11' + '/'.join(modes) if modes else f'0x{proto_val:02x}'
-    
-    # Bandwidth decode
-    BW_NAMES = {wlan.BW_HT20: 'HT20', wlan.BW_HT40: 'HT40'}
-    bw_str = BW_NAMES.get(wlan.config('bandwidth'), 'unknown')
-    
-    # Promiscuous
-    prom_str = 'ON' if wlan.config('promiscuous') else 'OFF'
-    
-    print(f"WiFi connected - IP: {ip}, Protocol: {protocol_str}, Bandwidth: {bw_str}, Promiscuous: {prom_str}")
 
 def cleanup_wifi(wlan):
     """
@@ -110,6 +66,29 @@ def cleanup_wifi(wlan):
     time.sleep(1)  # Wait for hardware to settle
 
 
+def print_wifi_status(wlan):
+    """Print WiFi connection status with configuration details."""
+    ip = wlan.ifconfig()[0]
+    
+    # Protocol decode (HT20 only: 802.11b/g/n)
+    PROTOCOL_NAMES = {
+        network.MODE_11B: 'b',
+        network.MODE_11G: 'g', 
+        network.MODE_11N: 'n',
+    }
+    
+    proto_val = wlan.config('protocol')
+    modes = [name for bit, name in PROTOCOL_NAMES.items() if proto_val & bit]
+    protocol_str = '802.11' + '/'.join(modes) if modes else f'0x{proto_val:02x}'
+    
+    # Bandwidth decode (HT20 only)
+    bw_str = 'HT20' if wlan.config('bandwidth') == wlan.BW_HT20 else 'unknown'
+    
+    # Promiscuous
+    prom_str = 'ON' if wlan.config('promiscuous') else 'OFF'
+    
+    print(f"WiFi connected - IP: {ip}, Protocol: {protocol_str}, Bandwidth: {bw_str}, Promiscuous: {prom_str}")
+
 def connect_wifi():
     """Connect to WiFi"""
     
@@ -129,13 +108,17 @@ def connect_wifi():
     time.sleep(2)
         
     # Configure WiFi protocol
-    wlan.config(protocol=wlan.PROTOCOL_DEFAULT)  # WiFi 6 on C5/C6, WiFi 4 on others
+    # Force WiFi 4 (802.11b/g/n) only to get 64 subcarriers
+    wlan.config(protocol=network.MODE_11B | network.MODE_11G | network.MODE_11N)
     wlan.config(bandwidth=wlan.BW_HT20)          # HT20 for stable CSI
     wlan.config(promiscuous=False)               # CSI from connected AP only
     
+    # Enable CSI after WiFi is stable
+    wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
+    
     # Connect
     print(f"Connecting to WiFi...")
-    wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
     
     # Wait for connection
     timeout = 30
@@ -147,8 +130,6 @@ def connect_wifi():
         print_wifi_status(wlan)
         # Disable power management
         wlan.config(pm=wlan.PM_NONE)
-        # Enable CSI after WiFi is stable
-        wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
         # Stabilization
         time.sleep(1)
         return wlan
@@ -183,6 +164,8 @@ def run_gain_lock(wlan):
     Collects AGC/FFT gain values from first packets and locks them
     to stabilize CSI amplitudes for consistent motion detection.
     
+    HT20 only: 64 subcarriers.
+    
     Respects config.GAIN_LOCK_MODE:
     - "auto": Lock gain, but skip if signal too strong (AGC < MIN_SAFE_AGC)
     - "enabled": Always force gain lock
@@ -192,19 +175,20 @@ def run_gain_lock(wlan):
         wlan: WLAN instance with CSI enabled
         
     Returns:
-        tuple: (agc_gain, fft_gain, skipped) where skipped=True if gain lock was skipped
+        tuple: (agc_gain, fft_gain, skipped) where:
+            - skipped=True if gain lock was skipped
     """
     # Check configuration mode
     mode = getattr(config, 'GAIN_LOCK_MODE', 'auto').lower()
     min_safe_agc = getattr(config, 'GAIN_LOCK_MIN_SAFE_AGC', 30)
     
-    if mode == 'disabled':
-        print("Gain lock: Disabled by configuration")
-        return None, None, False
+    # Skip gain lock if disabled or not supported
+    gain_lock_supported = hasattr(wlan, 'csi_gain_lock_supported') and wlan.csi_gain_lock_supported()
     
-    # Check if gain lock is supported on this platform
-    if not hasattr(wlan, 'csi_gain_lock_supported') or not wlan.csi_gain_lock_supported():
-        print("Gain lock: Not supported on this platform (skipping)")
+    if mode == 'disabled' or not gain_lock_supported:
+        reason = "Disabled by configuration" if mode == 'disabled' else "Not supported on this platform"
+        print(f"Gain lock: {reason}")
+        print(f"  HT20 mode: {NUM_SUBCARRIERS} subcarriers")
         return None, None, False
     
     print('')
@@ -222,40 +206,50 @@ def run_gain_lock(wlan):
             # frame[22] = agc_gain, frame[23] = fft_gain
             agc_sum += frame[22]
             fft_sum += frame[23]
+            
+            del frame  # Free memory immediately
             count += 1
             
-            # Progress every 25%
+            # Progress every 25% (with GC to prevent ENOMEM)
             if count == GAIN_LOCK_PACKETS // 4:
+                gc.collect()
                 print(f"  Gain calibration 25%: AGC~{agc_sum // count}, FFT~{fft_sum // count}")
             elif count == GAIN_LOCK_PACKETS // 2:
+                gc.collect()
                 print(f"  Gain calibration 50%: AGC~{agc_sum // count}, FFT~{fft_sum // count}")
             elif count == (GAIN_LOCK_PACKETS * 3) // 4:
+                gc.collect()
                 print(f"  Gain calibration 75%: AGC~{agc_sum // count}, FFT~{fft_sum // count}")
     
     # Calculate averages
     avg_agc = agc_sum // GAIN_LOCK_PACKETS
     avg_fft = fft_sum // GAIN_LOCK_PACKETS
     
+    print(f"  HT20 mode: {NUM_SUBCARRIERS} subcarriers")
+    
     # In auto mode, skip gain lock if signal is too strong
     if mode == 'auto' and avg_agc < min_safe_agc:
         print(f"WARNING: Signal too strong (AGC={avg_agc} < {min_safe_agc}) - skipping gain lock")
         print(f"         Move sensor 2-3 meters from AP for optimal performance")
-        return avg_agc, avg_fft, True  # skipped=True
+        return avg_agc, avg_fft, True
     
     # Lock the gain values
     wlan.csi_force_gain(avg_agc, avg_fft)
     print(f"Gain locked: AGC={avg_agc}, FFT={avg_fft} (after {GAIN_LOCK_PACKETS} packets)")
     
-    return avg_agc, avg_fft, False  # skipped=False
+    return avg_agc, avg_fft, False
 
 
-def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
+def run_band_calibration(wlan, seg, traffic_gen, chip_type=None):
     """
-    Run NBVI calibration (with gain lock phase first)
+    Run band calibration with selected algorithm (with gain lock phase first)
+    
+    Supports two algorithms:
+    - p95: P95 moving variance optimization (adaptive threshold)
+    - nbvi: NBVI weighted algorithm (normalization scale)
     
     Args:
         wlan: WLAN instance
-        nvs: NVSStorage instance
         seg: SegmentationContext instance
         traffic_gen: TrafficGenerator instance
         chip_type: Chip type ('C5', 'C6', 'S3', etc.) for subcarrier filtering
@@ -263,39 +257,60 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     Returns:
         bool: True if calibration successful
     """
+    # Get configured algorithm
+    algorithm = getattr(config, 'CALIBRATION_ALGORITHM', 'nbvi').lower()
+    
+    # Import appropriate calibrator based on algorithm
+    if algorithm == 'nbvi':
+        from src.nbvi_calibrator import NBVICalibrator, cleanup_buffer_file
+    else:
+        from src.p95_calibrator import P95Calibrator, cleanup_buffer_file
+    
     # Set calibration mode to suspend main loop
     g_state.calibration_mode = True
     
     # Aggressive garbage collection before allocating calibration buffer
     gc.collect()
     
+    # Clean up any leftover files from previous interrupted runs
+    cleanup_buffer_file()
+    
     print('')
     print('='*60)
     print('Two-Phase Calibration Starting')
     print('='*60)
     print(f'Free memory: {gc.mem_free()} bytes')
+    print(f'Algorithm: {algorithm.upper()}')
     print('Please remain still for calibration...')
     
     # Phase 1: Gain Lock (~3 seconds)
-    # Stabilizes AGC/FFT before NBVI to ensure clean data
+    # Stabilizes AGC/FFT before calibration to ensure clean data
     agc, fft, skipped = run_gain_lock(wlan)
+    
     if skipped:
-        print("Note: Proceeding with NBVI calibration without gain lock")
+        print("Note: Proceeding with band calibration without gain lock")
     
     print('')
     print('-'*60)
-    print('NBVI Subcarrier Selection (~7 seconds)')
+    print(f'Band Calibration (~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
     
-    # Initialize Subcarrier calibrator with chip-specific subcarrier filtering
-    # Normalization: attenuate if baseline > 0.25, otherwise no scaling
-    nbvi_calibrator = NBVICalibrator(
-        buffer_size=config.NBVI_BUFFER_SIZE,
-        percentile=config.NBVI_PERCENTILE,
-        alpha=config.NBVI_ALPHA,
-        min_spacing=config.NBVI_MIN_SPACING,
-        chip_type=chip_type
-    )
+    # Initialize calibrator based on algorithm
+    # Both algorithms output (selected_band, mv_values)
+    if algorithm == 'nbvi':
+        calibrator = NBVICalibrator(
+            buffer_size=config.CALIBRATION_BUFFER_SIZE,
+            enable_hampel=config.ENABLE_HAMPEL_FILTER,
+            hampel_window=config.HAMPEL_WINDOW,
+            hampel_threshold=config.HAMPEL_THRESHOLD
+        )
+    else:
+        calibrator = P95Calibrator(
+            buffer_size=config.CALIBRATION_BUFFER_SIZE,
+            enable_hampel=config.ENABLE_HAMPEL_FILTER,
+            hampel_window=config.HAMPEL_WINDOW,
+            hampel_threshold=config.HAMPEL_THRESHOLD
+        )
     
     # Collect packets for calibration (now with stable gain)
     calibration_progress = 0
@@ -305,13 +320,15 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
     last_progress_time = time.ticks_ms()
     last_progress_count = 0
     
-    while calibration_progress < config.NBVI_BUFFER_SIZE:
+    while calibration_progress < config.CALIBRATION_BUFFER_SIZE:
         frame = wlan.csi_read()
         packets_read += 1
         
         if frame:
-            csi_data = frame[5][:128]  # frame[5] = data (tuple API)
-            calibration_progress = nbvi_calibrator.add_packet(csi_data)
+            # HT20: 64 SC × 2 bytes = 128 bytes
+            csi_data = frame[5][:EXPECTED_CSI_LEN]
+            del frame  # Free memory immediately
+            calibration_progress = calibrator.add_packet(csi_data)
             timeout_counter = 0  # Reset timeout on successful read
             
             # Print progress every 100 packets with pps
@@ -322,48 +339,62 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
                 pps = int((packets_delta * 1000) / elapsed) if elapsed > 0 else 0
                 dropped = wlan.csi_dropped()
                 tg_pps = traffic_gen.get_actual_pps()
-                print(f"Collecting {calibration_progress}/{config.NBVI_BUFFER_SIZE} packets... (pps:{pps}, TG:{tg_pps}, drop:{dropped})")
+                print(f"Collecting {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE} packets... (pps:{pps}, TG:{tg_pps}, drop:{dropped})")
                 last_progress_time = current_time
                 last_progress_count = calibration_progress
         else:
             time.sleep_us(100)
             timeout_counter += 1
             
-            # Debug: print if stuck
-            if timeout_counter % 1000 == 0:
-                # Check if traffic generator is still running
-                tg_running = traffic_gen.is_running()
-                tg_count = traffic_gen.get_packet_count()
-                dropped = wlan.csi_dropped()
-                print(f"Waiting for CSI... ({timeout_counter/1000:.0f}s, progress: {calibration_progress}, TG running: {tg_running}, TG packets: {tg_count}, dropped: {dropped})")
-            
             if timeout_counter >= max_timeout:
-                print(f"Timeout waiting for CSI packets (collected {calibration_progress}/{config.NBVI_BUFFER_SIZE})")
+                print(f"Timeout waiting for CSI packets (collected {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE})")
                 print("Calibration aborted - using default band")
                 return False
     
     gc.collect()  # Free any temporary objects before calibration
     
-    # Calibrate using percentile-based approach
+    # Run calibration (both algorithms now return adaptive_threshold)
     success = False
     config.SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
-    config.NORMALIZATION_SCALE = 1.0
+    
+    # Stop traffic generator during band evaluation to free memory
+    tg_was_running = traffic_gen.is_running()
+    if tg_was_running:
+        traffic_gen.stop()
+        gc.collect()
+    
     try:
-        selected_band, normalization_scale = nbvi_calibrator.calibrate(config.SELECTED_SUBCARRIERS)
+        # Both calibrators now return: calibrate() -> (band, mv_values)
+        selected_band, mv_values = calibrator.calibrate()
         
         if selected_band and len(selected_band) == 12:
             # Calibration successful
             config.SELECTED_SUBCARRIERS = selected_band
-            config.NORMALIZATION_SCALE = normalization_scale
-            # Apply normalization scale to segmentation context
-            seg.set_normalization_scale(normalization_scale)
+            
+            # Calculate adaptive threshold from MV values
+            from src.threshold import calculate_adaptive_threshold
+            
+            if isinstance(SEG_THRESHOLD, str):
+                # "auto" or "min" mode - calculate adaptive threshold
+                adaptive_threshold, percentile, factor, pxx = calculate_adaptive_threshold(mv_values, SEG_THRESHOLD)
+                seg.set_adaptive_threshold(adaptive_threshold)
+                threshold_source = f"{SEG_THRESHOLD} (P{percentile}x{factor})"
+                print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
+            else:
+                # Numeric value - use fixed manual threshold
+                adaptive_threshold, _, _, _ = calculate_adaptive_threshold(mv_values, "auto")
+                seg.threshold = float(SEG_THRESHOLD)
+                threshold_source = "manual"
+                print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
+            
             success = True
             
             print('')
             print('='*60)
             print('Subcarrier Calibration Successful!')
+            print(f'   Algorithm: {algorithm.upper()}')
             print(f'   Selected band: {selected_band}')
-            print(f'   Normalization scale: {normalization_scale:.3f}')
+            print(f'   Threshold: {seg.threshold:.4f} ({threshold_source})')
             print('='*60)
             print('')
         else:
@@ -380,15 +411,22 @@ def run_nbvi_calibration(wlan, nvs, seg, traffic_gen, chip_type=None):
         print(f"Using default band: {config.SELECTED_SUBCARRIERS}")
     
     # Free calibrator memory explicitly
-    nbvi_calibrator.free_buffer()
-    nbvi_calibrator = None
+    calibrator.free_buffer()
+    calibrator = None
     gc.collect()
+    
+    # Restart traffic generator if it was running
+    if tg_was_running:
+        time.sleep(1)  # Wait for network stack to stabilize
+        if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE):
+            print("Warning: Failed to restart traffic generator, retrying...")
+            time.sleep(2)
+            traffic_gen.start(config.TRAFFIC_GENERATOR_RATE)
     
     # Resume main loop
     g_state.calibration_mode = False
     
     return success
-
 
 def main():
     """Main application loop"""
@@ -402,23 +440,21 @@ def main():
     wlan = connect_wifi()
     
     # Initialize segmentation with full configuration
+    # Threshold: use config value if defined, otherwise default (will be replaced by adaptive)
+    initial_threshold = getattr(config, 'SEG_THRESHOLD', 1.0)
     seg = SegmentationContext(
         window_size=config.SEG_WINDOW_SIZE,
-        threshold=config.SEG_THRESHOLD,
+        threshold=initial_threshold,
         enable_lowpass=config.ENABLE_LOWPASS_FILTER,
         lowpass_cutoff=config.LOWPASS_CUTOFF,
         enable_hampel=config.ENABLE_HAMPEL_FILTER,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
-        enable_features=config.ENABLE_FEATURES,
-        normalization_scale=config.NORMALIZATION_SCALE
+        enable_features=config.ENABLE_FEATURES
     )
     
-    # Load saved configuration (segmentation parameters only)
-    nvs = NVSStorage()
-    saved_config = nvs.load_and_apply(seg)
-    
     # Initialize and start traffic generator (rate is static from config.py)
+    gc.collect()  # Free memory before creating socket
     traffic_gen = TrafficGenerator()
     if config.TRAFFIC_GENERATOR_RATE > 0:
         if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE):
@@ -429,21 +465,35 @@ def main():
             machine.reset()  # Reboot and retry
         
         print(f'Traffic generator started ({config.TRAFFIC_GENERATOR_RATE} pps)')
-        time.sleep(1)  # Wait for traffic to start generating CSI packets
+        time.sleep(2)  # Wait for traffic to start generating CSI packets
+        
+        # Verify CSI packets are flowing before proceeding
+        print('Waiting for CSI packets...')
+        csi_received = 0
+        for _ in range(100):  # Max 100 attempts (~5 seconds)
+            frame = wlan.csi_read()
+            if frame:
+                csi_received += 1
+                if csi_received >= 10:
+                    break
+            time.sleep(0.05)
+        
+        if csi_received < 10:
+            print(f'WARNING: Only {csi_received} CSI packets received - TG may not be working')
     
-    # NBVI Auto-Calibration at boot if subcarriers not configured
+    # P95 Auto-Calibration at boot if subcarriers not configured
     # Handle case where SELECTED_SUBCARRIERS is None, empty, or not defined (commented out)
     current_subcarriers = getattr(config, 'SELECTED_SUBCARRIERS', None)
     needs_calibration = not current_subcarriers
     
     if needs_calibration:
         # Set default fallback before calibration
-        run_nbvi_calibration(wlan, nvs, seg, traffic_gen, g_state.chip_type)
+        run_band_calibration(wlan, seg, traffic_gen, g_state.chip_type)
     else:
         print(f'Using configured subcarriers: {config.SELECTED_SUBCARRIERS}')
     
     # Initialize MQTT (pass calibration function for factory_reset and global state for metrics)
-    mqtt_handler = MQTTHandler(config, seg, wlan, traffic_gen, run_nbvi_calibration, g_state)
+    mqtt_handler = MQTTHandler(config, seg, wlan, traffic_gen, run_band_calibration, g_state)
     mqtt_handler.connect()
     
     # Publish info after boot (always, to show current configuration)
@@ -467,6 +517,7 @@ def main():
     # Main CSI processing loop with integrated MQTT publishing
     publish_counter = 0
     last_dropped = 0
+    filtered_count = 0  # Packets with wrong SC count
     last_publish_time = time.ticks_ms()
     
     # Calculate optimal sleep based on traffic rate
@@ -487,9 +538,20 @@ def main():
             frame = wlan.csi_read()
             
             if frame:
-                # ESP32-C6 provides 512 bytes but we use only first 128 bytes
-                # This avoids corrupted data in the extended buffer
-                csi_data = frame[5][:128]  # frame[5] = data (tuple API)
+                # Filter packets by expected CSI length (HT20: 128 bytes)
+                if len(frame[5]) != EXPECTED_CSI_LEN:
+                    filtered_count += 1
+                    # Log warning every 100 filtered packets
+                    if filtered_count % 100 == 1:
+                        print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
+                    del frame
+                    continue
+                
+                # Extract data and free frame immediately to save memory
+                csi_data = frame[5][:EXPECTED_CSI_LEN]
+                packet_channel = frame[1]
+                del frame
+                
                 turbulence = seg.calculate_spatial_turbulence(csi_data, config.SELECTED_SUBCARRIERS)
                 seg.add_turbulence(turbulence)
                 
@@ -499,9 +561,6 @@ def main():
                 if publish_counter >= publish_rate:
                     # Detect WiFi channel changes (AP may switch channels automatically)
                     # Channel changes cause CSI spikes that trigger false motion detection
-                    # Check only at publish time to reduce overhead
-                    # frame[1] = channel (from CSI packet metadata)
-                    packet_channel = frame[1]
                     if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
                         print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
                         seg.reset(full=True)

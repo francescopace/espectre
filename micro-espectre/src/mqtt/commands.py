@@ -11,10 +11,9 @@ import json
 import time
 import gc
 import sys
-from src.nvs_storage import NVSStorage
 from src.config import (
     TRAFFIC_GENERATOR_RATE,
-    SEG_WINDOW_SIZE, SEG_THRESHOLD
+    SEG_WINDOW_SIZE
 )
 
 # Segmentation limits
@@ -26,7 +25,7 @@ SEG_THRESHOLD_MAX = 10.0
 class MQTTCommands:
     """MQTT command processor"""
     
-    def __init__(self, mqtt_client, config, segmentation, response_topic, wlan, traffic_generator=None, nbvi_calibration_func=None, global_state=None):
+    def __init__(self, mqtt_client, config, segmentation, response_topic, wlan, traffic_generator=None, band_calibration_func=None, global_state=None):
         """
         Initialize MQTT commands
         
@@ -37,7 +36,7 @@ class MQTTCommands:
             response_topic: MQTT topic for responses
             wlan: wlan instance
             traffic_generator: TrafficGenerator instance (optional)
-            nbvi_calibration_func: Function to run NBVI calibration (optional)
+            band_calibration_func: Function to run band calibration (optional)
             global_state: GlobalState instance for accessing loop metrics (optional)
         """
         self.mqtt = mqtt_client
@@ -45,13 +44,10 @@ class MQTTCommands:
         self.seg = segmentation
         self.wlan = wlan
         self.traffic_gen = traffic_generator
-        self.nbvi_calibration_func = nbvi_calibration_func
+        self.band_calibration_func = band_calibration_func
         self.global_state = global_state
         self.response_topic = response_topic
         self.start_time = time.time()
-        
-        # NVS storage for configuration persistence
-        self.nvs = NVSStorage()
         
     def send_response(self, message):
         """Send response message to MQTT"""
@@ -169,6 +165,7 @@ class MQTTCommands:
             },
             "segmentation": {
                 "threshold": round(self.seg.threshold, 2),
+                "threshold_source": "config" if getattr(self.config, 'SEG_THRESHOLD', None) is not None else "auto",
                 "window_size": self.seg.window_size
             },
             "subcarriers": {
@@ -221,7 +218,7 @@ class MQTTCommands:
         self.send_response(response)
     
     def cmd_segmentation_threshold(self, cmd_obj):
-        """Set segmentation threshold"""
+        """Set segmentation threshold (session-only, not persisted)"""
         if 'value' not in cmd_obj:
             self.send_response("ERROR: Missing 'value' field")
             return
@@ -236,11 +233,10 @@ class MQTTCommands:
             old_threshold = self.seg.threshold
             self.seg.threshold = threshold
             
-            # Save to NVS
-            self.nvs.save_full_config(self.seg)
+            # Note: threshold is session-only, adaptive threshold (P95 × 1.4) is recalculated on every boot
             
-            self.send_response(f"Segmentation threshold updated: {old_threshold:.2f} -> {threshold:.2f}")
-            print(f"Threshold updated: {old_threshold:.2f} -> {threshold:.2f}")
+            self.send_response(f"Segmentation threshold updated: {old_threshold:.2f} -> {threshold:.2f} (session-only)")
+            print(f"Threshold updated: {old_threshold:.2f} -> {threshold:.2f} (session-only)")
             
         except ValueError:
             self.send_response("ERROR: Invalid threshold value (must be float)")
@@ -267,25 +263,22 @@ class MQTTCommands:
             self.seg.buffer_count = 0
             self.seg.current_moving_variance = 0.0
             
-            # Save to NVS
-            self.nvs.save_full_config(self.seg)
-            
             # Calculate duration using actual traffic rate
             rate = self.traffic_gen.get_rate() if self.traffic_gen else TRAFFIC_GENERATOR_RATE
             duration = window_size / rate if rate > 0 else 0.0
             reactivity = "more reactive" if window_size < (SEG_WINDOW_SIZE_MAX // 2) else "more stable"
-            self.send_response(f"Window size updated: {old_size} -> {window_size} packets ({duration:.2f}s @ {rate}Hz, {reactivity})")
-            print(f"Window size updated: {old_size} -> {window_size} (buffer reset)")
+            self.send_response(f"Window size updated: {old_size} -> {window_size} packets ({duration:.2f}s @ {rate}Hz, {reactivity}, session-only)")
+            print(f"Window size updated: {old_size} -> {window_size} (session-only)")
             
         except ValueError:
             self.send_response("ERROR: Invalid window size value (must be integer)")
     
     def cmd_factory_reset(self, cmd_obj):
-        """Reset all parameters to defaults and trigger NBVI re-calibration"""
+        """Reset all parameters to defaults and trigger band re-calibration"""
         print("Factory reset requested")
         
-        # Reset segmentation to defaults (use constants from config.py)
-        self.seg.threshold = SEG_THRESHOLD
+        # Reset segmentation to defaults
+        self.seg.threshold = 1.0  # Default threshold
         self.seg.window_size = SEG_WINDOW_SIZE
         
         # Reset buffer
@@ -297,14 +290,11 @@ class MQTTCommands:
         # Reset state machine
         self.seg.state = self.seg.STATE_IDLE
         self.seg.packet_index = 0
-        
-        # Erase saved configuration
-        self.nvs.erase()
 
         print("Factory reset complete")
         
-        # Run NBVI calibration immediately if function provided
-        if self.nbvi_calibration_func:
+        # Run band calibration immediately if function provided
+        if self.band_calibration_func:
             self.send_response("Factory reset complete. Starting re-calibration...")
             print("Starting re-calibration...")
             
@@ -312,7 +302,7 @@ class MQTTCommands:
             chip_type = getattr(self.global_state, 'chip_type', None) if self.global_state else None
             
             # Run calibration with chip_type for proper subcarrier filtering
-            success = self.nbvi_calibration_func(self.wlan, self.nvs, self.seg, self.traffic_gen, chip_type)
+            success = self.band_calibration_func(self.wlan, self.seg, self.traffic_gen, chip_type)
             
             if success:
                 band = getattr(self.config, 'SELECTED_SUBCARRIERS')

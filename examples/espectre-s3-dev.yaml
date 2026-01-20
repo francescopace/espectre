@@ -40,10 +40,11 @@ external_components:
 # All parameters shown with defaults
 espectre:
   id: espectre_csi
-  # Motion detection
+  # Traffic Generator
   traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
   traffic_generator_mode: dns  # dns (default) or ping
-  segmentation_threshold: 1.0   # Motion sensitivity (default: 1.0)
+  # Motion Detection: 
+  segmentation_threshold: auto  # auto (default), min, or a value between 0.1-10.0
   segmentation_window_size: 50  # Analysis window size in packets (10-200)
   # Low-pass filter (noise reduction)
   lowpass_enabled: false        # Enable low-pass filter (default: false)
@@ -54,7 +55,7 @@ espectre:
   hampel_enabled: false         # Enable outlier removal filter (default: false)
   hampel_window: 7              # Filter window size (3-11, odd numbers)
   hampel_threshold: 4.0         # Outlier detection threshold (1.0-10.0)
-  # Subcarrier selection (optional - leave commented for auto-calibration at boot)
+  # Subcarrier selection (optional - leave commented for auto-calibration)
   # selected_subcarriers: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 # WiFi (using secrets for development)

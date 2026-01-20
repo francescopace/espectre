@@ -14,13 +14,9 @@ The key insight is that these filters have DIFFERENT purposes:
 - Combined: Best of both - spike removal + noise smoothing
 
 Usage:
-    # Show filter comparison visualization
-    python 5_analyze_filter_turbulence.py --plot
-    
-    # Run all filter configurations comparison
-    python 5_analyze_filter_turbulence.py
-    
-    # Optimize filter parameters
+    python 5_analyze_filter_turbulence.py              # Use C6 dataset
+    python 5_analyze_filter_turbulence.py --chip S3    # Use S3 dataset
+    python 5_analyze_filter_turbulence.py --plot       # Show visualization
     python 5_analyze_filter_turbulence.py --optimize-filters
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -30,11 +26,26 @@ License: GPLv3
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
+import sys
+from pathlib import Path
 from scipy import signal
 import pywt
-from csi_utils import calculate_spatial_turbulence, HampelFilter
+
+# Add src to path for config and segmentation import
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
+                    HAMPEL_WINDOW, HAMPEL_THRESHOLD, LOWPASS_CUTOFF)
+from segmentation import SegmentationContext
+
+from csi_utils import calculate_spatial_turbulence, HampelFilter, find_dataset, DEFAULT_SUBCARRIERS
 from csi_utils import load_baseline_and_movement
-from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
+
+# Alias for backward compatibility
+SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+
+# Alias for backward compatibility
+WINDOW_SIZE = SEG_WINDOW_SIZE
+THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
 
 # ============================================================================
 # CONFIGURATION
@@ -54,7 +65,7 @@ SMA_WINDOW = 2              # - WINDOW: Minimal averaging for ~22 Hz cutoff
 
 # Butterworth low-pass filter parameters
 BUTTERWORTH_ORDER = 2       # - ORDER: Lower order = gentler slope
-BUTTERWORTH_CUTOFF = 20.0   # - CUTOFF: 20 Hz preserves movement (5-20 Hz has 20-25x contrast)
+BUTTERWORTH_CUTOFF = 17.0   # - CUTOFF: 17 Hz preserves movement (5-20 Hz has 20-25x contrast)
 
 # Chebyshev low-pass filter parameters
 CHEBYSHEV_ORDER = 2         # - ORDER: Filter steepness
@@ -65,9 +76,8 @@ CHEBYSHEV_RIPPLE = 0.5      # - RIPPLE: Lower ripple = flatter passband
 BESSEL_ORDER = 2            # - ORDER: Filter steepness
 BESSEL_CUTOFF = 20.0        # - CUTOFF: 20 Hz cutoff
 
-# Hampel filter parameters (outlier/spike removal)
-HAMPEL_WINDOW = 7          # - WINDOW: Number of neighboring samples to consider for median calculation
-HAMPEL_THRESHOLD = 4.0     # - THRESHOLD: Number of MADs (Median Absolute Deviations) to flag as outlier
+# Hampel filter parameters - imported from src/config.py:
+# HAMPEL_WINDOW, HAMPEL_THRESHOLD
 
 # Savitzky-Golay filter parameters (smoothing while preserving peaks)
 SAVGOL_WINDOW = 5          # - WINDOW: Number of points used for polynomial fitting (must be odd)
@@ -366,13 +376,13 @@ class FilterPipeline:
         """
         self.config = config
         
-        # Initialize filters
+        # Initialize filters with parameters matching production configuration
         self.ema = EMAFilter() if config.get('ema', False) else None
         self.sma = SMAFilter() if config.get('sma', False) else None
         self.butterworth = ButterworthFilter() if config.get('butterworth', False) else None
         self.chebyshev = ChebyshevFilter() if config.get('chebyshev', False) else None
         self.bessel = BesselFilter() if config.get('bessel', False) else None
-        self.hampel = HampelFilter() if config.get('hampel', False) else None
+        self.hampel = HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) if config.get('hampel', False) else None
         self.savgol = SavitzkyGolayFilter() if config.get('savgol', False) else None
         self.wavelet = WaveletFilter() if config.get('wavelet', False) else None
     
@@ -428,13 +438,16 @@ class FilterPipeline:
             self.wavelet.reset()
 
 # ============================================================================
-# FILTERED STREAMING SEGMENTATION
+# FILTERED STREAMING SEGMENTATION (uses production SegmentationContext)
 # ============================================================================
 
 class FilteredStreamingSegmentation:
     """
-    Streaming segmentation with optional filtering of turbulence values
-    BEFORE adding to moving variance buffer.
+    Wrapper around SegmentationContext that applies external filters
+    BEFORE passing turbulence values to the production MVS implementation.
+    
+    This ensures consistent results with the production code while allowing
+    experimentation with different filter configurations.
     """
     
     def __init__(self, window_size=50, threshold=3.0, filter_config=None, track_data=False):
@@ -442,22 +455,20 @@ class FilteredStreamingSegmentation:
         self.threshold = threshold
         self.track_data = track_data
         
-        # Initialize filter pipeline
+        # Initialize external filter pipeline
         if filter_config is None:
-            filter_config = {'butterworth': False, 'hampel': False, 'savgol': False}
+            filter_config = {}
         self.filter_pipeline = FilterPipeline(filter_config)
         self.filter_config = filter_config
         
-        # Circular buffer for turbulence values
-        self.turbulence_buffer = np.zeros(window_size)
-        self.buffer_index = 0
-        self.buffer_count = 0
-        
-        # State machine
-        self.state = 'IDLE'
-        self.motion_start = 0
-        self.motion_length = 0
-        self.packet_index = 0
+        # Use production SegmentationContext with built-in filters DISABLED
+        # (we apply filters externally via FilterPipeline)
+        self._context = SegmentationContext(
+            window_size=window_size,
+            threshold=threshold,
+            enable_hampel=False,  # Disabled - we apply filters externally
+            enable_lowpass=False  # Disabled - we apply filters externally
+        )
         
         # Statistics
         self.segments_detected = 0
@@ -472,7 +483,7 @@ class FilteredStreamingSegmentation:
     
     def add_turbulence(self, turbulence):
         """Add one turbulence value (with optional filtering) and update state"""
-        # FILTER FIRST (if enabled)
+        # FILTER FIRST using external pipeline
         filtered_turbulence = self.filter_pipeline.filter(turbulence)
         
         # Track data for visualization
@@ -480,57 +491,28 @@ class FilteredStreamingSegmentation:
             self.raw_turbulence_history.append(turbulence)
             self.filtered_turbulence_history.append(filtered_turbulence)
         
-        # Add FILTERED value to circular buffer
-        self.turbulence_buffer[self.buffer_index] = filtered_turbulence
-        self.buffer_index = (self.buffer_index + 1) % self.window_size
-        if self.buffer_count < self.window_size:
-            self.buffer_count += 1
+        # Pass FILTERED value to production SegmentationContext
+        self._context.add_turbulence(filtered_turbulence)
+        self._context.update_state()  # Calculate variance and update state machine
         
-        # Calculate moving variance
-        moving_var = self._calculate_moving_variance()
-        
-        # Track data for visualization
+        # Track moving variance
         if self.track_data:
-            self.moving_var_history.append(moving_var)
-            self.state_history.append(self.state)
-        
-        segment_completed = False
-        
-        # State machine
-        if self.state == 'IDLE':
-            if moving_var > self.threshold:
-                self.state = 'MOTION'
-                self.motion_start = self.packet_index
-                self.motion_length = 1
-        else:  # MOTION
-            self.motion_length += 1
-            
-            # Check for motion end
-            if moving_var < self.threshold:
-                segment_completed = True
-                self.segments_detected += 1
-                
-                self.state = 'IDLE'
-                self.motion_length = 0
+            self.moving_var_history.append(self._context.current_moving_variance)
+            state_str = 'MOTION' if self._context.get_state() == SegmentationContext.STATE_MOTION else 'IDLE'
+            self.state_history.append(state_str)
         
         # Count packets in MOTION state
-        if self.state == 'MOTION':
+        if self._context.get_state() == SegmentationContext.STATE_MOTION:
             self.motion_packets += 1
         
-        self.packet_index += 1
-        return segment_completed
+        return False  # Segment completion not tracked in this wrapper
     
     def reset(self):
         """Reset state machine and filters"""
-        self.state = 'IDLE'
-        self.motion_start = 0
-        self.motion_length = 0
-        self.packet_index = 0
+        self._context.reset(full=True)
+        self.filter_pipeline.reset()
         self.segments_detected = 0
         self.motion_packets = 0
-        
-        # Reset filters
-        self.filter_pipeline.reset()
         
         # Reset tracking data
         if self.track_data:
@@ -538,28 +520,27 @@ class FilteredStreamingSegmentation:
             self.filtered_turbulence_history = []
             self.moving_var_history = []
             self.state_history = []
-    
-    def _calculate_moving_variance(self):
-        """Calculate moving variance from buffer"""
-        if self.buffer_count < self.window_size:
-            return 0.0
-        
-        mean = np.mean(self.turbulence_buffer)
-        variance = np.mean((self.turbulence_buffer - mean) ** 2)
-        
-        return variance
 
 # ============================================================================
 # COMPARISON TEST
 # ============================================================================
 
-def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, track_data=False):
+def run_comparison_test(baseline_packets, movement_packets, num_packets=None, track_data=False):
     """
     Run comparison test with different filter configurations.
+    
+    Args:
+        baseline_packets: List of baseline CSI packets
+        movement_packets: List of movement CSI packets
+        num_packets: Max packets to process (None = all packets)
+        track_data: Whether to track data for visualization
     
     Returns:
         dict: Results for each configuration
     """
+    # Use all packets if not specified
+    if num_packets is None:
+        num_packets = max(len(baseline_packets), len(movement_packets))
     configs = {
         # Baseline
         'No Filter': {},
@@ -602,12 +583,14 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, tr
         
         # Test baseline
         seg.reset()
-        for csi_data in baseline_packets[:num_packets]:
+        baseline_to_process = baseline_packets[:num_packets]
+        for csi_data in baseline_to_process:
             turbulence = calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS)
             seg.add_turbulence(turbulence)
         
         baseline_fp = seg.motion_packets
         baseline_motion = seg.motion_packets
+        baseline_count = len(baseline_to_process)
         
         # Save baseline data for visualization
         baseline_data = None
@@ -622,12 +605,14 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, tr
         
         # Test movement
         seg.reset()
-        for csi_data in movement_packets[:num_packets]:
+        movement_to_process = movement_packets[:num_packets]
+        for csi_data in movement_to_process:
             turbulence = calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS)
             seg.add_turbulence(turbulence)
         
         movement_tp = seg.motion_packets
         movement_motion = seg.motion_packets
+        movement_count = len(movement_to_process)
         
         # Save movement data for visualization
         movement_data = None
@@ -640,9 +625,9 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, tr
                 'segments': seg.segments_detected
             }
         
-        # Calculate metrics
-        fp_rate = baseline_fp / (num_packets / 100.0)
-        recall = movement_motion / (num_packets / 100.0)
+        # Calculate metrics using actual packet counts
+        fp_rate = baseline_fp / baseline_count * 100 if baseline_count > 0 else 0
+        recall = movement_motion / movement_count * 100 if movement_count > 0 else 0
         score = movement_tp - baseline_fp * 10
         
         results[name] = {
@@ -666,7 +651,7 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=1000, tr
 
 def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
     """
-    Visualize the effect of different filters on the turbulence signal.
+    Visualize the effect of different filters on moving variance.
     
     Shows 4 filter configurations:
     1. No Filter (raw signal)
@@ -675,17 +660,17 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
     4. Hampel + Lowpass (combined)
     
     For each configuration, shows:
-    - Left column: Raw vs Filtered turbulence signal
-    - Right column: Effect on moving variance and detection
+    - Left column: Moving Variance on BASELINE (should stay below threshold)
+    - Right column: Moving Variance on MOVEMENT (should exceed threshold)
+    
+    Uses production SegmentationContext for consistent results.
     
     Args:
         baseline_packets: numpy array of CSI data (shape: num_packets x num_subcarriers*2)
         movement_packets: numpy array of CSI data (shape: num_packets x num_subcarriers*2)
         num_packets: Number of packets to process
     """
-    from filters import LowPassFilter, HampelFilter as HampelFilterSrc
-    
-    # Configuration for the 4 filter setups
+    # Configuration for the 4 filter setups (using production SegmentationContext options)
     filter_configs = [
         ('No Filter', {'hampel': False, 'lowpass': False}),
         ('Hampel Only', {'hampel': True, 'lowpass': False}),
@@ -693,65 +678,59 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
         ('Hampel + Lowpass', {'hampel': True, 'lowpass': True}),
     ]
     
-    # Process movement data with each filter configuration
+    # Process both baseline and movement data with each filter configuration
     results = {}
     
     for name, config in filter_configs:
-        # Create filters
-        hampel = HampelFilterSrc(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) if config['hampel'] else None
-        lowpass = LowPassFilter(cutoff_hz=10.0, sample_rate_hz=SAMPLING_RATE, enabled=True) if config['lowpass'] else None
+        # Create SegmentationContext with specific filter configuration
+        ctx_baseline = SegmentationContext(
+            window_size=WINDOW_SIZE,
+            threshold=THRESHOLD,
+            enable_hampel=config['hampel'],
+            enable_lowpass=config['lowpass']
+        )
         
-        raw_turbulence = []
-        filtered_turbulence = []
+        # Process BASELINE
+        baseline_mv = []
+        for i in range(min(num_packets, len(baseline_packets))):
+            turb = calculate_spatial_turbulence(baseline_packets[i], SELECTED_SUBCARRIERS)
+            ctx_baseline.add_turbulence(turb)
+            ctx_baseline.update_state()
+            baseline_mv.append(ctx_baseline.current_moving_variance)
         
-        # Process each packet (movement_packets is a numpy array)
+        baseline_fp = sum(1 for v in baseline_mv if v > THRESHOLD)
+        
+        # Create new context for movement (fresh state)
+        ctx_movement = SegmentationContext(
+            window_size=WINDOW_SIZE,
+            threshold=THRESHOLD,
+            enable_hampel=config['hampel'],
+            enable_lowpass=config['lowpass']
+        )
+        
+        # Process MOVEMENT
+        movement_mv = []
         for i in range(min(num_packets, len(movement_packets))):
-            csi_data = movement_packets[i]
-            turb = calculate_spatial_turbulence(csi_data, SELECTED_SUBCARRIERS)
-            raw_turbulence.append(turb)
-            
-            # Apply filters in order: Hampel first (outlier removal), then Lowpass (smoothing)
-            filtered = turb
-            if hampel:
-                filtered = hampel.filter(filtered)
-            if lowpass:
-                filtered = lowpass.filter(filtered)
-            
-            filtered_turbulence.append(filtered)
+            turb = calculate_spatial_turbulence(movement_packets[i], SELECTED_SUBCARRIERS)
+            ctx_movement.add_turbulence(turb)
+            ctx_movement.update_state()
+            movement_mv.append(ctx_movement.current_moving_variance)
         
-        # Calculate moving variance on filtered signal
-        moving_var = []
-        buffer = []
-        for val in filtered_turbulence:
-            buffer.append(val)
-            if len(buffer) > WINDOW_SIZE:
-                buffer.pop(0)
-            if len(buffer) >= WINDOW_SIZE:
-                mean = sum(buffer) / len(buffer)
-                var = sum((x - mean) ** 2 for x in buffer) / len(buffer)
-                moving_var.append(var)
-            else:
-                moving_var.append(0.0)
-        
-        # Count motion detections
-        motion_count = sum(1 for v in moving_var if v > THRESHOLD)
+        movement_tp = sum(1 for v in movement_mv if v > THRESHOLD)
         
         results[name] = {
-            'raw_turbulence': np.array(raw_turbulence),
-            'filtered_turbulence': np.array(filtered_turbulence),
-            'moving_var': np.array(moving_var),
-            'motion_count': motion_count,
+            'baseline_mv': np.array(baseline_mv),
+            'movement_mv': np.array(movement_mv),
+            'baseline_fp': baseline_fp,
+            'movement_tp': movement_tp,
             'config': config
         }
     
     # Create visualization
     fig = plt.figure(figsize=(16, 14))
-    fig.suptitle('ESPectre - Filter Effect Comparison\n'
-                 'Left: Turbulence Signal (raw vs filtered) | Right: Moving Variance (detection)', 
+    fig.suptitle('ESPectre - Filter Effect on Moving Variance\n'
+                 'Left: Baseline (FP should be 0) | Right: Movement (TP should be high)', 
                  fontsize=13, fontweight='bold')
-    
-    # Time axis
-    time = np.arange(num_packets) / SAMPLING_RATE
     
     # Colors for each filter type
     colors = {
@@ -762,47 +741,49 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
     }
     
     for i, (name, data) in enumerate(results.items()):
-        # Left plot: Turbulence signal comparison
+        # Time axes
+        time_baseline = np.arange(len(data['baseline_mv'])) / SAMPLING_RATE
+        time_movement = np.arange(len(data['movement_mv'])) / SAMPLING_RATE
+        
+        # Left plot: Baseline Moving Variance
         ax1 = fig.add_subplot(4, 2, i*2 + 1)
+        ax1.plot(time_baseline, data['baseline_mv'], color=colors[name], 
+                linewidth=1.0, alpha=0.8)
+        ax1.axhline(y=THRESHOLD, color='red', linestyle='--', linewidth=2, 
+                   label=f'Threshold ({THRESHOLD})')
         
-        # Plot raw signal (light gray)
-        ax1.plot(time, data['raw_turbulence'], color='#cccccc', alpha=0.6, 
-                linewidth=0.8, label='Raw', zorder=1)
+        # Highlight false positives
+        for j, var in enumerate(data['baseline_mv']):
+            if var > THRESHOLD:
+                ax1.axvspan(j/SAMPLING_RATE, (j+1)/SAMPLING_RATE, 
+                           alpha=0.3, color='red')
         
-        # Plot filtered signal (colored)
-        if name == 'No Filter':
-            ax1.plot(time, data['filtered_turbulence'], color=colors[name], 
-                    linewidth=1.0, label='Signal', zorder=2)
-        else:
-            ax1.plot(time, data['filtered_turbulence'], color=colors[name], 
-                    linewidth=1.0, label='Filtered', zorder=2)
-        
-        ax1.set_ylabel('Turbulence', fontsize=9)
-        ax1.set_title(f'{name}\nTurbulence Signal', fontsize=10, fontweight='bold',
-                     color=colors[name])
+        ax1.set_ylabel('Moving Variance', fontsize=9)
+        fp_pct = data['baseline_fp'] / len(data['baseline_mv']) * 100 if len(data['baseline_mv']) > 0 else 0
+        ax1.set_title(f'{name}\nBaseline (FP: {data["baseline_fp"]}, {fp_pct:.1f}%)', 
+                     fontsize=10, fontweight='bold', color=colors[name])
         ax1.legend(loc='upper right', fontsize=8)
         ax1.grid(True, alpha=0.3)
         
         if i == 3:
             ax1.set_xlabel('Time (seconds)', fontsize=9)
         
-        # Right plot: Moving variance
+        # Right plot: Movement Moving Variance
         ax2 = fig.add_subplot(4, 2, i*2 + 2)
-        
-        ax2.plot(time, data['moving_var'], color=colors[name], 
+        ax2.plot(time_movement, data['movement_mv'], color=colors[name], 
                 linewidth=1.0, alpha=0.8)
         ax2.axhline(y=THRESHOLD, color='red', linestyle='--', linewidth=2, 
                    label=f'Threshold ({THRESHOLD})')
         
-        # Highlight motion detections
-        for j, var in enumerate(data['moving_var']):
+        # Highlight true positives
+        for j, var in enumerate(data['movement_mv']):
             if var > THRESHOLD:
                 ax2.axvspan(j/SAMPLING_RATE, (j+1)/SAMPLING_RATE, 
                            alpha=0.2, color='green')
         
         ax2.set_ylabel('Moving Variance', fontsize=9)
-        recall = data['motion_count'] / (num_packets / 100.0)
-        ax2.set_title(f'{name}\nMoving Variance (Motion: {data["motion_count"]} pkts, {recall:.1f}%)', 
+        tp_pct = data['movement_tp'] / len(data['movement_mv']) * 100 if len(data['movement_mv']) > 0 else 0
+        ax2.set_title(f'{name}\nMovement (TP: {data["movement_tp"]}, {tp_pct:.1f}%)', 
                      fontsize=10, fontweight='bold', color=colors[name])
         ax2.legend(loc='upper right', fontsize=8)
         ax2.grid(True, alpha=0.3)
@@ -980,6 +961,8 @@ def main():
         description='ESPectre - Filtered Segmentation Test',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    parser.add_argument('--chip', type=str, default='C6',
+                       help='Chip type to use: C6, S3, etc. (default: C6)')
     parser.add_argument('--plot', action='store_true',
                        help='Show visualization plots')
     parser.add_argument('--optimize-filters', action='store_true',
@@ -1006,9 +989,11 @@ def main():
     print(f"  Wavelet: {WAVELET_TYPE}, level={WAVELET_LEVEL}, threshold={WAVELET_THRESHOLD}, mode={WAVELET_MODE}\n")
     
     # Load CSI data
-    print("Loading CSI data...")
+    chip = args.chip.upper()
+    print(f"Loading CSI data for {chip}...")
     try:
-        baseline_data, movement_data = load_baseline_and_movement()
+        baseline_path, movement_path, chip_name = find_dataset(chip=chip)
+        baseline_data, movement_data = load_baseline_and_movement(chip=chip)
     except FileNotFoundError as e:
         print(f"ERROR: {e}")
         return
@@ -1017,6 +1002,7 @@ def main():
     baseline_packets = np.array([p['csi_data'] for p in baseline_data])
     movement_packets = np.array([p['csi_data'] for p in movement_data])
     
+    print(f"  Chip: {chip_name}")
     print(f"  Loaded {len(baseline_packets)} baseline packets")
     print(f"  Loaded {len(movement_packets)} movement packets\n")
     
@@ -1037,7 +1023,7 @@ def main():
     print("="*60 + "\n")
     
     results = run_comparison_test(baseline_packets, movement_packets, 
-                                  num_packets=1000, track_data=args.plot)
+                                  num_packets=None, track_data=args.plot)
     
     # Print results table
     print("Results:")

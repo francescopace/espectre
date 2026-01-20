@@ -129,7 +129,7 @@ Use clear, descriptive commit messages:
 **Examples:**
 ```
 feat: add low-pass filter for noise reduction
-fix: correct NBVI calculation for edge cases
+fix: correct calibration for edge cases
 docs: update TUNING.md with filter examples
 test: add unit tests for Hampel filter
 ```

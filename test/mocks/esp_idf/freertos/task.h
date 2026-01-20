@@ -15,12 +15,15 @@ static inline BaseType_t xTaskCreate(TaskFunction_t pvTaskCode,
                                      uint32_t usStackDepth, void *pvParameters,
                                      UBaseType_t uxPriority,
                                      TaskHandle_t *pxCreatedTask) {
-  (void)pvTaskCode;
   (void)pcName;
   (void)usStackDepth;
-  (void)pvParameters;
   (void)uxPriority;
   (void)pxCreatedTask;
+  // For testing: execute task function synchronously instead of in a thread
+  // This allows P95Calibrator/NBVICalibrator to work in native tests without real FreeRTOS
+  if (pvTaskCode != NULL) {
+    pvTaskCode(pvParameters);
+  }
   return pdPASS;
 }
 

@@ -71,12 +71,9 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | YAML Configuration | ✅ | ❌ | ESPHome only |
 | MQTT Commands | ❌ | ✅ | Micro-ESPectre only |
 | Runtime Config | ✅ (via HA) | ✅ (via MQTT) | Different methods |
-| **Storage** |
-| NVS Persistence | ✅ | ✅ | Implemented |
-| Auto-save on config change | ✅ | ✅ | Implemented |
-| Auto-load on startup | ✅ | ✅ | Implemented |
 | **Automatic Subcarrier Selection** |
-| NBVI Algorithm | ✅ | ✅ | Implemented |
+| NBVI Calibration | ✅ | ✅ | Default algorithm |
+| P95 Band Selection | ✅ | ✅ | Alternative algorithm |
 | Percentile-based Detection | ✅ | ✅ | Implemented |
 | Noise Gate | ✅ | ✅ | ✅ Implemented |
 | Spectral De-correlation | ✅ | ✅ | Implemented |
@@ -145,7 +142,7 @@ The `me` CLI provides these essential commands:
 | `deploy` | Deploy Python code to device | `./me deploy` |
 | `run` | Run the application | `./me run` |
 | `stream` | Stream raw CSI data via UDP | `./me stream --ip 192.168.1.100` |
-| `collect` | Collect labeled CSI data for ML | `./me collect --label wave --duration 30` |
+| `collect` | Collect labeled CSI data for ML | `./me collect --label movement --duration 30` |
 | `verify` | Verify firmware installation | `./me verify` |
 | *(interactive)* | Interactive MQTT control | `./me` |
 
@@ -267,7 +264,7 @@ That's it! The device will now:
 - Connect to WiFi
 - Connect to MQTT broker
 - Start publishing motion detection data
-- Automatically calibrate subcarriers (NBVI algorithm)
+- Automatically calibrate subcarriers (NBVI or P95 algorithm)
 
 ### 5. Monitor and Control
 
@@ -352,8 +349,7 @@ The test suite covers all core modules:
 | `filters.py` | `test_filters.py` | 100% |
 | `features.py` | `test_features.py` | 99% |
 | `segmentation.py` | `test_segmentation.py`, `test_segmentation_additional.py` | 90% |
-| `nbvi_calibrator.py` | `test_nbvi_calibrator.py`, `test_nbvi_calibrator_additional.py` | 94% |
-| `nvs_storage.py` | `test_nvs_storage.py` | 95% |
+| `band_calibrator.py` | `test_validation_real_data.py` | 94% |
 | `mqtt/handler.py` | `test_mqtt.py` | 88% |
 | `mqtt/commands.py` | `test_mqtt.py` | 94% |
 | `traffic_generator.py` | `test_traffic_generator.py` | 91% |
@@ -363,7 +359,7 @@ Additional validation tests:
 - `test_optimization_equivalence.py`: Validates optimization correctness
 - `test_validation_real_data.py`: Validates algorithms with real CSI data (baseline/movement)
 
-**Total: 324 tests, 94% coverage** (MicroPython-only modules excluded)
+**Total: 304 tests, 94% coverage** (MicroPython-only modules excluded)
 
 ### CI Integration
 
@@ -375,7 +371,7 @@ Tests run automatically on every push/PR via GitHub Actions. See `.github/workfl
 
 ```python
 SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
-SEG_THRESHOLD = 1.0        # Motion detection threshold (0.0-10.0)
+# SEG_THRESHOLD = 1.0      # Uncomment to override adaptive threshold
 ENABLE_FEATURES = False    # Enable/disable feature extraction
 
 # Gain Lock Configuration
@@ -389,10 +385,11 @@ ENABLE_HAMPEL_FILTER = False   # Hampel filter (outlier removal)
 HAMPEL_WINDOW = 7
 HAMPEL_THRESHOLD = 4.0
 
-# Normalization (always enabled for cross-device consistency)
-# If baseline > 0.25: scale = 0.25 / baseline_variance (attenuate)
-# If baseline ≤ 0.25: scale = 1.0 (no amplification)
-# Note: If NBVI calibration fails, normalization is still applied using default subcarriers
+# Adaptive Threshold Parameters (calculated automatically during calibration)
+ADAPTIVE_PERCENTILE = 95   # Percentile for threshold (95=P95, 100=max)
+ADAPTIVE_FACTOR = 1.4      # Multiplier: Pxx × factor = adaptive threshold
+# Formula: Pxx(baseline_moving_variance) × factor
+# Default (P95 × 1.4) minimizes false positives while maintaining high recall
 ```
 
 **Gain Lock Modes:**
@@ -478,17 +475,22 @@ The `tools/` directory contains Python scripts for CSI data analysis and algorit
 
 See [tools/README.md](tools/README.md) for complete script documentation.
 
-## Automatic Subcarrier Selection (NBVI)
+## Automatic Subcarrier Selection
 
-Micro-ESPectre implements the **NBVI (Normalized Baseline Variability Index)** algorithm for automatic subcarrier selection, achieving **F1=98.2%** with **zero manual configuration**.
+Micro-ESPectre implements automatic subcarrier selection with two algorithms:
+
+- **NBVI** (default): Selects 12 non-consecutive subcarriers based on baseline variability index
+- **P95**: Selects 12 consecutive subcarriers by minimizing P95 moving variance
+
+Both algorithms achieve high performance (>90% recall, <15% FP rate) with **zero manual configuration**.
 
 > ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
 
-For complete NBVI algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
+For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#automatic-subcarrier-selection).
 
 ## Machine Learning & Advanced Applications
 
-Micro-ESPectre is the **R&D platform** for advanced CSI-based applications. While the core focuses on motion detection using mathematical algorithms (MVS + NBVI), the platform provides infrastructure for ML-based features planned for release 3.x:
+Micro-ESPectre is the **R&D platform** for advanced CSI-based applications. While the core focuses on motion detection using mathematical algorithms (MVS + NBVI/P95 calibration), the platform provides infrastructure for ML-based features planned for release 3.x:
 
 - **Gesture recognition**
 - **Human Activity Recognition (HAR)**
@@ -612,7 +614,7 @@ Micro-ESPectre includes a powerful **Web-based monitoring dashboard** for real-t
 | **Live Configuration** | Adjust detection parameters (response speed, threshold) in real-time |
 | **Real-Time Chart** | Live visualization of movement, threshold, packets/sec, and dropped packets |
 | **Runtime Statistics** | Memory usage, loop timing, and Traffic Generator diagnostics |
-| **Factory Reset** | Reset device to default configuration and re-calibrate NBVI |
+| **Factory Reset** | Reset device to default configuration and re-calibrate |
 
 ### Screenshots
 
@@ -638,7 +640,7 @@ The chart shows:
 
 **Device Configuration** section shows:
 - Model, IP address, MAC address, WiFi protocol
-- Bandwidth (HT20/HT40), Channel, CSI status
+- Bandwidth (HT20), Channel, CSI status
 
 **Detection Parameters** (adjustable via sliders):
 - **Response Speed** (10-200): How fast the system reacts to changes (window size)
@@ -692,7 +694,7 @@ Publish JSON commands to `home/espectre/node1/cmd`:
 | `stats` | `{"cmd": "stats"}` | Get runtime statistics (memory, state, metrics) |
 | `segmentation_threshold` | `{"cmd": "segmentation_threshold", "value": 1.5}` | Set detection threshold (0.0-10.0) |
 | `segmentation_window_size` | `{"cmd": "segmentation_window_size", "value": 100}` | Set window size (10-200 packets) |
-| `factory_reset` | `{"cmd": "factory_reset"}` | Reset to defaults and re-calibrate NBVI |
+| `factory_reset` | `{"cmd": "factory_reset"}` | Reset to defaults and re-calibrate |
 
 ### Command Responses
 
@@ -751,9 +753,9 @@ Publish JSON commands to `home/espectre/node1/cmd`:
   - `packets_sent`: Total packets sent since start
   - `errors`: Socket errors count
 
-### Configuration Persistence
+### Runtime Configuration
 
-All configuration changes made via MQTT commands are **automatically saved** to a JSON file (`espectre_config.json`) on the ESP32 filesystem and **automatically loaded** on startup, ensuring settings persist across reboots.
+Configuration changes made via MQTT commands are **session-only** and reset on reboot. The adaptive threshold (P95 × 1.4) is recalculated automatically at each boot for optimal performance.
 
 ## Home Assistant Integration
 

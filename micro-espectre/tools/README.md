@@ -4,7 +4,7 @@
 
 This directory contains analysis tools for developing and validating ESPectre's motion detection algorithms. These scripts are essential for parameter tuning, algorithm validation, and scientific analysis.
 
-For algorithm documentation (MVS, NBVI, Hampel filter), see [ALGORITHMS.md](../ALGORITHMS.md).
+For algorithm documentation (MVS, P95 Band Selection, Hampel filter), see [ALGORITHMS.md](../ALGORITHMS.md).
 
 For production performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
@@ -24,14 +24,17 @@ For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../ML_DATA_COLL
 
 ### 1. Raw Data Analysis (`1_analyze_raw_data.py`)
 
-**Purpose**: Visualize raw CSI amplitude data and identify patterns
+**Purpose**: Analyze data quality and verify dataset integrity
 
-- Analyzes subcarrier patterns and noise characteristics
-- Helps identify most informative subcarriers
-- Visualizes signal strength distribution
+- Automatically discovers and analyzes all available chip datasets
+- Verifies labels are correct (baseline vs movement)
+- Compares turbulence variance between states
+- Shows summary table with status for each chip
 
 ```bash
-python 1_analyze_raw_data.py
+python 1_analyze_raw_data.py           # Analyze all datasets (C6, S3, etc.)
+python 1_analyze_raw_data.py --chip C6 # Analyze only C6 dataset
+python 1_analyze_raw_data.py --chip S3 # Analyze only S3 dataset
 ```
 
 ---
@@ -45,8 +48,9 @@ python 1_analyze_raw_data.py
 - Finds optimal parameter combinations
 
 ```bash
-python 2_analyze_system_tuning.py          # Full grid search
-python 2_analyze_system_tuning.py --quick  # Reduced parameter space
+python 2_analyze_system_tuning.py              # Full grid search (default: C6)
+python 2_analyze_system_tuning.py --chip S3    # Use S3 dataset
+python 2_analyze_system_tuning.py --quick      # Reduced parameter space
 ```
 
 ---
@@ -60,8 +64,9 @@ python 2_analyze_system_tuning.py --quick  # Reduced parameter space
 - Validates current configuration
 
 ```bash
-python 3_analyze_moving_variance_segmentation.py
-python 3_analyze_moving_variance_segmentation.py --plot  # Show graphs
+python 3_analyze_moving_variance_segmentation.py              # Use C6 dataset
+python 3_analyze_moving_variance_segmentation.py --chip S3    # Use S3 dataset
+python 3_analyze_moving_variance_segmentation.py --plot       # Show graphs
 ```
 
 ---
@@ -75,8 +80,9 @@ python 3_analyze_moving_variance_segmentation.py --plot  # Show graphs
 - Determines optimal filter location
 
 ```bash
-python 4_analyze_filter_location.py
-python 4_analyze_filter_location.py --plot  # Show visualizations
+python 4_analyze_filter_location.py              # Use C6 dataset
+python 4_analyze_filter_location.py --chip S3    # Use S3 dataset
+python 4_analyze_filter_location.py --plot       # Show visualizations
 ```
 
 ---
@@ -95,9 +101,9 @@ python 4_analyze_filter_location.py --plot  # Show visualizations
 - **Combined**: Best of both - spike removal + noise smoothing
 
 ```bash
-python 5_analyze_filter_turbulence.py              # Run all filter comparisons
-python 5_analyze_filter_turbulence.py --plot       # Show 4-panel visualization:
-                                                   #   No Filter | Hampel | Lowpass | Combined
+python 5_analyze_filter_turbulence.py              # Use C6 dataset
+python 5_analyze_filter_turbulence.py --chip S3    # Use S3 dataset
+python 5_analyze_filter_turbulence.py --plot       # Show 4-panel visualization
 python 5_analyze_filter_turbulence.py --optimize-filters  # Optimize parameters
 ```
 
@@ -107,9 +113,10 @@ python 5_analyze_filter_turbulence.py --optimize-filters  # Optimize parameters
 
 **Purpose**: Optimize low-pass and Hampel filter parameters
 
-- Optimizes normalization target and low-pass cutoff frequency
+- Optimizes low-pass cutoff frequency and threshold parameters
 - Grid search for Hampel filter parameters (window, threshold)
-- Supports chip-specific data filtering (c6, s3)
+- Auto-detects chip from baseline file metadata (ensures matching movement data)
+- Automatically selects optimal subcarrier band based on subcarrier count
 - Finds optimal configuration for noisy environments
 
 ```bash
@@ -135,8 +142,9 @@ python 6_optimize_filter_params.py --all        # Combined optimization (low-pas
 - Shows separation between baseline and movement
 
 ```bash
-python 7_compare_detection_methods.py
-python 7_compare_detection_methods.py --plot  # Show 4×2 comparison
+python 7_compare_detection_methods.py              # Use C6 dataset
+python 7_compare_detection_methods.py --chip S3    # Use S3 dataset
+python 7_compare_detection_methods.py --plot       # Show 4×2 comparison
 ```
 
 ![Detection Methods Comparison](../../images/detection_method_comparison.png)
@@ -148,15 +156,16 @@ python 7_compare_detection_methods.py --plot  # Show 4×2 comparison
 **Purpose**: Visualize I/Q constellation diagrams
 
 - Compares baseline (stable) vs movement (dispersed) patterns
-- Shows all 64 subcarriers + selected subcarriers
+- Shows all 64 subcarriers (HT20) + selected subcarriers
 - Reveals geometric signal characteristics
 
 ```bash
-python 8_plot_constellation.py
+python 8_plot_constellation.py              # Use C6 dataset
+python 8_plot_constellation.py --chip S3    # Use S3 dataset
 python 8_plot_constellation.py --packets 1000
 python 8_plot_constellation.py --packets 200 --offset 50  # Start from packet 50
 python 8_plot_constellation.py --subcarriers 47,48,49,50
-python 8_plot_constellation.py --grid  # One subplot per subcarrier
+python 8_plot_constellation.py --grid       # One subplot per subcarrier
 ```
 
 ---
@@ -173,26 +182,6 @@ python 8_plot_constellation.py --grid  # One subplot per subcarrier
 python 9_compare_s3_vs_c6.py
 python 9_compare_s3_vs_c6.py --plot
 ```
-
----
-
-### 10. NBVI Parameters Optimization (`10_optimize_nbvi_params.py`)
-
-**Purpose**: Grid search for optimal NBVI calibration parameters
-
-- Optimizes alpha (NBVI weighting factor), min_spacing, and percentile
-- Compares NBVI-selected band vs fixed band [11-22]
-- Generates optimal configuration for config.py
-
-```bash
-python 10_optimize_nbvi_params.py              # Full grid search
-python 10_optimize_nbvi_params.py c6           # Use only C6 data
-python 10_optimize_nbvi_params.py --quick      # Quick search (fewer combinations)
-```
-
-**Current optimal configuration:**
-- `NBVI_ALPHA = 0.5`, `NBVI_MIN_SPACING = 1`, `NBVI_PERCENTILE = 10`, `NOISE_GATE_PERCENTILE = 25`
-- Achieves **Recall 96.4%, F1 98.2%** with zero configuration
 
 ---
 
@@ -230,10 +219,10 @@ pytest tests/ -v
 # Compare detection methods
 python 7_compare_detection_methods.py --plot
 
-# Plot I/Q constellations
-python 8_plot_constellation.py --packets 1000 --grid
+# Plot I/Q constellations (auto-finds most recent dataset)
+python 8_plot_constellation.py --chip S3 --packets 1000 --grid
 
-# Compare ESP32 variants
+# Compare ESP32 variants (auto-finds most recent C6 and S3 datasets)
 python 9_compare_s3_vs_c6.py --plot
 ```
 
@@ -250,11 +239,11 @@ Tested on 60-second noisy baseline with C6 chip:
 | Low-pass 11Hz only | 92.4% | 2.34% | 88.9% |
 | **Low-pass 11Hz + Hampel (W=9, T=4)** | **92.1%** | **0.84%** | **93.2%** |
 
-### NBVI Automatic Subcarrier Selection
+### P95 Automatic Band Selection
 
-**NBVI with `alpha=0.5`, `min_spacing=1`** achieves excellent results with zero configuration.
+**P95 Band Selection** achieves excellent results with zero configuration, automatically selecting the optimal 12-subcarrier band for each environment.
 
-For complete NBVI algorithm documentation, see [ALGORITHMS.md](../ALGORITHMS.md#nbvi-automatic-subcarrier-selection).
+For complete algorithm documentation, see [ALGORITHMS.md](../ALGORITHMS.md#automatic-subcarrier-selection).
 
 For detailed performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
@@ -262,7 +251,7 @@ For detailed performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
 ## Additional Resources
 
-- [ALGORITHMS.md](../ALGORITHMS.md) - Algorithm documentation (MVS, NBVI, Hampel)
+- [ALGORITHMS.md](../ALGORITHMS.md) - Algorithm documentation (MVS, P95 Band Selection, Hampel)
 - [Micro-ESPectre](../README.md) - R&D platform documentation
 - [ESPectre](../../README.md) - Main project with Home Assistant integration
 

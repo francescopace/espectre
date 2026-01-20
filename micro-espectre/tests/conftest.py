@@ -14,10 +14,11 @@ import numpy as np
 from pathlib import Path
 
 # Add src and tools to path for imports
+# src is inserted last (position 0) so it takes precedence for config imports
 SRC_PATH = Path(__file__).parent.parent / 'src'
 TOOLS_PATH = Path(__file__).parent.parent / 'tools'
-sys.path.insert(0, str(SRC_PATH))
 sys.path.insert(0, str(TOOLS_PATH))
+sys.path.insert(0, str(SRC_PATH))
 
 # Data directory (shared between tests and tools)
 DATA_DIR = Path(__file__).parent.parent / 'data'
@@ -28,8 +29,21 @@ DATA_DIR = Path(__file__).parent.parent / 'data'
 # ============================================================================
 
 @pytest.fixture
-def default_subcarriers():
-    """Default subcarrier band for testing"""
+def default_subcarriers(request):
+    """
+    Default subcarrier band for testing (HT20: 64 SC only).
+    
+    Returns chip-specific subcarriers if chip_type fixture is available,
+    otherwise returns default C6-optimized band.
+    
+    Values determined by grid search optimization (tools/2_analyze_system_tuning.py).
+    """
+    try:
+        chip_type = request.getfixturevalue('chip_type')
+        if chip_type == 'S3':
+            return [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]
+    except pytest.FixtureLookupError:
+        pass
     return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 
@@ -172,9 +186,12 @@ def synthetic_csi_movement_packets():
 @pytest.fixture
 def real_csi_data_available():
     """Check if real CSI data files are available"""
-    baseline_file = DATA_DIR / 'baseline' / 'baseline_c6_001.npz'
-    movement_file = DATA_DIR / 'movement' / 'movement_c6_001.npz'
-    return baseline_file.exists() and movement_file.exists()
+    from csi_utils import find_dataset
+    try:
+        find_dataset(chip='C6')
+        return True
+    except FileNotFoundError:
+        return False
 
 
 @pytest.fixture
@@ -229,10 +246,4 @@ def real_turbulence_values(real_csi_data_available, default_subcarriers):
 def tolerance():
     """Standard tolerance for floating point comparisons"""
     return 1e-6
-
-
-@pytest.fixture
-def window_size():
-    """Default window size for variance calculations"""
-    return 50
 

@@ -22,7 +22,7 @@ namespace esphome {
 namespace espectre {
 
 // Forward declaration
-class CalibrationManager;
+class ICalibrator;
 
 // Callback type for processed CSI data
 // Parameters: motion_state, packets_since_last_publish
@@ -36,7 +36,7 @@ using game_mode_callback_t = std::function<void(float movement, float threshold)
  * 
  * Manages complete CSI pipeline: hardware configuration, data processing, and motion detection.
  * Handles platform-specific differences between ESP32-C6 and ESP32-S3.
- * Orchestrates CSI packet processing and NBVI calibration.
+ * Orchestrates CSI packet processing and band calibration.
  */
 class CSIManager {
  public:
@@ -112,7 +112,7 @@ class CSIManager {
    * 
    * @param calibrator Calibration manager instance (nullptr to disable calibration mode)
    */
-  void set_calibration_mode(CalibrationManager* calibrator) { calibrator_ = calibrator; }
+  void set_calibration_mode(ICalibrator* calibrator) { calibrator_ = calibrator; }
   
   /**
    * Check if CSI is currently enabled
@@ -145,7 +145,7 @@ class CSIManager {
   /**
    * Set callback for when gain lock completes
    * 
-   * Use this to trigger NBVI calibration after gain is locked.
+   * Use this to trigger band calibration after gain is locked.
    * 
    * @param callback Function to call when gain is locked
    */
@@ -173,11 +173,12 @@ class CSIManager {
   bool enabled_{false};
   csi_processor_context_t* processor_{nullptr};
   const uint8_t* selected_subcarriers_{nullptr};
-  CalibrationManager* calibrator_{nullptr};
+  ICalibrator* calibrator_{nullptr};
   csi_processed_callback_t packet_callback_;
   game_mode_callback_t game_mode_callback_;
   uint32_t publish_rate_{100};
   volatile uint32_t packets_processed_{0};  // volatile: modified from ISR callback
+  volatile uint32_t packets_filtered_{0};   // Packets with wrong SC count
   uint8_t current_channel_{0};  // Track WiFi channel for change detection
   
   // WiFi CSI interface (injected or default real implementation)
@@ -187,7 +188,8 @@ class CSIManager {
   // Gain controller for AGC/FFT locking
   GainController gain_controller_;
   
-  static constexpr uint8_t NUM_SUBCARRIERS = 12;
+  // Use central HT20 constants from csi_processor.h
+  static constexpr uint8_t NUM_SUBCARRIERS = HT20_SELECTED_BAND_SIZE;
   
   /**
    * Configure CSI based on platform

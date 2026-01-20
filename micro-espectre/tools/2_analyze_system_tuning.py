@@ -3,37 +3,75 @@
 Comprehensive Grid Search for Optimal MVS Parameters
 Tests all combinations of subcarrier clusters, thresholds, and window sizes
 
+Uses 64 subcarriers (HT20 mode) for consistent performance across all ESP32 variants.
+
 Usage:
-    python tools/2_analyze_system_tuning.py [--quick]
-    python tools/2_analyze_system_tuning.py --plot
+    python tools/2_analyze_system_tuning.py              # Use default C6 dataset
+    python tools/2_analyze_system_tuning.py --chip S3    # Use S3 dataset
+    python tools/2_analyze_system_tuning.py --quick      # Quick mode (fewer tests)
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
+import sys
 import numpy as np
 import argparse
-from csi_utils import load_baseline_and_movement, test_mvs_configuration, MVSDetector, calculate_spatial_turbulence
-from config import WINDOW_SIZE, THRESHOLD, SELECTED_SUBCARRIERS
+from pathlib import Path
+
+# Add src to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
+
+from csi_utils import load_npz_as_packets, test_mvs_configuration, MVSDetector, calculate_spatial_turbulence, find_dataset, DEFAULT_SUBCARRIERS
+
+# Alias for backward compatibility
+SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+
+# Alias for backward compatibility
+WINDOW_SIZE = SEG_WINDOW_SIZE
+THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
 from itertools import combinations
 
-def test_contiguous_clusters(baseline_packets, movement_packets, cluster_size=12, quick=False):
+
+def load_dataset(chip='C6'):
+    """
+    Load baseline and movement datasets for the specified chip.
+    
+    Args:
+        chip: Chip type (C6, S3, etc.)
+    
+    Returns:
+        tuple: (baseline_packets, movement_packets, num_subcarriers, chip_name)
+    """
+    baseline_file, movement_file, chip_name = find_dataset(chip=chip)
+    
+    baseline_packets = load_npz_as_packets(baseline_file)
+    movement_packets = load_npz_as_packets(movement_file)
+    
+    # Get actual subcarrier count from data
+    num_sc = len(baseline_packets[0]['csi_data']) // 2
+    
+    return baseline_packets, movement_packets, num_sc, chip_name
+
+
+def test_contiguous_clusters(baseline_packets, movement_packets, num_sc, cluster_size=12, quick=False):
     """Test all contiguous clusters of subcarriers"""
     print(f"\n{'='*80}")
-    print(f"  TESTING CONTIGUOUS CLUSTERS (size={cluster_size})")
+    print(f"  TESTING CONTIGUOUS CLUSTERS (size={cluster_size}, total SC={num_sc})")
     print(f"{'='*80}\n")
     
     thresholds = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0] if not quick else [1.0, 1.5, 2.0]
     window_sizes = [30, 50, 100] if not quick else [50]
     
     results = []
-    total_tests = (64 - cluster_size + 1) * len(thresholds) * len(window_sizes)
+    total_tests = (num_sc - cluster_size + 1) * len(thresholds) * len(window_sizes)
     test_count = 0
     
     print(f"Testing {total_tests} configurations...")
     print(f"Progress: ", end='', flush=True)
     
-    for start_sc in range(0, 64 - cluster_size + 1):
+    for start_sc in range(0, num_sc - cluster_size + 1):
         cluster = list(range(start_sc, start_sc + cluster_size))
         
         for window_size in window_sizes:
@@ -69,7 +107,7 @@ def test_contiguous_clusters(baseline_packets, movement_packets, cluster_size=12
     
     return results
 
-def test_different_cluster_sizes(baseline_packets, movement_packets, quick=False):
+def test_different_cluster_sizes(baseline_packets, movement_packets, num_sc, quick=False):
     """Test different cluster sizes"""
     
     cluster_sizes = [8, 10, 12, 16] if not quick else [12]
@@ -77,7 +115,7 @@ def test_different_cluster_sizes(baseline_packets, movement_packets, quick=False
     
     for size in cluster_sizes:
         print(f"\nTesting cluster size: {size}")
-        results = test_contiguous_clusters(baseline_packets, movement_packets, size, quick)
+        results = test_contiguous_clusters(baseline_packets, movement_packets, num_sc, size, quick)
         all_results.extend(results)
     
     # Sort all results by score
@@ -85,7 +123,7 @@ def test_different_cluster_sizes(baseline_packets, movement_packets, quick=False
     
     return all_results
 
-def test_dual_clusters(baseline_packets, movement_packets, quick=False):
+def test_dual_clusters(baseline_packets, movement_packets, num_sc, quick=False):
     """Test combinations of two separate clusters"""
     
     thresholds = [1.0, 1.5, 2.0] if quick else [0.5, 1.0, 1.5, 2.0, 3.0]
@@ -93,23 +131,35 @@ def test_dual_clusters(baseline_packets, movement_packets, quick=False):
     
     results = []
     
+    # Calculate proportional positions based on num_sc
+    # For 64 SC: low=10, mid=20, high=47
+    # Scale proportionally for other SC counts
+    scale = num_sc / 64
+    
     # Test combinations of two clusters of 6 subcarriers
     # Cluster 1: low frequency, Cluster 2: high frequency
+    def scaled_range(start, end):
+        return list(range(int(start * scale), int(end * scale)))
+    
     cluster_configs = [
-        (list(range(10, 16)), list(range(47, 53))),  # Low + High
-        (list(range(20, 26)), list(range(47, 53))),  # Mid + High
-        (list(range(10, 16)), list(range(52, 58))),  # Low + Very High
-        (list(range(25, 31)), list(range(47, 53))),  # Mid-High + High
+        (scaled_range(10, 16), scaled_range(47, 53)),  # Low + High
+        (scaled_range(20, 26), scaled_range(47, 53)),  # Mid + High
+        (scaled_range(10, 16), scaled_range(52, 58)),  # Low + Very High
+        (scaled_range(25, 31), scaled_range(47, 53)),  # Mid-High + High
     ]
     
     if not quick:
         # Add more combinations
-        for start1 in range(0, 30, 5):
-            for start2 in range(40, 58, 5):
-                cluster_configs.append((
-                    list(range(start1, start1 + 6)),
-                    list(range(start2, start2 + 6))
-                ))
+        for start1 in range(0, int(30 * scale), int(5 * scale)):
+            for start2 in range(int(40 * scale), int(58 * scale), int(5 * scale)):
+                if start2 + 6 <= num_sc:
+                    cluster_configs.append((
+                        list(range(start1, min(start1 + 6, num_sc))),
+                        list(range(start2, min(start2 + 6, num_sc)))
+                    ))
+    
+    # Remove duplicates and empty clusters
+    cluster_configs = [(c1, c2) for c1, c2 in cluster_configs if c1 and c2]
     
     total_tests = len(cluster_configs) * len(thresholds) * len(window_sizes)
     test_count = 0
@@ -153,7 +203,7 @@ def test_dual_clusters(baseline_packets, movement_packets, quick=False):
     
     return results
 
-def test_sparse_configurations(baseline_packets, movement_packets, quick=False):
+def test_sparse_configurations(baseline_packets, movement_packets, num_sc, quick=False):
     """Test sparse subcarrier configurations"""
     
     thresholds = [1.0, 1.5, 2.0] if quick else [0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
@@ -162,33 +212,47 @@ def test_sparse_configurations(baseline_packets, movement_packets, quick=False):
     results = []
     configs = []
     
+    scale = num_sc / 64
+    
     # 1. Uniform distribution with different steps
     print("Generating uniform distribution patterns...")
     for step in [4, 5, 6]:
-        config = list(range(0, 64, step))[:12]
-        configs.append(('uniform', f'step={step}', config))
+        scaled_step = max(1, int(step * scale))
+        config = list(range(0, num_sc, scaled_step))[:12]
+        if len(config) >= 8:  # Only if we get enough subcarriers
+            configs.append(('uniform', f'step={scaled_step}', config))
     
-    # 2. Fisher score based (from original analysis)
-    fisher_top = [47, 48, 49, 31, 46, 30, 33, 50, 29, 13, 45, 12]
+    # 2. Fisher score based (scaled for num_sc)
+    if num_sc == 64:
+        fisher_top = [47, 48, 49, 31, 46, 30, 33, 50, 29, 13, 45, 12]
+    else:
+        # Scale Fisher positions proportionally
+        fisher_base = [47, 48, 49, 31, 46, 30, 33, 50, 29, 13, 45, 12]
+        fisher_top = [min(int(sc * scale), num_sc - 1) for sc in fisher_base]
+        fisher_top = list(dict.fromkeys(fisher_top))[:12]  # Remove duplicates
     configs.append(('fisher', 'top-12', fisher_top))
     
     # 3. Multi-cluster (3 clusters of 4)
     print("Generating multi-cluster patterns...")
     if quick:
         multi_configs = [
-            ([5, 6, 7, 8], [25, 26, 27, 28], [50, 51, 52, 53]),
-            ([10, 11, 12, 13], [30, 31, 32, 33], [55, 56, 57, 58]),
+            (list(range(int(5*scale), int(9*scale))), 
+             list(range(int(25*scale), int(29*scale))), 
+             list(range(int(50*scale), min(int(54*scale), num_sc)))),
+            (list(range(int(10*scale), int(14*scale))), 
+             list(range(int(30*scale), int(34*scale))), 
+             list(range(int(55*scale), min(int(59*scale), num_sc)))),
         ]
     else:
         multi_configs = []
-        for start1 in [0, 5, 10]:
-            for start2 in [20, 25, 30]:
-                for start3 in [45, 50, 55]:
-                    multi_configs.append((
-                        list(range(start1, start1+4)),
-                        list(range(start2, start2+4)),
-                        list(range(start3, start3+4))
-                    ))
+        for start1 in [0, int(5*scale), int(10*scale)]:
+            for start2 in [int(20*scale), int(25*scale), int(30*scale)]:
+                for start3 in [int(45*scale), int(50*scale), int(55*scale)]:
+                    c1 = list(range(start1, min(start1+4, num_sc)))
+                    c2 = list(range(start2, min(start2+4, num_sc)))
+                    c3 = list(range(start3, min(start3+4, num_sc)))
+                    if c1 and c2 and c3:
+                        multi_configs.append((c1, c2, c3))
     
     for c1, c2, c3 in multi_configs:
         combined = c1 + c2 + c3
@@ -197,19 +261,23 @@ def test_sparse_configurations(baseline_packets, movement_packets, quick=False):
     
     # 4. Alternating patterns
     print("Generating alternating patterns...")
-    configs.append(('alternating', 'every-2', list(range(0, 24, 2))))
-    configs.append(('alternating', 'every-3', list(range(0, 36, 3))))
+    configs.append(('alternating', 'every-2', list(range(0, min(24, num_sc), 2))))
+    configs.append(('alternating', 'every-3', list(range(0, min(36, num_sc), 3))))
     
     # 5. Zone-based sampling (low, mid, high)
     print("Generating zone-based patterns...")
     zone_configs = [
-        ([2, 5, 8, 11], [22, 25, 28, 31], [45, 48, 51, 54]),  # 4+4+4
-        ([1, 4, 7, 10, 13], [20, 24, 28, 32], [44, 48, 52]),  # 5+4+3
-        ([0, 5, 10], [20, 25, 30, 35], [45, 50, 55, 60, 63]), # 3+4+5
+        ([int(2*scale), int(5*scale), int(8*scale), int(11*scale)], 
+         [int(22*scale), int(25*scale), int(28*scale), int(31*scale)], 
+         [int(45*scale), int(48*scale), int(51*scale), int(54*scale)]),
     ]
     for i, (low, mid, high) in enumerate(zone_configs):
+        low = [x for x in low if x < num_sc]
+        mid = [x for x in mid if x < num_sc]
+        high = [x for x in high if x < num_sc]
         combined = low + mid + high
-        configs.append(('zone-based', f'pattern-{i+1}', combined))
+        if len(combined) >= 8:
+            configs.append(('zone-based', f'pattern-{i+1}', combined))
     
     total_tests = len(configs) * len(thresholds) * len(window_sizes)
     test_count = 0
@@ -251,17 +319,17 @@ def test_sparse_configurations(baseline_packets, movement_packets, quick=False):
     
     return results
 
-def calculate_per_subcarrier_amplitudes(csi_packet):
+def calculate_per_subcarrier_amplitudes(csi_packet, num_sc):
     """Calculate amplitude for each subcarrier"""
     amplitudes = []
-    for sc_idx in range(64):
+    for sc_idx in range(num_sc):
         I = float(csi_packet[sc_idx * 2])
         Q = float(csi_packet[sc_idx * 2 + 1])
         amplitude = np.sqrt(I*I + Q*Q)
         amplitudes.append(amplitude)
     return amplitudes
 
-def calculate_subcarrier_metrics(packets):
+def calculate_subcarrier_metrics(packets, num_sc):
     """Calculate various metrics for each subcarrier"""
     all_amplitudes = []
     all_phases = []
@@ -269,7 +337,7 @@ def calculate_subcarrier_metrics(packets):
     for pkt in packets:
         amplitudes = []
         phases = []
-        for sc_idx in range(64):
+        for sc_idx in range(num_sc):
             I = float(pkt['csi_data'][sc_idx * 2])
             Q = float(pkt['csi_data'][sc_idx * 2 + 1])
             amplitude = np.sqrt(I*I + Q*Q)
@@ -279,7 +347,7 @@ def calculate_subcarrier_metrics(packets):
         all_amplitudes.append(amplitudes)
         all_phases.append(phases)
     
-    all_amplitudes = np.array(all_amplitudes)  # shape: (n_packets, 64)
+    all_amplitudes = np.array(all_amplitudes)  # shape: (n_packets, num_sc)
     all_phases = np.array(all_phases)
     
     # Calculate metrics for each subcarrier
@@ -346,9 +414,9 @@ def print_confusion_matrix(baseline_packets, movement_packets, subcarriers, thre
     
     # Print formatted output (matching C test format)
     print()
-    print("═" * 75)
+    print("=" * 75)
     print("                         PERFORMANCE SUMMARY")
-    print("═" * 75)
+    print("=" * 75)
     print()
     print(f"CONFUSION MATRIX ({num_baseline} baseline + {num_movement} movement packets):")
     print("                    Predicted")
@@ -357,14 +425,14 @@ def print_confusion_matrix(baseline_packets, movement_packets, subcarriers, thre
     print(f"    MOTION      {fn:4d} (FN)  {tp:4d} (TP)")
     print()
     print("SEGMENTATION METRICS:")
-    recall_status = "✅" if recall > 90 else "❌"
-    fp_status = "✅" if fp_rate < 10 else "❌"
+    recall_status = "PASS" if recall > 90 else "FAIL"
+    fp_status = "PASS" if fp_rate < 10 else "FAIL"
     print(f"  * Recall:     {recall:.1f}% (target: >90%) {recall_status}")
     print(f"  * Precision:  {precision:.1f}%")
     print(f"  * FP Rate:    {fp_rate:.1f}% (target: <10%) {fp_status}")
     print(f"  * F1-Score:   {f1_score:.1f}%")
     print()
-    print("═" * 75)
+    print("=" * 75)
     print()
     
     metrics = {
@@ -378,14 +446,14 @@ def print_confusion_matrix(baseline_packets, movement_packets, subcarriers, thre
     return metrics
 
 
-def print_top_results(results, top_n=20):
+def print_top_results(results, num_sc, top_n=20):
     """Print top N results"""
     
     # Filter only configurations with FP=0 and TP>0
     fp_zero_results = [r for r in results if r['fp'] == 0 and r['tp'] > 0]
     
     if not fp_zero_results:
-        print("\n⚠️  WARNING: No configurations with FP=0 found!")
+        print("\nWARNING: No configurations with FP=0 found!")
         print("Showing all results sorted by minimum FP...\n")
         # If no FP=0, show configurations sorted by FP (ASC), then threshold (ASC)
         results.sort(key=lambda x: (x['fp'], x['threshold'], -x['tp']))
@@ -397,14 +465,15 @@ def print_top_results(results, top_n=20):
     
     print(f"\n{'='*80}")
     print(f"  TOP {top_n} CONFIGURATIONS (FP=0, sorted by minimum threshold)")
+    print(f"  Dataset: {num_sc} subcarriers")
     print(f"{'='*80}\n")
     
-    print(f"{'Rank':<6} {'Cluster':<20} {'Size':<6} {'WinSz':<7} {'Thresh':<8} {'FP':<5} {'TP':<5}")
+    print(f"{'Rank':<6} {'Cluster':<25} {'Size':<6} {'WinSz':<7} {'Thresh':<8} {'FP':<5} {'TP':<5}")
     print("-" * 80)
     
     for i, result in enumerate(fp_zero_results[:top_n], 1):
         cluster_str = f"[{result['cluster_start']}-{result['cluster_end']}]" if result['cluster_end'] else result['cluster_start']
-        print(f"{i:<6} {cluster_str:<20} {result['cluster_size']:<6} "
+        print(f"{i:<6} {cluster_str:<25} {result['cluster_size']:<6} "
               f"{result['window_size']:<7} {result['threshold']:<8.1f} "
               f"{result['fp']:<5} {result['tp']:<5}")
     
@@ -412,7 +481,7 @@ def print_top_results(results, top_n=20):
     
     # Print best configuration details (minimum threshold with FP=0)
     best = fp_zero_results[0]
-    print(f"\n🏆 BEST CONFIGURATION (Minimum threshold with FP=0):")
+    print(f"\nBEST CONFIGURATION (Minimum threshold with FP=0):")
     print(f"   Subcarriers: {best['cluster']}")
     print(f"   Cluster Size: {best['cluster_size']}")
     print(f"   Window Size: {best['window_size']}")
@@ -420,41 +489,48 @@ def print_top_results(results, top_n=20):
     print(f"   FP: {best['fp']}, TP: {best['tp']}")
     
     # Print Python config format
-    print(f"\n📝 Configuration for config.py:")
+    print(f"\nConfiguration for src/config.py ({num_sc} SC):")
     print(f"   WINDOW_SIZE = {best['window_size']}")
     print(f"   THRESHOLD = {best['threshold']}")
-    print(f"   SELECTED_SUBCARRIERS = {best['cluster']}")
+    print(f"   SELECTED_SUBCARRIERS_{num_sc} = {best['cluster']}")
     
     # Show alternative configurations with same threshold
     same_threshold = [r for r in fp_zero_results if r['threshold'] == best['threshold']]
     if len(same_threshold) > 1:
-        print(f"\n💡 Other configurations with threshold={best['threshold']} and FP=0:")
+        print(f"\nOther configurations with threshold={best['threshold']} and FP=0:")
         for r in same_threshold[1:6]:  # Show up to 5 alternatives
             cluster_str = f"[{r['cluster_start']}-{r['cluster_end']}]" if r['cluster_end'] else r['cluster_start']
             print(f"   {cluster_str:<25} WinSz={r['window_size']:<3} TP={r['tp']}")
+    
+    return best
 
 def main():
     parser = argparse.ArgumentParser(description='Comprehensive grid search for optimal MVS parameters')
     parser.add_argument('--quick', action='store_true', help='Quick mode (fewer tests)')
+    parser.add_argument('--chip', type=str, default='C6',
+                        help='Chip type to use: C6, S3, etc. (default: C6)')
     
     args = parser.parse_args()
     
     print("")
-    print("╔═══════════════════════════════════════════════════════╗")
-    print("║     Comprehensive MVS Parameter Grid Search           ║")
-    print("╚═══════════════════════════════════════════════════════╝")
+    print("=" * 60)
+    print("     Comprehensive MVS Parameter Grid Search")
+    print("=" * 60)
     
     if args.quick:
-        print("\n⚡ QUICK MODE: Testing reduced parameter space")
+        print("\nQUICK MODE: Testing reduced parameter space")
     
     # Load data
-    print(f"\n📂 Loading data...")
+    chip = args.chip.upper()
+    print(f"\nLoading data for {chip}...")
     try:
-        baseline_packets, movement_packets = load_baseline_and_movement()
+        baseline_packets, movement_packets, num_sc, chip_name = load_dataset(chip)
     except FileNotFoundError as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         return
     
+    print(f"   Chip: {chip_name}")
+    print(f"   Dataset: {num_sc} subcarriers")
     print(f"   Baseline: {len(baseline_packets)} packets")
     print(f"   Movement: {len(movement_packets)} packets")
     
@@ -464,44 +540,35 @@ def main():
     print(f"\n{'='*80}")
     print(f"  PHASE 1: Testing Different Cluster Sizes")
     print(f"{'='*80}")
-    size_results = test_different_cluster_sizes(baseline_packets, movement_packets, args.quick)
+    size_results = test_different_cluster_sizes(baseline_packets, movement_packets, num_sc, args.quick)
     all_results.extend(size_results)
     
     # Test 2: Dual clusters
     print(f"\n{'='*80}")
     print(f"  PHASE 2: Testing Dual Clusters")
     print(f"{'='*80}")
-    dual_results = test_dual_clusters(baseline_packets, movement_packets, args.quick)
+    dual_results = test_dual_clusters(baseline_packets, movement_packets, num_sc, args.quick)
     all_results.extend(dual_results)
     
     # Test 3: Sparse configurations
     print(f"\n{'='*80}")
     print(f"  PHASE 3: Testing Sparse Configurations")
     print(f"{'='*80}")
-    sparse_results = test_sparse_configurations(baseline_packets, movement_packets, args.quick)
+    sparse_results = test_sparse_configurations(baseline_packets, movement_packets, num_sc, args.quick)
     all_results.extend(sparse_results)
     
     # Sort all results
     all_results.sort(key=lambda x: x['score'], reverse=True)
     
     # Print results
-    print_top_results(all_results, top_n=30)
+    best = print_top_results(all_results, num_sc, top_n=30)
     
-    print(f"\n✅ Grid search complete!")
+    print(f"\nGrid search complete!")
     print(f"   Total configurations tested: {len(all_results)}")
     print(f"   Configurations with positive score: {sum(1 for r in all_results if r['score'] > 0)}")
     
     # Always show confusion matrix for best configuration
     if all_results:
-        # Get best configuration (FP=0, minimum threshold)
-        fp_zero_results = [r for r in all_results if r['fp'] == 0 and r['tp'] > 0]
-        if fp_zero_results:
-            fp_zero_results.sort(key=lambda x: (x['threshold'], -x['tp'], x['window_size']))
-            best = fp_zero_results[0]
-        else:
-            all_results.sort(key=lambda x: (x['fp'], x['threshold'], -x['tp']))
-            best = all_results[0]
-        
         print_confusion_matrix(baseline_packets, movement_packets,
                               best['cluster'], best['threshold'], best['window_size'])
     

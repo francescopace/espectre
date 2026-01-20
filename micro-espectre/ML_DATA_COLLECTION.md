@@ -48,10 +48,10 @@ Start streaming CSI data from ESP32 to your PC:
 ```
 
 **Features:**
-- Auto-calibration NBVI at boot (if subcarriers not configured)
-- Raw I/Q data for 64 subcarriers (128 bytes)
+- Gain lock phase (~3s) for stable CSI acquisition
+- 64 subcarriers (HT20 mode)
 - Sequence numbers for packet loss detection
-- ~100 packets/second @ 132 bytes/packet
+- ~100 packets/second
 
 ---
 
@@ -65,19 +65,20 @@ The `me collect` subcommand provides a streamlined workflow for recording labele
 |---------|-------------|
 | `./me collect --label <name> --duration <sec>` | Record for specified duration |
 | `./me collect --label <name> --samples <n>` | Record n samples interactively |
+| `./me collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
 | `./me collect --info` | Show dataset statistics |
 
 ### Recording Samples
 
 ```bash
-# Record 60 seconds of idle (baseline)
-./me collect --label idle --duration 60
+# Record 60 seconds of baseline (contributor auto-detected from git config)
+./me collect --label baseline --duration 60
 
-# Record 30 seconds of wave gesture
-./me collect --label wave --duration 30
+# Record 30 seconds of movement
+./me collect --label movement --duration 30
 
-# Record 10 samples interactively (press Enter between each)
-./me collect --label swipe --samples 10 --interactive
+# Record with explicit contributor override
+./me collect --label gesture --samples 10 --interactive --contributor otheruser
 ```
 
 ### Viewing Dataset
@@ -104,39 +105,83 @@ Dataset: 5 labels, 47 samples
 ```
 data/
 ├── dataset_info.json          # Global metadata
-├── idle/
-│   ├── idle_001.npz
-│   ├── idle_002.npz
+├── baseline/
+│   ├── baseline_c6_64sc_20251212_142443.npz
 │   └── ...
-├── wave/
-│   ├── wave_001.npz
+├── movement/
+│   ├── movement_c6_64sc_20251212_142443.npz
 │   └── ...
-└── movement/
+└── baseline_noisy/
     └── ...
 ```
 
+**Note**: HT20 only - all datasets use 64 subcarriers.
+
+File naming convention: `{label}_{chip}_{num_sc}sc_{timestamp}.npz`
+
+### Dataset Info (dataset_info.json)
+
+Central metadata file for the dataset:
+
+```json
+{
+  "format_version": "1.0",
+  "labels": {
+    "baseline": { "id": 0, "description": "Quiet room, no motion" },
+    "movement": { "id": 1, "description": "Human movement in room" }
+  },
+  "files": {
+    "baseline": [
+      {
+        "filename": "baseline_c6_64sc_20251212_142443.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2025-12-12T14:24:43.381306",
+        "duration_ms": 10000,
+        "num_packets": 1000,
+        "description": "HT20 baseline sample"
+      }
+    ]
+  },
+  "environments": [...]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `filename` | NPZ file name |
+| `chip` | ESP32 chip type (C6, S3) |
+| `subcarriers` | Number of subcarriers (64 for HT20) |
+| `contributor` | GitHub username of data collector |
+| `collected_at` | ISO timestamp of collection |
+| `duration_ms` | Sample duration in milliseconds |
+| `num_packets` | Number of CSI packets |
+| `description` | Human-readable description |
+
 ### Sample Format (.npz)
 
-Each `.npz` file contains:
+Each `.npz` file contains a minimal, compact format optimized for ML training:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `amplitudes` | `float32[N, 64]` | Amplitude per subcarrier |
-| `phases` | `float32[N, 64]` | Phase per subcarrier (radians) |
-| `iq_raw` | `int8[N, 128]` | Raw I/Q data (N packets × 64 subcarriers × 2) |
-| `timestamps` | `float64[N]` | Packet timestamps (seconds, relative to first packet) |
-| `label` | `str` | Sample label |
-| `label_id` | `int` | Numeric label ID |
-| `num_packets` | `int` | Number of packets in sample |
-| `num_subcarriers` | `int` | Number of subcarriers (64) |
-| `duration_ms` | `float` | Sample duration in milliseconds |
-| `sample_rate_hz` | `float` | Packet rate in Hz |
-| `dropped_packets` | `int` | Number of dropped packets detected |
+| `csi_data` | `int8[N, SC*2]` | Raw I/Q data (N packets × SC subcarriers × 2) |
+| `num_subcarriers` | `int` | Number of subcarriers (64 for HT20) |
+| `label` | `str` | Sample label (e.g., "baseline", "movement") |
+| `label_id` | `int` | Numeric label ID for ML |
+| `chip` | `str` | ESP32 chip type (e.g., "c6", "s3") |
 | `collected_at` | `str` | ISO timestamp of collection |
-| `subject` | `str` | Subject/contributor ID (optional) |
-| `environment` | `str` | Environment description (optional) |
-| `notes` | `str` | Additional notes (optional) |
-| `format_version` | `int` | NPZ format version (1) |
+| `duration_ms` | `float` | Sample duration in milliseconds |
+| `format_version` | `str` | NPZ format version ("1.0") |
+
+Amplitudes and phases can be computed on-the-fly from `csi_data`:
+
+```python
+I = csi_data[:, 0::2].astype(float)
+Q = csi_data[:, 1::2].astype(float)
+amplitudes = np.sqrt(I**2 + Q**2)
+phases = np.arctan2(Q, I)
+```
 
 ### Loading Data
 
@@ -144,36 +189,32 @@ Each `.npz` file contains:
 import numpy as np
 
 # Load single sample
-data = np.load('data/wave/wave_001.npz')
-amplitudes = data['amplitudes']  # Shape: (N, 64)
-phases = data['phases']          # Shape: (N, 64)
-iq_raw = data['iq_raw']          # Shape: (N, 128)
-label = str(data['label'])       # 'wave'
+data = np.load('data/baseline/baseline_c6_64sc_20251212_142443.npz')
+csi_data = data['csi_data']        # Shape: (N, 128) for 64 subcarriers
+label = str(data['label'])         # 'baseline'
+num_sc = int(data['num_subcarriers'])  # 64
 
-# Amplitudes are pre-calculated, but you can also compute from iq_raw:
-I = iq_raw[:, 0::2].astype(float)  # Shape: (N, 64)
-Q = iq_raw[:, 1::2].astype(float)  # Shape: (N, 64)
-amplitudes_manual = np.sqrt(I**2 + Q**2)  # Shape: (N, 64)
+# Compute amplitudes from raw I/Q data
+I = csi_data[:, 0::2].astype(float)  # Shape: (N, 64)
+Q = csi_data[:, 1::2].astype(float)  # Shape: (N, 64)
+amplitudes = np.sqrt(I**2 + Q**2)    # Shape: (N, 64)
+phases = np.arctan2(Q, I)            # Shape: (N, 64)
 ```
 
 ### Using csi_utils
 
 ```python
-from csi_utils import load_samples, load_dataset
+from csi_utils import load_npz_as_packets
+from pathlib import Path
 
-# Load all samples as list of dicts
-samples = load_samples()  # All labels
-samples = load_samples(labels=['wave', 'idle'])  # Specific labels
+# Load a sample file
+data_dir = Path('data')
+packets = load_npz_as_packets(data_dir / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz')
 
-for sample in samples:
-    amplitudes = sample['amplitudes']  # Shape: (N, 64)
-    label = sample['label']
+for pkt in packets:
+    amplitudes = pkt['amplitudes']  # Shape: (64,) - computed on load
+    label = pkt['label']
     # Process...
-
-# Load as ML-ready arrays
-X, y = load_dataset(labels=['wave', 'idle'])
-# X: list of amplitude arrays
-# y: array of label IDs
 ```
 
 ---
@@ -212,10 +253,12 @@ gesture1      # non-descriptive
 ### Session Workflow
 
 1. **Prepare environment**: Ensure room is quiet for baseline
-2. **Record baseline first**: `./me collect --label idle --duration 60`
-3. **Record gestures**: One gesture type at a time
+2. **Record baseline first**: `./me collect --label baseline --duration 60`
+3. **Record movement**: `./me collect --label movement --duration 60`
 4. **Verify dataset**: `./me collect --info`
 5. **Backup data**: Copy `data/` to safe location
+
+Note: Contributor is auto-detected from `git config user.name`. Use `--contributor` to override.
 
 ---
 
@@ -248,12 +291,10 @@ def my_callback(packet):
     # packet is a CSIPacket dataclass with:
     # - timestamp: Reception timestamp (seconds since epoch)
     # - seq_num: Sequence number (0-255)
-    # - num_subcarriers: Number of subcarriers (64)
+    # - num_subcarriers: Number of subcarriers (64 for HT20)
     # - iq_raw: Raw I/Q values as int8 array
-    # - iq_complex: Complex representation
-    # - amplitudes: Amplitude per subcarrier
-    # - phases: Phase per subcarrier (radians)
-    print(f"Seq: {packet.seq_num}, Subcarriers: {packet.num_subcarriers}")
+    # - chip: Chip type (e.g., 'c6', 's3') - auto-detected from stream
+    print(f"Chip: {packet.chip}, Seq: {packet.seq_num}, SC: {packet.num_subcarriers}")
 
 receiver = CSIReceiver(port=5001)
 receiver.add_callback(my_callback)
@@ -263,18 +304,20 @@ receiver.run(timeout=60)  # Run for 60 seconds
 ### UDP Packet Format
 
 ```
-Header (4 bytes):
+Header (6 bytes):
   - Magic: 0x4353 ("CS") - 2 bytes
-  - Num subcarriers: 1 byte (64)
+  - Chip type: 1 byte (0=unknown, 1=ESP32, 2=S2, 3=S3, 4=C3, 5=C5, 6=C6)
   - Sequence number: 1 byte (0-255, wrapping)
+  - Num subcarriers: 2 bytes (uint16, little-endian)
 
-Payload (64 × 2 bytes = 128 bytes):
-  - I0, Q0, I1, Q1, ... I63, Q63 (int8 each)
+Payload (N × 2 bytes):
+  - I0, Q0, I1, Q1, ... (int8 each)
 
-Total: 132 bytes per packet
+Example (HT20, 64 SC):
+  - 6 + 128 = 134 bytes
 ```
 
-Note: ESP32-C6 with WiFi 6 routers may provide up to 256 subcarriers (512 bytes), but only the first 64 subcarriers (128 bytes) are used for compatibility.
+Note: ESPectre uses HT20 mode (64 subcarriers) for consistent performance across all ESP32 variants. The chip type is automatically detected and included in each packet.
 
 ---
 

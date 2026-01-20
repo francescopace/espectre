@@ -9,8 +9,8 @@ Analyzes raw CSI data from both chips to identify:
 - Suggested normalization factors
 
 Based on ESP-IDF issue #14271, known differences include:
-- S3: 128 bytes (64 subcarriers), no L-LTF data, different subcarrier order
-- C6: 128 bytes (64 subcarriers), includes L-LTF data, standard order
+- S3: 128 bytes (64 subcarriers in HT20), no L-LTF data, different subcarrier order
+- C6: 128 bytes (64 subcarriers in HT20), includes L-LTF data, standard order
 
 Usage:
     python tools/15_compare_s3_vs_c6.py [--plot]
@@ -19,18 +19,25 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
+import sys
 import argparse
 import numpy as np
 import math
 from pathlib import Path
-from csi_utils import load_baseline_and_movement
+
+# Add src to path for config and segmentation import
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
 from segmentation import SegmentationContext
 
-# Data paths
-DATA_DIR = Path(__file__).parent.parent / 'data'
+from csi_utils import load_baseline_and_movement, DEFAULT_SUBCARRIERS, DATA_DIR
 
-# Configuration
-from config import SELECTED_SUBCARRIERS, WINDOW_SIZE, THRESHOLD
+# Alias for backward compatibility
+SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+
+# Alias for backward compatibility
+WINDOW_SIZE = SEG_WINDOW_SIZE
+THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
 
 
 def analyze_iq_values(packets, name):
@@ -62,9 +69,8 @@ def analyze_iq_values(packets, name):
     }
 
 
-def analyze_amplitudes_per_subcarrier(packets, name):
+def analyze_amplitudes_per_subcarrier(packets, name, num_subcarriers=64):
     """Analyze amplitude statistics per subcarrier"""
-    num_subcarriers = 64
     amp_per_sc = [[] for _ in range(num_subcarriers)]
     
     for pkt in packets:
@@ -96,7 +102,8 @@ def analyze_amplitudes_per_subcarrier(packets, name):
     return {
         'name': name,
         'stats': stats,
-        'raw_amps': amp_per_sc
+        'raw_amps': amp_per_sc,
+        'num_subcarriers': num_subcarriers
     }
 
 
@@ -172,30 +179,31 @@ def main():
     print("  ESP32-S3 vs ESP32-C6 CSI Data Comparison")
     print("="*70)
     
-    # Load data for both chips
+    # Load data for both chips (auto-find most recent files)
     print("\nLoading data...")
-    try:
-        s3_baseline, s3_movement = load_baseline_and_movement(
-            baseline_file=DATA_DIR / 'baseline' / 'baseline_s3_001.npz',
-            movement_file=DATA_DIR / 'movement' / 'movement_s3_001.npz'
-        )
-        print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets")
-    except FileNotFoundError as e:
-        print(f"  ❌ S3 data not found: {e}")
-        s3_baseline, s3_movement = [], []
     
+    # S3: 64 SC (HT20)
     try:
-        c6_baseline, c6_movement = load_baseline_and_movement(
-            baseline_file=DATA_DIR / 'baseline' / 'baseline_c6_001.npz',
-            movement_file=DATA_DIR / 'movement' / 'movement_c6_001.npz'
-        )
-        print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets")
+        s3_baseline, s3_movement = load_baseline_and_movement(chip='S3')
+        s3_num_sc = 64
+        print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets ({s3_num_sc} SC)")
     except FileNotFoundError as e:
-        print(f"  ❌ C6 data not found: {e}")
+        print(f"  S3 data not found: {e}")
+        s3_baseline, s3_movement = [], []
+        s3_num_sc = 0
+    
+    # C6: 64 SC (HT20)
+    try:
+        c6_baseline, c6_movement = load_baseline_and_movement(chip='C6')
+        c6_num_sc = 64
+        print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets ({c6_num_sc} SC)")
+    except FileNotFoundError as e:
+        print(f"  C6 data not found: {e}")
         c6_baseline, c6_movement = [], []
+        c6_num_sc = 0
     
     if not s3_baseline or not c6_baseline:
-        print("\n❌ Missing data files. Please collect data from both chips.")
+        print("\nMissing data files. Please collect data from both chips.")
         return
     
     # =========================================================================
@@ -232,28 +240,22 @@ def main():
     # 2. AMPLITUDE PER SUBCARRIER ANALYSIS
     # =========================================================================
     print("\n" + "="*70)
-    print("  2. AMPLITUDE PER SUBCARRIER (Selected: {})".format(SELECTED_SUBCARRIERS))
+    print(f"  2. AMPLITUDE PER SUBCARRIER (S3: {s3_num_sc} SC, C6: {c6_num_sc} SC)")
     print("="*70)
     
-    s3_amp = analyze_amplitudes_per_subcarrier(s3_baseline + s3_movement, "S3")
-    c6_amp = analyze_amplitudes_per_subcarrier(c6_baseline + c6_movement, "C6")
+    s3_amp = analyze_amplitudes_per_subcarrier(s3_baseline + s3_movement, "S3", s3_num_sc)
+    c6_amp = analyze_amplitudes_per_subcarrier(c6_baseline + c6_movement, "C6", c6_num_sc)
     
-    print(f"\n{'SC Idx':<8} {'S3 Mean':>12} {'C6 Mean':>12} {'Ratio':>12} {'Selected':>10}")
-    print(f"{'-'*54}")
+    # Use proportional subcarrier selection for each chip
+    s3_selected = [int(sc * s3_num_sc / 64) for sc in SELECTED_SUBCARRIERS]
+    c6_selected = SELECTED_SUBCARRIERS
     
-    for sc_idx in range(64):
-        s3_mean = s3_amp['stats'][sc_idx]['mean']
-        c6_mean = c6_amp['stats'][sc_idx]['mean']
-        ratio = s3_mean / c6_mean if c6_mean > 0 else 0
-        selected = "✓" if sc_idx in SELECTED_SUBCARRIERS else ""
-        
-        # Only print selected subcarriers and a few others for context
-        if sc_idx in SELECTED_SUBCARRIERS or sc_idx in [0, 31, 32, 63]:
-            print(f"{sc_idx:<8} {s3_mean:>12.2f} {c6_mean:>12.2f} {ratio:>12.4f} {selected:>10}")
+    print(f"\n  S3 selected subcarriers: {s3_selected}")
+    print(f"  C6 selected subcarriers: {c6_selected}")
     
     # Calculate overall amplitude ratio for selected subcarriers
-    s3_selected_mean = np.mean([s3_amp['stats'][sc]['mean'] for sc in SELECTED_SUBCARRIERS])
-    c6_selected_mean = np.mean([c6_amp['stats'][sc]['mean'] for sc in SELECTED_SUBCARRIERS])
+    s3_selected_mean = np.mean([s3_amp['stats'][sc]['mean'] for sc in s3_selected if sc < s3_num_sc])
+    c6_selected_mean = np.mean([c6_amp['stats'][sc]['mean'] for sc in c6_selected if sc < c6_num_sc])
     overall_amp_ratio = s3_selected_mean / c6_selected_mean if c6_selected_mean > 0 else 0
     
     print(f"\n  Selected SC Average: S3={s3_selected_mean:.2f}, C6={c6_selected_mean:.2f}")
@@ -266,14 +268,15 @@ def main():
     print("  3. TURBULENCE AND MVS ANALYSIS")
     print("="*70)
     
+    # Use appropriate subcarrier selection for each chip
     s3_baseline_turb = analyze_turbulence_and_mvs(s3_baseline, "S3 Baseline", 
-                                                   SELECTED_SUBCARRIERS, WINDOW_SIZE)
+                                                   s3_selected, WINDOW_SIZE)
     s3_movement_turb = analyze_turbulence_and_mvs(s3_movement, "S3 Movement", 
-                                                   SELECTED_SUBCARRIERS, WINDOW_SIZE)
+                                                   s3_selected, WINDOW_SIZE)
     c6_baseline_turb = analyze_turbulence_and_mvs(c6_baseline, "C6 Baseline", 
-                                                   SELECTED_SUBCARRIERS, WINDOW_SIZE)
+                                                   c6_selected, WINDOW_SIZE)
     c6_movement_turb = analyze_turbulence_and_mvs(c6_movement, "C6 Movement", 
-                                                   SELECTED_SUBCARRIERS, WINDOW_SIZE)
+                                                   c6_selected, WINDOW_SIZE)
     
     print(f"\nTurbulence (Spatial Std Dev):")
     print(f"  {'Dataset':<20} {'Mean':>12} {'Std':>12} {'Min':>12} {'Max':>12}")
@@ -368,8 +371,6 @@ def main():
     # =========================================================================
     if args.plot:
         try:
-            import matplotlib
-            matplotlib.use('Agg')
             import matplotlib.pyplot as plt
             
             fig, axes = plt.subplots(2, 3, figsize=(15, 10))
@@ -441,10 +442,7 @@ def main():
             ax.legend()
             
             plt.tight_layout()
-            
-            output_path = DATA_DIR / 's3_vs_c6_comparison.png'
-            plt.savefig(output_path, dpi=150)
-            print(f"\n  📊 Plot saved to: {output_path}")
+            plt.show()
             
         except ImportError:
             print("\n  ⚠️  matplotlib not available. Skipping plots.")

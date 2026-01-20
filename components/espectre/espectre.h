@@ -28,8 +28,8 @@
 #include "sensor_publisher.h"
 #include "csi_manager.h"
 #include "wifi_lifecycle.h"
-#include "config_manager.h"
-#include "calibration_manager.h"
+#include "p95_calibrator.h"
+#include "nbvi_calibrator.h"
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
 #include "serial_streamer.h"
@@ -50,8 +50,31 @@ class ESpectreComponent : public Component {
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
   
+  // Threshold mode enum
+  enum class ThresholdMode {
+    AUTO,   // P95 × 1.4 (default, zero FP)
+    MIN,    // P100 × 1.0 (max sensitivity)
+    MANUAL  // User-specified fixed value
+  };
+  
+  // Calibration algorithm enum
+  enum class CalibrationAlgorithm {
+    P95,   // 12 consecutive subcarriers (default)
+    NBVI   // 12 non-consecutive subcarriers
+  };
+  
   // Setters for YAML configuration
-  void set_segmentation_threshold(float threshold) { this->segmentation_threshold_ = threshold; }
+  void set_segmentation_threshold(float threshold) { 
+    this->segmentation_threshold_ = threshold; 
+    this->threshold_mode_ = ThresholdMode::MANUAL;
+  }
+  void set_threshold_mode(const std::string &mode) {
+    if (mode == "min") {
+      this->threshold_mode_ = ThresholdMode::MIN;
+    } else {
+      this->threshold_mode_ = ThresholdMode::AUTO;  // default
+    }
+  }
   void set_segmentation_window_size(uint16_t size) { this->segmentation_window_size_ = size; }
   void set_traffic_generator_rate(uint32_t rate) { this->traffic_generator_rate_ = rate; }
   void set_traffic_generator_mode(const std::string &mode) { 
@@ -64,6 +87,13 @@ class ESpectreComponent : public Component {
       this->gain_lock_mode_ = GainLockMode::DISABLED;
     } else {
       this->gain_lock_mode_ = GainLockMode::AUTO;  // default
+    }
+  }
+  void set_calibration_algorithm(const std::string &algo) {
+    if (algo == "nbvi") {
+      this->calibration_algorithm_ = CalibrationAlgorithm::NBVI;
+    } else {
+      this->calibration_algorithm_ = CalibrationAlgorithm::P95;  // default
     }
   }
   void set_publish_interval(uint32_t interval) { this->publish_interval_ = interval; }
@@ -97,13 +127,15 @@ class ESpectreComponent : public Component {
   void trigger_recalibration();
   
   // Check if calibration is in progress
-  bool is_calibrating() const { return this->calibration_manager_.is_calibrating(); }
+  bool is_calibrating() const { 
+    return this->active_calibrator_ != nullptr && this->active_calibrator_->is_calibrating(); 
+  }
   
   // Setter for calibrate switch control
   void set_calibrate_switch(switch_::Switch *sw) { this->calibrate_switch_ = sw; }
   
  protected:
-  // Start NBVI/baseline calibration (shared by boot and runtime trigger)
+  // Start band/baseline calibration (shared by boot and runtime trigger)
   void start_calibration_();
   // WiFi lifecycle callbacks
   void on_wifi_connected_();
@@ -128,17 +160,19 @@ class ESpectreComponent : public Component {
   bool hampel_enabled_{false};
   uint8_t hampel_window_{7};
   float hampel_threshold_{4.0f};
-  float normalization_scale_{1.0f};   // Normalization scale (attenuate if baseline > 0.25)
   uint8_t selected_subcarriers_[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
   
   bool user_specified_subcarriers_{false};  // True if user specified in YAML
+  ThresholdMode threshold_mode_{ThresholdMode::AUTO};  // Threshold calculation mode
+  CalibrationAlgorithm calibration_algorithm_{CalibrationAlgorithm::NBVI};  // Band selection algorithm
   
   // Managers (handle specific responsibilities)
   SensorPublisher sensor_publisher_;
   CSIManager csi_manager_;
   WiFiLifecycleManager wifi_lifecycle_;
-  ConfigurationManager config_manager_;
-  CalibrationManager calibration_manager_;
+  P95Calibrator p95_calibrator_;            // P95 algorithm
+  NBVICalibrator nbvi_calibrator_;          // NBVI algorithm
+  ICalibrator* active_calibrator_{nullptr}; // Points to selected algorithm
   TrafficGeneratorManager traffic_generator_;
   UDPListener udp_listener_;
   SerialStreamer serial_streamer_;
@@ -150,7 +184,7 @@ class ESpectreComponent : public Component {
   switch_::Switch *calibrate_switch_{nullptr};
   
   // Calibration results (for diagnostics)
-  float baseline_variance_{0.0f};
+  float best_pxx_{0.0f};  // Pxx from calibration (adaptive threshold = Pxx × factor)
   
   // State flags
   bool ready_to_publish_{false};      // True when CSI is ready and calibration done

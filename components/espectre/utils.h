@@ -71,25 +71,25 @@ inline float calculate_magnitude(int8_t i, int8_t q) {
  * selected subcarriers. It measures the spatial variability of the
  * Wi-Fi channel - higher values indicate motion/disturbance.
  * 
- * @param magnitudes Array of magnitude values (one per subcarrier, 64 elements)
+ * @param magnitudes Array of magnitude values (one per subcarrier)
  * @param subcarriers Array of selected subcarrier indices
- * @param num_subcarriers Number of selected subcarriers
- * @param max_subcarrier Maximum valid subcarrier index (default: 64)
+ * @param num_subcarriers Number of selected subcarriers (max 12)
+ * @param max_subcarrier Maximum valid subcarrier index (default: 64 for HT20)
  * @return Standard deviation of magnitudes (0.0 if no valid subcarriers)
  */
 inline float calculate_spatial_turbulence(const float* magnitudes,
                                           const uint8_t* subcarriers,
                                           uint8_t num_subcarriers,
-                                          uint8_t max_subcarrier = 64) {
+                                          uint16_t max_subcarrier = 64) {
     if (num_subcarriers == 0 || !magnitudes || !subcarriers) {
         return 0.0f;
     }
     
-    // Collect valid magnitudes
-    float valid_mags[64];
+    // Collect valid magnitudes (max 12 subcarriers for band selection)
+    float valid_mags[12];
     uint8_t valid_count = 0;
     
-    for (uint8_t i = 0; i < num_subcarriers && i < 64; i++) {
+    for (uint8_t i = 0; i < num_subcarriers && valid_count < 12; i++) {
         if (subcarriers[i] < max_subcarrier) {
             valid_mags[valid_count++] = magnitudes[subcarriers[i]];
         }
@@ -108,10 +108,12 @@ inline float calculate_spatial_turbulence(const float* magnitudes,
  * This is a convenience wrapper that calculates magnitudes internally
  * before computing the spatial turbulence.
  * 
+ * HT20 only: 64 subcarriers, 128 bytes CSI data.
+ * 
  * @param csi_data Raw CSI data (interleaved I/Q pairs)
- * @param csi_len Length of CSI data in bytes
+ * @param csi_len Length of CSI data in bytes (expected: 128 for HT20)
  * @param subcarriers Array of selected subcarrier indices
- * @param num_subcarriers Number of selected subcarriers
+ * @param num_subcarriers Number of selected subcarriers (max 12)
  * @return Standard deviation of magnitudes (0.0 if invalid input)
  */
 inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
@@ -122,14 +124,14 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
         return 0.0f;
     }
     
-    // Use int to avoid uint8_t overflow for large csi_len
+    // HT20: 64 subcarriers max
     int total_subcarriers = static_cast<int>(csi_len / 2);
     
-    // Calculate magnitudes only for selected subcarriers (more efficient)
-    float amplitudes[64];
+    // Calculate magnitudes only for selected subcarriers (max 12)
+    float amplitudes[12];
     int valid_count = 0;
     
-    for (int i = 0; i < num_subcarriers && i < 64; i++) {
+    for (int i = 0; i < num_subcarriers && i < 12; i++) {
         int sc_idx = subcarriers[i];
         
         if (sc_idx >= total_subcarriers) {

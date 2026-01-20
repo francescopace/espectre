@@ -7,21 +7,30 @@ comparing baseline (stable) vs movement (dispersed) patterns.
 Uses a limited number of contiguous packets to avoid overcrowding.
 
 Usage:
-    python tools/plot_constellation.py [--packets N] [--offset N] [--subcarriers LIST]
-    python tools/plot_constellation.py --packets 100 --offset 0
-    python tools/plot_constellation.py --subcarriers 47,48,49,50
+    python tools/8_plot_constellation.py              # Use C6 dataset
+    python tools/8_plot_constellation.py --chip S3    # Use S3 dataset
+    python tools/8_plot_constellation.py --chip S3 --packets 50
+    python tools/8_plot_constellation.py --subcarriers 11,12,13,14
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
+import sys
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
-from csi_utils import load_baseline_and_movement
-from config import SELECTED_SUBCARRIERS
+from pathlib import Path
 
-def extract_iq_data(packets, subcarriers, num_packets=100, offset=0):
+# Add src to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+
+from csi_utils import load_baseline_and_movement, find_dataset, DEFAULT_SUBCARRIERS
+
+# Alias for backward compatibility
+SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+
+def extract_iq_data(packets, subcarriers, num_packets=50, offset=0):
     """
     Extract I/Q data for selected subcarriers from packets
     
@@ -53,12 +62,13 @@ def extract_iq_data(packets, subcarriers, num_packets=100, offset=0):
     return iq_data
 
 def plot_constellation_comparison(baseline_packets, movement_packets, 
-                                 subcarriers, num_packets=100, offset=0):
+                                 subcarriers, num_packets=50, offset=0,
+                                 total_subcarriers=64):
     """
     Plot I/Q constellation diagrams comparing baseline and movement
     
     Creates a 2x2 grid:
-    - Top row: All 64 subcarriers (baseline vs movement)
+    - Top row: All subcarriers (baseline vs movement)
     - Bottom row: Only selected subcarriers (baseline vs movement)
     
     Args:
@@ -67,10 +77,11 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
         subcarriers: List of subcarrier indices to plot
         num_packets: Number of contiguous packets to use
         offset: Starting packet index
+        total_subcarriers: Total number of subcarriers in the dataset (64 for HT20 mode)
     """
     # Extract I/Q data for all subcarriers (top row)
     print(f"Extracting I/Q data for {num_packets} packets (offset={offset})...")
-    all_subcarriers = list(range(64))
+    all_subcarriers = list(range(total_subcarriers))
     baseline_iq_all = extract_iq_data(baseline_packets, all_subcarriers, num_packets, offset)
     movement_iq_all = extract_iq_data(movement_packets, all_subcarriers, num_packets, offset)
     
@@ -84,8 +95,9 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     # Create figure with 2x2 layout
     fig = plt.figure(figsize=(16, 12))
     
-    # Main title
-    fig.suptitle(f'I/Q Constellation Diagrams - {num_packets} Packets (offset={offset})', 
+    # Main title with subcarrier info
+    sc_range = f"SC [{subcarriers[0]}-{subcarriers[-1]}]" if len(subcarriers) > 1 else f"SC {subcarriers[0]}"
+    fig.suptitle(f'I/Q Constellation Diagrams - {total_subcarriers} SC Dataset - {sc_range}\n{num_packets} Packets (offset={offset})', 
                  fontsize=14, fontweight='bold')
     
     # ========================================================================
@@ -101,12 +113,12 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     ax1.axvline(x=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
     ax1.set_xlabel('I (In-phase)', fontsize=11)
     ax1.set_ylabel('Q (Quadrature)', fontsize=11)
-    ax1.set_title('Baseline - All 64 Subcarriers', fontsize=12, fontweight='bold')
+    ax1.set_title(f'Baseline - All {total_subcarriers} Subcarriers', fontsize=12, fontweight='bold')
     ax1.grid(True, alpha=0.3)
     ax1.set_aspect('equal', adjustable='box')
     
     # ========================================================================
-    # TOP RIGHT: Movement - ALL 64 Subcarriers
+    # TOP RIGHT: Movement - ALL Subcarriers
     # ========================================================================
     ax2 = plt.subplot(2, 2, 2)
     for sc_idx in all_subcarriers:
@@ -118,7 +130,7 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     ax2.axvline(x=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
     ax2.set_xlabel('I (In-phase)', fontsize=11)
     ax2.set_ylabel('Q (Quadrature)', fontsize=11)
-    ax2.set_title('Movement - All 64 Subcarriers', fontsize=12, fontweight='bold')
+    ax2.set_title(f'Movement - All {total_subcarriers} Subcarriers', fontsize=12, fontweight='bold')
     ax2.grid(True, alpha=0.3)
     ax2.set_aspect('equal', adjustable='box')
     
@@ -136,9 +148,9 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     ax3.axvline(x=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
     ax3.set_xlabel('I (In-phase)', fontsize=11)
     ax3.set_ylabel('Q (Quadrature)', fontsize=11)
-    ax3.set_title(f'Baseline - Selected Subcarriers {subcarriers}', fontsize=12, fontweight='bold')
+    ax3.set_title('Baseline - Selected Band', fontsize=12, fontweight='bold')
     ax3.grid(True, alpha=0.3)
-    ax3.legend(fontsize=9, ncol=2, loc='upper right')
+    ax3.legend(fontsize=9, ncol=3, loc='upper right')
     ax3.set_aspect('equal', adjustable='box')
     
     # ========================================================================
@@ -155,9 +167,9 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     ax4.axvline(x=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
     ax4.set_xlabel('I (In-phase)', fontsize=11)
     ax4.set_ylabel('Q (Quadrature)', fontsize=11)
-    ax4.set_title(f'Movement - Selected Subcarriers {subcarriers}', fontsize=12, fontweight='bold')
+    ax4.set_title('Movement - Selected Band', fontsize=12, fontweight='bold')
     ax4.grid(True, alpha=0.3)
-    ax4.legend(fontsize=9, ncol=2, loc='upper right')
+    ax4.legend(fontsize=9, ncol=3, loc='upper right')
     ax4.set_aspect('equal', adjustable='box')
     
     plt.tight_layout()
@@ -191,7 +203,8 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     plt.show()
 
 def plot_single_subcarrier_grid(baseline_packets, movement_packets, 
-                                subcarriers, num_packets=100, offset=0):
+                                subcarriers, num_packets=50, offset=0,
+                                total_subcarriers=64):
     """
     Plot individual constellation diagrams for each subcarrier in a grid
     
@@ -204,6 +217,7 @@ def plot_single_subcarrier_grid(baseline_packets, movement_packets,
         subcarriers: List of subcarrier indices to plot
         num_packets: Number of contiguous packets to use
         offset: Starting packet index
+        total_subcarriers: Total number of subcarriers in the dataset (unused, for API consistency)
     """
     # Extract I/Q data
     print(f"Extracting I/Q data for {num_packets} packets (offset={offset})...")
@@ -263,30 +277,44 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Plot 100 packets starting from packet 0 (default)
-  python tools/plot_constellation.py
+  # Plot using default C6 dataset
+  python tools/8_plot_constellation.py
   
-  # Plot 200 packets starting from packet 50
-  python tools/plot_constellation.py --packets 200 --offset 50
+  # Plot using S3 dataset
+  python tools/8_plot_constellation.py --chip S3
+  
+  # Plot with more packets
+  python tools/8_plot_constellation.py --chip C6 --packets 200
   
   # Plot specific subcarriers
-  python tools/plot_constellation.py --subcarriers 47,48,49,50
+  python tools/8_plot_constellation.py --subcarriers 11,12,13,14
   
   # Use grid layout (one subplot per subcarrier)
-  python tools/plot_constellation.py --grid
+  python tools/8_plot_constellation.py --chip S3 --grid
         """
     )
     
-    parser.add_argument('--packets', type=int, default=100,
-                       help='Number of contiguous packets to plot (default: 100)')
+    parser.add_argument('--chip', type=str, default='C6',
+                       help='Chip type to use: C6, S3, etc. (default: C6)')
+    parser.add_argument('--packets', type=int, default=50,
+                       help='Number of contiguous packets to plot (default: 50)')
     parser.add_argument('--offset', type=int, default=0,
                        help='Starting packet index (default: 0)')
     parser.add_argument('--subcarriers', type=str, default=None,
-                       help='Comma-separated list of subcarrier indices (default: from config.py)')
+                       help='Comma-separated list of subcarrier indices (default: central subcarriers)')
     parser.add_argument('--grid', action='store_true',
                        help='Use grid layout (one subplot per subcarrier)')
     
     args = parser.parse_args()
+    
+    # Find dataset files dynamically
+    chip = args.chip.upper()
+    try:
+        baseline_file, movement_file, chip_name = find_dataset(chip=chip)
+    except FileNotFoundError as e:
+        print(f"\nError: {e}")
+        print(f"\nCollect data using: ./me collect --label baseline --duration 10")
+        return
     
     # Determine subcarriers to use
     if args.subcarriers:
@@ -299,45 +327,61 @@ Examples:
     print("║        I/Q Constellation Diagram Plotter              ║")
     print("╚═══════════════════════════════════════════════════════╝")
     print(f"\nConfiguration:")
+    print(f"  Chip: {chip_name}")
     print(f"  Packets: {args.packets}")
     print(f"  Offset: {args.offset}")
     print(f"  Subcarriers: {subcarriers}")
     print(f"  Layout: {'Grid' if args.grid else 'Comparison'}")
     
     # Load data
-    print(f"\n📂 Loading data...")
+    print(f"\nLoading data...")
+    print(f"  Baseline: {baseline_file.name}")
+    print(f"  Movement: {movement_file.name}")
     try:
-        baseline_packets, movement_packets = load_baseline_and_movement()
+        baseline_packets, movement_packets = load_baseline_and_movement(
+            baseline_file=baseline_file,
+            movement_file=movement_file
+        )
     except FileNotFoundError as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         return
     
     print(f"   Baseline: {len(baseline_packets)} packets")
     print(f"   Movement: {len(movement_packets)} packets")
     
+    # Validate subcarrier indices (HT20 mode = 64 subcarriers)
+    num_subcarriers = 64
+    invalid_subcarriers = [sc for sc in subcarriers if sc < 0 or sc >= num_subcarriers]
+    if invalid_subcarriers:
+        print(f"\nError: Invalid subcarrier indices for {chip_name} dataset: {invalid_subcarriers}")
+        print(f"       Valid range: 0-{num_subcarriers - 1}")
+        return
+    
     # Validate offset and packet count
     max_packets = min(len(baseline_packets), len(movement_packets))
     if args.offset >= max_packets:
-        print(f"❌ Error: Offset {args.offset} exceeds available packets ({max_packets})")
+        print(f"\nError: Offset {args.offset} exceeds available packets ({max_packets})")
         return
     
     available_packets = max_packets - args.offset
     if args.packets > available_packets:
-        print(f"⚠️  Warning: Requested {args.packets} packets, but only {available_packets} available")
-        print(f"   Using {available_packets} packets instead")
+        print(f"\nWarning: Requested {args.packets} packets, but only {available_packets} available")
+        print(f"         Using {available_packets} packets instead")
         args.packets = available_packets
     
     # Generate plots
-    print(f"\n📊 Generating constellation plots...")
+    print(f"\nGenerating constellation plots...")
     
     if args.grid:
         plot_single_subcarrier_grid(baseline_packets, movement_packets, 
-                                    subcarriers, args.packets, args.offset)
+                                    subcarriers, args.packets, args.offset,
+                                    total_subcarriers=num_subcarriers)
     else:
         plot_constellation_comparison(baseline_packets, movement_packets, 
-                                     subcarriers, args.packets, args.offset)
+                                     subcarriers, args.packets, args.offset,
+                                     total_subcarriers=num_subcarriers)
     
-    print("✅ Done!\n")
+    print("Done!\n")
 
 if __name__ == '__main__':
     main()
