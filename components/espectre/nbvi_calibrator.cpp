@@ -10,7 +10,7 @@
 
 #include "nbvi_calibrator.h"
 #include "csi_manager.h"
-#include "csi_processor.h"
+#include "utils.h"
 #include "utils.h"
 #include "esphome/core/log.h"
 #include <algorithm>
@@ -63,6 +63,7 @@ esp_err_t NBVICalibrator::start_calibration(const uint8_t* current_band,
   mv_values_.clear();
   
   calibrating_ = true;
+  csi_manager_->set_calibration_mode(this);
   
   ESP_LOGI(TAG, "NBVI Calibration Starting");
   
@@ -128,6 +129,9 @@ void NBVICalibrator::on_collection_complete_() {
   if (collection_complete_callback_) {
     collection_complete_callback_();
   }
+  
+  // Stop receiving CSI packets during processing
+  csi_manager_->set_calibration_mode(nullptr);
   
   close_buffer_file_();
   

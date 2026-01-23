@@ -10,6 +10,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [Processing Pipeline](#processing-pipeline)
 - [Gain Lock (Hardware Stabilization)](#gain-lock-hardware-stabilization)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
+- [PCA: Principal Component Analysis](#pca-principal-component-analysis)
 - [Automatic Subcarrier Selection](#automatic-subcarrier-selection)
 - [Low-Pass Filter](#low-pass-filter)
 - [Hampel Filter](#hampel-filter)
@@ -245,6 +246,81 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 ---
 
+## PCA: Principal Component Analysis
+
+### Overview
+
+**PCA (Principal Component Analysis)** is an alternative motion detection algorithm based on Espressif's esp_radar implementation. It uses correlation analysis of principal components to detect signal changes caused by movement.
+
+### The Insight
+
+PCA-based detection works by comparing the "shape" of the CSI signal over time:
+- **Idle state**: Signal pattern is consistent → high correlation with baseline
+- **Motion state**: Signal pattern changes → low correlation with baseline
+
+By measuring how much the current signal differs from a learned baseline, we can detect movement.
+
+### Algorithm Steps
+
+1. **Amplitude Extraction (Step-based)**
+   ```
+   amplitudes = [|H_k| for k in range(0, 64, step)]  # Every 4th subcarrier
+   ```
+   Uses 16 subcarriers (every 4th) instead of calibrated band selection.
+
+2. **PCA via Power Method**
+   ```
+   cov_matrix = (data.T @ data) / (rows * cols)
+   eigenvector = power_iteration(cov_matrix)
+   pca_output = data @ eigenvector / cols
+   ```
+   Extracts the principal component from a sliding window of CSI packets.
+
+3. **Correlation Metrics**
+   ```
+   jitter = max(|corr(pca_current, pca_calibration[i])|)
+   wander = max(|corr(pca_current, pca_calibration[i])|)
+   ```
+   Pearson correlation measures similarity to baseline patterns.
+
+4. **Inversion and Detection**
+   ```
+   jitter_inverted = 1 - jitter_corr  # High = movement
+   if count(jitter_inverted > threshold in window) >= outliers_num:
+       state = MOTION
+   ```
+
+### Key Parameters
+
+| Parameter | Default | Values | Effect |
+|-----------|---------|--------|--------|
+| `pca_window_size` | 10 | 5-20 | Packets for PCA computation |
+| `move_buffer_size` | 5 | 3-10 | Buffer for count-based detection |
+| `outliers_num` | 2 | 1-5 | Violations needed to trigger |
+| `subcarrier_step` | 4 | 1-8 | Use every Nth subcarrier |
+
+### MVS vs PCA Comparison
+
+| Aspect | MVS | PCA |
+|--------|-----|-----|
+| **Computation** | Low (variance) | Medium (matrix ops) |
+| **Subcarrier Selection** | Calibrated (12 best) | Fixed step (16) |
+| **Detection Method** | Threshold on variance | Count-based on correlation |
+| **Calibration** | 7s band selection | Auto during operation |
+| **Best For** | Most environments | High-noise environments |
+
+### Configuration
+
+```yaml
+espectre:
+  detection_algorithm: pca  # Use PCA instead of MVS
+  # segmentation_calibration is ignored with PCA
+```
+
+**Reference**: Espressif esp-csi/esp_radar v0.3.1 (Apache-2.0)
+
+---
+
 ## Automatic Subcarrier Selection
 
 ### Overview
@@ -274,7 +350,7 @@ WiFi CSI provides 64 subcarriers in HT20 mode, but not all are equally useful fo
 **ESPHome (YAML):**
 ```yaml
 espectre:
-  calibration_algorithm: nbvi  # default, or "p95"
+  segmentation_calibration: nbvi  # default, or "p95"
 ```
 
 **Python (Micro-ESPectre):**
@@ -432,13 +508,9 @@ def calculate_adaptive_threshold(mv_values, threshold_mode="auto"):
 
 ### Performance Comparison
 
-| Algorithm | Recall | FP Rate | F1 Score | Band Type |
-|-----------|--------|---------|----------|-----------|
-| NBVI | 94.7% | 0.2% | 97.2% | Non-consecutive |
-| P95 | 94.9% | 0.2% | 97.3% | Consecutive |
-| Fixed [11-22] | 95.1% | 3.0% | 96.0% | Manual |
+Both algorithms achieve similar detection performance. See [PERFORMANCE.md](../PERFORMANCE.md) for detailed metrics.
 
-Both algorithms achieve similar detection performance. Choose based on:
+Choose based on:
 - **NBVI**: Default, ~3x faster calibration, non-consecutive subcarriers for spectral diversity
 - **P95**: Simpler logic, consecutive subcarrier bands, useful when contiguous bands are preferred
 

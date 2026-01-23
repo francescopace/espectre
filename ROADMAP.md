@@ -8,14 +8,54 @@ This roadmap outlines the evolution from the current mathematical approach (just
 
 ## Table of Contents
 
+- [Market Opportunity](#market-opportunity)
 - [Current State](#current-state)
 - [Timeline Overview](#timeline-overview)
 - [Short-Term (3-6 months)](#short-term-3-6-months)
 - [Mid-Term (6-12 months)](#mid-term-6-12-months)
 - [Long-Term (12-24 months)](#long-term-12-24-months)
-- [Architecture Overview](#architecture-overview)
-- [Principles & Governance](#principles-governance)
+- [Architecture Evolution](#architecture-evolution)
+- [Principles & Governance](#principles--governance)
 - [How to Propose Changes](#how-to-propose-changes)
+
+---
+
+## Market Opportunity
+
+The global Wi-Fi sensing market is experiencing rapid growth, driven by demand for non-intrusive, privacy-preserving sensing solutions.
+
+| Metric | Value | Source |
+|--------|-------|--------|
+| **Market Size (2024)** | $2.1B | Allied Market Research |
+| **Projected Size (2030)** | $12.5B | Allied Market Research |
+| **CAGR** | 34.2% | 2024-2030 |
+
+### Key Drivers
+
+- **Privacy concerns**: Camera-free sensing for elderly care, healthcare, and smart homes
+- **Cost efficiency**: Leverages existing WiFi infrastructure (no additional hardware)
+- **Regulatory push**: IEEE 802.11bf (Wi-Fi Sensing) standardization in progress
+
+### Target Applications
+
+| Application | Market Segment | ESPectre Capability |
+|-------------|----------------|---------------------|
+| **Smart Home** | Consumer IoT | Motion detection, presence sensing |
+| **Elderly Care** | Healthcare | Fall detection, activity monitoring |
+| **Security** | Commercial | Intrusion detection, occupancy |
+| **Retail Analytics** | Enterprise | People counting, traffic flow |
+| **Gesture Control** | Consumer Electronics | Hands-free device interaction |
+| **Indoor Localization** | Logistics/Retail | Asset tracking, navigation (30-50cm accuracy) |
+
+### Competitive Positioning
+
+| Competitor | Approach | ESPectre Advantage |
+|------------|----------|-------------------|
+| **Origin Wireless** | Proprietary, cloud-dependent | Open-source, edge-first, no subscription |
+| **Cognitive Systems** | Enterprise-only, high cost | Affordable ($5 hardware), DIY-friendly |
+| **Espressif esp-radar** | SDK only, no integration | Full Home Assistant integration, production-ready |
+
+ESPectre is uniquely positioned as the **only open-source, production-ready WiFi sensing platform** with native smart home integration.
 
 ---
 
@@ -44,9 +84,9 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 │  SHORT-TERM   │────▶│   MID-TERM    │────▶│     LONG-TERM       │
 │   3-6 months  │     │   6-12 months │     │    12-24 months     │
 ├───────────────┤     ├───────────────┤     ├─────────────────────┤
-│ Data & Docs   │     │ ML Models     │     │ MLOps Platform      │
-│ Dataset infra │     │ Training      │     │ Edge-MLOps Hybrid   │
-│ Tooling       │     │ Edge Inference│     │ 3D Localization     │
+│ Data & Docs   │     │ ML Models     │     │ 3D Localization     │
+│ Dataset infra │     │ Training      │     │ Advanced Apps       │
+│ Tooling       │     │ Edge Inference│     │ Multi-sensor Fusion │
 └───────────────┘     └───────────────┘     └─────────────────────┘
 ```
 
@@ -117,94 +157,29 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 
 ## Long-Term (12-24 months)
 
-**Focus**: MLOps inference services, scalable deployment, 3D indoor localization, and advanced applications.
-
-### MLOps Inference Services
-
-| Task | Priority | Status |
-|------|----------|--------|
-| MLOps inference API design | High | Exploratory |
-| Privacy-preserving inference architecture | High | Exploratory |
-| Reference deployment (on-premises or cloud) | Medium | Exploratory |
-| Home Assistant cloud add-on (optional) | Medium | Exploratory |
-
-### Edge-MLOps Hybrid
-
-| Task | Priority | Status |
-|------|----------|--------|
-| Lightweight edge models + MLOps fallback | Medium | Exploratory |
-| Federated learning exploration | Low | Research |
-| On-device model updates | Low | Research |
+**Focus**: 3D indoor localization and advanced applications.
 
 ### 3D Localization
 
-**Goal**: Transform motion detection into real-time 3D indoor localization (30-50 cm accuracy).
+**Goal**: Transform motion detection into real-time 3D indoor localization with 30-50 cm accuracy.
+
+This capability represents a significant leap from binary motion detection to precise spatial tracking, enabling applications like indoor navigation, asset tracking, and advanced gesture recognition.
+
+| Capability | Description |
+|------------|-------------|
+| **Technology** | Phase-coherent multi-antenna array (4× ESP32-C5) |
+| **Frequency** | 5GHz WiFi 6 for improved accuracy |
+| **Algorithm** | MUSIC (Multiple Signal Classification) for AoA triangulation |
+| **Target Accuracy** | 30-50 cm in 3D space |
+| **Hardware Cost** | ~€75 per unit (custom PCB) |
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Phase coherence validation (2x device prototype) | High | Research |
-| AoA estimation proof-of-concept (1D angle tracking) | High | Research |
-| Custom PCB design (4x ESP32-C5 + shared TCXO) | Medium | Research |
-| MUSIC algorithm implementation for triangulation | Medium | Research |
-| 5GHz WiFi 6 CSI extraction validation | Medium | Research |
-| 3D antenna array geometry optimization | Low | Research |
-
-#### Hardware Architecture (Target)
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                 SPectre 3D-Localization Board (100×100mm)               │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   ┌─────────┐     ┌─────────────────────────────────────────────────┐   │
-│   │  TCXO   │────▶│            Clock Buffer (1:4)                   │   │
-│   │ 40MHz   │     │            CDCLVC1104                           │   │
-│   │ ±1ppm   │     └────┬────────┬────────┬────────┬─────────────────┘   │
-│   └─────────┘          │        │        │        │                     │
-│                        ▼        ▼        ▼        ▼                     │
-│                   ┌────────┐┌────────┐┌────────┐┌────────┐              │
-│                   │ESP32-C5││ESP32-C5││ESP32-C5││ESP32-C5│              │
-│                   │  #1    ││  #2    ││  #3    ││  #4    │              │
-│                   └───┬────┘└───┬────┘└───┬────┘└───┬────┘              │
-│                       │         │         │         │                   │
-│                       └────┬────┴────┬────┴────┬────┘                   │
-│                            │   SPI   │   Bus   │                        │
-│                            ▼         ▼         ▼                        │
-│                       ┌─────────────────────────────┐                   │
-│                       │      USB Bridge             │                   │
-│                       │   (CSI @ 100Hz × 4 chips)   │                   │
-│                       └──────────────┬──────────────┘                   │
-│                                      │                                  │
-└──────────────────────────────────────┼──────────────────────────────────┘
-                                       │ USB
-                                       ▼
-                              ┌─────────────────┐
-                              │       PC        │
-                              │  MUSIC Algorithm│
-                              │  (AoA → 3D pos) │
-                              └─────────────────┘
-```
-
-#### Bill of Materials (Estimated)
-
-| Component | Qty | Est. Cost | Notes |
-|-----------|-----|-----------|-------|
-| ESP32-C5-WROOM-1 | 4 | €12.00 | Dual-band WiFi 6 |
-| TCXO 40MHz (±1ppm) | 1 | €4.00 | Phase stability |
-| Clock Buffer 1:4 | 1 | €2.00 | CDCLVC1104 |
-| Buck Regulator 3A | 1 | €4.00 | TPS62130/MP2315 |
-| Dual-Band Antennas | 4 | €12.00 | U.FL + matched cables |
-| Passive Components | - | €5.00 | Caps, resistors, USB-C |
-| PCB (4-layer) | 1 | €35.00 | Min order 5 pcs (JLCPCB) |
-| **Total** | | **~€75** | Per unit (5 pcs batch) |
-
-#### Validation Steps (Before Hardware Investment)
-
-1. **Phase 1**: Validate CSI phase extraction on ESP32-C5 SDK
-2. **Phase 2**: 2-chip prototype with separate clocks → measure phase drift
-3. **Phase 3**: 2-chip prototype with shared TCXO → validate coherence
-4. **Phase 4**: 1D AoA estimation (angle tracking with 2 antennas)
-5. **Phase 5**: Full 4-chip board design and 3D localization
+| Phase coherence validation (2-device prototype) | High | Research |
+| AoA estimation proof-of-concept | High | Research |
+| Custom PCB design (4× ESP32-C5 + shared clock) | Medium | Research |
+| MUSIC algorithm implementation | Medium | Research |
+| 5GHz CSI extraction validation | Medium | Research |
 
 ### Advanced Applications
 
@@ -217,101 +192,55 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 
 ---
 
-## Architecture Overview
+## Architecture Evolution
 
-### Current Architecture (v2.x)
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         EDGE (ESP32)                                │
-├─────────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐   │
-│  │   CSI Data   │───▶│  Calibration │───▶│ Motion Segmentation  │   │
-│  │  (Raw I/Q)   │    │  (Auto-tune) │    │   (IDLE/MOTION)      │   │
-│  └──────────────┘    └──────────────┘    └───────────┬──────────┘   │
-└──────────────────────────────────────────────────────┼──────────────┘
-                                                       │
-                                           ┌───────────▼───────────┐
-                                           │   Home Assistant      │
-                                           │   (Auto-discovery)    │
-                                           └───────────────────────┘
-```
-
-### Future Architecture (v3.x)
+ESPectre's architecture evolves through three major versions, each adding capabilities while maintaining backward compatibility.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         EDGE (ESP32)                                │
-├─────────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐   │
-│  │   CSI Data   │───▶│  Calibration │───▶│  Motion Segmentation │   │
-│  │  (Raw I/Q)   │    │  (Auto-tune) │    │ + Feature Extraction │   │
-│  └──────────────┘    └──────────────┘    └───────────┬──────────┘   │
-│                                                      │              │
-│                                        ┌─────────────▼───────────┐  │
-│                                        │     Edge Inference      │  │
-│                                        │     (TFLite Micro)      │  │
-│                                        └─┬───▲───────────────┬───┘  │
-└──────────────────────────────────────────┼───│───────────────┼──────┘
-                                           │   │               │
-                                (Optional) │   │               │
-                                           │   │               │
-           ┌───────────────────────────────┼───│────┐          │
-           │ Onprem/Cloud MLOps Platform   │   │    │          │
-           ├───────────────────────────────┼───│────┤          │
-           │  ┌────────────┐  ┌────────────▼───┴─┐  │          │
-           │  │  Training  │  │  Model Serving   │  │          │
-           │  │  Pipeline  │  │  (Gesture/HAR)   │  │          │
-           │  └────────────┘  └──────────────────┘  │          │
-           └────────────────────────────────────────┘          │
-                                                               │
-                                         ┌─────────────────────▼─┐
-                                         │   Home Assistant      │
-                                         │   (Auto-discovery)    │
-                                         └───────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        ARCHITECTURE EVOLUTION                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  v2.x (Current)          v3.x (ML-Enhanced)         v4.x (3D Spatial)       │
+│  ───────────────         ─────────────────         ────────────────         │
+│                                                                             │
+│  ┌───────────┐           ┌───────────┐             ┌───────────────┐        │
+│  │  ESP32    │           │  ESP32    │             │ 4× ESP32-C5   │        │
+│  │  ┌─────┐  │           │  ┌─────┐  │             │ Phase-Coherent│        │
+│  │  │ CSI │  │           │  │ CSI │  │             │   ┌─────┐     │        │
+│  │  └──┬──┘  │           │  └──┬──┘  │             │   │ CSI │     │        │
+│  │     │     │           │     │     │             │   └──┬──┘     │        │
+│  │  ┌──▼──┐  │           │  ┌──▼──┐  │             └──────┼────────┘        │
+│  │  │ MVS │  │           │  │ MVS │  │                    │                 │
+│  │  └──┬──┘  │           │  └──┬──┘  │             ┌──────▼────────┐        │
+│  └─────┼─────┘           │  ┌──▼──┐  │             │  Local/Cloud  │        │
+│        │                 │  │ ML  │  │             │  ┌─────────┐  │        │
+│        │                 │  │Edge │  │             │  │ MUSIC   │  │        │
+│        │                 │  └──┬──┘  │             │  │Algorithm│  │        │
+│        │                 └─────┼─────┘             │  └────┬────┘  │        │
+│        │                       │                   │  ┌────▼────┐  │        │
+│        │                       │                   │  │ 3D Pos  │  │        │
+│        ▼                       ▼                   │  │ (X,Y,Z) │  │        │
+│  ┌──────────┐            ┌──────────┐              │  └────┬────┘  │        │
+│  │   Home   │            │   Home   │              └───────┼───────┘        │
+│  │Assistant │            │Assistant │                      │                │
+│  └──────────┘            └──────────┘                      ▼                │
+│                                                      ┌──────────┐           │
+│  Output:                 Output:                     │   Home   │           │
+│  IDLE/MOTION             Gesture, HAR,               │Assistant │           │
+│                          Fall Detection              └──────────┘           │
+│                                                                             │
+│                                                      Output:                │
+│                                                      3D Position            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3D-Localization Architecture (v4.x)
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│              ESPectre 3D-Localization Board (4x ESP32-C5)                 │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│   ┌─────────┐     ┌─────────────────────────────────────────────┐   │
-│   │  TCXO   │────▶│         Clock Buffer (1:4)                  │   │
-│   │ 40MHz   │     └────┬──────────┬──────────┬──────────┬───────┘   │
-│   └─────────┘          │          │          │          │           │
-│                        ▼          ▼          ▼          ▼           │
-│                   ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐       │
-│                   │  C5 #1 │ │  C5 #2 │ │  C5 #3 │ │  C5 #4 │       │
-│                   │ 5GHz   │ │ 5GHz   │ │ 5GHz   │ │ 5GHz   │       │
-│                   └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘       │
-│                       │          │          │          │            │
-│                       └────┬─────┴─────┬────┴─────┬────┘            │
-│                            │   SPI Bus (CSI @ 100Hz × 4)            │
-│                            ▼                                        │
-│                       ┌────────────────────────────┐                │
-│                       │     USB Bridge → PC        │                │
-│                       └────────────┬───────────────┘                │
-│                                    │                                │
-└────────────────────────────────────┼────────────────────────────────┘
-                                     │ USB
-                                     ▼
-                    ┌────────────────────────────────────┐
-                    │               PC                   │
-                    ├────────────────────────────────────┤
-                    │  ┌────────────┐   ┌─────────────┐  │
-                    │  │  MUSIC     │──▶│ 3D Position │  │
-                    │  │  Algorithm │   │   (X,Y,Z)   │  │
-                    │  └────────────┘   └──────┬──────┘  │
-                    └──────────────────────────┼─────────┘
-                                               │
-                                   ┌───────────▼───────────┐
-                                   │   Home Assistant      │
-                                   │  (Position Tracking)  │
-                                   └───────────────────────┘
-```
+| Version | Capability | Processing | Key Innovation |
+|---------|------------|------------|----------------|
+| **v2.x** | Motion detection (IDLE/MOTION) | 100% Edge | MVS algorithm, auto-calibration |
+| **v3.x** | Gesture, HAR, fall detection | 100% Edge | TFLite Micro inference |
+| **v4.x** | 3D indoor localization | Edge + Local/Cloud | Phase-coherent antenna array |
 
 ---
 
@@ -323,9 +252,9 @@ ESPectre is committed to open-source principles and community-driven development
 
 | Principle | Description |
 |-----------|-------------|
-| **Edge-First** | Core motion detection always works locally on ESP32 |
-| **Privacy-Preserving** | CSI data is anonymous; only features (not raw CSI) sent externally if enabled |
-| **Platform-Agnostic** | External Inference Platform works with any Kubernetes-based MLOps platform (cloud or on-premises) |
+| **Edge-First** | All processing happens locally on ESP32 - no cloud dependency |
+| **Privacy-Preserving** | CSI data never leaves the device; no cameras, no recordings |
+| **Hardware-Agnostic** | Supports ESP32, ESP32-S2/S3, ESP32-C3/C5/C6 variants |
 | **Open Development** | All development happens in the open on GitHub |
 | **Reproducibility** | Experiments and results must be reproducible |
 

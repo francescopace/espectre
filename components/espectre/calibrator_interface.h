@@ -1,8 +1,8 @@
 /*
  * ESPectre - Calibrator Interface
  * 
- * Abstract interface for subcarrier calibration algorithms.
- * Allows polymorphic use of different calibration strategies (NBVI, P95).
+ * Abstract interface for calibration algorithms.
+ * Allows polymorphic use of different calibration strategies (NBVI, P95, PCA).
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -31,10 +31,12 @@ class CSIManager;
 class ICalibrator {
  public:
   // Callback type for calibration results
-  // Parameters: band, size, mv_values, success
-  // Adaptive threshold should be calculated externally using threshold.h
+  // Parameters: band, size, cal_values (algorithm-specific baseline values), success
+  // For MVS (NBVI/P95): cal_values = moving variance values
+  // For PCA: cal_values = correlation values
+  // Adaptive threshold is calculated externally using threshold.h
   using result_callback_t = std::function<void(const uint8_t* band, uint8_t size, 
-                                               const std::vector<float>& mv_values, bool success)>;
+                                               const std::vector<float>& cal_values, bool success)>;
   
   // Callback type for collection complete notification
   // Called when all packets have been collected, before processing starts.
@@ -84,6 +86,7 @@ class ICalibrator {
    * @return true if calibrating
    */
   virtual bool is_calibrating() const = 0;
+  
 };
 
 }  // namespace espectre

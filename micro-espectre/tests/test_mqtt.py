@@ -74,7 +74,7 @@ class MockConfig:
 
 
 class MockSegmentation:
-    """Mock SegmentationContext for testing"""
+    """Mock SegmentationContext for testing (used by MVS _context)"""
     STATE_IDLE = 0
     STATE_MOTION = 1
     
@@ -87,6 +87,39 @@ class MockSegmentation:
         self.turbulence_buffer = [0.0] * 50
         self.buffer_index = 0
         self.buffer_count = 0
+
+
+class MockDetector:
+    """Mock IDetector implementation for testing"""
+    
+    def __init__(self):
+        self._threshold = 1.0
+        self._state = 0  # IDLE
+        self._motion_metric = 0.5
+        # MVS-like _context for compatibility
+        self._context = MockSegmentation()
+    
+    def get_name(self):
+        return "MVS"
+    
+    def get_threshold(self):
+        return self._threshold
+    
+    def set_threshold(self, threshold):
+        if 0.0 <= threshold <= 10.0:
+            self._threshold = threshold
+            return True
+        return False
+    
+    def get_state(self):
+        return self._state
+    
+    def get_motion_metric(self):
+        return self._motion_metric
+    
+    def reset(self):
+        self._state = 0
+        self._motion_metric = 0.0
 
 
 class MockTrafficGenerator:
@@ -154,8 +187,8 @@ def mock_config(default_subcarriers):
 
 @pytest.fixture
 def mock_segmentation():
-    """Create mock segmentation"""
-    return MockSegmentation()
+    """Create mock detector (IDetector interface)"""
+    return MockDetector()
 
 
 @pytest.fixture
@@ -180,7 +213,7 @@ class TestMQTTHandler:
         handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
         
         assert handler.config == mock_config
-        assert handler.seg == mock_segmentation
+        assert handler.detector == mock_segmentation
         assert handler.wlan == mock_wlan
         assert handler.base_topic == "test/espectre"
         assert handler.cmd_topic == "test/espectre/cmd"
@@ -510,10 +543,10 @@ class TestMQTTCommands:
         assert 'traffic_generator' in payload
     
     def test_cmd_segmentation_threshold_success(self, commands_instance, mock_mqtt_client_instance, mock_segmentation):
-        """Test setting segmentation threshold (session-only, not persisted)"""
+        """Test setting detection threshold (session-only, not persisted)"""
         commands_instance.cmd_segmentation_threshold({'value': 2.5})
         
-        assert mock_segmentation.threshold == 2.5
+        assert mock_segmentation.get_threshold() == 2.5
     
     def test_cmd_segmentation_threshold_missing_value(self, commands_instance, mock_mqtt_client_instance):
         """Test threshold command without value"""
@@ -540,12 +573,12 @@ class TestMQTTCommands:
         assert 'ERROR' in payload['response']
     
     def test_cmd_segmentation_window_size_success(self, commands_instance, mock_mqtt_client_instance, mock_segmentation):
-        """Test setting window size (session-only, not persisted)"""
-        old_size = mock_segmentation.window_size
+        """Test setting window size (session-only, MVS only)"""
+        old_size = mock_segmentation._context.window_size
         commands_instance.cmd_segmentation_window_size({'value': 100})
         
-        assert mock_segmentation.window_size == 100
-        assert len(mock_segmentation.turbulence_buffer) == 100
+        assert mock_segmentation._context.window_size == 100
+        assert len(mock_segmentation._context.turbulence_buffer) == 100
     
     def test_cmd_segmentation_window_size_missing_value(self, commands_instance, mock_mqtt_client_instance):
         """Test window size command without value"""
@@ -575,8 +608,8 @@ class TestMQTTCommands:
         """Test factory reset command"""
         commands_instance.cmd_factory_reset({})
         
-        # Should reset to defaults (from config.py)
-        assert mock_segmentation.threshold == 1.0
+        # Should reset to defaults (MVS: 1.0)
+        assert mock_segmentation.get_threshold() == 1.0
     
     def test_cmd_factory_reset_with_calibration(self, commands_instance, mock_mqtt_client_instance, mock_global_state):
         """Test factory reset with band re-calibration"""
@@ -641,7 +674,7 @@ class TestMQTTCommands:
         assert 'network' in payload
         assert 'device' in payload
         assert 'mqtt' in payload
-        assert 'segmentation' in payload
+        assert 'detection' in payload
         assert 'subcarriers' in payload
     
     def test_cmd_info_with_connected_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_traffic_gen, mock_global_state):

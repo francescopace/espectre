@@ -57,6 +57,8 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Feature | ESPHome (C++) | Python (MicroPython) | Status |
 |---------|---------------|----------------------|--------|
 | **Core Algorithm** |
+| MVS Detector | ✅ | ✅ | Aligned |
+| PCA Detector | ✅ | ✅ | Aligned |
 | MVS Segmentation | ✅ | ✅ | Aligned |
 | Spatial Turbulence | ✅ | ✅ | Aligned |
 | Moving Variance | ✅ | ✅ | Aligned |
@@ -313,7 +315,7 @@ micro-espectre/
 - **`src/csi_streamer.py`**: UDP streaming module for real-time CSI data
 - **`tests/`**: Pytest test suite for all core modules
 - **`tools/`**: Analysis scripts for algorithm development and validation
-- **`tools/csi_utils.py`**: CSI utilities (receiver, collector, MVS detector) for PC-side processing
+- **`tools/csi_utils.py`**: CSI utilities (receiver, collector, detectors) for PC-side processing
 - **`ML_DATA_COLLECTION.md`**: Guide for collecting labeled CSI datasets for ML
 
 ## Testing
@@ -339,27 +341,21 @@ pytest tests/test_filters.py -v
 pytest tests/test_segmentation.py::TestStateMachine -v
 ```
 
-### Test Coverage
+### Test Suites
 
-The test suite covers all core modules:
-
-| Module | Test File | Coverage |
-|--------|-----------|----------|
-| `config.py` | `test_config.py` | 100% |
-| `filters.py` | `test_filters.py` | 100% |
-| `features.py` | `test_features.py` | 99% |
-| `segmentation.py` | `test_segmentation.py`, `test_segmentation_additional.py` | 90% |
-| `band_calibrator.py` | `test_validation_real_data.py` | 94% |
-| `mqtt/handler.py` | `test_mqtt.py` | 88% |
-| `mqtt/commands.py` | `test_mqtt.py` | 94% |
-| `traffic_generator.py` | `test_traffic_generator.py` | 91% |
-
-Additional validation tests:
-- `test_running_variance.py`: Compares O(1) running variance with two-pass algorithm
-- `test_optimization_equivalence.py`: Validates optimization correctness
-- `test_validation_real_data.py`: Validates algorithms with real CSI data (baseline/movement)
-
-**Total: 304 tests, 94% coverage** (MicroPython-only modules excluded)
+| Suite | Type | Data | Focus |
+|-------|------|------|-------|
+| `test_config` | Unit | — | Configuration constants, guard bands |
+| `test_filters` | Unit | Synthetic | Hampel, low-pass filters |
+| `test_features` | Unit | Synthetic | Feature extraction (entropy, skewness, kurtosis) |
+| `test_segmentation` | Unit | Synthetic | MVS state machine, variance calculation |
+| `test_p95_calibrator` | Unit | **Real** | P95 band selection, magnitude, turbulence |
+| `test_nbvi_calibrator` | Unit | **Real** | NBVI subcarrier selection |
+| `test_mqtt` | Unit | Synthetic | MQTT handler and commands |
+| `test_traffic_generator` | Unit | Synthetic | Rate limiting, error handling |
+| `test_running_variance` | Unit | Synthetic | O(1) vs two-pass variance comparison |
+| `test_optimization_equivalence` | Unit | Synthetic | Optimization correctness |
+| `test_validation_real_data` | Integration | **Real** | End-to-end with real CSI data (C6, S3) |
 
 ### CI Integration
 
@@ -367,42 +363,82 @@ Tests run automatically on every push/PR via GitHub Actions. See `.github/workfl
 
 ## Configuration
 
-### Segmentation Parameters (config.py)
+All configuration is in `config.py`. The detection pipeline follows this order:
 
-```python
-SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
-# SEG_THRESHOLD = 1.0      # Uncomment to override adaptive threshold
-ENABLE_FEATURES = False    # Enable/disable feature extraction
-
-# Gain Lock Configuration
-GAIN_LOCK_MODE = "auto"       # "auto", "enabled", or "disabled"
-GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC (used in auto mode)
-
-# Filter Configuration (all disabled by default)
-ENABLE_LOWPASS_FILTER = False  # Low-pass filter (reduces high-freq noise)
-LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz optimal)
-ENABLE_HAMPEL_FILTER = False   # Hampel filter (outlier removal)
-HAMPEL_WINDOW = 7
-HAMPEL_THRESHOLD = 4.0
-
-# Adaptive Threshold Parameters (calculated automatically during calibration)
-ADAPTIVE_PERCENTILE = 95   # Percentile for threshold (95=P95, 100=max)
-ADAPTIVE_FACTOR = 1.4      # Multiplier: Pxx × factor = adaptive threshold
-# Formula: Pxx(baseline_moving_variance) × factor
-# Default (P95 × 1.4) minimizes false positives while maintaining high recall
+```
+Boot → Gain Lock → Calibration → Detection Loop (with optional filters)
 ```
 
-**Gain Lock Modes:**
+### 1. Gain Lock (Hardware Stabilization)
+
+Locks AGC/FFT gain values for stable CSI amplitudes.
+
+```python
+GAIN_LOCK_MODE = "auto"       # "auto", "enabled", or "disabled"
+GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC (used in auto mode)
+```
 
 | Mode | Description |
 |------|-------------|
-| `auto` (default) | Lock gain, but skip if signal too strong (AGC < 30) |
+| `auto` (default) | Lock gain, skip if signal too strong (AGC < 30) |
 | `enabled` | Always force gain lock (may freeze if too close to AP) |
-| `disabled` | Never lock gain (works at any distance, less stable CSI) |
+| `disabled` | Never lock gain (less stable CSI, works at any distance) |
 
-When the sensor is too close to the AP (RSSI > -40 dB), gain lock with very low AGC values can freeze CSI reception. In `auto` mode, gain lock is skipped if AGC < 30, with a warning logged. See [Sensor Placement](../TUNING.md#sensor-placement) for optimal positioning.
+### 2. Detection Algorithm
 
-For detailed parameter tuning guide, see [TUNING.md](../TUNING.md).
+Choose the motion detection algorithm.
+
+```python
+DETECTION_ALGORITHM = "mvs"   # "mvs" (default) or "pca"
+```
+
+| Algorithm | Method |
+|-----------|--------|
+| **MVS** (default) | Moving Variance Segmentation of Turbulence |
+| **PCA** | Principal Component Analysis |
+
+### 3. Calibration Algorithm (MVS only)
+
+Selects which subcarriers to use for detection. Ignored when using PCA.
+
+```python
+CALIBRATION_ALGORITHM = "nbvi"  # "nbvi" (default) or "p95"
+```
+
+| Algorithm | Selection | Best For |
+|-----------|-----------|----------|
+| **NBVI** (default) | 12 non-consecutive subcarriers | Spectral diversity, ~3x faster |
+| **P95** | 12 consecutive subcarriers | Simpler logic, contiguous bands |
+
+### 4. Detection Parameters (MVS only)
+
+```python
+SEG_THRESHOLD = "auto"     # "auto" (P95×1.4), "min" (P100), or 0.1-10.0
+SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
+```
+
+### 5. Filters (Optional)
+
+Applied to turbulence values before motion detection.
+
+```python
+# Low-pass filter (reduces high-frequency noise)
+ENABLE_LOWPASS_FILTER = False
+LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz
+
+# Hampel filter (outlier/spike removal)
+ENABLE_HAMPEL_FILTER = False
+HAMPEL_WINDOW = 7
+HAMPEL_THRESHOLD = 4.0
+```
+
+### 6. Feature Extraction (Optional, MVS only)
+
+```python
+ENABLE_FEATURES = False    # Enable CSI feature extraction for ML
+```
+
+For detailed parameter tuning, see [TUNING.md](../TUNING.md).
 
 ### Published Data (MQTT Payload)
 

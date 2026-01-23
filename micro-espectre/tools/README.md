@@ -137,9 +137,9 @@ python 6_optimize_filter_params.py --all        # Combined optimization (low-pas
 
 **Purpose**: Compare different motion detection algorithms
 
-- Compares RSSI, Mean Amplitude, Turbulence, Espressif (PCA+correlation), and MVS
-- Full implementation of Espressif's esp_radar algorithm (PCA + Pearson correlation)
-- Demonstrates MVS superiority with simpler approach
+- Compares RSSI, Mean Amplitude, Turbulence, PCA, and MVS detection methods
+- Uses production `PCADetector` from `src/pca_detector.py`
+- Demonstrates MVS superiority with simpler approach and lower CPU
 - Shows separation between baseline and movement
 
 ```bash

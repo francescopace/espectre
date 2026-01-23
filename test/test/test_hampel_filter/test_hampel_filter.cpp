@@ -9,7 +9,7 @@
 
 #include <unity.h>
 #include <cmath>
-#include "csi_processor.h"
+#include "filters.h"
 #include "utils.h"
 #include "esphome/core/log.h"
 

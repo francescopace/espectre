@@ -20,6 +20,7 @@
 #pragma once
 
 #include "calibrator_interface.h"
+#include "utils.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -89,6 +90,7 @@ class NBVICalibrator : public ICalibrator {
    * Check if calibration is in progress
    */
   bool is_calibrating() const override { return calibrating_; }
+  
   
   /**
    * Set callback for collection complete notification

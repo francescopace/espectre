@@ -5,7 +5,7 @@
 > Stay still. Move fast. React to survive.
 
 [![Powered by ESPectre](https://img.shields.io/badge/Powered%20by-ESPectre-40DCA5)](https://espectre.dev)
-[![License](https://img.shields.io/badge/License-GPLv3-blue)](../LICENSE)
+[![License](https://img.shields.io/badge/License-GPLv3-blue)](../../LICENSE)
 
 ---
 

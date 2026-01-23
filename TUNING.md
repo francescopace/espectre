@@ -2,11 +2,13 @@
 
 Quick guide to tune ESPectre for reliable movement detection in your environment.
 
+> **Note on Detection Algorithms**: This guide focuses on **MVS** (default algorithm). PCA uses fixed parameters and requires no tuning. See [SETUP.md](SETUP.md#choosing-detection-algorithm) for algorithm selection.
+
 ---
 
 ## Quick Start (5 minutes)
 
-> **Note on Subcarrier Selection**: ESPectre automatically selects optimal subcarriers at first boot using NBVI (default) or P95 algorithm. No manual configuration needed.
+> **Note on Subcarrier Selection**: ESPectre automatically selects optimal subcarriers at first boot using NBVI (default) or P95 algorithm. No manual configuration needed. Only applies to MVS; PCA uses fixed subcarriers.
 
 ### 1. Flash and Boot
 
@@ -80,9 +82,11 @@ esphome run <your-config>.yaml
 
 ## Understanding Parameters
 
+> **MVS Only**: The following parameters apply to the MVS detection algorithm. PCA uses its own threshold calculation (`1 - min(correlation)`) and fixed subcarrier selection.
+
 ### Segmentation Threshold
 
-**What it does:** Determines sensitivity for motion detection.
+**What it does:** Determines sensitivity for motion detection (MVS only).
 
 **Default:** `auto` (P95 × 1.4, minimizes false positives)
 

@@ -33,10 +33,16 @@ CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until pro
 GAIN_LOCK_MODE = "auto"       # Recommended: "auto" - skips gain lock if AGC < 30
 GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is skipped in auto mode)
 
+# Detection Algorithm
+# "mvs" (default): Moving Variance Segmentation - fast, good accuracy
+# "pca": Principal Component Analysis (Espressif-style) - better noise rejection
+DETECTION_ALGORITHM = "mvs"
+
 # Band Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
-# Algorithm: "nbvi" (default) or "p95"
+# For MVS: "nbvi" (default) or "p95"
 #   - nbvi: NBVI weighted algorithm (normalization scale, fixed threshold)
 #   - p95: P95 moving variance optimization (adaptive threshold)
+# For PCA: calibration uses PCACalibrator (fixed subcarrier step)
 CALIBRATION_ALGORITHM = "nbvi"
 CALIBRATION_BUFFER_SIZE = 700  # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
 

@@ -1010,6 +1010,11 @@ from features import calc_skewness, calc_kurtosis
 from p95_calibrator import P95Calibrator, BandCalibrator  # BandCalibrator is alias for backward compat
 from nbvi_calibrator import NBVICalibrator
 
+# Import detectors from src (IDetector interface and implementations)
+from detector_interface import IDetector, MotionState
+from mvs_detector import MVSDetector as MVSDetectorNew
+from pca_detector import PCADetector
+
 
 # ============================================================================
 # Utility Functions (delegate to SegmentationContext static methods)

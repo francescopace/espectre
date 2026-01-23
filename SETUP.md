@@ -179,6 +179,8 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
+| `detection_algorithm` | string | mvs | Detection algorithm: `mvs` (Moving Variance) or `pca` (Principal Component Analysis) |
+| `segmentation_calibration` | string | nbvi | Band selection: `nbvi` (spectral diversity) or `p95` (contiguous band). Only used with MVS, ignored by PCA. |
 | `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0=disabled, use external traffic) |
 | `traffic_generator_mode` | string | dns | Traffic generator mode: `dns` (UDP queries) or `ping` (ICMP) |
 | `publish_interval` | int | auto | Packets between sensor updates (default: same as traffic_generator_rate, or 100 if traffic is 0) |
@@ -193,6 +195,39 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `gain_lock` | string | auto | AGC/FFT gain lock: `auto`, `enabled`, `disabled` |
 
 For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
+
+### Choosing Calibration Algorithm
+
+The calibration algorithm selects which subcarriers to monitor. Only used with MVS (PCA uses its own fixed selection).
+
+| Algorithm | Selection Method | Pros | Cons | Best For |
+|-----------|-----------------|------|------|----------|
+| **NBVI** (default) | 12 best non-consecutive subcarriers | Spectral diversity, resilient to narrowband interference | Slightly more complex | Default choice, environments with potential interference |
+| **P95** | 12 consecutive subcarriers with lowest P95 variance | Simple, consistent band | All eggs in one basket | Clean RF environments, debugging |
+
+**Recommendation:** Use NBVI (default). Both achieve similar detection accuracy (~95% recall, <1% FP rate), but NBVI is more resilient to narrowband interference.
+
+```yaml
+espectre:
+  segmentation_calibration: nbvi  # default, recommended
+  # segmentation_calibration: p95  # simpler, contiguous band
+```
+
+### Choosing Detection Algorithm
+
+| Algorithm | How It Works | Pros | Cons | Best For |
+|-----------|--------------|------|------|----------|
+| **MVS** (default) | Variance of spatial turbulence | Low CPU, fast response, works well in most environments | Requires band calibration | General use, battery-powered devices |
+| **PCA** | PCA + correlation with baseline | Better noise rejection | Higher CPU, slower response | Noisy RF environments, near microwave ovens |
+
+**Recommendation:** Start with MVS (default). Only switch to PCA if you experience frequent false positives that persist after tuning threshold and filters.
+
+```yaml
+espectre:
+  detection_algorithm: mvs  # default, recommended
+  # detection_algorithm: pca
+```
+
 ### Integrated Sensors (Created Automatically)
 
 All sensors are created automatically when the `espectre` component is configured. You can optionally customize their names.

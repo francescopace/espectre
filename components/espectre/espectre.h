@@ -24,12 +24,16 @@
 #include "esp_event.h"
 
 // Include C++ modules
-#include "csi_processor.h"  // For SEGMENTATION_MAX_WINDOW_SIZE
+#include "utils.h"
+#include "detector_interface.h"
+#include "mvs_detector.h"
+#include "pca_detector.h"
 #include "sensor_publisher.h"
 #include "csi_manager.h"
 #include "wifi_lifecycle.h"
 #include "p95_calibrator.h"
 #include "nbvi_calibrator.h"
+#include "pca_calibrator.h"
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
 #include "serial_streamer.h"
@@ -63,6 +67,12 @@ class ESpectreComponent : public Component {
     NBVI   // 12 non-consecutive subcarriers
   };
   
+  // Detection algorithm enum
+  enum class DetectionAlgorithm {
+    MVS,   // Moving Variance Segmentation (default)
+    PCA    // PCA + Pearson correlation
+  };
+  
   // Setters for YAML configuration
   void set_segmentation_threshold(float threshold) { 
     this->segmentation_threshold_ = threshold; 
@@ -89,11 +99,18 @@ class ESpectreComponent : public Component {
       this->gain_lock_mode_ = GainLockMode::AUTO;  // default
     }
   }
-  void set_calibration_algorithm(const std::string &algo) {
+  void set_segmentation_calibration(const std::string &algo) {
     if (algo == "nbvi") {
-      this->calibration_algorithm_ = CalibrationAlgorithm::NBVI;
+      this->segmentation_calibration_ = CalibrationAlgorithm::NBVI;
     } else {
-      this->calibration_algorithm_ = CalibrationAlgorithm::P95;  // default
+      this->segmentation_calibration_ = CalibrationAlgorithm::P95;  // default
+    }
+  }
+  void set_detection_algorithm(const std::string &algo) {
+    if (algo == "pca") {
+      this->detection_algorithm_ = DetectionAlgorithm::PCA;
+    } else {
+      this->detection_algorithm_ = DetectionAlgorithm::MVS;  // default
     }
   }
   void set_publish_interval(uint32_t interval) { this->publish_interval_ = interval; }
@@ -144,8 +161,10 @@ class ESpectreComponent : public Component {
   // Send system info over serial (for game display)
   void send_system_info_();
   
-  // C state (core modules)
-  csi_processor_context_t csi_processor_{};
+  // Motion detector (polymorphic - MVS or PCA)
+  IDetector* detector_{nullptr};
+  MVSDetector mvs_detector_;
+  PCADetector pca_detector_;
   csi_motion_state_t motion_state_{};
   
   // Configuration from YAML
@@ -164,14 +183,16 @@ class ESpectreComponent : public Component {
   
   bool user_specified_subcarriers_{false};  // True if user specified in YAML
   ThresholdMode threshold_mode_{ThresholdMode::AUTO};  // Threshold calculation mode
-  CalibrationAlgorithm calibration_algorithm_{CalibrationAlgorithm::NBVI};  // Band selection algorithm
+  CalibrationAlgorithm segmentation_calibration_{CalibrationAlgorithm::NBVI};  // Band selection for MVS
+  DetectionAlgorithm detection_algorithm_{DetectionAlgorithm::MVS};  // Motion detection algorithm
   
   // Managers (handle specific responsibilities)
   SensorPublisher sensor_publisher_;
   CSIManager csi_manager_;
   WiFiLifecycleManager wifi_lifecycle_;
-  P95Calibrator p95_calibrator_;            // P95 algorithm
-  NBVICalibrator nbvi_calibrator_;          // NBVI algorithm
+  P95Calibrator p95_calibrator_;            // P95 algorithm (MVS)
+  NBVICalibrator nbvi_calibrator_;          // NBVI algorithm (MVS)
+  PCACalibrator pca_calibrator_;            // PCA algorithm
   ICalibrator* active_calibrator_{nullptr}; // Points to selected algorithm
   TrafficGeneratorManager traffic_generator_;
   UDPListener udp_listener_;

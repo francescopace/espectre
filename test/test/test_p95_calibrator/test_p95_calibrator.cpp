@@ -17,7 +17,7 @@
 #include <algorithm>
 #include "p95_calibrator.h"
 #include "csi_manager.h"
-#include "csi_processor.h"
+#include "utils.h"
 #include "utils.h"
 #include "esphome/core/log.h"
 

@@ -45,14 +45,19 @@
 
 ## Mathematical Approach
 
-**This project uses a pure mathematical approach** based on the **MVS (Moving Variance Segmentation)** algorithm for motion detection and **automatic subcarrier selection** (NBVI or P95) for signal optimization.
+**This project uses a pure mathematical approach** with two detection algorithms:
+
+| Algorithm | Method | Best For |
+|-----------|--------|----------|
+| **MVS** (default) | Moving Variance Segmentation | Most environments (~99% recall) |
+| **PCA** | Principal Component Analysis | Zero false positives required (~18% recall) |
 
 - **No ML training required**: Works out-of-the-box with mathematical algorithms
 - **Real-time processing**: Low latency detection on ESP32 hardware
 - **Production-ready**: Focused on reliable motion detection for smart home
 - **R&D platform available**: [Micro-ESPectre](micro-espectre/) provides features extraction for ML research
 
-For algorithm details (MVS, NBVI/P95 Band Selection, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
+For algorithm details (MVS, PCA, NBVI/P95 Band Selection, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
 
 ---
 
@@ -87,6 +92,9 @@ For algorithm details (MVS, NBVI/P95 Band Selection, Hampel filter), see [ALGORI
 
 1. **Setup & Installation**: Follow the complete guide in [SETUP.md](SETUP.md)
 2. **Tuning**: Optimize for your environment with [TUNING.md](TUNING.md)
+
+![ESPectre Home Assistant Dashboard](images/espectre-home-assistant.png)
+*Home Assistant dashboard with real-time motion detection, threshold control, and debug sensors*
 
 ---
 

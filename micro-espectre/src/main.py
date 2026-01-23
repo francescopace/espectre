@@ -1,7 +1,7 @@
 """
 Micro-ESPectre - Main Application
 
-Motion detection using WiFi CSI and MVS segmentation.
+Motion detection using WiFi CSI with MVS or PCA algorithms.
 Main entry point for the Micro-ESPectre system running on ESP32-C6.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -11,7 +11,8 @@ import network
 import time
 import gc
 import os
-from src.segmentation import SegmentationContext
+from src.mvs_detector import MVSDetector
+from src.pca_detector import PCADetector
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
 import src.config as config
@@ -240,31 +241,39 @@ def run_gain_lock(wlan):
     return avg_agc, avg_fft, False
 
 
-def run_band_calibration(wlan, seg, traffic_gen, chip_type=None):
+def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     """
     Run band calibration with selected algorithm (with gain lock phase first)
     
-    Supports two algorithms:
-    - p95: P95 moving variance optimization (adaptive threshold)
-    - nbvi: NBVI weighted algorithm (normalization scale)
+    Supports calibration for both MVS and PCA detectors:
+    - MVS: Uses NBVI or P95 for subcarrier selection
+    - PCA: Uses PCACalibrator for correlation threshold
     
     Args:
         wlan: WLAN instance
-        seg: SegmentationContext instance
+        detector: IDetector instance (MVSDetector or PCADetector)
         traffic_gen: TrafficGenerator instance
         chip_type: Chip type ('C5', 'C6', 'S3', etc.) for subcarrier filtering
     
     Returns:
         bool: True if calibration successful
     """
-    # Get configured algorithm
-    algorithm = getattr(config, 'CALIBRATION_ALGORITHM', 'nbvi').lower()
+    # Determine calibration type based on detector
+    is_pca = detector.get_name() == "PCA"
     
-    # Import appropriate calibrator based on algorithm
-    if algorithm == 'nbvi':
-        from src.nbvi_calibrator import NBVICalibrator, cleanup_buffer_file
+    if is_pca:
+        from src.pca_calibrator import PCACalibrator
+        algorithm = "pca"
+        # PCA doesn't need buffer file cleanup
+        def cleanup_buffer_file():
+            pass
     else:
-        from src.p95_calibrator import P95Calibrator, cleanup_buffer_file
+        # Get configured algorithm for MVS
+        algorithm = getattr(config, 'CALIBRATION_ALGORITHM', 'nbvi').lower()
+        if algorithm == 'nbvi':
+            from src.nbvi_calibrator import NBVICalibrator, cleanup_buffer_file
+        else:
+            from src.p95_calibrator import P95Calibrator, cleanup_buffer_file
     
     # Set calibration mode to suspend main loop
     g_state.calibration_mode = True
@@ -296,21 +305,12 @@ def run_band_calibration(wlan, seg, traffic_gen, chip_type=None):
     print('-'*60)
     
     # Initialize calibrator based on algorithm
-    # Both algorithms output (selected_band, mv_values)
-    if algorithm == 'nbvi':
-        calibrator = NBVICalibrator(
-            buffer_size=config.CALIBRATION_BUFFER_SIZE,
-            enable_hampel=config.ENABLE_HAMPEL_FILTER,
-            hampel_window=config.HAMPEL_WINDOW,
-            hampel_threshold=config.HAMPEL_THRESHOLD
-        )
+    if is_pca:
+        calibrator = PCACalibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
+    elif algorithm == 'nbvi':
+        calibrator = NBVICalibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
     else:
-        calibrator = P95Calibrator(
-            buffer_size=config.CALIBRATION_BUFFER_SIZE,
-            enable_hampel=config.ENABLE_HAMPEL_FILTER,
-            hampel_window=config.HAMPEL_WINDOW,
-            hampel_threshold=config.HAMPEL_THRESHOLD
-        )
+        calibrator = P95Calibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
     
     # Collect packets for calibration (now with stable gain)
     calibration_progress = 0
@@ -364,51 +364,74 @@ def run_band_calibration(wlan, seg, traffic_gen, chip_type=None):
         gc.collect()
     
     try:
-        # Both calibrators now return: calibrate() -> (band, mv_values)
-        selected_band, mv_values = calibrator.calibrate()
+        # Both calibrators return: calibrate() -> (band, values)
+        # For MVS: band = selected subcarriers, values = mv_values
+        # For PCA: band = fixed step subcarriers, values = correlation values
+        selected_band, cal_values = calibrator.calibrate()
         
-        if selected_band and len(selected_band) == 12:
-            # Calibration successful
-            config.SELECTED_SUBCARRIERS = selected_band
-            
-            # Calculate adaptive threshold from MV values
-            from src.threshold import calculate_adaptive_threshold
-            
-            if isinstance(SEG_THRESHOLD, str):
-                # "auto" or "min" mode - calculate adaptive threshold
-                adaptive_threshold, percentile, factor, pxx = calculate_adaptive_threshold(mv_values, SEG_THRESHOLD)
-                seg.set_adaptive_threshold(adaptive_threshold)
-                threshold_source = f"{SEG_THRESHOLD} (P{percentile}x{factor})"
-                print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
+        if is_pca:
+            # PCA: calculate threshold as 1 - min(correlation)
+            if cal_values and len(cal_values) > 0:
+                min_corr = min(cal_values)
+                pca_threshold = 1.0 - min_corr
+                detector.set_threshold(pca_threshold)
+                success = True
+                
+                print('')
+                print('='*60)
+                print('PCA Calibration Successful!')
+                print(f'   Algorithm: PCA')
+                print(f'   Subcarrier step: 4 (16 subcarriers)')
+                print(f'   Min correlation: {min_corr:.4f}')
+                print(f'   Threshold: {pca_threshold:.4f} (1 - min_corr)')
+                print('='*60)
+                print('')
             else:
-                # Numeric value - use fixed manual threshold
-                adaptive_threshold, _, _, _ = calculate_adaptive_threshold(mv_values, "auto")
-                seg.threshold = float(SEG_THRESHOLD)
-                threshold_source = "manual"
-                print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
-            
-            success = True
-            
-            print('')
-            print('='*60)
-            print('Subcarrier Calibration Successful!')
-            print(f'   Algorithm: {algorithm.upper()}')
-            print(f'   Selected band: {selected_band}')
-            print(f'   Threshold: {seg.threshold:.4f} ({threshold_source})')
-            print('='*60)
-            print('')
+                print('PCA Calibration Failed - no correlation values')
         else:
-            # Calibration failed - keep default
-            print('')
-            print('='*60)
-            print('Subcarrier Calibration Failed')
-            print(f'   Using default band: {config.SELECTED_SUBCARRIERS}')
-            print('='*60)
-            print('')
+            # MVS: apply subcarrier selection and adaptive threshold
+            if selected_band and len(selected_band) == 12:
+                config.SELECTED_SUBCARRIERS = selected_band
+                
+                # Calculate adaptive threshold from MV values
+                from src.threshold import calculate_adaptive_threshold
+                
+                if isinstance(SEG_THRESHOLD, str):
+                    # "auto" or "min" mode - calculate adaptive threshold
+                    adaptive_threshold, percentile, factor, pxx = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
+                    detector.set_adaptive_threshold(adaptive_threshold)
+                    threshold_source = f"{SEG_THRESHOLD} (P{percentile}x{factor})"
+                    print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
+                else:
+                    # Numeric value - use fixed manual threshold
+                    adaptive_threshold, _, _, _ = calculate_adaptive_threshold(cal_values, "auto")
+                    detector.set_threshold(float(SEG_THRESHOLD))
+                    threshold_source = "manual"
+                    print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
+                
+                success = True
+                
+                print('')
+                print('='*60)
+                print('Subcarrier Calibration Successful!')
+                print(f'   Algorithm: {algorithm.upper()}')
+                print(f'   Selected band: {selected_band}')
+                print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
+                print('='*60)
+                print('')
+            else:
+                # Calibration failed - keep default
+                print('')
+                print('='*60)
+                print('Subcarrier Calibration Failed')
+                print(f'   Using default band: {config.SELECTED_SUBCARRIERS}')
+                print('='*60)
+                print('')
     
     except Exception as e:
         print(f"Error during calibration: {e}")
-        print(f"Using default band: {config.SELECTED_SUBCARRIERS}")
+        if not is_pca:
+            print(f"Using default band: {config.SELECTED_SUBCARRIERS}")
     
     # Free calibrator memory explicitly
     calibrator.free_buffer()
@@ -439,19 +462,27 @@ def main():
     # Connect to WiFi
     wlan = connect_wifi()
     
-    # Initialize segmentation with full configuration
-    # Threshold: use config value if defined, otherwise default (will be replaced by adaptive)
+    # Initialize detector based on configured algorithm
+    detection_algorithm = getattr(config, 'DETECTION_ALGORITHM', 'mvs').lower()
     initial_threshold = getattr(config, 'SEG_THRESHOLD', 1.0)
-    seg = SegmentationContext(
-        window_size=config.SEG_WINDOW_SIZE,
-        threshold=initial_threshold,
-        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=config.LOWPASS_CUTOFF,
-        enable_hampel=config.ENABLE_HAMPEL_FILTER,
-        hampel_window=config.HAMPEL_WINDOW,
-        hampel_threshold=config.HAMPEL_THRESHOLD,
-        enable_features=config.ENABLE_FEATURES
-    )
+    
+    if detection_algorithm == 'pca':
+        print(f'Detection algorithm: PCA (Principal Component Analysis)')
+        detector = PCADetector(threshold=0.01)  # PCA threshold set during calibration
+        # Features not supported with PCA
+        if config.ENABLE_FEATURES:
+            print('Note: Features disabled for PCA detector')
+    else:
+        print(f'Detection algorithm: MVS (Moving Variance Segmentation)')
+        detector = MVSDetector(
+            window_size=config.SEG_WINDOW_SIZE,
+            threshold=initial_threshold if isinstance(initial_threshold, (int, float)) else 1.0,
+            enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+            lowpass_cutoff=config.LOWPASS_CUTOFF,
+            enable_hampel=config.ENABLE_HAMPEL_FILTER,
+            hampel_window=config.HAMPEL_WINDOW,
+            hampel_threshold=config.HAMPEL_THRESHOLD
+        )
     
     # Initialize and start traffic generator (rate is static from config.py)
     gc.collect()  # Free memory before creating socket
@@ -488,12 +519,12 @@ def main():
     
     if needs_calibration:
         # Set default fallback before calibration
-        run_band_calibration(wlan, seg, traffic_gen, g_state.chip_type)
+        run_band_calibration(wlan, detector, traffic_gen, g_state.chip_type)
     else:
         print(f'Using configured subcarriers: {config.SELECTED_SUBCARRIERS}')
     
     # Initialize MQTT (pass calibration function for factory_reset and global state for metrics)
-    mqtt_handler = MQTTHandler(config, seg, wlan, traffic_gen, run_band_calibration, g_state)
+    mqtt_handler = MQTTHandler(config, detector, wlan, traffic_gen, run_band_calibration, g_state)
     mqtt_handler.connect()
     
     # Publish info after boot (always, to show current configuration)
@@ -552,8 +583,8 @@ def main():
                 packet_channel = frame[1]
                 del frame
                 
-                turbulence = seg.calculate_spatial_turbulence(csi_data, config.SELECTED_SUBCARRIERS)
-                seg.add_turbulence(turbulence)
+                # Process packet through detector interface
+                detector.process_packet(csi_data, config.SELECTED_SUBCARRIERS)
                 
                 publish_counter += 1
                 
@@ -563,11 +594,11 @@ def main():
                     # Channel changes cause CSI spikes that trigger false motion detection
                     if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
                         print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
-                        seg.reset(full=True)
+                        detector.reset()
                     g_state.current_channel = packet_channel
                     
-                    # Calculate variance and update state (lazy evaluation)
-                    metrics = seg.update_state()
+                    # Update state (lazy evaluation)
+                    metrics = detector.update_state()
                     current_time = time.ticks_ms()
                     time_delta = time.ticks_diff(current_time, last_publish_time)
                     
@@ -579,23 +610,26 @@ def main():
                     last_dropped = dropped
                     
                     state_str = 'MOTION' if metrics['state'] == 1 else 'IDLE'
-                    progress = metrics['moving_variance'] / metrics['threshold'] if metrics['threshold'] > 0 else 0
-                    progress_bar = format_progress_bar(progress, metrics['threshold'])
+                    motion_metric = metrics.get('moving_variance', metrics.get('jitter', 0))
+                    threshold = metrics['threshold']
+                    progress = motion_metric / threshold if threshold > 0 else 0
+                    progress_bar = format_progress_bar(progress, threshold)
                     print(f"{progress_bar} | pkts:{publish_counter} drop:{dropped_delta} pps:{pps} | "
-                          f"mvmt:{metrics['moving_variance']:.4f} thr:{metrics['threshold']:.4f} | {state_str}")
+                          f"mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str}")
                     
-                    # Compute features at publish time (not per-packet)
+                    # Compute features at publish time (MVS only)
                     features = None
                     confidence = None
                     triggered = None
-                    if seg.features_ready():
-                        features = seg.compute_features()
-                        confidence, triggered = seg.compute_confidence(features)
+                    if detection_algorithm == 'mvs' and config.ENABLE_FEATURES:
+                        if hasattr(detector, '_context') and detector._context.features_ready():
+                            features = detector._context.compute_features()
+                            confidence, triggered = detector._context.compute_confidence(features)
                     
                     mqtt_handler.publish_state(
-                        metrics['moving_variance'],
+                        motion_metric,
                         metrics['state'],
-                        metrics['threshold'],
+                        threshold,
                         publish_counter,
                         dropped_delta,
                         pps,

@@ -1,12 +1,13 @@
 /*
  * ESPectre - Adaptive Threshold Calculator
  * 
- * Calculates adaptive threshold from moving variance values.
- * Called after band selection to compute the detection threshold.
+ * Calculates adaptive threshold from calibration baseline values.
+ * Called after calibration to compute the detection threshold.
  * 
- * Formula: threshold = Pxx(mv_values) * factor
+ * MVS Formula: threshold = Pxx(cal_values) * factor
+ * PCA Formula: threshold = 1 - min(cal_values) (Espressif approach)
  * 
- * Modes:
+ * Modes (for MVS):
  * - "auto": P95 * 1.4 (default, zero false positives)
  * - "min": P100 * 1.0 (maximum sensitivity, may have FP)
  * 
@@ -34,6 +35,7 @@ enum class ThresholdMode {
   AUTO,  // P95 * 1.4 (default)
   MIN    // P100 * 1.0 (maximum sensitivity)
 };
+
 
 /**
  * Get threshold parameters from mode
@@ -83,42 +85,65 @@ inline float calculate_percentile(std::vector<float> values, uint8_t percentile)
 }
 
 /**
- * Calculate adaptive threshold from moving variance values
+ * Calculate adaptive threshold from calibration baseline values
  * 
- * @param mv_values Vector of moving variance values from baseline
- * @param mode Threshold mode (AUTO or MIN)
+ * For MVS: threshold = Pxx(cal_values) * factor
+ * For PCA: threshold = 1 - min(cal_values) (Espressif correlation-based)
+ * 
+ * @param cal_values Vector of calibration values (MV for MVS, correlation for PCA)
+ * @param mode Threshold mode (AUTO or MIN) - only used for MVS
+ * @param is_pca True for PCA algorithm, false for MVS
  * @param out_threshold Output: calculated adaptive threshold
- * @param out_percentile Output: percentile used
- * @param out_factor Output: factor used
- * @param out_pxx Output: raw percentile value (before factor)
+ * @param out_percentile Output: percentile used (0 for PCA)
+ * @param out_factor Output: factor used (1.0 for PCA)
+ * @param out_pxx Output: raw percentile/min value (before factor)
  */
 inline void calculate_adaptive_threshold(
-    const std::vector<float>& mv_values,
+    const std::vector<float>& cal_values,
     ThresholdMode mode,
+    bool is_pca,
     float& out_threshold,
     uint8_t& out_percentile,
     float& out_factor,
     float& out_pxx) {
   
-  get_threshold_params(mode, out_percentile, out_factor);
-  out_pxx = calculate_percentile(mv_values, out_percentile);
-  out_threshold = out_pxx * out_factor;
+  if (is_pca) {
+    // PCA: threshold = 1 - min(correlation)
+    // cal_values contains correlation values from baseline
+    if (cal_values.empty()) {
+      out_threshold = 0.01f;  // Default PCA threshold
+      out_percentile = 0;
+      out_factor = 1.0f;
+      out_pxx = 0.99f;
+      return;
+    }
+    float min_corr = *std::min_element(cal_values.begin(), cal_values.end());
+    out_threshold = 1.0f - min_corr;
+    out_percentile = 0;     // N/A for PCA
+    out_factor = 1.0f;      // N/A for PCA
+    out_pxx = min_corr;     // Store min_corr for diagnostics
+  } else {
+    // MVS: threshold = Pxx(cal_values) * factor
+    get_threshold_params(mode, out_percentile, out_factor);
+    out_pxx = calculate_percentile(cal_values, out_percentile);
+    out_threshold = out_pxx * out_factor;
+  }
 }
 
 /**
- * Calculate adaptive threshold with explicit parameters
+ * Calculate adaptive threshold with explicit parameters (MVS only)
  * 
- * @param mv_values Vector of moving variance values from baseline
+ * @param cal_values Vector of moving variance values from baseline
  * @param percentile Percentile to use (0-100)
  * @param factor Multiplier factor
  * @return Calculated adaptive threshold
  */
 inline float calculate_adaptive_threshold(
-    const std::vector<float>& mv_values,
+    const std::vector<float>& cal_values,
     uint8_t percentile,
     float factor) {
   
-  float pxx = calculate_percentile(mv_values, percentile);
+  float pxx = calculate_percentile(cal_values, percentile);
   return pxx * factor;
 }
 

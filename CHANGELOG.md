@@ -8,6 +8,39 @@ All notable changes to this project will be documented in this file.
 
 ### Algorithm Changes
 
+#### Dual Detection Algorithms (MVS + PCA)
+
+Two motion detection algorithms are now available via the `IDetector` interface:
+
+| Algorithm | Method | Subcarrier Selection | Best For |
+|-----------|--------|---------------------|----------|
+| **MVS** | Moving Variance of Turbulence | Calibrated (12 best) | Default, most environments |
+| **PCA** | PCA + Correlation (Espressif style) | Fixed step (16) | High-noise environments |
+
+**Configuration:**
+
+ESPHome (YAML):
+```yaml
+espectre:
+  detection_algorithm: mvs  # default, or "pca"
+```
+
+Python (Micro-ESPectre):
+```python
+from mvs_detector import MVSDetector
+from pca_detector import PCADetector
+
+detector = MVSDetector(window_size=50, threshold=1.0)
+# or
+detector = PCADetector()
+```
+
+**Architecture:**
+- New `IDetector` interface (`detector_interface.h/.py`) for polymorphic detection
+- `MVSDetector` and `PCADetector` implement the interface
+- Legacy `csi_processor` module removed in favor of modular detectors
+- `csi_manager` now uses `IDetector*` for algorithm-agnostic processing
+
 #### Dual Band Selection Algorithms (P95 + NBVI)
 
 Two automatic subcarrier selection algorithms are now available:
@@ -24,7 +57,7 @@ Both algorithms achieve similar performance (~95% Recall, <1% FP Rate).
 ESPHome (YAML):
 ```yaml
 espectre:
-  calibration_algorithm: nbvi  # default, or "p95"
+  segmentation_calibration: nbvi  # default, or "p95"
 ```
 
 Python (Micro-ESPectre):

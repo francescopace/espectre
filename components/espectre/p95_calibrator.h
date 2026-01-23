@@ -18,6 +18,7 @@
 #pragma once
 
 #include "calibrator_interface.h"
+#include "utils.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"

@@ -25,14 +25,14 @@ SEG_THRESHOLD_MAX = 10.0
 class MQTTCommands:
     """MQTT command processor"""
     
-    def __init__(self, mqtt_client, config, segmentation, response_topic, wlan, traffic_generator=None, band_calibration_func=None, global_state=None):
+    def __init__(self, mqtt_client, config, detector, response_topic, wlan, traffic_generator=None, band_calibration_func=None, global_state=None):
         """
         Initialize MQTT commands
         
         Args:
             mqtt_client: MQTT client instance
             config: Configuration module
-            segmentation: SegmentationContext instance
+            detector: IDetector instance (MVSDetector or PCADetector)
             response_topic: MQTT topic for responses
             wlan: wlan instance
             traffic_generator: TrafficGenerator instance (optional)
@@ -41,13 +41,16 @@ class MQTTCommands:
         """
         self.mqtt = mqtt_client
         self.config = config
-        self.seg = segmentation
+        self.detector = detector
         self.wlan = wlan
         self.traffic_gen = traffic_generator
         self.band_calibration_func = band_calibration_func
         self.global_state = global_state
         self.response_topic = response_topic
         self.start_time = time.time()
+        
+        # Check detector type for MVS-specific features
+        self._is_mvs = detector.get_name() == "MVS"
         
     def send_response(self, message):
         """Send response message to MQTT"""
@@ -163,10 +166,11 @@ class MQTTCommands:
                 "cmd_topic": f"{self.config.MQTT_TOPIC}/cmd",
                 "response_topic": self.response_topic
             },
-            "segmentation": {
-                "threshold": round(self.seg.threshold, 2),
+            "detection": {
+                "algorithm": self.detector.get_name(),
+                "threshold": round(self.detector.get_threshold(), 4),
                 "threshold_source": "config" if getattr(self.config, 'SEG_THRESHOLD', None) is not None else "auto",
-                "window_size": self.seg.window_size
+                "window_size": self.detector._context.window_size if self._is_mvs else "N/A"
             },
             "subcarriers": {
                 "indices": getattr(self.config, 'SELECTED_SUBCARRIERS', None) or []
@@ -189,7 +193,7 @@ class MQTTCommands:
             loop_time_ms = round(self.global_state.loop_time_us / 1000, 2)
         
         # Get current state
-        state_str = 'motion' if self.seg.state == self.seg.STATE_MOTION else 'idle'
+        state_str = 'motion' if self.detector.get_state() == 1 else 'idle'
         
         # Get traffic generator stats
         traffic_gen_stats = {}
@@ -203,22 +207,27 @@ class MQTTCommands:
                 "avg_loop_ms": self.traffic_gen.get_avg_loop_time_ms()
             }
         
+        # Get motion metric (turbulence for MVS, jitter for PCA)
+        motion_metric = self.detector.get_motion_metric()
+        turbulence = self.detector._context.last_turbulence if self._is_mvs else 0.0
+        
         response = {
             "timestamp": int(current_time),
             "uptime": self.format_uptime(uptime_sec),
             "free_memory_kb": free_mem_kb,
             "loop_time_ms": loop_time_ms,
+            "algorithm": self.detector.get_name(),
             "state": state_str,
-            "turbulence": round(self.seg.last_turbulence, 4),
-            "movement": round(self.seg.current_moving_variance, 4),
-            "threshold": round(self.seg.threshold, 4),
+            "turbulence": round(turbulence, 4),
+            "movement": round(motion_metric, 4),
+            "threshold": round(self.detector.get_threshold(), 4),
             "traffic_generator": traffic_gen_stats
         }
         
         self.send_response(response)
     
     def cmd_segmentation_threshold(self, cmd_obj):
-        """Set segmentation threshold (session-only, not persisted)"""
+        """Set detection threshold (session-only, not persisted)"""
         if 'value' not in cmd_obj:
             self.send_response("ERROR: Missing 'value' field")
             return
@@ -230,19 +239,23 @@ class MQTTCommands:
                 self.send_response(f"ERROR: Threshold must be between {SEG_THRESHOLD_MIN} and {SEG_THRESHOLD_MAX}")
                 return
             
-            old_threshold = self.seg.threshold
-            self.seg.threshold = threshold
+            old_threshold = self.detector.get_threshold()
+            self.detector.set_threshold(threshold)
             
-            # Note: threshold is session-only, adaptive threshold (P95 × 1.4) is recalculated on every boot
+            # Note: threshold is session-only, adaptive threshold is recalculated on every boot
             
-            self.send_response(f"Segmentation threshold updated: {old_threshold:.2f} -> {threshold:.2f} (session-only)")
-            print(f"Threshold updated: {old_threshold:.2f} -> {threshold:.2f} (session-only)")
+            self.send_response(f"Detection threshold updated: {old_threshold:.4f} -> {threshold:.4f} (session-only)")
+            print(f"Threshold updated: {old_threshold:.4f} -> {threshold:.4f} (session-only)")
             
         except ValueError:
             self.send_response("ERROR: Invalid threshold value (must be float)")
     
     def cmd_segmentation_window_size(self, cmd_obj):
-        """Set window size"""
+        """Set window size (MVS only)"""
+        if not self._is_mvs:
+            self.send_response("ERROR: Window size adjustment is only available for MVS detector")
+            return
+        
         if 'value' not in cmd_obj:
             self.send_response("ERROR: Missing 'value' field")
             return
@@ -254,14 +267,15 @@ class MQTTCommands:
                 self.send_response(f"ERROR: Window size must be between {SEG_WINDOW_SIZE_MIN} and {SEG_WINDOW_SIZE_MAX} packets")
                 return
             
-            old_size = self.seg.window_size
+            ctx = self.detector._context
+            old_size = ctx.window_size
             
             # Update window size and reset buffer
-            self.seg.window_size = window_size
-            self.seg.turbulence_buffer = [0.0] * window_size
-            self.seg.buffer_index = 0
-            self.seg.buffer_count = 0
-            self.seg.current_moving_variance = 0.0
+            ctx.window_size = window_size
+            ctx.turbulence_buffer = [0.0] * window_size
+            ctx.buffer_index = 0
+            ctx.buffer_count = 0
+            ctx.current_moving_variance = 0.0
             
             # Calculate duration using actual traffic rate
             rate = self.traffic_gen.get_rate() if self.traffic_gen else TRAFFIC_GENERATOR_RATE
@@ -274,26 +288,25 @@ class MQTTCommands:
             self.send_response("ERROR: Invalid window size value (must be integer)")
     
     def cmd_factory_reset(self, cmd_obj):
-        """Reset all parameters to defaults and trigger band re-calibration"""
+        """Reset all parameters to defaults and trigger re-calibration"""
         print("Factory reset requested")
         
-        # Reset segmentation to defaults
-        self.seg.threshold = 1.0  # Default threshold
-        self.seg.window_size = SEG_WINDOW_SIZE
+        # Reset detector
+        self.detector.reset()
+        self.detector.set_threshold(1.0 if self._is_mvs else 0.01)
         
-        # Reset buffer
-        self.seg.turbulence_buffer = [0.0] * self.seg.window_size
-        self.seg.buffer_index = 0
-        self.seg.buffer_count = 0
-        self.seg.current_moving_variance = 0.0
-        
-        # Reset state machine
-        self.seg.state = self.seg.STATE_IDLE
-        self.seg.packet_index = 0
+        # Reset MVS-specific parameters
+        if self._is_mvs:
+            ctx = self.detector._context
+            ctx.window_size = SEG_WINDOW_SIZE
+            ctx.turbulence_buffer = [0.0] * ctx.window_size
+            ctx.buffer_index = 0
+            ctx.buffer_count = 0
+            ctx.current_moving_variance = 0.0
 
         print("Factory reset complete")
         
-        # Run band calibration immediately if function provided
+        # Run calibration immediately if function provided
         if self.band_calibration_func:
             self.send_response("Factory reset complete. Starting re-calibration...")
             print("Starting re-calibration...")
@@ -301,14 +314,17 @@ class MQTTCommands:
             # Get chip_type from global_state if available
             chip_type = getattr(self.global_state, 'chip_type', None) if self.global_state else None
             
-            # Run calibration with chip_type for proper subcarrier filtering
-            success = self.band_calibration_func(self.wlan, self.seg, self.traffic_gen, chip_type)
+            # Run calibration with detector
+            success = self.band_calibration_func(self.wlan, self.detector, self.traffic_gen, chip_type)
             
             if success:
-                band = getattr(self.config, 'SELECTED_SUBCARRIERS')
-                self.send_response(f"Re-calibration successful! Band: {band}")
+                if self._is_mvs:
+                    band = getattr(self.config, 'SELECTED_SUBCARRIERS')
+                    self.send_response(f"Re-calibration successful! Band: {band}")
+                else:
+                    self.send_response(f"Re-calibration successful! Threshold: {self.detector.get_threshold():.4f}")
             else:
-                self.send_response(f"Re-calibration failed. Using default band.")
+                self.send_response(f"Re-calibration failed. Using default settings.")
         else:
             self.send_response(f"Factory reset complete.")
             

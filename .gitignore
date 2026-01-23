@@ -33,6 +33,7 @@ env/
 secrets.yaml
 
 # Editor
+.tmp/
 .vscode/
 *.swp
 *.swo

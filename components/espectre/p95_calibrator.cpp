@@ -66,7 +66,6 @@ esp_err_t P95Calibrator::start_calibration(const uint8_t* current_band,
   buffer_count_ = 0;
   last_progress_ = 0;
   
-  // Set calibration mode in CSI Manager
   calibrating_ = true;
   csi_manager_->set_calibration_mode(this);
   
@@ -156,11 +155,11 @@ void P95Calibrator::on_collection_complete_() {
     collection_complete_callback_();
   }
   
-  // Close write mode - file will be reopened in calibration task
-  close_buffer_file_();
-  
   // Stop receiving CSI packets during processing
   csi_manager_->set_calibration_mode(nullptr);
+  
+  // Close write mode - file will be reopened in calibration task
+  close_buffer_file_();
   
   // Launch calibration in a separate task to avoid blocking main loop
   BaseType_t result = xTaskCreate(
@@ -209,7 +208,6 @@ void P95Calibrator::finish_calibration_(bool success) {
   calibrating_ = false;
   calibration_task_handle_ = nullptr;
   
-  // Call user callback with results (mv_values for external threshold calculation)
   if (result_callback_) {
     result_callback_(selected_band_, selected_band_size_, mv_values_, success);
   }
