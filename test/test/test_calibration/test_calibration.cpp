@@ -619,9 +619,12 @@ void test_magnitude_from_real_csi(void) {
     const int8_t* packet = baseline_packets[0];
     
     // Calculate magnitudes for all subcarriers
+    // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
     float magnitudes[64];
     for (uint8_t sc = 0; sc < 64; sc++) {
-        magnitudes[sc] = calculate_magnitude(packet[sc * 2], packet[sc * 2 + 1]);
+        int8_t q_val = packet[sc * 2];      // Imaginary first
+        int8_t i_val = packet[sc * 2 + 1];  // Real second
+        magnitudes[sc] = calculate_magnitude(i_val, q_val);
     }
     
     // First 5 subcarriers are typically zero (guard band)
@@ -648,8 +651,9 @@ void test_variance_baseline_vs_movement(void) {
     for (size_t i = 0; i < SAMPLE_SIZE; i++) {
         const int8_t* bp = baseline_packets[i];
         const int8_t* mp = movement_packets[i];
-        baseline_mags[i] = calculate_magnitude(bp[TEST_SUBCARRIER * 2], bp[TEST_SUBCARRIER * 2 + 1]);
-        movement_mags[i] = calculate_magnitude(mp[TEST_SUBCARRIER * 2], mp[TEST_SUBCARRIER * 2 + 1]);
+        // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+        baseline_mags[i] = calculate_magnitude(bp[TEST_SUBCARRIER * 2 + 1], bp[TEST_SUBCARRIER * 2]);
+        movement_mags[i] = calculate_magnitude(mp[TEST_SUBCARRIER * 2 + 1], mp[TEST_SUBCARRIER * 2]);
     }
     
     float var_baseline = calculate_variance_two_pass(baseline_mags.data(), SAMPLE_SIZE);
@@ -676,12 +680,13 @@ void test_turbulence_baseline_vs_movement(void) {
     
     for (size_t i = 0; i < SAMPLE_SIZE; i++) {
         // Calculate magnitudes for this packet
+        // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
         float baseline_mags[64], movement_mags[64];
         const int8_t* bp = baseline_packets[i];
         const int8_t* mp = movement_packets[i];
         for (uint8_t sc = 0; sc < 64; sc++) {
-            baseline_mags[sc] = calculate_magnitude(bp[sc * 2], bp[sc * 2 + 1]);
-            movement_mags[sc] = calculate_magnitude(mp[sc * 2], mp[sc * 2 + 1]);
+            baseline_mags[sc] = calculate_magnitude(bp[sc * 2 + 1], bp[sc * 2]);
+            movement_mags[sc] = calculate_magnitude(mp[sc * 2 + 1], mp[sc * 2]);
         }
         
         baseline_turb_sum += calculate_spatial_turbulence(baseline_mags, SUBCARRIERS, NUM_SC);

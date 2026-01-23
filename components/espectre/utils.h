@@ -138,8 +138,9 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
             continue;
         }
         
-        float I = static_cast<float>(csi_data[sc_idx * 2]);
-        float Q = static_cast<float>(csi_data[sc_idx * 2 + 1]);
+        // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+        float Q = static_cast<float>(csi_data[sc_idx * 2]);      // Imaginary first
+        float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);  // Real second
         amplitudes[valid_count++] = std::sqrt(I * I + Q * Q);
     }
     

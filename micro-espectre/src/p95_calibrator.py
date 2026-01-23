@@ -160,8 +160,9 @@ class P95Calibrator(ICalibrator):
             for sc in range(NUM_SUBCARRIERS):
                 i_idx = offset + sc * 2
                 q_idx = i_idx + 1
-                I = data[i_idx]
-                Q = data[q_idx]
+                # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                Q = data[i_idx]      # Imaginary first
+                I = data[q_idx]      # Real second
                 if I > 127:
                     I = I - 256
                 if Q > 127:

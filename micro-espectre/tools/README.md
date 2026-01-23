@@ -135,16 +135,17 @@ python 6_optimize_filter_params.py --all        # Combined optimization (low-pas
 
 ### 7. Detection Methods Comparison (`7_compare_detection_methods.py`)
 
-**Purpose**: Compare different motion detection methods
+**Purpose**: Compare different motion detection algorithms
 
-- Compares RSSI, Mean Amplitude, Turbulence, and MVS
-- Demonstrates MVS superiority
+- Compares RSSI, Mean Amplitude, Turbulence, Espressif (PCA+correlation), and MVS
+- Full implementation of Espressif's esp_radar algorithm (PCA + Pearson correlation)
+- Demonstrates MVS superiority with simpler approach
 - Shows separation between baseline and movement
 
 ```bash
 python 7_compare_detection_methods.py              # Use C6 dataset
 python 7_compare_detection_methods.py --chip S3    # Use S3 dataset
-python 7_compare_detection_methods.py --plot       # Show 4×2 comparison
+python 7_compare_detection_methods.py --plot       # Show 5×2 comparison
 ```
 
 ![Detection Methods Comparison](../../images/detection_method_comparison.png)

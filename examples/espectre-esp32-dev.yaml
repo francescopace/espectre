@@ -40,19 +40,21 @@ espectre:
   id: espectre_csi
   # Traffic Generator
   traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
-  traffic_generator_mode: dns  # dns (default) or ping
-  # Motion Detection: 
-  segmentation_threshold: auto  # auto (default), min, or a value between 0.1-10.0
+  traffic_generator_mode: dns   # dns (default) or ping
+  # Signal Processing
+  calibration_algorithm: nbvi   # nbvi (default, 12 best non-consecutive) or p95 (12 consecutive)
+  # Note: gain_lock not available on ESP32 original
+  # Motion Detection (MVS - Moving Variance Segmentation)
+  segmentation_threshold: auto  # auto (default), min, or 0.1-10.0
   segmentation_window_size: 50  # Analysis window size in packets (10-200)
-  # Low-pass filter (noise reduction)
-  lowpass_enabled: false        # Enable low-pass filter (default: false)
-  lowpass_cutoff: 11.0          # Cutoff frequency in Hz (5.0-20.0)
-  # Hampel filter (anti-spikes in turbulence)
-  hampel_enabled: false         # Enable outlier removal filter (default: false)
+  # Filters (optional)
+  hampel_enabled: false         # Outlier removal (default: false)
   hampel_window: 7              # Filter window size (3-11, odd numbers)
   hampel_threshold: 4.0         # Outlier detection threshold (1.0-10.0)
-  # Subcarrier selection (optional - leave commented for auto-calibration)
-  # selected_subcarriers: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+  lowpass_enabled: false        # Noise reduction (default: false)
+  lowpass_cutoff: 11.0          # Cutoff frequency in Hz (5.0-20.0)
+  # Manual subcarrier override (leave commented for auto-calibration)
+  #selected_subcarriers: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 # WiFi (using secrets for development)
 wifi:

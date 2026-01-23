@@ -1,8 +1,8 @@
 # Roadmap
 
-**Vision**: ESPectre aims to democratize Wi-Fi sensing by providing an open-source, privacy-first motion detection system with a path toward machine learning-powered gesture recognition and Human Activity Recognition (HAR).
+**Vision**: ESPectre aims to democratize Wi-Fi sensing by providing an open-source, privacy-first motion detection system with a path toward machine learning-powered gesture recognition, Human Activity Recognition (HAR), and 3D indoor localization.
 
-This roadmap outlines the evolution from the current mathematical approach (just IDLE/MOTION) toward ML-enhanced capabilities (Gesture detection, Human Activity Recognition), while maintaining the project's core principles: community-friendly, vendor-neutral, and privacy-first.
+This roadmap outlines the evolution from the current mathematical approach (just IDLE/MOTION) toward ML-enhanced capabilities (Gesture detection, Human Activity Recognition) and advanced spatial sensing (3D localization via phase-coherent multi-antenna arrays), while maintaining the project's core principles: community-friendly, vendor-neutral, and privacy-first.
 
 ---
 
@@ -46,7 +46,7 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 ├───────────────┤     ├───────────────┤     ├─────────────────────┤
 │ Data & Docs   │     │ ML Models     │     │ MLOps Platform      │
 │ Dataset infra │     │ Training      │     │ Edge-MLOps Hybrid   │
-│ Tooling       │     │ Edge Inference│     │ Advanced Apps       │
+│ Tooling       │     │ Edge Inference│     │ 3D Localization     │
 └───────────────┘     └───────────────┘     └─────────────────────┘
 ```
 
@@ -117,7 +117,7 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 
 ## Long-Term (12-24 months)
 
-**Focus**: MLOps inference services, scalable deployment, and advanced applications.
+**Focus**: MLOps inference services, scalable deployment, 3D indoor localization, and advanced applications.
 
 ### MLOps Inference Services
 
@@ -135,6 +135,76 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 | Lightweight edge models + MLOps fallback | Medium | Exploratory |
 | Federated learning exploration | Low | Research |
 | On-device model updates | Low | Research |
+
+### 3D Localization
+
+**Goal**: Transform motion detection into real-time 3D indoor localization (30-50 cm accuracy).
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Phase coherence validation (2x device prototype) | High | Research |
+| AoA estimation proof-of-concept (1D angle tracking) | High | Research |
+| Custom PCB design (4x ESP32-C5 + shared TCXO) | Medium | Research |
+| MUSIC algorithm implementation for triangulation | Medium | Research |
+| 5GHz WiFi 6 CSI extraction validation | Medium | Research |
+| 3D antenna array geometry optimization | Low | Research |
+
+#### Hardware Architecture (Target)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                 SPectre 3D-Localization Board (100×100mm)               │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌─────────┐     ┌─────────────────────────────────────────────────┐   │
+│   │  TCXO   │────▶│            Clock Buffer (1:4)                   │   │
+│   │ 40MHz   │     │            CDCLVC1104                           │   │
+│   │ ±1ppm   │     └────┬────────┬────────┬────────┬─────────────────┘   │
+│   └─────────┘          │        │        │        │                     │
+│                        ▼        ▼        ▼        ▼                     │
+│                   ┌────────┐┌────────┐┌────────┐┌────────┐              │
+│                   │ESP32-C5││ESP32-C5││ESP32-C5││ESP32-C5│              │
+│                   │  #1    ││  #2    ││  #3    ││  #4    │              │
+│                   └───┬────┘└───┬────┘└───┬────┘└───┬────┘              │
+│                       │         │         │         │                   │
+│                       └────┬────┴────┬────┴────┬────┘                   │
+│                            │   SPI   │   Bus   │                        │
+│                            ▼         ▼         ▼                        │
+│                       ┌─────────────────────────────┐                   │
+│                       │      USB Bridge             │                   │
+│                       │   (CSI @ 100Hz × 4 chips)   │                   │
+│                       └──────────────┬──────────────┘                   │
+│                                      │                                  │
+└──────────────────────────────────────┼──────────────────────────────────┘
+                                       │ USB
+                                       ▼
+                              ┌─────────────────┐
+                              │       PC        │
+                              │  MUSIC Algorithm│
+                              │  (AoA → 3D pos) │
+                              └─────────────────┘
+```
+
+#### Bill of Materials (Estimated)
+
+| Component | Qty | Est. Cost | Notes |
+|-----------|-----|-----------|-------|
+| ESP32-C5-WROOM-1 | 4 | €12.00 | Dual-band WiFi 6 |
+| TCXO 40MHz (±1ppm) | 1 | €4.00 | Phase stability |
+| Clock Buffer 1:4 | 1 | €2.00 | CDCLVC1104 |
+| Buck Regulator 3A | 1 | €4.00 | TPS62130/MP2315 |
+| Dual-Band Antennas | 4 | €12.00 | U.FL + matched cables |
+| Passive Components | - | €5.00 | Caps, resistors, USB-C |
+| PCB (4-layer) | 1 | €35.00 | Min order 5 pcs (JLCPCB) |
+| **Total** | | **~€75** | Per unit (5 pcs batch) |
+
+#### Validation Steps (Before Hardware Investment)
+
+1. **Phase 1**: Validate CSI phase extraction on ESP32-C5 SDK
+2. **Phase 2**: 2-chip prototype with separate clocks → measure phase drift
+3. **Phase 3**: 2-chip prototype with shared TCXO → validate coherence
+4. **Phase 4**: 1D AoA estimation (angle tracking with 2 antennas)
+5. **Phase 5**: Full 4-chip board design and 3D localization
 
 ### Advanced Applications
 
@@ -167,7 +237,7 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
                                            └───────────────────────┘
 ```
 
-### Future Architecture (v3.x+)
+### Future Architecture (v3.x)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -199,6 +269,48 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
                                          │   Home Assistant      │
                                          │   (Auto-discovery)    │
                                          └───────────────────────┘
+```
+
+### 3D-Localization Architecture (v4.x)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│              ESPectre 3D-Localization Board (4x ESP32-C5)                 │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   ┌─────────┐     ┌─────────────────────────────────────────────┐   │
+│   │  TCXO   │────▶│         Clock Buffer (1:4)                  │   │
+│   │ 40MHz   │     └────┬──────────┬──────────┬──────────┬───────┘   │
+│   └─────────┘          │          │          │          │           │
+│                        ▼          ▼          ▼          ▼           │
+│                   ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐       │
+│                   │  C5 #1 │ │  C5 #2 │ │  C5 #3 │ │  C5 #4 │       │
+│                   │ 5GHz   │ │ 5GHz   │ │ 5GHz   │ │ 5GHz   │       │
+│                   └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘       │
+│                       │          │          │          │            │
+│                       └────┬─────┴─────┬────┴─────┬────┘            │
+│                            │   SPI Bus (CSI @ 100Hz × 4)            │
+│                            ▼                                        │
+│                       ┌────────────────────────────┐                │
+│                       │     USB Bridge → PC        │                │
+│                       └────────────┬───────────────┘                │
+│                                    │                                │
+└────────────────────────────────────┼────────────────────────────────┘
+                                     │ USB
+                                     ▼
+                    ┌────────────────────────────────────┐
+                    │               PC                   │
+                    ├────────────────────────────────────┤
+                    │  ┌────────────┐   ┌─────────────┐  │
+                    │  │  MUSIC     │──▶│ 3D Position │  │
+                    │  │  Algorithm │   │   (X,Y,Z)   │  │
+                    │  └────────────┘   └──────┬──────┘  │
+                    └──────────────────────────┼─────────┘
+                                               │
+                                   ┌───────────▼───────────┐
+                                   │   Home Assistant      │
+                                   │  (Position Tracking)  │
+                                   └───────────────────────┘
 ```
 
 ---
@@ -256,7 +368,7 @@ This roadmap evolves with community input. Here's how you can contribute:
 
 ## Roadmap Updates
 
-This roadmap is reviewed and updated quarterly. Last update: **December 2025**
+This roadmap is reviewed and updated quarterly. Last update: **January 2026**
 
 For the latest status and discussion:
 - [GitHub Issues](https://github.com/francescopace/espectre/issues?q=is%3Aissue+label%3Aroadmap)

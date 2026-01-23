@@ -56,8 +56,9 @@ def calc_avg_magnitude(iq_data, subcarriers, num_packets=500):
     mags = []
     for pkt in iq_data[:num_packets]:
         for sc in subcarriers:
-            I = float(pkt[sc * 2])
-            Q = float(pkt[sc * 2 + 1])
+            # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+            Q = float(pkt[sc * 2])      # Imaginary first
+            I = float(pkt[sc * 2 + 1])  # Real second
             mags.append(math.sqrt(I*I + Q*Q))
     return np.mean(mags)
 

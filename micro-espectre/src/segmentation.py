@@ -187,18 +187,18 @@ class SegmentationContext:
             max_values = min(128, len(csi_data))
             for i in range(0, max_values, 2):
                 if i + 1 < max_values:
-                    # Convert to float to avoid int8 overflow
-                    real = float(csi_data[i])
-                    imag = float(csi_data[i + 1])
+                    # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                    imag = float(csi_data[i])      # Imaginary first
+                    real = float(csi_data[i + 1])  # Real second
                     amplitudes.append(math.sqrt(real * real + imag * imag))
         else:
             # Use only selected subcarriers (matches C version)
             for sc_idx in selected_subcarriers:
                 i = sc_idx * 2
                 if i + 1 < len(csi_data):
-                    # Convert to float to avoid int8 overflow
-                    real = float(csi_data[i])
-                    imag = float(csi_data[i + 1])
+                    # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                    imag = float(csi_data[i])      # Imaginary first
+                    real = float(csi_data[i + 1])  # Real second
                     amplitudes.append(math.sqrt(real * real + imag * imag))
         
         if len(amplitudes) < 2:

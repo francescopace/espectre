@@ -78,8 +78,9 @@ def analyze_amplitudes_per_subcarrier(packets, name, num_subcarriers=64):
         for sc_idx in range(num_subcarriers):
             i = sc_idx * 2
             if i + 1 < len(csi):
-                I = float(csi[i])
-                Q = float(csi[i + 1])
+                # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                Q = float(csi[i])      # Imaginary first
+                I = float(csi[i + 1])  # Real second
                 amp = math.sqrt(I*I + Q*Q)
                 amp_per_sc[sc_idx].append(amp)
     
@@ -373,8 +374,21 @@ def main():
         try:
             import matplotlib.pyplot as plt
             
-            fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+            fig, axes = plt.subplots(2, 3, figsize=(20, 12))
             fig.suptitle('ESP32-S3 vs ESP32-C6 CSI Comparison', fontsize=14)
+            
+            # Maximize window
+            try:
+                mng = plt.get_current_fig_manager()
+                if hasattr(mng, 'window'):
+                    if hasattr(mng.window, 'showMaximized'):
+                        mng.window.showMaximized()
+                    elif hasattr(mng.window, 'state'):
+                        mng.window.state('zoomed')
+                elif hasattr(mng, 'full_screen_toggle'):
+                    mng.full_screen_toggle()
+            except Exception:
+                pass
             
             # Plot 1: I/Q Distribution
             ax = axes[0, 0]

@@ -140,9 +140,9 @@ class NBVICalibrator(ICalibrator):
             q_idx = sc * 2 + 1
             
             if q_idx < len(csi_data):
-                # Convert to int to handle numpy int8 arrays (avoid overflow)
-                I = int(csi_data[i_idx])
-                Q = int(csi_data[q_idx])
+                # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                Q = int(csi_data[i_idx])   # Imaginary first
+                I = int(csi_data[q_idx])   # Real second
                 # Handle unsigned bytes (0-255) from Python tests
                 if I > 127:
                     I = I - 256

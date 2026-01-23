@@ -164,9 +164,9 @@ class CSIReceiver:
             dtype=np.int8
         )
         
-        # Convert to complex
-        I = iq_raw[0::2].astype(np.float32)
-        Q = iq_raw[1::2].astype(np.float32)
+        # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+        Q = iq_raw[0::2].astype(np.float32)  # Imaginary first (even indices)
+        I = iq_raw[1::2].astype(np.float32)  # Real second (odd indices)
         iq_complex = I + 1j * Q
         
         # Calculate amplitude and phase

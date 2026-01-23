@@ -323,8 +323,9 @@ def calculate_per_subcarrier_amplitudes(csi_packet, num_sc):
     """Calculate amplitude for each subcarrier"""
     amplitudes = []
     for sc_idx in range(num_sc):
-        I = float(csi_packet[sc_idx * 2])
-        Q = float(csi_packet[sc_idx * 2 + 1])
+        # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+        Q = float(csi_packet[sc_idx * 2])      # Imaginary first
+        I = float(csi_packet[sc_idx * 2 + 1])  # Real second
         amplitude = np.sqrt(I*I + Q*Q)
         amplitudes.append(amplitude)
     return amplitudes
@@ -338,8 +339,9 @@ def calculate_subcarrier_metrics(packets, num_sc):
         amplitudes = []
         phases = []
         for sc_idx in range(num_sc):
-            I = float(pkt['csi_data'][sc_idx * 2])
-            Q = float(pkt['csi_data'][sc_idx * 2 + 1])
+            # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+            Q = float(pkt['csi_data'][sc_idx * 2])      # Imaginary first
+            I = float(pkt['csi_data'][sc_idx * 2 + 1])  # Real second
             amplitude = np.sqrt(I*I + Q*Q)
             phase = np.arctan2(Q, I)
             amplitudes.append(amplitude)

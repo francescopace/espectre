@@ -91,8 +91,9 @@ def calculate_turbulence_filtered_iq(csi_packet, hampel_I, hampel_Q, subcarriers
     """Calculate turbulence from filtered I/Q values"""
     amplitudes = []
     for i, sc_idx in enumerate(subcarriers):
-        I_raw = float(csi_packet[sc_idx * 2])
-        Q_raw = float(csi_packet[sc_idx * 2 + 1])
+        # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+        Q_raw = float(csi_packet[sc_idx * 2])      # Imaginary first
+        I_raw = float(csi_packet[sc_idx * 2 + 1])  # Real second
         I_filt = hampel_I[i].filter(I_raw)
         Q_filt = hampel_Q[i].filter(Q_raw)
         amplitudes.append(np.sqrt(I_filt*I_filt + Q_filt*Q_filt))
@@ -107,8 +108,9 @@ def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarrier
     """
     amplitudes = []
     for i, sc_idx in enumerate(subcarriers):
-        I = float(csi_packet[sc_idx * 2])
-        Q = float(csi_packet[sc_idx * 2 + 1])
+        # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+        Q = float(csi_packet[sc_idx * 2])      # Imaginary first
+        I = float(csi_packet[sc_idx * 2 + 1])  # Real second
         raw_amp = np.sqrt(I*I + Q*Q)
         # Apply Hampel to the amplitude time series for this subcarrier
         filtered_amp = hampel_amps[i].filter(raw_amp)
@@ -205,8 +207,21 @@ def plot_comparison(results, threshold):
     import matplotlib.pyplot as plt
     
     num_results = len(results)
-    fig, axes = plt.subplots(num_results, 2, figsize=(14, 4 * num_results))
+    fig, axes = plt.subplots(num_results, 2, figsize=(20, 4 * num_results))
     fig.suptitle('Filter Location Comparison', fontsize=14, fontweight='bold')
+    
+    # Maximize window
+    try:
+        mng = plt.get_current_fig_manager()
+        if hasattr(mng, 'window'):
+            if hasattr(mng.window, 'showMaximized'):
+                mng.window.showMaximized()
+            elif hasattr(mng.window, 'state'):
+                mng.window.state('zoomed')
+        elif hasattr(mng, 'full_screen_toggle'):
+            mng.full_screen_toggle()
+    except Exception:
+        pass
     
     for i, (name, result) in enumerate(results.items()):
         if result['baseline_data'] is None:

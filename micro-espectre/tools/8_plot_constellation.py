@@ -51,9 +51,10 @@ def extract_iq_data(packets, subcarriers, num_packets=50, offset=0):
     for pkt in selected_packets:
         csi_data = pkt['csi_data']
         for sc_idx in subcarriers:
-            i_idx = sc_idx * 2
-            q_idx = sc_idx * 2 + 1
-            if q_idx < len(csi_data):
+            # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+            q_idx = sc_idx * 2      # Imaginary first
+            i_idx = sc_idx * 2 + 1  # Real second
+            if i_idx < len(csi_data):
                 I = float(csi_data[i_idx])
                 Q = float(csi_data[q_idx])
                 iq_data[sc_idx]['I'].append(I)
@@ -93,12 +94,25 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     colors = plt.cm.tab20(np.linspace(0, 1, len(subcarriers)))
     
     # Create figure with 2x2 layout
-    fig = plt.figure(figsize=(16, 12))
+    fig = plt.figure(figsize=(20, 12))
     
     # Main title with subcarrier info
     sc_range = f"SC [{subcarriers[0]}-{subcarriers[-1]}]" if len(subcarriers) > 1 else f"SC {subcarriers[0]}"
     fig.suptitle(f'I/Q Constellation Diagrams - {total_subcarriers} SC Dataset - {sc_range}\n{num_packets} Packets (offset={offset})', 
                  fontsize=14, fontweight='bold')
+    
+    # Maximize window
+    try:
+        mng = plt.get_current_fig_manager()
+        if hasattr(mng, 'window'):
+            if hasattr(mng.window, 'showMaximized'):
+                mng.window.showMaximized()
+            elif hasattr(mng.window, 'state'):
+                mng.window.state('zoomed')
+        elif hasattr(mng, 'full_screen_toggle'):
+            mng.full_screen_toggle()
+    except Exception:
+        pass
     
     # ========================================================================
     # TOP LEFT: Baseline - ALL 64 Subcarriers
@@ -230,9 +244,22 @@ def plot_single_subcarrier_grid(baseline_packets, movement_packets,
     n_rows = (n_subcarriers + n_cols - 1) // n_cols
     
     # Create figure
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 12))
     fig.suptitle(f'Individual Subcarrier Constellations - {num_packets} Packets (offset={offset})', 
                  fontsize=14, fontweight='bold')
+    
+    # Maximize window
+    try:
+        mng = plt.get_current_fig_manager()
+        if hasattr(mng, 'window'):
+            if hasattr(mng.window, 'showMaximized'):
+                mng.window.showMaximized()
+            elif hasattr(mng.window, 'state'):
+                mng.window.state('zoomed')
+        elif hasattr(mng, 'full_screen_toggle'):
+            mng.full_screen_toggle()
+    except Exception:
+        pass
     
     # Flatten axes array for easier iteration
     if n_subcarriers == 1:

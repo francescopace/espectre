@@ -188,8 +188,10 @@ void test_file_write_via_add_packet_simulation(void) {
         uint8_t magnitudes[64];
         const int8_t* pkt = baseline_packets[p];
         for (uint8_t sc = 0; sc < 64; sc++) {
-            // Calculate magnitude using utils.h function
-            float mag = calculate_magnitude(pkt[sc * 2], pkt[sc * 2 + 1]);
+            // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+            int8_t q_val = pkt[sc * 2];      // Imaginary first
+            int8_t i_val = pkt[sc * 2 + 1];  // Real second
+            float mag = calculate_magnitude(i_val, q_val);
             magnitudes[sc] = static_cast<uint8_t>(std::min(mag, 255.0f));
         }
         
@@ -257,9 +259,12 @@ void test_magnitude_extraction_real_data(void) {
     const int8_t* packet = baseline_packets[0];
     
     // Calculate magnitudes for all 64 subcarriers using utils.h
+    // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
     float magnitudes[64];
     for (uint8_t sc = 0; sc < 64; sc++) {
-        magnitudes[sc] = calculate_magnitude(packet[sc * 2], packet[sc * 2 + 1]);
+        int8_t q_val = packet[sc * 2];      // Imaginary first
+        int8_t i_val = packet[sc * 2 + 1];  // Real second
+        magnitudes[sc] = calculate_magnitude(i_val, q_val);
     }
     
     // Guard bands (0-5) should have low/zero magnitude
@@ -282,10 +287,11 @@ void test_magnitude_consistency_across_packets(void) {
     // Magnitudes should be relatively consistent across baseline packets
     const uint8_t TEST_SC = 20;  // Test subcarrier 20
     
+    // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
     std::vector<float> magnitudes(100);
     for (int p = 0; p < 100; p++) {
         const int8_t* pkt = baseline_packets[p];
-        magnitudes[p] = calculate_magnitude(pkt[TEST_SC * 2], pkt[TEST_SC * 2 + 1]);
+        magnitudes[p] = calculate_magnitude(pkt[TEST_SC * 2 + 1], pkt[TEST_SC * 2]);
     }
     
     // Calculate variance using utils.h
@@ -354,10 +360,11 @@ void test_band_metric_calculation_real_data(void) {
     const uint8_t TEST_SC = 15;
     
     // Collect magnitudes for 100 baseline packets using utils.h
+    // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
     std::vector<float> magnitudes(100);
     for (int p = 0; p < 100; p++) {
         const int8_t* pkt = baseline_packets[p];
-        magnitudes[p] = calculate_magnitude(pkt[TEST_SC * 2], pkt[TEST_SC * 2 + 1]);
+        magnitudes[p] = calculate_magnitude(pkt[TEST_SC * 2 + 1], pkt[TEST_SC * 2]);
     }
     
     // Calculate mean
@@ -389,11 +396,12 @@ void test_band_ranking_identifies_best_subcarriers(void) {
     std::vector<BandResult> results(64);
     
     // Calculate variance for all subcarriers using utils.h
+    // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
     for (uint8_t sc = 0; sc < 64; sc++) {
         std::vector<float> magnitudes(100);
         for (int p = 0; p < 100; p++) {
             const int8_t* pkt = baseline_packets[p];
-            magnitudes[p] = calculate_magnitude(pkt[sc * 2], pkt[sc * 2 + 1]);
+            magnitudes[p] = calculate_magnitude(pkt[sc * 2 + 1], pkt[sc * 2]);
         }
         
         float sum = 0.0f;
@@ -538,11 +546,12 @@ void test_noise_gate_filters_low_magnitude_subcarriers(void) {
     std::vector<SubcarrierInfo> subcarriers;
     
     // Guard bands (0-5, 59-63) typically have low magnitude
+    // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
     for (uint8_t i = 0; i < 64; i++) {
         float mean = 0.0f;
         for (int p = 0; p < 100; p++) {
-            mean += calculate_magnitude(baseline_packets[p][i * 2], 
-                                        baseline_packets[p][i * 2 + 1]);
+            mean += calculate_magnitude(baseline_packets[p][i * 2 + 1], 
+                                        baseline_packets[p][i * 2]);
         }
         mean /= 100;
         subcarriers.push_back({i, mean});

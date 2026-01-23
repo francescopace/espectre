@@ -727,10 +727,23 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
         }
     
     # Create visualization
-    fig = plt.figure(figsize=(16, 14))
+    fig = plt.figure(figsize=(20, 12))
     fig.suptitle('ESPectre - Filter Effect on Moving Variance\n'
-                 'Left: Baseline (FP should be 0) | Right: Movement (TP should be high)', 
+                 'Left: Baseline (FP should be 0) | Right: Movement (TP should be high)',
                  fontsize=13, fontweight='bold')
+    
+    # Maximize window
+    try:
+        mng = plt.get_current_fig_manager()
+        if hasattr(mng, 'window'):
+            if hasattr(mng.window, 'showMaximized'):
+                mng.window.showMaximized()
+            elif hasattr(mng.window, 'state'):
+                mng.window.state('zoomed')
+        elif hasattr(mng, 'full_screen_toggle'):
+            mng.full_screen_toggle()
+    except Exception:
+        pass
     
     # Colors for each filter type
     colors = {
@@ -821,11 +834,24 @@ def plot_comparison(results, threshold):
     # Combine: No Filter + Top 3
     configs_to_plot = [no_filter] + top_3_filters
     
-    fig = plt.figure(figsize=(16, 14))
+    fig = plt.figure(figsize=(20, 12))
     gs = fig.add_gridspec(4, 2, hspace=0.3, wspace=0.3)
     
     fig.suptitle('ESPectre - No Filter vs Top 3 Filters (by Score)', 
                  fontsize=14, fontweight='bold')
+    
+    # Maximize window
+    try:
+        mng = plt.get_current_fig_manager()
+        if hasattr(mng, 'window'):
+            if hasattr(mng.window, 'showMaximized'):
+                mng.window.showMaximized()
+            elif hasattr(mng.window, 'state'):
+                mng.window.state('zoomed')
+        elif hasattr(mng, 'full_screen_toggle'):
+            mng.full_screen_toggle()
+    except Exception:
+        pass
     
     for i, (config_name, result) in enumerate(configs_to_plot):
         # Skip if no data

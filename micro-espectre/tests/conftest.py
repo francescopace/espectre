@@ -155,8 +155,9 @@ def synthetic_csi_baseline_packets():
         for sc in range(64):
             I = int(base_amplitude + np.random.normal(0, 2))
             Q = int(base_amplitude * 0.3 + np.random.normal(0, 2))
-            iq_data[sc * 2] = np.clip(I, -127, 127)
-            iq_data[sc * 2 + 1] = np.clip(Q, -127, 127)
+            # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+            iq_data[sc * 2] = np.clip(Q, -127, 127)      # Imaginary first
+            iq_data[sc * 2 + 1] = np.clip(I, -127, 127)  # Real second
         packets.append({'csi_data': iq_data, 'label': 'baseline'})
     return packets
 
@@ -173,8 +174,9 @@ def synthetic_csi_movement_packets():
         for sc in range(64):
             I = int(base_amplitude + np.random.normal(0, 8))
             Q = int(base_amplitude * 0.3 + np.random.normal(0, 8))
-            iq_data[sc * 2] = np.clip(I, -127, 127)
-            iq_data[sc * 2 + 1] = np.clip(Q, -127, 127)
+            # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+            iq_data[sc * 2] = np.clip(Q, -127, 127)      # Imaginary first
+            iq_data[sc * 2 + 1] = np.clip(I, -127, 127)  # Real second
         packets.append({'csi_data': iq_data, 'label': 'movement'})
     return packets
 

@@ -75,6 +75,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 
 **Data flow per packet (after calibration):**
 1. **CSI Data**: Raw I/Q values for 64 subcarriers (HT20 mode)
+   - Espressif format: `[Q₀, I₀, Q₁, I₁, ...]` (Imaginary first, Real second per subcarrier)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
 3. **Spatial Turbulence**: `σ = std(amplitudes)` - variability across subcarriers
 4. **Hampel Filter**: Remove outliers using MAD (optional, disabled by default)

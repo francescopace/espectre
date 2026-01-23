@@ -183,9 +183,10 @@ def baseline_amplitudes(real_data, default_subcarriers):
         csi_data = pkt['csi_data']
         amps = []
         for sc_idx in default_subcarriers:
-            i_idx = sc_idx * 2
-            q_idx = sc_idx * 2 + 1
-            if q_idx < len(csi_data):
+            # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+            q_idx = sc_idx * 2      # Imaginary first
+            i_idx = sc_idx * 2 + 1  # Real second
+            if i_idx < len(csi_data):
                 I = float(csi_data[i_idx])
                 Q = float(csi_data[q_idx])
                 amps.append(math.sqrt(I**2 + Q**2))
@@ -204,9 +205,10 @@ def movement_amplitudes(real_data, default_subcarriers):
         csi_data = pkt['csi_data']
         amps = []
         for sc_idx in default_subcarriers:
-            i_idx = sc_idx * 2
-            q_idx = sc_idx * 2 + 1
-            if q_idx < len(csi_data):
+            # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+            q_idx = sc_idx * 2      # Imaginary first
+            i_idx = sc_idx * 2 + 1  # Real second
+            if i_idx < len(csi_data):
                 I = float(csi_data[i_idx])
                 Q = float(csi_data[q_idx])
                 amps.append(math.sqrt(I**2 + Q**2))
@@ -800,20 +802,23 @@ class TestFloat32Stability:
             csi_data = pkt['csi_data']
             
             # Float64 reference (Python default)
+            # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
             amplitudes_f64 = []
             for sc_idx in default_subcarriers:
-                i = sc_idx * 2
-                I = float(csi_data[i])
-                Q = float(csi_data[i + 1])
+                q_idx = sc_idx * 2      # Imaginary first
+                i_idx = sc_idx * 2 + 1  # Real second
+                I = float(csi_data[i_idx])
+                Q = float(csi_data[q_idx])
                 amplitudes_f64.append(math.sqrt(I*I + Q*Q))
             turb_f64 = np.std(amplitudes_f64)
             
             # Float32 simulation (ESP32)
             amplitudes_f32 = []
             for sc_idx in default_subcarriers:
-                i = sc_idx * 2
-                I = np.float32(float(csi_data[i]))
-                Q = np.float32(float(csi_data[i + 1]))
+                q_idx = sc_idx * 2      # Imaginary first
+                i_idx = sc_idx * 2 + 1  # Real second
+                I = np.float32(float(csi_data[i_idx]))
+                Q = np.float32(float(csi_data[q_idx]))
                 amp = np.sqrt(I*I + Q*Q)
                 amplitudes_f32.append(float(amp))
             turb_f32 = np.std(np.array(amplitudes_f32, dtype=np.float32))

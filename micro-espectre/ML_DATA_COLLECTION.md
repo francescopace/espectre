@@ -177,8 +177,9 @@ Each `.npz` file contains a minimal, compact format optimized for ML training:
 Amplitudes and phases can be computed on-the-fly from `csi_data`:
 
 ```python
-I = csi_data[:, 0::2].astype(float)
-Q = csi_data[:, 1::2].astype(float)
+# Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+Q = csi_data[:, 0::2].astype(float)  # Imaginary (Q) at even indices
+I = csi_data[:, 1::2].astype(float)  # Real (I) at odd indices
 amplitudes = np.sqrt(I**2 + Q**2)
 phases = np.arctan2(Q, I)
 ```
@@ -195,8 +196,9 @@ label = str(data['label'])         # 'baseline'
 num_sc = int(data['num_subcarriers'])  # 64
 
 # Compute amplitudes from raw I/Q data
-I = csi_data[:, 0::2].astype(float)  # Shape: (N, 64)
-Q = csi_data[:, 1::2].astype(float)  # Shape: (N, 64)
+# Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+Q = csi_data[:, 0::2].astype(float)  # Imaginary (Q) - Shape: (N, 64)
+I = csi_data[:, 1::2].astype(float)  # Real (I) - Shape: (N, 64)
 amplitudes = np.sqrt(I**2 + Q**2)    # Shape: (N, 64)
 phases = np.arctan2(Q, I)            # Shape: (N, 64)
 ```

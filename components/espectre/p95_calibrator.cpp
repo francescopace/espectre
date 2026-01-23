@@ -100,8 +100,9 @@ bool P95Calibrator::add_packet(const int8_t* csi_data, size_t csi_len) {
   uint8_t magnitudes[HT20_NUM_SUBCARRIERS];
   
   for (uint16_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
-    int8_t i_val = csi_data[sc * 2];
-    int8_t q_val = csi_data[sc * 2 + 1];
+    // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+    int8_t q_val = csi_data[sc * 2];      // Imaginary first
+    int8_t i_val = csi_data[sc * 2 + 1];  // Real second
     float mag = calculate_magnitude(i_val, q_val);
     magnitudes[sc] = static_cast<uint8_t>(std::min(mag, 255.0f));
   }

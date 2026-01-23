@@ -78,8 +78,9 @@ def extract_magnitudes(csi_data):
     """Extract magnitudes from CSI I/Q data"""
     magnitudes = []
     for sc in range(NUM_SUBCARRIERS):
-        I = csi_data[sc * 2]
-        Q = csi_data[sc * 2 + 1]
+        # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+        Q = csi_data[sc * 2]      # Imaginary first
+        I = csi_data[sc * 2 + 1]  # Real second
         magnitudes.append(calculate_amplitude(I, Q))
     return magnitudes
 
@@ -299,9 +300,22 @@ def plot_comparison(results, threshold):
     """Visualize comparison of subcarrier selection strategies"""
     import matplotlib.pyplot as plt
     
-    fig, axes = plt.subplots(3, 2, figsize=(16, 12))
+    fig, axes = plt.subplots(3, 2, figsize=(20, 12))
     fig.suptitle(f'Subcarrier Selection Comparison - Window={WINDOW_SIZE}, Adaptive P{ADAPTIVE_PERCENTILE}x{ADAPTIVE_FACTOR}', 
                  fontsize=14, fontweight='bold')
+    
+    # Maximize window
+    try:
+        mng = plt.get_current_fig_manager()
+        if hasattr(mng, 'window'):
+            if hasattr(mng.window, 'showMaximized'):
+                mng.window.showMaximized()
+            elif hasattr(mng.window, 'state'):
+                mng.window.state('zoomed')
+        elif hasattr(mng, 'full_screen_toggle'):
+            mng.full_screen_toggle()
+    except Exception:
+        pass
     
     strategies = ['Fixed', 'NBVI', 'P95']
     colors = {'Fixed': 'blue', 'NBVI': 'blue', 'P95': 'blue'}
