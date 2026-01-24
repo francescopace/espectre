@@ -368,7 +368,7 @@ The **P95 Moving Variance** algorithm selects 12 consecutive subcarriers by mini
 #### Key Insight
 
 The 95th percentile of moving variance (P95 MV) during baseline directly predicts the false positive rate:
-- If P95 MV < detection threshold → near-zero false positives
+- If P95 MV < detection threshold → low false positives
 - If P95 MV > detection threshold → high false positive rate
 
 The algorithm evaluates all candidate 12-subcarrier bands and selects the one with:
@@ -493,7 +493,7 @@ def calculate_adaptive_threshold(mv_values, threshold_mode="auto"):
     if threshold_mode == "min":
         percentile, factor = 100, 1.0  # Maximum sensitivity
     else:  # "auto"
-        percentile, factor = 95, 1.4   # Zero false positives
+        percentile, factor = 95, 1.4   # Low false positives
     
     pxx = calculate_percentile(mv_values, percentile)
     return pxx * factor

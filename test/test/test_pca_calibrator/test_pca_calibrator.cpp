@@ -293,17 +293,17 @@ void test_pca_calibrator_threshold_calculation(void) {
     TEST_ASSERT_TRUE(received_cal_values.size() > 0);
     
     // Calculate threshold using the formula from threshold.h
-    // PCA: threshold = 1 - min(correlation)
+    // PCA: threshold = (1 - min(correlation)) * PCA_SCALE
     float min_corr = *std::min_element(received_cal_values.begin(), received_cal_values.end());
-    float threshold = 1.0f - min_corr;
+    float threshold = (1.0f - min_corr) * PCA_SCALE;
     
     printf("PCA Threshold calculation:\n");
     printf("  Min correlation: %.4f\n", min_corr);
-    printf("  Threshold (1 - min_corr): %.4f\n", threshold);
+    printf("  Threshold ((1 - min_corr) * %.0f): %.4f\n", PCA_SCALE, threshold);
     
-    // Threshold should be reasonable (small for stable baseline)
+    // Threshold should be reasonable (scaled values, typically 0.5-5.0 for stable baseline)
     TEST_ASSERT_TRUE(threshold > 0.0f);
-    TEST_ASSERT_TRUE(threshold < 1.0f);
+    TEST_ASSERT_TRUE(threshold < 10.0f);
 }
 
 // ============================================================================

@@ -50,7 +50,9 @@
 | Algorithm | Method | Best For |
 |-----------|--------|----------|
 | **MVS** (default) | Moving Variance Segmentation | Most environments (~99% recall) |
-| **PCA** | Principal Component Analysis | Zero false positives required (~18% recall) |
+| **PCA** | Principal Component Analysis | Experimental |
+
+> **Note**: PCA is experimental. Use MVS (default) for general-purpose motion detection.
 
 - **No ML training required**: Works out-of-the-box with mathematical algorithms
 - **Real-time processing**: Low latency detection on ESP32 hardware

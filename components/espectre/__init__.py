@@ -98,7 +98,7 @@ CONFIG_SCHEMA = cv.Schema({
     
     # Motion detection parameters
     # segmentation_threshold:
-    #   - auto (default): P95 × 1.4 - zero false positives
+    #   - auto (default): P95 × 1.4 - low false positives
     #   - min: P100 × 1.0 - maximum sensitivity (may have FP)
     #   - number (0.1-10.0): fixed manual threshold
     cv.Optional(CONF_SEGMENTATION_THRESHOLD, default="auto"): validate_segmentation_threshold,

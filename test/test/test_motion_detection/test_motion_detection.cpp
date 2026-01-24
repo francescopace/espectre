@@ -764,7 +764,7 @@ void test_pca_detection_accuracy(void) {
     calibrator.init(&csi_manager);
     
     // Calibration results
-    float calibrated_threshold = 0.01f;  // Default PCA threshold
+    float calibrated_threshold = PCA_DEFAULT_THRESHOLD;  // Default PCA threshold (scaled)
     float min_corr = 1.0f;
     bool calibration_success = false;
     std::vector<float> calibration_values;
@@ -774,10 +774,10 @@ void test_pca_detection_accuracy(void) {
         [&](const uint8_t* band, uint8_t size, const std::vector<float>& corr_values, bool success) {
             if (success && !corr_values.empty()) {
                 calibration_values = corr_values;
-                // PCA threshold = 1 - min(correlation)
+                // PCA threshold = (1 - min(correlation)) * PCA_SCALE
                 // corr_values contains correlation values from baseline
                 min_corr = *std::min_element(corr_values.begin(), corr_values.end());
-                calibrated_threshold = 1.0f - min_corr;
+                calibrated_threshold = (1.0f - min_corr) * PCA_SCALE;
             }
             calibration_success = success;
         });
@@ -907,13 +907,9 @@ void test_pca_detection_accuracy(void) {
     printf("│  F1 Score:  %6.1f%%                                │\n", f1);
     printf("└─────────────────────────────────────────────────────┘\n");
     
-    // Performance assertions
-    // Note: PCA algorithm targets different use case than MVS
-    // Current implementation has lower recall on test datasets but zero false positives
     // TODO: Optimize PCA parameters and threshold calculation for higher recall
     if (recall < 50.0f) {
-        printf("\nNote: PCA recall is below 50%%. This is expected for current implementation.\n");
-        printf("      PCA excels at zero false positives, MVS is recommended for high recall.\n");
+        printf("\nNote: PCA recall is below 50%%. This is expected for current experimental implementation.\n");
     }
     TEST_ASSERT_TRUE_MESSAGE(recall > 10.0f, "PCA Recall critically low (minimum: >10%)");
     if (baseline_eval_count > 0) {

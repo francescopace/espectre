@@ -65,11 +65,12 @@ void test_pca_detector_set_threshold_negative(void) {
     TEST_ASSERT_EQUAL_FLOAT(original, detector.get_threshold());
 }
 
-void test_pca_detector_set_threshold_above_one(void) {
+void test_pca_detector_set_threshold_above_max(void) {
     PCADetector detector;
     float original = detector.get_threshold();
     
-    TEST_ASSERT_FALSE(detector.set_threshold(1.5f));
+    // Threshold is now scaled by PCA_SCALE (1000), valid range is 0.0-10.0
+    TEST_ASSERT_FALSE(detector.set_threshold(15.0f));
     TEST_ASSERT_EQUAL_FLOAT(original, detector.get_threshold());
 }
 
@@ -246,10 +247,10 @@ void test_pca_detector_with_real_baseline(void) {
     bool ready = detector.is_ready();
     ESP_LOGI(TAG, "is_ready after %d packets: %d", packets_to_process, ready);
     
-    // Jitter should be in valid range
+    // Jitter should be in valid range (scaled by PCA_SCALE = 1000)
     float jitter = detector.get_motion_metric();
     ESP_LOGI(TAG, "Baseline jitter: %.4f", jitter);
-    TEST_ASSERT_TRUE(jitter >= 0.0f && jitter <= 1.0f);
+    TEST_ASSERT_TRUE(jitter >= 0.0f && jitter <= PCA_SCALE);
 }
 
 void test_pca_detector_with_real_movement(void) {
@@ -371,7 +372,7 @@ int process(void) {
     // Threshold tests
     RUN_TEST(test_pca_detector_set_threshold_valid);
     RUN_TEST(test_pca_detector_set_threshold_negative);
-    RUN_TEST(test_pca_detector_set_threshold_above_one);
+    RUN_TEST(test_pca_detector_set_threshold_above_max);
     
     // Packet processing tests
     RUN_TEST(test_pca_detector_process_packet_increments_count);

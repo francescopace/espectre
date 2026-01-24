@@ -370,10 +370,13 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         selected_band, cal_values = calibrator.calibrate()
         
         if is_pca:
-            # PCA: calculate threshold as 1 - min(correlation)
+            # PCA: calculate threshold as (1 - min(correlation)) * PCA_SCALE
+            from src.pca_detector import PCADetector
+            PCA_SCALE = PCADetector.PCA_SCALE
+            
             if cal_values and len(cal_values) > 0:
                 min_corr = min(cal_values)
-                pca_threshold = 1.0 - min_corr
+                pca_threshold = (1.0 - min_corr) * PCA_SCALE
                 detector.set_threshold(pca_threshold)
                 success = True
                 
@@ -383,7 +386,7 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
                 print(f'   Algorithm: PCA')
                 print(f'   Subcarrier step: 4 (16 subcarriers)')
                 print(f'   Min correlation: {min_corr:.4f}')
-                print(f'   Threshold: {pca_threshold:.4f} (1 - min_corr)')
+                print(f'   Threshold: {pca_threshold:.4f} ((1 - min_corr) * {PCA_SCALE:.0f})')
                 print('='*60)
                 print('')
             else:

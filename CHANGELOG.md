@@ -4,209 +4,109 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.4.0] - in progress
+## [2.4.0] - 2026-01-24
 
-### Algorithm Changes
+### Highlights
 
-#### Dual Detection Algorithms (MVS + PCA)
+- **Two detection algorithms**: Choose between MVS (default) and PCA (Principal Component Analysis)
+- **Recalibrate from Home Assistant**: New switch to trigger recalibration without reflashing
+- **Adaptive threshold by default**: No manual tuning needed - works out of the box
 
-Two motion detection algorithms are now available via the `IDetector` interface:
+### New Features
 
-| Algorithm | Method | Subcarrier Selection | Best For |
-|-----------|--------|---------------------|----------|
-| **MVS** | Moving Variance of Turbulence | Calibrated (12 best) | Default, most environments |
-| **PCA** | PCA + Correlation (Espressif style) | Fixed step (16) | High-noise environments |
+#### Dual Detection Algorithms
 
-**Configuration:**
+Two motion detection algorithms are now available:
 
-ESPHome (YAML):
-```yaml
-espectre:
-  detection_algorithm: mvs  # default, or "pca"
-```
-
-Python (Micro-ESPectre):
-```python
-from mvs_detector import MVSDetector
-from pca_detector import PCADetector
-
-detector = MVSDetector(window_size=50, threshold=1.0)
-# or
-detector = PCADetector()
-```
-
-**Architecture:**
-- New `IDetector` interface (`detector_interface.h/.py`) for polymorphic detection
-- `MVSDetector` and `PCADetector` implement the interface
-- Legacy `csi_processor` module removed in favor of modular detectors
-- `csi_manager` now uses `IDetector*` for algorithm-agnostic processing
-
-#### Dual Band Selection Algorithms (P95 + NBVI)
-
-Two automatic subcarrier selection algorithms are now available:
-
-| Algorithm | Selection | Best For |
-|-----------|-----------|----------|
-| **NBVI** | 12 non-consecutive subcarriers | Default, spectral diversity |
-| **P95** | 12 consecutive subcarriers | Simpler, consistent selection |
-
-Both algorithms achieve similar performance (~95% Recall, <1% FP Rate).
-
-**Configuration:**
-
-ESPHome (YAML):
-```yaml
-espectre:
-  segmentation_calibration: nbvi  # default, or "p95"
-```
-
-Python (Micro-ESPectre):
-```python
-# In config.py
-CALIBRATION_ALGORITHM = "nbvi"  # default, or "p95"
-```
-
-#### Centralized Adaptive Threshold
-
-The adaptive threshold calculation is now centralized in `threshold.py` (Python) and `threshold.h` (C++):
-
-- Calibrators return `(selected_band, mv_values)` instead of threshold
-- Threshold is calculated as `Pxx × factor` after band selection
-- Cleaner separation of concerns: calibrators do band selection only
-
-**Threshold modes:**
-| Mode | Formula | Description |
-|------|---------|-------------|
-| `auto` | P95 × 1.4 | Minimizes false positives (default) |
-| `min` | P100 × 1.0 | Maximum sensitivity |
-
-#### HT20-Only Mode (64 Subcarriers)
-
-Simplified to WiFi 4 (802.11n) HT20 mode exclusively for stable 64 subcarriers across all ESP32 variants.
-
-- Fixed 64 SC for consistent performance on all chips (C3, C6, S3, original ESP32)
-- Centralized constants in `csi_processor.h` (C++) and `config.py` (Python)
-- Reduced memory footprint with optimized buffer sizes
-
-### Testing
-
-#### Multi-Chip Test Suite (C6 + S3)
-
-Unit tests now run on both ESP32-C6 and ESP32-S3 with dedicated datasets and chip-specific parameters:
-
-| Parameter | ESP32-C6 | ESP32-S3 |
-|-----------|----------|----------|
-| Window Size | 50 | 100 |
-| Subcarriers | [11-22] | [48-59] |
-| Hampel Filter | OFF | ON |
-| FP Rate Target | <10% | <15% |
-
-**Results:**
-- **C6:** 98.8% Recall, 0.0% FP Rate, 99.4% F1-Score
-- **S3:** 99.1% Recall, 14.3% FP Rate, 92.9% F1-Score
-
-S3 dataset requires Hampel filter and larger window to handle higher baseline noise. Both C++ (`pio test`) and Python (`pytest`) test suites validate performance.
-
-### Features
-
-#### Optional Segmentation Threshold
-
-The `segmentation_threshold` parameter is now optional in YAML configuration.
-
-- **Default**: Adaptive threshold calculated as `P95 × 1.4` during calibration
-- **Manual override**: Specify value in YAML to disable adaptive threshold
+| Algorithm | Configuration |
+|-----------|---------------|
+| **MVS** (default) | `detection_algorithm: mvs` |
+| **PCA** (experimental) | `detection_algorithm: pca` |
 
 #### Calibrate Switch
 
-New Home Assistant switch for triggering band recalibration without reflashing.
+New Home Assistant switch for triggering recalibration without reflashing:
 
-- `switch.espectre_calibrate`: Turn ON to start, automatically turns OFF when complete
-- Useful for recalibrating after room layout changes
+- `switch.espectre_calibrate`: Turn ON to recalibrate, auto-turns OFF when complete
+- Useful after room layout changes or furniture moves
 
-#### Other Changes
+#### Adaptive Threshold
 
-- **ESP32-C3 Development Config**: Added `espectre-c3-dev.yaml`
-- **Lower Threshold Minimum**: Lowered from 0.5 to 0.1 for high-sensitivity applications
+The `segmentation_threshold` parameter is now optional:
 
-### Micro-ESPectre (R&D Platform)
+- **Default**: Adaptive threshold calculated as P95 × 1.4 during calibration
+- **Manual override**: Specify value in YAML to use fixed threshold
 
-#### Refactored Calibrator Architecture
+### Improvements
 
-The calibrator modules have been reorganized for better maintainability:
+#### Dual Band Selection Algorithms
 
-| File | Purpose |
-|------|---------|
-| `p95_calibrator.py` | P95 band selection (renamed from `band_calibrator.py`) |
-| `nbvi_calibrator.py` | NBVI band selection (restored) |
-| `threshold.py` | Centralized adaptive threshold calculation |
-| `utils.py` | Common utility functions (percentile, variance, etc.) |
+Two automatic subcarrier selection algorithms:
 
-#### SHA256 Firmware Verification
+| Algorithm | Method | Configuration |
+|-----------|--------|---------------|
+| **NBVI** (default) | 12 non-consecutive subcarriers | `segmentation_calibration: nbvi` |
+| **P95** | 12 consecutive subcarriers | `segmentation_calibration: p95` |
 
-New `verify` command to detect outdated firmware causing CSI collection failures.
+#### HT20-Only Mode
 
-- **Automatic hash check**: Compares deployed vs. source file hashes
-- **Clear warnings**: Identifies mismatched files that need redeployment
+Simplified to WiFi 4 (802.11n) HT20 mode for stable 64 subcarriers across all ESP32 variants:
 
-#### CSI Stream Protocol v2
+- Consistent performance on C3, C6, S3, and original ESP32
+- Reduced memory footprint
 
-- **Chip type in header**: Auto-detected from device, no manual `--chip` option needed
-- **Contributor tracking**: Auto-detected from `git config user.name`
-- **File naming**: `{label}_{chip}_{num_sc}sc_{timestamp}.npz` format
+#### Other Improvements
+
+- **Lower threshold minimum**: 0.1 (was 0.5) for high-sensitivity applications
+- **ESP32-C3 dev config**: Added `espectre-c3-dev.yaml`
 
 ### Bug Fixes
 
 - **ESP32-C3 boot crash**: Fixed duplicate `register_component` calls
-- **USB Serial JTAG**: Use correct ESPHome macro for detection
-- **CSI data overflow**: Limit to 128 bytes to prevent `num_sc` overflow
-- **Game mobile view**: Fixed visualization issues on mobile devices
+- **USB Serial JTAG**: Correct ESPHome macro for detection
+- **CSI data overflow**: Limit to 128 bytes to prevent overflow
 
-### CI/CD
+### Micro-ESPectre (R&D Platform)
 
-#### NPZ Data Loading with cnpy
+- **SHA256 firmware verification**: New `verify` command detects outdated firmware
+- **CSI Stream Protocol v2**: Auto-detected chip type, contributor tracking
+- **Refactored calibrators**: Cleaner architecture with `p95_calibrator.py`, `nbvi_calibrator.py`, `threshold.py`
 
-C++ tests now load CSI data directly from NPZ files using [cnpy](https://github.com/rogersce/cnpy), eliminating the need for duplicate data in C header files.
+### For Contributors
 
-- **Same data source**: Both Python and C++ tests use the same NPZ files in `micro-espectre/data/`
-- **ZIP64 support**: Added ZIP64 extended information parsing to cnpy for NumPy compatibility
-- **Compressed NPZ**: Added `npz_save_compressed()` function with zlib deflate compression
-- **Automatic path detection**: Test loader finds files from any working directory
+<details>
+<summary>Architecture changes, testing, and CI/CD improvements</summary>
 
-> Note: cnpy improvements submitted upstream as [PR](https://github.com/rogersce/cnpy/pull/103)
+#### Architecture
 
-#### Multi-Chip Testing
+- New `IDetector` interface for polymorphic detection (`MVSDetector`, `PCADetector`)
+- Centralized threshold calculation in `threshold.h` / `threshold.py`
+- Legacy `csi_processor` module removed
 
-Tests run with real CSI data from multiple ESP32 chips (C6, S3) using 64 SC datasets.
+#### Multi-Chip Test Suite
 
-- **Parameterized tests**: Both C++ and Python tests iterate over available chip datasets
-- **Centralized test data**: `csi_test_data.h` manages chip-specific data loading
-- **Guard band validation**: Uses centralized `HT20_*` constants from `csi_processor.h`
+Tests run on ESP32-C6 and ESP32-S3 with real CSI data:
 
-#### Smoke Tests (QEMU)
+| Chip | Recall | FP Rate | F1-Score |
+|------|--------|---------|----------|
+| C6 | 98.8% | 0.0% | 99.4% |
+| S3 | 99.1% | 14.3% | 92.9% |
 
-Added automated smoke tests using QEMU emulation to catch firmware crashes early.
+#### CI/CD
 
-- **Supported chips**: ESP32-S3, ESP32-C3, ESP32-C6
-- **Detection**: Kernel panics, Guru Meditation errors, assertion failures, stack smashing
-- **Stack trace analysis**: Automatic `addr2line` decoding on crash for easier debugging
-- **Architecture coverage**: Both Xtensa (S3) and RISC-V (C3, C6)
-- **IDF 5.5**: Upgraded Docker image for smoke tests
+- **NPZ data loading**: C++ tests use same NPZ files as Python via [cnpy](https://github.com/rogersce/cnpy)
+- **QEMU smoke tests**: Catches crashes on S3, C3, C6 before deploy
+- **Stale bot**: Auto-close inactive issues after 30+7 days
+- **Coverage threshold**: CI fails below 80%
 
-New UART configurations in `examples/uart/` for boards with USB-UART bridges (CH340, CP2102, CH343) and QEMU smoke tests.
-
-> Note: ESP32 original is excluded from QEMU testing as the emulator doesn't correctly emulate PHY/radio registers, causing false positive crashes.
-
-#### Other CI Improvements
-
-- **Stale bot**: Auto-close inactive issues/PRs after 30+7 days
-- **Build caching**: Faster CI builds with PlatformIO/ESPHome cache
-- **Coverage threshold**: CI fails if coverage drops below 80%
-- **Dependency updates**: `actions/stale@10`, `actions/upload-artifact@6`
+</details>
 
 ### Documentation
 
+- **Roadmap update**: Added 3D Localization in v4.x (30-50cm indoor tracking with phase-coherent antenna array)
 - Added Part 2 Medium article link to README
-- Updated bug report template with crash debug files section
+- Updated bug report template with crash debug section
+- Added Home Assistant dashboard screenshot to README
 
 ---
 

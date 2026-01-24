@@ -32,7 +32,12 @@ static constexpr size_t PCA_MOVE_BUFFER_SIZE = 5;      // Window for count-based
 static constexpr size_t PCA_OUTLIERS_NUM = 2;          // Violations needed (2/5)
 static constexpr size_t PCA_SUBCARRIER_STEP = 4;       // Use every Nth subcarrier
 static constexpr size_t PCA_NUM_SUBCARRIERS = 64 / PCA_SUBCARRIER_STEP;  // 16 subcarriers
-static constexpr float PCA_DEFAULT_THRESHOLD = 0.01f;
+
+// Scale factor for PCA values (jitter/threshold) to match MVS range
+// PCA jitter is ~0.0001-0.001, MVS variance is ~0.01-1.0
+// Scaling by 1000 makes both algorithms use similar threshold ranges (0.1-10.0)
+static constexpr float PCA_SCALE = 1000.0f;
+static constexpr float PCA_DEFAULT_THRESHOLD = 10.0f;  // 0.01 * PCA_SCALE
 
 /**
  * @brief Calculate Pearson correlation coefficient between two vectors

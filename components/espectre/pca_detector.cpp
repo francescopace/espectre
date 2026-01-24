@@ -220,8 +220,9 @@ void PCADetector::process_packet(const int8_t* csi_data, size_t csi_len,
     float wander_corr = compute_wander(pca_current);
     
     // Invert: 1 - correlation, so high value = movement/change
-    float jitter_inverted = 1.0f - jitter_corr;
-    float wander_inverted = 1.0f - wander_corr;
+    // Scale by PCA_SCALE (1000) to match MVS threshold range (0.1-10.0)
+    float jitter_inverted = (1.0f - jitter_corr) * PCA_SCALE;
+    float wander_inverted = (1.0f - wander_corr) * PCA_SCALE;
     
     current_jitter_ = jitter_inverted;
     current_wander_ = wander_inverted;
@@ -263,9 +264,9 @@ void PCADetector::process_packet(const int8_t* csi_data, size_t csi_len,
         size_t idx = (jitter_buffer_idx_ + PCA_JITTER_BUFFER_SIZE - 1 - i) % PCA_JITTER_BUFFER_SIZE;
         float jitter_val = jitter_buffer_[idx];
         
-        // Dual condition
+        // Dual condition (values are scaled by PCA_SCALE)
         if (jitter_val > threshold_ || 
-            (jitter_val > jitter_median && jitter_val > 0.01f)) {
+            (jitter_val > jitter_median && jitter_val > 10.0f)) {
             move_count++;
         }
     }
@@ -284,8 +285,10 @@ void PCADetector::update_state() {
 }
 
 bool PCADetector::set_threshold(float threshold) {
-    if (threshold < 0.0f || threshold > 1.0f) {
-        ESP_LOGE(TAG, "Invalid threshold: %.3f (must be 0.0-1.0)", threshold);
+    // Threshold is now scaled by PCA_SCALE (1000), so valid range is 0.0-10.0
+    // matching the MVS threshold range (SEGMENTATION_MIN/MAX_THRESHOLD)
+    if (threshold < 0.0f || threshold > 10.0f) {
+        ESP_LOGE(TAG, "Invalid threshold: %.3f (must be 0.0-10.0)", threshold);
         return false;
     }
     threshold_ = threshold;

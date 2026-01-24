@@ -817,20 +817,20 @@ class TestPerformanceMetrics:
         selected_band, correlation_values = calibrator.calibrate()
         calibrator.free_buffer()
         
-        # Calculate threshold using same formula as C++: 1 - min(correlation)
+        # Calculate threshold using same formula as C++: (1 - min(correlation)) * PCA_SCALE
         if correlation_values:
             threshold, _, _, min_corr = calculate_adaptive_threshold(
                 correlation_values, threshold_mode="auto", is_pca=True
             )
         else:
-            threshold = 0.01
+            threshold = 10.0  # PCA_DEFAULT_THRESHOLD (scaled)
             min_corr = 0.99
         
         print(f"\nPCA Calibration: {len(correlation_values)} correlation values collected")
         if correlation_values:
             print(f"  Correlation range: {min(correlation_values):.4f} - {max(correlation_values):.4f}")
             print(f"  min_corr: {min_corr:.4f}")
-            print(f"  Threshold (1 - min_corr): {threshold:.4f}")
+            print(f"  Threshold ((1 - min_corr) * 1000): {threshold:.4f}")
         
         # Initialize detector with calibrated threshold
         detector = PCADetector()
@@ -911,9 +911,6 @@ class TestPerformanceMetrics:
         print(f"  * FP Rate:       {pkt_fp_rate:.1f}%")
         print(f"  * F1-Score:      {pkt_f1:.1f}%")
         print()
-        if pkt_recall < 50.0:
-            print("Note: PCA recall is below 50%. This is expected for current implementation.")
-            print("      PCA excels at zero false positives, MVS is recommended for high recall.")
         print("=" * 70)
         
         # ========================================

@@ -143,10 +143,14 @@ class PCADetector(IDetector):
     DEFAULT_PCA_WINDOW_SIZE = 10
     DEFAULT_MOVE_BUFFER_SIZE = 5
     DEFAULT_OUTLIERS_NUM = 2
-    DEFAULT_MOVE_THRESHOLD = 0.01  # Same as C++ PCA_DEFAULT_THRESHOLD
     DEFAULT_SUBCARRIER_STEP = 4
     BUFF_MAX_LEN = 25
     PCA_CALIBRATION_SAMPLES = 10  # Same as C++ PCA_CALIBRATION_SAMPLES
+    
+    # Scale factor for PCA values to match MVS threshold range (0.1-10.0)
+    # PCA jitter is ~0.0001-0.001, scaling by 1000 brings it to ~0.1-1.0
+    PCA_SCALE = 1000.0
+    DEFAULT_MOVE_THRESHOLD = 10.0  # 0.01 * PCA_SCALE
     
     def __init__(self,
                  pca_window_size=DEFAULT_PCA_WINDOW_SIZE,
@@ -161,7 +165,7 @@ class PCADetector(IDetector):
             pca_window_size: Packets for PCA computation (default: 10)
             move_buffer_size: Buffer for jitter values (default: 5)
             outliers_num: Violations needed to trigger (default: 2)
-            threshold: Threshold on inverted jitter (default: 0.01)
+            threshold: Threshold on inverted jitter (default: 10.0, scaled by PCA_SCALE)
             subcarrier_step: Use every Nth subcarrier (default: 4)
         """
         self.pca_window_size = pca_window_size
@@ -282,9 +286,9 @@ class PCADetector(IDetector):
         jitter_corr = self._compute_waveform_jitter(pca_current)
         wander_corr = self._compute_waveform_wander(pca_current)
         
-        # Invert: 1 - correlation
-        self._current_jitter = 1.0 - jitter_corr
-        self._current_wander = 1.0 - wander_corr
+        # Invert: 1 - correlation, scaled by PCA_SCALE to match MVS range
+        self._current_jitter = (1.0 - jitter_corr) * self.PCA_SCALE
+        self._current_wander = (1.0 - wander_corr) * self.PCA_SCALE
         
         # Store PCA vector
         self.pca_buffer.append(pca_current[:])
@@ -323,8 +327,9 @@ class PCADetector(IDetector):
         # Check only the last move_buffer_size values
         jitter_values = self.jitter_buffer[-self.move_buffer_size:]
         for jitter_val in jitter_values:
+            # Dual condition (values are scaled by PCA_SCALE)
             if (jitter_val > self._threshold or
-                (jitter_val > jitter_median and jitter_val > 0.01)):
+                (jitter_val > jitter_median and jitter_val > 10.0)):
                 move_count += 1
         
         # Update state
@@ -362,8 +367,12 @@ class PCADetector(IDetector):
         return self._threshold
     
     def set_threshold(self, threshold):
-        """Set detection threshold (must be called after PCACalibrator completes)."""
-        if 0.0 <= threshold <= 1.0:
+        """Set detection threshold (must be called after PCACalibrator completes).
+        
+        Threshold is now scaled by PCA_SCALE (1000), valid range is 0.0-10.0
+        matching the MVS threshold range.
+        """
+        if 0.0 <= threshold <= 10.0:
             self._threshold = threshold
             self._threshold_externally_set = True
             return True

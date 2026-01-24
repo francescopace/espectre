@@ -10,7 +10,7 @@ Algorithm:
 3. Store correlation values (cal_values)
 4. Return band (PCA subcarriers) and cal_values for threshold calculation
 
-Threshold formula (calculated externally): 1 - min(correlation)
+Threshold formula (calculated externally): (1 - min(correlation)) * PCA_SCALE
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -21,10 +21,10 @@ import gc
 
 try:
     from src.calibrator_interface import ICalibrator
-    from src.pca_detector import pearson_correlation, pca_power_method
+    from src.pca_detector import pearson_correlation, pca_power_method, PCADetector
 except ImportError:
     from calibrator_interface import ICalibrator
-    from pca_detector import pearson_correlation, pca_power_method
+    from pca_detector import pearson_correlation, pca_power_method, PCADetector
 
 # PCA constants (must match pca_detector.py and C++ implementation)
 PCA_WINDOW_SIZE = 10
@@ -183,8 +183,10 @@ class PCACalibrator(ICalibrator):
         if self.correlation_values:
             min_corr = min(self.correlation_values)
             max_corr = max(self.correlation_values)
+            pca_scale = PCADetector.PCA_SCALE
+            suggested_threshold = (1.0 - min_corr) * pca_scale
             print(f"  Correlation range: [{min_corr:.4f}, {max_corr:.4f}]")
-            print(f"  Suggested threshold: {1.0 - min_corr:.4f}")
+            print(f"  Suggested threshold: {suggested_threshold:.4f} (scaled by {pca_scale:.0f})")
         
         return self.selected_band, self.correlation_values
     

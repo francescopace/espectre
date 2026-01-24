@@ -8,7 +8,7 @@
  * PCA Formula: threshold = 1 - min(cal_values) (Espressif approach)
  * 
  * Modes (for MVS):
- * - "auto": P95 * 1.4 (default, zero false positives)
+ * - "auto": P95 * 1.4 (default, low false positives)
  * - "min": P100 * 1.0 (maximum sensitivity, may have FP)
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <vector>
 #include <algorithm>
+#include "pca_detector.h"  // For PCA_SCALE
 
 namespace esphome {
 namespace espectre {
@@ -108,17 +109,18 @@ inline void calculate_adaptive_threshold(
     float& out_pxx) {
   
   if (is_pca) {
-    // PCA: threshold = 1 - min(correlation)
+    // PCA: threshold = (1 - min(correlation)) * PCA_SCALE
     // cal_values contains correlation values from baseline
+    // Scaled by PCA_SCALE (1000) to match MVS threshold range (0.1-10.0)
     if (cal_values.empty()) {
-      out_threshold = 0.01f;  // Default PCA threshold
+      out_threshold = PCA_DEFAULT_THRESHOLD;  // 10.0 (scaled)
       out_percentile = 0;
       out_factor = 1.0f;
       out_pxx = 0.99f;
       return;
     }
     float min_corr = *std::min_element(cal_values.begin(), cal_values.end());
-    out_threshold = 1.0f - min_corr;
+    out_threshold = (1.0f - min_corr) * PCA_SCALE;
     out_percentile = 0;     // N/A for PCA
     out_factor = 1.0f;      // N/A for PCA
     out_pxx = min_corr;     // Store min_corr for diagnostics
