@@ -55,16 +55,15 @@ These files are pre-configured to download the component automatically from GitH
 
 ### 3. Run Actions "ESPHome firmware Build" workflow and download firmware
 
-<img width="504" height="592" alt="图片" src="https://github.com/user-attachments/assets/69234723-9eab-46d1-a5e3-61e209edaf6e" />
+<img width="513" height="618" alt="图片" src="https://github.com/user-attachments/assets/db62987e-58be-4ba8-b481-ae5c7bbbcb3a" />
 
-<img width="2214" height="1182" alt="图片" src="https://github.com/user-attachments/assets/b0cacb66-05c2-45d4-a061-0d1024f6622b" />
+<img width="2197" height="1192" alt="图片" src="https://github.com/user-attachments/assets/d4249462-77fe-472f-bc52-293d182f74a9" />
 
 ### 4. Unzip *.factory.bin and Flash
 
 unzip *.factory.bin and Chrome open [ESPonnect](https://thelastoutpostworkshop.github.io/ESPConnect/) to flash
-<img width="2550" height="957" alt="图片" src="https://github.com/user-attachments/assets/cf51e254-3498-4d37-b916-1122ad1f3879" />
 
-
+<img width="2539" height="876" alt="图片" src="https://github.com/user-attachments/assets/5c64d2bf-04f0-46e6-93b1-3efe8f6f198c" />
 
 ### 5. Configure WiFi
 
