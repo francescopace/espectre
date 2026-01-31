@@ -636,6 +636,8 @@ esp32:
 
 ## Flash Size and Partitions
 
+> **Minimum requirement: 4MB flash.** ESPectre fits comfortably in 4MB with full OTA support. Larger flash (8MB/16MB) is only useful for additional components (like `bluetooth_proxy`) or future ML features planned for v3.x.
+
 ### ESPectre Flash Footprint
 
 ESPectre itself is very lightweight. The actual code overhead is minimal:
