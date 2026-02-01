@@ -36,6 +36,7 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is
 # Detection Algorithm
 # "mvs" (default): Moving Variance Segmentation - fast, good accuracy
 # "pca": Principal Component Analysis (Espressif-style) - better noise rejection
+# "ml": Neural Network (12 features -> MLP) - learned patterns, no calibration needed
 DETECTION_ALGORITHM = "mvs"
 
 # Band Calibration Configuration (used when SELECTED_SUBCARRIERS is None)

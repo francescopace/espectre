@@ -240,15 +240,22 @@ class TestPublishTimeFeatureExtractor:
         for key in expected_keys:
             assert key in features
     
-    def test_variance_turb_passthrough(self):
-        """Test that moving_variance is passed through"""
+    def test_variance_turb_calculated(self):
+        """Test that variance_turb is calculated from turbulence buffer"""
         extractor = PublishTimeFeatureExtractor()
         
+        # Constant turbulence buffer -> variance should be 0
         features = extractor.compute_features(
-            [10.0] * 5, [5.0] * 50, 50, 2.5
+            [10.0] * 5, [5.0] * 50, 50
         )
+        assert features['variance_turb'] == 0.0
         
-        assert features['variance_turb'] == 2.5
+        # Variable turbulence buffer -> variance should be > 0
+        turb_buffer = [float(i) for i in range(50)]  # 0, 1, 2, ..., 49
+        features = extractor.compute_features(
+            [10.0] * 5, turb_buffer, 50
+        )
+        assert features['variance_turb'] > 0
     
     def test_get_features(self):
         """Test get_features returns last computed"""
@@ -264,15 +271,20 @@ class TestPublishTimeFeatureExtractor:
         """Test that features update on each call"""
         extractor = PublishTimeFeatureExtractor()
         
+        # First call with low turbulence buffer
+        turb_buffer1 = [float(i) for i in range(50)]  # 0-49
         features1 = extractor.compute_features(
-            [10.0] * 5, [5.0] * 50, 50, 1.0
+            [10.0] * 5, turb_buffer1, 50
         )
         
+        # Second call with higher turbulence buffer
+        turb_buffer2 = [float(i * 2) for i in range(50)]  # 0-98
         features2 = extractor.compute_features(
-            [20.0] * 5, [10.0] * 50, 50, 5.0
+            [20.0] * 5, turb_buffer2, 50
         )
         
-        assert features1['variance_turb'] != features2['variance_turb']
+        # Range should be different
+        assert features1['iqr_turb'] != features2['iqr_turb']
 
 
 class TestMultiFeatureDetector:

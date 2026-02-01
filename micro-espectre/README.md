@@ -59,6 +59,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | **Core Algorithm** |
 | MVS Detector | ✅ | ✅ | Aligned |
 | PCA Detector | ✅ | ✅ | Aligned |
+| ML Detector | ❌ | ✅ | MicroPython only |
 | MVS Segmentation | ✅ | ✅ | Aligned |
 | Spatial Turbulence | ✅ | ✅ | Aligned |
 | Moving Variance | ✅ | ✅ | Aligned |
@@ -389,13 +390,14 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC (used in auto mode)
 Choose the motion detection algorithm.
 
 ```python
-DETECTION_ALGORITHM = "mvs"   # "mvs" (default) or "pca"
+DETECTION_ALGORITHM = "mvs"   # "mvs" (default), "pca", or "ml"
 ```
 
-| Algorithm | Method |
-|-----------|--------|
-| **MVS** (default) | Moving Variance Segmentation of Turbulence |
-| **PCA** | Principal Component Analysis |
+| Algorithm | Method | Calibration | Boot Time |
+|-----------|--------|-------------|-----------|
+| **MVS** (default) | Moving Variance Segmentation of Turbulence | Subcarriers + Threshold | ~10s |
+| **PCA** | Principal Component Analysis | Subcarriers + Threshold | ~10s |
+| **ML** | Neural Network (12 features → MLP) | **None** (fixed subcarriers) | **~3s** |
 
 ### 3. Calibration Algorithm (MVS only)
 
@@ -520,36 +522,39 @@ Micro-ESPectre implements automatic subcarrier selection with two algorithms:
 
 Both algorithms achieve high performance (>90% recall, <15% FP rate) with **zero manual configuration**.
 
-> ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
+> ⚠️ **IMPORTANT**: Keep the room **quiet and still** after device boot during calibration:
+> - **MVS/PCA**: ~10 seconds (gain lock + band calibration)
+> - **ML**: ~3 seconds (gain lock only, no band calibration needed)
 
 For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#automatic-subcarrier-selection).
 
-## Machine Learning & Advanced Applications
+## Machine Learning
 
-Micro-ESPectre is the **R&D platform** for advanced CSI-based applications. While the core focuses on motion detection using mathematical algorithms (MVS + NBVI/P95 calibration), the platform provides infrastructure for ML-based features planned for release 3.x:
+Micro-ESPectre includes a **neural network-based motion detector** as a developer preview.
 
-- **Gesture recognition**
-- **Human Activity Recognition (HAR)**
-- **People counting**
-- **Localization and tracking**
+### ML Detector (Developer Preview)
 
-### Getting Started with ML
+The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real CSI data. It extracts 12 statistical features from turbulence patterns and outputs a motion probability.
 
-👉 **[ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md)** - Complete guide for data collection, labeling, and dataset format.
+| Aspect | Details |
+|--------|---------|
+| Architecture | MLP (12 → 16 → 8 → 1) |
+| Input | 12 features from 50-packet window |
+| Output | Probability (0.0 - 1.0), threshold at 0.5 |
+| Performance | ~93% recall, 0% false positives |
 
-### Available Features
+**Documentation**:
+- [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector) - Architecture, features, performance
+- [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) - Data collection, training, usage
 
-Micro-ESPectre extracts **5 CSI features** for ML applications:
+### Future ML Applications (Roadmap 3.x)
 
-| Feature | Fisher J | Description |
-|---------|----------|-------------|
-| **iqr_turb** | 3.56 | IQR of turbulence buffer |
-| **skewness** | 2.54 | Distribution asymmetry |
-| **kurtosis** | 2.24 | Distribution tailedness |
-| **entropy_turb** | 2.08 | Shannon entropy |
-| **variance_turb** | 1.21 | Moving variance (from MVS) |
+The ML infrastructure enables advanced features planned for future releases:
 
-See `tests/test_features.py` and `tests/test_validation_real_data.py` for feature validation.
+- Gesture recognition
+- Human Activity Recognition (HAR)
+- People counting
+- Localization and tracking
 
 <details>
 <summary>Standardized Wi-Fi Sensing (IEEE 802.11bf) (click to expand)</summary>

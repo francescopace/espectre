@@ -182,6 +182,119 @@ def calc_entropy_turb(turbulence_buffer, buffer_count, n_bins=10):
 
 
 # ============================================================================
+# Full Feature Extraction (12 features for ML)
+# ============================================================================
+
+def extract_all_features(turbulence_buffer, buffer_count, amplitudes=None):
+    """
+    Extract all 12 features from turbulence buffer and amplitudes.
+    
+    Features are ordered as expected by the ML model:
+    0. turb_mean     - Mean of turbulence
+    1. turb_std      - Standard deviation of turbulence
+    2. turb_max      - Maximum turbulence
+    3. turb_min      - Minimum turbulence
+    4. turb_range    - Range (max - min)
+    5. turb_var      - Variance of turbulence
+    6. turb_iqr      - Interquartile range approximation
+    7. turb_entropy  - Shannon entropy
+    8. amp_skewness  - Amplitude skewness
+    9. amp_kurtosis  - Amplitude kurtosis
+    10. turb_slope   - Linear regression slope
+    11. turb_delta   - Last - first value
+    
+    Args:
+        turbulence_buffer: List/buffer of turbulence values
+        buffer_count: Number of valid values in buffer
+        amplitudes: Current packet amplitudes (optional, for skewness/kurtosis)
+    
+    Returns:
+        list: 12 feature values in order
+    """
+    if buffer_count < 2:
+        return [0.0] * 12
+    
+    # Convert to list if needed
+    if hasattr(turbulence_buffer, '__iter__') and not isinstance(turbulence_buffer, list):
+        turb_list = list(turbulence_buffer)[:buffer_count]
+    else:
+        turb_list = turbulence_buffer[:buffer_count]
+    
+    n = len(turb_list)
+    if n < 2:
+        return [0.0] * 12
+    
+    # Basic statistics
+    turb_mean = sum(turb_list) / n
+    turb_min = min(turb_list)
+    turb_max = max(turb_list)
+    turb_range = turb_max - turb_min
+    
+    # Variance and std
+    turb_var = sum((x - turb_mean) ** 2 for x in turb_list) / n
+    turb_std = math.sqrt(turb_var) if turb_var > 0 else 0.0
+    
+    # IQR and entropy (reuse existing functions)
+    turb_iqr = calc_iqr_turb(turb_list, n)
+    turb_entropy = calc_entropy_turb(turb_list, n)
+    
+    # Amplitude features (skewness, kurtosis)
+    if amplitudes is not None and len(amplitudes) > 0:
+        amp_list = list(amplitudes) if not isinstance(amplitudes, list) else amplitudes
+        amp_skewness = calc_skewness(amp_list)
+        amp_kurtosis = calc_kurtosis(amp_list)
+    else:
+        amp_skewness = 0.0
+        amp_kurtosis = 0.0
+    
+    # Temporal features
+    # Slope via linear regression: slope = Σ((i - mean_i)(x - mean_x)) / Σ(i - mean_i)²
+    mean_i = (n - 1) / 2.0
+    numerator = 0.0
+    denominator = 0.0
+    for i in range(n):
+        diff_i = i - mean_i
+        diff_x = turb_list[i] - turb_mean
+        numerator += diff_i * diff_x
+        denominator += diff_i * diff_i
+    
+    turb_slope = numerator / denominator if denominator > 0 else 0.0
+    turb_delta = turb_list[-1] - turb_list[0]
+    
+    return [
+        turb_mean,      # 0
+        turb_std,       # 1
+        turb_max,       # 2
+        turb_min,       # 3
+        turb_range,     # 4
+        turb_var,       # 5
+        turb_iqr,       # 6
+        turb_entropy,   # 7
+        amp_skewness,   # 8
+        amp_kurtosis,   # 9
+        turb_slope,     # 10
+        turb_delta,     # 11
+    ]
+
+
+# Feature name mapping for convenience
+FEATURE_NAMES = [
+    'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_range',
+    'turb_var', 'turb_iqr', 'turb_entropy', 'amp_skewness', 'amp_kurtosis',
+    'turb_slope', 'turb_delta'
+]
+
+# Indices for confidence features (subset of 12)
+CONFIDENCE_FEATURE_INDICES = {
+    'iqr_turb': 6,       # turb_iqr
+    'skewness': 8,       # amp_skewness
+    'kurtosis': 9,       # amp_kurtosis
+    'entropy_turb': 7,   # turb_entropy
+    'variance_turb': 5,  # turb_var
+}
+
+
+# ============================================================================
 # Feature Extractor (Publish-Time)
 # ============================================================================
 
@@ -189,22 +302,20 @@ class PublishTimeFeatureExtractor:
     """
     Feature extractor that calculates features at publish time.
     
-    No internal buffer - uses turbulence buffer from SegmentationContext
-    and current packet amplitudes.
-    
-    Features:
+    Uses extract_all_features() and maps to the 5 confidence features:
     - skewness (W=1): From current packet amplitudes
     - kurtosis (W=1): From current packet amplitudes  
-    - variance_turb: From MVS (already calculated)
-    - iqr_turb: From turbulence buffer
-    - entropy_turb: From turbulence buffer
+    - variance_turb: Variance of turbulence buffer
+    - iqr_turb: IQR of turbulence buffer
+    - entropy_turb: Entropy of turbulence buffer
     """
     
     def __init__(self):
         """Initialize feature extractor."""
         self.last_features = None
+        self.last_all_features = None
     
-    def compute_features(self, amplitudes, turbulence_buffer, buffer_count, moving_variance):
+    def compute_features(self, amplitudes, turbulence_buffer, buffer_count, moving_variance=None):
         """
         Compute all features at publish time.
         
@@ -212,27 +323,34 @@ class PublishTimeFeatureExtractor:
             amplitudes: Current packet amplitudes (list)
             turbulence_buffer: Circular buffer of turbulence values
             buffer_count: Number of valid values in turbulence buffer
-            moving_variance: Already calculated by MVS
+            moving_variance: (unused, kept for API compatibility)
         
         Returns:
-            dict: All 5 features
+            dict: 5 confidence features
         """
+        # Extract all 12 features
+        self.last_all_features = extract_all_features(
+            turbulence_buffer, buffer_count, amplitudes
+        )
+        
+        # Map to confidence feature names
         self.last_features = {
-            # W=1 features (current packet)
-            'skewness': calc_skewness(amplitudes),
-            'kurtosis': calc_kurtosis(amplitudes),
-            
-            # Turbulence buffer features
-            'variance_turb': moving_variance,  # Already calculated by MVS!
-            'iqr_turb': calc_iqr_turb(turbulence_buffer, buffer_count),
-            'entropy_turb': calc_entropy_turb(turbulence_buffer, buffer_count),
+            'skewness': self.last_all_features[8],      # amp_skewness
+            'kurtosis': self.last_all_features[9],      # amp_kurtosis
+            'variance_turb': self.last_all_features[5], # turb_var
+            'iqr_turb': self.last_all_features[6],      # turb_iqr
+            'entropy_turb': self.last_all_features[7],  # turb_entropy
         }
         
         return self.last_features
     
     def get_features(self):
-        """Get last computed features."""
+        """Get last computed 5 confidence features."""
         return self.last_features
+    
+    def get_all_features(self):
+        """Get all 12 features from last computation."""
+        return self.last_all_features
 
 
 # ============================================================================

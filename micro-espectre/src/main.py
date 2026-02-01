@@ -13,6 +13,7 @@ import gc
 import os
 from src.mvs_detector import MVSDetector
 from src.pca_detector import PCADetector
+from src.ml_detector import MLDetector
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
 import src.config as config
@@ -138,10 +139,21 @@ def connect_wifi():
         raise Exception("Connection timeout")
 
 
-def format_progress_bar(score, threshold, width=20):
-    """Format progress bar for console output"""
-    threshold_pos = 15
-    filled = int(score * threshold_pos)
+def format_progress_bar(score, threshold, width=20, is_probability=False):
+    """Format progress bar for console output.
+    
+    For MVS/PCA: score = metric/threshold, threshold_pos at 75% (15/20)
+    For ML: score = probability, threshold_pos at threshold (e.g., 50% for 0.5)
+    """
+    if is_probability:
+        # ML mode: threshold is a probability (0-1), show it at its actual position
+        threshold_pos = int(threshold * width)
+        filled = int(score * width)
+    else:
+        # MVS/PCA mode: score is already normalized (metric/threshold)
+        threshold_pos = 15  # 75% position
+        filled = int(score * threshold_pos)
+    
     filled = max(0, min(filled, width))
     
     bar = '['
@@ -259,9 +271,46 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         bool: True if calibration successful
     """
     # Determine calibration type based on detector
-    is_pca = detector.get_name() == "PCA"
+    detector_name = detector.get_name()
+    is_pca = detector_name == "PCA"
+    is_ml = detector_name == "ML"
     
-    if is_pca:
+    if is_ml:
+        # ML uses fixed subcarriers - no band calibration needed
+        # Only gain lock is required for stable CSI amplitudes
+        print("ML detector: Using fixed subcarriers (no band calibration needed)")
+        
+        # Set calibration mode for gain lock
+        g_state.calibration_mode = True
+        
+        print('')
+        print('='*60)
+        print('ML Quick Boot - Gain Lock Only')
+        print('='*60)
+        print(f'Free memory: {gc.mem_free()} bytes')
+        print('Please remain still for gain lock...')
+        
+        # Phase 1: Gain Lock only (~3 seconds)
+        agc, fft, skipped = run_gain_lock(wlan)
+        
+        if skipped:
+            print("Note: Proceeding without gain lock")
+        
+        # Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
+        config.SELECTED_SUBCARRIERS = [11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]
+        
+        print('')
+        print('='*60)
+        print('ML Quick Boot Complete!')
+        print(f'   Subcarriers: {config.SELECTED_SUBCARRIERS}')
+        print(f'   Threshold: 0.5 (probability)')
+        print(f'   Total boot time: ~3 seconds (gain lock only)')
+        print('='*60)
+        print('')
+        
+        g_state.calibration_mode = False
+        return True
+    elif is_pca:
         from src.pca_calibrator import PCACalibrator
         algorithm = "pca"
         # PCA doesn't need buffer file cleanup
@@ -392,36 +441,50 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
             else:
                 print('PCA Calibration Failed - no correlation values')
         else:
-            # MVS: apply subcarrier selection and adaptive threshold
+            # MVS or ML: apply subcarrier selection
             if selected_band and len(selected_band) == 12:
                 config.SELECTED_SUBCARRIERS = selected_band
                 
-                # Calculate adaptive threshold from MV values
-                from src.threshold import calculate_adaptive_threshold
-                
-                if isinstance(SEG_THRESHOLD, str):
-                    # "auto" or "min" mode - calculate adaptive threshold
-                    adaptive_threshold, percentile, factor, pxx = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
-                    detector.set_adaptive_threshold(adaptive_threshold)
-                    threshold_source = f"{SEG_THRESHOLD} (P{percentile}x{factor})"
-                    print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
+                if is_ml:
+                    # ML: subcarriers only, threshold stays at 0.5
+                    threshold_source = "fixed (0.5)"
+                    success = True
+                    
+                    print('')
+                    print('='*60)
+                    print('ML Subcarrier Calibration Successful!')
+                    print(f'   Algorithm: {algorithm.upper()} (subcarrier selection only)')
+                    print(f'   Selected band: {selected_band}')
+                    print(f'   Threshold: {detector.get_threshold():.2f} ({threshold_source})')
+                    print('='*60)
+                    print('')
                 else:
-                    # Numeric value - use fixed manual threshold
-                    adaptive_threshold, _, _, _ = calculate_adaptive_threshold(cal_values, "auto")
-                    detector.set_threshold(float(SEG_THRESHOLD))
-                    threshold_source = "manual"
-                    print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
-                
-                success = True
-                
-                print('')
-                print('='*60)
-                print('Subcarrier Calibration Successful!')
-                print(f'   Algorithm: {algorithm.upper()}')
-                print(f'   Selected band: {selected_band}')
-                print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
-                print('='*60)
-                print('')
+                    # MVS: apply adaptive threshold from MV values
+                    from src.threshold import calculate_adaptive_threshold
+                    
+                    if isinstance(SEG_THRESHOLD, str):
+                        # "auto" or "min" mode - calculate adaptive threshold
+                        adaptive_threshold, percentile, factor, pxx = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
+                        detector.set_adaptive_threshold(adaptive_threshold)
+                        threshold_source = f"{SEG_THRESHOLD} (P{percentile}x{factor})"
+                        print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
+                    else:
+                        # Numeric value - use fixed manual threshold
+                        adaptive_threshold, _, _, _ = calculate_adaptive_threshold(cal_values, "auto")
+                        detector.set_threshold(float(SEG_THRESHOLD))
+                        threshold_source = "manual"
+                        print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
+                    
+                    success = True
+                    
+                    print('')
+                    print('='*60)
+                    print('Subcarrier Calibration Successful!')
+                    print(f'   Algorithm: {algorithm.upper()}')
+                    print(f'   Selected band: {selected_band}')
+                    print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
+                    print('='*60)
+                    print('')
             else:
                 # Calibration failed - keep default
                 print('')
@@ -475,6 +538,15 @@ def main():
         # Features not supported with PCA
         if config.ENABLE_FEATURES:
             print('Note: Features disabled for PCA detector')
+    elif detection_algorithm == 'ml':
+        print(f'Detection algorithm: ML (Neural Network)')
+        detector = MLDetector(
+            window_size=config.SEG_WINDOW_SIZE,
+            threshold=0.5  # Probability threshold
+        )
+        # Features not needed externally (computed internally by ML)
+        if config.ENABLE_FEATURES:
+            print('Note: Features disabled for ML detector (computed internally)')
     else:
         print(f'Detection algorithm: MVS (Moving Variance Segmentation)')
         detector = MVSDetector(
@@ -613,10 +685,15 @@ def main():
                     last_dropped = dropped
                     
                     state_str = 'MOTION' if metrics['state'] == 1 else 'IDLE'
-                    motion_metric = metrics.get('moving_variance', metrics.get('jitter', 0))
+                    motion_metric = metrics.get('moving_variance', metrics.get('jitter', metrics.get('probability', 0)))
                     threshold = metrics['threshold']
-                    progress = motion_metric / threshold if threshold > 0 else 0
-                    progress_bar = format_progress_bar(progress, threshold)
+                    is_ml = 'probability' in metrics
+                    # For ML, probability and threshold are both 0-1, so progress = probability
+                    if is_ml:
+                        progress = motion_metric  # probability is already 0-1
+                    else:
+                        progress = motion_metric / threshold if threshold > 0 else 0
+                    progress_bar = format_progress_bar(progress, threshold, is_probability=is_ml)
                     print(f"{progress_bar} | pkts:{publish_counter} drop:{dropped_delta} pps:{pps} | "
                           f"mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str}")
                     

@@ -4,6 +4,59 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.5.0] - in progress
+
+### Highlights
+
+- **ML Detector (Developer Preview)**: Neural network-based motion detection using 12 statistical features
+- **Centralized feature extraction**: All 12 features extracted in a single module for ML and confidence scoring
+- **Training pipeline**: Scripts for collecting data, training models, and comparing algorithms
+
+### Micro-ESPectre (R&D Platform)
+
+#### ML Detector
+
+New machine learning-based motion detector as a developer preview:
+
+| Aspect | Details |
+|--------|---------|
+| Algorithm | `DETECTION_ALGORITHM = "ml"` |
+| Architecture | MLP (12 → 16 → 8 → 1) with ReLU/Sigmoid |
+| Input | 12 features from 50-packet sliding window |
+| Output | Probability (0.0-1.0), threshold fixed at 0.5 |
+| Performance | ~93% recall, 100% precision, 0% false positives |
+| Boot time | **~3 seconds** (vs ~10s for MVS/PCA) |
+
+**Fast boot**: ML uses 12 fixed, evenly distributed subcarriers - no band calibration needed. Only the 3-second gain lock phase runs at boot, reducing startup time by 70%.
+
+#### Feature Extraction Refactoring
+
+- **Centralized extraction**: New `extract_all_features()` function in `features.py`
+- **12 statistical features**: turb_mean, turb_std, turb_max, turb_min, turb_range, turb_var, turb_iqr, turb_entropy, amp_skewness, amp_kurtosis, turb_slope, turb_delta
+- **Confidence system**: Uses 5 best features (subset of 12) for MVS confidence scoring
+- **No code duplication**: Both ML and confidence system use the same extraction
+
+#### Training Pipeline
+
+- **`10_train_ml_model.py`**: Train MLP model with all available data
+- **`7_compare_detection_methods.py`**: Compare MVS, PCA, and ML performance
+- **TFLite export**: `models/motion_detector_small.tflite` for future C++ port
+- **MicroPython export**: `src/ml_weights.py` (auto-generated weights)
+
+#### Documentation
+
+- **ALGORITHMS.md**: New "ML: Neural Network Detector" section
+- **ML_DATA_COLLECTION.md**: Updated with training instructions
+- **README.md**: Updated ML section with developer preview info
+
+#### New Test Suite
+
+- **`test_ml_detector.py`**: 38 tests covering ML inference and detector class
+
+</details>
+
+---
+
 ## [2.4.0] - 2026-01-24
 
 ### Highlights

@@ -4,18 +4,18 @@
 
 This guide covers how to collect and label CSI data for training ML models. This infrastructure lays the groundwork for advanced Wi-Fi sensing features (gesture recognition, HAR, people counting) planned for ESPectre 3.x.
 
-## Roadmap (3.x)
+## Status
 
 | Feature | Status |
 |---------|--------|
-| Data collection infrastructure | ✅ Ready (2.2.0) |
-| Feature extraction pipeline | 🔜 Planned |
-| Model training scripts (RF, CNN, LSTM) | 🔜 Planned |
-| Gesture recognition | 🔜 Planned |
-| Human Activity Recognition (HAR) | 🔜 Planned |
-| People counting | 🔜 Planned |
-| Real-time inference | 🔜 Planned |
-| Cloud service (API) | 🔜 Planned |
+| Data collection infrastructure | ✅ Ready |
+| Feature extraction (12 features) | ✅ Ready |
+| ML detector (MLP) | ✅ Ready |
+| Training script | ✅ Ready |
+| TFLite export | ✅ Ready |
+| Gesture recognition | 🔜 Planned (3.x) |
+| Human Activity Recognition (HAR) | 🔜 Planned (3.x) |
+| People counting | 🔜 Planned (3.x) |
 
 ---
 
@@ -279,6 +279,46 @@ python 3_analyze_moving_variance_segmentation.py --plot
 ```
 
 See [tools/README.md](tools/README.md) for complete documentation of all analysis scripts.
+
+---
+
+## Training the ML Model
+
+Once you have collected labeled data, train the ML model:
+
+```bash
+# Train model (uses all data in data/ directory)
+python tools/10_train_ml_model.py
+```
+
+This will:
+1. Load all `.npz` files from `data/`
+2. Extract 12 features per sliding window
+3. Train MLP model (12 → 16 → 8 → 1)
+4. Export to:
+   - `src/ml_weights.py` (MicroPython)
+   - `models/motion_detector_small.tflite` (TFLite int8)
+   - `models/feature_scaler.npz` (normalization params)
+
+### Compare Detection Methods
+
+After training, compare ML with MVS and PCA:
+
+```bash
+python tools/7_compare_detection_methods.py
+```
+
+Add `--plot` to visualize results graphically.
+
+### Using the ML Detector
+
+Set in `config.py`:
+
+```python
+DETECTION_ALGORITHM = "ml"
+```
+
+For algorithm details, see [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector).
 
 ---
 

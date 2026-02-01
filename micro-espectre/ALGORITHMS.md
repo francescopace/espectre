@@ -11,6 +11,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [Gain Lock (Hardware Stabilization)](#gain-lock-hardware-stabilization)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
 - [PCA: Principal Component Analysis](#pca-principal-component-analysis)
+- [ML: Neural Network Detector](#ml-neural-network-detector)
 - [Automatic Subcarrier Selection](#automatic-subcarrier-selection)
 - [Low-Pass Filter](#low-pass-filter)
 - [Hampel Filter](#hampel-filter)
@@ -318,6 +319,148 @@ espectre:
 ```
 
 **Reference**: Espressif esp-csi/esp_radar v0.3.1 (Apache-2.0)
+
+---
+
+## ML: Neural Network Detector
+
+### Overview
+
+The **ML Detector** uses a pre-trained neural network to classify motion based on statistical features extracted from CSI turbulence patterns. Unlike MVS and PCA which use hand-crafted thresholds, ML learns decision boundaries from labeled training data.
+
+### The Insight
+
+Motion detection can be framed as a **binary classification problem**:
+- **Input**: Statistical features computed from a sliding window of turbulence values
+- **Output**: Probability of motion (0.0 to 1.0)
+
+A neural network can learn complex, non-linear patterns that may be missed by simple threshold-based methods.
+
+### Architecture
+
+The ML detector uses a compact **Multi-Layer Perceptron (MLP)**:
+
+```
+Input (12 features)
+    ↓
+Dense(16, ReLU)      ← 12×16 + 16 = 208 parameters
+    ↓
+Dense(8, ReLU)       ← 16×8 + 8 = 136 parameters
+    ↓
+Dense(1, Sigmoid)    ← 8×1 + 1 = 9 parameters
+    ↓
+Output (probability)
+```
+
+**Total**: ~350 parameters, ~3 KB (TFLite int8 quantized)
+
+### Feature Extraction
+
+For each sliding window of 50 turbulence values, 12 features are extracted:
+
+| # | Feature | Formula | Description |
+|---|---------|---------|-------------|
+| 1 | `turb_mean` | μ = Σxᵢ/n | Central tendency |
+| 2 | `turb_std` | σ = √(Σ(xᵢ-μ)²/n) | Spread |
+| 3 | `turb_max` | max(xᵢ) | Peak value |
+| 4 | `turb_min` | min(xᵢ) | Minimum value |
+| 5 | `turb_range` | max - min | Dynamic range |
+| 6 | `turb_var` | σ² | Variance |
+| 7 | `turb_iqr` | Q75 - Q25 | Interquartile range |
+| 8 | `turb_entropy` | -Σpᵢ log₂(pᵢ) | Distribution randomness |
+| 9 | `amp_skewness` | E[(X-μ)³]/σ³ | Amplitude asymmetry |
+| 10 | `amp_kurtosis` | E[(X-μ)⁴]/σ⁴ - 3 | Amplitude tailedness |
+| 11 | `turb_slope` | Linear regression slope | Temporal trend |
+| 12 | `turb_delta` | x[-1] - x[0] | Start-to-end change |
+
+### Inference Pipeline
+
+```
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ CSI Packet   │───▶│ Turbulence   │───▶│ Buffer (50)  │───▶│ 12 Features  │
+│              │    │ σ(amps)      │    │              │    │              │
+└──────────────┘    └──────────────┘    └──────────────┘    └──────┬───────┘
+                                                                   │
+                                                                   ▼
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ IDLE/MOTION  │◀───│ Threshold    │◀───│ Probability  │◀───│ Neural Net   │
+│              │    │ > 0.5        │    │ [0.0-1.0]    │    │ 12→16→8→1   │
+└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+```
+
+### Calibration
+
+ML uses **fixed subcarriers** - no calibration needed:
+
+| Algorithm | Subcarrier Selection | Threshold | Boot Time |
+|-----------|---------------------|-----------|-----------|
+| MVS | NBVI or P95 (~7s) | Adaptive (P95 × 1.4) | ~10s |
+| PCA | Fixed step (every 4th) | 1 - min(correlation) | ~10s |
+| ML | **Fixed** (12 evenly distributed) | Fixed (0.5 probability) | **~3s** |
+
+ML uses 12 pre-selected subcarriers evenly distributed across the valid range: `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]`. This eliminates the 7-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
+
+### Training
+
+The model is trained using `tools/10_train_ml_model.py`:
+
+```bash
+# Train with all available data
+python tools/10_train_ml_model.py
+
+# Compare algorithms
+python tools/7_compare_detection_methods.py
+```
+
+**Training process**:
+1. Load labeled CSI data from `data/` directory
+2. Extract 12 features per sliding window
+3. Normalize features with StandardScaler
+4. Train MLP with 80/20 train/test split
+5. Export weights to `src/ml_weights.py`
+6. Export TFLite model to `models/motion_detector_small.tflite`
+
+### Performance
+
+| Metric | ML | MVS | PCA |
+|--------|-----|-----|-----|
+| Recall | 93.5% | 94.7% | 27.3% |
+| Precision | 100% | 100% | 100% |
+| F1 Score | 96.6% | 97.3% | 42.9% |
+| False Positives | 0 | 0 | 0 |
+| Inference Time | ~90μs | ~100μs | ~110μs |
+
+ML and MVS achieve comparable performance. ML's strength is **generalization** - it may perform better in environments different from those used to tune MVS thresholds.
+
+### Configuration
+
+```python
+# In config.py
+DETECTION_ALGORITHM = "ml"  # Use ML detector
+```
+
+### Files
+
+| File | Description | Auto-generated |
+|------|-------------|----------------|
+| `src/ml_detector.py` | MLDetector class | No |
+| `src/ml_weights.py` | Network weights | Yes (by training) |
+| `models/motion_detector_small.tflite` | TFLite model | Yes (for future C++ port) |
+| `models/feature_scaler.npz` | Normalization params | Yes |
+
+### Advantages and Limitations
+
+**Advantages**:
+- Learns patterns from real data
+- Fixed threshold (0.5) - no calibration needed
+- Potentially better generalization to new environments
+- Easy to retrain with new data
+
+**Limitations**:
+- Requires labeled training data
+- Slightly higher computational cost (feature extraction)
+- MicroPython only (C++ port planned with TFLite)
+- Performance depends on training data quality
 
 ---
 
@@ -683,7 +826,7 @@ The filter reduces recall because it treats the first packets of real movement a
 
 ## CSI Features (for ML)
 
-ESPectre extracts statistical features from CSI data for future machine learning applications (planned for v3.x).
+ESPectre extracts statistical features from CSI data for motion detection and machine learning applications. The ML detector uses 12 features; the 5 features below are also available for the feature-based confidence system.
 
 ### Available Features
 

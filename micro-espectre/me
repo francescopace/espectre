@@ -448,6 +448,8 @@ def deploy_code(args):
             ('src/detector_interface.py', ':src/'),
             ('src/mvs_detector.py', ':src/'),
             ('src/pca_detector.py', ':src/'),
+            ('src/ml_detector.py', ':src/'),
+            ('src/ml_weights.py', ':src/'),
             ('src/calibrator_interface.py', ':src/'),
             ('src/p95_calibrator.py', ':src/'),
             ('src/nbvi_calibrator.py', ':src/'),
