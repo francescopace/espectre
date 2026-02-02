@@ -12,18 +12,29 @@ Complete guide to install and configure ESPectre with ESPHome.
 - Wi-Fi router (2.4 GHz, 802.11b|g|n|ax)
 
 **Software:**
-- Chrome browser or ESPConnect
+- Python 3.12 (⚠️ Python 3.14 has known issues with ESPHome)
+- ESPHome 2024.x or newer
 - Home Assistant (recommended, but optional)
 
 ---
 
 ## Quick Start
 
-### 1. Fork this Repository
+### 1. Install ESPHome
 
-### 2. Choose a configuration file
+```bash
+# Create virtual environment (recommended)
+python3 -m venv venv
+source venv/bin/activate  # On macOS/Linux
+# venv\Scripts\activate   # On Windows
 
-Choose the example configuration for your hardware:
+# Install ESPHome
+pip install esphome
+```
+
+### 2. Download a configuration file
+
+Download the example configuration for your hardware:
 
 | Platform | Configuration File | CPU | WiFi Chip | PSRAM | Status |
 |----------|-------------------|-----|-----------|-------|--------|
@@ -53,19 +64,13 @@ These files are pre-configured to download the component automatically from GitH
 >
 > ⁴ **Boards with USB-UART bridges** (CH340, CP2102, CH343): If you don't see logs after flashing, use the UART configurations in [`examples/uart/`](https://github.com/francescopace/espectre/tree/main/examples/uart) which enable logging on UART0.
 
-### 3. Run Actions "ESPHome firmware Build" workflow and download firmware
+### 3. Build and flash
 
-<img width="513" height="618" alt="图片" src="https://github.com/user-attachments/assets/db62987e-58be-4ba8-b481-ae5c7bbbcb3a" />
+```bash
+esphome run espectre-c6.yaml  # or espectre-s3.yaml
+```
 
-<img width="2197" height="1192" alt="图片" src="https://github.com/user-attachments/assets/d4249462-77fe-472f-bc52-293d182f74a9" />
-
-### 4. Unzip *.factory.bin and Flash
-
-unzip *.factory.bin and Chrome open [ESPonnect](https://thelastoutpostworkshop.github.io/ESPConnect/) to flash
-
-<img width="2539" height="876" alt="图片" src="https://github.com/user-attachments/assets/5c64d2bf-04f0-46e6-93b1-3efe8f6f198c" />
-
-### 5. Configure WiFi
+### 4. Configure WiFi
 
 After flashing, configure WiFi using one of these methods:
 
@@ -82,18 +87,6 @@ That's it! The device will be automatically discovered by Home Assistant.
 ## Development Setup
 
 For development, contributions, or offline use, use the pre-configured development files.
-
-## What You Need
-
-**Hardware:**
-- **ESP32 with CSI support** - ESP32-S3, ESP32-C6, ESP32-C3 or ESP32 (original) tested. Other variants (S2, C5) also supported experimentally.
-- USB-C or Micro-USB cable (depending on board)
-- Wi-Fi router (2.4 GHz, 802.11b|g|n|ax)
-
-**Software:**
-- Python 3.12 (⚠️ Python 3.14 has known issues with ESPHome)
-- ESPHome 2024.x or newer
-- Home Assistant (recommended, but optional)
 
 ### 1. Clone the repository
 
