@@ -3,6 +3,32 @@
 Complete guide to install and configure ESPectre with ESPHome.
 
 ---
+## Easy Install (no coding required)
+
+## What You Need
+
+**Hardware:**
+- **ESP32 with CSI support** - ESP32-S3, ESP32-C6, ESP32-C3 or ESP32 (original) tested. Other variants (S2, C5) also supported experimentally.
+- USB-C or Micro-USB cable (depending on board)
+- Wi-Fi router (2.4 GHz, 802.11b|g|n|ax)
+
+**Software:**
+- Chrome browser or [ESPConnect](https://github.com/thelastoutpostworkshop/ESPConnect/)
+- Home Assistant (recommended, but optional)
+
+### 1. Download firmware from [Releases](https://github.com/francescopace/espectre/releases/latest)
+
+Choose the firmware for the chip is on your board , and download it from [Releases](https://github.com/francescopace/espectre/releases/latest)
+
+### 2. Flash Firmware
+
+- Find chip-**factory**.bin
+- Chrome open [ESPConnect](https://thelastoutpostworkshop.github.io/ESPConnect/) to flash
+
+![ESPConnect](images/ESPConnect.png)
+
+---
+## Quick Start
 
 ## What You Need
 
@@ -18,7 +44,6 @@ Complete guide to install and configure ESPectre with ESPHome.
 
 ---
 
-## Quick Start
 
 ### 1. Install ESPHome
 
