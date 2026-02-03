@@ -500,7 +500,8 @@ class TestBaselineWindow:
                 noise = np.random.normal(0, 1)
                 I = max(0, min(255, int(base_amp + noise)))
                 Q = max(0, min(255, int(base_amp * 0.3)))
-                csi_data.extend([I, Q])
+                # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                csi_data.extend([Q, I])
             
             calibrator.add_packet(bytes(csi_data))
         
@@ -583,7 +584,8 @@ class TestCalibrationIntegration:
                 # Convert to unsigned byte range (0-255)
                 I = max(0, min(255, I if I >= 0 else I + 256))
                 Q = max(0, min(255, Q if Q >= 0 else Q + 256))
-                csi_data.extend([I, Q])
+                # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                csi_data.extend([Q, I])
             
             calibrator.add_packet(bytes(csi_data))
         
@@ -640,7 +642,8 @@ class TestCalibrationIntegration:
                 # Ensure values are in uint8 range (bytes expects 0-255)
                 I = max(0, min(255, I))
                 Q = max(0, min(255, Q))
-                csi_data.extend([I, Q])
+                # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                csi_data.extend([Q, I])
             
             calibrator.add_packet(bytes(csi_data))
         
@@ -670,7 +673,8 @@ class TestCalibrationIntegration:
                 
                 I = max(0, min(255, int(base_amp)))
                 Q = max(0, min(255, int(base_amp * 0.3)))
-                csi_data.extend([I, Q])
+                # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                csi_data.extend([Q, I])
             
             calibrator.add_packet(bytes(csi_data))
         
@@ -723,7 +727,8 @@ class TestCalibrationFailurePaths:
                     I, Q = 50, 15
                 else:
                     I, Q = 0, 0
-                csi_data.extend([I, Q])
+                # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+                csi_data.extend([Q, I])
             
             calibrator.add_packet(bytes(csi_data))
         

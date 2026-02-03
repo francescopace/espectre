@@ -33,6 +33,21 @@ New gain compensation feature normalizes CSI amplitudes when gain lock is skippe
 
 ### Micro-ESPectre (R&D Platform)
 
+#### Extended Hardware Support
+
+The `me` CLI now supports all ESP32 variants with CSI capability:
+
+| Chip | CLI Option | Firmware |
+|------|------------|----------|
+| ESP32 (original) | `--chip esp32` | `ESP32_CSI.bin` |
+| ESP32-C3 | `--chip c3` | `ESP32_CSI_C3.bin` |
+| ESP32-S3 | `--chip s3` | `ESP32_CSI_S3.bin` |
+| ESP32-C6 | `--chip c6` | `ESP32_CSI_C6.bin` |
+
+- **Auto-detection**: Chip type is automatically detected during `./me flash`
+- **Firmware download**: Correct firmware is downloaded from GitHub releases
+- **Hash verification**: All firmware files are verified with SHA256
+
 #### ML Detector
 
 New machine learning-based motion detector as a developer preview:

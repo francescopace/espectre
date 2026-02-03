@@ -51,7 +51,7 @@ class CSIPacket:
     timestamp: float          # Reception timestamp (seconds since epoch)
     seq_num: int             # Sequence number (0-255)
     num_subcarriers: int     # Number of subcarriers
-    iq_raw: np.ndarray       # Raw I/Q values as int8 array [I0,Q0,I1,Q1,...]
+    iq_raw: np.ndarray       # Raw I/Q values as int8 array [Q0,I0,Q1,I1,...] (Espressif format)
     iq_complex: np.ndarray   # Complex representation [I0+jQ0, I1+jQ1, ...]
     amplitudes: np.ndarray   # Amplitude per subcarrier
     phases: np.ndarray       # Phase per subcarrier (radians)

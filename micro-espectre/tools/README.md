@@ -4,6 +4,16 @@
 
 This directory contains analysis tools for developing and validating ESPectre's motion detection algorithms. These scripts are essential for parameter tuning, algorithm validation, and scientific analysis.
 
+## Supported Chips
+
+All analysis tools support any ESP32 variant with CSI capability:
+- **ESP32** (original)
+- **ESP32-C3**
+- **ESP32-S3**
+- **ESP32-C6**
+
+Use `--chip <name>` to specify the chip (e.g., `--chip c3`, `--chip s3`). Most tools default to C6 if not specified.
+
 For algorithm documentation (MVS, P95 Band Selection, Hampel filter), see [ALGORITHMS.md](../ALGORITHMS.md).
 
 For production performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
@@ -32,9 +42,9 @@ For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../ML_DATA_COLL
 - Shows summary table with status for each chip
 
 ```bash
-python 1_analyze_raw_data.py           # Analyze all datasets (C6, S3, etc.)
+python 1_analyze_raw_data.py           # Analyze all available datasets
 python 1_analyze_raw_data.py --chip C6 # Analyze only C6 dataset
-python 1_analyze_raw_data.py --chip S3 # Analyze only S3 dataset
+python 1_analyze_raw_data.py --chip C3 # Analyze only C3 dataset
 ```
 
 ---

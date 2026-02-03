@@ -16,8 +16,10 @@ FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 
 # SHA256 hashes for firmware verification (update when releasing new firmware)
 FIRMWARE_HASHES = {
-    'ESP32_CSI_S3.bin': '388f77fccf69e96bec16f1a40d2f6bce51e9413a7a1a6effa8ba82820c80cee3',
-    'ESP32_CSI_C6.bin': 'b4504262e57ec3dc3e8cda9cf64c774fed38bc60954f170c4575c7eb8d92513e',
+    'ESP32_CSI.bin': '63fd7a86ae154578af1837ce73304acd5ce06dc1184fafa4e2d5f68f7cc7c102',
+    'ESP32_CSI_C3.bin': 'a945ca2dac7cec68bc6ac6bb1c2ea437e0cb80a414c1fe326c57edb8e34856af',
+    'ESP32_CSI_C6.bin': '4518643087bed995b91e9f904bcccb28875c35a2e1b93f47892704145395ef16',
+    'ESP32_CSI_S3.bin': '3e44a7556b2fb0b0268acec533e26cce52ff027668f195e55287ad42f76c4ae4',
 }
 
 try:
@@ -110,7 +112,7 @@ def get_serial_port(port_arg):
 
 
 def detect_chip_type(port):
-    """Auto-detect ESP32 chip type (S3 or C6)"""
+    """Auto-detect ESP32 chip type (ESP32, C3, S3, or C6)"""
     try:
         import esptool
     except ImportError:
@@ -137,6 +139,12 @@ def detect_chip_type(port):
         elif 'ESP32-C6' in chip_name:
             print(f"{Fore.GREEN}✅ Detected: ESP32-C6{Style.RESET_ALL}\n")
             return 'c6'
+        elif 'ESP32-C3' in chip_name:
+            print(f"{Fore.GREEN}✅ Detected: ESP32-C3{Style.RESET_ALL}\n")
+            return 'c3'
+        elif chip_name == 'ESP32':
+            print(f"{Fore.GREEN}✅ Detected: ESP32{Style.RESET_ALL}\n")
+            return 'esp32'
         else:
             print(f"{Fore.YELLOW}⚠️  Unknown chip: {chip_name}{Style.RESET_ALL}\n")
             return None
@@ -158,16 +166,24 @@ def detect_chip_type(port):
 def prompt_chip_type():
     """Prompt user to manually select chip type"""
     print(f"\n{Fore.CYAN}Please select your ESP32 chip type:{Style.RESET_ALL}")
-    print(f"  1. ESP32-S3")
-    print(f"  2. ESP32-C6")
+    print(f"  1. ESP32 (original)")
+    print(f"  2. ESP32-C3")
+    print(f"  3. ESP32-S3")
+    print(f"  4. ESP32-C6")
     print()
     
     try:
-        choice = input(f"{Fore.CYAN}Select chip (1-2): {Style.RESET_ALL}")
+        choice = input(f"{Fore.CYAN}Select chip (1-4): {Style.RESET_ALL}")
         if choice == '1':
+            print(f"{Fore.GREEN}✅ Selected: ESP32{Style.RESET_ALL}\n")
+            return 'esp32'
+        elif choice == '2':
+            print(f"{Fore.GREEN}✅ Selected: ESP32-C3{Style.RESET_ALL}\n")
+            return 'c3'
+        elif choice == '3':
             print(f"{Fore.GREEN}✅ Selected: ESP32-S3{Style.RESET_ALL}\n")
             return 's3'
-        elif choice == '2':
+        elif choice == '4':
             print(f"{Fore.GREEN}✅ Selected: ESP32-C6{Style.RESET_ALL}\n")
             return 'c6'
         else:
@@ -188,8 +204,20 @@ def download_firmware(chip: str, firmware_dir: Path) -> Path:
     import urllib.error
     import hashlib
     
-    chip_name = 'S3' if chip == 's3' else 'C6'
-    firmware_name = f'{FIRMWARE_NAME_PREFIX}{chip_name}.bin'
+    # Map chip code to firmware name suffix
+    chip_suffix_map = {
+        'esp32': '',      # ESP32_CSI.bin (no suffix for original ESP32)
+        'c3': 'C3',       # ESP32_CSI_C3.bin
+        's3': 'S3',       # ESP32_CSI_S3.bin
+        'c6': 'C6',       # ESP32_CSI_C6.bin
+    }
+    chip_suffix = chip_suffix_map.get(chip, chip.upper())
+    
+    if chip_suffix:
+        firmware_name = f'{FIRMWARE_NAME_PREFIX}{chip_suffix}.bin'
+    else:
+        # Original ESP32 has no suffix (ESP32_CSI.bin, not ESP32_CSI_.bin)
+        firmware_name = 'ESP32_CSI.bin'
     firmware_path = firmware_dir / firmware_name
     expected_hash = FIRMWARE_HASHES.get(firmware_name)
     
@@ -318,7 +346,13 @@ def flash_firmware(args):
     print()
     
     # Determine chip name for esptool
-    chip_name = 'esp32s3' if chip == 's3' else 'esp32c6'
+    chip_name_map = {
+        'esp32': 'esp32',
+        'c3': 'esp32c3',
+        's3': 'esp32s3',
+        'c6': 'esp32c6',
+    }
+    chip_name = chip_name_map.get(chip, 'esp32')
     
     # Build base command arguments with conservative settings for reliability
     base_args = [
@@ -350,6 +384,9 @@ def flash_firmware(args):
                     time.sleep(2)  # Wait before retry
                 
                 # Use write-flash (not deprecated) with conservative settings
+                # ESP32 base requires 0x1000 offset, newer chips (S3/C3/C6) use 0x0
+                flash_offset = '0x1000' if chip == 'esp32' else '0x0'
+                
                 flash_args = base_args + [
                     '--before', 'default-reset',  # Reset before operation
                     '--after', 'hard-reset',      # Hard reset after flashing
@@ -357,7 +394,7 @@ def flash_firmware(args):
                     '--flash-mode', 'dio',        # Conservative flash mode
                     '--flash-freq', '40m',        # Conservative frequency
                     '--flash-size', 'detect',     # Auto-detect flash size
-                    '0x0',                        # Flash offset
+                    flash_offset,                 # Flash offset (chip-dependent)
                     str(firmware_path)
                 ]
                 
@@ -850,7 +887,7 @@ Examples:
     
     # Flash command
     flash_parser = subparsers.add_parser('flash', help='Flash MicroPython firmware to ESP32')
-    flash_parser.add_argument('--chip', choices=['s3', 'c6'],
+    flash_parser.add_argument('--chip', choices=['esp32', 'c3', 's3', 'c6'],
                              help='ESP32 chip type (auto-detected if not specified)')
     flash_parser.add_argument('--port',
                              help='Serial port (auto-detected if not specified)')

@@ -154,9 +154,9 @@ void PCACalibrator::extract_amplitudes(const int8_t* csi_data, size_t len, float
   for (size_t i = 0; i < PCA_NUM_SUBCARRIERS; i++) {
     size_t sc = i * PCA_SUBCARRIER_STEP;
     if (sc < num_sc) {
-      int8_t real_part = csi_data[sc * 2];
-      int8_t imag_part = csi_data[sc * 2 + 1];
-      amplitudes[i] = std::sqrt(static_cast<float>(real_part * real_part + imag_part * imag_part));
+      int8_t q_val = csi_data[sc * 2];      // Imaginary first
+      int8_t i_val = csi_data[sc * 2 + 1];  // Real second
+      amplitudes[i] = std::sqrt(static_cast<float>(i_val * i_val + q_val * q_val));
     } else {
       amplitudes[i] = 0.0f;
     }

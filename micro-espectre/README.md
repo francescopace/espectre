@@ -124,7 +124,7 @@ For detailed performance metrics (confusion matrix, F1-score, benchmarks), see [
 ## Requirements
 
 ### Hardware
-- ESP32 with CSI support (S3/C6 recommended, other variants supported)
+- ESP32 with CSI support (ESP32, C3, S3, C6 supported)
 - 2.4GHz WiFi router
 
 ### Software
@@ -227,6 +227,7 @@ The CLI will:
 **Manual mode** (if auto-detect fails):
 ```bash
 # Specify chip and/or port manually
+# Supported chips: esp32, c3, s3, c6
 ./me flash --chip s3 --port /dev/ttyUSB0 --erase
 ```
 
@@ -357,7 +358,7 @@ pytest tests/test_segmentation.py::TestStateMachine -v
 | `test_traffic_generator` | Unit | Synthetic | Rate limiting, error handling |
 | `test_running_variance` | Unit | Synthetic | O(1) vs two-pass variance comparison |
 | `test_optimization_equivalence` | Unit | Synthetic | Optimization correctness |
-| `test_validation_real_data` | Integration | **Real** | End-to-end with real CSI data (C6, S3) |
+| `test_validation_real_data` | Integration | **Real** | End-to-end with real CSI data |
 
 ### CI Integration
 

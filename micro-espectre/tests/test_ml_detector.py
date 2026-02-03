@@ -247,13 +247,12 @@ class TestMLDetectorProcessing:
     
     @pytest.fixture
     def sample_csi_data(self):
-        """Create sample CSI data (12 subcarriers * 2 = 24 bytes)."""
-        # Create I/Q pairs for 12 subcarriers
-        # Format: [I0, Q0, I1, Q1, ...] but Espressif uses [Q0, I0, Q1, I1, ...]
+        """Create sample CSI data (64 subcarriers * 2 = 128 bytes)."""
+        # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
         data = []
         for i in range(64):  # 64 subcarriers
-            data.append(10 + i)  # Q (imaginary)
-            data.append(20 + i)  # I (real)
+            data.append(10 + i)  # Q (imaginary first)
+            data.append(20 + i)  # I (real second)
         return data
     
     def test_process_packet_increments_count(self, detector, sample_csi_data):
