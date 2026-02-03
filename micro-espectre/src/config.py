@@ -66,9 +66,6 @@ HAMPEL_WINDOW = 7             # Window size for median calculation (3-9 recommen
 HAMPEL_THRESHOLD = 4.0        # Outlier detection threshold in MAD units (2.0-4.0 recommended)
                               # Higher values = less aggressive filtering
 
-# CSI Feature Extraction Configuration
-ENABLE_FEATURES = True        # Enable/disable CSI feature extraction and confidence calculation
-
 # HT20 Constants (64 subcarriers - do not change)
 NUM_SUBCARRIERS = 64           # HT20: 64 subcarriers
 EXPECTED_CSI_LEN = 128         # 64 SC × 2 bytes (I/Q pairs)

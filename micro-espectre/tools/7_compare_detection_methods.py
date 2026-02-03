@@ -138,7 +138,8 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     Compare different detection methods on same data.
     Returns metrics for each method.
     """
-    ml_subcarriers = [11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]
+    from ml_detector import ML_SUBCARRIERS
+    ml_subcarriers = ML_SUBCARRIERS
     methods = {
         'RSSI': {'baseline': [], 'movement': []},
         'Mean Amplitude': {'baseline': [], 'movement': []},
@@ -638,12 +639,127 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement, pca_baseline, 
         print(f"\n  Overall: MVS wins {mvs_wins}/4, PCA wins {pca_wins}/4\n")
 
 
+def run_all_chips():
+    """Run comparison on all available chips and print summary table."""
+    from csi_utils import DATA_DIR
+    
+    # Find all available chips
+    chips = set()
+    for subdir in ['baseline', 'movement']:
+        dir_path = DATA_DIR / subdir
+        if dir_path.exists():
+            for npz_file in dir_path.glob('*.npz'):
+                # Extract chip name from filename (e.g., baseline_c6_64sc_... -> C6)
+                parts = npz_file.stem.split('_')
+                if len(parts) >= 2:
+                    chip = parts[1].upper()
+                    chips.add(chip)
+    
+    chips = sorted(chips)
+    if not chips:
+        print("No datasets found!")
+        return
+    
+    print("\n" + "="*80)
+    print("           DETECTION METHODS COMPARISON - ALL CHIPS")
+    print("="*80 + "\n")
+    
+    # Collect results for all chips
+    all_results = []
+    
+    for chip in chips:
+        try:
+            baseline_packets, movement_packets = load_baseline_and_movement(chip=chip)
+        except FileNotFoundError:
+            continue
+        
+        print(f"Processing {chip}...", end=" ", flush=True)
+        
+        # Suppress PCA calibrator output
+        import io
+        import contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = compare_detection_methods(
+                baseline_packets, movement_packets, SELECTED_SUBCARRIERS, WINDOW_SIZE, THRESHOLD
+            )
+        methods, mvs_baseline, mvs_movement, pca_baseline, pca_movement, timing, pca_baseline_states, ml_baseline, ml_movement, ml_baseline_states = result
+        
+        # Calculate metrics for MVS, PCA, ML
+        num_baseline = len(baseline_packets)
+        num_movement = len(movement_packets)
+        
+        # MVS - use get_motion_count() method
+        mvs_fp = mvs_baseline.get_motion_count() if mvs_baseline else 0
+        mvs_tp = mvs_movement.get_motion_count() if mvs_movement else 0
+        mvs_fn = num_movement - mvs_tp
+        mvs_recall = mvs_tp / num_movement * 100 if num_movement > 0 else 0
+        mvs_precision = mvs_tp / (mvs_tp + mvs_fp) * 100 if (mvs_tp + mvs_fp) > 0 else 0
+        mvs_f1 = 2 * mvs_precision * mvs_recall / (mvs_precision + mvs_recall) if (mvs_precision + mvs_recall) > 0 else 0
+        
+        # PCA - count MOTION states in state_history
+        # pca_baseline_states is the number of states during baseline, not FP count
+        pca_fp = pca_baseline.state_history[:pca_baseline_states].count('MOTION') if pca_baseline else 0
+        pca_tp = pca_movement.state_history[pca_baseline_states:].count('MOTION') if pca_movement else 0
+        pca_fn = num_movement - pca_tp
+        pca_recall = pca_tp / num_movement * 100 if num_movement > 0 else 0
+        pca_precision = pca_tp / (pca_tp + pca_fp) * 100 if (pca_tp + pca_fp) > 0 else 0
+        pca_f1 = 2 * pca_precision * pca_recall / (pca_precision + pca_recall) if (pca_precision + pca_recall) > 0 else 0
+        
+        # ML - use get_motion_count() method
+        if ml_baseline and ml_movement:
+            ml_fp = ml_baseline.get_motion_count()  # FP = motion detected during baseline
+            ml_tp = ml_movement.get_motion_count()
+            ml_fn = num_movement - ml_tp
+            ml_recall = ml_tp / num_movement * 100 if num_movement > 0 else 0
+            ml_precision = ml_tp / (ml_tp + ml_fp) * 100 if (ml_tp + ml_fp) > 0 else 0
+            ml_f1 = 2 * ml_precision * ml_recall / (ml_precision + ml_recall) if (ml_precision + ml_recall) > 0 else 0
+        else:
+            ml_recall = ml_precision = ml_f1 = ml_fp = 0
+        
+        all_results.append({
+            'chip': chip,
+            'mvs': {'recall': mvs_recall, 'fp': mvs_fp, 'precision': mvs_precision, 'f1': mvs_f1},
+            'pca': {'recall': pca_recall, 'fp': pca_fp, 'precision': pca_precision, 'f1': pca_f1},
+            'ml': {'recall': ml_recall, 'fp': ml_fp, 'precision': ml_precision, 'f1': ml_f1},
+        })
+        print("done")
+    
+    # Print summary table
+    print("\n" + "="*80)
+    print("                         SUMMARY TABLE")
+    print("="*80 + "\n")
+    
+    print(f"{'Chip':<6} {'Detector':<10} {'Recall':>10} {'FP Rate':>10} {'Precision':>10} {'F1':>10}")
+    print("-"*80)
+    
+    for r in all_results:
+        chip = r['chip']
+        num_baseline = 1000  # Approximate for FP rate calculation
+        
+        for detector, data in [('MVS', r['mvs']), ('PCA', r['pca']), ('ML', r['ml'])]:
+            fp_rate = data['fp'] / num_baseline * 100 if num_baseline > 0 else 0
+            # Highlight best detector per chip
+            best_f1 = max(r['mvs']['f1'], r['pca']['f1'], r['ml']['f1'])
+            marker = "**" if data['f1'] == best_f1 and data['f1'] > 0 else ""
+            print(f"{chip:<6} {marker}{detector:<8} {data['recall']:>9.1f}% {fp_rate:>9.1f}% {data['precision']:>9.1f}% {data['f1']:>9.1f}%")
+        print()
+    
+    print("="*80)
+    print("** = Best F1 score for chip")
+    print("="*80 + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Mean Amplitude, Turbulence, PCA, MVS)')
     parser.add_argument('--chip', type=str, default='C6', help='Chip type: C6, S3, etc.')
+    parser.add_argument('--all', action='store_true', help='Run on all available chips and show summary')
     parser.add_argument('--plot', action='store_true', help='Show visualization plots')
     
     args = parser.parse_args()
+    
+    if args.all:
+        run_all_chips()
+        return
     
     print("\n" + "="*60)
     print("       Detection Methods Comparison (MVS vs PCA)")

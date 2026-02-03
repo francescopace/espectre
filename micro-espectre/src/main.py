@@ -315,8 +315,9 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         if needs_comp:
             print("Note: Proceeding without gain lock (compensation enabled)")
         
-        # Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
-        config.SELECTED_SUBCARRIERS = [11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]
+        # Use ML-specific subcarriers (must match model training)
+        from src.ml_detector import ML_SUBCARRIERS
+        config.SELECTED_SUBCARRIERS = ML_SUBCARRIERS
         
         print('')
         print('='*60)
@@ -542,12 +543,25 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     
     return success
 
+def get_chip_type():
+    """Extract short chip type from os.uname().machine."""
+    machine = os.uname().machine.upper()
+    # Check for specific variants first
+    for variant in ['S3', 'S2', 'C3', 'C5', 'C6']:
+        if variant in machine:
+            return variant
+    # Fallback to ESP32 base
+    if 'ESP32' in machine:
+        return 'ESP32'
+    return machine
+
+
 def main():
     """Main application loop"""
     print('Micro-ESPectre starting...')
     
-    # Detect chip type and get CSI scale
-    g_state.chip_type = os.uname().machine  # Save for MQTT factory_reset
+    # Detect chip type
+    g_state.chip_type = get_chip_type()
     print(f'Detected chip: {g_state.chip_type}')
     
     # Connect to WiFi
@@ -560,18 +574,12 @@ def main():
     if detection_algorithm == 'pca':
         print(f'Detection algorithm: PCA (Principal Component Analysis)')
         detector = PCADetector(threshold=0.01)  # PCA threshold set during calibration
-        # Features not supported with PCA
-        if config.ENABLE_FEATURES:
-            print('Note: Features disabled for PCA detector')
     elif detection_algorithm == 'ml':
         print(f'Detection algorithm: ML (Neural Network)')
         detector = MLDetector(
             window_size=config.SEG_WINDOW_SIZE,
             threshold=0.5  # Probability threshold
         )
-        # Features not needed externally (computed internally by ML)
-        if config.ENABLE_FEATURES:
-            print('Note: Features disabled for ML detector (computed internally)')
     else:
         print(f'Detection algorithm: MVS (Moving Variance Segmentation)')
         detector = MVSDetector(
@@ -596,21 +604,32 @@ def main():
             machine.reset()  # Reboot and retry
         
         print(f'Traffic generator started ({config.TRAFFIC_GENERATOR_RATE} pps)')
-        time.sleep(2)  # Wait for traffic to start generating CSI packets
         
-        # Verify CSI packets are flowing before proceeding
-        print('Waiting for CSI packets...')
-        csi_received = 0
-        for _ in range(100):  # Max 100 attempts (~5 seconds)
-            frame = wlan.csi_read()
-            if frame:
-                csi_received += 1
-                if csi_received >= 10:
-                    break
-            time.sleep(0.05)
-        
-        if csi_received < 10:
-            print(f'WARNING: Only {csi_received} CSI packets received - TG may not be working')
+        # Verify CSI packets are flowing with retry logic
+        max_tg_retries = 3
+        for tg_attempt in range(max_tg_retries):
+            time.sleep(2)  # Wait for traffic to start generating CSI packets
+            
+            print('Waiting for CSI packets...')
+            csi_received = 0
+            for _ in range(100):  # Max 100 attempts (~5 seconds)
+                frame = wlan.csi_read()
+                if frame:
+                    csi_received += 1
+                    if csi_received >= 10:
+                        break
+                time.sleep(0.05)
+            
+            if csi_received >= 10:
+                break  # Success
+            
+            if tg_attempt < max_tg_retries - 1:
+                print(f'WARNING: Only {csi_received} CSI packets - restarting TG (attempt {tg_attempt + 2}/{max_tg_retries})')
+                traffic_gen.stop()
+                time.sleep(1)
+                traffic_gen.start(config.TRAFFIC_GENERATOR_RATE)
+            else:
+                print(f'WARNING: Only {csi_received} CSI packets after {max_tg_retries} attempts - TG may not be working')
     
     # P95 Auto-Calibration at boot if subcarriers not configured
     # Handle case where SELECTED_SUBCARRIERS is None, empty, or not defined (commented out)
@@ -733,25 +752,13 @@ def main():
                     print(f"{progress_bar} | pkts:{publish_counter} drop:{dropped_delta} pps:{pps} | "
                           f"mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str}")
                     
-                    # Compute features at publish time (MVS only)
-                    features = None
-                    confidence = None
-                    triggered = None
-                    if detection_algorithm == 'mvs' and config.ENABLE_FEATURES:
-                        if hasattr(detector, '_context') and detector._context.features_ready():
-                            features = detector._context.compute_features()
-                            confidence, triggered = detector._context.compute_confidence(features)
-                    
                     mqtt_handler.publish_state(
                         motion_metric,
                         metrics['state'],
                         threshold,
                         publish_counter,
                         dropped_delta,
-                        pps,
-                        features,
-                        confidence,
-                        triggered
+                        pps
                     )
                     publish_counter = 0
                     last_publish_time = current_time

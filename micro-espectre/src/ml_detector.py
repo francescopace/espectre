@@ -34,7 +34,11 @@ except ImportError:
     )
 
 # Re-export for convenience
-__all__ = ['MLDetector', 'predict', 'is_motion']
+__all__ = ['MLDetector', 'predict', 'is_motion', 'ML_SUBCARRIERS']
+
+# Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
+# These must match the subcarriers used during model training
+ML_SUBCARRIERS = [11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]
 
 
 # ============================================================================

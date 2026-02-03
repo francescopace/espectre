@@ -51,6 +51,29 @@ class MQTTCommands:
         
         # Check detector type for MVS-specific features
         self._is_mvs = detector.get_name() == "MVS"
+    
+    def _get_detection_info(self):
+        """Build detection info dict based on detector type."""
+        algorithm = self.detector.get_name()
+        
+        # Determine calibrator based on detector type
+        if algorithm == "MVS":
+            calibrator = getattr(self.config, 'CALIBRATION_ALGORITHM', 'nbvi')
+        elif algorithm == "PCA":
+            calibrator = "pca"
+        else:  # ML
+            calibrator = "none"
+        
+        info = {
+            "algorithm": algorithm,
+            "calibrator": calibrator
+        }
+        # Add MVS-specific parameters
+        if self._is_mvs:
+            info["threshold"] = round(self.detector.get_threshold(), 4)
+            info["threshold_source"] = "config" if getattr(self.config, 'SEG_THRESHOLD', None) is not None else "auto"
+            info["window_size"] = self.detector._context.window_size
+        return info
         
     def send_response(self, message):
         """Send response message to MQTT"""
@@ -159,19 +182,14 @@ class MQTTCommands:
                 "csi_enabled": csi_enabled
             },
             "device": {
-                "type": sys.platform
+                "type": getattr(self.global_state, 'chip_type', None) or sys.platform
             },
             "mqtt": {
                 "base_topic": self.config.MQTT_TOPIC,
                 "cmd_topic": f"{self.config.MQTT_TOPIC}/cmd",
                 "response_topic": self.response_topic
             },
-            "detection": {
-                "algorithm": self.detector.get_name(),
-                "threshold": round(self.detector.get_threshold(), 4),
-                "threshold_source": "config" if getattr(self.config, 'SEG_THRESHOLD', None) is not None else "auto",
-                "window_size": self.detector._context.window_size if self._is_mvs else "N/A"
-            },
+            "detection": self._get_detection_info(),
             "subcarriers": {
                 "indices": getattr(self.config, 'SELECTED_SUBCARRIERS', None) or []
             }

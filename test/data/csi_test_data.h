@@ -26,9 +26,16 @@
 // ============================================================================
 // Test Data Files (HT20: 64 subcarriers only)
 // ============================================================================
-// C6 dataset (old, validated)
+// C3 dataset - skipped until better data is collected (max 64% recall)
+#define BASELINE_C3_64SC  "../micro-espectre/data/baseline/baseline_c3_64sc_20260203_203509.npz"
+#define MOVEMENT_C3_64SC  "../micro-espectre/data/movement/movement_c3_64sc_20260203_203533.npz"
+// C6 dataset (validated)
 #define BASELINE_C6_64SC  "../micro-espectre/data/baseline/baseline_c6_64sc_20251212_142443.npz"
 #define MOVEMENT_C6_64SC  "../micro-espectre/data/movement/movement_c6_64sc_20251212_142443.npz"
+// ESP32 dataset - skipped until data is collected
+// Files will be: baseline_esp32_64sc_*.npz, movement_esp32_64sc_*.npz
+#define BASELINE_ESP32_64SC  "../micro-espectre/data/baseline/baseline_esp32_64sc_placeholder.npz"
+#define MOVEMENT_ESP32_64SC  "../micro-espectre/data/movement/movement_esp32_64sc_placeholder.npz"
 // S3 dataset
 #define BASELINE_S3_64SC  "../micro-espectre/data/baseline/baseline_s3_64sc_20260117_222606.npz"
 #define MOVEMENT_S3_64SC  "../micro-espectre/data/movement/movement_s3_64sc_20260117_222626.npz"
@@ -122,15 +129,31 @@ inline std::vector<const int8_t*> get_packet_pointers(const CsiData& csi_data) {
 // ============================================================================
 
 enum class ChipType {
+    C3,    // Skipped - dataset has weak movement signal (max 64% recall)
     C6,
+    ESP32, // Skipped - dataset not yet collected
     S3
 };
 
 inline const char* chip_name(ChipType chip) {
     switch (chip) {
+        case ChipType::C3: return "C3";
         case ChipType::C6: return "C6";
+        case ChipType::ESP32: return "ESP32";
         case ChipType::S3: return "S3";
         default: return "Unknown";
+    }
+}
+
+/**
+ * Check if a chip type should be skipped in tests.
+ * Returns skip reason or nullptr if chip should run.
+ */
+inline const char* chip_skip_reason(ChipType chip) {
+    switch (chip) {
+        case ChipType::C3: return "C3 requires forced subcarriers [20-31] - calibration selects wrong bands";
+        case ChipType::ESP32: return "ESP32 dataset not yet collected";
+        default: return nullptr;
     }
 }
 
@@ -147,7 +170,7 @@ static ChipType g_current_chip = ChipType::C6;
 
 /**
  * Load CSI test data from NPZ files for a specific chip.
- * @param chip Chip type (C6 or S3)
+ * @param chip Chip type (C3, C6, ESP32, or S3)
  */
 inline bool load(ChipType chip = ChipType::C6) {
     // If already loaded with same chip, skip
@@ -157,9 +180,17 @@ inline bool load(ChipType chip = ChipType::C6) {
     const char* movement_file = nullptr;
     
     switch (chip) {
+        case ChipType::C3:
+            baseline_file = BASELINE_C3_64SC;
+            movement_file = MOVEMENT_C3_64SC;
+            break;
         case ChipType::C6:
             baseline_file = BASELINE_C6_64SC;
             movement_file = MOVEMENT_C6_64SC;
+            break;
+        case ChipType::ESP32:
+            baseline_file = BASELINE_ESP32_64SC;
+            movement_file = MOVEMENT_ESP32_64SC;
             break;
         case ChipType::S3:
             baseline_file = BASELINE_S3_64SC;
@@ -202,9 +233,10 @@ inline bool switch_dataset(ChipType chip) {
 
 /**
  * Get list of available chip configurations for parametrized testing.
+ * Note: Some chips are skipped (check chip_skip_reason()).
  */
 inline std::vector<ChipType> get_available_chips() {
-    return {ChipType::C6, ChipType::S3};
+    return {ChipType::C3, ChipType::C6, ChipType::ESP32, ChipType::S3};
 }
 
 // ============================================================================

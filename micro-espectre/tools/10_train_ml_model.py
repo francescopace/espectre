@@ -433,7 +433,8 @@ def train_all():
     """
     Train models with all available data.
     """
-    subcarriers = [11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]
+    from ml_detector import ML_SUBCARRIERS
+    subcarriers = ML_SUBCARRIERS
     
     print("\n" + "="*60)
     print("           ML MOTION DETECTOR TRAINING")

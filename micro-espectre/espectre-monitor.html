@@ -584,37 +584,42 @@
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 1.1em;">🖥️</span>
                             <span style="font-weight: 600; color: #666;">Model:</span>
-                            <span id="deviceType" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                            <span id="deviceType">-</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 1.1em;">🌐</span>
                             <span style="font-weight: 600; color: #666;">IP:</span>
-                            <span id="deviceIP" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                            <span id="deviceIP">-</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 1.1em;">🏷️</span>
                             <span style="font-weight: 600; color: #666;">MAC:</span>
-                            <span id="deviceMAC" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                            <span id="deviceMAC">-</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 1.1em;">🛜</span>
                             <span style="font-weight: 600; color: #666;">Protocol:</span>
-                            <span id="wifiProtocol" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                            <span id="wifiProtocol">-</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 1.1em;">📶</span>
                             <span style="font-weight: 600; color: #666;">Bandwidth:</span>
-                            <span id="wifiBandwidth" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                            <span id="wifiBandwidth">-</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 1.1em;">📻</span>
                             <span style="font-weight: 600; color: #666;">Channel:</span>
-                            <span id="wifiChannel" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                            <span id="wifiChannel">-</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 1.1em;">🔢</span>
-                            <span style="font-weight: 600; color: #666;">CSI:</span>
-                            <span id="wifiCSI" style="font-family: monospace; color: #333; font-weight: 600;">-</span>
+                            <span style="font-size: 1.1em;">🎯</span>
+                            <span style="font-weight: 600; color: #666;">Detector:</span>
+                            <span id="detectorAlgorithm">-</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.1em;">🔧</span>
+                            <span style="font-weight: 600; color: #666;">Calibrator:</span>
+                            <span id="calibratorAlgorithm">-</span>
                         </div>
                     </div>
                 </div>
@@ -631,8 +636,8 @@
                         <span class="arrow" id="detectionParamsArrow">▼</span>
                     </div>
                     <div class="collapsible-content" id="detectionParamsContent" style="margin-top: 15px;">
-                        <div
-                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
+                        <div id="mvsParamsSection"
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 15px;">
                             <div class="input-group">
                                 <label for="windowSize" style="font-size: 0.85em;">⚡ Response Speed (10-200)</label>
                                 <div style="display: flex; gap: 8px; align-items: center;">
@@ -653,6 +658,9 @@
                                 </div>
                                 <small style="color: #666; font-size: 0.8em;">Minimum threshold required to detect movement.<br>Low value = detects small movements.<br>High value = detects large movements.<br><b>Recommended: 1.0 for balanced detection 💡</b></small>
                             </div>
+                        </div>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
                             <div id="subcarrierSelectionContent" style="grid-column: span 2;">
                                 <div class="input-group">
                                     <label style="font-size: 0.85em;">📻 Active Subcarriers</label>
@@ -682,13 +690,6 @@
                     <div class="metric-label">State</div>
                     <div class="metric-value" id="stateValue">-</div>
                 </div>
-                <div class="metric-card neutral" id="confidenceCard" style="display: none;">
-                    <div class="metric-label">Confidence</div>
-                    <div class="metric-value" id="confidenceValue">-</div>
-                    <div style="margin-top: 8px; background: rgba(255,255,255,0.3); border-radius: 4px; height: 6px; overflow: hidden;">
-                        <div id="confidenceBar" style="height: 100%; background: white; width: 0%; transition: width 0.3s;"></div>
-                    </div>
-                </div>
                 <div class="metric-card neutral">
                     <div class="metric-label">Movement</div>
                     <div class="metric-value" id="movementValue">-</div>
@@ -717,7 +718,6 @@
         let client = null;
         let chart = null;
         let maxDataPoints = 60;
-        let currentFeatures = null;
         let isPaused = false;
         let pendingData = [];
 
@@ -725,9 +725,6 @@
             labels: [],
             movement: [],
             threshold: [],
-            features: [],
-            confidence: [],
-            triggered: [],
             pps: [],
             packets_dropped: []
         };
@@ -827,42 +824,7 @@
                         },
                         tooltip: {
                             mode: 'index',
-                            intersect: false,
-                            callbacks: {
-                                afterBody: function (context) {
-                                    const index = context[0].dataIndex;
-                                    const features = chartData.features[index];
-                                    const confidence = chartData.confidence[index];
-                                    const triggered = chartData.triggered[index];
-
-                                    const lines = [''];
-
-                                    // Show confidence and triggered features if available
-                                    if (confidence !== null && confidence !== undefined) {
-                                        lines.push('─────────────────────');
-                                        lines.push(`🎯 Confidence: ${(confidence * 100).toFixed(1)}%`);
-                                        if (triggered && triggered.length > 0) {
-                                            lines.push(`⚡ Triggered: ${triggered.join(', ')}`);
-                                        }
-                                    }
-
-                                    // Show features only if available (publish-time features)
-                                    if (features) {
-                                        lines.push('─────────────────────');
-                                        lines.push('🔬 Extracted Features:');
-                                        lines.push('');
-                                        // Turbulence buffer features
-                                        lines.push(`Entropy (turb): ${features.entropy_turb?.toFixed(3) || 'N/A'}`);
-                                        lines.push(`IQR (turb): ${features.iqr_turb?.toFixed(3) || 'N/A'}`);
-                                        lines.push(`Variance (turb): ${features.variance_turb?.toFixed(3) || 'N/A'}`);
-                                        // W=1 features
-                                        lines.push(`Skewness: ${features.skewness?.toFixed(3) || 'N/A'}`);
-                                        lines.push(`Kurtosis: ${features.kurtosis?.toFixed(3) || 'N/A'}`);
-                                    }
-
-                                    return lines;
-                                }
-                            }
+                            intersect: false
                         }
                     }
                 }
@@ -1033,9 +995,6 @@
             chartData.labels.push(timeLabel);
             chartData.movement.push(data.movement || 0);
             chartData.threshold.push(data.threshold || 0);
-            chartData.features.push(data.features || null);
-            chartData.confidence.push(data.confidence !== undefined ? data.confidence : null);
-            chartData.triggered.push(data.triggered || null);
             chartData.pps.push(pps);
             chartData.packets_dropped.push(data.packets_dropped || 0);
 
@@ -1043,9 +1002,6 @@
                 chartData.labels.shift();
                 chartData.movement.shift();
                 chartData.threshold.shift();
-                chartData.features.shift();
-                chartData.confidence.shift();
-                chartData.triggered.shift();
                 chartData.pps.shift();
                 chartData.packets_dropped.shift();
             }
@@ -1068,45 +1024,17 @@
 
             document.getElementById('movementValue').textContent =
                 data.movement ? data.movement.toFixed(2) : '-';
-
-            // Update confidence if available
-            const confidenceCard = document.getElementById('confidenceCard');
-            const confidenceValue = document.getElementById('confidenceValue');
-            const confidenceBar = document.getElementById('confidenceBar');
-            
-            if (data.confidence !== undefined && data.confidence !== null) {
-                confidenceCard.style.display = 'block';
-                const confPercent = (data.confidence * 100).toFixed(0);
-                confidenceValue.textContent = confPercent + '%';
-                confidenceBar.style.width = confPercent + '%';
-                
-                // Change color based on confidence level
-                confidenceCard.classList.remove('idle', 'motion', 'neutral');
-                if (data.confidence >= 0.7) {
-                    confidenceCard.classList.add('motion');
-                } else if (data.confidence >= 0.5) {
-                    confidenceCard.classList.add('neutral');
-                } else {
-                    confidenceCard.classList.add('idle');
-                }
-            }
         }
 
         function clearData() {
             chartData.labels = [];
             chartData.movement = [];
             chartData.threshold = [];
-            chartData.features = [];
-            chartData.confidence = [];
-            chartData.triggered = [];
             chartData.pps = [];
             chartData.packets_dropped = [];
-            currentFeatures = null;
             pendingData = [];
 
             document.getElementById('lastUpdate').textContent = '-';
-            document.getElementById('confidenceValue').textContent = '-';
-            document.getElementById('confidenceBar').style.width = '0%';
 
             chart.update();
         }
@@ -1299,15 +1227,6 @@
                 if (data.movement !== undefined || data.threshold !== undefined || data.state) {
                     const now = new Date();
                     document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('it-IT', { hour12: false });
-
-                    currentFeatures = data.features || null;
-                    
-                    // Debug: log features if present
-                    if (data.features) {
-                        console.log('Features received:', data.features);
-                        console.log('Confidence:', data.confidence);
-                        console.log('Triggered:', data.triggered);
-                    }
 
                     updateMetrics(data);
 
@@ -1543,8 +1462,22 @@
                 if (config.network.protocol) {
                     document.getElementById('wifiProtocol').textContent = config.network.protocol;
                 }
-                if (config.network.csi_enabled !== undefined) {
-                    document.getElementById('wifiCSI').textContent = config.network.csi_enabled ? 'Enabled' : 'Disabled';
+            }
+
+            // Detection algorithm info
+            if (config.detection) {
+                if (config.detection.algorithm) {
+                    const algorithm = config.detection.algorithm.toLowerCase();
+                    document.getElementById('detectorAlgorithm').textContent = config.detection.algorithm.toUpperCase();
+                    
+                    // Show MVS params section only for MVS detector
+                    const mvsParamsSection = document.getElementById('mvsParamsSection');
+                    if (mvsParamsSection) {
+                        mvsParamsSection.style.display = algorithm === 'mvs' ? 'grid' : 'none';
+                    }
+                }
+                if (config.detection.calibrator) {
+                    document.getElementById('calibratorAlgorithm').textContent = config.detection.calibrator.toUpperCase();
                 }
             }
 
@@ -1556,15 +1489,15 @@
                 }
             }
 
-            // Detection Parameters
-            if (config.segmentation) {
-                if (config.segmentation.threshold !== undefined) {
-                    const threshold = config.segmentation.threshold;
+            // Detection Parameters (from detection object)
+            if (config.detection) {
+                if (config.detection.threshold !== undefined) {
+                    const threshold = config.detection.threshold;
                     document.getElementById('segThreshold').value = threshold;
                     document.getElementById('segThresholdValue').value = threshold;
                 }
-                if (config.segmentation.window_size !== undefined) {
-                    const windowSize = config.segmentation.window_size;
+                if (config.detection.window_size !== undefined && config.detection.window_size !== "N/A") {
+                    const windowSize = config.detection.window_size;
                     document.getElementById('windowSize').value = windowSize;
                     document.getElementById('windowSizeValue').value = windowSize;
                 }

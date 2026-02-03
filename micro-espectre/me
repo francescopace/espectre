@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Tuple
 
-FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc4"
+FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc5"
 FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 
 # SHA256 hashes for firmware verification (update when releasing new firmware)
@@ -845,6 +845,32 @@ def verify_installation(args):
 
 
 # ============================================================================
+# Web UI Command
+# ============================================================================
+
+def open_web_ui():
+    """Open the web monitoring interface in the default browser."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    html_file = os.path.join(script_dir, "espectre-monitor.html")
+    
+    if not os.path.exists(html_file):
+        html_file = os.path.join(os.getcwd(), "espectre-monitor.html")
+    
+    if not os.path.exists(html_file):
+        print(f"{Fore.RED}❌ Error: espectre-monitor.html not found{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Make sure you're in the micro-espectre directory{Style.RESET_ALL}")
+        return
+    
+    file_url = Path(html_file).absolute().as_uri()
+    print(f"{Fore.BLUE}🌐 Opening web UI: {os.path.basename(html_file)}...{Style.RESET_ALL}")
+    try:
+        webbrowser.open(file_url)
+        print(f"{Fore.GREEN}✅ Web UI opened in browser{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}❌ Error opening browser: {e}{Style.RESET_ALL}")
+
+
+# ============================================================================
 # Main Entry Point
 # ============================================================================
 
@@ -919,6 +945,9 @@ Examples:
     verify_parser.add_argument('--port',
                               help='Serial port (auto-detected if not specified)')
     
+    # UI command - open web interface
+    ui_parser = subparsers.add_parser('ui', help='Open web monitoring interface in browser')
+    
     # Collect command (runs on PC, receives UDP from ESP32)
     collect_parser = subparsers.add_parser('collect', help='Collect labeled CSI data for training')
     collect_parser.add_argument('--label', '-l',
@@ -963,6 +992,8 @@ Examples:
         verify_installation(args)
     elif args.command == 'collect':
         collect_csi_data(args)
+    elif args.command == 'ui':
+        open_web_ui()
     else:
         # No subcommand = interactive MQTT mode
         # Create a simple namespace for EspectreCLI compatibility
@@ -977,6 +1008,15 @@ Examples:
         cli.start()
 
 
+ASCII_BANNER = r'''
+  __  __ _                    _____ ____  ____            _            
+ |  \/  (_) ___ _ __ ___     | ____/ ___||  _ \ ___  ___| |_ _ __ ___ 
+ | |\/| | |/ __| '__/ _ \ __ |  _| \___ \| |_) / _ \/ __| __| '__/ _ \
+ | |  | | | (__| | | (_) |__|| |___ ___) |  __/  __/ (__| |_| | |  __/
+ |_|  |_|_|\___|_|  \___/    |_____|____/|_|   \___|\___|\__|_|  \___|
+'''
+
+
 class EspectreCLI_MQTT:
     """Interactive MQTT CLI - renamed to avoid confusion with main CLI"""
     def __init__(self, args):
@@ -989,7 +1029,7 @@ class EspectreCLI_MQTT:
         self.topic_cmd = f"{self.base_topic}/cmd"
         self.topic_response = f"{self.base_topic}/response"
         
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self.client = mqtt.Client()
         if self.username and self.password:
             self.client.username_pw_set(self.username, self.password)
             
@@ -1066,16 +1106,8 @@ class EspectreCLI_MQTT:
             print(f"{Fore.RED}Error sending command: {e}{Style.RESET_ALL}")
 
     def start(self):
-        print(f"{Fore.MAGENTA}")
-        print('')
-        print('  __  __ _                    _____ ____  ____            _            ')
-        print(' |  \\/  (_) ___ _ __ ___     | ____/ ___||  _ \\ ___  ___| |_ _ __ ___ ')
-        print(' | |\\/| | |/ __| \'__/ _ \\ __ |  _| \\___ \\| |_) / _ \\/ __| __| \'__/ _ \\')
-        print(' | |  | | | (__| | | (_) |__|| |___ ___) |  __/  __/ (__| |_| | |  __/')
-        print(' |_|  |_|_|\\___|_|  \\___/    |_____|____/|_|   \\___|\\___|\\__|_|  \\___|')
-        print('')
+        print(f"{Fore.MAGENTA}{ASCII_BANNER}")
         print('Motion detection system based on Wi-Fi spectre analysis - Interactive CLI')
-        print('')
         print(f"{Style.RESET_ALL}")
 
 
@@ -1125,14 +1157,14 @@ class EspectreCLI_MQTT:
             os.system('cls' if os.name == 'nt' else 'clear')
             return
         elif cmd in ["webui", "web", "ui"]:
-            self.cmd_webui()
+            open_web_ui()
             return
         
         try:
             if cmd in ["segmentation_threshold", "st"]:
-                self.cmd_segmentation_threshold(args)
+                self.cmd_set_value("segmentation_threshold", args, float, "value")
             elif cmd in ["segmentation_window_size", "sws"]:
-                self.cmd_segmentation_window_size(args)
+                self.cmd_set_value("segmentation_window_size", args, int, "packets")
             elif cmd in ["info", "i"]:
                 self.send_command({"cmd": "info"})
             elif cmd in ["stats", "s"]:
@@ -1144,35 +1176,12 @@ class EspectreCLI_MQTT:
         except Exception as e:
             print(f"{Fore.RED}Error executing command: {e}{Style.RESET_ALL}")
 
-    def cmd_webui(self):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        html_file = os.path.join(script_dir, "espectre-monitor.html")
-        
-        if not os.path.exists(html_file):
-            html_file = os.path.join(os.getcwd(), "espectre-monitor.html")
-        
-        if not os.path.exists(html_file):
-            print(f"{Fore.RED}Error: espectre-monitor.html not found{Style.RESET_ALL}")
-            return
-        
-        file_url = Path(html_file).absolute().as_uri()
-        print(f"{Fore.BLUE}Opening web UI: {os.path.basename(html_file)}...{Style.RESET_ALL}")
-        try:
-            webbrowser.open(file_url)
-        except Exception as e:
-            print(f"{Fore.RED}Error opening browser: {e}{Style.RESET_ALL}")
-
-    def cmd_segmentation_threshold(self, args):
+    def cmd_set_value(self, cmd_name, args, value_type, usage_hint):
+        """Generic handler for commands that set a single value."""
         if not args:
-            print(f"{Fore.RED}Usage: segmentation_threshold <value>{Style.RESET_ALL}")
+            print(f"{Fore.RED}Usage: {cmd_name} <{usage_hint}>{Style.RESET_ALL}")
             return
-        self.send_command({"cmd": "segmentation_threshold", "value": float(args[0])})
-
-    def cmd_segmentation_window_size(self, args):
-        if not args:
-            print(f"{Fore.RED}Usage: segmentation_window_size <packets>{Style.RESET_ALL}")
-            return
-        self.send_command({"cmd": "segmentation_window_size", "value": int(args[0])})
+        self.send_command({"cmd": cmd_name, "value": value_type(args[0])})
 
     def cmd_factory_reset(self):
         print(f"{Fore.YELLOW}⚠️  WARNING: This will reset ALL settings to factory defaults!{Style.RESET_ALL}")
@@ -1210,28 +1219,20 @@ class EspectreCLI_MQTT:
         print()
 
     def show_about(self):
-        about_text = HTML(r"""
-<ansibrightmagenta>
-  __  __ _                    _____ ____  ____            _            
- |  \/  (_) ___ _ __ ___     | ____/ ___||  _ \ ___  ___| |_ _ __ ___ 
- | |\/| | |/ __| '__/ _ \ __ |  _| \___ \| |_) / _ \/ __| __| '__/ _ \
- | |  | | | (__| | | (_) |__|| |___ ___) |  __/  __/ (__| |_| | |  __/
- |_|  |_|_|\___|_|  \___/    |_____|____/|_|   \___|\___|\__|_|  \___|
-</ansibrightmagenta>
-                                            
+        print(f"\n{Fore.MAGENTA}{ASCII_BANNER}{Style.RESET_ALL}")
+        about_text = HTML("""
   <ansibrightcyan><b>Wi-Fi Motion Detection System</b></ansibrightcyan>
   <ansicyan>Based on Channel State Information (CSI)</ansicyan>
   
   <ansibrightgreen>Created with ❤️  by <b>Francesco Pace</b></ansibrightgreen>
   
-  <ansiblue>🔗 GitHub:</ansiblue>   <u>github.com/francescopace</u>
-  <ansiblue>💼 LinkedIn:</ansiblue> <u>linkedin.com/in/francescopace</u>
-  <ansiblue>📧 Email:</ansiblue>    <u>francesco.pace@espectre.dev</u>
+  <ansiblue>GitHub:</ansiblue>   <u>github.com/francescopace</u>
+  <ansiblue>LinkedIn:</ansiblue> <u>linkedin.com/in/francescopace</u>
+  <ansiblue>Email:</ansiblue>    <u>francesco.pace@espectre.dev</u>
     
   <ansiwhite>This project explores the fascinating world of Wi-Fi sensing,
   using Channel State Information to detect motion and presence.</ansiwhite>
 """)
-        print()
         print_formatted_text(about_text)
         print()
 

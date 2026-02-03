@@ -110,14 +110,6 @@ class TestConfigConstants:
         assert config.HAMPEL_WINDOW > 0
         assert config.HAMPEL_THRESHOLD > 0
     
-    def test_features_config(self):
-        """Test feature extraction configuration"""
-        config = load_src_config()
-        
-        assert hasattr(config, 'ENABLE_FEATURES')
-        assert isinstance(config.ENABLE_FEATURES, bool)
-
-
 class TestConfigDefaultValues:
     """Test that configuration has sensible default values"""
     

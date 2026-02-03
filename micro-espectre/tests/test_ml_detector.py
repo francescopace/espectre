@@ -119,14 +119,21 @@ class TestPredict:
     
     def test_predict_different_inputs_different_outputs(self):
         """Different inputs produce different outputs."""
-        features1 = [1.0] * 12  # Low values (baseline-like)
-        features2 = [20.0, 5.0, 50.0, 1.0, 49.0, 100.0,
-                     10.0, 3.5, 1.5, 2.0, 0.5, 10.0]  # High values (motion-like)
+        # Use realistic feature values based on actual data distributions
+        # Features: turb_mean, turb_std, turb_max, turb_range, mv_mean, mv_max,
+        #           iqr, entropy, skewness, kurtosis, zero_crossings, delta_mv
+        # Baseline-like: low turbulence and variance
+        features1 = [12.0, 1.5, 15.0, 3.0, 5.0, 3.0,
+                     3.0, 1.5, -0.5, -0.8, 0.001, 0.0]
+        # Motion-like: high turbulence and variance
+        features2 = [20.0, 5.0, 30.0, 15.0, 25.0, 30.0,
+                     10.0, 3.5, 0.5, 1.5, 0.05, 15.0]
         
         result1 = predict(features1)
         result2 = predict(features2)
         
-        assert result1 != result2
+        # Motion features should produce higher probability than baseline
+        assert result2 > result1
 
 
 class TestIsMotion:

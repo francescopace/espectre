@@ -282,41 +282,6 @@ class TestMQTTHandler:
         assert payload['movement'] == 5.0
         assert payload['packets_dropped'] == 5
     
-    def test_publish_state_with_features(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
-        """Test publishing state with CSI features"""
-        from mqtt.handler import MQTTHandler
-        
-        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
-        handler.client = mock_mqtt_client_instance
-        
-        features = {
-            'entropy_turb': 0.85,
-            'iqr_turb': 1.23,
-            'variance_turb': 0.56,
-            'skewness': 0.12,
-            'kurtosis': 2.34
-        }
-        
-        handler.publish_state(
-            current_variance=1.5,
-            current_state=1,
-            current_threshold=1.0,
-            packet_delta=100,
-            dropped_delta=0,
-            pps=100,
-            features=features,
-            confidence=0.85,
-            triggered=['variance_turb', 'iqr_turb']
-        )
-        
-        call_args = mock_mqtt_client_instance.publish.call_args
-        payload = json.loads(call_args[0][1])
-        
-        assert 'features' in payload
-        assert payload['features']['entropy_turb'] == 0.85
-        assert payload['confidence'] == 0.85
-        assert payload['triggered'] == ['variance_turb', 'iqr_turb']
-    
     def test_publish_state_error_handling(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test error handling during publish"""
         from mqtt.handler import MQTTHandler

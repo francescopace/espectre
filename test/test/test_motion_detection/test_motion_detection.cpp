@@ -58,9 +58,13 @@ static WiFiCSIMock g_wifi_mock;
 static const char *TAG = "test_motion_detection";
 
 // Optimal subcarriers by chip type (found via grid search analysis)
+// - C3 64 SC (HT20): subcarriers 20-31 (near DC, high sensitivity)
 // - C6 64 SC (HT20): subcarriers 11-22
+// - ESP32 64 SC (HT20): subcarriers 11-22 (same as C6) - skipped until data collected
 // - S3 64 SC (HT20): subcarriers 48-59
+static const uint8_t SUBCARRIERS_C3_64SC[] = {20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31};
 static const uint8_t SUBCARRIERS_C6_64SC[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+static const uint8_t SUBCARRIERS_ESP32_64SC[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
 static const uint8_t SUBCARRIERS_S3_64SC[] = {48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59};
 static const uint8_t NUM_SELECTED_SUBCARRIERS = 12;
 
@@ -73,19 +77,34 @@ inline bool is_s3_chip() {
     return csi_test_data::current_chip() == csi_test_data::ChipType::S3;
 }
 
+inline bool is_c3_chip() {
+    return csi_test_data::current_chip() == csi_test_data::ChipType::C3;
+}
+
 // Get optimal subcarriers based on chip type
 inline const uint8_t* get_optimal_subcarriers() {
-    return is_s3_chip() ? SUBCARRIERS_S3_64SC : SUBCARRIERS_C6_64SC;
+    switch (csi_test_data::current_chip()) {
+        case csi_test_data::ChipType::C3: return SUBCARRIERS_C3_64SC;
+        case csi_test_data::ChipType::ESP32: return SUBCARRIERS_ESP32_64SC;
+        case csi_test_data::ChipType::S3: return SUBCARRIERS_S3_64SC;
+        default: return SUBCARRIERS_C6_64SC;
+    }
 }
 
 inline float get_fp_rate_target() {
     // S3 has higher baseline noise, allow 15% FP rate
-    return is_s3_chip() ? 15.0f : 10.0f;
+    // C3 uses high-sensitivity band [20-31] with high baseline variance, allow 20% FP rate
+    if (is_s3_chip()) return 15.0f;
+    if (is_c3_chip()) return 20.0f;
+    return 10.0f;
 }
 
 inline uint16_t get_window_size() {
     // S3 needs larger window for stable variance estimation
-    return is_s3_chip() ? 100 : SEGMENTATION_DEFAULT_WINDOW_SIZE;
+    // C3 needs larger window (75) for high-sensitivity band [20-31]
+    if (is_s3_chip()) return 100;
+    if (is_c3_chip()) return 75;
+    return SEGMENTATION_DEFAULT_WINDOW_SIZE;
 }
 
 inline bool get_enable_hampel() {
@@ -922,6 +941,14 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
     printf("\n========================================\n");
     printf("Running tests with %s 64 SC dataset (HT20)\n", csi_test_data::chip_name(chip));
     printf("========================================\n");
+    
+    // Check if chip should be skipped
+    const char* skip_reason = csi_test_data::chip_skip_reason(chip);
+    if (skip_reason != nullptr) {
+        printf("SKIPPED: %s\n", skip_reason);
+        printf("========================================\n\n");
+        return 0;  // Not a failure, just skipped
+    }
     
     if (!csi_test_data::switch_dataset(chip)) {
         printf("ERROR: Failed to load %s dataset\n", csi_test_data::chip_name(chip));

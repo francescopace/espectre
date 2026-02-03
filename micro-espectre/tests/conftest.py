@@ -40,11 +40,19 @@ def default_subcarriers(request):
     """
     try:
         chip_type = request.getfixturevalue('chip_type')
+        if chip_type == 'C3':
+            # C3 uses high-sensitivity band near DC (determined by grid search)
+            return [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+        if chip_type == 'C6':
+            return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
         if chip_type == 'S3':
             return [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]
+        if chip_type == 'ESP32':
+            return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+        raise ValueError(f"Unknown chip type: {chip_type}. Add subcarrier config for this chip.")
     except pytest.FixtureLookupError:
-        pass
-    return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+        # No chip_type fixture available, use C6 default for backward compatibility
+        return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 
 @pytest.fixture
