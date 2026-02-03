@@ -148,12 +148,14 @@ inline float calculate_spatial_turbulence(const float* magnitudes,
  * @param csi_len Length of CSI data in bytes (expected: 128 for HT20)
  * @param subcarriers Array of selected subcarrier indices
  * @param num_subcarriers Number of selected subcarriers (max 12)
+ * @param gain_compensation Gain compensation factor (default: 1.0, no compensation)
  * @return Standard deviation of magnitudes (0.0 if invalid input)
  */
 inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
                                                    size_t csi_len,
                                                    const uint8_t* subcarriers,
-                                                   uint8_t num_subcarriers) {
+                                                   uint8_t num_subcarriers,
+                                                   float gain_compensation = 1.0f) {
     if (!csi_data || csi_len < 2 || num_subcarriers == 0 || !subcarriers) {
         return 0.0f;
     }
@@ -175,7 +177,10 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
         // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
         float Q = static_cast<float>(csi_data[sc_idx * 2]);      // Imaginary first
         float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);  // Real second
-        amplitudes[valid_count++] = std::sqrt(I * I + Q * Q);
+        float amplitude = std::sqrt(I * I + Q * Q);
+        
+        // Apply gain compensation (normalizes for AGC/FFT variations)
+        amplitudes[valid_count++] = amplitude * gain_compensation;
     }
     
     if (valid_count == 0) {

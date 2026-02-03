@@ -29,8 +29,8 @@ void CSIManager::init(IDetector* detector,
   // Use injected WiFi CSI interface or default real implementation
   wifi_csi_ = wifi_csi ? wifi_csi : &default_wifi_csi_;
   
-  // Initialize gain controller for AGC/FFT locking
-  gain_controller_.init(300, gain_lock_mode);
+  // Initialize gain controller for AGC/FFT locking (uses median for robustness)
+  gain_controller_.init(gain_lock_mode);
   
   ESP_LOGD(TAG, "CSI Manager initialized with %s detector", 
            detector_ ? detector_->get_name() : "NULL");
@@ -89,6 +89,10 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
     calibrator_->add_packet(csi_data, csi_len);
     return;
   }
+  
+  // Calculate and apply gain compensation if needed (skipped gain lock or disabled mode)
+  float compensation = gain_controller_.calculate_compensation(data);
+  detector_->set_gain_compensation(compensation);
   
   // Process CSI packet through detector
   detector_->process_packet(csi_data, csi_len, selected_subcarriers_, NUM_SUBCARRIERS);

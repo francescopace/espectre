@@ -75,7 +75,7 @@ typedef struct {
     unsigned : 32;  // reserved
 #elif ESPECTRE_GAIN_LOCK_SUPPORTED
     unsigned : 16;  // reserved
-    unsigned fft_gain : 8;   // FFT scaling gain
+    signed fft_gain : 8;     // FFT scaling gain (signed per Espressif API)
     unsigned agc_gain : 8;   // Automatic Gain Control value
     unsigned : 32;  // reserved
 #endif
@@ -83,7 +83,7 @@ typedef struct {
 #if CONFIG_IDF_TARGET_ESP32S2
     signed : 8;     // reserved
     unsigned : 24;  // reserved
-#elif CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5
+#elif CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
     unsigned : 32;  // reserved
     unsigned : 32;  // reserved
     unsigned : 32;  // reserved
@@ -97,9 +97,9 @@ extern "C" {
     /**
      * Enable/disable automatic FFT gain control and set its value
      * @param force_en true to disable automatic FFT gain control
-     * @param force_value forced FFT gain value
+     * @param force_value forced FFT gain value (signed per Espressif API)
      */
-    void phy_fft_scale_force(bool force_en, uint8_t force_value);
+    void phy_fft_scale_force(bool force_en, int8_t force_value);
 
     /**
      * Enable/disable automatic gain control and set its value
@@ -118,7 +118,7 @@ extern "C" {
  * gain control, which can otherwise cause false motion detections.
  * 
  * The gain lock phase happens BEFORE band calibration to ensure clean data:
- * - Phase 1: Gain Lock (~3 seconds, 300 packets) - locks AGC/FFT
+ * - Phase 1: Gain Lock (~3 seconds, 300 packets) - locks AGC/FFT using median
  * - Phase 2: Band Calibration (~7 seconds, 700 packets) - with stable gain
  */
 class GainController {
@@ -126,13 +126,15 @@ class GainController {
   // Callback type for when gain lock completes
   using lock_complete_callback_t = std::function<void()>;
   
+  // Number of packets to collect for gain calibration (~3 seconds at 100pps)
+  static constexpr uint16_t CALIBRATION_PACKETS = 300;
+  
   /**
    * Initialize the gain controller
    * 
-   * @param calibration_packets Number of packets to collect before locking (default: 300, ~3 seconds)
    * @param mode Gain lock mode (auto/enabled/disabled)
    */
-  void init(uint16_t calibration_packets = 300, GainLockMode mode = GainLockMode::AUTO);
+  void init(GainLockMode mode = GainLockMode::AUTO);
   
   /**
    * Get the current gain lock mode
@@ -207,7 +209,7 @@ class GainController {
    * 
    * @return FFT gain value (only valid after is_locked() == true)
    */
-  uint8_t get_fft_gain() const { return fft_gain_locked_; }
+  int8_t get_fft_gain() const { return fft_gain_locked_; }
   
   /**
    * Get the number of packets processed so far
@@ -219,9 +221,9 @@ class GainController {
   /**
    * Get the number of packets used for gain lock calibration
    * 
-   * @return Calibration packet count (default: 300)
+   * @return Calibration packet count (300)
    */
-  uint16_t get_calibration_packets() const { return calibration_packets_; }
+  static constexpr uint16_t get_calibration_packets() { return CALIBRATION_PACKETS; }
   
   /**
    * Get the subcarrier count (HT20 only)
@@ -230,13 +232,45 @@ class GainController {
    */
   static constexpr uint16_t get_subcarrier_count() { return 64; }
   
+  /**
+   * Check if gain compensation is needed
+   * 
+   * Compensation is needed when gain lock was skipped (strong signal)
+   * or when mode is DISABLED. In these cases, AGC/FFT vary dynamically.
+   * 
+   * @return true if compensation should be applied
+   */
+  bool needs_compensation() const {
+    return skipped_strong_signal_ || mode_ == GainLockMode::DISABLED;
+  }
+  
+  /**
+   * Calculate gain compensation factor for a CSI packet
+   * 
+   * Compares current AGC/FFT values with baseline and returns
+   * a factor to normalize CSI amplitudes.
+   * 
+   * Formula: 10^((baseline_agc - current_agc) / 20) *
+   *          10^((baseline_fft - current_fft) / 20)
+   * 
+   * @param info CSI packet info
+   * @return Compensation factor (1.0 if no compensation needed)
+   */
+  float calculate_compensation(const wifi_csi_info_t* info) const;
+  
  private:
-  uint16_t calibration_packets_{300};
+  // Calculate median of an array (modifies array order)
+  static uint8_t calculate_median_u8(uint8_t* arr, uint16_t size);
+  static int8_t calculate_median_i8(int8_t* arr, uint16_t size);
+  
   uint16_t packet_count_{0};
-  uint32_t agc_gain_sum_{0};
-  uint32_t fft_gain_sum_{0};
+  
+  // Arrays to store gain values for median calculation (600 bytes total)
+  uint8_t agc_samples_[CALIBRATION_PACKETS];
+  int8_t fft_samples_[CALIBRATION_PACKETS];
+  
   uint8_t agc_gain_locked_{0};
-  uint8_t fft_gain_locked_{0};
+  int8_t fft_gain_locked_{0};
   bool locked_{false};
   bool skip_gain_lock_{false};  // Set true on platforms without gain lock support
   bool skipped_strong_signal_{false};  // Set true if skipped due to AGC < MIN_SAFE_AGC

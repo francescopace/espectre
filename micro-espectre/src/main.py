@@ -26,6 +26,7 @@ GAIN_LOCK_PACKETS = 300  # ~3 seconds at 100 Hz
 
 # Import HT20 constants from config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
+from src.utils import calculate_gain_compensation, to_signed_int8, calculate_median
 
 # Global state for calibration mode and performance metrics
 class GlobalState:
@@ -34,6 +35,10 @@ class GlobalState:
         self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.current_channel = 0  # Track WiFi channel for change detection
+        # Gain compensation state (when gain lock is skipped or disabled)
+        self.needs_compensation = False
+        self.baseline_agc = 0  # uint8
+        self.baseline_fft = 0  # int8 (signed)
 
 
 g_state = GlobalState()
@@ -176,31 +181,31 @@ def run_gain_lock(wlan):
     
     Collects AGC/FFT gain values from first packets and locks them
     to stabilize CSI amplitudes for consistent motion detection.
+    Uses median calculation for robustness against outliers.
     
     HT20 only: 64 subcarriers.
     
     Respects config.GAIN_LOCK_MODE:
     - "auto": Lock gain, but skip if signal too strong (AGC < MIN_SAFE_AGC)
     - "enabled": Always force gain lock
-    - "disabled": Never lock gain
+    - "disabled": Collect baseline for compensation, but no lock
     
     Args:
         wlan: WLAN instance with CSI enabled
         
     Returns:
-        tuple: (agc_gain, fft_gain, skipped) where:
-            - skipped=True if gain lock was skipped
+        tuple: (agc_gain, fft_gain, needs_compensation) where:
+            - needs_compensation=True if gain lock was skipped/disabled
     """
     # Check configuration mode
     mode = getattr(config, 'GAIN_LOCK_MODE', 'auto').lower()
     min_safe_agc = getattr(config, 'GAIN_LOCK_MIN_SAFE_AGC', 30)
     
-    # Skip gain lock if disabled or not supported
+    # Check platform support
     gain_lock_supported = hasattr(wlan, 'csi_gain_lock_supported') and wlan.csi_gain_lock_supported()
     
-    if mode == 'disabled' or not gain_lock_supported:
-        reason = "Disabled by configuration" if mode == 'disabled' else "Not supported on this platform"
-        print(f"Gain lock: {reason}")
+    if not gain_lock_supported:
+        print(f"Gain lock: Not supported on this platform")
         print(f"  HT20 mode: {NUM_SUBCARRIERS} subcarriers")
         return None, None, False
     
@@ -209,16 +214,17 @@ def run_gain_lock(wlan):
     print(f'Gain Lock Calibration (~3 seconds) [mode: {mode}]')
     print('-'*60)
     
-    agc_sum = 0
-    fft_sum = 0
+    # Collect samples for median calculation
+    agc_samples = []
+    fft_samples = []
     count = 0
     
     while count < GAIN_LOCK_PACKETS:
         frame = wlan.csi_read()
         if frame:
-            # frame[22] = agc_gain, frame[23] = fft_gain
-            agc_sum += frame[22]
-            fft_sum += frame[23]
+            # frame[22] = agc_gain (uint8), frame[23] = fft_gain (int8 as uint8)
+            agc_samples.append(frame[22])
+            fft_samples.append(to_signed_int8(frame[23]))
             
             del frame  # Free memory immediately
             count += 1
@@ -226,31 +232,38 @@ def run_gain_lock(wlan):
             # Progress every 25% (with GC to prevent ENOMEM)
             if count == GAIN_LOCK_PACKETS // 4:
                 gc.collect()
-                print(f"  Gain calibration 25%: AGC~{agc_sum // count}, FFT~{fft_sum // count}")
+                print(f"  Gain calibration 25% ({count}/{GAIN_LOCK_PACKETS} packets)")
             elif count == GAIN_LOCK_PACKETS // 2:
                 gc.collect()
-                print(f"  Gain calibration 50%: AGC~{agc_sum // count}, FFT~{fft_sum // count}")
+                print(f"  Gain calibration 50% ({count}/{GAIN_LOCK_PACKETS} packets)")
             elif count == (GAIN_LOCK_PACKETS * 3) // 4:
                 gc.collect()
-                print(f"  Gain calibration 75%: AGC~{agc_sum // count}, FFT~{fft_sum // count}")
+                print(f"  Gain calibration 75% ({count}/{GAIN_LOCK_PACKETS} packets)")
     
-    # Calculate averages
-    avg_agc = agc_sum // GAIN_LOCK_PACKETS
-    avg_fft = fft_sum // GAIN_LOCK_PACKETS
+    # Calculate medians (more robust than mean against outliers)
+    median_agc = calculate_median(agc_samples)
+    median_fft = calculate_median(fft_samples)
     
     print(f"  HT20 mode: {NUM_SUBCARRIERS} subcarriers")
     
+    # Handle different modes
+    if mode == 'disabled':
+        # DISABLED mode: baseline collected for compensation, but no gain lock
+        print(f"Gain baseline: AGC={median_agc}, FFT={median_fft} (compensation enabled, no lock)")
+        return median_agc, median_fft, True
+    
     # In auto mode, skip gain lock if signal is too strong
-    if mode == 'auto' and avg_agc < min_safe_agc:
-        print(f"WARNING: Signal too strong (AGC={avg_agc} < {min_safe_agc}) - skipping gain lock")
+    if mode == 'auto' and median_agc < min_safe_agc:
+        print(f"WARNING: Signal too strong (AGC={median_agc} < {min_safe_agc}) - skipping gain lock")
         print(f"         Move sensor 2-3 meters from AP for optimal performance")
-        return avg_agc, avg_fft, True
+        print(f"         Compensation enabled for baseline: AGC={median_agc}, FFT={median_fft}")
+        return median_agc, median_fft, True
     
     # Lock the gain values
-    wlan.csi_force_gain(avg_agc, avg_fft)
-    print(f"Gain locked: AGC={avg_agc}, FFT={avg_fft} (after {GAIN_LOCK_PACKETS} packets)")
+    wlan.csi_force_gain(median_agc, median_fft)
+    print(f"Gain locked: AGC={median_agc}, FFT={median_fft} (median of {GAIN_LOCK_PACKETS} packets)")
     
-    return avg_agc, avg_fft, False
+    return median_agc, median_fft, False
 
 
 def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
@@ -291,10 +304,16 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         print('Please remain still for gain lock...')
         
         # Phase 1: Gain Lock only (~3 seconds)
-        agc, fft, skipped = run_gain_lock(wlan)
+        agc, fft, needs_comp = run_gain_lock(wlan)
         
-        if skipped:
-            print("Note: Proceeding without gain lock")
+        # Save baseline for compensation if needed
+        if agc is not None and fft is not None:
+            g_state.needs_compensation = needs_comp
+            g_state.baseline_agc = agc
+            g_state.baseline_fft = fft
+        
+        if needs_comp:
+            print("Note: Proceeding without gain lock (compensation enabled)")
         
         # Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
         config.SELECTED_SUBCARRIERS = [11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]
@@ -343,10 +362,16 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     
     # Phase 1: Gain Lock (~3 seconds)
     # Stabilizes AGC/FFT before calibration to ensure clean data
-    agc, fft, skipped = run_gain_lock(wlan)
+    agc, fft, needs_comp = run_gain_lock(wlan)
     
-    if skipped:
-        print("Note: Proceeding with band calibration without gain lock")
+    # Save baseline for compensation if needed
+    if agc is not None and fft is not None:
+        g_state.needs_compensation = needs_comp
+        g_state.baseline_agc = agc
+        g_state.baseline_fft = fft
+    
+    if needs_comp:
+        print("Note: Proceeding with band calibration without gain lock (compensation enabled)")
     
     print('')
     print('-'*60)
@@ -656,6 +681,17 @@ def main():
                 # Extract data and free frame immediately to save memory
                 csi_data = frame[5][:EXPECTED_CSI_LEN]
                 packet_channel = frame[1]
+                
+                # Apply gain compensation if needed (gain lock skipped or disabled)
+                if g_state.needs_compensation:
+                    current_agc = frame[22]
+                    current_fft = to_signed_int8(frame[23])
+                    compensation = calculate_gain_compensation(
+                        g_state.baseline_agc, g_state.baseline_fft,
+                        current_agc, current_fft
+                    )
+                    detector.set_gain_compensation(compensation)
+                
                 del frame
                 
                 # Process packet through detector interface

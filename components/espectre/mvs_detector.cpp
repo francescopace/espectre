@@ -119,10 +119,11 @@ void MVSDetector::process_packet(const int8_t* csi_data, size_t csi_len,
         return;
     }
     
-    // Calculate spatial turbulence
+    // Calculate spatial turbulence with gain compensation
     float turbulence = calculate_spatial_turbulence_from_csi(csi_data, csi_len,
                                                              selected_subcarriers,
-                                                             num_subcarriers);
+                                                             num_subcarriers,
+                                                             gain_compensation_);
     
     // Add to buffer with filtering
     add_turbulence_to_buffer(turbulence);

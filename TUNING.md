@@ -310,14 +310,17 @@ espectre:
 
 | Mode | Description |
 |------|-------------|
-| `auto` | Enable gain lock but skip if signal too strong (AGC < 30). **Recommended.** |
+| `auto` | Enable gain lock but skip if signal too strong (AGC < 30). Uses gain compensation when skipped. **Recommended.** |
 | `enabled` | Always force gain lock. May freeze if too close to AP. |
-| `disabled` | Never lock gain. Less stable CSI but works at any distance. |
+| `disabled` | Never lock gain. Uses gain compensation to normalize amplitudes. Works at any distance. |
 
 **How it works:**
-1. During the first 300 packets (~3 seconds), ESPectre measures average AGC/FFT values
+1. During the first 300 packets (~3 seconds), ESPectre collects AGC/FFT samples and calculates the **median** (more robust than mean against outliers)
 2. These values are then "locked" (forced) to eliminate hardware-induced variations
-3. In `auto` mode, if AGC < 30 (signal too strong), gain lock is skipped with a warning
+3. In `auto` mode, if AGC < 30 (signal too strong), gain lock is skipped and **gain compensation** is enabled instead
+4. In `disabled` mode, baseline is collected but never locked; gain compensation normalizes amplitude variations
+
+**Gain compensation:** When gain is not locked (skipped or disabled), CSI amplitudes are normalized using the formula `compensation = 10^((delta_agc + delta_fft) / 20)` where delta is the difference between baseline and current gain values. This maintains detection accuracy without hardware locking.
 
 **When to change from `auto`:**
 

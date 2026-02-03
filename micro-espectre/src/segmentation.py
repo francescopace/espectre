@@ -79,6 +79,9 @@ class SegmentationContext:
         # Last amplitudes (for W=1 features at publish time)
         self.last_amplitudes = None
         
+        # Gain compensation factor (1.0 = no compensation)
+        self.gain_compensation = 1.0
+        
         # Initialize low-pass filter if enabled
         self.lowpass_filter = None
         if enable_lowpass:
@@ -165,13 +168,14 @@ class SegmentationContext:
         return variance
     
     @staticmethod
-    def compute_spatial_turbulence(csi_data, selected_subcarriers=None):
+    def compute_spatial_turbulence(csi_data, selected_subcarriers=None, gain_compensation=1.0):
         """
         Calculate spatial turbulence (std of subcarrier amplitudes) - static version
         
         Args:
             csi_data: array of int8 I/Q values (alternating real, imag)
             selected_subcarriers: list of subcarrier indices to use (default: all up to 64)
+            gain_compensation: Gain compensation factor (default: 1.0, no compensation)
             
         Returns:
             tuple: (turbulence, amplitudes) - turbulence value and amplitude list
@@ -190,7 +194,8 @@ class SegmentationContext:
                     # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
                     imag = float(csi_data[i])      # Imaginary first
                     real = float(csi_data[i + 1])  # Real second
-                    amplitudes.append(math.sqrt(real * real + imag * imag))
+                    amplitude = math.sqrt(real * real + imag * imag) * gain_compensation
+                    amplitudes.append(amplitude)
         else:
             # Use only selected subcarriers (matches C version)
             for sc_idx in selected_subcarriers:
@@ -199,7 +204,8 @@ class SegmentationContext:
                     # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
                     imag = float(csi_data[i])      # Imaginary first
                     real = float(csi_data[i + 1])  # Real second
-                    amplitudes.append(math.sqrt(real * real + imag * imag))
+                    amplitude = math.sqrt(real * real + imag * imag) * gain_compensation
+                    amplitudes.append(amplitude)
         
         if len(amplitudes) < 2:
             return 0.0, amplitudes
@@ -223,8 +229,11 @@ class SegmentationContext:
             float: Standard deviation of amplitudes
         
         Note: Stores last amplitudes for feature calculation at publish time.
+              Uses gain_compensation if set.
         """
-        turbulence, amplitudes = self.compute_spatial_turbulence(csi_data, selected_subcarriers)
+        turbulence, amplitudes = self.compute_spatial_turbulence(
+            csi_data, selected_subcarriers, self.gain_compensation
+        )
         self.last_amplitudes = amplitudes
         return turbulence
     
@@ -258,6 +267,19 @@ class SegmentationContext:
             threshold: Adaptive threshold value (typically 0.5 to 5.0)
         """
         self.threshold = max(0.1, min(10.0, threshold))
+    
+    def set_gain_compensation(self, compensation):
+        """
+        Set gain compensation factor.
+        
+        When gain lock is not active (skipped or disabled), CSI amplitudes
+        vary with automatic gain control. This factor normalizes amplitudes
+        to compensate for gain variations.
+        
+        Args:
+            compensation: Compensation factor (1.0 = no compensation)
+        """
+        self.gain_compensation = compensation
     
     def add_turbulence(self, turbulence):
         """

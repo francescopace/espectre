@@ -121,6 +121,20 @@ public:
      * @return Detector name string
      */
     virtual const char* get_name() const = 0;
+    
+    /**
+     * Set gain compensation factor
+     * 
+     * When gain lock is not active (skipped or disabled), CSI amplitudes
+     * vary with automatic gain control. This factor normalizes amplitudes
+     * to compensate for gain variations.
+     * 
+     * Formula: compensation = 10^((baseline_agc - current_agc) / 20) *
+     *                         10^((baseline_fft - current_fft) / 20)
+     * 
+     * @param compensation Compensation factor (1.0 = no compensation)
+     */
+    virtual void set_gain_compensation(float compensation) { (void)compensation; }
 };
 
 }  // namespace espectre

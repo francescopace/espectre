@@ -73,6 +73,7 @@ public:
     bool is_ready() const override { return buffer_count_ >= window_size_; }
     uint32_t get_total_packets() const override { return total_packets_; }
     const char* get_name() const override { return "MVS"; }
+    void set_gain_compensation(float compensation) override { gain_compensation_ = compensation; }
     
     // MVS-specific configuration
     
@@ -141,6 +142,9 @@ private:
     // Filters
     lowpass_filter_state_t lowpass_state_;
     hampel_filter_state_t hampel_state_;
+    
+    // Gain compensation factor (1.0 = no compensation)
+    float gain_compensation_{1.0f};
 };
 
 }  // namespace espectre

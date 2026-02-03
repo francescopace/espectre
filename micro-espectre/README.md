@@ -67,6 +67,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Gain Lock | ✅ | ✅ | Aligned (S3/C3/C5/C6) |
 | Read AGC/FFT values | ✅ | ✅ | Implemented |
 | Force AGC/FFT values | ✅ | ✅ | Implemented |
+| Gain Compensation | ✅ | ✅ | Aligned |
 | **WiFi Traffic Generator** |
 | Traffic Generation | ✅ | ✅ | Implemented |
 | Configurable Rate | ✅ | ✅ | Implemented |
@@ -381,9 +382,9 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC (used in auto mode)
 
 | Mode | Description |
 |------|-------------|
-| `auto` (default) | Lock gain, skip if signal too strong (AGC < 30) |
+| `auto` (default) | Lock gain, skip if signal too strong (AGC < 30). Uses gain compensation when skipped. |
 | `enabled` | Always force gain lock (may freeze if too close to AP) |
-| `disabled` | Never lock gain (less stable CSI, works at any distance) |
+| `disabled` | Never lock gain. Uses gain compensation to normalize amplitudes. |
 
 ### 2. Detection Algorithm
 

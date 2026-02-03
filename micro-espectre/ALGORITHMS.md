@@ -115,15 +115,15 @@ The gain lock happens in a **dedicated phase BEFORE band calibration** to ensure
 │                                                                      │
 │  PHASE 1: GAIN LOCK (~3 seconds, 300 packets)                        │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │
-│  │  Read PHY   │───▶│  Accumulate │───▶│  Calculate  │              │
-│  │  agc_gain   │    │  agc_sum    │    │  Average    │              │
-│  │  fft_gain   │    │  fft_sum    │    │             │              │
+│  │  Read PHY   │───▶│   Collect   │───▶│  Calculate  │              │
+│  │  agc_gain   │    │  agc_samples│    │   Median    │              │
+│  │  fft_gain   │    │  fft_samples│    │             │              │
 │  └─────────────┘    └─────────────┘    └──────┬──────┘              │
 │                                               │                      │
 │  Packet 300:                                  ▼                      │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  phy_fft_scale_force(true, avg_fft)                          │   │
-│  │  phy_force_rx_gain(true, avg_agc)                            │   │
+│  │  phy_fft_scale_force(true, median_fft)                       │   │
+│  │  phy_force_rx_gain(true, median_agc)                         │   │
 │  │  → AGC/FFT now LOCKED                                        │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                           │                                          │
@@ -144,25 +144,47 @@ The gain lock happens in a **dedicated phase BEFORE band calibration** to ensure
 - Adaptive threshold is calculated correctly
 - Total time: ~10 seconds (3s gain lock + 7s calibration)
 
+**Why median instead of mean?** Median is more robust against outliers:
+- Occasional packet with extreme gain values doesn't skew the baseline
+- Matches Espressif's internal methodology for gain calibration
+
 ### Implementation
 
 The gain lock uses undocumented PHY functions available on newer ESP32 variants:
 
 ```c
 // External PHY functions (from ESP-IDF PHY blob)
-extern void phy_fft_scale_force(bool force_en, uint8_t force_value);
+extern void phy_fft_scale_force(bool force_en, int8_t force_value);  // fft_gain is signed
 extern void phy_force_rx_gain(int force_en, int force_value);
 
 // Calibration logic (300 packets, ~3 seconds)
+// Uses median instead of mean for robustness against outliers
 if (packet_count < 300) {
-    agc_sum += phy_info->agc_gain;
-    fft_sum += phy_info->fft_gain;
+    agc_samples[packet_count] = phy_info->agc_gain;   // uint8_t
+    fft_samples[packet_count] = phy_info->fft_gain;   // int8_t (signed!)
 } else if (packet_count == 300) {
-    phy_fft_scale_force(true, fft_sum / 300);
-    phy_force_rx_gain(true, agc_sum / 300);
+    median_agc = calculate_median(agc_samples, 300);
+    median_fft = calculate_median(fft_samples, 300);
+    
+    phy_fft_scale_force(true, median_fft);
+    phy_force_rx_gain(true, median_agc);
     // Gain is now locked, trigger band calibration
     on_gain_locked_callback();
 }
+```
+
+### Gain Compensation
+
+When gain lock is skipped (signal too strong) or disabled, CSI amplitudes vary with
+automatic gain control. Gain compensation normalizes amplitudes using the Espressif formula:
+
+```c
+// Compensation factor = 10^((baseline_agc - current_agc) / 20) * 
+//                       10^((baseline_fft - current_fft) / 20)
+float compensation = pow(10, agc_delta / 20.0) * pow(10, fft_delta / 20.0);
+
+// Applied to each amplitude before turbulence calculation
+amplitude *= compensation;
 ```
 
 ### Platform Support

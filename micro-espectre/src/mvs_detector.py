@@ -140,6 +140,15 @@ class MVSDetector(IDetector):
         """Get detector name."""
         return "MVS"
     
+    def set_gain_compensation(self, compensation):
+        """
+        Set gain compensation factor.
+        
+        Args:
+            compensation: Compensation factor (1.0 = no compensation)
+        """
+        self._context.set_gain_compensation(compensation)
+    
     @property
     def total_packets(self):
         """Total packets processed."""

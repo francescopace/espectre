@@ -12,6 +12,25 @@ All notable changes to this project will be documented in this file.
 - **Centralized feature extraction**: All 12 features extracted in a single module for ML and confidence scoring
 - **Training pipeline**: Scripts for collecting data, training models, and comparing algorithms
 
+### Gain Lock Improvements
+
+#### Median-Based Calibration
+
+Gain lock calibration now uses **median** instead of mean for AGC/FFT baseline calculation, providing better robustness against outliers and noise spikes during the initial calibration phase.
+
+#### Signed FFT Gain
+
+Fixed `fft_gain` type from unsigned to signed (`int8_t`), matching Espressif's internal representation. This corrects potential issues with negative FFT gain values.
+
+#### Gain Compensation
+
+New gain compensation feature normalizes CSI amplitudes when gain lock is skipped or disabled:
+
+- **Formula**: `compensation = 10^((delta_agc + delta_fft) / 20)`
+- **Applied to**: All CSI amplitudes before turbulence calculation
+- **Modes affected**: `disabled` mode (always) and `auto` mode when skipped due to strong signal
+- **Result**: Accurate motion detection without hardware locking
+
 ### Micro-ESPectre (R&D Platform)
 
 #### ML Detector

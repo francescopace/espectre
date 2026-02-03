@@ -108,6 +108,20 @@ class IDetector:
         """
         raise NotImplementedError
     
+    def set_gain_compensation(self, compensation):
+        """
+        Set gain compensation factor.
+        
+        When gain lock is not active (skipped or disabled), CSI amplitudes
+        vary with automatic gain control. This factor normalizes amplitudes.
+        
+        Default implementation does nothing (for detectors that don't need it).
+        
+        Args:
+            compensation: Compensation factor (1.0 = no compensation)
+        """
+        pass  # Default: no compensation
+    
     @property
     def total_packets(self):
         """Total packets processed"""

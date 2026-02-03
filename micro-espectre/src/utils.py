@@ -11,6 +11,44 @@ License: GPLv3
 import math
 
 
+def to_signed_int8(value):
+    """
+    Convert unsigned byte to signed int8.
+    
+    Used for FFT gain values which are stored as unsigned but
+    represent signed values in Espressif's API.
+    
+    Args:
+        value: Unsigned byte value (0-255)
+    
+    Returns:
+        int: Signed value (-128 to 127)
+    """
+    return value if value < 128 else value - 256
+
+
+def calculate_median(values):
+    """
+    Calculate median of a list.
+    
+    Note: This function sorts the input list in-place for efficiency
+    (avoids memory allocation on MicroPython).
+    
+    Args:
+        values: List of numeric values (will be sorted in-place)
+    
+    Returns:
+        Median value (0 if empty, integer for int lists)
+    """
+    if not values:
+        return 0
+    values.sort()
+    n = len(values)
+    if n % 2 == 0:
+        return (values[n // 2 - 1] + values[n // 2]) // 2
+    return values[n // 2]
+
+
 def calculate_percentile(values, percentile):
     """
     Calculate percentile value from a list.
@@ -137,3 +175,37 @@ def calculate_moving_variance(values, window_size=50):
         variances.append(calculate_variance(window))
     
     return variances
+
+
+def calculate_gain_compensation(baseline_agc, baseline_fft, current_agc, current_fft):
+    """
+    Calculate gain compensation factor based on AGC/FFT difference.
+    
+    When gain lock is not active, CSI amplitudes vary with automatic
+    gain control. This factor normalizes amplitudes to compensate.
+    
+    Formula (Espressif): 
+        compensation = 10^((baseline_agc - current_agc) / 20) *
+                       10^((baseline_fft - current_fft) / 20)
+    
+    Args:
+        baseline_agc: Baseline AGC value (uint8, 0-255)
+        baseline_fft: Baseline FFT value (int8, -128 to 127)
+        current_agc: Current AGC value from packet (uint8)
+        current_fft: Current FFT value from packet (int8)
+    
+    Returns:
+        float: Compensation factor (1.0 = no compensation, clamped to 0.1-10.0)
+    """
+    agc_delta = float(baseline_agc) - float(current_agc)
+    fft_delta = float(baseline_fft) - float(current_fft)
+    
+    compensation = math.pow(10.0, agc_delta / 20.0) * math.pow(10.0, fft_delta / 20.0)
+    
+    # Clamp to reasonable range
+    if compensation < 0.1:
+        compensation = 0.1
+    elif compensation > 10.0:
+        compensation = 10.0
+    
+    return compensation
