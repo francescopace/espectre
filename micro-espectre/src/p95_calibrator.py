@@ -31,6 +31,7 @@ from src.config import (
 
 # Import utility functions
 from src.utils import (
+    to_signed_int8,
     calculate_percentile,
     calculate_spatial_turbulence,
     calculate_moving_variance
@@ -161,12 +162,9 @@ class P95Calibrator(ICalibrator):
                 i_idx = offset + sc * 2
                 q_idx = i_idx + 1
                 # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-                Q = data[i_idx]      # Imaginary first
-                I = data[q_idx]      # Real second
-                if I > 127:
-                    I = I - 256
-                if Q > 127:
-                    Q = Q - 256
+                # CSI values are signed int8 stored as uint8
+                Q = to_signed_int8(data[i_idx])   # Imaginary first
+                I = to_signed_int8(data[q_idx])   # Real second
                 mags.append(math.sqrt(I * I + Q * Q))
             packets_mags.append(mags)
             

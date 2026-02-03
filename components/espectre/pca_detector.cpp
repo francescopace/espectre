@@ -326,7 +326,8 @@ void PCADetector::extract_amplitudes(const int8_t* csi_data, size_t len, float* 
         // CSI format: [Q, I, Q, I, ...] (Imaginary first, then Real)
         float q = static_cast<float>(csi_data[sc * 2]);
         float i = static_cast<float>(csi_data[sc * 2 + 1]);
-        amplitudes[out_idx++] = std::sqrt(i * i + q * q);
+        // Apply gain compensation (normalizes for AGC/FFT variations)
+        amplitudes[out_idx++] = std::sqrt(i * i + q * q) * gain_compensation_;
     }
     
     // Fill remaining with zeros if needed

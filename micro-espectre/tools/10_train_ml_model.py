@@ -16,12 +16,45 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
+# Suppress TensorFlow/absl warnings BEFORE any imports
+import os
 import sys
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['ABSL_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['GRPC_VERBOSITY'] = 'ERROR'
+os.environ['GLOG_minloglevel'] = '2'
+
 import argparse
 import numpy as np
 from pathlib import Path
 from collections import deque
-import os
+from contextlib import contextmanager
+
+
+@contextmanager
+def suppress_stderr():
+    """
+    Context manager to suppress stderr output at the file descriptor level.
+    
+    This is necessary because TensorFlow's C++ code writes directly to the
+    C-level stderr, bypassing Python's sys.stderr.
+    """
+    # Save the original stderr file descriptor
+    stderr_fd = sys.stderr.fileno()
+    saved_stderr_fd = os.dup(stderr_fd)
+    
+    # Open /dev/null and redirect stderr to it
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, stderr_fd)
+    os.close(devnull)
+    
+    try:
+        yield
+    finally:
+        # Restore the original stderr
+        os.dup2(saved_stderr_fd, stderr_fd)
+        os.close(saved_stderr_fd)
 
 # Add paths for imports
 _src_path = str(Path(__file__).parent.parent / 'src')
@@ -249,10 +282,16 @@ def export_tflite(model, X_sample, output_path, name):
         Path to saved .tflite file
     """
     import tensorflow as tf
+    import warnings
+    
+    # Use up to 500 random samples for better quantization calibration
+    n_samples = min(500, len(X_sample))
+    indices = np.random.choice(len(X_sample), n_samples, replace=False)
+    calibration_data = X_sample[indices]
     
     def representative_dataset():
-        for i in range(min(100, len(X_sample))):
-            yield [X_sample[i:i+1].astype(np.float32)]
+        for i in range(len(calibration_data)):
+            yield [calibration_data[i:i+1].astype(np.float32)]
     
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
@@ -261,7 +300,10 @@ def export_tflite(model, X_sample, output_path, name):
     converter.inference_input_type = tf.int8
     converter.inference_output_type = tf.int8
     
-    tflite_model = converter.convert()
+    # Suppress TFLite conversion warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=UserWarning)
+        tflite_model = converter.convert()
     
     tflite_path = output_path / f'motion_detector_{name}.tflite'
     with open(tflite_path, 'wb') as f:
@@ -398,19 +440,27 @@ def train_all():
     print("="*60 + "\n")
     print(f"Subcarriers: {subcarriers}\n")
     
-    # Check dependencies
+    # Check dependencies (suppress TensorFlow C++ warnings during import)
     try:
-        import tensorflow as tf
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.model_selection import train_test_split
+        with suppress_stderr():
+            import tensorflow as tf
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.model_selection import train_test_split
+            
+            # Suppress TensorFlow Python-level warnings
+            tf.get_logger().setLevel('ERROR')
+            
+            # Suppress absl logging
+            try:
+                import absl.logging
+                absl.logging.set_verbosity(absl.logging.ERROR)
+                absl.logging.set_stderrthreshold(absl.logging.ERROR)
+            except ImportError:
+                pass
     except ImportError as e:
         print(f"Error: Missing dependency - {e}")
         print("Install with: pip install tensorflow scikit-learn")
         return 1
-    
-    # Suppress TF warnings
-    tf.get_logger().setLevel('ERROR')
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     
     # Load data
     print("Loading data from npz metadata...")
@@ -444,10 +494,12 @@ def train_all():
     
     # Train model (best architecture: 16 -> 8 -> 1)
     print("\nTraining neural network (12 -> 16 -> 8 -> 1)...")
-    model = train_model(X_train, y_train, hidden_layers=[16, 8], epochs=50)
+    with suppress_stderr():
+        model = train_model(X_train, y_train, hidden_layers=[16, 8], epochs=50)
     
     # Evaluate
-    y_pred = (model.predict(X_test, verbose=0) > 0.5).astype(int).flatten()
+    with suppress_stderr():
+        y_pred = (model.predict(X_test, verbose=0) > 0.5).astype(int).flatten()
     tp = np.sum((y_test == 1) & (y_pred == 1))
     fp = np.sum((y_test == 0) & (y_pred == 1))
     tn = np.sum((y_test == 0) & (y_pred == 0))
@@ -466,14 +518,16 @@ def train_all():
     
     # Retrain on full dataset for production
     print("\nRetraining on full dataset...")
-    model = train_model(X_scaled, y, hidden_layers=[16, 8], epochs=50)
+    with suppress_stderr():
+        model = train_model(X_scaled, y, hidden_layers=[16, 8], epochs=50)
     
     # Export models
     print("\nExporting models...")
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     
-    # TFLite
-    tflite_path, tflite_size = export_tflite(model, X_scaled, MODELS_DIR, 'small')
+    # TFLite (suppress C++ warnings during conversion)
+    with suppress_stderr():
+        tflite_path, tflite_size = export_tflite(model, X_scaled, MODELS_DIR, 'small')
     print(f"  TFLite: {tflite_path.name} ({tflite_size/1024:.1f} KB)")
     
     # MicroPython weights

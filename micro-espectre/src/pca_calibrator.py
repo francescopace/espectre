@@ -18,6 +18,7 @@ License: GPLv3
 
 import math
 import gc
+from src.utils import to_signed_int8
 
 try:
     from src.calibrator_interface import ICalibrator
@@ -77,8 +78,9 @@ class PCACalibrator(ICalibrator):
             i = sc_idx * 2
             if i + 1 < len(csi_data):
                 # Espressif CSI format: [Imaginary, Real]
-                imag = float(csi_data[i])
-                real = float(csi_data[i + 1])
+                # CSI values are signed int8 stored as uint8
+                imag = float(to_signed_int8(csi_data[i]))
+                real = float(to_signed_int8(csi_data[i + 1]))
                 amplitudes.append(math.sqrt(real * real + imag * imag))
         
         return amplitudes

@@ -13,6 +13,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 import math
+from src.utils import to_signed_int8
 
 
 class SegmentationContext:
@@ -192,8 +193,9 @@ class SegmentationContext:
             for i in range(0, max_values, 2):
                 if i + 1 < max_values:
                     # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-                    imag = float(csi_data[i])      # Imaginary first
-                    real = float(csi_data[i + 1])  # Real second
+                    # CSI values are signed int8 stored as uint8
+                    imag = float(to_signed_int8(csi_data[i]))
+                    real = float(to_signed_int8(csi_data[i + 1]))
                     amplitude = math.sqrt(real * real + imag * imag) * gain_compensation
                     amplitudes.append(amplitude)
         else:
@@ -202,8 +204,9 @@ class SegmentationContext:
                 i = sc_idx * 2
                 if i + 1 < len(csi_data):
                     # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-                    imag = float(csi_data[i])      # Imaginary first
-                    real = float(csi_data[i + 1])  # Real second
+                    # CSI values are signed int8 stored as uint8
+                    imag = float(to_signed_int8(csi_data[i]))
+                    real = float(to_signed_int8(csi_data[i + 1]))
                     amplitude = math.sqrt(real * real + imag * imag) * gain_compensation
                     amplitudes.append(amplitude)
         

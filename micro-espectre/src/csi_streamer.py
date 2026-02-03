@@ -95,7 +95,9 @@ def stream_csi(dest_ip, duration_sec=0):
     # Phase 1: Gain lock (stabilizes AGC/FFT)
     # Do this BEFORE creating streaming socket to avoid ENOMEM
     gc.collect()
-    agc_gain, fft_gain, skipped = run_gain_lock(wlan)
+    run_gain_lock(wlan)
+    # Note: Streaming sends RAW data without gain compensation
+    # Compensation is applied during inference (detection), not collection
     
     # Create UDP socket for streaming (after gain lock to reduce memory pressure)
     gc.collect()
@@ -156,7 +158,7 @@ def stream_csi(dest_ip, duration_sec=0):
                     del frame
                     continue
                 
-                # Extract CSI data (HT20: 128 bytes)
+                # Extract CSI data (HT20: 128 bytes) - sent RAW without compensation
                 csi_data = frame[5][:EXPECTED_CSI_LEN]
                 del frame
                 

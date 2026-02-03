@@ -19,6 +19,20 @@ This guide covers how to collect and label CSI data for training ML models. This
 
 ---
 
+## Supported Hardware
+
+**Recommended chips for ML data collection:**
+- ESP32-S3
+- ESP32-C3
+- ESP32-C6
+
+**Not recommended:**
+- ESP32 (original) - Does not support gain lock. CSI amplitudes vary with automatic gain control, causing inconsistent data that degrades ML model accuracy.
+
+> **Note**: Gain lock stabilizes CSI amplitudes during data collection. Without it, the model may learn spurious patterns from gain variations rather than actual motion.
+
+---
+
 ## Getting Started
 
 ### 1. Activate Virtual Environment

@@ -8,6 +8,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 import math
+from src.utils import to_signed_int8
 
 try:
     from src.detector_interface import IDetector, MotionState
@@ -194,6 +195,9 @@ class PCADetector(IDetector):
         self.wander_history = []
         self.state_history = []
         self.track_data = False
+        
+        # Gain compensation factor (1.0 = no compensation)
+        self._gain_compensation = 1.0
     
     def _extract_amplitudes(self, csi_data):
         """Extract amplitudes using step-based subcarrier selection."""
@@ -204,9 +208,11 @@ class PCADetector(IDetector):
             i = sc_idx * 2
             if i + 1 < len(csi_data):
                 # Espressif CSI format: [Imaginary, Real]
-                imag = float(csi_data[i])
-                real = float(csi_data[i + 1])
-                amplitudes.append(math.sqrt(real * real + imag * imag))
+                # CSI values are signed int8 stored as uint8
+                imag = float(to_signed_int8(csi_data[i]))
+                real = float(to_signed_int8(csi_data[i + 1]))
+                amplitude = math.sqrt(real * real + imag * imag) * self._gain_compensation
+                amplitudes.append(amplitude)
         
         return amplitudes
     
@@ -377,6 +383,15 @@ class PCADetector(IDetector):
             self._threshold_externally_set = True
             return True
         return False
+    
+    def set_gain_compensation(self, compensation):
+        """
+        Set gain compensation factor.
+        
+        Args:
+            compensation: Compensation factor (1.0 = no compensation)
+        """
+        self._gain_compensation = compensation
     
     def is_ready(self):
         """Check if threshold has been set externally (via PCACalibrator)."""

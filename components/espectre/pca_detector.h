@@ -87,6 +87,7 @@ public:
     bool is_ready() const override { return threshold_externally_set_; }
     uint32_t get_total_packets() const override { return static_cast<uint32_t>(packet_count_); }
     const char* get_name() const override { return "PCA"; }
+    void set_gain_compensation(float compensation) override { gain_compensation_ = compensation; }
     
     // PCA-specific getters
     
@@ -149,6 +150,9 @@ private:
     
     // Flag to skip internal calibration when threshold is set externally
     bool threshold_externally_set_;
+    
+    // Gain compensation factor (1.0 = no compensation)
+    float gain_compensation_{1.0f};
 };
 
 }  // namespace espectre

@@ -284,6 +284,34 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
     if ML_AVAILABLE and 'ML' in methods:
         method_names.append('ML')
     
+    # Calculate best method by F1 score
+    results = []
+    for method_name in method_names:
+        baseline_data = methods[method_name]['baseline']
+        movement_data = methods[method_name]['movement']
+        
+        if method_name == 'MVS':
+            fp = mvs_baseline.get_motion_count()
+            tp = mvs_movement.get_motion_count()
+        elif method_name == 'PCA':
+            fp = pca_baseline.state_history[:pca_baseline_states].count('MOTION')
+            tp = pca_baseline.state_history[pca_baseline_states:].count('MOTION')
+        elif method_name == 'ML' and ml_baseline is not None:
+            fp = ml_baseline.get_motion_count()
+            tp = ml_movement.get_motion_count()
+        else:
+            simple_thresh = np.mean(baseline_data) + 2 * np.std(baseline_data)
+            fp = np.sum(baseline_data > simple_thresh)
+            tp = np.sum(movement_data > simple_thresh)
+        
+        fn = len(movement_data) - tp
+        recall = (tp / (tp + fn) * 100) if (tp + fn) > 0 else 0.0
+        precision = (tp / (tp + fp) * 100) if (tp + fp) > 0 else 0.0
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+        results.append({'name': method_name, 'f1': f1, 'fp': fp, 'tp': tp, 'fn': fn})
+    
+    best_method = max(results, key=lambda r: r['f1'])['name']
+    
     n_rows = len(method_names)
     fig, axes = plt.subplots(n_rows, 2, figsize=(20, 2.5 * n_rows))
     fig.suptitle('Detection Methods Comparison', fontsize=14, fontweight='bold')
@@ -358,7 +386,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
                     ax_baseline.axvspan(i/100.0, (i+1)/100.0, alpha=0.3, color='red')
         
         # Title
-        title_prefix = '[BEST] ' if method_name == 'MVS' else ''
+        title_prefix = '[BEST] ' if method_name == best_method else ''
         if method_name == 'PCA':
             sc_info = "SC: 16 (step 4)"
         elif method_name in ['MVS', 'Turbulence', 'Mean Amplitude', 'ML']:

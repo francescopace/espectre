@@ -1,7 +1,7 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-01-17T22:26:26.763375",
+  "updated_at": "2026-02-03T20:50:33.079699",
   "labels": {
     "baseline": {
       "id": 0,
@@ -36,7 +36,17 @@
         "collected_at": "2026-01-17T22:26:06.497945",
         "duration_ms": 10008,
         "num_packets": 1353,
-        "description": ""
+        "description": "HT20 baseline sample"
+      },
+      {
+        "filename": "baseline_c3_64sc_20260203_203509.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-03T20:35:09.180014",
+        "duration_ms": 10006,
+        "num_packets": 1344,
+        "description": "HT20 baseline sample"
       }
     ],
     "baseline_noisy": [
@@ -70,7 +80,17 @@
         "collected_at": "2026-01-17T22:26:26.747046",
         "duration_ms": 10010,
         "num_packets": 1366,
-        "description": ""
+        "description": "HT20 movement sample"
+      },
+      {
+        "filename": "movement_c3_64sc_20260203_203533.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-03T20:35:33.828831",
+        "duration_ms": 9998,
+        "num_packets": 1318,
+        "description": "HT20 movement sample"
       }
     ]
   },

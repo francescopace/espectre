@@ -171,11 +171,14 @@ class MLDetector(IDetector):
         """
         self._packet_count += 1
         
-        # Calculate spatial turbulence and store amplitudes
-        turbulence, amplitudes = SegmentationContext.compute_spatial_turbulence(
+        # Calculate spatial turbulence using instance method (applies gain compensation)
+        turbulence = self._context.calculate_spatial_turbulence(
             csi_data, selected_subcarriers
         )
-        self._last_amplitudes = amplitudes
+        # Store amplitudes for feature extraction (skewness/kurtosis)
+        _, self._last_amplitudes = SegmentationContext.compute_spatial_turbulence(
+            csi_data, selected_subcarriers, self._context.gain_compensation
+        )
         
         # Add to buffer
         self._context.add_turbulence(turbulence)
@@ -243,6 +246,15 @@ class MLDetector(IDetector):
             self._threshold = threshold
             return True
         return False
+    
+    def set_gain_compensation(self, compensation):
+        """
+        Set gain compensation factor.
+        
+        Args:
+            compensation: Compensation factor (1.0 = no compensation)
+        """
+        self._context.set_gain_compensation(compensation)
     
     def is_ready(self):
         """Check if buffer is full."""

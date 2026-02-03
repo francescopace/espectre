@@ -48,6 +48,22 @@ The `me` CLI now supports all ESP32 variants with CSI capability:
 - **Firmware download**: Correct firmware is downloaded from GitHub releases
 - **Hash verification**: All firmware files are verified with SHA256
 
+#### Gain Compensation for All Detectors
+
+All detectors (MVS, ML, PCA) now support gain compensation consistently:
+
+- **MVS**: Already supported via `SegmentationContext`
+- **ML**: Now uses instance method `calculate_spatial_turbulence()` with compensation
+- **PCA**: New `set_gain_compensation()` applies to amplitude extraction
+
+CSI streaming (`./me stream`) sends **raw data** without compensation, ensuring training data matches inference behavior (compensation applied during detection, not collection).
+
+#### Bug Fixes
+
+- **Signed int8 conversion**: All CSI I/Q parsing now uses `to_signed_int8()` consistently. Previously, values > 127 were incorrectly treated as positive in some modules.
+- **ESP32 flash offset**: Fixed firmware flash offset for ESP32 base (`0x1000` instead of `0x0`)
+- **C++ PCA gain compensation**: `PCADetector` now implements `set_gain_compensation()` and applies it to amplitude extraction, matching MVS behavior
+
 #### ML Detector
 
 New machine learning-based motion detector as a developer preview:

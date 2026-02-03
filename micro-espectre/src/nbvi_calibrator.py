@@ -33,6 +33,7 @@ from src.config import (
 
 # Import utility functions
 from src.utils import (
+    to_signed_int8,
     calculate_percentile,
     calculate_variance,
     calculate_std,
@@ -141,13 +142,9 @@ class NBVICalibrator(ICalibrator):
             
             if q_idx < len(csi_data):
                 # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-                Q = int(csi_data[i_idx])   # Imaginary first
-                I = int(csi_data[q_idx])   # Real second
-                # Handle unsigned bytes (0-255) from Python tests
-                if I > 127:
-                    I = I - 256
-                if Q > 127:
-                    Q = Q - 256
+                # CSI values are signed int8 stored as uint8
+                Q = to_signed_int8(csi_data[i_idx])   # Imaginary first
+                I = to_signed_int8(csi_data[q_idx])   # Real second
                 # Calculate magnitude as uint8 (max ~181 fits in byte)
                 mag = int(math.sqrt(float(I)*float(I) + float(Q)*float(Q)))
                 magnitudes[sc] = min(mag, 255)
