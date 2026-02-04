@@ -31,8 +31,13 @@ from pathlib import Path
 from scipy import signal
 import pywt
 
-# Add src to path for config and segmentation import
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+# Add micro-espectre and src to path for imports
+_micro_espectre_path = str(Path(__file__).parent.parent)
+_src_path = str(Path(__file__).parent.parent / 'src')
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
+if _micro_espectre_path not in sys.path:
+    sys.path.insert(0, _micro_espectre_path)
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     HAMPEL_WINDOW, HAMPEL_THRESHOLD, LOWPASS_CUTOFF)
 from segmentation import SegmentationContext

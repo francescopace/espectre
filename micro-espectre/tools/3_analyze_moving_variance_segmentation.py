@@ -23,8 +23,13 @@ import math
 import time
 from pathlib import Path
 
-# Add src to path for config import
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+# Add micro-espectre and src to path for imports
+_micro_espectre_path = str(Path(__file__).parent.parent)
+_src_path = str(Path(__file__).parent.parent / 'src')
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
+if _micro_espectre_path not in sys.path:
+    sys.path.insert(0, _micro_espectre_path)
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
                     ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF)

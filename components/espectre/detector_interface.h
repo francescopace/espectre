@@ -2,7 +2,7 @@
  * ESPectre - Detector Interface
  * 
  * Abstract interface for motion detection algorithms.
- * Allows polymorphic use of different detection strategies (MVS, PCA).
+ * Allows polymorphic use of different detection strategies.
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -71,7 +71,6 @@ public:
      * 
      * Returns the primary metric used for motion detection.
      * For MVS: moving variance
-     * For PCA: jitter value
      * 
      * @return Current motion metric
      */

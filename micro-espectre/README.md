@@ -58,7 +58,6 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 |---------|---------------|----------------------|--------|
 | **Core Algorithm** |
 | MVS Detector | ✅ | ✅ | Aligned |
-| PCA Detector | ✅ | ✅ | Aligned |
 | ML Detector | ❌ | ✅ | MicroPython only |
 | MVS Segmentation | ✅ | ✅ | Aligned |
 | Spatial Turbulence | ✅ | ✅ | Aligned |
@@ -392,18 +391,17 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC (used in auto mode)
 Choose the motion detection algorithm.
 
 ```python
-DETECTION_ALGORITHM = "mvs"   # "mvs" (default), "pca", or "ml"
+DETECTION_ALGORITHM = "mvs"   # "mvs" (default) or "ml"
 ```
 
 | Algorithm | Method | Calibration | Boot Time |
 |-----------|--------|-------------|-----------|
 | **MVS** (default) | Moving Variance Segmentation of Turbulence | Subcarriers + Threshold | ~10s |
-| **PCA** | Principal Component Analysis | Subcarriers + Threshold | ~10s |
 | **ML** | Neural Network (12 features → MLP) | **None** (fixed subcarriers) | **~3s** |
 
 ### 3. Calibration Algorithm (MVS only)
 
-Selects which subcarriers to use for detection. Ignored when using PCA.
+Selects which subcarriers to use for detection.
 
 ```python
 CALIBRATION_ALGORITHM = "nbvi"  # "nbvi" (default) or "p95"
@@ -525,7 +523,7 @@ Micro-ESPectre implements automatic subcarrier selection with two algorithms:
 Both algorithms achieve high performance (>90% recall, <15% FP rate) with **zero manual configuration**.
 
 > ⚠️ **IMPORTANT**: Keep the room **quiet and still** after device boot during calibration:
-> - **MVS/PCA**: ~10 seconds (gain lock + band calibration)
+> - **MVS**: ~10 seconds (gain lock + band calibration)
 > - **ML**: ~3 seconds (gain lock only, no band calibration needed)
 
 For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#automatic-subcarrier-selection).

@@ -316,7 +316,7 @@ This will:
 
 ### Compare Detection Methods
 
-After training, compare ML with MVS and PCA:
+After training, compare ML with MVS:
 
 ```bash
 python tools/7_compare_detection_methods.py

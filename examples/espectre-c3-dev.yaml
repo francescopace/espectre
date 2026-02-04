@@ -49,8 +49,7 @@ espectre:
   traffic_generator_mode: dns   # dns (default) or ping
   # Signal Processing
   gain_lock: auto               # auto (default), enabled, disabled
-  detection_algorithm: mvs      # mvs (default, Moving Variance) or pca (Principal Component Analysis)
-  # MVS (Moving Variance Segmentation), ignored by PCA
+  # MVS (Moving Variance Segmentation) parameters
   segmentation_calibration: nbvi  # nbvi (default) or p95
   segmentation_threshold: auto  # auto (default), min, or 0.1-10.0
   segmentation_window_size: 50  # Analysis window size in packets (10-200)

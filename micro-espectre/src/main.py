@@ -1,7 +1,7 @@
 """
 Micro-ESPectre - Main Application
 
-Motion detection using WiFi CSI with MVS or PCA algorithms.
+Motion detection using WiFi CSI with MVS algorithm.
 Main entry point for the Micro-ESPectre system running on ESP32-C6.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -12,7 +12,6 @@ import time
 import gc
 import os
 from src.mvs_detector import MVSDetector
-from src.pca_detector import PCADetector
 from src.ml_detector import MLDetector
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
@@ -147,7 +146,7 @@ def connect_wifi():
 def format_progress_bar(score, threshold, width=20, is_probability=False):
     """Format progress bar for console output.
     
-    For MVS/PCA: score = metric/threshold, threshold_pos at 75% (15/20)
+    For MVS: score = metric/threshold, threshold_pos at 75% (15/20)
     For ML: score = probability, threshold_pos at threshold (e.g., 50% for 0.5)
     """
     if is_probability:
@@ -155,7 +154,7 @@ def format_progress_bar(score, threshold, width=20, is_probability=False):
         threshold_pos = int(threshold * width)
         filled = int(score * width)
     else:
-        # MVS/PCA mode: score is already normalized (metric/threshold)
+        # MVS mode: score is already normalized (metric/threshold)
         threshold_pos = 15  # 75% position
         filled = int(score * threshold_pos)
     
@@ -270,13 +269,9 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     """
     Run band calibration with selected algorithm (with gain lock phase first)
     
-    Supports calibration for both MVS and PCA detectors:
-    - MVS: Uses NBVI or P95 for subcarrier selection
-    - PCA: Uses PCACalibrator for correlation threshold
-    
     Args:
         wlan: WLAN instance
-        detector: IDetector instance (MVSDetector or PCADetector)
+        detector: IDetector instance (MVSDetector or MLDetector)
         traffic_gen: TrafficGenerator instance
         chip_type: Chip type ('C5', 'C6', 'S3', etc.) for subcarrier filtering
     
@@ -285,7 +280,6 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     """
     # Determine calibration type based on detector
     detector_name = detector.get_name()
-    is_pca = detector_name == "PCA"
     is_ml = detector_name == "ML"
     
     if is_ml:
@@ -330,12 +324,6 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         
         g_state.calibration_mode = False
         return True
-    elif is_pca:
-        from src.pca_calibrator import PCACalibrator
-        algorithm = "pca"
-        # PCA doesn't need buffer file cleanup
-        def cleanup_buffer_file():
-            pass
     else:
         # Get configured algorithm for MVS
         algorithm = getattr(config, 'CALIBRATION_ALGORITHM', 'nbvi').lower()
@@ -380,9 +368,7 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     print('-'*60)
     
     # Initialize calibrator based on algorithm
-    if is_pca:
-        calibrator = PCACalibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
-    elif algorithm == 'nbvi':
+    if algorithm == 'nbvi':
         calibrator = NBVICalibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
     else:
         calibrator = P95Calibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
@@ -439,34 +425,11 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         gc.collect()
     
     try:
-        # Both calibrators return: calibrate() -> (band, values)
-        # For MVS: band = selected subcarriers, values = mv_values
-        # For PCA: band = fixed step subcarriers, values = correlation values
+        # Calibrator returns: calibrate() -> (band, values)
+        # band = selected subcarriers, values = mv_values
         selected_band, cal_values = calibrator.calibrate()
         
-        if is_pca:
-            # PCA: calculate threshold as (1 - min(correlation)) * PCA_SCALE
-            from src.pca_detector import PCADetector
-            PCA_SCALE = PCADetector.PCA_SCALE
-            
-            if cal_values and len(cal_values) > 0:
-                min_corr = min(cal_values)
-                pca_threshold = (1.0 - min_corr) * PCA_SCALE
-                detector.set_threshold(pca_threshold)
-                success = True
-                
-                print('')
-                print('='*60)
-                print('PCA Calibration Successful!')
-                print(f'   Algorithm: PCA')
-                print(f'   Subcarrier step: 4 (16 subcarriers)')
-                print(f'   Min correlation: {min_corr:.4f}')
-                print(f'   Threshold: {pca_threshold:.4f} ((1 - min_corr) * {PCA_SCALE:.0f})')
-                print('='*60)
-                print('')
-            else:
-                print('PCA Calibration Failed - no correlation values')
-        else:
+        if True:
             # MVS or ML: apply subcarrier selection
             if selected_band and len(selected_band) == 12:
                 config.SELECTED_SUBCARRIERS = selected_band
@@ -522,8 +485,7 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     
     except Exception as e:
         print(f"Error during calibration: {e}")
-        if not is_pca:
-            print(f"Using default band: {config.SELECTED_SUBCARRIERS}")
+        print(f"Using default band: {config.SELECTED_SUBCARRIERS}")
     
     # Free calibrator memory explicitly
     calibrator.free_buffer()
@@ -571,10 +533,7 @@ def main():
     detection_algorithm = getattr(config, 'DETECTION_ALGORITHM', 'mvs').lower()
     initial_threshold = getattr(config, 'SEG_THRESHOLD', 1.0)
     
-    if detection_algorithm == 'pca':
-        print(f'Detection algorithm: PCA (Principal Component Analysis)')
-        detector = PCADetector(threshold=0.01)  # PCA threshold set during calibration
-    elif detection_algorithm == 'ml':
+    if detection_algorithm == 'ml':
         print(f'Detection algorithm: ML (Neural Network)')
         detector = MLDetector(
             window_size=config.SEG_WINDOW_SIZE,

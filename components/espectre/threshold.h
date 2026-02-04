@@ -5,9 +5,8 @@
  * Called after calibration to compute the detection threshold.
  * 
  * MVS Formula: threshold = Pxx(cal_values) * factor
- * PCA Formula: threshold = 1 - min(cal_values) (Espressif approach)
  * 
- * Modes (for MVS):
+ * Modes:
  * - "auto": P95 * 1.4 (default, low false positives)
  * - "min": P100 * 1.0 (maximum sensitivity, may have FP)
  * 
@@ -20,7 +19,6 @@
 #include <cstdint>
 #include <vector>
 #include <algorithm>
-#include "pca_detector.h"  // For PCA_SCALE
 
 namespace esphome {
 namespace espectre {
@@ -88,48 +86,27 @@ inline float calculate_percentile(std::vector<float> values, uint8_t percentile)
 /**
  * Calculate adaptive threshold from calibration baseline values
  * 
- * For MVS: threshold = Pxx(cal_values) * factor
- * For PCA: threshold = 1 - min(cal_values) (Espressif correlation-based)
+ * MVS: threshold = Pxx(cal_values) * factor
  * 
- * @param cal_values Vector of calibration values (MV for MVS, correlation for PCA)
- * @param mode Threshold mode (AUTO or MIN) - only used for MVS
- * @param is_pca True for PCA algorithm, false for MVS
+ * @param cal_values Vector of moving variance values from calibration
+ * @param mode Threshold mode (AUTO or MIN)
  * @param out_threshold Output: calculated adaptive threshold
- * @param out_percentile Output: percentile used (0 for PCA)
- * @param out_factor Output: factor used (1.0 for PCA)
- * @param out_pxx Output: raw percentile/min value (before factor)
+ * @param out_percentile Output: percentile used
+ * @param out_factor Output: factor used
+ * @param out_pxx Output: raw percentile value (before factor)
  */
 inline void calculate_adaptive_threshold(
     const std::vector<float>& cal_values,
     ThresholdMode mode,
-    bool is_pca,
     float& out_threshold,
     uint8_t& out_percentile,
     float& out_factor,
     float& out_pxx) {
   
-  if (is_pca) {
-    // PCA: threshold = (1 - min(correlation)) * PCA_SCALE
-    // cal_values contains correlation values from baseline
-    // Scaled by PCA_SCALE (1000) to match MVS threshold range (0.1-10.0)
-    if (cal_values.empty()) {
-      out_threshold = PCA_DEFAULT_THRESHOLD;  // 10.0 (scaled)
-      out_percentile = 0;
-      out_factor = 1.0f;
-      out_pxx = 0.99f;
-      return;
-    }
-    float min_corr = *std::min_element(cal_values.begin(), cal_values.end());
-    out_threshold = (1.0f - min_corr) * PCA_SCALE;
-    out_percentile = 0;     // N/A for PCA
-    out_factor = 1.0f;      // N/A for PCA
-    out_pxx = min_corr;     // Store min_corr for diagnostics
-  } else {
-    // MVS: threshold = Pxx(cal_values) * factor
-    get_threshold_params(mode, out_percentile, out_factor);
-    out_pxx = calculate_percentile(cal_values, out_percentile);
-    out_threshold = out_pxx * out_factor;
-  }
+  // MVS: threshold = Pxx(cal_values) * factor
+  get_threshold_params(mode, out_percentile, out_factor);
+  out_pxx = calculate_percentile(cal_values, out_percentile);
+  out_threshold = out_pxx * out_factor;
 }
 
 /**

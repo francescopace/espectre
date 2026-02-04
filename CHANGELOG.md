@@ -11,6 +11,52 @@ All notable changes to this project will be documented in this file.
 - **ML Detector (Developer Preview)**: Neural network-based motion detection using 12 statistical features
 - **Centralized feature extraction**: All 12 features extracted in a single module for ML and confidence scoring
 - **Training pipeline**: Scripts for collecting data, training models, and comparing algorithms
+- **PCA Algorithm Removed**: The experimental PCA detection algorithm has been removed
+
+### PCA Detection Algorithm Removed
+
+The PCA (Principal Component Analysis) detection algorithm has been removed from ESPectre. While PCA itself is a well-known statistical technique, our implementation was based on Espressif's open-source esp-radar library. Since Espressif has transitioned this library to closed source, we have removed our PCA implementation to ensure full compliance with our GPLv3 license. MVS remains the recommended algorithm with excellent performance (F1 > 99%).
+
+Future development will focus on the ML detector, which shows very promising results in early testing with high recall and precision. The ML detector is optimized for TensorFlow Lite, achieves inference times even lower than MVS, and requires no initial calibration as it uses evenly distributed subcarriers across all 64 available.
+
+#### ML Detector
+
+New machine learning-based motion detector as a developer preview:
+
+| Aspect | Details |
+|--------|---------|
+| Algorithm | `DETECTION_ALGORITHM = "ml"` |
+| Architecture | MLP (12 → 16 → 8 → 1) with ReLU/Sigmoid |
+| Input | 12 features from 50-packet sliding window |
+| Output | Probability (0.0-1.0), threshold fixed at 0.5 |
+| Performance | ~93% recall, 100% precision, 0% false positives |
+| Boot time | **~3 seconds** (vs ~10s for MVS) |
+
+**Fast boot**: ML uses 12 fixed, evenly distributed subcarriers - no band calibration needed. Only the 3-second gain lock phase runs at boot, reducing startup time by 70%.
+
+#### Feature Extraction Refactoring
+
+- **Centralized extraction**: New `extract_all_features()` function in `features.py`
+- **12 statistical features**: turb_mean, turb_std, turb_max, turb_min, turb_range, turb_var, turb_iqr, turb_entropy, amp_skewness, amp_kurtosis, turb_slope, turb_delta
+- **Confidence system**: Uses 5 best features (subset of 12) for MVS confidence scoring
+- **No code duplication**: Both ML and confidence system use the same extraction
+
+#### Training Pipeline
+
+- **`10_train_ml_model.py`**: Train MLP model with all available data
+- **`7_compare_detection_methods.py`**: Compare MVS and ML performance
+- **TFLite export**: `models/motion_detector_small.tflite` for future C++ port
+- **MicroPython export**: `src/ml_weights.py` (auto-generated weights)
+
+#### Documentation
+
+- **ALGORITHMS.md**: New "ML: Neural Network Detector" section
+- **ML_DATA_COLLECTION.md**: Updated with training instructions
+- **README.md**: Updated ML section with developer preview info
+
+#### New Test Suite
+
+- **`test_ml_detector.py`**: 38 tests covering ML inference and detector class
 
 ### Gain Lock Improvements
 
@@ -50,11 +96,10 @@ The `me` CLI now supports all ESP32 variants with CSI capability:
 
 #### Gain Compensation for All Detectors
 
-All detectors (MVS, ML, PCA) now support gain compensation consistently:
+All detectors (MVS, ML) now support gain compensation consistently:
 
 - **MVS**: Already supported via `SegmentationContext`
 - **ML**: Now uses instance method `calculate_spatial_turbulence()` with compensation
-- **PCA**: New `set_gain_compensation()` applies to amplitude extraction
 
 CSI streaming (`./me stream`) sends **raw data** without compensation, ensuring training data matches inference behavior (compensation applied during detection, not collection).
 
@@ -62,48 +107,6 @@ CSI streaming (`./me stream`) sends **raw data** without compensation, ensuring 
 
 - **Signed int8 conversion**: All CSI I/Q parsing now uses `to_signed_int8()` consistently. Previously, values > 127 were incorrectly treated as positive in some modules.
 - **ESP32 flash offset**: Fixed firmware flash offset for ESP32 base (`0x1000` instead of `0x0`)
-- **C++ PCA gain compensation**: `PCADetector` now implements `set_gain_compensation()` and applies it to amplitude extraction, matching MVS behavior
-
-#### ML Detector
-
-New machine learning-based motion detector as a developer preview:
-
-| Aspect | Details |
-|--------|---------|
-| Algorithm | `DETECTION_ALGORITHM = "ml"` |
-| Architecture | MLP (12 → 16 → 8 → 1) with ReLU/Sigmoid |
-| Input | 12 features from 50-packet sliding window |
-| Output | Probability (0.0-1.0), threshold fixed at 0.5 |
-| Performance | ~93% recall, 100% precision, 0% false positives |
-| Boot time | **~3 seconds** (vs ~10s for MVS/PCA) |
-
-**Fast boot**: ML uses 12 fixed, evenly distributed subcarriers - no band calibration needed. Only the 3-second gain lock phase runs at boot, reducing startup time by 70%.
-
-#### Feature Extraction Refactoring
-
-- **Centralized extraction**: New `extract_all_features()` function in `features.py`
-- **12 statistical features**: turb_mean, turb_std, turb_max, turb_min, turb_range, turb_var, turb_iqr, turb_entropy, amp_skewness, amp_kurtosis, turb_slope, turb_delta
-- **Confidence system**: Uses 5 best features (subset of 12) for MVS confidence scoring
-- **No code duplication**: Both ML and confidence system use the same extraction
-
-#### Training Pipeline
-
-- **`10_train_ml_model.py`**: Train MLP model with all available data
-- **`7_compare_detection_methods.py`**: Compare MVS, PCA, and ML performance
-- **TFLite export**: `models/motion_detector_small.tflite` for future C++ port
-- **MicroPython export**: `src/ml_weights.py` (auto-generated weights)
-
-#### Documentation
-
-- **ALGORITHMS.md**: New "ML: Neural Network Detector" section
-- **ML_DATA_COLLECTION.md**: Updated with training instructions
-- **README.md**: Updated ML section with developer preview info
-
-#### New Test Suite
-
-- **`test_ml_detector.py`**: 38 tests covering ML inference and detector class
-
-</details>
 
 ---
 

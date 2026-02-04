@@ -10,7 +10,6 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [Processing Pipeline](#processing-pipeline)
 - [Gain Lock (Hardware Stabilization)](#gain-lock-hardware-stabilization)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
-- [PCA: Principal Component Analysis](#pca-principal-component-analysis)
 - [ML: Neural Network Detector](#ml-neural-network-detector)
 - [Automatic Subcarrier Selection](#automatic-subcarrier-selection)
 - [Low-Pass Filter](#low-pass-filter)
@@ -269,86 +268,11 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 ---
 
-## PCA: Principal Component Analysis
-
-### Overview
-
-**PCA (Principal Component Analysis)** is an alternative motion detection algorithm based on Espressif's esp_radar implementation. It uses correlation analysis of principal components to detect signal changes caused by movement.
-
-### The Insight
-
-PCA-based detection works by comparing the "shape" of the CSI signal over time:
-- **Idle state**: Signal pattern is consistent → high correlation with baseline
-- **Motion state**: Signal pattern changes → low correlation with baseline
-
-By measuring how much the current signal differs from a learned baseline, we can detect movement.
-
-### Algorithm Steps
-
-1. **Amplitude Extraction (Step-based)**
-   ```
-   amplitudes = [|H_k| for k in range(0, 64, step)]  # Every 4th subcarrier
-   ```
-   Uses 16 subcarriers (every 4th) instead of calibrated band selection.
-
-2. **PCA via Power Method**
-   ```
-   cov_matrix = (data.T @ data) / (rows * cols)
-   eigenvector = power_iteration(cov_matrix)
-   pca_output = data @ eigenvector / cols
-   ```
-   Extracts the principal component from a sliding window of CSI packets.
-
-3. **Correlation Metrics**
-   ```
-   jitter = max(|corr(pca_current, pca_calibration[i])|)
-   wander = max(|corr(pca_current, pca_calibration[i])|)
-   ```
-   Pearson correlation measures similarity to baseline patterns.
-
-4. **Inversion and Detection**
-   ```
-   jitter_inverted = 1 - jitter_corr  # High = movement
-   if count(jitter_inverted > threshold in window) >= outliers_num:
-       state = MOTION
-   ```
-
-### Key Parameters
-
-| Parameter | Default | Values | Effect |
-|-----------|---------|--------|--------|
-| `pca_window_size` | 10 | 5-20 | Packets for PCA computation |
-| `move_buffer_size` | 5 | 3-10 | Buffer for count-based detection |
-| `outliers_num` | 2 | 1-5 | Violations needed to trigger |
-| `subcarrier_step` | 4 | 1-8 | Use every Nth subcarrier |
-
-### MVS vs PCA Comparison
-
-| Aspect | MVS | PCA |
-|--------|-----|-----|
-| **Computation** | Low (variance) | Medium (matrix ops) |
-| **Subcarrier Selection** | Calibrated (12 best) | Fixed step (16) |
-| **Detection Method** | Threshold on variance | Count-based on correlation |
-| **Calibration** | 7s band selection | Auto during operation |
-| **Best For** | Most environments | High-noise environments |
-
-### Configuration
-
-```yaml
-espectre:
-  detection_algorithm: pca  # Use PCA instead of MVS
-  # segmentation_calibration is ignored with PCA
-```
-
-**Reference**: Espressif esp-csi/esp_radar v0.3.1 (Apache-2.0)
-
----
-
 ## ML: Neural Network Detector
 
 ### Overview
 
-The **ML Detector** uses a pre-trained neural network to classify motion based on statistical features extracted from CSI turbulence patterns. Unlike MVS and PCA which use hand-crafted thresholds, ML learns decision boundaries from labeled training data.
+The **ML Detector** uses a pre-trained neural network to classify motion based on statistical features extracted from CSI turbulence patterns. Unlike MVS which uses hand-crafted thresholds, ML learns decision boundaries from labeled training data.
 
 ### The Insight
 
@@ -417,7 +341,6 @@ ML uses **fixed subcarriers** - no calibration needed:
 | Algorithm | Subcarrier Selection | Threshold | Boot Time |
 |-----------|---------------------|-----------|-----------|
 | MVS | NBVI or P95 (~7s) | Adaptive (P95 × 1.4) | ~10s |
-| PCA | Fixed step (every 4th) | 1 - min(correlation) | ~10s |
 | ML | **Fixed** (12 evenly distributed) | Fixed (0.5 probability) | **~3s** |
 
 ML uses 12 pre-selected subcarriers evenly distributed across the valid range: `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]`. This eliminates the 7-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
@@ -444,13 +367,13 @@ python tools/7_compare_detection_methods.py
 
 ### Performance
 
-| Metric | ML | MVS | PCA |
-|--------|-----|-----|-----|
-| Recall | 93.5% | 94.7% | 27.3% |
-| Precision | 100% | 100% | 100% |
-| F1 Score | 96.6% | 97.3% | 42.9% |
-| False Positives | 0 | 0 | 0 |
-| Inference Time | ~90μs | ~100μs | ~110μs |
+| Metric | ML | MVS |
+|--------|-----|-----|
+| Recall | 93.5% | 94.7% |
+| Precision | 100% | 100% |
+| F1 Score | 96.6% | 97.3% |
+| False Positives | 0 | 0 |
+| Inference Time | ~90μs | ~100μs |
 
 ML and MVS achieve comparable performance. ML's strength is **generalization** - it may perform better in environments different from those used to tune MVS thresholds.
 

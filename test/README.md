@@ -22,13 +22,11 @@ pio test -f test_motion_detection
 | Suite | Type | Data | Focus |
 |-------|------|------|-------|
 | `test_mvs_detector` | Unit | **Real** | MVS algorithm, threshold, filters, state machine, lowpass |
-| `test_pca_detector` | Unit | **Real** | PCA algorithm, jitter/wander metrics |
 | `test_csi_manager` | Unit | Synthetic | CSIManager API, enable/disable, callbacks |
 | `test_utils` | Unit | **Real** | Variance, magnitude, turbulence, compare functions |
 | `test_hampel_filter` | Unit | **Real** | Outlier removal filter |
 | `test_p95_calibrator` | Unit | **Real** | P95 band selection, magnitude, turbulence, adaptive threshold |
 | `test_nbvi_calibrator` | Unit | **Real** | NBVI subcarrier selection, configuration |
-| `test_pca_calibrator` | Unit | **Real** | PCA calibration, correlation threshold calculation |
 | `test_calibration_file_storage` | Unit | Synthetic | File-based magnitude storage |
 | `test_traffic_generator` | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
 | `test_serial_streamer` | Unit | Synthetic | Serial streaming API |

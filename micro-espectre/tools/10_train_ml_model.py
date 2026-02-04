@@ -9,7 +9,7 @@ Usage:
     python tools/10_train_ml_model.py              # Train with all data
     python tools/10_train_ml_model.py --info       # Show dataset info
 
-To compare ML with MVS and PCA, use:
+To compare ML with MVS, use:
     python tools/7_compare_detection_methods.py
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -563,7 +563,7 @@ Examples:
   python tools/10_train_ml_model.py           # Train with fixed subcarriers
   python tools/10_train_ml_model.py --info    # Show dataset info
   
-To compare ML with MVS and PCA, use:
+To compare ML with MVS, use:
   python tools/7_compare_detection_methods.py
 '''
     )

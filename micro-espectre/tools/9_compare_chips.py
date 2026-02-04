@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-ESP32-S3 vs ESP32-C6 CSI Data Comparison Tool
+ESP32 CSI Data Comparison Tool (S3/C3/C6)
 
-Analyzes raw CSI data from both chips to identify:
+Analyzes raw CSI data from multiple ESP32 chips to identify:
 - I/Q value ranges and scaling differences
 - Amplitude statistics per subcarrier
 - Turbulence and Moving Variance differences
@@ -10,10 +10,11 @@ Analyzes raw CSI data from both chips to identify:
 
 Based on ESP-IDF issue #14271, known differences include:
 - S3: 128 bytes (64 subcarriers in HT20), no L-LTF data, different subcarrier order
+- C3: 128 bytes (64 subcarriers in HT20), similar to C6
 - C6: 128 bytes (64 subcarriers in HT20), includes L-LTF data, standard order
 
 Usage:
-    python tools/15_compare_s3_vs_c6.py [--plot]
+    python tools/9_compare_chips.py [--plot]
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -25,8 +26,13 @@ import numpy as np
 import math
 from pathlib import Path
 
-# Add src to path for config and segmentation import
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+# Add micro-espectre and src to path for imports
+_micro_espectre_path = str(Path(__file__).parent.parent)
+_src_path = str(Path(__file__).parent.parent / 'src')
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
+if _micro_espectre_path not in sys.path:
+    sys.path.insert(0, _micro_espectre_path)
 from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
 from segmentation import SegmentationContext
 
@@ -172,40 +178,59 @@ def print_comparison(s3_stats, c6_stats, metric_name):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Compare ESP32-S3 vs ESP32-C6 CSI data')
+    parser = argparse.ArgumentParser(description='Compare ESP32 CSI data (S3/C3/C6)')
     parser.add_argument('--plot', action='store_true', help='Generate comparison plots')
     args = parser.parse_args()
     
     print("\n" + "="*70)
-    print("  ESP32-S3 vs ESP32-C6 CSI Data Comparison")
+    print("  ESP32 CSI Data Comparison (S3/C3/C6)")
     print("="*70)
     
-    # Load data for both chips (auto-find most recent files)
+    # Load data for all chips (auto-find most recent files)
     print("\nLoading data...")
+    
+    chips_data = {}
     
     # S3: 64 SC (HT20)
     try:
         s3_baseline, s3_movement = load_baseline_and_movement(chip='S3')
-        s3_num_sc = 64
-        print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets ({s3_num_sc} SC)")
+        chips_data['S3'] = {'baseline': s3_baseline, 'movement': s3_movement, 'num_sc': 64}
+        print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets (64 SC)")
     except FileNotFoundError as e:
         print(f"  S3 data not found: {e}")
-        s3_baseline, s3_movement = [], []
-        s3_num_sc = 0
+    
+    # C3: 64 SC (HT20)
+    try:
+        c3_baseline, c3_movement = load_baseline_and_movement(chip='C3')
+        chips_data['C3'] = {'baseline': c3_baseline, 'movement': c3_movement, 'num_sc': 64}
+        print(f"  C3: {len(c3_baseline)} baseline, {len(c3_movement)} movement packets (64 SC)")
+    except FileNotFoundError as e:
+        print(f"  C3 data not found: {e}")
     
     # C6: 64 SC (HT20)
     try:
         c6_baseline, c6_movement = load_baseline_and_movement(chip='C6')
-        c6_num_sc = 64
-        print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets ({c6_num_sc} SC)")
+        chips_data['C6'] = {'baseline': c6_baseline, 'movement': c6_movement, 'num_sc': 64}
+        print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets (64 SC)")
     except FileNotFoundError as e:
         print(f"  C6 data not found: {e}")
-        c6_baseline, c6_movement = [], []
-        c6_num_sc = 0
     
-    if not s3_baseline or not c6_baseline:
-        print("\nMissing data files. Please collect data from both chips.")
+    if len(chips_data) < 2:
+        print("\nNeed at least 2 chips with data for comparison.")
         return
+    
+    # For backward compatibility, extract individual variables
+    s3_baseline = chips_data.get('S3', {}).get('baseline', [])
+    s3_movement = chips_data.get('S3', {}).get('movement', [])
+    s3_num_sc = chips_data.get('S3', {}).get('num_sc', 0)
+    
+    c3_baseline = chips_data.get('C3', {}).get('baseline', [])
+    c3_movement = chips_data.get('C3', {}).get('movement', [])
+    c3_num_sc = chips_data.get('C3', {}).get('num_sc', 0)
+    
+    c6_baseline = chips_data.get('C6', {}).get('baseline', [])
+    c6_movement = chips_data.get('C6', {}).get('movement', [])
+    c6_num_sc = chips_data.get('C6', {}).get('num_sc', 0)
     
     # =========================================================================
     # 1. RAW I/Q VALUE ANALYSIS
@@ -214,11 +239,17 @@ def main():
     print("  1. RAW I/Q VALUE ANALYSIS")
     print("="*70)
     
-    s3_iq = analyze_iq_values(s3_baseline + s3_movement, "S3")
-    c6_iq = analyze_iq_values(c6_baseline + c6_movement, "C6")
+    iq_stats = {}
+    for chip in chips_data:
+        data = chips_data[chip]
+        iq_stats[chip] = analyze_iq_values(data['baseline'] + data['movement'], chip)
     
-    print(f"\n{'Metric':<20} {'S3':>12} {'C6':>12} {'Ratio S3/C6':>12}")
-    print(f"{'-'*56}")
+    # Build header dynamically
+    header = f"{'Metric':<20}"
+    for chip in chips_data:
+        header += f" {chip:>12}"
+    print(f"\n{header}")
+    print(f"{'-'*(20 + 13*len(chips_data))}")
     
     metrics = [
         ('I Mean', 'i_mean'),
@@ -232,35 +263,40 @@ def main():
     ]
     
     for name, key in metrics:
-        s3_val = s3_iq[key]
-        c6_val = c6_iq[key]
-        ratio = s3_val / c6_val if c6_val != 0 else float('inf')
-        print(f"{name:<20} {s3_val:>12.2f} {c6_val:>12.2f} {ratio:>12.4f}")
+        row = f"{name:<20}"
+        for chip in chips_data:
+            row += f" {iq_stats[chip][key]:>12.2f}"
+        print(row)
     
     # =========================================================================
     # 2. AMPLITUDE PER SUBCARRIER ANALYSIS
     # =========================================================================
+    sc_info = ", ".join([f"{chip}: {chips_data[chip]['num_sc']} SC" for chip in chips_data])
     print("\n" + "="*70)
-    print(f"  2. AMPLITUDE PER SUBCARRIER (S3: {s3_num_sc} SC, C6: {c6_num_sc} SC)")
+    print(f"  2. AMPLITUDE PER SUBCARRIER ({sc_info})")
     print("="*70)
     
-    s3_amp = analyze_amplitudes_per_subcarrier(s3_baseline + s3_movement, "S3", s3_num_sc)
-    c6_amp = analyze_amplitudes_per_subcarrier(c6_baseline + c6_movement, "C6", c6_num_sc)
+    amp_stats = {}
+    selected_scs = {}
+    for chip in chips_data:
+        data = chips_data[chip]
+        amp_stats[chip] = analyze_amplitudes_per_subcarrier(
+            data['baseline'] + data['movement'], chip, data['num_sc']
+        )
+        # Use proportional subcarrier selection for each chip
+        selected_scs[chip] = [int(sc * data['num_sc'] / 64) for sc in SELECTED_SUBCARRIERS]
+        print(f"\n  {chip} selected subcarriers: {selected_scs[chip]}")
     
-    # Use proportional subcarrier selection for each chip
-    s3_selected = [int(sc * s3_num_sc / 64) for sc in SELECTED_SUBCARRIERS]
-    c6_selected = SELECTED_SUBCARRIERS
+    # Calculate selected SC averages
+    selected_means = {}
+    for chip in chips_data:
+        num_sc = chips_data[chip]['num_sc']
+        selected_means[chip] = np.mean([
+            amp_stats[chip]['stats'][sc]['mean'] 
+            for sc in selected_scs[chip] if sc < num_sc
+        ])
     
-    print(f"\n  S3 selected subcarriers: {s3_selected}")
-    print(f"  C6 selected subcarriers: {c6_selected}")
-    
-    # Calculate overall amplitude ratio for selected subcarriers
-    s3_selected_mean = np.mean([s3_amp['stats'][sc]['mean'] for sc in s3_selected if sc < s3_num_sc])
-    c6_selected_mean = np.mean([c6_amp['stats'][sc]['mean'] for sc in c6_selected if sc < c6_num_sc])
-    overall_amp_ratio = s3_selected_mean / c6_selected_mean if c6_selected_mean > 0 else 0
-    
-    print(f"\n  Selected SC Average: S3={s3_selected_mean:.2f}, C6={c6_selected_mean:.2f}")
-    print(f"  Amplitude Ratio (S3/C6): {overall_amp_ratio:.4f}")
+    print(f"\n  Selected SC Average: " + ", ".join([f"{chip}={selected_means[chip]:.2f}" for chip in chips_data]))
     
     # =========================================================================
     # 3. TURBULENCE AND MVS ANALYSIS
@@ -269,21 +305,23 @@ def main():
     print("  3. TURBULENCE AND MVS ANALYSIS")
     print("="*70)
     
-    # Use appropriate subcarrier selection for each chip
-    s3_baseline_turb = analyze_turbulence_and_mvs(s3_baseline, "S3 Baseline", 
-                                                   s3_selected, WINDOW_SIZE)
-    s3_movement_turb = analyze_turbulence_and_mvs(s3_movement, "S3 Movement", 
-                                                   s3_selected, WINDOW_SIZE)
-    c6_baseline_turb = analyze_turbulence_and_mvs(c6_baseline, "C6 Baseline", 
-                                                   c6_selected, WINDOW_SIZE)
-    c6_movement_turb = analyze_turbulence_and_mvs(c6_movement, "C6 Movement", 
-                                                   c6_selected, WINDOW_SIZE)
+    # Analyze turbulence for all chips
+    turb_stats = {}
+    for chip in chips_data:
+        data = chips_data[chip]
+        turb_stats[f"{chip}_baseline"] = analyze_turbulence_and_mvs(
+            data['baseline'], f"{chip} Baseline", selected_scs[chip], WINDOW_SIZE
+        )
+        turb_stats[f"{chip}_movement"] = analyze_turbulence_and_mvs(
+            data['movement'], f"{chip} Movement", selected_scs[chip], WINDOW_SIZE
+        )
     
     print(f"\nTurbulence (Spatial Std Dev):")
     print(f"  {'Dataset':<20} {'Mean':>12} {'Std':>12} {'Min':>12} {'Max':>12}")
     print(f"  {'-'*60}")
     
-    for data in [s3_baseline_turb, s3_movement_turb, c6_baseline_turb, c6_movement_turb]:
+    for key in turb_stats:
+        data = turb_stats[key]
         print(f"  {data['name']:<20} {data['turb_mean']:>12.4f} {data['turb_std']:>12.4f} "
               f"{data['turb_min']:>12.4f} {data['turb_max']:>12.4f}")
     
@@ -291,19 +329,10 @@ def main():
     print(f"  {'Dataset':<20} {'Mean':>12} {'Std':>12} {'Min':>12} {'Max':>12}")
     print(f"  {'-'*60}")
     
-    for data in [s3_baseline_turb, s3_movement_turb, c6_baseline_turb, c6_movement_turb]:
+    for key in turb_stats:
+        data = turb_stats[key]
         print(f"  {data['name']:<20} {data['mvs_mean']:>12.4f} {data['mvs_std']:>12.4f} "
               f"{data['mvs_min']:>12.4f} {data['mvs_max']:>12.4f}")
-    
-    # Calculate scaling factors
-    turb_ratio_baseline = s3_baseline_turb['turb_mean'] / c6_baseline_turb['turb_mean'] if c6_baseline_turb['turb_mean'] > 0 else 0
-    turb_ratio_movement = s3_movement_turb['turb_mean'] / c6_movement_turb['turb_mean'] if c6_movement_turb['turb_mean'] > 0 else 0
-    
-    mvs_ratio_baseline = s3_baseline_turb['mvs_mean'] / c6_baseline_turb['mvs_mean'] if c6_baseline_turb['mvs_mean'] > 0 else 0
-    mvs_ratio_movement = s3_movement_turb['mvs_mean'] / c6_movement_turb['mvs_mean'] if c6_movement_turb['mvs_mean'] > 0 else 0
-    
-    print(f"\n  Turbulence Ratio (S3/C6): Baseline={turb_ratio_baseline:.4f}, Movement={turb_ratio_movement:.4f}")
-    print(f"  MVS Ratio (S3/C6): Baseline={mvs_ratio_baseline:.4f}, Movement={mvs_ratio_movement:.4f}")
     
     # =========================================================================
     # 4. DETECTION TEST WITH CURRENT THRESHOLD
@@ -312,60 +341,38 @@ def main():
     print(f"  4. DETECTION TEST (Threshold={THRESHOLD})")
     print("="*70)
     
-    # Count detections
-    s3_baseline_detections = sum(1 for mv in s3_baseline_turb['mvs_values'] if mv > THRESHOLD)
-    s3_movement_detections = sum(1 for mv in s3_movement_turb['mvs_values'] if mv > THRESHOLD)
-    c6_baseline_detections = sum(1 for mv in c6_baseline_turb['mvs_values'] if mv > THRESHOLD)
-    c6_movement_detections = sum(1 for mv in c6_movement_turb['mvs_values'] if mv > THRESHOLD)
-    
-    s3_baseline_total = len(s3_baseline_turb['mvs_values'])
-    s3_movement_total = len(s3_movement_turb['mvs_values'])
-    c6_baseline_total = len(c6_baseline_turb['mvs_values'])
-    c6_movement_total = len(c6_movement_turb['mvs_values'])
-    
     print(f"\n  {'Dataset':<20} {'Detections':>12} {'Total':>12} {'Rate':>12}")
-    print(f"  {'-'*48}")
-    print(f"  {'S3 Baseline (FP)':<20} {s3_baseline_detections:>12} {s3_baseline_total:>12} {s3_baseline_detections/s3_baseline_total*100 if s3_baseline_total > 0 else 0:>11.1f}%")
-    print(f"  {'S3 Movement (TP)':<20} {s3_movement_detections:>12} {s3_movement_total:>12} {s3_movement_detections/s3_movement_total*100 if s3_movement_total > 0 else 0:>11.1f}%")
-    print(f"  {'C6 Baseline (FP)':<20} {c6_baseline_detections:>12} {c6_baseline_total:>12} {c6_baseline_detections/c6_baseline_total*100 if c6_baseline_total > 0 else 0:>11.1f}%")
-    print(f"  {'C6 Movement (TP)':<20} {c6_movement_detections:>12} {c6_movement_total:>12} {c6_movement_detections/c6_movement_total*100 if c6_movement_total > 0 else 0:>11.1f}%")
+    print(f"  {'-'*56}")
+    
+    for chip in chips_data:
+        baseline_key = f"{chip}_baseline"
+        movement_key = f"{chip}_movement"
+        
+        if baseline_key in turb_stats:
+            baseline_mvs = turb_stats[baseline_key]['mvs_values']
+            baseline_det = sum(1 for mv in baseline_mvs if mv > THRESHOLD)
+            baseline_total = len(baseline_mvs)
+            baseline_rate = baseline_det / baseline_total * 100 if baseline_total > 0 else 0
+            print(f"  {f'{chip} Baseline (FP)':<20} {baseline_det:>12} {baseline_total:>12} {baseline_rate:>11.1f}%")
+        
+        if movement_key in turb_stats:
+            movement_mvs = turb_stats[movement_key]['mvs_values']
+            movement_det = sum(1 for mv in movement_mvs if mv > THRESHOLD)
+            movement_total = len(movement_mvs)
+            movement_rate = movement_det / movement_total * 100 if movement_total > 0 else 0
+            print(f"  {f'{chip} Movement (TP)':<20} {movement_det:>12} {movement_total:>12} {movement_rate:>11.1f}%")
     
     # =========================================================================
-    # 5. SUGGESTED NORMALIZATION
+    # 5. AMPLITUDE SUMMARY
     # =========================================================================
     print("\n" + "="*70)
-    print("  5. SUGGESTED NORMALIZATION")
+    print("  5. AMPLITUDE SUMMARY")
     print("="*70)
     
-    # Calculate suggested normalization factor
-    avg_amp_ratio = overall_amp_ratio
-    avg_turb_ratio = (turb_ratio_baseline + turb_ratio_movement) / 2
-    avg_mvs_ratio = (mvs_ratio_baseline + mvs_ratio_movement) / 2
-    
-    print(f"\n  Amplitude Ratio (S3/C6): {avg_amp_ratio:.4f}")
-    print(f"  Turbulence Ratio (S3/C6): {avg_turb_ratio:.4f}")
-    print(f"  MVS Ratio (S3/C6): {avg_mvs_ratio:.4f}")
-    
-    # Suggested approaches
-    print(f"\n  Suggested Approaches:")
-    print(f"  ─────────────────────")
-    
-    if avg_amp_ratio < 0.5:
-        scale_factor = 1.0 / avg_amp_ratio
-        print(f"\n  Option 1: Scale S3 amplitudes by {scale_factor:.2f}x")
-        print(f"            This would make S3 values match C6 scale")
-        
-        suggested_threshold_s3 = THRESHOLD * avg_mvs_ratio
-        print(f"\n  Option 2: Use different thresholds per chip")
-        print(f"            C6 Threshold: {THRESHOLD}")
-        print(f"            S3 Threshold: {suggested_threshold_s3:.4f}")
-        
-        print(f"\n  Option 3: Normalize to [0, 1] range based on max amplitude")
-        print(f"            S3 max amplitude: ~{np.max([s['max'] for s in s3_amp['stats']]):.2f}")
-        print(f"            C6 max amplitude: ~{np.max([s['max'] for s in c6_amp['stats']]):.2f}")
-    else:
-        print(f"\n  Amplitudes are similar between chips (ratio ~{avg_amp_ratio:.2f})")
-        print(f"  No normalization needed")
+    print(f"\n  Selected SC Average per chip:")
+    for chip in chips_data:
+        max_amp = np.max([s['max'] for s in amp_stats[chip]['stats']])
+        print(f"    {chip}: mean={selected_means[chip]:.2f}, max={max_amp:.2f}")
     
     # =========================================================================
     # 6. PLOTS (if requested)
@@ -374,8 +381,11 @@ def main():
         try:
             import matplotlib.pyplot as plt
             
+            chip_colors = {'S3': 'blue', 'C3': 'green', 'C6': 'red'}
+            chip_list = list(chips_data.keys())
+            
             fig, axes = plt.subplots(2, 3, figsize=(20, 12))
-            fig.suptitle('ESP32-S3 vs ESP32-C6 CSI Comparison', fontsize=14)
+            fig.suptitle(f'ESP32 CSI Comparison ({"/".join(chip_list)})', fontsize=14)
             
             # Maximize window
             try:
@@ -392,8 +402,9 @@ def main():
             
             # Plot 1: I/Q Distribution
             ax = axes[0, 0]
-            ax.hist(s3_iq['i_values'], bins=50, alpha=0.5, label='S3 I', color='blue')
-            ax.hist(c6_iq['i_values'], bins=50, alpha=0.5, label='C6 I', color='red')
+            for chip in chip_list:
+                ax.hist(iq_stats[chip]['i_values'], bins=50, alpha=0.4, 
+                       label=f'{chip} I', color=chip_colors.get(chip, 'gray'))
             ax.set_xlabel('I Value')
             ax.set_ylabel('Count')
             ax.set_title('I Value Distribution')
@@ -401,12 +412,11 @@ def main():
             
             # Plot 2: Amplitude per Subcarrier
             ax = axes[0, 1]
-            s3_means = [s3_amp['stats'][i]['mean'] for i in range(64)]
-            c6_means = [c6_amp['stats'][i]['mean'] for i in range(64)]
-            ax.plot(s3_means, label='S3', alpha=0.7)
-            ax.plot(c6_means, label='C6', alpha=0.7)
+            for chip in chip_list:
+                means = [amp_stats[chip]['stats'][i]['mean'] for i in range(64)]
+                ax.plot(means, label=chip, alpha=0.7, color=chip_colors.get(chip, 'gray'))
             ax.axvspan(min(SELECTED_SUBCARRIERS), max(SELECTED_SUBCARRIERS), 
-                       alpha=0.2, color='green', label='Selected SC')
+                       alpha=0.2, color='yellow', label='Selected SC')
             ax.set_xlabel('Subcarrier Index')
             ax.set_ylabel('Mean Amplitude')
             ax.set_title('Amplitude per Subcarrier')
@@ -414,8 +424,11 @@ def main():
             
             # Plot 3: Turbulence Time Series (Baseline)
             ax = axes[0, 2]
-            ax.plot(s3_baseline_turb['turbulences'][:500], label='S3', alpha=0.7)
-            ax.plot(c6_baseline_turb['turbulences'][:500], label='C6', alpha=0.7)
+            for chip in chip_list:
+                key = f"{chip}_baseline"
+                if key in turb_stats:
+                    ax.plot(turb_stats[key]['turbulences'][:500], label=chip, 
+                           alpha=0.7, color=chip_colors.get(chip, 'gray'))
             ax.set_xlabel('Packet Index')
             ax.set_ylabel('Turbulence')
             ax.set_title('Turbulence (Baseline, first 500)')
@@ -423,8 +436,11 @@ def main():
             
             # Plot 4: MVS Time Series (Baseline)
             ax = axes[1, 0]
-            ax.plot(s3_baseline_turb['mvs_values'][:500], label='S3', alpha=0.7)
-            ax.plot(c6_baseline_turb['mvs_values'][:500], label='C6', alpha=0.7)
+            for chip in chip_list:
+                key = f"{chip}_baseline"
+                if key in turb_stats:
+                    ax.plot(turb_stats[key]['mvs_values'][:500], label=chip, 
+                           alpha=0.7, color=chip_colors.get(chip, 'gray'))
             ax.axhline(y=THRESHOLD, color='r', linestyle='--', label=f'Threshold={THRESHOLD}')
             ax.set_xlabel('Packet Index')
             ax.set_ylabel('Moving Variance')
@@ -433,8 +449,11 @@ def main():
             
             # Plot 5: MVS Time Series (Movement)
             ax = axes[1, 1]
-            ax.plot(s3_movement_turb['mvs_values'][:500], label='S3', alpha=0.7)
-            ax.plot(c6_movement_turb['mvs_values'][:500], label='C6', alpha=0.7)
+            for chip in chip_list:
+                key = f"{chip}_movement"
+                if key in turb_stats:
+                    ax.plot(turb_stats[key]['mvs_values'][:500], label=chip, 
+                           alpha=0.7, color=chip_colors.get(chip, 'gray'))
             ax.axhline(y=THRESHOLD, color='r', linestyle='--', label=f'Threshold={THRESHOLD}')
             ax.set_xlabel('Packet Index')
             ax.set_ylabel('Moving Variance')
@@ -443,13 +462,15 @@ def main():
             
             # Plot 6: Box plot comparison
             ax = axes[1, 2]
-            data_to_plot = [
-                s3_baseline_turb['mvs_values'],
-                c6_baseline_turb['mvs_values'],
-                s3_movement_turb['mvs_values'],
-                c6_movement_turb['mvs_values']
-            ]
-            bp = ax.boxplot(data_to_plot, tick_labels=['S3 Base', 'C6 Base', 'S3 Move', 'C6 Move'])
+            data_to_plot = []
+            labels = []
+            for chip in chip_list:
+                for phase in ['baseline', 'movement']:
+                    key = f"{chip}_{phase}"
+                    if key in turb_stats:
+                        data_to_plot.append(turb_stats[key]['mvs_values'])
+                        labels.append(f"{chip} {'Base' if phase == 'baseline' else 'Move'}")
+            ax.boxplot(data_to_plot, tick_labels=labels)
             ax.axhline(y=THRESHOLD, color='r', linestyle='--', label=f'Threshold={THRESHOLD}')
             ax.set_ylabel('Moving Variance')
             ax.set_title('MVS Distribution Comparison')
@@ -459,7 +480,7 @@ def main():
             plt.show()
             
         except ImportError:
-            print("\n  ⚠️  matplotlib not available. Skipping plots.")
+            print("\n  matplotlib not available. Skipping plots.")
     
     print("\n" + "="*70 + "\n")
 

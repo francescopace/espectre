@@ -48,8 +48,7 @@ enum csi_motion_state_t {
 
 // Detection algorithm type
 enum csi_detection_algorithm_t {
-    CSI_ALGORITHM_MVS,    // Moving Variance Segmentation (default)
-    CSI_ALGORITHM_PCA     // PCA + Pearson correlation
+    CSI_ALGORITHM_MVS     // Moving Variance Segmentation
 };
 
 /**

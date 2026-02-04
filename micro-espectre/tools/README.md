@@ -147,8 +147,7 @@ python 6_optimize_filter_params.py --all        # Combined optimization (low-pas
 
 **Purpose**: Compare different motion detection algorithms
 
-- Compares RSSI, Mean Amplitude, Turbulence, PCA, and MVS detection methods
-- Uses production `PCADetector` from `src/pca_detector.py`
+- Compares RSSI, Mean Amplitude, Turbulence, and MVS detection methods
 - Demonstrates MVS superiority with simpler approach and lower CPU
 - Shows separation between baseline and movement
 
@@ -181,7 +180,7 @@ python 8_plot_constellation.py --grid       # One subplot per subcarrier
 
 ---
 
-### 9. ESP32 Variant Comparison (`9_compare_s3_vs_c6.py`)
+### 9. ESP32 Variant Comparison (`9_compare_chips.py`)
 
 **Purpose**: Compare CSI characteristics between ESP32 variants
 
@@ -190,8 +189,8 @@ python 8_plot_constellation.py --grid       # One subplot per subcarrier
 - Helps choose optimal hardware for specific environments
 
 ```bash
-python 9_compare_s3_vs_c6.py
-python 9_compare_s3_vs_c6.py --plot
+python 9_compare_chips.py
+python 9_compare_chips.py --plot
 ```
 
 ---
@@ -233,8 +232,8 @@ python 7_compare_detection_methods.py --plot
 # Plot I/Q constellations (auto-finds most recent dataset)
 python 8_plot_constellation.py --chip S3 --packets 1000 --grid
 
-# Compare ESP32 variants (auto-finds most recent C6 and S3 datasets)
-python 9_compare_s3_vs_c6.py --plot
+# Compare ESP32 variants (auto-finds most recent datasets for available chips)
+python 9_compare_chips.py --plot
 ```
 
 ---

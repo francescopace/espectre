@@ -32,7 +32,7 @@ class MQTTCommands:
         Args:
             mqtt_client: MQTT client instance
             config: Configuration module
-            detector: IDetector instance (MVSDetector or PCADetector)
+            detector: IDetector instance (MVSDetector or MLDetector)
             response_topic: MQTT topic for responses
             wlan: wlan instance
             traffic_generator: TrafficGenerator instance (optional)
@@ -59,8 +59,6 @@ class MQTTCommands:
         # Determine calibrator based on detector type
         if algorithm == "MVS":
             calibrator = getattr(self.config, 'CALIBRATION_ALGORITHM', 'nbvi')
-        elif algorithm == "PCA":
-            calibrator = "pca"
         else:  # ML
             calibrator = "none"
         
@@ -225,7 +223,7 @@ class MQTTCommands:
                 "avg_loop_ms": self.traffic_gen.get_avg_loop_time_ms()
             }
         
-        # Get motion metric (turbulence for MVS, jitter for PCA)
+        # Get motion metric (turbulence for MVS, probability for ML)
         motion_metric = self.detector.get_motion_metric()
         turbulence = self.detector._context.last_turbulence if self._is_mvs else 0.0
         

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Detection Methods Comparison
-Compares RSSI, Mean Amplitude, Turbulence, PCA, MVS, and ML algorithms
+Compares RSSI, Mean Amplitude, Turbulence, MVS, and ML algorithms
 
 Usage:
     python tools/7_compare_detection_methods.py              # Use C6 dataset
@@ -20,8 +20,13 @@ import time
 from pathlib import Path
 from collections import deque
 
-# Add src to path for config import
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+# Add micro-espectre and src to path for imports
+_micro_espectre_path = str(Path(__file__).parent.parent)
+_src_path = str(Path(__file__).parent.parent / 'src')
+if _src_path not in sys.path:
+    sys.path.insert(0, _src_path)
+if _micro_espectre_path not in sys.path:
+    sys.path.insert(0, _micro_espectre_path)
 from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
 
 from csi_utils import (
@@ -29,10 +34,8 @@ from csi_utils import (
     MVSDetector, 
     calculate_spatial_turbulence, 
     find_dataset, 
-    DEFAULT_SUBCARRIERS, 
-    PCADetector
+    DEFAULT_SUBCARRIERS
 )
-from pca_calibrator import PCACalibrator
 from threshold import calculate_adaptive_threshold
 from segmentation import SegmentationContext
 from features import calc_skewness, calc_kurtosis, calc_iqr_turb, calc_entropy_turb
@@ -145,7 +148,6 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
         'Mean Amplitude': {'baseline': [], 'movement': []},
         'Turbulence': {'baseline': [], 'movement': []},
         'MVS': {'baseline': [], 'movement': []},
-        'PCA': {'baseline': [], 'movement': []},
     }
     
     if ML_AVAILABLE:
@@ -172,41 +174,6 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
         mvs_baseline.process_packet(pkt['csi_data'])
     methods['MVS']['baseline'] = np.array(mvs_baseline.moving_var_history)
     
-    # PCA - use PCACalibrator for threshold calculation (matches C++ implementation)
-    # Step 1: Calibration phase - collect correlation values
-    pca_calibrator = PCACalibrator(buffer_size=min(700, len(baseline_packets)))
-    
-    for pkt in baseline_packets[:pca_calibrator.buffer_size]:
-        pca_calibrator.add_packet(pkt['csi_data'])
-    
-    # Get calibration results
-    _, correlation_values = pca_calibrator.calibrate()
-    pca_calibrator.free_buffer()
-    
-    # Calculate threshold: 1 - min(correlation) (same as C++)
-    if correlation_values:
-        pca_threshold, _, _, min_corr = calculate_adaptive_threshold(
-            correlation_values, threshold_mode="auto", is_pca=True
-        )
-    else:
-        pca_threshold = 0.01
-    
-    # Step 2: Create detector with calibrated threshold
-    pca_detector = PCADetector()
-    pca_detector.track_data = True
-    pca_detector.set_threshold(pca_threshold)
-    
-    # Process baseline for metrics collection
-    for pkt in baseline_packets:
-        pca_detector.process_packet(pkt['csi_data'])
-        pca_detector.update_state()
-    
-    methods['PCA']['baseline'] = np.array(pca_detector.jitter_history[:])
-    
-    # Save baseline state count for FP calculation
-    pca_baseline_states = len(pca_detector.state_history)
-    pca_baseline_motion_count = pca_detector.state_history.count('MOTION')
-    
     # Process movement - simple metrics
     for pkt in movement_packets:
         methods['RSSI']['movement'].append(calculate_rssi(pkt['csi_data']))
@@ -224,17 +191,6 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     mvs_time = time.perf_counter() - start
     timing['MVS'] = (mvs_time / num_packets) * 1e6
     methods['MVS']['movement'] = np.array(mvs_movement.moving_var_history)
-    
-    # PCA movement - continue with same detector (continuous processing)
-    start = time.perf_counter()
-    baseline_jitter_len = len(pca_detector.jitter_history)
-    for pkt in movement_packets:
-        pca_detector.process_packet(pkt['csi_data'])
-        pca_detector.update_state()
-    pca_time = time.perf_counter() - start
-    timing['PCA'] = (pca_time / len(movement_packets)) * 1e6
-    # Extract only movement jitter (after baseline)
-    methods['PCA']['movement'] = np.array(pca_detector.jitter_history[baseline_jitter_len:])
     
     # Time simple methods
     start = time.perf_counter()
@@ -273,15 +229,15 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
         ml_time = time.perf_counter() - start
         timing['ML'] = (ml_time / num_packets) * 1e6
     
-    return methods, mvs_baseline, mvs_movement, pca_detector, pca_detector, timing, pca_baseline_states, ml_baseline, ml_movement, ml_baseline_states
+    return methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, ml_baseline_states
 
 
-def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movement,
-                   threshold, subcarriers, timing, pca_baseline_states=0,
+def plot_comparison(methods, mvs_baseline, mvs_movement,
+                   threshold, subcarriers, timing,
                    ml_baseline=None, ml_movement=None):
     """Plot comparison of detection methods"""
     # Determine number of rows based on available methods
-    method_names = ['RSSI', 'Mean Amplitude', 'Turbulence', 'PCA', 'MVS']
+    method_names = ['RSSI', 'Mean Amplitude', 'Turbulence', 'MVS']
     if ML_AVAILABLE and 'ML' in methods:
         method_names.append('ML')
     
@@ -294,9 +250,6 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
         if method_name == 'MVS':
             fp = mvs_baseline.get_motion_count()
             tp = mvs_movement.get_motion_count()
-        elif method_name == 'PCA':
-            fp = pca_baseline.state_history[:pca_baseline_states].count('MOTION')
-            tp = pca_baseline.state_history[pca_baseline_states:].count('MOTION')
         elif method_name == 'ML' and ml_baseline is not None:
             fp = ml_baseline.get_motion_count()
             tp = ml_movement.get_motion_count()
@@ -335,8 +288,6 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
         # Calculate threshold based on method
         if method_name == 'MVS':
             simple_threshold = threshold
-        elif method_name == 'PCA':
-            simple_threshold = pca_baseline.get_threshold()
         elif method_name == 'ML':
             simple_threshold = 0.5  # ML probability threshold
         else:
@@ -348,8 +299,6 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
         # Colors
         if method_name == 'MVS':
             color, linewidth = 'blue', 1.5
-        elif method_name == 'PCA':
-            color, linewidth = 'purple', 1.5
         elif method_name == 'ML':
             color, linewidth = 'orange', 1.5
         else:
@@ -368,13 +317,6 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
                 if state == 'MOTION':
                     ax_baseline.axvspan(i/100.0, (i+1)/100.0, alpha=0.3, color='red')
             fp = mvs_baseline.get_motion_count()
-        elif method_name == 'PCA':
-            # Only use baseline portion of state_history (continuous detector)
-            baseline_states = pca_baseline.state_history[:pca_baseline_states] if pca_baseline_states > 0 else pca_baseline.state_history
-            for i, state in enumerate(baseline_states):
-                if state == 'MOTION':
-                    ax_baseline.axvspan(i/100.0, (i+1)/100.0, alpha=0.3, color='red')
-            fp = baseline_states.count('MOTION')
         elif method_name == 'ML' and ml_baseline is not None:
             for i, state in enumerate(ml_baseline.state_history):
                 if state == 'MOTION':
@@ -388,9 +330,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
         
         # Title
         title_prefix = '[BEST] ' if method_name == best_method else ''
-        if method_name == 'PCA':
-            sc_info = "SC: 16 (step 4)"
-        elif method_name in ['MVS', 'Turbulence', 'Mean Amplitude', 'ML']:
+        if method_name in ['MVS', 'Turbulence', 'Mean Amplitude', 'ML']:
             sc_info = f"SC: {subcarriers[0]}-{subcarriers[-1]}"
         else:
             sc_info = "SC: all"
@@ -407,10 +347,6 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
         if method_name == 'MVS':
             for spine in ax_baseline.spines.values():
                 spine.set_edgecolor('green')
-                spine.set_linewidth(3)
-        elif method_name == 'PCA':
-            for spine in ax_baseline.spines.values():
-                spine.set_edgecolor('purple')
                 spine.set_linewidth(3)
         elif method_name == 'ML':
             for spine in ax_baseline.spines.values():
@@ -435,16 +371,6 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
                 else:
                     ax_movement.axvspan(i/100.0, (i+1)/100.0, alpha=0.2, color='red')
             tp = mvs_movement.get_motion_count()
-            fn = len(movement_data) - tp
-        elif method_name == 'PCA':
-            # Only use movement portion of state_history (continuous detector)
-            movement_states = pca_movement.state_history[pca_baseline_states:] if pca_baseline_states > 0 else pca_movement.state_history
-            for i, state in enumerate(movement_states):
-                if state == 'MOTION':
-                    ax_movement.axvspan(i/100.0, (i+1)/100.0, alpha=0.3, color='green')
-                else:
-                    ax_movement.axvspan(i/100.0, (i+1)/100.0, alpha=0.2, color='red')
-            tp = movement_states.count('MOTION')
             fn = len(movement_data) - tp
         elif method_name == 'ML' and ml_movement is not None:
             for i, state in enumerate(ml_movement.state_history):
@@ -476,10 +402,6 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
             for spine in ax_movement.spines.values():
                 spine.set_edgecolor('green')
                 spine.set_linewidth(3)
-        elif method_name == 'PCA':
-            for spine in ax_movement.spines.values():
-                spine.set_edgecolor('purple')
-                spine.set_linewidth(3)
         elif method_name == 'ML':
             for spine in ax_movement.spines.values():
                 spine.set_edgecolor('orange')
@@ -492,8 +414,8 @@ def plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movem
     plt.show()
 
 
-def print_comparison_summary(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movement,
-                           threshold, subcarriers, timing, pca_baseline_states=0,
+def print_comparison_summary(methods, mvs_baseline, mvs_movement,
+                           threshold, subcarriers, timing,
                            ml_baseline=None, ml_movement=None, ml_baseline_states=0):
     """Print comparison summary"""
     print("\n" + "="*80)
@@ -504,15 +426,13 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement, pca_baseline, 
     print(f"  Subcarriers (MVS): {subcarriers}")
     print(f"  MVS Window Size: {WINDOW_SIZE}")
     print(f"  MVS Threshold: {threshold}")
-    print(f"  PCA Window Size: {PCADetector.DEFAULT_PCA_WINDOW_SIZE}")
-    print(f"  PCA Threshold: {pca_baseline.get_threshold():.4f} (1 - min(correlation))")
     if ML_AVAILABLE:
         print(f"  ML Model: Neural Network (12→16→8→1)")
     print()
     
     # Calculate metrics
     results = []
-    method_list = ['RSSI', 'Mean Amplitude', 'Turbulence', 'PCA', 'MVS']
+    method_list = ['RSSI', 'Mean Amplitude', 'Turbulence', 'MVS']
     if ML_AVAILABLE:
         method_list.append('ML')
     
@@ -523,12 +443,6 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement, pca_baseline, 
         if method_name == 'MVS':
             fp = mvs_baseline.get_motion_count()
             tp = mvs_movement.get_motion_count()
-        elif method_name == 'PCA':
-            # For PCA with continuous detector, count states separately
-            # FP = MOTION states during baseline phase
-            # TP = MOTION states during movement phase
-            fp = pca_baseline.state_history[:pca_baseline_states].count('MOTION')
-            tp = pca_baseline.state_history[pca_baseline_states:].count('MOTION')
         elif method_name == 'ML' and ml_baseline is not None:
             fp = ml_baseline.get_motion_count()
             tp = ml_movement.get_motion_count()
@@ -566,77 +480,40 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement, pca_baseline, 
     print(f"   - Recall: {best_by_f1['recall']:.1f}%")
     print(f"   - Precision: {best_by_f1['precision']:.1f}%")
     
-    # MVS vs PCA vs ML comparison
+    # MVS vs ML comparison
     mvs_result = next(r for r in results if r['name'] == 'MVS')
-    pca_result = next(r for r in results if r['name'] == 'PCA')
     ml_result = next((r for r in results if r['name'] == 'ML'), None)
     
     print("\n" + "-"*80)
     if ml_result:
-        print("  MVS vs PCA vs ML Comparison")
+        print("  MVS vs ML Comparison")
         print("-"*80)
-        print(f"  {'Metric':<15} {'MVS':<12} {'PCA':<12} {'ML':<12} {'Winner':<12}")
-        print(f"  {'-'*65}")
-        
-        metrics = [
-            ('Recall', mvs_result['recall'], pca_result['recall'], ml_result['recall']),
-            ('Precision', mvs_result['precision'], pca_result['precision'], ml_result['precision']),
-            ('F1 Score', mvs_result['f1'], pca_result['f1'], ml_result['f1']),
-            ('False Pos.', -mvs_result['fp'], -pca_result['fp'], -ml_result['fp']),
-        ]
-        
-        mvs_wins, pca_wins, ml_wins = 0, 0, 0
-        for name, mvs_val, pca_val, ml_val in metrics:
-            if name == 'False Pos.':
-                mvs_display, pca_display, ml_display = -mvs_val, -pca_val, -ml_val
-            else:
-                mvs_display, pca_display, ml_display = mvs_val, pca_val, ml_val
-            
-            best = max(mvs_val, pca_val, ml_val)
-            winners = []
-            if mvs_val == best:
-                winners.append('MVS')
-                mvs_wins += 1
-            if pca_val == best:
-                winners.append('PCA')
-                pca_wins += 1
-            if ml_val == best:
-                winners.append('ML')
-                ml_wins += 1
-            winner = '/'.join(winners) if len(winners) > 1 else winners[0]
-                
-            print(f"  {name:<15} {mvs_display:<12.1f} {pca_display:<12.1f} {ml_display:<12.1f} {winner:<12}")
-        
-        print(f"\n  Overall: MVS wins {mvs_wins}/4, ML wins {ml_wins}/4, PCA wins {pca_wins}/4\n")
-    else:
-        print("  MVS vs PCA Comparison")
-        print("-"*80)
-        print(f"  {'Metric':<15} {'MVS':<15} {'PCA':<15} {'Winner':<15}")
+        print(f"  {'Metric':<15} {'MVS':<15} {'ML':<15} {'Winner':<15}")
         print(f"  {'-'*60}")
         
         metrics = [
-            ('Recall', mvs_result['recall'], pca_result['recall']),
-            ('Precision', mvs_result['precision'], pca_result['precision']),
-            ('F1 Score', mvs_result['f1'], pca_result['f1']),
-            ('False Pos.', -mvs_result['fp'], -pca_result['fp']),
+            ('Recall', mvs_result['recall'], ml_result['recall']),
+            ('Precision', mvs_result['precision'], ml_result['precision']),
+            ('F1 Score', mvs_result['f1'], ml_result['f1']),
+            ('False Pos.', -mvs_result['fp'], -ml_result['fp']),
         ]
         
-        mvs_wins, pca_wins = 0, 0
-        for name, mvs_val, pca_val in metrics:
+        mvs_wins, ml_wins = 0, 0
+        for name, mvs_val, ml_val in metrics:
             if name == 'False Pos.':
-                mvs_display, pca_display = -mvs_val, -pca_val
+                mvs_display, ml_display = -mvs_val, -ml_val
             else:
-                mvs_display, pca_display = mvs_val, pca_val
+                mvs_display, ml_display = mvs_val, ml_val
             
-            winner = 'MVS' if mvs_val > pca_val else ('PCA' if pca_val > mvs_val else 'Tie')
+            winner = 'MVS' if mvs_val > ml_val else ('ML' if ml_val > mvs_val else 'Tie')
             if winner == 'MVS':
                 mvs_wins += 1
-            elif winner == 'PCA':
-                pca_wins += 1
+            elif winner == 'ML':
+                ml_wins += 1
                 
-            print(f"  {name:<15} {mvs_display:<15.1f} {pca_display:<15.1f} {winner:<15}")
+            print(f"  {name:<15} {mvs_display:<15.1f} {ml_display:<15.1f} {winner:<15}")
         
-        print(f"\n  Overall: MVS wins {mvs_wins}/4, PCA wins {pca_wins}/4\n")
+        print(f"\n  Overall: MVS wins {mvs_wins}/4, ML wins {ml_wins}/4\n")
 
 
 def run_all_chips():
@@ -675,16 +552,12 @@ def run_all_chips():
         
         print(f"Processing {chip}...", end=" ", flush=True)
         
-        # Suppress PCA calibrator output
-        import io
-        import contextlib
-        with contextlib.redirect_stdout(io.StringIO()):
-            result = compare_detection_methods(
-                baseline_packets, movement_packets, SELECTED_SUBCARRIERS, WINDOW_SIZE, THRESHOLD
-            )
-        methods, mvs_baseline, mvs_movement, pca_baseline, pca_movement, timing, pca_baseline_states, ml_baseline, ml_movement, ml_baseline_states = result
+        result = compare_detection_methods(
+            baseline_packets, movement_packets, SELECTED_SUBCARRIERS, WINDOW_SIZE, THRESHOLD
+        )
+        methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, ml_baseline_states = result
         
-        # Calculate metrics for MVS, PCA, ML
+        # Calculate metrics for MVS, ML
         num_baseline = len(baseline_packets)
         num_movement = len(movement_packets)
         
@@ -695,15 +568,6 @@ def run_all_chips():
         mvs_recall = mvs_tp / num_movement * 100 if num_movement > 0 else 0
         mvs_precision = mvs_tp / (mvs_tp + mvs_fp) * 100 if (mvs_tp + mvs_fp) > 0 else 0
         mvs_f1 = 2 * mvs_precision * mvs_recall / (mvs_precision + mvs_recall) if (mvs_precision + mvs_recall) > 0 else 0
-        
-        # PCA - count MOTION states in state_history
-        # pca_baseline_states is the number of states during baseline, not FP count
-        pca_fp = pca_baseline.state_history[:pca_baseline_states].count('MOTION') if pca_baseline else 0
-        pca_tp = pca_movement.state_history[pca_baseline_states:].count('MOTION') if pca_movement else 0
-        pca_fn = num_movement - pca_tp
-        pca_recall = pca_tp / num_movement * 100 if num_movement > 0 else 0
-        pca_precision = pca_tp / (pca_tp + pca_fp) * 100 if (pca_tp + pca_fp) > 0 else 0
-        pca_f1 = 2 * pca_precision * pca_recall / (pca_precision + pca_recall) if (pca_precision + pca_recall) > 0 else 0
         
         # ML - use get_motion_count() method
         if ml_baseline and ml_movement:
@@ -719,7 +583,6 @@ def run_all_chips():
         all_results.append({
             'chip': chip,
             'mvs': {'recall': mvs_recall, 'fp': mvs_fp, 'precision': mvs_precision, 'f1': mvs_f1},
-            'pca': {'recall': pca_recall, 'fp': pca_fp, 'precision': pca_precision, 'f1': pca_f1},
             'ml': {'recall': ml_recall, 'fp': ml_fp, 'precision': ml_precision, 'f1': ml_f1},
         })
         print("done")
@@ -736,10 +599,10 @@ def run_all_chips():
         chip = r['chip']
         num_baseline = 1000  # Approximate for FP rate calculation
         
-        for detector, data in [('MVS', r['mvs']), ('PCA', r['pca']), ('ML', r['ml'])]:
+        for detector, data in [('MVS', r['mvs']), ('ML', r['ml'])]:
             fp_rate = data['fp'] / num_baseline * 100 if num_baseline > 0 else 0
             # Highlight best detector per chip
-            best_f1 = max(r['mvs']['f1'], r['pca']['f1'], r['ml']['f1'])
+            best_f1 = max(r['mvs']['f1'], r['ml']['f1'])
             marker = "**" if data['f1'] == best_f1 and data['f1'] > 0 else ""
             print(f"{chip:<6} {marker}{detector:<8} {data['recall']:>9.1f}% {fp_rate:>9.1f}% {data['precision']:>9.1f}% {data['f1']:>9.1f}%")
         print()
@@ -750,7 +613,7 @@ def run_all_chips():
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Mean Amplitude, Turbulence, PCA, MVS)')
+    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Mean Amplitude, Turbulence, MVS, ML)')
     parser.add_argument('--chip', type=str, default='C6', help='Chip type: C6, S3, etc.')
     parser.add_argument('--all', action='store_true', help='Run on all available chips and show summary')
     parser.add_argument('--plot', action='store_true', help='Show visualization plots')
@@ -762,7 +625,7 @@ def main():
         return
     
     print("\n" + "="*60)
-    print("       Detection Methods Comparison (MVS vs PCA)")
+    print("       Detection Methods Comparison (MVS vs ML)")
     print("="*60 + "\n")
     
     chip = args.chip.upper()
@@ -781,16 +644,16 @@ def main():
     result = compare_detection_methods(
         baseline_packets, movement_packets, SELECTED_SUBCARRIERS, WINDOW_SIZE, THRESHOLD
     )
-    methods, mvs_baseline, mvs_movement, pca_baseline, pca_movement, timing, pca_baseline_states, ml_baseline, ml_movement, ml_baseline_states = result
+    methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, ml_baseline_states = result
     
-    print_comparison_summary(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movement,
-                            THRESHOLD, SELECTED_SUBCARRIERS, timing, pca_baseline_states,
+    print_comparison_summary(methods, mvs_baseline, mvs_movement,
+                            THRESHOLD, SELECTED_SUBCARRIERS, timing,
                             ml_baseline, ml_movement, ml_baseline_states)
     
     if args.plot:
         print("Generating comparison visualization...\n")
-        plot_comparison(methods, mvs_baseline, mvs_movement, pca_baseline, pca_movement,
-                       THRESHOLD, SELECTED_SUBCARRIERS, timing, pca_baseline_states,
+        plot_comparison(methods, mvs_baseline, mvs_movement,
+                       THRESHOLD, SELECTED_SUBCARRIERS, timing,
                        ml_baseline, ml_movement)
 
 

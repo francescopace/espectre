@@ -53,7 +53,6 @@ The global Wi-Fi sensing market is experiencing rapid growth, driven by demand f
 |------------|----------|-------------------|
 | **Origin Wireless** | Proprietary, cloud-dependent | Open-source, edge-first, no subscription |
 | **Cognitive Systems** | Enterprise-only, high cost | Affordable ($5 hardware), DIY-friendly |
-| **Espressif esp-radar** | SDK only, no integration | Full Home Assistant integration, production-ready |
 
 ESPectre is uniquely positioned as the **only open-source, production-ready WiFi sensing platform** with native smart home integration.
 

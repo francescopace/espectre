@@ -50,16 +50,13 @@
 | Algorithm | Method | Best For |
 |-----------|--------|----------|
 | **MVS** (default) | Moving Variance Segmentation | Most environments (~99% recall) |
-| **PCA** | Principal Component Analysis | Experimental |
-
-> **Note**: PCA is experimental. Use MVS (default) for general-purpose motion detection.
 
 - **No ML training required**: Works out-of-the-box with mathematical algorithms
 - **Real-time processing**: Low latency detection on ESP32 hardware
 - **Production-ready**: Focused on reliable motion detection for smart home
 - **R&D platform available**: [Micro-ESPectre](micro-espectre/) provides features extraction for ML research
 
-For algorithm details (MVS, PCA, NBVI/P95 Band Selection, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
+For algorithm details (MVS, NBVI/P95 Band Selection, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
 
 ---
 

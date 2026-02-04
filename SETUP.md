@@ -179,8 +179,7 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `detection_algorithm` | string | mvs | Detection algorithm: `mvs` (Moving Variance) or `pca` (Principal Component Analysis) |
-| `segmentation_calibration` | string | nbvi | Band selection: `nbvi` (spectral diversity) or `p95` (contiguous band). Only used with MVS, ignored by PCA. |
+| `segmentation_calibration` | string | nbvi | Band selection: `nbvi` (spectral diversity) or `p95` (contiguous band). |
 | `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0=disabled, use external traffic) |
 | `traffic_generator_mode` | string | dns | Traffic generator mode: `dns` (UDP queries) or `ping` (ICMP) |
 | `publish_interval` | int | auto | Packets between sensor updates (default: same as traffic_generator_rate, or 100 if traffic is 0) |
@@ -198,7 +197,7 @@ For detailed parameter tuning (ranges, recommended values, troubleshooting), see
 
 ### Choosing Calibration Algorithm
 
-The calibration algorithm selects which subcarriers to monitor. Only used with MVS (PCA uses its own fixed selection).
+The calibration algorithm selects which subcarriers to monitor.
 
 | Algorithm | Selection Method | Pros | Cons | Best For |
 |-----------|-----------------|------|------|----------|
@@ -217,16 +216,9 @@ espectre:
 
 | Algorithm | How It Works | Pros | Cons | Best For |
 |-----------|--------------|------|------|----------|
-| **MVS** (default) | Variance of spatial turbulence | Low CPU, fast response, works well in most environments | Requires band calibration | General use, battery-powered devices |
-| **PCA** | PCA + correlation with baseline | Better noise rejection | Higher CPU, slower response | Noisy RF environments, near microwave ovens |
+| **MVS** | Variance of spatial turbulence | Low CPU, fast response, works well in most environments | Requires band calibration | General use, all environments |
 
-**Recommendation:** Start with MVS (default). Only switch to PCA if you experience frequent false positives that persist after tuning threshold and filters.
-
-```yaml
-espectre:
-  detection_algorithm: mvs  # default, recommended
-  # detection_algorithm: pca
-```
+ESPectre uses the **MVS (Moving Variance Segmentation)** algorithm for motion detection.
 
 ### Integrated Sensors (Created Automatically)
 

@@ -35,15 +35,12 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is
 
 # Detection Algorithm
 # "mvs" (default): Moving Variance Segmentation - fast, good accuracy
-# "pca": Principal Component Analysis (Espressif-style) - better noise rejection
 # "ml": Neural Network (12 features -> MLP) - learned patterns, no calibration needed
 DETECTION_ALGORITHM = "mvs"
 
 # Band Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
-# For MVS: "nbvi" (default) or "p95"
-#   - nbvi: NBVI weighted algorithm (normalization scale, fixed threshold)
-#   - p95: P95 moving variance optimization (adaptive threshold)
-# For PCA: calibration uses PCACalibrator (fixed subcarrier step)
+# "nbvi" (default): NBVI weighted algorithm (normalization scale, 12 non-consecutive subcarriers)
+# "p95": P95 moving variance optimization (12 consecutive subcarriers)
 CALIBRATION_ALGORITHM = "nbvi"
 CALIBRATION_BUFFER_SIZE = 700  # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
 

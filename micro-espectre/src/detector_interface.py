@@ -2,7 +2,7 @@
 Micro-ESPectre - Detector Interface
 
 Base class for motion detection algorithms.
-Provides polymorphic interface for MVS and PCA detectors.
+Provides polymorphic interface for MVS and ML detectors.
 
 Note: MicroPython doesn't have abc module, so we use a simple base class.
 
@@ -23,7 +23,7 @@ class IDetector:
     
     Implementations:
     - MVSDetector: Moving Variance Segmentation (default)
-    - PCADetector: Principal Component Analysis (Espressif-style)
+    - MLDetector: Neural Network classifier
     
     Subclasses must implement all methods.
     """
@@ -104,7 +104,7 @@ class IDetector:
         Get detector algorithm name.
         
         Returns:
-            str: "MVS" or "PCA"
+            str: "MVS" or "ML"
         """
         raise NotImplementedError
     

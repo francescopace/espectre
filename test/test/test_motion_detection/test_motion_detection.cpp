@@ -1,7 +1,7 @@
 /*
  * ESPectre - Motion Detection Integration Tests
  * 
- * Integration tests for motion detection algorithms (MVS and PCA).
+ * Integration tests for the MVS motion detection algorithm.
  * Tests motion detection performance with real CSI data.
  * 
  * Focus: Maximize Recall (90% target) for security/presence detection
@@ -10,7 +10,6 @@
  *   1. test_mvs_detection_accuracy - MVS full performance evaluation
  *   2. test_mvs_threshold_sensitivity - MVS threshold parameter sweep
  *   3. test_mvs_window_size_sensitivity - MVS window size parameter sweep
- *   4. test_pca_detection_accuracy - PCA full performance evaluation
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -26,11 +25,9 @@
 #include "utils.h"
 #include "filters.h"
 #include "mvs_detector.h"
-#include "pca_detector.h"
 #include "csi_manager.h"
 #include "p95_calibrator.h"
 #include "nbvi_calibrator.h"
-#include "pca_calibrator.h"
 #include "threshold.h"
 #include "esphome/core/log.h"
 #include "esp_system.h"
@@ -759,183 +756,6 @@ void test_mvs_end_to_end_with_nbvi_calibration(void) {
     remove("/tmp/test_nbvi_buffer.bin");
 }
 
-// ============================================================================
-// PCA DETECTION TESTS
-// ============================================================================
-
-// Test: PCA detection accuracy with real CSI data
-void test_pca_detection_accuracy(void) {
-    float fp_target = get_fp_rate_target();
-    
-    printf("\n═══════════════════════════════════════════════════════\n");
-    printf("  PCA DETECTION PERFORMANCE\n");
-    printf("  Chip: %s\n", csi_test_data::chip_name(csi_test_data::current_chip()));
-    printf("═══════════════════════════════════════════════════════\n\n");
-    
-    // Create PCA detector
-    PCADetector detector;
-    
-    CSIManager csi_manager;
-    csi_manager.init(&detector, get_optimal_subcarriers(), 100, GainLockMode::DISABLED, &g_wifi_mock);
-    
-    // Create PCA calibrator
-    PCACalibrator calibrator;
-    calibrator.init(&csi_manager);
-    
-    // Calibration results
-    float calibrated_threshold = PCA_DEFAULT_THRESHOLD;  // Default PCA threshold (scaled)
-    float min_corr = 1.0f;
-    bool calibration_success = false;
-    std::vector<float> calibration_values;
-    
-    // Start calibration
-    esp_err_t err = calibrator.start_calibration(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS,
-        [&](const uint8_t* band, uint8_t size, const std::vector<float>& corr_values, bool success) {
-            if (success && !corr_values.empty()) {
-                calibration_values = corr_values;
-                // PCA threshold = (1 - min(correlation)) * PCA_SCALE
-                // corr_values contains correlation values from baseline
-                min_corr = *std::min_element(corr_values.begin(), corr_values.end());
-                calibrated_threshold = (1.0f - min_corr) * PCA_SCALE;
-            }
-            calibration_success = success;
-        });
-    
-    TEST_ASSERT_EQUAL(ESP_OK, err);
-    
-    // Feed baseline packets for calibration
-    const int gain_lock_skip = csi_manager.get_gain_lock_packets();
-    const int calibration_packets = calibrator.get_buffer_size();
-    const int pkt_size = csi_test_data::packet_size();
-    
-    printf("PCA: Calibrating with %d baseline packets...\n", calibration_packets);
-    for (int i = 0; i < calibration_packets && (i + gain_lock_skip) < num_baseline; i++) {
-        calibrator.add_packet(baseline_packets[i + gain_lock_skip], pkt_size);
-    }
-    
-    TEST_ASSERT_TRUE_MESSAGE(calibration_success, "PCA calibration failed");
-    
-    printf("PCA Calibration results:\n");
-    printf("  Min correlation: %.4f\n", min_corr);
-    printf("  Threshold (1-min_corr): %.4f\n", calibrated_threshold);
-    printf("  Calibration values collected: %zu\n", calibration_values.size());
-    
-    // Apply calibrated threshold
-    detector.set_threshold(calibrated_threshold);
-    // Note: Don't call reset() - preserve detector state for proper warmup
-    
-    // Calculate where to start evaluation (after calibration)
-    int start_idx = gain_lock_skip + calibration_packets;
-    
-    // ========================================================================
-    // WARMUP: Process some baseline packets to fill detector buffers
-    // ========================================================================
-    const int warmup_packets = 50;  // PCA needs ~25 packets to fill buffers
-    printf("Warming up detector with %d packets...\n", warmup_packets);
-    for (int i = 0; i < warmup_packets && (start_idx + i) < num_baseline; i++) {
-        detector.process_packet((const int8_t*)baseline_packets[start_idx + i], pkt_size, 
-                          get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS);
-        detector.update_state();
-    }
-    
-    // ========================================================================
-    // EVALUATE ON BASELINE (expect IDLE - count false positives)
-    // ========================================================================
-    printf("\nEvaluating on baseline packets (expect IDLE)...\n");
-    
-    int baseline_motion = 0;
-    int baseline_start = start_idx + warmup_packets;
-    int baseline_eval_count = num_baseline - baseline_start;
-    
-    // Skip baseline evaluation if not enough packets
-    if (baseline_eval_count < 100) {
-        printf("Note: Only %d baseline packets remaining after warmup, skipping FP rate check\n", 
-               baseline_eval_count);
-        baseline_eval_count = 0;  // Skip baseline evaluation
-    } else {
-        for (int i = baseline_start; i < num_baseline; i++) {
-            detector.process_packet((const int8_t*)baseline_packets[i], pkt_size, 
-                              get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS);
-            detector.update_state();
-            if (detector.get_state() == MotionState::MOTION) {
-                baseline_motion++;
-            }
-        }
-    }
-    
-    // ========================================================================
-    // EVALUATE ON MOVEMENT (expect MOTION - count true positives)
-    // ========================================================================
-    
-    // Warmup with first N movement packets (detector needs to adapt to new signal)
-    const int movement_warmup = 50;
-    printf("Warming up with %d movement packets...\n", movement_warmup);
-    for (int i = 0; i < movement_warmup && i < num_movement; i++) {
-        detector.process_packet((const int8_t*)movement_packets[i], pkt_size, 
-                          get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS);
-        detector.update_state();
-    }
-    
-    printf("Evaluating on movement packets (expect MOTION)...\n");
-    
-    int movement_motion = 0;
-    float max_metric = 0.0f;
-    float min_metric = 1.0f;
-    int eval_start = movement_warmup;
-    int movement_eval_count = num_movement - eval_start;
-    
-    for (int i = eval_start; i < num_movement; i++) {
-        detector.process_packet((const int8_t*)movement_packets[i], pkt_size, 
-                          get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS);
-        detector.update_state();
-        float metric = detector.get_motion_metric();
-        if (metric > max_metric) max_metric = metric;
-        if (metric < min_metric && metric > 0) min_metric = metric;
-        if (detector.get_state() == MotionState::MOTION) {
-            movement_motion++;
-        }
-    }
-    printf("Movement metric range: %.4f - %.4f (threshold: %.4f)\n", min_metric, max_metric, calibrated_threshold);
-    
-    // ========================================================================
-    // CALCULATE METRICS
-    // ========================================================================
-    int pkt_tp = movement_motion;
-    int pkt_fn = movement_eval_count - movement_motion;
-    int pkt_tn = baseline_eval_count - baseline_motion;
-    int pkt_fp = baseline_motion;
-    
-    float recall = (pkt_tp + pkt_fn > 0) ? (float)pkt_tp / (pkt_tp + pkt_fn) * 100.0f : 0.0f;
-    float precision = (pkt_tp + pkt_fp > 0) ? (float)pkt_tp / (pkt_tp + pkt_fp) * 100.0f : 0.0f;
-    float fp_rate = (baseline_eval_count > 0) ? (float)pkt_fp / baseline_eval_count * 100.0f : 0.0f;
-    float f1 = (precision + recall > 0) ? 
-        2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
-    
-    printf("\n┌─────────────────────────────────────────────────────┐\n");
-    printf("│  PCA DETECTION RESULTS                              │\n");
-    printf("├─────────────────────────────────────────────────────┤\n");
-    printf("│  Baseline evaluated: %4d packets                   │\n", baseline_eval_count);
-    printf("│  Movement evaluated: %4d packets                   │\n", movement_eval_count);
-    printf("│  Threshold: %.4f                                  │\n", calibrated_threshold);
-    printf("├─────────────────────────────────────────────────────┤\n");
-    printf("│  TP: %4d  TN: %4d  FP: %4d  FN: %4d            │\n", pkt_tp, pkt_tn, pkt_fp, pkt_fn);
-    printf("├─────────────────────────────────────────────────────┤\n");
-    printf("│  Recall:    %6.1f%%  (target: >90%%)               │\n", recall);
-    printf("│  Precision: %6.1f%%                                │\n", precision);
-    printf("│  FP Rate:   %6.1f%%  (target: <%.0f%%)                │\n", fp_rate, fp_target);
-    printf("│  F1 Score:  %6.1f%%                                │\n", f1);
-    printf("└─────────────────────────────────────────────────────┘\n");
-    
-    // TODO: Optimize PCA parameters and threshold calculation for higher recall
-    if (recall < 50.0f) {
-        printf("\nNote: PCA recall is below 50%%. This is expected for current experimental implementation.\n");
-    }
-    TEST_ASSERT_TRUE_MESSAGE(recall > 10.0f, "PCA Recall critically low (minimum: >10%)");
-    if (baseline_eval_count > 0) {
-        TEST_ASSERT_TRUE_MESSAGE(fp_rate < fp_target, "PCA FP Rate too high");
-    }
-}
-
 // Run tests for a specific chip
 int run_tests_for_chip(csi_test_data::ChipType chip) {
     printf("\n========================================\n");
@@ -961,7 +781,6 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
     RUN_TEST(test_mvs_window_size_sensitivity);
     RUN_TEST(test_mvs_end_to_end_with_calibration);          // P95 calibration
     RUN_TEST(test_mvs_end_to_end_with_nbvi_calibration);     // NBVI calibration
-    RUN_TEST(test_pca_detection_accuracy);                    // PCA detection
     return UNITY_END();
 }
 

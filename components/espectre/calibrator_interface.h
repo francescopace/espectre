@@ -2,7 +2,7 @@
  * ESPectre - Calibrator Interface
  * 
  * Abstract interface for calibration algorithms.
- * Allows polymorphic use of different calibration strategies (NBVI, P95, PCA).
+ * Allows polymorphic use of different calibration strategies (NBVI, P95).
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -31,9 +31,7 @@ class CSIManager;
 class ICalibrator {
  public:
   // Callback type for calibration results
-  // Parameters: band, size, cal_values (algorithm-specific baseline values), success
-  // For MVS (NBVI/P95): cal_values = moving variance values
-  // For PCA: cal_values = correlation values
+  // Parameters: band, size, cal_values (moving variance values from baseline), success
   // Adaptive threshold is calculated externally using threshold.h
   using result_callback_t = std::function<void(const uint8_t* band, uint8_t size, 
                                                const std::vector<float>& cal_values, bool success)>;

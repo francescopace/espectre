@@ -28,27 +28,17 @@ void ESpectreComponent::setup() {
   // 0. Initialize WiFi for optimal CSI capture
   this->wifi_lifecycle_.init();
   
-  // 1. Select and configure the motion detector based on detection_algorithm_
-  if (this->detection_algorithm_ == DetectionAlgorithm::PCA) {
-    this->detector_ = &this->pca_detector_;
-    ESP_LOGI(TAG, "Using PCA detector");
-  } else {
-    // MVS is default - configure with parameters
-    this->mvs_detector_ = MVSDetector(this->segmentation_window_size_, this->segmentation_threshold_);
-    this->mvs_detector_.configure_lowpass(this->lowpass_enabled_, this->lowpass_cutoff_);
-    this->mvs_detector_.configure_hampel(this->hampel_enabled_, this->hampel_window_, this->hampel_threshold_);
-    this->detector_ = &this->mvs_detector_;
-    ESP_LOGI(TAG, "Using MVS detector (window=%d, threshold=%.2f)", 
-             this->segmentation_window_size_, this->segmentation_threshold_);
-  }
+  // 1. Configure the MVS motion detector
+  this->mvs_detector_ = MVSDetector(this->segmentation_window_size_, this->segmentation_threshold_);
+  this->mvs_detector_.configure_lowpass(this->lowpass_enabled_, this->lowpass_cutoff_);
+  this->mvs_detector_.configure_hampel(this->hampel_enabled_, this->hampel_window_, this->hampel_threshold_);
+  this->detector_ = &this->mvs_detector_;
+  ESP_LOGI(TAG, "Using MVS detector (window=%d, threshold=%.2f)", 
+           this->segmentation_window_size_, this->segmentation_threshold_);
   
   // 2. Initialize managers (each manager handles its own internal initialization)
-  // Select and initialize the active calibrator based on configuration
-  // PCA uses its own calibrator, MVS uses NBVI or P95
-  if (this->detection_algorithm_ == DetectionAlgorithm::PCA) {
-    this->active_calibrator_ = &this->pca_calibrator_;
-    ESP_LOGI(TAG, "Using PCA calibrator");
-  } else if (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) {
+  // Select and initialize the active calibrator based on configuration (NBVI or P95)
+  if (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) {
     this->active_calibrator_ = &this->nbvi_calibrator_;
   } else {
     this->active_calibrator_ = &this->p95_calibrator_;
@@ -206,12 +196,7 @@ void ESpectreComponent::set_threshold_runtime(float threshold) {
 }
 
 void ESpectreComponent::start_calibration_() {
-  const char* algo_name;
-  if (this->detection_algorithm_ == DetectionAlgorithm::PCA) {
-    algo_name = "PCA";
-  } else {
-    algo_name = (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) ? "NBVI" : "P95";
-  }
+  const char* algo_name = (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) ? "NBVI" : "P95";
   
   if (this->user_specified_subcarriers_) {
     ESP_LOGI(TAG, "Starting baseline calibration (fixed subcarriers)...");
@@ -234,8 +219,7 @@ void ESpectreComponent::start_calibration_() {
   }
   
   // Common callback for all calibrators
-  bool is_pca = (this->detection_algorithm_ == DetectionAlgorithm::PCA);
-  auto calibration_callback = [this, calc_mode, is_pca](const uint8_t* band, uint8_t size, 
+  auto calibration_callback = [this, calc_mode](const uint8_t* band, uint8_t size, 
                                                  const std::vector<float>& cal_values, bool success) {
     if (success) {
       // Only update subcarriers if auto-selected (not user-specified)
@@ -251,19 +235,14 @@ void ESpectreComponent::start_calibration_() {
       uint8_t percentile;
       float factor;
       float pxx;
-      calculate_adaptive_threshold(cal_values, calc_mode, is_pca, adaptive_threshold, percentile, factor, pxx);
+      calculate_adaptive_threshold(cal_values, calc_mode, adaptive_threshold, percentile, factor, pxx);
       
       this->best_pxx_ = pxx;
       
       if (this->threshold_mode_ != ThresholdMode::MANUAL) {
         this->set_threshold_runtime(adaptive_threshold);
-        if (is_pca) {
-          ESP_LOGI(TAG, "Adaptive threshold: %.4f (min_corr=%.4f)", 
-                   adaptive_threshold, pxx);
-        } else {
-          ESP_LOGI(TAG, "Adaptive threshold: %.4f (P%d=%.4f x %.1f)", 
-                   adaptive_threshold, percentile, pxx, factor);
-        }
+        ESP_LOGI(TAG, "Adaptive threshold: %.4f (P%d=%.4f x %.1f)", 
+                 adaptive_threshold, percentile, pxx, factor);
       } else {
         ESP_LOGI(TAG, "Using manual threshold: %.2f (adaptive would be: %.2f)", 
                  this->segmentation_threshold_, adaptive_threshold);
@@ -366,12 +345,7 @@ void ESpectreComponent::dump_config() {
                 this->selected_subcarriers_[6], this->selected_subcarriers_[7],
                 this->selected_subcarriers_[8], this->selected_subcarriers_[9],
                 this->selected_subcarriers_[10], this->selected_subcarriers_[11]);
-  const char* algo_str;
-  if (this->detection_algorithm_ == DetectionAlgorithm::PCA) {
-    algo_str = "PCA";
-  } else {
-    algo_str = (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) ? "NBVI" : "P95";
-  }
+  const char* algo_str = (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) ? "NBVI" : "P95";
   ESP_LOGCONFIG(TAG, " └─ Source ............. %s", 
                 this->user_specified_subcarriers_ ? "YAML" : algo_str);
   ESP_LOGCONFIG(TAG, "");

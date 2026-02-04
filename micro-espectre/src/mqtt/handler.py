@@ -22,7 +22,7 @@ class MQTTHandler:
         
         Args:
             config: Configuration module
-            detector: IDetector instance (MVSDetector or PCADetector)
+            detector: IDetector instance (MVSDetector or MLDetector)
             wlan: WLAN instance
             traffic_generator: TrafficGenerator instance (optional)
             band_calibration_func: Function to run band calibration (optional)

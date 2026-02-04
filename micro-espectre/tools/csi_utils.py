@@ -1013,7 +1013,6 @@ from nbvi_calibrator import NBVICalibrator
 # Import detectors from src (IDetector interface and implementations)
 from detector_interface import IDetector, MotionState
 from mvs_detector import MVSDetector as MVSDetectorNew
-from pca_detector import PCADetector
 
 
 # ============================================================================
