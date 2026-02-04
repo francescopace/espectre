@@ -13,7 +13,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "utils.h"
-#include "detector_interface.h"
+#include "base_detector.h"
 
 namespace esphome {
 namespace espectre {
@@ -33,10 +33,10 @@ class SensorPublisher {
   /**
    * Publish all sensors with current values
    * 
-   * @param detector Motion detector (IDetector*)
+   * @param detector Motion detector (BaseDetector*)
    * @param motion_state Current motion state
    */
-  void publish_all(const IDetector *detector,
+  void publish_all(const BaseDetector *detector,
                    csi_motion_state_t motion_state);
   
   /**
@@ -48,7 +48,7 @@ class SensorPublisher {
    * @param packets_per_publish Number of packets processed per publish cycle
    */
   void log_status(const char *tag,
-                  const IDetector *detector,
+                  const BaseDetector *detector,
                   csi_motion_state_t motion_state,
                   uint32_t packets_per_publish);
   

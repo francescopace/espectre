@@ -50,8 +50,10 @@
 | Algorithm | Method | Best For |
 |-----------|--------|----------|
 | **MVS** (default) | Moving Variance Segmentation | Most environments (~99% recall) |
+| **ML** | Neural Network (MLP) | Higher accuracy, fixed subcarriers |
 
-- **No ML training required**: Works out-of-the-box with mathematical algorithms
+- **No ML training required**: Works out-of-the-box with mathematical algorithms (MVS default)
+- **ML option available**: Pre-trained neural network for enhanced accuracy
 - **Real-time processing**: Low latency detection on ESP32 hardware
 - **Production-ready**: Focused on reliable motion detection for smart home
 - **R&D platform available**: [Micro-ESPectre](micro-espectre/) provides features extraction for ML research
@@ -391,12 +393,14 @@ While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier 
 
 | Capability | Status | Description |
 |------------|--------|-------------|
+| **ML Detector** | Experimental | Neural network-based motion detection (MLP 12→16→8→1), ~3s boot time |
 | **Gesture Recognition** | Planned | Detect hand gestures (swipe, push, circle) for smart home control |
 | **Human Activity Recognition** | Planned | Identify activities (sitting, walking, falling) |
 | **People Counting** | Planned | Estimate number of people in a room |
-| **Cloud Inference** | Exploratory | Optional cloud-based ML inference services |
+| **3D Localization** | Research | Indoor positioning (30-50cm accuracy) via phase-coherent antenna array |
 
-The ML data collection infrastructure is already available in [Micro-ESPectre](micro-espectre/ML_DATA_COLLECTION.md).
+The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#ml-neural-network-detector). 
+The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md).
 
 See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribute.
 

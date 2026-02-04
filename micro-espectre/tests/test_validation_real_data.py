@@ -33,7 +33,6 @@ nbvi_calibrator.BUFFER_FILE = os.path.join(tempfile.gettempdir(), 'nbvi_buffer_v
 from segmentation import SegmentationContext
 from features import (
     calc_skewness, calc_kurtosis, calc_iqr_turb, calc_entropy_turb,
-    PublishTimeFeatureExtractor, MultiFeatureDetector
 )
 from filters import HampelFilter
 from csi_utils import (
@@ -579,80 +578,6 @@ class TestPublishTimeFeaturesRealData:
             
             # Entropy should show some separation
             assert J > 0.1, f"Entropy Fisher's J too low: {J:.3f}"
-    
-    def test_feature_extractor_produces_values(self, real_data, default_subcarriers, window_size):
-        """Test that PublishTimeFeatureExtractor produces valid feature values"""
-        baseline_packets, _ = real_data
-        
-        ctx = SegmentationContext(window_size=window_size, threshold=1.0)
-        extractor = PublishTimeFeatureExtractor()
-        
-        # Process packets
-        for pkt in baseline_packets[:100]:
-            turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
-            ctx.add_turbulence(turb)
-        
-        # Get features
-        if ctx.last_amplitudes is not None and ctx.buffer_count >= window_size:
-            features = extractor.compute_features(
-                ctx.last_amplitudes,
-                ctx.turbulence_buffer,
-                ctx.buffer_count,
-                ctx.current_moving_variance
-            )
-            
-            # All features should be present and finite
-            assert 'skewness' in features
-            assert 'kurtosis' in features
-            assert 'variance_turb' in features
-            assert 'iqr_turb' in features
-            assert 'entropy_turb' in features
-            
-            for key, value in features.items():
-                assert math.isfinite(value), f"Feature {key} is not finite: {value}"
-
-
-# ============================================================================
-# Multi-Feature Detector Tests
-# ============================================================================
-
-class TestMultiFeatureDetectorRealData:
-    """Test multi-feature detector with real data"""
-    
-    def test_detector_confidence_baseline_vs_movement(self, real_data, default_subcarriers, window_size):
-        """Test that detector confidence is higher for movement"""
-        baseline_packets, movement_packets = real_data
-        ws = window_size
-        
-        def average_confidence(packets):
-            ctx = SegmentationContext(window_size=ws, threshold=1.0)
-            extractor = PublishTimeFeatureExtractor()
-            detector = MultiFeatureDetector()
-            
-            confidences = []
-            
-            for pkt in packets:
-                turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
-                ctx.add_turbulence(turb)
-                
-                if ctx.last_amplitudes is not None and ctx.buffer_count >= ws:
-                    features = extractor.compute_features(
-                        ctx.last_amplitudes,
-                        ctx.turbulence_buffer,
-                        ctx.buffer_count,
-                        ctx.current_moving_variance
-                    )
-                    _, confidence, _ = detector.detect(features)
-                    confidences.append(confidence)
-            
-            return np.mean(confidences) if confidences else 0.0
-        
-        baseline_conf = average_confidence(baseline_packets)
-        movement_conf = average_confidence(movement_packets)
-        
-        # Movement should have higher average confidence
-        assert movement_conf > baseline_conf, \
-            f"Movement confidence ({movement_conf:.3f}) should be > baseline ({baseline_conf:.3f})"
 
 
 # ============================================================================

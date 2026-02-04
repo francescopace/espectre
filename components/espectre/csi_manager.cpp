@@ -17,7 +17,7 @@ namespace espectre {
 
 static const char *TAG = "CSIManager";
 
-void CSIManager::init(IDetector* detector,
+void CSIManager::init(BaseDetector* detector,
                      const uint8_t selected_subcarriers[12],
                      uint32_t publish_rate,
                      GainLockMode gain_lock_mode,

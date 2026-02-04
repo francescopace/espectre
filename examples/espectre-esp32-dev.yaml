@@ -41,15 +41,18 @@ espectre:
   # Traffic Generator
   traffic_generator_rate: 100   # Packets/sec for CSI generation (0-1000)
   traffic_generator_mode: dns   # dns (default) or ping
-  # Signal Processing
-  # Note: gain_lock not available on ESP32 original
-  # MVS (Moving Variance Segmentation) parameters
-  segmentation_calibration: nbvi  # nbvi (default) or p95
-  segmentation_threshold: auto  # auto (default), min, or 0.1-10.0
+  # Gain Lock Mode
+  gain_lock: auto               # auto (default), enabled, disabled
+  # Detection Algorithm
+  detection_algorithm: mvs      # mvs (default) or ml (neural network)
+  # Segmentation parameters
   segmentation_window_size: 50  # Analysis window size in packets (10-200)
+  segmentation_threshold: auto  # auto/min (mvs: 0.1-10.0, ml: 0.0-1.0)
+  # MVS-only calibration (ignored when detection_algorithm is "ml")
+  segmentation_calibration: nbvi  # nbvi (default) or p95
   # Filters (optional)
   hampel_enabled: false         # Outlier removal (default: false)
-  hampel_window: 7              # Filter window size (3-11, odd numbers)
+  hampel_window: 9              # Filter window size (3-11, odd numbers)
   hampel_threshold: 4.0         # Outlier detection threshold (1.0-10.0)
   lowpass_enabled: false        # Noise reduction (default: false)
   lowpass_cutoff: 11.0          # Cutoff frequency in Hz (5.0-20.0)

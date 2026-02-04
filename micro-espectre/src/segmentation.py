@@ -43,9 +43,7 @@ class SegmentationContext:
                  lowpass_cutoff=17.5,
                  enable_hampel=False,
                  hampel_window=7,
-                 hampel_threshold=4.0,
-                 enable_features=False,
-                 feature_min_confidence=0.5):
+                 hampel_threshold=4.0):
         """
         Initialize segmentation context
         
@@ -58,8 +56,6 @@ class SegmentationContext:
             enable_hampel: Enable Hampel filter for outlier removal (default: False)
             hampel_window: Hampel filter window size (default: 7)
             hampel_threshold: Hampel filter threshold in MAD units (default: 4.0)
-            enable_features: Enable feature extraction at publish time (default: False)
-            feature_min_confidence: Minimum confidence for feature detector (default: 0.5)
         """
         self.window_size = window_size
         self.threshold = threshold
@@ -118,22 +114,6 @@ class SegmentationContext:
                 print(f"[ERROR] Failed to initialize HampelFilter: {e}")
                 self.hampel_filter = None
         
-        # Initialize feature extractor if enabled (publish-time only)
-        self.feature_extractor = None
-        self.feature_detector = None
-        if enable_features:
-            try:
-                # Try MicroPython path first, then standard Python path
-                try:
-                    from src.features import PublishTimeFeatureExtractor, MultiFeatureDetector
-                except ImportError:
-                    from features import PublishTimeFeatureExtractor, MultiFeatureDetector
-                self.feature_extractor = PublishTimeFeatureExtractor()
-                self.feature_detector = MultiFeatureDetector(min_confidence=feature_min_confidence)
-            except Exception as e:
-                print(f"[ERROR] Failed to initialize FeatureExtractor: {e}")
-                self.feature_extractor = None
-                self.feature_detector = None
         
     @staticmethod
     def compute_variance_two_pass(values):
@@ -360,55 +340,6 @@ class SegmentationContext:
             'turbulence': self.last_turbulence,
             'state': self.state
         }
-    
-    def compute_features(self):
-        """
-        Compute features at publish time.
-        
-        Uses:
-        - last_amplitudes: Current packet amplitudes (W=1 features)
-        - turbulence_buffer: For turbulence-based features
-        - current_moving_variance: Already calculated
-        
-        Returns:
-            dict: Features or None if not ready
-        """
-        if self.feature_extractor is None:
-            return None
-        
-        if self.last_amplitudes is None or self.buffer_count < self.window_size:
-            return None
-        
-        return self.feature_extractor.compute_features(
-            self.last_amplitudes,
-            self.turbulence_buffer,
-            self.buffer_count,
-            self.current_moving_variance
-        )
-    
-    def compute_confidence(self, features):
-        """
-        Compute detection confidence from features.
-        
-        Args:
-            features: Dict of feature values (from compute_features)
-        
-        Returns:
-            tuple: (confidence, triggered_features)
-        """
-        if self.feature_detector is None or features is None:
-            return 0.0, []
-        
-        _, confidence, triggered = self.feature_detector.detect(features)
-        return confidence, triggered
-    
-    def features_ready(self):
-        """Check if features can be computed"""
-        return (
-            self.feature_extractor is not None and 
-            self.last_amplitudes is not None and 
-            self.buffer_count >= self.window_size
-        )
     
     def reset(self, full=False):
         """

@@ -101,7 +101,7 @@ inline uint16_t get_window_size() {
     // C3 needs larger window (75) for high-sensitivity band [20-31]
     if (is_s3_chip()) return 100;
     if (is_c3_chip()) return 75;
-    return SEGMENTATION_DEFAULT_WINDOW_SIZE;
+    return DETECTOR_DEFAULT_WINDOW_SIZE;
 }
 
 inline bool get_enable_hampel() {
@@ -404,7 +404,7 @@ void test_mvs_threshold_sensitivity(void) {
     printf("──────────────────────────────────────────\n");
     
     for (int t = 0; t < num_thresholds; t++) {
-        MVSDetector detector(SEGMENTATION_DEFAULT_WINDOW_SIZE, thresholds[t]);
+        MVSDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, thresholds[t]);
         
         int baseline_motion = 0;
         int movement_motion = 0;

@@ -1,7 +1,7 @@
 /*
  * ESPectre - MVSDetector Unit Tests
  *
- * Tests the MVSDetector class implementing IDetector interface.
+ * Tests the MVSDetector class
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -38,8 +38,8 @@ void tearDown(void) {}
 void test_mvs_detector_default_constructor(void) {
     MVSDetector detector;
     
-    TEST_ASSERT_EQUAL(SEGMENTATION_DEFAULT_WINDOW_SIZE, detector.get_window_size());
-    TEST_ASSERT_EQUAL_FLOAT(SEGMENTATION_DEFAULT_THRESHOLD, detector.get_threshold());
+    TEST_ASSERT_EQUAL(DETECTOR_DEFAULT_WINDOW_SIZE, detector.get_window_size());
+    TEST_ASSERT_EQUAL_FLOAT(MVS_DEFAULT_THRESHOLD, detector.get_threshold());
     TEST_ASSERT_EQUAL(MotionState::IDLE, detector.get_state());
     TEST_ASSERT_EQUAL(0, detector.get_total_packets());
 }
@@ -71,15 +71,15 @@ void test_mvs_detector_set_threshold_valid(void) {
 void test_mvs_detector_set_threshold_min(void) {
     MVSDetector detector;
     
-    TEST_ASSERT_TRUE(detector.set_threshold(SEGMENTATION_MIN_THRESHOLD));
-    TEST_ASSERT_EQUAL_FLOAT(SEGMENTATION_MIN_THRESHOLD, detector.get_threshold());
+    TEST_ASSERT_TRUE(detector.set_threshold(MVS_MIN_THRESHOLD));
+    TEST_ASSERT_EQUAL_FLOAT(MVS_MIN_THRESHOLD, detector.get_threshold());
 }
 
 void test_mvs_detector_set_threshold_max(void) {
     MVSDetector detector;
     
-    TEST_ASSERT_TRUE(detector.set_threshold(SEGMENTATION_MAX_THRESHOLD));
-    TEST_ASSERT_EQUAL_FLOAT(SEGMENTATION_MAX_THRESHOLD, detector.get_threshold());
+    TEST_ASSERT_TRUE(detector.set_threshold(MVS_MAX_THRESHOLD));
+    TEST_ASSERT_EQUAL_FLOAT(MVS_MAX_THRESHOLD, detector.get_threshold());
 }
 
 void test_mvs_detector_set_threshold_below_min(void) {
@@ -479,15 +479,15 @@ void test_mvs_detector_empty_subcarrier_selection(void) {
 // ============================================================================
 
 void test_mvs_detector_min_window_size(void) {
-    MVSDetector detector(SEGMENTATION_MIN_WINDOW_SIZE, 1.0f);
+    MVSDetector detector(DETECTOR_MIN_WINDOW_SIZE, 1.0f);
     
-    TEST_ASSERT_EQUAL(SEGMENTATION_MIN_WINDOW_SIZE, detector.get_window_size());
+    TEST_ASSERT_EQUAL(DETECTOR_MIN_WINDOW_SIZE, detector.get_window_size());
 }
 
 void test_mvs_detector_max_window_size(void) {
-    MVSDetector detector(SEGMENTATION_MAX_WINDOW_SIZE, 1.0f);
+    MVSDetector detector(DETECTOR_MAX_WINDOW_SIZE, 1.0f);
     
-    TEST_ASSERT_EQUAL(SEGMENTATION_MAX_WINDOW_SIZE, detector.get_window_size());
+    TEST_ASSERT_EQUAL(DETECTOR_MAX_WINDOW_SIZE, detector.get_window_size());
 }
 
 // ============================================================================

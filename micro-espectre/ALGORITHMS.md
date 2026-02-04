@@ -199,10 +199,6 @@ amplitude *= compensation;
 
 On unsupported platforms, ESPectre skips the gain lock process without affecting functionality. Motion detection still works, but may have slightly higher baseline variance.
 
-### Configuration
-
-Gain lock is **always enabled** on supported platforms with no configuration required. It operates transparently during the first ~3 seconds after boot (300 packets at 100 Hz), followed by band calibration (~7 seconds, 700 packets).
-
 **Reference**: [Espressif esp-csi example](https://github.com/espressif/esp-csi/blob/master/examples/get-started/csi_recv_router/main/app_main.c)
 
 ---
@@ -244,22 +240,6 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
        state = IDLE
    ```
 
-### Key Parameters
-
-| Parameter | Default | Values | Effect |
-|-----------|---------|--------|--------|
-| `segmentation_threshold` | `auto` | `auto`, `min`, or 0.1-10.0 | Controls adaptive threshold mode |
-| `window_size` | 50 | 10-200 | Larger = smoother, slower response |
-
-**Threshold modes:**
-| Mode | Formula | Description |
-|------|---------|-------------|
-| `auto` | P95 × 1.4 | Minimizes false positives (default) |
-| `min` | P100 × 1.0 | Maximum sensitivity (threshold = max baseline) |
-| number | Fixed | Manual override |
-
-**Note**: The adaptive threshold is calculated automatically during calibration. Band selection always uses P95 (the validated algorithm).
-
 ### Performance
 
 📊 **For detailed performance metrics** (confusion matrix, test methodology, benchmarks), see [PERFORMANCE.md](../PERFORMANCE.md).
@@ -298,26 +278,11 @@ Dense(1, Sigmoid)    ← 8×1 + 1 = 9 parameters
 Output (probability)
 ```
 
-**Total**: ~350 parameters, ~3 KB (TFLite int8 quantized)
+**Total**: ~350 parameters, ~2 KB (constexpr float weights)
 
 ### Feature Extraction
 
-For each sliding window of 50 turbulence values, 12 features are extracted:
-
-| # | Feature | Formula | Description |
-|---|---------|---------|-------------|
-| 1 | `turb_mean` | μ = Σxᵢ/n | Central tendency |
-| 2 | `turb_std` | σ = √(Σ(xᵢ-μ)²/n) | Spread |
-| 3 | `turb_max` | max(xᵢ) | Peak value |
-| 4 | `turb_min` | min(xᵢ) | Minimum value |
-| 5 | `turb_range` | max - min | Dynamic range |
-| 6 | `turb_var` | σ² | Variance |
-| 7 | `turb_iqr` | Q75 - Q25 | Interquartile range |
-| 8 | `turb_entropy` | -Σpᵢ log₂(pᵢ) | Distribution randomness |
-| 9 | `amp_skewness` | E[(X-μ)³]/σ³ | Amplitude asymmetry |
-| 10 | `amp_kurtosis` | E[(X-μ)⁴]/σ⁴ - 3 | Amplitude tailedness |
-| 11 | `turb_slope` | Linear regression slope | Temporal trend |
-| 12 | `turb_delta` | x[-1] - x[0] | Start-to-end change |
+For each sliding window of 50 turbulence values, 12 statistical features are extracted. See [CSI Features](#csi-features-for-ml) for the complete feature list with detailed definitions.
 
 ### Inference Pipeline
 
@@ -362,8 +327,11 @@ python tools/7_compare_detection_methods.py
 2. Extract 12 features per sliding window
 3. Normalize features with StandardScaler
 4. Train MLP with 80/20 train/test split
-5. Export weights to `src/ml_weights.py`
-6. Export TFLite model to `models/motion_detector_small.tflite`
+5. Export weights:
+   - `src/ml_weights.py` (Python/MicroPython)
+   - `components/espectre/ml_weights.h` (C++/ESPHome)
+6. Export test data to `models/ml_test_data.npz` (for validation)
+7. Export TFLite model to `models/motion_detector_small.tflite` (checkpoint)
 
 ### Performance
 
@@ -377,34 +345,21 @@ python tools/7_compare_detection_methods.py
 
 ML and MVS achieve comparable performance. ML's strength is **generalization** - it may perform better in environments different from those used to tune MVS thresholds.
 
-### Configuration
-
-```python
-# In config.py
-DETECTION_ALGORITHM = "ml"  # Use ML detector
-```
-
-### Files
-
-| File | Description | Auto-generated |
-|------|-------------|----------------|
-| `src/ml_detector.py` | MLDetector class | No |
-| `src/ml_weights.py` | Network weights | Yes (by training) |
-| `models/motion_detector_small.tflite` | TFLite model | Yes (for future C++ port) |
-| `models/feature_scaler.npz` | Normalization params | Yes |
+See [TUNING.md](../TUNING.md) for configuration options.
 
 ### Advantages and Limitations
 
 **Advantages**:
 - Learns patterns from real data
 - Fixed threshold (0.5) - no calibration needed
+- Fast boot (~3s vs ~10s for MVS)
 - Potentially better generalization to new environments
 - Easy to retrain with new data
+- Available in both Python and C++ (ESPHome)
 
 **Limitations**:
 - Requires labeled training data
 - Slightly higher computational cost (feature extraction)
-- MicroPython only (C++ port planned with TFLite)
 - Performance depends on training data quality
 
 ---
@@ -433,19 +388,7 @@ WiFi CSI provides 64 subcarriers in HT20 mode, but not all are equally useful fo
 
 **Challenge**: Find an automatic method that selects the optimal band for motion detection.
 
-### Configuration
-
-**ESPHome (YAML):**
-```yaml
-espectre:
-  segmentation_calibration: nbvi  # default, or "p95"
-```
-
-**Python (Micro-ESPectre):**
-```python
-# In config.py
-CALIBRATION_ALGORITHM = "nbvi"  # default, or "p95"
-```
+See [TUNING.md](../TUNING.md) for configuration options.
 
 ---
 
@@ -560,15 +503,6 @@ NBVI selects **non-consecutive** subcarriers, which provides:
 - **Noise resilience**: Interference typically affects adjacent subcarriers
 - **Environment adaptation**: Works well in complex multipath environments
 
-#### NBVI Parameters
-
-| Parameter | Default | Range | Effect |
-|-----------|---------|-------|--------|
-| `alpha` | 0.5 | 0.0-1.0 | Higher = more weight on signal strength |
-| `percentile` | 10 | 5-20 | Percentile for quietest window selection |
-| `noise_gate_percentile` | 25 | 10-50 | Excludes weak subcarriers |
-| `min_spacing` | 1 | 1-3 | Minimum gap between selected subcarriers |
-
 ---
 
 ### Adaptive Threshold Calculation
@@ -679,13 +613,6 @@ class LowPassFilter:
         return y
 ```
 
-### Parameters
-
-| Parameter | Default | Range | Effect |
-|-----------|---------|-------|--------|
-| `lowpass_enabled` | false | - | Enable/disable filter |
-| `lowpass_cutoff` | 11.0 | 5-20 Hz | Lower = more smoothing, slower response |
-
 ### Why 11 Hz Cutoff
 
 Human movement generates signal variations typically in the **0.5-10 Hz** range. RF noise and interference are usually **>15 Hz**. The 11 Hz cutoff:
@@ -749,13 +676,7 @@ For embedded systems, the implementation uses:
 - **Pre-allocated buffers** (no dynamic allocation)
 - **Circular buffer** for O(1) insertion
 
-### Parameters
-
-| Parameter | Default | Range | Effect |
-|-----------|---------|-------|--------|
-| `hampel_enabled` | false | - | Enable/disable filter |
-| `hampel_window` | 7 | 3-11 | Larger = more context, slower |
-| `hampel_threshold` | 4.0 | 1.0-10.0 | Lower = more aggressive filtering |
+See [TUNING.md](../TUNING.md) for configuration options.
 
 ### Why Disabled by Default
 
@@ -771,21 +692,42 @@ The filter reduces recall because it treats the first packets of real movement a
 
 ## CSI Features (for ML)
 
-ESPectre extracts statistical features from CSI data for motion detection and machine learning applications. The ML detector uses 12 features; the 5 features below are also available for the feature-based confidence system.
+The ML detector extracts **12 statistical features** from a sliding window of turbulence values. These features capture different aspects of the signal that help distinguish between idle and motion states.
 
-### Available Features
+### Feature List
 
-| Feature | Fisher J | Source | Description |
-|---------|----------|--------|-------------|
-| `iqr_turb` | 3.56 | Turbulence buffer | Interquartile range approximation |
-| `skewness` | 2.54 | Current packet | Distribution asymmetry |
-| `kurtosis` | 2.24 | Current packet | Distribution tailedness |
-| `entropy_turb` | 2.08 | Turbulence buffer | Shannon entropy |
-| `variance_turb` | 1.21 | Turbulence buffer | Moving variance (from MVS) |
+| # | Feature | Formula | Description |
+|---|---------|---------|-------------|
+| 0 | `turb_mean` | μ = Σxᵢ/n | Mean turbulence (central tendency) |
+| 1 | `turb_std` | σ = √(Σ(xᵢ-μ)²/n) | Standard deviation (spread) |
+| 2 | `turb_max` | max(xᵢ) | Maximum value in window |
+| 3 | `turb_min` | min(xᵢ) | Minimum value in window |
+| 4 | `turb_range` | max - min | Dynamic range |
+| 5 | `turb_var` | σ² | Variance (same as MVS uses) |
+| 6 | `turb_iqr` | Q75 - Q25 | Interquartile range (robust spread) |
+| 7 | `turb_entropy` | -Σpᵢ log₂(pᵢ) | Shannon entropy (randomness) |
+| 8 | `amp_skewness` | E[(X-μ)³]/σ³ | Amplitude asymmetry |
+| 9 | `amp_kurtosis` | E[(X-μ)⁴]/σ⁴ - 3 | Amplitude tailedness |
+| 10 | `turb_slope` | Linear regression | Temporal trend |
+| 11 | `turb_delta` | x[-1] - x[0] | Start-to-end change |
 
-**Fisher's Criterion (J)**: Measures class separability. Higher J = better feature for distinguishing idle vs motion.
+### Feature Categories
 
-### Feature Definitions
+**Basic Statistics (0-5)**: Standard statistical measures of the turbulence buffer.
+
+**Robust Statistics (6-7)**:
+- **IQR**: Less sensitive to outliers than range
+- **Entropy**: High during motion (unpredictable), low during idle (stable)
+
+**Higher-Order Moments (8-9)**:
+- **Skewness**: Asymmetry of amplitude distribution. Motion typically increases skewness.
+- **Kurtosis**: "Tailedness" of distribution. Motion produces heavier tails.
+
+**Temporal Features (10-11)**: Capture how the signal changes over the window.
+- **Slope**: Positive = increasing turbulence, negative = decreasing
+- **Delta**: Quick indicator of overall change
+
+### Detailed Definitions
 
 **Skewness** (third standardized moment):
 ```
@@ -795,7 +737,7 @@ ESPectre extracts statistical features from CSI data for motion detection and ma
 - γ₁ < 0: Left-skewed (tail on left)
 - γ₁ = 0: Symmetric
 
-**Kurtosis** (fourth standardized moment):
+**Kurtosis** (fourth standardized moment, excess):
 ```
 γ₂ = E[(X - μ)⁴] / σ⁴ - 3
 ```
@@ -807,7 +749,13 @@ ESPectre extracts statistical features from CSI data for motion detection and ma
 ```
 H = -Σ pᵢ × log₂(pᵢ)
 ```
-Measures uncertainty/randomness in the turbulence distribution.
+Computed by binning turbulence values (10 bins) and calculating the entropy of the histogram. Higher entropy indicates more randomness/unpredictability.
+
+**Linear Regression Slope**:
+```
+slope = Σ(xᵢ - x̄)(yᵢ - ȳ) / Σ(xᵢ - x̄)²
+```
+Where x = time index, y = turbulence value. Positive slope indicates increasing motion intensity.
 
 ---
 

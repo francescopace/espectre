@@ -25,8 +25,9 @@
 
 // Include C++ modules
 #include "utils.h"
-#include "detector_interface.h"
+#include "base_detector.h"
 #include "mvs_detector.h"
+#include "ml_detector.h"
 #include "sensor_publisher.h"
 #include "csi_manager.h"
 #include "wifi_lifecycle.h"
@@ -65,6 +66,12 @@ class ESpectreComponent : public Component {
     NBVI   // 12 non-consecutive subcarriers
   };
   
+  // Detection algorithm enum
+  enum class DetectionAlgorithm {
+    MVS,   // Moving Variance Segmentation (default)
+    ML     // Machine Learning (MLP neural network)
+  };
+  
   
   // Setters for YAML configuration
   void set_segmentation_threshold(float threshold) { 
@@ -97,6 +104,13 @@ class ESpectreComponent : public Component {
       this->segmentation_calibration_ = CalibrationAlgorithm::NBVI;
     } else {
       this->segmentation_calibration_ = CalibrationAlgorithm::P95;  // default
+    }
+  }
+  void set_detection_algorithm(const std::string &algo) {
+    if (algo == "ml") {
+      this->detection_algorithm_ = DetectionAlgorithm::ML;
+    } else {
+      this->detection_algorithm_ = DetectionAlgorithm::MVS;  // default
     }
   }
   void set_publish_interval(uint32_t interval) { this->publish_interval_ = interval; }
@@ -148,8 +162,10 @@ class ESpectreComponent : public Component {
   void send_system_info_();
   
   // Motion detector
-  IDetector* detector_{nullptr};
+  BaseDetector* detector_{nullptr};
   MVSDetector mvs_detector_;
+  MLDetector ml_detector_;
+  DetectionAlgorithm detection_algorithm_{DetectionAlgorithm::MVS};
   csi_motion_state_t motion_state_{};
   
   // Configuration from YAML

@@ -26,3 +26,7 @@ pytest-cov>=4.1.0       # Coverage plugin for pytest
 
 # Code Coverage (C++ tests)
 gcovr>=8.4              # Code coverage reports for C++ tests
+
+# ML Dependencies
+tensorflow>=2.20.0      # Machine learning framework
+scikit-learn>=1.8.0     # Machine learning library

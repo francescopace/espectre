@@ -14,7 +14,7 @@
 namespace esphome {
 namespace espectre {
 
-void SensorPublisher::publish_all(const IDetector *detector,
+void SensorPublisher::publish_all(const BaseDetector *detector,
                                   csi_motion_state_t motion_state) {
   if (!detector) {
     return;
@@ -35,7 +35,7 @@ void SensorPublisher::publish_all(const IDetector *detector,
 }
 
 void SensorPublisher::log_status(const char *tag,
-                                 const IDetector *detector,
+                                 const BaseDetector *detector,
                                  csi_motion_state_t motion_state,
                                  uint32_t packets_per_publish) {
   if (!detector || !tag) {

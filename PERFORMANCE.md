@@ -11,72 +11,17 @@ This document provides detailed performance metrics for ESPectre's motion detect
 
 Data location: `micro-espectre/data/`
 
-## Configuration
+## Performance Targets
 
-| Parameter | ESP32-C6 | ESP32-S3 |
-|-----------|----------|----------|
-| Window Size | 50 | 100 |
-| Subcarriers | [11-22] | [18-29] |
-| Hampel Filter | OFF | ON |
-| Threshold | P95 × 1.4 | P95 × 1.4 |
+| Metric | C6 Target | S3 Target | Rationale |
+|--------|-----------|-----------|-----------|
+| Recall | >90% | >90% | Minimize missed detections |
+| FP Rate | <10% | <15% | Avoid false alarms |
+| Precision | >90% | >85% | Ensure reported motion is real |
 
----
+S3 has relaxed FP rate target due to higher baseline noise.
 
-## Results
-
-### ESP32-C6 (HT20)
-
-```
-CONFUSION MATRIX (1000 baseline + 1000 movement packets):
-                    Predicted
-                IDLE        MOTION
-Actual IDLE     998 (TN)    2 (FP)
-Actual MOTION   8 (FN)      992 (TP)
-```
-
-| Metric | Value | Target | Status |
-|--------|-------|--------|--------|
-| Recall | 99.2% | >90% | ✅ |
-| Precision | 99.8% | - | ✅ |
-| FP Rate | 0.2% | <10% | ✅ |
-| F1-Score | 99.5% | - | ✅ |
-
-### ESP32-S3 (HT20)
-
-S3 uses larger window (100) and Hampel filter to handle higher baseline noise.
-
-```
-CONFUSION MATRIX (1353 baseline + 1366 movement packets):
-                    Predicted
-                IDLE        MOTION
-Actual IDLE     1159 (TN)   194 (FP)
-Actual MOTION   12 (FN)     1354 (TP)
-```
-
-| Metric | Value | Target | Status |
-|--------|-------|--------|--------|
-| Recall | 99.1% | >90% | ✅ |
-| Precision | 87.5% | - | ✅ |
-| FP Rate | 14.3% | <15% | ✅ |
-| F1-Score | 92.9% | - | ✅ |
-
----
-
-## Chip Comparison
-
-Real-time calibration results from the same environment.
-
-| Chip | RSSI | P95 MV | FP Rate | Band | Stability |
-|------|------|--------|---------|------|-----------|
-| ESP32-C6 | -46 dB | 0.73 | 0.0% | [11-22] | ✅ |
-| ESP32-S3 | -64 dB | 0.80 | 0.0% | [15-26] | ✅ |
-| ESP32 | -49 dB | 0.82 | 0.8% | [19-30] | ⚠️ |
-| ESP32-C3 | -73 dB | 0.83 | 0.0% | [37-48] | ⚠️ |
-| ESP32-S3 (clone) | -80 dB | 1.71 | 65.2% | [37-48] | ❌ |
-
-**Recommendation**: ESP32-C6 for best CSI stability. Avoid clone chips with non-Espressif silicon.
-
----
+See [TUNING.md](TUNING.md) for environment-specific adjustments.
 
 ## Running Tests
 
@@ -94,29 +39,71 @@ Both platforms produce identical results with the same methodology.
 
 ---
 
-## Performance Targets
+## Chip Comparison
 
-| Metric | C6 Target | S3 Target | Rationale |
-|--------|-----------|-----------|-----------|
-| Recall | >90% | >90% | Minimize missed detections |
-| FP Rate | <10% | <15% | Avoid false alarms |
-| Precision | >90% | >85% | Ensure reported motion is real |
+Real-time nbvi calibration results from the same environment.
 
-S3 has relaxed FP rate target due to higher baseline noise.
+| Chip              | RSSI | P95 MV | Band    | Stability |
+|-------------------|------|--------|---------|-----------|
+| ESP32-C6          | -46 dB | 0.73 | [11-22] | ✅        |
+| ESP32-S3          | -64 dB | 0.80 | [15-26] | ✅        |
+| ESP32             | -49 dB | 0.82 | [19-30] | ⚠️        |
+| ESP32-C3          | -73 dB | 0.83 | [37-48] | ⚠️        |
+| ESP32-S3 (clone)  | -80 dB | 1.71 | [37-48] | ❌        |
 
-See [TUNING.md](TUNING.md) for environment-specific adjustments.
+**Recommendation**: ESP32-C6 for best CSI stability. Avoid clone chips with non-Espressif silicon.
 
 ---
 
-## Version History
+## ML Detector Performance
 
-| Date | Version | Dataset | Algorithm | Mode | Recall | Precision | FP Rate | F1-Score |
-|------|---------|---------|-----------|------|--------|-----------|---------|----------|
-| 2026-01-23 | v2.4.0 | C6 | MVS | P95 | 99.2% | 99.8% | 0.2% | 99.5% |
-| 2026-01-23 | v2.4.0 | C6 | MVS | NBVI | 99.8% | 96.5% | 3.6% | 98.1% |
-| 2026-01-23 | v2.4.0 | S3 | MVS | P95 + Hampel | 99.1% | 87.5% | 14.3% | 92.9% |
-| 2025-12-27 | v2.3.0 | C6 | MVS | NBVI | 96.4% | 100.0% | 0.0% | 98.2% |
-| 2025-12-27 | v2.3.0 | C6 | MVS | Fixed | 98.1% | 100.0% | 0.0% | 99.0% |
+### Resource Usage
+
+| Resource | Value |
+|----------|-------|
+| Weights memory | ~2 KB (constexpr) |
+| Buffer memory | ~800 B (shared with MVS) |
+| Dependencies | None |
+
+### Inference Time
+
+| Platform | Time | Throughput |
+|----------|------|------------|
+| Python (Mac M-series) | ~14 µs | 70,000 inf/sec |
+| C++ ESP32-C6 (est.) | <200 µs | >5,000 inf/sec |
+| C++ ESP32-S3 (est.) | <150 µs | >6,600 inf/sec |
+
+The manual MLP inference (no TFLite dependency) is extremely lightweight: 12 → 16 → 8 → 1 = **337 float operations** per inference.
+CSI packets arrive every ~10 ms, so inference time is never a bottleneck.
+
+---
+
+## Result History
+
+| Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
+|------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
+| 2026-02-04 | v2.5.0 | C3 | - | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-02-04 | v2.5.0 | C6 | - | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-02-04 | v2.5.0 | S3 | - | ML | 98.0% | 99.2% | 0.8% | 98.6% |
+| 2026-02-04 | v2.5.0 | C3 | NBVI | MVS | 92.2% | 84.3% | 16.9% | 88.0% |
+| 2026-02-04 | v2.5.0 | C6 | NBVI | MVS | 99.8% | 96.5% | 3.6% | 98.1% |
+| 2026-02-04 | v2.5.0 | C3 | P95 | MVS | 92.2% | 84.3% | 16.9% | 88.0% |
+| 2026-02-04 | v2.5.0 | C6 | P95 | MVS | 98.8% | 100.0% | 0.0% | 99.4% |
+| 2026-02-04 | v2.5.0 | S3 | P95 | MVS | 99.1% | 87.5% | 14.3% | 92.9% |
+| 2026-01-23 | v2.4.0 | C6 | P95 | MVS | 99.2% | 99.8% | 0.2% | 99.5% |
+| 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | 99.8% | 96.5% | 3.6% | 98.1% |
+| 2026-01-23 | v2.4.0 | S3 | P95  | MVS | 99.1% | 87.5% | 14.3% | 92.9% |
+| 2025-12-27 | v2.3.0 | C6 | NBVI | MVS | 96.4% | 100.0% | 0.0% | 98.2% |
+| 2025-12-27 | v2.3.0 | C6 | Fixed | MVS | 98.1% | 100.0% | 0.0% | 99.0% |
+
+### MVS Detector Configuration
+
+| Parameter | ESP32-C3 | ESP32-C6 | ESP32-S3 |
+|-----------|----------|----------|----------|
+| Window Size | 75 | 50 | 100 |
+| Subcarriers | [20-31] | [11-22] | [18-29] |
+| Hampel Filter | OFF | OFF | ON |
+| Threshold | P95 × 1.1 | P95 × 1.4 | P95 × 1.4 |
 
 ---
 

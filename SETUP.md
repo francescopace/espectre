@@ -179,11 +179,12 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `segmentation_calibration` | string | nbvi | Band selection: `nbvi` (spectral diversity) or `p95` (contiguous band). |
+| `detection_algorithm` | string | mvs | Detection algorithm: `mvs` (variance) or `ml` (neural network) |
+| `segmentation_calibration` | string | nbvi | Band selection (MVS only): `nbvi` or `p95` |
 | `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0=disabled, use external traffic) |
 | `traffic_generator_mode` | string | dns | Traffic generator mode: `dns` (UDP queries) or `ping` (ICMP) |
 | `publish_interval` | int | auto | Packets between sensor updates (default: same as traffic_generator_rate, or 100 if traffic is 0) |
-| `segmentation_threshold` | float | 1.0 | Motion sensitivity (lower=more sensitive) |
+| `segmentation_threshold` | string/float | auto | Threshold: `auto`, `min`, or number (MVS: 0.1-10.0, ML: 0.0-1.0) |
 | `segmentation_window_size` | int | 50 | Moving variance window in packets |
 | `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
 | `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction |
@@ -216,9 +217,17 @@ espectre:
 
 | Algorithm | How It Works | Pros | Cons | Best For |
 |-----------|--------------|------|------|----------|
-| **MVS** | Variance of spatial turbulence | Low CPU, fast response, works well in most environments | Requires band calibration | General use, all environments |
+| **MVS** (default) | Variance of spatial turbulence | Low CPU, adaptive threshold | Requires 10s calibration | General use |
+| **ML** | Neural network (MLP 12→16→8→1) | Fast boot (~3s), fixed subcarriers | Pre-trained weights | Experimental |
 
-ESPectre uses the **MVS (Moving Variance Segmentation)** algorithm for motion detection.
+```yaml
+espectre:
+  detection_algorithm: mvs  # or ml
+```
+
+**Threshold ranges:**
+- MVS: 0.1 - 10.0 (default: auto = P95 × 1.4)
+- ML: 0.0 - 1.0 (default: 0.5, probability)
 
 ### Integrated Sensors (Created Automatically)
 

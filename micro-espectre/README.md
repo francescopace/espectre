@@ -56,37 +56,28 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 
 | Feature | ESPHome (C++) | Python (MicroPython) | Status |
 |---------|---------------|----------------------|--------|
-| **Core Algorithm** |
-| MVS Detector | ✅ | ✅ | Aligned |
-| ML Detector | ❌ | ✅ | MicroPython only |
-| MVS Segmentation | ✅ | ✅ | Aligned |
-| Spatial Turbulence | ✅ | ✅ | Aligned |
-| Moving Variance | ✅ | ✅ | Aligned |
-| **Gain Lock (AGC/FFT)** |
-| Gain Lock | ✅ | ✅ | Aligned (S3/C3/C5/C6) |
-| Read AGC/FFT values | ✅ | ✅ | Implemented |
-| Force AGC/FFT values | ✅ | ✅ | Implemented |
-| Gain Compensation | ✅ | ✅ | Aligned |
-| **WiFi Traffic Generator** |
-| Traffic Generation | ✅ | ✅ | Implemented |
-| Configurable Rate | ✅ | ✅ | Implemented |
-| **Configuration** |
-| YAML Configuration | ✅ | ❌ | ESPHome only |
-| MQTT Commands | ❌ | ✅ | Micro-ESPectre only |
-| Runtime Config | ✅ (via HA) | ✅ (via MQTT) | Different methods |
-| **Automatic Subcarrier Selection** |
-| NBVI Calibration | ✅ | ✅ | Default algorithm |
-| P95 Band Selection | ✅ | ✅ | Alternative algorithm |
-| Percentile-based Detection | ✅ | ✅ | Implemented |
-| Noise Gate | ✅ | ✅ | ✅ Implemented |
-| Spectral De-correlation | ✅ | ✅ | Implemented |
+| **Motion Detection** |
+| MVS Detector | ✅ | ✅ | Moving Variance Segmentation (default) |
+| ML Detector | ✅ | ✅ | Neural Network (experimental) |
+| ML Features (12) | ✅ | ✅ | mean, std, max, min, range, var, iqr, entropy, skewness, kurtosis, slope, delta |
+| **Calibration (MVS only)** |
+| NBVI | ✅ | ✅ | 12 non-consecutive subcarriers (default) |
+| P95 | ✅ | ✅ | 12 consecutive subcarriers (alternative) |
+| Adaptive Threshold | ✅ | ✅ | P95 × 1.4 of baseline variance |
+| **Gain Lock** |
+| AGC/FFT Lock | ✅ | ✅ | Hardware gain stabilization (S3/C3/C5/C6) |
+| Gain Compensation | ✅ | ✅ | Amplitude normalization when lock skipped |
 | **Filters** |
-| Low-Pass Filter | ✅ | ✅ | Butterworth 1st order, reduces high-freq noise (11 Hz default) |
-| Hampel Filter | ✅ | ✅ | Outlier removal, applied to turbulence (disabled by default) |
-| **CSI Features** |
-| `features_enable` | ❌ | ✅ | `ENABLE_FEATURES = True` in config.py |
-| CSI Features | ❌ | ✅ | entropy_turb, iqr_turb, variance_turb, skewness, kurtosis |
-| Feature Extraction | ❌| ✅ | Publish-time calculation (no buffer, 92% memory saved) |
+| Low-Pass | ✅ | ✅ | Butterworth 1st order, 11 Hz cutoff (disabled by default) |
+| Hampel | ✅ | ✅ | MAD-based outlier removal (disabled by default) |
+| **Traffic Generator** |
+| DNS Method | ✅ | ✅ | UDP packets to gateway (default) |
+| Ping Method | ✅ | ❌ | ICMP packets (ESPHome only) |
+| Configurable Rate | ✅ | ✅ | 1-1000 pps |
+| **Configuration** |
+| YAML | ✅ | ❌ | ESPHome declarative config |
+| MQTT Commands | ❌ | ✅ | Runtime parameter changes |
+| Runtime Config | ✅ (via HA) | ✅ (via MQTT) | Different methods |
 
 ### Performance Comparison
 
@@ -107,16 +98,12 @@ For detailed performance metrics (confusion matrix, F1-score, benchmarks), see [
 **Use Micro-ESPectre (Python) if you want:**
 - Quick prototyping and experimentation
 - Easy deployment and updates (~5 seconds)
-- Core motion detection functionality
 - Simple Python-based development
 - MQTT-based runtime configuration
-- Automatic subcarrier selection
 
 **Use ESPectre (ESPHome) if you need:**
 - Native Home Assistant integration (auto-discovery)
 - Maximum performance and efficiency
-- Advanced CSI feature extraction
-- Multiple filtering algorithms
 - Production-grade stability
 - YAML-based configuration
 
@@ -145,8 +132,9 @@ The `me` CLI provides these essential commands:
 | `deploy` | Deploy Python code to device | `./me deploy` |
 | `run` | Run the application | `./me run` |
 | `stream` | Stream raw CSI data via UDP | `./me stream --ip 192.168.1.100` |
-| `collect` | Collect labeled CSI data for ML | `./me collect --label movement --duration 30` |
+| `collect` | Collect labeled CSI data for ML training | `./me collect --label baseline --duration 10` |
 | `verify` | Verify firmware installation | `./me verify` |
+| `ui` | Open web monitoring interface in browser | `./me ui` |
 | *(interactive)* | Interactive MQTT control | `./me` |
 
 ### Key Features
@@ -434,19 +422,12 @@ HAMPEL_WINDOW = 7
 HAMPEL_THRESHOLD = 4.0
 ```
 
-### 6. Feature Extraction (Optional, MVS only)
-
-```python
-ENABLE_FEATURES = False    # Enable CSI feature extraction for ML
-```
-
 For detailed parameter tuning, see [TUNING.md](../TUNING.md).
 
 ### Published Data (MQTT Payload)
 
 The system publishes JSON payloads to the configured MQTT topic (default: `home/espectre/node1`):
 
-**Basic payload** (always published):
 ```json
 {
   "movement": 0.0234,            // Current moving variance
@@ -458,54 +439,6 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
   "timestamp": 1700000000        // Unix timestamp
 }
 ```
-
-**Extended payload** (when `ENABLE_FEATURES = True`):
-```json
-{
-  "movement": 1.2345,
-  "threshold": 1.0,
-  "state": "motion",
-  "packets_processed": 100,
-  "packets_dropped": 0,
-  "pps": 105,
-  "timestamp": 1700000000,
-  
-  "features": {
-    "entropy_turb": 2.97,
-    "iqr_turb": 4.56,
-    "variance_turb": 4.71,
-    "skewness": 0.23,
-    "kurtosis": -1.16
-  },
-  
-  "confidence": 0.85,
-  
-  "triggered": ["entropy_turb", "iqr_turb", "variance_turb", "skewness"]
-}
-```
-
-| Field | Description |
-|-------|-------------|
-| `features` | CSI features calculated at publish time |
-| `confidence` | Detection confidence (0.0-1.0) based on weighted feature voting |
-| `triggered` | List of features that exceeded their motion thresholds |
-
-**Top 5 Features (publish-time, no buffer needed, tested with SEG_WINDOW_SIZE=50):**
-| Feature | Fisher J | Type | Description |
-|---------|----------|------|-------------|
-| `iqr_turb` | 3.56 | Turbulence buffer | IQR approximation (range × 0.5) |
-| `skewness` | 2.54 | W=1 (current pkt) | Distribution asymmetry |
-| `kurtosis` | 2.24 | W=1 (current pkt) | Distribution tailedness |
-| `entropy_turb` | 2.08 | Turbulence buffer | Shannon entropy of turbulence distribution |
-| `variance_turb` | 1.21 | Turbulence buffer | Moving variance (already calculated by MVS!) |
-
-**Confidence interpretation:**
-| Confidence | Meaning |
-|------------|---------|
-| 0.0 - 0.3 | Very likely IDLE |
-| 0.3 - 0.5 | Uncertain / slight movement |
-| 0.5 - 0.7 | Probable movement |
-| 0.7 - 1.0 | Confident motion detection |
 
 ## Analysis Tools
 
@@ -530,9 +463,9 @@ For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#automati
 
 ## Machine Learning
 
-Micro-ESPectre includes a **neural network-based motion detector** as a developer preview.
+Micro-ESPectre includes a **neural network-based motion detector** as an experimental feature.
 
-### ML Detector (Developer Preview)
+### ML Detector (Experimental)
 
 The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real CSI data. It extracts 12 statistical features from turbulence patterns and outputs a motion probability.
 
@@ -665,7 +598,6 @@ Micro-ESPectre includes a powerful **Web-based monitoring dashboard** for real-t
 
 The dashboard displays:
 - **State**: Current detection state (MOTION in red, IDLE in green)
-- **Confidence**: Detection confidence percentage with progress bar
 - **Movement**: Current moving variance value
 - **Last Update**: Timestamp of last MQTT message
 

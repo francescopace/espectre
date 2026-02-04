@@ -1,7 +1,7 @@
 /*
  * ESPectre - CSIManager Unit Tests
  *
- * Tests the CSIManager class functionality with IDetector interface.
+ * Tests the CSIManager class functionality
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3

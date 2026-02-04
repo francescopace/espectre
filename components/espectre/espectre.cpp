@@ -28,13 +28,27 @@ void ESpectreComponent::setup() {
   // 0. Initialize WiFi for optimal CSI capture
   this->wifi_lifecycle_.init();
   
-  // 1. Configure the MVS motion detector
-  this->mvs_detector_ = MVSDetector(this->segmentation_window_size_, this->segmentation_threshold_);
-  this->mvs_detector_.configure_lowpass(this->lowpass_enabled_, this->lowpass_cutoff_);
-  this->mvs_detector_.configure_hampel(this->hampel_enabled_, this->hampel_window_, this->hampel_threshold_);
-  this->detector_ = &this->mvs_detector_;
-  ESP_LOGI(TAG, "Using MVS detector (window=%d, threshold=%.2f)", 
-           this->segmentation_window_size_, this->segmentation_threshold_);
+  // 1. Configure the motion detector based on algorithm selection
+  if (this->detection_algorithm_ == DetectionAlgorithm::ML) {
+    // ML uses probability threshold (0.0-1.0), default 0.5 if not manually specified
+    float ml_threshold = (this->threshold_mode_ == ThresholdMode::MANUAL) 
+                         ? this->segmentation_threshold_ 
+                         : ML_DEFAULT_THRESHOLD;
+    this->segmentation_threshold_ = ml_threshold;  // Update for consistency
+    this->ml_detector_ = MLDetector(this->segmentation_window_size_, ml_threshold);
+    this->ml_detector_.configure_lowpass(this->lowpass_enabled_, this->lowpass_cutoff_);
+    this->ml_detector_.configure_hampel(this->hampel_enabled_, this->hampel_window_, this->hampel_threshold_);
+    this->detector_ = &this->ml_detector_;
+    ESP_LOGI(TAG, "Using ML detector (window=%d, threshold=%.2f)", 
+             this->segmentation_window_size_, ml_threshold);
+  } else {
+    this->mvs_detector_ = MVSDetector(this->segmentation_window_size_, this->segmentation_threshold_);
+    this->mvs_detector_.configure_lowpass(this->lowpass_enabled_, this->lowpass_cutoff_);
+    this->mvs_detector_.configure_hampel(this->hampel_enabled_, this->hampel_window_, this->hampel_threshold_);
+    this->detector_ = &this->mvs_detector_;
+    ESP_LOGI(TAG, "Using MVS detector (window=%d, threshold=%.2f)", 
+             this->segmentation_window_size_, this->segmentation_threshold_);
+  }
   
   // 2. Initialize managers (each manager handles its own internal initialization)
   // Select and initialize the active calibrator based on configuration (NBVI or P95)
@@ -196,6 +210,26 @@ void ESpectreComponent::set_threshold_runtime(float threshold) {
 }
 
 void ESpectreComponent::start_calibration_() {
+  // ML detector uses fixed subcarriers from training - no calibration needed
+  if (this->detection_algorithm_ == DetectionAlgorithm::ML) {
+    ESP_LOGI(TAG, "ML detector uses fixed subcarriers - skipping calibration");
+    
+    // Use ML_SUBCARRIERS from ml_detector.h
+    memcpy(this->selected_subcarriers_, ML_SUBCARRIERS, 12);
+    this->csi_manager_.update_subcarrier_selection(ML_SUBCARRIERS);
+    
+    // Update switch state
+    if (this->calibrate_switch_ != nullptr) {
+      static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
+    }
+    
+    ESP_LOGI(TAG, "Using ML subcarriers: [%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
+             ML_SUBCARRIERS[0], ML_SUBCARRIERS[1], ML_SUBCARRIERS[2], ML_SUBCARRIERS[3],
+             ML_SUBCARRIERS[4], ML_SUBCARRIERS[5], ML_SUBCARRIERS[6], ML_SUBCARRIERS[7],
+             ML_SUBCARRIERS[8], ML_SUBCARRIERS[9], ML_SUBCARRIERS[10], ML_SUBCARRIERS[11]);
+    return;
+  }
+  
   const char* algo_name = (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) ? "NBVI" : "P95";
   
   if (this->user_specified_subcarriers_) {

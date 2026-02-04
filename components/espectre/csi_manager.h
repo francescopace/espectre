@@ -14,7 +14,7 @@
 #include "esp_err.h"
 #include "esp_attr.h"
 #include "utils.h"
-#include "detector_interface.h"
+#include "base_detector.h"
 #include "wifi_csi_interface.h"
 #include "gain_controller.h"
 #include <functional>
@@ -43,13 +43,13 @@ class CSIManager {
   /**
    * Initialize CSI Manager
    * 
-   * @param detector Motion detector instance (IDetector*)
+   * @param detector Motion detector instance (BaseDetector*)
    * @param selected_subcarriers Initial subcarrier selection (array of 12 subcarriers)
    * @param publish_rate Number of packets before triggering callback
    * @param gain_lock_mode Gain lock mode (auto/enabled/disabled)
    * @param wifi_csi WiFi CSI interface (nullptr for real implementation)
    */
-  void init(IDetector* detector,
+  void init(BaseDetector* detector,
             const uint8_t selected_subcarriers[12],
             uint32_t publish_rate,
             GainLockMode gain_lock_mode = GainLockMode::AUTO,
@@ -139,7 +139,7 @@ class CSIManager {
   /**
    * Get the detector instance
    */
-  IDetector* get_detector() { return detector_; }
+  BaseDetector* get_detector() { return detector_; }
   
   /**
    * Clear detector buffer (for calibration reset)
@@ -150,7 +150,7 @@ class CSIManager {
   static void IRAM_ATTR csi_rx_callback_wrapper_(void* ctx, wifi_csi_info_t* data);
   
   bool enabled_{false};
-  IDetector* detector_{nullptr};
+  BaseDetector* detector_{nullptr};
   const uint8_t* selected_subcarriers_{nullptr};
   ICalibrator* calibrator_{nullptr};
   csi_processed_callback_t packet_callback_;

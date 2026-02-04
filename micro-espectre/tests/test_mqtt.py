@@ -187,7 +187,7 @@ def mock_config(default_subcarriers):
 
 @pytest.fixture
 def mock_segmentation():
-    """Create mock detector (IDetector interface)"""
+    """Create mock detector"""
     return MockDetector()
 
 

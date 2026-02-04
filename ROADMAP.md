@@ -296,7 +296,7 @@ This roadmap evolves with community input. Here's how you can contribute:
 
 ## Roadmap Updates
 
-This roadmap is reviewed and updated quarterly. Last update: **January 2026**
+This roadmap is reviewed and updated quarterly. Last update: **February 2026**
 
 For the latest status and discussion:
 - [GitHub Issues](https://github.com/francescopace/espectre/issues?q=is%3Aissue+label%3Aroadmap)

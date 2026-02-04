@@ -111,6 +111,27 @@ espectre:
 
 **Note:** Runtime adjustments via Home Assistant slider are temporary (session-only). The adaptive threshold is recalculated on every boot.
 
+### Detection Algorithm (mvs/ml)
+
+**What it does:** Selects the motion detection algorithm.
+
+**Default:** `mvs`
+
+```yaml
+espectre:
+  detection_algorithm: mvs  # or ml
+```
+
+| Algorithm | Description | Threshold Range | Best For |
+|-----------|-------------|-----------------|----------|
+| `mvs` | Moving Variance Segmentation | 0.1 - 10.0 | General purpose, adaptive |
+| `ml` | Neural Network (MLP 12→16→8→1) | 0.0 - 1.0 | Higher accuracy |
+
+**ML Detector Notes:**
+- Uses fixed subcarriers `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]` for consistency with training
+- Threshold is a probability (0.5 = 50% confidence)
+- Pre-trained weights are embedded in the component (no external files needed)
+
 ### Window Size (10-200 packets)
 
 **What it does:** Number of turbulence samples used to calculate moving variance.
@@ -271,16 +292,12 @@ espectre:
 **Configuration:**
 ```yaml
 espectre:
-  hampel_enabled: false    # Enable/disable (default: false)
-  hampel_window: 7         # Window size (3-11 packets)
-  hampel_threshold: 4.0    # MAD multiplier (1.0-10.0, lower = more aggressive)
+  hampel_enabled: true
+  hampel_window: 7
+  hampel_threshold: 4.0
 ```
 
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| `hampel_enabled` | false | - | Enable/disable Hampel filter |
-| `hampel_window` | 7 | 3-11 | Number of samples in the sliding window |
-| `hampel_threshold` | 4.0 | 1.0-10.0 | MAD multiplier (lower = more aggressive filtering) |
+See [SETUP.md](SETUP.md#configuration-parameters) for parameter details.
 
 **When to enable:**
 - Environments with high electromagnetic interference causing sudden spikes
@@ -354,14 +371,11 @@ espectre:
 **Configuration:**
 ```yaml
 espectre:
-  lowpass_enabled: false    # Enable/disable (default: false)
-  lowpass_cutoff: 11.0      # Cutoff frequency in Hz (5.0-20.0)
+  lowpass_enabled: true
+  lowpass_cutoff: 11.0
 ```
 
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| `lowpass_enabled` | false | - | Enable/disable low-pass filter |
-| `lowpass_cutoff` | 11.0 | 5.0-20.0 | Cutoff frequency in Hz (lower = more filtering) |
+See [SETUP.md](SETUP.md#configuration-parameters) for parameter details.
 
 **Cutoff frequency guide:**
 - **Lower (5-8 Hz)**: More aggressive filtering, reduces FP more but may miss fast movements

@@ -52,6 +52,9 @@ CONF_GAIN_LOCK = "gain_lock"
 # Segmentation calibration algorithm
 CONF_SEGMENTATION_CALIBRATION = "segmentation_calibration"
 
+# Detection algorithm
+CONF_DETECTION_ALGORITHM = "detection_algorithm"
+
 # Threshold limits (keep in sync with csi_processor.h)
 THRESHOLD_MIN = 0.1
 THRESHOLD_MAX = 10.0
@@ -117,6 +120,11 @@ CONFIG_SCHEMA = cv.Schema({
     # NBVI: selects 12 non-consecutive subcarriers based on stability metrics
     # P95: selects 12 consecutive subcarriers minimizing P95 moving variance
     cv.Optional(CONF_SEGMENTATION_CALIBRATION, default="nbvi"): cv.one_of("p95", "nbvi", lower=True),
+    
+    # Detection algorithm: mvs (default) or ml
+    # MVS: Moving Variance Segmentation - adaptive threshold, general purpose
+    # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
+    cv.Optional(CONF_DETECTION_ALGORITHM, default="mvs"): cv.one_of("mvs", "ml", lower=True),
     
     # Publish interval in packets (default: same as traffic_generator_rate, or 100 if traffic is 0)
     cv.Optional(CONF_PUBLISH_INTERVAL): cv.int_range(min=1, max=1000),
@@ -213,6 +221,7 @@ async def to_code(config):
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_gain_lock_mode(config[CONF_GAIN_LOCK]))
     cg.add(var.set_segmentation_calibration(config[CONF_SEGMENTATION_CALIBRATION]))
+    cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
     
     # Configure subcarriers if specified
