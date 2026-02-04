@@ -317,7 +317,7 @@ jobs:
       - name: Upload firmware to GitHub Releases
         id: release
         if: "!matrix.qemu_chip && startsWith(github.ref, 'refs/tags/')"
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: output/${{ matrix.chip }}-*.bin
