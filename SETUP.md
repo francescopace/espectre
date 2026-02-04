@@ -5,7 +5,7 @@ Complete guide to install and configure ESPectre with ESPHome.
 ---
 ## Easy Install (no coding required)
 
-## What You Need
+### What You Need
 
 **Hardware:**
 - **ESP32 with CSI support** - ESP32-S3, ESP32-C6, ESP32-C3 or ESP32 (original) tested. Other variants (S2, C5) also supported experimentally.
@@ -18,7 +18,7 @@ Complete guide to install and configure ESPectre with ESPHome.
 
 ### 1. Download firmware from [Releases](https://github.com/francescopace/espectre/releases/latest)
 
-Choose the firmware for the chip is on your board , and download it from [Releases](https://github.com/francescopace/espectre/releases/latest)
+Choose the firmware for the chip that is on your board , and download it from [Releases](https://github.com/francescopace/espectre/releases/latest)
 
 ### 2. Flash Firmware
 
@@ -28,14 +28,9 @@ Choose the firmware for the chip is on your board , and download it from [Releas
 ![ESPConnect](images/ESPConnect.png)
 
 ---
-## Quick Start
+## Developer Setup
 
-## What You Need
-
-**Hardware:**
-- **ESP32 with CSI support** - ESP32-S3, ESP32-C6, ESP32-C3 or ESP32 (original) tested. Other variants (S2, C5) also supported experimentally.
-- USB-C or Micro-USB cable (depending on board)
-- Wi-Fi router (2.4 GHz, 802.11b|g|n|ax)
+### What You Need
 
 **Software:**
 - Python 3.12 (⚠️ Python 3.14 has known issues with ESPHome)
