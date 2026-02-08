@@ -16,7 +16,7 @@ on:
       - 'micro-espectre/*.md'
       - 'docs/**'
   pull_request:
-    branches: [main]
+    branches: [develop]
     paths:
       - 'components/espectre/**'
       - 'micro-espectre/src/**'

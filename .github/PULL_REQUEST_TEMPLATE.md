@@ -1,3 +1,5 @@
+> **Note**: Please target the `develop` branch. PRs to `main` will not be accepted.
+
 ## Description
 
 Brief description of the changes in this PR.

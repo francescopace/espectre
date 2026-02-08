@@ -91,21 +91,28 @@ pytest tests/ -v --cov=src --cov-report=term-missing
 
 ## Code Contributions
 
+### Branching Model
+
+ESPectre uses a simple branching model:
+
+- **`develop`**: Active development branch. All PRs should target this branch.
+- **`main`**: Stable release branch. Merges from `develop` when releasing.
+
 ### Workflow
 
 1. **Fork** the repository on GitHub
 2. **Clone** your fork locally
-3. **Create a branch** from `main`:
+3. **Create a branch** from `develop`:
    ```bash
-   git checkout main
-   git pull origin main
+   git checkout develop
+   git pull origin develop
    git checkout -b feature/your-feature-name
    ```
 4. **Make changes** with tests and documentation
 5. **Run tests** to ensure nothing is broken
 6. **Commit** with clear messages (see [Commit Guidelines](#commit-guidelines))
 7. **Push** to your fork
-8. **Open a Pull Request** to the `main` branch
+8. **Open a Pull Request** to the `develop` branch
 
 ### Commit Guidelines
 
@@ -176,7 +183,7 @@ License: GPLv3
 
 ### Pull Request Guidelines
 
-- **Target branch**: Always `main`
+- **Target branch**: Always `develop` (not `main`)
 - **Title**: Clear, descriptive title
 - **Description**: Explain what and why
 - **Tests**: Include tests for new functionality

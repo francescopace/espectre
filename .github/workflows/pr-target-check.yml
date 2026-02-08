@@ -1,0 +1,21 @@
+name: PR Target Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-target:
+    name: Verify PR targets develop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR target branch
+        run: |
+          echo "::error::PRs should target 'develop', not 'main'."
+          echo ""
+          echo "Please:"
+          echo "1. Close this PR"
+          echo "2. Open a new PR targeting the 'develop' branch"
+          echo ""
+          echo "See CONTRIBUTING.md for details on the branching model."
+          exit 1
