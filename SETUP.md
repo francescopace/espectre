@@ -2,43 +2,65 @@
 
 Complete guide to install and configure ESPectre with ESPHome.
 
+Choose one of the two installation methods below:
+
+| Method | Best for | Tools |
+|--------|----------|-------|
+| **Option A** | End users, quick setup | Chrome + ESPConnect |
+| **Option B** | Developers, customization | Python + ESPHome CLI |
+
 ---
-## Easy Install (no coding required)
+## Option A: Web Flash (no coding required)
 
 ### What You Need
 
 **Hardware:**
-- **ESP32 with CSI support** - ESP32-S3, ESP32-C6, ESP32-C3 or ESP32 (original) tested. Other variants (S2, C5) also supported experimentally.
-- USB-C or Micro-USB cable (depending on board)
-- Wi-Fi router (2.4 GHz, 802.11b|g|n|ax)
+- **ESP32 board** with CSI support:
+  - ✅ Tested: ESP32-S3, ESP32-C6, ESP32-C3, ESP32 (original)
+  - ⚠️ Experimental: ESP32-S2, ESP32-C5
+- **USB cable** (USB-C or Micro-USB, depending on your board)
+- **Wi-Fi router** (2.4 GHz, 802.11b/g/n/ax)
 
 **Software:**
-- Chrome browser or [ESPConnect](https://github.com/thelastoutpostworkshop/ESPConnect/)
-- Home Assistant (recommended, but optional)
+- Google Chrome browser (required for Web Serial API)
 
-### 1. Download firmware from [Releases](https://github.com/francescopace/espectre/releases/latest)
+### 1. Download Firmware
 
-Choose the firmware for the chip that is on your board , and download it from [Releases](https://github.com/francescopace/espectre/releases/latest)
+Go to [Releases](https://github.com/francescopace/espectre/releases/latest) and download the `.bin` file for your chip (e.g., `espectre-2.5.0-esp32c6.bin`).
 
 ### 2. Flash Firmware
 
-- Find chip-**factory**.bin
-- Chrome open [ESPConnect](https://thelastoutpostworkshop.github.io/ESPConnect/) to flash
+1. Open [ESPConnect](https://thelastoutpostworkshop.github.io/ESPConnect/) in Chrome
+2. Connect your ESP32 via USB
+3. Click **Connect** and select the serial port
+4. Select the `.bin` file you downloaded
+5. Click **Flash**
 
 ![ESPConnect](images/ESPConnect.png)
 
+### 3. Configure WiFi
+
+After flashing, configure WiFi using one of these methods:
+
+| Method | How |
+|--------|-----|
+| **BLE** (easiest) | Use ESPHome or Home Assistant Companion app |
+| **USB** | Go to [web.esphome.io](https://web.esphome.io) → Connect → Configure WiFi |
+| **Captive Portal** | Connect to "ESPectre Fallback" WiFi → Configure in browser |
+
+That's it! The device will be automatically discovered by Home Assistant.
+
 ---
-## Developer Setup
+## Option B: ESPHome CLI (for developers)
 
 ### What You Need
+
+**Hardware:** Same as Easy Install above.
 
 **Software:**
 - Python 3.12 (⚠️ Python 3.14 has known issues with ESPHome)
 - ESPHome 2024.x or newer
 - Home Assistant (recommended, but optional)
-
----
-
 
 ### 1. Install ESPHome
 
@@ -78,7 +100,6 @@ These files are pre-configured to download the component automatically from GitH
 >
 > ¹ ESP32-C5: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
 >
-> ² ESP32-C3 Super Mini: Set `traffic_generator_rate` to 94 or less. Higher values cause calibration issues (tested on multiple boards). Some cheap clones may require DIO flash mode instead of QIO.
 >
 > ³ ESP32 (original/WROOM-32): AGC/FFT gain lock is not available on this platform. Band calibration works but CSI amplitudes may have more variance than newer chips.
 >
@@ -87,7 +108,7 @@ These files are pre-configured to download the component automatically from GitH
 ### 3. Build and flash
 
 ```bash
-esphome run espectre-c6.yaml  # or espectre-s3.yaml
+esphome run espectre-c6.yaml  # replace with your platform's file
 ```
 
 ### 4. Configure WiFi

@@ -4,13 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.5.0] - in progress
+## [2.5.0] - in progress - ML Detector & Training Pipeline
 
 ### Highlights
 
 - **ML Detector (Experimental)**: Neural network-based motion detection using 12 statistical features
-- **Training pipeline**: Scripts for collecting data, training models, and generating C++ weights
+- **Training pipeline**: Scripts for collecting data, training models, and generating model weights
 - **PCA Algorithm Removed**: The experimental PCA detection algorithm has been removed
+- **Pre-built firmware**: Download ready-to-flash firmware from GitHub Releases
+- **Easy Install guide**: New browser-based flashing instructions using ESPConnect
 
 ### PCA Detection Algorithm Removed
 
@@ -60,6 +62,34 @@ espectre:
 #### New Test Suite
 
 - **`test_ml_detector.py`**: 38 tests covering ML inference and detector class
+
+### GitHub Releases & Easy Install
+
+#### Pre-built Firmware
+
+New `release.yml` workflow automatically builds and publishes firmware for all supported chips when a version is tagged:
+
+| Chip | Firmware |
+|------|----------|
+| ESP32 | `espectre-X.Y.Z-esp32.bin` |
+| ESP32-S2 | `espectre-X.Y.Z-esp32s2.bin` |
+| ESP32-S3 | `espectre-X.Y.Z-esp32s3.bin` |
+| ESP32-C3 | `espectre-X.Y.Z-esp32c3.bin` |
+| ESP32-C5 | `espectre-X.Y.Z-esp32c5.bin` |
+| ESP32-C6 | `espectre-X.Y.Z-esp32c6.bin` |
+
+- Release notes extracted automatically from CHANGELOG.md
+- Discussion created in "Announcements" category
+- Pre-release detection for `-rc`, `-beta`, `-alpha` tags
+
+#### Easy Install Documentation
+
+SETUP.md reorganized with two installation paths:
+
+- **Option A: Web Flash** - Download firmware from Releases, flash via [ESPConnect](https://thelastoutpostworkshop.github.io/ESPConnect/) in Chrome
+- **Option B: ESPHome CLI** - Traditional developer workflow with `esphome run`
+
+Based on PR #77 by [@WLaoDuo](https://github.com/WLaoDuo).
 
 ### Gain Lock Improvements
 
@@ -113,7 +143,7 @@ CSI streaming (`./me stream`) sends **raw data** without compensation, ensuring 
 
 ---
 
-## [2.4.0] - 2026-01-24
+## [2.4.0] - 2026-01-24 - Live Recalibration, Adaptive Threshold & PCA
 
 ### Highlights
 
@@ -219,7 +249,7 @@ Tests run on ESP32-C6 and ESP32-S3 with real CSI data:
 
 ---
 
-## [2.3.0] - 2025-12-31 
+## [2.3.0] - 2025-12-31 - End of Year Edition
 
 ### ESPectre - The Game 
 
@@ -312,7 +342,7 @@ See [espressif/esp-csi#247](https://github.com/espressif/esp-csi/issues/247).
 
 ---
 
-## [2.2.0] - 2025-12-19
+## [2.2.0] - 2025-12-19 - Gain Lock, Low-Pass Filter & ML Data Collection
 
 ### Gain Lock (AGC/FFT Stabilization)
 
@@ -398,7 +428,7 @@ New infrastructure for building labeled CSI datasets (groundwork for 3.x):
 
 ---
 
-## [2.1.0] - 2025-12-10
+## [2.1.0] - 2025-12-10 - Made for ESPHome Compliance
 
 ### Made for ESPHome Compliance
 
@@ -463,7 +493,7 @@ This release focuses on code uniformity between MicroPython and C++ implementati
 
 ---
 
-## [2.0.0] - 2025-12-06
+## [2.0.0] - 2025-12-06 - ESPHome Native Integration
 
 ### Major - ESPHome Native Integration
 
@@ -555,7 +585,7 @@ cd test && pio test
 
 ---
 
-## [1.5.0] - 2025-12-03
+## [1.5.0] - 2025-12-03 - Automatic Subcarrier Selection
 
 ### Automatic Subcarrier Selection
 - Zero-configuration subcarrier selection using NBVI (Normalized Baseline Variability Index) algorithm. 
@@ -565,7 +595,7 @@ cd test && pio test
 
 ---
 
-## [1.4.0] - 2025-11-28
+## [1.4.0] - 2025-11-28 - Major Refactoring & Technical Debt Reduction
 
 ### Major Refactoring
 - **Feature extraction module**: Extracted to `csi_features.c/h`, reduced `csi_processor.c` by 50%
@@ -578,7 +608,7 @@ cd test && pio test
 
 ---
 
-## [1.3.0] - 2025-11-22
+## [1.3.0] - 2025-11-22 - ESP32-C6 Platform Support
 
 ### ESP32-C6 Platform Support
 - **WiFi 6 (802.11ax)** support with proper CSI configuration
@@ -596,7 +626,7 @@ ESP-IDF best practices: disabled power save (`WIFI_PS_NONE`), configurable count
 
 ---
 
-## [1.2.0] - 2025-11-16
+## [1.2.0] - 2025-11-16 - Simplified Architecture & MVS Segmentation
 
 ### Simplified Architecture
 - **MVS algorithm**: Moving Variance Segmentation with adaptive threshold

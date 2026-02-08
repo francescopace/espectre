@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'      # Match: 2.5.0, 1.0.0, etc.
+      - '[0-9]+.[0-9]+.[0-9]+-*'    # Match: 2.5.0-rc1, 2.5.0-beta, etc.
+
+permissions:
+  contents: write
+  discussions: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.chip }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: ESP32
+            config: examples/espectre-esp32.yaml
+          - chip: ESP32-S2
+            config: examples/espectre-s2.yaml
+          - chip: ESP32-S3
+            config: examples/espectre-s3.yaml
+          - chip: ESP32-C3
+            config: examples/espectre-c3.yaml
+          - chip: ESP32-C5
+            config: examples/espectre-c5.yaml
+          - chip: ESP32-C6
+            config: examples/espectre-c6.yaml
+    
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Cache PlatformIO
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.platformio
+            ~/.esphome/cache
+          key: pio-espidf-${{ hashFiles('components/espectre/**') }}
+          restore-keys: |
+            pio-espidf-
+      
+      - name: Install ESPHome
+        run: |
+          python -m pip install --upgrade pip
+          pip install esphome
+      
+      - name: Compile
+        run: esphome compile ${{ matrix.config }}
+      
+      - name: Rename firmware files
+        run: |
+          mkdir -p output
+          VERSION="${GITHUB_REF_NAME}"
+          CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
+          find examples/.esphome/build -name "firmware*.bin" -exec cp {} output/ \;
+          mv "output/firmware.factory.bin" "output/espectre-${VERSION}-${CHIP}.bin"
+          mv "output/firmware.ota.bin" "output/espectre-${VERSION}-${CHIP}-ota.bin"
+      
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: firmware-${{ matrix.chip }}
+          path: output/espectre-*.bin
+          retention-days: 7
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Download all firmware artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: firmware
+          merge-multiple: true
+      
+      - name: List firmware files
+        run: ls -la firmware/
+      
+      - name: Extract release notes from CHANGELOG
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          
+          # Extract section for this version from CHANGELOG.md
+          # Matches from "## [version]" until the next "## [" or end of file
+          NOTES=$(awk -v ver="$VERSION" '
+            /^## \[/ { 
+              if (found) exit
+              if (index($0, "[" ver "]")) found=1
+            }
+            found { print }
+          ' CHANGELOG.md)
+          
+          # Extract title from first line
+          # Format: "## [2.5.0] - 2026-02-08 - Title Here" or "## [2.5.0] - in progress - Title Here"
+          FIRST_LINE=$(echo "$NOTES" | head -1)
+          
+          # Split by " - " and get the third part (title)
+          # ## [2.5.0] - in progress - Title  →  parts: "[2.5.0]", "in progress", "Title"
+          TITLE=$(echo "$FIRST_LINE" | awk -F ' - ' '{print $3}')
+          
+          # Clean up title
+          TITLE=$(echo "$TITLE" | xargs)  # Trim whitespace
+          
+          # If no title, use generic
+          if [ -z "$TITLE" ]; then
+            TITLE="Release"
+          fi
+          
+          # If no specific version found, use generic message
+          if [ -z "$NOTES" ]; then
+            NOTES="See [CHANGELOG.md](https://github.com/francescopace/espectre/blob/main/CHANGELOG.md) for details."
+            TITLE="Release"
+          else
+            # Remove first line (header) from body - it's already in the release title
+            NOTES=$(echo "$NOTES" | tail -n +2)
+          fi
+          
+          # Save to file for the release action
+          echo "$NOTES" > release_notes.md
+          
+          # Save title for release name
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          
+          echo "=== Release: v${VERSION} - ${TITLE} ==="
+          cat release_notes.md
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "v${{ github.ref_name }} - ${{ steps.changelog.outputs.title }}"
+          body_path: release_notes.md
+          files: firmware/*.bin
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          discussion_category_name: "Announcements"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
