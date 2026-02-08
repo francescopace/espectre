@@ -15,8 +15,8 @@ def to_signed_int8(value):
     """
     Convert unsigned byte to signed int8.
     
-    Used for FFT gain values which are stored as unsigned but
-    represent signed values in Espressif's API.
+    Used for CSI I/Q values and AGC/FFT gain data, which are
+    stored as unsigned bytes but represent signed values.
     
     Args:
         value: Unsigned byte value (0-255)
@@ -47,6 +47,27 @@ def calculate_median(values):
     if n % 2 == 0:
         return (values[n // 2 - 1] + values[n // 2]) // 2
     return values[n // 2]
+
+
+def insertion_sort(arr, n):
+    """
+    In-place insertion sort for small arrays.
+    
+    Faster than Python's Timsort for N < 10-15 elements
+    due to lower overhead (no function calls, cache-friendly).
+    Also used for N=50 on ESP32 where it's acceptable.
+    
+    Args:
+        arr: Array to sort (modified in place)
+        n: Number of elements to sort
+    """
+    for i in range(1, n):
+        key = arr[i]
+        j = i - 1
+        while j >= 0 and arr[j] > key:
+            arr[j + 1] = arr[j]
+            j -= 1
+        arr[j + 1] = key
 
 
 def calculate_percentile(values, percentile):

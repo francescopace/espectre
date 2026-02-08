@@ -5,9 +5,19 @@ ML Motion Detection - Training Script
 Trains neural network models for motion detection using all available CSI data.
 Generates models for both ESP-IDF (TFLite) and MicroPython.
 
+Training features:
+  - 5-fold stratified cross-validation for reliable metrics
+  - Early stopping with patience to prevent overfitting
+  - Dropout regularization during training
+  - Balanced class weights for imbalanced datasets
+  - Learning rate reduction on plateau
+  - Configurable FP penalty (--fp-weight) for conservative models
+
 Usage:
-    python tools/10_train_ml_model.py              # Train with all data
-    python tools/10_train_ml_model.py --info       # Show dataset info
+    python tools/10_train_ml_model.py                    # Train with all data
+    python tools/10_train_ml_model.py --info              # Show dataset info
+    python tools/10_train_ml_model.py --experiment        # Compare architectures
+    python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
 
 To compare ML with MVS, use:
     python tools/7_compare_detection_methods.py
@@ -70,17 +80,20 @@ from csi_utils import (
     DATA_DIR,
 )
 from segmentation import SegmentationContext
-from features import calc_skewness, calc_kurtosis, calc_iqr_turb, calc_entropy_turb
+from features import (
+    calc_skewness, calc_kurtosis, calc_entropy_turb,
+    calc_zero_crossing_rate, calc_autocorrelation, calc_mad,
+)
 
 # Directories
 MODELS_DIR = Path(__file__).parent.parent / 'models'
 SRC_DIR = Path(__file__).parent.parent / 'src'
 CPP_DIR = Path(__file__).parent.parent.parent / 'components' / 'espectre'
 
-# Feature names (12 features)
+# Feature names (12 features - all non-redundant, all turbulence-based)
 FEATURE_NAMES = [
-    'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_range', 'turb_variance',
-    'turb_iqr', 'turb_entropy', 'amp_skewness', 'amp_kurtosis', 'turb_slope', 'turb_delta'
+    'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_zcr', 'turb_skewness',
+    'turb_kurtosis', 'turb_entropy', 'turb_autocorr', 'turb_mad', 'turb_slope', 'turb_delta'
 ]
 
 # Default subcarriers (consecutive band, as selected by NBVI/P95)
@@ -212,21 +225,25 @@ def extract_features(packets, window_size=50, subcarriers=None):
             continue
         
         turb_list = list(turb_buffer)
+        n = len(turb_list)
+        turb_mean = np.mean(turb_list)
+        turb_std = np.std(turb_list)
+        turb_var = turb_std * turb_std
         
-        # Extract 12 features
+        # Extract 12 features (all non-redundant, all turbulence-based)
         features = [
-            np.mean(turb_list),                              # turb_mean
-            np.std(turb_list),                               # turb_std
-            np.max(turb_list),                               # turb_max
-            np.min(turb_list),                               # turb_min
-            np.max(turb_list) - np.min(turb_list),          # turb_range
-            np.var(turb_list),                               # turb_variance
-            calc_iqr_turb(turb_list, len(turb_list)),       # turb_iqr
-            calc_entropy_turb(turb_list, len(turb_list)),   # turb_entropy
-            calc_skewness(list(amps)) if amps is not None else 0,  # amp_skewness
-            calc_kurtosis(list(amps)) if amps is not None else 0,  # amp_kurtosis
-            np.polyfit(range(len(turb_list)), turb_list, 1)[0],    # turb_slope
-            turb_list[-1] - turb_list[0],                   # turb_delta
+            turb_mean,                                              # turb_mean
+            turb_std,                                               # turb_std
+            np.max(turb_list),                                      # turb_max
+            np.min(turb_list),                                      # turb_min
+            calc_zero_crossing_rate(turb_list, n, mean=turb_mean),  # turb_zcr
+            calc_skewness(turb_list, n, turb_mean, turb_std),       # turb_skewness
+            calc_kurtosis(turb_list, n, turb_mean, turb_std),       # turb_kurtosis
+            calc_entropy_turb(turb_list, n),                        # turb_entropy
+            calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var),  # turb_autocorr
+            calc_mad(turb_list, n),                                 # turb_mad
+            np.polyfit(range(n), turb_list, 1)[0],                  # turb_slope
+            turb_list[-1] - turb_list[0],                           # turb_delta
         ]
         
         X.append(features)
@@ -240,33 +257,192 @@ def extract_features(packets, window_size=50, subcarriers=None):
 # Model Training
 # ============================================================================
 
-def train_model(X, y, hidden_layers=[16, 8], epochs=50):
+def build_model(hidden_layers=[16, 8], num_features=12, use_dropout=True, dropout_rate=0.2):
     """
-    Train a neural network model.
+    Build a Keras MLP model.
+    
+    Dropout layers are added during training for regularization but are
+    automatically disabled during inference (and don't affect exported weights).
+    
+    Args:
+        hidden_layers: List of hidden layer sizes
+        num_features: Number of input features
+        use_dropout: Whether to add dropout layers (for training only)
+        dropout_rate: Dropout rate (0.0-1.0)
+    
+    Returns:
+        Compiled Keras model
+    """
+    import tensorflow as tf
+    
+    model = tf.keras.Sequential()
+    model.add(tf.keras.layers.Input(shape=(num_features,)))
+    
+    for units in hidden_layers:
+        model.add(tf.keras.layers.Dense(units, activation='relu'))
+        if use_dropout and dropout_rate > 0:
+            model.add(tf.keras.layers.Dropout(dropout_rate))
+    
+    model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
+    
+    model.compile(
+        optimizer='adam',
+        loss='binary_crossentropy',
+        metrics=['accuracy']
+    )
+    
+    return model
+
+
+def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
+                class_weight=None, fp_weight=1.0, verbose=0):
+    """
+    Train a neural network model with best practices.
+    
+    Uses early stopping, learning rate reduction, dropout regularization,
+    and optional class weighting for imbalanced datasets.
     
     Args:
         X: Feature matrix (normalized)
         y: Labels
         hidden_layers: List of hidden layer sizes
-        epochs: Training epochs
+        max_epochs: Maximum training epochs (early stopping will cut short)
+        use_dropout: Whether to add dropout layers
+        class_weight: Class weight dict (e.g., {0: 1.0, 1: 2.0}) or None for auto
+        fp_weight: Multiplier for class 0 (IDLE) weight to penalize false positives.
+                   Values >1.0 make the model more conservative (fewer FP, lower recall).
+        verbose: Training verbosity
     
     Returns:
         Trained Keras model
     """
     import tensorflow as tf
     
-    model = tf.keras.Sequential()
-    model.add(tf.keras.layers.Input(shape=(12,)))
+    # Auto-compute class weights if not provided
+    if class_weight is None:
+        n_total = len(y)
+        n_pos = np.sum(y == 1)
+        n_neg = n_total - n_pos
+        if n_pos > 0 and n_neg > 0:
+            # Balanced class weights: higher weight for minority class
+            class_weight = {
+                0: n_total / (2 * n_neg),
+                1: n_total / (2 * n_pos)
+            }
     
-    for units in hidden_layers:
-        model.add(tf.keras.layers.Dense(units, activation='relu'))
+    # Apply FP penalty: increase weight for class 0 (IDLE)
+    # This makes misclassifying baseline as motion more costly
+    if fp_weight != 1.0 and class_weight is not None:
+        class_weight[0] *= fp_weight
     
-    model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
+    model = build_model(hidden_layers=hidden_layers, use_dropout=use_dropout)
     
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    model.fit(X, y, epochs=epochs, batch_size=32, validation_split=0.1, verbose=0)
+    # Callbacks for training robustness
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=15,
+            restore_best_weights=True,
+            min_delta=1e-4
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=7,
+            min_lr=1e-6
+        ),
+    ]
+    
+    model.fit(
+        X, y,
+        epochs=max_epochs,
+        batch_size=32,
+        validation_split=0.1,
+        class_weight=class_weight,
+        callbacks=callbacks,
+        verbose=verbose
+    )
     
     return model
+
+
+def evaluate_model(model, X_test, y_test):
+    """
+    Evaluate a model on test data and return metrics dict.
+    
+    Args:
+        model: Trained Keras model
+        X_test: Test features (normalized)
+        y_test: Test labels
+    
+    Returns:
+        dict: Metrics (recall, precision, fp_rate, f1, tp, fp, tn, fn)
+    """
+    y_pred = (model.predict(X_test, verbose=0) > 0.5).astype(int).flatten()
+    tp = int(np.sum((y_test == 1) & (y_pred == 1)))
+    fp = int(np.sum((y_test == 0) & (y_pred == 1)))
+    tn = int(np.sum((y_test == 0) & (y_pred == 0)))
+    fn = int(np.sum((y_test == 1) & (y_pred == 0)))
+    
+    recall = tp / (tp + fn) * 100 if (tp + fn) > 0 else 0
+    precision = tp / (tp + fp) * 100 if (tp + fp) > 0 else 0
+    fp_rate = fp / (fp + tn) * 100 if (fp + tn) > 0 else 0
+    f1 = 2 * tp / (2 * tp + fp + fn) * 100 if (2 * tp + fp + fn) > 0 else 0
+    
+    return {
+        'recall': recall, 'precision': precision,
+        'fp_rate': fp_rate, 'f1': f1,
+        'tp': tp, 'fp': fp, 'tn': tn, 'fn': fn
+    }
+
+
+def cross_validate(X, y, hidden_layers=[16, 8], n_folds=5, max_epochs=200,
+                   fp_weight=1.0):
+    """
+    Perform stratified k-fold cross-validation.
+    
+    Args:
+        X: Feature matrix (NOT normalized - scaler fit per fold)
+        y: Labels
+        hidden_layers: List of hidden layer sizes
+        n_folds: Number of CV folds
+        max_epochs: Maximum training epochs per fold
+        fp_weight: Multiplier for class 0 weight (>1.0 penalizes FP more)
+    
+    Returns:
+        dict: Mean and std of each metric across folds
+    """
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.preprocessing import StandardScaler
+    
+    skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
+    fold_metrics = []
+    
+    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+        X_train_fold, X_val_fold = X[train_idx], X[val_idx]
+        y_train_fold, y_val_fold = y[train_idx], y[val_idx]
+        
+        # Fit scaler on training fold only
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train_fold)
+        X_val_scaled = scaler.transform(X_val_fold)
+        
+        with suppress_stderr():
+            model = train_model(X_train_scaled, y_train_fold,
+                              hidden_layers=hidden_layers, max_epochs=max_epochs,
+                              fp_weight=fp_weight)
+            metrics = evaluate_model(model, X_val_scaled, y_val_fold)
+        
+        fold_metrics.append(metrics)
+    
+    # Aggregate
+    result = {}
+    for key in fold_metrics[0]:
+        values = [m[key] for m in fold_metrics]
+        result[f'{key}_mean'] = np.mean(values)
+        result[f'{key}_std'] = np.std(values)
+    
+    return result
 
 
 def export_tflite(model, X_sample, output_path, name):
@@ -526,9 +702,13 @@ def show_info():
     print()
 
 
-def train_all():
+def train_all(fp_weight=1.0):
     """
     Train models with all available data.
+    
+    Args:
+        fp_weight: Multiplier for class 0 (IDLE) weight. Values >1.0 penalize
+                   false positives more, producing a more conservative model.
     """
     from ml_detector import ML_SUBCARRIERS
     subcarriers = ML_SUBCARRIERS
@@ -579,49 +759,52 @@ def train_all():
     X, y = extract_features(all_packets, subcarriers=subcarriers)
     print(f"  Samples: {len(X)}")
     print(f"  Features: {len(FEATURE_NAMES)}")
-    print(f"  Class balance: IDLE={np.sum(y==0)}, MOTION={np.sum(y==1)}")
+    n_idle = np.sum(y == 0)
+    n_motion = np.sum(y == 1)
+    print(f"  Class balance: IDLE={n_idle}, MOTION={n_motion}")
+    if n_idle > 0 and n_motion > 0:
+        ratio = max(n_idle, n_motion) / min(n_idle, n_motion)
+        print(f"  Imbalance ratio: {ratio:.1f}:1")
     
-    # Split for evaluation (BEFORE normalization to preserve raw test features)
+    # 5-fold cross-validation for reliable evaluation
+    if fp_weight != 1.0:
+        print(f"\nFP weight: {fp_weight}x (penalizing false positives)")
+    print("\n5-fold cross-validation (12 -> 16 -> 8 -> 1)...")
+    with suppress_stderr():
+        cv_results = cross_validate(X, y, hidden_layers=[16, 8], n_folds=5,
+                                    max_epochs=200, fp_weight=fp_weight)
+    
+    print(f"  Recall:    {cv_results['recall_mean']:.1f}% (+/- {cv_results['recall_std']:.1f}%)")
+    print(f"  Precision: {cv_results['precision_mean']:.1f}% (+/- {cv_results['precision_std']:.1f}%)")
+    print(f"  FP Rate:   {cv_results['fp_rate_mean']:.1f}% (+/- {cv_results['fp_rate_std']:.1f}%)")
+    print(f"  F1 Score:  {cv_results['f1_mean']:.1f}% (+/- {cv_results['f1_std']:.1f}%)")
+    
+    # Also do a single split for test data export
     X_train_raw, X_test_raw, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
     
-    # Normalize (fit on training data only, apply to test)
+    # Train final model on full dataset for production export
+    # Use consistent scaler: fit on full dataset (same data the model sees)
+    print("\nTraining final model on full dataset...")
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train_raw)
-    X_test = scaler.transform(X_test_raw)
-    
-    # Also scale full dataset for final training
     X_scaled = scaler.fit_transform(X)
     
-    # Train model (best architecture: 16 -> 8 -> 1)
-    print("\nTraining neural network (12 -> 16 -> 8 -> 1)...")
     with suppress_stderr():
-        model = train_model(X_train, y_train, hidden_layers=[16, 8], epochs=50)
+        model = train_model(X_scaled, y, hidden_layers=[16, 8], max_epochs=200,
+                           fp_weight=fp_weight)
     
-    # Evaluate
+    # Quick evaluation on the held-out test set (for reference)
+    X_test_scaled = scaler.transform(X_test_raw)
     with suppress_stderr():
-        y_pred = (model.predict(X_test, verbose=0) > 0.5).astype(int).flatten()
-    tp = np.sum((y_test == 1) & (y_pred == 1))
-    fp = np.sum((y_test == 0) & (y_pred == 1))
-    tn = np.sum((y_test == 0) & (y_pred == 0))
-    fn = np.sum((y_test == 1) & (y_pred == 0))
+        test_metrics = evaluate_model(model, X_test_scaled, y_test)
     
-    recall = tp / (tp + fn) * 100 if (tp + fn) > 0 else 0
-    precision = tp / (tp + fp) * 100 if (tp + fp) > 0 else 0
-    fp_rate = fp / (fp + tn) * 100 if (fp + tn) > 0 else 0
-    f1 = 2 * tp / (2 * tp + fp + fn) * 100 if (2 * tp + fp + fn) > 0 else 0
-    
-    print(f"\nEvaluation (20% test set):")
-    print(f"  Recall:    {recall:.1f}%")
-    print(f"  Precision: {precision:.1f}%")
-    print(f"  FP Rate:   {fp_rate:.1f}%")
+    f1 = test_metrics['f1']
+    print(f"\nHold-out test set (20%):")
+    print(f"  Recall:    {test_metrics['recall']:.1f}%")
+    print(f"  Precision: {test_metrics['precision']:.1f}%")
+    print(f"  FP Rate:   {test_metrics['fp_rate']:.1f}%")
     print(f"  F1 Score:  {f1:.1f}%")
-    
-    # Retrain on full dataset for production
-    print("\nRetraining on full dataset...")
-    with suppress_stderr():
-        model = train_model(X_scaled, y, hidden_layers=[16, 8], epochs=50)
     
     # Export models
     print("\nExporting models...")
@@ -656,7 +839,7 @@ def train_all():
     print("\n" + "="*60)
     print("                    DONE!")
     print("="*60)
-    print(f"\nModel trained with F1={f1:.1f}%")
+    print(f"\nModel trained with CV F1={cv_results['f1_mean']:.1f}% (+/- {cv_results['f1_std']:.1f}%)")
     print(f"\nGenerated files:")
     print(f"  - {mp_path} (MicroPython)")
     print(f"  - {cpp_path} (C++ ESPHome)")
@@ -668,14 +851,179 @@ def train_all():
     return 0
 
 
+def experiment_architectures():
+    """
+    Compare multiple MLP architectures using cross-validation.
+    
+    Trains and evaluates each architecture on the same data with 5-fold CV.
+    Reports a comparison table with F1, inference time, and memory usage.
+    Recommends the best architecture by F1 (inference time as tiebreaker).
+    """
+    import time
+    from ml_detector import ML_SUBCARRIERS
+    subcarriers = ML_SUBCARRIERS
+    
+    print("\n" + "="*60)
+    print("       ARCHITECTURE EXPERIMENT")
+    print("="*60 + "\n")
+    
+    # Check dependencies
+    try:
+        with suppress_stderr():
+            import tensorflow as tf
+            tf.get_logger().setLevel('ERROR')
+            try:
+                import absl.logging
+                absl.logging.set_verbosity(absl.logging.ERROR)
+                absl.logging.set_stderrthreshold(absl.logging.ERROR)
+            except ImportError:
+                pass
+    except ImportError as e:
+        print(f"Error: Missing dependency - {e}")
+        return 1
+    
+    # Load and extract features
+    print("Loading data...")
+    all_packets, stats = load_all_data()
+    
+    if not stats['chips']:
+        print("Error: No datasets found in data/")
+        return 1
+    
+    print(f"  Total: {stats['total']} packets")
+    
+    print("\nExtracting features...")
+    X, y = extract_features(all_packets, subcarriers=subcarriers)
+    print(f"  Samples: {len(X)}")
+    print(f"  Class balance: IDLE={np.sum(y==0)}, MOTION={np.sum(y==1)}")
+    
+    # Define architectures to compare
+    architectures = [
+        {'name': 'Current (16-8)', 'layers': [16, 8]},
+        {'name': 'Wide-shallow (24)', 'layers': [24]},
+        {'name': 'Deeper (12-8-4)', 'layers': [12, 8, 4]},
+        {'name': 'Minimal (8)', 'layers': [8]},
+        {'name': 'Wide-deep (24-12)', 'layers': [24, 12]},
+    ]
+    
+    results = []
+    
+    for arch in architectures:
+        name = arch['name']
+        layers = arch['layers']
+        
+        # Calculate parameter count
+        layer_sizes = [12] + layers + [1]
+        n_params = 0
+        for i in range(len(layer_sizes) - 1):
+            n_params += layer_sizes[i] * layer_sizes[i + 1]  # weights
+            n_params += layer_sizes[i + 1]  # biases
+        
+        weight_kb = n_params * 4 / 1024  # float32
+        
+        # Estimate inference FLOPS (multiply-accumulate operations)
+        flops = 0
+        for i in range(len(layer_sizes) - 1):
+            flops += layer_sizes[i] * layer_sizes[i + 1]  # MAC operations
+        
+        print(f"\nEvaluating: {name} ({' -> '.join(map(str, [12] + layers + [1]))})...")
+        print(f"  Parameters: {n_params}, Weights: {weight_kb:.1f} KB, FLOPS: {flops}")
+        
+        # Cross-validate
+        with suppress_stderr():
+            cv = cross_validate(X, y, hidden_layers=layers, n_folds=5, max_epochs=200)
+        
+        # Measure Python inference time
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        with suppress_stderr():
+            model = train_model(X_scaled, y, hidden_layers=layers, max_epochs=200)
+        
+        # Benchmark inference (use model.predict for consistency)
+        sample = X_scaled[:1].astype(np.float32)
+        # Warm up
+        for _ in range(10):
+            model.predict(sample, verbose=0)
+        
+        n_bench = 1000
+        start_t = time.perf_counter()
+        for _ in range(n_bench):
+            model.predict(sample, verbose=0)
+        elapsed = time.perf_counter() - start_t
+        inference_us = elapsed / n_bench * 1e6
+        
+        result = {
+            'name': name,
+            'layers': layers,
+            'params': n_params,
+            'weight_kb': weight_kb,
+            'flops': flops,
+            'f1_mean': cv['f1_mean'],
+            'f1_std': cv['f1_std'],
+            'recall_mean': cv['recall_mean'],
+            'recall_std': cv['recall_std'],
+            'precision_mean': cv['precision_mean'],
+            'fp_rate_mean': cv['fp_rate_mean'],
+            'inference_us': inference_us,
+        }
+        results.append(result)
+        
+        print(f"  F1: {cv['f1_mean']:.1f}% +/- {cv['f1_std']:.1f}%")
+        print(f"  Recall: {cv['recall_mean']:.1f}%, Precision: {cv['precision_mean']:.1f}%")
+        print(f"  Inference: {inference_us:.1f} us/sample")
+    
+    # Print comparison table
+    print("\n" + "="*90)
+    print("                         ARCHITECTURE COMPARISON")
+    print("="*90 + "\n")
+    
+    print(f"{'Architecture':<22} {'Params':>7} {'KB':>6} {'F1 (CV)':>12} {'Recall':>10} {'FP Rate':>10} {'Inf (us)':>10}")
+    print("-"*90)
+    
+    best = max(results, key=lambda r: (r['f1_mean'], -r['inference_us']))
+    
+    for r in results:
+        marker = " **" if r == best else "   "
+        print(f"{marker}{r['name']:<19} {r['params']:>7} {r['weight_kb']:>5.1f} "
+              f"{r['f1_mean']:>6.1f}+/-{r['f1_std']:<4.1f} "
+              f"{r['recall_mean']:>9.1f}% {r['fp_rate_mean']:>9.1f}% "
+              f"{r['inference_us']:>9.1f}")
+    
+    print("-"*90)
+    print(f"\n** Best architecture: {best['name']}")
+    print(f"   F1: {best['f1_mean']:.1f}% +/- {best['f1_std']:.1f}%")
+    print(f"   Recall: {best['recall_mean']:.1f}%, FP Rate: {best['fp_rate_mean']:.1f}%")
+    print(f"   Parameters: {best['params']}, Weights: {best['weight_kb']:.1f} KB")
+    
+    # Recommend action
+    current = next(r for r in results if r['name'].startswith('Current'))
+    if best != current:
+        improvement = best['f1_mean'] - current['f1_mean']
+        print(f"\n   Improvement over current: {improvement:+.1f}% F1")
+        if improvement > 1.0:
+            print(f"   Recommendation: Switch to {best['name']}")
+            print(f"   Update train_all() with hidden_layers={best['layers']}")
+        else:
+            print(f"   Recommendation: Difference is marginal, keep current architecture")
+    else:
+        print(f"\n   Current architecture is already optimal!")
+    
+    print()
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Train ML motion detection model',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  python tools/10_train_ml_model.py           # Train with fixed subcarriers
-  python tools/10_train_ml_model.py --info    # Show dataset info
+  python tools/10_train_ml_model.py                    # Train with all data
+  python tools/10_train_ml_model.py --info              # Show dataset info
+  python tools/10_train_ml_model.py --experiment        # Compare architectures
+  python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
   
 To compare ML with MVS, use:
   python tools/7_compare_detection_methods.py
@@ -683,6 +1031,11 @@ To compare ML with MVS, use:
     )
     parser.add_argument('--info', action='store_true', 
                        help='Show dataset information')
+    parser.add_argument('--experiment', action='store_true',
+                       help='Compare multiple MLP architectures using cross-validation')
+    parser.add_argument('--fp-weight', type=float, default=2.0,
+                       help='Multiplier for IDLE class weight to penalize false positives. '
+                            'Values >1.0 make the model more conservative (default: 2.0)')
     
     args = parser.parse_args()
     
@@ -690,7 +1043,10 @@ To compare ML with MVS, use:
         show_info()
         return 0
     
-    return train_all()
+    if args.experiment:
+        return experiment_architectures()
+    
+    return train_all(fp_weight=args.fp_weight)
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 
 Quick guide to tune ESPectre for reliable movement detection in your environment.
 
-> **Note on Detection Algorithms**: This guide focuses on **MVS** (the motion detection algorithm used by ESPectre).
+> **Note on Detection Algorithms**: This guide focuses on **MVS** (the default detection algorithm). Filters (low-pass, Hampel) apply to both MVS and ML detectors.
 
 ---
 
@@ -131,6 +131,8 @@ espectre:
 - Uses fixed subcarriers `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]` for consistency with training
 - Threshold is a probability (0.5 = 50% confidence)
 - Pre-trained weights are embedded in the component (no external files needed)
+- Architecture validated as optimal (12→16→8→1, 353 params, 1.4 KB) via 5-fold CV
+- Training uses early stopping, dropout, class weights, and LR scheduling
 
 ### Window Size (10-200 packets)
 
@@ -285,6 +287,8 @@ espectre:
 
 **What it does:** Removes statistical outliers from turbulence values using MAD (Median Absolute Deviation). This can help reduce false positives caused by sudden interference.
 
+**Applies to:** Both MVS and ML detectors.
+
 **Default:** Disabled
 
 > ⚠️ **Note:** The Hampel filter is disabled by default because MVS already provides robust motion detection with 0% false positives in typical environments. Enabling it reduces detection sensitivity (Recall drops from 98.1% to 96.3%). Only enable in environments with high electromagnetic interference causing sudden spikes.
@@ -363,6 +367,8 @@ espectre:
 ### Low-Pass Filter (Noise Reduction)
 
 **What it does:** Removes high-frequency noise from turbulence values using a 1st-order Butterworth IIR filter. This significantly reduces false positives in noisy RF environments.
+
+**Applies to:** Both MVS and ML detectors.
 
 **Default:** Disabled
 

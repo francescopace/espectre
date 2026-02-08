@@ -59,7 +59,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | **Motion Detection** |
 | MVS Detector | ✅ | ✅ | Moving Variance Segmentation (default) |
 | ML Detector | ✅ | ✅ | Neural Network (experimental) |
-| ML Features (12) | ✅ | ✅ | mean, std, max, min, range, var, iqr, entropy, skewness, kurtosis, slope, delta |
+| ML Features (12) | ✅ | ✅ | mean, std, max, min, zcr, skewness, kurtosis, entropy, autocorr, mad, slope, delta |
 | **Calibration (MVS only)** |
 | NBVI | ✅ | ✅ | 12 non-consecutive subcarriers (default) |
 | P95 | ✅ | ✅ | 12 consecutive subcarriers (alternative) |
@@ -407,9 +407,9 @@ SEG_THRESHOLD = "auto"     # "auto" (P95×1.4), "min" (P100), or 0.1-10.0
 SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
 ```
 
-### 5. Filters (Optional)
+### 5. Filters (Optional, MVS and ML)
 
-Applied to turbulence values before motion detection.
+Applied to turbulence values before motion detection. Both MVS and ML detectors support these filters.
 
 ```python
 # Low-pass filter (reduces high-frequency noise)
@@ -474,7 +474,8 @@ The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real 
 | Architecture | MLP (12 → 16 → 8 → 1) |
 | Input | 12 features from 50-packet window |
 | Output | Probability (0.0 - 1.0), threshold at 0.5 |
-| Performance | ~93% recall, 0% false positives |
+| Filters | Supports low-pass and Hampel filters (same as MVS) |
+| Performance | See [PERFORMANCE.md](../PERFORMANCE.md) for per-chip results |
 
 **Documentation**:
 - [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector) - Architecture, features, performance

@@ -301,18 +301,26 @@ See [tools/README.md](tools/README.md) for complete documentation of all analysi
 Once you have collected labeled data, train the ML model:
 
 ```bash
-# Train model (uses all data in data/ directory)
+# Train model with FP penalty (recommended for production)
+python tools/10_train_ml_model.py --fp-weight 2.0
+
+# Train with balanced weights (default)
 python tools/10_train_ml_model.py
 ```
+
+The `--fp-weight` parameter multiplies the IDLE class weight during training. Values >1.0 reduce false positives at the cost of slightly lower recall. Recommended: 2.0 for production.
 
 This will:
 1. Load all `.npz` files from `data/`
 2. Extract 12 features per sliding window
-3. Train MLP model (12 → 16 → 8 → 1)
-4. Export to:
+3. 5-fold cross-validation for reliable metrics
+4. Train MLP model (12 → 16 → 8 → 1) with early stopping and dropout
+5. Export to:
    - `src/ml_weights.py` (MicroPython)
+   - `components/espectre/ml_weights.h` (C++/ESPHome)
    - `models/motion_detector_small.tflite` (TFLite int8)
    - `models/feature_scaler.npz` (normalization params)
+   - `models/ml_test_data.npz` (test data for validation)
 
 ### Compare Detection Methods
 

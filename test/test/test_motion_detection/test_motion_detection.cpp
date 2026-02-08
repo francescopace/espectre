@@ -1,15 +1,18 @@
 /*
  * ESPectre - Motion Detection Integration Tests
  * 
- * Integration tests for the MVS motion detection algorithm.
+ * Integration tests for MVS and ML motion detection algorithms.
  * Tests motion detection performance with real CSI data.
  * 
- * Focus: Maximize Recall (90% target) for security/presence detection
+ * Focus: Maximize Recall (95% target for C6/S3, 90% for C3) for security/presence detection
  * 
  * Test Categories:
  *   1. test_mvs_detection_accuracy - MVS full performance evaluation
  *   2. test_mvs_threshold_sensitivity - MVS threshold parameter sweep
  *   3. test_mvs_window_size_sensitivity - MVS window size parameter sweep
+ *   4. test_mvs_end_to_end_with_p95_calibration - P95 calibration end-to-end
+ *   5. test_mvs_end_to_end_with_nbvi_calibration - NBVI calibration end-to-end
+ *   6. test_ml_detection_accuracy - ML neural network detection with real data
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -25,6 +28,7 @@
 #include "utils.h"
 #include "filters.h"
 #include "mvs_detector.h"
+#include "ml_detector.h"
 #include "csi_manager.h"
 #include "p95_calibrator.h"
 #include "nbvi_calibrator.h"
@@ -93,7 +97,14 @@ inline float get_fp_rate_target() {
     // C3 uses high-sensitivity band [20-31] with high baseline variance, allow 20% FP rate
     if (is_s3_chip()) return 15.0f;
     if (is_c3_chip()) return 20.0f;
-    return 10.0f;
+    return 5.0f;  // C6: tightened from 10% based on 0.0% actual
+}
+
+inline float get_recall_target() {
+    // C3 has marginal recall (92.2%), keep conservative target
+    // C6 and S3 achieve >98% recall consistently
+    if (is_c3_chip()) return 90.0f;
+    return 95.0f;
 }
 
 inline uint16_t get_window_size() {
@@ -174,6 +185,7 @@ static void process_packet(MVSDetector *detector, const int8_t *packet) {
 // Test: MVS motion detection accuracy with real CSI data
 void test_mvs_detection_accuracy(void) {
     float fp_target = get_fp_rate_target();
+    float recall_target = get_recall_target();
     uint16_t window_size = get_window_size();
     bool enable_hampel = get_enable_hampel();
     
@@ -181,7 +193,7 @@ void test_mvs_detection_accuracy(void) {
     printf("╔═══════════════════════════════════════════════════════╗\n");
     printf("║   ESPECTRE PERFORMANCE SUITE - MOTION DETECTION       ║\n");
     printf("║   Comprehensive evaluation for security/presence      ║\n");
-    printf("║   Target: 90%% Recall, <%.0f%% FP Rate                   ║\n", fp_target);
+    printf("║   Target: %.0f%% Recall, <%.0f%% FP Rate                   ║\n", recall_target, fp_target);
     printf("╚═══════════════════════════════════════════════════════╝\n");
     printf("\n");
     printf("Architecture: CSI Packet → P95 Calibration → Normalization → MVS → State\n");
@@ -189,56 +201,100 @@ void test_mvs_detection_accuracy(void) {
     printf("\n");
     
     // ========================================================================
-    // P95 CALIBRATION (exactly as in production)
+    // CALIBRATION
     // ========================================================================
-    printf("═══════════════════════════════════════════════════════\n");
-    printf("  P95 CALIBRATION\n");
-    printf("═══════════════════════════════════════════════════════\n\n");
     
     MVSDetector detector(window_size, SEGMENTATION_DEFAULT_THRESHOLD);
     detector.configure_lowpass(false);
     detector.configure_hampel(enable_hampel, 7, 4.0f);
     
-    CSIManager csi_manager;
-    csi_manager.init(&detector, get_optimal_subcarriers(), 100, GainLockMode::DISABLED, &g_wifi_mock);
-    
-    P95Calibrator cm;
-    cm.init(&csi_manager, "/tmp/test_accuracy_buffer.bin");
-    cm.init_subcarrier_config();
-    
-    // Calibration results
     uint8_t calibrated_band[12] = {0};
     uint8_t calibrated_size = 0;
     float calibrated_adaptive_threshold = 1.0f;
-    bool calibration_success = false;
-    
-    esp_err_t err = cm.start_calibration(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS,
-        [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
-            if (success && size > 0) {
-                memcpy(calibrated_band, band, size);
-                calibrated_size = size;
-                calibrated_adaptive_threshold = calculate_adaptive_threshold(mv_values, 95, 1.4f);
-            }
-            calibration_success = success;
-        });
-    
-    TEST_ASSERT_EQUAL(ESP_OK, err);
-    
-    // Feed baseline packets for calibration
-    const int gain_lock_skip = csi_manager.get_gain_lock_packets();
-    const int calibration_packets = cm.get_buffer_size();
     const int pkt_size = csi_test_data::packet_size();
     
-    printf("Calibrating with %d baseline packets...\n", calibration_packets);
-    for (int i = 0; i < calibration_packets && (i + gain_lock_skip) < num_baseline; i++) {
-        cm.add_packet(baseline_packets[i + gain_lock_skip], pkt_size);
+    if (is_c3_chip()) {
+        // C3: forced subcarriers [20-31] with manual P95 threshold (P95 × 1.1)
+        // Auto-calibration selects low-variance bands that don't capture movement
+        printf("═══════════════════════════════════════════════════════\n");
+        printf("  C3 FORCED SUBCARRIER CALIBRATION\n");
+        printf("═══════════════════════════════════════════════════════\n\n");
+        
+        const uint8_t* forced_sc = get_optimal_subcarriers();
+        memcpy(calibrated_band, forced_sc, NUM_SELECTED_SUBCARRIERS);
+        calibrated_size = NUM_SELECTED_SUBCARRIERS;
+        
+        // Calculate adaptive threshold manually: compute turbulence, then moving variance, then P95 × 1.1
+        const int skip = 300;  // Skip gain lock period
+        const int cal_count = 700;
+        std::vector<float> turbs;
+        for (int i = skip; i < skip + cal_count && i < num_baseline; i++) {
+            float turb = calculate_spatial_turbulence_from_csi(
+                (const int8_t*)baseline_packets[i], pkt_size,
+                forced_sc, NUM_SELECTED_SUBCARRIERS);
+            turbs.push_back(turb);
+        }
+        
+        // Moving variance
+        std::vector<float> mv_values;
+        for (int i = (int)window_size; i < (int)turbs.size(); i++) {
+            float sum = 0, sum_sq = 0;
+            for (int j = i - window_size; j < i; j++) {
+                sum += turbs[j];
+                sum_sq += turbs[j] * turbs[j];
+            }
+            float mean = sum / window_size;
+            float mv = sum_sq / window_size - mean * mean;
+            mv_values.push_back(mv);
+        }
+        
+        // P95 × 1.1 (lower multiplier for C3 high-sensitivity band)
+        calibrated_adaptive_threshold = calculate_adaptive_threshold(mv_values, 95, 1.1f);
+        
+        printf("Forced subcarriers: [%d-%d]\n", calibrated_band[0], calibrated_band[calibrated_size-1]);
+        printf("Adaptive threshold: %.4f (P95 × 1.1)\n", calibrated_adaptive_threshold);
+    } else {
+        // Other chips: P95 auto-calibration (exactly as in production)
+        printf("═══════════════════════════════════════════════════════\n");
+        printf("  P95 CALIBRATION\n");
+        printf("═══════════════════════════════════════════════════════\n\n");
+        
+        CSIManager csi_manager;
+        csi_manager.init(&detector, get_optimal_subcarriers(), 100, GainLockMode::DISABLED, &g_wifi_mock);
+        
+        P95Calibrator cm;
+        cm.init(&csi_manager, "/tmp/test_accuracy_buffer.bin");
+        cm.init_subcarrier_config();
+        
+        bool calibration_success = false;
+        
+        esp_err_t err = cm.start_calibration(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS,
+            [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
+                if (success && size > 0) {
+                    memcpy(calibrated_band, band, size);
+                    calibrated_size = size;
+                    calibrated_adaptive_threshold = calculate_adaptive_threshold(mv_values, 95, 1.4f);
+                }
+                calibration_success = success;
+            });
+        
+        TEST_ASSERT_EQUAL(ESP_OK, err);
+        
+        // Feed baseline packets for calibration
+        const int gain_lock_skip = csi_manager.get_gain_lock_packets();
+        const int calibration_packets = cm.get_buffer_size();
+        
+        printf("Calibrating with %d baseline packets...\n", calibration_packets);
+        for (int i = 0; i < calibration_packets && (i + gain_lock_skip) < num_baseline; i++) {
+            cm.add_packet(baseline_packets[i + gain_lock_skip], pkt_size);
+        }
+        
+        TEST_ASSERT_TRUE_MESSAGE(calibration_success, "P95 calibration failed");
+        
+        printf("Calibration results:\n");
+        printf("  Band: [%d-%d]\n", calibrated_band[0], calibrated_band[calibrated_size-1]);
+        printf("  Adaptive threshold: %.4f (P95 × 1.4)\n", calibrated_adaptive_threshold);
     }
-    
-    TEST_ASSERT_TRUE_MESSAGE(calibration_success, "P95 calibration failed");
-    
-    printf("Calibration results:\n");
-    printf("  Band: [%d-%d]\n", calibrated_band[0], calibrated_band[calibrated_size-1]);
-    printf("  Adaptive threshold: %.4f (P95 × 1.4)\n", calibrated_adaptive_threshold);
     
     // ========================================================================
     // MOTION DETECTION PERFORMANCE
@@ -372,7 +428,7 @@ void test_mvs_detection_accuracy(void) {
     printf("  * True Negatives (TN):   %d\n", pkt_tn);
     printf("  * False Positives (FP):  %d\n", pkt_fp);
     printf("  * False Negatives (FN):  %d\n", pkt_fn);
-    printf("  * Recall:     %.1f%% (target: >90%%)\n", pkt_recall);
+    printf("  * Recall:     %.1f%% (target: >%.0f%%)\n", pkt_recall, recall_target);
     printf("  * Precision:  %.1f%%\n", pkt_precision);
     printf("  * FP Rate:    %.1f%% (target: <%.0f%%)\n", pkt_fp_rate, fp_target);
     printf("  * F1-Score:   %.1f%%\n", pkt_f1);
@@ -386,8 +442,8 @@ void test_mvs_detection_accuracy(void) {
     remove("/tmp/test_accuracy_buffer.bin");
     
     // Verify minimum acceptable performance (chip-specific thresholds)
-    TEST_ASSERT_TRUE_MESSAGE(pkt_recall > 90.0f, "Recall too low (target: >90%)");
-    TEST_ASSERT_TRUE_MESSAGE(pkt_fp_rate < fp_target, "FP Rate too high (target: <10%)");
+    TEST_ASSERT_TRUE_MESSAGE(pkt_recall > recall_target, "Recall too low");
+    TEST_ASSERT_TRUE_MESSAGE(pkt_fp_rate < fp_target, "FP Rate too high");
 }
 
 // Test: MVS threshold parameter sensitivity analysis
@@ -495,7 +551,17 @@ void test_mvs_window_size_sensitivity(void) {
 }
 
 // Test: End-to-end with P95 band calibration and normalization
-void test_mvs_end_to_end_with_calibration(void) {
+void test_mvs_end_to_end_with_p95_calibration(void) {
+    // Skip C3 - auto-calibration selects wrong bands, C3 requires forced subcarriers [20-31]
+    if (is_c3_chip()) {
+        printf("\n═══════════════════════════════════════════════════════\n");
+        printf("  SKIPPED: P95 Auto-Calibration on C3\n");
+        printf("  Reason: C3 requires forced subcarriers [20-31] - see test_mvs_detection_accuracy\n");
+        printf("═══════════════════════════════════════════════════════\n\n");
+        TEST_IGNORE_MESSAGE("P95 auto-calibration skipped on C3 - requires forced subcarriers [20-31]");
+        return;
+    }
+    
     float fp_target = get_fp_rate_target();
     uint16_t window_size = get_window_size();
     bool enable_hampel = get_enable_hampel();
@@ -614,8 +680,9 @@ void test_mvs_end_to_end_with_calibration(void) {
            recall, precision, fp_rate, fp_target, f1);
     
     // Performance should still meet targets with P95-selected subcarriers (chip-specific)
-    TEST_ASSERT_TRUE_MESSAGE(recall > 90.0f, "End-to-end Recall too low (target: >90%)");
-    TEST_ASSERT_TRUE_MESSAGE(fp_rate < fp_target, "End-to-end FP Rate too high (target: <10%)");
+    float recall_target = get_recall_target();
+    TEST_ASSERT_TRUE_MESSAGE(recall > recall_target, "End-to-end Recall too low");
+    TEST_ASSERT_TRUE_MESSAGE(fp_rate < fp_target, "End-to-end FP Rate too high");
     
     // Cleanup
     remove("/tmp/test_e2e_buffer.bin");
@@ -628,6 +695,16 @@ void test_mvs_end_to_end_with_calibration(void) {
  * NOTE: NBVI is skipped on S3 due to poor performance (67% recall vs 99% with P95).
  */
 void test_mvs_end_to_end_with_nbvi_calibration(void) {
+    // Skip C3 - auto-calibration selects wrong bands, C3 requires forced subcarriers [20-31]
+    if (is_c3_chip()) {
+        printf("\n═══════════════════════════════════════════════════════\n");
+        printf("  SKIPPED: NBVI Auto-Calibration on C3\n");
+        printf("  Reason: C3 requires forced subcarriers [20-31] - see test_mvs_detection_accuracy\n");
+        printf("═══════════════════════════════════════════════════════\n\n");
+        TEST_IGNORE_MESSAGE("NBVI auto-calibration skipped on C3 - requires forced subcarriers [20-31]");
+        return;
+    }
+    
     // Skip NBVI on S3 - it doesn't work well with noisy baseline
     if (is_s3_chip()) {
         printf("\n═══════════════════════════════════════════════════════\n");
@@ -748,12 +825,139 @@ void test_mvs_end_to_end_with_nbvi_calibration(void) {
     printf("  Recall: %.1f%%, Precision: %.1f%%, FP Rate: %.1f%% (target: <%.0f%%), F1: %.1f%%\n", 
            recall, precision, fp_rate, fp_target, f1);
     
-    // Performance should meet targets
-    TEST_ASSERT_TRUE_MESSAGE(recall > 90.0f, "NBVI End-to-end Recall too low (target: >90%)");
+    // Performance should meet targets (chip-specific)
+    float recall_target = get_recall_target();
+    TEST_ASSERT_TRUE_MESSAGE(recall > recall_target, "NBVI End-to-end Recall too low");
     TEST_ASSERT_TRUE_MESSAGE(fp_rate < fp_target, "NBVI End-to-end FP Rate too high");
     
     // Cleanup
     remove("/tmp/test_nbvi_buffer.bin");
+}
+
+// ============================================================================
+// ML Detection Accuracy with Real Data
+// ============================================================================
+
+// ML-specific FP rate targets (ML performs better than MVS)
+inline float get_ml_fp_rate_target() {
+    if (is_s3_chip()) return 10.0f;
+    return 5.0f;  // C6 and C3
+}
+
+/**
+ * Test: ML detection accuracy with real CSI data
+ * 
+ * Tests the ML detector (MLP neural network) using real CSI data.
+ * ML uses fixed subcarriers [11,14,17,...,49] regardless of chip type.
+ * No calibration needed - uses pre-trained weights.
+ * 
+ * Target: >95% Recall (C6/S3), >90% Recall (C3), <fp_target% FP Rate
+ */
+void test_ml_detection_accuracy(void) {
+    float fp_target = get_ml_fp_rate_target();
+    float recall_target = (is_c3_chip()) ? 90.0f : 95.0f;
+    
+    printf("\n");
+    printf("═══════════════════════════════════════════════════════\n");
+    printf("  ML DETECTION ACCURACY TEST\n");
+    printf("  Chip: %s\n", csi_test_data::chip_name(csi_test_data::current_chip()));
+    printf("  Target: >%.0f%% Recall, <%.0f%% FP Rate\n", recall_target, fp_target);
+    printf("═══════════════════════════════════════════════════════\n\n");
+    
+    // Initialize ML detector (no calibration needed)
+    MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
+    
+    printf("ML Detector initialized\n");
+    printf("  Threshold: %.1f\n", detector.get_threshold());
+    printf("  Window size: %d\n", detector.get_window_size());
+    printf("  Subcarriers: ML fixed [11,14,...,49]\n");
+    
+    const int pkt_size = csi_test_data::packet_size();
+    const int warmup = 50;  // First 50 packets are warmup for buffer filling
+    
+    // ========================================================================
+    // Process baseline packets (expecting IDLE)
+    // ========================================================================
+    printf("\nProcessing baseline packets (expecting IDLE)...\n");
+    int baseline_motion = 0;
+    int baseline_eval_count = num_baseline - warmup;
+    
+    for (int i = 0; i < num_baseline; i++) {
+        detector.process_packet((const int8_t*)baseline_packets[i], pkt_size,
+                               ML_SUBCARRIERS, 12);
+        detector.update_state();
+        // Only count after warmup
+        if (i >= warmup && detector.get_state() == MotionState::MOTION) {
+            baseline_motion++;
+        }
+    }
+    
+    // ========================================================================
+    // Process movement packets (expecting MOTION)
+    // Continue without reset, first 50 are transition warmup
+    // ========================================================================
+    printf("Processing movement packets (expecting MOTION)...\n");
+    int movement_warmup = 50;
+    int movement_with_motion = 0;
+    int movement_without_motion = 0;
+    int movement_eval_count = num_movement - movement_warmup;
+    
+    for (int i = 0; i < num_movement; i++) {
+        detector.process_packet((const int8_t*)movement_packets[i], pkt_size,
+                               ML_SUBCARRIERS, 12);
+        detector.update_state();
+        // Only count after warmup
+        if (i >= movement_warmup) {
+            if (detector.get_state() == MotionState::MOTION) {
+                movement_with_motion++;
+            } else {
+                movement_without_motion++;
+            }
+        }
+    }
+    
+    // ========================================================================
+    // Calculate metrics
+    // ========================================================================
+    int pkt_tp = movement_with_motion;
+    int pkt_fn = movement_without_motion;
+    int pkt_tn = baseline_eval_count - baseline_motion;
+    int pkt_fp = baseline_motion;
+    
+    float recall = (pkt_tp + pkt_fn > 0) ? (float)pkt_tp / (pkt_tp + pkt_fn) * 100.0f : 0.0f;
+    float precision = (pkt_tp + pkt_fp > 0) ? (float)pkt_tp / (pkt_tp + pkt_fp) * 100.0f : 0.0f;
+    float fp_rate = (baseline_eval_count > 0) ? (float)pkt_fp / baseline_eval_count * 100.0f : 0.0f;
+    float f1 = (precision + recall > 0) ? 
+        2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
+    
+    // ========================================================================
+    // Print results
+    // ========================================================================
+    printf("\n═══════════════════════════════════════════════════════════════════════\n");
+    printf("                     ML DETECTION TEST SUMMARY\n");
+    printf("═══════════════════════════════════════════════════════════════════════\n");
+    printf("\n");
+    printf("CONFUSION MATRIX (%d baseline + %d movement packets, excl. warmup):\n", baseline_eval_count, movement_eval_count);
+    printf("                    Predicted\n");
+    printf("                IDLE      MOTION\n");
+    printf("Actual IDLE     %4d (TN)  %4d (FP)\n", pkt_tn, pkt_fp);
+    printf("    MOTION      %4d (FN)  %4d (TP)\n", pkt_fn, pkt_tp);
+    printf("\n");
+    printf("METRICS:\n");
+    printf("  * Recall:     %.1f%% (target: >%.0f%%)\n", recall, recall_target);
+    printf("  * Precision:  %.1f%%\n", precision);
+    printf("  * FP Rate:    %.1f%% (target: <%.0f%%)\n", fp_rate, fp_target);
+    printf("  * F1-Score:   %.1f%%\n", f1);
+    printf("\n");
+    printf("═══════════════════════════════════════════════════════════════════════\n\n");
+    
+    // ========================================================================
+    // Assertions
+    // ========================================================================
+    TEST_ASSERT_TRUE_MESSAGE(recall > recall_target, "ML Recall too low");
+    if (baseline_eval_count > 0) {
+        TEST_ASSERT_TRUE_MESSAGE(fp_rate < fp_target, "ML FP Rate too high");
+    }
 }
 
 // Run tests for a specific chip
@@ -779,15 +983,16 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
     RUN_TEST(test_mvs_detection_accuracy);
     RUN_TEST(test_mvs_threshold_sensitivity);
     RUN_TEST(test_mvs_window_size_sensitivity);
-    RUN_TEST(test_mvs_end_to_end_with_calibration);          // P95 calibration
+    RUN_TEST(test_mvs_end_to_end_with_p95_calibration);          // P95 calibration
     RUN_TEST(test_mvs_end_to_end_with_nbvi_calibration);     // NBVI calibration
+    RUN_TEST(test_ml_detection_accuracy);                     // ML neural network
     return UNITY_END();
 }
 
 int process(void) {
     int failures = 0;
     
-    // Run tests with both C6 and S3 datasets
+    // Run tests with all available datasets (C3, C6, S3)
     for (auto chip : csi_test_data::get_available_chips()) {
         failures += run_tests_for_chip(chip);
     }

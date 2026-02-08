@@ -100,8 +100,11 @@ class TestPredict:
     
     def test_predict_returns_float(self):
         """Predict returns a float."""
-        features = [5.0, 1.0, 10.0, 2.0, 8.0, 2.0,
-                    1.5, 2.0, 0.3, -0.5, 0.01, 1.0]
+        # Features: turb_mean, turb_std, turb_max, turb_min, turb_zcr,
+        #           turb_skewness, turb_kurtosis, turb_entropy,
+        #           turb_autocorr, turb_mad, turb_slope, turb_delta
+        features = [14.0, 2.0, 17.0, 9.0, 0.30,
+                    -1.5, 8.0, 2.0, 0.15, 0.7, 0.001, 0.0]
         result = predict(features)
         assert isinstance(result, float)
     
@@ -120,14 +123,15 @@ class TestPredict:
     def test_predict_different_inputs_different_outputs(self):
         """Different inputs produce different outputs."""
         # Use realistic feature values based on actual data distributions
-        # Features: turb_mean, turb_std, turb_max, turb_range, mv_mean, mv_max,
-        #           iqr, entropy, skewness, kurtosis, zero_crossings, delta_mv
-        # Baseline-like: low turbulence and variance
-        features1 = [12.0, 1.5, 15.0, 3.0, 5.0, 3.0,
-                     3.0, 1.5, -0.5, -0.8, 0.001, 0.0]
-        # Motion-like: high turbulence and variance
-        features2 = [20.0, 5.0, 30.0, 15.0, 25.0, 30.0,
-                     10.0, 3.5, 0.5, 1.5, 0.05, 15.0]
+        # Features: turb_mean, turb_std, turb_max, turb_min, turb_zcr,
+        #           turb_skewness, turb_kurtosis, turb_entropy,
+        #           turb_autocorr, turb_mad, turb_slope, turb_delta
+        # Baseline-like: low turbulence, stable signal
+        features1 = [12.0, 1.0, 14.0, 10.0, 0.20,
+                     -3.0, 15.0, 1.5, 0.35, 0.3, 0.0, 0.0]
+        # Motion-like: high turbulence, turbulent signal
+        features2 = [20.0, 5.0, 27.0, 4.0, 0.50,
+                     1.0, 3.0, 3.0, -0.10, 2.5, 0.05, 5.0]
         
         result1 = predict(features1)
         result2 = predict(features2)

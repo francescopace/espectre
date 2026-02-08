@@ -64,8 +64,8 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| **MVS Algorithm** | Production | Moving Variance Segmentation for motion detection (F1=99.0%) |
-| **Band Calibration** | Production | Automatic subcarrier selection (F1=98.2%) |
+| **MVS Algorithm** | Production | Moving Variance Segmentation for motion detection |
+| **Band Calibration** | Production | Automatic subcarrier selection (NBVI/P95) |
 | **ESPHome Integration** | Production | Native Home Assistant integration with auto-discovery |
 | **Micro-ESPectre** | Production | Python R&D platform for rapid prototyping |
 | **ML Data Collection** | Ready | Infrastructure for labeled CSI dataset creation |

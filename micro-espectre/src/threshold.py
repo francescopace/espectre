@@ -14,7 +14,10 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-from src.utils import calculate_percentile
+try:
+    from src.utils import calculate_percentile
+except ImportError:
+    from utils import calculate_percentile
 
 # Default parameters
 DEFAULT_PERCENTILE = 95

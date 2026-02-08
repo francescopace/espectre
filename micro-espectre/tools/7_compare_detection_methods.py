@@ -38,7 +38,10 @@ from csi_utils import (
 )
 from threshold import calculate_adaptive_threshold
 from segmentation import SegmentationContext
-from features import calc_skewness, calc_kurtosis, calc_iqr_turb, calc_entropy_turb
+from features import (
+    calc_skewness, calc_kurtosis, calc_entropy_turb,
+    calc_zero_crossing_rate, calc_autocorrelation, calc_mad,
+)
 
 # Check if ML model is available
 ML_AVAILABLE = False
@@ -103,15 +106,20 @@ class MLDetector:
             prob = 0.0
         else:
             turb_list = list(self.turb_buffer)
+            n = len(turb_list)
+            turb_mean = np.mean(turb_list)
+            turb_std = np.std(turb_list)
+            turb_var = turb_std * turb_std
             features = [
-                np.mean(turb_list), np.std(turb_list), 
+                turb_mean, turb_std,
                 np.max(turb_list), np.min(turb_list),
-                np.max(turb_list) - np.min(turb_list), np.var(turb_list),
-                calc_iqr_turb(turb_list, len(turb_list)),
-                calc_entropy_turb(turb_list, len(turb_list)),
-                calc_skewness(list(amps)) if amps is not None else 0,
-                calc_kurtosis(list(amps)) if amps is not None else 0,
-                np.polyfit(range(len(turb_list)), turb_list, 1)[0],
+                calc_zero_crossing_rate(turb_list, n, mean=turb_mean),
+                calc_skewness(turb_list, n, turb_mean, turb_std),
+                calc_kurtosis(turb_list, n, turb_mean, turb_std),
+                calc_entropy_turb(turb_list, n),
+                calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var),
+                calc_mad(turb_list, n),
+                np.polyfit(range(n), turb_list, 1)[0],
                 turb_list[-1] - turb_list[0],
             ]
             prob = ml_predict(features)

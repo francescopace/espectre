@@ -228,9 +228,9 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `segmentation_threshold` | string/float | auto | Threshold: `auto`, `min`, or number (MVS: 0.1-10.0, ML: 0.0-1.0) |
 | `segmentation_window_size` | int | 50 | Moving variance window in packets |
 | `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
-| `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction |
+| `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction (MVS and ML) |
 | `lowpass_cutoff` | float | 11.0 | Low-pass filter cutoff frequency in Hz (5-20) |
-| `hampel_enabled` | bool | false | Enable Hampel outlier filter |
+| `hampel_enabled` | bool | false | Enable Hampel outlier filter (MVS and ML) |
 | `hampel_window` | int | 7 | Hampel filter window size |
 | `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) |
 | `gain_lock` | string | auto | AGC/FFT gain lock: `auto`, `enabled`, `disabled` |
@@ -260,6 +260,8 @@ espectre:
 |-----------|--------------|------|------|----------|
 | **MVS** (default) | Variance of spatial turbulence | Low CPU, adaptive threshold | Requires 10s calibration | General use |
 | **ML** | Neural network (MLP 12→16→8→1) | Fast boot (~3s), fixed subcarriers | Pre-trained weights | Experimental |
+
+Both algorithms support optional low-pass and Hampel filters on the turbulence stream.
 
 ```yaml
 espectre:

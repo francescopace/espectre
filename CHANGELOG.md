@@ -4,167 +4,76 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.5.0] - in progress - ML Detector & Training Pipeline
+## [2.5.0] - in progress - ML Detector, Training Pipeline & Pre-built Firmware
 
 ### Highlights
 
-- **ML Detector (Experimental)**: Neural network-based motion detection using 12 statistical features
-- **Training pipeline**: Scripts for collecting data, training models, and generating model weights
-- **PCA Algorithm Removed**: The experimental PCA detection algorithm has been removed
-- **Pre-built firmware**: Download ready-to-flash firmware from GitHub Releases
-- **Easy Install guide**: New browser-based flashing instructions using ESPConnect
+- **ML Detector (Experimental)**: Neural network-based motion detection — faster boot (~3s vs ~10s), no calibration needed
+- **Training Pipeline**: End-to-end workflow to collect data, train, and export models for both platforms
+- **Pre-built Firmware**: Download ready-to-flash binaries from GitHub Releases for all 6 ESP32 variants
+- **PCA Algorithm Removed**: Replaced by ML detector (see rationale below)
 
-### PCA Detection Algorithm Removed
+### ML Detector
 
-The PCA (Principal Component Analysis) detection algorithm has been removed from ESPectre. While PCA itself is a well-known statistical technique, our implementation was based on Espressif's open-source esp-radar library. Since Espressif has transitioned this library to closed source, we have removed our PCA implementation to ensure full compliance with our GPLv3 license. MVS remains the recommended algorithm with excellent performance (F1 > 99%).
+First experimental release of a neural network-based motion detector, available in both C++ (ESPHome) and Python (Micro-ESPectre).
 
-Future development will focus on the ML detector, which shows very promising results in early testing with high recall and precision. The ML detector uses manual MLP inference (no TFLite dependency), achieves inference times even lower than MVS, and requires no initial calibration as it uses evenly distributed subcarriers across all 64 available.
-
-#### ML Detector
-
-Neural network-based motion detector now available in both C++ (ESPHome) and Python (Micro-ESPectre):
-
-| Aspect | Details |
-|--------|---------|
-| Configuration | `detection_algorithm: ml` in YAML |
-| Architecture | MLP (12 → 16 → 8 → 1) with ReLU/Sigmoid |
-| Input | 12 features from 50-packet sliding window |
-| Output | Probability (0.0-1.0), default threshold 0.5 |
-| Performance | ~99% F1 score (recall + precision) |
-| Boot time | **~3 seconds** (vs ~10s for MVS) |
-| Dependencies | None (manual inference, no TFLite) |
-
-**C++ Implementation**: Manual MLP inference with `constexpr` weights (~2KB). Zero external dependencies.
-
-**Fast boot**: ML uses 12 fixed, evenly distributed subcarriers - no band calibration needed. Only the 3-second gain lock phase runs at boot, reducing startup time by 70%.
+- **Configuration**: `detection_algorithm: ml` in YAML
+- **Performance**: ~97-100% F1 score depending on chip
+- **Boot time**: ~3 seconds (vs ~10s for MVS) — no band calibration needed
+- **Zero dependencies**: Manual MLP inference, no TFLite required
 
 ```yaml
-# Enable ML detector in ESPHome
 espectre:
   detection_algorithm: ml
 ```
 
+The pre-trained model shipped with this release was trained on a limited dataset collected in a single environment. It performs well in initial testing, but **we need your help to make it better**. If you try the ML detector, consider contributing baseline (empty room) and movement recordings from your environment — the more diverse the training data, the more robust the model becomes. See [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md) for how to collect and submit data via pull request.
+
+For architecture and feature details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#csi-features-for-ml).
+
 #### Training Pipeline
 
-- **`10_train_ml_model.py`**: Train MLP model with all available data
-- **`7_compare_detection_methods.py`**: Compare MVS and ML performance
-- **C++ export**: `components/espectre/ml_weights.h` (constexpr weights for ESPHome)
-- **MicroPython export**: `src/ml_weights.py` (auto-generated weights)
-- **Test data export**: `models/ml_test_data.npz` (for validation)
-- **TFLite export**: `models/motion_detector_small.tflite` (checkpoint)
+Collect labeled data, train a model, and export weights for both platforms:
 
-#### Documentation
+```bash
+./me collect --label <name> --duration <sec>   # Collect data
+python tools/10_train_ml_model.py               # Train model
+```
 
-- **ALGORITHMS.md**: New "ML: Neural Network Detector" section
-- **ML_DATA_COLLECTION.md**: Updated with training instructions
-- **README.md**: Updated ML section with experimental info
+Exports `ml_weights.py` (Python), `ml_weights.h` (C++), and TFLite checkpoint. See [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md) for the full workflow.
 
-#### New Test Suite
+### Pre-built Firmware & Easy Install
 
-- **`test_ml_detector.py`**: 38 tests covering ML inference and detector class
+New `release.yml` workflow builds and publishes firmware for all supported chips (ESP32, S2, S3, C3, C5, C6) on every tagged release.
 
-### GitHub Releases & Easy Install
+SETUP.md now offers two installation paths:
 
-#### Pre-built Firmware
-
-New `release.yml` workflow automatically builds and publishes firmware for all supported chips when a version is tagged:
-
-| Chip | Firmware |
-|------|----------|
-| ESP32 | `espectre-X.Y.Z-esp32.bin` |
-| ESP32-S2 | `espectre-X.Y.Z-esp32s2.bin` |
-| ESP32-S3 | `espectre-X.Y.Z-esp32s3.bin` |
-| ESP32-C3 | `espectre-X.Y.Z-esp32c3.bin` |
-| ESP32-C5 | `espectre-X.Y.Z-esp32c5.bin` |
-| ESP32-C6 | `espectre-X.Y.Z-esp32c6.bin` |
-
-- Release notes extracted automatically from CHANGELOG.md
-- Discussion created in "Announcements" category
-- Pre-release detection for `-rc`, `-beta`, `-alpha` tags
-
-#### Easy Install Documentation
-
-SETUP.md reorganized with two installation paths:
-
-- **Option A: Web Flash** - Download firmware from Releases, flash via [ESPConnect](https://thelastoutpostworkshop.github.io/ESPConnect/) in Chrome
-- **Option B: ESPHome CLI** - Traditional developer workflow with `esphome run`
+- **Option A: Web Flash** — Download from Releases, flash via [ESPConnect](https://thelastoutpostworkshop.github.io/ESPConnect/) in Chrome
+- **Option B: ESPHome CLI** — Traditional `esphome run` workflow
 
 Based on PR #77 by [@WLaoDuo](https://github.com/WLaoDuo).
 
-### Calibrator Refactoring & Robustness Fixes
+### PCA Detection Algorithm Removed
 
-Major code quality refactoring of the calibrator subsystem, reducing duplication and improving robustness.
+The PCA (Principal Component Analysis) detection algorithm has been removed from ESPectre. While PCA itself is a well-known statistical technique, our implementation was based on Espressif's open-source esp-radar library. Since Espressif has transitioned this library to closed source, we have removed our PCA implementation to ensure full compliance with our GPLv3 license.
 
-#### New Abstractions
+MVS remains the recommended algorithm with excellent performance (F1 > 99%). Future development will focus on the ML detector, which shows very promising results in early testing and requires no initial calibration.
 
-- **`CalibrationFileBuffer`**: Shared class for SPIFFS-based calibration I/O (replaces duplicated file logic in P95/NBVI calibrators)
-- **`BaseCalibrator`**: Template method base class for calibration lifecycle (init, collection, task management, cleanup)
+### Improvements
 
-#### DRY Improvements
-
-- Extracted ~200 lines of duplicated code across P95 and NBVI calibrators
-- Unified `calculate_percentile` into a single implementation in `threshold.h`
-- Consolidated `ThresholdMode` enum (merged duplicate definitions, added `MANUAL` mode)
-- Replaced `csi_motion_state_t` with `MotionState` across all components
-- Removed unused `csi_detection_algorithm_t` enum
-- Unified subcarrier count constant to `HT20_SELECTED_BAND_SIZE`
-
-#### Robustness Fixes
-
-- Fixed double amplitude calculation in `BaseDetector::process_packet()` (reuse pre-computed buffer)
-- Stack allocation in `hampel_filter()` instead of `malloc`/`free` for bounded buffers
-- SPIFFS file removal with `remove()` attempt and truncation fallback
-- Removed emoji characters from ESP_LOG messages for consistent serial output
-
-### Gain Lock Improvements
-
-#### Median-Based Calibration
-
-Gain lock calibration now uses **median** instead of mean for AGC/FFT baseline calculation, providing better robustness against outliers and noise spikes during the initial calibration phase.
-
-#### Signed FFT Gain
-
-Fixed `fft_gain` type from unsigned to signed (`int8_t`), matching Espressif's internal representation. This corrects potential issues with negative FFT gain values.
-
-#### Gain Compensation
-
-New gain compensation feature normalizes CSI amplitudes when gain lock is skipped or disabled:
-
-- **Formula**: `compensation = 10^((delta_agc + delta_fft) / 20)`
-- **Applied to**: All CSI amplitudes before turbulence calculation
-- **Modes affected**: `disabled` mode (always) and `auto` mode when skipped due to strong signal
-- **Result**: Accurate motion detection without hardware locking
+- **Gain lock**: Median-based calibration (replaces mean), signed FFT gain fix, new gain compensation for when gain lock is skipped
+- **Calibrator refactoring**: New `BaseCalibrator` and `CalibrationFileBuffer` abstractions, ~200 lines of duplication removed
+- **Bug fixes**: Double amplitude calculation fix, stack allocation in Hampel filter, emoji removal from serial logs
 
 ### Micro-ESPectre (R&D Platform)
 
-#### Extended Hardware Support
-
-The `me` CLI now supports all ESP32 variants with CSI capability:
-
-| Chip | CLI Option | Firmware |
-|------|------------|----------|
-| ESP32 (original) | `--chip esp32` | `ESP32_CSI.bin` |
-| ESP32-C3 | `--chip c3` | `ESP32_CSI_C3.bin` |
-| ESP32-S3 | `--chip s3` | `ESP32_CSI_S3.bin` |
-| ESP32-C6 | `--chip c6` | `ESP32_CSI_C6.bin` |
-
-- **Auto-detection**: Chip type is automatically detected during `./me flash`
-- **Firmware download**: Correct firmware is downloaded from GitHub releases
-- **Hash verification**: All firmware files are verified with SHA256
-
-#### Gain Compensation for All Detectors
-
-All detectors (MVS, ML) now support gain compensation consistently:
-
-- **MVS**: Already supported via `SegmentationContext`
-- **ML**: Now uses instance method `calculate_spatial_turbulence()` with compensation
-
-CSI streaming (`./me stream`) sends **raw data** without compensation, ensuring training data matches inference behavior (compensation applied during detection, not collection).
-
-#### Bug Fixes
-
-- **Signed int8 conversion**: All CSI I/Q parsing now uses `to_signed_int8()` consistently. Previously, values > 127 were incorrectly treated as positive in some modules.
-- **ESP32 flash offset**: Fixed firmware flash offset for ESP32 base (`0x1000` instead of `0x0`)
+- **Extended hardware support**: `me` CLI now supports ESP32, C3, S3, C6 with auto-detection and SHA256 firmware verification
+- **Gain compensation**: All detectors (MVS, ML) now apply gain compensation consistently
+- **ML detector filter support**: ML detector now accepts low-pass and Hampel filter parameters, matching C++ implementation
+- **DRY refactoring**: Extracted `BaseCalibrator` from `ICalibrator` to eliminate duplicated buffer management in `P95Calibrator` and `NBVICalibrator`; shared `insertion_sort` moved to `utils.py`; state constants unified via `MotionState`; variance calculation delegated to shared utility
+- **Import standardization**: All `src/` modules now use `try/except ImportError` pattern for MicroPython/CPython compatibility
+- **Removed `BandCalibrator` alias**: Unused alias for `P95Calibrator` cleaned up
+- **Bug fixes**: Signed int8 CSI parsing, ESP32 flash offset corrected, LowPass default cutoff aligned to 11.0 Hz, "Wi-Fi spectre" typo corrected to "Wi-Fi spectrum"
 
 ---
 

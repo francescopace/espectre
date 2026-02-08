@@ -5,15 +5,17 @@ Pure Python implementation compatible with both MicroPython and standard Python.
 Implements the MVS algorithm for motion detection using CSI turbulence variance.
 Uses two-pass variance calculation for numerical stability (matches C++ implementation).
 
-Features are calculated at publish time (not per-packet) using:
-  - Current packet amplitudes (W=1 features)
-  - Turbulence buffer (already maintained for MVS)
-
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 import math
-from src.utils import to_signed_int8
+
+try:
+    from src.utils import to_signed_int8, calculate_variance
+    from src.detector_interface import MotionState
+except ImportError:
+    from utils import to_signed_int8, calculate_variance
+    from detector_interface import MotionState
 
 
 class SegmentationContext:
@@ -26,21 +28,19 @@ class SegmentationContext:
     
     Two-pass variance formula: Var(X) = Σ(x - μ)² / n
     
-    Features are calculated on-demand at publish time, not per-packet.
-    
     All configuration is passed as parameters (dependency injection),
     making this class usable in both MicroPython and standard Python.
     """
     
-    # States
-    STATE_IDLE = 0
-    STATE_MOTION = 1
+    # States (aliases for backward compatibility - source of truth is MotionState)
+    STATE_IDLE = MotionState.IDLE
+    STATE_MOTION = MotionState.MOTION
     
     def __init__(self, 
                  window_size=50,
                  threshold=1.0,
                  enable_lowpass=False,
-                 lowpass_cutoff=17.5,
+                 lowpass_cutoff=11.0,
                  enable_hampel=False,
                  hampel_window=7,
                  hampel_threshold=4.0):
@@ -52,7 +52,7 @@ class SegmentationContext:
             threshold: Motion detection threshold value (default: 1.0)
                        Can be set dynamically via set_adaptive_threshold() after calibration
             enable_lowpass: Enable low-pass filter for noise reduction (default: False)
-            lowpass_cutoff: Low-pass filter cutoff frequency in Hz (default: 17.5)
+            lowpass_cutoff: Low-pass filter cutoff frequency in Hz (default: 11.0)
             enable_hampel: Enable Hampel filter for outlier removal (default: False)
             hampel_window: Hampel filter window size (default: 7)
             hampel_threshold: Hampel filter threshold in MAD units (default: 4.0)
@@ -73,7 +73,7 @@ class SegmentationContext:
         self.current_moving_variance = 0.0
         self.last_turbulence = 0.0
         
-        # Last amplitudes (for W=1 features at publish time)
+        # Last amplitudes (stored for external use)
         self.last_amplitudes = None
         
         # Gain compensation factor (1.0 = no compensation)
@@ -120,8 +120,7 @@ class SegmentationContext:
         """
         Calculate variance using two-pass algorithm (numerically stable) - static version
         
-        Two-pass algorithm: variance = sum((x - mean)^2) / n
-        More stable than single-pass E[X²] - E[X]² for float32 arithmetic.
+        Delegates to utils.calculate_variance() to avoid code duplication.
         
         Args:
             values: List or array of float values
@@ -129,24 +128,7 @@ class SegmentationContext:
         Returns:
             float: Variance (0.0 if empty)
         """
-        n = len(values)
-        if n == 0:
-            return 0.0
-        
-        # First pass: calculate mean
-        total = 0.0
-        for i in range(n):
-            total += values[i]
-        mean = total / n
-        
-        # Second pass: calculate variance
-        variance = 0.0
-        for i in range(n):
-            diff = values[i] - mean
-            variance += diff * diff
-        variance /= n
-        
-        return variance
+        return calculate_variance(values)
     
     @staticmethod
     def compute_spatial_turbulence(csi_data, selected_subcarriers=None, gain_compensation=1.0):

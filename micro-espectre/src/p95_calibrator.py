@@ -23,22 +23,26 @@ import math
 import gc
 import os
 
-# Import HT20 constants from config
-from src.config import (
-    NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
-    GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE
-)
-
-# Import utility functions
-from src.utils import (
-    to_signed_int8,
-    calculate_percentile,
-    calculate_spatial_turbulence,
-    calculate_moving_variance
-)
-
-# Import interface
-from src.calibrator_interface import ICalibrator
+try:
+    from src.config import (
+        NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
+        GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE
+    )
+    from src.utils import (
+        to_signed_int8, calculate_percentile,
+        calculate_spatial_turbulence, calculate_moving_variance
+    )
+    from src.calibrator_interface import BaseCalibrator
+except ImportError:
+    from config import (
+        NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
+        GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE
+    )
+    from utils import (
+        to_signed_int8, calculate_percentile,
+        calculate_spatial_turbulence, calculate_moving_variance
+    )
+    from calibrator_interface import BaseCalibrator
 
 # Constants
 BUFFER_FILE = '/p95_buffer.bin'
@@ -63,7 +67,7 @@ def cleanup_buffer_file():
         pass
 
 
-class P95Calibrator(ICalibrator):
+class P95Calibrator(BaseCalibrator):
     """
     Automatic band calibrator using P95 moving variance optimization.
     
@@ -81,19 +85,7 @@ class P95Calibrator(ICalibrator):
         Args:
             buffer_size: Number of packets to collect (default: 700)
         """
-        self.buffer_size = buffer_size
-        self._packet_count = 0
-        self._filtered_count = 0
-        self._file = None
-        self._initialized = False
-        
-        # Remove old buffer file
-        try:
-            os.remove(BUFFER_FILE)
-        except OSError:
-            pass
-        
-        self._file = open(BUFFER_FILE, 'wb')
+        super().__init__(buffer_size, BUFFER_FILE)
     
     def add_packet(self, csi_data):
         """
@@ -137,14 +129,6 @@ class P95Calibrator(ICalibrator):
             self._file.flush()
         
         return self._packet_count
-    
-    def _prepare_for_reading(self):
-        """Close write mode and reopen for reading"""
-        if self._file:
-            self._file.flush()
-            self._file.close()
-            gc.collect()
-        self._file = open(BUFFER_FILE, 'rb')
     
     def _read_all_packets(self):
         """Read all packets from file and pre-compute magnitudes"""
@@ -295,28 +279,3 @@ class P95Calibrator(ICalibrator):
             print(f"  Filtered: {self._filtered_count} packets (wrong SC count)")
         
         return best_band, mv_values
-    
-    def free_buffer(self):
-        """Free resources after calibration"""
-        if self._file:
-            self._file.close()
-            self._file = None
-        
-        try:
-            os.remove(BUFFER_FILE)
-        except OSError:
-            pass
-    
-    def get_packet_count(self):
-        """Get the number of packets currently in the buffer."""
-        return self._packet_count
-    
-    def is_buffer_full(self):
-        """Check if the buffer has collected enough packets."""
-        return self._packet_count >= self.buffer_size
-        
-        gc.collect()
-
-
-# Backward compatibility alias
-BandCalibrator = P95Calibrator

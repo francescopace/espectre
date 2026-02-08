@@ -49,7 +49,7 @@
 
 | Algorithm | Method | Best For |
 |-----------|--------|----------|
-| **MVS** (default) | Moving Variance Segmentation | Most environments (~99% recall) |
+| **MVS** (default) | Moving Variance Segmentation | Most environments (>90% recall) |
 | **ML** | Neural Network (MLP) | Higher accuracy, fixed subcarriers |
 
 - **No ML training required**: Works out-of-the-box with mathematical algorithms (MVS default)
@@ -393,7 +393,7 @@ While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier 
 
 | Capability | Status | Description |
 |------------|--------|-------------|
-| **ML Detector** | Experimental | Neural network-based motion detection (MLP 12→16→8→1), ~3s boot time |
+| **ML Detector** | Experimental | Neural network (MLP 12→16→8→1, 97-100% F1), ~3s boot time |
 | **Gesture Recognition** | Planned | Detect hand gestures (swipe, push, circle) for smart home control |
 | **Human Activity Recognition** | Planned | Identify activities (sitting, walking, falling) |
 | **People Counting** | Planned | Estimate number of people in a room |

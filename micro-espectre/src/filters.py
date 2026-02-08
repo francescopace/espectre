@@ -9,6 +9,11 @@ License: GPLv3
 """
 import math
 
+try:
+    from src.utils import insertion_sort
+except ImportError:
+    from utils import insertion_sort
+
 
 class LowPassFilter:
     """
@@ -17,8 +22,8 @@ class LowPassFilter:
     Optimized for real-time processing on MicroPython.
     Uses pre-calculated coefficients for efficiency.
     
-    The filter removes high-frequency noise (>17.5 Hz by default) while
-    preserving the motion signal (typically 0.5-10 Hz for human movement).
+    The filter removes high-frequency noise while preserving the motion
+    signal (typically 0.5-10 Hz for human movement).
     
     This helps reduce false positives caused by RF interference,
     especially when auto-calibration selects subcarriers that are more susceptible to noise.
@@ -30,12 +35,12 @@ class LowPassFilter:
         y[n] = b0 * x[n] + b0 * x[n-1] + a1 * y[n-1]
     """
     
-    def __init__(self, cutoff_hz=17.5, sample_rate_hz=100.0, enabled=True):
+    def __init__(self, cutoff_hz=11.0, sample_rate_hz=100.0, enabled=True):
         """
         Initialize low-pass filter
         
         Args:
-            cutoff_hz: Cutoff frequency in Hz (default: 17.5 Hz)
+            cutoff_hz: Cutoff frequency in Hz (default: 11.0 Hz)
                        Frequencies above this are attenuated
             sample_rate_hz: Sampling rate in Hz (default: 100 Hz)
             enabled: If False, filter passes values through unchanged
@@ -152,25 +157,6 @@ class HampelFilter:
         self.count = 0
         self.index = 0
     
-    def _insertion_sort(self, arr, n):
-        """
-        In-place insertion sort for small arrays
-        
-        Faster than Python's Timsort for N < 10-15 elements
-        due to lower overhead (no function calls, cache-friendly).
-        
-        Args:
-            arr: Array to sort (modified in place)
-            n: Number of elements to sort
-        """
-        for i in range(1, n):
-            key = arr[i]
-            j = i - 1
-            while j >= 0 and arr[j] > key:
-                arr[j + 1] = arr[j]
-                j -= 1
-            arr[j + 1] = key
-    
     def filter(self, value):
         """
         Apply Hampel filter to a single value
@@ -199,7 +185,7 @@ class HampelFilter:
         for i in range(n):
             self.sorted_buffer[i] = self.buffer[i]
         
-        self._insertion_sort(self.sorted_buffer, n)
+        insertion_sort(self.sorted_buffer, n)
         median = self.sorted_buffer[mid]
         
         # Second pass: calculate deviations and sort for MAD
@@ -208,7 +194,7 @@ class HampelFilter:
             diff = self.buffer[i] - median
             self.sorted_buffer[i] = diff if diff >= 0 else -diff  # inline abs
         
-        self._insertion_sort(self.sorted_buffer, n)
+        insertion_sort(self.sorted_buffer, n)
         mad = self.sorted_buffer[mid]
         
         # Check if current value is an outlier

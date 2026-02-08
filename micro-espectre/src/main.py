@@ -429,59 +429,57 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         # band = selected subcarriers, values = mv_values
         selected_band, cal_values = calibrator.calibrate()
         
-        if True:
-            # MVS or ML: apply subcarrier selection
-            if selected_band and len(selected_band) == 12:
-                config.SELECTED_SUBCARRIERS = selected_band
+        if selected_band and len(selected_band) == 12:
+            config.SELECTED_SUBCARRIERS = selected_band
+            
+            if is_ml:
+                # ML: subcarriers only, threshold stays at 0.5
+                threshold_source = "fixed (0.5)"
+                success = True
                 
-                if is_ml:
-                    # ML: subcarriers only, threshold stays at 0.5
-                    threshold_source = "fixed (0.5)"
-                    success = True
-                    
-                    print('')
-                    print('='*60)
-                    print('ML Subcarrier Calibration Successful!')
-                    print(f'   Algorithm: {algorithm.upper()} (subcarrier selection only)')
-                    print(f'   Selected band: {selected_band}')
-                    print(f'   Threshold: {detector.get_threshold():.2f} ({threshold_source})')
-                    print('='*60)
-                    print('')
-                else:
-                    # MVS: apply adaptive threshold from MV values
-                    from src.threshold import calculate_adaptive_threshold
-                    
-                    if isinstance(SEG_THRESHOLD, str):
-                        # "auto" or "min" mode - calculate adaptive threshold
-                        adaptive_threshold, percentile, factor, pxx = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
-                        detector.set_adaptive_threshold(adaptive_threshold)
-                        threshold_source = f"{SEG_THRESHOLD} (P{percentile}x{factor})"
-                        print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
-                    else:
-                        # Numeric value - use fixed manual threshold
-                        adaptive_threshold, _, _, _ = calculate_adaptive_threshold(cal_values, "auto")
-                        detector.set_threshold(float(SEG_THRESHOLD))
-                        threshold_source = "manual"
-                        print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
-                    
-                    success = True
-                    
-                    print('')
-                    print('='*60)
-                    print('Subcarrier Calibration Successful!')
-                    print(f'   Algorithm: {algorithm.upper()}')
-                    print(f'   Selected band: {selected_band}')
-                    print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
-                    print('='*60)
-                    print('')
+                print('')
+                print('='*60)
+                print('ML Subcarrier Calibration Successful!')
+                print(f'   Algorithm: {algorithm.upper()} (subcarrier selection only)')
+                print(f'   Selected band: {selected_band}')
+                print(f'   Threshold: {detector.get_threshold():.2f} ({threshold_source})')
+                print('='*60)
+                print('')
             else:
-                # Calibration failed - keep default
+                # MVS: apply adaptive threshold from MV values
+                from src.threshold import calculate_adaptive_threshold
+                
+                if isinstance(SEG_THRESHOLD, str):
+                    # "auto" or "min" mode - calculate adaptive threshold
+                    adaptive_threshold, percentile, factor, pxx = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
+                    detector.set_adaptive_threshold(adaptive_threshold)
+                    threshold_source = f"{SEG_THRESHOLD} (P{percentile}x{factor})"
+                    print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
+                else:
+                    # Numeric value - use fixed manual threshold
+                    adaptive_threshold, _, _, _ = calculate_adaptive_threshold(cal_values, "auto")
+                    detector.set_threshold(float(SEG_THRESHOLD))
+                    threshold_source = "manual"
+                    print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
+                
+                success = True
+                
                 print('')
                 print('='*60)
-                print('Subcarrier Calibration Failed')
-                print(f'   Using default band: {config.SELECTED_SUBCARRIERS}')
+                print('Subcarrier Calibration Successful!')
+                print(f'   Algorithm: {algorithm.upper()}')
+                print(f'   Selected band: {selected_band}')
+                print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
                 print('='*60)
                 print('')
+        else:
+            # Calibration failed - keep default
+            print('')
+            print('='*60)
+            print('Subcarrier Calibration Failed')
+            print(f'   Using default band: {config.SELECTED_SUBCARRIERS}')
+            print('='*60)
+            print('')
     
     except Exception as e:
         print(f"Error during calibration: {e}")
@@ -537,7 +535,12 @@ def main():
         print(f'Detection algorithm: ML (Neural Network)')
         detector = MLDetector(
             window_size=config.SEG_WINDOW_SIZE,
-            threshold=0.5  # Probability threshold
+            threshold=0.5,  # Probability threshold
+            enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+            lowpass_cutoff=config.LOWPASS_CUTOFF,
+            enable_hampel=config.ENABLE_HAMPEL_FILTER,
+            hampel_window=config.HAMPEL_WINDOW,
+            hampel_threshold=config.HAMPEL_THRESHOLD
         )
     else:
         print(f'Detection algorithm: MVS (Moving Variance Segmentation)')
@@ -616,7 +619,7 @@ def main():
     print(' | |  | | | (__| | | (_) |__|| |___ ___) |  __/  __/ (__| |_| | |  __/')
     print(' |_|  |_|_|\\___|_|  \\___/    |_____|____/|_|   \\___|\\___|\\__|_|  \\___|')
     print('')
-    print(' Motion detection system based on Wi-Fi spectre analysis')
+    print(' Motion detection system based on Wi-Fi spectrum analysis')
     print('')
     
     # Force garbage collection before main loop

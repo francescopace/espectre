@@ -140,25 +140,36 @@ class MLDetector(IDetector):
     5. Compare probability to threshold for state decision
     """
     
-    def __init__(self, window_size=50, threshold=0.5):
+    def __init__(self, window_size=50, threshold=0.5,
+                 enable_lowpass=False, lowpass_cutoff=11.0,
+                 enable_hampel=False, hampel_window=7, hampel_threshold=4.0):
         """
         Initialize ML detector.
         
         Args:
             window_size: Feature extraction window size (default: 50)
             threshold: Motion probability threshold (default: 0.5)
+            enable_lowpass: Enable low-pass filter (default: False)
+            lowpass_cutoff: Low-pass cutoff frequency Hz (default: 11.0)
+            enable_hampel: Enable Hampel filter (default: False)
+            hampel_window: Hampel window size (default: 7)
+            hampel_threshold: Hampel threshold in MAD (default: 4.0)
         """
-        # Use SegmentationContext for turbulence calculation
+        # Use SegmentationContext for turbulence calculation and filtering
         self._context = SegmentationContext(
             window_size=window_size,
-            threshold=1.0  # Not used, we use probability threshold
+            threshold=1.0,  # Not used, we use probability threshold
+            enable_lowpass=enable_lowpass,
+            lowpass_cutoff=lowpass_cutoff,
+            enable_hampel=enable_hampel,
+            hampel_window=hampel_window,
+            hampel_threshold=hampel_threshold
         )
         self._threshold = threshold
         self._packet_count = 0
         self._motion_count = 0
         self._state = MotionState.IDLE
         self._current_probability = 0.0
-        self._last_amplitudes = None
         
         # For tracking (optional)
         self.probability_history = []
@@ -179,12 +190,8 @@ class MLDetector(IDetector):
         turbulence = self._context.calculate_spatial_turbulence(
             csi_data, selected_subcarriers
         )
-        # Store amplitudes for feature extraction (skewness/kurtosis)
-        _, self._last_amplitudes = SegmentationContext.compute_spatial_turbulence(
-            csi_data, selected_subcarriers, self._context.gain_compensation
-        )
         
-        # Add to buffer
+        # Add to buffer (all features are now turbulence-based)
         self._context.add_turbulence(turbulence)
     
     def update_state(self):
@@ -230,7 +237,7 @@ class MLDetector(IDetector):
         """Extract 12 features from turbulence buffer using centralized extractor."""
         turb_buffer = self._context.turbulence_buffer
         buffer_count = len(turb_buffer)
-        return extract_all_features(turb_buffer, buffer_count, self._last_amplitudes)
+        return extract_all_features(turb_buffer, buffer_count)
     
     def get_state(self):
         """Get current motion state."""

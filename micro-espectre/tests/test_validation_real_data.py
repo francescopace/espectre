@@ -32,7 +32,8 @@ nbvi_calibrator.BUFFER_FILE = os.path.join(tempfile.gettempdir(), 'nbvi_buffer_v
 # Import from src and tools
 from segmentation import SegmentationContext
 from features import (
-    calc_skewness, calc_kurtosis, calc_iqr_turb, calc_entropy_turb,
+    calc_skewness, calc_kurtosis, calc_entropy_turb,
+    calc_zero_crossing_rate, calc_mad,
 )
 from filters import HampelFilter
 from csi_utils import (
@@ -176,17 +177,41 @@ def calibration_algorithm(request, chip_type):
 
 @pytest.fixture
 def fp_rate_target(chip_type):
-    """Get target FP rate for chip type.
+    """Get MVS target FP rate for chip type.
     
     S3 has higher baseline noise, so we allow 15% FP rate.
     C3 uses high-sensitivity band [20-31] with high baseline variance, allow 20% FP rate.
-    C6 should achieve <10% FP rate.
+    C6 achieves 0.0% FP rate consistently, tightened to <5%.
     """
     if chip_type == 'S3':
         return 15.0
     if chip_type == 'C3':
         return 20.0  # High-sensitivity band has higher baseline variance
-    return 10.0
+    return 5.0  # C6: tightened from 10% based on 0.0% actual
+
+
+@pytest.fixture
+def recall_target(chip_type):
+    """Get recall target for chip type.
+    
+    C3 has marginal recall (92.2%), keep conservative 90% target.
+    C6 and S3 achieve >98% recall consistently, raised to 95%.
+    """
+    if chip_type == 'C3':
+        return 90.0
+    return 95.0
+
+
+@pytest.fixture
+def ml_fp_rate_target(chip_type):
+    """Get ML-specific FP rate target for chip type.
+    
+    ML achieves much lower FP rates than MVS.
+    S3: <10% (actual 3.5%), C6/C3: <5% (actual 0.0%).
+    """
+    if chip_type == 'S3':
+        return 10.0
+    return 5.0  # C6 and C3
 
 
 @pytest.fixture
@@ -458,8 +483,8 @@ class TestFeatureSeparationRealData:
     
     def test_skewness_separation(self, baseline_amplitudes, movement_amplitudes):
         """Test that skewness shows separation between baseline and movement"""
-        baseline_skew = [calc_skewness(list(row)) for row in baseline_amplitudes]
-        movement_skew = [calc_skewness(list(row)) for row in movement_amplitudes]
+        baseline_skew = [calc_skewness(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in baseline_amplitudes]
+        movement_skew = [calc_skewness(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in movement_amplitudes]
         
         J = fishers_criterion(baseline_skew, movement_skew)
         
@@ -470,8 +495,8 @@ class TestFeatureSeparationRealData:
     
     def test_kurtosis_separation(self, baseline_amplitudes, movement_amplitudes):
         """Test that kurtosis shows separation between baseline and movement"""
-        baseline_kurt = [calc_kurtosis(list(row)) for row in baseline_amplitudes]
-        movement_kurt = [calc_kurtosis(list(row)) for row in movement_amplitudes]
+        baseline_kurt = [calc_kurtosis(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in baseline_amplitudes]
+        movement_kurt = [calc_kurtosis(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in movement_amplitudes]
         
         J = fishers_criterion(baseline_kurt, movement_kurt)
         
@@ -522,34 +547,34 @@ class TestFeatureSeparationRealData:
 class TestPublishTimeFeaturesRealData:
     """Test publish-time feature extraction with real data"""
     
-    def test_iqr_turb_separation(self, real_data, default_subcarriers, window_size, chip_type):
-        """Test IQR of turbulence buffer separates baseline from movement"""
+    def test_mad_turb_separation(self, real_data, default_subcarriers, window_size, chip_type):
+        """Test MAD of turbulence buffer separates baseline from movement"""
         baseline_packets, movement_packets = real_data
         ws = window_size
         
-        def calculate_iqr_values(packets):
+        def calculate_mad_values(packets):
             ctx = SegmentationContext(window_size=ws, threshold=1.0)
-            iqr_values = []
+            mad_values = []
             
             for pkt in packets:
                 turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
                 ctx.add_turbulence(turb)
                 
                 if ctx.buffer_count >= ws:
-                    iqr = calc_iqr_turb(ctx.turbulence_buffer, ctx.buffer_count)
-                    iqr_values.append(iqr)
+                    mad = calc_mad(ctx.turbulence_buffer, ctx.buffer_count)
+                    mad_values.append(mad)
             
-            return iqr_values
+            return mad_values
         
-        baseline_iqr = calculate_iqr_values(baseline_packets)
-        movement_iqr = calculate_iqr_values(movement_packets)
+        baseline_mad = calculate_mad_values(baseline_packets)
+        movement_mad = calculate_mad_values(movement_packets)
         
-        if len(baseline_iqr) > 0 and len(movement_iqr) > 0:
-            J = fishers_criterion(baseline_iqr, movement_iqr)
+        if len(baseline_mad) > 0 and len(movement_mad) > 0:
+            J = fishers_criterion(baseline_mad, movement_mad)
             
-            # IQR should show good separation (S3 has lower separation due to noisier baseline)
+            # MAD should show good separation (S3 has lower separation due to noisier baseline)
             min_j = 0.3 if chip_type == 'S3' else 0.5
-            assert J > min_j, f"IQR Fisher's J too low: {J:.3f} (target: >{min_j})"
+            assert J > min_j, f"MAD Fisher's J too low: {J:.3f} (target: >{min_j})"
     
     def test_entropy_turb_separation(self, real_data, default_subcarriers, window_size):
         """Test entropy of turbulence buffer separates baseline from movement"""
@@ -645,7 +670,7 @@ class TestHampelFilterRealData:
 class TestPerformanceMetrics:
     """Test that we achieve expected performance metrics (both NBVI and P95 algorithms)"""
     
-    def test_mvs_detection_accuracy(self, real_data, num_subcarriers, window_size, fp_rate_target, enable_hampel, calibration_algorithm, chip_type, default_subcarriers):
+    def test_mvs_detection_accuracy(self, real_data, num_subcarriers, window_size, fp_rate_target, recall_target, enable_hampel, calibration_algorithm, chip_type, default_subcarriers):
         """
         Test MVS motion detection accuracy with real CSI data.
         
@@ -760,7 +785,7 @@ class TestPerformanceMetrics:
         print(f"  * True Negatives (TN):   {pkt_tn}")
         print(f"  * False Positives (FP):  {pkt_fp}")
         print(f"  * False Negatives (FN):  {pkt_fn}")
-        print(f"  * Recall:     {pkt_recall:.1f}% (target: >90%)")
+        print(f"  * Recall:     {pkt_recall:.1f}% (target: >{recall_target}%)")
         print(f"  * Precision:  {pkt_precision:.1f}%")
         print(f"  * FP Rate:    {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)")
         print(f"  * F1-Score:   {pkt_f1:.1f}%")
@@ -770,10 +795,10 @@ class TestPerformanceMetrics:
         # ========================================
         # Assertions (chip-specific thresholds)
         # ========================================
-        assert pkt_recall > 90.0, f"Recall too low: {pkt_recall:.1f}% (target: >90%)"
+        assert pkt_recall > recall_target, f"Recall too low: {pkt_recall:.1f}% (target: >{recall_target}%)"
         assert pkt_fp_rate < fp_rate_target, f"FP Rate too high: {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)"
 
-    def test_ml_detection_accuracy(self, real_data, num_subcarriers, fp_rate_target, chip_type):
+    def test_ml_detection_accuracy(self, real_data, num_subcarriers, ml_fp_rate_target, recall_target, chip_type):
         """
         Test ML (Neural Network) motion detection accuracy with real CSI data.
         
@@ -869,9 +894,9 @@ class TestPerformanceMetrics:
         print(f"    MOTION      {pkt_fn:4d} (FN)  {pkt_tp:4d} (TP)")
         print()
         print("METRICS:")
-        print(f"  * Recall:     {pkt_recall:.1f}% (target: >90%)")
+        print(f"  * Recall:     {pkt_recall:.1f}% (target: >{recall_target}%)")
         print(f"  * Precision:  {pkt_precision:.1f}%")
-        print(f"  * FP Rate:    {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)")
+        print(f"  * FP Rate:    {pkt_fp_rate:.1f}% (target: <{ml_fp_rate_target}%)")
         print(f"  * F1-Score:   {pkt_f1:.1f}%")
         print()
         print("=" * 70)
@@ -879,9 +904,9 @@ class TestPerformanceMetrics:
         # ========================================
         # Assertions
         # ========================================
-        assert pkt_recall > 90.0, f"ML Recall too low: {pkt_recall:.1f}% (target: >90%)"
+        assert pkt_recall > recall_target, f"ML Recall too low: {pkt_recall:.1f}% (target: >{recall_target}%)"
         if baseline_eval_count > 0:
-            assert pkt_fp_rate < fp_rate_target, f"ML FP Rate too high: {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)"
+            assert pkt_fp_rate < ml_fp_rate_target, f"ML FP Rate too high: {pkt_fp_rate:.1f}% (target: <{ml_fp_rate_target}%)"
 
 
 # ============================================================================
@@ -1055,11 +1080,11 @@ class TestEndToEndWithCalibration:
         print(f"  Selected band: {selected_band}")
         print(f"  Adaptive threshold: {adaptive_threshold:.4f}")
     
-    def test_end_to_end_with_band_calibration_and_mvs(self, real_data, num_subcarriers, window_size, fp_rate_target, enable_hampel, calibration_algorithm, chip_type):
+    def test_end_to_end_with_band_calibration_and_mvs(self, real_data, num_subcarriers, window_size, fp_rate_target, recall_target, enable_hampel, calibration_algorithm, chip_type):
         """
         Test complete end-to-end flow: Band Calibration → MVS → Detection
         
-        This test verifies that the system achieves target performance (>90% Recall, <fp_rate_target% FP)
+        This test verifies that the system achieves target performance (>95% Recall for C6/S3, <fp_rate_target% FP)
         when using automatic band selection for optimal subcarrier bands.
         """
         # C3 requires forced subcarriers - auto-calibration selects wrong bands
@@ -1150,7 +1175,7 @@ class TestEndToEndWithCalibration:
         print(f"    MOTION      {pkt_fn:4d} (FN)  {pkt_tp:4d} (TP)")
         print()
         print("METRICS:")
-        print(f"  * Recall:     {recall:.1f}% (target: >90%)")
+        print(f"  * Recall:     {recall:.1f}% (target: >{recall_target}%)")
         print(f"  * Precision:  {precision:.1f}%")
         print(f"  * FP Rate:    {fp_rate:.1f}% (target: <{fp_rate_target}%)")
         print(f"  * F1-Score:   {f1:.1f}%")
@@ -1162,6 +1187,6 @@ class TestEndToEndWithCalibration:
         # ========================================
         # Band calibrator auto-selects subcarriers using P95 moving variance optimization.
         # This achieves excellent performance with the P95 band selection algorithm.
-        assert recall > 90.0, f"End-to-end Recall too low ({num_subcarriers} SC): {recall:.1f}% (target: >90%)"
+        assert recall > recall_target, f"End-to-end Recall too low ({num_subcarriers} SC): {recall:.1f}% (target: >{recall_target}%)"
         assert fp_rate < fp_rate_target, f"End-to-end FP Rate too high ({num_subcarriers} SC): {fp_rate:.1f}% (target: <{fp_rate_target}%)"
 

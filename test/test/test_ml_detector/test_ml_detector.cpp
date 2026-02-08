@@ -33,28 +33,28 @@ void tearDown(void) {}
 constexpr int NUM_TEST_SAMPLES = 6;
 
 // Sample 0: idx=0, expected=0.000000
-constexpr float TEST_FEATURES_0[12] = {15.037017f, 1.826449f, 16.590075f, 2.687921f, 13.902154f, 3.335915f, 6.951077f, 1.106964f, 0.112449f, -1.540914f, 0.018642f, -0.911717f};
+constexpr float TEST_FEATURES_0[12] = {15.037017f, 1.826449f, 16.590075f, 2.687921f, 0.469388f, -6.148226f, 38.820751f, 1.106964f, -0.022723f, 0.323551f, 0.018642f, -0.911717f};
 constexpr float TEST_EXPECTED_0 = 0.000000f;
 
-// Sample 1: idx=100, expected=1.000000
-constexpr float TEST_FEATURES_1[12] = {6.483670f, 1.729731f, 10.709900f, 3.155840f, 7.554060f, 2.991968f, 3.777030f, 3.090561f, 0.029862f, -1.543806f, -0.010408f, 2.296937f};
-constexpr float TEST_EXPECTED_1 = 1.000000f;
+// Sample 1: idx=100, expected=0.999757
+constexpr float TEST_FEATURES_1[12] = {6.483670f, 1.729731f, 10.709900f, 3.155840f, 0.326531f, 0.110305f, -0.614726f, 3.090561f, 0.483410f, 1.219177f, -0.010408f, 2.296937f};
+constexpr float TEST_EXPECTED_1 = 0.999757f;
 
-// Sample 2: idx=500, expected=1.000000
-constexpr float TEST_FEATURES_2[12] = {15.039514f, 2.640327f, 25.975748f, 11.449318f, 14.526430f, 6.971325f, 7.263215f, 2.501832f, -1.725084f, 1.090417f, -0.028332f, -8.790643f};
-constexpr float TEST_EXPECTED_2 = 1.000000f;
+// Sample 2: idx=500, expected=0.999895
+constexpr float TEST_FEATURES_2[12] = {15.039514f, 2.640327f, 25.975748f, 11.449318f, 0.244898f, 1.357096f, 3.986259f, 2.501832f, 0.163497f, 1.601093f, -0.028332f, -8.790643f};
+constexpr float TEST_EXPECTED_2 = 0.999895f;
 
-// Sample 3: idx=1000, expected=0.065183
-constexpr float TEST_FEATURES_3[12] = {18.843235f, 2.961268f, 22.827011f, 10.418902f, 12.408109f, 8.769106f, 6.204054f, 2.188493f, -0.774085f, -0.291629f, -0.030693f, -9.512109f};
-constexpr float TEST_EXPECTED_3 = 0.065183f;
+// Sample 3: idx=1000, expected=0.129434
+constexpr float TEST_FEATURES_3[12] = {18.843235f, 2.961268f, 22.827011f, 10.418902f, 0.306122f, -1.885920f, 2.485548f, 2.188493f, -0.122943f, 0.632070f, -0.030693f, -9.512109f};
+constexpr float TEST_EXPECTED_3 = 0.129434f;
 
 // Sample 4: idx=2000, expected=0.000000
-constexpr float TEST_FEATURES_4[12] = {15.055570f, 1.826135f, 16.127796f, 2.597119f, 13.530678f, 3.334768f, 6.765339f, 0.607364f, 0.171855f, -1.456887f, -0.001839f, -0.126887f};
+constexpr float TEST_FEATURES_4[12] = {15.055570f, 1.826135f, 16.127796f, 2.597119f, 0.367347f, -6.330262f, 40.337837f, 0.607364f, -0.071926f, 0.282630f, -0.001839f, -0.126887f};
 constexpr float TEST_EXPECTED_4 = 0.000000f;
 
-// Sample 5: idx=2500, expected=0.000000
-constexpr float TEST_FEATURES_5[12] = {13.668566f, 4.314494f, 17.185942f, 2.711784f, 14.474158f, 18.614859f, 7.237079f, 1.418150f, 0.138241f, -1.500547f, -0.084217f, 0.682294f};
-constexpr float TEST_EXPECTED_5 = 0.000000f;
+// Sample 5: idx=2500, expected=0.000001
+constexpr float TEST_FEATURES_5[12] = {13.668566f, 4.314494f, 17.185942f, 2.711784f, 0.163265f, -1.996946f, 2.132338f, 1.418150f, 0.493389f, 0.402835f, -0.084217f, 0.682294f};
+constexpr float TEST_EXPECTED_5 = 0.000001f;
 
 // Array of pointers for iteration
 constexpr const float* TEST_FEATURES[NUM_TEST_SAMPLES] = {
@@ -236,11 +236,14 @@ void test_feature_extraction_basic(void) {
     extract_ml_features(turb_buffer, 50, amplitudes, 12, features);
     
     // Verify features are reasonable
-    TEST_ASSERT_TRUE(features[0] > 0);  // turb_mean > 0
-    TEST_ASSERT_TRUE(features[1] >= 0); // turb_std >= 0
+    TEST_ASSERT_TRUE(features[0] > 0);   // turb_mean > 0
+    TEST_ASSERT_TRUE(features[1] >= 0);  // turb_std >= 0
     TEST_ASSERT_TRUE(features[2] >= features[3]); // turb_max >= turb_min
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, features[2] - features[3], features[4]); // range = max - min
-    TEST_ASSERT_TRUE(features[7] >= 0); // entropy >= 0
+    TEST_ASSERT_TRUE(features[4] >= 0);  // turb_zcr >= 0
+    TEST_ASSERT_TRUE(features[4] <= 1.0f); // turb_zcr <= 1
+    TEST_ASSERT_TRUE(features[7] >= 0);  // entropy >= 0
+    TEST_ASSERT_TRUE(features[8] >= -1.0f && features[8] <= 1.0f); // autocorr in [-1, 1]
+    TEST_ASSERT_TRUE(features[9] >= 0);  // MAD >= 0
 }
 
 void test_feature_extraction_empty_buffer(void) {

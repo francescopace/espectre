@@ -169,7 +169,7 @@ class ESpectreComponent : public Component {
   TrafficGeneratorMode traffic_generator_mode_{TrafficGeneratorMode::DNS};
   GainLockMode gain_lock_mode_{GainLockMode::AUTO};
   uint32_t publish_interval_{100};  // Publish interval in packets (default: same as traffic_generator_rate)
-  bool lowpass_enabled_{true};      // Low-pass filter enabled by default
+  bool lowpass_enabled_{false};     // Low-pass filter disabled by default
   float lowpass_cutoff_{11.0f};     // Default cutoff frequency in Hz
   bool hampel_enabled_{false};
   uint8_t hampel_window_{7};

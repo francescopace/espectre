@@ -79,10 +79,10 @@ When a person moves in an environment, they alter multipath reflections, change 
    - Espressif format: `[Q₀, I₀, Q₁, I₁, ...]` (Imaginary first, Real second per subcarrier)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
 3. **Spatial Turbulence**: `σ = std(amplitudes)` - variability across subcarriers
-4. **Hampel Filter**: Remove outliers using MAD (optional, disabled by default)
-5. **Low-Pass Filter**: Remove high-frequency noise (Butterworth 1st order, 11 Hz cutoff)
+4. **Hampel Filter** (optional): Remove outliers using MAD
+5. **Low-Pass Filter** (optional): Remove high-frequency noise (Butterworth 1st order)
 6. **Moving Variance**: `Var(turbulence)` over sliding window
-7. **Adaptive Threshold**: Compare variance to `Pxx(baseline_mv) × factor` → IDLE or MOTION (default: P95 × 1.4, configurable)
+7. **Adaptive Threshold**: Compare variance to `Pxx(baseline_mv) × factor` → IDLE or MOTION
 
 ---
 
@@ -242,7 +242,7 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 ### Performance
 
-📊 **For detailed performance metrics** (confusion matrix, test methodology, benchmarks), see [PERFORMANCE.md](../PERFORMANCE.md).
+For detailed performance metrics (confusion matrix, test methodology, benchmarks), see [PERFORMANCE.md](../PERFORMANCE.md).
 
 **Reference**: [1] MVS segmentation: the fused CSI stream and corresponding moving variance sequence (ResearchGate)
 
@@ -287,17 +287,19 @@ For each sliding window of 50 turbulence values, 12 statistical features are ext
 ### Inference Pipeline
 
 ```
+┌──────────────┐    ┌──────────────┐    ┌───────────────────┐    ┌──────────────┐
+│ CSI Packet   │───▶│ Turbulence   │───▶│ Optional Filters  │───▶│ Buffer (50)  │
+│              │    │ σ(amps)      │    │ Hampel + LowPass  │    │              │
+└──────────────┘    └──────────────┘    └───────────────────┘    └──────┬───────┘
+                                                                        │
+                                                                        ▼
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│ CSI Packet   │───▶│ Turbulence   │───▶│ Buffer (50)  │───▶│ 12 Features  │
-│              │    │ σ(amps)      │    │              │    │              │
-└──────────────┘    └──────────────┘    └──────────────┘    └──────┬───────┘
-                                                                   │
-                                                                   ▼
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│ IDLE/MOTION  │◀───│ Threshold    │◀───│ Probability  │◀───│ Neural Net   │
-│              │    │ > 0.5        │    │ [0.0-1.0]    │    │ 12→16→8→1   │
+│ IDLE/MOTION  │◀───│ Threshold    │◀───│ Probability  │◀───│ 12 Features  │
+│              │    │ > 0.5        │    │ [0.0-1.0]    │    │ → Neural Net │
 └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
 ```
+
+**Filter support**: The ML detector shares the same `SegmentationContext` as MVS, so it supports optional low-pass and Hampel filters on the turbulence stream before feature extraction. Filters are disabled by default.
 
 ### Calibration
 
@@ -312,55 +314,29 @@ ML uses 12 pre-selected subcarriers evenly distributed across the valid range: `
 
 ### Training
 
-The model is trained using `tools/10_train_ml_model.py`:
+For the complete training workflow (data collection, training commands, export formats), see [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md).
 
-```bash
-# Train with all available data
-python tools/10_train_ml_model.py
+The training process uses 5-fold stratified cross-validation with early stopping, dropout, and FP-penalized class weights. The FP penalty multiplies the IDLE class weight, making the model more conservative (fewer false positives at the cost of slightly lower recall).
 
-# Compare algorithms
-python tools/7_compare_detection_methods.py
-```
+### Architecture Selection
 
-**Training process**:
-1. Load labeled CSI data from `data/` directory
-2. Extract 12 features per sliding window
-3. Normalize features with StandardScaler
-4. Train MLP with 80/20 train/test split
-5. Export weights:
-   - `src/ml_weights.py` (Python/MicroPython)
-   - `components/espectre/ml_weights.h` (C++/ESPHome)
-6. Export test data to `models/ml_test_data.npz` (for validation)
-7. Export TFLite model to `models/motion_detector_small.tflite` (checkpoint)
+The 12→16→8→1 architecture was validated as optimal through 5-fold CV on 13,711 samples:
+
+| Architecture | F1 (5-fold CV) | Params | Weights |
+|---|---|---|---|
+| **12→16→8→1** | **98.3% +/- 0.2%** | 353 | 1.4 KB |
+| 12→24→12→1 | 98.2% +/- 0.5% | 625 | 2.4 KB |
+| 12→24→1 | 98.1% +/- 0.2% | 337 | 1.3 KB |
+| 12→12→8→4→1 | 97.8% +/- 0.5% | 301 | 1.2 KB |
+| 12→8→1 | 97.7% +/- 0.3% | 113 | 0.4 KB |
+
+The current architecture achieves the highest F1 with the lowest variance and the best FP rate.
 
 ### Performance
 
-| Metric | ML | MVS |
-|--------|-----|-----|
-| Recall | 93.5% | 94.7% |
-| Precision | 100% | 100% |
-| F1 Score | 96.6% | 97.3% |
-| False Positives | 0 | 0 |
-| Inference Time | ~90μs | ~100μs |
+ML achieves higher recall than MVS with a small tradeoff in precision. ML's strength is **generalization** -- it performs well across different environments without per-environment calibration.
 
-ML and MVS achieve comparable performance. ML's strength is **generalization** - it may perform better in environments different from those used to tune MVS thresholds.
-
-See [TUNING.md](../TUNING.md) for configuration options.
-
-### Advantages and Limitations
-
-**Advantages**:
-- Learns patterns from real data
-- Fixed threshold (0.5) - no calibration needed
-- Fast boot (~3s vs ~10s for MVS)
-- Potentially better generalization to new environments
-- Easy to retrain with new data
-- Available in both Python and C++ (ESPHome)
-
-**Limitations**:
-- Requires labeled training data
-- Slightly higher computational cost (feature extraction)
-- Performance depends on training data quality
+See [PERFORMANCE.md](../PERFORMANCE.md) for detailed per-chip results and [TUNING.md](../TUNING.md) for configuration and tuning guidance.
 
 ---
 
@@ -389,6 +365,24 @@ WiFi CSI provides 64 subcarriers in HT20 mode, but not all are equally useful fo
 **Challenge**: Find an automatic method that selects the optimal band for motion detection.
 
 See [TUNING.md](../TUNING.md) for configuration options.
+
+### Calibrator Architecture
+
+Both calibration algorithms share a common base through the `ICalibrator` interface and `BaseCalibrator` base class:
+
+```
+ICalibrator (interface)
+    └── BaseCalibrator (common file-based buffer management)
+            ├── NBVICalibrator
+            └── P95Calibrator
+```
+
+`BaseCalibrator` handles:
+- File-based CSI buffer I/O (write during collection, read during calibration)
+- Packet counting and buffer-full detection
+- Memory-efficient cleanup (buffer file removed after calibration)
+
+Concrete calibrators implement only the band selection logic (`calibrate()` and `collect_packet()`), keeping the shared buffer management DRY.
 
 ---
 
@@ -510,21 +504,19 @@ NBVI selects **non-consecutive** subcarriers, which provides:
 After band selection, both algorithms return the **moving variance values** from baseline. The adaptive threshold is then calculated:
 
 ```python
-# In threshold.py
-def calculate_adaptive_threshold(mv_values, threshold_mode="auto"):
-    if threshold_mode == "min":
-        percentile, factor = 100, 1.0  # Maximum sensitivity
-    else:  # "auto"
-        percentile, factor = 95, 1.4   # Low false positives
-    
+def calculate_adaptive_threshold(mv_values, percentile, factor):
     pxx = calculate_percentile(mv_values, percentile)
     return pxx * factor
 ```
 
-| Mode | Formula | Description |
-|------|---------|-------------|
-| `auto` | P95 × 1.4 | Minimizes false positives (default) |
-| `min` | P100 × 1.0 | Maximum sensitivity |
+Two strategies are supported:
+
+| Strategy | Percentile | Factor | Formula | Effect |
+|----------|-----------|--------|---------|--------|
+| Conservative | 95 | 1.4 | P95 × 1.4 | Minimizes false positives |
+| Sensitive | 100 | 1.0 | P100 × 1.0 | Maximum sensitivity |
+
+See [TUNING.md](../TUNING.md) for configuration options (`segmentation_threshold`).
 
 ---
 
@@ -582,7 +574,7 @@ When calibration cannot find valid bands (e.g., poor signal quality):
 
 The **Low-Pass Filter** removes high-frequency noise from turbulence values. This is particularly useful in noisy RF environments where the selected band may include subcarriers susceptible to interference.
 
-> ℹ️ **Default: Disabled** - The low-pass filter is disabled by default for simplicity. Enable it (11 Hz cutoff recommended) if you experience false positives in noisy RF environments.
+See [TUNING.md](../TUNING.md) for configuration and when to enable.
 
 ### How It Works
 
@@ -620,23 +612,15 @@ Human movement generates signal variations typically in the **0.5-10 Hz** range.
 - **Removes** high-frequency noise
 - **Reduces** false positives in noisy environments
 
-### Performance (60s noisy baseline)
-
-| Configuration | Recall | FP Rate | F1 Score |
-|---------------|--------|---------|----------|
-| No filter | 98.3% | 51.2% | N/A |
-| Low-pass 11 Hz | **92.4%** | **2.34%** | **88.9%** |
-| Low-pass 11 Hz + Hampel | **92.1%** | **0.84%** | **93.2%** |
-
 ---
 
 ## Hampel Filter
 
 ### Overview
 
-The **Hampel filter** removes statistical outliers using the Median Absolute Deviation (MAD) method. It can be applied to turbulence values before MVS calculation to reduce false positives from sudden interference.
+The **Hampel filter** removes statistical outliers using the Median Absolute Deviation (MAD) method. It can be applied to turbulence values before detection to reduce false positives from sudden interference.
 
-> ⚠️ **Default: Disabled** - The Hampel filter is disabled by default because MVS already provides robust motion detection with 0% false positives in typical environments. Enabling it reduces Recall from 98.1% to 96.3%. Only enable in environments with high electromagnetic interference causing sudden spikes (e.g., industrial settings, proximity to microwave ovens or multiple WiFi access points).
+See [TUNING.md](../TUNING.md) for configuration and when to enable.
 
 ### How It Works
 
@@ -676,23 +660,19 @@ For embedded systems, the implementation uses:
 - **Pre-allocated buffers** (no dynamic allocation)
 - **Circular buffer** for O(1) insertion
 
-See [TUNING.md](../TUNING.md) for configuration options.
-
-### Why Disabled by Default
-
-Testing showed that in clean environments:
-- **Without Hampel**: 98.1% Recall, 0% FP
-- **With Hampel**: 96.3% Recall, 0% FP
-
-The filter reduces recall because it treats the first packets of real movement as "outliers" and replaces them with the baseline median, delaying detection.
-
 **Reference**: [6] CSI-F: Feature Fusion Method (MDPI Sensors)
 
 ---
 
 ## CSI Features (for ML)
 
-The ML detector extracts **12 statistical features** from a sliding window of turbulence values. These features capture different aspects of the signal that help distinguish between idle and motion states.
+The ML detector extracts **12 non-redundant statistical features** from a sliding window of turbulence values. All features are computed from the 50-sample turbulence buffer, ensuring stable statistical estimates.
+
+### Design Principles
+
+- **No redundant features**: Each feature provides unique information (e.g., no variance alongside std, no range alongside max/min)
+- **All turbulence-based**: Higher-order moments (skewness, kurtosis) are computed from the 50-sample turbulence buffer rather than from 12-sample packet amplitudes, giving much more stable estimates
+- **MicroPython compatible**: Pure Python implementation without numpy at runtime
 
 ### Feature List
 
@@ -702,32 +682,42 @@ The ML detector extracts **12 statistical features** from a sliding window of tu
 | 1 | `turb_std` | σ = √(Σ(xᵢ-μ)²/n) | Standard deviation (spread) |
 | 2 | `turb_max` | max(xᵢ) | Maximum value in window |
 | 3 | `turb_min` | min(xᵢ) | Minimum value in window |
-| 4 | `turb_range` | max - min | Dynamic range |
-| 5 | `turb_var` | σ² | Variance (same as MVS uses) |
-| 6 | `turb_iqr` | Q75 - Q25 | Interquartile range (robust spread) |
+| 4 | `turb_zcr` | crossings / (n-1) | Zero-crossing rate around mean |
+| 5 | `turb_skewness` | E[(X-μ)³]/σ³ | Turbulence asymmetry (3rd moment) |
+| 6 | `turb_kurtosis` | E[(X-μ)⁴]/σ⁴ - 3 | Turbulence tailedness (4th moment) |
 | 7 | `turb_entropy` | -Σpᵢ log₂(pᵢ) | Shannon entropy (randomness) |
-| 8 | `amp_skewness` | E[(X-μ)³]/σ³ | Amplitude asymmetry |
-| 9 | `amp_kurtosis` | E[(X-μ)⁴]/σ⁴ - 3 | Amplitude tailedness |
+| 8 | `turb_autocorr` | C(1)/C(0) | Lag-1 autocorrelation |
+| 9 | `turb_mad` | median(\|xᵢ - median(x)\|) | Median absolute deviation |
 | 10 | `turb_slope` | Linear regression | Temporal trend |
 | 11 | `turb_delta` | x[-1] - x[0] | Start-to-end change |
 
 ### Feature Categories
 
-**Basic Statistics (0-5)**: Standard statistical measures of the turbulence buffer.
+**Basic Statistics (0-3)**: Standard statistical measures of the turbulence buffer.
 
-**Robust Statistics (6-7)**:
-- **IQR**: Less sensitive to outliers than range
+**Signal Dynamics (4)**:
+- **Zero-crossing rate**: Fraction of consecutive samples crossing the mean. High ZCR indicates rapid oscillations (motion), low ZCR indicates stable signal (idle). Very fast to compute.
+
+**Higher-Order Moments (5-6)**: Computed from the turbulence buffer (50 samples) for stable estimates.
+- **Skewness**: Asymmetry of turbulence distribution. Motion typically increases skewness.
+- **Kurtosis**: "Tailedness" of turbulence distribution. Motion produces heavier tails.
+
+**Robust Statistics (7, 9)**:
 - **Entropy**: High during motion (unpredictable), low during idle (stable)
+- **MAD**: Median Absolute Deviation - robust alternative to std, less sensitive to outliers
 
-**Higher-Order Moments (8-9)**:
-- **Skewness**: Asymmetry of amplitude distribution. Motion typically increases skewness.
-- **Kurtosis**: "Tailedness" of distribution. Motion produces heavier tails.
-
-**Temporal Features (10-11)**: Capture how the signal changes over the window.
+**Temporal Structure (8, 10-11)**:
+- **Autocorrelation**: Lag-1 temporal correlation. High during idle (smooth signal), low during motion (turbulent)
 - **Slope**: Positive = increasing turbulence, negative = decreasing
 - **Delta**: Quick indicator of overall change
 
 ### Detailed Definitions
+
+**Zero-Crossing Rate**:
+```
+ZCR = count(sign(x[i] - μ) ≠ sign(x[i-1] - μ)) / (n - 1)
+```
+Counts how often the signal crosses the mean value. Ranges from 0.0 (monotonic) to 1.0 (alternating every sample).
 
 **Skewness** (third standardized moment):
 ```
@@ -751,11 +741,23 @@ H = -Σ pᵢ × log₂(pᵢ)
 ```
 Computed by binning turbulence values (10 bins) and calculating the entropy of the histogram. Higher entropy indicates more randomness/unpredictability.
 
+**Lag-1 Autocorrelation**:
+```
+r₁ = (1/(n-1)) Σ(xᵢ - μ)(xᵢ₊₁ - μ) / σ²
+```
+Measures temporal correlation between consecutive values. Ranges from -1.0 to 1.0. Smooth signals have high positive autocorrelation; turbulent signals have low autocorrelation.
+
+**Median Absolute Deviation**:
+```
+MAD = median(|xᵢ - median(x)|)
+```
+Robust measure of spread. Unlike std, a single outlier cannot dramatically inflate the MAD. Computed using insertion sort (efficient for n=50 on ESP32).
+
 **Linear Regression Slope**:
 ```
-slope = Σ(xᵢ - x̄)(yᵢ - ȳ) / Σ(xᵢ - x̄)²
+slope = Σ(iᵢ - ī)(xᵢ - x̄) / Σ(iᵢ - ī)²
 ```
-Where x = time index, y = turbulence value. Positive slope indicates increasing motion intensity.
+Where i = time index, x = turbulence value. Positive slope indicates increasing motion intensity.
 
 ---
 
@@ -765,37 +767,37 @@ Where x = time index, y = turbulence value. Positive slope indicates increasing 
 
 1. **MVS Segmentation** - ResearchGate  
    The fused CSI stream and corresponding moving variance sequence.  
-   📄 [Read paper](https://www.researchgate.net/figure/MVS-segmentation-a-the-fused-CSI-stream-b-corresponding-moving-variance-sequence_fig6_326244454)
+   [Read paper](https://www.researchgate.net/figure/MVS-segmentation-a-the-fused-CSI-stream-b-corresponding-moving-variance-sequence_fig6_326244454)
 
 2. **Indoor Motion Detection Using Wi-Fi CSI (2018)** - PMC  
    False positive reduction and sensitivity optimization.  
-   📄 [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6068568/)
+   [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6068568/)
 
 3. **WiFi Motion Detection: Efficacy and Performance (2019)** - arXiv  
    Signal processing methods for motion detection.  
-   📄 [Read paper](https://arxiv.org/abs/1908.08476)
+   [Read paper](https://arxiv.org/abs/1908.08476)
 
 ### Algorithm-Specific References
 
 4. **Passive Indoor Localization** - PMC  
    SNR considerations and noise gate strategies.  
-   📄 [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6412876/)
+   [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6412876/)
 
 5. **Subcarrier Selection for Indoor Localization** - ResearchGate  
    Spectral de-correlation and feature diversity.  
-   📄 [Read paper](https://www.researchgate.net/publication/326195991)
+   [Read paper](https://www.researchgate.net/publication/326195991)
 
 6. **CSI-F: Feature Fusion Method** - MDPI Sensors  
    Hampel filter and statistical robustness.  
-   📄 [Read paper](https://www.mdpi.com/1424-8220/24/3/862)
+   [Read paper](https://www.mdpi.com/1424-8220/24/3/862)
 
 7. **Linear-Complexity Subcarrier Selection** - ResearchGate  
    Computational efficiency for embedded systems.  
-   📄 [Read paper](https://www.researchgate.net/publication/397240630)
+   [Read paper](https://www.researchgate.net/publication/397240630)
 
 8. **CIRSense: Rethinking WiFi Sensing** - arXiv  
    SSNR (Sensing Signal-to-Noise Ratio) optimization.  
-   📄 [Read paper](https://arxiv.org/html/2510.11374v1)
+   [Read paper](https://arxiv.org/html/2510.11374v1)
 
 ---
 

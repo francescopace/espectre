@@ -26,7 +26,7 @@
 // ============================================================================
 // Test Data Files (HT20: 64 subcarriers only)
 // ============================================================================
-// C3 dataset - skipped until better data is collected (max 64% recall)
+// C3 dataset - uses forced subcarriers [20-31] (auto-calibration selects wrong bands)
 #define BASELINE_C3_64SC  "../micro-espectre/data/baseline/baseline_c3_64sc_20260203_203509.npz"
 #define MOVEMENT_C3_64SC  "../micro-espectre/data/movement/movement_c3_64sc_20260203_203533.npz"
 // C6 dataset (validated)
@@ -129,7 +129,7 @@ inline std::vector<const int8_t*> get_packet_pointers(const CsiData& csi_data) {
 // ============================================================================
 
 enum class ChipType {
-    C3,    // Skipped - dataset has weak movement signal (max 64% recall)
+    C3,    // Uses forced subcarriers [20-31] - auto-calibration skipped per-test
     C6,
     ESP32, // Skipped - dataset not yet collected
     S3
@@ -148,10 +148,12 @@ inline const char* chip_name(ChipType chip) {
 /**
  * Check if a chip type should be skipped in tests.
  * Returns skip reason or nullptr if chip should run.
+ * 
+ * Note: C3 runs with forced subcarriers [20-31]. Only auto-calibration
+ * tests are skipped per-test (not at chip level).
  */
 inline const char* chip_skip_reason(ChipType chip) {
     switch (chip) {
-        case ChipType::C3: return "C3 requires forced subcarriers [20-31] - calibration selects wrong bands";
         case ChipType::ESP32: return "ESP32 dataset not yet collected";
         default: return nullptr;
     }

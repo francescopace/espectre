@@ -1105,7 +1105,7 @@ class EspectreCLI_MQTT:
 
     def start(self):
         print(f"{Fore.MAGENTA}{ASCII_BANNER}")
-        print('Motion detection system based on Wi-Fi spectre analysis - Interactive CLI')
+        print('Motion detection system based on Wi-Fi spectrum analysis - Interactive CLI')
         print(f"{Style.RESET_ALL}")
 
 

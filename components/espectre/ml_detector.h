@@ -72,7 +72,7 @@ public:
 
 private:
     /**
-     * Extract 12 features from turbulence buffer and amplitudes
+     * Extract 12 features from turbulence buffer
      */
     void extract_features(float* features_out);
     

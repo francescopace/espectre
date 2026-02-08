@@ -25,23 +25,26 @@ import math
 import gc
 import os
 
-# Import HT20 constants from config
-from src.config import (
-    NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
-    GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE
-)
-
-# Import utility functions
-from src.utils import (
-    to_signed_int8,
-    calculate_percentile,
-    calculate_variance,
-    calculate_std,
-    calculate_moving_variance
-)
-
-# Import interface
-from src.calibrator_interface import ICalibrator
+try:
+    from src.config import (
+        NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
+        GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE
+    )
+    from src.utils import (
+        to_signed_int8, calculate_percentile,
+        calculate_variance, calculate_std, calculate_moving_variance
+    )
+    from src.calibrator_interface import BaseCalibrator
+except ImportError:
+    from config import (
+        NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
+        GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE
+    )
+    from utils import (
+        to_signed_int8, calculate_percentile,
+        calculate_variance, calculate_std, calculate_moving_variance
+    )
+    from calibrator_interface import BaseCalibrator
 
 # Constants
 BUFFER_FILE = '/nbvi_buffer.bin'
@@ -63,7 +66,7 @@ def cleanup_buffer_file():
         pass
 
 
-class NBVICalibrator(ICalibrator):
+class NBVICalibrator(BaseCalibrator):
     """
     Automatic NBVI calibrator with percentile-based baseline detection
     
@@ -88,24 +91,11 @@ class NBVICalibrator(ICalibrator):
             min_spacing: Minimum spacing between subcarriers (default: 1)
             noise_gate_percentile: Percentile for noise gate (default: 25)
         """
-        self.buffer_size = buffer_size
+        super().__init__(buffer_size, BUFFER_FILE)
         self.percentile = percentile
         self.alpha = alpha
         self.min_spacing = min_spacing
         self.noise_gate_percentile = noise_gate_percentile
-        self._packet_count = 0
-        self._filtered_count = 0
-        self._file = None
-        self._initialized = False
-        
-        # Remove old buffer file if exists
-        try:
-            os.remove(BUFFER_FILE)
-        except OSError:
-            pass
-        
-        # Open file for writing
-        self._file = open(BUFFER_FILE, 'wb')
         
     def add_packet(self, csi_data):
         """
@@ -180,14 +170,6 @@ class NBVICalibrator(ICalibrator):
             if len(packet) == NUM_SUBCARRIERS:
                 window.append(packet)
         return window
-    
-    def _prepare_for_reading(self):
-        """Close write mode and reopen for reading"""
-        if self._file:
-            self._file.flush()
-            self._file.close()
-            gc.collect()
-        self._file = open(BUFFER_FILE, 'rb')
     
     def _find_candidate_windows(self, current_band, window_size=200, step=50):
         """
@@ -466,24 +448,3 @@ class NBVICalibrator(ICalibrator):
             print(f"  Filtered: {self._filtered_count} packets (wrong SC count)")
         
         return best_band, best_mv_values
-    
-    def free_buffer(self):
-        """Free resources after calibration is complete."""
-        if self._file:
-            self._file.close()
-            self._file = None
-        
-        try:
-            os.remove(BUFFER_FILE)
-        except OSError:
-            pass
-    
-    def get_packet_count(self):
-        """Get the number of packets currently in the buffer."""
-        return self._packet_count
-    
-    def is_buffer_full(self):
-        """Check if the buffer has collected enough packets."""
-        return self._packet_count >= self.buffer_size
-        
-        gc.collect()

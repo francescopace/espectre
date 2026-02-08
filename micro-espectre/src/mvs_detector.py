@@ -33,7 +33,7 @@ class MVSDetector(IDetector):
                  window_size=50,
                  threshold=1.0,
                  enable_lowpass=False,
-                 lowpass_cutoff=17.5,
+                 lowpass_cutoff=11.0,
                  enable_hampel=False,
                  hampel_window=7,
                  hampel_threshold=4.0):
@@ -44,7 +44,7 @@ class MVSDetector(IDetector):
             window_size: Moving variance window size (default: 50)
             threshold: Motion detection threshold (default: 1.0)
             enable_lowpass: Enable low-pass filter (default: False)
-            lowpass_cutoff: Low-pass cutoff frequency Hz (default: 17.5)
+            lowpass_cutoff: Low-pass cutoff frequency Hz (default: 11.0)
             enable_hampel: Enable Hampel filter (default: False)
             hampel_window: Hampel window size (default: 7)
             hampel_threshold: Hampel threshold in MAD (default: 4.0)

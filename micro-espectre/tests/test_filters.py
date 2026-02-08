@@ -11,6 +11,7 @@ import pytest
 import math
 import numpy as np
 from filters import HampelFilter, LowPassFilter
+from utils import insertion_sort
 
 
 class TestHampelFilterInit:
@@ -180,38 +181,29 @@ class TestHampelFilterInsertionSort:
     
     def test_sorted_output(self):
         """Test that insertion sort produces sorted output"""
-        hf = HampelFilter(window_size=5, threshold=3.0)
-        
-        # Manually test the sorting
         test_array = [5.0, 2.0, 8.0, 1.0, 9.0]
-        hf._insertion_sort(test_array, 5)
+        insertion_sort(test_array, 5)
         
         assert test_array == [1.0, 2.0, 5.0, 8.0, 9.0]
     
     def test_already_sorted(self):
         """Test sorting already sorted array"""
-        hf = HampelFilter()
-        
         test_array = [1.0, 2.0, 3.0, 4.0, 5.0]
-        hf._insertion_sort(test_array, 5)
+        insertion_sort(test_array, 5)
         
         assert test_array == [1.0, 2.0, 3.0, 4.0, 5.0]
     
     def test_reverse_sorted(self):
         """Test sorting reverse sorted array"""
-        hf = HampelFilter()
-        
         test_array = [5.0, 4.0, 3.0, 2.0, 1.0]
-        hf._insertion_sort(test_array, 5)
+        insertion_sort(test_array, 5)
         
         assert test_array == [1.0, 2.0, 3.0, 4.0, 5.0]
     
     def test_partial_sort(self):
         """Test partial array sorting"""
-        hf = HampelFilter()
-        
         test_array = [5.0, 2.0, 8.0, 1.0, 9.0]
-        hf._insertion_sort(test_array, 3)  # Only sort first 3
+        insertion_sort(test_array, 3)  # Only sort first 3
         
         # First 3 should be sorted, rest unchanged
         assert test_array[:3] == [2.0, 5.0, 8.0]
@@ -274,9 +266,9 @@ class TestLowPassFilterInit:
     """Test LowPassFilter initialization"""
     
     def test_default_parameters(self):
-        """Test default cutoff=17.5Hz, sample_rate=100Hz"""
+        """Test default cutoff=11.0Hz, sample_rate=100Hz"""
         lpf = LowPassFilter()
-        assert lpf.cutoff_hz == 17.5
+        assert lpf.cutoff_hz == 11.0
         assert lpf.sample_rate_hz == 100.0
         assert lpf.enabled is True
     

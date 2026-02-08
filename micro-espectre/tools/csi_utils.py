@@ -1007,7 +1007,7 @@ from filters import HampelFilter
 from features import calc_skewness, calc_kurtosis
 
 # Import calibrators from src (band selection algorithms)
-from p95_calibrator import P95Calibrator, BandCalibrator  # BandCalibrator is alias for backward compat
+from p95_calibrator import P95Calibrator
 from nbvi_calibrator import NBVICalibrator
 
 # Import detectors from src (IDetector interface and implementations)

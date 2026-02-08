@@ -20,7 +20,6 @@ p95_calibrator.BUFFER_FILE = os.path.join(tempfile.gettempdir(), 'p95_test.bin')
 
 from p95_calibrator import (
     P95Calibrator,
-    BandCalibrator,  # Backward compat alias
     BAND_SIZE, MVS_WINDOW_SIZE, MVS_THRESHOLD, BAND_SELECTION_PERCENTILE
 )
 from src.config import GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER
