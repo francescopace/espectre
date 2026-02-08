@@ -102,7 +102,7 @@ void TrafficGeneratorManager::stop() {
     stop_dns_();
   }
   
-  ESP_LOGI(TAG, "📡 Traffic generator stopped");
+  ESP_LOGI(TAG, "Traffic generator stopped");
 }
 
 
@@ -174,7 +174,7 @@ bool TrafficGeneratorManager::start_dns_() {
   vTaskDelay(pdMS_TO_TICKS(100));
   
   uint32_t interval_ms = 1000 / rate_pps_;
-  ESP_LOGI(TAG, "📡 Traffic generator started (mode: dns, %u pps, interval: %u ms)", 
+  ESP_LOGI(TAG, "Traffic generator started (mode: dns, %u pps, interval: %u ms)", 
            rate_pps_, interval_ms);
   
   return true;
@@ -232,7 +232,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   const uint32_t remainder_us = 1000000 % mgr->rate_pps_; // Remainder to distribute
   uint32_t accumulator = 0;  // Accumulates fractional microseconds
   
-  ESP_LOGI(TAG, "📡 Traffic task started (gateway: " IPSTR ", interval: %u µs, remainder: %u)", 
+  ESP_LOGI(TAG, "Traffic task started (gateway: " IPSTR ", interval: %u µs, remainder: %u)", 
            IP2STR(&ip_info.gw), interval_us, remainder_us);
   
   int64_t next_send_time = esp_timer_get_time();
@@ -293,7 +293,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
     }
   }
   
-  ESP_LOGI(TAG, "📡 DNS traffic task stopped");
+  ESP_LOGI(TAG, "DNS traffic task stopped");
   vTaskDelete(NULL);
 }
 
@@ -386,7 +386,7 @@ bool TrafficGeneratorManager::start_ping_() {
   running_ = true;
   
   uint32_t interval_ms = 1000 / rate_pps_;
-  ESP_LOGI(TAG, "📡 Traffic generator started (mode: ping, %u pps, interval: %u ms)", 
+  ESP_LOGI(TAG, "Traffic generator started (mode: ping, %u pps, interval: %u ms)", 
            rate_pps_, interval_ms);
   
   return true;

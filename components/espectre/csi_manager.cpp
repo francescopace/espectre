@@ -124,10 +124,7 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
       current_channel_ = packet_channel;
       
       if (packet_callback_) {
-        MotionState state = detector_->get_state();
-        csi_motion_state_t legacy_state = (state == MotionState::MOTION) ? 
-                                          CSI_STATE_MOTION : CSI_STATE_IDLE;
-        packet_callback_(legacy_state, packets_processed_);
+        packet_callback_(detector_->get_state(), packets_processed_);
       }
       packets_processed_ = 0;
     }

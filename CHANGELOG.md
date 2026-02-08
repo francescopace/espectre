@@ -91,6 +91,31 @@ SETUP.md reorganized with two installation paths:
 
 Based on PR #77 by [@WLaoDuo](https://github.com/WLaoDuo).
 
+### Calibrator Refactoring & Robustness Fixes
+
+Major code quality refactoring of the calibrator subsystem, reducing duplication and improving robustness.
+
+#### New Abstractions
+
+- **`CalibrationFileBuffer`**: Shared class for SPIFFS-based calibration I/O (replaces duplicated file logic in P95/NBVI calibrators)
+- **`BaseCalibrator`**: Template method base class for calibration lifecycle (init, collection, task management, cleanup)
+
+#### DRY Improvements
+
+- Extracted ~200 lines of duplicated code across P95 and NBVI calibrators
+- Unified `calculate_percentile` into a single implementation in `threshold.h`
+- Consolidated `ThresholdMode` enum (merged duplicate definitions, added `MANUAL` mode)
+- Replaced `csi_motion_state_t` with `MotionState` across all components
+- Removed unused `csi_detection_algorithm_t` enum
+- Unified subcarrier count constant to `HT20_SELECTED_BAND_SIZE`
+
+#### Robustness Fixes
+
+- Fixed double amplitude calculation in `BaseDetector::process_packet()` (reuse pre-computed buffer)
+- Stack allocation in `hampel_filter()` instead of `malloc`/`free` for bounded buffers
+- SPIFFS file removal with `remove()` attempt and truncation fallback
+- Removed emoji characters from ESP_LOG messages for consistent serial output
+
 ### Gain Lock Improvements
 
 #### Median-Based Calibration

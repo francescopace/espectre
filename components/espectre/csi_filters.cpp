@@ -119,9 +119,13 @@ float hampel_filter(const float *window, size_t window_size,
         return current_value;
     }
     
-    float *sorted = (float*)std::malloc(window_size * sizeof(float));
-    if (!sorted) {
-        return current_value;
+    // Stack allocation - window_size is bounded (3-11 max)
+    float sorted[HAMPEL_TURBULENCE_WINDOW_MAX];
+    float abs_deviations[HAMPEL_TURBULENCE_WINDOW_MAX];
+    
+    // Clamp to max supported window size
+    if (window_size > HAMPEL_TURBULENCE_WINDOW_MAX) {
+        window_size = HAMPEL_TURBULENCE_WINDOW_MAX;
     }
     
     std::memcpy(sorted, window, window_size * sizeof(float));
@@ -131,12 +135,6 @@ float hampel_filter(const float *window, size_t window_size,
                    sorted[window_size / 2] : 
                    (sorted[window_size / 2 - 1] + sorted[window_size / 2]) / 2.0f;
     
-    float *abs_deviations = (float*)std::malloc(window_size * sizeof(float));
-    if (!abs_deviations) {
-        std::free(sorted);
-        return current_value;
-    }
-    
     for (size_t i = 0; i < window_size; i++) {
         abs_deviations[i] = std::abs(window[i] - median);
     }
@@ -145,9 +143,6 @@ float hampel_filter(const float *window, size_t window_size,
     float mad = (window_size % 2 == 1) ? 
                 abs_deviations[window_size / 2] : 
                 (abs_deviations[window_size / 2 - 1] + abs_deviations[window_size / 2]) / 2.0f;
-    
-    std::free(abs_deviations);
-    std::free(sorted);
     
     float mad_scaled = MAD_SCALE_FACTOR * mad;
     float deviation = std::abs(current_value - median);

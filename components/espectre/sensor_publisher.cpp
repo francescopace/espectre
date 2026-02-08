@@ -15,14 +15,14 @@ namespace esphome {
 namespace espectre {
 
 void SensorPublisher::publish_all(const BaseDetector *detector,
-                                  csi_motion_state_t motion_state) {
+                                  MotionState motion_state) {
   if (!detector) {
     return;
   }
   
   // Get current values
   float motion_metric = detector->get_motion_metric();
-  bool is_motion = (motion_state == CSI_STATE_MOTION);
+  bool is_motion = (motion_state == MotionState::MOTION);
   
   // Publish motion sensors
   if (motion_binary_sensor_) {
@@ -36,7 +36,7 @@ void SensorPublisher::publish_all(const BaseDetector *detector,
 
 void SensorPublisher::log_status(const char *tag,
                                  const BaseDetector *detector,
-                                 csi_motion_state_t motion_state,
+                                 MotionState motion_state,
                                  uint32_t packets_per_publish) {
   if (!detector || !tag) {
     return;
@@ -45,7 +45,7 @@ void SensorPublisher::log_status(const char *tag,
   // Get current values
   float motion_metric = detector->get_motion_metric();
   float threshold = detector->get_threshold();
-  bool is_motion = (motion_state == CSI_STATE_MOTION);
+  bool is_motion = (motion_state == MotionState::MOTION);
   
   // Calculate CSI rate (packets per second)
   uint32_t now_ms = esp_timer_get_time() / 1000;

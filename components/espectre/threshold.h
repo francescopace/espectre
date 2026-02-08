@@ -31,8 +31,9 @@ constexpr float DEFAULT_ADAPTIVE_FACTOR = 1.4f;
  * Threshold mode enumeration
  */
 enum class ThresholdMode {
-  AUTO,  // P95 * 1.4 (default)
-  MIN    // P100 * 1.0 (maximum sensitivity)
+  AUTO,    // P95 * 1.4 (default)
+  MIN,     // P100 * 1.0 (maximum sensitivity)
+  MANUAL   // User-specified fixed value (no adaptive calculation)
 };
 
 
@@ -47,7 +48,7 @@ inline void get_threshold_params(ThresholdMode mode, uint8_t& out_percentile, fl
   if (mode == ThresholdMode::MIN) {
     out_percentile = 100;
     out_factor = 1.0f;
-  } else {  // AUTO (default)
+  } else {  // AUTO or MANUAL (MANUAL falls through to AUTO defaults)
     out_percentile = DEFAULT_ADAPTIVE_PERCENTILE;
     out_factor = DEFAULT_ADAPTIVE_FACTOR;
   }

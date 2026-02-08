@@ -94,7 +94,7 @@ void ESpectreComponent::on_wifi_connected_() {
   // Enable CSI using CSI Manager with periodic callback
   if (!this->csi_manager_.is_enabled()) {
     ESP_ERROR_CHECK(this->csi_manager_.enable(
-      [this](csi_motion_state_t state, uint32_t packets_received) {
+      [this](MotionState state, uint32_t packets_received) {
 
         // Don't publish until ready
         if (!this->ready_to_publish_) return;
@@ -243,18 +243,13 @@ void ESpectreComponent::start_calibration_() {
     static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(true);
   }
   
-  // Determine threshold mode for calculation
-  espectre::ThresholdMode calc_mode = (this->threshold_mode_ == ThresholdMode::MIN) 
-    ? espectre::ThresholdMode::MIN 
-    : espectre::ThresholdMode::AUTO;
-  
   if (this->threshold_mode_ == ThresholdMode::MIN) {
     ESP_LOGW(TAG, "Threshold mode: min - maximum sensitivity, may cause false positives");
   }
   
   // Common callback for all calibrators
-  auto calibration_callback = [this, calc_mode](const uint8_t* band, uint8_t size, 
-                                                 const std::vector<float>& cal_values, bool success) {
+  auto calibration_callback = [this](const uint8_t* band, uint8_t size, 
+                                     const std::vector<float>& cal_values, bool success) {
     if (success) {
       // Only update subcarriers if auto-selected (not user-specified)
       if (!this->user_specified_subcarriers_) {
@@ -269,7 +264,7 @@ void ESpectreComponent::start_calibration_() {
       uint8_t percentile;
       float factor;
       float pxx;
-      calculate_adaptive_threshold(cal_values, calc_mode, adaptive_threshold, percentile, factor, pxx);
+      calculate_adaptive_threshold(cal_values, this->threshold_mode_, adaptive_threshold, percentile, factor, pxx);
       
       this->best_pxx_ = pxx;
       

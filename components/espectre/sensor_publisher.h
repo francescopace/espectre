@@ -37,7 +37,7 @@ class SensorPublisher {
    * @param motion_state Current motion state
    */
   void publish_all(const BaseDetector *detector,
-                   csi_motion_state_t motion_state);
+                   MotionState motion_state);
   
   /**
    * Log status with progress bar
@@ -49,7 +49,7 @@ class SensorPublisher {
    */
   void log_status(const char *tag,
                   const BaseDetector *detector,
-                  csi_motion_state_t motion_state,
+                  MotionState motion_state,
                   uint32_t packets_per_publish);
   
   /**

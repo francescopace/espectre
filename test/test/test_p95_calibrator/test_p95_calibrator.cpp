@@ -18,7 +18,6 @@
 #include "p95_calibrator.h"
 #include "csi_manager.h"
 #include "utils.h"
-#include "utils.h"
 #include "esphome/core/log.h"
 
 #if defined(ESP_PLATFORM)

@@ -25,6 +25,7 @@
 
 // Include C++ modules
 #include "utils.h"
+#include "threshold.h"
 #include "base_detector.h"
 #include "mvs_detector.h"
 #include "ml_detector.h"
@@ -52,13 +53,6 @@ class ESpectreComponent : public Component {
   ~ESpectreComponent();
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
-  
-  // Threshold mode enum
-  enum class ThresholdMode {
-    AUTO,   // P95 × 1.4 (default, zero FP)
-    MIN,    // P100 × 1.0 (max sensitivity)
-    MANUAL  // User-specified fixed value
-  };
   
   // Calibration algorithm enum
   enum class CalibrationAlgorithm {
@@ -166,7 +160,7 @@ class ESpectreComponent : public Component {
   MVSDetector mvs_detector_;
   MLDetector ml_detector_;
   DetectionAlgorithm detection_algorithm_{DetectionAlgorithm::MVS};
-  csi_motion_state_t motion_state_{};
+  MotionState motion_state_{MotionState::IDLE};
   
   // Configuration from YAML
   float segmentation_threshold_{1.0f};

@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstddef>
 #include "filters.h"
+#include "utils.h"
 
 namespace esphome {
 namespace espectre {
@@ -33,7 +34,6 @@ enum class MotionState {
 constexpr uint16_t DETECTOR_DEFAULT_WINDOW_SIZE = 50;
 constexpr uint16_t DETECTOR_MIN_WINDOW_SIZE = 10;
 constexpr uint16_t DETECTOR_MAX_WINDOW_SIZE = 200;
-constexpr uint8_t DETECTOR_NUM_SUBCARRIERS = 12;
 
 // ============================================================================
 // BASE DETECTOR CLASS
@@ -237,7 +237,7 @@ protected:
     
     // Buffer state
     float* turbulence_buffer_;
-    float amplitude_buffer_[DETECTOR_NUM_SUBCARRIERS];  // Last packet amplitudes
+    float amplitude_buffer_[HT20_SELECTED_BAND_SIZE];  // Last packet amplitudes
     uint8_t num_amplitudes_;
     uint16_t buffer_index_;
     uint16_t buffer_count_;

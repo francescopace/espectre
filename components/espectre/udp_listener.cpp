@@ -64,7 +64,7 @@ bool UDPListener::start() {
   }
   
   running_ = true;
-  ESP_LOGI(TAG, "📡 UDP Listener started on port %u (external traffic mode)", port_);
+  ESP_LOGI(TAG, "UDP Listener started on port %u (external traffic mode)", port_);
   
   return true;
 }

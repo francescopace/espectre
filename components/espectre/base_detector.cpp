@@ -129,7 +129,7 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     num_amplitudes_ = 0;
     
     if (selected_subcarriers && num_subcarriers > 0) {
-        for (int i = 0; i < num_subcarriers && num_amplitudes_ < DETECTOR_NUM_SUBCARRIERS; i++) {
+        for (int i = 0; i < num_subcarriers && num_amplitudes_ < HT20_SELECTED_BAND_SIZE; i++) {
             int sc_idx = selected_subcarriers[i];
             if (sc_idx >= total_subcarriers) continue;
             
@@ -143,11 +143,11 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
         }
     }
     
-    // Calculate spatial turbulence with gain compensation
-    float turbulence = calculate_spatial_turbulence_from_csi(csi_data, csi_len,
-                                                             selected_subcarriers,
-                                                             num_subcarriers,
-                                                             gain_compensation_);
+    // Calculate spatial turbulence from already-computed amplitudes
+    // (avoids redundant recalculation of magnitudes from I/Q pairs)
+    float turbulence = (num_amplitudes_ > 0)
+        ? std::sqrt(calculate_variance_two_pass(amplitude_buffer_, num_amplitudes_))
+        : 0.0f;
     
     // Add to buffer with filtering
     add_turbulence_to_buffer(turbulence);

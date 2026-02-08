@@ -118,17 +118,17 @@ void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_b
     // Log current WiFi parameters for debugging
     bool promiscuous = false;
     esp_wifi_get_promiscuous(&promiscuous);
-    ESP_LOGD(TAG, "📡 WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
+    ESP_LOGD(TAG, "WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
     
     wifi_ps_type_t ps_type;
     esp_wifi_get_ps(&ps_type);
     const char* ps_str = (ps_type == WIFI_PS_NONE) ? "NONE" : 
                          (ps_type == WIFI_PS_MIN_MODEM) ? "MIN_MODEM" : "MAX_MODEM";
-                         ESP_LOGD(TAG, "📡 WiFi Power Save: %s", ps_str);
+    ESP_LOGD(TAG, "WiFi Power Save: %s", ps_str);
     
     uint8_t protocol = 0;
     esp_wifi_get_protocol(WIFI_IF_STA, &protocol);
-    ESP_LOGD(TAG, "📡 WiFi Protocol: 0x%02X (802.11b=%d, 802.11g=%d, 802.11n=%d)", 
+    ESP_LOGD(TAG, "WiFi Protocol: 0x%02X (802.11b=%d, 802.11g=%d, 802.11n=%d)", 
              protocol,
              (protocol & WIFI_PROTOCOL_11B) ? 1 : 0,
              (protocol & WIFI_PROTOCOL_11G) ? 1 : 0,
@@ -136,7 +136,7 @@ void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_b
     
     wifi_bandwidth_t bw;
     esp_wifi_get_bandwidth(WIFI_IF_STA, &bw);
-    ESP_LOGD(TAG, "📡 WiFi Bandwidth: %s", (bw == WIFI_BW_HT20) ? "HT20" : "HT40");
+    ESP_LOGD(TAG, "WiFi Bandwidth: %s", (bw == WIFI_BW_HT20) ? "HT20" : "HT40");
     
     if (manager->connected_callback_) {
       manager->connected_callback_();

@@ -2,22 +2,21 @@
  * ESPectre - NBVI Calibrator Implementation
  * 
  * NBVI algorithm for non-consecutive subcarrier selection.
- * Uses file-based storage to avoid RAM limitations.
+ * Inherits common lifecycle from BaseCalibrator.
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
 
 #include "nbvi_calibrator.h"
+#include "threshold.h"
 #include "csi_manager.h"
-#include "utils.h"
 #include "utils.h"
 #include "esphome/core/log.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
-#include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -27,162 +26,13 @@ namespace espectre {
 static const char *TAG = "NBVI";
 
 // ============================================================================
-// PUBLIC API
+// CALIBRATION ALGORITHM
 // ============================================================================
-
-void NBVICalibrator::init(CSIManager* csi_manager, const char* buffer_path) {
-  csi_manager_ = csi_manager;
-  buffer_path_ = buffer_path;
-  ESP_LOGD(TAG, "NBVI Calibrator initialized (buffer: %s)", buffer_path_);
-}
-
-esp_err_t NBVICalibrator::start_calibration(const uint8_t* current_band,
-                                            uint8_t current_band_size,
-                                            result_callback_t callback) {
-  if (!csi_manager_) {
-    ESP_LOGE(TAG, "CSI Manager not initialized");
-    return ESP_ERR_INVALID_STATE;
-  }
-  
-  if (calibrating_) {
-    ESP_LOGW(TAG, "Calibration already in progress");
-    return ESP_ERR_INVALID_STATE;
-  }
-  
-  result_callback_ = callback;
-  current_band_.assign(current_band, current_band + current_band_size);
-  
-  remove_buffer_file_();
-  if (!open_buffer_file_for_writing_()) {
-    ESP_LOGE(TAG, "Failed to open buffer file for writing");
-    return ESP_ERR_NO_MEM;
-  }
-  
-  buffer_count_ = 0;
-  last_progress_ = 0;
-  mv_values_.clear();
-  
-  calibrating_ = true;
-  csi_manager_->set_calibration_mode(this);
-  
-  ESP_LOGI(TAG, "NBVI Calibration Starting");
-  
-  return ESP_OK;
-}
-
-bool NBVICalibrator::add_packet(const int8_t* csi_data, size_t csi_len) {
-  if (!calibrating_ || buffer_count_ >= buffer_size_ || !buffer_file_) {
-    return buffer_count_ >= buffer_size_;
-  }
-  
-  uint16_t packet_sc = csi_len / 2;
-  if (packet_sc != HT20_NUM_SUBCARRIERS) {
-    return false;
-  }
-  
-  uint8_t magnitudes[HT20_NUM_SUBCARRIERS];
-  
-  for (uint16_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
-    // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-    int8_t q_val = csi_data[sc * 2];      // Imaginary first
-    int8_t i_val = csi_data[sc * 2 + 1];  // Real second
-    float mag = calculate_magnitude(i_val, q_val);
-    magnitudes[sc] = static_cast<uint8_t>(std::min(mag, 255.0f));
-  }
-  
-  size_t written = fwrite(magnitudes, 1, HT20_NUM_SUBCARRIERS, buffer_file_);
-  if (written != HT20_NUM_SUBCARRIERS) {
-    ESP_LOGE(TAG, "Failed to write magnitudes to file");
-    return false;
-  }
-  
-  buffer_count_++;
-  
-  if (buffer_count_ % 100 == 0) {
-    fflush(buffer_file_);
-    vTaskDelay(1);
-  }
-  
-  uint8_t progress = (buffer_count_ * 100) / buffer_size_;
-  if (progress >= last_progress_ + 10 || buffer_count_ == buffer_size_) {
-    log_progress_bar(TAG, progress / 100.0f, 20, -1,
-                     "%d%% (%d/%d)", progress, buffer_count_, buffer_size_);
-    last_progress_ = progress;
-  }
-  
-  bool buffer_full = (buffer_count_ >= buffer_size_);
-  
-  if (buffer_full) {
-    on_collection_complete_();
-  }
-  
-  return buffer_full;
-}
-
-// ============================================================================
-// INTERNAL METHODS
-// ============================================================================
-
-void NBVICalibrator::on_collection_complete_() {
-  ESP_LOGD(TAG, "Collection complete, processing...");
-  
-  if (collection_complete_callback_) {
-    collection_complete_callback_();
-  }
-  
-  // Stop receiving CSI packets during processing
-  csi_manager_->set_calibration_mode(nullptr);
-  
-  close_buffer_file_();
-  
-  BaseType_t result = xTaskCreate(
-      calibration_task_,
-      "nbvi_cal",
-      8192,
-      this,
-      1,
-      &calibration_task_handle_
-  );
-  
-  if (result != pdPASS) {
-    ESP_LOGE(TAG, "Failed to create calibration task");
-    finish_calibration_(false);
-  }
-}
-
-void NBVICalibrator::calibration_task_(void* arg) {
-  NBVICalibrator* self = static_cast<NBVICalibrator*>(arg);
-  
-  if (!self->open_buffer_file_for_reading_()) {
-    ESP_LOGE(TAG, "Failed to open buffer file for reading");
-    self->finish_calibration_(false);
-    vTaskDelete(NULL);
-    return;
-  }
-  
-  esp_err_t err = self->run_calibration_();
-  
-  bool success = (err == ESP_OK && self->selected_band_size_ == SELECTED_SUBCARRIERS_COUNT);
-  
-  self->close_buffer_file_();
-  self->remove_buffer_file_();
-  
-  self->finish_calibration_(success);
-  
-  vTaskDelete(NULL);
-}
-
-void NBVICalibrator::finish_calibration_(bool success) {
-  calibrating_ = false;
-  calibration_task_handle_ = nullptr;
-  
-  if (result_callback_) {
-    result_callback_(selected_band_, selected_band_size_, mv_values_, success);
-  }
-}
 
 esp_err_t NBVICalibrator::run_calibration_() {
-  if (buffer_count_ < MVS_WINDOW_SIZE + 10) {
+  uint16_t buffer_count = file_buffer_.get_count();
+  
+  if (buffer_count < MVS_WINDOW_SIZE + 10) {
     ESP_LOGE(TAG, "Not enough packets for calibration");
     return ESP_FAIL;
   }
@@ -202,7 +52,7 @@ esp_err_t NBVICalibrator::run_calibration_() {
   // Step 2: Evaluate each candidate window
   float best_fp_rate = 1.0f;
   bool found_valid = false;
-  uint8_t best_band[SELECTED_SUBCARRIERS_COUNT] = {0};
+  uint8_t best_band[HT20_SELECTED_BAND_SIZE] = {0};
   std::vector<float> best_mv_values;
   
   for (size_t idx = 0; idx < candidates.size(); idx++) {
@@ -215,7 +65,7 @@ esp_err_t NBVICalibrator::run_calibration_() {
     // Apply Noise Gate
     uint8_t filtered_count = apply_noise_gate_(all_metrics);
     
-    if (filtered_count < SELECTED_SUBCARRIERS_COUNT) {
+    if (filtered_count < HT20_SELECTED_BAND_SIZE) {
       continue;
     }
     
@@ -226,11 +76,11 @@ esp_err_t NBVICalibrator::run_calibration_() {
               });
     
     // Select with spacing
-    uint8_t temp_band[SELECTED_SUBCARRIERS_COUNT] = {0};
+    uint8_t temp_band[HT20_SELECTED_BAND_SIZE] = {0};
     uint8_t temp_band_size = 0;
     select_with_spacing_(all_metrics, temp_band, &temp_band_size);
     
-    if (temp_band_size != SELECTED_SUBCARRIERS_COUNT) {
+    if (temp_band_size != HT20_SELECTED_BAND_SIZE) {
       continue;
     }
     
@@ -243,7 +93,7 @@ esp_err_t NBVICalibrator::run_calibration_() {
     
     if (fp_rate < best_fp_rate) {
       best_fp_rate = fp_rate;
-      std::memcpy(best_band, temp_band, SELECTED_SUBCARRIERS_COUNT);
+      std::memcpy(best_band, temp_band, HT20_SELECTED_BAND_SIZE);
       best_mv_values = std::move(temp_mv_values);
       found_valid = true;
     }
@@ -266,8 +116,8 @@ esp_err_t NBVICalibrator::run_calibration_() {
   }
   
   // Store results
-  std::memcpy(selected_band_, best_band, SELECTED_SUBCARRIERS_COUNT);
-  selected_band_size_ = SELECTED_SUBCARRIERS_COUNT;
+  std::memcpy(selected_band_, best_band, HT20_SELECTED_BAND_SIZE);
+  selected_band_size_ = HT20_SELECTED_BAND_SIZE;
   mv_values_ = std::move(best_mv_values);
   
   ESP_LOGI(TAG, "NBVI Calibration successful");
@@ -283,14 +133,16 @@ esp_err_t NBVICalibrator::run_calibration_() {
 esp_err_t NBVICalibrator::find_candidate_windows_(std::vector<WindowVariance>& candidates) {
   candidates.clear();
   
-  if (buffer_count_ < window_size_) {
+  uint16_t buffer_count = file_buffer_.get_count();
+  
+  if (buffer_count < window_size_) {
     return ESP_FAIL;
   }
   
   std::vector<WindowVariance> all_windows;
   
-  for (uint16_t start = 0; start + window_size_ <= buffer_count_; start += window_step_) {
-    std::vector<uint8_t> window_data = read_window_(start, window_size_);
+  for (uint16_t start = 0; start + window_size_ <= buffer_count; start += window_step_) {
+    std::vector<uint8_t> window_data = file_buffer_.read_window(start, window_size_);
     if (window_data.size() != window_size_ * HT20_NUM_SUBCARRIERS) {
       continue;
     }
@@ -335,7 +187,7 @@ esp_err_t NBVICalibrator::find_candidate_windows_(std::vector<WindowVariance>& c
   for (const auto& w : all_windows) {
     variances.push_back(w.variance);
   }
-  float p_threshold = calculate_percentile_(variances, percentile_);
+  float p_threshold = calculate_percentile(variances, percentile_);
   
   // Select windows below threshold
   for (const auto& w : all_windows) {
@@ -349,7 +201,7 @@ esp_err_t NBVICalibrator::find_candidate_windows_(std::vector<WindowVariance>& c
 
 void NBVICalibrator::calculate_nbvi_metrics_(uint16_t baseline_start,
                                              std::vector<NBVIMetrics>& metrics) {
-  std::vector<uint8_t> window_data = read_window_(baseline_start, window_size_);
+  std::vector<uint8_t> window_data = file_buffer_.read_window(baseline_start, window_size_);
   if (window_data.size() != window_size_ * HT20_NUM_SUBCARRIERS) {
     return;
   }
@@ -386,7 +238,7 @@ uint8_t NBVICalibrator::apply_noise_gate_(std::vector<NBVIMetrics>& metrics) {
     return 0;
   }
   
-  float threshold = calculate_percentile_(valid_means, noise_gate_percentile_);
+  float threshold = calculate_percentile(valid_means, noise_gate_percentile_);
   
   // Move filtered subcarriers to front
   uint8_t count = 0;
@@ -415,7 +267,7 @@ void NBVICalibrator::select_with_spacing_(const std::vector<NBVIMetrics>& sorted
   }
   
   // Remaining with spacing
-  for (size_t i = 5; i < sorted_metrics.size() && selected.size() < SELECTED_SUBCARRIERS_COUNT; i++) {
+  for (size_t i = 5; i < sorted_metrics.size() && selected.size() < HT20_SELECTED_BAND_SIZE; i++) {
     if (std::isinf(sorted_metrics[i].nbvi)) {
       continue;
     }
@@ -435,15 +287,13 @@ void NBVICalibrator::select_with_spacing_(const std::vector<NBVIMetrics>& sorted
     }
   }
   
-  // Fallback: if not enough subcarriers with spacing, add remaining without spacing constraint
-  // This matches Python implementation for robustness
-  if (selected.size() < SELECTED_SUBCARRIERS_COUNT) {
-    for (size_t i = 0; i < sorted_metrics.size() && selected.size() < SELECTED_SUBCARRIERS_COUNT; i++) {
+  // Fallback: add remaining without spacing constraint
+  if (selected.size() < HT20_SELECTED_BAND_SIZE) {
+    for (size_t i = 0; i < sorted_metrics.size() && selected.size() < HT20_SELECTED_BAND_SIZE; i++) {
       if (std::isinf(sorted_metrics[i].nbvi)) {
         continue;
       }
       uint8_t sc = sorted_metrics[i].subcarrier;
-      // Check if already selected
       bool already_selected = false;
       for (uint8_t existing : selected) {
         if (existing == sc) {
@@ -468,12 +318,14 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
                                            std::vector<float>& out_mv_values) {
   out_mv_values.clear();
   
+  uint16_t buffer_count = file_buffer_.get_count();
+  
   std::vector<float> turbulence_buffer(MVS_WINDOW_SIZE);
   uint16_t motion_count = 0;
   uint16_t total_packets = 0;
   
-  for (uint16_t pkt = 0; pkt < buffer_count_; pkt++) {
-    std::vector<uint8_t> packet_data = read_window_(pkt, 1);
+  for (uint16_t pkt = 0; pkt < buffer_count; pkt++) {
+    std::vector<uint8_t> packet_data = file_buffer_.read_window(pkt, 1);
     if (packet_data.size() != HT20_NUM_SUBCARRIERS) {
       continue;
     }
@@ -513,29 +365,6 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
 // UTILITY METHODS
 // ============================================================================
 
-float NBVICalibrator::calculate_percentile_(const std::vector<float>& values,
-                                            uint8_t percentile) const {
-  if (values.empty()) {
-    return 0.0f;
-  }
-  
-  std::vector<float> sorted = values;
-  std::sort(sorted.begin(), sorted.end());
-  
-  size_t n = sorted.size();
-  float k = (n - 1) * percentile / 100.0f;
-  size_t f = static_cast<size_t>(k);
-  size_t c = f + 1;
-  
-  if (c >= n) {
-    return sorted.back();
-  }
-  
-  float d0 = sorted[f] * (c - k);
-  float d1 = sorted[c] * (k - f);
-  return d0 + d1;
-}
-
 void NBVICalibrator::calculate_nbvi_weighted_(const std::vector<float>& magnitudes,
                                               NBVIMetrics& out_metrics) const {
   size_t count = magnitudes.size();
@@ -569,85 +398,6 @@ void NBVICalibrator::calculate_nbvi_weighted_(const std::vector<float>& magnitud
   out_metrics.nbvi = nbvi_weighted;
   out_metrics.mean = mean;
   out_metrics.std = stddev;
-}
-
-// ============================================================================
-// FILE I/O METHODS
-// ============================================================================
-
-bool NBVICalibrator::ensure_spiffs_mounted_() {
-  FILE* test = fopen(buffer_path_, "rb");
-  if (test) {
-    fclose(test);
-    return true;
-  }
-  
-  esp_vfs_spiffs_conf_t conf = {
-    .base_path = "/spiffs",
-    .partition_label = NULL,
-    .max_files = 2,
-    .format_if_mount_failed = true
-  };
-  
-  esp_err_t ret = esp_vfs_spiffs_register(&conf);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
-    return false;
-  }
-  
-  return true;
-}
-
-bool NBVICalibrator::open_buffer_file_for_writing_() {
-  if (!ensure_spiffs_mounted_()) {
-    return false;
-  }
-  
-  buffer_file_ = fopen(buffer_path_, "wb");
-  return buffer_file_ != nullptr;
-}
-
-bool NBVICalibrator::open_buffer_file_for_reading_() {
-  buffer_file_ = fopen(buffer_path_, "rb");
-  return buffer_file_ != nullptr;
-}
-
-void NBVICalibrator::close_buffer_file_() {
-  if (buffer_file_) {
-    fclose(buffer_file_);
-    buffer_file_ = nullptr;
-  }
-}
-
-void NBVICalibrator::remove_buffer_file_() {
-  FILE* f = fopen(buffer_path_, "wb");
-  if (f) {
-    fclose(f);
-  }
-}
-
-std::vector<uint8_t> NBVICalibrator::read_window_(uint16_t start_idx, uint16_t window_size) {
-  std::vector<uint8_t> data;
-  
-  if (!buffer_file_) {
-    return data;
-  }
-  
-  size_t bytes_to_read = window_size * HT20_NUM_SUBCARRIERS;
-  data.resize(bytes_to_read);
-  
-  long offset = static_cast<long>(start_idx) * HT20_NUM_SUBCARRIERS;
-  if (fseek(buffer_file_, offset, SEEK_SET) != 0) {
-    data.clear();
-    return data;
-  }
-  
-  size_t bytes_read = fread(data.data(), 1, bytes_to_read, buffer_file_);
-  if (bytes_read != bytes_to_read) {
-    data.resize(bytes_read);
-  }
-  
-  return data;
 }
 
 }  // namespace espectre

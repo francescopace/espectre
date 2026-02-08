@@ -38,19 +38,6 @@ constexpr float SEGMENTATION_DEFAULT_THRESHOLD = 1.0f;
 constexpr float SEGMENTATION_MIN_THRESHOLD = 0.1f;
 constexpr float SEGMENTATION_MAX_THRESHOLD = 10.0f;
 
-// =============================================================================
-// Motion Detection State
-// =============================================================================
-enum csi_motion_state_t {
-    CSI_STATE_IDLE,       // No motion detected
-    CSI_STATE_MOTION      // Motion in progress
-};
-
-// Detection algorithm type
-enum csi_detection_algorithm_t {
-    CSI_ALGORITHM_MVS     // Moving Variance Segmentation
-};
-
 /**
  * Calculate variance using two-pass algorithm (numerically stable)
  * 
