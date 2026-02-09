@@ -7,7 +7,7 @@ mpremote>=1.26.1        # Deploy code to MicroPython device (used as CLI tool)
 pyserial>=3.5           # Serial port detection and communication
 
 # CLI Tool Dependencies
-paho-mqtt==1.6.1        # MQTT client (pinned for ESPHome compatibility)
+paho-mqtt==2.1.0        # MQTT client (pinned for ESPHome compatibility)
 colorama>=0.4.6         # Terminal colors
 python-dotenv>=1.2.1    # Environment variables support
 PyYAML>=6.0.3           # YAML parsing
