@@ -14,7 +14,7 @@ All analysis tools support any ESP32 variant with CSI capability:
 
 Use `--chip <name>` to specify the chip (e.g., `--chip c3`, `--chip s3`). Most tools default to C6 if not specified.
 
-For algorithm documentation (MVS, P95 Band Selection, Hampel filter), see [ALGORITHMS.md](../ALGORITHMS.md).
+For algorithm documentation (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md](../ALGORITHMS.md).
 
 For production performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
@@ -249,9 +249,9 @@ Tested on 60-second noisy baseline with C6 chip:
 | Low-pass 11Hz only | 92.4% | 2.34% | 88.9% |
 | **Low-pass 11Hz + Hampel (W=9, T=4)** | **92.1%** | **0.84%** | **93.2%** |
 
-### P95 Automatic Band Selection
+### Automatic Band Selection
 
-**P95 Band Selection** achieves excellent results with zero configuration, automatically selecting the optimal 12-subcarrier band for each environment.
+**NBVI** achieves excellent results with zero configuration, automatically selecting the optimal 12 subcarriers for each environment.
 
 For complete algorithm documentation, see [ALGORITHMS.md](../ALGORITHMS.md#automatic-subcarrier-selection).
 
@@ -261,7 +261,7 @@ For detailed performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 
 ## Additional Resources
 
-- [ALGORITHMS.md](../ALGORITHMS.md) - Algorithm documentation (MVS, P95 Band Selection, Hampel)
+- [ALGORITHMS.md](../ALGORITHMS.md) - Algorithm documentation (MVS, NBVI calibration, Hampel)
 - [Micro-ESPectre](../README.md) - R&D platform documentation
 - [ESPectre](../../README.md) - Main project with Home Assistant integration
 

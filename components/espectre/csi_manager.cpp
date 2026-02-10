@@ -90,10 +90,6 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
     return;
   }
   
-  // Calculate and apply gain compensation if needed (skipped gain lock or disabled mode)
-  float compensation = gain_controller_.calculate_compensation(data);
-  detector_->set_gain_compensation(compensation);
-  
   // Process CSI packet through detector
   detector_->process_packet(csi_data, csi_len, selected_subcarriers_, NUM_SUBCARRIERS);
   

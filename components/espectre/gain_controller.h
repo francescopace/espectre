@@ -233,36 +233,19 @@ class GainController {
   static constexpr uint16_t get_subcarrier_count() { return 64; }
   
   /**
-   * Check if gain compensation is needed
+   * Check if CV normalization is needed
    * 
-   * Compensation is needed when gain lock was skipped (strong signal)
-   * or when mode is DISABLED. In these cases, AGC/FFT vary dynamically.
+   * CV normalization (dividing by mean) is needed when gain lock was skipped
+   * (strong signal) or when mode is DISABLED. In these cases, AGC/FFT vary
+   * dynamically and CV normalization provides stable turbulence values.
    * 
-   * @return true if compensation should be applied
+   * @return true if CV normalization should be applied
    */
-  bool needs_compensation() const {
+  bool needs_cv_normalization() const {
     return skipped_strong_signal_ || mode_ == GainLockMode::DISABLED;
   }
   
-  /**
-   * Calculate gain compensation factor for a CSI packet
-   * 
-   * Compares current AGC/FFT values with baseline and returns
-   * a factor to normalize CSI amplitudes.
-   * 
-   * Formula: 10^((baseline_agc - current_agc) / 20) *
-   *          10^((baseline_fft - current_fft) / 20)
-   * 
-   * @param info CSI packet info
-   * @return Compensation factor (1.0 if no compensation needed)
-   */
-  float calculate_compensation(const wifi_csi_info_t* info) const;
-  
  private:
-  // Calculate median of an array (modifies array order)
-  static uint8_t calculate_median_u8(uint8_t* arr, uint16_t size);
-  static int8_t calculate_median_i8(int8_t* arr, uint16_t size);
-  
   uint16_t packet_count_{0};
   
   // Arrays to store gain values for median calculation (600 bytes total)

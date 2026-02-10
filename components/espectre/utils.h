@@ -13,10 +13,116 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cmath>
+#include <algorithm>
 #include "esphome/core/log.h"
 
 namespace esphome {
 namespace espectre {
+
+// =============================================================================
+// Basic Statistical Functions
+// =============================================================================
+
+/**
+ * Calculate mean of an array
+ * 
+ * @param values Array of float values
+ * @param n Number of values
+ * @return Mean (0.0 if n == 0)
+ */
+inline float calculate_mean(const float* values, size_t n) {
+    if (n == 0 || !values) return 0.0f;
+    float sum = 0.0f;
+    for (size_t i = 0; i < n; i++) {
+        sum += values[i];
+    }
+    return sum / n;
+}
+
+/**
+ * Calculate median of a float array (sorts array in-place)
+ * 
+ * @param arr Array of float values (will be sorted)
+ * @param size Number of values
+ * @return Median value (0.0 if size == 0)
+ */
+inline float calculate_median_float(float* arr, size_t size) {
+    if (size == 0 || !arr) return 0.0f;
+    std::sort(arr, arr + size);
+    if (size % 2 == 0) {
+        return (arr[size / 2 - 1] + arr[size / 2]) / 2.0f;
+    }
+    return arr[size / 2];
+}
+
+/**
+ * Calculate median of a uint8 array (sorts array in-place)
+ * 
+ * @param arr Array of uint8 values (will be sorted)
+ * @param size Number of values
+ * @return Median value (0 if size == 0)
+ */
+inline uint8_t calculate_median_u8(uint8_t* arr, size_t size) {
+    if (size == 0 || !arr) return 0;
+    std::sort(arr, arr + size);
+    if (size % 2 == 0) {
+        return (arr[size / 2 - 1] + arr[size / 2]) / 2;
+    }
+    return arr[size / 2];
+}
+
+/**
+ * Calculate median of an int8 array (sorts array in-place)
+ * 
+ * @param arr Array of int8 values (will be sorted)
+ * @param size Number of values
+ * @return Median value (0 if size == 0)
+ */
+inline int8_t calculate_median_i8(int8_t* arr, size_t size) {
+    if (size == 0 || !arr) return 0;
+    std::sort(arr, arr + size);
+    if (size % 2 == 0) {
+        return (arr[size / 2 - 1] + arr[size / 2]) / 2;
+    }
+    return arr[size / 2];
+}
+
+/**
+ * Apply CV normalization to standard deviation
+ * 
+ * CV (Coefficient of Variation) = std / mean
+ * Makes turbulence gain-invariant when AGC is not locked.
+ * 
+ * @param std_dev Standard deviation
+ * @param mean Mean value
+ * @param use_cv true = return std/mean, false = return raw std
+ * @return CV-normalized or raw std
+ */
+inline float apply_cv_normalization(float std_dev, float mean, bool use_cv) {
+    if (!use_cv) return std_dev;
+    return (mean > 0.0f) ? std_dev / mean : 0.0f;
+}
+
+/**
+ * Calculate turbulence from variance with optional CV normalization
+ * 
+ * Combines variance → std → optional CV normalization in one call.
+ * 
+ * @param variance Pre-calculated variance
+ * @param values Array used for mean calculation (if CV enabled)
+ * @param count Number of values
+ * @param use_cv true = CV normalization, false = raw std
+ * @return Turbulence value
+ */
+inline float calculate_turbulence_from_variance(float variance, 
+                                                 const float* values, 
+                                                 size_t count,
+                                                 bool use_cv) {
+    float std_dev = std::sqrt(variance);
+    if (!use_cv) return std_dev;
+    float mean = calculate_mean(values, count);
+    return apply_cv_normalization(std_dev, mean, true);
+}
 
 // =============================================================================
 // HT20 Constants (64 subcarriers - do not change)
@@ -35,7 +141,8 @@ constexpr uint16_t SEGMENTATION_DEFAULT_WINDOW_SIZE = 50;
 constexpr uint16_t SEGMENTATION_MIN_WINDOW_SIZE = 10;
 constexpr uint16_t SEGMENTATION_MAX_WINDOW_SIZE = 200;
 constexpr float SEGMENTATION_DEFAULT_THRESHOLD = 1.0f;
-constexpr float SEGMENTATION_MIN_THRESHOLD = 0.1f;
+// Min threshold lowered to support CV normalization (std/mean produces smaller values)
+constexpr float SEGMENTATION_MIN_THRESHOLD = 1e-9f;
 constexpr float SEGMENTATION_MAX_THRESHOLD = 10.0f;
 
 /**
@@ -91,16 +198,22 @@ inline float calculate_magnitude(int8_t i, int8_t q) {
  * selected subcarriers. It measures the spatial variability of the
  * Wi-Fi channel - higher values indicate motion/disturbance.
  * 
+ * Two modes:
+ *   CV normalization (std/mean): gain-invariant, used when gain is NOT locked
+ *   Raw std: better sensitivity for contiguous bands, used when gain IS locked
+ * 
  * @param magnitudes Array of magnitude values (one per subcarrier)
  * @param subcarriers Array of selected subcarrier indices
  * @param num_subcarriers Number of selected subcarriers (max 12)
  * @param max_subcarrier Maximum valid subcarrier index (default: 64 for HT20)
- * @return Standard deviation of magnitudes (0.0 if no valid subcarriers)
+ * @param use_cv_normalization true = std/mean, false = raw std (default: true)
+ * @return Turbulence value
  */
 inline float calculate_spatial_turbulence(const float* magnitudes,
                                           const uint8_t* subcarriers,
                                           uint8_t num_subcarriers,
-                                          uint16_t max_subcarrier = 64) {
+                                          uint16_t max_subcarrier = 64,
+                                          bool use_cv_normalization = true) {
     if (num_subcarriers == 0 || !magnitudes || !subcarriers) {
         return 0.0f;
     }
@@ -119,14 +232,15 @@ inline float calculate_spatial_turbulence(const float* magnitudes,
         return 0.0f;
     }
     
-    return std::sqrt(calculate_variance_two_pass(valid_mags, valid_count));
+    float variance = calculate_variance_two_pass(valid_mags, valid_count);
+    return calculate_turbulence_from_variance(variance, valid_mags, valid_count, use_cv_normalization);
 }
 
 /**
  * Calculate spatial turbulence directly from raw CSI data (I/Q pairs)
  * 
  * This is a convenience wrapper that calculates magnitudes internally
- * before computing the spatial turbulence.
+ * before computing spatial turbulence.
  * 
  * HT20 only: 64 subcarriers, 128 bytes CSI data.
  * 
@@ -134,14 +248,14 @@ inline float calculate_spatial_turbulence(const float* magnitudes,
  * @param csi_len Length of CSI data in bytes (expected: 128 for HT20)
  * @param subcarriers Array of selected subcarrier indices
  * @param num_subcarriers Number of selected subcarriers (max 12)
- * @param gain_compensation Gain compensation factor (default: 1.0, no compensation)
- * @return Standard deviation of magnitudes (0.0 if invalid input)
+ * @param use_cv_normalization true = std/mean, false = raw std (default: true)
+ * @return Turbulence value
  */
 inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
                                                    size_t csi_len,
                                                    const uint8_t* subcarriers,
                                                    uint8_t num_subcarriers,
-                                                   float gain_compensation = 1.0f) {
+                                                   bool use_cv_normalization = true) {
     if (!csi_data || csi_len < 2 || num_subcarriers == 0 || !subcarriers) {
         return 0.0f;
     }
@@ -163,17 +277,15 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
         // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
         float Q = static_cast<float>(csi_data[sc_idx * 2]);      // Imaginary first
         float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);  // Real second
-        float amplitude = std::sqrt(I * I + Q * Q);
-        
-        // Apply gain compensation (normalizes for AGC/FFT variations)
-        amplitudes[valid_count++] = amplitude * gain_compensation;
+        amplitudes[valid_count++] = std::sqrt(I * I + Q * Q);
     }
     
     if (valid_count == 0) {
         return 0.0f;
     }
     
-    return std::sqrt(calculate_variance_two_pass(amplitudes, valid_count));
+    float variance = calculate_variance_two_pass(amplitudes, valid_count);
+    return calculate_turbulence_from_variance(variance, amplitudes, valid_count, use_cv_normalization);
 }
 
 /**

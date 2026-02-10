@@ -12,23 +12,13 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import time
-from pathlib import Path
 from collections import deque
 
-# Add micro-espectre and src to path for imports
-_micro_espectre_path = str(Path(__file__).parent.parent)
-_src_path = str(Path(__file__).parent.parent / 'src')
-if _src_path not in sys.path:
-    sys.path.insert(0, _src_path)
-if _micro_espectre_path not in sys.path:
-    sys.path.insert(0, _micro_espectre_path)
-from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
-
+# Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     load_baseline_and_movement, 
     MVSDetector, 
@@ -36,6 +26,7 @@ from csi_utils import (
     find_dataset, 
     DEFAULT_SUBCARRIERS
 )
+from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
 from threshold import calculate_adaptive_threshold
 from segmentation import SegmentationContext
 from features import (

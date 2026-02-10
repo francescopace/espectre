@@ -37,7 +37,7 @@ class SegmentationContext:
     STATE_MOTION = MotionState.MOTION
     
     def __init__(self, 
-                 window_size=50,
+                 window_size=75,
                  threshold=1.0,
                  enable_lowpass=False,
                  lowpass_cutoff=11.0,
@@ -48,7 +48,7 @@ class SegmentationContext:
         Initialize segmentation context
         
         Args:
-            window_size: Moving variance window size (default: 50)
+            window_size: Moving variance window size (default: 75, matches C++ DETECTOR_DEFAULT_WINDOW_SIZE)
             threshold: Motion detection threshold value (default: 1.0)
                        Can be set dynamically via set_adaptive_threshold() after calibration
             enable_lowpass: Enable low-pass filter for noise reduction (default: False)
@@ -59,6 +59,11 @@ class SegmentationContext:
         """
         self.window_size = window_size
         self.threshold = threshold
+        
+        # CV normalization: True = std/mean (gain-invariant), False = raw std
+        # Default False for compatibility with origin/develop (most chips have gain lock)
+        # Set to True for ESP32 which doesn't have gain lock
+        self.use_cv_normalization = False
         
         # Turbulence circular buffer (pre-allocated)
         self.turbulence_buffer = [0.0] * window_size
@@ -75,9 +80,6 @@ class SegmentationContext:
         
         # Last amplitudes (stored for external use)
         self.last_amplitudes = None
-        
-        # Gain compensation factor (1.0 = no compensation)
-        self.gain_compensation = 1.0
         
         # Initialize low-pass filter if enabled
         self.lowpass_filter = None
@@ -131,14 +133,20 @@ class SegmentationContext:
         return calculate_variance(values)
     
     @staticmethod
-    def compute_spatial_turbulence(csi_data, selected_subcarriers=None, gain_compensation=1.0):
+    def compute_spatial_turbulence(csi_data, selected_subcarriers=None, use_cv_normalization=True):
         """
-        Calculate spatial turbulence (std of subcarrier amplitudes) - static version
+        Calculate spatial turbulence from CSI subcarrier amplitudes
+        
+        Two modes controlled by use_cv_normalization:
+        - True (default): CV normalization (std/mean), gain-invariant. Used when gain
+          is NOT locked (AGC varies). Safe but reduces sensitivity for contiguous bands.
+        - False: Raw std, better sensitivity for all band types. Used when gain IS locked
+          (amplitudes are stable, no normalization needed).
         
         Args:
             csi_data: array of int8 I/Q values (alternating real, imag)
             selected_subcarriers: list of subcarrier indices to use (default: all up to 64)
-            gain_compensation: Gain compensation factor (default: 1.0, no compensation)
+            use_cv_normalization: True = std/mean, False = raw std (default: True)
             
         Returns:
             tuple: (turbulence, amplitudes) - turbulence value and amplitude list
@@ -158,8 +166,7 @@ class SegmentationContext:
                     # CSI values are signed int8 stored as uint8
                     imag = float(to_signed_int8(csi_data[i]))
                     real = float(to_signed_int8(csi_data[i + 1]))
-                    amplitude = math.sqrt(real * real + imag * imag) * gain_compensation
-                    amplitudes.append(amplitude)
+                    amplitudes.append(math.sqrt(real * real + imag * imag))
         else:
             # Use only selected subcarriers (matches C version)
             for sc_idx in selected_subcarriers:
@@ -169,8 +176,7 @@ class SegmentationContext:
                     # CSI values are signed int8 stored as uint8
                     imag = float(to_signed_int8(csi_data[i]))
                     real = float(to_signed_int8(csi_data[i + 1]))
-                    amplitude = math.sqrt(real * real + imag * imag) * gain_compensation
-                    amplitudes.append(amplitude)
+                    amplitudes.append(math.sqrt(real * real + imag * imag))
         
         if len(amplitudes) < 2:
             return 0.0, amplitudes
@@ -180,24 +186,32 @@ class SegmentationContext:
         mean = sum(amplitudes) / n
         variance = sum((x - mean) ** 2 for x in amplitudes) / n
         
-        return math.sqrt(variance), amplitudes
+        if use_cv_normalization:
+            # CV normalization: std/mean (gain-invariant)
+            turbulence = math.sqrt(variance) / mean if mean > 0 else 0.0
+        else:
+            # Raw std: better sensitivity when gain is locked
+            turbulence = math.sqrt(variance)
+        return turbulence, amplitudes
     
     def calculate_spatial_turbulence(self, csi_data, selected_subcarriers=None):
         """
         Calculate spatial turbulence and store amplitudes for features
+        
+        Uses the instance's use_cv_normalization setting to determine
+        whether to apply CV normalization (std/mean) or raw std.
         
         Args:
             csi_data: array of int8 I/Q values (alternating real, imag)
             selected_subcarriers: list of subcarrier indices to use (default: all up to 64)
             
         Returns:
-            float: Standard deviation of amplitudes
+            float: Turbulence value (CV-normalized or raw std depending on config)
         
         Note: Stores last amplitudes for feature calculation at publish time.
-              Uses gain_compensation if set.
         """
         turbulence, amplitudes = self.compute_spatial_turbulence(
-            csi_data, selected_subcarriers, self.gain_compensation
+            csi_data, selected_subcarriers, self.use_cv_normalization
         )
         self.last_amplitudes = amplitudes
         return turbulence
@@ -226,25 +240,12 @@ class SegmentationContext:
         Formula: adaptive_threshold = Pxx(baseline_mv) × factor
         
         Where Pxx and factor are configured via ADAPTIVE_PERCENTILE and
-        ADAPTIVE_FACTOR in config.py (default: P95 × 1.4).
+        ADAPTIVE_FACTOR in config.py (default: 1.0, so threshold = P95).
         
         Args:
             threshold: Adaptive threshold value (typically 0.5 to 5.0)
         """
-        self.threshold = max(0.1, min(10.0, threshold))
-    
-    def set_gain_compensation(self, compensation):
-        """
-        Set gain compensation factor.
-        
-        When gain lock is not active (skipped or disabled), CSI amplitudes
-        vary with automatic gain control. This factor normalizes amplitudes
-        to compensate for gain variations.
-        
-        Args:
-            compensation: Compensation factor (1.0 = no compensation)
-        """
-        self.gain_compensation = compensation
+        self.threshold = max(1e-6, min(10.0, threshold))
     
     def add_turbulence(self, turbulence):
         """

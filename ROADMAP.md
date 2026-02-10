@@ -65,7 +65,7 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 | Component | Status | Description |
 |-----------|--------|-------------|
 | **MVS Algorithm** | Production | Moving Variance Segmentation for motion detection |
-| **Band Calibration** | Production | Automatic subcarrier selection (NBVI/P95) |
+| **Band Calibration** | Production | Automatic subcarrier selection (NBVI) |
 | **ESPHome Integration** | Production | Native Home Assistant integration with auto-discovery |
 | **Micro-ESPectre** | Production | Python R&D platform for rapid prototyping |
 | **ML Data Collection** | Ready | Infrastructure for labeled CSI dataset creation |
@@ -144,13 +144,14 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 | Hyperparameter optimization pipelines | Medium | Planned |
 | Cross-validation with diverse environments | Medium | Planned |
 
-### Inference (Exploratory)
+### Inference
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Edge inference on ESP32 (TensorFlow Lite Micro) | Medium | Exploratory |
+| Edge inference on ESP32 (manual MLP) | High | Done |
+| TensorFlow Lite Micro integration | Medium | Exploratory |
 | Model optimization (quantization, pruning) | Medium | Exploratory |
-| Latency and memory profiling | Medium | Exploratory |
+| Latency and memory profiling | Medium | Planned |
 
 ---
 

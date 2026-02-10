@@ -26,10 +26,10 @@ This guide covers how to collect and label CSI data for training ML models. This
 - ESP32-C3
 - ESP32-C6
 
-**Not recommended:**
-- ESP32 (original) - Does not support gain lock. CSI amplitudes vary with automatic gain control, causing inconsistent data that degrades ML model accuracy.
+**Works with CV normalization:**
+- ESP32 (original) - Does not support AGC gain lock, but can still be used for training with CV normalization enabled
 
-> **Note**: Gain lock stabilizes CSI amplitudes during data collection. Without it, the model may learn spurious patterns from gain variations rather than actual motion.
+> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. Data collected without gain lock requires CV normalization (`std/mean`) during feature extraction to make detection gain-invariant. The training script handles this automatically based on `use_cv_normalization` in `dataset_info.json`.
 
 ---
 
@@ -80,7 +80,10 @@ The `me collect` subcommand provides a streamlined workflow for recording labele
 | `./me collect --label <name> --duration <sec>` | Record for specified duration |
 | `./me collect --label <name> --samples <n>` | Record n samples interactively |
 | `./me collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
+| `./me collect --label <name> --description "text"` | Add description to sample |
 | `./me collect --info` | Show dataset statistics |
+
+Gain lock status is **automatically detected** from the CSI stream and saved in `dataset_info.json`.
 
 ### Recording Samples
 
@@ -93,6 +96,10 @@ The `me collect` subcommand provides a streamlined workflow for recording labele
 
 # Record with explicit contributor override
 ./me collect --label gesture --samples 10 --interactive --contributor otheruser
+
+# Gain lock status is auto-detected from the CSI stream
+# No need to specify --no-gain-lock, it's automatic!
+./me collect --label baseline --duration 10
 ```
 
 ### Viewing Dataset
@@ -103,11 +110,14 @@ The `me collect` subcommand provides a streamlined workflow for recording labele
 
 Output:
 ```
-Dataset: 5 labels, 47 samples
-  idle: 12 samples (36000 packets)
-  wave: 10 samples (15000 packets)
-  swipe: 10 samples (15000 packets)
+  Label                   Samples     ID
+  --------------------------------------
+  idle                         12      0
+  wave                         10      1
+  swipe                        10      2
   ...
+  --------------------------------------
+  Total                        47
 ```
 
 ---
@@ -155,6 +165,17 @@ Central metadata file for the dataset:
         "duration_ms": 10000,
         "num_packets": 1000,
         "description": "HT20 baseline sample"
+      },
+      {
+        "filename": "baseline_esp32_64sc_20260214_183059.npz",
+        "chip": "ESP32",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-14T18:30:59.355439",
+        "duration_ms": 9998,
+        "num_packets": 961,
+        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)",
+        "use_cv_normalization": true
       }
     ]
   },
@@ -165,13 +186,14 @@ Central metadata file for the dataset:
 | Field | Description |
 |-------|-------------|
 | `filename` | NPZ file name |
-| `chip` | ESP32 chip type (C6, S3) |
+| `chip` | ESP32 chip type (C6, S3, ESP32) |
 | `subcarriers` | Number of subcarriers (64 for HT20) |
 | `contributor` | GitHub username of data collector |
 | `collected_at` | ISO timestamp of collection |
 | `duration_ms` | Sample duration in milliseconds |
 | `num_packets` | Number of CSI packets |
 | `description` | Human-readable description |
+| `use_cv_normalization` | If `true`, CV normalization is applied during feature extraction (for data without gain lock) |
 
 ### Sample Format (.npz)
 
@@ -220,18 +242,57 @@ phases = np.arctan2(Q, I)            # Shape: (N, 64)
 ### Using csi_utils
 
 ```python
-from csi_utils import load_npz_as_packets
+from tools.csi_utils import load_npz_as_packets
 from pathlib import Path
+import numpy as np
 
-# Load a sample file
-data_dir = Path('data')
-packets = load_npz_as_packets(data_dir / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz')
+# Load a sample file (run from micro-espectre/)
+packets = load_npz_as_packets(Path('data/baseline/baseline_c6_64sc_20251212_142443.npz'))
 
 for pkt in packets:
-    amplitudes = pkt['amplitudes']  # Shape: (64,) - computed on load
+    csi_data = pkt['csi_data']           # Shape: (128,) - raw I/Q data
     label = pkt['label']
+    
+    # Calculate amplitudes from I/Q pairs
+    Q = csi_data[0::2].astype(float)     # Imaginary (odd indices)
+    I = csi_data[1::2].astype(float)     # Real (even indices)
+    amplitudes = np.sqrt(I**2 + Q**2)    # Shape: (64,)
     # Process...
 ```
+
+---
+
+## Data Without Gain Lock
+
+Some ESP32 chips (original ESP32) or data collection sessions may not have AGC gain lock enabled. This causes CSI amplitudes to vary with signal strength rather than just motion.
+
+### How It Works
+
+Instead of excluding this data, the training script applies **CV normalization** (`std/mean`) during feature extraction. This normalizes spatial turbulence to be gain-invariant.
+
+### When to Use CV Normalization
+
+- **ESP32 (original)**: Does not support AGC gain lock in the CSI driver
+- **Data collected before enabling gain lock**: Some C3 datasets were collected before gain lock was enabled
+- **Future compatibility**: Any data where amplitudes are unreliable
+
+### Automatic Detection
+
+The collector **automatically detects** the gain lock status from the CSI stream:
+
+1. The ESP32 firmware sends a `gain_locked` flag in each UDP packet
+2. The collector saves this flag in the `.npz` file
+3. `dataset_info.json` is updated with `use_cv_normalization: true` if gain lock was not applied
+
+No manual flags needed - the system handles everything automatically!
+
+### Viewing Files with CV Normalization
+
+```bash
+python tools/10_train_ml_model.py --info
+```
+
+This shows which files use CV normalization.
 
 ---
 
@@ -306,21 +367,29 @@ python tools/10_train_ml_model.py --fp-weight 2.0
 
 # Train with balanced weights (default)
 python tools/10_train_ml_model.py
+
+# Show dataset info (including excluded files)
+python tools/10_train_ml_model.py --info
 ```
 
 The `--fp-weight` parameter multiplies the IDLE class weight during training. Values >1.0 reduce false positives at the cost of slightly lower recall. Recommended: 2.0 for production.
 
 This will:
 1. Load all `.npz` files from `data/`
-2. Extract 12 features per sliding window
-3. 5-fold cross-validation for reliable metrics
-4. Train MLP model (12 → 16 → 8 → 1) with early stopping and dropout
-5. Export to:
-   - `src/ml_weights.py` (MicroPython)
-   - `components/espectre/ml_weights.h` (C++/ESPHome)
+2. Apply CV normalization to files marked with `use_cv_normalization: true`
+3. Extract 12 features per sliding window
+4. 5-fold cross-validation for reliable metrics
+5. Train MLP model (12 → 16 → 8 → 1) with early stopping and dropout
+6. Export to:
+   - `src/ml_weights.py` (MicroPython) - includes seed and timestamp
+   - `components/espectre/ml_weights.h` (C++/ESPHome) - includes seed and timestamp
    - `models/motion_detector_small.tflite` (TFLite int8)
    - `models/feature_scaler.npz` (normalization params)
    - `models/ml_test_data.npz` (test data for validation)
+
+Use `--seed <number>` for reproducible training. The seed is saved in the generated weight files.
+
+> **Note**: Files with `use_cv_normalization: true` in `dataset_info.json` automatically use CV normalization during feature extraction. Use `--info` to see which files are affected.
 
 ### Compare Detection Methods
 
@@ -368,9 +437,10 @@ receiver.run(timeout=60)  # Run for 60 seconds
 ### UDP Packet Format
 
 ```
-Header (6 bytes):
+Header (7 bytes):
   - Magic: 0x4353 ("CS") - 2 bytes
   - Chip type: 1 byte (0=unknown, 1=ESP32, 2=S2, 3=S3, 4=C3, 5=C5, 6=C6)
+  - Flags: 1 byte (bit 0 = gain_locked)
   - Sequence number: 1 byte (0-255, wrapping)
   - Num subcarriers: 2 bytes (uint16, little-endian)
 
@@ -378,10 +448,12 @@ Payload (N × 2 bytes):
   - I0, Q0, I1, Q1, ... (int8 each)
 
 Example (HT20, 64 SC):
-  - 6 + 128 = 134 bytes
+  - 7 + 128 = 135 bytes
 ```
 
-Note: ESPectre uses HT20 mode (64 subcarriers) for consistent performance across all ESP32 variants. The chip type is automatically detected and included in each packet.
+The `gain_locked` flag indicates whether AGC gain lock was applied during data collection. If not set (0), CV normalization should be applied during feature extraction.
+
+Note: ESPectre uses HT20 mode (64 subcarriers) for consistent performance across all ESP32 variants. Chip type and gain lock status are automatically detected and included in each packet.
 
 ---
 

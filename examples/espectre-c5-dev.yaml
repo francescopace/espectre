@@ -1,17 +1,17 @@
-# ESPectre - ESP32-C6 Development Configuration
+# ESPectre - ESP32-C5 Development Configuration
 # WiFi CSI-based motion detection - LOCAL DEVELOPMENT VERSION
 #
 # This file uses local components for development.
-# For production use, see espectre-c6.yaml (uses GitHub source).
+# For production use, see espectre-c5.yaml (uses GitHub source).
 #
 # Tested boards:
-# - Waveshare ESP32-C6-DEV (WROOM-1-N8)
+# - Waveshare ESP32-C5-DEV (WROOM-1-N8)
 #
 # Usage:
 # 1. Clone the repository: git clone https://github.com/francescopace/espectre.git
 # 2. cd espectre
 # 3. Create secrets.yaml with wifi_ssid and wifi_password
-# 4. Run: esphome run examples/espectre-c6-dev.yaml
+# 4. Run: esphome run examples/espectre-c5-dev.yaml
 
 esphome:
   name: espectre
@@ -19,7 +19,7 @@ esphome:
   min_version: 2025.11.0
 
 esp32:
-  variant: ESP32C6
+  variant: ESP32C5
   framework:
     type: esp-idf
 

@@ -9,6 +9,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [Overview](#overview)
 - [Processing Pipeline](#processing-pipeline)
 - [Gain Lock (Hardware Stabilization)](#gain-lock-hardware-stabilization)
+- [CV Normalization (Gain-Invariant Turbulence)](#cv-normalization-gain-invariant-turbulence)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
 - [ML: Neural Network Detector](#ml-neural-network-detector)
 - [Automatic Subcarrier Selection](#automatic-subcarrier-selection)
@@ -58,7 +59,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 │                                                                                   │
 │  ┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌─────────────┐              │
 │  │ CSI Data │───▶│Gain Lock │───▶│ Band Select  │───▶│ Turbulence  │              │
-│  │ N subcs  │    │ AGC/FFT  │    │ 12 subcs     │    │ σ(amps)     │              │
+│  │ N subcs  │    │ AGC/FFT  │    │ 12 subcs     │    │ σ/μ (CV)    │              │
 │  └──────────┘    └──────────┘    └──────────────┘    └──────┬──────┘              │
 │                  (3s, 300 pkt)    (7s, 700 pkt)             │                     │
 │                                                             ▼                     │
@@ -78,11 +79,11 @@ When a person moves in an environment, they alter multipath reflections, change 
 1. **CSI Data**: Raw I/Q values for 64 subcarriers (HT20 mode)
    - Espressif format: `[Q₀, I₀, Q₁, I₁, ...]` (Imaginary first, Real second per subcarrier)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
-3. **Spatial Turbulence**: `σ = std(amplitudes)` - variability across subcarriers
+3. **Spatial Turbulence (CV)**: `CV = σ(amplitudes) / μ(amplitudes)` - gain-invariant variability
 4. **Hampel Filter** (optional): Remove outliers using MAD
 5. **Low-Pass Filter** (optional): Remove high-frequency noise (Butterworth 1st order)
 6. **Moving Variance**: `Var(turbulence)` over sliding window
-7. **Adaptive Threshold**: Compare variance to `Pxx(baseline_mv) × factor` → IDLE or MOTION
+7. **Adaptive Threshold**: Compare variance to `Pxx(baseline_mv)` → IDLE or MOTION
 
 ---
 
@@ -172,19 +173,25 @@ if (packet_count < 300) {
 }
 ```
 
-### Gain Compensation
+### CV Normalization (Gain-Invariant Turbulence)
 
-When gain lock is skipped (signal too strong) or disabled, CSI amplitudes vary with
-automatic gain control. Gain compensation normalizes amplitudes using the Espressif formula:
+Since v2.5.0-cv, ESPectre uses **always-on CV normalization** for spatial turbulence:
 
-```c
-// Compensation factor = 10^((baseline_agc - current_agc) / 20) * 
-//                       10^((baseline_fft - current_fft) / 20)
-float compensation = pow(10, agc_delta / 20.0) * pow(10, fft_delta / 20.0);
-
-// Applied to each amplitude before turbulence calculation
-amplitude *= compensation;
 ```
+turbulence = std(amplitudes) / mean(amplitudes)
+```
+
+This is the **Coefficient of Variation (CV)**, a dimensionless ratio that is mathematically invariant to linear gain scaling:
+
+```
+CV(kA) = std(kA) / mean(kA) = k·std(A) / k·mean(A) = std(A) / mean(A) = CV(A)
+```
+
+If the receiver AGC scales all amplitudes by a factor k, the CV remains unchanged. This property **eliminates the need for gain compensation** on all platforms, including those without hardware gain lock (ESP32 Base, ESP32-S2).
+
+**Impact on detection**: CV-normalized turbulence values are typically in the range 0.05-0.25 (compared to 2-20 for raw std). Adaptive thresholds from calibration are correspondingly smaller (order of 1e-4 to 1e-3).
+
+**Compatibility with calibrators**: CV normalization works best with **NBVI** (non-consecutive subcarrier selection) because it selects subcarriers with different spectral characteristics, maximizing sensitivity to motion-induced changes.
 
 ### Platform Support
 
@@ -197,7 +204,7 @@ amplitude *= compensation;
 | ESP32 (original) | Not available | PHY functions not exposed |
 | ESP32-S2 | Not available | PHY functions not exposed |
 
-On unsupported platforms, ESPectre skips the gain lock process without affecting functionality. Motion detection still works, but may have slightly higher baseline variance.
+On unsupported platforms, ESPectre skips the gain lock process without affecting functionality. With CV normalization, motion detection works equally well with or without gain lock, as the turbulence metric is inherently gain-invariant.
 
 **Reference**: [Espressif esp-csi example](https://github.com/espressif/esp-csi/blob/master/examples/get-started/csi_recv_router/main/app_main.c)
 
@@ -219,11 +226,11 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 ### Algorithm Steps
 
-1. **Spatial Turbulence Calculation**
+1. **Spatial Turbulence (CV Normalization)**
    ```
-   turbulence = σ(amplitudes) = √(Σ(aᵢ - μ)² / n)
+   turbulence = σ(amplitudes) / μ(amplitudes)
    ```
-   Where `aᵢ` are the amplitudes of the 12 selected subcarriers.
+   Where `aᵢ` are the amplitudes of the 12 selected subcarriers, σ is the standard deviation, and μ is the mean. This is the **Coefficient of Variation (CV)**, which is gain-invariant: if all amplitudes are scaled by a factor k (e.g., due to AGC), then `σ(kA)/μ(kA) = σ(A)/μ(A)`. This eliminates the need for gain compensation on platforms without gain lock (e.g., ESP32 Base).
 
 2. **Moving Variance (Two-Pass Algorithm)**
    ```
@@ -289,7 +296,7 @@ For each sliding window of 50 turbulence values, 12 statistical features are ext
 ```
 ┌──────────────┐    ┌──────────────┐    ┌───────────────────┐    ┌──────────────┐
 │ CSI Packet   │───▶│ Turbulence   │───▶│ Optional Filters  │───▶│ Buffer (50)  │
-│              │    │ σ(amps)      │    │ Hampel + LowPass  │    │              │
+│              │    │ σ/μ (CV)     │    │ Hampel + LowPass  │    │              │
 └──────────────┘    └──────────────┘    └───────────────────┘    └──────┬───────┘
                                                                         │
                                                                         ▼
@@ -307,7 +314,7 @@ ML uses **fixed subcarriers** - no calibration needed:
 
 | Algorithm | Subcarrier Selection | Threshold | Boot Time |
 |-----------|---------------------|-----------|-----------|
-| MVS | NBVI or P95 (~7s) | Adaptive (P95 × 1.4) | ~10s |
+| MVS | NBVI (~7s) | Adaptive (percentile-based) | ~10s |
 | ML | **Fixed** (12 evenly distributed) | Fixed (0.5 probability) | **~3s** |
 
 ML uses 12 pre-selected subcarriers evenly distributed across the valid range: `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]`. This eliminates the 7-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
@@ -344,12 +351,11 @@ See [PERFORMANCE.md](../PERFORMANCE.md) for detailed per-chip results and [TUNIN
 
 ### Overview
 
-ESPectre provides **two algorithms** for automatic subcarrier band selection, both achieving excellent performance with zero manual configuration:
+ESPectre uses **NBVI** for automatic subcarrier band selection, achieving excellent performance with zero manual configuration:
 
 | Algorithm | Selection | Best For |
 |-----------|-----------|----------|
-| **NBVI** | 12 non-consecutive subcarriers | Default, faster, spectral diversity |
-| **P95** | 12 consecutive subcarriers | Simpler logic, consecutive bands |
+| **NBVI** | 12 non-consecutive subcarriers | Spectral diversity, resilient to interference |
 
 ![Subcarrier Analysis](../images/subcarriers_constellation_diagram.png)
 *I/Q constellation diagrams showing the geometric representation of WiFi signal propagation in the complex plane. The baseline (idle) state exhibits a stable, compact pattern, while movement introduces entropic dispersion as multipath reflections change.*
@@ -368,13 +374,12 @@ See [TUNING.md](../TUNING.md) for configuration options.
 
 ### Calibrator Architecture
 
-Both calibration algorithms share a common base through the `ICalibrator` interface and `BaseCalibrator` base class:
+The calibration system uses the `ICalibrator` interface and `BaseCalibrator` base class:
 
 ```
 ICalibrator (interface)
     └── BaseCalibrator (common file-based buffer management)
-            ├── NBVICalibrator
-            └── P95Calibrator
+            └── NBVICalibrator
 ```
 
 `BaseCalibrator` handles:
@@ -383,60 +388,6 @@ ICalibrator (interface)
 - Memory-efficient cleanup (buffer file removed after calibration)
 
 Concrete calibrators implement only the band selection logic (`calibrate()` and `collect_packet()`), keeping the shared buffer management DRY.
-
----
-
-### P95 Algorithm
-
-The **P95 Moving Variance** algorithm selects 12 consecutive subcarriers by minimizing the 95th percentile of moving variance during baseline.
-
-#### Key Insight
-
-The 95th percentile of moving variance (P95 MV) during baseline directly predicts the false positive rate:
-- If P95 MV < detection threshold → low false positives
-- If P95 MV > detection threshold → high false positive rate
-
-The algorithm evaluates all candidate 12-subcarrier bands and selects the one with:
-1. P95 MV below a safety margin (threshold - 0.15 = 0.85 for threshold=1.0)
-2. Highest P95 MV among safe bands (most responsive to movement)
-
-#### Algorithm
-
-```python
-def p95_calibrate(csi_buffer, band_size=12):
-    # 1. Collect baseline data (700 packets, ~7s @ 100Hz)
-    magnitudes = calculate_magnitudes(csi_buffer)
-    
-    # 2. Generate candidate bands (12 consecutive subcarriers)
-    candidates = generate_candidate_bands(band_size)
-    
-    # 3. Evaluate each candidate
-    results = []
-    for band in candidates:
-        turbulences = [spatial_turbulence(pkt, band) for pkt in magnitudes]
-        mv_series = moving_variance(turbulences, window=50)
-        p95 = percentile(mv_series, 95)
-        results.append({'band': band, 'p95': p95, 'mv_values': mv_series})
-    
-    # 4. Select optimal band
-    safe_margin = 0.15
-    safe_bands = [r for r in results if r['p95'] < (threshold - safe_margin)]
-    
-    if safe_bands:
-        best = max(safe_bands, key=lambda r: r['p95'])
-    else:
-        best = min(results, key=lambda r: r['p95'])
-    
-    return best['band'], best['mv_values']
-```
-
-#### Why P95?
-
-- Mean MV may look good but hide occasional spikes
-- Max MV is too sensitive to outliers
-- P95 represents the upper bound of normal variance
-
-If P95 < threshold, 95% of samples are below threshold → very low FP rate.
 
 ---
 
@@ -501,32 +452,27 @@ NBVI selects **non-consecutive** subcarriers, which provides:
 
 ### Adaptive Threshold Calculation
 
-After band selection, both algorithms return the **moving variance values** from baseline. The adaptive threshold is then calculated:
+After band selection, NBVI returns the **moving variance values** from baseline. The adaptive threshold is then calculated as a percentile:
 
 ```python
-def calculate_adaptive_threshold(mv_values, percentile, factor):
-    pxx = calculate_percentile(mv_values, percentile)
-    return pxx * factor
+def calculate_adaptive_threshold(mv_values, percentile):
+    return calculate_percentile(mv_values, percentile)
 ```
 
-Two strategies are supported:
+Two modes are supported:
 
-| Strategy | Percentile | Factor | Formula | Effect |
-|----------|-----------|--------|---------|--------|
-| Conservative | 95 | 1.4 | P95 × 1.4 | Minimizes false positives |
-| Sensitive | 100 | 1.0 | P100 × 1.0 | Maximum sensitivity |
+| Strategy | Percentile | Effect |
+|----------|-----------|--------|
+| Auto (default) | 95 | Balanced sensitivity/false positives |
+| Min | 100 | Maximum sensitivity (may have FP) |
 
 See [TUNING.md](../TUNING.md) for configuration options (`segmentation_threshold`).
 
 ---
 
-### Performance Comparison
+### Performance
 
-Both algorithms achieve similar detection performance. See [PERFORMANCE.md](../PERFORMANCE.md) for detailed metrics.
-
-Choose based on:
-- **NBVI**: Default, ~3x faster calibration, non-consecutive subcarriers for spectral diversity
-- **P95**: Simpler logic, consecutive subcarrier bands, useful when contiguous bands are preferred
+NBVI is the default calibration algorithm, selecting 12 non-consecutive subcarriers for spectral diversity and resilience to narrowband interference. See [PERFORMANCE.md](../PERFORMANCE.md) for detailed metrics.
 
 ---
 
@@ -534,19 +480,18 @@ Choose based on:
 
 | Algorithm | Complexity | Calibration Time (Python) | Notes |
 |-----------|------------|---------------------------|-------|
-| NBVI | O(W × N × P) | ~30-50ms | Faster due to single-pass analysis |
-| P95 | O(B × P × W) | ~90-130ms | Evaluates all candidate bands |
+| NBVI | O(W × N × P) | ~30-50ms | Single-pass analysis |
 
-Where B = candidate bands (~10), P = packets, W = window size, N = subcarriers.
+Where W = window size, N = subcarriers, P = packets.
 
 **Benchmark Results** (1000 packets, Python on desktop):
 
-| Chip | NBVI | P95 | Speedup |
-|------|------|-----|---------|
-| C6 | 32ms | 92ms | 2.9x |
-| S3 | 52ms | 127ms | 2.4x |
+| Chip | NBVI Calibration Time |
+|------|----------------------|
+| C6 | 32ms |
+| S3 | 52ms |
 
-NBVI is faster because it analyzes each subcarrier independently in a single pass, while P95 must evaluate all candidate 12-subcarrier bands and compute moving variance for each.
+NBVI analyzes each subcarrier independently in a single pass, making it efficient for real-time calibration on embedded devices.
 
 ### Guard Bands and DC Zone
 
@@ -563,8 +508,7 @@ HT20 mode (64 subcarriers) configuration:
 ### Fallback Behavior
 
 When calibration cannot find valid bands (e.g., poor signal quality):
-- **NBVI**: Falls back to the default band [11-22]
-- **P95**: Selects the band with the lowest P95 value (best available option)
+NBVI falls back to the default band [11-22] when calibration fails (e.g., due to motion during calibration or insufficient data).
 
 ---
 

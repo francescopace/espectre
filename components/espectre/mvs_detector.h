@@ -25,7 +25,8 @@ namespace espectre {
 
 // MVS-specific constants
 constexpr float MVS_DEFAULT_THRESHOLD = 1.0f;
-constexpr float MVS_MIN_THRESHOLD = 0.1f;
+// Min threshold lowered to support CV normalization (std/mean produces smaller values)
+constexpr float MVS_MIN_THRESHOLD = 1e-9f;
 constexpr float MVS_MAX_THRESHOLD = 10.0f;
 
 /**

@@ -26,24 +26,17 @@ License: GPLv3
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
-import sys
-from pathlib import Path
 from scipy import signal
 import pywt
 
-# Add micro-espectre and src to path for imports
-_micro_espectre_path = str(Path(__file__).parent.parent)
-_src_path = str(Path(__file__).parent.parent / 'src')
-if _src_path not in sys.path:
-    sys.path.insert(0, _src_path)
-if _micro_espectre_path not in sys.path:
-    sys.path.insert(0, _micro_espectre_path)
+# Import csi_utils first - it sets up paths automatically
+from csi_utils import (
+    calculate_spatial_turbulence, HampelFilter,
+    find_dataset, DEFAULT_SUBCARRIERS, load_baseline_and_movement
+)
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     HAMPEL_WINDOW, HAMPEL_THRESHOLD, LOWPASS_CUTOFF)
 from segmentation import SegmentationContext
-
-from csi_utils import calculate_spatial_turbulence, HampelFilter, find_dataset, DEFAULT_SUBCARRIERS
-from csi_utils import load_baseline_and_movement
 
 # Alias for backward compatibility
 SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS

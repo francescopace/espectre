@@ -162,7 +162,9 @@ Use the development configuration files (with debug sensors and local component 
 | Platform | Development File |
 |----------|-----------------|
 | **ESP32-C6** | `examples/espectre-c6-dev.yaml` |
+| **ESP32-C5** | `examples/espectre-c5-dev.yaml` |
 | **ESP32-S3** | `examples/espectre-s3-dev.yaml` |
+| **ESP32-C3** | `examples/espectre-c3-dev.yaml` |
 | **ESP32** | `examples/espectre-esp32-dev.yaml` |
 
 ```bash
@@ -221,18 +223,17 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `detection_algorithm` | string | mvs | Detection algorithm: `mvs` (variance) or `ml` (neural network) |
-| `segmentation_calibration` | string | nbvi | Band selection (MVS only): `nbvi` or `p95` |
-| `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0=disabled, use external traffic) |
+| `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0-1000, 0=disabled) |
 | `traffic_generator_mode` | string | dns | Traffic generator mode: `dns` (UDP queries) or `ping` (ICMP) |
 | `publish_interval` | int | auto | Packets between sensor updates (default: same as traffic_generator_rate, or 100 if traffic is 0) |
 | `segmentation_threshold` | string/float | auto | Threshold: `auto`, `min`, or number (MVS: 0.1-10.0, ML: 0.0-1.0) |
-| `segmentation_window_size` | int | 50 | Moving variance window in packets |
+| `segmentation_window_size` | int | 75 | Moving variance window in packets (10-200) |
 | `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
 | `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction (MVS and ML) |
 | `lowpass_cutoff` | float | 11.0 | Low-pass filter cutoff frequency in Hz (5-20) |
 | `hampel_enabled` | bool | false | Enable Hampel outlier filter (MVS and ML) |
-| `hampel_window` | int | 7 | Hampel filter window size |
-| `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) |
+| `hampel_window` | int | 7 | Hampel filter window size (3-11) |
+| `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) (1.0-10.0) |
 | `gain_lock` | string | auto | AGC/FFT gain lock: `auto`, `enabled`, `disabled` |
 
 For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
@@ -243,16 +244,11 @@ The calibration algorithm selects which subcarriers to monitor.
 
 | Algorithm | Selection Method | Pros | Cons | Best For |
 |-----------|-----------------|------|------|----------|
-| **NBVI** (default) | 12 best non-consecutive subcarriers | Spectral diversity, resilient to narrowband interference | Slightly more complex | Default choice, environments with potential interference |
-| **P95** | 12 consecutive subcarriers with lowest P95 variance | Simple, consistent band | All eggs in one basket | Clean RF environments, debugging |
+| **NBVI** | 12 best non-consecutive subcarriers | Spectral diversity, resilient to narrowband interference | Automatically selected | All environments |
 
-**Recommendation:** Use NBVI (default). Both achieve similar detection accuracy (~95% recall, <1% FP rate), but NBVI is more resilient to narrowband interference.
+NBVI (Normalized Band Variance Index) is the calibration algorithm used by ESPectre. It achieves ~95% recall with <1% FP rate and is resilient to narrowband interference.
 
-```yaml
-espectre:
-  segmentation_calibration: nbvi  # default, recommended
-  # segmentation_calibration: p95  # simpler, contiguous band
-```
+Band selection is performed automatically using the NBVI (Normalized Band Variance Index) algorithm at boot time. NBVI selects 12 non-consecutive subcarriers optimized for motion detection sensitivity and stability.
 
 ### Choosing Detection Algorithm
 
@@ -269,7 +265,7 @@ espectre:
 ```
 
 **Threshold ranges:**
-- MVS: 0.1 - 10.0 (default: auto = P95 × 1.4)
+- MVS: 0.1 - 10.0 (default: auto, adaptive based on baseline noise)
 - ML: 0.0 - 1.0 (default: 0.5, probability)
 
 ### Integrated Sensors (Created Automatically)
@@ -624,7 +620,7 @@ High airtime (>30-50%) causes network congestion, increased latency, and packet 
 ESPectre automatically calibrates in two phases:
 
 1. **Gain Lock** (~3 seconds, 300 packets): Stabilizes AGC/FFT for consistent amplitudes
-2. **P95 Band Calibration** (~7 seconds, 700 packets): Selects optimal 12-subcarrier band and calculates adaptive threshold
+2. **NBVI Band Calibration** (~7 seconds, 700 packets): Selects optimal 12-subcarrier band and calculates adaptive threshold
 
 Room must be quiet during the entire ~10 second calibration.
 

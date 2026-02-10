@@ -93,7 +93,7 @@ class BaseCalibrator : public ICalibrator {
   // Template methods - must be overridden by subclasses
   // ======================================================================
   
-  /** Return the log TAG for this calibrator (e.g. "P95Calibrator", "NBVI") */
+  /** Return the log TAG for this calibrator (e.g. "NBVICalibrator") */
   virtual const char* get_tag_() const = 0;
   
   /** Return the FreeRTOS task name (max 16 chars) */

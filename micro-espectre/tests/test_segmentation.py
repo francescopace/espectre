@@ -17,9 +17,9 @@ class TestSegmentationContextInit:
     """Test SegmentationContext initialization"""
     
     def test_default_parameters(self):
-        """Test default parameters"""
+        """Test default parameters (matches C++ DETECTOR_DEFAULT_WINDOW_SIZE)"""
         ctx = SegmentationContext()
-        assert ctx.window_size == 50
+        assert ctx.window_size == 75
         assert ctx.threshold == 1.0
         assert ctx.state == SegmentationContext.STATE_IDLE
         assert ctx.buffer_count == 0
@@ -327,14 +327,18 @@ class TestAdaptiveThreshold:
         assert ctx.threshold == 2.0
     
     def test_adaptive_threshold_clamping(self):
-        """Test that adaptive threshold is clamped"""
+        """Test that adaptive threshold is clamped to [1e-6, 10.0]"""
         ctx = SegmentationContext()
         
-        ctx.set_adaptive_threshold(0.01)  # Too low
-        assert ctx.threshold == 0.1
+        ctx.set_adaptive_threshold(1e-8)  # Too low
+        assert ctx.threshold == pytest.approx(1e-6)
         
         ctx.set_adaptive_threshold(100.0)  # Too high
         assert ctx.threshold == 10.0
+        
+        # Values within range should pass through
+        ctx.set_adaptive_threshold(0.01)
+        assert ctx.threshold == pytest.approx(0.01)
     
     def test_no_normalization_applied(self):
         """Test that turbulence is NOT normalized (adaptive threshold approach)"""
@@ -467,7 +471,8 @@ class TestEndToEnd:
     
     def test_movement_detection(self, synthetic_csi_movement_packets, default_subcarriers):
         """Test that movement packets produce MOTION state"""
-        ctx = SegmentationContext(window_size=50, threshold=1.0)
+        # Use low threshold appropriate for CV-normalized turbulence (~0.05-0.25 range)
+        ctx = SegmentationContext(window_size=50, threshold=0.001)
         
         motion_count = 0
         for pkt in synthetic_csi_movement_packets:

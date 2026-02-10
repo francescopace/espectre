@@ -39,18 +39,16 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is
 DETECTION_ALGORITHM = "mvs"
 
 # Band Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
-# "nbvi" (default): NBVI weighted algorithm (normalization scale, 12 non-consecutive subcarriers)
-# "p95": P95 moving variance optimization (12 consecutive subcarriers)
-CALIBRATION_ALGORITHM = "nbvi"
+# NBVI: Normalized Band Variance Index (12 non-consecutive subcarriers)
 CALIBRATION_BUFFER_SIZE = 700  # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
 
 # Segmentation Parameters
 # SEG_THRESHOLD can be:
-#   - "auto" (default): P95 × 1.4 - minimizes false positives
-#   - "min": P100 × 1.0 - maximum sensitivity (may have false positives)
+#   - "auto" (default): adaptive threshold based on baseline noise
+#   - "min": maximum sensitivity (may have false positives)
 #   - a number (0.1-10.0): fixed manual threshold
 SEG_THRESHOLD = "auto"
-SEG_WINDOW_SIZE = 50          # Moving variance window (packets) - used by both MVS and Features
+SEG_WINDOW_SIZE = 75          # Moving variance window (packets) - used by both MVS and Features
 
 # Low-pass filter (removes high-frequency noise, reduces false positives)
 ENABLE_LOWPASS_FILTER = False   # Recommended: reduces FP in noisy environments
@@ -59,7 +57,7 @@ LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz: 2.3% FP, 92.4% R
 
 # Hampel filter (removes outliers/spikes in turbulence)
 ENABLE_HAMPEL_FILTER = False   # Enable/disable Hampel outlier filter (spikes in turbulence)
-HAMPEL_WINDOW = 7             # Window size for median calculation (3-9 recommended)
+HAMPEL_WINDOW = 7             # Window size for median calculation (3-11)
 HAMPEL_THRESHOLD = 4.0        # Outlier detection threshold in MAD units (2.0-4.0 recommended)
                               # Higher values = less aggressive filtering
 

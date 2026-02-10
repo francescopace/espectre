@@ -50,8 +50,6 @@ espectre:
   # Segmentation parameters
   segmentation_window_size: 50  # Analysis window size in packets (10-200)
   segmentation_threshold: auto  # auto/min (mvs: 0.1-10.0, ml: 0.0-1.0)
-  # MVS-only calibration (ignored when detection_algorithm is "ml")
-  segmentation_calibration: nbvi  # nbvi (default) or p95
   # Filters (optional)
   hampel_enabled: false         # Outlier removal (default: false)
   hampel_window: 9              # Filter window size (3-11, odd numbers)

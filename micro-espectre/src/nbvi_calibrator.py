@@ -343,9 +343,15 @@ class NBVICalibrator(BaseCalibrator):
         fp_rate = motion_count / total_packets if total_packets > 0 else 0.0
         return fp_rate, mv_values
     
-    def calibrate(self):
+    def calibrate(self, hint_band=None):
         """
         Calibrate using NBVI Weighted with percentile-based detection.
+        
+        Args:
+            hint_band: Optional band to use for candidate window search.
+                       If provided, uses this band to calculate turbulence
+                       when finding baseline candidate windows.
+                       Matches C++ start_calibration(current_band) behavior.
         
         Returns:
             tuple: (selected_band, mv_values) or (None, []) if failed
@@ -359,9 +365,13 @@ class NBVICalibrator(BaseCalibrator):
         
         self._prepare_for_reading()
         
-        # Use default band for finding candidate windows
-        default_band = list(range(GUARD_BAND_LOW, GUARD_BAND_LOW + BAND_SIZE))
-        candidates = self._find_candidate_windows(default_band, window_size, step)
+        # Use hint_band if provided, otherwise use default band for finding candidate windows
+        # This matches C++ behavior where start_calibration() receives current_band as hint
+        if hint_band is not None:
+            search_band = hint_band
+        else:
+            search_band = list(range(GUARD_BAND_LOW, GUARD_BAND_LOW + BAND_SIZE))
+        candidates = self._find_candidate_windows(search_band, window_size, step)
         
         if not candidates:
             print("NBVI: Failed to find candidate windows")
@@ -426,15 +436,15 @@ class NBVICalibrator(BaseCalibrator):
         if best_band is None:
             print("NBVI: All candidate windows failed - using default subcarriers")
             
-            # Run validation on default band to get MV values
-            _, mv_values = self._validate_subcarriers(default_band)
+            # Run validation on search_band (hint_band or default) to get MV values
+            _, mv_values = self._validate_subcarriers(search_band)
             
             print(f"NBVI: Fallback to default band")
             
             if self._filtered_count > 0:
                 print(f"  Filtered: {self._filtered_count} packets (wrong SC count)")
             
-            return default_band, mv_values
+            return search_band, mv_values
         
         print(f"NBVI: Selected window {best_window_idx + 1}/{len(candidates)} with FP rate {best_fp_rate * 100:.1f}%")
         

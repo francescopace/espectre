@@ -85,6 +85,23 @@ class ICalibrator {
    */
   virtual bool is_calibrating() const = 0;
   
+  /**
+   * Set CV normalization mode for turbulence calculation during calibration.
+   * Must match the detector's normalization mode.
+   * 
+   * @param enabled true = CV (std/mean), false = raw std
+   */
+  void set_cv_normalization(bool enabled) { use_cv_normalization_ = enabled; }
+  
+  /**
+   * Check if CV normalization is enabled
+   */
+  bool is_cv_normalization_enabled() const { return use_cv_normalization_; }
+  
+ protected:
+  // CV normalization: true = std/mean (gain-invariant), false = raw std
+  // Default false to match BaseDetector; explicitly set by CSIManager based on gain lock
+  bool use_cv_normalization_{false};
 };
 
 }  // namespace espectre

@@ -123,15 +123,16 @@ class TestPredict:
     def test_predict_different_inputs_different_outputs(self):
         """Different inputs produce different outputs."""
         # Use realistic feature values based on actual data distributions
+        # (CV-normalized turbulence scale: ~0.05-0.25)
         # Features: turb_mean, turb_std, turb_max, turb_min, turb_zcr,
         #           turb_skewness, turb_kurtosis, turb_entropy,
         #           turb_autocorr, turb_mad, turb_slope, turb_delta
-        # Baseline-like: low turbulence, stable signal
-        features1 = [12.0, 1.0, 14.0, 10.0, 0.20,
-                     -3.0, 15.0, 1.5, 0.35, 0.3, 0.0, 0.0]
-        # Motion-like: high turbulence, turbulent signal
-        features2 = [20.0, 5.0, 27.0, 4.0, 0.50,
-                     1.0, 3.0, 3.0, -0.10, 2.5, 0.05, 5.0]
+        # Baseline-like: low CV turbulence, stable signal
+        features1 = [0.07, 0.005, 0.09, 0.05, 0.20,
+                     -3.0, 15.0, 1.5, 0.35, 0.003, 0.0, 0.0]
+        # Motion-like: high CV turbulence, turbulent signal
+        features2 = [0.18, 0.06, 0.30, 0.08, 0.50,
+                     1.0, 3.0, 3.0, -0.10, 0.04, 0.002, 0.10]
         
         result1 = predict(features1)
         result2 = predict(features2)

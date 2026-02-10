@@ -31,8 +31,7 @@ BaseDetector::BaseDetector(uint16_t window_size)
     , window_size_(window_size)
     , state_(MotionState::IDLE)
     , total_packets_(0)
-    , packet_index_(0)
-    , gain_compensation_(1.0f) {
+    , packet_index_(0) {
     
     // Validate and clamp window size
     if (window_size_ < DETECTOR_MIN_WINDOW_SIZE) {
@@ -75,7 +74,7 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , packet_index_(other.packet_index_)
     , lowpass_state_(other.lowpass_state_)
     , hampel_state_(other.hampel_state_)
-    , gain_compensation_(other.gain_compensation_) {
+    , use_cv_normalization_(other.use_cv_normalization_) {
     
     // Copy amplitude buffer
     std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
@@ -100,7 +99,7 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         packet_index_ = other.packet_index_;
         lowpass_state_ = other.lowpass_state_;
         hampel_state_ = other.hampel_state_;
-        gain_compensation_ = other.gain_compensation_;
+        use_cv_normalization_ = other.use_cv_normalization_;
         
         // Copy amplitude buffer
         std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
@@ -136,18 +135,20 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
             // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
             float Q = static_cast<float>(csi_data[sc_idx * 2]);      // Imaginary first
             float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);  // Real second
-            float amplitude = std::sqrt(I * I + Q * Q);
-            
-            // Apply gain compensation
-            amplitude_buffer_[num_amplitudes_++] = amplitude * gain_compensation_;
+            amplitude_buffer_[num_amplitudes_++] = std::sqrt(I * I + Q * Q);
         }
     }
     
-    // Calculate spatial turbulence from already-computed amplitudes
-    // (avoids redundant recalculation of magnitudes from I/Q pairs)
-    float turbulence = (num_amplitudes_ > 0)
-        ? std::sqrt(calculate_variance_two_pass(amplitude_buffer_, num_amplitudes_))
-        : 0.0f;
+    // Calculate spatial turbulence
+    // Two modes:
+    //   CV normalization (std/mean): gain-invariant, used when gain is NOT locked
+    //   Raw std: better sensitivity for contiguous bands, used when gain IS locked
+    float turbulence = 0.0f;
+    if (num_amplitudes_ > 0) {
+        float variance = calculate_variance_two_pass(amplitude_buffer_, num_amplitudes_);
+        turbulence = calculate_turbulence_from_variance(variance, amplitude_buffer_, 
+                                                         num_amplitudes_, use_cv_normalization_);
+    }
     
     // Add to buffer with filtering
     add_turbulence_to_buffer(turbulence);
@@ -174,6 +175,11 @@ void BaseDetector::configure_hampel(bool enabled, uint8_t window_size, float thr
     hampel_turbulence_init(&hampel_state_, window_size, threshold, enabled);
     ESP_LOGI(TAG, "Hampel filter %s (window=%d, threshold=%.1f)", 
              enabled ? "enabled" : "disabled", window_size, threshold);
+}
+
+void BaseDetector::set_cv_normalization(bool enabled) {
+    use_cv_normalization_ = enabled;
+    ESP_LOGI(TAG, "CV normalization %s", enabled ? "enabled (std/mean)" : "disabled (raw std)");
 }
 
 void BaseDetector::clear_buffer() {

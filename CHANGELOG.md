@@ -59,20 +59,23 @@ The PCA (Principal Component Analysis) detection algorithm has been removed from
 
 MVS remains the recommended algorithm with excellent performance (F1 > 99%). Future development will focus on the ML detector, which shows very promising results in early testing and requires no initial calibration.
 
+### P95 Calibrator Removed
+
+The P95 (95th percentile band selection) calibration algorithm has been removed from both C++ and Python implementations. NBVI (Normalized Band Variance Index) is now the sole calibration algorithm.
+
+**Rationale**: NBVI consistently outperforms P95 in our testing — it selects non-consecutive subcarriers for better spectral diversity and is more resilient to narrowband interference. Maintaining two calibrators added complexity without clear benefits.
+
 ### Improvements
 
-- **Gain lock**: Median-based calibration (replaces mean), signed FFT gain fix, new gain compensation for when gain lock is skipped
-- **Calibrator refactoring**: New `BaseCalibrator` and `CalibrationFileBuffer` abstractions, ~200 lines of duplication removed
+- **Gain lock**: Median-based calibration (replaces mean), signed FFT gain fix, CV normalization for when gain lock is skipped
 - **Bug fixes**: Double amplitude calculation fix, stack allocation in Hampel filter, emoji removal from serial logs
 
 ### Micro-ESPectre (R&D Platform)
 
 - **Extended hardware support**: `me` CLI now supports ESP32, C3, S3, C6 with auto-detection and SHA256 firmware verification
-- **Gain compensation**: All detectors (MVS, ML) now apply gain compensation consistently
+- **CV normalization**: All detectors (MVS, ML) now use CV normalization consistently when gain lock is skipped
 - **ML detector filter support**: ML detector now accepts low-pass and Hampel filter parameters, matching C++ implementation
-- **DRY refactoring**: Extracted `BaseCalibrator` from `ICalibrator` to eliminate duplicated buffer management in `P95Calibrator` and `NBVICalibrator`; shared `insertion_sort` moved to `utils.py`; state constants unified via `MotionState`; variance calculation delegated to shared utility
 - **Import standardization**: All `src/` modules now use `try/except ImportError` pattern for MicroPython/CPython compatibility
-- **Removed `BandCalibrator` alias**: Unused alias for `P95Calibrator` cleaned up
 - **Bug fixes**: Signed int8 CSI parsing, ESP32 flash offset corrected, LowPass default cutoff aligned to 11.0 Hz, "Wi-Fi spectre" typo corrected to "Wi-Fi spectrum"
 
 ---
@@ -107,7 +110,7 @@ New Home Assistant switch for triggering recalibration without reflashing:
 
 The `segmentation_threshold` parameter is now optional:
 
-- **Default**: Adaptive threshold calculated as P95 × 1.4 during calibration
+- **Default**: Adaptive threshold calculated as P95 during calibration
 - **Manual override**: Specify value in YAML to use fixed threshold
 
 ### Improvements

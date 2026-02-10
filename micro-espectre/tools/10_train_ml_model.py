@@ -14,10 +14,15 @@ Training features:
   - Configurable FP penalty (--fp-weight) for conservative models
 
 Usage:
-    python tools/10_train_ml_model.py                    # Train with all data
+    python tools/10_train_ml_model.py                    # Train (excludes control sets automatically)
     python tools/10_train_ml_model.py --info              # Show dataset info
     python tools/10_train_ml_model.py --experiment        # Compare architectures
     python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
+    python tools/10_train_ml_model.py --include-all-chips # Include all chips (even ESP32)
+
+Note: Files marked as "excluded from ML training" in dataset_info.json are
+automatically skipped. This includes control sets and datasets collected
+without gain lock.
 
 To compare ML with MVS, use:
     python tools/7_compare_detection_methods.py
@@ -66,18 +71,12 @@ def suppress_stderr():
         os.dup2(saved_stderr_fd, stderr_fd)
         os.close(saved_stderr_fd)
 
-# Add paths for imports
-_src_path = str(Path(__file__).parent.parent / 'src')
-_micro_espectre_path = str(Path(__file__).parent.parent)
-if _src_path not in sys.path:
-    sys.path.insert(0, _src_path)
-if _micro_espectre_path not in sys.path:
-    sys.path.insert(0, _micro_espectre_path)
-
+# Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     load_baseline_and_movement,
     load_npz_as_packets,
     DATA_DIR,
+    DEFAULT_SUBCARRIERS,
 )
 from segmentation import SegmentationContext
 from features import (
@@ -95,9 +94,6 @@ FEATURE_NAMES = [
     'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_zcr', 'turb_skewness',
     'turb_kurtosis', 'turb_entropy', 'turb_autocorr', 'turb_mad', 'turb_slope', 'turb_delta'
 ]
-
-# Default subcarriers (consecutive band, as selected by NBVI/P95)
-DEFAULT_SUBCARRIERS = list(range(11, 23))
 
 
 # ============================================================================
@@ -136,25 +132,61 @@ def is_motion_label(label_name, dataset_info):
     return label_name == 'movement'
 
 
-def load_all_data():
+def get_file_metadata(dataset_info):
+    """
+    Get metadata for all files in dataset_info.json.
+    
+    Returns a dict mapping filename to metadata including:
+    - use_cv_normalization: Whether to use CV normalization for this file
+    
+    Args:
+        dataset_info: Loaded dataset_info.json
+    
+    Returns:
+        dict: {filename: {use_cv_normalization: bool, ...}}
+    """
+    file_metadata = {}
+    files_by_label = dataset_info.get('files', {})
+    for label, file_list in files_by_label.items():
+        for file_info in file_list:
+            filename = file_info.get('filename', '')
+            if filename:
+                file_metadata[filename] = {
+                    'use_cv_normalization': file_info.get('use_cv_normalization', False),
+                    'chip': file_info.get('chip', 'unknown'),
+                }
+    return file_metadata
+
+
+def load_all_data(exclude_chips=None):
     """
     Load all available CSI data from the data/ directory.
     
     Reads label from npz file metadata (not folder structure).
     Uses dataset_info.json to determine if label is motion or idle.
+    Sets use_cv_normalization flag on each packet based on dataset_info.json.
+    
+    Args:
+        exclude_chips: Optional list of chip names to exclude (e.g. ['ESP32'])
     
     Returns:
         tuple: (all_packets, stats) where stats is a dict with dataset info
     """
     all_packets = []
-    stats = {'chips': set(), 'labels': {}, 'total': 0}
+    stats = {'chips': set(), 'labels': {}, 'total': 0, 'excluded_chips': set(), 'cv_norm_files': set()}
     
-    # Load dataset info for label mapping
+    # Normalize excluded chips to uppercase for comparison
+    excluded = set(c.upper() for c in (exclude_chips or []))
+    
+    # Load dataset info for label mapping and file metadata
     dataset_info = load_dataset_info()
+    file_metadata = get_file_metadata(dataset_info)
     
     # Scan all subdirectories in data/
+    # Exclude baseline_noisy - has very different characteristics that distort the scaler
+    excluded_dirs = {'.'}
     for subdir in DATA_DIR.iterdir():
-        if not subdir.is_dir() or subdir.name.startswith('.'):
+        if not subdir.is_dir() or subdir.name in excluded_dirs:
             continue
         
         # Load all npz files in this directory
@@ -167,20 +199,33 @@ def load_all_data():
                 # Get label from file metadata (already set by load_npz_as_packets)
                 label = packets[0].get('label', subdir.name)
                 
+                # Get chip
+                chip = packets[0].get('chip', 'unknown').upper()
+                
+                # Skip excluded chips
+                if chip in excluded:
+                    stats['excluded_chips'].add(chip)
+                    continue
+                
                 # Track stats
                 if label not in stats['labels']:
                     stats['labels'][label] = 0
                 stats['labels'][label] += len(packets)
                 stats['total'] += len(packets)
                 
-                # Get chip
-                chip = packets[0].get('chip', 'unknown').upper()
                 stats['chips'].add(chip)
                 
-                # Add motion flag based on dataset_info
+                # Get file-specific metadata
+                meta = file_metadata.get(npz_file.name, {})
+                use_cv_norm = meta.get('use_cv_normalization', False)
+                if use_cv_norm:
+                    stats['cv_norm_files'].add(npz_file.name)
+                
+                # Add flags to each packet
                 is_motion = is_motion_label(label, dataset_info)
                 for p in packets:
                     p['is_motion'] = is_motion
+                    p['use_cv_normalization'] = use_cv_norm
                 
                 all_packets.extend(packets)
                 
@@ -188,6 +233,8 @@ def load_all_data():
                 print(f"  Warning: Could not load {npz_file.name}: {e}")
     
     stats['chips'] = sorted(stats['chips'])
+    stats['excluded_chips'] = sorted(stats['excluded_chips'])
+    stats['cv_norm_files'] = sorted(stats['cv_norm_files'])
     return all_packets, stats
 
 
@@ -214,9 +261,11 @@ def extract_features(packets, window_size=50, subcarriers=None):
     turb_buffer = deque(maxlen=window_size)
     
     for pkt in packets:
-        # Calculate turbulence
+        # Calculate turbulence, using CV normalization for files that need it
+        # (collected without gain lock, e.g. ESP32 or C3 without gain lock)
+        use_cv_norm = pkt.get('use_cv_normalization', False)
         turb, amps = SegmentationContext.compute_spatial_turbulence(
-            pkt['csi_data'], subcarriers
+            pkt['csi_data'], subcarriers, use_cv_normalization=use_cv_norm
         )
         turb_buffer.append(turb)
         
@@ -489,7 +538,7 @@ def export_tflite(model, X_sample, output_path, name):
     return tflite_path, len(tflite_model)
 
 
-def export_micropython(model, scaler, output_path):
+def export_micropython(model, scaler, output_path, seed=None):
     """
     Export model weights to MicroPython code.
     
@@ -500,18 +549,25 @@ def export_micropython(model, scaler, output_path):
         model: Trained Keras model
         scaler: StandardScaler with mean_ and scale_
         output_path: Output file path
+        seed: Random seed used for training (or None if not set)
     
     Returns:
         Size of generated code
     """
+    from datetime import datetime
     weights = model.get_weights()
+    
+    seed_info = f"Seed: {seed}" if seed is not None else "Seed: not set (non-deterministic)"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     # Build code - weights only
     code = '''"""
 Micro-ESPectre - ML Model Weights
 
 Auto-generated neural network weights for motion detection.
-Architecture: 12 -> ''' + ' -> '.join(str(w.shape[1]) for w in weights[::2]) + '''
+Architecture: 12 -> ''' + ' -> '.join(str(w.shape[1]) for w in weights[::2]) + f'''
+Trained: {timestamp}
+{seed_info}
 
 This file is auto-generated by 10_train_ml_model.py.
 DO NOT EDIT - your changes will be overwritten!
@@ -547,7 +603,7 @@ FEATURE_SCALE = [''' + ', '.join(f'{x:.6f}' for x in scaler.scale_) + ''']
     return len(code)
 
 
-def export_cpp_weights(model, scaler, output_path):
+def export_cpp_weights(model, scaler, output_path, seed=None):
     """
     Export model weights to C++ header for ESPHome.
     
@@ -557,18 +613,25 @@ def export_cpp_weights(model, scaler, output_path):
         model: Trained Keras model
         scaler: StandardScaler with mean_ and scale_
         output_path: Output file path
+        seed: Random seed used for training (or None if not set)
     
     Returns:
         Size of generated code
     """
+    from datetime import datetime
     weights = model.get_weights()
     arch = ' -> '.join(str(w.shape[1]) for w in weights[::2])
+    
+    seed_info = f"Seed: {seed}" if seed is not None else "Seed: not set (non-deterministic)"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     code = f'''/*
  * ESPectre - ML Model Weights
  * 
  * Auto-generated neural network weights for motion detection.
  * Architecture: 12 -> {arch}
+ * Trained: {timestamp}
+ * {seed_info}
  * 
  * This file is auto-generated by 10_train_ml_model.py.
  * DO NOT EDIT - your changes will be overwritten!
@@ -664,6 +727,15 @@ def show_info():
             print(f"    {info['description']}")
     print()
     
+    # Show files using CV normalization
+    file_metadata = get_file_metadata(dataset_info)
+    cv_norm_files = [f for f, meta in file_metadata.items() if meta.get('use_cv_normalization')]
+    if cv_norm_files:
+        print(f"Files using CV normalization ({len(cv_norm_files)}):")
+        for f in sorted(cv_norm_files):
+            print(f"  - {f}")
+        print()
+    
     # Load and analyze data
     _, stats = load_all_data()
     
@@ -702,13 +774,15 @@ def show_info():
     print()
 
 
-def train_all(fp_weight=1.0):
+def train_all(fp_weight=2.0, exclude_chips=None, seed=None):
     """
     Train models with all available data.
     
     Args:
         fp_weight: Multiplier for class 0 (IDLE) weight. Values >1.0 penalize
                    false positives more, producing a more conservative model.
+        exclude_chips: Optional list of chip names to exclude from training
+        seed: Optional random seed for reproducible training
     """
     from ml_detector import ML_SUBCARRIERS
     subcarriers = ML_SUBCARRIERS
@@ -724,6 +798,12 @@ def train_all(fp_weight=1.0):
             import tensorflow as tf
             from sklearn.preprocessing import StandardScaler
             from sklearn.model_selection import train_test_split
+            
+            # Set random seeds for reproducibility if specified
+            if seed is not None:
+                print(f"Using random seed: {seed}\n")
+                np.random.seed(seed)
+                tf.random.set_seed(seed)
             
             # Suppress TensorFlow Python-level warnings
             tf.get_logger().setLevel('ERROR')
@@ -741,8 +821,11 @@ def train_all(fp_weight=1.0):
         return 1
     
     # Load data
-    print("Loading data from npz metadata...")
-    all_packets, stats = load_all_data()
+    if exclude_chips:
+        print(f"Loading data (excluding chips: {', '.join(exclude_chips)})...")
+    else:
+        print("Loading data from npz metadata...")
+    all_packets, stats = load_all_data(exclude_chips=exclude_chips)
     
     if not stats['chips']:
         print("Error: No datasets found in data/")
@@ -750,6 +833,10 @@ def train_all(fp_weight=1.0):
         return 1
     
     print(f"  Chips: {', '.join(stats['chips'])}")
+    if stats.get('excluded_chips'):
+        print(f"  Excluded chips: {', '.join(stats['excluded_chips'])}")
+    if stats.get('cv_norm_files'):
+        print(f"  Files using CV normalization: {len(stats['cv_norm_files'])}")
     for label, count in sorted(stats['labels'].items()):
         print(f"  {label}: {count} packets")
     print(f"  Total: {stats['total']} packets")
@@ -817,12 +904,12 @@ def train_all(fp_weight=1.0):
     
     # MicroPython weights
     mp_path = SRC_DIR / 'ml_weights.py'
-    mp_size = export_micropython(model, scaler, mp_path)
+    mp_size = export_micropython(model, scaler, mp_path, seed=seed)
     print(f"  MicroPython weights: {mp_path.name} ({mp_size/1024:.1f} KB)")
     
     # C++ weights for ESPHome
     cpp_path = CPP_DIR / 'ml_weights.h'
-    cpp_size = export_cpp_weights(model, scaler, cpp_path)
+    cpp_size = export_cpp_weights(model, scaler, cpp_path, seed=seed)
     print(f"  C++ weights: {cpp_path.name} ({cpp_size/1024:.1f} KB)")
     
     # Save scaler for TFLite (external normalization)
@@ -851,13 +938,16 @@ def train_all(fp_weight=1.0):
     return 0
 
 
-def experiment_architectures():
+def experiment_architectures(exclude_chips=None):
     """
     Compare multiple MLP architectures using cross-validation.
     
     Trains and evaluates each architecture on the same data with 5-fold CV.
     Reports a comparison table with F1, inference time, and memory usage.
     Recommends the best architecture by F1 (inference time as tiebreaker).
+    
+    Args:
+        exclude_chips: Optional list of chip names to exclude from training
     """
     import time
     from ml_detector import ML_SUBCARRIERS
@@ -883,13 +973,21 @@ def experiment_architectures():
         return 1
     
     # Load and extract features
-    print("Loading data...")
-    all_packets, stats = load_all_data()
+    if exclude_chips:
+        print(f"Loading data (excluding chips: {', '.join(exclude_chips)})...")
+    else:
+        print("Loading data...")
+    all_packets, stats = load_all_data(exclude_chips=exclude_chips)
     
     if not stats['chips']:
         print("Error: No datasets found in data/")
         return 1
     
+    print(f"  Chips: {', '.join(stats['chips'])}")
+    if stats.get('excluded_chips'):
+        print(f"  Excluded chips: {', '.join(stats['excluded_chips'])}")
+    if stats.get('cv_norm_files'):
+        print(f"  Files using CV normalization: {len(stats['cv_norm_files'])}")
     print(f"  Total: {stats['total']} packets")
     
     print("\nExtracting features...")
@@ -1020,10 +1118,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  python tools/10_train_ml_model.py                    # Train with all data
+  python tools/10_train_ml_model.py                    # Train with all chips
   python tools/10_train_ml_model.py --info              # Show dataset info
   python tools/10_train_ml_model.py --experiment        # Compare architectures
   python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
+  python tools/10_train_ml_model.py --seed 42          # Train with specific seed
+
+Files with use_cv_normalization=true in dataset_info.json use CV normalization
+during feature extraction (for data collected without gain lock).
   
 To compare ML with MVS, use:
   python tools/7_compare_detection_methods.py
@@ -1033,9 +1135,17 @@ To compare ML with MVS, use:
                        help='Show dataset information')
     parser.add_argument('--experiment', action='store_true',
                        help='Compare multiple MLP architectures using cross-validation')
+    parser.add_argument('--seed', type=int, default=None,
+                       help='Use specific random seed for reproducible training')
     parser.add_argument('--fp-weight', type=float, default=2.0,
                        help='Multiplier for IDLE class weight to penalize false positives. '
                             'Values >1.0 make the model more conservative (default: 2.0)')
+    parser.add_argument('--exclude-chip', type=str, action='append', default=None,
+                       help='Exclude a chip from training data (can be repeated). '
+                            'Default: ESP32 (no gain lock, inconsistent amplitudes). '
+                            'Use --include-all-chips to override.')
+    parser.add_argument('--include-all-chips', action='store_true',
+                       help='Include all chips in training (overrides default ESP32 exclusion)')
     
     args = parser.parse_args()
     
@@ -1043,10 +1153,15 @@ To compare ML with MVS, use:
         show_info()
         return 0
     
-    if args.experiment:
-        return experiment_architectures()
+    # Default: exclude ESP32 (no gain lock → inconsistent amplitudes)
+    exclude_chips = args.exclude_chip
+    if exclude_chips is None and not args.include_all_chips:
+        exclude_chips = ['ESP32']
     
-    return train_all(fp_weight=args.fp_weight)
+    if args.experiment:
+        return experiment_architectures(exclude_chips=exclude_chips)
+    
+    return train_all(fp_weight=args.fp_weight, exclude_chips=exclude_chips, seed=args.seed)
 
 
 if __name__ == '__main__':

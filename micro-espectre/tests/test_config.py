@@ -83,7 +83,7 @@ class TestConfigConstants:
         
         assert isinstance(config.SEG_WINDOW_SIZE, int)
         assert config.SEG_WINDOW_SIZE > 0
-        # Note: threshold is calculated adaptively (P95 × 1.4), not in config
+        # Note: threshold is calculated adaptively (P95), not in config
     
     def test_lowpass_filter_config(self):
         """Test low-pass filter configuration"""

@@ -151,30 +151,37 @@ def calculate_magnitude(i, q):
     return math.sqrt(fi * fi + fq * fq)
 
 
-def calculate_spatial_turbulence(magnitudes, band):
+def calculate_spatial_turbulence(magnitudes, band, use_cv_normalization=True):
     """
     Calculate spatial turbulence from magnitudes.
     
-    Spatial turbulence is the standard deviation of magnitudes across
-    selected subcarriers. It measures the spatial variability of the
-    Wi-Fi channel - higher values indicate motion/disturbance.
+    Two modes:
+    - CV normalization (std/mean): gain-invariant, used when gain is NOT locked.
+      If AGC scales all amplitudes by factor k, std(kA)/mean(kA) = std(A)/mean(A).
+    - Raw std: better sensitivity for contiguous bands, used when gain IS locked.
     
     Args:
         magnitudes: List of magnitude values (one per subcarrier)
         band: List of subcarrier indices to use
+        use_cv_normalization: True = std/mean, False = raw std (default: True)
     
     Returns:
-        float: Standard deviation of magnitudes (0.0 if no valid subcarriers)
+        float: Turbulence value (0.0 if no valid subcarriers)
     """
     band_mags = [magnitudes[sc] for sc in band if sc < len(magnitudes)]
     
     if not band_mags:
         return 0.0
     
-    return calculate_std(band_mags)
+    std = calculate_std(band_mags)
+    if use_cv_normalization:
+        mean = sum(band_mags) / len(band_mags)
+        return std / mean if mean > 0 else 0.0
+    else:
+        return std
 
 
-def calculate_moving_variance(values, window_size=50):
+def calculate_moving_variance(values, window_size=75):
     """
     Calculate moving variance series.
     
@@ -182,7 +189,7 @@ def calculate_moving_variance(values, window_size=50):
     
     Args:
         values: List of numeric values
-        window_size: Size of sliding window (default: 50)
+        window_size: Size of sliding window (default: 75, matches C++ DETECTOR_DEFAULT_WINDOW_SIZE)
     
     Returns:
         list: Moving variance series (length = len(values) - window_size)
@@ -198,35 +205,81 @@ def calculate_moving_variance(values, window_size=50):
     return variances
 
 
-def calculate_gain_compensation(baseline_agc, baseline_fft, current_agc, current_fft):
+# =============================================================================
+# CSI I/Q Parsing Functions
+# =============================================================================
+
+def extract_amplitude(csi_data, sc_idx):
     """
-    Calculate gain compensation factor based on AGC/FFT difference.
+    Extract amplitude for a single subcarrier from CSI data.
     
-    When gain lock is not active, CSI amplitudes vary with automatic
-    gain control. This factor normalizes amplitudes to compensate.
-    
-    Formula (Espressif): 
-        compensation = 10^((baseline_agc - current_agc) / 20) *
-                       10^((baseline_fft - current_fft) / 20)
+    Uses Espressif CSI format: [Imaginary, Real, ...] per subcarrier.
+    CSI values are signed int8 stored as uint8.
     
     Args:
-        baseline_agc: Baseline AGC value (uint8, 0-255)
-        baseline_fft: Baseline FFT value (int8, -128 to 127)
-        current_agc: Current AGC value from packet (uint8)
-        current_fft: Current FFT value from packet (int8)
+        csi_data: Raw CSI data (bytes or list of uint8)
+        sc_idx: Subcarrier index (0-63 for HT20)
     
     Returns:
-        float: Compensation factor (1.0 = no compensation, clamped to 0.1-10.0)
+        float: Amplitude (magnitude) value, or 0.0 if invalid index
     """
-    agc_delta = float(baseline_agc) - float(current_agc)
-    fft_delta = float(baseline_fft) - float(current_fft)
+    i_idx = sc_idx * 2 + 1  # Real (In-phase) is second
+    q_idx = sc_idx * 2      # Imaginary (Quadrature) is first
     
-    compensation = math.pow(10.0, agc_delta / 20.0) * math.pow(10.0, fft_delta / 20.0)
+    if q_idx + 1 >= len(csi_data):
+        return 0.0
     
-    # Clamp to reasonable range
-    if compensation < 0.1:
-        compensation = 0.1
-    elif compensation > 10.0:
-        compensation = 10.0
+    # Convert to signed int8
+    I = to_signed_int8(csi_data[i_idx])
+    Q = to_signed_int8(csi_data[q_idx])
     
-    return compensation
+    return math.sqrt(float(I * I + Q * Q))
+
+
+def extract_amplitudes(csi_data, subcarriers=None):
+    """
+    Extract amplitudes for multiple subcarriers from CSI data.
+    
+    Uses Espressif CSI format: [Imaginary, Real, ...] per subcarrier.
+    
+    Args:
+        csi_data: Raw CSI data (bytes or list of uint8)
+        subcarriers: List of subcarrier indices (default: all 64)
+    
+    Returns:
+        list: Amplitude values for each subcarrier
+    """
+    if subcarriers is None:
+        # Use all available subcarriers (HT20: 64 max)
+        max_sc = min(64, len(csi_data) // 2)
+        subcarriers = range(max_sc)
+    
+    amplitudes = []
+    for sc_idx in subcarriers:
+        amp = extract_amplitude(csi_data, sc_idx)
+        if amp > 0.0 or sc_idx * 2 + 1 < len(csi_data):
+            amplitudes.append(amp)
+    
+    return amplitudes
+
+
+def extract_all_magnitudes(csi_data):
+    """
+    Extract magnitudes for ALL subcarriers from CSI data.
+    
+    Returns a list indexed by subcarrier number (0-63 for HT20).
+    This is useful when you need to access magnitudes by subcarrier index.
+    
+    Args:
+        csi_data: Raw CSI data (bytes or list of uint8)
+    
+    Returns:
+        list: Magnitudes indexed by subcarrier (length = num_subcarriers)
+    """
+    num_sc = min(64, len(csi_data) // 2)
+    magnitudes = [0.0] * num_sc
+    
+    for sc_idx in range(num_sc):
+        magnitudes[sc_idx] = extract_amplitude(csi_data, sc_idx)
+    
+    return magnitudes

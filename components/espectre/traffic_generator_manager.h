@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ping/ping_sock.h"
+#include <atomic>
 #include <cstdint>
 #include <sys/types.h>  // for ssize_t
 #include <string>
@@ -106,7 +107,7 @@ class TrafficGeneratorManager {
    * 
    * @return true if running, false otherwise
    */
-  bool is_running() const { return running_; }
+  bool is_running() const { return running_.load(); }
   
   /**
    * Pause traffic generator
@@ -127,7 +128,7 @@ class TrafficGeneratorManager {
    * 
    * @return true if paused, false otherwise
    */
-  bool is_paused() const { return paused_; }
+  bool is_paused() const { return paused_.load(); }
   
  private:
   // FreeRTOS task function (static wrapper) - DNS mode only
@@ -144,8 +145,8 @@ class TrafficGeneratorManager {
   esp_ping_handle_t ping_handle_{nullptr};
   uint32_t rate_pps_{0};
   TrafficGeneratorMode mode_{TrafficGeneratorMode::DNS};
-  volatile bool running_{false};  // volatile: accessed from main task and FreeRTOS task
-  volatile bool paused_{false};   // volatile: accessed from main task and FreeRTOS task
+  std::atomic<bool> running_{false};  // atomic: accessed from main task and FreeRTOS task
+  std::atomic<bool> paused_{false};   // atomic: accessed from main task and FreeRTOS task
   
   // Mode-specific start/stop
   bool start_dns_();

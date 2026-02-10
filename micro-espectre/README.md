@@ -61,12 +61,11 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | ML Detector | ✅ | ✅ | Neural Network (experimental) |
 | ML Features (12) | ✅ | ✅ | mean, std, max, min, zcr, skewness, kurtosis, entropy, autocorr, mad, slope, delta |
 | **Calibration (MVS only)** |
-| NBVI | ✅ | ✅ | 12 non-consecutive subcarriers (default) |
-| P95 | ✅ | ✅ | 12 consecutive subcarriers (alternative) |
-| Adaptive Threshold | ✅ | ✅ | P95 × 1.4 of baseline variance |
+| NBVI | ✅ | ✅ | 12 non-consecutive subcarriers |
+| Adaptive Threshold | ✅ | ✅ | P95 of baseline variance |
 | **Gain Lock** |
 | AGC/FFT Lock | ✅ | ✅ | Hardware gain stabilization (S3/C3/C5/C6) |
-| Gain Compensation | ✅ | ✅ | Amplitude normalization when lock skipped |
+| CV Normalization | ✅ | ✅ | Gain-invariant normalization when lock skipped |
 | **Filters** |
 | Low-Pass | ✅ | ✅ | Butterworth 1st order, 11 Hz cutoff (disabled by default) |
 | Hampel | ✅ | ✅ | MAD-based outlier removal (disabled by default) |
@@ -256,7 +255,7 @@ That's it! The device will now:
 - Connect to WiFi
 - Connect to MQTT broker
 - Start publishing motion detection data
-- Automatically calibrate subcarriers (NBVI or P95 algorithm)
+- Automatically calibrate subcarriers (NBVI algorithm)
 
 ### 5. Monitor and Control
 
@@ -339,8 +338,10 @@ pytest tests/test_segmentation.py::TestStateMachine -v
 | `test_filters` | Unit | Synthetic | Hampel, low-pass filters |
 | `test_features` | Unit | Synthetic | Feature extraction (entropy, skewness, kurtosis) |
 | `test_segmentation` | Unit | Synthetic | MVS state machine, variance calculation |
-| `test_p95_calibrator` | Unit | **Real** | P95 band selection, magnitude, turbulence |
+| `test_segmentation_additional` | Unit | Synthetic | Additional segmentation edge cases |
 | `test_nbvi_calibrator` | Unit | **Real** | NBVI subcarrier selection |
+| `test_ml_detector` | Unit | **Real** | ML detector, features, inference |
+| `test_ml_inference` | Unit | **Real** | ML inference matches C++ reference |
 | `test_mqtt` | Unit | Synthetic | MQTT handler and commands |
 | `test_traffic_generator` | Unit | Synthetic | Rate limiting, error handling |
 | `test_running_variance` | Unit | Synthetic | O(1) vs two-pass variance comparison |
@@ -370,9 +371,9 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC (used in auto mode)
 
 | Mode | Description |
 |------|-------------|
-| `auto` (default) | Lock gain, skip if signal too strong (AGC < 30). Uses gain compensation when skipped. |
+| `auto` (default) | Lock gain, skip if signal too strong (AGC < 30). Uses CV normalization when skipped. |
 | `enabled` | Always force gain lock (may freeze if too close to AP) |
-| `disabled` | Never lock gain. Uses gain compensation to normalize amplitudes. |
+| `disabled` | Never lock gain. Uses CV normalization for stable detection. |
 
 ### 2. Detection Algorithm
 
@@ -392,18 +393,17 @@ DETECTION_ALGORITHM = "mvs"   # "mvs" (default) or "ml"
 Selects which subcarriers to use for detection.
 
 ```python
-CALIBRATION_ALGORITHM = "nbvi"  # "nbvi" (default) or "p95"
+CALIBRATION_ALGORITHM = "nbvi"  # NBVI is the sole calibration algorithm
 ```
 
 | Algorithm | Selection | Best For |
 |-----------|-----------|----------|
-| **NBVI** (default) | 12 non-consecutive subcarriers | Spectral diversity, ~3x faster |
-| **P95** | 12 consecutive subcarriers | Simpler logic, contiguous bands |
+| **NBVI** | 12 non-consecutive subcarriers | Spectral diversity, resilient to interference |
 
 ### 4. Detection Parameters (MVS only)
 
 ```python
-SEG_THRESHOLD = "auto"     # "auto" (P95×1.4), "min" (P100), or 0.1-10.0
+SEG_THRESHOLD = "auto"     # "auto" (adaptive), "min" (max baseline), or 0.1-10.0
 SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
 ```
 
@@ -448,10 +448,9 @@ See [tools/README.md](tools/README.md) for complete script documentation.
 
 ## Automatic Subcarrier Selection
 
-Micro-ESPectre implements automatic subcarrier selection with two algorithms:
+Micro-ESPectre implements automatic subcarrier selection using the **NBVI** (Normalized Band Variance Index) algorithm:
 
-- **NBVI** (default): Selects 12 non-consecutive subcarriers based on baseline variability index
-- **P95**: Selects 12 consecutive subcarriers by minimizing P95 moving variance
+- **NBVI**: Selects 12 non-consecutive subcarriers based on baseline variability index
 
 Both algorithms achieve high performance (>90% recall, <15% FP rate) with **zero manual configuration**.
 
@@ -552,7 +551,7 @@ Beyond the basic commands covered in the [CLI Tool Overview](#cli-tool-overview)
 ./me
 
 # Connect to specific broker
-./me --broker 192.168.1.100 --port 1883
+./me --broker 192.168.1.100 --port-mqtt 1883
 
 # With authentication
 ./me --broker homeassistant.local --username mqtt --password mqtt
@@ -729,7 +728,7 @@ Publish JSON commands to `home/espectre/node1/cmd`:
 
 ### Runtime Configuration
 
-Configuration changes made via MQTT commands are **session-only** and reset on reboot. The adaptive threshold (P95 × 1.4) is recalculated automatically at each boot for optimal performance.
+Configuration changes made via MQTT commands are **session-only** and reset on reboot. The adaptive threshold is recalculated automatically at each boot for optimal performance.
 
 ## Home Assistant Integration
 

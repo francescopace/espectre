@@ -108,19 +108,18 @@ class IDetector:
         """
         raise NotImplementedError
     
-    def set_gain_compensation(self, compensation):
+    def set_cv_normalization(self, enabled):
         """
-        Set gain compensation factor.
+        Configure CV normalization mode for turbulence calculation.
         
-        When gain lock is not active (skipped or disabled), CSI amplitudes
-        vary with automatic gain control. This factor normalizes amplitudes.
-        
-        Default implementation does nothing (for detectors that don't need it).
+        CV normalization (std/mean) is gain-invariant but reduces sensitivity
+        for contiguous subcarrier bands. When gain is locked, raw std is preferred.
         
         Args:
-            compensation: Compensation factor (1.0 = no compensation)
+            enabled: True = std/mean (gain-invariant), False = raw std
         """
-        pass  # Default: no compensation
+        if hasattr(self, '_context'):
+            self._context.use_cv_normalization = enabled
     
     @property
     def total_packets(self):

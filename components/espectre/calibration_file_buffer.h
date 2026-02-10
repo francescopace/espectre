@@ -2,7 +2,7 @@
  * ESPectre - Calibration File Buffer
  * 
  * File-based buffer for calibration data storage on SPIFFS.
- * Shared between P95 and NBVI calibrators to avoid code duplication.
+ * Used by NBVI calibrator for file-based calibration data storage.
  * 
  * Stores CSI magnitude data as uint8 (max CSI magnitude ~181 fits in 1 byte).
  * Uses SPIFFS to avoid RAM limitations on ESP32.
@@ -27,7 +27,7 @@ namespace espectre {
  * Manages file-based storage of CSI magnitude data during calibration.
  * Handles SPIFFS mounting, file I/O, progress tracking, and data retrieval.
  * 
- * Used by both P95Calibrator and NBVICalibrator via composition.
+ * Used by NBVICalibrator via composition.
  */
 class CalibrationFileBuffer {
  public:

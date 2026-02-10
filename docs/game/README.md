@@ -266,7 +266,7 @@ After connecting via USB, the game displays a **System Info** panel showing the 
 |-------|-------------|
 | Threshold | Motion detection threshold |
 | Window | Segmentation window size |
-| Subcarriers | Selection mode (YAML config or P95 auto-calibration) |
+| Subcarriers | Selection mode (YAML config or NBVI auto-calibration) |
 | Low-pass | Filter status and cutoff frequency |
 | Hampel | Filter status |
 | Traffic | Traffic generator rate |

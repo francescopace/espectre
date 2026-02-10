@@ -1,7 +1,7 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-02-03T20:50:33.079699",
+  "updated_at": "2026-02-14T18:50:48.305651",
   "labels": {
     "baseline": {
       "id": 0,
@@ -23,7 +23,7 @@
         "chip": "C6",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "description": "HT20 baseline sample",
+        "description": "HT20 baseline, AGC gain locked",
         "collected_at": "2025-12-12T14:24:43.381306",
         "duration_ms": 10000,
         "num_packets": 1000
@@ -36,7 +36,7 @@
         "collected_at": "2026-01-17T22:26:06.497945",
         "duration_ms": 10008,
         "num_packets": 1353,
-        "description": "HT20 baseline sample"
+        "description": "HT20 baseline, AGC gain locked"
       },
       {
         "filename": "baseline_c3_64sc_20260203_203509.npz",
@@ -46,7 +46,29 @@
         "collected_at": "2026-02-03T20:35:09.180014",
         "duration_ms": 10006,
         "num_packets": 1344,
-        "description": "HT20 baseline sample"
+        "description": "HT20 baseline, AGC gain locked"
+      },
+      {
+        "filename": "baseline_esp32_64sc_20260214_183059.npz",
+        "chip": "ESP32",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-14T18:30:59.355439",
+        "duration_ms": 9998,
+        "num_packets": 961,
+        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)",
+        "use_cv_normalization": true
+      },
+      {
+        "filename": "baseline_c3_64sc_20260214_185025.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-14T18:50:25.166304",
+        "duration_ms": 10013,
+        "num_packets": 1312,
+        "description": "HT20 baseline, gain lock skipped (AGC gain 28 < 30 threshold)",
+        "use_cv_normalization": true
       }
     ],
     "baseline_noisy": [
@@ -55,7 +77,7 @@
         "chip": "C6",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "description": "Noisy environment baseline",
+        "description": "HT20 baseline with environmental noise (fans, HVAC), AGC gain locked",
         "collected_at": "2025-12-14T02:52:08.067424",
         "duration_ms": 60005,
         "num_packets": 6379
@@ -67,7 +89,7 @@
         "chip": "C6",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "description": "HT20 movement sample",
+        "description": "HT20 movement, AGC gain locked",
         "collected_at": "2025-12-12T14:24:43.402600",
         "duration_ms": 10000,
         "num_packets": 1000
@@ -80,7 +102,7 @@
         "collected_at": "2026-01-17T22:26:26.747046",
         "duration_ms": 10010,
         "num_packets": 1366,
-        "description": "HT20 movement sample"
+        "description": "HT20 movement, AGC gain locked"
       },
       {
         "filename": "movement_c3_64sc_20260203_203533.npz",
@@ -90,7 +112,29 @@
         "collected_at": "2026-02-03T20:35:33.828831",
         "duration_ms": 9998,
         "num_packets": 1318,
-        "description": "HT20 movement sample"
+        "description": "HT20 movement, AGC gain locked"
+      },
+      {
+        "filename": "movement_esp32_64sc_20260214_183141.npz",
+        "chip": "ESP32",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-14T18:31:41.344311",
+        "duration_ms": 15053,
+        "num_packets": 1103,
+        "description": "HT20 movement, no gain lock (ESP32 lacks AGC lock support)",
+        "use_cv_normalization": true
+      },
+      {
+        "filename": "movement_c3_64sc_20260214_185048.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-14T18:50:48.285126",
+        "duration_ms": 15002,
+        "num_packets": 1836,
+        "description": "HT20 movement, gain lock skipped (AGC gain 28 < 30 threshold)",
+        "use_cv_normalization": true
       }
     ]
   },

@@ -25,7 +25,7 @@ GAIN_LOCK_PACKETS = 300  # ~3 seconds at 100 Hz
 
 # Import HT20 constants from config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
-from src.utils import calculate_gain_compensation, to_signed_int8, calculate_median
+from src.utils import to_signed_int8, calculate_median
 
 # Global state for calibration mode and performance metrics
 class GlobalState:
@@ -34,10 +34,8 @@ class GlobalState:
         self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.current_channel = 0  # Track WiFi channel for change detection
-        # Gain compensation state (when gain lock is skipped or disabled)
-        self.needs_compensation = False
-        self.baseline_agc = 0  # uint8
-        self.baseline_fft = 0  # int8 (signed)
+        # CV normalization state (when gain lock is skipped or disabled)
+        self.needs_cv_normalization = False
 
 
 g_state = GlobalState()
@@ -187,14 +185,14 @@ def run_gain_lock(wlan):
     Respects config.GAIN_LOCK_MODE:
     - "auto": Lock gain, but skip if signal too strong (AGC < MIN_SAFE_AGC)
     - "enabled": Always force gain lock
-    - "disabled": Collect baseline for compensation, but no lock
+    - "disabled": No gain lock, use CV normalization
     
     Args:
         wlan: WLAN instance with CSI enabled
         
     Returns:
-        tuple: (agc_gain, fft_gain, needs_compensation) where:
-            - needs_compensation=True if gain lock was skipped/disabled
+        tuple: (agc_gain, fft_gain, needs_cv_normalization) where:
+            - needs_cv_normalization=True if gain lock was skipped/disabled
     """
     # Check configuration mode
     mode = getattr(config, 'GAIN_LOCK_MODE', 'auto').lower()
@@ -247,15 +245,15 @@ def run_gain_lock(wlan):
     
     # Handle different modes
     if mode == 'disabled':
-        # DISABLED mode: baseline collected for compensation, but no gain lock
-        print(f"Gain baseline: AGC={median_agc}, FFT={median_fft} (compensation enabled, no lock)")
+        # DISABLED mode: no gain lock, use CV normalization
+        print(f"Gain baseline: AGC={median_agc}, FFT={median_fft} (no lock, CV normalization enabled)")
         return median_agc, median_fft, True
     
     # In auto mode, skip gain lock if signal is too strong
     if mode == 'auto' and median_agc < min_safe_agc:
         print(f"WARNING: Signal too strong (AGC={median_agc} < {min_safe_agc}) - skipping gain lock")
         print(f"         Move sensor 2-3 meters from AP for optimal performance")
-        print(f"         Compensation enabled for baseline: AGC={median_agc}, FFT={median_fft}")
+        print(f"         CV normalization enabled (baseline: AGC={median_agc}, FFT={median_fft})")
         return median_agc, median_fft, True
     
     # Lock the gain values
@@ -278,6 +276,9 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     Returns:
         bool: True if calibration successful
     """
+    # Get calibration algorithm from config (default: nbvi)
+    algorithm = getattr(config, 'CALIBRATION_ALGORITHM', 'nbvi').lower()
+    
     # Determine calibration type based on detector
     detector_name = detector.get_name()
     is_ml = detector_name == "ML"
@@ -298,16 +299,17 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         print('Please remain still for gain lock...')
         
         # Phase 1: Gain Lock only (~3 seconds)
-        agc, fft, needs_comp = run_gain_lock(wlan)
+        agc, fft, needs_cv = run_gain_lock(wlan)
         
-        # Save baseline for compensation if needed
+        # Save CV normalization state
         if agc is not None and fft is not None:
-            g_state.needs_compensation = needs_comp
-            g_state.baseline_agc = agc
-            g_state.baseline_fft = fft
+            g_state.needs_cv_normalization = needs_cv
         
-        if needs_comp:
-            print("Note: Proceeding without gain lock (compensation enabled)")
+        if needs_cv:
+            print("Note: Proceeding without gain lock (CV normalization enabled)")
+        
+        # CV normalization: only needed when gain is not locked
+        detector.set_cv_normalization(needs_cv)
         
         # Use ML-specific subcarriers (must match model training)
         from src.ml_detector import ML_SUBCARRIERS
@@ -325,12 +327,7 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         g_state.calibration_mode = False
         return True
     else:
-        # Get configured algorithm for MVS
-        algorithm = getattr(config, 'CALIBRATION_ALGORITHM', 'nbvi').lower()
-        if algorithm == 'nbvi':
-            from src.nbvi_calibrator import NBVICalibrator, cleanup_buffer_file
-        else:
-            from src.p95_calibrator import P95Calibrator, cleanup_buffer_file
+        from src.nbvi_calibrator import NBVICalibrator, cleanup_buffer_file
     
     # Set calibration mode to suspend main loop
     g_state.calibration_mode = True
@@ -346,32 +343,32 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     print('Two-Phase Calibration Starting')
     print('='*60)
     print(f'Free memory: {gc.mem_free()} bytes')
-    print(f'Algorithm: {algorithm.upper()}')
     print('Please remain still for calibration...')
     
     # Phase 1: Gain Lock (~3 seconds)
     # Stabilizes AGC/FFT before calibration to ensure clean data
-    agc, fft, needs_comp = run_gain_lock(wlan)
+    agc, fft, needs_cv = run_gain_lock(wlan)
     
-    # Save baseline for compensation if needed
+    # Save CV normalization state
     if agc is not None and fft is not None:
-        g_state.needs_compensation = needs_comp
-        g_state.baseline_agc = agc
-        g_state.baseline_fft = fft
+        g_state.needs_cv_normalization = needs_cv
     
-    if needs_comp:
-        print("Note: Proceeding with band calibration without gain lock (compensation enabled)")
+    if needs_cv:
+        print("Note: Proceeding with band calibration without gain lock (CV normalization enabled)")
+    
+    # CV normalization: only needed when gain is not locked
+    detector.set_cv_normalization(needs_cv)
     
     print('')
     print('-'*60)
     print(f'Band Calibration (~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
     
-    # Initialize calibrator based on algorithm
-    if algorithm == 'nbvi':
-        calibrator = NBVICalibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
-    else:
-        calibrator = P95Calibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
+    # Initialize NBVI calibrator
+    calibrator = NBVICalibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
+    
+    # Match calibrator's normalization mode with detector
+    calibrator.use_cv_normalization = needs_cv
     
     # Collect packets for calibration (now with stable gain)
     calibration_progress = 0
@@ -451,13 +448,13 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
                 
                 if isinstance(SEG_THRESHOLD, str):
                     # "auto" or "min" mode - calculate adaptive threshold
-                    adaptive_threshold, percentile, factor, pxx = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
+                    adaptive_threshold, percentile = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
                     detector.set_adaptive_threshold(adaptive_threshold)
-                    threshold_source = f"{SEG_THRESHOLD} (P{percentile}x{factor})"
+                    threshold_source = f"{SEG_THRESHOLD} (P{percentile})"
                     print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
                 else:
                     # Numeric value - use fixed manual threshold
-                    adaptive_threshold, _, _, _ = calculate_adaptive_threshold(cal_values, "auto")
+                    adaptive_threshold, _ = calculate_adaptive_threshold(cal_values, "auto")
                     detector.set_threshold(float(SEG_THRESHOLD))
                     threshold_source = "manual"
                     print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
@@ -662,16 +659,6 @@ def main():
                 # Extract data and free frame immediately to save memory
                 csi_data = frame[5][:EXPECTED_CSI_LEN]
                 packet_channel = frame[1]
-                
-                # Apply gain compensation if needed (gain lock skipped or disabled)
-                if g_state.needs_compensation:
-                    current_agc = frame[22]
-                    current_fft = to_signed_int8(frame[23])
-                    compensation = calculate_gain_compensation(
-                        g_state.baseline_agc, g_state.baseline_fft,
-                        current_agc, current_fft
-                    )
-                    detector.set_gain_compensation(compensation)
                 
                 del frame
                 

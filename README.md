@@ -30,6 +30,7 @@
 - [Two-Platform Strategy](#two-platform-strategy)
 - [Future Evolution](#future-evolution)
 - [Documentation](#documentation)
+- [Acknowledgments](#acknowledgments)
 - [License](#license)
 - [Author](#author)
 
@@ -56,9 +57,9 @@
 - **ML option available**: Pre-trained neural network for enhanced accuracy
 - **Real-time processing**: Low latency detection on ESP32 hardware
 - **Production-ready**: Focused on reliable motion detection for smart home
-- **R&D platform available**: [Micro-ESPectre](micro-espectre/) provides features extraction for ML research
+- **R&D platform available**: [Micro-ESPectre](micro-espectre/) provides feature extraction for ML research
 
-For algorithm details (MVS, NBVI/P95 Band Selection, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
+For algorithm details (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
 
 ---
 
@@ -176,12 +177,12 @@ ESPectre uses a focused processing pipeline for motion detection:
        ▼
 ┌─────────────┐
 │    Auto     │  Automatic subcarrier selection (once at boot)
-│ Calibration │  Selects optimal 12 subcarriers (NBVI or P95)
+│ Calibration │  Selects optimal 12 subcarriers (NBVI)
 └──────┬──────┘
        │
        ▼
 ┌─────────────┐
-│  Adaptive   │  auto: P95×1.4 | min: P100
+│  Adaptive   │  auto: percentile-based | min: max baseline
 │  Threshold  │  or fixed manual value
 └──────┬──────┘
        │
@@ -235,9 +236,7 @@ Each sensor is automatically discovered by Home Assistant with:
 
 ### Automatic Subcarrier Selection
 
-ESPectre implements **NBVI** (default) for automatic subcarrier selection, achieving near-optimal performance (F1=97%) with **zero manual configuration**. The algorithm selects 12 non-consecutive subcarriers based on stability metrics and spectral diversity.
-
-An alternative **P95** algorithm is also available, selecting 12 consecutive subcarriers that minimize P95 moving variance.
+ESPectre implements **NBVI** (Normalized Band Variance Index) for automatic subcarrier selection, achieving near-optimal performance (F1>96%) with **zero manual configuration**. The algorithm selects 12 non-consecutive subcarriers based on stability metrics and spectral diversity.
 
 > ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
 
@@ -333,7 +332,7 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ## Technical Deep Dive
 
-For algorithm details (MVS, NBVI/P95 Band Selection, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
+For algorithm details (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
 
 For performance metrics (confusion matrix, F1-score, benchmarks), see [PERFORMANCE.md](PERFORMANCE.md).
 
@@ -424,7 +423,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribut
 | Document | Description |
 |----------|-------------|
 | [Intro](micro-espectre/README.md) | R&D platform overview, CLI, MQTT, Web Monitor |
-| [Algorithms](micro-espectre/ALGORITHMS.md) | Scientific documentation of MVS, NBVI/P95 Band Selection, Hampel filter |
+| [Algorithms](micro-espectre/ALGORITHMS.md) | Scientific documentation of MVS, NBVI calibration, Hampel filter |
 | [Analysis Tools](micro-espectre/tools/README.md) | CSI analysis and optimization scripts |
 | [ML Data Collection](micro-espectre/ML_DATA_COLLECTION.md) | Building labeled datasets for machine learning |
 | [References](micro-espectre/README.md#references) | Academic papers and research resources |
@@ -438,6 +437,12 @@ See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribut
 | [Changelog](CHANGELOG.md) | Version history and release notes |
 | [Security](SECURITY.md) | Security policy and vulnerability reporting |
 | [Code of Conduct](CODE_OF_CONDUCT.md) | Community guidelines |
+
+---
+
+## Acknowledgments
+
+ESPectre leverages the native Wi-Fi CSI capabilities of ESP32 chips. Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in the ESP-IDF framework and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in their [esp-csi](https://github.com/espressif/esp-csi) repository.
 
 ---
 

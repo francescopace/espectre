@@ -159,7 +159,8 @@ esp_err_t NBVICalibrator::find_candidate_windows_(std::vector<WindowVariance>& c
       }
       
       turbulences[pkt] = calculate_spatial_turbulence(float_mags, current_band_.data(),
-                                                       current_band_.size());
+                                                       current_band_.size(), 64,
+                                                       use_cv_normalization_);
     }
     
     float variance = calculate_variance_two_pass(turbulences.data(), window_size_);
@@ -335,7 +336,8 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
       float_mags[sc] = static_cast<float>(packet_data[sc]);
     }
     
-    float turbulence = calculate_spatial_turbulence(float_mags, band, band_size);
+    float turbulence = calculate_spatial_turbulence(float_mags, band, band_size, 64,
+                                                     use_cv_normalization_);
     
     // Shift buffer
     for (uint16_t i = 0; i < MVS_WINDOW_SIZE - 1; i++) {

@@ -79,18 +79,6 @@ void lowpass_filter_reset(lowpass_filter_state_t *state) {
 // HAMPEL FILTER IMPLEMENTATION
 // ============================================================================
 
-static void insertion_sort_float(float *arr, size_t n) {
-    for (size_t i = 1; i < n; i++) {
-        float key = arr[i];
-        size_t j = i;
-        while (j > 0 && arr[j - 1] > key) {
-            arr[j] = arr[j - 1];
-            j--;
-        }
-        arr[j] = key;
-    }
-}
-
 void hampel_turbulence_init(hampel_turbulence_state_t *state, uint8_t window_size, float threshold, bool enabled) {
     if (!state) {
         ESP_LOGE(TAG, "hampel_turbulence_init: NULL state pointer");
@@ -129,20 +117,12 @@ float hampel_filter(const float *window, size_t window_size,
     }
     
     std::memcpy(sorted, window, window_size * sizeof(float));
-    std::qsort(sorted, window_size, sizeof(float), compare_float);
-    
-    float median = (window_size % 2 == 1) ? 
-                   sorted[window_size / 2] : 
-                   (sorted[window_size / 2 - 1] + sorted[window_size / 2]) / 2.0f;
+    float median = calculate_median_float(sorted, window_size);
     
     for (size_t i = 0; i < window_size; i++) {
         abs_deviations[i] = std::abs(window[i] - median);
     }
-    std::qsort(abs_deviations, window_size, sizeof(float), compare_float);
-    
-    float mad = (window_size % 2 == 1) ? 
-                abs_deviations[window_size / 2] : 
-                (abs_deviations[window_size / 2 - 1] + abs_deviations[window_size / 2]) / 2.0f;
+    float mad = calculate_median_float(abs_deviations, window_size);
     
     float mad_scaled = MAD_SCALE_FACTOR * mad;
     float deviation = std::abs(current_value - median);
@@ -171,20 +151,12 @@ float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulenc
     
     size_t n = state->count;
     std::memcpy(state->sorted_buffer, state->buffer, n * sizeof(float));
-    insertion_sort_float(state->sorted_buffer, n);
-    
-    float median = (n % 2 == 1) ? 
-                   state->sorted_buffer[n / 2] : 
-                   (state->sorted_buffer[n / 2 - 1] + state->sorted_buffer[n / 2]) / 2.0f;
+    float median = calculate_median_float(state->sorted_buffer, n);
     
     for (size_t i = 0; i < n; i++) {
         state->deviations[i] = std::abs(state->buffer[i] - median);
     }
-    insertion_sort_float(state->deviations, n);
-    
-    float mad = (n % 2 == 1) ? 
-                state->deviations[n / 2] : 
-                (state->deviations[n / 2 - 1] + state->deviations[n / 2]) / 2.0f;
+    float mad = calculate_median_float(state->deviations, n);
     
     float deviation = std::abs(turbulence - median);
     

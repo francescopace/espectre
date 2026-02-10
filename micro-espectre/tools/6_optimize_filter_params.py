@@ -29,20 +29,12 @@ License: GPLv3
 """
 
 import numpy as np
-import sys
-import os
 import math
 import argparse
 from pathlib import Path
 
-# Add micro-espectre and src to path for imports
-_micro_espectre_path = str(Path(__file__).parent.parent)
-_src_path = str(Path(__file__).parent.parent / 'src')
-if _src_path not in sys.path:
-    sys.path.insert(0, _src_path)
-if _micro_espectre_path not in sys.path:
-    sys.path.insert(0, _micro_espectre_path)
-
+# Import csi_utils first - it sets up paths automatically
+from csi_utils import setup_paths  # noqa: F401 - side effect import
 from segmentation import SegmentationContext
 
 
@@ -268,7 +260,7 @@ def main():
     
     # Determine optimal band (64 SC HT20 mode)
     num_sc = len(baseline_iq[0]) // 2
-    # 64 SC optimal band (from P95 calibration)
+    # 64 SC optimal band (default fallback)
     selected_band = list(range(11, 23))  # [11-22]
     print(f"Subcarriers: {num_sc}, using band: [{selected_band[0]}-{selected_band[-1]}]")
     

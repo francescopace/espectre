@@ -26,16 +26,15 @@
 // ============================================================================
 // Test Data Files (HT20: 64 subcarriers only)
 // ============================================================================
-// C3 dataset - uses forced subcarriers [20-31] (auto-calibration selects wrong bands)
-#define BASELINE_C3_64SC  "../micro-espectre/data/baseline/baseline_c3_64sc_20260203_203509.npz"
-#define MOVEMENT_C3_64SC  "../micro-espectre/data/movement/movement_c3_64sc_20260203_203533.npz"
+// C3 dataset
+#define BASELINE_C3_64SC  "../micro-espectre/data/baseline/baseline_c3_64sc_20260214_185025.npz"
+#define MOVEMENT_C3_64SC  "../micro-espectre/data/movement/movement_c3_64sc_20260214_185048.npz"
 // C6 dataset (validated)
 #define BASELINE_C6_64SC  "../micro-espectre/data/baseline/baseline_c6_64sc_20251212_142443.npz"
 #define MOVEMENT_C6_64SC  "../micro-espectre/data/movement/movement_c6_64sc_20251212_142443.npz"
-// ESP32 dataset - skipped until data is collected
-// Files will be: baseline_esp32_64sc_*.npz, movement_esp32_64sc_*.npz
-#define BASELINE_ESP32_64SC  "../micro-espectre/data/baseline/baseline_esp32_64sc_placeholder.npz"
-#define MOVEMENT_ESP32_64SC  "../micro-espectre/data/movement/movement_esp32_64sc_placeholder.npz"
+// ESP32 (Base) dataset - control set (excluded from ML training)
+#define BASELINE_ESP32_64SC  "../micro-espectre/data/baseline/baseline_esp32_64sc_20260214_183059.npz"
+#define MOVEMENT_ESP32_64SC  "../micro-espectre/data/movement/movement_esp32_64sc_20260214_183141.npz"
 // S3 dataset
 #define BASELINE_S3_64SC  "../micro-espectre/data/baseline/baseline_s3_64sc_20260117_222606.npz"
 #define MOVEMENT_S3_64SC  "../micro-espectre/data/movement/movement_s3_64sc_20260117_222626.npz"
@@ -131,7 +130,7 @@ inline std::vector<const int8_t*> get_packet_pointers(const CsiData& csi_data) {
 enum class ChipType {
     C3,    // Uses forced subcarriers [20-31] - auto-calibration skipped per-test
     C6,
-    ESP32, // Skipped - dataset not yet collected
+    ESP32, // Control set (excluded from ML training)
     S3
 };
 
@@ -154,7 +153,6 @@ inline const char* chip_name(ChipType chip) {
  */
 inline const char* chip_skip_reason(ChipType chip) {
     switch (chip) {
-        case ChipType::ESP32: return "ESP32 dataset not yet collected";
         default: return nullptr;
     }
 }
@@ -162,6 +160,10 @@ inline const char* chip_skip_reason(ChipType chip) {
 // ============================================================================
 // Global Data Storage
 // ============================================================================
+
+// Skip first N packets from baseline to remove gain lock stabilization noise.
+// These packets are recorded during radio warm-up and inflate calibration thresholds.
+static constexpr int GAIN_LOCK_SKIP = 300;
 
 static CsiData g_baseline_data;
 static CsiData g_movement_data;
@@ -171,7 +173,17 @@ static bool g_loaded = false;
 static ChipType g_current_chip = ChipType::C6;
 
 /**
+ * Remove first N packets from a CsiData struct (in-place).
+ */
+inline void skip_packets(CsiData& data, int skip) {
+    if (skip <= 0 || skip >= data.num_packets) return;
+    data.packets.erase(data.packets.begin(), data.packets.begin() + skip);
+    data.num_packets = static_cast<int>(data.packets.size());
+}
+
+/**
  * Load CSI test data from NPZ files for a specific chip.
+ * Baseline data has the first GAIN_LOCK_SKIP packets removed (radio warm-up noise).
  * @param chip Chip type (C3, C6, ESP32, or S3)
  */
 inline bool load(ChipType chip = ChipType::C6) {
@@ -204,9 +216,11 @@ inline bool load(ChipType chip = ChipType::C6) {
         printf("\n[CSI Test Data] Loading %s 64 SC dataset (HT20)...\n", chip_name(chip));
         printf("[CSI Test Data] Baseline: %s\n", baseline_file);
         g_baseline_data = load_npz(baseline_file);
+        int raw_count = g_baseline_data.num_packets;
+        skip_packets(g_baseline_data, GAIN_LOCK_SKIP);
         g_baseline_ptrs = get_packet_pointers(g_baseline_data);
-        printf("[CSI Test Data] Loaded %d baseline packets (%d bytes each)\n", 
-               g_baseline_data.num_packets, g_baseline_data.packet_size);
+        printf("[CSI Test Data] Loaded %d baseline packets (%d bytes each, skipped first %d)\n", 
+               g_baseline_data.num_packets, g_baseline_data.packet_size, raw_count - g_baseline_data.num_packets);
         
         printf("[CSI Test Data] Movement: %s\n", movement_file);
         g_movement_data = load_npz(movement_file);

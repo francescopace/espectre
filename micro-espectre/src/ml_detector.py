@@ -140,20 +140,23 @@ class MLDetector(IDetector):
     5. Compare probability to threshold for state decision
     """
     
-    def __init__(self, window_size=50, threshold=0.5,
+    def __init__(self, window_size=75, threshold=0.5,
                  enable_lowpass=False, lowpass_cutoff=11.0,
-                 enable_hampel=False, hampel_window=7, hampel_threshold=4.0):
+                 enable_hampel=False, hampel_window=7, hampel_threshold=4.0,
+                 use_cv_normalization=False):
         """
         Initialize ML detector.
         
         Args:
-            window_size: Feature extraction window size (default: 50)
+            window_size: Feature extraction window size (default: 75, matches C++ DETECTOR_DEFAULT_WINDOW_SIZE)
             threshold: Motion probability threshold (default: 0.5)
             enable_lowpass: Enable low-pass filter (default: False)
             lowpass_cutoff: Low-pass cutoff frequency Hz (default: 11.0)
             enable_hampel: Enable Hampel filter (default: False)
             hampel_window: Hampel window size (default: 7)
             hampel_threshold: Hampel threshold in MAD (default: 4.0)
+            use_cv_normalization: Use CV (std/mean) instead of raw std (default: False)
+                                  Set True for chips without gain lock (e.g., ESP32)
         """
         # Use SegmentationContext for turbulence calculation and filtering
         self._context = SegmentationContext(
@@ -165,6 +168,9 @@ class MLDetector(IDetector):
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold
         )
+        # CV normalization: True for chips without gain lock (ESP32)
+        # False for chips with gain lock (C3, C6, S3) - raw std is more sensitive
+        self._context.use_cv_normalization = use_cv_normalization
         self._threshold = threshold
         self._packet_count = 0
         self._motion_count = 0
@@ -186,7 +192,7 @@ class MLDetector(IDetector):
         """
         self._packet_count += 1
         
-        # Calculate spatial turbulence using instance method (applies gain compensation)
+        # Calculate spatial turbulence using instance method (CV-normalized)
         turbulence = self._context.calculate_spatial_turbulence(
             csi_data, selected_subcarriers
         )
@@ -234,10 +240,28 @@ class MLDetector(IDetector):
         }
     
     def _extract_features(self):
-        """Extract 12 features from turbulence buffer using centralized extractor."""
-        turb_buffer = self._context.turbulence_buffer
-        buffer_count = len(turb_buffer)
-        return extract_all_features(turb_buffer, buffer_count)
+        """
+        Extract 12 features from turbulence buffer using centralized extractor.
+        
+        IMPORTANT: The turbulence_buffer is a circular buffer. After wrap-around,
+        a simple slice [:buffer_count] would NOT be in chronological order.
+        Features like slope, delta, zcr, and autocorr depend on temporal order.
+        
+        We reconstruct the chronological order: [oldest ... newest]
+        """
+        ctx = self._context
+        
+        # Build chronological list from circular buffer
+        if ctx.buffer_count < ctx.window_size:
+            # Buffer not full yet: data is in order from index 0
+            turb_list = ctx.turbulence_buffer[:ctx.buffer_count]
+        else:
+            # Buffer is full and has wrapped: reconstruct order
+            # buffer_index points to the NEXT write position (oldest value)
+            idx = ctx.buffer_index
+            turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
+        
+        return extract_all_features(turb_list, len(turb_list))
     
     def get_state(self):
         """Get current motion state."""
@@ -257,15 +281,6 @@ class MLDetector(IDetector):
             self._threshold = threshold
             return True
         return False
-    
-    def set_gain_compensation(self, compensation):
-        """
-        Set gain compensation factor.
-        
-        Args:
-            compensation: Compensation factor (1.0 = no compensation)
-        """
-        self._context.set_gain_compensation(compensation)
     
     def is_ready(self):
         """Check if buffer is full."""

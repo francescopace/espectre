@@ -6,6 +6,7 @@ Provides:
   - Data collection (CSICollector)
   - Dataset management (load, save, stats)
   - MVS detection (MVSDetector)
+  - Path setup for all tools (setup_paths)
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -14,6 +15,7 @@ License: GPLv3
 import socket
 import struct
 import subprocess
+import sys
 import time
 import json
 import numpy as np
@@ -23,6 +25,30 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Dict, Any, Tuple
+
+
+# ============================================================================
+# Path Setup (called once at module import)
+# ============================================================================
+
+def setup_paths():
+    """
+    Add micro-espectre and src directories to sys.path.
+    
+    This allows tools to import from src/ and config.py.
+    Safe to call multiple times (checks for duplicates).
+    """
+    micro_espectre_path = str(Path(__file__).parent.parent)
+    src_path = str(Path(__file__).parent.parent / 'src')
+    
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+    if micro_espectre_path not in sys.path:
+        sys.path.insert(0, micro_espectre_path)
+
+
+# Auto-setup paths when this module is imported
+setup_paths()
 
 # ============================================================================
 # Constants
@@ -56,6 +82,7 @@ class CSIPacket:
     amplitudes: np.ndarray   # Amplitude per subcarrier
     phases: np.ndarray       # Phase per subcarrier (radians)
     chip: str = 'unknown'    # Chip type (e.g., 'C6', 'S3', 'ESP32')
+    gain_locked: bool = True # True if AGC gain lock was applied during collection
 
 
 # Chip code to name mapping (must match streamer)
@@ -139,23 +166,55 @@ class CSIReceiver:
     def _parse_packet(self, data: bytes) -> Optional[CSIPacket]:
         """Parse raw UDP data into CSIPacket
         
-        Packet format (6 byte header):
+        Packet format (7 byte header, v2):
+            <magic:2><chip:1><flags:1><seq:1><num_sc:2><payload>
+        
+        Flags byte:
+            bit 0: gain_locked (1 = AGC gain lock was applied)
+        
+        For backwards compatibility, also accepts 6 byte header (v1):
             <magic:2><chip:1><seq:1><num_sc:2><payload>
         """
         if len(data) < 6:
             return None
         
-        # Parse header
-        magic, chip_code, seq_num, num_sc = struct.unpack('<HBBH', data[:6])
-        
+        # Parse magic to validate packet
+        magic = struct.unpack('<H', data[:2])[0]
         if magic != MAGIC_STREAM:
             return None
         
+        # Detect header version based on packet size
+        # v1 (6 byte header): 6 + 128 = 134 bytes for HT20
+        # v2 (7 byte header): 7 + 128 = 135 bytes for HT20
+        # We detect by checking if data[3] looks like a flags byte (0x00 or 0x01)
+        # or a sequence number (0-255)
+        # Simpler: check packet length - v2 packets are 1 byte longer
+        
+        # Try v2 format first (7 byte header)
+        if len(data) >= 7:
+            chip_code, flags, seq_num, num_sc = struct.unpack('<BBBH', data[2:7])
+            header_size = 7
+            iq_size = num_sc * 2
+            
+            # Validate: if this doesn't make sense, fall back to v1
+            if len(data) == header_size + iq_size:
+                gain_locked = bool(flags & 0x01)
+            else:
+                # Try v1 format (6 byte header, no flags)
+                chip_code, seq_num, num_sc = struct.unpack('<BBH', data[2:6])
+                header_size = 6
+                iq_size = num_sc * 2
+                gain_locked = True  # Assume gain locked for legacy packets
+        else:
+            # v1 format
+            chip_code, seq_num, num_sc = struct.unpack('<BBH', data[2:6])
+            header_size = 6
+            iq_size = num_sc * 2
+            gain_locked = True  # Assume gain locked for legacy packets
+        
         chip = CHIP_CODES.get(chip_code, 'unknown')
-        header_size = 6
         
         # Parse I/Q data
-        iq_size = num_sc * 2
         if len(data) < header_size + iq_size:
             return None
         
@@ -181,7 +240,8 @@ class CSIReceiver:
             iq_complex=iq_complex,
             amplitudes=amplitudes,
             phases=phases,
-            chip=chip
+            chip=chip,
+            gain_locked=gain_locked
         )
     
     def _check_sequence(self, seq_num: int):
@@ -390,7 +450,8 @@ class CSICollector:
     # File format version - increment when format changes
     FORMAT_VERSION = '1.0'
     
-    def __init__(self, label: str, port: int = DEFAULT_PORT, contributor: str = None):
+    def __init__(self, label: str, port: int = DEFAULT_PORT, contributor: str = None,
+                 description: str = None):
         """
         Initialize collector.
         
@@ -398,11 +459,13 @@ class CSICollector:
             label: Label for collected samples (e.g., 'wave', 'baseline')
             port: UDP port for CSI receiver
             contributor: GitHub username of the contributor (auto-detected from git if not provided)
+            description: Optional description for the collected samples
         """
         self.label = label
         self.port = port
         self.chip = None  # Auto-detected from CSI packets
         self.contributor = contributor or get_git_username()
+        self.description = description
         
         self.receiver = CSIReceiver(port=port, buffer_size=2000)
         self._recording = False
@@ -477,6 +540,13 @@ class CSICollector:
             'format_version': self.FORMAT_VERSION,
         }
         
+        # Determine if gain lock was applied (from packet flags)
+        # All packets in a session have the same gain_locked value
+        gain_locked = packets[0].gain_locked if hasattr(packets[0], 'gain_locked') else True
+        
+        # Add gain_locked to sample for future reference
+        sample['gain_locked'] = gain_locked
+        
         # Save file
         label_dir = self._get_label_dir()
         num_subcarriers = packets[0].num_subcarriers
@@ -486,12 +556,15 @@ class CSICollector:
         np.savez_compressed(filepath, **sample)
         
         # Update dataset info with file details
+        # use_cv_normalization is the inverse of gain_locked
         self._update_dataset_info(
             filename=filename,
             num_subcarriers=num_subcarriers,
             num_packets=len(packets),
             duration_ms=duration_ms,
-            collected_at=sample['collected_at']
+            collected_at=sample['collected_at'],
+            use_cv_normalization=not gain_locked,
+            description=self.description
         )
         
         return filepath
@@ -518,7 +591,8 @@ class CSICollector:
     
     def _update_dataset_info(self, filename: str = None, num_subcarriers: int = None,
                                 num_packets: int = None, duration_ms: float = None,
-                                collected_at: str = None):
+                                collected_at: str = None, use_cv_normalization: bool = False,
+                                description: str = None):
         """Update dataset info with current sample counts and file details"""
         info = load_dataset_info()
         
@@ -542,6 +616,17 @@ class CSICollector:
             # Check if file already exists in list
             existing_files = [f['filename'] for f in info['files'][self.label]]
             if filename not in existing_files:
+                # Build description based on gain lock status
+                if not description:
+                    if use_cv_normalization:
+                        chip = self.chip.upper() if self.chip else 'unknown'
+                        if chip == 'ESP32':
+                            description = f'HT20 {self.label}, no gain lock (ESP32 lacks AGC lock support)'
+                        else:
+                            description = f'HT20 {self.label}, gain lock skipped (weak signal or disabled)'
+                    else:
+                        description = f'HT20 {self.label}, AGC gain locked'
+                
                 file_info = {
                     'filename': filename,
                     'chip': self.chip.upper() if self.chip else 'unknown',
@@ -550,8 +635,11 @@ class CSICollector:
                     'collected_at': collected_at or '',
                     'duration_ms': int(duration_ms) if duration_ms else 0,
                     'num_packets': num_packets or 0,
-                    'description': ''
+                    'description': description
                 }
+                # Only add use_cv_normalization if True (keep JSON clean)
+                if use_cv_normalization:
+                    file_info['use_cv_normalization'] = True
                 info['files'][self.label].append(file_info)
         
         save_dataset_info(info)
@@ -1006,8 +1094,7 @@ from filters import HampelFilter
 # Import feature calculation functions from src/features.py
 from features import calc_skewness, calc_kurtosis
 
-# Import calibrators from src (band selection algorithms)
-from p95_calibrator import P95Calibrator
+# Import calibrator from src (band selection algorithm)
 from nbvi_calibrator import NBVICalibrator
 
 # Import detectors from src (IDetector interface and implementations)
@@ -1021,16 +1108,17 @@ from mvs_detector import MVSDetector as MVSDetectorNew
 
 def calculate_spatial_turbulence(csi_data, selected_subcarriers) -> float:
     """
-    Calculate spatial turbulence (standard deviation of amplitudes)
+    Calculate spatial turbulence (coefficient of variation of amplitudes)
     
     Delegates to SegmentationContext.compute_spatial_turbulence (static method).
+    Uses CV normalization (std/mean) which is gain-invariant.
     
     Args:
         csi_data: CSI data array (I/Q pairs)
         selected_subcarriers: List of subcarrier indices to use
     
     Returns:
-        float: Spatial turbulence value (standard deviation of amplitudes)
+        float: Spatial turbulence value (CV-normalized)
     """
     turbulence, _ = SegmentationContext.compute_spatial_turbulence(csi_data, selected_subcarriers)
     return turbulence

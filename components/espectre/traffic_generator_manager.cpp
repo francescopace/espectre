@@ -24,6 +24,38 @@ namespace espectre {
 
 static const char *TAG = "TrafficGen";
 
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Get gateway IP address from network interface
+ * 
+ * @param out_gw Output gateway address
+ * @return true if gateway IP was obtained successfully
+ */
+static bool get_gateway_ip(esp_ip4_addr_t* out_gw) {
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!netif) {
+        ESP_LOGE(TAG, "Failed to get network interface");
+        return false;
+    }
+    
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get IP info");
+        return false;
+    }
+    
+    if (ip_info.gw.addr == 0) {
+        ESP_LOGE(TAG, "Gateway IP not available");
+        return false;
+    }
+    
+    *out_gw = ip_info.gw;
+    return true;
+}
+
 // Minimal DNS query for root domain (type A)
 // 17 bytes - smallest valid DNS query that generates a response
 static const uint8_t DNS_QUERY[] = {
@@ -48,14 +80,14 @@ void TrafficGeneratorManager::init(uint32_t rate_pps, TrafficGeneratorMode mode)
   ping_handle_ = nullptr;
   rate_pps_ = rate_pps;
   mode_ = mode;
-  running_ = false;
+  running_.store(false);
   
   const char* mode_str = (mode == TrafficGeneratorMode::PING) ? "ping" : "dns";
   ESP_LOGD(TAG, "Traffic Generator Manager initialized (rate: %u pps, mode: %s)", rate_pps, mode_str);
 }
 
 bool TrafficGeneratorManager::start() {
-  if (running_) {
+  if (running_.load()) {
     ESP_LOGW(TAG, "Traffic generator already running");
     return false;
   }
@@ -75,25 +107,25 @@ bool TrafficGeneratorManager::start() {
 }
 
 void TrafficGeneratorManager::pause() {
-  if (!paused_) {
-    paused_ = true;
+  if (!paused_.load()) {
+    paused_.store(true);
     ESP_LOGD(TAG, "Traffic generator paused");
   }
 }
 
 void TrafficGeneratorManager::resume() {
-  if (paused_) {
-    paused_ = false;
+  if (paused_.load()) {
+    paused_.store(false);
     ESP_LOGD(TAG, "Traffic generator resumed");
   }
 }
 
 void TrafficGeneratorManager::stop() {
-  if (!running_) {
+  if (!running_.load()) {
     return;
   }
   
-  running_ = false;
+  running_.store(false);
   
   // Stop based on mode
   if (mode_ == TrafficGeneratorMode::PING) {
@@ -112,26 +144,14 @@ void TrafficGeneratorManager::stop() {
 
 bool TrafficGeneratorManager::start_dns_() {
   // Get gateway IP address
-  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  if (!netif) {
-    ESP_LOGE(TAG, "Failed to get network interface");
-    return false;
-  }
-  
-  esp_netif_ip_info_t ip_info;
-  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to get IP info");
-    return false;
-  }
-  
-  if (ip_info.gw.addr == 0) {
-    ESP_LOGE(TAG, "Gateway IP not available");
+  esp_ip4_addr_t gw;
+  if (!get_gateway_ip(&gw)) {
     return false;
   }
   
   // Log gateway IP
   char gw_str[16];
-  snprintf(gw_str, sizeof(gw_str), IPSTR, IP2STR(&ip_info.gw));
+  snprintf(gw_str, sizeof(gw_str), IPSTR, IP2STR(&gw));
   ESP_LOGI(TAG, "Target gateway: %s", gw_str);
   
   // Create UDP socket
@@ -148,7 +168,7 @@ bool TrafficGeneratorManager::start_dns_() {
   }
   
   // Reset counters
-  running_ = true;
+  running_.store(true);
   
   // Create FreeRTOS task
   // Stack size: 4096 bytes (increased for safety)
@@ -166,7 +186,7 @@ bool TrafficGeneratorManager::start_dns_() {
     ESP_LOGE(TAG, "Failed to create traffic generator task (result: %d)", result);
     close(sock_);
     sock_ = -1;
-    running_ = false;
+    running_.store(false);
     return false;
   }
   
@@ -205,16 +225,9 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   }
   
   // Get gateway address
-  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  if (!netif) {
-    ESP_LOGE(TAG, "Failed to get netif in task");
-    vTaskDelete(NULL);
-    return;
-  }
-  
-  esp_netif_ip_info_t ip_info;
-  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to get IP info in task");
+  esp_ip4_addr_t gw;
+  if (!get_gateway_ip(&gw)) {
+    ESP_LOGE(TAG, "Failed to get gateway in task");
     vTaskDelete(NULL);
     return;
   }
@@ -224,7 +237,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   memset(&dest_addr, 0, sizeof(dest_addr));
   dest_addr.sin_family = AF_INET;
   dest_addr.sin_port = htons(53);  // DNS port
-  dest_addr.sin_addr.s_addr = ip_info.gw.addr;
+  dest_addr.sin_addr.s_addr = gw.addr;
   
   // Use microseconds for precise timing with fractional accumulator
   // This compensates for integer division error (e.g., 1000000/400 = 2500µs exact)
@@ -233,16 +246,16 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   uint32_t accumulator = 0;  // Accumulates fractional microseconds
   
   ESP_LOGI(TAG, "Traffic task started (gateway: " IPSTR ", interval: %u µs, remainder: %u)", 
-           IP2STR(&ip_info.gw), interval_us, remainder_us);
+           IP2STR(&gw), interval_us, remainder_us);
   
   int64_t next_send_time = esp_timer_get_time();
   
   // Error state for rate-limited logging
   SendErrorState error_state;
   
-  while (mgr->running_) {
+  while (mgr->running_.load()) {
     // Check if paused (e.g., during calibration)
-    if (mgr->paused_) {
+    if (mgr->paused_.load()) {
       vTaskDelay(pdMS_TO_TICKS(50));  // Sleep while paused to save CPU
       next_send_time = esp_timer_get_time();  // Reset timing on resume
       continue;
@@ -317,26 +330,14 @@ void TrafficGeneratorManager::ping_end_cb_(esp_ping_handle_t hdl, void *args) {
 
 bool TrafficGeneratorManager::start_ping_() {
   // Get gateway IP address
-  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  if (!netif) {
-    ESP_LOGE(TAG, "Failed to get network interface");
-    return false;
-  }
-  
-  esp_netif_ip_info_t ip_info;
-  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to get IP info");
-    return false;
-  }
-  
-  if (ip_info.gw.addr == 0) {
-    ESP_LOGE(TAG, "Gateway IP not available");
+  esp_ip4_addr_t gw;
+  if (!get_gateway_ip(&gw)) {
     return false;
   }
   
   // Log gateway IP
   char gw_str[16];
-  snprintf(gw_str, sizeof(gw_str), IPSTR, IP2STR(&ip_info.gw));
+  snprintf(gw_str, sizeof(gw_str), IPSTR, IP2STR(&gw));
   ESP_LOGI(TAG, "Target gateway: %s", gw_str);
   
   // Configure ping session
@@ -345,10 +346,10 @@ bool TrafficGeneratorManager::start_ping_() {
   // Set target address
   ip_addr_t target_addr;
   IP_ADDR4(&target_addr, 
-           ip4_addr1(&ip_info.gw), 
-           ip4_addr2(&ip_info.gw), 
-           ip4_addr3(&ip_info.gw), 
-           ip4_addr4(&ip_info.gw));
+           ip4_addr1(&gw), 
+           ip4_addr2(&gw), 
+           ip4_addr3(&gw), 
+           ip4_addr4(&gw));
   ping_config.target_addr = target_addr;
   
   // Configure timing
@@ -383,7 +384,7 @@ bool TrafficGeneratorManager::start_ping_() {
     return false;
   }
   
-  running_ = true;
+  running_.store(true);
   
   uint32_t interval_ms = 1000 / rate_pps_;
   ESP_LOGI(TAG, "Traffic generator started (mode: ping, %u pps, interval: %u ms)", 

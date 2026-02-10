@@ -83,8 +83,8 @@ cd test && pio test
 # Python tests (Micro-ESPectre)
 cd micro-espectre && pytest tests/ -v
 
-# With coverage
-pytest tests/ -v --cov=src --cov-report=term-missing
+# With coverage (run from micro-espectre/)
+cd micro-espectre && pytest tests/ -v --cov=src --cov-report=term-missing
 ```
 
 ---

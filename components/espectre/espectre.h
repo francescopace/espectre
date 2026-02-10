@@ -32,7 +32,6 @@
 #include "sensor_publisher.h"
 #include "csi_manager.h"
 #include "wifi_lifecycle.h"
-#include "p95_calibrator.h"
 #include "nbvi_calibrator.h"
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
@@ -54,11 +53,6 @@ class ESpectreComponent : public Component {
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
   
-  // Calibration algorithm enum
-  enum class CalibrationAlgorithm {
-    P95,   // 12 consecutive subcarriers (default)
-    NBVI   // 12 non-consecutive subcarriers
-  };
   
   // Detection algorithm enum
   enum class DetectionAlgorithm {
@@ -91,13 +85,6 @@ class ESpectreComponent : public Component {
       this->gain_lock_mode_ = GainLockMode::DISABLED;
     } else {
       this->gain_lock_mode_ = GainLockMode::AUTO;  // default
-    }
-  }
-  void set_segmentation_calibration(const std::string &algo) {
-    if (algo == "nbvi") {
-      this->segmentation_calibration_ = CalibrationAlgorithm::NBVI;
-    } else {
-      this->segmentation_calibration_ = CalibrationAlgorithm::P95;  // default
     }
   }
   void set_detection_algorithm(const std::string &algo) {
@@ -139,7 +126,7 @@ class ESpectreComponent : public Component {
   
   // Check if calibration is in progress
   bool is_calibrating() const { 
-    return this->active_calibrator_ != nullptr && this->active_calibrator_->is_calibrating(); 
+    return this->nbvi_calibrator_.is_calibrating(); 
   }
   
   // Setter for calibrate switch control
@@ -178,15 +165,12 @@ class ESpectreComponent : public Component {
   
   bool user_specified_subcarriers_{false};  // True if user specified in YAML
   ThresholdMode threshold_mode_{ThresholdMode::AUTO};  // Threshold calculation mode
-  CalibrationAlgorithm segmentation_calibration_{CalibrationAlgorithm::NBVI};  // Band selection algorithm
   
   // Managers (handle specific responsibilities)
   SensorPublisher sensor_publisher_;
   CSIManager csi_manager_;
   WiFiLifecycleManager wifi_lifecycle_;
-  P95Calibrator p95_calibrator_;            // P95 algorithm
-  NBVICalibrator nbvi_calibrator_;          // NBVI algorithm
-  ICalibrator* active_calibrator_{nullptr}; // Points to selected algorithm
+  NBVICalibrator nbvi_calibrator_;          // NBVI band selection algorithm
   TrafficGeneratorManager traffic_generator_;
   UDPListener udp_listener_;
   SerialStreamer serial_streamer_;

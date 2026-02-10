@@ -14,29 +14,24 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import sys
 import numpy as np
 import argparse
-from pathlib import Path
+from itertools import combinations
 
-# Add micro-espectre and src to path for imports
-_micro_espectre_path = str(Path(__file__).parent.parent)
-_src_path = str(Path(__file__).parent.parent / 'src')
-if _src_path not in sys.path:
-    sys.path.insert(0, _src_path)
-if _micro_espectre_path not in sys.path:
-    sys.path.insert(0, _micro_espectre_path)
+# Import csi_utils first - it sets up paths automatically
+from csi_utils import (
+    load_npz_as_packets, test_mvs_configuration, MVSDetector,
+    calculate_spatial_turbulence, find_dataset, DEFAULT_SUBCARRIERS
+)
 from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
-
-from csi_utils import load_npz_as_packets, test_mvs_configuration, MVSDetector, calculate_spatial_turbulence, find_dataset, DEFAULT_SUBCARRIERS
 
 # Alias for backward compatibility
 SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
 
 # Alias for backward compatibility
+SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
-from itertools import combinations
 
 
 def load_dataset(chip='C6'):

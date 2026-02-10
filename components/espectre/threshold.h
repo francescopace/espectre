@@ -4,11 +4,11 @@
  * Calculates adaptive threshold from calibration baseline values.
  * Called after calibration to compute the detection threshold.
  * 
- * MVS Formula: threshold = Pxx(cal_values) * factor
+ * MVS Formula: threshold = percentile(cal_values)
  * 
  * Modes:
- * - "auto": P95 * 1.4 (default, low false positives)
- * - "min": P100 * 1.0 (maximum sensitivity, may have FP)
+ * - "auto": P95 (default, balanced sensitivity/false positives)
+ * - "min": P100 (maximum sensitivity, may have FP)
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -23,35 +23,30 @@
 namespace esphome {
 namespace espectre {
 
-// Default parameters
+// Default percentile for "auto" mode
 constexpr uint8_t DEFAULT_ADAPTIVE_PERCENTILE = 95;
-constexpr float DEFAULT_ADAPTIVE_FACTOR = 1.4f;
 
 /**
  * Threshold mode enumeration
  */
 enum class ThresholdMode {
-  AUTO,    // P95 * 1.4 (default)
-  MIN,     // P100 * 1.0 (maximum sensitivity)
+  AUTO,    // P95 (default)
+  MIN,     // P100 (maximum sensitivity)
   MANUAL   // User-specified fixed value (no adaptive calculation)
 };
 
 
 /**
- * Get threshold parameters from mode
+ * Get threshold percentile from mode
  * 
- * @param mode Threshold mode (AUTO or MIN)
- * @param out_percentile Output: percentile value (0-100)
- * @param out_factor Output: multiplier factor
+ * @param mode Threshold mode (AUTO or MIN). MANUAL mode bypasses adaptive calculation.
+ * @return percentile value (0-100)
  */
-inline void get_threshold_params(ThresholdMode mode, uint8_t& out_percentile, float& out_factor) {
+inline uint8_t get_threshold_percentile(ThresholdMode mode) {
   if (mode == ThresholdMode::MIN) {
-    out_percentile = 100;
-    out_factor = 1.0f;
-  } else {  // AUTO or MANUAL (MANUAL falls through to AUTO defaults)
-    out_percentile = DEFAULT_ADAPTIVE_PERCENTILE;
-    out_factor = DEFAULT_ADAPTIVE_FACTOR;
+    return 100;
   }
+  return DEFAULT_ADAPTIVE_PERCENTILE;  // AUTO
 }
 
 /**
@@ -59,72 +54,65 @@ inline void get_threshold_params(ThresholdMode mode, uint8_t& out_percentile, fl
  * 
  * Uses linear interpolation between adjacent values.
  * 
- * @param values Vector of numeric values (will be sorted internally)
+ * @param values Vector of numeric values (const ref, copied internally for sorting)
  * @param percentile Percentile to calculate (0-100)
  * @return Percentile value (1.0f if vector is empty)
  */
-inline float calculate_percentile(std::vector<float> values, uint8_t percentile) {
+inline float calculate_percentile(const std::vector<float>& values, uint8_t percentile) {
   if (values.empty()) {
     return 1.0f;
   }
   
-  std::sort(values.begin(), values.end());
+  // Copy for sorting (const input)
+  std::vector<float> sorted_values(values);
+  std::sort(sorted_values.begin(), sorted_values.end());
   
-  size_t n = values.size();
+  size_t n = sorted_values.size();
   float p = percentile / 100.0f;
   float k = (n - 1) * p;
   size_t idx = static_cast<size_t>(k);
   
   if (idx >= n - 1) {
-    return values.back();
+    return sorted_values.back();
   }
   
   // Linear interpolation
   float frac = k - idx;
-  return values[idx] * (1.0f - frac) + values[idx + 1] * frac;
+  return sorted_values[idx] * (1.0f - frac) + sorted_values[idx + 1] * frac;
 }
 
 /**
  * Calculate adaptive threshold from calibration baseline values
  * 
- * MVS: threshold = Pxx(cal_values) * factor
+ * MVS: threshold = percentile(cal_values)
  * 
  * @param cal_values Vector of moving variance values from calibration
  * @param mode Threshold mode (AUTO or MIN)
  * @param out_threshold Output: calculated adaptive threshold
  * @param out_percentile Output: percentile used
- * @param out_factor Output: factor used
- * @param out_pxx Output: raw percentile value (before factor)
  */
 inline void calculate_adaptive_threshold(
     const std::vector<float>& cal_values,
     ThresholdMode mode,
     float& out_threshold,
-    uint8_t& out_percentile,
-    float& out_factor,
-    float& out_pxx) {
+    uint8_t& out_percentile) {
   
-  // MVS: threshold = Pxx(cal_values) * factor
-  get_threshold_params(mode, out_percentile, out_factor);
-  out_pxx = calculate_percentile(cal_values, out_percentile);
-  out_threshold = out_pxx * out_factor;
+  out_percentile = get_threshold_percentile(mode);
+  out_threshold = calculate_percentile(cal_values, out_percentile);
 }
 
 /**
- * Calculate adaptive threshold with explicit parameters (MVS only)
+ * Calculate adaptive threshold with explicit percentile
  * 
  * @param cal_values Vector of moving variance values from baseline
  * @param percentile Percentile to use (0-100)
- * @param factor Multiplier factor
  * @return Calculated adaptive threshold
  */
 inline float calculate_adaptive_threshold(
     const std::vector<float>& cal_values,
-    uint8_t percentile,
-    float factor) {
+    uint8_t percentile) {
   
-  float pxx = calculate_percentile(cal_values, percentile);
-  return pxx * factor;
+  return calculate_percentile(cal_values, percentile);
 }
 
 }  // namespace espectre

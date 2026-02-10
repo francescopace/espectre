@@ -27,7 +27,7 @@ class TestSegmentationFilterErrors:
         ctx = SegmentationContext(enable_lowpass=True)
         # Should have lowpass filter initialized
         assert ctx.lowpass_filter is not None
-        assert ctx.window_size == 50
+        assert ctx.window_size == 75  # Matches C++ DETECTOR_DEFAULT_WINDOW_SIZE
     
     def test_hampel_init_success(self):
         """Test that hampel filter initializes correctly"""

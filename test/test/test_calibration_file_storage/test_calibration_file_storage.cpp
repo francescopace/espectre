@@ -1,7 +1,7 @@
 /*
  * ESPectre - Calibration File Storage Unit Tests
  *
- * Unit tests for file-based magnitude storage in P95Calibrator.
+ * Unit tests for file-based magnitude storage in calibrators.
  * Tests write/read operations, data integrity, and cleanup.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -22,7 +22,7 @@
 
 static const char *TAG = "test_file_storage";
 
-// Constants matching P95Calibrator
+// Constants matching NBVICalibrator
 static constexpr uint8_t NUM_SUBCARRIERS = 64;
 
 // Test buffer file path - different for native vs ESP32

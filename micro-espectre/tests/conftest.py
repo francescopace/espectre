@@ -12,6 +12,7 @@ import math
 import pytest
 import numpy as np
 from pathlib import Path
+from collections import defaultdict
 
 # Add src and tools to path for imports
 # src is inserted last (position 0) so it takes precedence for config imports
@@ -23,7 +24,6 @@ sys.path.insert(0, str(SRC_PATH))
 # Data directory (shared between tests and tools)
 DATA_DIR = Path(__file__).parent.parent / 'data'
 
-
 # ============================================================================
 # Configuration Fixtures
 # ============================================================================
@@ -31,24 +31,25 @@ DATA_DIR = Path(__file__).parent.parent / 'data'
 @pytest.fixture
 def default_subcarriers(request):
     """
-    Default subcarrier band for testing (HT20: 64 SC only).
+    Optimal subcarrier band for testing (HT20: 64 SC only).
     
-    Returns chip-specific subcarriers if chip_type fixture is available,
-    otherwise returns default C6-optimized band.
+    Matches C++ test configuration exactly (test_motion_detection.cpp).
     
-    Values determined by grid search optimization (tools/2_analyze_system_tuning.py).
+    SUBCARRIERS_ESP32_64SC = {12, 13, 14, 17, 44, 45, 46, 48, 49, 50, 51, 52}
+    SUBCARRIERS_C3_64SC = {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29}
+    SUBCARRIERS_C6_64SC = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}
+    SUBCARRIERS_S3_64SC = {48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59}
     """
     try:
         chip_type = request.getfixturevalue('chip_type')
         if chip_type == 'C3':
-            # C3 uses high-sensitivity band near DC (determined by grid search)
-            return [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+            return [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
         if chip_type == 'C6':
             return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
         if chip_type == 'S3':
             return [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]
         if chip_type == 'ESP32':
-            return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+            return [12, 13, 14, 17, 44, 45, 46, 48, 49, 50, 51, 52]
         raise ValueError(f"Unknown chip type: {chip_type}. Add subcarrier config for this chip.")
     except pytest.FixtureLookupError:
         # No chip_type fixture available, use C6 default for backward compatibility
@@ -57,9 +58,9 @@ def default_subcarriers(request):
 
 @pytest.fixture
 def segmentation_config():
-    """Default segmentation configuration"""
+    """Default segmentation configuration - matches C++ DETECTOR_DEFAULT_WINDOW_SIZE"""
     return {
-        'window_size': 50,
+        'window_size': 75,  # DETECTOR_DEFAULT_WINDOW_SIZE
         'threshold': 1.0,
         'enable_hampel': False,
         'hampel_window': 7,
@@ -256,4 +257,142 @@ def real_turbulence_values(real_csi_data_available, default_subcarriers):
 def tolerance():
     """Standard tolerance for floating point comparisons"""
     return 1e-6
+
+
+# ============================================================================
+# Performance Results Collection (for summary table)
+# ============================================================================
+
+import json
+import tempfile
+import os
+
+# Use a temp file to share results between test module and conftest hook
+_PERF_RESULTS_FILE = os.path.join(tempfile.gettempdir(), 'espectre_perf_results.json')
+
+
+def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
+                       precision: float = 0.0, f1: float = 0.0):
+    """
+    Record performance metrics for the summary table.
+    
+    Args:
+        chip: Chip type (C3, C6, ESP32, S3)
+        algorithm: Algorithm name (mvs_optimal, mvs_nbvi, ml)
+        recall: Recall percentage
+        fp_rate: False positive rate percentage
+        precision: Precision percentage
+        f1: F1-score percentage
+    """
+    # Load existing results
+    results = {}
+    if os.path.exists(_PERF_RESULTS_FILE):
+        try:
+            with open(_PERF_RESULTS_FILE, 'r') as f:
+                results = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            results = {}
+    
+    # Add new result
+    if chip not in results:
+        results[chip] = {}
+    results[chip][algorithm] = {
+        'recall': recall,
+        'fp_rate': fp_rate,
+        'precision': precision,
+        'f1': f1
+    }
+    
+    # Save
+    with open(_PERF_RESULTS_FILE, 'w') as f:
+        json.dump(results, f)
+
+
+def pytest_configure(config):
+    """Clear performance results at the start of test session."""
+    if os.path.exists(_PERF_RESULTS_FILE):
+        os.remove(_PERF_RESULTS_FILE)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print performance summary table at the end of test session."""
+    if not os.path.exists(_PERF_RESULTS_FILE):
+        return
+    
+    try:
+        with open(_PERF_RESULTS_FILE, 'r') as f:
+            results = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return
+    
+    if not results:
+        return
+    
+    terminalreporter.write_line("")
+    terminalreporter.write_line("=" * 105)
+    terminalreporter.write_line("                              PERFORMANCE SUMMARY TABLE (Python)")
+    terminalreporter.write_line("=" * 105)
+    terminalreporter.write_line("")
+    terminalreporter.write_line("| Chip   | MVS Optimal             | MVS + NBVI              | ML                      |")
+    terminalreporter.write_line("|--------|-------------------------|-------------------------|-------------------------|")
+    
+    # Sort chips for consistent output
+    for chip in ['C3', 'C6', 'ESP32', 'S3']:
+        if chip not in results:
+            continue
+        
+        chip_results = results[chip]
+        
+        # MVS Optimal
+        if 'mvs_optimal' in chip_results:
+            mvs_opt = chip_results['mvs_optimal']
+            mvs_opt_str = f"{mvs_opt['recall']:.1f}% R, {mvs_opt['fp_rate']:.1f}% FP"
+        else:
+            mvs_opt_str = "N/A"
+        
+        # MVS + NBVI
+        if 'mvs_nbvi' in chip_results:
+            mvs = chip_results['mvs_nbvi']
+            mvs_str = f"{mvs['recall']:.1f}% R, {mvs['fp_rate']:.1f}% FP"
+        else:
+            mvs_str = "N/A"
+        
+        # ML
+        if 'ml' in chip_results:
+            ml = chip_results['ml']
+            ml_str = f"{ml['recall']:.1f}% R, {ml['fp_rate']:.1f}% FP"
+        else:
+            ml_str = "N/A"
+        
+        terminalreporter.write_line(f"| {chip:<6} | {mvs_opt_str:<23} | {mvs_str:<23} | {ml_str:<23} |")
+    
+    terminalreporter.write_line("")
+    terminalreporter.write_line("Legend: R = Recall, FP = False Positive Rate")
+    terminalreporter.write_line("Targets: MVS Recall >97%, ML Recall >93%, FP Rate <10%")
+    terminalreporter.write_line("=" * 105)
+    
+    # Detailed table for PERFORMANCE.md
+    terminalreporter.write_line("")
+    terminalreporter.write_line("                         DETAILED METRICS (for PERFORMANCE.md)")
+    terminalreporter.write_line("-" * 105)
+    terminalreporter.write_line("| Chip   | Algorithm   | Recall  | Precision | FP Rate | F1-Score |")
+    terminalreporter.write_line("|--------|-------------|---------|-----------|---------|----------|")
+    
+    for chip in ['C3', 'C6', 'ESP32', 'S3']:
+        if chip not in results:
+            continue
+        
+        chip_results = results[chip]
+        
+        for algo_key, algo_name in [('mvs_optimal', 'MVS Optimal'), ('mvs_nbvi', 'MVS + NBVI'), ('ml', 'ML')]:
+            if algo_key in chip_results:
+                r = chip_results[algo_key]
+                terminalreporter.write_line(
+                    f"| {chip:<6} | {algo_name:<11} | {r['recall']:>6.1f}% | {r.get('precision', 0):>8.1f}% | {r['fp_rate']:>6.1f}% | {r.get('f1', 0):>7.1f}% |"
+                )
+    
+    terminalreporter.write_line("-" * 105)
+    
+    # Cleanup
+    os.remove(_PERF_RESULTS_FILE)
 

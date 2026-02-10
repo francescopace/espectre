@@ -86,7 +86,8 @@ void test_mvs_detector_set_threshold_below_min(void) {
     MVSDetector detector;
     float original = detector.get_threshold();
     
-    TEST_ASSERT_FALSE(detector.set_threshold(0.01f));
+    // Min threshold is 1e-9 (lowered for CV normalization)
+    TEST_ASSERT_FALSE(detector.set_threshold(1e-10f));
     TEST_ASSERT_EQUAL_FLOAT(original, detector.get_threshold());
 }
 
@@ -338,7 +339,7 @@ void test_mvs_detector_movement_detects_motion(void) {
         return;
     }
     
-    MVSDetector detector(50, 0.5f);  // Lower threshold for detection
+    MVSDetector detector(50, 0.0001f);  // Low threshold for CV-normalized detection
     detector.configure_lowpass(false);
     
     // First process baseline to fill buffer

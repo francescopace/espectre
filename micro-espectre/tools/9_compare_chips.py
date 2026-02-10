@@ -20,23 +20,14 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import sys
 import argparse
 import numpy as np
 import math
-from pathlib import Path
 
-# Add micro-espectre and src to path for imports
-_micro_espectre_path = str(Path(__file__).parent.parent)
-_src_path = str(Path(__file__).parent.parent / 'src')
-if _src_path not in sys.path:
-    sys.path.insert(0, _src_path)
-if _micro_espectre_path not in sys.path:
-    sys.path.insert(0, _micro_espectre_path)
+# Import csi_utils first - it sets up paths automatically
+from csi_utils import load_baseline_and_movement, DEFAULT_SUBCARRIERS, DATA_DIR
 from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
 from segmentation import SegmentationContext
-
-from csi_utils import load_baseline_and_movement, DEFAULT_SUBCARRIERS, DATA_DIR
 
 # Alias for backward compatibility
 SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS

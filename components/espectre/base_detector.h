@@ -31,7 +31,7 @@ enum class MotionState {
 // DETECTOR CONSTANTS
 // ============================================================================
 
-constexpr uint16_t DETECTOR_DEFAULT_WINDOW_SIZE = 50;
+constexpr uint16_t DETECTOR_DEFAULT_WINDOW_SIZE = 75;
 constexpr uint16_t DETECTOR_MIN_WINDOW_SIZE = 10;
 constexpr uint16_t DETECTOR_MAX_WINDOW_SIZE = 200;
 
@@ -115,13 +115,6 @@ public:
      */
     virtual uint32_t get_total_packets() const { return total_packets_; }
     
-    /**
-     * Set gain compensation factor
-     * 
-     * @param compensation Compensation factor (1.0 = no compensation)
-     */
-    virtual void set_gain_compensation(float compensation) { gain_compensation_ = compensation; }
-    
     // ========================================================================
     // PURE VIRTUAL INTERFACE (must be implemented by subclasses)
     // ========================================================================
@@ -179,6 +172,22 @@ public:
      */
     void configure_hampel(bool enabled, uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
                           float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT);
+    
+    /**
+     * Configure CV normalization mode
+     * 
+     * CV normalization (std/mean) makes turbulence gain-invariant but reduces
+     * sensitivity for contiguous subcarrier bands (P95). When gain is locked,
+     * raw std is preferred as amplitudes are already stable.
+     * 
+     * @param enabled true = CV normalization (std/mean), false = raw std
+     */
+    void set_cv_normalization(bool enabled);
+    
+    /**
+     * Check if CV normalization is enabled
+     */
+    bool is_cv_normalization_enabled() const { return use_cv_normalization_; }
     
     /**
      * Clear turbulence buffer (cold restart)
@@ -251,7 +260,11 @@ protected:
     // Filters
     hampel_filter_state_t hampel_state_;
     lowpass_filter_state_t lowpass_state_;
-    float gain_compensation_{1.0f};
+    
+    // CV normalization: true = std/mean (gain-invariant), false = raw std
+    // Default false: raw std is more sensitive and matches ML model training
+    // Set true only for chips without gain lock (e.g., ESP32)
+    bool use_cv_normalization_{false};
 };
 
 }  // namespace espectre

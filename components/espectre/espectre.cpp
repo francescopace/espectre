@@ -51,13 +51,7 @@ void ESpectreComponent::setup() {
   }
   
   // 2. Initialize managers (each manager handles its own internal initialization)
-  // Select and initialize the active calibrator based on configuration (NBVI or P95)
-  if (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) {
-    this->active_calibrator_ = &this->nbvi_calibrator_;
-  } else {
-    this->active_calibrator_ = &this->p95_calibrator_;
-  }
-  this->active_calibrator_->init(&this->csi_manager_);
+  this->nbvi_calibrator_.init(&this->csi_manager_);
   this->traffic_generator_.init(this->traffic_generator_rate_, this->traffic_generator_mode_);
   this->udp_listener_.init(5555);  // UDP listener for external traffic mode
   this->serial_streamer_.init();
@@ -150,14 +144,22 @@ void ESpectreComponent::on_wifi_connected_() {
   // 1. Gain Lock (~3 seconds, 300 packets) - locks AGC/FFT for stable CSI
   // 2. Baseline Calibration (~7 seconds, 700 packets) - calculates normalization scale
   this->csi_manager_.set_gain_lock_callback([this]() {
-    auto mode = this->csi_manager_.get_gain_controller().get_mode();
+    auto& gc = this->csi_manager_.get_gain_controller();
+    auto mode = gc.get_mode();
     if (mode == GainLockMode::DISABLED) {
-      ESP_LOGI(TAG, "Gain calibration complete (compensation mode)");
+      ESP_LOGI(TAG, "Gain calibration complete (CV normalization enabled)");
     } else if (this->csi_manager_.is_gain_locked()) {
       ESP_LOGI(TAG, "Gain locked");
     } else {
-      ESP_LOGI(TAG, "Gain calibration complete (strong signal, using compensation)");
+      ESP_LOGI(TAG, "Gain calibration complete (strong signal, CV normalization enabled)");
     }
+    
+    // CV normalization: only needed when gain is not locked (AGC varies)
+    // When gain is locked, raw std provides better sensitivity for all band types
+    bool need_cv = gc.needs_cv_normalization();
+    this->detector_->set_cv_normalization(need_cv);
+    this->nbvi_calibrator_.set_cv_normalization(need_cv);
+    
     this->start_calibration_();
   });
   
@@ -230,12 +232,10 @@ void ESpectreComponent::start_calibration_() {
     return;
   }
   
-  const char* algo_name = (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) ? "NBVI" : "P95";
-  
   if (this->user_specified_subcarriers_) {
     ESP_LOGI(TAG, "Starting baseline calibration (fixed subcarriers)...");
   } else {
-    ESP_LOGI(TAG, "Starting band calibration (%s algorithm)...", algo_name);
+    ESP_LOGI(TAG, "Starting NBVI band calibration...");
   }
   
   // Update switch state to ON (calibrating)
@@ -262,16 +262,13 @@ void ESpectreComponent::start_calibration_() {
     if (band != nullptr && !cal_values.empty()) {
       float adaptive_threshold;
       uint8_t percentile;
-      float factor;
-      float pxx;
-      calculate_adaptive_threshold(cal_values, this->threshold_mode_, adaptive_threshold, percentile, factor, pxx);
+      calculate_adaptive_threshold(cal_values, this->threshold_mode_, adaptive_threshold, percentile);
       
-      this->best_pxx_ = pxx;
+      this->best_pxx_ = adaptive_threshold;
       
       if (this->threshold_mode_ != ThresholdMode::MANUAL) {
         this->set_threshold_runtime(adaptive_threshold);
-        ESP_LOGI(TAG, "Adaptive threshold: %.4f (P%d=%.4f x %.1f)", 
-                 adaptive_threshold, percentile, pxx, factor);
+        ESP_LOGI(TAG, "Adaptive threshold: %.4f (P%d)", adaptive_threshold, percentile);
       } else {
         ESP_LOGI(TAG, "Using manual threshold: %.2f (adaptive would be: %.2f)", 
                  this->segmentation_threshold_, adaptive_threshold);
@@ -291,18 +288,12 @@ void ESpectreComponent::start_calibration_() {
     ESP_LOGI(TAG, "Calibration %s", success ? "completed successfully" : "failed");
   };
   
-  // P95-specific initialization
-  if (this->segmentation_calibration_ == CalibrationAlgorithm::P95) {
-    this->p95_calibrator_.init_subcarrier_config();
-    this->p95_calibrator_.set_skip_subcarrier_selection(this->user_specified_subcarriers_);
-  }
-  
-  // Start calibration using the active calibrator (polymorphic)
-  this->active_calibrator_->set_collection_complete_callback([this]() {
+  // Start calibration using NBVI
+  this->nbvi_calibrator_.set_collection_complete_callback([this]() {
     this->traffic_generator_.pause();
   });
   
-  this->active_calibrator_->start_calibration(
+  this->nbvi_calibrator_.start_calibration(
     this->selected_subcarriers_,
     12,
     calibration_callback
@@ -311,7 +302,7 @@ void ESpectreComponent::start_calibration_() {
 
 void ESpectreComponent::trigger_recalibration() {
   // Check if calibration already in progress
-  if (this->is_calibrating()) {
+  if (this->nbvi_calibrator_.is_calibrating()) {
     ESP_LOGW(TAG, "Calibration already in progress");
     return;
   }
@@ -360,7 +351,7 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "      Wi-Fi CSI Motion Detection System");
   ESP_LOGCONFIG(TAG, "");
   const char* thr_mode_str = (this->threshold_mode_ == ThresholdMode::MANUAL) ? "Manual" :
-                             (this->threshold_mode_ == ThresholdMode::MIN) ? "Min (P100×1.0)" : "Auto (P95×1.4)";
+                             (this->threshold_mode_ == ThresholdMode::MIN) ? "Min (P100)" : "Auto (P95)";  // P95 refers to percentile, not calibrator
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
   ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", this->detector_ ? this->detector_->get_name() : "unknown");
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f (%s)", this->segmentation_threshold_, thr_mode_str);
@@ -374,9 +365,8 @@ void ESpectreComponent::dump_config() {
                 this->selected_subcarriers_[6], this->selected_subcarriers_[7],
                 this->selected_subcarriers_[8], this->selected_subcarriers_[9],
                 this->selected_subcarriers_[10], this->selected_subcarriers_[11]);
-  const char* algo_str = (this->segmentation_calibration_ == CalibrationAlgorithm::NBVI) ? "NBVI" : "P95";
   ESP_LOGCONFIG(TAG, " └─ Source ............. %s", 
-                this->user_specified_subcarriers_ ? "YAML" : algo_str);
+                this->user_specified_subcarriers_ ? "YAML" : "NBVI");
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
   if (this->traffic_generator_rate_ > 0) {

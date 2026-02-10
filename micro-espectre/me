@@ -494,7 +494,6 @@ def deploy_code(args):
             ('src/ml_detector.py', ':src/'),
             ('src/ml_weights.py', ':src/'),
             ('src/calibrator_interface.py', ':src/'),
-            ('src/p95_calibrator.py', ':src/'),
             ('src/nbvi_calibrator.py', ':src/'),
             ('src/traffic_generator.py', ':src/'),
             ('src/main.py', ':src/'),
@@ -711,16 +710,19 @@ def collect_csi_data(args):
     print(f"  {Fore.CYAN}Samples:{Style.RESET_ALL}   {args.samples}")
     print(f"  {Fore.CYAN}Duration:{Style.RESET_ALL}  {args.duration}s per sample")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
+    if args.description:
+        print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
-    print(f"  {Fore.YELLOW}Chip type auto-detected from CSI stream{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Chip type and gain lock status auto-detected from CSI stream{Style.RESET_ALL}")
     print(f"  {Fore.YELLOW}Make sure ESP32 is streaming: ./me stream --ip <PC_IP>{Style.RESET_ALL}")
     print()
     
-    # Create collector (chip is auto-detected from CSI packets)
+    # Create collector (chip and gain_locked are auto-detected from CSI packets)
     collector = CSICollector(
         label=args.label,
         port=args.udp_port,
-        contributor=args.contributor
+        contributor=args.contributor,
+        description=args.description
     )
     
     try:
@@ -969,6 +971,8 @@ Examples:
                                help='UDP port for CSI reception (default: 5001)')
     collect_parser.add_argument('--contributor', '-c',
                                help='GitHub username of the contributor')
+    collect_parser.add_argument('--description', 
+                               help='Description for the collected samples')
     
     # MQTT interactive mode arguments (when no subcommand)
     parser.add_argument("--broker", default=os.getenv("MQTT_BROKER", "homeassistant.local"),

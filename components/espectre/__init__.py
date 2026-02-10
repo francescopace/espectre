@@ -49,8 +49,6 @@ CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 # Gain lock mode
 CONF_GAIN_LOCK = "gain_lock"
 
-# Segmentation calibration algorithm
-CONF_SEGMENTATION_CALIBRATION = "segmentation_calibration"
 
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
@@ -98,8 +96,8 @@ CONFIG_SCHEMA = cv.Schema({
     
     # Motion detection parameters
     # segmentation_threshold:
-    #   - auto (default): P95 × 1.4 - low false positives
-    #   - min: P100 × 1.0 - maximum sensitivity (may have FP)
+    #   - auto (default): P95 - balanced sensitivity/false positives
+    #   - min: P100 - maximum sensitivity (may have FP)
     #   - number (0.1-10.0): fixed manual threshold
     cv.Optional(CONF_SEGMENTATION_THRESHOLD, default="auto"): validate_segmentation_threshold,
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=50): cv.int_range(min=10, max=200),
@@ -116,10 +114,6 @@ CONFIG_SCHEMA = cv.Schema({
     # Disabled: never lock gain (less stable CSI but works at any distance)
     cv.Optional(CONF_GAIN_LOCK, default="auto"): cv.one_of("auto", "enabled", "disabled", lower=True),
     
-    # Segmentation calibration: nbvi (default) or p95
-    # NBVI: selects 12 non-consecutive subcarriers based on stability metrics
-    # P95: selects 12 consecutive subcarriers minimizing P95 moving variance
-    cv.Optional(CONF_SEGMENTATION_CALIBRATION, default="nbvi"): cv.one_of("p95", "nbvi", lower=True),
     
     # Detection algorithm: mvs (default) or ml
     # MVS: Moving Variance Segmentation - adaptive threshold, general purpose
@@ -220,7 +214,6 @@ async def to_code(config):
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_gain_lock_mode(config[CONF_GAIN_LOCK]))
-    cg.add(var.set_segmentation_calibration(config[CONF_SEGMENTATION_CALIBRATION]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
     

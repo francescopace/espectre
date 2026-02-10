@@ -2,10 +2,9 @@
 """
 MVS Subcarrier Selection Comparison Tool
 
-Compares three subcarrier selection strategies for MVS motion detection:
+Compares two subcarrier selection strategies for MVS motion detection:
 1. Fixed: Hardcoded subcarriers (SELECTED_SUBCARRIERS constant)
 2. NBVI: Normalized Baseline Variability Index algorithm
-3. P95: 95th percentile band selection (selects band with lowest P95 moving variance)
 
 Usage:
     python tools/3_analyze_moving_variance_segmentation.py              # Use C6 dataset
@@ -16,25 +15,19 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import sys
 import numpy as np
 import argparse
 import math
 import time
-from pathlib import Path
 
-# Add micro-espectre and src to path for imports
-_micro_espectre_path = str(Path(__file__).parent.parent)
-_src_path = str(Path(__file__).parent.parent / 'src')
-if _src_path not in sys.path:
-    sys.path.insert(0, _src_path)
-if _micro_espectre_path not in sys.path:
-    sys.path.insert(0, _micro_espectre_path)
+# Import csi_utils first - it sets up paths automatically
+from csi_utils import (
+    load_baseline_and_movement, MVSDetector, find_dataset,
+    calculate_variance_two_pass, NBVICalibrator, HampelFilter, DEFAULT_SUBCARRIERS
+)
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
                     ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF)
-
-from csi_utils import load_baseline_and_movement, MVSDetector, find_dataset, calculate_variance_two_pass, P95Calibrator, NBVICalibrator, HampelFilter, DEFAULT_SUBCARRIERS
 
 # Alias for backward compatibility
 SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
@@ -51,12 +44,12 @@ if SEG_THRESHOLD == "min":
     THRESHOLD = 1.0  # Default, will be replaced by adaptive
 elif SEG_THRESHOLD == "auto":
     ADAPTIVE_PERCENTILE = 95
-    ADAPTIVE_FACTOR = 1.4
+    ADAPTIVE_FACTOR = 1.0
     THRESHOLD = 1.0  # Default, will be replaced by adaptive
 else:
     # Numeric threshold
     ADAPTIVE_PERCENTILE = 95
-    ADAPTIVE_FACTOR = 1.4
+    ADAPTIVE_FACTOR = 1.0
     THRESHOLD = float(SEG_THRESHOLD)
 
 # ============================================================================
@@ -133,63 +126,12 @@ def select_subcarriers_nbvi(baseline_packets):
             return list(range(GUARD_BAND_LOW, GUARD_BAND_LOW + BAND_SIZE)), 1.0, calibration_time_ms
         
         # Calculate adaptive threshold from MV values
-        adaptive_threshold, _, _, _ = calculate_adaptive_threshold(mv_values, SEG_THRESHOLD)
+        adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, SEG_THRESHOLD)
         
         return band, adaptive_threshold, calibration_time_ms
     finally:
         # Restore original path
         nbvi_calibrator.BUFFER_FILE = original_buffer_file
-
-
-def select_subcarriers_p95(baseline_packets):
-    """
-    P95 Band Selection using production P95Calibrator.
-    
-    Uses src/p95_calibrator.py (production code) to select optimal band.
-    
-    Args:
-        baseline_packets: List of baseline CSI packets
-    
-    Returns:
-        tuple: (selected_band, adaptive_threshold, calibration_time_ms)
-    """
-    import tempfile
-    import p95_calibrator
-    from threshold import calculate_adaptive_threshold
-    
-    # Patch buffer file path to use temp directory
-    original_buffer_file = p95_calibrator.BUFFER_FILE
-    temp_buffer = tempfile.mktemp(suffix='_p95_buffer.bin')
-    p95_calibrator.BUFFER_FILE = temp_buffer
-    
-    try:
-        calibrator = P95Calibrator(
-            buffer_size=len(baseline_packets)
-        )
-        
-        # Feed all baseline packets to calibrator
-        for pkt in baseline_packets:
-            calibrator.add_packet(pkt['csi_data'])
-        
-        # Time the calibration (not packet feeding)
-        start_time = time.perf_counter()
-        band, mv_values = calibrator.calibrate()
-        calibration_time_ms = (time.perf_counter() - start_time) * 1000
-        
-        # Cleanup
-        calibrator.free_buffer()
-        
-        if band is None:
-            # Fallback to default band
-            return list(range(11, 11 + BAND_SIZE)), 1.0, calibration_time_ms
-        
-        # Calculate adaptive threshold from MV values
-        adaptive_threshold, _, _, _ = calculate_adaptive_threshold(mv_values, SEG_THRESHOLD)
-        
-        return band, adaptive_threshold, calibration_time_ms
-    finally:
-        # Restore original path
-        p95_calibrator.BUFFER_FILE = original_buffer_file
 
 
 # ============================================================================
@@ -322,8 +264,8 @@ def plot_comparison(results, threshold):
     except Exception:
         pass
     
-    strategies = ['Fixed', 'NBVI', 'P95']
-    colors = {'Fixed': 'blue', 'NBVI': 'blue', 'P95': 'blue'}
+    strategies = ['Fixed', 'NBVI']
+    colors = {'Fixed': 'blue', 'NBVI': 'blue'}
     
     # Find best strategy by F1 score
     best_strategy = max(results.keys(), key=lambda k: results[k]['f1'])
@@ -421,7 +363,7 @@ def print_comparison_summary(results, threshold):
     
     # Print subcarriers and adaptive threshold for each strategy
     print("Selected Subcarriers:")
-    for strategy in ['Fixed', 'NBVI', 'P95']:
+    for strategy in ['Fixed', 'NBVI']:
         r = results[strategy]
         print(f"  {strategy:<6}: {r['subcarriers']}  (adaptive threshold: {r['adaptive_threshold']:.2f})")
     print()
@@ -432,7 +374,7 @@ def print_comparison_summary(results, threshold):
     print(f"{'Strategy':<10} {'FP':<8} {'TP':<8} {'Recall':<10} {'FP Rate':<10} {'F1':<10} {'Time (ms)':<12}")
     print("-" * 80)
     
-    for strategy in ['Fixed', 'NBVI', 'P95']:
+    for strategy in ['Fixed', 'NBVI']:
         r = results[strategy]
         marker = " *" if strategy == best_strategy else "  "
         time_str = f"{r['calibration_time_ms']:.1f}" if r['calibration_time_ms'] > 0 else "N/A"
@@ -456,7 +398,7 @@ def main():
     
     chip = args.chip.upper()
     print("\n╔═══════════════════════════════════════════════════════════════════╗")
-    print("║       Subcarrier Selection Comparison: Fixed vs NBVI vs P95      ║")
+    print("║         Subcarrier Selection Comparison: Fixed vs NBVI           ║")
     print("╚═══════════════════════════════════════════════════════════════════╝\n")
     
     print(f"📂 Loading {chip} data...")
@@ -479,9 +421,6 @@ def main():
     nbvi_subcarriers, nbvi_adaptive_threshold, nbvi_time_ms = select_subcarriers_nbvi(baseline_packets)
     print(f"   NBVI:  {nbvi_subcarriers} (threshold: {nbvi_adaptive_threshold:.2f}, time: {nbvi_time_ms:.1f}ms)")
     
-    p95_subcarriers, p95_adaptive_threshold, p95_time_ms = select_subcarriers_p95(baseline_packets)
-    print(f"   P95:   {p95_subcarriers} (threshold: {p95_adaptive_threshold:.2f}, time: {p95_time_ms:.1f}ms)")
-    
     # Evaluate each strategy (all use adaptive threshold)
     print("\n📊 Evaluating strategies...")
     
@@ -496,12 +435,6 @@ def main():
                                            use_adaptive_threshold=True,
                                            external_adaptive_threshold=nbvi_adaptive_threshold)
     results['NBVI']['calibration_time_ms'] = nbvi_time_ms
-    
-    results['P95'] = evaluate_subcarriers(baseline_packets, movement_packets, 
-                                          p95_subcarriers, THRESHOLD, WINDOW_SIZE,
-                                          use_adaptive_threshold=True,
-                                          external_adaptive_threshold=p95_adaptive_threshold)
-    results['P95']['calibration_time_ms'] = p95_time_ms
     
     # Print summary
     print_comparison_summary(results, THRESHOLD)

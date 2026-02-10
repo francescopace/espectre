@@ -30,7 +30,7 @@ class MVSDetector(IDetector):
     """
     
     def __init__(self,
-                 window_size=50,
+                 window_size=75,
                  threshold=1.0,
                  enable_lowpass=False,
                  lowpass_cutoff=11.0,
@@ -41,7 +41,7 @@ class MVSDetector(IDetector):
         Initialize MVS detector.
         
         Args:
-            window_size: Moving variance window size (default: 50)
+            window_size: Moving variance window size (default: 75, matches C++ DETECTOR_DEFAULT_WINDOW_SIZE)
             threshold: Motion detection threshold (default: 1.0)
             enable_lowpass: Enable low-pass filter (default: False)
             lowpass_cutoff: Low-pass cutoff frequency Hz (default: 11.0)
@@ -140,15 +140,6 @@ class MVSDetector(IDetector):
         """Get detector name."""
         return "MVS"
     
-    def set_gain_compensation(self, compensation):
-        """
-        Set gain compensation factor.
-        
-        Args:
-            compensation: Compensation factor (1.0 = no compensation)
-        """
-        self._context.set_gain_compensation(compensation)
-    
     @property
     def total_packets(self):
         """Total packets processed."""
@@ -162,3 +153,13 @@ class MVSDetector(IDetector):
     def last_turbulence(self):
         """Get last turbulence value."""
         return self._context.last_turbulence
+    
+    @property
+    def use_cv_normalization(self):
+        """Get CV normalization setting."""
+        return self._context.use_cv_normalization
+    
+    @use_cv_normalization.setter
+    def use_cv_normalization(self, value):
+        """Set CV normalization."""
+        self._context.use_cv_normalization = value

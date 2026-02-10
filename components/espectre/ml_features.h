@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cmath>
 #include <algorithm>
+#include "utils.h"
 
 namespace esphome {
 namespace espectre {
@@ -204,49 +205,17 @@ inline float calc_mad(const float* values, uint16_t count) {
         sorted[i] = values[i];
     }
     
-    // Insertion sort (efficient for n=50 on ESP32)
-    for (uint16_t i = 1; i < count; i++) {
-        float key = sorted[i];
-        int j = static_cast<int>(i) - 1;
-        while (j >= 0 && sorted[j] > key) {
-            sorted[j + 1] = sorted[j];
-            j--;
-        }
-        sorted[j + 1] = key;
-    }
+    // Calculate median using utils.h helper
+    float median = calculate_median_float(sorted, count);
     
-    // Median
-    uint16_t mid = count / 2;
-    float median;
-    if (count % 2 == 0) {
-        median = (sorted[mid - 1] + sorted[mid]) / 2.0f;
-    } else {
-        median = sorted[mid];
-    }
-    
-    // Calculate absolute deviations and sort them
+    // Calculate absolute deviations
     float abs_devs[ML_MAX_SORT_SIZE];
     for (uint16_t i = 0; i < count; i++) {
         abs_devs[i] = std::fabs(values[i] - median);
     }
     
-    // Sort absolute deviations
-    for (uint16_t i = 1; i < count; i++) {
-        float key = abs_devs[i];
-        int j = static_cast<int>(i) - 1;
-        while (j >= 0 && abs_devs[j] > key) {
-            abs_devs[j + 1] = abs_devs[j];
-            j--;
-        }
-        abs_devs[j + 1] = key;
-    }
-    
-    // Median of absolute deviations
-    if (count % 2 == 0) {
-        return (abs_devs[mid - 1] + abs_devs[mid]) / 2.0f;
-    } else {
-        return abs_devs[mid];
-    }
+    // Return median of absolute deviations
+    return calculate_median_float(abs_devs, count);
 }
 
 /**
