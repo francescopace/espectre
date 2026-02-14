@@ -1,0 +1,16 @@
+# ESPectre - ESP32-S3 with Web Server
+# Extends base config with ESPHome web server dashboard
+#
+# Access the dashboard at http://<device-ip>:80
+#
+# Tested boards:
+# - ESP32-S3-DevKitC-1 (WROOM-1-N16R8)
+#
+# Contributed by: @Techsociology (https://github.com/Techsociology)
+
+packages:
+  base: !include espectre-s3.yaml
+
+# ESPHome web server dashboard
+web_server:
+  port: 80

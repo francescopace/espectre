@@ -1,0 +1,46 @@
+# ESPectre - ESP32-S3 with Onboard LED Feedback
+# Extends base config with RGB LED visual feedback for motion detection
+#
+# LED behavior:
+# - Green: Idle (no motion)
+# - Red: Motion detected
+#
+# Tested boards:
+# - ESP32-S3-DevKitC-1 (WROOM-1-N16R8) with WS2812 LED on GPIO48
+#
+# Contributed by: @Techsociology (https://github.com/Techsociology)
+
+packages:
+  base: !include espectre-s3.yaml
+
+# Onboard RGB LED (WS2812 on GPIO48)
+light:
+  - platform: esp32_rmt_led_strip
+    id: onboard_led
+    name: "Onboard Light"
+    pin: GPIO48
+    num_leds: 1
+    rgb_order: GRB
+    chipset: ws2812
+
+# Override ESPectre config to add LED triggers
+espectre:
+  id: espectre_csi
+  motion_sensor:
+    name: "Motion Detected"
+    on_press:
+      then:
+        - light.turn_on:
+            id: onboard_led
+            brightness: 20%
+            red: 100%
+            green: 0%
+            blue: 0%
+    on_release:
+      then:
+        - light.turn_on:
+            id: onboard_led
+            brightness: 20%
+            red: 0%
+            green: 100%
+            blue: 0%
