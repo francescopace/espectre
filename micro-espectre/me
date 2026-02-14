@@ -25,6 +25,7 @@ FIRMWARE_HASHES = {
 try:
     import yaml
     import paho.mqtt.client as mqtt
+    from paho.mqtt.enums import CallbackAPIVersion
     from colorama import init, Fore, Style
     from dotenv import load_dotenv
     from prompt_toolkit import PromptSession, print_formatted_text
@@ -1027,7 +1028,7 @@ class EspectreCLI_MQTT:
         self.topic_cmd = f"{self.base_topic}/cmd"
         self.topic_response = f"{self.base_topic}/response"
         
-        self.client = mqtt.Client()
+        self.client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION1)
         if self.username and self.password:
             self.client.username_pw_set(self.username, self.password)
             

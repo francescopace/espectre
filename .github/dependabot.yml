@@ -15,6 +15,7 @@ updates:
   # Includes: numpy, scipy, matplotlib, pytest, paho-mqtt, etc.
   - package-ecosystem: "pip"
     directory: "/micro-espectre"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -29,6 +30,7 @@ updates:
   # Monitors: actions/checkout, actions/setup-python, codecov/codecov-action, etc.
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
