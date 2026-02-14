@@ -25,6 +25,10 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    ignore:
+      # paho-mqtt 2.x is incompatible with ESPHome (requires 1.6.1)
+      - dependency-name: "paho-mqtt"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions
   # Monitors: actions/checkout, actions/setup-python, codecov/codecov-action, etc.

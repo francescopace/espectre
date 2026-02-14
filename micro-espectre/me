@@ -25,7 +25,6 @@ FIRMWARE_HASHES = {
 try:
     import yaml
     import paho.mqtt.client as mqtt
-    from paho.mqtt.enums import CallbackAPIVersion
     from colorama import init, Fore, Style
     from dotenv import load_dotenv
     from prompt_toolkit import PromptSession, print_formatted_text
@@ -37,6 +36,13 @@ except ImportError as e:
     print(f"Error: Missing dependency {e.name}. Please install requirements.txt")
     print("pip install -r requirements.txt")
     sys.exit(1)
+
+# paho-mqtt 2.x compatibility (CallbackAPIVersion required in 2.x, not available in 1.x)
+try:
+    from paho.mqtt.enums import CallbackAPIVersion
+    PAHO_V2 = True
+except ImportError:
+    PAHO_V2 = False
 
 # Initialize colorama
 init()
@@ -1028,7 +1034,10 @@ class EspectreCLI_MQTT:
         self.topic_cmd = f"{self.base_topic}/cmd"
         self.topic_response = f"{self.base_topic}/response"
         
-        self.client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION1)
+        if PAHO_V2:
+            self.client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION1)
+        else:
+            self.client = mqtt.Client()
         if self.username and self.password:
             self.client.username_pw_set(self.username, self.password)
             
