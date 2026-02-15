@@ -61,11 +61,11 @@ When a person moves in an environment, they alter multipath reflections, change 
 │  │ CSI Data │───▶│Gain Lock │───▶│ Band Select  │───▶│ Turbulence  │              │
 │  │ N subcs  │    │ AGC/FFT  │    │ 12 subcs     │    │ σ/μ (CV)    │              │
 │  └──────────┘    └──────────┘    └──────────────┘    └──────┬──────┘              │
-│                  (3s, 300 pkt)    (7s, 700 pkt)             │                     │
+│                  (3s, 300 pkt)   (7.5s, 10×window)          │                     │
 │                                                             ▼                     │
 │  ┌───────────┐    ┌───────────────┐    ┌─────────────────┐  ┌──────────────────┐  │
 │  │ IDLE or   │◀───│ Adaptive      │◀───│ Moving Variance │◀─│ Optional Filters │  │
-│  │ MOTION    │    │ Threshold     │    │ (window=50)     │  │ LowPass + Hampel │  │
+│  │ MOTION    │    │ Threshold     │    │ (window=75)     │  │ LowPass + Hampel │  │
 │  └───────────┘    └───────────────┘    └─────────────────┘  └──────────────────┘  │
 │                                                                                   │
 └───────────────────────────────────────────────────────────────────────────────────┘
@@ -73,7 +73,9 @@ When a person moves in an environment, they alter multipath reflections, change 
 
 **Calibration sequence (at boot):**
 1. **Gain Lock** (3s, 300 packets): Collect AGC/FFT, lock values
-2. **Band Calibration** (7s, 700 packets): Select 12 optimal subcarriers, calculate baseline variance
+2. **Band Calibration** (~7.5s, 10 × window_size packets): Select 12 optimal subcarriers, calculate baseline variance
+
+With default `window_size=75`, this means 750 packets. If you change `segmentation_window_size`, the calibration buffer adjusts automatically.
 
 **Data flow per packet (after calibration):**
 1. **CSI Data**: Raw I/Q values for 64 subcarriers (HT20 mode)
@@ -128,7 +130,7 @@ The gain lock happens in a **dedicated phase BEFORE band calibration** to ensure
 │  └──────────────────────────────────────────────────────────────┘   │
 │                           │                                          │
 │                           ▼                                          │
-│  PHASE 2: BAND CALIBRATION (~7 seconds, 700 packets)                │
+│  PHASE 2: BAND CALIBRATION (~7.5 seconds, 10 × window_size packets) │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │  Now all packets have stable gain!                           │   │
 │  │  → Baseline variance calculated on clean data                │   │
@@ -142,7 +144,7 @@ The gain lock happens in a **dedicated phase BEFORE band calibration** to ensure
 - Calibration only sees data with **stable, locked gain**
 - Baseline variance is **accurate** (not inflated by AGC variations)
 - Adaptive threshold is calculated correctly
-- Total time: ~10 seconds (3s gain lock + 7s calibration)
+- Total time: ~10.5 seconds (3s gain lock + 7.5s calibration)
 
 **Why median instead of mean?** Median is more robust against outliers:
 - Occasional packet with extreme gain values doesn't skew the baseline
@@ -289,7 +291,7 @@ Output (probability)
 
 ### Feature Extraction
 
-For each sliding window of 50 turbulence values, 12 statistical features are extracted. See [CSI Features](#csi-features-for-ml) for the complete feature list with detailed definitions.
+For each sliding window of 75 turbulence values, 12 statistical features are extracted. See [CSI Features](#csi-features-for-ml) for the complete feature list with detailed definitions.
 
 ### Inference Pipeline
 
@@ -314,10 +316,10 @@ ML uses **fixed subcarriers** - no calibration needed:
 
 | Algorithm | Subcarrier Selection | Threshold | Boot Time |
 |-----------|---------------------|-----------|-----------|
-| MVS | NBVI (~7s) | Adaptive (percentile-based) | ~10s |
+| MVS | NBVI (~7.5s) | Adaptive (percentile-based) | ~10.5s |
 | ML | **Fixed** (12 evenly distributed) | Fixed (0.5 probability) | **~3s** |
 
-ML uses 12 pre-selected subcarriers evenly distributed across the valid range: `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]`. This eliminates the 7-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
+ML uses 12 pre-selected subcarriers evenly distributed across the valid range: `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]`. This eliminates the 7.5-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
 
 ### Training
 
@@ -372,22 +374,13 @@ WiFi CSI provides 64 subcarriers in HT20 mode, but not all are equally useful fo
 
 See [TUNING.md](../TUNING.md) for configuration options.
 
-### Calibrator Architecture
+### NBVICalibrator
 
-The calibration system uses the `ICalibrator` interface and `BaseCalibrator` base class:
-
-```
-ICalibrator (interface)
-    └── BaseCalibrator (common file-based buffer management)
-            └── NBVICalibrator
-```
-
-`BaseCalibrator` handles:
+The `NBVICalibrator` class handles the complete calibration lifecycle:
 - File-based CSI buffer I/O (write during collection, read during calibration)
 - Packet counting and buffer-full detection
 - Memory-efficient cleanup (buffer file removed after calibration)
-
-Concrete calibrators implement only the band selection logic (`calibrate()` and `collect_packet()`), keeping the shared buffer management DRY.
+- NBVI-based subcarrier selection algorithm
 
 ---
 
@@ -610,12 +603,12 @@ For embedded systems, the implementation uses:
 
 ## CSI Features (for ML)
 
-The ML detector extracts **12 non-redundant statistical features** from a sliding window of turbulence values. All features are computed from the 50-sample turbulence buffer, ensuring stable statistical estimates.
+The ML detector extracts **12 non-redundant statistical features** from a sliding window of turbulence values. All features are computed from the 75-sample turbulence buffer (configured via `segmentation_window_size`), ensuring stable statistical estimates.
 
 ### Design Principles
 
 - **No redundant features**: Each feature provides unique information (e.g., no variance alongside std, no range alongside max/min)
-- **All turbulence-based**: Higher-order moments (skewness, kurtosis) are computed from the 50-sample turbulence buffer rather than from 12-sample packet amplitudes, giving much more stable estimates
+- **All turbulence-based**: Higher-order moments (skewness, kurtosis) are computed from the 75-sample turbulence buffer rather than from 12-sample packet amplitudes, giving much more stable estimates
 - **MicroPython compatible**: Pure Python implementation without numpy at runtime
 
 ### Feature List
@@ -642,7 +635,7 @@ The ML detector extracts **12 non-redundant statistical features** from a slidin
 **Signal Dynamics (4)**:
 - **Zero-crossing rate**: Fraction of consecutive samples crossing the mean. High ZCR indicates rapid oscillations (motion), low ZCR indicates stable signal (idle). Very fast to compute.
 
-**Higher-Order Moments (5-6)**: Computed from the turbulence buffer (50 samples) for stable estimates.
+**Higher-Order Moments (5-6)**: Computed from the turbulence buffer (75 samples) for stable estimates.
 - **Skewness**: Asymmetry of turbulence distribution. Motion typically increases skewness.
 - **Kurtosis**: "Tailedness" of turbulence distribution. Motion produces heavier tails.
 

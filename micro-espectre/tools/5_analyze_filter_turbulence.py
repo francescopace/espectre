@@ -448,7 +448,7 @@ class FilteredStreamingSegmentation:
     experimentation with different filter configurations.
     """
     
-    def __init__(self, window_size=50, threshold=3.0, filter_config=None, track_data=False):
+    def __init__(self, window_size=SEG_WINDOW_SIZE, threshold=3.0, filter_config=None, track_data=False):
         self.window_size = window_size
         self.threshold = threshold
         self.track_data = track_data

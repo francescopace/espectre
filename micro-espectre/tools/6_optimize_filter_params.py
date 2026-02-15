@@ -35,6 +35,7 @@ from pathlib import Path
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import setup_paths  # noqa: F401 - side effect import
+from config import SEG_WINDOW_SIZE
 from segmentation import SegmentationContext
 
 
@@ -69,7 +70,7 @@ def test_config(baseline_iq, movement_iq, subcarriers, target, cutoff,
     norm_scale = target / avg_mag
     
     seg = SegmentationContext(
-        window_size=50,
+        window_size=SEG_WINDOW_SIZE,
         threshold=threshold,
         enable_lowpass=True,
         lowpass_cutoff=cutoff,
@@ -135,7 +136,7 @@ def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, c
     for window in window_sizes:
         for threshold in thresholds:
             seg = SegmentationContext(
-                window_size=50,
+                window_size=SEG_WINDOW_SIZE,
                 threshold=1.0,
                 enable_lowpass=True,
                 lowpass_cutoff=cutoff,

@@ -43,7 +43,7 @@ class StreamingSegmentationWrapper:
     for visualization purposes.
     """
     
-    def __init__(self, window_size=50, threshold=1.0, track_data=False, 
+    def __init__(self, window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False, 
                  enable_hampel=False):
         self.window_size = window_size
         self.threshold = threshold
@@ -78,10 +78,10 @@ class StreamingSegmentationWrapper:
 
 
 # Aliases for backward compatibility
-StreamingSegmentation = lambda window_size=50, threshold=1.0, track_data=False: \
+StreamingSegmentation = lambda window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False: \
     StreamingSegmentationWrapper(window_size, threshold, track_data, enable_hampel=False)
 
-FilteredTurbulenceSegmentation = lambda window_size=50, threshold=1.0, track_data=False: \
+FilteredTurbulenceSegmentation = lambda window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False: \
     StreamingSegmentationWrapper(window_size, threshold, track_data, enable_hampel=True)
 
 

@@ -137,9 +137,9 @@ constexpr uint8_t HT20_SELECTED_BAND_SIZE = 12;    // Selected subcarriers for m
 // =============================================================================
 // Segmentation Constants
 // =============================================================================
-constexpr uint16_t SEGMENTATION_DEFAULT_WINDOW_SIZE = 50;
-constexpr uint16_t SEGMENTATION_MIN_WINDOW_SIZE = 10;
-constexpr uint16_t SEGMENTATION_MAX_WINDOW_SIZE = 200;
+
+// Note: Window size constants are defined in base_detector.h:
+
 constexpr float SEGMENTATION_DEFAULT_THRESHOLD = 1.0f;
 // Min threshold lowered to support CV normalization (std/mean produces smaller values)
 constexpr float SEGMENTATION_MIN_THRESHOLD = 1e-9f;

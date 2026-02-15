@@ -404,7 +404,7 @@ CALIBRATION_ALGORITHM = "nbvi"  # NBVI is the sole calibration algorithm
 
 ```python
 SEG_THRESHOLD = "auto"     # "auto" (adaptive), "min" (max baseline), or 0.1-10.0
-SEG_WINDOW_SIZE = 50       # Moving variance window (10-200 packets)
+SEG_WINDOW_SIZE = 75       # Moving variance window (10-200 packets)
 ```
 
 ### 5. Filters (Optional, MVS and ML)
@@ -471,7 +471,7 @@ The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real 
 | Aspect | Details |
 |--------|---------|
 | Architecture | MLP (12 → 16 → 8 → 1) |
-| Input | 12 features from 50-packet window |
+| Input | 12 features from 75-packet window |
 | Output | Probability (0.0 - 1.0), threshold at 0.5 |
 | Filters | Supports low-pass and Hampel filters (same as MVS) |
 | Performance | See [PERFORMANCE.md](../PERFORMANCE.md) for per-chip results |
@@ -689,7 +689,7 @@ Publish JSON commands to `home/espectre/node1/cmd`:
     "cmd_topic": "home/espectre/node1/cmd",
     "response_topic": "home/espectre/node1/response"
   },
-  "segmentation": {"threshold": 1.0, "window_size": 50},
+  "segmentation": {"threshold": 1.0, "window_size": 75},
   "subcarriers": {"indices": [6, 9, 10, 15, 18, 19, 30, 33, 36, 40, 49, 52]}
 }
 ```

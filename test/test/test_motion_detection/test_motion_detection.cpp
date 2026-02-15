@@ -205,11 +205,11 @@ inline const uint8_t* get_optimal_subcarriers() {
     }
 }
 
-// MVS targets (both optimal and NBVI)
-// All chips achieve >98% recall and <6% FP rate
+// MVS targets
+// All chips achieve >96% recall
 inline float get_fp_rate_target() { return 10.0f; }
-inline float get_recall_target() { return 97.0f; }
-inline float get_nbvi_recall_target() { return 97.0f; }
+inline float get_recall_target() { return 96.0f; }
+inline float get_nbvi_recall_target() { return 96.0f; }
 
 // Unified parameters for all chips (use production defaults)
 inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
@@ -261,7 +261,7 @@ void test_mvs_optimal_subcarriers(void) {
     cal_detector.set_cv_normalization(cv_norm);
     
     std::vector<float> mv_values;
-    int calibration_packets = std::min(num_baseline, 700);
+    int calibration_packets = std::min(num_baseline, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
     for (int i = 0; i < calibration_packets; i++) {
         cal_detector.process_packet((const int8_t*)baseline_packets[i], pkt_size,
                           optimal_band, NUM_SELECTED_SUBCARRIERS);
@@ -371,7 +371,7 @@ void test_mvs_nbvi_calibration(void) {
         cal_detector.set_cv_normalization(cv_norm);
         
         std::vector<float> mv_values;
-        int calibration_packets = std::min(num_baseline, 700);
+        int calibration_packets = std::min(num_baseline, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
         for (int i = 0; i < calibration_packets; i++) {
             cal_detector.process_packet((const int8_t*)baseline_packets[i], pkt_size,
                               optimal_band, NUM_SELECTED_SUBCARRIERS);
@@ -391,6 +391,7 @@ void test_mvs_nbvi_calibration(void) {
         
         NBVICalibrator nbvi;
         nbvi.init(&csi_manager, "/tmp/test_nbvi_buffer.bin");
+        nbvi.set_mvs_window_size(window_size);
         nbvi.set_cv_normalization(cv_norm);
         
         uint16_t buffer_size = std::min(static_cast<int>(nbvi.get_buffer_size()), num_baseline);

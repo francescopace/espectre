@@ -119,7 +119,7 @@ extern "C" {
  * 
  * The gain lock phase happens BEFORE band calibration to ensure clean data:
  * - Phase 1: Gain Lock (~3 seconds, 300 packets) - locks AGC/FFT using median
- * - Phase 2: Band Calibration (~7 seconds, 700 packets) - with stable gain
+ * - Phase 2: Band Calibration (~7.5 seconds, 750 packets) - with stable gain
  */
 class GainController {
  public:

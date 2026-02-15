@@ -620,7 +620,9 @@ High airtime (>30-50%) causes network congestion, increased latency, and packet 
 ESPectre automatically calibrates in two phases:
 
 1. **Gain Lock** (~3 seconds, 300 packets): Stabilizes AGC/FFT for consistent amplitudes
-2. **NBVI Band Calibration** (~7 seconds, 700 packets): Selects optimal 12-subcarrier band and calculates adaptive threshold
+2. **NBVI Band Calibration** (~7.5 seconds, 10 × `window_size` packets): Selects optimal 12-subcarrier band and calculates adaptive threshold
+
+With default `segmentation_window_size: 75`, the calibration collects 750 packets. If you change the window size, the calibration buffer adjusts automatically.
 
 Room must be quiet during the entire ~10 second calibration.
 

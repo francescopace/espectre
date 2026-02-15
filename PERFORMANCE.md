@@ -82,15 +82,15 @@ Results from C++ and Python tests are **identical** (same algorithms, same data,
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
-| ESP32-C3 | MVS Optimal | 99.6% | 98.3% | 3.2% | 98.9% |
-| ESP32-C3 | MVS + NBVI | 99.6% | 98.3% | 3.2% | 98.9% |
-| ESP32-C3 | ML | 100.0% | 99.9% | 0.1% | 100.0% |
+| ESP32-C3 | MVS Optimal | 99.6% | 98.2% | 3.4% | 98.9% |
+| ESP32-C3 | MVS + NBVI | 99.6% | 98.2% | 3.4% | 98.9% |
+| ESP32-C3 | ML | 99.8% | 99.9% | 0.1% | 99.9% |
 | ESP32-C6 | MVS Optimal | 99.3% | 96.9% | 4.6% | 98.1% |
-| ESP32-C6 | MVS + NBVI | 99.9% | 96.1% | 5.9% | 97.9% |
-| ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS Optimal | 99.7% | 97.7% | 3.0% | 98.7% |
-| ESP32-S3 | MVS + NBVI | 99.7% | 93.9% | 8.4% | 96.7% |
-| ESP32-S3 | ML | 99.5% | 100.0% | 0.0% | 99.7% |
+| ESP32-C6 | MVS + NBVI | 99.9% | 96.0% | 6.0% | 97.9% |
+| ESP32-C6 | ML | 99.8% | 100.0% | 0.0% | 99.9% |
+| ESP32-S3 | MVS Optimal | 99.7% | 97.6% | 3.2% | 98.6% |
+| ESP32-S3 | MVS + NBVI | 96.6% | 95.6% | 5.8% | 96.1% |
+| ESP32-S3 | ML | 98.5% | 100.0% | 0.0% | 99.3% |
 | ESP32 (control) | MVS Optimal | 100.0% | 97.4% | 4.5% | 98.7% |
 | ESP32 (control) | MVS + NBVI | 100.0% | 97.4% | 4.5% | 98.7% |
 | ESP32 (control) | ML | 100.0% | 100.0% | 0.0% | 100.0% |

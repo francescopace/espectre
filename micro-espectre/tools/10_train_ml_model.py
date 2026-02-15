@@ -78,6 +78,7 @@ from csi_utils import (
     DATA_DIR,
     DEFAULT_SUBCARRIERS,
 )
+from config import SEG_WINDOW_SIZE
 from segmentation import SegmentationContext
 from features import (
     calc_skewness, calc_kurtosis, calc_entropy_turb,
@@ -242,13 +243,13 @@ def load_all_data(exclude_chips=None):
 # Feature Extraction
 # ============================================================================
 
-def extract_features(packets, window_size=50, subcarriers=None):
+def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None):
     """
     Extract features from CSI packets using sliding window.
     
     Args:
         packets: List of CSI packets with 'csi_data' and 'label'
-        window_size: Sliding window size (default: 50)
+        window_size: Sliding window size (default: SEG_WINDOW_SIZE from config.py)
         subcarriers: List of subcarrier indices to use (default: DEFAULT_SUBCARRIERS)
     
     Returns:
@@ -557,7 +558,7 @@ def export_micropython(model, scaler, output_path, seed=None):
     from datetime import datetime
     weights = model.get_weights()
     
-    seed_info = f"Seed: {seed}" if seed is not None else "Seed: not set (non-deterministic)"
+    seed_info = f"Seed: {seed}"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     # Build code - weights only
@@ -622,7 +623,7 @@ def export_cpp_weights(model, scaler, output_path, seed=None):
     weights = model.get_weights()
     arch = ' -> '.join(str(w.shape[1]) for w in weights[::2])
     
-    seed_info = f"Seed: {seed}" if seed is not None else "Seed: not set (non-deterministic)"
+    seed_info = f"Seed: {seed}"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     code = f'''/*
@@ -782,7 +783,8 @@ def train_all(fp_weight=2.0, exclude_chips=None, seed=None):
         fp_weight: Multiplier for class 0 (IDLE) weight. Values >1.0 penalize
                    false positives more, producing a more conservative model.
         exclude_chips: Optional list of chip names to exclude from training
-        seed: Optional random seed for reproducible training
+        seed: Optional random seed for reproducible training. If None, a random
+              seed is generated and saved for reproducibility.
     """
     from ml_detector import ML_SUBCARRIERS
     subcarriers = ML_SUBCARRIERS
@@ -799,11 +801,19 @@ def train_all(fp_weight=2.0, exclude_chips=None, seed=None):
             from sklearn.preprocessing import StandardScaler
             from sklearn.model_selection import train_test_split
             
-            # Set random seeds for reproducibility if specified
-            if seed is not None:
-                print(f"Using random seed: {seed}\n")
-                np.random.seed(seed)
-                tf.random.set_seed(seed)
+            # Generate random seed if not provided (for reproducibility tracking)
+            # Uses NumPy's SeedSequence which gathers entropy from the OS
+            if seed is None:
+                from numpy.random import SeedSequence
+                ss = SeedSequence()
+                seed = int(ss.entropy % (2**31))  # Convert to int32 for compatibility
+                print(f"Generated random seed: {seed}\n")
+            else:
+                print(f"Using provided seed: {seed}\n")
+            
+            # Set random seeds for reproducibility
+            np.random.seed(seed)
+            tf.random.set_seed(seed)
             
             # Suppress TensorFlow Python-level warnings
             tf.get_logger().setLevel('ERROR')

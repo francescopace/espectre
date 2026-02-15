@@ -28,23 +28,23 @@ import os
 try:
     from src.config import (
         NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
-        GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE
+        GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE,
+        SEG_WINDOW_SIZE, CALIBRATION_BUFFER_SIZE
     )
     from src.utils import (
         to_signed_int8, calculate_percentile,
         calculate_variance, calculate_std, calculate_moving_variance
     )
-    from src.calibrator_interface import BaseCalibrator
 except ImportError:
     from config import (
         NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
-        GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE
+        GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE,
+        SEG_WINDOW_SIZE, CALIBRATION_BUFFER_SIZE
     )
     from utils import (
         to_signed_int8, calculate_percentile,
         calculate_variance, calculate_std, calculate_moving_variance
     )
-    from calibrator_interface import BaseCalibrator
 
 # Constants
 BUFFER_FILE = '/nbvi_buffer.bin'
@@ -52,8 +52,7 @@ BUFFER_FILE = '/nbvi_buffer.bin'
 # Threshold for null subcarrier detection (mean amplitude below this = null)
 NULL_SUBCARRIER_THRESHOLD = 1.0
 
-# MVS parameters for validation
-MVS_WINDOW_SIZE = 50
+# MVS parameters for validation (uses SEG_WINDOW_SIZE from config.py)
 MVS_THRESHOLD = 1.0
 
 
@@ -66,7 +65,7 @@ def cleanup_buffer_file():
         pass
 
 
-class NBVICalibrator(BaseCalibrator):
+class NBVICalibrator:
     """
     Automatic NBVI calibrator with percentile-based baseline detection
     
@@ -79,23 +78,76 @@ class NBVICalibrator(BaseCalibrator):
     After subcarrier selection, calculates adaptive threshold using Pxx * factor.
     """
     
-    def __init__(self, buffer_size=700,
+    def __init__(self, buffer_size=None, mvs_window_size=None,
                  percentile=10, alpha=0.5, min_spacing=1, noise_gate_percentile=25):
         """
         Initialize NBVI calibrator
         
         Args:
-            buffer_size: Number of packets to collect (default: 700)
+            buffer_size: Number of packets to collect (default: CALIBRATION_BUFFER_SIZE from config)
+            mvs_window_size: MVS window size for validation (default: SEG_WINDOW_SIZE from config)
             percentile: Percentile for baseline window detection (default: 10)
             alpha: NBVI weighting factor (default: 0.5)
             min_spacing: Minimum spacing between subcarriers (default: 1)
             noise_gate_percentile: Percentile for noise gate (default: 25)
         """
-        super().__init__(buffer_size, BUFFER_FILE)
+        self.buffer_size = buffer_size if buffer_size is not None else CALIBRATION_BUFFER_SIZE
+        self._buffer_file = BUFFER_FILE
+        self._packet_count = 0
+        self._filtered_count = 0
+        self._file = None
+        self._initialized = False
+        
+        # Remove old buffer file if exists
+        try:
+            os.remove(BUFFER_FILE)
+        except OSError:
+            pass
+        
+        # Open file for writing
+        self._file = open(BUFFER_FILE, 'wb')
+        
+        # NBVI parameters
+        self.mvs_window_size = mvs_window_size if mvs_window_size is not None else SEG_WINDOW_SIZE
         self.percentile = percentile
         self.alpha = alpha
         self.min_spacing = min_spacing
         self.noise_gate_percentile = noise_gate_percentile
+    
+    # ========================================================================
+    # Buffer management
+    # ========================================================================
+    
+    def _prepare_for_reading(self):
+        """Close write mode and reopen for reading."""
+        if self._file:
+            self._file.flush()
+            self._file.close()
+            gc.collect()
+        self._file = open(self._buffer_file, 'rb')
+    
+    def free_buffer(self):
+        """Free resources after calibration is complete."""
+        if self._file:
+            self._file.close()
+            self._file = None
+        
+        try:
+            os.remove(self._buffer_file)
+        except OSError:
+            pass
+    
+    def get_packet_count(self):
+        """Get the number of packets currently in the buffer."""
+        return self._packet_count
+    
+    def is_buffer_full(self):
+        """Check if the buffer has collected enough packets."""
+        return self._packet_count >= self.buffer_size
+    
+    # ========================================================================
+    # Packet collection
+    # ========================================================================
         
     def add_packet(self, csi_data):
         """
@@ -151,6 +203,10 @@ class NBVICalibrator(BaseCalibrator):
         
         return self._packet_count
     
+    # ========================================================================
+    # File I/O helpers
+    # ========================================================================
+    
     def _read_packet(self, packet_idx):
         """Read a single packet from file"""
         self._file.seek(packet_idx * NUM_SUBCARRIERS)
@@ -170,6 +226,10 @@ class NBVICalibrator(BaseCalibrator):
             if len(packet) == NUM_SUBCARRIERS:
                 window.append(packet)
         return window
+    
+    # ========================================================================
+    # Calibration algorithm
+    # ========================================================================
     
     def _find_candidate_windows(self, current_band, window_size=200, step=50):
         """
@@ -306,10 +366,10 @@ class NBVICalibrator(BaseCalibrator):
         Returns:
             tuple: (fp_rate, mv_values) where mv_values is list of moving variance values
         """
-        if self._packet_count < MVS_WINDOW_SIZE:
+        if self._packet_count < self.mvs_window_size:
             return 0.0, []
         
-        turbulence_buffer = [0.0] * MVS_WINDOW_SIZE
+        turbulence_buffer = [0.0] * self.mvs_window_size
         motion_count = 0
         total_packets = 0
         mv_values = []
@@ -330,7 +390,7 @@ class NBVICalibrator(BaseCalibrator):
             turbulence_buffer.pop(0)
             turbulence_buffer.append(turbulence)
             
-            if pkt_idx < MVS_WINDOW_SIZE:
+            if pkt_idx < self.mvs_window_size:
                 continue
             
             mv_variance = calculate_variance(turbulence_buffer)
@@ -359,7 +419,7 @@ class NBVICalibrator(BaseCalibrator):
         window_size = 200
         step = 50
         
-        if self._packet_count < MVS_WINDOW_SIZE + 10:
+        if self._packet_count < self.mvs_window_size + 10:
             print("NBVI: Not enough packets for calibration")
             return None, []
         

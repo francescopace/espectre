@@ -23,7 +23,7 @@ namespace esphome {
 namespace espectre {
 
 // Forward declaration
-class ICalibrator;
+class NBVICalibrator;
 
 // Callback type for processed CSI data
 using csi_processed_callback_t = std::function<void(MotionState, uint32_t)>;
@@ -100,7 +100,7 @@ class CSIManager {
    * 
    * @param calibrator Calibrator instance (nullptr to disable calibration mode)
    */
-  void set_calibration_mode(ICalibrator* calibrator) { calibrator_ = calibrator; }
+  void set_calibration_mode(NBVICalibrator* calibrator) { calibrator_ = calibrator; }
   
   /**
    * Check if CSI is currently enabled
@@ -152,7 +152,7 @@ class CSIManager {
   bool enabled_{false};
   BaseDetector* detector_{nullptr};
   const uint8_t* selected_subcarriers_{nullptr};
-  ICalibrator* calibrator_{nullptr};
+  NBVICalibrator* calibrator_{nullptr};
   csi_processed_callback_t packet_callback_;
   game_mode_callback_t game_mode_callback_;
   uint32_t publish_rate_{100};

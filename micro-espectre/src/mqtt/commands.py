@@ -13,12 +13,12 @@ import gc
 import sys
 from src.config import (
     TRAFFIC_GENERATOR_RATE,
-    SEG_WINDOW_SIZE
+    SEG_WINDOW_SIZE,
+    SEG_WINDOW_SIZE_MIN,
+    SEG_WINDOW_SIZE_MAX
 )
 
-# Segmentation limits
-SEG_WINDOW_SIZE_MIN = 10
-SEG_WINDOW_SIZE_MAX = 200
+# Threshold limits
 SEG_THRESHOLD_MIN = 0.0
 SEG_THRESHOLD_MAX = 10.0
 

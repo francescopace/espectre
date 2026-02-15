@@ -2,7 +2,6 @@
  * ESPectre - NBVI Calibrator Implementation
  * 
  * NBVI algorithm for non-consecutive subcarrier selection.
- * Inherits common lifecycle from BaseCalibrator.
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -26,13 +25,141 @@ namespace espectre {
 static const char *TAG = "NBVI";
 
 // ============================================================================
+// PUBLIC API
+// ============================================================================
+
+void NBVICalibrator::init(CSIManager* csi_manager, const char* buffer_path) {
+  csi_manager_ = csi_manager;
+  file_buffer_.init(buffer_path);
+}
+
+esp_err_t NBVICalibrator::start_calibration(const uint8_t* current_band,
+                                            uint8_t current_band_size,
+                                            result_callback_t callback) {
+  if (!csi_manager_) {
+    ESP_LOGE(TAG, "CSI Manager not initialized");
+    return ESP_ERR_INVALID_STATE;
+  }
+  
+  if (calibrating_) {
+    ESP_LOGW(TAG, "Calibration already in progress");
+    return ESP_ERR_INVALID_STATE;
+  }
+  
+  // Store context
+  result_callback_ = callback;
+  current_band_.assign(current_band, current_band + current_band_size);
+  
+  // Prepare file buffer
+  file_buffer_.remove_file();
+  if (!file_buffer_.open_for_writing()) {
+    ESP_LOGE(TAG, "Failed to open buffer file for writing");
+    return ESP_ERR_NO_MEM;
+  }
+  
+  file_buffer_.reset();
+  mv_values_.clear();
+  
+  calibrating_ = true;
+  csi_manager_->set_calibration_mode(this);
+  
+  ESP_LOGI(TAG, "Calibration starting");
+  
+  return ESP_OK;
+}
+
+bool NBVICalibrator::add_packet(const int8_t* csi_data, size_t csi_len) {
+  if (!calibrating_ || file_buffer_.is_full() || !file_buffer_.is_open()) {
+    return file_buffer_.is_full();
+  }
+  
+  bool full = file_buffer_.write_packet(csi_data, csi_len);
+  
+  if (full) {
+    on_collection_complete_();
+  }
+  
+  return full;
+}
+
+// ============================================================================
+// LIFECYCLE MANAGEMENT
+// ============================================================================
+
+void NBVICalibrator::on_collection_complete_() {
+  ESP_LOGD(TAG, "Collection complete, processing...");
+  
+  // Notify caller that collection is complete (can pause traffic generator)
+  if (collection_complete_callback_) {
+    collection_complete_callback_();
+  }
+  
+  // Stop receiving CSI packets during processing
+  csi_manager_->set_calibration_mode(nullptr);
+  
+  // Close write mode - file will be reopened for reading in calibration task
+  file_buffer_.close();
+  
+  // Launch calibration in a separate task to avoid blocking the CSI callback
+  BaseType_t result = xTaskCreate(
+      calibration_task_wrapper_,
+      "nbvi_cal",
+      8192,  // 8KB stack for calibration calculations
+      this,
+      1,     // Low priority
+      &calibration_task_handle_
+  );
+  
+  if (result != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create calibration task");
+    finish_calibration_(false);
+  }
+}
+
+void NBVICalibrator::calibration_task_wrapper_(void* arg) {
+  NBVICalibrator* self = static_cast<NBVICalibrator*>(arg);
+  
+  // Open buffer file for reading
+  if (!self->file_buffer_.open_for_reading()) {
+    ESP_LOGE(TAG, "Failed to open buffer file for reading");
+    self->finish_calibration_(false);
+    vTaskDelete(NULL);
+    return;
+  }
+  
+  // Run calibration algorithm
+  esp_err_t err = self->run_calibration_();
+  
+  bool success = (err == ESP_OK && self->selected_band_size_ == HT20_SELECTED_BAND_SIZE);
+  
+  // Cleanup file
+  self->file_buffer_.close();
+  self->file_buffer_.remove_file();
+  
+  // Notify completion
+  self->finish_calibration_(success);
+  
+  // Self-terminate
+  vTaskDelete(NULL);
+}
+
+void NBVICalibrator::finish_calibration_(bool success) {
+  calibrating_ = false;
+  calibration_task_handle_ = nullptr;
+  
+  if (result_callback_) {
+    result_callback_(selected_band_, selected_band_size_, mv_values_, success);
+  }
+}
+
+// ============================================================================
 // CALIBRATION ALGORITHM
 // ============================================================================
 
 esp_err_t NBVICalibrator::run_calibration_() {
   uint16_t buffer_count = file_buffer_.get_count();
   
-  if (buffer_count < MVS_WINDOW_SIZE + 10) {
+  if (buffer_count < mvs_window_size_ + 10) {
     ESP_LOGE(TAG, "Not enough packets for calibration");
     return ESP_FAIL;
   }
@@ -321,7 +448,7 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
   
   uint16_t buffer_count = file_buffer_.get_count();
   
-  std::vector<float> turbulence_buffer(MVS_WINDOW_SIZE);
+  std::vector<float> turbulence_buffer(mvs_window_size_);
   uint16_t motion_count = 0;
   uint16_t total_packets = 0;
   
@@ -340,16 +467,16 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
                                                      use_cv_normalization_);
     
     // Shift buffer
-    for (uint16_t i = 0; i < MVS_WINDOW_SIZE - 1; i++) {
+    for (uint16_t i = 0; i < mvs_window_size_ - 1; i++) {
       turbulence_buffer[i] = turbulence_buffer[i + 1];
     }
-    turbulence_buffer[MVS_WINDOW_SIZE - 1] = turbulence;
+    turbulence_buffer[mvs_window_size_ - 1] = turbulence;
     
-    if (pkt < MVS_WINDOW_SIZE) {
+    if (pkt < mvs_window_size_) {
       continue;
     }
     
-    float variance = calculate_variance_two_pass(turbulence_buffer.data(), MVS_WINDOW_SIZE);
+    float variance = calculate_variance_two_pass(turbulence_buffer.data(), mvs_window_size_);
     out_mv_values.push_back(variance);
     
     if (variance > MVS_THRESHOLD) {

@@ -35,6 +35,10 @@ constexpr uint16_t DETECTOR_DEFAULT_WINDOW_SIZE = 75;
 constexpr uint16_t DETECTOR_MIN_WINDOW_SIZE = 10;
 constexpr uint16_t DETECTOR_MAX_WINDOW_SIZE = 200;
 
+// Calibration buffer size = 10 windows worth of packets
+constexpr uint16_t CALIBRATION_NUM_WINDOWS = 10;
+constexpr uint16_t CALIBRATION_DEFAULT_BUFFER_SIZE = DETECTOR_DEFAULT_WINDOW_SIZE * CALIBRATION_NUM_WINDOWS;
+
 // ============================================================================
 // BASE DETECTOR CLASS
 // ============================================================================

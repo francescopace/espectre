@@ -40,7 +40,8 @@ DETECTION_ALGORITHM = "mvs"
 
 # Band Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
 # NBVI: Normalized Band Variance Index (12 non-consecutive subcarriers)
-CALIBRATION_BUFFER_SIZE = 700  # Packets to collect for calibration (7s @ 100Hz, after 3s gain lock)
+CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect
+# CALIBRATION_BUFFER_SIZE calculated after SEG_WINDOW_SIZE is defined
 
 # Segmentation Parameters
 # SEG_THRESHOLD can be:
@@ -49,6 +50,11 @@ CALIBRATION_BUFFER_SIZE = 700  # Packets to collect for calibration (7s @ 100Hz,
 #   - a number (0.1-10.0): fixed manual threshold
 SEG_THRESHOLD = "auto"
 SEG_WINDOW_SIZE = 75          # Moving variance window (packets) - used by both MVS and Features
+SEG_WINDOW_SIZE_MIN = 10      # Minimum window size
+SEG_WINDOW_SIZE_MAX = 200     # Maximum window size
+
+# Calibration buffer size = number of windows * window size
+CALIBRATION_BUFFER_SIZE = CALIBRATION_NUM_WINDOWS * SEG_WINDOW_SIZE
 
 # Low-pass filter (removes high-frequency noise, reduces false positives)
 ENABLE_LOWPASS_FILTER = False   # Recommended: reduces FP in noisy environments

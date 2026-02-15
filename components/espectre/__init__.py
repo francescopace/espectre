@@ -100,7 +100,7 @@ CONFIG_SCHEMA = cv.Schema({
     #   - min: P100 - maximum sensitivity (may have FP)
     #   - number (0.1-10.0): fixed manual threshold
     cv.Optional(CONF_SEGMENTATION_THRESHOLD, default="auto"): validate_segmentation_threshold,
-    cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=50): cv.int_range(min=10, max=200),
+    cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=75): cv.int_range(min=10, max=200),
     
     # Traffic generator (0 = disabled, use external WiFi traffic)
     cv.Optional(CONF_TRAFFIC_GENERATOR_RATE, default=100): cv.int_range(min=0, max=1000),

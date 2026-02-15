@@ -6,7 +6,7 @@
  */
 
 #include "csi_manager.h"
-#include "calibrator_interface.h"
+#include "nbvi_calibrator.h"
 #include "gain_controller.h"
 #include "esphome/core/log.h"
 #include "esp_timer.h"

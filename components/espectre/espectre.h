@@ -151,7 +151,7 @@ class ESpectreComponent : public Component {
   
   // Configuration from YAML
   float segmentation_threshold_{1.0f};
-  uint16_t segmentation_window_size_{50};
+  uint16_t segmentation_window_size_{75};
   uint32_t traffic_generator_rate_{100};
   TrafficGeneratorMode traffic_generator_mode_{TrafficGeneratorMode::DNS};
   GainLockMode gain_lock_mode_{GainLockMode::AUTO};

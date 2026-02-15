@@ -70,7 +70,7 @@ def calculate_mean_amplitude(csi_packet, selected_subcarriers):
 class MLDetector:
     """ML-based motion detector using neural network."""
     
-    def __init__(self, window_size=50, subcarriers=None, track_data=False):
+    def __init__(self, window_size=SEG_WINDOW_SIZE, subcarriers=None, track_data=False):
         self.window_size = window_size
         self.subcarriers = subcarriers or DEFAULT_SUBCARRIERS
         self.track_data = track_data

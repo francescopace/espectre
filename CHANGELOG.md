@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 - **Training Pipeline**: End-to-end workflow to collect data, train, and export models for both platforms
 - **Pre-built Firmware**: Download ready-to-flash binaries from GitHub Releases for all 6 ESP32 variants
 - **PCA Algorithm Removed**: Replaced by ML detector (see rationale below)
+- **Calibrator Simplification**: Merged `BaseCalibrator` and `ICalibrator` into `NBVICalibrator` for simpler architecture
+- **Window Size Centralization**: `segmentation_window_size` now defined in a single place and passed to both detector and calibrator (default: 75)
 
 ### ML Detector
 
@@ -70,9 +72,16 @@ The P95 (95th percentile band selection) calibration algorithm has been removed 
 - **Gain lock**: Median-based calibration (replaces mean), signed FFT gain fix, CV normalization for when gain lock is skipped
 - **Bug fixes**: Double amplitude calculation fix, stack allocation in Hampel filter, emoji removal from serial logs
 
+### Architecture
+
+- **Calibrator simplification**: Removed `ICalibrator` interface and `BaseCalibrator` base class, merging all functionality into `NBVICalibrator`. Reduces complexity with only one calibration algorithm in use.
+- **Window size centralization**: `segmentation_window_size` (default: 75) is now defined in a single source of truth (`DETECTOR_DEFAULT_WINDOW_SIZE` in C++, `SEG_WINDOW_SIZE` in Python) and passed to both detector and calibrator via configuration.
+- **Calibration buffer size**: Now calculated as `10 × window_size` (default: 750 packets). Automatically adapts if window size changes.
+
 ### Micro-ESPectre (R&D Platform)
 
 - **Extended hardware support**: `me` CLI now supports ESP32, C3, S3, C6 with auto-detection and SHA256 firmware verification
+- **Unified window size in tools**: All analysis tools (`2_analyze_system_tuning.py`, `4_analyze_filter_location.py`, etc.) now use `SEG_WINDOW_SIZE` from `config.py` instead of hardcoded values
 - **CV normalization**: All detectors (MVS, ML) now use CV normalization consistently when gain lock is skipped
 - **ML detector filter support**: ML detector now accepts low-pass and Hampel filter parameters, matching C++ implementation
 - **Import standardization**: All `src/` modules now use `try/except ImportError` pattern for MicroPython/CPython compatibility
@@ -285,7 +294,7 @@ See [espressif/esp-csi#247](https://github.com/espressif/esp-csi/issues/247).
 
 Automatic gain control locking for stable CSI measurements, based on [Espressif esp-csi](https://github.com/espressif/esp-csi) recommendations.
 
-- **Two-phase calibration**: Gain Lock (3s, 300 pkt) → NBVI (7s, 700 pkt)
+- **Two-phase calibration**: Gain Lock (3s, 300 pkt) → NBVI (~7.5s, 10 × window_size pkt)
 - Gain lock happens BEFORE NBVI calibration to ensure clean data
 - Eliminates amplitude variations caused by automatic gain control
 - Supported on ESP32-S3, C3, C5, C6 (not available on ESP32, S2)

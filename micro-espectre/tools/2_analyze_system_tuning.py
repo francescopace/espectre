@@ -62,7 +62,7 @@ def test_contiguous_clusters(baseline_packets, movement_packets, num_sc, cluster
     print(f"{'='*80}\n")
     
     thresholds = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0] if not quick else [1.0, 1.5, 2.0]
-    window_sizes = [30, 50, 100] if not quick else [50]
+    window_sizes = [30, 50, 75, 100] if not quick else [SEG_WINDOW_SIZE]
     
     results = []
     total_tests = (num_sc - cluster_size + 1) * len(thresholds) * len(window_sizes)
@@ -127,7 +127,7 @@ def test_dual_clusters(baseline_packets, movement_packets, num_sc, quick=False):
     """Test combinations of two separate clusters"""
     
     thresholds = [1.0, 1.5, 2.0] if quick else [0.5, 1.0, 1.5, 2.0, 3.0]
-    window_sizes = [50] if quick else [30, 50, 100]
+    window_sizes = [SEG_WINDOW_SIZE] if quick else [30, 50, 75, 100]
     
     results = []
     
@@ -207,7 +207,7 @@ def test_sparse_configurations(baseline_packets, movement_packets, num_sc, quick
     """Test sparse subcarrier configurations"""
     
     thresholds = [1.0, 1.5, 2.0] if quick else [0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
-    window_sizes = [50] if quick else [30, 50, 100]
+    window_sizes = [SEG_WINDOW_SIZE] if quick else [30, 50, 75, 100]
     
     results = []
     configs = []

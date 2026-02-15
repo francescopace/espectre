@@ -52,6 +52,9 @@ void ESpectreComponent::setup() {
   
   // 2. Initialize managers (each manager handles its own internal initialization)
   this->nbvi_calibrator_.init(&this->csi_manager_);
+  this->nbvi_calibrator_.set_mvs_window_size(this->segmentation_window_size_);
+  // Buffer size = 10 windows (matches CALIBRATION_NUM_WINDOWS constant)
+  this->nbvi_calibrator_.set_buffer_size(this->segmentation_window_size_ * CALIBRATION_NUM_WINDOWS);
   this->traffic_generator_.init(this->traffic_generator_rate_, this->traffic_generator_mode_);
   this->udp_listener_.init(5555);  // UDP listener for external traffic mode
   this->serial_streamer_.init();
@@ -142,7 +145,7 @@ void ESpectreComponent::on_wifi_connected_() {
   
   // Two-phase calibration:
   // 1. Gain Lock (~3 seconds, 300 packets) - locks AGC/FFT for stable CSI
-  // 2. Baseline Calibration (~7 seconds, 700 packets) - calculates normalization scale
+  // 2. Baseline Calibration (~7.5 seconds, 750 packets) - calculates normalization scale
   this->csi_manager_.set_gain_lock_callback([this]() {
     auto& gc = this->csi_manager_.get_gain_controller();
     auto mode = gc.get_mode();
