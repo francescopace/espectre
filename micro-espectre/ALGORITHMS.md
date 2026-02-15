@@ -177,7 +177,7 @@ if (packet_count < 300) {
 
 ### CV Normalization (Gain-Invariant Turbulence)
 
-Since v2.5.0-cv, ESPectre uses **always-on CV normalization** for spatial turbulence:
+ESPectre uses **CV normalization** for spatial turbulence when gain lock is not active:
 
 ```
 turbulence = std(amplitudes) / mean(amplitudes)
@@ -189,7 +189,17 @@ This is the **Coefficient of Variation (CV)**, a dimensionless ratio that is mat
 CV(kA) = std(kA) / mean(kA) = k·std(A) / k·mean(A) = std(A) / mean(A) = CV(A)
 ```
 
-If the receiver AGC scales all amplitudes by a factor k, the CV remains unchanged. This property **eliminates the need for gain compensation** on all platforms, including those without hardware gain lock (ESP32 Base, ESP32-S2).
+If the receiver AGC scales all amplitudes by a factor k, the CV remains unchanged.
+
+**When is CV normalization used?**
+
+- **Gain locked**: Raw `std(amplitudes)` is used (better sensitivity when gain is stable)
+- **Gain not locked**: CV normalization (`std/mean`) is used (gain-invariant)
+
+CV normalization is automatically enabled when:
+1. Gain lock mode is `disabled`
+2. Gain lock mode is `auto` and lock was skipped (e.g., signal too strong, AGC < 30)
+3. Platform does not support gain lock (ESP32 Base, ESP32-S2)
 
 **Impact on detection**: CV-normalized turbulence values are typically in the range 0.05-0.25 (compared to 2-20 for raw std). Adaptive thresholds from calibration are correspondingly smaller (order of 1e-4 to 1e-3).
 
@@ -197,16 +207,16 @@ If the receiver AGC scales all amplitudes by a factor k, the CV remains unchange
 
 ### Platform Support
 
-| Platform | Gain Lock | Notes |
-|----------|-----------|-------|
-| ESP32-S3 | Supported | Full AGC/FFT control |
-| ESP32-C3 | Supported | Full AGC/FFT control |
-| ESP32-C5 | Supported | Full AGC/FFT control |
-| ESP32-C6 | Supported | Full AGC/FFT control |
-| ESP32 (original) | Not available | PHY functions not exposed |
-| ESP32-S2 | Not available | PHY functions not exposed |
+| Platform | Gain Lock | CV Normalization |
+|----------|-----------|------------------|
+| ESP32-S3 | Supported | When lock skipped |
+| ESP32-C3 | Supported | When lock skipped |
+| ESP32-C5 | Supported | When lock skipped |
+| ESP32-C6 | Supported | When lock skipped |
+| ESP32 (original) | Not available | Always enabled |
+| ESP32-S2 | Not available | Always enabled |
 
-On unsupported platforms, ESPectre skips the gain lock process without affecting functionality. With CV normalization, motion detection works equally well with or without gain lock, as the turbulence metric is inherently gain-invariant.
+On platforms without gain lock support, CV normalization ensures stable detection despite AGC variations.
 
 **Reference**: [Espressif esp-csi example](https://github.com/espressif/esp-csi/blob/master/examples/get-started/csi_recv_router/main/app_main.c)
 
@@ -445,19 +455,19 @@ NBVI selects **non-consecutive** subcarriers, which provides:
 
 ### Adaptive Threshold Calculation
 
-After band selection, NBVI returns the **moving variance values** from baseline. The adaptive threshold is then calculated as a percentile:
+After band selection, NBVI returns the **moving variance values** from baseline. The adaptive threshold is then calculated as a percentile with an optional multiplier:
 
 ```python
-def calculate_adaptive_threshold(mv_values, percentile):
-    return calculate_percentile(mv_values, percentile)
+def calculate_adaptive_threshold(mv_values, percentile, factor):
+    return calculate_percentile(mv_values, percentile) * factor
 ```
 
 Two modes are supported:
 
-| Strategy | Percentile | Effect |
-|----------|-----------|--------|
-| Auto (default) | 95 | Balanced sensitivity/false positives |
-| Min | 100 | Maximum sensitivity (may have FP) |
+| Strategy | Formula | Effect |
+|----------|---------|--------|
+| Auto (default) | P95 × 1.1 | Balanced sensitivity/false positives |
+| Min | P100 × 1.0 | Maximum sensitivity (may have FP) |
 
 See [TUNING.md](../TUNING.md) for configuration options (`segmentation_threshold`).
 

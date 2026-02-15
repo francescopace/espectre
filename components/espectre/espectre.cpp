@@ -354,7 +354,7 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "      Wi-Fi CSI Motion Detection System");
   ESP_LOGCONFIG(TAG, "");
   const char* thr_mode_str = (this->threshold_mode_ == ThresholdMode::MANUAL) ? "Manual" :
-                             (this->threshold_mode_ == ThresholdMode::MIN) ? "Min (P100)" : "Auto (P95)";  // P95 refers to percentile, not calibrator
+                             (this->threshold_mode_ == ThresholdMode::MIN) ? "Min (P100)" : "Auto (P95x1.1)";
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
   ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", this->detector_ ? this->detector_->get_name() : "unknown");
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f (%s)", this->segmentation_threshold_, thr_mode_str);

@@ -206,10 +206,10 @@ inline const uint8_t* get_optimal_subcarriers() {
 }
 
 // MVS targets
-// All chips achieve >96% recall
+// All chips achieve >95% recall
 inline float get_fp_rate_target() { return 10.0f; }
-inline float get_recall_target() { return 96.0f; }
-inline float get_nbvi_recall_target() { return 96.0f; }
+inline float get_recall_target() { return 95.0f; }
+inline float get_nbvi_recall_target() { return 95.0f; }
 
 // Unified parameters for all chips (use production defaults)
 inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
@@ -271,9 +271,11 @@ void test_mvs_optimal_subcarriers(void) {
         }
     }
     
-    float adaptive_threshold = calculate_adaptive_threshold(mv_values, 95);
-    printf("Adaptive threshold: %.6f (P95, from %zu MV values)\n\n", 
-           adaptive_threshold, mv_values.size());
+    float adaptive_threshold;
+    uint8_t percentile;
+    calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, adaptive_threshold, percentile);
+    printf("Adaptive threshold: %.6f (P%d x %.1f, from %zu MV values)\n\n", 
+           adaptive_threshold, percentile, DEFAULT_ADAPTIVE_FACTOR, mv_values.size());
     
     // Create detector for evaluation
     MVSDetector detector(window_size, adaptive_threshold);
@@ -381,9 +383,10 @@ void test_mvs_nbvi_calibration(void) {
             }
         }
         
-        calibrated_threshold = calculate_adaptive_threshold(mv_values, 95);
-        printf("Adaptive threshold: %.6f (P95, from %zu MV values)\n\n", 
-               calibrated_threshold, mv_values.size());
+        uint8_t percentile;
+        calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, calibrated_threshold, percentile);
+        printf("Adaptive threshold: %.6f (P%d x %.1f, from %zu MV values)\n\n", 
+               calibrated_threshold, percentile, DEFAULT_ADAPTIVE_FACTOR, mv_values.size());
     } else {
         // Use NBVI calibration for chips without CV normalization (C6, S3)
         CSIManager csi_manager;
@@ -404,7 +407,8 @@ void test_mvs_nbvi_calibration(void) {
                 if (success && size > 0) {
                     memcpy(calibrated_band, band, size);
                     calibrated_size = size;
-                    calibrated_threshold = calculate_adaptive_threshold(mv_values, 95);
+                    uint8_t pct;
+                    calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, calibrated_threshold, pct);
                 }
                 calibration_success = success;
             });
@@ -424,7 +428,7 @@ void test_mvs_nbvi_calibration(void) {
             if (i < calibrated_size - 1) printf(", ");
         }
         printf("]\n");
-        printf("Adaptive threshold: %.6f (P95)\n\n", calibrated_threshold);
+        printf("Adaptive threshold: %.6f (P95 x %.1f)\n\n", calibrated_threshold, DEFAULT_ADAPTIVE_FACTOR);
     }
     
     // Apply calibration

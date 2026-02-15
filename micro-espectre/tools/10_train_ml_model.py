@@ -83,18 +83,50 @@ from segmentation import SegmentationContext
 from features import (
     calc_skewness, calc_kurtosis, calc_entropy_turb,
     calc_zero_crossing_rate, calc_autocorrelation, calc_mad,
+    extract_features_by_name, DEFAULT_FEATURES,
 )
+
+# ============================================================================
+# Feature Selection Based on SHAP Analysis (2025-02)
+# ============================================================================
+#
+# SHAP feature importance analysis with 16 features showed:
+#
+# | Rank | Feature        | SHAP   | Contrib | Status                        |
+# |------|----------------|--------|---------|-------------------------------|
+# |  1   | turb_entropy   | 0.133  |  21.5%  | KEPT                          |
+# |  2   | turb_mad       | 0.096  |  15.5%  | KEPT                          |
+# |  3   | turb_skewness  | 0.082  |  13.3%  | KEPT                          |
+# |  4   | turb_min       | 0.058  |   9.4%  | KEPT                          |
+# |  5   | turb_mean      | 0.052  |   8.4%  | KEPT                          |
+# |  6   | turb_max       | 0.045  |   7.3%  | KEPT                          |
+# |  7   | turb_zcr       | 0.043  |   7.0%  | KEPT                          |
+# |  8   | turb_autocorr  | 0.032  |   5.1%  | KEPT                          |
+# |  9   | amp_entropy    | 0.028  |   4.5%  | KEPT (replaced turb_delta)    |
+# | 10   | turb_std       | 0.021  |   3.4%  | KEPT                          |
+# | 11   | turb_slope     | 0.006  |   0.9%  | KEPT                          |
+# | 12   | turb_kurtosis  | 0.004  |   0.7%  | KEPT                          |
+# |------|----------------|--------|---------|-------------------------------|
+# | --   | amp_range      | 0.010  |   1.6%  | REMOVED (low importance)      |
+# | --   | amp_skewness   | 0.005  |   0.9%  | REMOVED (low importance)      |
+# | --   | amp_kurtosis   | 0.003  |   0.4%  | REMOVED (low importance)      |
+# | --   | turb_delta     | 0.001  |   0.1%  | REMOVED (lowest importance)   |
+#
+# Decision: Keep 12 features, replace turb_delta (0.1%) with amp_entropy (4.5%)
+# ============================================================================
+
+# Extended feature set for experimentation (includes all tested features)
+EXTENDED_FEATURES = DEFAULT_FEATURES + [
+    'turb_delta',    # SHAP: 0.1% - removed from default
+    'amp_range',     # SHAP: 1.6% - not useful
+    'amp_skewness',  # SHAP: 0.9% - not useful  
+    'amp_kurtosis',  # SHAP: 0.4% - not useful
+]
 
 # Directories
 MODELS_DIR = Path(__file__).parent.parent / 'models'
 SRC_DIR = Path(__file__).parent.parent / 'src'
 CPP_DIR = Path(__file__).parent.parent.parent / 'components' / 'espectre'
-
-# Feature names (12 features - all non-redundant, all turbulence-based)
-FEATURE_NAMES = [
-    'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_zcr', 'turb_skewness',
-    'turb_kurtosis', 'turb_entropy', 'turb_autocorr', 'turb_mad', 'turb_slope', 'turb_delta'
-]
 
 
 # ============================================================================
@@ -243,7 +275,8 @@ def load_all_data(exclude_chips=None):
 # Feature Extraction
 # ============================================================================
 
-def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None):
+def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
+                     feature_names=None):
     """
     Extract features from CSI packets using sliding window.
     
@@ -251,15 +284,20 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None):
         packets: List of CSI packets with 'csi_data' and 'label'
         window_size: Sliding window size (default: SEG_WINDOW_SIZE from config.py)
         subcarriers: List of subcarrier indices to use (default: DEFAULT_SUBCARRIERS)
+        feature_names: List of feature names to extract (default: DEFAULT_FEATURES)
     
     Returns:
-        tuple: (X, y) feature matrix and labels
+        tuple: (X, y, feature_names) feature matrix, labels, and actual feature names
     """
     if subcarriers is None:
         subcarriers = DEFAULT_SUBCARRIERS
     
+    if feature_names is None:
+        feature_names = DEFAULT_FEATURES.copy()
+    
     X, y = [], []
     turb_buffer = deque(maxlen=window_size)
+    last_amplitudes = None
     
     for pkt in packets:
         # Calculate turbulence, using CV normalization for files that need it
@@ -269,6 +307,7 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None):
             pkt['csi_data'], subcarriers, use_cv_normalization=use_cv_norm
         )
         turb_buffer.append(turb)
+        last_amplitudes = amps
         
         # Wait for buffer to fill
         if len(turb_buffer) < window_size:
@@ -276,31 +315,19 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None):
         
         turb_list = list(turb_buffer)
         n = len(turb_list)
-        turb_mean = np.mean(turb_list)
-        turb_std = np.std(turb_list)
-        turb_var = turb_std * turb_std
         
-        # Extract 12 features (all non-redundant, all turbulence-based)
-        features = [
-            turb_mean,                                              # turb_mean
-            turb_std,                                               # turb_std
-            np.max(turb_list),                                      # turb_max
-            np.min(turb_list),                                      # turb_min
-            calc_zero_crossing_rate(turb_list, n, mean=turb_mean),  # turb_zcr
-            calc_skewness(turb_list, n, turb_mean, turb_std),       # turb_skewness
-            calc_kurtosis(turb_list, n, turb_mean, turb_std),       # turb_kurtosis
-            calc_entropy_turb(turb_list, n),                        # turb_entropy
-            calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var),  # turb_autocorr
-            calc_mad(turb_list, n),                                 # turb_mad
-            np.polyfit(range(n), turb_list, 1)[0],                  # turb_slope
-            turb_list[-1] - turb_list[0],                           # turb_delta
-        ]
+        # Extract features using configurable feature set
+        features = extract_features_by_name(
+            turb_list, n, 
+            amplitudes=last_amplitudes,
+            feature_names=feature_names
+        )
         
         X.append(features)
         # Label: 0 = IDLE, 1 = MOTION (from metadata)
         y.append(1 if pkt.get('is_motion', False) else 0)
     
-    return np.array(X), np.array(y)
+    return np.array(X), np.array(y), feature_names
 
 
 # ============================================================================
@@ -385,7 +412,9 @@ def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
     if fp_weight != 1.0 and class_weight is not None:
         class_weight[0] *= fp_weight
     
-    model = build_model(hidden_layers=hidden_layers, use_dropout=use_dropout)
+    # Determine number of features from input shape
+    num_features = X.shape[1] if hasattr(X, 'shape') else len(X[0])
+    model = build_model(hidden_layers=hidden_layers, num_features=num_features, use_dropout=use_dropout)
     
     # Callbacks for training robustness
     callbacks = [
@@ -708,6 +737,247 @@ def export_test_data(model, scaler, X_test_raw, y_test, output_path):
 
 
 # ============================================================================
+# Feature Importance (SHAP)
+# ============================================================================
+
+def calculate_shap_importance(model, X, feature_names, n_samples=500):
+    """
+    Calculate SHAP feature importance values.
+    
+    SHAP (SHapley Additive exPlanations) provides theoretically grounded
+    feature importance based on game theory. Each feature's importance
+    is its average marginal contribution across all possible coalitions.
+    
+    Args:
+        model: Trained Keras model
+        X: Feature matrix (normalized)
+        feature_names: List of feature names
+        n_samples: Number of samples to explain (default: 500)
+    
+    Returns:
+        dict: {feature_name: mean_abs_shap_value} sorted by importance
+    """
+    try:
+        import shap
+    except ImportError:
+        print("Error: SHAP not installed. Run: pip install shap")
+        return None
+    
+    print("\nCalculating SHAP feature importance...")
+    print("  (This may take 1-2 minutes)")
+    
+    # Use subset for background (SHAP is expensive)
+    n_background = min(100, len(X))
+    background_idx = np.random.choice(len(X), n_background, replace=False)
+    background = X[background_idx]
+    
+    # Create explainer (KernelExplainer works with any model)
+    explainer = shap.KernelExplainer(model.predict, background)
+    
+    # Calculate SHAP values on subset
+    n_explain = min(n_samples, len(X))
+    explain_idx = np.random.choice(len(X), n_explain, replace=False)
+    X_explain = X[explain_idx]
+    
+    with suppress_stderr():
+        shap_values = explainer.shap_values(X_explain)
+    
+    # Handle different shap_values shapes
+    if isinstance(shap_values, list):
+        shap_values = shap_values[0]
+    if len(shap_values.shape) > 2:
+        shap_values = shap_values.squeeze()
+    
+    # Calculate mean absolute SHAP value per feature
+    mean_abs_shap = np.mean(np.abs(shap_values), axis=0)
+    
+    # Create importance dict
+    importance = {name: float(val) for name, val in zip(feature_names, mean_abs_shap)}
+    
+    # Sort by importance (descending)
+    importance = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True))
+    
+    return importance
+
+
+def print_feature_importance(importance, title="Feature Importance (SHAP)"):
+    """
+    Print feature importance table with visual bars.
+    
+    Args:
+        importance: Dict of {feature_name: importance_value}
+        title: Title for the table
+    """
+    print(f"\n{'='*70}")
+    print(f"  {title}")
+    print(f"{'='*70}\n")
+    
+    total = sum(importance.values())
+    if total < 1e-10:
+        print("  No importance values calculated.\n")
+        return
+    
+    print(f"{'Rank':<6} {'Feature':<22} {'SHAP Value':>12} {'Contribution':>14}")
+    print("-" * 70)
+    
+    for rank, (name, value) in enumerate(importance.items(), 1):
+        pct = (value / total * 100)
+        bar_len = int(pct / 2.5)  # Scale to ~40 chars max
+        bar = '█' * bar_len
+        print(f"{rank:<6} {name:<22} {value:>12.6f} {pct:>8.1f}% {bar}")
+    
+    print("-" * 70)
+    print(f"{'':6} {'TOTAL':<22} {total:>12.6f} {'100.0%':>14}")
+    print()
+    
+    # Recommendations
+    sorted_features = list(importance.keys())
+    low_importance = [f for f in sorted_features if importance[f] / total < 0.03]
+    high_importance = [f for f in sorted_features[:3]]
+    
+    print("Recommendations:")
+    print(f"  Most important: {', '.join(high_importance)}")
+    if low_importance:
+        print(f"  Low importance (<3%): {', '.join(low_importance)}")
+        print("  Consider removing low-importance features to reduce model size.")
+    print()
+
+
+# ============================================================================
+# Ablation Study
+# ============================================================================
+
+def run_ablation_study(X, y, feature_names, hidden_layers=[16, 8], fp_weight=2.0):
+    """
+    Run ablation study: train model removing one feature at a time.
+    
+    This helps identify which features are truly important by measuring
+    the impact of removing each one. Features whose removal improves or
+    doesn't affect F1 are candidates for elimination.
+    
+    Args:
+        X: Feature matrix (NOT normalized - scaler fit per fold)
+        y: Labels
+        feature_names: List of feature names
+        hidden_layers: Model architecture
+        fp_weight: FP penalty weight
+    
+    Returns:
+        list: Results for each ablation experiment
+    """
+    print("\n" + "="*80)
+    print("                         ABLATION STUDY")
+    print("="*80 + "\n")
+    print("Training models with one feature removed at a time to measure impact...\n")
+    
+    results = []
+    
+    # Baseline (all features)
+    print(f"[1/{len(feature_names)+1}] Baseline (all {len(feature_names)} features)...")
+    with suppress_stderr():
+        baseline_cv = cross_validate(X, y, hidden_layers=hidden_layers, n_folds=5,
+                                     max_epochs=200, fp_weight=fp_weight)
+    baseline_f1 = baseline_cv['f1_mean']
+    results.append({
+        'removed': 'None (baseline)',
+        'n_features': len(feature_names),
+        'f1_mean': baseline_f1,
+        'f1_std': baseline_cv['f1_std'],
+        'recall_mean': baseline_cv['recall_mean'],
+        'fp_rate_mean': baseline_cv['fp_rate_mean'],
+        'delta_f1': 0.0,
+    })
+    print(f"    F1: {baseline_f1:.2f}% (+/- {baseline_cv['f1_std']:.2f}%)\n")
+    
+    # Remove each feature one at a time
+    for i, feature_name in enumerate(feature_names):
+        print(f"[{i+2}/{len(feature_names)+1}] Removing '{feature_name}'...")
+        
+        # Create X without this feature
+        X_ablated = np.delete(X, i, axis=1)
+        
+        # Adjust architecture for smaller input
+        adjusted_layers = hidden_layers.copy()
+        
+        with suppress_stderr():
+            cv = cross_validate(X_ablated, y, hidden_layers=adjusted_layers, n_folds=5,
+                               max_epochs=200, fp_weight=fp_weight)
+        
+        f1 = cv['f1_mean']
+        delta = f1 - baseline_f1
+        
+        results.append({
+            'removed': feature_name,
+            'n_features': len(feature_names) - 1,
+            'f1_mean': f1,
+            'f1_std': cv['f1_std'],
+            'recall_mean': cv['recall_mean'],
+            'fp_rate_mean': cv['fp_rate_mean'],
+            'delta_f1': delta,
+        })
+        
+        direction = "↑" if delta > 0.1 else "↓" if delta < -0.1 else "≈"
+        print(f"    F1: {f1:.2f}% ({direction} {delta:+.2f}%)\n")
+    
+    # Print summary table
+    print("\n" + "="*85)
+    print("                           ABLATION SUMMARY")
+    print("="*85 + "\n")
+    
+    # Sort by delta (worst impact first = most important features)
+    sorted_results = sorted(results[1:], key=lambda r: r['delta_f1'])
+    
+    print(f"{'Removed Feature':<24} {'F1 (CV)':>14} {'Delta':>10} {'Recall':>10} {'FP Rate':>10} {'Note':<12}")
+    print("-"*85)
+    
+    # Print baseline first
+    bl = results[0]
+    print(f"{'None (baseline)':<24} {bl['f1_mean']:>8.2f}% +/-{bl['f1_std']:.1f} "
+          f"{'---':>10} {bl['recall_mean']:>9.1f}% {bl['fp_rate_mean']:>9.1f}%")
+    print("-"*85)
+    
+    important_features = []
+    removable_features = []
+    
+    for r in sorted_results:
+        delta_str = f"{r['delta_f1']:+.2f}%"
+        
+        note = ""
+        if r['delta_f1'] < -0.5:
+            note = "IMPORTANT"
+            important_features.append(r['removed'])
+        elif r['delta_f1'] > 0.1:
+            note = "removable"
+            removable_features.append(r['removed'])
+        elif abs(r['delta_f1']) <= 0.1:
+            note = "neutral"
+        
+        print(f"{r['removed']:<24} {r['f1_mean']:>8.2f}% +/-{r['f1_std']:.1f} "
+              f"{delta_str:>10} {r['recall_mean']:>9.1f}% {r['fp_rate_mean']:>9.1f}% {note:<12}")
+    
+    print("-"*85)
+    
+    # Recommendations
+    print("\nInterpretation:")
+    print("  - Delta < 0: Removing hurts performance (feature is important)")
+    print("  - Delta > 0: Removing helps performance (feature adds noise)")
+    print("  - Delta ≈ 0: Feature has minimal impact (candidate for removal)")
+    
+    print("\nRecommendations:")
+    if important_features:
+        print(f"  KEEP (removing hurts F1 by >0.5%): {', '.join(important_features)}")
+    if removable_features:
+        print(f"  REMOVE (removing helps F1 by >0.1%): {', '.join(removable_features)}")
+    
+    neutral = [r['removed'] for r in sorted_results if abs(r['delta_f1']) <= 0.1]
+    if neutral:
+        print(f"  NEUTRAL (minimal impact): {', '.join(neutral)}")
+    
+    print()
+    return results
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -775,7 +1045,8 @@ def show_info():
     print()
 
 
-def train_all(fp_weight=2.0, exclude_chips=None, seed=None):
+def train_all(fp_weight=2.0, exclude_chips=None, seed=None, feature_names=None,
+              feature_importance=False, ablation=False):
     """
     Train models with all available data.
     
@@ -785,6 +1056,10 @@ def train_all(fp_weight=2.0, exclude_chips=None, seed=None):
         exclude_chips: Optional list of chip names to exclude from training
         seed: Optional random seed for reproducible training. If None, a random
               seed is generated and saved for reproducibility.
+        feature_names: List of feature names to use. If None, uses DEFAULT_FEATURES.
+                       Use EXTENDED_FEATURES for 16-feature set, or custom list.
+        feature_importance: If True, calculate and display SHAP feature importance.
+        ablation: If True, run ablation study instead of training.
     """
     from ml_detector import ML_SUBCARRIERS
     subcarriers = ML_SUBCARRIERS
@@ -851,17 +1126,28 @@ def train_all(fp_weight=2.0, exclude_chips=None, seed=None):
         print(f"  {label}: {count} packets")
     print(f"  Total: {stats['total']} packets")
     
+    # Determine feature set to use
+    if feature_names is None:
+        feature_names = DEFAULT_FEATURES.copy()
+    
     # Extract features
     print("\nExtracting features...")
-    X, y = extract_features(all_packets, subcarriers=subcarriers)
+    X, y, actual_feature_names = extract_features(all_packets, subcarriers=subcarriers,
+                                                   feature_names=feature_names)
     print(f"  Samples: {len(X)}")
-    print(f"  Features: {len(FEATURE_NAMES)}")
+    print(f"  Features: {len(actual_feature_names)}")
+    print(f"  Feature set: {', '.join(actual_feature_names)}")
     n_idle = np.sum(y == 0)
     n_motion = np.sum(y == 1)
     print(f"  Class balance: IDLE={n_idle}, MOTION={n_motion}")
     if n_idle > 0 and n_motion > 0:
         ratio = max(n_idle, n_motion) / min(n_idle, n_motion)
         print(f"  Imbalance ratio: {ratio:.1f}:1")
+    
+    # Run ablation study if requested
+    if ablation:
+        run_ablation_study(X, y, actual_feature_names, fp_weight=fp_weight)
+        return 0
     
     # 5-fold cross-validation for reliable evaluation
     if fp_weight != 1.0:
@@ -902,6 +1188,12 @@ def train_all(fp_weight=2.0, exclude_chips=None, seed=None):
     print(f"  Precision: {test_metrics['precision']:.1f}%")
     print(f"  FP Rate:   {test_metrics['fp_rate']:.1f}%")
     print(f"  F1 Score:  {f1:.1f}%")
+    
+    # Calculate SHAP feature importance if requested
+    if feature_importance:
+        importance = calculate_shap_importance(model, X_scaled, actual_feature_names)
+        if importance:
+            print_feature_importance(importance)
     
     # Export models
     print("\nExporting models...")
@@ -1001,8 +1293,9 @@ def experiment_architectures(exclude_chips=None):
     print(f"  Total: {stats['total']} packets")
     
     print("\nExtracting features...")
-    X, y = extract_features(all_packets, subcarriers=subcarriers)
+    X, y, feature_names = extract_features(all_packets, subcarriers=subcarriers)
     print(f"  Samples: {len(X)}")
+    print(f"  Features: {len(feature_names)}")
     print(f"  Class balance: IDLE={np.sum(y==0)}, MOTION={np.sum(y==1)}")
     
     # Define architectures to compare
@@ -1128,11 +1421,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  python tools/10_train_ml_model.py                    # Train with all chips
+  python tools/10_train_ml_model.py                    # Train with default 12 features
   python tools/10_train_ml_model.py --info              # Show dataset info
   python tools/10_train_ml_model.py --experiment        # Compare architectures
   python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
   python tools/10_train_ml_model.py --seed 42          # Train with specific seed
+  
+Feature selection:
+  python tools/10_train_ml_model.py --features extended             # Use 16 features
+  python tools/10_train_ml_model.py --features extended --shap      # With SHAP importance
+  python tools/10_train_ml_model.py --features extended --ablation  # Ablation study
+  python tools/10_train_ml_model.py --exclude-features turb_delta,amp_kurtosis  # Exclude features
 
 Files with use_cv_normalization=true in dataset_info.json use CV normalization
 during feature extraction (for data collected without gain lock).
@@ -1157,6 +1456,17 @@ To compare ML with MVS, use:
     parser.add_argument('--include-all-chips', action='store_true',
                        help='Include all chips in training (overrides default ESP32 exclusion)')
     
+    # Feature selection arguments
+    parser.add_argument('--features', type=str, default=None,
+                       help='Feature set to use: "default" (12 features), "extended" (16 features), '
+                            'or comma-separated list of feature names')
+    parser.add_argument('--exclude-features', type=str, default=None,
+                       help='Comma-separated list of feature names to exclude')
+    parser.add_argument('--shap', action='store_true',
+                       help='Calculate and display SHAP feature importance')
+    parser.add_argument('--ablation', action='store_true',
+                       help='Run ablation study (test removing each feature)')
+    
     args = parser.parse_args()
     
     if args.info:
@@ -1171,7 +1481,33 @@ To compare ML with MVS, use:
     if args.experiment:
         return experiment_architectures(exclude_chips=exclude_chips)
     
-    return train_all(fp_weight=args.fp_weight, exclude_chips=exclude_chips, seed=args.seed)
+    # Parse feature selection
+    feature_names = None
+    if args.features:
+        if args.features.lower() == 'default':
+            feature_names = DEFAULT_FEATURES.copy()
+        elif args.features.lower() == 'extended':
+            feature_names = EXTENDED_FEATURES.copy()
+        else:
+            # Custom comma-separated list
+            feature_names = [f.strip() for f in args.features.split(',')]
+    
+    # Handle feature exclusion
+    if args.exclude_features:
+        if feature_names is None:
+            feature_names = DEFAULT_FEATURES.copy()
+        exclude_set = set(f.strip() for f in args.exclude_features.split(','))
+        feature_names = [f for f in feature_names if f not in exclude_set]
+        print(f"Excluding features: {exclude_set}")
+    
+    return train_all(
+        fp_weight=args.fp_weight, 
+        exclude_chips=exclude_chips, 
+        seed=args.seed,
+        feature_names=feature_names,
+        feature_importance=args.shap,
+        ablation=args.ablation
+    )
 
 
 if __name__ == '__main__':

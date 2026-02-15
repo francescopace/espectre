@@ -4,8 +4,8 @@
  * Extracts 12 non-redundant features from CSI turbulence data for ML-based
  * motion detection. Port of micro-espectre/src/features.py to C++.
  * 
- * All features are computed from the turbulence buffer (50 samples),
- * ensuring stable statistical estimates.
+ * 11 features are computed from the turbulence buffer (50 samples),
+ * 1 feature (amp_entropy) is computed from subcarrier amplitudes.
  * 
  * Features (in order):
  *  0. turb_mean      - Mean of turbulence buffer
@@ -15,11 +15,14 @@
  *  4. turb_zcr       - Zero-crossing rate around mean
  *  5. turb_skewness  - Fisher's skewness (3rd moment)
  *  6. turb_kurtosis  - Fisher's excess kurtosis (4th moment)
- *  7. turb_entropy   - Shannon entropy
+ *  7. turb_entropy   - Shannon entropy (turbulence)
  *  8. turb_autocorr  - Lag-1 autocorrelation
  *  9. turb_mad       - Median absolute deviation
  * 10. turb_slope     - Linear regression slope
- * 11. turb_delta     - Last - first value
+ * 11. amp_entropy    - Shannon entropy (amplitude distribution)
+ * 
+ * Note: turb_delta was replaced by amp_entropy based on SHAP importance
+ * analysis (turb_delta had 0.1% contribution, amp_entropy has 4.5%).
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -218,25 +221,71 @@ inline float calc_mad(const float* values, uint16_t count) {
     return calculate_median_float(abs_devs, count);
 }
 
+// Number of bins for amplitude entropy (fewer bins for small sample size ~12)
+constexpr uint8_t ML_AMP_ENTROPY_BINS = 5;
+
 /**
- * Extract all 12 ML features from turbulence buffer.
+ * Calculate Shannon entropy of amplitude distribution across subcarriers.
  * 
- * All features are computed from the turbulence buffer (typically 50 samples),
- * ensuring stable statistical estimates. No amplitude-only features.
+ * Higher entropy indicates more uniform amplitude distribution.
+ * Motion tends to create non-uniform patterns (lower entropy).
+ * 
+ * @param amplitudes Array of subcarrier amplitudes (typically 12 values)
+ * @param count Number of amplitude values
+ * @return Shannon entropy in bits
+ */
+inline float calc_amp_entropy(const float* amplitudes, uint8_t count) {
+    if (count < 2 || amplitudes == nullptr) return 0.0f;
+    
+    // Find min/max
+    float min_val = amplitudes[0];
+    float max_val = amplitudes[0];
+    for (uint8_t i = 1; i < count; i++) {
+        if (amplitudes[i] < min_val) min_val = amplitudes[i];
+        if (amplitudes[i] > max_val) max_val = amplitudes[i];
+    }
+    
+    float range = max_val - min_val;
+    if (range < 1e-10f) return 0.0f;
+    
+    // Create histogram
+    uint8_t bins[ML_AMP_ENTROPY_BINS] = {0};
+    float bin_width = range / ML_AMP_ENTROPY_BINS;
+    
+    for (uint8_t i = 0; i < count; i++) {
+        int bin_idx = static_cast<int>((amplitudes[i] - min_val) / bin_width);
+        if (bin_idx >= ML_AMP_ENTROPY_BINS) bin_idx = ML_AMP_ENTROPY_BINS - 1;
+        bins[bin_idx]++;
+    }
+    
+    // Calculate entropy
+    float entropy = 0.0f;
+    float log2 = std::log(2.0f);
+    for (uint8_t i = 0; i < ML_AMP_ENTROPY_BINS; i++) {
+        if (bins[i] > 0) {
+            float p = static_cast<float>(bins[i]) / count;
+            entropy -= p * std::log(p) / log2;
+        }
+    }
+    
+    return entropy;
+}
+
+/**
+ * Extract all 12 ML features from turbulence buffer and amplitudes.
+ * 
+ * 11 features are computed from the turbulence buffer (typically 50 samples),
+ * 1 feature (amp_entropy) is computed from subcarrier amplitudes.
  * 
  * @param turb_buffer Turbulence buffer
  * @param turb_count Number of valid values in turbulence buffer
- * @param amplitudes Ignored (kept for API compatibility, can be nullptr)
- * @param amp_count Ignored
+ * @param amplitudes Subcarrier amplitudes (needed for amp_entropy)
+ * @param amp_count Number of amplitude values
  * @param features_out Output array for 12 features (must be pre-allocated)
  */
 inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
                                 const float* amplitudes, uint8_t amp_count,
                                 float* features_out) {
-    // Suppress unused parameter warnings
-    (void)amplitudes;
-    (void)amp_count;
-    
     // Initialize to zero
     for (uint8_t i = 0; i < ML_NUM_FEATURES; i++) {
         features_out[i] = 0.0f;
@@ -276,7 +325,7 @@ inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
     // Kurtosis (pre-computed mean/std passed to avoid redundant calculation)
     float turb_kurtosis = calc_kurtosis(turb_buffer, turb_count, turb_mean, turb_std);
     
-    // Shannon entropy
+    // Shannon entropy (turbulence)
     float turb_entropy = calc_entropy(turb_buffer, turb_count);
     
     // Lag-1 autocorrelation
@@ -298,7 +347,9 @@ inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
     }
     
     float turb_slope = (denominator > 0.0f) ? (numerator / denominator) : 0.0f;
-    float turb_delta = turb_buffer[turb_count - 1] - turb_buffer[0];
+    
+    // Amplitude entropy (cross-subcarrier feature)
+    float amp_entropy = calc_amp_entropy(amplitudes, amp_count);
     
     // Fill output array in correct order
     features_out[0] = turb_mean;       // 0
@@ -312,7 +363,7 @@ inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
     features_out[8] = turb_autocorr;   // 8
     features_out[9] = turb_mad;        // 9
     features_out[10] = turb_slope;     // 10
-    features_out[11] = turb_delta;     // 11
+    features_out[11] = amp_entropy;    // 11
 }
 
 }  // namespace espectre

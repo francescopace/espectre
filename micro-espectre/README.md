@@ -62,7 +62,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | ML Features (12) | ✅ | ✅ | mean, std, max, min, zcr, skewness, kurtosis, entropy, autocorr, mad, slope, delta |
 | **Calibration (MVS only)** |
 | NBVI | ✅ | ✅ | 12 non-consecutive subcarriers |
-| Adaptive Threshold | ✅ | ✅ | P95 of baseline variance |
+| Adaptive Threshold | ✅ | ✅ | P95 × 1.1 of baseline variance |
 | **Gain Lock** |
 | AGC/FFT Lock | ✅ | ✅ | Hardware gain stabilization (S3/C3/C5/C6) |
 | CV Normalization | ✅ | ✅ | Gain-invariant normalization when lock skipped |

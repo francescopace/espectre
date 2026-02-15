@@ -30,3 +30,4 @@ gcovr>=8.4              # Code coverage reports for C++ tests
 # ML Dependencies
 tensorflow>=2.20.0      # Machine learning framework
 scikit-learn>=1.8.0     # Machine learning library
+shap>=0.46.0            # SHAP feature importance analysis

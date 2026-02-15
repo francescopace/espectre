@@ -182,7 +182,7 @@ ESPectre uses a focused processing pipeline for motion detection:
        │
        ▼
 ┌─────────────┐
-│  Adaptive   │  auto: percentile-based | min: max baseline
+│  Adaptive   │  auto: P95 × 1.1 | min: P100
 │  Threshold  │  or fixed manual value
 └──────┬──────┘
        │

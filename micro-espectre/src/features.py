@@ -2,12 +2,13 @@
 Micro-ESPectre - CSI Feature Extraction (Publish-Time)
 
 Pure Python implementation for MicroPython.
-Extracts 12 non-redundant statistical features from turbulence buffer
+Extracts statistical features from turbulence buffer and subcarrier amplitudes
 for ML-based motion detection.
 
 Feature design principles:
   - No redundant features (each adds unique information)
-  - All turbulence-based (stable estimates from 50-sample buffer)
+  - Turbulence-based features from sliding window (stable estimates)
+  - Cross-subcarrier features from current packet amplitudes
   - MicroPython compatible (no numpy at runtime)
   - Optimized for motion detection separability
 
@@ -279,41 +280,91 @@ def calc_mad(turbulence_buffer, buffer_count):
 
 
 # ============================================================================
-# Full Feature Extraction (12 features for ML)
+# Cross-Subcarrier Features (from amplitude array)
 # ============================================================================
 
-def extract_all_features(turbulence_buffer, buffer_count, amplitudes=None):
+def calc_amp_entropy(amplitudes, n_bins=5):
     """
-    Extract all 12 features from turbulence buffer.
+    Calculate entropy of amplitude distribution across subcarriers.
     
-    All features are computed from the turbulence buffer (50 samples),
-    ensuring stable statistical estimates. No amplitude-only features
-    (which would have only 12 samples and noisy higher-order moments).
+    Higher entropy indicates more uniform amplitude distribution.
+    Motion tends to create non-uniform patterns (lower entropy).
     
-    Features are ordered as expected by the ML model:
-     0. turb_mean      - Mean of turbulence
-     1. turb_std       - Standard deviation of turbulence
-     2. turb_max       - Maximum turbulence
-     3. turb_min       - Minimum turbulence
-     4. turb_zcr       - Zero-crossing rate
-     5. turb_skewness  - Fisher's skewness (3rd moment)
-     6. turb_kurtosis  - Fisher's excess kurtosis (4th moment)
-     7. turb_entropy   - Shannon entropy
-     8. turb_autocorr  - Lag-1 autocorrelation
-     9. turb_mad       - Median absolute deviation
-    10. turb_slope     - Linear regression slope
-    11. turb_delta     - Last - first value
+    Args:
+        amplitudes: List of subcarrier amplitudes (typically 12 values)
+        n_bins: Number of histogram bins (default: 5, suitable for 12 samples)
+    
+    Returns:
+        float: Shannon entropy in bits
+    """
+    if amplitudes is None:
+        return 0.0
+    n = len(amplitudes)
+    if n < 2:
+        return 0.0
+    
+    min_val = min(amplitudes)
+    max_val = max(amplitudes)
+    
+    if max_val - min_val < 1e-10:
+        return 0.0
+    
+    bin_width = (max_val - min_val) / n_bins
+    bins = [0] * n_bins
+    
+    for val in amplitudes:
+        bin_idx = int((val - min_val) / bin_width)
+        if bin_idx >= n_bins:
+            bin_idx = n_bins - 1
+        bins[bin_idx] += 1
+    
+    entropy = 0.0
+    log2 = math.log(2)
+    for count in bins:
+        if count > 0:
+            p = count / n
+            entropy -= p * math.log(p) / log2
+    
+    return entropy
+
+
+# ============================================================================
+# Feature Registry and Configurable Extraction
+# ============================================================================
+
+# Default feature set (12 features: 11 turbulence + 1 cross-subcarrier)
+# Note: turb_delta was replaced by amp_entropy based on SHAP importance analysis.
+# See tools/10_train_ml_model.py for full SHAP feature importance table.
+DEFAULT_FEATURES = [
+    'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_zcr',
+    'turb_skewness', 'turb_kurtosis', 'turb_entropy', 'turb_autocorr', 'turb_mad',
+    'turb_slope', 'amp_entropy'
+]
+
+
+def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, 
+                              feature_names=None):
+    """
+    Extract specified features from turbulence buffer and amplitudes.
+    
+    This is the main feature extraction function that supports configurable
+    feature selection. Use this for training experiments with different
+    feature sets.
     
     Args:
         turbulence_buffer: List/buffer of turbulence values
         buffer_count: Number of valid values in buffer
-        amplitudes: Ignored (kept for API compatibility)
+        amplitudes: List of subcarrier amplitudes (needed for amp_* features)
+        feature_names: List of feature names to extract (default: DEFAULT_FEATURES)
     
     Returns:
-        list: 12 feature values in order
+        list: Feature values in the order specified by feature_names
     """
+    if feature_names is None:
+        feature_names = DEFAULT_FEATURES
+    
     if buffer_count < 2:
-        return [0.0] * 12
+        return [0.0] * len(feature_names)
     
     # Convert to list if needed
     if hasattr(turbulence_buffer, '__iter__') and not isinstance(turbulence_buffer, list):
@@ -323,35 +374,16 @@ def extract_all_features(turbulence_buffer, buffer_count, amplitudes=None):
     
     n = len(turb_list)
     if n < 2:
-        return [0.0] * 12
+        return [0.0] * len(feature_names)
     
-    # Basic statistics (computed once, reused)
+    # Pre-compute common turbulence statistics (computed once, reused)
     turb_mean = sum(turb_list) / n
+    turb_var = sum((x - turb_mean) ** 2 for x in turb_list) / n
+    turb_std = math.sqrt(turb_var) if turb_var > 0 else 0.0
     turb_min = min(turb_list)
     turb_max = max(turb_list)
     
-    # Variance and std
-    turb_var = sum((x - turb_mean) ** 2 for x in turb_list) / n
-    turb_std = math.sqrt(turb_var) if turb_var > 0 else 0.0
-    
-    # Zero-crossing rate
-    turb_zcr = calc_zero_crossing_rate(turb_list, n, mean=turb_mean)
-    
-    # Skewness and kurtosis (pre-computed mean/std avoids redundant calculation)
-    turb_skewness = calc_skewness(turb_list, n, turb_mean, turb_std)
-    turb_kurtosis = calc_kurtosis(turb_list, n, turb_mean, turb_std)
-    
-    # Shannon entropy
-    turb_entropy = calc_entropy_turb(turb_list, n)
-    
-    # Lag-1 autocorrelation
-    turb_autocorr = calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var)
-    
-    # Median absolute deviation
-    turb_mad = calc_mad(turb_list, n)
-    
-    # Temporal features
-    # Slope via linear regression: slope = sum((i - mean_i)(x - mean_x)) / sum(i - mean_i)^2
+    # Pre-compute slope (needed for turb_slope)
     mean_i = (n - 1) / 2.0
     numerator = 0.0
     denominator = 0.0
@@ -360,29 +392,99 @@ def extract_all_features(turbulence_buffer, buffer_count, amplitudes=None):
         diff_x = turb_list[i] - turb_mean
         numerator += diff_i * diff_x
         denominator += diff_i * diff_i
-    
     turb_slope = numerator / denominator if denominator > 0 else 0.0
-    turb_delta = turb_list[-1] - turb_list[0]
     
-    return [
-        turb_mean,      # 0
-        turb_std,       # 1
-        turb_max,       # 2
-        turb_min,       # 3
-        turb_zcr,       # 4
-        turb_skewness,  # 5
-        turb_kurtosis,  # 6
-        turb_entropy,   # 7
-        turb_autocorr,  # 8
-        turb_mad,       # 9
-        turb_slope,     # 10
-        turb_delta,     # 11
-    ]
+    # Feature calculation lookup table
+    feature_calculators = {
+        # Turbulence buffer features (11 used in DEFAULT_FEATURES)
+        'turb_mean': lambda: turb_mean,
+        'turb_std': lambda: turb_std,
+        'turb_max': lambda: turb_max,
+        'turb_min': lambda: turb_min,
+        'turb_zcr': lambda: calc_zero_crossing_rate(turb_list, n, mean=turb_mean),
+        'turb_skewness': lambda: calc_skewness(turb_list, n, turb_mean, turb_std),
+        'turb_kurtosis': lambda: calc_kurtosis(turb_list, n, turb_mean, turb_std),
+        'turb_entropy': lambda: calc_entropy_turb(turb_list, n),
+        'turb_autocorr': lambda: calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var),
+        'turb_mad': lambda: calc_mad(turb_list, n),
+        'turb_slope': lambda: turb_slope,
+        
+        # Cross-subcarrier feature (1 used in DEFAULT_FEATURES)
+        'amp_entropy': lambda: calc_amp_entropy(amplitudes),
+        
+        # Features removed from DEFAULT_FEATURES (kept for training experiments)
+        # See tools/10_train_ml_model.py for SHAP importance values
+        'turb_delta': lambda: turb_list[-1] - turb_list[0],
+        'amp_range': lambda: (max(amplitudes) - min(amplitudes)) if amplitudes and len(amplitudes) >= 2 else 0.0,
+        'amp_skewness': lambda: _calc_amp_moment(amplitudes, 3),  # 3rd moment (skewness)
+        'amp_kurtosis': lambda: _calc_amp_moment(amplitudes, 4),  # 4th moment (kurtosis)
+    }
+    
+    # Extract requested features
+    features = []
+    for name in feature_names:
+        if name not in feature_calculators:
+            raise ValueError(f"Unknown feature: {name}. Available: {list(feature_calculators.keys())}")
+        features.append(feature_calculators[name]())
+    
+    return features
 
 
-# Feature name mapping for convenience
-FEATURE_NAMES = [
-    'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_zcr',
-    'turb_skewness', 'turb_kurtosis', 'turb_entropy', 'turb_autocorr', 'turb_mad',
-    'turb_slope', 'turb_delta'
-]
+def _calc_amp_moment(amplitudes, moment):
+    """Calculate skewness (moment=3) or kurtosis (moment=4) of amplitudes."""
+    if amplitudes is None:
+        return 0.0
+    n = len(amplitudes)
+    if n < moment:
+        return 0.0
+    
+    mean = sum(amplitudes) / n
+    variance = sum((x - mean) ** 2 for x in amplitudes) / n
+    std = math.sqrt(variance) if variance > 0 else 0.0
+    
+    if std < 1e-10:
+        return 0.0
+    
+    m = sum((x - mean) ** moment for x in amplitudes) / n
+    result = m / (std ** moment)
+    return result - 3.0 if moment == 4 else result  # Excess kurtosis
+
+
+# ============================================================================
+# Full Feature Extraction (12 features for ML) - Backward Compatible
+# ============================================================================
+
+def extract_all_features(turbulence_buffer, buffer_count, amplitudes=None):
+    """
+    Extract all 12 default features from turbulence buffer and amplitudes.
+    
+    This function extracts the default 12 features. For configurable feature
+    extraction, use extract_features_by_name().
+    
+    Features are ordered as expected by the ML model:
+     0. turb_mean      - Mean of turbulence
+     1. turb_std       - Standard deviation of turbulence
+     2. turb_max       - Maximum turbulence
+     3. turb_min       - Minimum turbulence
+     4. turb_zcr       - Zero-crossing rate
+     5. turb_skewness  - Fisher's skewness (3rd moment)
+     6. turb_kurtosis  - Fisher's excess kurtosis (4th moment)
+     7. turb_entropy   - Shannon entropy (turbulence)
+     8. turb_autocorr  - Lag-1 autocorrelation
+     9. turb_mad       - Median absolute deviation
+    10. turb_slope     - Linear regression slope
+    11. amp_entropy    - Shannon entropy (amplitude distribution)
+    
+    Args:
+        turbulence_buffer: List/buffer of turbulence values
+        buffer_count: Number of valid values in buffer
+        amplitudes: List of subcarrier amplitudes (needed for amp_entropy)
+    
+    Returns:
+        list: 12 feature values in order
+    """
+    return extract_features_by_name(turbulence_buffer, buffer_count, amplitudes, DEFAULT_FEATURES)
+
+
+# Feature name mapping for convenience (matches DEFAULT_FEATURES)
+FEATURE_NAMES = DEFAULT_FEATURES

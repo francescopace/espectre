@@ -34,7 +34,7 @@ pio test -f test_motion_detection
 
 
 ### Target Metrics (Motion Detection)
-- **Recall**: >90-97% depending on chip (detect real movements)
+- **Recall**: >90-95% depending on chip (detect real movements)
 - **FP Rate**: <10-20% depending on chip (avoid false alarms)
 
 See [PERFORMANCE.md](../PERFORMANCE.md) for detailed targets per chip and algorithm.

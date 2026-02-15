@@ -194,7 +194,7 @@ class SegmentationContext:
             turbulence = math.sqrt(variance)
         return turbulence, amplitudes
     
-    def calculate_spatial_turbulence(self, csi_data, selected_subcarriers=None):
+    def calculate_spatial_turbulence(self, csi_data, selected_subcarriers=None, return_amplitudes=False):
         """
         Calculate spatial turbulence and store amplitudes for features
         
@@ -204,9 +204,11 @@ class SegmentationContext:
         Args:
             csi_data: array of int8 I/Q values (alternating real, imag)
             selected_subcarriers: list of subcarrier indices to use (default: all up to 64)
+            return_amplitudes: if True, return (turbulence, amplitudes) tuple
             
         Returns:
             float: Turbulence value (CV-normalized or raw std depending on config)
+            OR tuple (turbulence, amplitudes) if return_amplitudes=True
         
         Note: Stores last amplitudes for feature calculation at publish time.
         """
@@ -214,6 +216,8 @@ class SegmentationContext:
             csi_data, selected_subcarriers, self.use_cv_normalization
         )
         self.last_amplitudes = amplitudes
+        if return_amplitudes:
+            return turbulence, amplitudes
         return turbulence
     
     def _calculate_variance_two_pass(self):

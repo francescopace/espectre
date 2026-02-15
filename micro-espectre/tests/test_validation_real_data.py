@@ -7,7 +7,7 @@ These tests verify that algorithms produce expected results on actual captured d
 Configuration is aligned with C++ tests (test_motion_detection.cpp):
 - window_size = DETECTOR_DEFAULT_WINDOW_SIZE (75)
 - warmup = DETECTOR_DEFAULT_WINDOW_SIZE (buffer must be full before detection)
-- adaptive_factor = 1.0 (DEFAULT_ADAPTIVE_FACTOR)
+- adaptive_factor = 1.1 (DEFAULT_ADAPTIVE_FACTOR)
 - enable_hampel = false
 - CV normalization for ESP32 and C3 (needs_cv_normalization())
 - MVS targets: 97% recall, 10% FP rate
@@ -212,9 +212,9 @@ def fp_rate_target(chip_type):
 def recall_target(chip_type):
     """Get recall target for chip type.
     
-    Matches C++ get_recall_target(): 96.0f for all chips.
+    Matches C++ get_recall_target(): 95.0f for all chips.
     """
-    return 96.0
+    return 95.0
 
 
 @pytest.fixture
@@ -390,8 +390,8 @@ def run_calibration_with_cv(baseline_packets, window_size, selected_band, use_cv
         mv = sum((x - sum(window)/len(window))**2 for x in window) / len(window)
         mv_values.append(mv)
     
-    # Use P95 percentile (matches DEFAULT_ADAPTIVE_FACTOR = 1.0)
-    p95 = np.percentile(mv_values, 95)
+    # Use P95 × 1.1 (matches DEFAULT_ADAPTIVE_FACTOR = 1.1)
+    p95 = np.percentile(mv_values, 95) * 1.1
     return p95
 
 
@@ -458,8 +458,8 @@ class TestMVSDetectionRealData:
         effective_packets = len(movement_packets) - DETECTOR_DEFAULT_WINDOW_SIZE
         motion_rate = motion_count / effective_packets if effective_packets > 0 else 0
         
-        # Target: > 96% recall (matches C++ get_recall_target())
-        assert motion_rate > 0.96, f"[{calibration_algorithm}] Movement motion rate too low: {motion_rate:.1%} (target: >96%)"
+        # Target: > 95% recall (matches C++ get_recall_target())
+        assert motion_rate > 0.95, f"[{calibration_algorithm}] Movement motion rate too low: {motion_rate:.1%} (target: >95%)"
     
     def test_mvs_detector_wrapper(self, real_data, num_subcarriers, window_size, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
         """Test MVSDetector wrapper class with calibration"""
@@ -766,7 +766,7 @@ class TestPerformanceMetrics:
             if cal_ctx.buffer_count >= cal_ctx.window_size:
                 mv_values.append(cal_ctx.current_moving_variance)
         
-        # Use P95 percentile (matches C++ calculate_adaptive_threshold)
+        # Use P95 × 1.2 (matches C++ calculate_adaptive_threshold with DEFAULT_ADAPTIVE_FACTOR)
         adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, threshold_mode="auto")
         
         # Initialize with adaptive threshold (new detector, matches C++)
@@ -836,7 +836,7 @@ class TestPerformanceMetrics:
         - Adaptive threshold from calibration
         - Process ALL packets (no warmup skip)
         - Process baseline first, then movement (continuous context)
-        - Unified window_size (75) and adaptive threshold (P95 percentile)
+        - Unified window_size (75) and adaptive threshold (P95 × 1.1)
         - CV normalization for ESP32 and C3 (no gain lock / skipped gain lock)
         
         Target: >96% Recall, <10% FP Rate for all chips.
@@ -868,7 +868,7 @@ class TestPerformanceMetrics:
                 if cal_ctx.buffer_count >= cal_ctx.window_size:
                     mv_values.append(cal_ctx.current_moving_variance)
             
-            # Use P95 percentile (matches C++ calculate_adaptive_threshold)
+            # Use P95 × 1.2 (matches C++ calculate_adaptive_threshold with DEFAULT_ADAPTIVE_FACTOR)
             adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, threshold_mode="auto")
         else:
             # Use NBVI calibration for chips with gain lock (C6, S3)

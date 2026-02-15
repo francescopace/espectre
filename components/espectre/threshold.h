@@ -4,11 +4,11 @@
  * Calculates adaptive threshold from calibration baseline values.
  * Called after calibration to compute the detection threshold.
  * 
- * MVS Formula: threshold = percentile(cal_values)
+ * MVS Formula: threshold = percentile(cal_values) × factor
  * 
  * Modes:
- * - "auto": P95 (default, balanced sensitivity/false positives)
- * - "min": P100 (maximum sensitivity, may have FP)
+ * - "auto": P95 × 1.1 (default, balanced sensitivity/false positives)
+ * - "min": P100 × 1.0 (maximum sensitivity, may have FP)
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -26,12 +26,15 @@ namespace espectre {
 // Default percentile for "auto" mode
 constexpr uint8_t DEFAULT_ADAPTIVE_PERCENTILE = 95;
 
+// Multiplier for "auto" mode threshold (reduces false positives)
+constexpr float DEFAULT_ADAPTIVE_FACTOR = 1.1f;
+
 /**
  * Threshold mode enumeration
  */
 enum class ThresholdMode {
-  AUTO,    // P95 (default)
-  MIN,     // P100 (maximum sensitivity)
+  AUTO,    // P95 × 1.1 (default)
+  MIN,     // P100 × 1.0 (maximum sensitivity)
   MANUAL   // User-specified fixed value (no adaptive calculation)
 };
 
@@ -82,9 +85,25 @@ inline float calculate_percentile(const std::vector<float>& values, uint8_t perc
 }
 
 /**
+ * Get threshold multiplier from mode
+ * 
+ * @param mode Threshold mode (AUTO or MIN)
+ * @return multiplier value (1.1 for AUTO, 1.0 for MIN)
+ */
+inline float get_threshold_factor(ThresholdMode mode) {
+  if (mode == ThresholdMode::AUTO) {
+    return DEFAULT_ADAPTIVE_FACTOR;
+  }
+  return 1.0f;  // MIN: no multiplier
+}
+
+/**
  * Calculate adaptive threshold from calibration baseline values
  * 
- * MVS: threshold = percentile(cal_values)
+ * MVS: threshold = percentile(cal_values) × factor
+ * 
+ * AUTO mode applies a 1.1× multiplier to reduce false positives.
+ * MIN mode uses the raw percentile value for maximum sensitivity.
  * 
  * @param cal_values Vector of moving variance values from calibration
  * @param mode Threshold mode (AUTO or MIN)
@@ -98,7 +117,8 @@ inline void calculate_adaptive_threshold(
     uint8_t& out_percentile) {
   
   out_percentile = get_threshold_percentile(mode);
-  out_threshold = calculate_percentile(cal_values, out_percentile);
+  float factor = get_threshold_factor(mode);
+  out_threshold = calculate_percentile(cal_values, out_percentile) * factor;
 }
 
 /**

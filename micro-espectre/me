@@ -493,7 +493,6 @@ def deploy_code(args):
             ('src/mvs_detector.py', ':src/'),
             ('src/ml_detector.py', ':src/'),
             ('src/ml_weights.py', ':src/'),
-            ('src/calibrator_interface.py', ':src/'),
             ('src/nbvi_calibrator.py', ':src/'),
             ('src/traffic_generator.py', ':src/'),
             ('src/main.py', ':src/'),

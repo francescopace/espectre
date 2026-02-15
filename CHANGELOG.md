@@ -4,16 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.5.0] - in progress - ML Detector, Training Pipeline & Pre-built Firmware
+## [2.5.0] - 2026-02-15 - ML Detector, Training Pipeline & Pre-built Firmware
 
 ### Highlights
 
-- **ML Detector (Experimental)**: Neural network-based motion detection — faster boot (~3s vs ~10s), no calibration needed
-- **Training Pipeline**: End-to-end workflow to collect data, train, and export models for both platforms
-- **Pre-built Firmware**: Download ready-to-flash binaries from GitHub Releases for all 6 ESP32 variants
-- **PCA Algorithm Removed**: Replaced by ML detector (see rationale below)
-- **Calibrator Simplification**: Merged `BaseCalibrator` and `ICalibrator` into `NBVICalibrator` for simpler architecture
-- **Window Size Centralization**: `segmentation_window_size` now defined in a single place and passed to both detector and calibrator (default: 75)
+- **ML Detector (Experimental)**: Neural network-based motion detection with ~3s boot time (no calibration needed)
+- **Training Pipeline**: Collect data, train, and export models for both platforms
+- **Pre-built Firmware**: Ready-to-flash binaries for all 6 ESP32 variants via GitHub Releases
+- **PCA & P95 Removed**: Simplified to MVS + ML detectors, NBVI-only calibration
 
 ### ML Detector
 
@@ -55,37 +53,40 @@ SETUP.md now offers two installation paths:
 
 Based on PR #77 by [@WLaoDuo](https://github.com/WLaoDuo).
 
-### PCA Detection Algorithm Removed
+### Removed
 
-The PCA (Principal Component Analysis) detection algorithm has been removed from ESPectre. While PCA itself is a well-known statistical technique, our implementation was based on Espressif's open-source esp-radar library. Since Espressif has transitioned this library to closed source, we have removed our PCA implementation to ensure full compliance with our GPLv3 license.
+**PCA Detection Algorithm**: While PCA itself is a well-known statistical technique, our implementation was based on Espressif's open-source esp-radar library. Since Espressif has transitioned this library to closed source, we have removed our PCA implementation to ensure full compliance with our GPLv3 license.
 
-MVS remains the recommended algorithm with excellent performance (F1 > 99%). Future development will focus on the ML detector, which shows very promising results in early testing and requires no initial calibration.
+MVS remains the recommended algorithm with excellent performance. Future development will focus on the ML detector, which shows very promising results in early testing and requires no initial calibration.
 
-### P95 Calibrator Removed
-
-The P95 (95th percentile band selection) calibration algorithm has been removed from both C++ and Python implementations. NBVI (Normalized Band Variance Index) is now the sole calibration algorithm.
-
-**Rationale**: NBVI consistently outperforms P95 in our testing — it selects non-consecutive subcarriers for better spectral diversity and is more resilient to narrowband interference. Maintaining two calibrators added complexity without clear benefits.
+**P95 Calibrator**: NBVI (Normalized Band Variance Index) is now the sole calibration algorithm. NBVI consistently outperforms P95 by selecting non-consecutive subcarriers for better spectral diversity and resilience to narrowband interference.
 
 ### Improvements
 
-- **Gain lock**: Median-based calibration (replaces mean), signed FFT gain fix, CV normalization for when gain lock is skipped
-- **Bug fixes**: Double amplitude calculation fix, stack allocation in Hampel filter, emoji removal from serial logs
-
-### Architecture
-
-- **Calibrator simplification**: Removed `ICalibrator` interface and `BaseCalibrator` base class, merging all functionality into `NBVICalibrator`. Reduces complexity with only one calibration algorithm in use.
-- **Window size centralization**: `segmentation_window_size` (default: 75) is now defined in a single source of truth (`DETECTOR_DEFAULT_WINDOW_SIZE` in C++, `SEG_WINDOW_SIZE` in Python) and passed to both detector and calibrator via configuration.
-- **Calibration buffer size**: Now calculated as `10 × window_size` (default: 750 packets). Automatically adapts if window size changes.
+- **Gain lock**: Median-based calibration (replaces mean), signed FFT gain fix, CV normalization when gain lock is skipped
+- **Bug fixes**: Double amplitude calculation fix, stack allocation in Hampel filter
 
 ### Micro-ESPectre (R&D Platform)
 
 - **Extended hardware support**: `me` CLI now supports ESP32, C3, S3, C6 with auto-detection and SHA256 firmware verification
-- **Unified window size in tools**: All analysis tools (`2_analyze_system_tuning.py`, `4_analyze_filter_location.py`, etc.) now use `SEG_WINDOW_SIZE` from `config.py` instead of hardcoded values
-- **CV normalization**: All detectors (MVS, ML) now use CV normalization consistently when gain lock is skipped
 - **ML detector filter support**: ML detector now accepts low-pass and Hampel filter parameters, matching C++ implementation
 - **Import standardization**: All `src/` modules now use `try/except ImportError` pattern for MicroPython/CPython compatibility
-- **Bug fixes**: Signed int8 CSI parsing, ESP32 flash offset corrected, LowPass default cutoff aligned to 11.0 Hz, "Wi-Fi spectre" typo corrected to "Wi-Fi spectrum"
+- **Bug fixes**: Signed int8 CSI parsing, ESP32 flash offset corrected, LowPass default cutoff aligned to 11.0 Hz
+
+### For Contributors
+
+<details>
+<summary>Architecture changes and internal improvements</summary>
+
+#### Architecture
+
+- **Calibrator simplification**: Removed `ICalibrator` interface and `BaseCalibrator` base class, merging all functionality into `NBVICalibrator`
+- **Window size centralization**: `segmentation_window_size` (default: 75) is now defined in a single source of truth (`DETECTOR_DEFAULT_WINDOW_SIZE` in C++, `SEG_WINDOW_SIZE` in Python) and passed to both detector and calibrator
+- **Calibration buffer size**: Now calculated as `10 × window_size` (default: 750 packets), automatically adapts if window size changes
+- **CV normalization**: Both platforms use CV normalization consistently when gain lock is skipped
+- **Unified window size in tools**: All analysis tools now use `SEG_WINDOW_SIZE` from `config.py` instead of hardcoded values
+
+</details>
 
 ---
 
@@ -119,7 +120,7 @@ New Home Assistant switch for triggering recalibration without reflashing:
 
 The `segmentation_threshold` parameter is now optional:
 
-- **Default**: Adaptive threshold calculated as P95 during calibration
+- **Default**: Adaptive threshold calculated as P95 × 1.1 during calibration
 - **Manual override**: Specify value in YAML to use fixed threshold
 
 ### Improvements

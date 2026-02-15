@@ -181,6 +181,9 @@ class MLDetector(IDetector):
         self.probability_history = []
         self.state_history = []
         self.track_data = False
+        
+        # Store current amplitudes for cross-subcarrier features (amp_entropy)
+        self._current_amplitudes = None
     
     def process_packet(self, csi_data, selected_subcarriers=None):
         """
@@ -193,11 +196,15 @@ class MLDetector(IDetector):
         self._packet_count += 1
         
         # Calculate spatial turbulence using instance method (CV-normalized)
-        turbulence = self._context.calculate_spatial_turbulence(
-            csi_data, selected_subcarriers
+        # Also get amplitudes for cross-subcarrier features
+        turbulence, amplitudes = self._context.calculate_spatial_turbulence(
+            csi_data, selected_subcarriers, return_amplitudes=True
         )
         
-        # Add to buffer (all features are now turbulence-based)
+        # Store amplitudes for feature extraction
+        self._current_amplitudes = amplitudes
+        
+        # Add to buffer
         self._context.add_turbulence(turbulence)
     
     def update_state(self):
@@ -261,7 +268,7 @@ class MLDetector(IDetector):
             idx = ctx.buffer_index
             turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
         
-        return extract_all_features(turb_list, len(turb_list))
+        return extract_all_features(turb_list, len(turb_list), self._current_amplitudes)
     
     def get_state(self):
         """Get current motion state."""

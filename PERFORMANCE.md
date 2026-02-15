@@ -47,8 +47,8 @@ See [TUNING.md](TUNING.md) for environment-specific adjustments.
 
 ### Test Coverage Matrix
 
-| Test | C3 | C6 | S3 | ESP32 (control) |
-|------|-----|-----|-----|-----------------|
+| Test | C3 | C6 | S3 | ESP32 |
+|------|-----|-----|-----|-------|
 | MVS + NBVI auto-calibration | ✅ | ✅ | ✅ | ✅ |
 | MVS + Optimal subcarriers | ✅ | ✅ | ✅ | ✅ |
 | ML detection | ✅ | ✅ | ✅ | ✅ |
@@ -58,7 +58,7 @@ See [TUNING.md](TUNING.md) for environment-specific adjustments.
 **MVS + Optimal subcarriers**: Uses offline-tuned subcarriers (best case reference).
 **MVS + NBVI auto-calibration**: Uses NBVI for runtime subcarrier selection (production case).
 
-Tests run on both C++ (PlatformIO) and Python (pytest) platforms with identical methodology and identical results.
+Tests run on both C++ (PlatformIO) and Python (pytest) platforms with identical results.
 
 ## Running Tests
 
@@ -72,33 +72,31 @@ cd test && pio test -f test_motion_detection -v
 cd micro-espectre && pytest tests/test_validation_real_data.py -v
 ```
 
-Both platforms produce identical results with the same methodology.
-
 ---
 
 ## Current Results
 
-Results from C++ and Python tests are **identical** (same algorithms, same data, same methodology).
+Results from C++ and Python tests are identical (same algorithms, same data, same methodology).
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
-| ESP32-C3 | MVS Optimal | 99.6% | 98.2% | 3.4% | 98.9% |
-| ESP32-C3 | MVS + NBVI | 99.6% | 98.2% | 3.4% | 98.9% |
-| ESP32-C3 | ML | 99.8% | 99.9% | 0.1% | 99.9% |
-| ESP32-C6 | MVS Optimal | 99.3% | 96.9% | 4.6% | 98.1% |
-| ESP32-C6 | MVS + NBVI | 99.9% | 96.0% | 6.0% | 97.9% |
-| ESP32-C6 | ML | 99.8% | 100.0% | 0.0% | 99.9% |
-| ESP32-S3 | MVS Optimal | 99.7% | 97.6% | 3.2% | 98.6% |
-| ESP32-S3 | MVS + NBVI | 96.6% | 95.6% | 5.8% | 96.1% |
-| ESP32-S3 | ML | 98.5% | 100.0% | 0.0% | 99.3% |
-| ESP32 (control) | MVS Optimal | 100.0% | 97.4% | 4.5% | 98.7% |
-| ESP32 (control) | MVS + NBVI | 100.0% | 97.4% | 4.5% | 98.7% |
-| ESP32 (control) | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| ESP32-C3 | MVS Optimal | 99.6% | 100.0% | 0.0% | 99.8% |
+| ESP32-C3 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
+| ESP32-C3 | ML | 99.9% | 99.9% | 0.1% | 99.9% |
+| ESP32-C6 | MVS Optimal | 98.8% | 99.8% | 0.3% | 99.3% |
+| ESP32-C6 | MVS + NBVI | 99.9% | 99.9% | 0.1% | 99.9% |
+| ESP32-C6 | ML | 99.9% | 100.0% | 0.0% | 99.9% |
+| ESP32-S3 | MVS Optimal | 98.6% | 99.3% | 0.9% | 99.0% |
+| ESP32-S3 | MVS + NBVI | 95.8% | 100.0% | 0.0% | 97.9% |
+| ESP32-S3 | ML | 98.1% | 100.0% | 0.0% | 99.0% |
+| ESP32 | MVS Optimal | 100.0% | 98.7% | 2.3% | 99.3% |
+| ESP32 | MVS + NBVI | 100.0% | 98.7% | 2.3% | 99.3% |
+| ESP32 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 
 **MVS Optimal**: Uses offline-tuned subcarriers (best case reference).
 **MVS + NBVI**: Uses NBVI auto-calibration (production case).
 
-ESP32 (Base) is excluded from ML training data and used as a control set. Despite this, it achieves 100.0% recall and 100.0% F1-score, demonstrating strong cross-chip generalization.
+ESP32 (original) is excluded from ML training data due to lack of gain lock support. CV normalization is applied to compensate. Despite being excluded from training, it achieves 100.0% recall and F1-score, demonstrating strong cross-chip generalization.
 
 ---
 
@@ -147,9 +145,8 @@ For architecture comparison and training pipeline details, see [ALGORITHMS.md](m
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
-| 2026-02-15 | v2.5.0 | All | - | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| 2026-02-14 | v2.5.0 | C6 | - | ML | 99.6% | 100.0% | 0.0% | 99.8% |
-| 2026-02-14 | v2.5.0 | C6 | NBVI | MVS | 99.9% | 96.1% | 5.9% | 97.9% |
+| 2026-02-15 | v2.5.0 | C6 | - | ML | 99.9% | 100.0% | 0.0% | 99.9% |
+| 2026-02-15 | v2.5.0 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |
 | 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | 99.8% | 96.5% | 3.6% | 98.1% |
 | 2025-12-27 | v2.3.0 | C6 | NBVI | MVS | 96.4% | 100.0% | 0.0% | 98.2% |
 
@@ -162,7 +159,7 @@ Configuration used for all test results (unified across chips):
 | Window Size | 75 | `DETECTOR_DEFAULT_WINDOW_SIZE` |
 | Calibration | NBVI | Auto-selects 12 non-consecutive subcarriers |
 | Hampel Filter | OFF | Can be enabled for noisy environments |
-| Adaptive Threshold | Percentile-based | `DEFAULT_ADAPTIVE_PERCENTILE` (P95) |
+| Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
 | CV Normalization | Per-file | Based on `use_cv_normalization` in `dataset_info.json` |
 
 CV normalization is applied per-file based on whether data was collected with AGC gain lock enabled. See Test Data section for details.
