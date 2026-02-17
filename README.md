@@ -9,15 +9,14 @@
 
 **Motion detection system based on Wi-Fi spectre analysis (CSI), with native Home Assistant integration via ESPHome.**
 
-**Featured on Medium**: "How I Turned My Wi-Fi Into a Motion Sensor" - [Part 1](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-61a631a9b4ec?sk=c7f79130d78b0545fce4a228a6a79af3&utm_source=github&utm_medium=readme&utm_campaign=espectre) | [Part 2](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-part-2-62038130e530?sk=7c8b6f11cf3fcb8d279648016ebff72a&utm_source=github&utm_medium=readme&utm_campaign=espectre)
-
+> [!TIP]
+> **New in v2.5 — ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, feedback is welcome in the [discussion](https://github.com/francescopace/espectre/discussions/84). Follow [Setup guide](SETUP.md#choosing-detection-algorithm) for configuration.
 
 ---
 
 ## Table of Contents
 
 - [In 3 Points](#in-3-points)
-- [Mathematical Approach](#mathematical-approach)
 - [What You Need](#what-you-need)
 - [Quick Start](#quick-start)
 - [How It Works](#how-it-works-simple-version)
@@ -30,6 +29,7 @@
 - [Two-Platform Strategy](#two-platform-strategy)
 - [Future Evolution](#future-evolution)
 - [Documentation](#documentation)
+- [Media](#media)
 - [Acknowledgments](#acknowledgments)
 - [License](#license)
 - [Author](#author)
@@ -41,25 +41,6 @@
 1. **What it does**: Detects movement using Wi-Fi (no cameras, no microphones)
 2. **What you need**: A ~€10 ESP32 device (S3 and C6 recommended, other variants supported)
 3. **Setup time**: 10-15 minutes
-
----
-
-## Mathematical Approach
-
-**This project uses a pure mathematical approach** with two detection algorithms:
-
-| Algorithm | Method | Best For |
-|-----------|--------|----------|
-| **MVS** (default) | Moving Variance Segmentation | Most environments (>90% recall) |
-| **ML** | Neural Network (MLP) | Higher accuracy, fixed subcarriers |
-
-- **No ML training required**: Works out-of-the-box with mathematical algorithms (MVS default)
-- **ML option available**: Pre-trained neural network for enhanced accuracy
-- **Real-time processing**: Low latency detection on ESP32 hardware
-- **Production-ready**: Focused on reliable motion detection for smart home
-- **R&D platform available**: [Micro-ESPectre](micro-espectre/) provides feature extraction for ML research
-
-For algorithm details (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
 
 ---
 
@@ -100,7 +81,7 @@ For algorithm details (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md
 
 ---
 
-## How It Works (Simple Version)
+## How It Works
 
 When someone moves in a room, they "disturb" the Wi-Fi waves traveling between the router and the sensor. It's like when you move your hand in front of a flashlight and see the shadow change.
 
@@ -437,6 +418,29 @@ See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribut
 | [Changelog](CHANGELOG.md) | Version history and release notes |
 | [Security](SECURITY.md) | Security policy and vulnerability reporting |
 | [Code of Conduct](CODE_OF_CONDUCT.md) | Community guidelines |
+
+---
+
+## Media
+
+| Articles | Title |
+|-------------|-------|
+| Medium | [How I Turned My Wi-Fi Into a Motion Sensor - Part 1](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-61a631a9b4ec?sk=c7f79130d78b0545fce4a228a6a79af3&utm_source=github&utm_medium=readme&utm_campaign=espectre) |
+| Medium | [How I Turned My Wi-Fi Into a Motion Sensor - Part 2](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-part-2-62038130e530?sk=7c8b6f11cf3fcb8d279648016ebff72a&utm_source=github&utm_medium=readme&utm_campaign=espectre) |
+| IoT For All | [How I Turned My Wi-Fi Into a Motion Sensor](https://www.iotforall.com/wifi-motion-sensor-iot) |
+| Hackaday | [Make Your Own ESP32-Based Person Sensor, No Special Hardware Needed](https://hackaday.com/2026/01/28/make-your-own-esp32-based-person-sensor-no-special-hardware-needed/) |
+
+| Blog | Discussion |
+|----------|------------|
+| Home Assistant | [ESPectre - Wi-Fi Motion Detection for Home Assistant](https://community.home-assistant.io/t/espectre-wi-fi-motion-detection-for-home-assistant/961251) |
+
+| Videos | Video |
+|---------|-------|
+| @GithubAwesome | [ESPectre](https://www.youtube.com/shorts/iQ_DPHLn8ms) |
+
+| Podcasts | Episode |
+|-------------|---------|
+| Hackaday | [Podcast Episode 355: Person Detectors, Walkie Talkies, Open Smartphones...](https://hackaday.com/2026/01/30/hackaday-podcast-episode-355-person-detectors-walkie-talkies-open-smartphones-and-a-wifi-traffic-light/) |
 
 ---
 
