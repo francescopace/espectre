@@ -14,6 +14,13 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, binary_sensor, number, switch
 from esphome.components.esp32 import add_extra_build_file, add_idf_sdkconfig_option
+
+# ESPHome 2026.2.0+ excludes unused ESP-IDF components by default
+# include_builtin_idf_component re-enables them when needed
+try:
+    from esphome.components.esp32 import include_builtin_idf_component
+except ImportError:
+    include_builtin_idf_component = None
 from esphome.const import (
     CONF_ID,
     STATE_CLASS_MEASUREMENT,
@@ -187,6 +194,11 @@ async def to_code(config):
         add_extra_build_file("partitions.csv", partitions_path)
         # Tell PlatformIO to use our custom partition table
         cg.add_platformio_option("board_build.partitions", "partitions.csv")
+    
+    # Re-enable SPIFFS ESP-IDF component (excluded by default since ESPHome 2026.2.0)
+    # Required because calibration_file_buffer.cpp includes esp_spiffs.h
+    if include_builtin_idf_component is not None:
+        include_builtin_idf_component("spiffs")
     
     # Set required sdkconfig options for CSI functionality
     # These are automatically applied - user doesn't need to specify them in YAML
