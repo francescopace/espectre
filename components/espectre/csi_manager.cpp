@@ -191,19 +191,35 @@ esp_err_t CSIManager::disable() {
 }
 
 esp_err_t CSIManager::configure_platform_specific_() {
-#if CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C5
+#if CONFIG_IDF_TARGET_ESP32C5
+  // ESP32-C5: MAC_VERSION_NUM = 3, WiFi 6 capable
   wifi_csi_config_t csi_config = {
     .enable = 1,
-    .acquire_csi_legacy = 1,
+    .acquire_csi_legacy = 0,
+    .acquire_csi_force_lltf = 0,
+    .acquire_csi_ht20 = 1,
+    .acquire_csi_ht40 = 0,
+    .acquire_csi_vht = 0,
+    .acquire_csi_su = 0,
+    .acquire_csi_mu = 0,
+    .acquire_csi_dcm = 0,
+    .acquire_csi_beamformed = 0,
+    .acquire_csi_he_stbc_mode = 0,
+    .val_scale_cfg = 0,
+    .dump_ack_en = 0,
+  };
+#elif CONFIG_IDF_TARGET_ESP32C6
+  // ESP32-C6: MAC_VERSION_NUM = 2, WiFi 6 capable
+  wifi_csi_config_t csi_config = {
+    .enable = 1,
+    .acquire_csi_legacy = 0,
     .acquire_csi_ht20 = 1,
     .acquire_csi_ht40 = 0,
     .acquire_csi_su = 0,
     .acquire_csi_mu = 0,
     .acquire_csi_dcm = 0,
     .acquire_csi_beamformed = 0,
-#if CONFIG_IDF_TARGET_ESP32C6
     .acquire_csi_he_stbc = 0,
-#endif
     .val_scale_cfg = 0,
     .dump_ack_en = 0,
   };
