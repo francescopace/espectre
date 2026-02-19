@@ -213,13 +213,10 @@ jobs:
           restore-keys: |
             pio-espidf-
       
-      - name: Install ESPHome and warm cache
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Install ESPHome
         run: |
           python -m pip install --upgrade pip
           pip install esphome
-          # Warm up cache by compiling one config (downloads all shared dependencies)
-          esphome compile examples/espectre-c6.yaml
 
   build:
     name: ${{ matrix.qemu_chip && 'Smoke Test' || 'Build' }} ${{ matrix.chip }}
@@ -230,32 +227,43 @@ jobs:
       matrix:
         include:
           # Standard builds (no QEMU)
+          # config: production file (GitHub component), config_dev: local component
           - chip: ESP32
             config: examples/espectre-esp32.yaml
+            config_dev: examples/espectre-esp32-dev.yaml
           - chip: ESP32-S2
             config: examples/espectre-s2.yaml
+            config_dev: examples/espectre-s2-dev.yaml
           - chip: ESP32-S3
             config: examples/espectre-s3.yaml
+            config_dev: examples/espectre-s3-dev.yaml
           - chip: ESP32-C3
             config: examples/espectre-c3.yaml
+            config_dev: examples/espectre-c3-dev.yaml
           - chip: ESP32-C5
             config: examples/espectre-c5.yaml
+            config_dev: examples/espectre-c5-dev.yaml
           - chip: ESP32-C6
             config: examples/espectre-c6.yaml
+            config_dev: examples/espectre-c6-dev.yaml
           # QEMU smoke tests (examples/uart/)
           # Note: ESP32 original excluded - QEMU doesn't emulate PHY registers correctly
+          # QEMU configs use UART0 logging for QEMU compatibility
           - chip: ESP32-S3
             config: examples/uart/espectre-s3.yaml
+            config_dev: examples/uart/espectre-s3-dev.yaml
             qemu_chip: esp32s3
             qemu_arch: xtensa
             qemu_machine: esp32s3
           - chip: ESP32-C3
             config: examples/uart/espectre-c3.yaml
+            config_dev: examples/uart/espectre-c3-dev.yaml
             qemu_chip: esp32c3
             qemu_arch: riscv32
             qemu_machine: esp32c3
           - chip: ESP32-C6
             config: examples/uart/espectre-c6.yaml
+            config_dev: examples/uart/espectre-c6-dev.yaml
             qemu_chip: esp32c6
             qemu_arch: riscv32
             qemu_machine: esp32c6
@@ -284,8 +292,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install esphome
       
+      - name: Create secrets.yaml for dev configs
+        if: github.ref != 'refs/heads/main'
+        run: |
+          cat > examples/secrets.yaml << 'EOF'
+          wifi_ssid: CI_TEST
+          wifi_password: ci_password
+          EOF
+      
       - name: Compile
-        run: esphome compile ${{ matrix.config }}
+        run: |
+          # Use -dev configs (local component) on develop/PR, production configs on main
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            esphome compile ${{ matrix.config }}
+          else
+            esphome compile ${{ matrix.config_dev }}
+          fi
       
       # QEMU smoke test for UART builds
       - name: Run QEMU smoke test

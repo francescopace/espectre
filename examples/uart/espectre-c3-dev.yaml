@@ -1,0 +1,52 @@
+# ESPectre - ESP32-C3 Development Configuration with UART0 Logging
+# LOCAL DEVELOPMENT VERSION for CI/QEMU testing
+#
+# This file uses local components for development and UART0 for QEMU compatibility.
+# For production use, see espectre-c3.yaml (uses GitHub source).
+
+esphome:
+  name: espectre
+  friendly_name: ESPectre Dev
+  min_version: 2025.11.0
+
+esp32:
+  variant: ESP32C3
+  framework:
+    type: esp-idf
+
+# Load ESPectre component from local source (for CI/QEMU testing)
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [ espectre ]
+
+# ESPectre - WiFi CSI Motion Detection
+espectre:
+  id: espectre_csi
+  traffic_generator_rate: 94
+
+# WiFi with fallback AP (no secrets needed for CI)
+wifi:
+  ap:
+    ssid: "ESPectre Fallback"
+
+captive_portal:
+
+# Improv provisioning via BLE
+esp32_improv:
+  authorizer: none
+
+# Improv provisioning via USB
+improv_serial:
+
+# Logging via UART0 (for QEMU compatibility)
+logger:
+  hardware_uart: UART0
+
+# Home Assistant API
+api:
+
+# OTA updates
+ota:
+  - platform: esphome
