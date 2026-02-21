@@ -238,24 +238,12 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 
 For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 
-### Choosing Calibration Algorithm
-
-The calibration algorithm selects which subcarriers to monitor.
-
-| Algorithm | Selection Method | Pros | Cons | Best For |
-|-----------|-----------------|------|------|----------|
-| **NBVI** | 12 best non-consecutive subcarriers | Spectral diversity, resilient to narrowband interference | Automatically selected | All environments |
-
-NBVI (Normalized Band Variance Index) is the calibration algorithm used by ESPectre. It achieves ~95% recall with <1% FP rate and is resilient to narrowband interference.
-
-Band selection is performed automatically using the NBVI (Normalized Band Variance Index) algorithm at boot time. NBVI selects 12 non-consecutive subcarriers optimized for motion detection sensitivity and stability.
-
 ### Choosing Detection Algorithm
 
 | Algorithm | How It Works | Pros | Cons | Best For |
 |-----------|--------------|------|------|----------|
-| **MVS** (default) | Variance of spatial turbulence | Low CPU, adaptive threshold | Requires 10s calibration | General use |
-| **ML** | Neural network (MLP 12→16→8→1) | Fast boot (~3s), fixed subcarriers | Pre-trained weights | Experimental |
+| **MVS** (default) | Variance of spatial turbulence | Low CPU, adaptive threshold | Requires 10s NBVI calibration | General use |
+| **ML** | Neural network (MLP 12→16→8→1) | Fast boot (~3s), no calibration | Pre-trained weights, fixed subcarriers | Experimental |
 
 Both algorithms support optional low-pass and Hampel filters on the turbulence stream.
 
@@ -613,9 +601,11 @@ High airtime (>30-50%) causes network congestion, increased latency, and packet 
 
 ---
 
-## Auto-Calibration
+## Auto-Calibration (MVS only)
 
 > ⚠️ **CRITICAL**: The room must be **still** during the first 10 seconds after boot. Movement during calibration will result in poor detection accuracy!
+
+Auto-calibration applies only to MVS mode. ML mode uses fixed subcarriers from pre-trained weights and skips this phase.
 
 ESPectre automatically calibrates in two phases:
 

@@ -8,7 +8,7 @@ Quick guide to tune ESPectre for reliable movement detection in your environment
 
 ## Quick Start (5 minutes)
 
-> **Note on Subcarrier Selection**: ESPectre automatically selects optimal subcarriers at boot using the NBVI algorithm. No manual configuration needed.
+> **Note on Subcarrier Selection** (MVS only): ESPectre automatically selects optimal subcarriers at boot using the NBVI algorithm. No manual configuration needed. ML mode uses fixed subcarriers.
 
 ### 1. Flash and Boot
 
@@ -606,9 +606,9 @@ vs.
 2. **Avoid DFS channels:** Channels 52-144 (5GHz DFS) may switch unexpectedly due to radar detection
 3. **Check for interference:** Nearby networks on the same channel can cause instability
 
-### Runtime Recalibration
+### Runtime Recalibration (MVS only)
 
-**When needed:** Recalibrate without reflashing (e.g., after moving furniture or changing room layout).
+**When needed:** Recalibrate without reflashing (e.g., after moving furniture or changing room layout). This applies only to MVS mode; ML uses fixed subcarriers embedded in the model.
 
 **How to recalibrate from Home Assistant:**
 
@@ -629,9 +629,9 @@ vs.
 [I][espectre]: Calibration completed successfully
 ```
 
-### Reset Calibration (Full Erase)
+### Reset Calibration (MVS only)
 
-**When needed:** Start completely fresh with new subcarrier selection and clear all saved settings.
+**When needed:** Start completely fresh with new subcarrier selection and clear all saved settings. This applies only to MVS mode.
 
 **How to reset:**
 

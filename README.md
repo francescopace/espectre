@@ -219,7 +219,7 @@ Each sensor is automatically discovered by Home Assistant with:
 
 ESPectre implements **NBVI** (Normalized Band Variance Index) for automatic subcarrier selection, achieving near-optimal performance (F1>96%) with **zero manual configuration**. The algorithm selects 12 non-consecutive subcarriers based on stability metrics and spectral diversity.
 
-> ⚠️ **IMPORTANT**: Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy.
+> ⚠️ **IMPORTANT** (MVS mode): Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy. ML mode skips calibration.
 
 For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#automatic-subcarrier-selection).
 

@@ -710,39 +710,31 @@ Where i = time index, x = turbulence value. Positive slope indicates increasing 
 
 ## References
 
-### Primary Sources
-
-1. **MVS Segmentation** - ResearchGate  
-   The fused CSI stream and corresponding moving variance sequence.  
-   [Read paper](https://www.researchgate.net/figure/MVS-segmentation-a-the-fused-CSI-stream-b-corresponding-moving-variance-sequence_fig6_326244454)
-
-2. **Indoor Motion Detection Using Wi-Fi CSI (2018)** - PMC  
-   False positive reduction and sensitivity optimization.  
-   [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6068568/)
-
-3. **WiFi Motion Detection: Efficacy and Performance (2019)** - arXiv  
-   Signal processing methods for motion detection.  
-   [Read paper](https://arxiv.org/abs/1908.08476)
-
-### Algorithm-Specific References
-
-4. **Passive Indoor Localization** - PMC  
-   SNR considerations and noise gate strategies.  
-   [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6412876/)
-
-5. **Subcarrier Selection for Indoor Localization** - ResearchGate  
+1. **Subcarrier selection for efficient CSI-based indoor localization (2018)**  
    Spectral de-correlation and feature diversity.  
    [Read paper](https://www.researchgate.net/publication/326195991)
 
-6. **CSI-F: Feature Fusion Method** - MDPI Sensors  
+2. **Indoor Motion Detection Using Wi-Fi Channel State Information in Flat Floor Environments Versus in Staircase Environments (2018)** 
+   Moving variance segmentation
+   [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6068568/)
+
+3. **WiFi Motion Detection: A Study into Efficacy and Classification (2019)**
+   Signal processing methods for motion detection.  
+   [Read paper](https://arxiv.org/abs/1908.08476)
+
+4. **A Novel Passive Indoor Localization Method by Fusion CSI Amplitude and Phase Information (2019)**
+   SNR considerations and noise gate strategies.  
+   [Read paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC6412876/)
+
+5. **CSI-F: A Human Motion Recognition Method Based on Channel-State-Information Signal Feature Fusion (2024)**
    Hampel filter and statistical robustness.  
    [Read paper](https://www.mdpi.com/1424-8220/24/3/862)
 
-7. **Linear-Complexity Subcarrier Selection** - ResearchGate  
+6. **Linear‐Complexity Subcarrier Selection Strategy for Fast Preprocessing of CSI in Passive Wi‐Fi Sensing Classification Tasks (2025)** 
    Computational efficiency for embedded systems.  
    [Read paper](https://www.researchgate.net/publication/397240630)
 
-8. **CIRSense: Rethinking WiFi Sensing** - arXiv  
+7. **CIRSense: Rethinking WiFi Sensing with Channel Impulse Response (2025)**  
    SSNR (Sensing Signal-to-Noise Ratio) optimization.  
    [Read paper](https://arxiv.org/html/2510.11374v1)
 
