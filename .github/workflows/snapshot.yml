@@ -1,18 +1,46 @@
 name: Snapshot
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
-    paths:
-      - 'components/espectre/**'
-      - 'examples/*.yaml'
 
 permissions:
   contents: write
 
 jobs:
+  check-changes:
+    name: Check Code Changes
+    runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    outputs:
+      should_build: ${{ steps.filter.outputs.code }}
+    
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+      
+      - name: Check for code changes
+        id: filter
+        run: |
+          # Check if any code files changed in the last commit
+          if git diff --name-only HEAD~1 HEAD | grep -qE '^(components/espectre/|examples/[^/]+\.yaml$)'; then
+            echo "code=true" >> $GITHUB_OUTPUT
+            echo "Code changes detected, will build snapshot"
+          else
+            echo "code=false" >> $GITHUB_OUTPUT
+            echo "No code changes, skipping snapshot"
+          fi
+
   build:
     name: Build ${{ matrix.chip }}
+    needs: check-changes
+    if: needs.check-changes.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -33,6 +61,8 @@ jobs:
     
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -105,8 +135,8 @@ jobs:
             
             Not recommended for production use. For stable releases, use the [latest official release](https://github.com/francescopace/espectre/releases/latest).
             
-            **Commit:** ${{ github.sha }}
-            **Date:** ${{ github.event.head_commit.timestamp }}
+            **Commit:** ${{ github.event.workflow_run.head_sha }}
+            **Date:** ${{ github.event.workflow_run.created_at }}
           files: firmware/*.bin
           draft: false
           prerelease: true
