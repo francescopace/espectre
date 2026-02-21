@@ -86,7 +86,7 @@ jobs:
           pip install esphome
       
       - name: Compile
-        run: esphome compile ${{ matrix.config }}
+        run: esphome compile ${{ matrix.config }} -s git_ref ${{ github.event.workflow_run.head_sha }}
       
       - name: Rename firmware files
         run: |
