@@ -299,6 +299,7 @@ jobs:
           wifi_ssid: CI_TEST
           wifi_password: ci_password
           EOF
+          cp examples/secrets.yaml examples/uart/secrets.yaml
       
       - name: Compile
         run: |
