@@ -158,6 +158,7 @@ class CSIManager {
   uint32_t publish_rate_{100};
   volatile uint32_t packets_processed_{0};
   volatile uint32_t packets_filtered_{0};
+  uint32_t packets_total_{0};
   uint8_t current_channel_{0};
   
   IWiFiCSI* wifi_csi_{nullptr};

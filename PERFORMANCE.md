@@ -116,28 +116,53 @@ Real-time NBVI calibration results from the same environment.
 
 ---
 
-## ML Detector Performance
+## System Resources
 
-### Resource Usage
+Resource usage benchmarks for ESPectre with full ESPHome stack (WiFi, API, OTA, debug sensors).
 
-| Resource | Value |
-|----------|-------|
-| Weights memory | ~1.4 KB (353 params, constexpr) |
-| Buffer memory | ~800 B (shared with MVS) |
-| Dependencies | None |
+### Flash Usage
 
-### Inference Time
+| Chip | Firmware Size | Flash Used | Available (OTA) |
+|------|---------------|------------|-----------------|
+| ESP32-C3 | 856 KB | 45% | 1.0 MB |
 
-| Platform | Time | Throughput |
-|----------|------|------------|
-| Python (Mac M-series) | ~14 µs | 70,000 inf/sec |
-| C++ ESP32-C6 (est.) | <200 µs | >5,000 inf/sec |
-| C++ ESP32-S3 (est.) | <150 µs | >6,600 inf/sec |
+Partition layout uses dual OTA partitions (1.81 MB each) for safe updates.
 
-The manual MLP inference (no TFLite dependency) is extremely lightweight: 12 → 16 → 8 → 1 = **328 multiply-accumulate operations (MACs)** per inference.
-CSI packets arrive every ~10 ms, so inference time is never a bottleneck.
+### RAM Usage
 
-For architecture comparison and training pipeline details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#architecture-selection).
+| Chip | Phase | Free Heap | Notes |
+|------|-------|-----------|-------|
+| ESP32-C3 | Post-setup | 214 KB | After ESPectre init |
+| ESP32-C3 | Post-calibration | 174 KB | After NBVI completes |
+| ESP32-C6 | Post-setup | 311 KB | After ESPectre init |
+| ESP32-C6 | Post-calibration | 269 KB | After NBVI completes |
+
+ESPectre runtime footprint: ~40 KB (calibration buffers released after completion).
+
+### Detection Timing
+
+Time to process one CSI packet (feature extraction + detection, measured on hardware):
+
+| Chip | Algorithm | Detection Time | CPU @ 100 pps |
+|------|-----------|----------------|---------------|
+| ESP32-C3 | MVS | ~440 µs | ~4.4% |
+| ESP32-C3 | ML | ~3300 µs | ~33% |
+| ESP32-C6 | MVS | ~250 µs | ~2.5% |
+| ESP32-C6 | ML | ~2100 µs | ~21% |
+
+At 100 pps, each packet has a 10 ms budget. MVS uses ~0.44 ms (4.4%) and ML uses ~3.3 ms (33%), leaving ample headroom for WiFi, ESPHome, and Home Assistant communication.
+
+**MVS**: Extracts a single feature (spatial turbulence) and its moving variance.
+
+**ML**: Extracts 12 statistical features from sliding window, then runs MLP inference (12 → 16 → 8 → 1 = 328 MACs). The MLP itself is lightweight; most time is spent on feature extraction. For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#architecture-selection).
+
+### Monitoring
+
+Development YAML files (`-dev.yaml`) include ESPHome debug sensors for runtime monitoring of free heap, max block size, and loop time. These sensors are available in Home Assistant for continuous monitoring.
+
+Additional performance logs are available at DEBUG level (`logger.level: DEBUG`):
+- `[resources]` - Free heap at startup and post-calibration
+- `[perf]` - Detection time per packet (logged every ~10 seconds)
 
 ---
 

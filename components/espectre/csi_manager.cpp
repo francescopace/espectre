@@ -91,6 +91,9 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
   }
   
   // Process CSI packet through detector
+  const bool should_measure = (packets_total_++ % 1000 == 0);
+  int64_t start_us = should_measure ? esp_timer_get_time() : 0;
+  
   detector_->process_packet(csi_data, csi_len, selected_subcarriers_, NUM_SUBCARRIERS);
   
   // Handle periodic callback (or game mode which needs every packet)
@@ -100,6 +103,12 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
   if (game_mode_callback_ || should_publish) {
     // Update detector state (lazy evaluation)
     detector_->update_state();
+    
+    // Log detection time periodically (every ~10 seconds at 100 pps)
+    if (should_measure) {
+      int64_t elapsed_us = esp_timer_get_time() - start_us;
+      ESP_LOGD(TAG, "[perf] Detection time: %lld us", (long long)elapsed_us);
+    }
     
     // Game mode callback: send data every packet for low-latency gameplay
     if (game_mode_callback_) {

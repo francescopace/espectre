@@ -1,33 +1,10 @@
-# ESPectre - ESP32 (Original) Development Configuration
-# WiFi CSI-based motion detection - LOCAL DEVELOPMENT VERSION
-#
-# This file uses local components for development.
-# For production use, see espectre-esp32.yaml (uses GitHub source).
-#
-# Note: AGC/FFT gain lock is not available on ESP32 original.
-# Band calibration works but CSI amplitudes may have more variance than newer chips.
-#
-# Tested boards:
-# - ESP32-WROOM-32D Mini (CH340)
-#
-# Usage:
-# 1. Clone the repository: git clone https://github.com/francescopace/espectre.git
-# 2. cd espectre
-# 3. Create secrets.yaml with wifi_ssid and wifi_password
-# 4. Run: esphome run examples/espectre-esp32-dev.yaml
+# ESPectre - ESP32 Dev (local components)
+# Usage: esphome run examples/espectre-esp32-dev.yaml
 
-esphome:
-  name: espectre
-  friendly_name: ESPectre Dev
-  min_version: 2025.11.0
+packages:
+  base: !include espectre-esp32.yaml
 
-esp32:
-  board: esp32dev
-  cpu_frequency: 240MHz
-  framework:
-    type: esp-idf
-
-# Local component for development
+# Local component for development (overrides GitHub source)
 external_components:
   - source:
       type: local
@@ -64,21 +41,12 @@ wifi:
       password: !secret wifi_password
       #bssid: !secret wifi_bssid  # Lock to specific Access Point (useful for mesh networks)
 
-# Logging (DEBUG level for development)
 logger:
   level: DEBUG
   logs:
     sensor: INFO
     binary_sensor: INFO
 
-# Home Assistant API
-api:
-
-# OTA updates
-ota:
-  - platform: esphome
-
-# Debug sensors for development
 debug:
   update_interval: 5s
 

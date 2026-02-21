@@ -1,38 +1,10 @@
-# ESPectre - ESP32-S2 Development Configuration
-# WiFi CSI-based motion detection - LOCAL DEVELOPMENT VERSION
-#
-# This file uses local components for development.
-# For production use, see espectre-s2.yaml (uses GitHub source).
-#
-# EXPERIMENTAL: This platform has NOT been tested yet.
-# Please report your results on GitHub Discussions!
-#
-# NOTE: ESP32-S2 does NOT have Bluetooth, so only USB and WiFi provisioning are available.
-#
-# Compatible boards:
-# - ESP32-S2-DevKitM
-# - ESP32-S2-Saola
-# - LOLIN S2 Mini
-# - Any ESP32-S2 board
-#
-# Usage:
-# 1. Clone the repository: git clone https://github.com/francescopace/espectre.git
-# 2. cd espectre
-# 3. Create secrets.yaml with wifi_ssid and wifi_password
-# 4. Run: esphome run examples/espectre-s2-dev.yaml
+# ESPectre - ESP32-S2 Dev (local components)
+# Usage: esphome run examples/espectre-s2-dev.yaml
 
-esphome:
-  name: espectre
-  friendly_name: ESPectre Dev
-  min_version: 2025.11.0
+packages:
+  base: !include espectre-s2.yaml
 
-esp32:
-  variant: ESP32S2
-  cpu_frequency: 240MHz
-  framework:
-    type: esp-idf
-
-# Local component for development
+# Local component for development (overrides GitHub source)
 external_components:
   - source:
       type: local
@@ -69,23 +41,12 @@ wifi:
       password: !secret wifi_password
       #bssid: !secret wifi_bssid  # Lock to specific Access Point (useful for mesh networks)
 
-# NOTE: ESP32-S2 does NOT have Bluetooth - no esp32_improv available
-
-# Logging (DEBUG level for development)
 logger:
   level: DEBUG
   logs:
     sensor: INFO
     binary_sensor: INFO
 
-# Home Assistant API
-api:
-
-# OTA updates
-ota:
-  - platform: esphome
-
-# Debug sensors for development
 debug:
   update_interval: 5s
 

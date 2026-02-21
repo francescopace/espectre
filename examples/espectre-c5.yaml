@@ -17,6 +17,9 @@
 # - Via WiFi: Connect to "ESPectre Fallback" AP and configure
 # Note: USB provisioning (improv_serial) not yet supported on ESP32-C5
 
+substitutions:
+  git_ref: main # branch, tag, or commit
+
 esphome:
   name: espectre
   friendly_name: ESPectre
@@ -25,7 +28,7 @@ esphome:
   # name_add_mac_suffix: true
   project:
     name: francescopace.espectre
-    version: "2.2.0"
+    version: ${git_ref}
 
 esp32:
   variant: ESP32C5
@@ -38,7 +41,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/francescopace/espectre
-      ref: main
+      ref: ${git_ref}
     components: [ espectre ]
     refresh: always
 
@@ -48,7 +51,7 @@ espectre:
 
 # Dashboard import for easy adoption
 dashboard_import:
-  package_import_url: github://francescopace/espectre/examples/espectre-c5.yaml@main
+  package_import_url: github://francescopace/espectre/examples/espectre-c5.yaml@${git_ref}
   import_full_config: true
 
 # WiFi with fallback AP for provisioning

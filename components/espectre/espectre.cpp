@@ -17,6 +17,7 @@
 #include "esphome/core/application.h"
 #include "esp_wifi.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include <cstring>
 
 namespace esphome {
@@ -80,6 +81,9 @@ void ESpectreComponent::setup() {
   );
   
   ESP_LOGI(TAG, "ESPectre initialized successfully");
+  ESP_LOGD(TAG, "[resources] Free heap: %lu bytes, largest block: %lu bytes",
+           (unsigned long)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
+           (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
 }
 
 ESpectreComponent::~ESpectreComponent() {
@@ -289,6 +293,8 @@ void ESpectreComponent::start_calibration_() {
     }
     
     ESP_LOGI(TAG, "Calibration %s", success ? "completed successfully" : "failed");
+    ESP_LOGD(TAG, "[resources] Post-calibration heap: %lu bytes",
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_DEFAULT));
   };
   
   // Start calibration using NBVI

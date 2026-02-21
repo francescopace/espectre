@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.5.1] - in progress - Minor Fixes
+
+### Added
+
+- **Performance documentation**: RAM, Flash, and detection timing benchmarks for ESP32-C3 and ESP32-C6 in PERFORMANCE.md
+- **Performance logging**: Lightweight DEBUG-level logging for heap usage (startup/post-calibration) and detection time (~10s interval)
+- **git_ref substitution**: All example YAML files now use a `git_ref` substitution, making it easy to switch between branches, tags, or commits
+
+### Fixed
+
+- **ESP32-C5/C6 packet filtering**: Disable L-LTF acquisition to fix 256-byte packet filtering issue
+- **ESPHome 2026.2.0+ compatibility**: Ensure SPIFFS inclusion for newer ESPHome versions (#87)
+- **CI develop branch**: Use local component configs instead of main branch for CI builds on develop
+
+### Documentation
+
+- Clarify that NBVI calibration applies only to MVS mode
+- Add media section in README
+
+---
+
 ## [2.5.0] - 2026-02-15 - ML Detector, Training Pipeline & Pre-built Firmware
 
 ### Highlights
