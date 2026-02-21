@@ -332,8 +332,8 @@ class TestMLDetectorProcessing:
         assert len(detector.state_history) == 0
 
 
-class TestExtractAllFeaturesIntegration:
-    """Test that extract_all_features is correctly integrated."""
+class TestExtractFeaturesIntegration:
+    """Test that extract_features_by_name is correctly integrated."""
     
     def test_extract_features_returns_12_values(self):
         """_extract_features returns 12 values."""

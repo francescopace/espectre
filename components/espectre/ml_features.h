@@ -1,10 +1,10 @@
 /*
  * ESPectre - ML Feature Extraction
  * 
- * Extracts 12 non-redundant features from CSI turbulence data for ML-based
- * motion detection. Port of micro-espectre/src/features.py to C++.
+ * Extracts 12 non-redundant features from CSI data for ML-based motion
+ * detection. Port of micro-espectre/src/features.py to C++.
  * 
- * 11 features are computed from the turbulence buffer (50 samples),
+ * 11 features are computed from the turbulence buffer (75 samples),
  * 1 feature (amp_entropy) is computed from subcarrier amplitudes.
  * 
  * Features (in order):
@@ -14,15 +14,12 @@
  *  3. turb_min       - Minimum value
  *  4. turb_zcr       - Zero-crossing rate around mean
  *  5. turb_skewness  - Fisher's skewness (3rd moment)
- *  6. turb_kurtosis  - Fisher's excess kurtosis (4th moment)
+ *  6. turb_kurtosis  - Fisher's kurtosis (4th moment)
  *  7. turb_entropy   - Shannon entropy (turbulence)
  *  8. turb_autocorr  - Lag-1 autocorrelation
  *  9. turb_mad       - Median absolute deviation
  * 10. turb_slope     - Linear regression slope
  * 11. amp_entropy    - Shannon entropy (amplitude distribution)
- * 
- * Note: turb_delta was replaced by amp_entropy based on SHAP importance
- * analysis (turb_delta had 0.1% contribution, amp_entropy has 4.5%).
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -70,13 +67,13 @@ inline float calc_skewness(const float* values, uint16_t count, float mean, floa
 }
 
 /**
- * Calculate Fisher's excess kurtosis (fourth standardized moment - 3).
+ * Calculate Fisher's kurtosis (fourth standardized moment, excess).
  * 
  * @param values Array of values
  * @param count Number of values
  * @param mean Pre-computed mean (must be valid)
  * @param std_dev Pre-computed standard deviation (must be valid)
- * @return Excess kurtosis coefficient
+ * @return Excess kurtosis (0 for normal distribution)
  */
 inline float calc_kurtosis(const float* values, uint16_t count, float mean, float std_dev) {
     if (count < 4 || std_dev < 1e-10f) return 0.0f;
@@ -166,25 +163,26 @@ inline float calc_zero_crossing_rate(const float* values, uint16_t count, float 
 }
 
 /**
- * Calculate lag-1 autocorrelation coefficient.
+ * Calculate lag-k autocorrelation coefficient.
  * 
- * Measures temporal correlation between consecutive values.
- * High autocorrelation indicates smooth signal (idle).
+ * Measures temporal correlation between values separated by 'lag' samples.
+ * Higher lag captures longer-term temporal patterns in motion.
  * 
  * @param values Array of values
  * @param count Number of values
  * @param mean Pre-computed mean
  * @param variance Pre-computed variance
+ * @param lag Number of samples to lag (default: 1)
  * @return Autocorrelation coefficient (-1.0 to 1.0)
  */
-inline float calc_autocorrelation(const float* values, uint16_t count, float mean, float variance) {
-    if (count < 3 || variance < 1e-10f) return 0.0f;
+inline float calc_autocorrelation(const float* values, uint16_t count, float mean, float variance, uint16_t lag = 1) {
+    if (count < lag + 2 || variance < 1e-10f) return 0.0f;
     
     float autocovariance = 0.0f;
-    for (uint16_t i = 0; i < count - 1; i++) {
-        autocovariance += (values[i] - mean) * (values[i + 1] - mean);
+    for (uint16_t i = 0; i < count - lag; i++) {
+        autocovariance += (values[i] - mean) * (values[i + lag] - mean);
     }
-    autocovariance /= (count - 1);
+    autocovariance /= (count - lag);
     
     return autocovariance / variance;
 }
@@ -274,7 +272,7 @@ inline float calc_amp_entropy(const float* amplitudes, uint8_t count) {
 /**
  * Extract all 12 ML features from turbulence buffer and amplitudes.
  * 
- * 11 features are computed from the turbulence buffer (typically 50 samples),
+ * 11 features are computed from the turbulence buffer (typically 75 samples),
  * 1 feature (amp_entropy) is computed from subcarrier amplitudes.
  * 
  * @param turb_buffer Turbulence buffer
@@ -322,14 +320,14 @@ inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
     // Skewness (pre-computed mean/std passed to avoid redundant calculation)
     float turb_skewness = calc_skewness(turb_buffer, turb_count, turb_mean, turb_std);
     
-    // Kurtosis (pre-computed mean/std passed to avoid redundant calculation)
+    // Kurtosis (4th moment)
     float turb_kurtosis = calc_kurtosis(turb_buffer, turb_count, turb_mean, turb_std);
     
     // Shannon entropy (turbulence)
     float turb_entropy = calc_entropy(turb_buffer, turb_count);
     
     // Lag-1 autocorrelation
-    float turb_autocorr = calc_autocorrelation(turb_buffer, turb_count, turb_mean, turb_var);
+    float turb_autocorr = calc_autocorrelation(turb_buffer, turb_count, turb_mean, turb_var, 1);
     
     // Median absolute deviation
     float turb_mad = calc_mad(turb_buffer, turb_count);
@@ -345,13 +343,12 @@ inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
         numerator += diff_i * diff_x;
         denominator += diff_i * diff_i;
     }
-    
     float turb_slope = (denominator > 0.0f) ? (numerator / denominator) : 0.0f;
     
     // Amplitude entropy (cross-subcarrier feature)
     float amp_entropy = calc_amp_entropy(amplitudes, amp_count);
     
-    // Fill output array in correct order
+    // Fill output array in correct order (matches Python DEFAULT_FEATURES)
     features_out[0] = turb_mean;       // 0
     features_out[1] = turb_std;        // 1
     features_out[2] = turb_max;        // 2

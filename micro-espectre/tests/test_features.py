@@ -17,7 +17,8 @@ from features import (
     calc_zero_crossing_rate,
     calc_autocorrelation,
     calc_mad,
-    extract_all_features,
+    extract_features_by_name,
+    DEFAULT_FEATURES,
     FEATURE_NAMES,
 )
 
@@ -338,17 +339,17 @@ class TestExtractAllFeatures:
     def test_returns_12_features(self):
         """Test that 12 features are returned"""
         buffer = [float(i) for i in range(50)]
-        features = extract_all_features(buffer, 50)
+        features = extract_features_by_name(buffer, 50, feature_names=DEFAULT_FEATURES)
         assert len(features) == 12
     
     def test_empty_buffer_returns_zeros(self):
         """Test that empty buffer returns zeros"""
-        features = extract_all_features([], 0)
+        features = extract_features_by_name([], 0, feature_names=DEFAULT_FEATURES)
         assert features == [0.0] * 12
     
     def test_single_value_returns_zeros(self):
         """Test that single-value buffer returns zeros"""
-        features = extract_all_features([5.0], 1)
+        features = extract_features_by_name([5.0], 1, feature_names=DEFAULT_FEATURES)
         assert features == [0.0] * 12
     
     def test_feature_names_match(self):
@@ -358,15 +359,15 @@ class TestExtractAllFeatures:
     def test_amplitudes_parameter_ignored(self):
         """Test that amplitudes parameter does not affect output"""
         buffer = [float(i) for i in range(50)]
-        features_no_amp = extract_all_features(buffer, 50)
-        features_with_amp = extract_all_features(buffer, 50, amplitudes=[1.0] * 12)
+        features_no_amp = extract_features_by_name(buffer, 50, feature_names=DEFAULT_FEATURES)
+        features_with_amp = extract_features_by_name(buffer, 50, amplitudes=[1.0] * 12, feature_names=DEFAULT_FEATURES)
         assert features_no_amp == features_with_amp
     
     def test_all_features_are_float(self):
         """Test that all features are floats"""
         np.random.seed(42)
         buffer = list(np.random.normal(5, 2, 50))
-        features = extract_all_features(buffer, 50)
+        features = extract_features_by_name(buffer, 50, feature_names=DEFAULT_FEATURES)
         for i, f in enumerate(features):
             assert isinstance(f, (int, float)), f"Feature {i} ({FEATURE_NAMES[i]}) is {type(f)}"
     
@@ -378,8 +379,8 @@ class TestExtractAllFeatures:
         np.random.seed(42)
         motion_buffer = list(np.random.normal(5, 3, 50))
         
-        idle_features = extract_all_features(idle_buffer, 50)
-        motion_features = extract_all_features(motion_buffer, 50)
+        idle_features = extract_features_by_name(idle_buffer, 50, feature_names=DEFAULT_FEATURES)
+        motion_features = extract_features_by_name(motion_buffer, 50, feature_names=DEFAULT_FEATURES)
         
         # Std should be higher for motion
         assert motion_features[1] > idle_features[1]

@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - **Performance documentation**: RAM, Flash, and detection timing benchmarks for ESP32-C3 and ESP32-C6 in PERFORMANCE.md
 - **Performance logging**: Lightweight DEBUG-level logging for heap usage (startup/post-calibration) and detection time (~10s interval)
 - **git_ref substitution**: All example YAML files now use a `git_ref` substitution, making it easy to switch between branches, tags, or commits
+- **Snapshot builds**: Automated pre-release builds on every push to main, providing pre-compiled firmware for testing fixes before official releases
 
 ### Fixed
 

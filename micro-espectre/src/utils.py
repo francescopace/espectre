@@ -283,3 +283,92 @@ def extract_all_magnitudes(csi_data):
         magnitudes[sc_idx] = extract_amplitude(csi_data, sc_idx)
     
     return magnitudes
+
+
+def extract_phase(csi_data, sc_idx):
+    """
+    Extract phase for a single subcarrier from CSI data.
+    
+    Uses Espressif CSI format: [Imaginary, Real, ...] per subcarrier.
+    CSI values are signed int8 stored as uint8.
+    
+    Args:
+        csi_data: Raw CSI data (bytes or list of uint8)
+        sc_idx: Subcarrier index (0-63 for HT20)
+    
+    Returns:
+        float: Phase value in radians (-pi to pi), or 0.0 if invalid index
+    """
+    i_idx = sc_idx * 2 + 1  # Real (In-phase) is second
+    q_idx = sc_idx * 2      # Imaginary (Quadrature) is first
+    
+    if q_idx + 1 >= len(csi_data):
+        return 0.0
+    
+    I = to_signed_int8(csi_data[i_idx])
+    Q = to_signed_int8(csi_data[q_idx])
+    
+    return math.atan2(float(Q), float(I))
+
+
+def extract_phases(csi_data, subcarriers=None):
+    """
+    Extract phases for multiple subcarriers from CSI data.
+    
+    Uses Espressif CSI format: [Imaginary, Real, ...] per subcarrier.
+    
+    Args:
+        csi_data: Raw CSI data (bytes or list of uint8)
+        subcarriers: List of subcarrier indices (default: all 64)
+    
+    Returns:
+        list: Phase values in radians for each subcarrier
+    """
+    if subcarriers is None:
+        # Use all available subcarriers (HT20: 64 max)
+        max_sc = min(64, len(csi_data) // 2)
+        subcarriers = range(max_sc)
+    
+    phases = []
+    for sc_idx in subcarriers:
+        if sc_idx * 2 + 1 < len(csi_data):
+            phases.append(extract_phase(csi_data, sc_idx))
+    
+    return phases
+
+
+def extract_amplitudes_and_phases(csi_data, subcarriers=None):
+    """
+    Extract both amplitudes and phases for subcarriers from CSI data.
+    
+    More efficient than calling extract_amplitudes and extract_phases separately
+    since it only parses I/Q once per subcarrier.
+    
+    Args:
+        csi_data: Raw CSI data (bytes or list of uint8)
+        subcarriers: List of subcarrier indices (default: all 64)
+    
+    Returns:
+        tuple: (amplitudes, phases) lists
+    """
+    if subcarriers is None:
+        max_sc = min(64, len(csi_data) // 2)
+        subcarriers = range(max_sc)
+    
+    amplitudes = []
+    phases = []
+    
+    for sc_idx in subcarriers:
+        i_idx = sc_idx * 2 + 1  # Real (In-phase) is second
+        q_idx = sc_idx * 2      # Imaginary (Quadrature) is first
+        
+        if q_idx + 1 >= len(csi_data):
+            continue
+        
+        I = float(to_signed_int8(csi_data[i_idx]))
+        Q = float(to_signed_int8(csi_data[q_idx]))
+        
+        amplitudes.append(math.sqrt(I * I + Q * Q))
+        phases.append(math.atan2(Q, I))
+    
+    return amplitudes, phases
