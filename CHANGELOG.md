@@ -4,7 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.5.1] - in progress - Minor Fixes
+## [2.5.1] - 2026-02-23 - HT STBC Multi-Antenna Router Fix
+
+### Fixed
+
+- **ESP32-C5/C6 STBC multi-antenna router fix**: Multi-antenna routers with STBC TX send two HT training fields per frame (HT-LTF1 + HT-LTF2), causing the CSI callback to receive 256-byte packets instead of the expected 128 bytes for HT20. On ESP32-C5/C6, `wifi_csi_acquire_config_t` has no field to disable HT STBC capture (unlike older chips). ESPectre now accepts these packets and takes the first 64 subcarriers (HT-LTF1), which is a valid channel estimate (#76, espressif/esp-csi#238)
+- **Micro-ESPectre NBVI calibration on ESP32-C3**: Fixed OOM crashes during calibration caused by large in-memory allocations in the streaming NBVI computation phase; calibration now completes successfully on C3 with ~59 KB free heap
+- **ESPHome 2026.2.0+ compatibility**: Ensure SPIFFS inclusion for newer ESPHome versions (#87)
+- **CI develop branch**: Use local component configs instead of main branch for CI builds on develop
+
+### Changed
+
+- **Micro-ESPectre NBVI calibration speed**: Packet collection rate improved ~3x on ESP32-C3 (28 → 80 pps) by skipping sqrt on guard band subcarriers (excluded from NBVI selection), caching `math.sqrt` locally, and using integer arithmetic in the magnitude loop
 
 ### Added
 
@@ -12,12 +23,6 @@ All notable changes to this project will be documented in this file.
 - **Performance logging**: Lightweight DEBUG-level logging for heap usage (startup/post-calibration) and detection time (~10s interval)
 - **git_ref substitution**: All example YAML files now use a `git_ref` substitution, making it easy to switch between branches, tags, or commits
 - **Snapshot builds**: Automated pre-release builds on every push to main, providing pre-compiled firmware for testing fixes before official releases
-
-### Fixed
-
-- **ESP32-C5/C6 packet filtering**: Disable L-LTF acquisition to fix 256-byte packet filtering issue
-- **ESPHome 2026.2.0+ compatibility**: Ensure SPIFFS inclusion for newer ESPHome versions (#87)
-- **CI develop branch**: Use local component configs instead of main branch for CI builds on develop
 
 ### Documentation
 

@@ -74,7 +74,17 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
     return;
   }
   
-  // Filter packets with wrong SC count (HT20 only: 64 SC = 128 bytes)
+  // STBC workaround (GitHub issue #76, espressif/esp-csi#238)
+  // Multi-antenna routers with STBC TX send two HT training fields per frame
+  // (HT-LTF1 + HT-LTF2), so the CSI callback receives 256 bytes (128 SC)
+  // instead of the normal 128 bytes (64 SC) for HT20.
+  if (csi_len == HT20_CSI_LEN * 2) {
+    // The two LTFs share the same HT20 subcarrier layout, so we take the first
+    // 64 subcarriers (HT-LTF1) which is a valid channel estimate.
+    csi_len = HT20_CSI_LEN;
+  }
+  
+  // Filter packets with unexpected SC count (HT20 only: 64 SC = 128 bytes)
   if (csi_len != HT20_CSI_LEN) {
     packets_filtered_++;
     if (packets_filtered_ % 100 == 1) {

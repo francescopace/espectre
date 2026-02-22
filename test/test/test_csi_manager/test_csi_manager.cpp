@@ -218,6 +218,50 @@ void test_csi_manager_process_packet_valid_data(void) {
 }
 
 // ============================================================================
+// STBC PACKET TESTS (GitHub issue #76)
+// ============================================================================
+
+void test_csi_manager_process_stbc_256_byte_packet(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, 100, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    // STBC packet: 256 bytes (2x HT-LTF, 128 SC) — should be truncated to 128
+    int8_t csi_buf[256];
+    for (int i = 0; i < 256; i++) {
+        csi_buf[i] = (int8_t)(i % 64 - 32);
+    }
+    
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 256;
+    csi_info.rx_ctrl.channel = 6;
+    
+    manager.process_packet(&csi_info);
+    
+    TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+}
+
+void test_csi_manager_process_wrong_length_filtered(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, 100, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    // 64 bytes — not HT20 (128) nor STBC (256), must be filtered
+    int8_t csi_buf[64];
+    memset(csi_buf, 0, sizeof(csi_buf));
+    
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 64;
+    csi_info.rx_ctrl.channel = 6;
+    
+    manager.process_packet(&csi_info);
+    
+    TEST_ASSERT_EQUAL(0, detector.get_total_packets());
+}
+
+// ============================================================================
 // ERROR PATH TESTS
 // ============================================================================
 
@@ -385,6 +429,10 @@ int process(void) {
     RUN_TEST(test_csi_manager_process_packet_null_data);
     RUN_TEST(test_csi_manager_process_packet_short_data);
     RUN_TEST(test_csi_manager_process_packet_valid_data);
+    
+    // STBC packet tests (issue #76)
+    RUN_TEST(test_csi_manager_process_stbc_256_byte_packet);
+    RUN_TEST(test_csi_manager_process_wrong_length_filtered);
     
     // Error path tests
     RUN_TEST(test_csi_manager_enable_config_error);

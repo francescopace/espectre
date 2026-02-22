@@ -375,6 +375,7 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     timeout_counter = 0
     max_timeout = 15000  # 15 seconds
     packets_read = 0
+    filtered_count = 0
     last_progress_time = time.ticks_ms()
     last_progress_count = 0
     
@@ -383,9 +384,20 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         packets_read += 1
         
         if frame:
-            # HT20: 64 SC × 2 bytes = 128 bytes
+            raw_len = len(frame[5])
+            # STBC workaround (GitHub issue #76, espressif/esp-csi#238)
+            if raw_len == EXPECTED_CSI_LEN * 2:
+                raw_len = EXPECTED_CSI_LEN
+
+            if raw_len != EXPECTED_CSI_LEN:
+                filtered_count += 1
+                if filtered_count % 100 == 1:
+                    print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
+                del frame
+                continue
+
             csi_data = frame[5][:EXPECTED_CSI_LEN]
-            del frame  # Free memory immediately
+            del frame
             calibration_progress = calibrator.add_packet(csi_data)
             timeout_counter = 0  # Reset timeout on successful read
             
@@ -425,67 +437,66 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         # Calibrator returns: calibrate() -> (band, values)
         # band = selected subcarriers, values = mv_values
         selected_band, cal_values = calibrator.calibrate()
-        
-        if selected_band and len(selected_band) == 12:
-            config.SELECTED_SUBCARRIERS = selected_band
-            
-            if is_ml:
-                # ML: subcarriers only, threshold stays at 0.5
-                threshold_source = "fixed (0.5)"
-                success = True
-                
-                print('')
-                print('='*60)
-                print('ML Subcarrier Calibration Successful!')
-                print(f'   Algorithm: {algorithm.upper()} (subcarrier selection only)')
-                print(f'   Selected band: {selected_band}')
-                print(f'   Threshold: {detector.get_threshold():.2f} ({threshold_source})')
-                print('='*60)
-                print('')
-            else:
-                # MVS: apply adaptive threshold from MV values
-                from src.threshold import calculate_adaptive_threshold
-                
-                if isinstance(SEG_THRESHOLD, str):
-                    # "auto" or "min" mode - calculate adaptive threshold
-                    adaptive_threshold, percentile = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
-                    detector.set_adaptive_threshold(adaptive_threshold)
-                    threshold_source = f"{SEG_THRESHOLD} (P{percentile})"
-                    print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
-                else:
-                    # Numeric value - use fixed manual threshold
-                    adaptive_threshold, _ = calculate_adaptive_threshold(cal_values, "auto")
-                    detector.set_threshold(float(SEG_THRESHOLD))
-                    threshold_source = "manual"
-                    print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
-                
-                success = True
-                
-                print('')
-                print('='*60)
-                print('Subcarrier Calibration Successful!')
-                print(f'   Algorithm: {algorithm.upper()}')
-                print(f'   Selected band: {selected_band}')
-                print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
-                print('='*60)
-                print('')
-        else:
-            # Calibration failed - keep default
-            print('')
-            print('='*60)
-            print('Subcarrier Calibration Failed')
-            print(f'   Using default band: {config.SELECTED_SUBCARRIERS}')
-            print('='*60)
-            print('')
-    
     except Exception as e:
         print(f"Error during calibration: {e}")
-        print(f"Using default band: {config.SELECTED_SUBCARRIERS}")
+        selected_band, cal_values = None, []
     
-    # Free calibrator memory explicitly
+    # Free calibrator memory BEFORE threshold calculation (C3 needs the headroom)
     calibrator.free_buffer()
     calibrator = None
     gc.collect()
+    
+    if selected_band and len(selected_band) == 12:
+        config.SELECTED_SUBCARRIERS = selected_band
+        
+        if is_ml:
+            threshold_source = "fixed (0.5)"
+            success = True
+            
+            print('')
+            print('='*60)
+            print('ML Subcarrier Calibration Successful!')
+            print(f'   Algorithm: {algorithm.upper()} (subcarrier selection only)')
+            print(f'   Selected band: {selected_band}')
+            print(f'   Threshold: {detector.get_threshold():.2f} ({threshold_source})')
+            print('='*60)
+            print('')
+        else:
+            # MVS: apply adaptive threshold from MV values
+            from src.threshold import calculate_adaptive_threshold
+            
+            if isinstance(SEG_THRESHOLD, str):
+                adaptive_threshold, percentile = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
+                detector.set_adaptive_threshold(adaptive_threshold)
+                threshold_source = f"{SEG_THRESHOLD} (P{percentile})"
+                print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
+            else:
+                adaptive_threshold, _ = calculate_adaptive_threshold(cal_values, "auto")
+                detector.set_threshold(float(SEG_THRESHOLD))
+                threshold_source = "manual"
+                print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
+            
+            del cal_values
+            gc.collect()
+            
+            success = True
+            
+            print('')
+            print('='*60)
+            print('Subcarrier Calibration Successful!')
+            print(f'   Algorithm: {algorithm.upper()}')
+            print(f'   Selected band: {selected_band}')
+            print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
+            print('='*60)
+            print('')
+    else:
+        print(f"Using default band: {config.SELECTED_SUBCARRIERS}")
+        print('')
+        print('='*60)
+        print('Subcarrier Calibration Failed')
+        print(f'   Using default band: {config.SELECTED_SUBCARRIERS}')
+        print('='*60)
+        print('')
     
     # Restart traffic generator if it was running
     if tg_was_running:
@@ -588,7 +599,10 @@ def main():
                 time.sleep(1)
                 traffic_gen.start(config.TRAFFIC_GENERATOR_RATE)
             else:
-                print(f'WARNING: Only {csi_received} CSI packets after {max_tg_retries} attempts - TG may not be working')
+                print(f'FATAL: No CSI packets after {max_tg_retries} attempts - cannot operate without traffic')
+                print('Please check WiFi connection and retry')
+                import sys
+                sys.exit(1)
     
     # P95 Auto-Calibration at boot if subcarriers not configured
     # Handle case where SELECTED_SUBCARRIERS is None, empty, or not defined (commented out)
@@ -647,16 +661,18 @@ def main():
             frame = wlan.csi_read()
             
             if frame:
-                # Filter packets by expected CSI length (HT20: 128 bytes)
-                if len(frame[5]) != EXPECTED_CSI_LEN:
+                raw_len = len(frame[5])
+                # STBC workaround — see nbvi_calibrator.py for details
+                if raw_len == EXPECTED_CSI_LEN * 2:
+                    raw_len = EXPECTED_CSI_LEN
+                
+                if raw_len != EXPECTED_CSI_LEN:
                     filtered_count += 1
-                    # Log warning every 100 filtered packets
                     if filtered_count % 100 == 1:
                         print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
                     del frame
                     continue
                 
-                # Extract data and free frame immediately to save memory
                 csi_data = frame[5][:EXPECTED_CSI_LEN]
                 packet_channel = frame[1]
                 

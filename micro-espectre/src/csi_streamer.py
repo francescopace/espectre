@@ -156,16 +156,18 @@ def stream_csi(dest_ip, duration_sec=0):
             
             frame = wlan.csi_read()
             if frame:
-                # Filter packets by expected CSI length (HT20: 128 bytes)
-                if len(frame[5]) != EXPECTED_CSI_LEN:
+                raw_len = len(frame[5])
+                # STBC workaround (GitHub issue #76, espressif/esp-csi#238)
+                if raw_len == EXPECTED_CSI_LEN * 2:
+                    raw_len = EXPECTED_CSI_LEN
+                
+                if raw_len != EXPECTED_CSI_LEN:
                     filtered_count += 1
-                    # Log warning every 100 filtered packets
                     if filtered_count % 100 == 1:
-                        print(f'[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes)')
+                        print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
                     del frame
                     continue
                 
-                # Extract CSI data (HT20: 128 bytes) - sent RAW
                 csi_data = frame[5][:EXPECTED_CSI_LEN]
                 del frame
                 

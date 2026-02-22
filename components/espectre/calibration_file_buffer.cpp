@@ -93,9 +93,15 @@ bool CalibrationFileBuffer::write_packet(const int8_t* csi_data, size_t csi_len)
     return false;
   }
   
-  // Calculate magnitudes and write as uint8 (max CSI magnitude ~181 fits in 1 byte)
+  // Calculate magnitudes and write as uint8 (max CSI magnitude ~181 fits in 1 byte).
+  // Guard band and DC subcarriers are zeroed without sqrt — they are excluded
+  // from NBVI selection anyway (marked inf in calculate_nbvi_metrics_).
   uint8_t magnitudes[HT20_NUM_SUBCARRIERS];
   for (uint16_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
+    if (sc < HT20_GUARD_BAND_LOW || sc > HT20_GUARD_BAND_HIGH || sc == HT20_DC_SUBCARRIER) {
+      magnitudes[sc] = 0;
+      continue;
+    }
     // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
     int8_t q_val = csi_data[sc * 2];      // Imaginary first
     int8_t i_val = csi_data[sc * 2 + 1];  // Real second

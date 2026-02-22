@@ -98,6 +98,11 @@ class NBVICalibrator:
         self._file = None
         self._initialized = False
         
+        # Batch write buffer to reduce flash I/O overhead (750 writes → 8 writes)
+        self._write_batch_size = 100
+        self._write_buf = bytearray(self._write_batch_size * NUM_SUBCARRIERS)
+        self._write_buf_idx = 0
+        
         # Remove old buffer file if exists
         try:
             os.remove(BUFFER_FILE)
@@ -119,11 +124,18 @@ class NBVICalibrator:
     # ========================================================================
     
     def _prepare_for_reading(self):
-        """Close write mode and reopen for reading."""
+        """Flush remaining buffer, close write mode and reopen for reading."""
         if self._file:
+            # Flush any remaining packets in batch buffer
+            if self._write_buf_idx > 0:
+                remaining = self._write_buf_idx * NUM_SUBCARRIERS
+                self._file.write(memoryview(self._write_buf)[:remaining])
+                self._write_buf_idx = 0
             self._file.flush()
             self._file.close()
-            gc.collect()
+        # Free write buffer — no longer needed after collection phase
+        self._write_buf = None
+        gc.collect()
         self._file = open(self._buffer_file, 'rb')
     
     def free_buffer(self):
@@ -131,6 +143,9 @@ class NBVICalibrator:
         if self._file:
             self._file.close()
             self._file = None
+        
+        # Free batch buffer
+        self._write_buf = None
         
         try:
             os.remove(self._buffer_file)
@@ -164,7 +179,8 @@ class NBVICalibrator:
         if self._packet_count >= self.buffer_size:
             return self.buffer_size
         
-        # Filter by expected CSI length (HT20: 128 bytes)
+        # STBC packets (256 bytes) are truncated upstream before reaching here.
+        # See GitHub issue #76, espressif/esp-csi#238 for details.
         if len(csi_data) != EXPECTED_CSI_LEN:
             self._filtered_count += 1
             if self._filtered_count % 50 == 1:
@@ -176,30 +192,39 @@ class NBVICalibrator:
             self._initialized = True
             print(f'NBVI: HT20 mode, {NUM_SUBCARRIERS} SC, guard [{GUARD_BAND_LOW}-{GUARD_BAND_HIGH}], DC={DC_SUBCARRIER}')
         
-        # Extract magnitudes and write directly to file
-        magnitudes = bytearray(NUM_SUBCARRIERS)
+        # Extract magnitudes into batch buffer (avoids per-packet flash write)
+        # Guard band and DC subcarriers are zeroed without computing sqrt —
+        # they are excluded from NBVI selection anyway (marked inf in calibrate()).
+        # Cache math.sqrt locally to avoid 42 global+attr lookups per packet.
+        # I*I integer arithmetic avoids float() conversions (exact for I ∈ [-127,127]).
+        _sqrt = math.sqrt
+        buf_offset = self._write_buf_idx * NUM_SUBCARRIERS
+        csi_len = len(csi_data)
         for sc in range(NUM_SUBCARRIERS):
-            i_idx = sc * 2
+            if sc < GUARD_BAND_LOW or sc > GUARD_BAND_HIGH or sc == DC_SUBCARRIER:
+                self._write_buf[buf_offset + sc] = 0
+                continue
+            
             q_idx = sc * 2 + 1
             
-            if q_idx < len(csi_data):
+            if q_idx < csi_len:
                 # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-                # CSI values are signed int8 stored as uint8
-                Q = to_signed_int8(csi_data[i_idx])   # Imaginary first
-                I = to_signed_int8(csi_data[q_idx])   # Real second
-                # Calculate magnitude as uint8 (max ~181 fits in byte)
-                mag = int(math.sqrt(float(I)*float(I) + float(Q)*float(Q)))
-                magnitudes[sc] = min(mag, 255)
+                Q = to_signed_int8(csi_data[sc * 2])   # Imaginary first
+                I = to_signed_int8(csi_data[q_idx])     # Real second
+                # I*I avoids float() conversion: I ∈ [-127,127] so I*I ≤ 32258,
+                # exact in float64, same result as float(I)*float(I).
+                mag = int(_sqrt(I*I + Q*Q))
+                self._write_buf[buf_offset + sc] = min(mag, 255)
             else:
-                magnitudes[sc] = 0
+                self._write_buf[buf_offset + sc] = 0
         
-        # Write to file
-        self._file.write(magnitudes)
+        self._write_buf_idx += 1
         self._packet_count += 1
         
-        # Flush periodically
-        if self._packet_count % 100 == 0:
-            self._file.flush()
+        # Batch write when buffer full (reduces flash writes from 750 to ~8)
+        if self._write_buf_idx >= self._write_batch_size:
+            self._file.write(self._write_buf)
+            self._write_buf_idx = 0
         
         return self._packet_count
     
@@ -213,19 +238,14 @@ class NBVICalibrator:
         data = self._file.read(NUM_SUBCARRIERS)
         return list(data) if data else None
     
-    def _read_window(self, start_idx, window_size):
-        """Read a window of packets from file"""
-        self._file.seek(start_idx * NUM_SUBCARRIERS)
-        data = self._file.read(window_size * NUM_SUBCARRIERS)
-        if not data:
-            return []
-        
-        window = []
-        for i in range(0, len(data), NUM_SUBCARRIERS):
-            packet = list(data[i:i+NUM_SUBCARRIERS])
-            if len(packet) == NUM_SUBCARRIERS:
-                window.append(packet)
-        return window
+    def _packet_turbulence(self, data, band):
+        """Calculate spatial turbulence (std of band magnitudes) from raw packet bytes."""
+        band_mags = [data[sc] for sc in band if sc < len(data)]
+        if not band_mags:
+            return 0.0
+        mean_mag = sum(band_mags) / len(band_mags)
+        variance = sum((m - mean_mag) ** 2 for m in band_mags) / len(band_mags)
+        return math.sqrt(variance) if variance > 0 else 0.0
     
     # ========================================================================
     # Calibration algorithm
@@ -234,6 +254,7 @@ class NBVICalibrator:
     def _find_candidate_windows(self, current_band, window_size=200, step=50):
         """
         Find all candidate baseline windows using percentile-based detection.
+        Streams packets from file one at a time to avoid large memory allocations.
         
         NO absolute threshold - adapts automatically to environment.
         """
@@ -243,25 +264,34 @@ class NBVICalibrator:
         window_results = []
         
         for i in range(0, self._packet_count - window_size + 1, step):
-            window = self._read_window(i, window_size)
-            if len(window) < window_size:
+            # Two-pass streaming variance of turbulences (identical to calculate_variance)
+            # Pass 1: mean
+            sum_turb = 0.0
+            count = 0
+            self._file.seek(i * NUM_SUBCARRIERS)
+            for _ in range(window_size):
+                data = self._file.read(NUM_SUBCARRIERS)
+                if not data or len(data) < NUM_SUBCARRIERS:
+                    break
+                sum_turb += self._packet_turbulence(data, current_band)
+                count += 1
+            
+            if count == 0:
                 continue
+            mean_turb = sum_turb / count
             
-            turbulences = []
-            for packet_mags in window:
-                band_mags = [packet_mags[sc] for sc in current_band if sc < len(packet_mags)]
-                if band_mags:
-                    mean_mag = sum(band_mags) / len(band_mags)
-                    variance = sum((m - mean_mag) ** 2 for m in band_mags) / len(band_mags)
-                    std = math.sqrt(variance) if variance > 0 else 0.0
-                    turbulences.append(std)
+            # Pass 2: variance
+            sum_sq = 0.0
+            self._file.seek(i * NUM_SUBCARRIERS)
+            for _ in range(window_size):
+                data = self._file.read(NUM_SUBCARRIERS)
+                if not data or len(data) < NUM_SUBCARRIERS:
+                    break
+                diff = self._packet_turbulence(data, current_band) - mean_turb
+                sum_sq += diff * diff
             
-            if turbulences:
-                turb_variance = calculate_variance(turbulences)
-                window_results.append((i, turb_variance))
+            window_results.append((i, sum_sq / count))
             
-            del window
-            del turbulences
             if i % 200 == 0:
                 gc.collect()
         
@@ -276,22 +306,14 @@ class NBVICalibrator:
         
         return candidates
     
-    def _calculate_nbvi_weighted(self, magnitudes):
+    def _calculate_nbvi_from_stats(self, mean, std):
         """
-        Calculate NBVI Weighted (configurable alpha, default 0.5)
+        Calculate NBVI Weighted from pre-computed mean and std.
         
         NBVI = alpha * (std/mean^2) + (1-alpha) * (std/mean)
         """
-        if not magnitudes:
-            return {'nbvi': float('inf'), 'mean': 0.0, 'std': 0.0}
-        
-        mean = sum(magnitudes) / len(magnitudes)
-        
         if mean < 1e-6:
-            return {'nbvi': float('inf'), 'mean': mean, 'std': 0.0}
-        
-        variance = sum((m - mean) ** 2 for m in magnitudes) / len(magnitudes)
-        std = math.sqrt(variance) if variance > 0 else 0.0
+            return {'nbvi': float('inf'), 'mean': mean, 'std': std}
         
         cv = std / mean
         nbvi_energy = std / (mean * mean)
@@ -372,6 +394,12 @@ class NBVICalibrator:
         turbulence_buffer = [0.0] * self.mvs_window_size
         motion_count = 0
         total_packets = 0
+        # Subsample mv_values at 1:5 for the adaptive threshold (P95).
+        # The 750-packet buffer is needed for band selection quality, but P95
+        # is statistically stable with ~140 samples. A contiguous list of 700
+        # floats (2700 bytes) exceeds the available heap on ESP32-C3 after the
+        # NBVI streaming phase, while 140 floats (560 bytes) fits comfortably.
+        MV_SUBSAMPLE = 5
         mv_values = []
         
         for pkt_idx in range(self._packet_count):
@@ -394,7 +422,8 @@ class NBVICalibrator:
                 continue
             
             mv_variance = calculate_variance(turbulence_buffer)
-            mv_values.append(mv_variance)
+            if total_packets % MV_SUBSAMPLE == 0:
+                mv_values.append(mv_variance)
             
             if mv_variance > MVS_THRESHOLD:
                 motion_count += 1
@@ -447,24 +476,54 @@ class NBVICalibrator:
         best_window_idx = 0
         
         for idx, (start_idx, window_variance) in enumerate(candidates):
-            baseline_window = self._read_window(start_idx, window_size)
-            if len(baseline_window) < window_size:
+            # Two-pass streaming NBVI per subcarrier (~1 KB instead of ~62 KB)
+            # Pass 1: accumulate sum per subcarrier for mean
+            sum_sc = [0.0] * NUM_SUBCARRIERS
+            count = 0
+            self._file.seek(start_idx * NUM_SUBCARRIERS)
+            for _ in range(window_size):
+                data = self._file.read(NUM_SUBCARRIERS)
+                if not data or len(data) < NUM_SUBCARRIERS:
+                    break
+                for sc in range(NUM_SUBCARRIERS):
+                    sum_sc[sc] += data[sc]
+                count += 1
+            
+            if count == 0:
                 continue
+            # Divide in-place to avoid allocating 64 new float objects (~1 KB)
+            for i in range(NUM_SUBCARRIERS):
+                sum_sc[i] /= count
+            mean_sc = sum_sc
             
+            # Pass 2: accumulate sum of squared differences for std
+            sum_sq_sc = [0.0] * NUM_SUBCARRIERS
+            self._file.seek(start_idx * NUM_SUBCARRIERS)
+            for _ in range(window_size):
+                data = self._file.read(NUM_SUBCARRIERS)
+                if not data or len(data) < NUM_SUBCARRIERS:
+                    break
+                for sc in range(NUM_SUBCARRIERS):
+                    diff = data[sc] - mean_sc[sc]
+                    sum_sq_sc[sc] += diff * diff
+            
+            # Build metrics from streaming stats
             all_metrics = []
-            
             for sc in range(NUM_SUBCARRIERS):
-                magnitudes = [packet_mags[sc] for packet_mags in baseline_window]
-                metrics = self._calculate_nbvi_weighted(magnitudes)
+                std = math.sqrt(sum_sq_sc[sc] / count) if sum_sq_sc[sc] > 0 else 0.0
+                metrics = self._calculate_nbvi_from_stats(mean_sc[sc], std)
                 metrics['subcarrier'] = sc
                 
-                # Exclude guard bands and DC subcarrier
                 if sc < GUARD_BAND_LOW or sc > GUARD_BAND_HIGH or sc == DC_SUBCARRIER:
                     metrics['nbvi'] = float('inf')
                 elif metrics['mean'] < NULL_SUBCARRIER_THRESHOLD:
                     metrics['nbvi'] = float('inf')
                 
                 all_metrics.append(metrics)
+            
+            del sum_sc
+            del sum_sq_sc
+            del mean_sc
             
             filtered_metrics = self._apply_noise_gate(all_metrics)
             
@@ -477,6 +536,14 @@ class NBVICalibrator:
             if len(candidate_band) != BAND_SIZE:
                 continue
             
+            # Save reporting stats before freeing all_metrics
+            selected_metrics = [m for m in all_metrics if m['subcarrier'] in candidate_band]
+            avg_nbvi = sum(m['nbvi'] for m in selected_metrics) / len(selected_metrics)
+            avg_mean = sum(m['mean'] for m in selected_metrics) / len(selected_metrics)
+            del selected_metrics
+            del all_metrics
+            gc.collect()
+            
             fp_rate, mv_values = self._validate_subcarriers(candidate_band)
             
             if fp_rate < best_fp_rate:
@@ -484,14 +551,8 @@ class NBVICalibrator:
                 best_band = candidate_band
                 best_mv_values = mv_values
                 best_window_idx = idx
-                
-                selected_metrics = [m for m in all_metrics if m['subcarrier'] in candidate_band]
-                best_avg_nbvi = sum(m['nbvi'] for m in selected_metrics) / len(selected_metrics)
-                best_avg_mean = sum(m['mean'] for m in selected_metrics) / len(selected_metrics)
-            
-            del baseline_window
-            del all_metrics
-            gc.collect()
+                best_avg_nbvi = avg_nbvi
+                best_avg_mean = avg_mean
         
         if best_band is None:
             print("NBVI: All candidate windows failed - using default subcarriers")
