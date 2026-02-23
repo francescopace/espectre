@@ -48,16 +48,40 @@ jobs:
         include:
           - chip: ESP32
             config: examples/espectre-esp32.yaml
+            algorithm: mvs
+          - chip: ESP32
+            config: examples/espectre-esp32.yaml
+            algorithm: ml
           - chip: ESP32-S2
             config: examples/espectre-s2.yaml
+            algorithm: mvs
+          - chip: ESP32-S2
+            config: examples/espectre-s2.yaml
+            algorithm: ml
           - chip: ESP32-S3
             config: examples/espectre-s3.yaml
+            algorithm: mvs
+          - chip: ESP32-S3
+            config: examples/espectre-s3.yaml
+            algorithm: ml
           - chip: ESP32-C3
             config: examples/espectre-c3.yaml
+            algorithm: mvs
+          - chip: ESP32-C3
+            config: examples/espectre-c3.yaml
+            algorithm: ml
           - chip: ESP32-C5
             config: examples/espectre-c5.yaml
+            algorithm: mvs
+          - chip: ESP32-C5
+            config: examples/espectre-c5.yaml
+            algorithm: ml
           - chip: ESP32-C6
             config: examples/espectre-c6.yaml
+            algorithm: mvs
+          - chip: ESP32-C6
+            config: examples/espectre-c6.yaml
+            algorithm: ml
     
     steps:
       - uses: actions/checkout@v6
@@ -86,20 +110,26 @@ jobs:
           pip install esphome
       
       - name: Compile
-        run: esphome -s git_ref ${{ github.event.workflow_run.head_sha }} compile ${{ matrix.config }}
+        run: esphome -s git_ref ${{ github.event.workflow_run.head_sha }} -s detection_algorithm ${{ matrix.algorithm }} compile ${{ matrix.config }}
       
       - name: Rename firmware files
         run: |
           mkdir -p output
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
+          ALGO="${{ matrix.algorithm }}"
           find examples/.esphome/build -name "firmware*.bin" -exec cp {} output/ \;
-          mv "output/firmware.factory.bin" "output/espectre-snapshot-${CHIP}.bin"
-          mv "output/firmware.ota.bin" "output/espectre-snapshot-${CHIP}-ota.bin"
+          if [ "$ALGO" = "ml" ]; then
+            mv "output/firmware.factory.bin" "output/espectre-snapshot-${CHIP}-ml.bin"
+            mv "output/firmware.ota.bin" "output/espectre-snapshot-${CHIP}-ml-ota.bin"
+          else
+            mv "output/firmware.factory.bin" "output/espectre-snapshot-${CHIP}.bin"
+            mv "output/firmware.ota.bin" "output/espectre-snapshot-${CHIP}-ota.bin"
+          fi
       
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v6
         with:
-          name: firmware-${{ matrix.chip }}
+          name: firmware-${{ matrix.chip }}-${{ matrix.algorithm }}
           path: output/espectre-*.bin
           retention-days: 1
 

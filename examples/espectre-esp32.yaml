@@ -16,6 +16,7 @@
 
 substitutions:
   git_ref: main # branch, tag, or commit
+  detection_algorithm: mvs # mvs (default) or ml
 
 esphome:
   name: espectre
@@ -45,6 +46,7 @@ external_components:
 # ESPectre - WiFi CSI Motion Detection
 espectre:
   id: espectre_csi
+  detection_algorithm: ${detection_algorithm}
 
 # Dashboard import for easy adoption
 dashboard_import:
