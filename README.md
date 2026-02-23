@@ -10,7 +10,7 @@
 **Motion detection system based on Wi-Fi spectre analysis (CSI), with native Home Assistant integration via ESPHome.**
 
 > [!TIP]
-> **New in v2.5 — ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, feedback is welcome in the [discussion](https://github.com/francescopace/espectre/discussions/84). Follow [Setup guide](SETUP.md#choosing-detection-algorithm) for configuration.
+> **New in v2.5 — ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, feedback is welcome in the [discussion](https://github.com/francescopace/espectre/discussions/84). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or follow [Setup guide](SETUP.md#choosing-detection-algorithm) for custom configuration. 
 
 ---
 
