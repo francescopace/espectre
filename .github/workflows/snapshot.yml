@@ -38,7 +38,7 @@ jobs:
           fi
 
   build:
-    name: Build ${{ matrix.chip }}
+    name: Build ${{ matrix.chip }} (${{ matrix.algorithm }})
     needs: check-changes
     if: needs.check-changes.outputs.should_build == 'true'
     runs-on: ubuntu-latest

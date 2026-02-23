@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.chip }}
+    name: Build ${{ matrix.chip }} (${{ matrix.algorithm }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
