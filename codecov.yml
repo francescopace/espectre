@@ -1,6 +1,10 @@
 # Codecov Configuration
 # https://docs.codecov.com/docs/codecov-yaml
 
+codecov:
+  notify:
+    wait_for_ci: false
+
 coverage:
   status:
     project:
