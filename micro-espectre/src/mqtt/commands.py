@@ -133,7 +133,7 @@ class MQTTCommands:
                 channel_primary = self.wlan.config('channel')
                 # MicroPython doesn't expose secondary channel directly
                 channel_secondary = 0
-            except:
+            except Exception:
                 pass
             
             # WiFi protocol - decode bitmask
@@ -152,13 +152,13 @@ class MQTTCommands:
                 if proto_val & network.MODE_LR:
                     modes.append('LR')
                 protocol = '802.11' + '/'.join(modes) if modes else 'unknown'
-            except:
+            except Exception:
                 pass
             
             # CSI enabled (indicates promiscuous-like mode for CSI capture)
             try:
                 csi_enabled = hasattr(self.wlan, 'csi_available')
-            except:
+            except Exception:
                 pass
         
         # Get traffic generator rate (current runtime value)

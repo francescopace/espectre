@@ -448,7 +448,7 @@ def generate_sitemap():
         try:
             mtime = os.path.getmtime(filepath)
             return datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
-        except:
+        except Exception:
             return datetime.now().strftime('%Y-%m-%d')
     
     urls = []
