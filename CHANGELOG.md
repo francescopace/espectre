@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.6.0] - in progress - Gesture Recognition (experimental)
+
+### Highlights
+
+- **Gesture detection**: ML detector now classifies motion into named gesture classes (e.g. `wave`) in addition to generic `motion` and `idle`. Both C++ and Python logs report the detected gesture name on each motion event.
+- **Multiclass-only ML pipeline**: Removed all binary classification code. The training script, weights format, and inference engine are now multiclass-only (softmax output, sparse categorical crossentropy).
+- **Consistent test infrastructure**: C++ and Python tests now use identical hardcoded dataset files. CV normalization is derived from per-file NPZ metadata (`gain_locked` field) instead of chip-type heuristics.
+
+### Added
+
+- **Gesture classification**: `MLDetector::update_state()` logs the detected class label on motion start: `Motion started (prob=0.86, class=wave)`. The gesture name comes from `ML_CLASS_LABELS` in `ml_weights.h`, generated at training time.
+- **Gesture logging in Python**: `main.py` appends the gesture name to the status bar when a non-idle, non-generic class is detected (e.g. `[wave]`).
+- **`gain_locked` metadata in test data loader** (`csi_test_data.h`): `CsiData` now stores `gain_locked` / `has_gain_locked` read from the NPZ file. `needs_cv_normalization()` uses this field when available, falling back to chip-based heuristics for older files.
+- **`read_gain_locked()` helper** (`csi_utils.py`): Reads the `gain_locked` field from an NPZ file; returns `None` for files that predate the field.
+- **Hardcoded dataset paths in Python tests**: `get_available_datasets()` now uses the same explicit file paths as `csi_test_data.h`, ensuring C++ and Python always test on identical data.
+
+### Changed
+
+- **Micro-ESPectre default algorithm**: `DETECTION_ALGORITHM` in `config.py` changed from `"mvs"` to `"ml"`. The ML detector requires no calibration wait and is now the recommended default for Micro-ESPectre.
+- **ML architecture**: Hidden layer size changed from `[16, 8]` to `[24]` (single hidden layer). The simpler architecture matches the performance of the deeper one on current data while reducing MACs from 416 to 360.
+- **ML output**: Output layer uses softmax over N classes (was sigmoid over 1). `MLDetector::predict()` returns `1 - prob[idle]` for compatibility with the existing threshold-based state machine.
+- **`use_cv_normalization` fixture** (`test_validation_real_data.py`): Now reads `gain_locked` from the baseline NPZ instead of a per-chip hardcoded value, matching the C++ `needs_cv_normalization()` logic.
+- **`ml_test_data.npz` format**: `expected_outputs` field changed from `int32` class IDs to `float32` probabilities (`1 - prob[idle]`), matching what `MLDetector::predict()` returns. This enables the C++ unit test to numerically verify the full inference pipeline.
+- **`dataset_info.json`**: Removed the deprecated `id` field from label entries. Only `class_id`, `description`, and `color` are kept.
+- **`me collect --info`**: Replaced the `id` column with `Class` (showing `class_id`) in the dataset info table.
+
+### Removed
+
+- **Binary classification mode**: `predict()`, `is_motion()`, and `sigmoid()` removed from `ml_detector.py`. `predict_class()` is now the sole public inference function, returning `(class_id, class_name, confidence)`.
+- **`evaluate_model()` (binary)**: Replaced by `evaluate_model_multiclass()` throughout the training script.
+- **`experiment_architectures` binary branch**: Architecture comparison now always uses multiclass metrics.
+
+### Performance
+
+Results verified on C++ (PlatformIO) and Python (pytest) with identical datasets. See [PERFORMANCE.md](PERFORMANCE.md) for full tables.
+
+| Chip | Algorithm | Recall | FP Rate |
+|------|-----------|--------|---------|
+| ESP32-C3 | ML (multiclass) | 99.8% | 0.3% |
+| ESP32-C6 | ML (multiclass) | 100.0% | 0.0% |
+| ESP32-S3 | ML (multiclass) | 99.5% | 2.2% |
+| ESP32 | ML (multiclass) | 100.0% | 0.0% |
+
+---
+
 ## [2.5.1] - 2026-02-23 - HT STBC Multi-Antenna Router Fix
 
 ### Fixed

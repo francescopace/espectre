@@ -169,26 +169,66 @@ def load_dataset_info():
     return {'labels': {}}
 
 
-def is_motion_label(label_name, dataset_info):
+def get_class_id(label_name, dataset_info):
     """
-    Determine if a label represents motion or idle.
+    Get multi-class ID for a label.
     
-    Uses dataset_info.json to map labels:
-    - label_id 1 = MOTION
-    - label_id 0, 2, ... = IDLE (baseline, baseline_noisy, etc.)
+    Uses class_id from dataset_info.json:
+    - class_id 0 = IDLE (baseline, baseline_noisy)
+    - class_id 1 = MOTION (movement)
+    - class_id 2+ = specific gestures (wave, swipe, etc.)
+    
+    Falls back to binary mapping if class_id not defined.
     
     Args:
         label_name: Label name from npz file
         dataset_info: Loaded dataset_info.json
     
     Returns:
-        bool: True if motion, False if idle
+        int: Class ID
     """
     labels = dataset_info.get('labels', {})
     if label_name in labels:
-        return labels[label_name].get('id') == 1
-    # Default: only 'movement' is motion
-    return label_name == 'movement'
+        return labels[label_name].get('class_id', 0)
+    return 1 if label_name == 'movement' else 0
+
+
+def get_class_names(dataset_info):
+    """
+    Get ordered list of class names from dataset_info.json.
+    
+    Returns list indexed by class_id: ['idle', 'motion', 'wave', ...]
+    
+    Args:
+        dataset_info: Loaded dataset_info.json
+    
+    Returns:
+        list: Class names ordered by class_id
+    """
+    labels = dataset_info.get('labels', {})
+    class_map = {}
+    for label_name, info in labels.items():
+        if 'class_id' in info:
+            cid = info['class_id']
+            if cid not in class_map:
+                class_map[cid] = label_name
+    
+    if not class_map:
+        return ['idle', 'motion']
+    
+    # Build ordered list - use first label found for each class_id
+    # For class_id=0 prefer canonical name 'idle'/'baseline'
+    max_id = max(class_map.keys())
+    result = []
+    for i in range(max_id + 1):
+        name = class_map.get(i, f'class_{i}')
+        # Use canonical names for 0 and 1
+        if i == 0:
+            name = 'idle'
+        elif i == 1:
+            name = 'motion'
+        result.append(name)
+    return result
 
 
 def get_file_metadata(dataset_info):
@@ -270,9 +310,9 @@ def load_all_data():
                     stats['cv_norm_files'].add(npz_file.name)
                 
                 # Add flags to each packet
-                is_motion = is_motion_label(label, dataset_info)
+                class_id = get_class_id(label, dataset_info)
                 for p in packets:
-                    p['is_motion'] = is_motion
+                    p['class_id'] = class_id
                     p['use_cv_normalization'] = use_cv_norm
                 
                 all_packets.extend(packets)
@@ -347,8 +387,7 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
         )
         
         X.append(features)
-        # Label: 0 = IDLE, 1 = MOTION (from metadata)
-        y.append(1 if pkt.get('is_motion', False) else 0)
+        y.append(pkt.get('class_id', 0))
     
     return np.array(X), np.array(y), feature_names
 
@@ -357,87 +396,81 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
 # Model Training
 # ============================================================================
 
-def build_model(hidden_layers=[16, 8], num_features=12, use_dropout=True, dropout_rate=0.2):
+def build_model(num_classes, hidden_layers=[16, 8], num_features=12, use_dropout=True, dropout_rate=0.2):
     """
-    Build a Keras MLP model.
-    
+    Build a Keras MLP model (softmax multiclass output).
+
     Dropout layers are added during training for regularization but are
     automatically disabled during inference (and don't affect exported weights).
-    
+
     Args:
+        num_classes: Number of output classes
         hidden_layers: List of hidden layer sizes
         num_features: Number of input features
         use_dropout: Whether to add dropout layers (for training only)
         dropout_rate: Dropout rate (0.0-1.0)
-    
+
     Returns:
         Compiled Keras model
     """
     import tensorflow as tf
-    
+
     model = tf.keras.Sequential()
     model.add(tf.keras.layers.Input(shape=(num_features,)))
-    
+
     for units in hidden_layers:
         model.add(tf.keras.layers.Dense(units, activation='relu'))
         if use_dropout and dropout_rate > 0:
             model.add(tf.keras.layers.Dropout(dropout_rate))
-    
-    model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
-    
+
+    model.add(tf.keras.layers.Dense(num_classes, activation='softmax'))
+
     model.compile(
         optimizer='adam',
-        loss='binary_crossentropy',
+        loss='sparse_categorical_crossentropy',
         metrics=['accuracy']
     )
-    
+
     return model
 
 
-def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
+def train_model(X, y, num_classes, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
                 class_weight=None, fp_weight=1.0, verbose=0):
     """
     Train a neural network model with best practices.
-    
+
     Uses early stopping, learning rate reduction, dropout regularization,
-    and optional class weighting for imbalanced datasets.
-    
+    and balanced class weighting for imbalanced datasets.
+
     Args:
         X: Feature matrix (normalized)
-        y: Labels
+        y: Labels (class IDs)
+        num_classes: Number of output classes
         hidden_layers: List of hidden layer sizes
         max_epochs: Maximum training epochs (early stopping will cut short)
         use_dropout: Whether to add dropout layers
-        class_weight: Class weight dict (e.g., {0: 1.0, 1: 2.0}) or None for auto
-        fp_weight: Multiplier for class 0 (IDLE) weight to penalize false positives.
-                   Values >1.0 make the model more conservative (fewer FP, lower recall).
+        class_weight: Class weight dict or None for auto-balanced
+        fp_weight: Multiplier for class 0 (IDLE) weight to penalize false positives
         verbose: Training verbosity
-    
+
     Returns:
         Trained Keras model
     """
     import tensorflow as tf
-    
-    # Auto-compute class weights if not provided
+    from sklearn.utils.class_weight import compute_class_weight
+
     if class_weight is None:
-        n_total = len(y)
-        n_pos = np.sum(y == 1)
-        n_neg = n_total - n_pos
-        if n_pos > 0 and n_neg > 0:
-            # Balanced class weights: higher weight for minority class
-            class_weight = {
-                0: n_total / (2 * n_neg),
-                1: n_total / (2 * n_pos)
-            }
-    
-    # Apply FP penalty: increase weight for class 0 (IDLE)
-    # This makes misclassifying baseline as motion more costly
-    if fp_weight != 1.0 and class_weight is not None:
+        unique_classes = np.unique(y)
+        weights = compute_class_weight('balanced', classes=unique_classes, y=y)
+        class_weight = dict(zip(unique_classes.tolist(), weights.tolist()))
+
+    # Apply FP penalty to class 0 (IDLE) to reduce false positives
+    if fp_weight != 1.0 and 0 in class_weight:
         class_weight[0] *= fp_weight
-    
-    # Determine number of features from input shape
+
     num_features = X.shape[1] if hasattr(X, 'shape') else len(X[0])
-    model = build_model(hidden_layers=hidden_layers, num_features=num_features, use_dropout=use_dropout)
+    model = build_model(num_classes, hidden_layers=hidden_layers, num_features=num_features,
+                        use_dropout=use_dropout)
     
     # Callbacks for training robustness
     callbacks = [
@@ -468,82 +501,89 @@ def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
     return model
 
 
-def evaluate_model(model, X_test, y_test):
+def evaluate_model_multiclass(model, X_test, y_test, class_names):
     """
-    Evaluate a model on test data and return metrics dict.
+    Evaluate a multiclass model on test data.
     
     Args:
-        model: Trained Keras model
+        model: Trained Keras model (softmax output)
         X_test: Test features (normalized)
-        y_test: Test labels
+        y_test: Test labels (class IDs)
+        class_names: List of class names indexed by class_id
     
     Returns:
-        dict: Metrics (recall, precision, fp_rate, f1, tp, fp, tn, fn)
+        dict: Metrics (accuracy, per_class_accuracy, confusion)
     """
-    y_pred = (model.predict(X_test, verbose=0) > 0.5).astype(int).flatten()
-    tp = int(np.sum((y_test == 1) & (y_pred == 1)))
-    fp = int(np.sum((y_test == 0) & (y_pred == 1)))
-    tn = int(np.sum((y_test == 0) & (y_pred == 0)))
-    fn = int(np.sum((y_test == 1) & (y_pred == 0)))
+    from sklearn.metrics import confusion_matrix, classification_report
     
-    recall = tp / (tp + fn) * 100 if (tp + fn) > 0 else 0
-    precision = tp / (tp + fp) * 100 if (tp + fp) > 0 else 0
-    fp_rate = fp / (fp + tn) * 100 if (fp + tn) > 0 else 0
-    f1 = 2 * tp / (2 * tp + fp + fn) * 100 if (2 * tp + fp + fn) > 0 else 0
+    probs = model.predict(X_test, verbose=0)
+    y_pred = np.argmax(probs, axis=1)
+    
+    accuracy = np.mean(y_pred == y_test) * 100
+    
+    per_class = {}
+    for cid, name in enumerate(class_names):
+        mask = y_test == cid
+        if mask.sum() > 0:
+            per_class[name] = np.mean(y_pred[mask] == cid) * 100
+    
+    cm = confusion_matrix(y_test, y_pred, labels=list(range(len(class_names))))
+    report = classification_report(y_test, y_pred, target_names=class_names,
+                                   zero_division=0, output_dict=True)
     
     return {
-        'recall': recall, 'precision': precision,
-        'fp_rate': fp_rate, 'f1': f1,
-        'tp': tp, 'fp': fp, 'tn': tn, 'fn': fn
+        'accuracy': accuracy,
+        'per_class': per_class,
+        'confusion': cm,
+        'report': report,
+        'f1': report.get('macro avg', {}).get('f1-score', 0) * 100,
     }
 
 
-def cross_validate(X, y, hidden_layers=[16, 8], n_folds=5, max_epochs=200,
-                   fp_weight=1.0):
+def cross_validate(X, y, num_classes, class_names, hidden_layers=[16, 8], n_folds=5,
+                   max_epochs=200, fp_weight=1.0):
     """
     Perform stratified k-fold cross-validation.
-    
+
     Args:
         X: Feature matrix (NOT normalized - scaler fit per fold)
-        y: Labels
+        y: Labels (class IDs)
+        num_classes: Number of output classes
+        class_names: Class names for evaluation report
         hidden_layers: List of hidden layer sizes
         n_folds: Number of CV folds
         max_epochs: Maximum training epochs per fold
         fp_weight: Multiplier for class 0 weight (>1.0 penalizes FP more)
-    
+
     Returns:
-        dict: Mean and std of each metric across folds
+        dict: Mean and std of each scalar metric across folds
     """
     from sklearn.model_selection import StratifiedKFold
     from sklearn.preprocessing import StandardScaler
-    
+
     skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
     fold_metrics = []
-    
-    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
-        X_train_fold, X_val_fold = X[train_idx], X[val_idx]
-        y_train_fold, y_val_fold = y[train_idx], y[val_idx]
-        
-        # Fit scaler on training fold only
+
+    for train_idx, val_idx in skf.split(X, y):
         scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train_fold)
-        X_val_scaled = scaler.transform(X_val_fold)
-        
+        X_train = scaler.fit_transform(X[train_idx])
+        X_val = scaler.transform(X[val_idx])
+
         with suppress_stderr():
-            model = train_model(X_train_scaled, y_train_fold,
-                              hidden_layers=hidden_layers, max_epochs=max_epochs,
-                              fp_weight=fp_weight)
-            metrics = evaluate_model(model, X_val_scaled, y_val_fold)
-        
+            model = train_model(X_train, y[train_idx], num_classes,
+                                hidden_layers=hidden_layers, max_epochs=max_epochs,
+                                fp_weight=fp_weight)
+            metrics = evaluate_model_multiclass(model, X_val, y[val_idx], class_names)
+
         fold_metrics.append(metrics)
-    
-    # Aggregate
+
     result = {}
-    for key in fold_metrics[0]:
+    scalar_keys = [k for k, v in fold_metrics[0].items() if isinstance(v, (int, float))]
+    for key in scalar_keys:
         values = [m[key] for m in fold_metrics]
         result[f'{key}_mean'] = np.mean(values)
         result[f'{key}_std'] = np.std(values)
-    
+
     return result
 
 
@@ -591,36 +631,34 @@ def export_tflite(model, X_sample, output_path, name):
     return tflite_path, len(tflite_model)
 
 
-def export_micropython(model, scaler, output_path, seed=None):
+def export_micropython(model, scaler, output_path, seed=None, class_names=None):
     """
-    Export model weights to MicroPython code.
-    
-    Generates ml_weights.py with network weights only.
-    The inference functions are in ml_detector.py (not auto-generated).
-    
+    Export model weights to MicroPython code (ml_weights.py).
+
     Args:
         model: Trained Keras model
         scaler: StandardScaler with mean_ and scale_
         output_path: Output file path
-        seed: Random seed used for training (or None if not set)
-    
+        seed: Random seed used for training
+        class_names: List of class names (required for multiclass)
+
     Returns:
         Size of generated code
     """
     from datetime import datetime
     weights = model.get_weights()
-    
-    seed_info = f"Seed: {seed}"
+
+    num_classes = len(class_names) if class_names else 2
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Build code - weights only
+
     code = '''"""
 Micro-ESPectre - ML Model Weights
 
-Auto-generated neural network weights for motion detection.
+Auto-generated neural network weights for motion/gesture detection.
 Architecture: 12 -> ''' + ' -> '.join(str(w.shape[1]) for w in weights[::2]) + f'''
+Classes: {num_classes}
 Trained: {timestamp}
-{seed_info}
+Seed: {seed}
 
 This file is auto-generated by 10_train_ml_model.py.
 DO NOT EDIT - your changes will be overwritten!
@@ -634,15 +672,18 @@ FEATURE_MEAN = [''' + ', '.join(f'{x:.6f}' for x in scaler.mean_) + ''']
 FEATURE_SCALE = [''' + ', '.join(f'{x:.6f}' for x in scaler.scale_) + ''']
 
 '''
-    
-    # Add weights for each layer
+
+    code += f'# Class labels (indexed by class_id)\n'
+    code += f'CLASS_LABELS = {class_names}\n'
+    code += f'NUM_CLASSES = {num_classes}\n\n'
+
     for i in range(0, len(weights), 2):
         W = weights[i]
         b = weights[i + 1]
         layer_num = i // 2 + 1
         in_size, out_size = W.shape
-        
-        activation = 'Sigmoid' if i == len(weights) - 2 else 'ReLU'
+
+        activation = 'Softmax' if i == len(weights) - 2 else 'ReLU'
         code += f'# Layer {layer_num}: {in_size} -> {out_size} ({activation})\n'
         code += f'W{layer_num} = [\n'
         for row in W:
@@ -656,7 +697,7 @@ FEATURE_SCALE = [''' + ', '.join(f'{x:.6f}' for x in scaler.scale_) + ''']
     return len(code)
 
 
-def export_cpp_weights(model, scaler, output_path, seed=None):
+def export_cpp_weights(model, scaler, output_path, seed=None, class_names=None):
     """
     Export model weights to C++ header for ESPHome.
     
@@ -667,6 +708,7 @@ def export_cpp_weights(model, scaler, output_path, seed=None):
         scaler: StandardScaler with mean_ and scale_
         output_path: Output file path
         seed: Random seed used for training (or None if not set)
+        class_names: List of class names for multiclass model (None = binary)
     
     Returns:
         Size of generated code
@@ -674,26 +716,27 @@ def export_cpp_weights(model, scaler, output_path, seed=None):
     from datetime import datetime
     weights = model.get_weights()
     arch = ' -> '.join(str(w.shape[1]) for w in weights[::2])
-    
-    seed_info = f"Seed: {seed}"
+    num_classes = len(class_names) if class_names else 2
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     code = f'''/*
  * ESPectre - ML Model Weights
- * 
- * Auto-generated neural network weights for motion detection.
+ *
+ * Auto-generated neural network weights for motion/gesture detection.
  * Architecture: 12 -> {arch}
+ * Classes: {num_classes}
  * Trained: {timestamp}
- * {seed_info}
- * 
+ * Seed: {seed}
+ *
  * This file is auto-generated by 10_train_ml_model.py.
  * DO NOT EDIT - your changes will be overwritten!
- * 
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
 
 #pragma once
+#include <array>
 
 namespace esphome {{
 namespace espectre {{
@@ -702,16 +745,22 @@ namespace espectre {{
 constexpr float ML_FEATURE_MEAN[12] = {{{', '.join(f'{x:.6f}f' for x in scaler.mean_)}}};
 constexpr float ML_FEATURE_SCALE[12] = {{{', '.join(f'{x:.6f}f' for x in scaler.scale_)}}};
 
+constexpr int ML_NUM_CLASSES = {num_classes};
+
+// Class labels (indexed by class_id)
+constexpr const char* ML_CLASS_LABELS[{num_classes}] = {{
 '''
-    
-    # Add weights for each layer
+    for name in (class_names or [f'class_{i}' for i in range(num_classes)]):
+        code += f'    "{name}",\n'
+    code += '};\n\n'
+
     for i in range(0, len(weights), 2):
         W = weights[i]
         b = weights[i + 1]
         layer_num = i // 2 + 1
         in_size, out_size = W.shape
-        
-        activation = 'Sigmoid' if i == len(weights) - 2 else 'ReLU'
+
+        activation = 'Softmax' if i == len(weights) - 2 else 'ReLU'
         code += f'// Layer {layer_num}: {in_size} -> {out_size} ({activation})\n'
         code += f'constexpr float ML_W{layer_num}[{in_size}][{out_size}] = {{\n'
         for row in W:
@@ -746,15 +795,17 @@ def export_test_data(model, scaler, X_test_raw, y_test, output_path):
     Returns:
         Number of test samples
     """
-    # Normalize for prediction
     X_test_scaled = scaler.transform(X_test_raw)
-    predictions = model.predict(X_test_scaled, verbose=0).flatten()
-    
-    # Save RAW features (not normalized) so tests can verify full pipeline
+    probs = model.predict(X_test_scaled, verbose=0)
+
+    # expected_outputs = 1 - prob[idle], matching MLDetector::predict() in both C++ and Python.
+    expected_outputs = (1.0 - probs[:, 0]).astype(np.float32)
+
+    # Save RAW features (not normalized) so tests can verify the full pipeline
     np.savez(output_path,
              features=X_test_raw.astype(np.float32),
              labels=y_test.astype(np.int32),
-             expected_outputs=predictions.astype(np.float32))
+             expected_outputs=expected_outputs)
     
     return len(X_test_raw)
 
@@ -1165,8 +1216,8 @@ def show_info():
     
     print("Labels defined in dataset_info.json:")
     for label, info in dataset_info.get('labels', {}).items():
-        label_type = "MOTION" if info.get('id') == 1 else "IDLE"
-        print(f"  {label} (id={info.get('id')}) -> {label_type}")
+        class_id = info.get('class_id', '?')
+        print(f"  {label} (class_id={class_id})")
         if info.get('description'):
             print(f"    {info['description']}")
     print()
@@ -1188,20 +1239,9 @@ def show_info():
     print()
     
     print("Packets by label:")
-    idle_total = 0
-    motion_total = 0
     for label, count in sorted(stats['labels'].items()):
-        is_motion = is_motion_label(label, dataset_info)
-        label_type = "MOTION" if is_motion else "IDLE"
-        print(f"  {label}: {count} packets ({label_type})")
-        if is_motion:
-            motion_total += count
-        else:
-            idle_total += count
-    
-    print(f"\nSummary:")
-    print(f"  IDLE packets:   {idle_total}")
-    print(f"  MOTION packets: {motion_total}")
+        class_id = get_class_id(label, dataset_info)
+        print(f"  {label}: {count} packets (class_id={class_id})")
     print()
     
     # Show data directory contents
@@ -1222,22 +1262,21 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
               feature_importance=False, ablation=False, shap_samples=200):
     """
     Train models with all available data.
-    
+
     Args:
         fp_weight: Multiplier for class 0 (IDLE) weight. Values >1.0 penalize
                    false positives more, producing a more conservative model.
-        seed: Optional random seed for reproducible training. If None, a random
-              seed is generated and saved for reproducibility.
+        seed: Optional random seed for reproducible training.
         feature_names: List of feature names to use. If None, uses DEFAULT_FEATURES.
-                       See ALL_AVAILABLE_FEATURES in features.py for options.
         feature_importance: If True, calculate and display SHAP feature importance.
         ablation: If True, run ablation study instead of training.
     """
     from ml_detector import ML_SUBCARRIERS
     subcarriers = ML_SUBCARRIERS
-    
+    hidden_layers = [24]
+
     print("\n" + "="*60)
-    print("           ML MOTION DETECTOR TRAINING")
+    print("        ML MOTION/GESTURE DETECTOR TRAINING")
     print("="*60 + "\n")
     print(f"Subcarriers: {subcarriers}\n")
     
@@ -1299,6 +1338,12 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
     
+    dataset_info = load_dataset_info()
+    class_names = get_class_names(dataset_info)
+    num_classes = len(class_names)
+
+    print(f"Classes ({num_classes}): {class_names}\n")
+
     # Extract features
     print("\nExtracting features...")
     X, y, actual_feature_names = extract_features(all_packets, subcarriers=subcarriers,
@@ -1306,12 +1351,8 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     print(f"  Samples: {len(X)}")
     print(f"  Features: {len(actual_feature_names)}")
     print(f"  Feature set: {', '.join(actual_feature_names)}")
-    n_idle = np.sum(y == 0)
-    n_motion = np.sum(y == 1)
-    print(f"  Class balance: IDLE={n_idle}, MOTION={n_motion}")
-    if n_idle > 0 and n_motion > 0:
-        ratio = max(n_idle, n_motion) / min(n_idle, n_motion)
-        print(f"  Imbalance ratio: {ratio:.1f}:1")
+    for cid, name in enumerate(class_names):
+        print(f"  {name} (class {cid}): {np.sum(y == cid)} samples")
     
     # Run ablation study if requested
     if ablation:
@@ -1321,14 +1362,13 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     # 5-fold cross-validation for reliable evaluation
     if fp_weight != 1.0:
         print(f"\nFP weight: {fp_weight}x (penalizing false positives)")
-    print("\n5-fold cross-validation (12 -> 16 -> 8 -> 1)...")
+    arch_str = ' -> '.join(map(str, [12] + hidden_layers + [num_classes]))
+    print(f"\n5-fold cross-validation ({arch_str})...")
     with suppress_stderr():
-        cv_results = cross_validate(X, y, hidden_layers=[16, 8], n_folds=5,
-                                    max_epochs=200, fp_weight=fp_weight)
-    
-    print(f"  Recall:    {cv_results['recall_mean']:.1f}% (+/- {cv_results['recall_std']:.1f}%)")
-    print(f"  Precision: {cv_results['precision_mean']:.1f}% (+/- {cv_results['precision_std']:.1f}%)")
-    print(f"  FP Rate:   {cv_results['fp_rate_mean']:.1f}% (+/- {cv_results['fp_rate_std']:.1f}%)")
+        cv_results = cross_validate(X, y, num_classes, class_names, hidden_layers=hidden_layers,
+                                    n_folds=5, max_epochs=200, fp_weight=fp_weight)
+
+    print(f"  Accuracy:  {cv_results['accuracy_mean']:.1f}% (+/- {cv_results['accuracy_std']:.1f}%)")
     print(f"  F1 Score:  {cv_results['f1_mean']:.1f}% (+/- {cv_results['f1_std']:.1f}%)")
     
     # Also do a single split for test data export
@@ -1336,27 +1376,24 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
         X, y, test_size=0.2, random_state=42, stratify=y
     )
     
-    # Train final model on full dataset for production export
-    # Use consistent scaler: fit on full dataset (same data the model sees)
     print("\nTraining final model on full dataset...")
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
-    
+
     with suppress_stderr():
-        model = train_model(X_scaled, y, hidden_layers=[16, 8], max_epochs=200,
-                           fp_weight=fp_weight)
-    
-    # Quick evaluation on the held-out test set (for reference)
+        model = train_model(X_scaled, y, num_classes, hidden_layers=hidden_layers, max_epochs=200,
+                            fp_weight=fp_weight)
+
     X_test_scaled = scaler.transform(X_test_raw)
     with suppress_stderr():
-        test_metrics = evaluate_model(model, X_test_scaled, y_test)
-    
-    f1 = test_metrics['f1']
+        test_metrics = evaluate_model_multiclass(model, X_test_scaled, y_test, class_names)
+
     print(f"\nHold-out test set (20%):")
-    print(f"  Recall:    {test_metrics['recall']:.1f}%")
-    print(f"  Precision: {test_metrics['precision']:.1f}%")
-    print(f"  FP Rate:   {test_metrics['fp_rate']:.1f}%")
-    print(f"  F1 Score:  {f1:.1f}%")
+    print(f"  Accuracy:  {test_metrics['accuracy']:.1f}%")
+    print(f"  F1 Score:  {test_metrics['f1']:.1f}%")
+    print(f"  Per-class accuracy:")
+    for name, acc in test_metrics['per_class'].items():
+        print(f"    {name}: {acc:.1f}%")
     
     # Calculate SHAP feature importance if requested
     if feature_importance:
@@ -1376,12 +1413,12 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     
     # MicroPython weights
     mp_path = SRC_DIR / 'ml_weights.py'
-    mp_size = export_micropython(model, scaler, mp_path, seed=seed)
+    mp_size = export_micropython(model, scaler, mp_path, seed=seed, class_names=class_names)
     print(f"  MicroPython weights: {mp_path.name} ({mp_size/1024:.1f} KB)")
     
     # C++ weights for ESPHome
     cpp_path = CPP_DIR / 'ml_weights.h'
-    cpp_size = export_cpp_weights(model, scaler, cpp_path, seed=seed)
+    cpp_size = export_cpp_weights(model, scaler, cpp_path, seed=seed, class_names=class_names)
     print(f"  C++ weights: {cpp_path.name} ({cpp_size/1024:.1f} KB)")
     
     # Save scaler for TFLite (external normalization)
@@ -1399,6 +1436,7 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     print("                    DONE!")
     print("="*60)
     print(f"\nModel trained with CV F1={cv_results['f1_mean']:.1f}% (+/- {cv_results['f1_std']:.1f}%)")
+    print(f"Classes: {class_names}")
     print(f"\nGenerated files:")
     print(f"  - {mp_path} (MicroPython)")
     print(f"  - {cpp_path} (C++ ESPHome)")
@@ -1456,15 +1494,20 @@ def experiment_architectures():
         print(f"  Files using CV normalization: {len(stats['cv_norm_files'])}")
     print(f"  Total: {stats['total']} packets")
     
+    dataset_info = load_dataset_info()
+    class_names = get_class_names(dataset_info)
+    num_classes = len(class_names)
+
     print("\nExtracting features...")
     X, y, feature_names = extract_features(all_packets, subcarriers=subcarriers)
     print(f"  Samples: {len(X)}")
     print(f"  Features: {len(feature_names)}")
-    print(f"  Class balance: IDLE={np.sum(y==0)}, MOTION={np.sum(y==1)}")
+    for cid, name in enumerate(class_names):
+        print(f"  {name} (class {cid}): {np.sum(y == cid)} samples")
     
     # Define architectures to compare
     architectures = [
-        {'name': 'Current (16-8)', 'layers': [16, 8]},
+        {'name': 'Current (24)', 'layers': [24]},
         {'name': 'Wide-shallow (24)', 'layers': [24]},
         {'name': 'Deeper (12-8-4)', 'layers': [12, 8, 4]},
         {'name': 'Minimal (8)', 'layers': [8]},
@@ -1478,33 +1521,30 @@ def experiment_architectures():
         layers = arch['layers']
         
         # Calculate parameter count
-        layer_sizes = [12] + layers + [1]
-        n_params = 0
-        for i in range(len(layer_sizes) - 1):
-            n_params += layer_sizes[i] * layer_sizes[i + 1]  # weights
-            n_params += layer_sizes[i + 1]  # biases
-        
-        weight_kb = n_params * 4 / 1024  # float32
-        
-        # Estimate inference FLOPS (multiply-accumulate operations)
-        flops = 0
-        for i in range(len(layer_sizes) - 1):
-            flops += layer_sizes[i] * layer_sizes[i + 1]  # MAC operations
-        
-        print(f"\nEvaluating: {name} ({' -> '.join(map(str, [12] + layers + [1]))})...")
+        layer_sizes = [12] + layers + [num_classes]
+        n_params = sum(
+            layer_sizes[i] * layer_sizes[i + 1] + layer_sizes[i + 1]
+            for i in range(len(layer_sizes) - 1)
+        )
+        weight_kb = n_params * 4 / 1024
+        flops = sum(layer_sizes[i] * layer_sizes[i + 1] for i in range(len(layer_sizes) - 1))
+
+        arch_str = ' -> '.join(map(str, layer_sizes))
+        print(f"\nEvaluating: {name} ({arch_str})...")
         print(f"  Parameters: {n_params}, Weights: {weight_kb:.1f} KB, FLOPS: {flops}")
-        
+
         # Cross-validate
         with suppress_stderr():
-            cv = cross_validate(X, y, hidden_layers=layers, n_folds=5, max_epochs=200)
-        
+            cv = cross_validate(X, y, num_classes, class_names, hidden_layers=layers,
+                                n_folds=5, max_epochs=200)
+
         # Measure Python inference time
         from sklearn.preprocessing import StandardScaler
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
-        
+
         with suppress_stderr():
-            model = train_model(X_scaled, y, hidden_layers=layers, max_epochs=200)
+            model = train_model(X_scaled, y, num_classes, hidden_layers=layers, max_epochs=200)
         
         # Benchmark inference (use model.predict for consistency)
         sample = X_scaled[:1].astype(np.float32)
@@ -1527,44 +1567,41 @@ def experiment_architectures():
             'flops': flops,
             'f1_mean': cv['f1_mean'],
             'f1_std': cv['f1_std'],
-            'recall_mean': cv['recall_mean'],
-            'recall_std': cv['recall_std'],
-            'precision_mean': cv['precision_mean'],
-            'fp_rate_mean': cv['fp_rate_mean'],
+            'accuracy_mean': cv.get('accuracy_mean', 0.0),
             'inference_us': inference_us,
         }
         results.append(result)
-        
+
         print(f"  F1: {cv['f1_mean']:.1f}% +/- {cv['f1_std']:.1f}%")
-        print(f"  Recall: {cv['recall_mean']:.1f}%, Precision: {cv['precision_mean']:.1f}%")
+        print(f"  Accuracy: {cv.get('accuracy_mean', 0.0):.1f}%")
         print(f"  Inference: {inference_us:.1f} us/sample")
-    
+
     # Print comparison table
-    print("\n" + "="*90)
-    print("                         ARCHITECTURE COMPARISON")
-    print("="*90 + "\n")
-    
-    print(f"{'Architecture':<22} {'Params':>7} {'KB':>6} {'F1 (CV)':>12} {'Recall':>10} {'FP Rate':>10} {'Inf (us)':>10}")
-    print("-"*90)
-    
+    print("\n" + "="*75)
+    print("                    ARCHITECTURE COMPARISON")
+    print("="*75 + "\n")
+
+    print(f"{'Architecture':<22} {'Params':>7} {'KB':>6} {'F1 (CV)':>12} {'Accuracy':>10} {'Inf (us)':>10}")
+    print("-"*75)
+
     best = max(results, key=lambda r: (r['f1_mean'], -r['inference_us']))
-    
+
     for r in results:
         marker = " **" if r == best else "   "
         print(f"{marker}{r['name']:<19} {r['params']:>7} {r['weight_kb']:>5.1f} "
               f"{r['f1_mean']:>6.1f}+/-{r['f1_std']:<4.1f} "
-              f"{r['recall_mean']:>9.1f}% {r['fp_rate_mean']:>9.1f}% "
+              f"{r['accuracy_mean']:>9.1f}% "
               f"{r['inference_us']:>9.1f}")
-    
-    print("-"*90)
+
+    print("-"*75)
     print(f"\n** Best architecture: {best['name']}")
     print(f"   F1: {best['f1_mean']:.1f}% +/- {best['f1_std']:.1f}%")
-    print(f"   Recall: {best['recall_mean']:.1f}%, FP Rate: {best['fp_rate_mean']:.1f}%")
+    print(f"   Accuracy: {best['accuracy_mean']:.1f}%")
     print(f"   Parameters: {best['params']}, Weights: {best['weight_kb']:.1f} KB")
     
     # Recommend action
-    current = next(r for r in results if r['name'].startswith('Current'))
-    if best != current:
+    current = next((r for r in results if r['name'].startswith('Current')), None)
+    if current and best != current:
         improvement = best['f1_mean'] - current['f1_mean']
         print(f"\n   Improvement over current: {improvement:+.1f}% F1")
         if improvement > 1.0:
@@ -1618,7 +1655,6 @@ To compare ML with MVS, use:
                        help='Calculate correlation of ALL available features with motion label')
     parser.add_argument('--ablation', action='store_true',
                        help='Run ablation study (test removing each feature)')
-    
     args = parser.parse_args()
     
     if args.info:
@@ -1638,12 +1674,12 @@ To compare ML with MVS, use:
         return run_shap_all_features(n_samples=args.shap_samples)
     
     return train_all(
-        fp_weight=args.fp_weight, 
+        fp_weight=args.fp_weight,
         seed=args.seed,
         feature_names=TRAINING_FEATURES,
         feature_importance=args.shap,
         ablation=args.ablation,
-        shap_samples=args.shap_samples
+        shap_samples=args.shap_samples,
     )
 
 

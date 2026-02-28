@@ -498,7 +498,6 @@ class CSICollector:
             csi_data: int8[N, num_sc*2] - Raw I/Q values
             num_subcarriers: int - Number of subcarriers (64 for HT20)
             label: str - Label name
-            label_id: int - Numeric label ID
             chip: str - Chip type (C6, S3, etc.)
             collected_at: str - ISO timestamp
             duration_ms: float - Total duration
@@ -518,19 +517,15 @@ class CSICollector:
         timestamps = np.array([p.timestamp for p in packets])
         duration_ms = (timestamps[-1] - timestamps[0]) * 1000 if len(timestamps) > 1 else 0
         
-        # Get label ID from dataset info
-        label_id = self._get_or_create_label_id()
-        
         # Build sample dict (unified format)
         sample = {
             # CSI data (essential)
             'csi_data': csi_data,
             'num_subcarriers': packets[0].num_subcarriers,
-            
+
             # Label (ground truth)
             'label': self.label,
-            'label_id': label_id,
-            
+
             # Context
             'chip': self.chip or 'unknown',
             
@@ -569,26 +564,6 @@ class CSICollector:
         
         return filepath
     
-    def _get_or_create_label_id(self) -> int:
-        """Get or create label ID from dataset info"""
-        info = load_dataset_info()
-        
-        if self.label in info['labels']:
-            return info['labels'][self.label]['id']
-        
-        # Create new label ID (max existing + 1)
-        existing_ids = [l['id'] for l in info['labels'].values()]
-        new_id = max(existing_ids) + 1 if existing_ids else 0
-        
-        info['labels'][self.label] = {
-            'id': new_id,
-            'samples': 0,
-            'description': ''
-        }
-        save_dataset_info(info)
-        
-        return new_id
-    
     def _update_dataset_info(self, filename: str = None, num_subcarriers: int = None,
                                 num_packets: int = None, duration_ms: float = None,
                                 collected_at: str = None, use_cv_normalization: bool = False,
@@ -602,7 +577,6 @@ class CSICollector:
         
         if self.label not in info['labels']:
             info['labels'][self.label] = {
-                'id': len(info['labels']),
                 'description': ''
             }
         
@@ -859,7 +833,7 @@ def get_dataset_stats() -> Dict[str, Any]:
                 
                 stats['labels'][label] = {
                     'samples': len(samples),
-                    'id': info.get('labels', {}).get(label, {}).get('id', -1)
+                    'class_id': info.get('labels', {}).get(label, {}).get('class_id', '?')
                 }
                 stats['total_samples'] += len(samples)
                 stats['labels_count'] += 1
@@ -903,33 +877,29 @@ def load_samples(label: str = None) -> List[Dict[str, Any]]:
     return samples
 
 
-def load_samples_as_arrays(labels: List[str] = None) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Load samples as X, y arrays for ML training.
-    
-    Args:
-        labels: List of labels to load (None = all)
-    
-    Returns:
-        Tuple (X, y) where X is array of amplitudes, y is array of label IDs
-    """
-    all_samples = load_samples()
-    
-    if labels:
-        all_samples = [s for s in all_samples if s['label'] in labels]
-    
-    if not all_samples:
-        return np.array([]), np.array([])
-    
-    X = [s['amplitudes'] for s in all_samples]
-    y = [s['label_id'] for s in all_samples]
-    
-    return X, np.array(y)
-
 
 # ============================================================================
 # Data Loading Functions
 # ============================================================================
+
+def read_gain_locked(filepath: Path) -> Optional[bool]:
+    """
+    Read the 'gain_locked' field from an NPZ file.
+
+    Returns True if gain lock was active, False if not, or None if the field
+    is absent (older files collected before the field was added).
+
+    Args:
+        filepath: Path to the .npz file
+
+    Returns:
+        bool or None
+    """
+    data = np.load(filepath, allow_pickle=True)
+    if 'gain_locked' in data.files:
+        return bool(data['gain_locked'])
+    return None
+
 
 def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     """

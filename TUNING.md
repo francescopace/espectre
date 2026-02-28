@@ -125,13 +125,13 @@ espectre:
 | Algorithm | Description | Threshold Range | Best For |
 |-----------|-------------|-----------------|----------|
 | `mvs` | Moving Variance Segmentation | 0.1 - 10.0 | General purpose, adaptive |
-| `ml` | Neural Network (MLP 12→16→8→1) | 0.0 - 1.0 | Higher accuracy |
+| `ml` | Neural Network (MLP 12→24→N, multiclass) | — (argmax) | Higher accuracy, gesture detection |
 
 **ML Detector Notes:**
 - Uses fixed subcarriers `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]` for consistency with training
-- Threshold is a probability (0.5 = 50% confidence)
+- Decision is argmax over class probabilities (softmax), not a threshold
 - Pre-trained weights are embedded in the component (no external files needed)
-- Architecture validated as optimal (12→16→8→1, 353 params, 1.4 KB) via 5-fold CV
+- Architecture selected as optimal (12→24→3, 387 params, 1.5 KB, F1=97.9% ±0.2) via 5-fold CV
 - Training uses early stopping, dropout, class weights, and LR scheduling
 
 ### Window Size (10-200 packets)

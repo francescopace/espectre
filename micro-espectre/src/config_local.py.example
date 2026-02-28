@@ -10,6 +10,7 @@ License: GPLv3
 # WiFi Configuration
 WIFI_SSID = "YourSSID"
 WIFI_PASSWORD = "YourPassword"
+# WIFI_BSSID = "AABBCCDDEEFF"  # Optional: force connection to specific AP (hex without colons)
 
 # MQTT Configuration
 MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP or hostname

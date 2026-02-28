@@ -8,8 +8,8 @@
  * 2. Apply optional Hampel filter to remove outliers
  * 3. Apply optional low-pass filter for noise reduction
  * 4. Extract 12 statistical features from turbulence buffer
- * 5. Run MLP inference (12 -> 16 -> 8 -> 1)
- * 6. Compare probability to threshold for motion detection
+ * 5. Run MLP inference (12 -> 24 -> N, softmax multiclass)
+ * 6. Motion if argmax != 0 (any non-idle class); current_probability = 1 - prob[idle]
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -77,17 +77,19 @@ private:
     void extract_features(float* features_out);
     
     /**
-     * Run MLP inference on features
-     * 
-     * Architecture: 12 -> 16 (ReLU) -> 8 (ReLU) -> 1 (Sigmoid)
-     * 
-     * @param features Normalized feature vector (12 values)
-     * @return Motion probability (0.0-1.0)
+     * Run MLP inference on features.
+     *
+     * Architecture: 12 -> hidden (ReLU) -> N (Softmax)
+     * Returns 1 - prob[idle], so threshold=0.5 means "more than 50% non-idle".
+     *
+     * @param features Raw feature vector (12 values, not yet normalized)
+     * @return Probability of non-idle (0.0-1.0)
      */
     float predict(const float* features);
     
     float threshold_;
     float current_probability_;
+    int   current_class_idx_;   // argmax class index from the last inference (0 = idle)
 };
 
 }  // namespace espectre

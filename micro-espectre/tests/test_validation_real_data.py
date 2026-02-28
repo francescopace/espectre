@@ -9,7 +9,7 @@ Configuration is aligned with C++ tests (test_motion_detection.cpp):
 - warmup = DETECTOR_DEFAULT_WINDOW_SIZE (buffer must be full before detection)
 - adaptive_factor = 1.1 (DEFAULT_ADAPTIVE_FACTOR)
 - enable_hampel = false
-- CV normalization for ESP32 and C3 (needs_cv_normalization())
+- CV normalization derived from NPZ 'gain_locked' field (fallback: chip-based)
 - MVS targets: 97% recall, 10% FP rate
 - ML targets: 93% recall, 10% FP rate
 - Baseline packets: first 300 skipped (GAIN_LOCK_SKIP)
@@ -50,7 +50,7 @@ from features import (
 from filters import HampelFilter
 from csi_utils import (
     load_baseline_and_movement, calculate_spatial_turbulence,
-    calculate_variance_two_pass, MVSDetector
+    calculate_variance_two_pass, MVSDetector, read_gain_locked
 )
 from config import SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE, CALIBRATION_BUFFER_SIZE
 
@@ -66,51 +66,46 @@ DATA_DIR = Path(__file__).parent.parent / 'data'
 # Dataset Configuration
 # ============================================================================
 
+# Hardcoded datasets — must match C++ csi_test_data.h exactly so both test
+# suites run on the same files and produce comparable results.
+_DATASETS = [
+    (
+        DATA_DIR / 'baseline' / 'baseline_c3_64sc_20260214_185025.npz',
+        DATA_DIR / 'movement'  / 'movement_c3_64sc_20260214_185048.npz',
+        64, 'C3', 'c3_64sc',
+    ),
+    (
+        DATA_DIR / 'baseline' / 'baseline_c6_64sc_20251212_142443.npz',
+        DATA_DIR / 'movement'  / 'movement_c6_64sc_20251212_142443.npz',
+        64, 'C6', 'c6_64sc',
+    ),
+    (
+        DATA_DIR / 'baseline' / 'baseline_esp32_64sc_20260214_183059.npz',
+        DATA_DIR / 'movement'  / 'movement_esp32_64sc_20260214_183141.npz',
+        64, 'ESP32', 'esp32_64sc',
+    ),
+    (
+        DATA_DIR / 'baseline' / 'baseline_s3_64sc_20260117_222606.npz',
+        DATA_DIR / 'movement'  / 'movement_s3_64sc_20260117_222626.npz',
+        64, 'S3', 's3_64sc',
+    ),
+]
+
+
 def get_available_datasets():
-    """Get list of available datasets (HT20: 64 SC only)"""
-    from csi_utils import find_dataset
+    """Return parametrized dataset list (HT20: 64 SC only).
+
+    Uses the same hardcoded file paths as C++ csi_test_data.h so that both
+    test suites always run on identical data.  A dataset is skipped if either
+    file is missing on the current machine.
+    """
     datasets = []
-    
-    # C3 64 SC dataset (HT20) - uses high-sensitivity band [18-29]
-    try:
-        baseline_c3, movement_c3, _ = find_dataset(chip='C3', num_sc=64)
-        datasets.append(pytest.param(
-            (baseline_c3, movement_c3, 64, 'C3'),
-            id="c3_64sc"
-        ))
-    except FileNotFoundError:
-        pass
-    
-    # C6 64 SC dataset (HT20)
-    try:
-        baseline_c6, movement_c6, _ = find_dataset(chip='C6', num_sc=64)
-        datasets.append(pytest.param(
-            (baseline_c6, movement_c6, 64, 'C6'),
-            id="c6_64sc"
-        ))
-    except FileNotFoundError:
-        pass
-    
-    # ESP32 64 SC dataset (HT20)
-    try:
-        baseline_esp32, movement_esp32, _ = find_dataset(chip='ESP32', num_sc=64)
-        datasets.append(pytest.param(
-            (baseline_esp32, movement_esp32, 64, 'ESP32'),
-            id="esp32_64sc"
-        ))
-    except FileNotFoundError:
-        pass
-    
-    # S3 64 SC dataset (HT20)
-    try:
-        baseline_s3, movement_s3, _ = find_dataset(chip='S3', num_sc=64)
-        datasets.append(pytest.param(
-            (baseline_s3, movement_s3, 64, 'S3'),
-            id="s3_64sc"
-        ))
-    except FileNotFoundError:
-        pass
-    
+    for baseline, movement, num_sc, chip, test_id in _DATASETS:
+        if baseline.exists() and movement.exists():
+            datasets.append(pytest.param(
+                (baseline, movement, num_sc, chip),
+                id=test_id,
+            ))
     return datasets
 
 
@@ -189,14 +184,21 @@ def calibration_algorithm(request, chip_type):
 
 
 @pytest.fixture
-def use_cv_normalization(chip_type):
-    """Get CV normalization setting for chip type.
-    
-    Matches C++ needs_cv_normalization():
-    - ESP32: hardware doesn't support gain lock
-    - C3: current dataset was collected without gain lock (signal too strong)
+def use_cv_normalization(dataset_config):
+    """Determine CV normalization from NPZ 'gain_locked' metadata.
+
+    Reads the 'gain_locked' field from the baseline NPZ file (matches C++
+    needs_cv_normalization()).  Falls back to chip-based heuristics for older
+    files that predate the field:
+    - ESP32: hardware has no gain lock
+    - C3: historical datasets collected without gain lock
     """
-    return chip_type in ('ESP32', 'C3')
+    baseline_path, _, _, chip = dataset_config
+    gain_locked = read_gain_locked(baseline_path)
+    if gain_locked is not None:
+        return not gain_locked
+    # Fallback for older files without the 'gain_locked' field
+    return chip in ('ESP32', 'C3')
 
 
 @pytest.fixture

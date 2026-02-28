@@ -120,9 +120,12 @@ def connect_wifi():
     # Enable CSI after WiFi is stable
     wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
     
-    # Connect
-    print(f"Connecting to WiFi...")
-    wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
+    # Connect (optionally to specific BSSID)
+    bssid_hex = getattr(config, 'WIFI_BSSID', None)
+    bssid = bytes.fromhex(bssid_hex) if bssid_hex else None
+    bssid_info = f" (BSSID: {bssid_hex})" if bssid else ""
+    print(f"Connecting to WiFi{bssid_info}...")
+    wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD, bssid=bssid)
     
     # Wait for connection
     timeout = 30
@@ -714,8 +717,10 @@ def main():
                     else:
                         progress = motion_metric / threshold if threshold > 0 else 0
                     progress_bar = format_progress_bar(progress, threshold, is_probability=is_ml)
+                    gesture = metrics.get('gesture')
+                    gesture_str = f" [{gesture}]" if gesture and gesture != 'idle' else ""
                     print(f"{progress_bar} | pkts:{publish_counter} drop:{dropped_delta} pps:{pps} | "
-                          f"mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str}")
+                          f"mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str}{gesture_str}")
                     
                     mqtt_handler.publish_state(
                         motion_metric,

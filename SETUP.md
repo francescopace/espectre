@@ -243,7 +243,7 @@ For detailed parameter tuning (ranges, recommended values, troubleshooting), see
 | Algorithm | How It Works | Pros | Cons | Best For |
 |-----------|--------------|------|------|----------|
 | **MVS** (default) | Variance of spatial turbulence | Low CPU, adaptive threshold | Requires 10s NBVI calibration | General use |
-| **ML** | Neural network (MLP 12→16→8→1) | Fast boot (~3s), no calibration | Pre-trained weights, fixed subcarriers | Experimental |
+| **ML** | Neural network (MLP 12→24→N, multiclass) | Fast boot (~3s), gesture detection | Pre-trained weights, fixed subcarriers | Experimental |
 
 Both algorithms support optional low-pass and Hampel filters on the turbulence stream.
 

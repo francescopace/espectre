@@ -155,45 +155,50 @@ void test_ml_detector_set_threshold_above_max(void) {
 // MLP INFERENCE TESTS
 // ============================================================================
 
-// Helper function to run MLP inference (same as MLDetector::predict)
+// Helper function to run MLP inference (mirrors MLDetector::predict exactly).
+// Architecture: 12 -> H1 (ReLU) -> N (Softmax); returns 1 - prob[idle].
 static float run_inference(const float* features) {
     float normalized[12];
-    float h1[16];
-    float h2[8];
-    
-    // Normalize raw features using StandardScaler params
     for (int i = 0; i < 12; i++) {
         normalized[i] = (features[i] - ML_FEATURE_MEAN[i]) / ML_FEATURE_SCALE[i];
     }
-    
-    // Layer 1: 12 -> 16 + ReLU
-    for (int j = 0; j < 16; j++) {
+
+    // Hidden layer (ReLU) - size derived from weight matrix
+    constexpr int H1 = sizeof(ML_B1) / sizeof(ML_B1[0]);
+    float h1[H1];
+    for (int j = 0; j < H1; j++) {
         h1[j] = ML_B1[j];
         for (int i = 0; i < 12; i++) {
             h1[j] += normalized[i] * ML_W1[i][j];
         }
         h1[j] = std::max(0.0f, h1[j]);
     }
-    
-    // Layer 2: 16 -> 8 + ReLU
-    for (int j = 0; j < 8; j++) {
-        h2[j] = ML_B2[j];
-        for (int i = 0; i < 16; i++) {
-            h2[j] += h1[i] * ML_W2[i][j];
+
+    // Output layer (logits)
+    float logits[ML_NUM_CLASSES];
+    for (int j = 0; j < ML_NUM_CLASSES; j++) {
+        logits[j] = ML_B2[j];
+        for (int i = 0; i < H1; i++) {
+            logits[j] += h1[i] * ML_W2[i][j];
         }
-        h2[j] = std::max(0.0f, h2[j]);
     }
-    
-    // Layer 3: 8 -> 1 + Sigmoid
-    float out = ML_B3[0];
-    for (int i = 0; i < 8; i++) {
-        out += h2[i] * ML_W3[i][0];
+
+    // Softmax with numerical stability
+    float max_logit = logits[0];
+    for (int j = 1; j < ML_NUM_CLASSES; j++) {
+        if (logits[j] > max_logit) max_logit = logits[j];
     }
-    
-    // Sigmoid with overflow protection
-    if (out < -20.0f) return 0.0f;
-    if (out > 20.0f) return 1.0f;
-    return 1.0f / (1.0f + std::exp(-out));
+    float probs[ML_NUM_CLASSES];
+    float sum_exp = 0.0f;
+    for (int j = 0; j < ML_NUM_CLASSES; j++) {
+        probs[j] = std::exp(logits[j] - max_logit);
+        sum_exp += probs[j];
+    }
+    for (int j = 0; j < ML_NUM_CLASSES; j++) {
+        probs[j] /= sum_exp;
+    }
+
+    return 1.0f - probs[0];
 }
 
 void test_ml_inference_matches_reference(void) {
@@ -224,16 +229,15 @@ void test_ml_inference_output_range(void) {
 }
 
 void test_ml_inference_classification(void) {
-    // Test that motion/idle classification is correct
+    // Test that motion/idle classification matches the ground-truth labels.
+    // labels[i] == 0 means idle; any other class means motion.
     const float THRESHOLD = 0.5f;
     TEST_ASSERT_TRUE_MESSAGE(num_test_samples > 0, "No test data loaded");
     
     for (int i = 0; i < num_test_samples; i++) {
         float result = run_inference(test_features[i].data());
-        float expected = test_expected[i];
-        
         bool result_motion = (result > THRESHOLD);
-        bool expected_motion = (expected > THRESHOLD);
+        bool expected_motion = (test_labels[i] != 0);
         
         TEST_ASSERT_EQUAL(expected_motion, result_motion);
     }

@@ -82,13 +82,13 @@ Results from C++ and Python tests are identical (same algorithms, same data, sam
 |------|-----------|--------|-----------|---------|----------|
 | ESP32-C3 | MVS Optimal | 99.6% | 100.0% | 0.0% | 99.8% |
 | ESP32-C3 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
-| ESP32-C3 | ML | 99.7% | 99.8% | 0.3% | 99.8% |
+| ESP32-C3 | ML | 99.9% | 99.9% | 0.2% | 99.9% |
 | ESP32-C6 | MVS Optimal | 98.8% | 99.8% | 0.3% | 99.3% |
 | ESP32-C6 | MVS + NBVI | 99.9% | 99.9% | 0.1% | 99.9% |
-| ESP32-C6 | ML | 99.7% | 100.0% | 0.0% | 99.8% |
+| ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32-S3 | MVS Optimal | 98.6% | 99.3% | 0.9% | 99.0% |
-| ESP32-S3 | MVS + NBVI | 95.8% | 100.0% | 0.0% | 97.9% |
-| ESP32-S3 | ML | 98.1% | 100.0% | 0.0% | 99.0% |
+| ESP32-S3 | MVS + NBVI | 99.6% | 98.4% | 2.1% | 99.0% |
+| ESP32-S3 | ML | 99.8% | 98.5% | 1.9% | 99.2% |
 | ESP32 | MVS Optimal | 100.0% | 98.7% | 2.3% | 99.3% |
 | ESP32 | MVS + NBVI | 100.0% | 98.7% | 2.3% | 99.3% |
 | ESP32 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
@@ -154,7 +154,7 @@ At 100 pps, each packet has a 10 ms budget. MVS uses ~0.44 ms (4.4%) and ML uses
 
 **MVS**: Extracts a single feature (spatial turbulence) and its moving variance.
 
-**ML**: Extracts 12 statistical features from sliding window, then runs MLP inference (12 → 16 → 8 → 1 = 328 MACs). The MLP itself is lightweight; most time is spent on feature extraction. For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#architecture-selection).
+**ML**: Extracts 12 statistical features from sliding window, then runs MLP inference (12 → 24 → N = 360 MACs). The MLP itself is lightweight; most time is spent on feature extraction. For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#architecture-selection).
 
 ### Monitoring
 
@@ -170,6 +170,8 @@ Additional performance logs are available at DEBUG level (`logger.level: DEBUG`)
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
+| 2026-02-28 | v2.6.0 | C6 | - | ML (multiclass + wave S3) | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-02-28 | v2.6.0 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |
 | 2026-02-15 | v2.5.0 | C6 | - | ML | 99.9% | 100.0% | 0.0% | 99.9% |
 | 2026-02-15 | v2.5.0 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |
 | 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | 99.8% | 96.5% | 3.6% | 98.1% |

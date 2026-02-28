@@ -26,7 +26,8 @@ static const char *TAG = "MLDetector";
 MLDetector::MLDetector(uint16_t window_size, float threshold)
     : BaseDetector(window_size)
     , threshold_(threshold)
-    , current_probability_(0.0f) {
+    , current_probability_(0.0f)
+    , current_class_idx_(0) {
     
     // Validate and clamp threshold
     if (threshold_ < ML_MIN_THRESHOLD) {
@@ -49,6 +50,7 @@ MLDetector& MLDetector::operator=(MLDetector&& other) noexcept {
         BaseDetector::operator=(std::move(other));
         threshold_ = other.threshold_;
         current_probability_ = other.current_probability_;
+        current_class_idx_ = other.current_class_idx_;
     }
     return *this;
 }
@@ -74,7 +76,8 @@ void MLDetector::update_state() {
     if (state_ == MotionState::IDLE) {
         if (current_probability_ > threshold_) {
             state_ = MotionState::MOTION;
-            ESP_LOGV(TAG, "Motion started (prob=%.3f)", current_probability_);
+            const char* label = ML_CLASS_LABELS[current_class_idx_];
+            ESP_LOGV(TAG, "Motion started (prob=%.3f, class=%s)", current_probability_, label);
         }
     } else {
         if (current_probability_ <= threshold_) {
@@ -112,43 +115,58 @@ void MLDetector::extract_features(float* features_out) {
 // ============================================================================
 
 float MLDetector::predict(const float* features) {
+    // Normalize
     float normalized[12];
-    float h1[16];
-    float h2[8];
-    
-    // Normalize features using pre-computed mean and scale
     for (int i = 0; i < 12; i++) {
         normalized[i] = (features[i] - ML_FEATURE_MEAN[i]) / ML_FEATURE_SCALE[i];
     }
-    
-    // Layer 1: 12 -> 16 + ReLU
-    for (int j = 0; j < 16; j++) {
+
+    // Hidden layer (ReLU) - size derived from weight matrix
+    constexpr int H1 = sizeof(ML_B1) / sizeof(ML_B1[0]);
+    float h1[H1];
+    for (int j = 0; j < H1; j++) {
         h1[j] = ML_B1[j];
         for (int i = 0; i < 12; i++) {
             h1[j] += normalized[i] * ML_W1[i][j];
         }
-        h1[j] = std::max(0.0f, h1[j]);  // ReLU
+        h1[j] = std::max(0.0f, h1[j]);
     }
-    
-    // Layer 2: 16 -> 8 + ReLU
-    for (int j = 0; j < 8; j++) {
-        h2[j] = ML_B2[j];
-        for (int i = 0; i < 16; i++) {
-            h2[j] += h1[i] * ML_W2[i][j];
+
+    // Output layer (logits)
+    float logits[ML_NUM_CLASSES];
+    for (int j = 0; j < ML_NUM_CLASSES; j++) {
+        logits[j] = ML_B2[j];
+        for (int i = 0; i < H1; i++) {
+            logits[j] += h1[i] * ML_W2[i][j];
         }
-        h2[j] = std::max(0.0f, h2[j]);  // ReLU
     }
-    
-    // Layer 3: 8 -> 1 + Sigmoid
-    float out = ML_B3[0];
-    for (int i = 0; i < 8; i++) {
-        out += h2[i] * ML_W3[i][0];
+
+    // Softmax with numerical stability
+    float max_logit = logits[0];
+    for (int j = 1; j < ML_NUM_CLASSES; j++) {
+        if (logits[j] > max_logit) max_logit = logits[j];
     }
-    
-    // Sigmoid with overflow protection
-    if (out < -20.0f) return 0.0f;
-    if (out > 20.0f) return 1.0f;
-    return 1.0f / (1.0f + std::exp(-out));
+    float probs[ML_NUM_CLASSES];
+    float sum_exp = 0.0f;
+    for (int j = 0; j < ML_NUM_CLASSES; j++) {
+        probs[j] = std::exp(logits[j] - max_logit);
+        sum_exp += probs[j];
+    }
+    for (int j = 0; j < ML_NUM_CLASSES; j++) {
+        probs[j] /= sum_exp;
+    }
+
+    // Store argmax class index for gesture logging
+    current_class_idx_ = 0;
+    for (int j = 1; j < ML_NUM_CLASSES; j++) {
+        if (probs[j] > probs[current_class_idx_]) {
+            current_class_idx_ = j;
+        }
+    }
+
+    // Return probability of being non-idle (1 - prob[class 0])
+    // Keeps threshold-based state machine compatible: prob > 0.5 → MOTION
+    return 1.0f - probs[0];
 }
 
 }  // namespace espectre

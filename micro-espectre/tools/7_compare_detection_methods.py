@@ -37,7 +37,8 @@ from features import (
 # Check if ML model is available
 ML_AVAILABLE = False
 try:
-    from ml_detector import predict as ml_predict
+    from ml_detector import predict_class as _ml_predict_class
+    def ml_predict(features): return _ml_predict_class(features)[0] != 0  # True if MOTION
     ML_AVAILABLE = True
 except ImportError:
     pass
@@ -93,9 +94,8 @@ class MLDetector:
         )
         self.turb_buffer.append(turb)
         
-        if len(self.turb_buffer) < self.window_size:
-            prob = 0.0
-        else:
+        is_motion = False
+        if len(self.turb_buffer) >= self.window_size:
             turb_list = list(self.turb_buffer)
             n = len(turb_list)
             turb_mean = np.mean(turb_list)
@@ -113,14 +113,14 @@ class MLDetector:
                 np.polyfit(range(n), turb_list, 1)[0],
                 turb_list[-1] - turb_list[0],
             ]
-            prob = ml_predict(features)
-        
-        self.state = 'MOTION' if prob > 0.5 else 'IDLE'
-        if self.state == 'MOTION':
+            is_motion = ml_predict(features)
+
+        self.state = 'MOTION' if is_motion else 'IDLE'
+        if is_motion:
             self.motion_count += 1
-        
+
         if self.track_data:
-            self.probability_history.append(prob)
+            self.probability_history.append(1.0 if is_motion else 0.0)
             self.state_history.append(self.state)
     
     def get_motion_count(self):
@@ -426,7 +426,7 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement,
     print(f"  MVS Window Size: {WINDOW_SIZE}")
     print(f"  MVS Threshold: {threshold}")
     if ML_AVAILABLE:
-        print(f"  ML Model: Neural Network (12→16→8→1)")
+        print(f"  ML Model: Neural Network (12→24→N, multiclass)")
     print()
     
     # Calculate metrics

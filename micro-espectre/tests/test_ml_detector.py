@@ -2,9 +2,9 @@
 Tests for ML Detector module.
 
 Tests the neural network-based motion detector including:
-- Activation functions (relu, sigmoid)
+- Activation functions (relu, softmax)
 - Feature normalization
-- Inference functions (predict, is_motion)
+- Inference function (predict_class)
 - MLDetector class
 """
 import pytest
@@ -16,157 +16,113 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.ml_detector import (
-    relu, sigmoid, normalize_features, predict, is_motion,
-    MLDetector
+    relu, softmax, normalize_features, predict_class,
+    CLASS_LABELS, NUM_CLASSES, MLDetector
 )
 from src.detector_interface import MotionState
 
 
 class TestRelu:
     """Test ReLU activation function."""
-    
+
     def test_positive_input(self):
         """Positive values pass through unchanged."""
         assert relu(5.0) == 5.0
         assert relu(0.1) == 0.1
         assert relu(100.0) == 100.0
-    
+
     def test_negative_input(self):
         """Negative values return 0."""
         assert relu(-5.0) == 0.0
         assert relu(-0.1) == 0.0
         assert relu(-100.0) == 0.0
-    
+
     def test_zero_input(self):
         """Zero returns zero."""
         assert relu(0.0) == 0.0
 
 
-class TestSigmoid:
-    """Test Sigmoid activation function."""
-    
-    def test_zero_input(self):
-        """Sigmoid(0) = 0.5."""
-        assert sigmoid(0.0) == 0.5
-    
-    def test_positive_input(self):
-        """Positive values return > 0.5."""
-        assert sigmoid(1.0) > 0.5
-        assert sigmoid(5.0) > 0.9
-    
-    def test_negative_input(self):
-        """Negative values return < 0.5."""
-        assert sigmoid(-1.0) < 0.5
-        assert sigmoid(-5.0) < 0.1
-    
-    def test_large_positive_overflow_protection(self):
-        """Large positive values return 1.0 (overflow protection)."""
-        assert sigmoid(100.0) == 1.0
-        assert sigmoid(21.0) == 1.0
-    
-    def test_large_negative_overflow_protection(self):
-        """Large negative values return 0.0 (overflow protection)."""
-        assert sigmoid(-100.0) == 0.0
-        assert sigmoid(-21.0) == 0.0
-    
-    def test_output_range(self):
-        """Output is always in (0, 1)."""
-        for x in [-10, -5, -1, 0, 1, 5, 10]:
-            result = sigmoid(x)
-            assert 0.0 <= result <= 1.0
+class TestSoftmax:
+    """Test softmax activation function."""
+
+    def test_output_sums_to_one(self):
+        """Softmax output always sums to 1."""
+        for logits in [[1.0, 2.0, 3.0], [0.0, 0.0, 0.0], [-1.0, 100.0, 0.5]]:
+            result = softmax(logits)
+            assert abs(sum(result) - 1.0) < 1e-6
+
+    def test_largest_logit_has_highest_prob(self):
+        """The class with the largest logit gets the highest probability."""
+        logits = [1.0, 5.0, 2.0]
+        result = softmax(logits)
+        assert result.index(max(result)) == 1
+
+    def test_output_in_range(self):
+        """All probabilities are in [0, 1]."""
+        result = softmax([1.0, 2.0, 3.0])
+        assert all(0.0 <= p <= 1.0 for p in result)
 
 
 class TestNormalizeFeatures:
     """Test feature normalization."""
-    
+
     def test_normalization_produces_list(self):
-        """Normalization returns a list."""
+        """Normalization returns a list of 12 values."""
         features = [1.0] * 12
         result = normalize_features(features)
         assert isinstance(result, list)
         assert len(result) == 12
-    
+
     def test_normalization_changes_values(self):
         """Normalization changes input values."""
-        features = [10.0, 5.0, 20.0, 1.0, 15.0, 8.0, 
+        features = [10.0, 5.0, 20.0, 1.0, 15.0, 8.0,
                     3.0, 2.5, 0.5, -0.5, 0.1, 5.0]
         result = normalize_features(features)
-        # Values should be different after normalization
         assert result != features
 
 
-class TestPredict:
-    """Test neural network prediction."""
-    
-    def test_predict_returns_float(self):
-        """Predict returns a float."""
-        # Features: turb_mean, turb_std, turb_max, turb_min, turb_zcr,
-        #           turb_skewness, turb_kurtosis, turb_entropy,
-        #           turb_autocorr, turb_mad, turb_slope, turb_delta
+class TestPredictClass:
+    """Test multiclass neural network prediction."""
+
+    def test_returns_tuple(self):
+        """predict_class returns (class_id, class_name, confidence)."""
         features = [14.0, 2.0, 17.0, 9.0, 0.30,
                     -1.5, 8.0, 2.0, 0.15, 0.7, 0.001, 0.0]
-        result = predict(features)
-        assert isinstance(result, float)
-    
-    def test_predict_output_range(self):
-        """Prediction is always in [0, 1]."""
-        # Test with various feature combinations
-        test_cases = [
-            [0.0] * 12,  # All zeros
-            [10.0] * 12,  # All same value
-            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],  # Increasing
-        ]
-        for features in test_cases:
-            result = predict(features)
-            assert 0.0 <= result <= 1.0
-    
-    def test_predict_different_inputs_different_outputs(self):
+        result = predict_class(features)
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+
+    def test_class_id_valid(self):
+        """class_id is a valid index into CLASS_LABELS."""
+        features = [0.0] * 12
+        class_id, class_name, confidence = predict_class(features)
+        assert 0 <= class_id < NUM_CLASSES
+
+    def test_class_name_matches_labels(self):
+        """class_name matches CLASS_LABELS[class_id]."""
+        for features in [[0.0] * 12, [10.0] * 12]:
+            class_id, class_name, confidence = predict_class(features)
+            assert class_name == CLASS_LABELS[class_id]
+
+    def test_confidence_in_range(self):
+        """Confidence is always in [0, 1]."""
+        for features in [[0.0] * 12, [5.0] * 12, [10.0] * 12]:
+            _, _, confidence = predict_class(features)
+            assert 0.0 <= confidence <= 1.0
+
+    def test_different_inputs_different_outputs(self):
         """Different inputs produce different outputs."""
-        # Use realistic feature values based on actual data distributions
-        # (CV-normalized turbulence scale: ~0.05-0.25)
-        # Features: turb_mean, turb_std, turb_max, turb_min, turb_zcr,
-        #           turb_skewness, turb_kurtosis, turb_entropy,
-        #           turb_autocorr, turb_mad, turb_slope, amp_entropy
-        # Baseline-like: low CV turbulence, stable signal, low amp_entropy
         features1 = [0.07, 0.005, 0.09, 0.05, 0.20,
                      -3.0, 15.0, 1.5, 0.35, 0.003, 0.0, 1.0]
-        # Motion-like: high CV turbulence, turbulent signal, high amp_entropy
         features2 = [0.18, 0.06, 0.30, 0.08, 0.50,
                      1.0, 3.0, 3.0, -0.10, 0.04, 0.002, 2.5]
-        
-        result1 = predict(features1)
-        result2 = predict(features2)
-        
-        # Different inputs should produce different outputs
+        result1 = predict_class(features1)
+        result2 = predict_class(features2)
         assert result1 != result2
 
-
-class TestIsMotion:
-    """Test motion detection function."""
-    
-    def test_is_motion_returns_bool(self):
-        """is_motion returns a boolean."""
-        features = [5.0] * 12
-        result = is_motion(features)
-        assert isinstance(result, bool)
-    
-    def test_is_motion_default_threshold(self):
-        """Default threshold is 0.5."""
-        features = [5.0] * 12
-        prob = predict(features)
-        expected = prob > 0.5
-        assert is_motion(features) == expected
-    
-    def test_is_motion_custom_threshold(self):
-        """Custom threshold works correctly."""
-        features = [5.0] * 12
-        prob = predict(features)
-        
-        # With threshold above probability, should be False
-        assert is_motion(features, threshold=prob + 0.1) == False
-        # With threshold below probability, should be True
-        if prob > 0.01:
-            assert is_motion(features, threshold=prob - 0.01) == True
+    def test_idle_class_is_zero(self):
+        """class_id=0 corresponds to 'idle'."""
+        assert CLASS_LABELS[0] == 'idle'
 
 
 class TestMLDetector:
@@ -297,13 +253,15 @@ class TestMLDetectorProcessing:
         subcarriers = list(range(11, 23))
         for _ in range(10):
             detector.process_packet(sample_csi_data, subcarriers)
-        
+
         metrics = detector.update_state()
-        
+
         assert 'state' in metrics
         assert 'probability' in metrics
         assert 'threshold' in metrics
+        assert 'gesture' in metrics
         assert 0.0 <= metrics['probability'] <= 1.0
+        assert metrics['gesture'] in CLASS_LABELS
     
     def test_tracking_enabled(self, detector, sample_csi_data):
         """Test that tracking records data when enabled."""
@@ -357,51 +315,47 @@ class TestMLDetectorMotionTracking:
     
     def test_motion_count_increments_on_motion(self):
         """Motion count increments when MOTION is detected."""
-        detector = MLDetector(window_size=10, threshold=0.0)  # Very low threshold
+        detector = MLDetector(window_size=10)
         detector.track_data = True
-        
-        # Create varying CSI data to trigger motion
+
         subcarriers = list(range(11, 23))
         for i in range(10):
-            # Vary data to create turbulence
             csi_data = [(20 + i * 5) % 127] * 128
             detector.process_packet(csi_data, subcarriers)
-        
-        # Update state - with threshold=0, should detect motion
+
         detector.update_state()
-        
-        # Should have recorded in history
+
         assert len(detector.probability_history) == 1
         assert len(detector.state_history) == 1
-    
+
     def test_get_motion_count(self):
         """Test get_motion_count method."""
-        detector = MLDetector(window_size=10, threshold=0.0)
+        detector = MLDetector(window_size=10)
         detector.track_data = True
-        
+
         subcarriers = list(range(11, 23))
         for i in range(10):
             csi_data = [(20 + i * 5) % 127] * 128
             detector.process_packet(csi_data, subcarriers)
-        
-        # Update multiple times
+
         detector.update_state()
         count = detector.get_motion_count()
-        
+
         assert isinstance(count, int)
         assert count >= 0
-    
-    def test_state_changes_to_motion(self):
-        """Test that state changes to MOTION with low threshold."""
-        detector = MLDetector(window_size=10, threshold=0.0)
-        
+
+    def test_state_consistent_with_gesture(self):
+        """State is MOTION iff gesture is not 'idle'."""
+        detector = MLDetector(window_size=10)
+
         subcarriers = list(range(11, 23))
         for i in range(10):
             csi_data = [50] * 128
             detector.process_packet(csi_data, subcarriers)
-        
+
         metrics = detector.update_state()
-        
-        # With threshold=0, any probability > 0 triggers motion
-        if metrics['probability'] > 0:
+
+        if metrics['gesture'] == 'idle':
+            assert metrics['state'] == MotionState.IDLE
+        else:
             assert metrics['state'] == MotionState.MOTION

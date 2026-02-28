@@ -57,8 +57,8 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Feature | ESPHome (C++) | Python (MicroPython) | Status |
 |---------|---------------|----------------------|--------|
 | **Motion Detection** |
-| MVS Detector | ✅ | ✅ | Moving Variance Segmentation (default) |
-| ML Detector | ✅ | ✅ | Neural Network (experimental) |
+| MVS Detector | ✅ | ✅ | Moving Variance Segmentation |
+| ML Detector | ✅ | ✅ | Neural Network, multiclass gestures (default in Micro-ESPectre) |
 | ML Features (12) | ✅ | ✅ | mean, std, max, min, zcr, skewness, kurtosis, entropy, autocorr, mad, slope, delta |
 | **Calibration (MVS only)** |
 | NBVI | ✅ | ✅ | 12 non-consecutive subcarriers |
@@ -380,13 +380,13 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC (used in auto mode)
 Choose the motion detection algorithm.
 
 ```python
-DETECTION_ALGORITHM = "mvs"   # "mvs" (default) or "ml"
+DETECTION_ALGORITHM = "ml"   # "ml" (default) or "mvs"
 ```
 
 | Algorithm | Method | Calibration | Boot Time |
 |-----------|--------|-------------|-----------|
-| **MVS** (default) | Moving Variance Segmentation of Turbulence | Subcarriers + Threshold | ~10s |
-| **ML** | Neural Network (12 features → MLP) | **None** (fixed subcarriers) | **~3s** |
+| **ML** (default) | Neural Network (12 features → MLP), multiclass | **None** (fixed subcarriers) | **~3s** |
+| **MVS** | Moving Variance Segmentation of Turbulence | Subcarriers + Threshold | ~10s |
 
 ### 3. Calibration Algorithm (MVS only)
 
@@ -466,13 +466,13 @@ Micro-ESPectre includes a **neural network-based motion detector** as an experim
 
 ### ML Detector (Experimental)
 
-The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real CSI data. It extracts 12 statistical features from turbulence patterns and outputs a motion probability.
+The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real CSI data. It extracts 12 statistical features from turbulence patterns and classifies them into named classes (`idle`, `motion`, gesture names such as `wave`). `predict_class()` returns `(class_id, class_name, confidence)`; any non-idle class triggers motion detection.
 
 | Aspect | Details |
 |--------|---------|
-| Architecture | MLP (12 → 16 → 8 → 1) |
+| Architecture | MLP (12 → 24 → N, softmax) |
 | Input | 12 features from 75-packet window |
-| Output | Probability (0.0 - 1.0), threshold at 0.5 |
+| Output | Class probabilities (idle / motion / gesture) |
 | Filters | Supports low-pass and Hampel filters (same as MVS) |
 | Performance | See [PERFORMANCE.md](../PERFORMANCE.md) for per-chip results |
 

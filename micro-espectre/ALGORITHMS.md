@@ -275,11 +275,11 @@ The **ML Detector** uses a pre-trained neural network to classify motion based o
 
 ### The Insight
 
-Motion detection can be framed as a **binary classification problem**:
+Motion and gesture detection can be framed as a **multiclass classification problem**:
 - **Input**: Statistical features computed from a sliding window of turbulence values
-- **Output**: Probability of motion (0.0 to 1.0)
+- **Output**: Class probabilities over `[idle, motion, gesture, ...]` (softmax)
 
-A neural network can learn complex, non-linear patterns that may be missed by simple threshold-based methods.
+A neural network learns complex, non-linear patterns that may be missed by simple threshold-based methods. Any class with `class_id != 0` is treated as MOTION; specific gesture classes also carry their name in the output.
 
 ### Architecture
 
@@ -288,16 +288,14 @@ The ML detector uses a compact **Multi-Layer Perceptron (MLP)**:
 ```
 Input (12 features)
     ↓
-Dense(16, ReLU)      ← 12×16 + 16 = 208 parameters
+Dense(24, ReLU)      ← 12×24 + 24 = 312 parameters
     ↓
-Dense(8, ReLU)       ← 16×8 + 8 = 136 parameters
+Dense(N, Softmax)    ← 24×N + N parameters  (N = number of classes)
     ↓
-Dense(1, Sigmoid)    ← 8×1 + 1 = 9 parameters
-    ↓
-Output (probability)
+Output (class probabilities)
 ```
 
-**Total**: ~350 parameters, ~2 KB (constexpr float weights)
+**Total (3 classes)**: ~387 parameters, ~1.5 KB (constexpr float weights)
 
 ### Feature Extraction
 
@@ -307,15 +305,15 @@ For each sliding window of 75 turbulence values, 12 statistical features are ext
 
 ```
 ┌──────────────┐    ┌──────────────┐    ┌───────────────────┐    ┌──────────────┐
-│ CSI Packet   │───▶│ Turbulence   │───▶│ Optional Filters  │───▶│ Buffer (50)  │
+│ CSI Packet   │───▶│ Turbulence   │───▶│ Optional Filters  │───▶│ Buffer (75)  │
 │              │    │ σ/μ (CV)     │    │ Hampel + LowPass  │    │              │
 └──────────────┘    └──────────────┘    └───────────────────┘    └──────┬───────┘
                                                                         │
                                                                         ▼
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│ IDLE/MOTION  │◀───│ Threshold    │◀───│ Probability  │◀───│ 12 Features  │
-│              │    │ > 0.5        │    │ [0.0-1.0]    │    │ → Neural Net │
-└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+┌───────────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ IDLE/MOTION       │◀───│ argmax       │◀───│ Softmax      │◀───│ 12 Features  │
+│ + gesture name    │    │ class_id != 0│    │ probabilities│    │ → Neural Net │
+└───────────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
 ```
 
 **Filter support**: The ML detector shares the same `SegmentationContext` as MVS, so it supports optional low-pass and Hampel filters on the turbulence stream before feature extraction. Filters are disabled by default.
@@ -324,10 +322,10 @@ For each sliding window of 75 turbulence values, 12 statistical features are ext
 
 ML uses **fixed subcarriers** - no calibration needed:
 
-| Algorithm | Subcarrier Selection | Threshold | Boot Time |
-|-----------|---------------------|-----------|-----------|
-| MVS | NBVI (~7.5s) | Adaptive (percentile-based) | ~10.5s |
-| ML | **Fixed** (12 evenly distributed) | Fixed (0.5 probability) | **~3s** |
+| Algorithm | Subcarrier Selection | Decision | Boot Time |
+|-----------|---------------------|----------|-----------|
+| MVS | NBVI (~7.5s) | Adaptive threshold (percentile-based) | ~10.5s |
+| ML | **Fixed** (12 evenly distributed) | argmax over class probabilities | **~3s** |
 
 ML uses 12 pre-selected subcarriers evenly distributed across the valid range: `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]`. This eliminates the 7.5-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
 
@@ -339,17 +337,17 @@ The training process uses 5-fold stratified cross-validation with early stopping
 
 ### Architecture Selection
 
-The 12→16→8→1 architecture was validated as optimal through 5-fold CV on 13,711 samples:
+The 12→24→3 architecture was selected through 5-fold CV on 33,822 samples (3 classes: idle, motion, wave):
 
 | Architecture | F1 (5-fold CV) | Params | Weights |
 |---|---|---|---|
-| **12→16→8→1** | **98.3% +/- 0.2%** | 353 | 1.4 KB |
-| 12→24→12→1 | 98.2% +/- 0.5% | 625 | 2.4 KB |
-| 12→24→1 | 98.1% +/- 0.2% | 337 | 1.3 KB |
-| 12→12→8→4→1 | 97.8% +/- 0.5% | 301 | 1.2 KB |
-| 12→8→1 | 97.7% +/- 0.3% | 113 | 0.4 KB |
+| **12→24→3** | **97.9% ±0.2%** | 387 | 1.5 KB |
+| 12→24→12→3 | 98.1% ±0.4% | 651 | 2.5 KB |
+| 12→16→8→3 | 96.7% ±0.9% | 371 | 1.4 KB |
+| 12→12→8→4→3 | 96.2% ±0.6% | 311 | 1.2 KB |
+| 12→8→3 | 94.9% ±0.8% | 131 | 0.5 KB |
 
-The current architecture achieves the highest F1 with the lowest variance and the best FP rate.
+`12→24→3` was chosen over the marginally better `12→24→12→3` for its lower variance (±0.2 vs ±0.4) and fewer parameters. The two architectures are statistically equivalent.
 
 ### Performance
 
