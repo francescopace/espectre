@@ -38,13 +38,13 @@ def cleanup_buffer_file():
     if os.path.exists(test_file):
         try:
             os.remove(test_file)
-        except:
+        except Exception:
             pass
     yield
     if os.path.exists(test_file):
         try:
             os.remove(test_file)
-        except:
+        except Exception:
             pass
 
 

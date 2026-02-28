@@ -854,7 +854,7 @@ def get_dataset_stats() -> Dict[str, Any]:
                 try:
                     sample = np.load(samples[0])
                     avg_packets = sample['num_packets']
-                except:
+                except Exception:
                     avg_packets = 0
                 
                 stats['labels'][label] = {

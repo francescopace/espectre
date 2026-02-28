@@ -56,14 +56,12 @@ enum class GainLockMode {
 //   AGC < 30: freezes after gain lock
 static constexpr uint8_t MIN_SAFE_AGC = 30;
 
+#if ESPECTRE_GAIN_LOCK_SUPPORTED
 /**
  * PHY RX Control structure with gain fields
  * 
  * This structure overlays wifi_csi_info_t to access undocumented
  * PHY fields (agc_gain and fft_gain) that are present on newer ESP32 variants.
- * 
- * Based on Espressif esp-csi example:
- * https://github.com/espressif/esp-csi/blob/master/examples/get-started/csi_recv_router/main/app_main.c
  */
 typedef struct {
     unsigned : 32;  // reserved
@@ -71,27 +69,18 @@ typedef struct {
     unsigned : 32;  // reserved
     unsigned : 32;  // reserved
     unsigned : 32;  // reserved
-#if CONFIG_IDF_TARGET_ESP32S2
-    unsigned : 32;  // reserved
-#elif ESPECTRE_GAIN_LOCK_SUPPORTED
     unsigned : 16;  // reserved
     signed fft_gain : 8;     // FFT scaling gain (signed per Espressif API)
     unsigned agc_gain : 8;   // Automatic Gain Control value
     unsigned : 32;  // reserved
-#endif
     unsigned : 32;  // reserved
-#if CONFIG_IDF_TARGET_ESP32S2
-    signed : 8;     // reserved
-    unsigned : 24;  // reserved
-#elif CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
     unsigned : 32;  // reserved
     unsigned : 32;  // reserved
     unsigned : 32;  // reserved
 #endif
     unsigned : 32;  // reserved
 } wifi_pkt_rx_ctrl_phy_t;
-
-#if ESPECTRE_GAIN_LOCK_SUPPORTED
 // External PHY functions (from ESP-IDF PHY blob, not in public headers)
 extern "C" {
     /**

@@ -58,7 +58,7 @@ def cleanup_wifi(wlan):
     # Disable CSI first (may fail if not enabled, that's ok)
     try:
         wlan.csi_disable()
-    except:
+    except Exception:
         pass
     
     # Disconnect if connected
