@@ -527,7 +527,11 @@ def deploy_code(args):
             ('src/mvs_detector.py', ':src/'),
             ('src/ml_detector.py', ':src/'),
             ('src/ml_weights.py', ':src/'),
+            ('src/gesture_features.py', ':src/'),
+            ('src/gesture_detector.py', ':src/'),
             ('src/nbvi_calibrator.py', ':src/'),
+            # gesture_weights.py is optional (present after gesture model training)
+            *([('src/gesture_weights.py', ':src/')] if Path('src/gesture_weights.py').exists() else []),
             ('src/traffic_generator.py', ':src/'),
             ('src/main.py', ':src/'),
             ('src/csi_streamer.py', ':src/'),

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import sensor, binary_sensor, number, switch
+from esphome.components import sensor, binary_sensor, number, switch, text_sensor
 from esphome.components.esp32 import add_extra_build_file, add_idf_sdkconfig_option
 
 # ESPHome 2026.2.0+ excludes unused ESP-IDF components by default
@@ -31,7 +31,7 @@ from esphome.const import (
 )
 
 DEPENDENCIES = ["wifi"]
-AUTO_LOAD = ["sensor", "binary_sensor", "number", "switch"]
+AUTO_LOAD = ["sensor", "binary_sensor", "number", "switch", "text_sensor"]
 
 # Configuration parameters
 CONF_SEGMENTATION_THRESHOLD = "segmentation_threshold"
@@ -59,6 +59,7 @@ CONF_GAIN_LOCK = "gain_lock"
 
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
+CONF_GESTURE_DETECTION_ENABLED = "gesture_detection_enabled"
 
 # Threshold limits (keep in sync with csi_processor.h)
 THRESHOLD_MIN = 0.0
@@ -68,6 +69,7 @@ THRESHOLD_DEFAULT = 1.0
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
 CONF_MOTION_SENSOR = "motion_sensor"
+CONF_GESTURE_SENSOR = "gesture_sensor"
 
 # Number controls
 CONF_THRESHOLD_NUMBER = "threshold_number"
@@ -126,6 +128,9 @@ CONFIG_SCHEMA = cv.Schema({
     # MVS: Moving Variance Segmentation - adaptive threshold, general purpose
     # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
     cv.Optional(CONF_DETECTION_ALGORITHM, default="mvs"): cv.one_of("mvs", "ml", lower=True),
+
+    # Gesture detection pipeline (independent from motion detector state transitions)
+    cv.Optional(CONF_GESTURE_DETECTION_ENABLED, default=False): cv.boolean,
     
     # Publish interval in packets (default: same as traffic_generator_rate, or 100 if traffic is 0)
     cv.Optional(CONF_PUBLISH_INTERVAL): cv.int_range(min=1, max=1000),
@@ -154,6 +159,9 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_MOTION_SENSOR, default={"name": "Motion Detected"}): binary_sensor.binary_sensor_schema(
         device_class=DEVICE_CLASS_MOTION,
     ),
+
+    # Gesture sensor (always created; publishing still depends on gesture_detection_enabled)
+    cv.Optional(CONF_GESTURE_SENSOR, default={"name": "Gesture"}): text_sensor.text_sensor_schema(),
     
     # Number control for threshold adjustment from HA
     cv.Optional(CONF_THRESHOLD_NUMBER, default={"name": "Threshold"}): number.number_schema(
@@ -227,6 +235,7 @@ async def to_code(config):
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_gain_lock_mode(config[CONF_GAIN_LOCK]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
+    cg.add(var.set_gesture_detection_enabled(config[CONF_GESTURE_DETECTION_ENABLED]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
     
     # Configure subcarriers if specified
@@ -246,9 +255,12 @@ async def to_code(config):
     sens = await sensor.new_sensor(config[CONF_MOVEMENT_SENSOR])
     cg.add(var.set_movement_sensor(sens))
     
-    
     sens = await binary_sensor.new_binary_sensor(config[CONF_MOTION_SENSOR])
     cg.add(var.set_motion_binary_sensor(sens))
+
+    # Register gesture sensor (always present)
+    ts = await text_sensor.new_text_sensor(config[CONF_GESTURE_SENSOR])
+    cg.add(var.set_gesture_sensor(ts))
     
     # Register threshold number control
     # Note: number.new_number() handles component registration internally

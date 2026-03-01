@@ -245,6 +245,63 @@ Use this tool after:
 
 ---
 
+### 12. Gesture Model Training (`12_train_gesture_model.py`)
+
+**Purpose**: Train, calibrate, and export the multi-class gesture model (`wave`, `circle_cw`, `no_gesture`, ...)
+
+- Trains an OVR SVM-RBF classifier from `data/<label>/*.npz`
+- Builds synthetic `no_gesture` from `baseline` + `movement`
+- Uses fixed 2.0 s negative windows aligned with runtime behavior
+- Auto-calibrates reject thresholds (`confidence`, `margin`) on hold-out data
+- Optimizes reject thresholds with macro-F1 / balanced accuracy and recall constraints:
+  - `no_gesture` recall target >= 50%
+  - gesture class recall target >= 65%
+- Exports weights for both platforms:
+  - `micro-espectre/src/gesture_weights.py`
+  - `components/espectre/gesture_weights.h`
+
+```bash
+python 12_train_gesture_model.py --info
+python 12_train_gesture_model.py --seed 13 --window-seconds 2.0 --window-overlap 0.5 --window-labels wave,circle_cw --no-gesture-max-per-source 5
+```
+
+Notes:
+- `packet-rate` is fixed to 100 pps (CLI option removed).
+- Exported thresholds are consumed at runtime by both Python and C++ gesture detectors.
+
+---
+
+### 13. Gesture Streaming Benchmark (`13_test_gesture_stream.py`)
+
+**Purpose**: Evaluate runtime gesture detection on a synthetic continuous stream (production-like)
+
+- Always runs in **continuous** mode
+- Always includes synthetic `no_gesture` from `baseline` + `movement`
+- Always uses fixed runtime subcarriers (`[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`)
+- Reports:
+  - overall accuracy
+  - per-class accuracy
+  - confusion matrix
+  - macro-F1 (3-class)
+  - balanced accuracy (3-class)
+  - constraint check (`no_gesture>=50%`, gesture classes `>=65%`)
+
+```bash
+python 13_test_gesture_stream.py
+python 13_test_gesture_stream.py --seed 42 --segments 80 --chunk-seconds 2.0 --labels wave,circle_cw
+```
+
+Notes:
+- Legacy options were intentionally removed to keep the benchmark deterministic:
+  - `--mode`
+  - `--model`
+  - `--runtime-subcarriers`
+  - `--packet-rate`
+  - `--no-gesture`
+  - `--no-gesture-sources`
+
+---
+
 ## Usage Examples
 
 ### Basic Analysis Workflow
@@ -268,10 +325,16 @@ python 2_analyze_system_tuning.py --quick
 # 2b. Refresh dataset metadata for context-aware tests/training
 python 11_refresh_gridsearch_metadata.py
 
-# 3. Visualize MVS
+# 3. Train gesture model (includes threshold calibration)
+python 12_train_gesture_model.py --seed 13 --window-seconds 2.0 --window-overlap 0.5 --window-labels wave,circle_cw --no-gesture-max-per-source 5
+
+# 4. Run continuous gesture benchmark
+python 13_test_gesture_stream.py --seed 42 --segments 80 --chunk-seconds 2.0 --labels wave,circle_cw
+
+# 5. Visualize MVS
 python 3_analyze_moving_variance_segmentation.py --plot
 
-# 4. Run unit tests
+# 6. Run unit tests
 cd ..
 pytest tests/ -v
 ```

@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [3.0.0] - in progress - Gesture Detection
+
+### Added
+
+- **Experimental gesture support across both platforms**: introduced end-to-end gesture detection workflow with training/export/inference for multi-class labels (including `no_gesture`) in Micro-ESPectre (Python) and ESPHome component (C++).
+- **Gesture model artifacts and runtime integration**: generated gesture weights are now consumed directly by both runtime stacks to provide live gesture predictions during motion events.
+
+### Changed
+
+- **Gesture streaming benchmark CLI simplified (`tools/13_test_gesture_stream.py`)**: removed legacy/experimental switches (`--mode`, `--model`, `--runtime-subcarriers`, `--packet-rate`, `--no-gesture`, `--no-gesture-sources`) and fixed evaluation to production-aligned settings (continuous mode, fixed subcarriers, always-on `no_gesture`).
+- **Gesture benchmark metrics upgraded**: streaming test now reports `macro-F1` and `balanced accuracy` in addition to overall/per-class accuracy and confusion matrix, with explicit constraint check for `no_gesture` vs gesture recall targets.
+- **Gesture training reject calibration (`tools/12_train_gesture_model.py`)**: training now calibrates confidence/margin reject thresholds using macro-F1/balanced-accuracy objective with recall constraints and exports those thresholds into generated Python/C++ gesture weights.
+- **Runtime reject behavior aligned across Python/C++**: low-confidence predictions are now explicitly rejected to `no_gesture` instead of forcing a gesture label, with shared exported thresholds consumed by both stacks.
+
+### Documentation
+
+- **Tools documentation refresh**: added/updated sections for `12_train_gesture_model.py` and `13_test_gesture_stream.py` in `micro-espectre/tools/README.md` with current commands, fixed defaults, removed CLI options, and metric interpretation notes.
+
+---
+
 ## [2.6.1] - in proogress - CSI Normalization and Test Coverage Update
 
 ### Fixed

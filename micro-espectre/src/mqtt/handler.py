@@ -134,6 +134,26 @@ class MQTTHandler:
         self.last_variance = current_variance
         self.last_state = current_state
     
+    def publish_gesture(self, gesture_name):
+        """
+        Publish a detected gesture event to MQTT.
+
+        Published as a separate one-shot message on <base_topic>/gesture.
+        The payload includes the gesture name and a timestamp.
+
+        Args:
+            gesture_name: Detected gesture name (e.g. 'wave')
+        """
+        topic = f"{self.base_topic}/gesture"
+        payload = {
+            'gesture': gesture_name,
+            'timestamp': time.time()
+        }
+        try:
+            self.client.publish(topic, json.dumps(payload))
+        except Exception as e:
+            print(f"Error publishing gesture to MQTT: {e}")
+
     def disconnect(self):
         """Disconnect from MQTT broker"""
         if self.client:

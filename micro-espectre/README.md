@@ -445,6 +445,9 @@ The system publishes JSON payloads to the configured MQTT topic (default: `home/
 The `tools/` directory contains Python scripts for CSI data analysis and algorithm validation.
 
 See [tools/README.md](tools/README.md) for complete script documentation.
+For gesture-specific workflow, see:
+- `12_train_gesture_model.py` (gesture training + reject-threshold calibration)
+- `13_test_gesture_stream.py` (continuous runtime benchmark with `no_gesture`)
 
 ## Automatic Subcarrier Selection
 
@@ -480,11 +483,12 @@ The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real 
 - [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector) - Architecture, features, performance
 - [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) - Data collection, training, usage
 
-### Future ML Applications (Roadmap 3.x)
+### ML Applications and Roadmap
 
-The ML infrastructure enables advanced features planned for future releases:
+Current status:
+- Gesture detection workflow: **experimental and available** in `tools/` (SVM-RBF + runtime reject calibration)
+- HAR / people counting / localization: planned for future releases
 
-- Gesture recognition
 - Human Activity Recognition (HAR)
 - People counting
 - Localization and tracking
