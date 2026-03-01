@@ -224,6 +224,27 @@ inline float calculate_magnitude(int8_t i, int8_t q) {
 }
 
 /**
+ * Extract phase for a single subcarrier from raw CSI bytes.
+ *
+ * Espressif CSI format is [Imaginary(Q), Real(I), ...] per subcarrier.
+ * Phase is atan2(Q, I).
+ *
+ * @param csi_data Raw CSI data (interleaved I/Q pairs)
+ * @param csi_len Length of CSI data in bytes
+ * @param sc_idx Subcarrier index
+ * @return Phase in radians (-pi..pi), or 0.0 if index is invalid
+ */
+inline float extract_phase_from_csi(const int8_t* csi_data, size_t csi_len, uint8_t sc_idx) {
+    if (!csi_data) return 0.0f;
+    const size_t q_idx = static_cast<size_t>(sc_idx) * 2;      // Imaginary first
+    const size_t i_idx = q_idx + 1;                            // Real second
+    if (i_idx >= csi_len) return 0.0f;
+    const float q = static_cast<float>(csi_data[q_idx]);
+    const float i = static_cast<float>(csi_data[i_idx]);
+    return atan2f(q, i);
+}
+
+/**
  * Calculate spatial turbulence from pre-calculated magnitudes
  * 
  * Spatial turbulence is the standard deviation of magnitudes across
@@ -318,6 +339,55 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
     
     float variance = calculate_variance_two_pass(amplitudes, valid_count);
     return calculate_turbulence_from_variance(variance, amplitudes, valid_count, use_cv_normalization);
+}
+
+/**
+ * Calculate spatial turbulence from CSI and also return computed amplitudes.
+ * 
+ * Overload that outputs the amplitude values for further processing
+ * (e.g., gesture feature extraction).
+ * 
+ * @param csi_data Raw CSI data (interleaved I/Q pairs)
+ * @param csi_len Length of CSI data in bytes
+ * @param subcarriers Array of selected subcarrier indices
+ * @param num_subcarriers Number of selected subcarriers
+ * @param total_subcarriers Total subcarriers in CSI (e.g., 64 for HT20)
+ * @param amplitudes_out Output array for computed amplitudes (must be at least num_subcarriers)
+ * @param use_cv_normalization true = std/mean, false = raw std
+ * @return Turbulence value
+ */
+inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
+                                                   size_t csi_len,
+                                                   const uint8_t* subcarriers,
+                                                   uint8_t num_subcarriers,
+                                                   int total_subcarriers,
+                                                   float* amplitudes_out,
+                                                   bool use_cv_normalization) {
+    if (!csi_data || csi_len < 2 || num_subcarriers == 0 || !subcarriers || !amplitudes_out) {
+        return 0.0f;
+    }
+    
+    int valid_count = 0;
+    
+    for (int i = 0; i < num_subcarriers && i < 12; i++) {
+        int sc_idx = subcarriers[i];
+        
+        if (sc_idx >= total_subcarriers) {
+            continue;
+        }
+        
+        // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+        float Q = static_cast<float>(csi_data[sc_idx * 2]);      // Imaginary first
+        float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);  // Real second
+        amplitudes_out[valid_count++] = std::sqrt(I * I + Q * Q);
+    }
+    
+    if (valid_count == 0) {
+        return 0.0f;
+    }
+    
+    float variance = calculate_variance_two_pass(amplitudes_out, valid_count);
+    return calculate_turbulence_from_variance(variance, amplitudes_out, valid_count, use_cv_normalization);
 }
 
 /**

@@ -249,7 +249,7 @@ A: Yes, the 2.4GHz Wi-Fi signal penetrates drywall. Reinforced concrete walls re
 A: It depends on size. One sensor can monitor ~50 m². For larger homes, use multiple sensors (1 sensor every 50-70 m² for optimal coverage).
 
 **Q: Can it distinguish between people and pets?**  
-A: The system uses a 2-state segmentation model (IDLE/MOTION) that identifies generic movement without distinguishing between people, pets, or other moving objects. For more sophisticated classification (people vs pets, activity recognition, gesture detection), trained AI/ML models would be required (see [Future Evolution](#future-evolution) section).
+A: The production ESPHome path currently uses a 2-state segmentation model (IDLE/MOTION) that identifies generic movement without distinguishing between people, pets, or other moving objects. An experimental multi-class gesture model is available, while broader activity/person classification remains part of the roadmap (see [Future Evolution](#future-evolution)).
 
 **Q: Does it work with mesh Wi-Fi networks?**  
 A: Yes, it works normally. Make sure the ESP32 connects to the 2.4 GHz band.
@@ -374,13 +374,14 @@ While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier 
 | Capability | Status | Description |
 |------------|--------|-------------|
 | **ML Detector** | Experimental | Neural network (MLP 12→16→8→1, 97-100% F1), ~3s boot time |
-| **Gesture Recognition** | Planned | Detect hand gestures (swipe, push, circle) for smart home control |
+| **Gesture Recognition** | Experimental | Multi-class SVM-RBF workflow with runtime reject calibration (`wave`, `circle_cw`, `no_gesture`) |
 | **Human Activity Recognition** | Planned | Identify activities (sitting, walking, falling) |
 | **People Counting** | Planned | Estimate number of people in a room |
 | **3D Localization** | Research | Indoor positioning (30-50cm accuracy) via phase-coherent antenna array |
 
 The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#ml-neural-network-detector). 
 The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md).
+For the current gesture workflow (training + continuous benchmark), see [micro-espectre/tools/README.md](micro-espectre/tools/README.md).
 
 See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribute.
 

@@ -11,6 +11,12 @@
     },
     "test": {
       "description": "30 seconds of quiet room, then 30 seconds of human movement"
+    },
+    "wave": {
+      "description": ""
+    },
+    "circle_cw": {
+      "description": ""
     }
   },
   "files": {
@@ -250,6 +256,10 @@
         "gain_locked": true,
         "description": "HT20 test, AGC gain locked. Motion starts at packet index 3040 (~30.0 s)."
       }
+    ],
+    "wave": [
+    ],
+    "circle_cw": [
     ]
   },
   "environments": [

@@ -89,6 +89,10 @@ def get_default_bind_host() -> str:
 DATA_DIR = Path(__file__).parent.parent / 'data'
 DATASET_INFO_FILE = DATA_DIR / 'dataset_info.json'
 
+# Gesture model selection constraints (0.0-1.0 scale)
+TARGET_NO_GESTURE_RECALL = 0.80
+TARGET_GESTURE_RECALL = 0.80
+
 
 
 # ============================================================================
@@ -837,13 +841,45 @@ class CSICollector:
                     last_render = now
                 continue
 
-    def collect_timed(self, duration: float, num_samples: int = 1, quiet: bool = False) -> List[Path]:
+    def _compute_gesture_guidance(self, duration: float) -> Tuple[float, float]:
+        """
+        Compute start/stop cues for the gesture phase within a sample.
+
+        The goal is to give a comfortable gesture interval while preserving a
+        quiet context before and after movement.
+        """
+        # Default timing: short quiet lead-in, long gesture phase, quiet tail.
+        still_before = max(0.4, duration * 0.20)
+        still_after = max(0.7, duration * 0.25)
+        cue_start = still_before
+        cue_stop = duration - still_after
+
+        # Ensure the gesture phase is not too short for human execution.
+        min_gesture_span = 1.4
+        span = cue_stop - cue_start
+        if span < min_gesture_span:
+            deficit = min_gesture_span - span
+            # Expand by reducing still zones, with conservative lower bounds.
+            reduce_before = min(deficit * 0.5, max(0.0, cue_start - 0.3))
+            cue_start -= reduce_before
+            deficit -= reduce_before
+            reduce_after = min(deficit, max(0.0, (duration - cue_stop) - 0.3))
+            cue_stop += reduce_after
+
+        # Final safety bounds.
+        cue_start = max(0.2, min(cue_start, duration - 0.4))
+        cue_stop = max(cue_start + 0.4, min(cue_stop, duration - 0.2))
+        return cue_start, cue_stop
+    
+    def collect_timed(self, duration: float, num_samples: int = 1,
+                     countdown: int = 0, quiet: bool = False) -> List[Path]:
         """
         Collect samples with fixed duration.
         
         Args:
             duration: Duration per sample in seconds
             num_samples: Number of samples to collect
+            countdown: Optional countdown before recording each sample
             quiet: Suppress output
         
         Returns:
@@ -858,6 +894,11 @@ class CSICollector:
             print(f'  Duration per sample: {duration}s')
             print(f'  Samples to collect:  {num_samples}')
             print(f'  Ready gate:          implicit ({self.READY_STABLE_SECONDS:.1f}s stable)')
+            guide_start, guide_stop = self._compute_gesture_guidance(duration)
+            print(f'  Guidance (per sample):')
+            print(f'    - keep still: 0.0s -> {guide_start:.1f}s')
+            print(f'    - do gesture: {guide_start:.1f}s -> {guide_stop:.1f}s')
+            print(f'    - keep still: {guide_stop:.1f}s -> {duration:.1f}s')
             print(f'{"=" * 60}\n')
         
         # Create socket once
@@ -871,19 +912,35 @@ class CSICollector:
                     print(f'\nSample {sample_idx + 1}/{num_samples}')
                     print('  Waiting for stable scene (ML subcarriers + MVS)...', flush=True)
 
-                # Flush packets that accumulated during countdown/idle time.
+                # Flush queued packets from countdown/idle time.
                 self._drain_udp_backlog()
                 self._wait_for_ready_state(quiet=quiet)
 
                 if not quiet:
+                    if countdown > 0:
+                        for i in range(countdown, 0, -1):
+                            print(f'  Starting in {i}...', end='\r')
+                            time.sleep(1)
+                        # Flush packets accumulated during countdown.
+                        self._drain_udp_backlog()
                     print('  ▶ RECORDING...', end='', flush=True)
-
                 # Reset and collect
                 self.receiver.reset_stats()
                 packets = []
-                deadline = time.monotonic() + duration
-
+                start_time = time.monotonic()
+                deadline = start_time + duration
+                cue_start, cue_stop = self._compute_gesture_guidance(duration)
+                start_cue_shown = False
+                stop_cue_shown = False
+                
                 while time.monotonic() < deadline:
+                    elapsed = time.monotonic() - start_time
+                    if not quiet and (not start_cue_shown) and elapsed >= cue_start:
+                        print('\r  ✋ START GESTURE NOW...      ', end='', flush=True)
+                        start_cue_shown = True
+                    if not quiet and (not stop_cue_shown) and elapsed >= cue_stop:
+                        print('\r  🛑 STOP GESTURE, KEEP STILL... ', end='', flush=True)
+                        stop_cue_shown = True
                     try:
                         data, addr = self.receiver.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)
                         packet = self.receiver._parse_packet(data)
@@ -915,7 +972,7 @@ class CSICollector:
         
         return saved_files
     
-    def collect_interactive(self, num_samples: int = 10, duration: float = 2.0) -> List[Path]:
+    def collect_interactive(self, num_samples: int = 10, duration: float = 3.0) -> List[Path]:
         """
         Collect samples with keyboard control.
         
@@ -936,6 +993,7 @@ class CSICollector:
         print(f'  CSI Data Collection: {self.label}')
         print(f'{"=" * 60}')
         print(f'  Target samples: {num_samples}')
+        print(f'  Duration per sample: {duration}s')
         print(f'  Press ENTER to record each sample, Q to quit')
         print(f'{"=" * 60}\n')
         
@@ -954,19 +1012,16 @@ class CSICollector:
                         print('Collection cancelled.')
                         break
                     
-                    print(f'  Recording for {duration} seconds...', end='', flush=True)
-
-                    # Flush packets that accumulated while waiting for user input.
+                    # Flush queued packets before each interactive sample.
                     self._drain_udp_backlog()
                     print('  Waiting for stable scene (ML subcarriers + MVS)...', flush=True)
                     self._wait_for_ready_state(quiet=False)
-                    print('  ▶ RECORDING...', end='', flush=True)
-
+                    print(f'  ▶ RECORDING for {duration} seconds...', end='', flush=True)
                     # Collect for configured duration
                     self.receiver.reset_stats()
                     packets = []
                     deadline = time.monotonic() + duration
-
+                    
                     while time.monotonic() < deadline:
                         try:
                             data, addr = self.receiver.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)

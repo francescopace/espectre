@@ -130,7 +130,7 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Gesture recognition models (RF, CNN, LSTM) | High | Planned |
+| Gesture recognition models (RF, CNN, LSTM) | High | In Progress (experimental SVM-RBF) |
 | Human Activity Recognition (HAR) models | High | Planned |
 | People counting / presence estimation | Medium | Planned |
 | Fall detection | Medium | Planned |

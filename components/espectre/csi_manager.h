@@ -28,6 +28,9 @@ class NBVICalibrator;
 // Callback type for processed CSI data
 using csi_processed_callback_t = std::function<void(MotionState, uint32_t)>;
 
+// Per-packet raw CSI callback (called every packet, before periodic publish)
+using csi_raw_callback_t = std::function<void(const int8_t*, size_t)>;
+
 // Callback type for game mode (called every packet with movement and threshold)
 using game_mode_callback_t = std::function<void(float movement, float threshold)>;
 
@@ -135,6 +138,16 @@ class CSIManager {
   void set_game_mode_callback(game_mode_callback_t callback) {
     game_mode_callback_ = callback;
   }
+
+  /**
+   * Set per-packet raw CSI callback (called every valid packet)
+   *
+   * Used by GestureDetector to maintain its ring buffer.
+   * The callback receives the raw I/Q CSI bytes and their length.
+   */
+  void set_raw_packet_callback(csi_raw_callback_t callback) {
+    raw_packet_callback_ = callback;
+  }
   
   /**
    * Get the detector instance
@@ -155,6 +168,7 @@ class CSIManager {
   NBVICalibrator* calibrator_{nullptr};
   csi_processed_callback_t packet_callback_;
   game_mode_callback_t game_mode_callback_;
+  csi_raw_callback_t raw_packet_callback_;
   uint32_t publish_rate_{100};
   volatile uint32_t packets_processed_{0};
   volatile uint32_t packets_filtered_{0};

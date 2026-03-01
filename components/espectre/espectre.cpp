@@ -39,6 +39,13 @@
 namespace esphome {
 namespace espectre {
 
+static bool is_action_gesture_(const char* gesture) {
+  if (gesture == nullptr) {
+    return false;
+  }
+  return strcmp(gesture, "movement") != 0 && strcmp(gesture, "no_gesture") != 0;
+}
+
 void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
   
@@ -154,11 +161,12 @@ ESpectreComponent::~ESpectreComponent() {
 }
 
 void ESpectreComponent::on_wifi_connected_() {
+  const bool gesture_enabled = this->gesture_detection_enabled_;
   
   // Enable CSI using CSI Manager with periodic callback
   if (!this->csi_manager_.is_enabled()) {
     ESP_ERROR_CHECK(this->csi_manager_.enable(
-      [this](MotionState state, uint32_t packets_received) {
+      [this, gesture_enabled](MotionState state, uint32_t packets_received) {
 
         // Don't publish until ready
         if (!this->ready_to_publish_) return;
@@ -169,6 +177,30 @@ void ESpectreComponent::on_wifi_connected_() {
           threshold_num->republish_state();
           this->threshold_republished_ = true;
         }
+
+        // Gesture detector runs independently from the selected motion detector.
+        if (gesture_enabled) {
+          // Gesture detector runs independently from motion-state transitions.
+          const char* live_gesture = this->gesture_detector_.consume_live_prediction();
+          if (live_gesture != nullptr && this->gesture_sensor_ != nullptr) {
+            if (is_action_gesture_(live_gesture)) {
+              // Publish concrete gestures only on label change to avoid flooding.
+              if (this->last_published_gesture_ == nullptr ||
+                  strcmp(this->last_published_gesture_, live_gesture) != 0) {
+                this->gesture_sensor_->publish_state(live_gesture);
+                this->last_published_gesture_ = live_gesture;
+              }
+            } else if (strcmp(live_gesture, "no_gesture") == 0) {
+              // Publish no_gesture on first observation and on transition from actions.
+              if (this->last_published_gesture_ == nullptr ||
+                  strcmp(this->last_published_gesture_, "no_gesture") != 0) {
+                this->gesture_sensor_->publish_state("no_gesture");
+                this->last_published_gesture_ = "no_gesture";
+              }
+            }
+          }
+        }
+        this->prev_motion_state_ = state;
         
         // Log status with progress bar and actual CSI rate
         this->sensor_publisher_.log_status(TAG, this->detector_, state, packets_received);
@@ -177,6 +209,29 @@ void ESpectreComponent::on_wifi_connected_() {
         this->sensor_publisher_.publish_all(this->detector_, state);
       }
     ));
+    if (gesture_enabled) {
+      // Start gesture detector in continuous mode (independent from MOTION/IDLE transitions).
+      this->gesture_detector_.start_detection();
+
+      // Set up per-packet raw callback to feed gesture detector ring buffer.
+      this->csi_manager_.set_raw_packet_callback(
+        [this](const int8_t* csi_data, size_t csi_len) {
+          if (csi_data == nullptr) {
+            // nullptr signal means channel change: clear ring buffer
+            this->gesture_detector_.clear_ring();
+            this->gesture_detector_.start_detection();
+          } else {
+            this->gesture_detector_.process_packet(
+              csi_data, csi_len,
+              nullptr, 0
+            );
+          }
+        }
+      );
+    } else {
+      // Disable raw callback entirely when gesture detection is disabled.
+      this->csi_manager_.set_raw_packet_callback(nullptr);
+    }
   }
   
   // Start traffic generator or UDP listener (external traffic mode)
@@ -220,6 +275,7 @@ void ESpectreComponent::on_wifi_connected_() {
     bool need_cv = gc.needs_cv_normalization();
     this->detector_->set_cv_normalization(need_cv);
     this->nbvi_calibrator_.set_cv_normalization(need_cv);
+    this->gesture_detector_.set_cv_normalization(need_cv);
     
     this->start_calibration_();
   });
@@ -245,6 +301,7 @@ void ESpectreComponent::on_wifi_disconnected_() {
   
   // Reset flags
   this->ready_to_publish_ = false;
+  this->last_published_gesture_ = nullptr;
 }
 
 void ESpectreComponent::loop() {
@@ -406,6 +463,8 @@ void ESpectreComponent::send_system_info_ble_() {
   notify_sysinfo(line);
   snprintf(line, sizeof(line), "detector=%s", this->detector_ ? this->detector_->get_name() : "unknown");
   notify_sysinfo(line);
+  snprintf(line, sizeof(line), "gesture_detection=%s", this->gesture_detection_enabled_ ? "on" : "off");
+  notify_sysinfo(line);
   snprintf(line, sizeof(line), "subcarriers=%s", this->user_specified_subcarriers_ ? "yaml" : "auto");
   notify_sysinfo(line);
   snprintf(line, sizeof(line), "lowpass=%s", this->lowpass_enabled_ ? "on" : "off");
@@ -515,6 +574,10 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");
   ESP_LOGCONFIG(TAG, " └─ Packets ............ %u", this->publish_interval_);
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " GESTURE DETECTION");
+  ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", this->gesture_detection_enabled_ ? "[ENABLED]" : "[DISABLED]");
+  ESP_LOGCONFIG(TAG, " └─ Sensor ............. %s", this->gesture_sensor_ != nullptr ? "[OK]" : "[--]");
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " LOW-PASS FILTER");
   ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", this->lowpass_enabled_ ? "[ENABLED]" : "[DISABLED]");

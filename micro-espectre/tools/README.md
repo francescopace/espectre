@@ -217,6 +217,69 @@ For full training workflow and dataset preparation, see [ML_DATA_COLLECTION.md](
 
 ---
 
+### 12. Gesture Model Training (`12_train_gesture_model.py`)
+
+**Purpose**: Train, calibrate, and export the multi-class gesture model (`wave`, `circle_cw`, `no_gesture`, ...)
+
+- Trains a multinomial Logistic Regression classifier from `data/<label>/*.npz`
+- Uses `data/no_gesture` as required source for `no_gesture`
+- Uses fixed 2.0 s negative windows aligned with runtime behavior
+- Auto-calibrates reject thresholds (`confidence`, `margin`) on hold-out data
+- Optimizes reject thresholds with macro-F1 / balanced accuracy and recall constraints:
+  - `no_gesture` recall target >= 50%
+  - gesture class recall target >= 65%
+- Exports weights for both platforms:
+  - `micro-espectre/src/gesture_weights.py`
+  - `components/espectre/gesture_weights.h`
+
+```bash
+python 12_train_gesture_model.py --info
+python 12_train_gesture_model.py --seed 42 --window-seconds 2.0 --window-labels wave,circle_cw --no-gesture-max-per-source -1
+python 12_train_gesture_model.py --validate-dataset
+python 12_train_gesture_model.py --train-on-validated
+python 12_train_gesture_model.py --sequential-train-search
+python 12_train_gesture_model.py --sequential-train-search 20
+```
+
+Notes:
+- `packet-rate` is fixed to 100 pps (CLI option removed).
+- Exported thresholds are consumed at runtime by both Python and C++ gesture detectors.
+- Default feature preset is `reduced_plus_paper` (optimized no_gesture-first compromise).
+- `--validate-dataset` prints a KEEP/REVIEW table and exits (no training).
+- `--train-on-validated` trains using only KEEP files from dataset validation.
+- `--sequential-train-search [N]` runs multiple auto-seed trainings in sequence and evaluates each run via `13_test_gesture_stream.py`; `N` is optional max runs (default: 12). Best run is retrained at the end.
+
+---
+
+### 13. Gesture Streaming Benchmark (`13_test_gesture_stream.py`)
+
+**Purpose**: Unified gesture evaluation tool:
+- offline synthetic stream benchmark
+- live UDP inference (`--live`)
+
+- Always runs in **continuous** mode
+- Uses real `no_gesture` class from `data/no_gesture/` (required)
+- Always uses fixed runtime subcarriers (`[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`)
+- Reports:
+  - overall accuracy
+  - per-class accuracy
+  - confusion matrix
+  - macro-F1 (3-class)
+  - balanced accuracy (3-class)
+  - constraint check (all classes `>=80%`)
+
+```bash
+python 13_test_gesture_stream.py
+python 13_test_gesture_stream.py --seed 42  # reproducible run
+python 13_test_gesture_stream.py --live
+```
+
+Notes:
+- Offline benchmark uses full coverage (1 random chunk per readable file).
+- Seed is random by default; use `--seed` only when you need reproducibility.
+
+---
+
 ## Usage Examples
 
 ### Basic Analysis Workflow
@@ -237,10 +300,20 @@ python 1_analyze_raw_data.py
 # 2. Optimize parameters
 python 2_analyze_system_tuning.py --quick
 
-# 3. Visualize MVS
+# 3. Train gesture model (includes threshold calibration)
+python 12_train_gesture_model.py --seed 13 --window-seconds 2.0 --window-overlap 0.5 --window-labels wave,circle_cw --no-gesture-max-per-source 5
+
+# 4. Run continuous gesture benchmark (full coverage)
+python 13_test_gesture_stream.py
+
+# 4b. Run live gesture inference from UDP stream
+python 13_test_gesture_stream.py --live
+
+# 5. Visualize MVS
+>>>>>>> 98f4321 (feat: introduce model for gesture recognition)
 python 3_analyze_moving_variance_segmentation.py --plot
 
-# 4. Run unit tests
+# 6. Run unit tests
 cd ..
 pytest tests/ -v
 ```
