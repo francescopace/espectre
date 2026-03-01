@@ -12,7 +12,6 @@ import math
 import numpy as np
 from features import (
     calc_skewness,
-    calc_kurtosis,
     calc_entropy_turb,
     calc_zero_crossing_rate,
     calc_autocorrelation,
@@ -101,58 +100,6 @@ class TestCalcSkewness:
         skew_partial = calc_skewness(values, n_part, m_part, s_part)
         # Skewness without outlier should be different
         assert abs(skew_all) != abs(skew_partial)
-
-
-class TestCalcKurtosis:
-    """Test kurtosis calculation"""
-    
-    def test_empty_list(self):
-        """Test kurtosis of empty list"""
-        assert calc_kurtosis([], 0, 0.0, 0.0) == 0.0
-    
-    def test_single_value(self):
-        """Test kurtosis of single value"""
-        assert calc_kurtosis([5.0], 1, 5.0, 0.0) == 0.0
-    
-    def test_three_values(self):
-        """Test kurtosis of three values (needs 4+)"""
-        n, m, s = _stats([1.0, 2.0, 3.0])
-        assert calc_kurtosis([1.0, 2.0, 3.0], n, m, s) == 0.0
-    
-    def test_normal_distribution(self):
-        """Test kurtosis of normal distribution (should be ~0)"""
-        np.random.seed(42)
-        values = list(np.random.normal(0, 1, 1000))
-        n, m, s = _stats(values)
-        kurt = calc_kurtosis(values, n, m, s)
-        # Excess kurtosis of normal is 0
-        assert abs(kurt) < 0.5
-    
-    def test_uniform_distribution(self):
-        """Test kurtosis of uniform distribution (should be < 0)"""
-        np.random.seed(42)
-        values = list(np.random.uniform(0, 1, 1000))
-        n, m, s = _stats(values)
-        kurt = calc_kurtosis(values, n, m, s)
-        # Uniform distribution has negative excess kurtosis
-        assert kurt < 0
-    
-    def test_heavy_tailed(self):
-        """Test kurtosis of heavy-tailed distribution (should be > 0)"""
-        # Create data with outliers -> heavy tails
-        values = list(np.random.normal(0, 1, 100))
-        values.extend([10.0, -10.0, 15.0, -15.0])  # Add outliers
-        n, m, s = _stats(values)
-        kurt = calc_kurtosis(values, n, m, s)
-        # Should have positive excess kurtosis
-        assert kurt > 0
-    
-    def test_constant_values(self):
-        """Test kurtosis of constant values (std=0)"""
-        values = [5.0] * 10
-        n, m, s = _stats(values)
-        kurt = calc_kurtosis(values, n, m, s)
-        assert kurt == 0.0
 
 
 class TestCalcEntropyTurb:

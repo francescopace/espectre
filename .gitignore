@@ -53,3 +53,6 @@ secrets.yaml
 docs/documentation/
 docs/_pagefind/
 docs/sitemap.xml
+
+# External
+external_datasets/

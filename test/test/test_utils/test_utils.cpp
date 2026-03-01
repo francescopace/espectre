@@ -103,6 +103,33 @@ void test_magnitude_max_values(void) {
     TEST_ASSERT_FLOAT_WITHIN(1.0f, 179.6f, result);
 }
 
+void test_extract_phase_from_csi_known_values(void) {
+    int8_t csi[128];
+    std::memset(csi, 0, sizeof(csi));
+
+    // sc=0, format [Q, I]:
+    // Q=0, I=1 -> phase=0
+    csi[0] = 0;
+    csi[1] = 1;
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, extract_phase_from_csi(csi, sizeof(csi), 0));
+
+    // sc=1: Q=1, I=0 -> phase=pi/2
+    csi[2] = 1;
+    csi[3] = 0;
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, atan2f(1.0f, 0.0f), extract_phase_from_csi(csi, sizeof(csi), 1));
+
+    // sc=2: Q=0, I=-1 -> phase=pi
+    csi[4] = 0;
+    csi[5] = -1;
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, atan2f(0.0f, -1.0f), extract_phase_from_csi(csi, sizeof(csi), 2));
+}
+
+void test_extract_phase_from_csi_invalid_index(void) {
+    int8_t csi[4] = {1, 2, 3, 4};
+    // sc=2 -> q_idx=4, i_idx=5 out of bounds for csi_len=4
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, extract_phase_from_csi(csi, sizeof(csi), 2));
+}
+
 // ============================================================================
 // SPATIAL TURBULENCE TESTS
 // ============================================================================
@@ -324,6 +351,8 @@ int process(void) {
     RUN_TEST(test_magnitude_positive_iq);
     RUN_TEST(test_magnitude_negative_iq);
     RUN_TEST(test_magnitude_max_values);
+    RUN_TEST(test_extract_phase_from_csi_known_values);
+    RUN_TEST(test_extract_phase_from_csi_invalid_index);
     
     // Turbulence tests
     RUN_TEST(test_turbulence_uniform_magnitudes);

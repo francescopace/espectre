@@ -125,13 +125,15 @@ espectre:
 | Algorithm | Description | Threshold Range | Best For |
 |-----------|-------------|-----------------|----------|
 | `mvs` | Moving Variance Segmentation | 0.1 - 10.0 | General purpose, adaptive |
-| `ml` | Neural Network (MLP 12→16→8→1) | 0.0 - 1.0 | Higher accuracy |
+| `ml` | Neural network | 0.1 - 10.0 (scaled metric) | Higher accuracy |
 
 **ML Detector Notes:**
+- **Dual-model pipeline**: Motion detection and gesture classification run as parallel ML components
 - Uses fixed subcarriers `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]` for consistency with training
-- Threshold is a probability (0.5 = 50% confidence)
+- Motion detector uses 12 turbulence/amplitude features (including kurtosis and slope)
+- Motion decision uses a scaled ML metric with default threshold `5.0` (range `0.1-10.0`, aligned with MVS UI)
 - Pre-trained weights are embedded in the component (no external files needed)
-- Architecture validated as optimal (12→16→8→1, 353 params, 1.4 KB) via 5-fold CV
+- Architecture: Motion MLP (12→24→1, sigmoid, 313 params), Gesture MLP (12→24→N)
 - Training uses early stopping, dropout, class weights, and LR scheduling
 
 ### Window Size (10-200 packets)

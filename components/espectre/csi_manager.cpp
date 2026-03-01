@@ -103,7 +103,12 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
   // Process CSI packet through detector
   const bool should_measure = (packets_total_++ % 1000 == 0);
   int64_t start_us = should_measure ? esp_timer_get_time() : 0;
-  
+
+  // Feed gesture detector ring buffer (always, even during calibration waiting)
+  if (raw_packet_callback_) {
+    raw_packet_callback_(csi_data, csi_len);
+  }
+
   detector_->process_packet(csi_data, csi_len, selected_subcarriers_, NUM_SUBCARRIERS);
   
   // Handle periodic callback (or game mode which needs every packet)
@@ -135,6 +140,10 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
         ESP_LOGW(TAG, "WiFi channel changed: %d -> %d, resetting detection buffer",
                  current_channel_, packet_channel);
         clear_detector_buffer();
+        // Notify gesture detector of channel change via raw callback with null data
+        if (raw_packet_callback_) {
+          raw_packet_callback_(nullptr, 0);
+        }
       }
       current_channel_ = packet_channel;
       

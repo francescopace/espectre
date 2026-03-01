@@ -36,7 +36,12 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is
 # Detection Algorithm
 # "mvs" (default): Moving Variance Segmentation - fast, good accuracy
 # "ml": Neural Network (12 features -> MLP) - learned patterns, no calibration needed
-DETECTION_ALGORITHM = "mvs"
+DETECTION_ALGORITHM = "ml"
+
+# Gesture Detection
+# Independent from DETECTION_ALGORITHM: works with both "mvs" and "ml"
+# Set to False to disable gesture processing and MQTT gesture publishing.
+GESTURE_DETECTION_ENABLED = False
 
 # Band Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
 # NBVI: Normalized Band Variance Index (12 non-consecutive subcarriers)

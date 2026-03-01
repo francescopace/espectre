@@ -57,9 +57,9 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | Feature | ESPHome (C++) | Python (MicroPython) | Status |
 |---------|---------------|----------------------|--------|
 | **Motion Detection** |
-| MVS Detector | ✅ | ✅ | Moving Variance Segmentation (default) |
-| ML Detector | ✅ | ✅ | Neural Network (experimental) |
-| ML Features (12) | ✅ | ✅ | mean, std, max, min, zcr, skewness, kurtosis, entropy, autocorr, mad, slope, delta |
+| MVS Detector | ✅ | ✅ | Moving Variance Segmentation |
+| ML Detector | ✅ | ✅ | Dual-model ML pipeline: binary motion + gesture classification |
+| ML Features (12) | ✅ | ✅ | mean, std, max, min, zcr, skewness, entropy, mad, autocorr, autocorr_lag2, autocorr_lag5, amp_entropy |
 | **Calibration (MVS only)** |
 | NBVI | ✅ | ✅ | 12 non-consecutive subcarriers |
 | Adaptive Threshold | ✅ | ✅ | P95 × 1.1 of baseline variance |
@@ -336,7 +336,7 @@ pytest tests/test_segmentation.py::TestStateMachine -v
 |-------|------|------|-------|
 | `test_config` | Unit | — | Configuration constants, guard bands |
 | `test_filters` | Unit | Synthetic | Hampel, low-pass filters |
-| `test_features` | Unit | Synthetic | Feature extraction (entropy, skewness, kurtosis) |
+| `test_features` | Unit | Synthetic | Feature extraction (entropy, skewness, autocorrelation) |
 | `test_segmentation` | Unit | Synthetic | MVS state machine, variance calculation |
 | `test_segmentation_additional` | Unit | Synthetic | Additional segmentation edge cases |
 | `test_nbvi_calibrator` | Unit | **Real** | NBVI subcarrier selection |
@@ -380,15 +380,26 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC (used in auto mode)
 Choose the motion detection algorithm.
 
 ```python
-DETECTION_ALGORITHM = "mvs"   # "mvs" (default) or "ml"
+DETECTION_ALGORITHM = "ml"   # "ml" (default) or "mvs"
 ```
 
 | Algorithm | Method | Calibration | Boot Time |
 |-----------|--------|-------------|-----------|
-| **MVS** (default) | Moving Variance Segmentation of Turbulence | Subcarriers + Threshold | ~10s |
-| **ML** | Neural Network (12 features → MLP) | **None** (fixed subcarriers) | **~3s** |
+| **ML** (default) | Dual-model ML pipeline (motion + gesture) | **None** (fixed subcarriers) | **~3s** |
+| **MVS** | Moving Variance Segmentation of Turbulence | Subcarriers + Threshold | ~10s |
 
-### 3. Calibration Algorithm (MVS only)
+### 3. Gesture Detection Toggle
+
+Control gesture classification independently from the selected motion detector.
+
+```python
+GESTURE_DETECTION_ENABLED = False  # default: disabled (set True to enable)
+```
+
+When enabled, gesture detection runs with both `DETECTION_ALGORITHM = "mvs"` and
+`DETECTION_ALGORITHM = "ml"`.
+
+### 4. Calibration Algorithm (MVS only)
 
 Selects which subcarriers to use for detection.
 
@@ -400,14 +411,14 @@ CALIBRATION_ALGORITHM = "nbvi"  # NBVI is the sole calibration algorithm
 |-----------|-----------|----------|
 | **NBVI** | 12 non-consecutive subcarriers | Spectral diversity, resilient to interference |
 
-### 4. Detection Parameters (MVS only)
+### 5. Detection Parameters (MVS only)
 
 ```python
 SEG_THRESHOLD = "auto"     # "auto" (adaptive), "min" (max baseline), or 0.1-10.0
 SEG_WINDOW_SIZE = 75       # Moving variance window (10-200 packets)
 ```
 
-### 5. Filters (Optional, MVS and ML)
+### 6. Filters (Optional, MVS and ML)
 
 Applied to turbulence values before motion detection. Both MVS and ML detectors support these filters.
 
@@ -466,25 +477,37 @@ Micro-ESPectre includes a **neural network-based motion detector** as an experim
 
 ### ML Detector (Experimental)
 
-The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real CSI data. It extracts 12 statistical features from turbulence patterns and outputs a motion probability.
+The ML pipeline uses a **dual-model architecture** for motion and gesture detection:
 
-| Aspect | Details |
-|--------|---------|
-| Architecture | MLP (12 → 16 → 8 → 1) |
-| Input | 12 features from 75-packet window |
-| Output | Probability (0.0 - 1.0), threshold at 0.5 |
-| Filters | Supports low-pass and Hampel filters (same as MVS) |
-| Performance | See [PERFORMANCE.md](../PERFORMANCE.md) for per-chip results |
+**Motion Detector** (`MLDetector`)
+- Binary classification: IDLE vs MOTION
+- 12 statistical features from 75-packet turbulence window
+- Compact MLP (12 → 24 → 1, sigmoid)
+- Selected by `DETECTION_ALGORITHM`
+
+**Gesture Classifier** (`GestureDetector`)
+- Continuous inference using fixed 200-packet windows (with pre-roll)
+- Enabled by `GESTURE_DETECTION_ENABLED` (independent from `DETECTION_ALGORITHM`)
+- 12 gesture-specific features including phase and event morphology
+- Multiclass Logistic Regression (softmax logits)
+- Includes synthetic `no_gesture` class built from `baseline` + `movement` samples
+
+| Aspect | Motion Detector | Gesture Classifier |
+|--------|------------------|--------------------|
+| Architecture | MLP (12 → 24 → 1, sigmoid) | LogReg (12 → N, softmax) |
+| Input | 75-packet window | Fixed 200-packet window |
+| Output | Binary (idle/motion) | Gesture class (`wave`, `circle_cw`, ..., `no_gesture`) |
+| Trigger | Per-packet | Continuous live inference |
+| Filters | Low-pass, Hampel | None |
 
 **Documentation**:
-- [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector) - Architecture, features, performance
+- [ALGORITHMS.md](ALGORITHMS.md#ml-motion-neural-network--gesture-logreg) - Architecture, features, performance
 - [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) - Data collection, training, usage
 
-### Future ML Applications (Roadmap 3.x)
+### Future ML Applications (Roadmap)
 
 The ML infrastructure enables advanced features planned for future releases:
 
-- Gesture recognition
 - Human Activity Recognition (HAR)
 - People counting
 - Localization and tracking

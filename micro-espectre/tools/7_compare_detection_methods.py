@@ -29,15 +29,14 @@ from csi_utils import (
 from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
 from threshold import calculate_adaptive_threshold
 from segmentation import SegmentationContext
-from features import (
-    calc_skewness, calc_kurtosis, calc_entropy_turb,
-    calc_zero_crossing_rate, calc_autocorrelation, calc_mad,
-)
-
 # Check if ML model is available
 ML_AVAILABLE = False
+MLDetectorClass = None
+ML_SUBCARRIERS_LIST = None
 try:
-    from ml_detector import predict as ml_predict
+    from ml_detector import MLDetector as MLDetectorClass, ML_SUBCARRIERS
+    from detector_interface import MotionState
+    ML_SUBCARRIERS_LIST = ML_SUBCARRIERS
     ML_AVAILABLE = True
 except ImportError:
     pass
@@ -67,81 +66,12 @@ def calculate_mean_amplitude(csi_packet, selected_subcarriers):
     return np.mean(amplitudes)
 
 
-class MLDetector:
-    """ML-based motion detector using neural network."""
-    
-    def __init__(self, window_size=SEG_WINDOW_SIZE, subcarriers=None, track_data=False):
-        self.window_size = window_size
-        self.subcarriers = subcarriers or DEFAULT_SUBCARRIERS
-        self.track_data = track_data
-        self.turb_buffer = deque(maxlen=window_size)
-        
-        self.state = 'IDLE'
-        self.motion_count = 0
-        
-        if track_data:
-            self.probability_history = []
-            self.state_history = []
-    
-    def process_packet(self, csi_data):
-        """Process a packet and update state."""
-        if not ML_AVAILABLE:
-            return
-        
-        turb, amps = SegmentationContext.compute_spatial_turbulence(
-            csi_data, self.subcarriers
-        )
-        self.turb_buffer.append(turb)
-        
-        if len(self.turb_buffer) < self.window_size:
-            prob = 0.0
-        else:
-            turb_list = list(self.turb_buffer)
-            n = len(turb_list)
-            turb_mean = np.mean(turb_list)
-            turb_std = np.std(turb_list)
-            turb_var = turb_std * turb_std
-            features = [
-                turb_mean, turb_std,
-                np.max(turb_list), np.min(turb_list),
-                calc_zero_crossing_rate(turb_list, n, mean=turb_mean),
-                calc_skewness(turb_list, n, turb_mean, turb_std),
-                calc_kurtosis(turb_list, n, turb_mean, turb_std),
-                calc_entropy_turb(turb_list, n),
-                calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var),
-                calc_mad(turb_list, n),
-                np.polyfit(range(n), turb_list, 1)[0],
-                turb_list[-1] - turb_list[0],
-            ]
-            prob = ml_predict(features)
-        
-        self.state = 'MOTION' if prob > 0.5 else 'IDLE'
-        if self.state == 'MOTION':
-            self.motion_count += 1
-        
-        if self.track_data:
-            self.probability_history.append(prob)
-            self.state_history.append(self.state)
-    
-    def get_motion_count(self):
-        return self.motion_count
-    
-    def reset(self):
-        self.turb_buffer.clear()
-        self.state = 'IDLE'
-        self.motion_count = 0
-        if self.track_data:
-            self.probability_history = []
-            self.state_history = []
-
-
 def compare_detection_methods(baseline_packets, movement_packets, subcarriers, window_size, threshold):
     """
     Compare different detection methods on same data.
     Returns metrics for each method.
     """
-    from ml_detector import ML_SUBCARRIERS
-    ml_subcarriers = ML_SUBCARRIERS
+    ml_subcarriers = ML_SUBCARRIERS_LIST if ML_AVAILABLE else None
     methods = {
         'RSSI': {'baseline': [], 'movement': []},
         'Mean Amplitude': {'baseline': [], 'movement': []},
@@ -214,15 +144,19 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     
     if ML_AVAILABLE:
         start = time.perf_counter()
-        ml_baseline = MLDetector(window_size, ml_subcarriers, track_data=True)
+        ml_baseline = MLDetectorClass(window_size=window_size)
+        ml_baseline.track_data = True
         for pkt in baseline_packets:
-            ml_baseline.process_packet(pkt['csi_data'])
+            ml_baseline.process_packet(pkt['csi_data'], ml_subcarriers)
+            ml_baseline.update_state()
         methods['ML']['baseline'] = np.array(ml_baseline.probability_history)
         ml_baseline_states = len(ml_baseline.state_history)
         
-        ml_movement = MLDetector(window_size, ml_subcarriers, track_data=True)
+        ml_movement = MLDetectorClass(window_size=window_size)
+        ml_movement.track_data = True
         for pkt in movement_packets:
-            ml_movement.process_packet(pkt['csi_data'])
+            ml_movement.process_packet(pkt['csi_data'], ml_subcarriers)
+            ml_movement.update_state()
         methods['ML']['movement'] = np.array(ml_movement.probability_history)
         
         ml_time = time.perf_counter() - start
@@ -426,7 +360,7 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement,
     print(f"  MVS Window Size: {WINDOW_SIZE}")
     print(f"  MVS Threshold: {threshold}")
     if ML_AVAILABLE:
-        print(f"  ML Model: Neural Network (12→16→8→1)")
+        print(f"  ML Model: Neural Network (12→24→N, multiclass)")
     print()
     
     # Calculate metrics

@@ -8,8 +8,8 @@
  * 2. Apply optional Hampel filter to remove outliers
  * 3. Apply optional low-pass filter for noise reduction
  * 4. Extract 12 statistical features from turbulence buffer
- * 5. Run MLP inference (12 -> 16 -> 8 -> 1)
- * 6. Compare probability to threshold for motion detection
+ * 5. Run MLP inference (12 -> 24 -> 1, sigmoid)
+ * 6. Motion if probability > configured threshold
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -24,10 +24,11 @@
 namespace esphome {
 namespace espectre {
 
-// ML-specific constants
-constexpr float ML_DEFAULT_THRESHOLD = 0.5f;
-constexpr float ML_MIN_THRESHOLD = 0.0f;
-constexpr float ML_MAX_THRESHOLD = 1.0f;
+// ML-specific constants (unified with MVS for consistent UI)
+constexpr float ML_DEFAULT_THRESHOLD = 5.0f;
+constexpr float ML_MIN_THRESHOLD = 0.1f;
+constexpr float ML_MAX_THRESHOLD = 10.0f;
+constexpr float ML_METRIC_SCALE = 10.0f;
 
 // Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
 // These must match the subcarriers used during model training
@@ -45,7 +46,7 @@ public:
      * Constructor
      * 
      * @param window_size Feature extraction window size (10-200 packets)
-     * @param threshold Motion probability threshold (0.0-1.0)
+     * @param threshold Motion detection threshold (0.1-10.0, unified with MVS)
      */
     MLDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE, 
                float threshold = ML_DEFAULT_THRESHOLD);
@@ -77,17 +78,18 @@ private:
     void extract_features(float* features_out);
     
     /**
-     * Run MLP inference on features
-     * 
-     * Architecture: 12 -> 16 (ReLU) -> 8 (ReLU) -> 1 (Sigmoid)
-     * 
-     * @param features Normalized feature vector (12 values)
-     * @return Motion probability (0.0-1.0)
+     * Run MLP inference on features.
+     *
+     * Architecture: 12 -> 24 (ReLU) -> 1 (Sigmoid)
+     *
+     * @param features Raw feature vector (12 values, not yet normalized)
+     * @return Scaled motion metric (0.0-10.0, unified with MVS)
      */
     float predict(const float* features);
     
     float threshold_;
     float current_probability_;
+    int   current_class_idx_;   // runtime class aligned with configured threshold
 };
 
 }  // namespace espectre

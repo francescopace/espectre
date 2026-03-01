@@ -223,10 +223,11 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `detection_algorithm` | string | mvs | Detection algorithm: `mvs` (variance) or `ml` (neural network) |
+| `gesture_detection_enabled` | bool | false | Enable/disable gesture detection pipeline (works with both `mvs` and `ml`) |
 | `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0-1000, 0=disabled) |
 | `traffic_generator_mode` | string | dns | Traffic generator mode: `dns` (UDP queries) or `ping` (ICMP) |
 | `publish_interval` | int | auto | Packets between sensor updates (default: same as traffic_generator_rate, or 100 if traffic is 0) |
-| `segmentation_threshold` | string/float | auto | Threshold: `auto`, `min`, or number (MVS: 0.1-10.0, ML: 0.0-1.0) |
+| `segmentation_threshold` | string/float | auto | Threshold: `auto`, `min`, or number (0.1-10.0 for both MVS and ML) |
 | `segmentation_window_size` | int | 75 | Moving variance window in packets (10-200) |
 | `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
 | `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction (MVS and ML) |
@@ -243,18 +244,20 @@ For detailed parameter tuning (ranges, recommended values, troubleshooting), see
 | Algorithm | How It Works | Pros | Cons | Best For |
 |-----------|--------------|------|------|----------|
 | **MVS** (default) | Variance of spatial turbulence | Low CPU, adaptive threshold | Requires 10s NBVI calibration | General use |
-| **ML** | Neural network (MLP 12→16→8→1) | Fast boot (~3s), no calibration | Pre-trained weights, fixed subcarriers | Experimental |
+| **ML** | Neural network motion detector | No calibration, fast boot (~3s) | Higher CPU (~33% vs ~4%), may require retraining for new environments | Advanced motion detection |
 
 Both algorithms support optional low-pass and Hampel filters on the turbulence stream.
 
 ```yaml
 espectre:
   detection_algorithm: mvs  # or ml
+  gesture_detection_enabled: false  # set true to enable gestures
 ```
 
-**Threshold ranges:**
-- MVS: 0.1 - 10.0 (default: auto, adaptive based on baseline noise)
-- ML: 0.0 - 1.0 (default: 0.5, probability)
+**Threshold ranges (unified for both algorithms):**
+- Range: 0.1 - 10.0
+- MVS default: `auto` (adaptive based on baseline noise)
+- ML default: 5.0 (equivalent to 0.5 probability)
 
 ### Integrated Sensors (Created Automatically)
 
@@ -264,6 +267,7 @@ All sensors are created automatically when the `espectre` component is configure
 |---------------|------|--------------|-------------|
 | `movement_sensor` | sensor | "Movement Score" | Current motion intensity value |
 | `motion_sensor` | binary_sensor | "Motion Detected" | Motion state (on/off) |
+| `gesture_sensor` | text_sensor | "Gesture" | Last recognized gesture label |
 | `threshold_number` | number | "Threshold" | Detection threshold (adjustable from HA) |
 | `calibrate_switch` | switch | "Calibrate" | Trigger band recalibration (ON during calibration) |
 
@@ -332,8 +336,11 @@ Entity names are based on the device name in your YAML (default: `espectre`):
 
 - **binary_sensor.espectre_motion_detected** - Motion state (on/off)
 - **sensor.espectre_movement_score** - Movement intensity value
+- **sensor.espectre_gesture** - Last recognized gesture label (text sensor)
 - **number.espectre_threshold** - Detection threshold (adjustable from Home Assistant)
 - **switch.espectre_calibrate** - Trigger recalibration (ON during calibration)
+
+> **Gesture publishing note:** `gesture_sensor` publishes concrete gesture classes (e.g., `wave`, `circle_cw`) and publishes `no_gesture` only on transition when a previously recognized gesture ends.
 
 > **Note:** If you change the device name, replace `espectre` with your device name in automations and dashboards.
 

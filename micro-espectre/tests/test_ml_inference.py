@@ -1,8 +1,11 @@
 """
-Micro-ESPectre - ML Inference Validation Tests
+Micro-ESPectre - ML Inference Validation Tests (binary IDLE/MOTION model)
 
 Tests that the Python ML inference implementation produces correct results
 when compared against the reference model outputs stored in ml_test_data.npz.
+
+The motion model is binary: class 0 = idle, class 1 = motion.
+Gesture classification is tested in test_gesture_detector.py.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -20,7 +23,10 @@ src_path = str(Path(__file__).parent.parent / 'src')
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from ml_detector import predict
+from ml_detector import (
+    predict_class, predict_probability, CLASS_LABELS, NUM_CLASSES,
+    ML_METRIC_SCALE, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD, ML_DEFAULT_THRESHOLD
+)
 
 # Test data path
 MODELS_DIR = Path(__file__).parent.parent / 'models'
@@ -29,106 +35,104 @@ TEST_DATA_PATH = MODELS_DIR / 'ml_test_data.npz'
 
 class TestMLInferenceAccuracy:
     """Test ML inference accuracy against reference model."""
-    
+
     @pytest.fixture(autouse=True)
     def setup(self):
         """Load test data before each test."""
         if not TEST_DATA_PATH.exists():
             pytest.skip(f"Test data not found: {TEST_DATA_PATH}")
-        
+
         self.test_data = np.load(TEST_DATA_PATH)
         self.features = self.test_data['features']
+        # expected_outputs: float32, 1 - prob[idle] — same format as C++ MLDetector::predict()
         self.expected_outputs = self.test_data['expected_outputs']
-    
+
     def test_inference_matches_reference(self):
-        """Verify that inference matches reference model outputs."""
-        max_error = 0.0
-        num_samples = min(100, len(self.features))  # Test first 100 samples
-        
+        """Verify Python predict_probability() matches reference float outputs (tolerance 1e-3).
+
+        Mirrors test_ml_inference_matches_reference in C++ test_ml_detector.cpp.
+        Note: predict_probability() returns scaled values (0-10), expected_outputs are 0-1.
+        """
+        TOLERANCE = 1e-3  # Scaled tolerance
+        num_samples = min(100, len(self.features))
+
         for i in range(num_samples):
             features = self.features[i].tolist()
-            expected = self.expected_outputs[i]
-            
-            result = predict(features)
-            error = abs(result - expected)
-            max_error = max(max_error, error)
-            
-            # Allow small numerical error (1e-3) due to float32 precision
-            # in manual MLP inference vs TensorFlow reference
-            assert error < 1e-3, (
-                f"Sample {i}: expected {expected:.6f}, got {result:.6f}, "
-                f"error {error:.6f}"
+            result = predict_probability(features)
+            # Scale expected to 0-10 range (same as result)
+            expected = float(self.expected_outputs[i]) * ML_METRIC_SCALE
+
+            assert abs(result - expected) < TOLERANCE, (
+                f"Sample {i}: expected {expected:.6f}, got {result:.6f} "
+                f"(error={abs(result - expected):.2e})"
             )
-        
-        print(f"\nTested {num_samples} samples, max error: {max_error:.2e}")
-    
+
+        print(f"\nTested {num_samples} samples, all within tolerance {TOLERANCE}")
+
     def test_all_samples_match(self):
-        """Verify all test samples match reference outputs."""
-        errors = []
-        
+        """Verify all samples match reference outputs within tolerance."""
+        TOLERANCE = 1e-3  # Scaled tolerance
+        errors = 0
+
         for i in range(len(self.features)):
             features = self.features[i].tolist()
-            expected = self.expected_outputs[i]
-            result = predict(features)
-            errors.append(abs(result - expected))
-        
-        errors = np.array(errors)
-        max_error = errors.max()
-        mean_error = errors.mean()
-        
+            result = predict_probability(features)
+            # Scale expected to 0-10 range (same as result)
+            expected = float(self.expected_outputs[i]) * ML_METRIC_SCALE
+            if abs(result - expected) >= TOLERANCE:
+                errors += 1
+
+        accuracy = (len(self.features) - errors) / len(self.features) * 100
         print(f"\nAll {len(self.features)} samples tested:")
-        print(f"  Max error:  {max_error:.2e}")
-        print(f"  Mean error: {mean_error:.2e}")
-        
-        assert max_error < 1e-3, f"Max error {max_error:.2e} exceeds tolerance"
-    
-    def test_output_range(self):
-        """Verify outputs are in valid probability range [0, 1]."""
+        print(f"  Accuracy: {accuracy:.1f}%")
+        print(f"  Errors:   {errors}")
+
+        assert errors == 0, f"{errors} samples outside tolerance {TOLERANCE}"
+
+    def test_confidence_in_range(self):
+        """Verify confidence values are in valid probability range [0, 1]."""
         for i in range(len(self.features)):
             features = self.features[i].tolist()
-            result = predict(features)
-            
-            assert 0.0 <= result <= 1.0, (
-                f"Sample {i}: output {result} outside [0, 1] range"
+            _, _, confidence = predict_class(features)
+
+            assert 0.0 <= confidence <= 1.0, (
+                f"Sample {i}: confidence {confidence} outside [0, 1] range"
             )
 
 
 class TestMLInferencePerformance:
     """Benchmark ML inference performance."""
-    
+
     @pytest.fixture(autouse=True)
     def setup(self):
         """Load test data before each test."""
         if not TEST_DATA_PATH.exists():
             pytest.skip(f"Test data not found: {TEST_DATA_PATH}")
-        
+
         self.test_data = np.load(TEST_DATA_PATH)
         self.features = self.test_data['features']
-    
+
     def test_inference_speed(self):
         """Benchmark inference speed."""
         num_iterations = 1000
-        
-        # Warm up
+
         for _ in range(10):
-            predict(self.features[0].tolist())
-        
-        # Benchmark
+            predict_class(self.features[0].tolist())
+
         start_time = time.perf_counter()
         for i in range(num_iterations):
-            predict(self.features[i % len(self.features)].tolist())
+            predict_class(self.features[i % len(self.features)].tolist())
         end_time = time.perf_counter()
-        
+
         total_time_ms = (end_time - start_time) * 1000
         time_per_inference_us = (total_time_ms * 1000) / num_iterations
         inferences_per_second = num_iterations / (end_time - start_time)
-        
+
         print(f"\nPerformance ({num_iterations} iterations):")
         print(f"  Total time:     {total_time_ms:.2f} ms")
         print(f"  Per inference:  {time_per_inference_us:.2f} us")
         print(f"  Rate:           {inferences_per_second:.0f} inferences/sec")
-        
-        # Should be fast enough for real-time (>100 inferences/sec)
+
         assert inferences_per_second > 100, (
             f"Inference too slow: {inferences_per_second:.0f} inferences/sec"
         )
@@ -136,34 +140,55 @@ class TestMLInferencePerformance:
 
 class TestMLDetectorIntegration:
     """Integration tests for MLDetector class."""
-    
+
     def test_mldetector_import(self):
         """Test that MLDetector can be imported."""
         from ml_detector import MLDetector, ML_SUBCARRIERS
-        
+
         assert MLDetector is not None
         assert len(ML_SUBCARRIERS) == 12
-    
+
     def test_mldetector_initialization(self):
         """Test MLDetector initialization."""
         from ml_detector import MLDetector
-        
-        detector = MLDetector(window_size=50, threshold=0.5)
+
+        detector = MLDetector(window_size=50, threshold=5.0)
         assert detector is not None
         assert detector.get_name() == "ML"
-        assert detector.get_threshold() == 0.5
-    
+        assert detector.get_threshold() == 5.0
+
     def test_mldetector_threshold_bounds(self):
-        """Test threshold validation."""
+        """Test threshold validation (range 0.1-10.0, unified with MVS)."""
         from ml_detector import MLDetector
-        
+
         detector = MLDetector()
-        
-        # Valid thresholds
-        assert detector.set_threshold(0.0)
-        assert detector.set_threshold(1.0)
-        assert detector.set_threshold(0.5)
-        
-        # Invalid thresholds
-        assert not detector.set_threshold(-0.1)
-        assert not detector.set_threshold(1.1)
+
+        # Valid thresholds in range [0.1, 10.0]
+        assert detector.set_threshold(ML_MIN_THRESHOLD)  # 0.1
+        assert detector.set_threshold(ML_MAX_THRESHOLD)  # 10.0
+        assert detector.set_threshold(ML_DEFAULT_THRESHOLD)  # 5.0
+
+        # Invalid thresholds outside range
+        assert not detector.set_threshold(0.05)  # Below min
+        assert not detector.set_threshold(15.0)  # Above max
+
+    def test_num_classes_matches_labels(self):
+        """NUM_CLASSES matches length of CLASS_LABELS.
+
+        Motion model has exactly 2 classes: idle and motion.
+        """
+        assert NUM_CLASSES == len(CLASS_LABELS)
+        assert NUM_CLASSES == 2, (
+            f"Motion model must be binary (got {NUM_CLASSES} classes: {CLASS_LABELS}). "
+            "Retrain with: python tools/10_train_motion_model.py"
+        )
+
+    def test_idle_is_class_zero(self):
+        """CLASS_LABELS[0] is always 'idle'."""
+        assert CLASS_LABELS[0] == 'idle'
+
+    def test_motion_is_class_one(self):
+        """Motion model: CLASS_LABELS[1] is 'motion'."""
+        assert CLASS_LABELS[1] == 'motion', (
+            f"Motion model must have 'motion' as class 1, got: {CLASS_LABELS[1]}"
+        )

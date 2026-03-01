@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.6.0] - in progress - Gesture Recognition
+
+### Highlights
+
+- **Gesture recognition introduced**: New gesture pipeline based on multinomial LogReg (`12→N`, softmax) with a synthetic `no_gesture` class
+- **Dual-model ML pipeline**: Motion (`MLDetector`) and gesture (`GestureDetector`) now run as independent components
+- **Simplified and faster motion model**: Single hidden layer `12→24→1` and updated feature set (CV F1=98.7%)
+
+### Added
+
+- **`GestureDetector` + `gesture_features.py/.h`**: Event-based gesture inference with 12 morphology/phase features
+- **Synthetic `no_gesture` class** from `baseline` + `movement`, with fixed 2.0s negative windows aligned to runtime gesture windowing
+- **Gesture model architecture and exports**: Multinomial LogReg (`12→N`, softmax) with single-layer exports (`W1`, `B1`) in `gesture_weights.py/.h`
+- **Gesture training/experiments**: `11_train_gesture_model.py` supports `no_gesture` end-to-end (including temporal experiment loader)
+- **`ml_utils.py`** shared ML utilities, event-mode data collection (`./me collect --event-mode`), and per-file `gain_locked` metadata for CV normalization
+
+### Changed
+
+- **Motion model architecture**: `12→24→1` (was `12→16→8→1`)
+- **Threshold behavior**: ML threshold unified with MVS (range 0.1-10.0, default 5.0; motion metric scaled ×10)
+- **Default algorithm (Micro-ESPectre)**: `ml`
+- **Motion features and tooling**: training script renamed `10_train_ml_model.py` → `10_train_motion_model.py`
+- **Training selection criterion**: seed/model ranking now uses `performance = motion_recall - fp_rate` (aligned with performance tests)
+
+### Documentation
+
+- Updated docs to reflect **Motion MLP + Gesture LogReg**, including `no_gesture` generation (`baseline` + `movement`, 2.0s windows) and the new gesture training workflow (`micro-espectre/README.md`, `micro-espectre/ALGORITHMS.md`, `micro-espectre/ML_DATA_COLLECTION.md`)
+
+### Removed
+
+- Legacy motion feature: `turb_delta`
+- `test_features_experimental.py`
+
+---
+
 ## [2.5.1] - 2026-02-23 - HT STBC Multi-Antenna Router Fix
 
 ### Fixed
@@ -64,7 +99,7 @@ Collect labeled data, train a model, and export weights for both platforms:
 
 ```bash
 ./me collect --label <name> --duration <sec>   # Collect data
-python tools/10_train_ml_model.py               # Train model
+python tools/10_train_motion_model.py               # Train model
 ```
 
 Exports `ml_weights.py` (Python), `ml_weights.h` (C++), and TFLite checkpoint. See [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md) for the full workflow.

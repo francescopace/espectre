@@ -15,6 +15,7 @@
 #include "esphome/core/preferences.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/switch/switch.h"
 
@@ -29,6 +30,7 @@
 #include "base_detector.h"
 #include "mvs_detector.h"
 #include "ml_detector.h"
+#include "gesture_detector.h"
 #include "sensor_publisher.h"
 #include "csi_manager.h"
 #include "wifi_lifecycle.h"
@@ -94,6 +96,7 @@ class ESpectreComponent : public Component {
       this->detection_algorithm_ = DetectionAlgorithm::MVS;  // default
     }
   }
+  void set_gesture_detection_enabled(bool enabled) { this->gesture_detection_enabled_ = enabled; }
   void set_publish_interval(uint32_t interval) { this->publish_interval_ = interval; }
   void set_lowpass_enabled(bool enabled) { this->lowpass_enabled_ = enabled; }
   void set_lowpass_cutoff(float cutoff) { this->lowpass_cutoff_ = cutoff; }
@@ -113,6 +116,7 @@ class ESpectreComponent : public Component {
   // Setters for ESPHome sensors (delegated to SensorPublisher)
   void set_movement_sensor(sensor::Sensor *sensor) { this->sensor_publisher_.set_movement_sensor(sensor); }
   void set_motion_binary_sensor(binary_sensor::BinarySensor *sensor) { this->sensor_publisher_.set_motion_binary_sensor(sensor); }
+  void set_gesture_sensor(text_sensor::TextSensor *sensor) { this->gesture_sensor_ = sensor; }
   
   // Setter for threshold number control
   void set_threshold_number(number::Number *num) { this->threshold_number_ = num; }
@@ -148,6 +152,13 @@ class ESpectreComponent : public Component {
   MLDetector ml_detector_;
   DetectionAlgorithm detection_algorithm_{DetectionAlgorithm::MVS};
   MotionState motion_state_{MotionState::IDLE};
+  MotionState prev_motion_state_{MotionState::IDLE};
+
+  // Gesture detector
+  GestureDetector gesture_detector_;
+  text_sensor::TextSensor *gesture_sensor_{nullptr};
+  bool gesture_detection_enabled_{false};
+  const char *last_published_gesture_{nullptr};
   
   // Configuration from YAML
   float segmentation_threshold_{1.0f};

@@ -11,7 +11,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [Gain Lock (Hardware Stabilization)](#gain-lock-hardware-stabilization)
 - [CV Normalization (Gain-Invariant Turbulence)](#cv-normalization-gain-invariant-turbulence)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
-- [ML: Neural Network Detector](#ml-neural-network-detector)
+- [ML: Motion Neural Network + Gesture LogReg](#ml-motion-neural-network--gesture-logreg)
 - [Automatic Subcarrier Selection](#automatic-subcarrier-selection)
 - [Low-Pass Filter](#low-pass-filter)
 - [Hampel Filter](#hampel-filter)
@@ -267,7 +267,7 @@ For detailed performance metrics (confusion matrix, test methodology, benchmarks
 
 ---
 
-## ML: Neural Network Detector
+## ML: Motion Neural Network + Gesture LogReg
 
 ### Overview
 
@@ -277,27 +277,31 @@ The **ML Detector** uses a pre-trained neural network to classify motion based o
 
 Motion detection can be framed as a **binary classification problem**:
 - **Input**: Statistical features computed from a sliding window of turbulence values
-- **Output**: Probability of motion (0.0 to 1.0)
+- **Output**: Probability output (sigmoid for binary motion model)
 
-A neural network can learn complex, non-linear patterns that may be missed by simple threshold-based methods.
+A neural network learns complex, non-linear patterns that may be missed by simple threshold-based methods.
 
 ### Architecture
 
 The ML detector uses a compact **Multi-Layer Perceptron (MLP)**:
 
+**Motion model (Binary: idle vs motion)**:
 ```
 Input (12 features)
     ↓
-Dense(16, ReLU)      ← 12×16 + 16 = 208 parameters
+Dense(24, ReLU)      ← 12×24 + 24 = 312 parameters
     ↓
-Dense(8, ReLU)       ← 16×8 + 8 = 136 parameters
+Dense(1, Sigmoid)    ← 24×1 + 1 = 25 parameters
     ↓
-Dense(1, Sigmoid)    ← 8×1 + 1 = 9 parameters
-    ↓
-Output (probability)
+Output (probability of motion)
 ```
 
-**Total**: ~350 parameters, ~2 KB (constexpr float weights)
+**Total**: 337 parameters, ~1.3 KB (constexpr float weights)
+
+**Gesture model (Multiclass gestures)**:
+- Uses multinomial Logistic Regression (single affine layer + softmax)
+- Runtime uses fixed 200-packet windows with pre-roll in `GestureDetector`
+- Includes a synthetic negative class `no_gesture` built from `baseline` + `movement`
 
 ### Feature Extraction
 
@@ -307,15 +311,15 @@ For each sliding window of 75 turbulence values, 12 statistical features are ext
 
 ```
 ┌──────────────┐    ┌──────────────┐    ┌───────────────────┐    ┌──────────────┐
-│ CSI Packet   │───▶│ Turbulence   │───▶│ Optional Filters  │───▶│ Buffer (50)  │
+│ CSI Packet   │───▶│ Turbulence   │───▶│ Optional Filters  │───▶│ Buffer (75)  │
 │              │    │ σ/μ (CV)     │    │ Hampel + LowPass  │    │              │
 └──────────────┘    └──────────────┘    └───────────────────┘    └──────┬───────┘
                                                                         │
                                                                         ▼
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│ IDLE/MOTION  │◀───│ Threshold    │◀───│ Probability  │◀───│ 12 Features  │
-│              │    │ > 0.5        │    │ [0.0-1.0]    │    │ → Neural Net │
-└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+┌───────────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ IDLE/MOTION       │◀───│ prob > 0.5   │◀───│ Sigmoid      │◀───│ 12 Features  │
+│                   │    │              │    │ (binary)     │    │ → Neural Net │
+└───────────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
 ```
 
 **Filter support**: The ML detector shares the same `SegmentationContext` as MVS, so it supports optional low-pass and Hampel filters on the turbulence stream before feature extraction. Filters are disabled by default.
@@ -324,10 +328,10 @@ For each sliding window of 75 turbulence values, 12 statistical features are ext
 
 ML uses **fixed subcarriers** - no calibration needed:
 
-| Algorithm | Subcarrier Selection | Threshold | Boot Time |
-|-----------|---------------------|-----------|-----------|
-| MVS | NBVI (~7.5s) | Adaptive (percentile-based) | ~10.5s |
-| ML | **Fixed** (12 evenly distributed) | Fixed (0.5 probability) | **~3s** |
+| Algorithm | Subcarrier Selection | Decision | Boot Time |
+|-----------|---------------------|----------|-----------|
+| MVS | NBVI (~7.5s) | Adaptive threshold (percentile-based) | ~10.5s |
+| ML | **Fixed** (12 evenly distributed) | scaled metric > threshold (default 5.0) | **~3s** |
 
 ML uses 12 pre-selected subcarriers evenly distributed across the valid range: `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]`. This eliminates the 7.5-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
 
@@ -339,17 +343,16 @@ The training process uses 5-fold stratified cross-validation with early stopping
 
 ### Architecture Selection
 
-The 12→16→8→1 architecture was validated as optimal through 5-fold CV on 13,711 samples:
+The 12→24→1 architecture was selected through 5-fold CV on 25,661 samples (binary: idle vs motion):
 
 | Architecture | F1 (5-fold CV) | Params | Weights |
 |---|---|---|---|
-| **12→16→8→1** | **98.3% +/- 0.2%** | 353 | 1.4 KB |
-| 12→24→12→1 | 98.2% +/- 0.5% | 625 | 2.4 KB |
-| 12→24→1 | 98.1% +/- 0.2% | 337 | 1.3 KB |
-| 12→12→8→4→1 | 97.8% +/- 0.5% | 301 | 1.2 KB |
-| 12→8→1 | 97.7% +/- 0.3% | 113 | 0.4 KB |
+| **12→24→1** | **98.7% ±0.2%** | 337 | 1.3 KB |
+| 12→24→12→1 | 98.5% ±0.3% | 613 | 2.4 KB |
+| 12→16→8→1 | 97.8% ±0.5% | 281 | 1.1 KB |
+| 12→8→1 | 98.2% ±0.3% | 105 | 0.4 KB |
 
-The current architecture achieves the highest F1 with the lowest variance and the best FP rate.
+`12→24→1` with sigmoid was chosen for binary classification. Sigmoid is more efficient than softmax for binary problems (requires only 1 exp() vs 2 exp() + division).
 
 ### Performance
 
@@ -618,7 +621,8 @@ The ML detector extracts **12 non-redundant statistical features** from a slidin
 ### Design Principles
 
 - **No redundant features**: Each feature provides unique information (e.g., no variance alongside std, no range alongside max/min)
-- **All turbulence-based**: Higher-order moments (skewness, kurtosis) are computed from the 75-sample turbulence buffer rather than from 12-sample packet amplitudes, giving much more stable estimates
+- **Empirically selected**: Feature set chosen via cross-validation and real-data validation
+- **All turbulence-based**: Higher-order moments (skewness) are computed from the 75-sample turbulence buffer rather than from 12-sample packet amplitudes, giving much more stable estimates
 - **MicroPython compatible**: Pure Python implementation without numpy at runtime
 
 ### Feature List
@@ -631,12 +635,12 @@ The ML detector extracts **12 non-redundant statistical features** from a slidin
 | 3 | `turb_min` | min(xᵢ) | Minimum value in window |
 | 4 | `turb_zcr` | crossings / (n-1) | Zero-crossing rate around mean |
 | 5 | `turb_skewness` | E[(X-μ)³]/σ³ | Turbulence asymmetry (3rd moment) |
-| 6 | `turb_kurtosis` | E[(X-μ)⁴]/σ⁴ - 3 | Turbulence tailedness (4th moment) |
+| 6 | `turb_kurtosis` | E[(X-μ)⁴]/σ⁴ - 3 | Excess kurtosis (4th moment) |
 | 7 | `turb_entropy` | -Σpᵢ log₂(pᵢ) | Shannon entropy (randomness) |
 | 8 | `turb_autocorr` | C(1)/C(0) | Lag-1 autocorrelation |
 | 9 | `turb_mad` | median(\|xᵢ - median(x)\|) | Median absolute deviation |
-| 10 | `turb_slope` | Linear regression | Temporal trend |
-| 11 | `turb_delta` | x[-1] - x[0] | Start-to-end change |
+| 10 | `turb_slope` | cov(i, x)/var(i) | Linear trend slope |
+| 11 | `amp_entropy` | -Σpᵢ log₂(pᵢ) | Amplitude entropy (cross-subcarrier) |
 
 ### Feature Categories
 
@@ -646,17 +650,17 @@ The ML detector extracts **12 non-redundant statistical features** from a slidin
 - **Zero-crossing rate**: Fraction of consecutive samples crossing the mean. High ZCR indicates rapid oscillations (motion), low ZCR indicates stable signal (idle). Very fast to compute.
 
 **Higher-Order Moments (5-6)**: Computed from the turbulence buffer (75 samples) for stable estimates.
-- **Skewness**: Asymmetry of turbulence distribution. Motion typically increases skewness.
-- **Kurtosis**: "Tailedness" of turbulence distribution. Motion produces heavier tails.
+- **Skewness**: Asymmetry of turbulence distribution.
+- **Kurtosis**: Tail heaviness / peakedness (excess kurtosis).
 
-**Robust Statistics (7, 9)**:
+**Robust + Temporal (7-10)**:
 - **Entropy**: High during motion (unpredictable), low during idle (stable)
+- **Autocorr (lag-1)**: Short-term temporal correlation (10ms @ 100Hz)
 - **MAD**: Median Absolute Deviation - robust alternative to std, less sensitive to outliers
+- **Slope**: Linear trend over the window (captures rising/falling turbulence)
 
-**Temporal Structure (8, 10-11)**:
-- **Autocorrelation**: Lag-1 temporal correlation. High during idle (smooth signal), low during motion (turbulent)
-- **Slope**: Positive = increasing turbulence, negative = decreasing
-- **Delta**: Quick indicator of overall change
+**Cross-Subcarrier (11)**:
+- **Amplitude entropy**: Entropy of amplitude distribution across selected subcarriers
 
 ### Detailed Definitions
 
@@ -674,14 +678,6 @@ Counts how often the signal crosses the mean value. Ranges from 0.0 (monotonic) 
 - γ₁ < 0: Left-skewed (tail on left)
 - γ₁ = 0: Symmetric
 
-**Kurtosis** (fourth standardized moment, excess):
-```
-γ₂ = E[(X - μ)⁴] / σ⁴ - 3
-```
-- γ₂ > 0: Heavy tails (leptokurtic)
-- γ₂ < 0: Light tails (platykurtic)
-- γ₂ = 0: Normal distribution (mesokurtic)
-
 **Shannon Entropy**:
 ```
 H = -Σ pᵢ × log₂(pᵢ)
@@ -692,7 +688,7 @@ Computed by binning turbulence values (10 bins) and calculating the entropy of t
 ```
 r₁ = (1/(n-1)) Σ(xᵢ - μ)(xᵢ₊₁ - μ) / σ²
 ```
-Measures temporal correlation between consecutive values. Ranges from -1.0 to 1.0. Smooth signals have high positive autocorrelation; turbulent signals have low autocorrelation.
+Measures short-term temporal correlation. Ranges from -1.0 to 1.0. Smooth signals have high positive autocorrelation; turbulent signals have lower autocorrelation.
 
 **Median Absolute Deviation**:
 ```
@@ -700,11 +696,17 @@ MAD = median(|xᵢ - median(x)|)
 ```
 Robust measure of spread. Unlike std, a single outlier cannot dramatically inflate the MAD. Computed using insertion sort (efficient for n=50 on ESP32).
 
-**Linear Regression Slope**:
+**Slope (Linear Trend)**:
 ```
-slope = Σ(iᵢ - ī)(xᵢ - x̄) / Σ(iᵢ - ī)²
+slope = cov(index, x) / var(index)
 ```
-Where i = time index, x = turbulence value. Positive slope indicates increasing motion intensity.
+Captures the trend of turbulence over the window (increasing/decreasing dynamics).
+
+**Amplitude Entropy**:
+```
+H = -Σ pᵢ × log₂(pᵢ)
+```
+Computed from the amplitude distribution across selected subcarriers. Measures spectral diversity of the CSI signal.
 
 ---
 

@@ -63,6 +63,8 @@ struct CsiData {
     int num_packets;
     int packet_size;      // bytes per packet (num_subcarriers * 2)
     int num_subcarriers;
+    bool gain_locked;      // From NPZ 'gain_locked' field; false if not present
+    bool has_gain_locked;  // Whether 'gain_locked' was found in the NPZ
 };
 
 /**
@@ -94,6 +96,17 @@ inline CsiData load_npz(const std::string& filepath) {
             result.num_subcarriers = static_cast<int>(*ns_arr.data<int64_t>());
         } else if (ns_arr.word_size == 4) {
             result.num_subcarriers = static_cast<int>(*ns_arr.data<int32_t>());
+        }
+    }
+    
+    // Load gain_locked if available (saved as numpy bool → uint8/bool, word_size=1)
+    result.gain_locked = false;
+    result.has_gain_locked = false;
+    if (npz.find("gain_locked") != npz.end()) {
+        cnpy::NpyArray& gl_arr = npz["gain_locked"];
+        if (gl_arr.word_size == 1) {
+            result.gain_locked = (*gl_arr.data<uint8_t>() != 0);
+            result.has_gain_locked = true;
         }
     }
     
@@ -267,6 +280,18 @@ inline int num_movement() { return g_movement_data.num_packets; }
 inline int num_subcarriers() { return g_baseline_data.num_subcarriers; }
 inline int packet_size() { return g_baseline_data.packet_size; }
 inline ChipType current_chip() { return g_current_chip; }
+
+/**
+ * Whether the baseline dataset was collected with gain lock enabled.
+ * Returns false (use CV normalization) when 'gain_locked' field is absent from NPZ.
+ */
+inline bool baseline_gain_locked() { return g_baseline_data.gain_locked; }
+
+/**
+ * Whether 'gain_locked' metadata was found in the baseline NPZ file.
+ * If false, callers should fall back to chip-based heuristics.
+ */
+inline bool baseline_gain_locked_known() { return g_baseline_data.has_gain_locked; }
 
 } // namespace csi_test_data
 

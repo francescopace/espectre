@@ -1,19 +1,34 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-02-14T18:50:48.305651",
+  "updated_at": "2026-03-01T20:08:04.529020",
   "labels": {
     "baseline": {
-      "id": 0,
       "description": "Quiet room, no motion"
     },
-    "baseline_noisy": {
-      "id": 2,
-      "description": "Room with environmental noise (fans, HVAC, etc.)"
-    },
     "movement": {
-      "id": 1,
-      "description": "Human movement in room"
+      "description": "Generic movement in the room"
+    },
+    "wave": {
+      "description": "Hand wave gesture"
+    },
+    "circle_cw": {
+      "description": "Circle clockwise gesture"
+    },
+    "circle_ccw": {
+      "description": "Circle counter-clockwise gesture"
+    },
+    "swipe_left": {
+      "description": "Swipe left gesture"
+    },
+    "swipe_right": {
+      "description": "Swipe right gesture"
+    },
+    "push": {
+      "description": "Push gesture"
+    },
+    "pull": {
+      "description": "Pull gesture"
     }
   },
   "files": {
@@ -69,18 +84,46 @@
         "num_packets": 1312,
         "description": "HT20 baseline, gain lock skipped (AGC gain 28 < 30 threshold)",
         "use_cv_normalization": true
-      }
-    ],
-    "baseline_noisy": [
+      },
+      {
+        "filename": "baseline_c3_64sc_20260228_170723.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:07:23.078317",
+        "duration_ms": 10005,
+        "num_packets": 1378,
+        "description": "HT20 baseline, AGC gain locked"
+      },
+      {
+        "filename": "baseline_s3_64sc_20260301_161326.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:13:26.997739",
+        "duration_ms": 10007,
+        "num_packets": 1305,
+        "description": "HT20 baseline, AGC gain locked"
+      },
+      {
+        "filename": "baseline_c6_64sc_20260301_163159.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:31:59.213212",
+        "duration_ms": 10002,
+        "num_packets": 1410,
+        "description": "HT20 baseline, AGC gain locked"
+      },
       {
         "filename": "baseline_noisy_c6_64sc_20251214_025208.npz",
         "chip": "C6",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "description": "HT20 baseline with environmental noise (fans, HVAC), AGC gain locked",
         "collected_at": "2025-12-14T02:52:08.067424",
         "duration_ms": 60005,
-        "num_packets": 6379
+        "num_packets": 6379,
+        "description": "HT20 baseline with environmental noise (fans, HVAC), AGC gain locked"
       }
     ],
     "movement": [
@@ -135,6 +178,630 @@
         "num_packets": 1836,
         "description": "HT20 movement, gain lock skipped (AGC gain 28 < 30 threshold)",
         "use_cv_normalization": true
+      },
+      {
+        "filename": "movement_s3_64sc_20260301_161400.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:14:00.318948",
+        "duration_ms": 10004,
+        "num_packets": 1307,
+        "description": "HT20 movement, AGC gain locked"
+      },
+      {
+        "filename": "movement_c6_64sc_20260301_163216.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:32:16.729780",
+        "duration_ms": 10001,
+        "num_packets": 1363,
+        "description": "HT20 movement, AGC gain locked"
+      }
+    ],
+    "wave": [
+      {
+        "filename": "wave_c3_64sc_20260228_170211.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:02:11.070362",
+        "duration_ms": 3003,
+        "num_packets": 622,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c3_64sc_20260228_170223.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:02:23.130634",
+        "duration_ms": 3007,
+        "num_packets": 634,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c3_64sc_20260228_170235.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:02:35.178902",
+        "duration_ms": 3000,
+        "num_packets": 634,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c3_64sc_20260228_170247.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:02:47.226301",
+        "duration_ms": 3002,
+        "num_packets": 738,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c3_64sc_20260228_170259.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:02:59.279115",
+        "duration_ms": 2999,
+        "num_packets": 737,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c3_64sc_20260228_170311.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:03:11.354670",
+        "duration_ms": 3015,
+        "num_packets": 691,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c3_64sc_20260228_170323.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:03:23.420262",
+        "duration_ms": 3002,
+        "num_packets": 700,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c3_64sc_20260228_170335.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:03:35.488022",
+        "duration_ms": 3006,
+        "num_packets": 703,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c3_64sc_20260228_170347.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:03:47.537998",
+        "duration_ms": 2999,
+        "num_packets": 688,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c3_64sc_20260228_170359.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T17:03:59.599120",
+        "duration_ms": 3002,
+        "num_packets": 689,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190830.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:08:30.674552",
+        "duration_ms": 2998,
+        "num_packets": 604,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190836.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:08:36.709672",
+        "duration_ms": 3011,
+        "num_packets": 607,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190842.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:08:42.735407",
+        "duration_ms": 3000,
+        "num_packets": 604,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190848.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:08:48.765286",
+        "duration_ms": 2999,
+        "num_packets": 608,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190854.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:08:54.798159",
+        "duration_ms": 3008,
+        "num_packets": 605,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190900.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:09:00.825247",
+        "duration_ms": 3001,
+        "num_packets": 603,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190906.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:09:06.856784",
+        "duration_ms": 3005,
+        "num_packets": 606,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190912.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:09:12.884494",
+        "duration_ms": 3001,
+        "num_packets": 603,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190918.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:09:18.917933",
+        "duration_ms": 3006,
+        "num_packets": 605,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_s3_64sc_20260228_190924.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-02-28T19:09:24.941644",
+        "duration_ms": 3002,
+        "num_packets": 606,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163239.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:32:39.070262",
+        "duration_ms": 2998,
+        "num_packets": 621,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163245.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:32:45.108075",
+        "duration_ms": 3015,
+        "num_packets": 639,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163251.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:32:51.132607",
+        "duration_ms": 3004,
+        "num_packets": 616,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163257.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:32:57.164890",
+        "duration_ms": 3010,
+        "num_packets": 656,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163303.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:33:03.192967",
+        "duration_ms": 3007,
+        "num_packets": 633,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163309.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:33:09.236164",
+        "duration_ms": 3017,
+        "num_packets": 622,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163315.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:33:15.261641",
+        "duration_ms": 3007,
+        "num_packets": 686,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163321.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:33:21.280271",
+        "duration_ms": 3000,
+        "num_packets": 642,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163327.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:33:27.302145",
+        "duration_ms": 3001,
+        "num_packets": 628,
+        "description": "HT20 wave, AGC gain locked"
+      },
+      {
+        "filename": "wave_c6_64sc_20260301_163333.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T16:33:33.327099",
+        "duration_ms": 3002,
+        "num_packets": 617,
+        "description": "HT20 wave, AGC gain locked"
+      }
+    ],
+    "circle_cw": [
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200018.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:00:18.444136",
+        "duration_ms": 3005,
+        "num_packets": 641,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200024.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:00:24.476358",
+        "duration_ms": 3001,
+        "num_packets": 619,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200030.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:00:30.508152",
+        "duration_ms": 3006,
+        "num_packets": 643,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200036.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:00:36.536888",
+        "duration_ms": 3000,
+        "num_packets": 620,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200042.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:00:42.563308",
+        "duration_ms": 3005,
+        "num_packets": 640,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200048.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:00:48.598239",
+        "duration_ms": 3019,
+        "num_packets": 649,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200054.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:00:54.626517",
+        "duration_ms": 3001,
+        "num_packets": 625,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200100.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:01:00.656243",
+        "duration_ms": 3009,
+        "num_packets": 631,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200106.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:01:06.685362",
+        "duration_ms": 3003,
+        "num_packets": 614,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c6_64sc_20260301_200112.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:01:12.704308",
+        "duration_ms": 3001,
+        "num_packets": 618,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200449.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:04:49.040606",
+        "duration_ms": 3005,
+        "num_packets": 612,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200455.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:04:55.085614",
+        "duration_ms": 3012,
+        "num_packets": 622,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200501.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:05:01.123627",
+        "duration_ms": 3009,
+        "num_packets": 619,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200507.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:05:07.158338",
+        "duration_ms": 3005,
+        "num_packets": 623,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200513.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:05:13.179567",
+        "duration_ms": 2999,
+        "num_packets": 623,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200519.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:05:19.206313",
+        "duration_ms": 3000,
+        "num_packets": 625,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200525.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:05:25.229500",
+        "duration_ms": 3000,
+        "num_packets": 617,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200531.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:05:31.249350",
+        "duration_ms": 3000,
+        "num_packets": 623,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200537.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:05:37.283620",
+        "duration_ms": 3009,
+        "num_packets": 628,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_c3_64sc_20260301_200543.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:05:43.313648",
+        "duration_ms": 3003,
+        "num_packets": 647,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200710.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:07:10.236645",
+        "duration_ms": 3001,
+        "num_packets": 604,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200716.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:07:16.267699",
+        "duration_ms": 3002,
+        "num_packets": 603,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200722.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:07:22.298015",
+        "duration_ms": 3005,
+        "num_packets": 603,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200728.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:07:28.328119",
+        "duration_ms": 3003,
+        "num_packets": 603,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200734.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:07:34.357360",
+        "duration_ms": 3003,
+        "num_packets": 603,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200740.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:07:40.387821",
+        "duration_ms": 3003,
+        "num_packets": 604,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200746.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:07:46.419300",
+        "duration_ms": 3005,
+        "num_packets": 603,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200752.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:07:52.447550",
+        "duration_ms": 3006,
+        "num_packets": 603,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200758.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:07:58.482616",
+        "duration_ms": 3007,
+        "num_packets": 604,
+        "description": "HT20 circle_cw, AGC gain locked"
+      },
+      {
+        "filename": "circle_cw_s3_64sc_20260301_200804.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-01T20:08:04.519014",
+        "duration_ms": 3009,
+        "num_packets": 606,
+        "description": "HT20 circle_cw, AGC gain locked"
       }
     ]
   },

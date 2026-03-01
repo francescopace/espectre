@@ -13,6 +13,7 @@ import gc
 import os
 from src.mvs_detector import MVSDetector
 from src.ml_detector import MLDetector
+from src.gesture_detector import GestureDetector
 from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
 import src.config as config
@@ -120,9 +121,12 @@ def connect_wifi():
     # Enable CSI after WiFi is stable
     wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
     
-    # Connect
-    print(f"Connecting to WiFi...")
-    wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
+    # Connect (optionally to specific BSSID)
+    bssid_hex = getattr(config, 'WIFI_BSSID', None)
+    bssid = bytes.fromhex(bssid_hex) if bssid_hex else None
+    bssid_info = f" (BSSID: {bssid_hex})" if bssid else ""
+    print(f"Connecting to WiFi{bssid_info}...")
+    wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD, bssid=bssid)
     
     # Wait for connection
     timeout = 30
@@ -562,6 +566,18 @@ def main():
             hampel_threshold=config.HAMPEL_THRESHOLD
         )
     
+    # Gesture detector toggle (independent from motion detector algorithm).
+    gesture_enabled = getattr(config, 'GESTURE_DETECTION_ENABLED', False)
+    gesture_detector = None
+    if gesture_enabled:
+        gesture_detector = GestureDetector(
+            use_cv_normalization=g_state.needs_cv_normalization
+        )
+        gesture_detector.start_detection()
+        print(f'Gesture detector initialized (weights available: {gesture_detector.weights_available})')
+    else:
+        print('Gesture detector disabled via config')
+
     # Initialize and start traffic generator (rate is static from config.py)
     gc.collect()  # Free memory before creating socket
     traffic_gen = TrafficGenerator()
@@ -678,8 +694,10 @@ def main():
                 
                 del frame
                 
-                # Process packet through detector interface
+                # Process packet through motion detector.
                 detector.process_packet(csi_data, config.SELECTED_SUBCARRIERS)
+                if gesture_enabled:
+                    gesture_detector.process_packet(csi_data, config.SELECTED_SUBCARRIERS)
                 
                 publish_counter += 1
                 
@@ -690,6 +708,9 @@ def main():
                     if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
                         print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
                         detector.reset()
+                        if gesture_enabled:
+                            gesture_detector.clear_ring()
+                            gesture_detector.start_detection()
                     g_state.current_channel = packet_channel
                     
                     # Update state (lazy evaluation)
@@ -704,6 +725,14 @@ def main():
                     dropped_delta = dropped - last_dropped
                     last_dropped = dropped
                     
+                    # Publish continuous gesture predictions (if enabled)
+                    gesture_name = None
+                    if gesture_enabled:
+                        candidate = gesture_detector.consume_live_prediction()
+                        if candidate and candidate not in ('movement', 'no_gesture'):
+                            gesture_name = candidate
+                            mqtt_handler.publish_gesture(gesture_name)
+                    
                     state_str = 'MOTION' if metrics['state'] == 1 else 'IDLE'
                     motion_metric = metrics.get('moving_variance', metrics.get('jitter', metrics.get('probability', 0)))
                     threshold = metrics['threshold']
@@ -714,8 +743,9 @@ def main():
                     else:
                         progress = motion_metric / threshold if threshold > 0 else 0
                     progress_bar = format_progress_bar(progress, threshold, is_probability=is_ml)
+                    gesture_str = f" [{gesture_name}]" if gesture_name else ""
                     print(f"{progress_bar} | pkts:{publish_counter} drop:{dropped_delta} pps:{pps} | "
-                          f"mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str}")
+                          f"mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str}{gesture_str}")
                     
                     mqtt_handler.publish_state(
                         motion_metric,

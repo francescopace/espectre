@@ -10,10 +10,10 @@ This guide covers how to collect and label CSI data for training ML models. This
 |---------|--------|
 | Data collection infrastructure | ✅ Ready |
 | Feature extraction (12 features) | ✅ Ready |
-| ML detector (MLP) | ✅ Ready |
+| Motion detector (MLP) | ⚠️ Experimental |
 | Training script | ✅ Ready |
 | TFLite export | ✅ Ready |
-| Gesture recognition | 🔜 Planned (3.x) |
+| Gesture recognition | ⚠️ Experimental (LogReg with `no_gesture` + gesture classes) |
 | Human Activity Recognition (HAR) | 🔜 Planned (3.x) |
 | People counting | 🔜 Planned (3.x) |
 
@@ -29,7 +29,7 @@ This guide covers how to collect and label CSI data for training ML models. This
 **Works with CV normalization:**
 - ESP32 (original) - Does not support AGC gain lock, but can still be used for training with CV normalization enabled
 
-> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. Data collected without gain lock requires CV normalization (`std/mean`) during feature extraction to make detection gain-invariant. The training script handles this automatically based on `use_cv_normalization` in `dataset_info.json`.
+> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. Data collected without gain lock requires CV normalization (`std/mean`) during feature extraction to make detection gain-invariant. The `gain_locked` flag is stored in each `.npz` file by the collector; `dataset_info.json` reflects it as `use_cv_normalization`. The training script and tests read this flag automatically — no manual configuration needed.
 
 ---
 
@@ -94,8 +94,8 @@ Gain lock status is **automatically detected** from the CSI stream and saved in 
 # Record 30 seconds of movement
 ./me collect --label movement --duration 30
 
-# Record with explicit contributor override
-./me collect --label gesture --samples 10 --interactive --contributor otheruser
+# Record gesture samples (example)
+./me collect --label wave --samples 10 --interactive --contributor otheruser
 
 # Gain lock status is auto-detected from the CSI stream
 # No need to specify --no-gain-lock, it's automatic!
@@ -110,13 +110,13 @@ Gain lock status is **automatically detected** from the CSI stream and saved in 
 
 Output:
 ```
-  Label                   Samples     ID
-  --------------------------------------
-  idle                         12      0
-  wave                         10      1
-  swipe                        10      2
+  Label                   Samples   Class
+  ----------------------------------------
+  idle                         12       0
+  wave                         10       1
+  swipe                        10       2
   ...
-  --------------------------------------
+  ----------------------------------------
   Total                        47
 ```
 
@@ -135,7 +135,7 @@ data/
 ├── movement/
 │   ├── movement_c6_64sc_20251212_142443.npz
 │   └── ...
-└── baseline_noisy/
+└── wave/
     └── ...
 ```
 
@@ -151,8 +151,8 @@ Central metadata file for the dataset:
 {
   "format_version": "1.0",
   "labels": {
-    "baseline": { "id": 0, "description": "Quiet room, no motion" },
-    "movement": { "id": 1, "description": "Human movement in room" }
+    "baseline": { "class_id": 0, "description": "Quiet room, no motion" },
+    "movement": { "class_id": 1, "description": "Human movement in room" }
   },
   "files": {
     "baseline": [
@@ -203,8 +203,7 @@ Each `.npz` file contains a minimal, compact format optimized for ML training:
 |-------|------|-------------|
 | `csi_data` | `int8[N, SC*2]` | Raw I/Q data (N packets × SC subcarriers × 2) |
 | `num_subcarriers` | `int` | Number of subcarriers (64 for HT20) |
-| `label` | `str` | Sample label (e.g., "baseline", "movement") |
-| `label_id` | `int` | Numeric label ID for ML |
+| `label` | `str` | Label name (e.g., "baseline", "wave"); training scripts map labels to classes |
 | `chip` | `str` | ESP32 chip type (e.g., "c6", "s3") |
 | `collected_at` | `str` | ISO timestamp of collection |
 | `duration_ms` | `float` | Sample duration in milliseconds |
@@ -289,7 +288,7 @@ No manual flags needed - the system handles everything automatically!
 ### Viewing Files with CV Normalization
 
 ```bash
-python tools/10_train_ml_model.py --info
+python tools/10_train_motion_model.py --info
 ```
 
 This shows which files use CV normalization.
@@ -312,7 +311,8 @@ This shows which files use CV normalization.
 
 ```
 # Good labels
-idle
+baseline
+movement
 wave
 swipe_left
 swipe_right
@@ -357,29 +357,31 @@ See [tools/README.md](tools/README.md) for complete documentation of all analysi
 
 ---
 
-## Training the ML Model
+## Training Models
 
-Once you have collected labeled data, train the ML model:
+### Motion Model (MLP)
+
+Once you have collected labeled data, train the motion model:
 
 ```bash
 # Train model with FP penalty (recommended for production)
-python tools/10_train_ml_model.py --fp-weight 2.0
+python tools/10_train_motion_model.py --fp-weight 2.0
 
 # Train with balanced weights (default)
-python tools/10_train_ml_model.py
+python tools/10_train_motion_model.py
 
 # Show dataset info (including excluded files)
-python tools/10_train_ml_model.py --info
+python tools/10_train_motion_model.py --info
 ```
 
 The `--fp-weight` parameter multiplies the IDLE class weight during training. Values >1.0 reduce false positives at the cost of slightly lower recall. Recommended: 2.0 for production.
 
 This will:
-1. Load all `.npz` files from `data/`
+1. Load motion-model data (idle/motion classes only, `class_id` 0-1) from `data/`
 2. Apply CV normalization to files marked with `use_cv_normalization: true`
-3. Extract 12 features per sliding window
+3. Extract 12 features per sliding window (mean, std, max, min, zcr, skewness, kurtosis, entropy, autocorr, mad, slope, amp_entropy)
 4. 5-fold cross-validation for reliable metrics
-5. Train MLP model (12 → 16 → 8 → 1) with early stopping and dropout
+5. Train the motion MLP model (12 → 24 → 1, sigmoid) with early stopping and dropout
 6. Export to:
    - `src/ml_weights.py` (MicroPython) - includes seed and timestamp
    - `components/espectre/ml_weights.h` (C++/ESPHome) - includes seed and timestamp
@@ -390,6 +392,28 @@ This will:
 Use `--seed <number>` for reproducible training. The seed is saved in the generated weight files.
 
 > **Note**: Files with `use_cv_normalization: true` in `dataset_info.json` automatically use CV normalization during feature extraction. Use `--info` to see which files are affected.
+
+### Gesture Model (LogReg + `no_gesture`)
+
+Train the gesture classifier with:
+
+```bash
+python tools/11_train_gesture_model.py
+python tools/11_train_gesture_model.py --info
+python tools/11_train_gesture_model.py --experiment
+python tools/11_train_gesture_model.py --window-seconds 2.0 --window-labels wave,circle_cw
+```
+
+Current gesture training behavior:
+1. Loads explicit gesture labels (e.g., `wave`, `circle_cw`)
+2. Builds a synthetic `no_gesture` class from `data/baseline/` + `data/movement/`
+3. Forces 2.0s windowing on baseline/movement when building `no_gesture`
+4. Trains multinomial Logistic Regression (12 features → N classes, softmax)
+5. Exports:
+   - `src/gesture_weights.py`
+   - `components/espectre/gesture_weights.h`
+   - `models/gesture_scaler.npz`
+   - `models/gesture_test_data.npz`
 
 ### Compare Detection Methods
 
@@ -409,7 +433,7 @@ Set in `config.py`:
 DETECTION_ALGORITHM = "ml"
 ```
 
-For algorithm details, see [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector).
+For algorithm details, see [ALGORITHMS.md](ALGORITHMS.md#ml-motion-neural-network--gesture-logreg).
 
 ---
 

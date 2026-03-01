@@ -373,11 +373,11 @@ While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier 
 
 | Capability | Status | Description |
 |------------|--------|-------------|
-| **ML Detector** | Experimental | Neural network (MLP 12→16→8→1, 97-100% F1), ~3s boot time |
-| **Gesture Recognition** | Planned | Detect hand gestures (swipe, push, circle) for smart home control |
+| **ML Detector** | Experimental | Neural network based motion detection, ~3s boot time |
+| **Gesture Recognition** | Experimental | Event-based classification triggered on motion events (supported: wave, circle_cw, circle_ccw, swipe_left, swipe_right, push, pull) |
 | **Human Activity Recognition** | Planned | Identify activities (sitting, walking, falling) |
 | **People Counting** | Planned | Estimate number of people in a room |
-| **3D Localization** | Research | Indoor positioning (30-50cm accuracy) via phase-coherent antenna array |
+| **3D Localization** | Planned | Indoor positioning (30-50cm accuracy) via phase-coherent antenna array |
 
 The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#ml-neural-network-detector). 
 The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md).

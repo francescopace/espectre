@@ -60,11 +60,15 @@ ESPectre is uniquely positioned as the **only open-source, production-ready WiFi
 
 ## Current State
 
-ESPectre v2.x provides a motion detection system using mathematical algorithms:
+ESPectre v2.x provides a production-ready Wi-Fi sensing stack with both
+mathematical and ML-based components:
 
 | Component | Status | Description |
 |-----------|--------|-------------|
 | **MVS Algorithm** | Production | Moving Variance Segmentation for motion detection |
+| **ML Motion Detector** | Production | Binary MLP motion classifier (edge inference) |
+| **Gesture Classifier** | Production | Continuous gesture inference with fixed windows |
+| **Gesture Pipeline Toggle** | Production | Gesture detection can be enabled/disabled independently from motion algorithm |
 | **Band Calibration** | Production | Automatic subcarrier selection (NBVI) |
 | **ESPHome Integration** | Production | Native Home Assistant integration with auto-discovery |
 | **Micro-ESPectre** | Production | Python R&D platform for rapid prototyping |
@@ -95,23 +99,28 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 
 **Focus**: Data collection, documentation, and ML groundwork.
 
+### Model Development
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Motion detection model | High | In Progress |
+
 ### Data & Datasets
 
 | Task | Priority | Status |
 |------|----------|--------|
 | Expand labeled CSI dataset (gestures, activities) | High | Planned |
-| Community data contribution guidelines | High | Planned |
-| Dataset versioning and reproducibility | Medium | Planned |
+| Community data contribution guidelines | High | In Progress |
+| Dataset versioning and reproducibility | Medium | In Progress |
 | Multi-environment data collection (offices, homes, industrial) | Medium | Planned |
 
 ### Documentation & Tooling
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Feature extraction pipeline documentation | High | Planned |
-| Data labeling best practices guide | Medium | Planned |
-| Jupyter notebooks for CSI exploration | Medium | Planned |
-| Automated data quality validation | Low | Planned |
+| Feature extraction pipeline documentation | High | Done |
+| Data labeling best practices guide | Medium | Done |
+| Automated data quality validation | Low | In Progress |
 
 ### Infrastructure
 
@@ -130,7 +139,7 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Gesture recognition models (RF, CNN, LSTM) | High | Planned |
+| Gesture recognition models | High | In Progress |
 | Human Activity Recognition (HAR) models | High | Planned |
 | People counting / presence estimation | Medium | Planned |
 | Fall detection | Medium | Planned |
@@ -297,7 +306,7 @@ This roadmap evolves with community input. Here's how you can contribute:
 
 ## Roadmap Updates
 
-This roadmap is reviewed and updated quarterly. Last update: **February 2026**
+This roadmap is reviewed and updated quarterly. Last update: **March 2026**
 
 For the latest status and discussion:
 - [GitHub Issues](https://github.com/francescopace/espectre/issues?q=is%3Aissue+label%3Aroadmap)

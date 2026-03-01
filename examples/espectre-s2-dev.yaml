@@ -22,6 +22,8 @@ espectre:
   gain_lock: auto               # auto (default), enabled, disabled
   # Detection Algorithm
   detection_algorithm: mvs      # mvs (default) or ml (neural network)
+  # Gesture Detection
+  gesture_detection_enabled: false  # Set true to enable gesture detection
   # Segmentation parameters
   segmentation_window_size: 75  # Analysis window size in packets (10-200)
   segmentation_threshold: auto  # auto/min (mvs: 0.1-10.0, ml: 0.0-1.0)

@@ -11,15 +11,15 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Tuple
 
-FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc5"
+FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc6"
 FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 
 # SHA256 hashes for firmware verification (update when releasing new firmware)
 FIRMWARE_HASHES = {
-    'ESP32_CSI.bin': '63fd7a86ae154578af1837ce73304acd5ce06dc1184fafa4e2d5f68f7cc7c102',
-    'ESP32_CSI_C3.bin': 'a945ca2dac7cec68bc6ac6bb1c2ea437e0cb80a414c1fe326c57edb8e34856af',
-    'ESP32_CSI_C6.bin': '4518643087bed995b91e9f904bcccb28875c35a2e1b93f47892704145395ef16',
-    'ESP32_CSI_S3.bin': '3e44a7556b2fb0b0268acec533e26cce52ff027668f195e55287ad42f76c4ae4',
+    'ESP32_CSI.bin': '6ef24b43338b899e1f71d4be16ab5ecf629e45e8d240eeef1fb7f4eafe58637b',
+    'ESP32_CSI_C3.bin': 'a53252140a028fdeb54d2265c4052bac683f432bbfe83f321ebf17f011951939',
+    'ESP32_CSI_C6.bin': 'a74a61b0d3a47f5f679157429c8e2692de29b4d5f4a077cd01d5679fd8df994f',
+    'ESP32_CSI_S3.bin': '1a5c6aceae3d6d69bc3f040d86e39f1d3da0311e358d8c26f09521b15202599f',
 }
 
 try:
@@ -493,7 +493,11 @@ def deploy_code(args):
             ('src/mvs_detector.py', ':src/'),
             ('src/ml_detector.py', ':src/'),
             ('src/ml_weights.py', ':src/'),
+            ('src/gesture_features.py', ':src/'),
+            ('src/gesture_detector.py', ':src/'),
             ('src/nbvi_calibrator.py', ':src/'),
+            # gesture_weights.py is optional (present after gesture model training)
+            *([('src/gesture_weights.py', ':src/')] if Path('src/gesture_weights.py').exists() else []),
             ('src/traffic_generator.py', ':src/'),
             ('src/main.py', ':src/'),
             ('src/csi_streamer.py', ':src/'),
@@ -683,11 +687,11 @@ def collect_csi_data(args):
             print(f"    1. Start streaming on ESP32: ./me stream --ip <PC_IP>")
             print(f"    2. Collect samples: ./me collect --label wave --samples 10")
         else:
-            print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10} {'ID':>6}{Style.RESET_ALL}")
-            print(f"  {'-' * 38}")
+            print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10}{Style.RESET_ALL}")
+            print(f"  {'-' * 32}")
             for label, info in stats['labels'].items():
-                print(f"  {label:<20} {info['samples']:>10} {info['id']:>6}")
-            print(f"  {'-' * 38}")
+                print(f"  {label:<20} {info['samples']:>10}")
+            print(f"  {'-' * 32}")
             print(f"  {Fore.GREEN}{'Total':<20} {stats['total_samples']:>10}{Style.RESET_ALL}")
         print()
         return
@@ -960,8 +964,8 @@ Examples:
                                help='Label for collected data (e.g., wave, baseline, idle)')
     collect_parser.add_argument('--samples', '-n', type=int, default=1,
                                help='Number of samples to collect (default: 1)')
-    collect_parser.add_argument('--duration', '-d', type=float, default=3.0,
-                               help='Duration per sample in seconds (default: 3.0)')
+    collect_parser.add_argument('--duration', '-d', type=float, default=2.0,
+                               help='Duration per sample in seconds (default: 2.0)')
     collect_parser.add_argument('--info', '-i', action='store_true',
                                help='Show dataset statistics')
     collect_parser.add_argument('--interactive', action='store_true',

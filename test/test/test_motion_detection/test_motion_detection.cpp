@@ -1,14 +1,17 @@
 /*
  * ESPectre - Motion Detection Integration Tests
- * 
+ *
  * Integration tests for MVS and ML motion detection algorithms.
  * Tests motion detection performance with real CSI data.
- * 
+ *
  * Test Categories:
  *   1. test_mvs_optimal_subcarriers - MVS with optimal (offline-tuned) subcarriers (best case)
  *   2. test_mvs_nbvi_calibration - MVS with NBVI auto-calibration (production case)
- *   3. test_ml_detection - ML neural network detection
- * 
+ *   3. test_ml_detection - ML neural network detection (binary IDLE/MOTION)
+ *
+ * ML motion model is binary (2 classes: idle, motion).
+ * Gesture classification is tested in test_gesture_detector/.
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
@@ -189,10 +192,14 @@ inline bool is_esp32_chip() {
     return csi_test_data::current_chip() == csi_test_data::ChipType::ESP32;
 }
 
-// Chips without gain lock need CV normalization (std/mean)
-// ESP32: hardware doesn't support gain lock
-// C3: current dataset was collected without gain lock (signal too strong)
+// Determine whether CV normalization (std/mean) is needed for the current dataset.
+// Uses 'gain_locked' metadata from the NPZ file when available; falls back to
+// chip-based heuristics for older files that predate the field.
 inline bool needs_cv_normalization() {
+    if (csi_test_data::baseline_gain_locked_known()) {
+        return !csi_test_data::baseline_gain_locked();
+    }
+    // Fallback: ESP32 has no hardware gain lock; C3 dataset collected without it
     return is_esp32_chip() || is_c3_chip();
 }
 
