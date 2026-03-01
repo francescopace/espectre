@@ -11,6 +11,12 @@
     },
     "test": {
       "description": "30 seconds of quiet room, then 30 seconds of human movement"
+    },
+    "wave": {
+      "description": ""
+    },
+    "circle_cw": {
+      "description": ""
     }
   },
   "files": {
@@ -585,6 +591,10 @@
         ],
         "optimal_threshold_gridsearch": 3.0
       }
+    ],
+    "wave": [
+    ],
+    "circle_cw": [
     ]
   },
   "environments": [

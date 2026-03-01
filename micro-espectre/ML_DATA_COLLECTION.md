@@ -2,7 +2,7 @@
 
 **Building labeled CSI datasets for machine learning**
 
-This guide covers how to collect and label CSI data for training ML models. This infrastructure lays the groundwork for advanced Wi-Fi sensing features (gesture recognition, HAR, people counting) planned for ESPectre 3.x.
+This guide covers how to collect and label CSI data for training ML models. The same infrastructure is used by the current experimental gesture workflow and lays the groundwork for broader Wi-Fi sensing features (HAR, people counting) planned for ESPectre 3.x.
 
 ## Status
 
@@ -13,7 +13,7 @@ This guide covers how to collect and label CSI data for training ML models. This
 | ML detector (MLP) | ✅ Ready |
 | Training script | ✅ Ready |
 | TFLite export | ✅ Ready |
-| Gesture recognition | 🔜 Planned (3.x) |
+| Gesture recognition | 🧪 Experimental |
 | Human Activity Recognition (HAR) | 🔜 Planned (3.x) |
 | People counting | 🔜 Planned (3.x) |
 

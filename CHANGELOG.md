@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [3.0.0] - in progress - Gesture Detection
+
+### Added
+
+- **Experimental gesture support across both platforms**: introduced end-to-end gesture detection workflow with training/export/inference for multi-class labels (including `no_gesture`) in Micro-ESPectre (Python) and ESPHome component (C++).
+- **Gesture model artifacts and runtime integration**: generated gesture weights are now consumed directly by both runtime stacks to provide live gesture predictions during motion events.
+
+---
+
 ## [2.7.0] - 2026-03-17 - ESPectre configuration over BLE and subcarrier normalization
 
 ### Highlights
