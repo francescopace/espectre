@@ -498,7 +498,6 @@ class CSICollector:
             csi_data: int8[N, num_sc*2] - Raw I/Q values
             num_subcarriers: int - Number of subcarriers (64 for HT20)
             label: str - Label name
-            label_id: int - Numeric label ID
             chip: str - Chip type (C6, S3, etc.)
             collected_at: str - ISO timestamp
             duration_ms: float - Total duration
@@ -518,9 +517,6 @@ class CSICollector:
         timestamps = np.array([p.timestamp for p in packets])
         duration_ms = (timestamps[-1] - timestamps[0]) * 1000 if len(timestamps) > 1 else 0
         
-        # Get label ID from dataset info
-        label_id = self._get_or_create_label_id()
-        
         # Build sample dict (unified format)
         sample = {
             # CSI data (essential)
@@ -529,7 +525,6 @@ class CSICollector:
             
             # Label (ground truth)
             'label': self.label,
-            'label_id': label_id,
             
             # Context
             'chip': self.chip or 'unknown',
@@ -556,42 +551,21 @@ class CSICollector:
         np.savez_compressed(filepath, **sample)
         
         # Update dataset info with file details
-        # use_cv_normalization is the inverse of gain_locked
         self._update_dataset_info(
             filename=filename,
             num_subcarriers=num_subcarriers,
             num_packets=len(packets),
             duration_ms=duration_ms,
             collected_at=sample['collected_at'],
-            use_cv_normalization=not gain_locked,
+            gain_locked=gain_locked,
             description=self.description
         )
         
         return filepath
     
-    def _get_or_create_label_id(self) -> int:
-        """Get or create label ID from dataset info"""
-        info = load_dataset_info()
-        
-        if self.label in info['labels']:
-            return info['labels'][self.label]['id']
-        
-        # Create new label ID (max existing + 1)
-        existing_ids = [l['id'] for l in info['labels'].values()]
-        new_id = max(existing_ids) + 1 if existing_ids else 0
-        
-        info['labels'][self.label] = {
-            'id': new_id,
-            'samples': 0,
-            'description': ''
-        }
-        save_dataset_info(info)
-        
-        return new_id
-    
     def _update_dataset_info(self, filename: str = None, num_subcarriers: int = None,
                                 num_packets: int = None, duration_ms: float = None,
-                                collected_at: str = None, use_cv_normalization: bool = False,
+                                collected_at: str = None, gain_locked: bool = True,
                                 description: str = None):
         """Update dataset info with current sample counts and file details"""
         info = load_dataset_info()
@@ -602,7 +576,6 @@ class CSICollector:
         
         if self.label not in info['labels']:
             info['labels'][self.label] = {
-                'id': len(info['labels']),
                 'description': ''
             }
         
@@ -618,7 +591,7 @@ class CSICollector:
             if filename not in existing_files:
                 # Build description based on gain lock status
                 if not description:
-                    if use_cv_normalization:
+                    if not gain_locked:
                         chip = self.chip.upper() if self.chip else 'unknown'
                         if chip == 'ESP32':
                             description = f'HT20 {self.label}, no gain lock (ESP32 lacks AGC lock support)'
@@ -635,11 +608,9 @@ class CSICollector:
                     'collected_at': collected_at or '',
                     'duration_ms': int(duration_ms) if duration_ms else 0,
                     'num_packets': num_packets or 0,
+                    'gain_locked': bool(gain_locked),
                     'description': description
                 }
-                # Only add use_cv_normalization if True (keep JSON clean)
-                if use_cv_normalization:
-                    file_info['use_cv_normalization'] = True
                 info['files'][self.label].append(file_info)
         
         save_dataset_info(info)
@@ -859,7 +830,6 @@ def get_dataset_stats() -> Dict[str, Any]:
                 
                 stats['labels'][label] = {
                     'samples': len(samples),
-                    'id': info.get('labels', {}).get(label, {}).get('id', -1)
                 }
                 stats['total_samples'] += len(samples)
                 stats['labels_count'] += 1
@@ -903,33 +873,27 @@ def load_samples(label: str = None) -> List[Dict[str, Any]]:
     return samples
 
 
-def load_samples_as_arrays(labels: List[str] = None) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Load samples as X, y arrays for ML training.
-    
-    Args:
-        labels: List of labels to load (None = all)
-    
-    Returns:
-        Tuple (X, y) where X is array of amplitudes, y is array of label IDs
-    """
-    all_samples = load_samples()
-    
-    if labels:
-        all_samples = [s for s in all_samples if s['label'] in labels]
-    
-    if not all_samples:
-        return np.array([]), np.array([])
-    
-    X = [s['amplitudes'] for s in all_samples]
-    y = [s['label_id'] for s in all_samples]
-    
-    return X, np.array(y)
-
-
 # ============================================================================
 # Data Loading Functions
 # ============================================================================
+
+def read_gain_locked(filepath: Path) -> Optional[bool]:
+    """
+    Read the 'gain_locked' field from an NPZ file.
+
+    Returns True if gain lock was active, False if not, or None if the field
+    is absent (older files collected before the field was added).
+
+    Args:
+        filepath: Path to the .npz file
+
+    Returns:
+        bool or None
+    """
+    data = np.load(filepath, allow_pickle=True)
+    if 'gain_locked' in data.files:
+        return bool(data['gain_locked'])
+    return None
 
 def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     """
@@ -959,6 +923,7 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     label = str(data.get('label', 'unknown'))
     num_subcarriers = int(data.get('num_subcarriers', csi_array.shape[1] // 2))
     chip = str(data.get('chip', 'unknown'))
+    gain_locked = bool(data['gain_locked']) if 'gain_locked' in data.files else True
     
     # Build packet list
     packets = []
@@ -967,7 +932,8 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
             'csi_data': np.array(csi_array[i], dtype=np.int8),
             'label': label,
             'num_subcarriers': num_subcarriers,
-            'chip': chip
+            'chip': chip,
+            'gain_locked': gain_locked
         })
     
     return packets
@@ -1092,7 +1058,7 @@ from segmentation import SegmentationContext
 from filters import HampelFilter
 
 # Import feature calculation functions from src/features.py
-from features import calc_skewness, calc_kurtosis
+from features import calc_skewness
 
 # Import calibrator from src (band selection algorithm)
 from nbvi_calibrator import NBVICalibrator

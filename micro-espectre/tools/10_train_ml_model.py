@@ -23,8 +23,8 @@ Usage:
 Configuration:
   - TRAINING_FEATURES: Edit at top of file to change feature set
 
-Note: Files marked as "excluded from ML training" in dataset_info.json are
-automatically skipped. Files without gain lock use CV normalization.
+Note: Files without gain lock use CV normalization (auto-detected from each .npz
+file via the `gain_locked` field).
 
 To compare ML with MVS, use:
     python tools/7_compare_detection_methods.py
@@ -145,9 +145,7 @@ def is_motion_label(label_name, dataset_info):
     """
     Determine if a label represents motion or idle.
     
-    Uses dataset_info.json to map labels:
-    - label_id 1 = MOTION
-    - label_id 0, 2, ... = IDLE (baseline, baseline_noisy, etc.)
+    Uses dataset_info.json labels when available (name-based schema).
     
     Args:
         label_name: Label name from npz file
@@ -158,7 +156,7 @@ def is_motion_label(label_name, dataset_info):
     """
     labels = dataset_info.get('labels', {})
     if label_name in labels:
-        return labels[label_name].get('id') == 1
+        return label_name == 'movement'
     # Default: only 'movement' is motion
     return label_name == 'movement'
 
@@ -168,13 +166,13 @@ def get_file_metadata(dataset_info):
     Get metadata for all files in dataset_info.json.
     
     Returns a dict mapping filename to metadata including:
-    - use_cv_normalization: Whether to use CV normalization for this file
+    - gain_locked: Whether AGC gain lock was active for this file
     
     Args:
         dataset_info: Loaded dataset_info.json
     
     Returns:
-        dict: {filename: {use_cv_normalization: bool, ...}}
+        dict: {filename: {gain_locked: bool, ...}}
     """
     file_metadata = {}
     files_by_label = dataset_info.get('files', {})
@@ -183,7 +181,7 @@ def get_file_metadata(dataset_info):
             filename = file_info.get('filename', '')
             if filename:
                 file_metadata[filename] = {
-                    'use_cv_normalization': file_info.get('use_cv_normalization', False),
+                    'gain_locked': file_info.get('gain_locked', True),
                     'chip': file_info.get('chip', 'unknown'),
                 }
     return file_metadata
@@ -194,8 +192,8 @@ def load_all_data():
     Load all available CSI data from the data/ directory.
     
     Reads label from npz file metadata (not folder structure).
-    Uses dataset_info.json to determine if label is motion or idle.
-    Sets use_cv_normalization flag on each packet based on dataset_info.json.
+    Uses dataset_info.json only to determine if label is motion or idle.
+    Uses each NPZ file's `gain_locked` field to decide CV normalization.
     
     Returns:
         tuple: (all_packets, stats) where stats is a dict with dataset info
@@ -208,7 +206,6 @@ def load_all_data():
     file_metadata = get_file_metadata(dataset_info)
     
     # Scan all subdirectories in data/
-    # Exclude baseline_noisy - has very different characteristics that distort the scaler
     excluded_dirs = {'.'}
     for subdir in DATA_DIR.iterdir():
         if not subdir.is_dir() or subdir.name in excluded_dirs:
@@ -237,15 +234,15 @@ def load_all_data():
                 
                 # Get file-specific metadata
                 meta = file_metadata.get(npz_file.name, {})
-                use_cv_norm = meta.get('use_cv_normalization', False)
-                if use_cv_norm:
+                gain_locked = bool(meta.get('gain_locked', packets[0].get('gain_locked', True)))
+                if not gain_locked:
                     stats['cv_norm_files'].add(npz_file.name)
                 
                 # Add flags to each packet
                 is_motion = is_motion_label(label, dataset_info)
                 for p in packets:
                     p['is_motion'] = is_motion
-                    p['use_cv_normalization'] = use_cv_norm
+                    p['gain_locked'] = gain_locked
                 
                 all_packets.extend(packets)
                 
@@ -288,9 +285,9 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
     for pkt in packets:
         csi_data = pkt['csi_data']
         
-        # Calculate turbulence, using CV normalization for files that need it
-        # (collected without gain lock, e.g. ESP32 or C3 without gain lock)
-        use_cv_norm = pkt.get('use_cv_normalization', False)
+        # Calculate turbulence with normalization derived from gain lock status.
+        # If gain lock was not active, use CV normalization for gain invariance.
+        use_cv_norm = not pkt.get('gain_locked', True)
         turb, amps = SegmentationContext.compute_spatial_turbulence(
             csi_data, subcarriers, use_cv_normalization=use_cv_norm
         )
@@ -1123,15 +1120,15 @@ def show_info():
     
     print("Labels defined in dataset_info.json:")
     for label, info in dataset_info.get('labels', {}).items():
-        label_type = "MOTION" if info.get('id') == 1 else "IDLE"
-        print(f"  {label} (id={info.get('id')}) -> {label_type}")
+        label_type = "MOTION" if label == 'movement' else "IDLE"
+        print(f"  {label} -> {label_type}")
         if info.get('description'):
             print(f"    {info['description']}")
     print()
     
     # Show files using CV normalization
     file_metadata = get_file_metadata(dataset_info)
-    cv_norm_files = [f for f, meta in file_metadata.items() if meta.get('use_cv_normalization')]
+    cv_norm_files = [f for f, meta in file_metadata.items() if not meta.get('gain_locked', True)]
     if cv_norm_files:
         print(f"Files using CV normalization ({len(cv_norm_files)}):")
         for f in sorted(cv_norm_files):

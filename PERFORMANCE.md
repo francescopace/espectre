@@ -21,7 +21,7 @@ Data location: `micro-espectre/data/`
 - **ESP32-C3**: Supports gain lock, but ESPectre skips it when AGC gain < 30 (weak signal). Some C3 datasets were collected with gain 28, so gain lock was skipped.
 - **ESP32 (original)**: Does not support gain lock in the CSI driver
 
-**CV Normalization** (`std/mean`) makes detection gain-invariant by normalizing spatial turbulence. It's applied during feature extraction for files marked with `use_cv_normalization: true` in `dataset_info.json`.
+**CV Normalization** (`std/mean`) makes detection gain-invariant by normalizing spatial turbulence. It's applied during feature extraction for files with `gain_locked: false`.
 
 ## Performance Targets
 
@@ -185,7 +185,7 @@ Configuration used for all test results (unified across chips):
 | Calibration | NBVI | Auto-selects 12 non-consecutive subcarriers |
 | Hampel Filter | OFF | Can be enabled for noisy environments |
 | Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
-| CV Normalization | Per-file | Based on `use_cv_normalization` in `dataset_info.json` |
+| CV Normalization | Per-file | Based on `gain_locked` metadata (`false` => apply CV norm) |
 
 CV normalization is applied per-file based on whether data was collected with AGC gain lock enabled. See Test Data section for details.
 

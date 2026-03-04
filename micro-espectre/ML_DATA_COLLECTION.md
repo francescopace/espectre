@@ -29,7 +29,7 @@ This guide covers how to collect and label CSI data for training ML models. This
 **Works with CV normalization:**
 - ESP32 (original) - Does not support AGC gain lock, but can still be used for training with CV normalization enabled
 
-> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. Data collected without gain lock requires CV normalization (`std/mean`) during feature extraction to make detection gain-invariant. The training script handles this automatically based on `use_cv_normalization` in `dataset_info.json`.
+> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. Data collected without gain lock requires CV normalization (`std/mean`) during feature extraction to make detection gain-invariant. The training script handles this automatically using each file's `gain_locked` metadata.
 
 ---
 
@@ -110,13 +110,13 @@ Gain lock status is **automatically detected** from the CSI stream and saved in 
 
 Output:
 ```
-  Label                   Samples     ID
-  --------------------------------------
-  idle                         12      0
-  wave                         10      1
-  swipe                        10      2
+  Label                   Samples
+  --------------------------------
+  idle                         12
+  wave                         10
+  swipe                        10
   ...
-  --------------------------------------
+  --------------------------------
   Total                        47
 ```
 
@@ -135,8 +135,7 @@ data/
 ├── movement/
 │   ├── movement_c6_64sc_20251212_142443.npz
 │   └── ...
-└── baseline_noisy/
-    └── ...
+└── ...
 ```
 
 **Note**: HT20 only - all datasets use 64 subcarriers.
@@ -151,8 +150,8 @@ Central metadata file for the dataset:
 {
   "format_version": "1.0",
   "labels": {
-    "baseline": { "id": 0, "description": "Quiet room, no motion" },
-    "movement": { "id": 1, "description": "Human movement in room" }
+    "baseline": { "description": "Quiet room, no motion" },
+    "movement": { "description": "Human movement in room" }
   },
   "files": {
     "baseline": [
@@ -171,11 +170,11 @@ Central metadata file for the dataset:
         "chip": "ESP32",
         "subcarriers": 64,
         "contributor": "francescopace",
+        "gain_locked": false,
         "collected_at": "2026-02-14T18:30:59.355439",
         "duration_ms": 9998,
         "num_packets": 961,
-        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)",
-        "use_cv_normalization": true
+        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)"
       }
     ]
   },
@@ -192,8 +191,8 @@ Central metadata file for the dataset:
 | `collected_at` | ISO timestamp of collection |
 | `duration_ms` | Sample duration in milliseconds |
 | `num_packets` | Number of CSI packets |
+| `gain_locked` | `true` if AGC gain lock was active during collection |
 | `description` | Human-readable description |
-| `use_cv_normalization` | If `true`, CV normalization is applied during feature extraction (for data without gain lock) |
 
 ### Sample Format (.npz)
 
@@ -204,8 +203,8 @@ Each `.npz` file contains a minimal, compact format optimized for ML training:
 | `csi_data` | `int8[N, SC*2]` | Raw I/Q data (N packets × SC subcarriers × 2) |
 | `num_subcarriers` | `int` | Number of subcarriers (64 for HT20) |
 | `label` | `str` | Sample label (e.g., "baseline", "movement") |
-| `label_id` | `int` | Numeric label ID for ML |
 | `chip` | `str` | ESP32 chip type (e.g., "c6", "s3") |
+| `gain_locked` | `bool` | Whether AGC gain lock was active during collection |
 | `collected_at` | `str` | ISO timestamp of collection |
 | `duration_ms` | `float` | Sample duration in milliseconds |
 | `format_version` | `str` | NPZ format version ("1.0") |
@@ -282,7 +281,7 @@ The collector **automatically detects** the gain lock status from the CSI stream
 
 1. The ESP32 firmware sends a `gain_locked` flag in each UDP packet
 2. The collector saves this flag in the `.npz` file
-3. `dataset_info.json` is updated with `use_cv_normalization: true` if gain lock was not applied
+3. `dataset_info.json` stores `gain_locked: false` when gain lock was not applied
 
 No manual flags needed - the system handles everything automatically!
 
@@ -376,7 +375,7 @@ The `--fp-weight` parameter multiplies the IDLE class weight during training. Va
 
 This will:
 1. Load all `.npz` files from `data/`
-2. Apply CV normalization to files marked with `use_cv_normalization: true`
+2. Apply CV normalization to files with `gain_locked: false`
 3. Extract 12 features per sliding window
 4. 5-fold cross-validation for reliable metrics
 5. Train MLP model (12 → 16 → 8 → 1) with early stopping and dropout
@@ -389,7 +388,7 @@ This will:
 
 Use `--seed <number>` for reproducible training. The seed is saved in the generated weight files.
 
-> **Note**: Files with `use_cv_normalization: true` in `dataset_info.json` automatically use CV normalization during feature extraction. Use `--info` to see which files are affected.
+> **Note**: Files with `gain_locked: false` automatically use CV normalization during feature extraction. Use `--info` to see which files are affected.
 
 ### Compare Detection Methods
 

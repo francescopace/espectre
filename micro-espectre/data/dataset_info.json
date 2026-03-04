@@ -4,15 +4,9 @@
   "updated_at": "2026-02-14T18:50:48.305651",
   "labels": {
     "baseline": {
-      "id": 0,
       "description": "Quiet room, no motion"
     },
-    "baseline_noisy": {
-      "id": 2,
-      "description": "Room with environmental noise (fans, HVAC, etc.)"
-    },
     "movement": {
-      "id": 1,
       "description": "Human movement in room"
     }
   },
@@ -24,6 +18,7 @@
         "subcarriers": 64,
         "contributor": "francescopace",
         "description": "HT20 baseline, AGC gain locked",
+        "gain_locked": true,
         "collected_at": "2025-12-12T14:24:43.381306",
         "duration_ms": 10000,
         "num_packets": 1000
@@ -33,6 +28,7 @@
         "chip": "S3",
         "subcarriers": 64,
         "contributor": "francescopace",
+        "gain_locked": true,
         "collected_at": "2026-01-17T22:26:06.497945",
         "duration_ms": 10008,
         "num_packets": 1353,
@@ -43,6 +39,7 @@
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
+        "gain_locked": true,
         "collected_at": "2026-02-03T20:35:09.180014",
         "duration_ms": 10006,
         "num_packets": 1344,
@@ -53,31 +50,30 @@
         "chip": "ESP32",
         "subcarriers": 64,
         "contributor": "francescopace",
+        "gain_locked": false,
         "collected_at": "2026-02-14T18:30:59.355439",
         "duration_ms": 9998,
         "num_packets": 961,
-        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)",
-        "use_cv_normalization": true
+        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)"
       },
       {
         "filename": "baseline_c3_64sc_20260214_185025.npz",
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
+        "gain_locked": false,
         "collected_at": "2026-02-14T18:50:25.166304",
         "duration_ms": 10013,
         "num_packets": 1312,
-        "description": "HT20 baseline, gain lock skipped (AGC gain 28 < 30 threshold)",
-        "use_cv_normalization": true
-      }
-    ],
-    "baseline_noisy": [
+        "description": "HT20 baseline, gain lock skipped (AGC gain 28 < 30 threshold)"
+      },
       {
         "filename": "baseline_noisy_c6_64sc_20251214_025208.npz",
         "chip": "C6",
         "subcarriers": 64,
         "contributor": "francescopace",
         "description": "HT20 baseline with environmental noise (fans, HVAC), AGC gain locked",
+        "gain_locked": true,
         "collected_at": "2025-12-14T02:52:08.067424",
         "duration_ms": 60005,
         "num_packets": 6379
@@ -90,6 +86,7 @@
         "subcarriers": 64,
         "contributor": "francescopace",
         "description": "HT20 movement, AGC gain locked",
+        "gain_locked": true,
         "collected_at": "2025-12-12T14:24:43.402600",
         "duration_ms": 10000,
         "num_packets": 1000
@@ -99,6 +96,7 @@
         "chip": "S3",
         "subcarriers": 64,
         "contributor": "francescopace",
+        "gain_locked": true,
         "collected_at": "2026-01-17T22:26:26.747046",
         "duration_ms": 10010,
         "num_packets": 1366,
@@ -109,6 +107,7 @@
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
+        "gain_locked": true,
         "collected_at": "2026-02-03T20:35:33.828831",
         "duration_ms": 9998,
         "num_packets": 1318,
@@ -119,22 +118,22 @@
         "chip": "ESP32",
         "subcarriers": 64,
         "contributor": "francescopace",
+        "gain_locked": false,
         "collected_at": "2026-02-14T18:31:41.344311",
         "duration_ms": 15053,
         "num_packets": 1103,
-        "description": "HT20 movement, no gain lock (ESP32 lacks AGC lock support)",
-        "use_cv_normalization": true
+        "description": "HT20 movement, no gain lock (ESP32 lacks AGC lock support)"
       },
       {
         "filename": "movement_c3_64sc_20260214_185048.npz",
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
+        "gain_locked": false,
         "collected_at": "2026-02-14T18:50:48.285126",
         "duration_ms": 15002,
         "num_packets": 1836,
-        "description": "HT20 movement, gain lock skipped (AGC gain 28 < 30 threshold)",
-        "use_cv_normalization": true
+        "description": "HT20 movement, gain lock skipped (AGC gain 28 < 30 threshold)"
       }
     ]
   },

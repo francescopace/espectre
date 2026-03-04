@@ -50,7 +50,7 @@ from features import (
 from filters import HampelFilter
 from csi_utils import (
     load_baseline_and_movement, calculate_spatial_turbulence,
-    calculate_variance_two_pass, MVSDetector
+    calculate_variance_two_pass, MVSDetector, read_gain_locked
 )
 from config import SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE, CALIBRATION_BUFFER_SIZE
 
@@ -189,14 +189,21 @@ def calibration_algorithm(request, chip_type):
 
 
 @pytest.fixture
-def use_cv_normalization(chip_type):
-    """Get CV normalization setting for chip type.
+def use_cv_normalization(dataset_config):
+    """Determine CV normalization from NPZ 'gain_locked' metadata.
     
-    Matches C++ needs_cv_normalization():
-    - ESP32: hardware doesn't support gain lock
-    - C3: current dataset was collected without gain lock (signal too strong)
+    Reads the 'gain_locked' field from the baseline NPZ file (matches C++
+    needs_cv_normalization()). Falls back to chip-based heuristics for older
+    files that predate the field:
+    - ESP32: hardware has no gain lock
+    - C3: historical datasets collected without gain lock
     """
-    return chip_type in ('ESP32', 'C3')
+    baseline_path, _, _, chip = dataset_config
+    gain_locked = read_gain_locked(baseline_path)
+    if gain_locked is not None:
+        return not gain_locked
+    # Fallback for older files without the 'gain_locked' field
+    return chip in ('ESP32', 'C3')
 
 
 @pytest.fixture

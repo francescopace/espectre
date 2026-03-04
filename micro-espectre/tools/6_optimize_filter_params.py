@@ -21,7 +21,7 @@ Examples:
     python tools/6_optimize_filter_params.py --all    # Combined optimization
 
 Requires:
-    - data/baseline_noisy/*.npz (noisy baseline data)
+    - data/baseline/*.npz (noisy baseline preferred when available)
     - data/movement/*.npz (movement data)
 
 Author: Francesco Pace <francesco.pace@gmail.com>
@@ -213,7 +213,8 @@ def main():
     # Find data files
     data_dir = Path(__file__).parent.parent / 'data'
     
-    baseline_file = find_latest_file(data_dir / 'baseline_noisy', 'baseline_noisy', chip_filter)
+    # baseline_noisy samples are stored under data/baseline with filename prefix
+    baseline_file = find_latest_file(data_dir / 'baseline', 'baseline_noisy', chip_filter)
     if baseline_file is None:
         # Fallback to regular baseline
         baseline_file = find_latest_file(data_dir / 'baseline', 'baseline', chip_filter)
@@ -231,8 +232,8 @@ def main():
     movement_file = find_latest_file(data_dir / 'movement', 'movement', chip_filter)
     
     if baseline_file is None:
-        print("ERROR: No baseline data found in data/baseline_noisy/ or data/baseline/")
-        print("Run: ./me collect --label baseline_noisy --duration 60")
+        print("ERROR: No baseline data found in data/baseline/")
+        print("Run: ./me collect --label baseline --duration 60")
         return
     
     if movement_file is None:

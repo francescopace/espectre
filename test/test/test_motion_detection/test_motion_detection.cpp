@@ -189,10 +189,14 @@ inline bool is_esp32_chip() {
     return csi_test_data::current_chip() == csi_test_data::ChipType::ESP32;
 }
 
-// Chips without gain lock need CV normalization (std/mean)
-// ESP32: hardware doesn't support gain lock
-// C3: current dataset was collected without gain lock (signal too strong)
+// Determine whether CV normalization (std/mean) is needed for the current dataset.
+// Uses 'gain_locked' metadata from the NPZ file when available; falls back to
+// chip-based heuristics for older files that predate the field.
 inline bool needs_cv_normalization() {
+    if (csi_test_data::baseline_gain_locked_known()) {
+        return !csi_test_data::baseline_gain_locked();
+    }
+    // Fallback: ESP32 has no hardware gain lock; C3 dataset collected without it
     return is_esp32_chip() || is_c3_chip();
 }
 

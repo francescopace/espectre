@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.5.2] - in progress - Unified 0.0-10.0 Threshold Range
+## [2.5.2] - in progress - Threshold Unification & ML Dataset Metadata Cleanup
 
 ### Fixed
 
@@ -16,6 +16,11 @@ All notable changes to this project will be documented in this file.
 
 - **Documentation alignment**: Updated threshold ranges and notes in `SETUP.md`, `TUNING.md`, and `micro-espectre/README.md` to reflect the unified `0.0-10.0` behavior
 - **Test suite alignment**: Updated Python and C++ threshold boundary tests (MVS/ML/MQTT/Serial streamer) to the new minimum threshold and kept full suite compatibility
+- **Micro-ESPectre feature pipeline cleanup**: Simplified `src/features.py` to the selected 12 motion features used by training/inference, aligned `ml_detector.py` and `tools/10_train_ml_model.py`, and removed deprecated experimental feature tests
+- **Optional WiFi BSSID lock (Micro-ESPectre)**: Added optional BSSID pinning in `src/main.py` (configured via `WIFI_BSSID`) to keep association on a specific AP
+- **C++ detector cleanup**: Removed unused `BaseDetector` amplitude getters and fixed stale wording in comments about stored packet data
+- **Dataset metadata normalization source of truth**: Micro-ESPectre training and collection now use `gain_locked` as the single source of truth for CV normalization decisions; `use_cv_normalization` was removed from `dataset_info.json` and related docs
+- **Collection metadata consistency**: `me collect`/`CSICollector` now persist `gain_locked` consistently in both `.npz` files and `dataset_info.json`, with no `label_id` metadata written
 
 ---
 
