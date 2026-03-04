@@ -81,7 +81,11 @@ def analyze_packets(packets, label_name):
     rssi_values = []
     
     for pkt in packets:
-        turb = calculate_spatial_turbulence(pkt['csi_data'], SELECTED_SUBCARRIERS)
+        turb = calculate_spatial_turbulence(
+            pkt['csi_data'],
+            SELECTED_SUBCARRIERS,
+            gain_locked=pkt.get('gain_locked', True)
+        )
         turbulences.append(turb)
         rssi_values.append(pkt.get('rssi', 0))
     

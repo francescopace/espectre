@@ -221,7 +221,11 @@ class TestRealCSIData:
         max_diff = 0.0
         
         for pkt in all_packets:
-            turb = calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
+            turb = calculate_spatial_turbulence(
+                pkt['csi_data'],
+                default_subcarriers,
+                gain_locked=pkt.get('gain_locked', True)
+            )
             two_pass.add(turb)
             running.add(turb)
             diff = abs(two_pass.get_variance() - running.get_variance())
@@ -244,7 +248,11 @@ class TestRealCSIData:
         running = RunningVariance(window_size)
         
         for pkt in all_packets:
-            turb = calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
+            turb = calculate_spatial_turbulence(
+                pkt['csi_data'],
+                default_subcarriers,
+                gain_locked=pkt.get('gain_locked', True)
+            )
             two_pass.add(turb)
             running.add(turb)
         
@@ -277,7 +285,11 @@ class TestDetectionEquivalence:
         state_mismatches = 0
         
         for pkt in all_packets:
-            turb = calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
+            turb = calculate_spatial_turbulence(
+                pkt['csi_data'],
+                default_subcarriers,
+                gain_locked=pkt.get('gain_locked', True)
+            )
             two_pass.add(turb)
             running.add(turb)
             

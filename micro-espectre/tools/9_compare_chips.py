@@ -105,9 +105,13 @@ def analyze_amplitudes_per_subcarrier(packets, name, num_subcarriers=64):
     }
 
 
-def calculate_spatial_turbulence(csi_data, selected_subcarriers):
+def calculate_spatial_turbulence(csi_data, selected_subcarriers, gain_locked=True):
     """Calculate spatial turbulence - delegates to SegmentationContext"""
-    return SegmentationContext.compute_spatial_turbulence(csi_data, selected_subcarriers)
+    return SegmentationContext.compute_spatial_turbulence(
+        csi_data,
+        selected_subcarriers,
+        use_cv_normalization=not bool(gain_locked)
+    )
 
 
 def analyze_turbulence_and_mvs(packets, name, selected_subcarriers, window_size):
@@ -116,7 +120,11 @@ def analyze_turbulence_and_mvs(packets, name, selected_subcarriers, window_size)
     all_amplitudes = []
     
     for pkt in packets:
-        turb, amps = calculate_spatial_turbulence(pkt['csi_data'], selected_subcarriers)
+        turb, amps = calculate_spatial_turbulence(
+            pkt['csi_data'],
+            selected_subcarriers,
+            gain_locked=pkt.get('gain_locked', True)
+        )
         turbulences.append(turb)
         all_amplitudes.extend(amps)
     

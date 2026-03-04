@@ -85,7 +85,7 @@ FilteredTurbulenceSegmentation = lambda window_size=SEG_WINDOW_SIZE, threshold=1
     StreamingSegmentationWrapper(window_size, threshold, track_data, enable_hampel=True)
 
 
-def calculate_turbulence_filtered_iq(csi_packet, hampel_I, hampel_Q, subcarriers):
+def calculate_turbulence_filtered_iq(csi_packet, hampel_I, hampel_Q, subcarriers, gain_locked=True):
     """Calculate turbulence from filtered I/Q values"""
     amplitudes = []
     for i, sc_idx in enumerate(subcarriers):
@@ -95,10 +95,14 @@ def calculate_turbulence_filtered_iq(csi_packet, hampel_I, hampel_Q, subcarriers
         I_filt = hampel_I[i].filter(I_raw)
         Q_filt = hampel_Q[i].filter(Q_raw)
         amplitudes.append(np.sqrt(I_filt*I_filt + Q_filt*Q_filt))
-    return np.std(amplitudes)
+    std_amp = np.std(amplitudes)
+    if gain_locked:
+        return std_amp
+    mean_amp = np.mean(amplitudes)
+    return std_amp / mean_amp if mean_amp > 0 else 0.0
 
 
-def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarriers):
+def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarriers, gain_locked=True):
     """Calculate turbulence from Hampel-filtered amplitudes (paper-style approach).
     
     This applies Hampel filter to each subcarrier's amplitude time series,
@@ -113,7 +117,11 @@ def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarrier
         # Apply Hampel to the amplitude time series for this subcarrier
         filtered_amp = hampel_amps[i].filter(raw_amp)
         amplitudes.append(filtered_amp)
-    return np.std(amplitudes)
+    std_amp = np.std(amplitudes)
+    if gain_locked:
+        return std_amp
+    mean_amp = np.mean(amplitudes)
+    return std_amp / mean_amp if mean_amp > 0 else 0.0
 
 
 def run_comparison(baseline_packets, movement_packets, track_data=False):
@@ -124,13 +132,25 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
     # 1. No Filter
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
     for pkt in baseline_packets:
-        seg.add_turbulence(calculate_spatial_turbulence(pkt['csi_data'], SELECTED_SUBCARRIERS))
+        seg.add_turbulence(
+            calculate_spatial_turbulence(
+                pkt['csi_data'],
+                SELECTED_SUBCARRIERS,
+                gain_locked=pkt.get('gain_locked', True)
+            )
+        )
     baseline_fp = seg.motion_packets
     baseline_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     
     seg.reset()
     for pkt in movement_packets:
-        seg.add_turbulence(calculate_spatial_turbulence(pkt['csi_data'], SELECTED_SUBCARRIERS))
+        seg.add_turbulence(
+            calculate_spatial_turbulence(
+                pkt['csi_data'],
+                SELECTED_SUBCARRIERS,
+                gain_locked=pkt.get('gain_locked', True)
+            )
+        )
     results['No Filter'] = {
         'fp': baseline_fp, 'tp': seg.motion_packets,
         'baseline_data': baseline_data,
@@ -140,13 +160,25 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
     # 2. Filter Turbulence (current ESPectre implementation)
     seg = FilteredTurbulenceSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
     for pkt in baseline_packets:
-        seg.add_turbulence(calculate_spatial_turbulence(pkt['csi_data'], SELECTED_SUBCARRIERS))
+        seg.add_turbulence(
+            calculate_spatial_turbulence(
+                pkt['csi_data'],
+                SELECTED_SUBCARRIERS,
+                gain_locked=pkt.get('gain_locked', True)
+            )
+        )
     baseline_fp = seg.motion_packets
     baseline_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     
     seg.reset()
     for pkt in movement_packets:
-        seg.add_turbulence(calculate_spatial_turbulence(pkt['csi_data'], SELECTED_SUBCARRIERS))
+        seg.add_turbulence(
+            calculate_spatial_turbulence(
+                pkt['csi_data'],
+                SELECTED_SUBCARRIERS,
+                gain_locked=pkt.get('gain_locked', True)
+            )
+        )
     results['Filter Turbulence'] = {
         'fp': baseline_fp, 'tp': seg.motion_packets,
         'baseline_data': baseline_data,
@@ -159,7 +191,13 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
     
     for pkt in baseline_packets:
-        turb = calculate_turbulence_filtered_iq(pkt['csi_data'], hampel_I, hampel_Q, SELECTED_SUBCARRIERS)
+        turb = calculate_turbulence_filtered_iq(
+            pkt['csi_data'],
+            hampel_I,
+            hampel_Q,
+            SELECTED_SUBCARRIERS,
+            gain_locked=pkt.get('gain_locked', True)
+        )
         seg.add_turbulence(turb)
     baseline_fp = seg.motion_packets
     baseline_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
@@ -168,7 +206,13 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
     hampel_Q = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
     seg.reset()
     for pkt in movement_packets:
-        turb = calculate_turbulence_filtered_iq(pkt['csi_data'], hampel_I, hampel_Q, SELECTED_SUBCARRIERS)
+        turb = calculate_turbulence_filtered_iq(
+            pkt['csi_data'],
+            hampel_I,
+            hampel_Q,
+            SELECTED_SUBCARRIERS,
+            gain_locked=pkt.get('gain_locked', True)
+        )
         seg.add_turbulence(turb)
     results['Filter I/Q Raw'] = {
         'fp': baseline_fp, 'tp': seg.motion_packets,
@@ -181,7 +225,12 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
     
     for pkt in baseline_packets:
-        turb = calculate_turbulence_filtered_amplitudes(pkt['csi_data'], hampel_amps, SELECTED_SUBCARRIERS)
+        turb = calculate_turbulence_filtered_amplitudes(
+            pkt['csi_data'],
+            hampel_amps,
+            SELECTED_SUBCARRIERS,
+            gain_locked=pkt.get('gain_locked', True)
+        )
         seg.add_turbulence(turb)
     baseline_fp = seg.motion_packets
     baseline_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
@@ -189,7 +238,12 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
     hampel_amps = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
     seg.reset()
     for pkt in movement_packets:
-        turb = calculate_turbulence_filtered_amplitudes(pkt['csi_data'], hampel_amps, SELECTED_SUBCARRIERS)
+        turb = calculate_turbulence_filtered_amplitudes(
+            pkt['csi_data'],
+            hampel_amps,
+            SELECTED_SUBCARRIERS,
+            gain_locked=pkt.get('gain_locked', True)
+        )
         seg.add_turbulence(turb)
     results['Filter Amplitudes'] = {
         'fp': baseline_fp, 'tp': seg.motion_packets,
@@ -272,8 +326,8 @@ def main():
         print(f"❌ Error: {e}")
         return
     
-    baseline_packets = [{'csi_data': p['csi_data']} for p in baseline_data]
-    movement_packets = [{'csi_data': p['csi_data']} for p in movement_data]
+    baseline_packets = baseline_data
+    movement_packets = movement_data
     
     print(f"Chip: {chip_name}")
     print(f"Loaded {len(baseline_packets)} baseline, {len(movement_packets)} movement packets\n")

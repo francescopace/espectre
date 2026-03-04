@@ -24,7 +24,7 @@ espectre:
   detection_algorithm: mvs      # mvs (default) or ml (neural network)
   # Segmentation parameters
   segmentation_window_size: 75  # Analysis window size in packets (10-200)
-  segmentation_threshold: auto  # auto/min (mvs: 0.1-10.0, ml: 0.0-1.0)
+  segmentation_threshold: auto  # auto/min (mvs/ml: 0.0-10.0)
   # Filters (optional)
   hampel_enabled: false         # Outlier removal (default: false)
   hampel_window: 9              # Filter window size (3-11, odd numbers)

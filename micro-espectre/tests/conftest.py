@@ -239,11 +239,19 @@ def real_turbulence_values(real_csi_data_available, default_subcarriers):
     turbulence_values = []
     
     for packet in baseline:
-        turbulence = calculate_spatial_turbulence(packet['csi_data'], default_subcarriers)
+        turbulence = calculate_spatial_turbulence(
+            packet['csi_data'],
+            default_subcarriers,
+            gain_locked=packet.get('gain_locked', True)
+        )
         turbulence_values.append(float(turbulence))
     
     for packet in movement:
-        turbulence = calculate_spatial_turbulence(packet['csi_data'], default_subcarriers)
+        turbulence = calculate_spatial_turbulence(
+            packet['csi_data'],
+            default_subcarriers,
+            gain_locked=packet.get('gain_locked', True)
+        )
         turbulence_values.append(float(turbulence))
     
     return turbulence_values

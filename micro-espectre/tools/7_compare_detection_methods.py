@@ -16,7 +16,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import time
-from collections import deque
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
@@ -27,24 +26,22 @@ from csi_utils import (
     DEFAULT_SUBCARRIERS
 )
 from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
-from segmentation import SegmentationContext
-from features import (
-    calc_skewness, calc_kurtosis, calc_entropy_turb,
-    calc_zero_crossing_rate, calc_autocorrelation, calc_mad,
-)
 
-# Check if ML model is available
+# Check if ML model is available (production implementation).
 ML_AVAILABLE = False
 try:
-    from ml_detector import predict as ml_predict
+    from ml_detector import MLDetector as ProdMLDetector, ML_SUBCARRIERS, ML_DEFAULT_THRESHOLD
     ML_AVAILABLE = True
 except ImportError:
-    pass
+    ProdMLDetector = None
+    ML_SUBCARRIERS = DEFAULT_SUBCARRIERS
+    ML_DEFAULT_THRESHOLD = 5.0
 
 # Configuration
 SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
+
 
 def calculate_rssi(csi_packet):
     """Calculate RSSI (mean of all subcarrier amplitudes)"""
@@ -66,72 +63,34 @@ def calculate_mean_amplitude(csi_packet, selected_subcarriers):
     return np.mean(amplitudes)
 
 
-class MLDetector:
-    """ML-based motion detector using neural network."""
-    
-    def __init__(self, window_size=SEG_WINDOW_SIZE, subcarriers=None, track_data=False):
-        self.window_size = window_size
-        self.subcarriers = subcarriers or DEFAULT_SUBCARRIERS
-        self.track_data = track_data
-        self.turb_buffer = deque(maxlen=window_size)
-        
-        self.state = 'IDLE'
-        self.motion_count = 0
-        
-        if track_data:
-            self.probability_history = []
-            self.state_history = []
-    
-    def process_packet(self, csi_data):
-        """Process a packet and update state."""
-        if not ML_AVAILABLE:
-            return
-        
-        turb, amps = SegmentationContext.compute_spatial_turbulence(
-            csi_data, self.subcarriers
+class MLDetectorAdapter:
+    """Compatibility wrapper around production MLDetector."""
+
+    def __init__(self, window_size=SEG_WINDOW_SIZE, subcarriers=None, track_data=False, use_cv_normalization=False):
+        self.subcarriers = subcarriers or ML_SUBCARRIERS
+        self._detector = ProdMLDetector(
+            window_size=window_size,
+            threshold=ML_DEFAULT_THRESHOLD,
+            use_cv_normalization=use_cv_normalization
         )
-        self.turb_buffer.append(turb)
-        
-        if len(self.turb_buffer) < self.window_size:
-            prob = 0.0
-        else:
-            turb_list = list(self.turb_buffer)
-            n = len(turb_list)
-            turb_mean = np.mean(turb_list)
-            turb_std = np.std(turb_list)
-            turb_var = turb_std * turb_std
-            features = [
-                turb_mean, turb_std,
-                np.max(turb_list), np.min(turb_list),
-                calc_zero_crossing_rate(turb_list, n, mean=turb_mean),
-                calc_skewness(turb_list, n, turb_mean, turb_std),
-                calc_kurtosis(turb_list, n, turb_mean, turb_std),
-                calc_entropy_turb(turb_list, n),
-                calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var),
-                calc_mad(turb_list, n),
-                np.polyfit(range(n), turb_list, 1)[0],
-                turb_list[-1] - turb_list[0],
-            ]
-            prob = ml_predict(features)
-        
-        self.state = 'MOTION' if prob > 0.5 else 'IDLE'
-        if self.state == 'MOTION':
-            self.motion_count += 1
-        
-        if self.track_data:
-            self.probability_history.append(prob)
-            self.state_history.append(self.state)
-    
+        self._detector.track_data = track_data
+        self.probability_history = self._detector.probability_history
+        self.state_history = self._detector.state_history
+
+    def process_packet(self, packet):
+        csi_data = packet['csi_data'] if isinstance(packet, dict) else packet
+        self._detector.process_packet(csi_data, self.subcarriers)
+        self._detector.update_state()
+        self.probability_history = self._detector.probability_history
+        self.state_history = self._detector.state_history
+
     def get_motion_count(self):
-        return self.motion_count
-    
+        return self._detector.get_motion_count()
+
     def reset(self):
-        self.turb_buffer.clear()
-        self.state = 'IDLE'
-        self.motion_count = 0
-        if self.track_data:
-            self.probability_history = []
-            self.state_history = []
+        self._detector.reset()
+        self.probability_history = self._detector.probability_history
+        self.state_history = self._detector.state_history
 
 
 def compare_detection_methods(baseline_packets, movement_packets, subcarriers, window_size, threshold):
@@ -139,7 +98,6 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     Compare different detection methods on same data.
     Returns metrics for each method.
     """
-    from ml_detector import ML_SUBCARRIERS
     ml_subcarriers = ML_SUBCARRIERS
     methods = {
         'RSSI': {'baseline': [], 'movement': []},
@@ -159,7 +117,13 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     for pkt in baseline_packets:
         methods['RSSI']['baseline'].append(calculate_rssi(pkt['csi_data']))
         methods['Mean Amplitude']['baseline'].append(calculate_mean_amplitude(pkt['csi_data'], subcarriers))
-        methods['Turbulence']['baseline'].append(calculate_spatial_turbulence(pkt['csi_data'], subcarriers))
+        methods['Turbulence']['baseline'].append(
+            calculate_spatial_turbulence(
+                pkt['csi_data'],
+                subcarriers,
+                gain_locked=pkt.get('gain_locked', True)
+            )
+        )
     
     methods['RSSI']['baseline'] = np.array(methods['RSSI']['baseline'])
     methods['Mean Amplitude']['baseline'] = np.array(methods['Mean Amplitude']['baseline'])
@@ -169,14 +133,20 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     start = time.perf_counter()
     mvs_baseline = MVSDetector(window_size, threshold, subcarriers, track_data=True)
     for pkt in baseline_packets:
-        mvs_baseline.process_packet(pkt['csi_data'])
+        mvs_baseline.process_packet(pkt)
     methods['MVS']['baseline'] = np.array(mvs_baseline.moving_var_history)
     
     # Process movement - simple metrics
     for pkt in movement_packets:
         methods['RSSI']['movement'].append(calculate_rssi(pkt['csi_data']))
         methods['Mean Amplitude']['movement'].append(calculate_mean_amplitude(pkt['csi_data'], subcarriers))
-        methods['Turbulence']['movement'].append(calculate_spatial_turbulence(pkt['csi_data'], subcarriers))
+        methods['Turbulence']['movement'].append(
+            calculate_spatial_turbulence(
+                pkt['csi_data'],
+                subcarriers,
+                gain_locked=pkt.get('gain_locked', True)
+            )
+        )
     
     methods['RSSI']['movement'] = np.array(methods['RSSI']['movement'])
     methods['Mean Amplitude']['movement'] = np.array(methods['Mean Amplitude']['movement'])
@@ -185,7 +155,7 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     # MVS movement
     mvs_movement = MVSDetector(window_size, threshold, subcarriers, track_data=True)
     for pkt in movement_packets:
-        mvs_movement.process_packet(pkt['csi_data'])
+        mvs_movement.process_packet(pkt)
     mvs_time = time.perf_counter() - start
     timing['MVS'] = (mvs_time / num_packets) * 1e6
     methods['MVS']['movement'] = np.array(mvs_movement.moving_var_history)
@@ -203,7 +173,11 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     
     start = time.perf_counter()
     for pkt in all_packets:
-        calculate_spatial_turbulence(pkt['csi_data'], subcarriers)
+        calculate_spatial_turbulence(
+            pkt['csi_data'],
+            subcarriers,
+            gain_locked=pkt.get('gain_locked', True)
+        )
     timing['Turbulence'] = ((time.perf_counter() - start) / num_packets) * 1e6
     
     # ML detector (if available)
@@ -213,15 +187,16 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     
     if ML_AVAILABLE:
         start = time.perf_counter()
-        ml_baseline = MLDetector(window_size, ml_subcarriers, track_data=True)
+        use_cv_norm_ml = not baseline_packets[0].get('gain_locked', True) if baseline_packets else False
+        ml_baseline = MLDetectorAdapter(window_size, ml_subcarriers, track_data=True, use_cv_normalization=use_cv_norm_ml)
         for pkt in baseline_packets:
-            ml_baseline.process_packet(pkt['csi_data'])
+            ml_baseline.process_packet(pkt)
         methods['ML']['baseline'] = np.array(ml_baseline.probability_history)
         ml_baseline_states = len(ml_baseline.state_history)
         
-        ml_movement = MLDetector(window_size, ml_subcarriers, track_data=True)
+        ml_movement = MLDetectorAdapter(window_size, ml_subcarriers, track_data=True, use_cv_normalization=use_cv_norm_ml)
         for pkt in movement_packets:
-            ml_movement.process_packet(pkt['csi_data'])
+            ml_movement.process_packet(pkt)
         methods['ML']['movement'] = np.array(ml_movement.probability_history)
         
         ml_time = time.perf_counter() - start
@@ -283,29 +258,44 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         baseline_data = methods[method_name]['baseline']
         movement_data = methods[method_name]['movement']
         
+        # For ML, pad warmup region with NaN so X-axis aligns with other methods.
+        # Production ML emits probabilities only after the buffer is ready.
+        baseline_plot_data = baseline_data
+        movement_plot_data = movement_data
+        ml_baseline_offset = 0
+        ml_movement_offset = 0
+        if method_name == 'ML' and ml_baseline is not None and ml_movement is not None:
+            full_baseline_len = len(methods['MVS']['baseline'])
+            full_movement_len = len(methods['MVS']['movement'])
+            ml_baseline_offset = max(0, full_baseline_len - len(baseline_data))
+            ml_movement_offset = max(0, full_movement_len - len(movement_data))
+            baseline_plot_data = np.concatenate([np.full(ml_baseline_offset, np.nan), baseline_data])
+            movement_plot_data = np.concatenate([np.full(ml_movement_offset, np.nan), movement_data])
+        
         # Calculate threshold based on method
         if method_name == 'MVS':
             simple_threshold = threshold
         elif method_name == 'ML':
-            simple_threshold = 0.5  # ML probability threshold
+            simple_threshold = ML_DEFAULT_THRESHOLD
         else:
             simple_threshold = np.mean(baseline_data) + 2 * np.std(baseline_data)
         
-        time_baseline = np.arange(len(baseline_data)) / 100.0
-        time_movement = np.arange(len(movement_data)) / 100.0
+        time_baseline = np.arange(len(baseline_plot_data)) / 100.0
+        time_movement = np.arange(len(movement_plot_data)) / 100.0
         
         # Colors
         if method_name == 'MVS':
-            color, linewidth = 'blue', 1.5
+            color, linewidth, linestyle = 'blue', 1.5, '-'
         elif method_name == 'ML':
-            color, linewidth = 'orange', 1.5
+            # Match MVS palette for visual consistency; dashed line keeps ML distinguishable.
+            color, linewidth, linestyle = 'blue', 1.5, '--'
         else:
-            color, linewidth = 'green', 1.0
+            color, linewidth, linestyle = 'green', 1.0, '-'
         
         # LEFT: Baseline
         ax_baseline = axes[row, 0]
-        ax_baseline.plot(time_baseline, baseline_data, color=color, alpha=0.7, 
-                        linewidth=linewidth, label=method_name)
+        ax_baseline.plot(time_baseline, baseline_plot_data, color=color, alpha=0.7, 
+                        linewidth=linewidth, linestyle=linestyle, label=method_name)
         ax_baseline.axhline(y=simple_threshold, color='r', linestyle='--', 
                           linewidth=2, label=f'Threshold={simple_threshold:.4f}')
         
@@ -318,7 +308,8 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         elif method_name == 'ML' and ml_baseline is not None:
             for i, state in enumerate(ml_baseline.state_history):
                 if state == 'MOTION':
-                    ax_baseline.axvspan(i/100.0, (i+1)/100.0, alpha=0.3, color='red')
+                    start_t = (i + ml_baseline_offset) / 100.0
+                    ax_baseline.axvspan(start_t, start_t + 1/100.0, alpha=0.3, color='red')
             fp = ml_baseline.get_motion_count()
         else:
             fp = np.sum(baseline_data > simple_threshold)
@@ -348,7 +339,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
                 spine.set_linewidth(3)
         elif method_name == 'ML':
             for spine in ax_baseline.spines.values():
-                spine.set_edgecolor('orange')
+                spine.set_edgecolor('green')
                 spine.set_linewidth(3)
         
         if row == n_rows - 1:
@@ -356,8 +347,8 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         
         # RIGHT: Movement
         ax_movement = axes[row, 1]
-        ax_movement.plot(time_movement, movement_data, color=color, alpha=0.7, 
-                        linewidth=linewidth, label=method_name)
+        ax_movement.plot(time_movement, movement_plot_data, color=color, alpha=0.7, 
+                        linewidth=linewidth, linestyle=linestyle, label=method_name)
         ax_movement.axhline(y=simple_threshold, color='r', linestyle='--', 
                           linewidth=2, label=f'Threshold={simple_threshold:.4f}')
         
@@ -373,9 +364,11 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         elif method_name == 'ML' and ml_movement is not None:
             for i, state in enumerate(ml_movement.state_history):
                 if state == 'MOTION':
-                    ax_movement.axvspan(i/100.0, (i+1)/100.0, alpha=0.3, color='green')
+                    start_t = (i + ml_movement_offset) / 100.0
+                    ax_movement.axvspan(start_t, start_t + 1/100.0, alpha=0.3, color='green')
                 else:
-                    ax_movement.axvspan(i/100.0, (i+1)/100.0, alpha=0.2, color='red')
+                    start_t = (i + ml_movement_offset) / 100.0
+                    ax_movement.axvspan(start_t, start_t + 1/100.0, alpha=0.2, color='red')
             tp = ml_movement.get_motion_count()
             fn = len(movement_data) - tp
         else:
@@ -402,7 +395,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
                 spine.set_linewidth(3)
         elif method_name == 'ML':
             for spine in ax_movement.spines.values():
-                spine.set_edgecolor('orange')
+                spine.set_edgecolor('green')
                 spine.set_linewidth(3)
         
         if row == n_rows - 1:

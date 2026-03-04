@@ -493,7 +493,7 @@ class TestMVSDetectionRealData:
         detector._context.use_cv_normalization = use_cv_normalization
         
         for pkt in baseline_packets:
-            detector.process_packet(pkt['csi_data'])
+            detector.process_packet(pkt)
         
         baseline_motion = detector.get_motion_count()
         
@@ -501,7 +501,7 @@ class TestMVSDetectionRealData:
         detector.reset()
         
         for pkt in movement_packets:
-            detector.process_packet(pkt['csi_data'])
+            detector.process_packet(pkt)
         
         movement_motion = detector.get_motion_count()
         
@@ -687,7 +687,11 @@ class TestHampelFilterRealData:
         # Calculate raw turbulence
         raw_turbulence = []
         for pkt in all_packets:
-            turb = calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
+            turb = calculate_spatial_turbulence(
+                pkt['csi_data'],
+                default_subcarriers,
+                gain_locked=pkt.get('gain_locked', True)
+            )
             raw_turbulence.append(turb)
         
         # Apply Hampel filter
@@ -710,7 +714,11 @@ class TestHampelFilterRealData:
         hf_baseline = HampelFilter(window_size=7, threshold=4.0)
         baseline_turb = []
         for pkt in baseline_packets:
-            turb = calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
+            turb = calculate_spatial_turbulence(
+                pkt['csi_data'],
+                default_subcarriers,
+                gain_locked=pkt.get('gain_locked', True)
+            )
             filtered = hf_baseline.filter(turb)
             baseline_turb.append(filtered)
         
@@ -718,7 +726,11 @@ class TestHampelFilterRealData:
         hf_movement = HampelFilter(window_size=7, threshold=4.0)
         movement_turb = []
         for pkt in movement_packets:
-            turb = calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
+            turb = calculate_spatial_turbulence(
+                pkt['csi_data'],
+                default_subcarriers,
+                gain_locked=pkt.get('gain_locked', True)
+            )
             filtered = hf_movement.filter(turb)
             movement_turb.append(filtered)
         
@@ -1148,7 +1160,11 @@ class TestFloat32Stability:
         # Generate turbulence values
         turbulences = []
         for pkt in baseline_packets[:100]:
-            turb = calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
+            turb = calculate_spatial_turbulence(
+                pkt['csi_data'],
+                default_subcarriers,
+                gain_locked=pkt.get('gain_locked', True)
+            )
             turbulences.append(turb)
         
         window = turbulences[:50]

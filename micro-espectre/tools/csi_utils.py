@@ -1072,21 +1072,26 @@ from mvs_detector import MVSDetector as MVSDetectorNew
 # Utility Functions (delegate to SegmentationContext static methods)
 # ============================================================================
 
-def calculate_spatial_turbulence(csi_data, selected_subcarriers) -> float:
+def calculate_spatial_turbulence(csi_data, selected_subcarriers, gain_locked: bool = True) -> float:
     """
-    Calculate spatial turbulence (coefficient of variation of amplitudes)
+    Calculate spatial turbulence from CSI data with gain-lock-aware normalization.
     
     Delegates to SegmentationContext.compute_spatial_turbulence (static method).
-    Uses CV normalization (std/mean) which is gain-invariant.
+    If gain lock is not active, uses CV normalization (std/mean) for gain invariance.
+    If gain lock is active, uses raw standard deviation for better sensitivity.
     
     Args:
         csi_data: CSI data array (I/Q pairs)
         selected_subcarriers: List of subcarrier indices to use
+        gain_locked: True if AGC gain lock was active for this packet/file
     
     Returns:
-        float: Spatial turbulence value (CV-normalized)
+        float: Spatial turbulence value
     """
-    turbulence, _ = SegmentationContext.compute_spatial_turbulence(csi_data, selected_subcarriers)
+    use_cv_norm = not bool(gain_locked)
+    turbulence, _ = SegmentationContext.compute_spatial_turbulence(
+        csi_data, selected_subcarriers, use_cv_normalization=use_cv_norm
+    )
     return turbulence
 
 
@@ -1118,7 +1123,8 @@ class MVSDetector:
                  selected_subcarriers: List[int], track_data: bool = False,
                  enable_hampel: bool = False, hampel_window: int = 7,
                  hampel_threshold: float = 4.0,
-                 enable_lowpass: bool = False, lowpass_cutoff: float = 11.0):
+                 enable_lowpass: bool = False, lowpass_cutoff: float = 11.0,
+                 gain_locked: bool = True):
         """
         Initialize MVS detector
         
@@ -1132,11 +1138,13 @@ class MVSDetector:
             hampel_threshold: Hampel filter MAD threshold
             enable_lowpass: Enable low-pass filter for noise reduction
             lowpass_cutoff: Low-pass filter cutoff frequency in Hz
+            gain_locked: Default gain lock status for packets without metadata
         """
         self.window_size = window_size
         self.threshold = threshold
         self.selected_subcarriers = selected_subcarriers
         self.track_data = track_data
+        self.default_gain_locked = bool(gain_locked)
         
         # Use production SegmentationContext
         self._context = SegmentationContext(
@@ -1148,6 +1156,7 @@ class MVSDetector:
             enable_lowpass=enable_lowpass,
             lowpass_cutoff=lowpass_cutoff
         )
+        self._context.use_cv_normalization = not self.default_gain_locked
         
         self.state = 'IDLE'
         self.motion_packet_count = 0
@@ -1159,13 +1168,24 @@ class MVSDetector:
             self.moving_var_history: List[float] = []
             self.state_history: List[str] = []
     
-    def process_packet(self, csi_data):
+    def process_packet(self, packet_or_csi, gain_locked: Optional[bool] = None):
         """
         Process a single CSI packet
         
         Args:
-            csi_data: CSI data array (I/Q pairs)
+            packet_or_csi: Either packet dict with {'csi_data', 'gain_locked'} or CSI array
+            gain_locked: Optional gain lock override when passing raw CSI array
         """
+        if isinstance(packet_or_csi, dict):
+            csi_data = packet_or_csi['csi_data']
+            packet_gain_locked = bool(packet_or_csi.get('gain_locked', self.default_gain_locked))
+        else:
+            csi_data = packet_or_csi
+            packet_gain_locked = self.default_gain_locked if gain_locked is None else bool(gain_locked)
+        
+        # Apply packet-aware normalization mode before turbulence calculation.
+        self._context.use_cv_normalization = not packet_gain_locked
+        
         # Calculate turbulence using SegmentationContext method
         turb = self._context.calculate_spatial_turbulence(csi_data, self.selected_subcarriers)
         
@@ -1220,13 +1240,13 @@ def test_mvs_configuration(baseline_packets, movement_packets,
     # Test on baseline (FP)
     detector = MVSDetector(window_size, threshold, subcarriers)
     for pkt in baseline_packets:
-        detector.process_packet(pkt['csi_data'])
+        detector.process_packet(pkt)
     fp = detector.get_motion_count()
     
     # Test on movement (TP)
     detector.reset()
     for pkt in movement_packets:
-        detector.process_packet(pkt['csi_data'])
+        detector.process_packet(pkt)
     tp = detector.get_motion_count()
     
     # Calculate score

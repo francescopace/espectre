@@ -209,10 +209,10 @@ class NBVICalibrator:
             
             if q_idx < csi_len:
                 # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-                Q = to_signed_int8(csi_data[sc * 2])   # Imaginary first
-                I = to_signed_int8(csi_data[q_idx])     # Real second
-                # I*I avoids float() conversion: I ∈ [-127,127] so I*I ≤ 32258,
-                # exact in float64, same result as float(I)*float(I).
+                # Cast to Python int to avoid numpy int8 overflow on I*I / Q*Q.
+                Q = int(to_signed_int8(csi_data[sc * 2]))   # Imaginary first
+                I = int(to_signed_int8(csi_data[q_idx]))    # Real second
+                # Integer arithmetic: I ∈ [-127,127] so I*I + Q*Q <= 32258.
                 mag = int(_sqrt(I*I + Q*Q))
                 self._write_buf[buf_offset + sc] = min(mag, 255)
             else:

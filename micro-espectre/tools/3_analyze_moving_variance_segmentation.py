@@ -187,7 +187,7 @@ def evaluate_subcarriers(baseline_packets, movement_packets, subcarriers, thresh
                                      enable_lowpass=ENABLE_LOWPASS,
                                      lowpass_cutoff=LOWPASS_CUTOFF)
     for pkt in baseline_packets:
-        detector_baseline.process_packet(pkt['csi_data'])
+        detector_baseline.process_packet(pkt)
     
     # Use external adaptive threshold if provided, otherwise calculate from baseline
     if external_adaptive_threshold is not None:
@@ -206,7 +206,7 @@ def evaluate_subcarriers(baseline_packets, movement_packets, subcarriers, thresh
                                      enable_lowpass=ENABLE_LOWPASS,
                                      lowpass_cutoff=LOWPASS_CUTOFF)
     for pkt in movement_packets:
-        detector_movement.process_packet(pkt['csi_data'])
+        detector_movement.process_packet(pkt)
     
     # Calculate metrics using effective threshold
     if use_adaptive_threshold:

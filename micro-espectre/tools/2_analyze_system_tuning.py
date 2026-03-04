@@ -391,7 +391,7 @@ def print_confusion_matrix(baseline_packets, movement_packets, subcarriers, thre
     
     # Test on baseline (FP = packets incorrectly classified as motion)
     for pkt in baseline_packets:
-        detector.process_packet(pkt['csi_data'])
+        detector.process_packet(pkt)
     fp = detector.get_motion_count()
     tn = num_baseline - fp
     
@@ -403,7 +403,7 @@ def print_confusion_matrix(baseline_packets, movement_packets, subcarriers, thre
     # Test on movement (TP = packets correctly classified as motion)
     # Buffer is already warm from baseline processing
     for pkt in movement_packets:
-        detector.process_packet(pkt['csi_data'])
+        detector.process_packet(pkt)
     tp = detector.get_motion_count()
     fn = num_movement - tp
     
