@@ -23,7 +23,7 @@ import time
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     load_baseline_and_movement, MVSDetector, find_dataset,
-    calculate_variance_two_pass, NBVICalibrator, HampelFilter, DEFAULT_SUBCARRIERS
+    NBVICalibrator, DEFAULT_SUBCARRIERS
 )
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,

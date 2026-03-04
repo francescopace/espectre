@@ -75,7 +75,6 @@ def suppress_stderr():
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
-    load_baseline_and_movement,
     load_npz_as_packets,
     DATA_DIR,
     DEFAULT_SUBCARRIERS,

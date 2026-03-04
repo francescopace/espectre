@@ -22,7 +22,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 import socket
-import struct
 import time
 import gc
 import os

@@ -21,7 +21,6 @@ from csi_utils import (
     calculate_spatial_turbulence, load_baseline_and_movement,
     find_dataset, DATA_DIR, DEFAULT_SUBCARRIERS
 )
-from config import SEG_WINDOW_SIZE
 
 # Alias for backward compatibility
 SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS

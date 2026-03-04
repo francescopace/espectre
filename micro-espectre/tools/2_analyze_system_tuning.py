@@ -16,12 +16,11 @@ License: GPLv3
 
 import numpy as np
 import argparse
-from itertools import combinations
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     load_npz_as_packets, test_mvs_configuration, MVSDetector,
-    calculate_spatial_turbulence, find_dataset, DEFAULT_SUBCARRIERS
+    find_dataset, DEFAULT_SUBCARRIERS
 )
 from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
 

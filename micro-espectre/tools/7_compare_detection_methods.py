@@ -27,7 +27,6 @@ from csi_utils import (
     DEFAULT_SUBCARRIERS
 )
 from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
-from threshold import calculate_adaptive_threshold
 from segmentation import SegmentationContext
 from features import (
     calc_skewness, calc_kurtosis, calc_entropy_turb,
