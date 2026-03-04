@@ -195,6 +195,28 @@ python 9_compare_chips.py --plot
 
 ---
 
+### 10. ML Model Training (`10_train_ml_model.py`)
+
+**Purpose**: Train, evaluate, and export the production ML model
+
+- Trains the MLP detector with weighted binary cross-entropy
+- Supports architecture experiments and feature-importance analysis
+- Exports weights for both platforms:
+  - `micro-espectre/src/ml_weights.py`
+  - `components/espectre/ml_weights.h`
+
+```bash
+python 10_train_ml_model.py                # Train with default settings
+python 10_train_ml_model.py --info         # Show dataset and split info
+python 10_train_ml_model.py --experiment   # Compare model architectures
+python 10_train_ml_model.py --fp-weight 2.0  # Penalize false positives 2x
+python 10_train_ml_model.py --shap         # Show SHAP feature importance
+```
+
+For full training workflow and dataset preparation, see [ML_DATA_COLLECTION.md](../ML_DATA_COLLECTION.md#5-train-model).
+
+---
+
 ## Usage Examples
 
 ### Basic Analysis Workflow

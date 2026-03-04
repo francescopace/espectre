@@ -24,10 +24,11 @@
 namespace esphome {
 namespace espectre {
 
-// ML-specific constants
-constexpr float ML_DEFAULT_THRESHOLD = 0.5f;
+// ML-specific constants (unified with MVS for consistent UI)
+constexpr float ML_DEFAULT_THRESHOLD = 5.0f;
 constexpr float ML_MIN_THRESHOLD = 0.0f;
-constexpr float ML_MAX_THRESHOLD = 1.0f;
+constexpr float ML_MAX_THRESHOLD = 10.0f;
+constexpr float ML_METRIC_SCALE = 10.0f;
 
 // Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
 // These must match the subcarriers used during model training
@@ -45,7 +46,7 @@ public:
      * Constructor
      * 
      * @param window_size Feature extraction window size (10-200 packets)
-     * @param threshold Motion probability threshold (0.0-1.0)
+     * @param threshold Motion detection threshold (0.0-10.0, unified with MVS)
      */
     MLDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE, 
                float threshold = ML_DEFAULT_THRESHOLD);
@@ -82,7 +83,7 @@ private:
      * Architecture: 12 -> 16 (ReLU) -> 8 (ReLU) -> 1 (Sigmoid)
      * 
      * @param features Normalized feature vector (12 values)
-     * @return Motion probability (0.0-1.0)
+     * @return Scaled motion metric (0.0-10.0, unified with MVS)
      */
     float predict(const float* features);
     

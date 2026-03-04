@@ -18,9 +18,10 @@ from src.config import (
     SEG_WINDOW_SIZE_MAX
 )
 
-# Threshold limits
+# Threshold limits (unified with MVS/ML detector runtime validation)
 SEG_THRESHOLD_MIN = 0.0
 SEG_THRESHOLD_MAX = 10.0
+ML_DEFAULT_THRESHOLD = 5.0
 
 class MQTTCommands:
     """MQTT command processor"""
@@ -223,7 +224,7 @@ class MQTTCommands:
                 "avg_loop_ms": self.traffic_gen.get_avg_loop_time_ms()
             }
         
-        # Get motion metric (turbulence for MVS, probability for ML)
+        # Get motion metric (moving variance for MVS, scaled metric for ML)
         motion_metric = self.detector.get_motion_metric()
         turbulence = self.detector._context.last_turbulence if self._is_mvs else 0.0
         
@@ -256,7 +257,11 @@ class MQTTCommands:
                 return
             
             old_threshold = self.detector.get_threshold()
-            self.detector.set_threshold(threshold)
+            if not self.detector.set_threshold(threshold):
+                self.send_response(
+                    f"ERROR: Threshold rejected by detector (allowed range: {SEG_THRESHOLD_MIN}-{SEG_THRESHOLD_MAX})"
+                )
+                return
             
             # Note: threshold is session-only, adaptive threshold is recalculated on every boot
             
@@ -309,7 +314,7 @@ class MQTTCommands:
         
         # Reset detector
         self.detector.reset()
-        self.detector.set_threshold(1.0 if self._is_mvs else 0.01)
+        self.detector.set_threshold(1.0 if self._is_mvs else ML_DEFAULT_THRESHOLD)
         
         # Reset MVS-specific parameters
         if self._is_mvs:

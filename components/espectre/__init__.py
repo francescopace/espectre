@@ -61,7 +61,7 @@ CONF_GAIN_LOCK = "gain_lock"
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
 
 # Threshold limits (keep in sync with csi_processor.h)
-THRESHOLD_MIN = 0.1
+THRESHOLD_MIN = 0.0
 THRESHOLD_MAX = 10.0
 THRESHOLD_DEFAULT = 1.0
 
@@ -105,7 +105,7 @@ CONFIG_SCHEMA = cv.Schema({
     # segmentation_threshold:
     #   - auto (default): P95 × 1.1 - balanced sensitivity/false positives
     #   - min: P100 - maximum sensitivity (may have FP)
-    #   - number (0.1-10.0): fixed manual threshold
+    #   - number (0.0-10.0): fixed manual threshold
     cv.Optional(CONF_SEGMENTATION_THRESHOLD, default="auto"): validate_segmentation_threshold,
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=75): cv.int_range(min=10, max=200),
     

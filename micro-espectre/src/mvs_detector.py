@@ -116,7 +116,7 @@ class MVSDetector(IDetector):
     
     def set_threshold(self, threshold):
         """Set detection threshold."""
-        if 0.1 <= threshold <= 10.0:
+        if 0.0 <= threshold <= 10.0:
             self._context.threshold = threshold
             return True
         return False

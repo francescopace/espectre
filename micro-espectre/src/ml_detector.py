@@ -38,6 +38,12 @@ except ImportError:
 # Re-export for convenience
 __all__ = ['MLDetector', 'predict', 'is_motion', 'ML_SUBCARRIERS']
 
+# ML-specific constants (unified with MVS for consistent UI)
+ML_DEFAULT_THRESHOLD = 5.0
+ML_MIN_THRESHOLD = 0.0
+ML_MAX_THRESHOLD = 10.0
+ML_METRIC_SCALE = 10.0
+
 # Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
 # These must match the subcarriers used during model training
 ML_SUBCARRIERS = [11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]
@@ -79,7 +85,7 @@ def predict(features):
         features: List of 12 feature values
     
     Returns:
-        float: Motion probability (0.0 to 1.0)
+        float: Scaled motion metric (0.0 to 10.0)
     """
     # Normalize
     x = normalize_features(features)
@@ -105,16 +111,16 @@ def predict(features):
     for i in range(8):
         out += h2[i] * W3[i][0]
     
-    return sigmoid(out)
+    return sigmoid(out) * ML_METRIC_SCALE
 
 
-def is_motion(features, threshold=0.5):
+def is_motion(features, threshold=ML_DEFAULT_THRESHOLD):
     """
     Detect motion from features.
     
     Args:
         features: List of 12 feature values
-        threshold: Detection threshold (default: 0.5)
+        threshold: Detection threshold (default: 5.0)
     
     Returns:
         bool: True if motion detected
@@ -142,7 +148,7 @@ class MLDetector(IDetector):
     5. Compare probability to threshold for state decision
     """
     
-    def __init__(self, window_size=75, threshold=0.5,
+    def __init__(self, window_size=75, threshold=ML_DEFAULT_THRESHOLD,
                  enable_lowpass=False, lowpass_cutoff=11.0,
                  enable_hampel=False, hampel_window=7, hampel_threshold=4.0,
                  use_cv_normalization=False):
@@ -151,7 +157,7 @@ class MLDetector(IDetector):
         
         Args:
             window_size: Feature extraction window size (default: 75, matches C++ DETECTOR_DEFAULT_WINDOW_SIZE)
-            threshold: Motion probability threshold (default: 0.5)
+            threshold: Motion detection threshold (default: 5.0, range 0.0-10.0)
             enable_lowpass: Enable low-pass filter (default: False)
             lowpass_cutoff: Low-pass cutoff frequency Hz (default: 11.0)
             enable_hampel: Enable Hampel filter (default: False)
@@ -294,8 +300,8 @@ class MLDetector(IDetector):
         return self._threshold
     
     def set_threshold(self, threshold):
-        """Set probability threshold."""
-        if 0.0 <= threshold <= 1.0:
+        """Set threshold (range 0.0-10.0, unified with MVS)."""
+        if ML_MIN_THRESHOLD <= threshold <= ML_MAX_THRESHOLD:
             self._threshold = threshold
             return True
         return False

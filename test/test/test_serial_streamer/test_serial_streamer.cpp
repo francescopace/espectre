@@ -219,9 +219,9 @@ void test_process_command_threshold_minimum(void) {
         received_threshold = value;
     });
     
-    streamer.process_command("T:0.1");
+    streamer.process_command("T:0.0");
     
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.1f, received_threshold);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, received_threshold);
 }
 
 void test_process_command_threshold_maximum(void) {
@@ -243,7 +243,7 @@ void test_process_command_threshold_too_low(void) {
         received_threshold = value;
     });
     
-    streamer.process_command("T:0.05");  // Below minimum 0.1
+    streamer.process_command("T:-0.1");  // Below minimum 0.0
     
     // Callback should NOT be called for invalid values
     TEST_ASSERT_FLOAT_WITHIN(0.01f, -1.0f, received_threshold);

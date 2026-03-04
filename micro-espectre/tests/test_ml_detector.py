@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.ml_detector import (
     relu, sigmoid, normalize_features, predict, is_motion,
-    MLDetector
+    MLDetector, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE
 )
 from src.detector_interface import MotionState
 
@@ -109,7 +109,7 @@ class TestPredict:
         assert isinstance(result, float)
     
     def test_predict_output_range(self):
-        """Prediction is always in [0, 1]."""
+        """Prediction is always in [0, 10]."""
         # Test with various feature combinations
         test_cases = [
             [0.0] * 12,  # All zeros
@@ -118,7 +118,7 @@ class TestPredict:
         ]
         for features in test_cases:
             result = predict(features)
-            assert 0.0 <= result <= 1.0
+            assert 0.0 <= result <= ML_METRIC_SCALE
     
     def test_predict_different_inputs_different_outputs(self):
         """Different inputs produce different outputs."""
@@ -151,10 +151,10 @@ class TestIsMotion:
         assert isinstance(result, bool)
     
     def test_is_motion_default_threshold(self):
-        """Default threshold is 0.5."""
+        """Default threshold is 5.0."""
         features = [5.0] * 12
         prob = predict(features)
-        expected = prob > 0.5
+        expected = prob > ML_DEFAULT_THRESHOLD
         assert is_motion(features) == expected
     
     def test_is_motion_custom_threshold(self):
@@ -175,15 +175,15 @@ class TestMLDetector:
     def test_initialization_defaults(self):
         """Test default initialization."""
         detector = MLDetector()
-        assert detector._threshold == 0.5
+        assert detector._threshold == ML_DEFAULT_THRESHOLD
         assert detector._state == MotionState.IDLE
         assert detector._packet_count == 0
         assert detector.track_data == False
     
     def test_initialization_custom_params(self):
         """Test initialization with custom parameters."""
-        detector = MLDetector(window_size=100, threshold=0.7)
-        assert detector._threshold == 0.7
+        detector = MLDetector(window_size=100, threshold=7.0)
+        assert detector._threshold == 7.0
         assert detector._context.window_size == 100
     
     def test_get_name(self):
@@ -198,20 +198,20 @@ class TestMLDetector:
     
     def test_get_threshold(self):
         """Test get_threshold."""
-        detector = MLDetector(threshold=0.6)
-        assert detector.get_threshold() == 0.6
+        detector = MLDetector(threshold=6.0)
+        assert detector.get_threshold() == 6.0
     
     def test_set_threshold_valid(self):
         """Test setting valid threshold."""
         detector = MLDetector()
-        assert detector.set_threshold(0.7) == True
-        assert detector._threshold == 0.7
+        assert detector.set_threshold(7.0) == True
+        assert detector._threshold == 7.0
     
     def test_set_threshold_invalid(self):
         """Test setting invalid threshold."""
         detector = MLDetector()
         original = detector._threshold
-        assert detector.set_threshold(1.5) == False
+        assert detector.set_threshold(10.1) == False
         assert detector.set_threshold(-0.1) == False
         assert detector._threshold == original
     
@@ -255,7 +255,7 @@ class TestMLDetectorProcessing:
     @pytest.fixture
     def detector(self):
         """Create a detector with small window for testing."""
-        return MLDetector(window_size=10, threshold=0.5)
+        return MLDetector(window_size=10, threshold=ML_DEFAULT_THRESHOLD)
     
     @pytest.fixture
     def sample_csi_data(self):
@@ -290,7 +290,7 @@ class TestMLDetectorProcessing:
         
         assert metrics['state'] == MotionState.IDLE
         assert metrics['probability'] == 0.0
-        assert metrics['threshold'] == 0.5
+        assert metrics['threshold'] == ML_DEFAULT_THRESHOLD
     
     def test_update_state_after_ready(self, detector, sample_csi_data):
         """Update state after buffer is full runs inference."""
@@ -303,7 +303,7 @@ class TestMLDetectorProcessing:
         assert 'state' in metrics
         assert 'probability' in metrics
         assert 'threshold' in metrics
-        assert 0.0 <= metrics['probability'] <= 1.0
+        assert 0.0 <= metrics['probability'] <= ML_METRIC_SCALE
     
     def test_tracking_enabled(self, detector, sample_csi_data):
         """Test that tracking records data when enabled."""

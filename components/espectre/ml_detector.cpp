@@ -145,10 +145,10 @@ float MLDetector::predict(const float* features) {
         out += h2[i] * ML_W3[i][0];
     }
     
-    // Sigmoid with overflow protection
+    // Sigmoid with overflow protection and scaling to 0-10 range
     if (out < -20.0f) return 0.0f;
-    if (out > 20.0f) return 1.0f;
-    return 1.0f / (1.0f + std::exp(-out));
+    if (out > 20.0f) return ML_METRIC_SCALE;
+    return (1.0f / (1.0f + std::exp(-out))) * ML_METRIC_SCALE;
 }
 
 }  // namespace espectre

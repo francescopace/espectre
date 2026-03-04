@@ -993,13 +993,13 @@ class TestPerformanceMetrics:
         # CV normalization only for chips without gain lock
         # ========================================
         detector = MLDetector(
-            threshold=0.5,  # Default probability threshold
+            threshold=5.0,  # Default scaled threshold (0.1-10.0)
             window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
             use_cv_normalization=use_cv_normalization
         )
         
         print(f"\nML Detector initialized")
-        print(f"  Threshold: 0.5")
+        print(f"  Threshold: 5.0")
         print(f"  Window size: {DETECTOR_DEFAULT_WINDOW_SIZE} (DETECTOR_DEFAULT_WINDOW_SIZE)")
         print(f"  Subcarriers: {ml_subcarriers} (fixed for ML)")
         

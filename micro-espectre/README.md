@@ -403,7 +403,7 @@ CALIBRATION_ALGORITHM = "nbvi"  # NBVI is the sole calibration algorithm
 ### 4. Detection Parameters (MVS only)
 
 ```python
-SEG_THRESHOLD = "auto"     # "auto" (adaptive), "min" (max baseline), or 0.1-10.0
+SEG_THRESHOLD = "auto"     # "auto" (adaptive), "min" (max baseline), or 0.0-10.0
 SEG_WINDOW_SIZE = 75       # Moving variance window (10-200 packets)
 ```
 

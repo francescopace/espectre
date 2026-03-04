@@ -86,8 +86,8 @@ void test_mvs_detector_set_threshold_below_min(void) {
     MVSDetector detector;
     float original = detector.get_threshold();
     
-    // Min threshold is 1e-9 (lowered for CV normalization)
-    TEST_ASSERT_FALSE(detector.set_threshold(1e-10f));
+    // Min threshold is 0.0
+    TEST_ASSERT_FALSE(detector.set_threshold(-0.1f));
     TEST_ASSERT_EQUAL_FLOAT(original, detector.get_threshold());
 }
 

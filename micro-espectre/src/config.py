@@ -47,7 +47,7 @@ CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect
 # SEG_THRESHOLD can be:
 #   - "auto" (default): adaptive threshold based on baseline noise
 #   - "min": maximum sensitivity (may have false positives)
-#   - a number (0.1-10.0): fixed manual threshold
+#   - a number (0.0-10.0): fixed manual threshold
 SEG_THRESHOLD = "auto"
 SEG_WINDOW_SIZE = 75          # Moving variance window (packets) - used by both MVS and Features
 SEG_WINDOW_SIZE_MIN = 10      # Minimum window size

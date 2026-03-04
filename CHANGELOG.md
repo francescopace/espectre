@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.5.2] - in progress - Unified 0.0-10.0 Threshold Range
+
+### Fixed
+
+- **Threshold range consistency across all stacks**: Motion threshold validation is now aligned to `0.0-10.0` in ESPHome/C++ and Micro-ESPectre/Python, including Home Assistant number control, Serial streamer command parsing, MQTT runtime commands, and detector-level setters
+- **ML runtime threshold handling**: MQTT command processing now validates and propagates detector-level threshold rejections correctly, avoiding false success responses when a value is outside the effective detector constraints
+- **Factory reset ML default (Micro-ESPectre)**: `factory_reset` now restores the ML threshold to `5.0` (scaled metric default) instead of using a too-low out-of-range fallback
+
+### Changed
+
+- **Documentation alignment**: Updated threshold ranges and notes in `SETUP.md`, `TUNING.md`, and `micro-espectre/README.md` to reflect the unified `0.0-10.0` behavior
+- **Test suite alignment**: Updated Python and C++ threshold boundary tests (MVS/ML/MQTT/Serial streamer) to the new minimum threshold and kept full suite compatibility
+
+---
+
 ## [2.5.1] - 2026-02-23 - HT STBC Multi-Antenna Router Fix
 
 ### Fixed

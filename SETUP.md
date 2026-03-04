@@ -226,7 +226,7 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0-1000, 0=disabled) |
 | `traffic_generator_mode` | string | dns | Traffic generator mode: `dns` (UDP queries) or `ping` (ICMP) |
 | `publish_interval` | int | auto | Packets between sensor updates (default: same as traffic_generator_rate, or 100 if traffic is 0) |
-| `segmentation_threshold` | string/float | auto | Threshold: `auto`, `min`, or number (MVS: 0.1-10.0, ML: 0.0-1.0) |
+| `segmentation_threshold` | string/float | auto | Threshold: `auto`, `min`, or number (0.0-10.0 for both MVS and ML) |
 | `segmentation_window_size` | int | 75 | Moving variance window in packets (10-200) |
 | `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
 | `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction (MVS and ML) |
@@ -252,9 +252,10 @@ espectre:
   detection_algorithm: mvs  # or ml
 ```
 
-**Threshold ranges:**
-- MVS: 0.1 - 10.0 (default: auto, adaptive based on baseline noise)
-- ML: 0.0 - 1.0 (default: 0.5, probability)
+**Threshold ranges (unified for both algorithms):**
+- Range: 0.0 - 10.0
+- MVS default: `auto` (adaptive based on baseline noise)
+- ML default: 5.0 (equivalent to 0.5 probability)
 
 ### Integrated Sensors (Created Automatically)
 
@@ -616,7 +617,7 @@ With default `segmentation_window_size: 75`, the calibration collects 750 packet
 
 Room must be quiet during the entire ~10 second calibration.
 
-**Sensor placement:** Position the sensor 2-8 meters from your access point for optimal performance. See [Sensor Placement](TUNING.md#sensor-placement) in the Tuning Guide for details.
+**Sensor placement:** Position the sensor 3-8 meters from your access point for optimal performance. See [Sensor Placement](TUNING.md#sensor-placement) in the Tuning Guide for details.
 
 **Gain lock modes:** The `gain_lock` parameter (`auto`/`enabled`/`disabled`) controls AGC stabilization. See [Gain Lock](TUNING.md#gain-lock) in the Tuning Guide.
 
@@ -756,9 +757,11 @@ spiffs,   data, spiffs,  0x7D0000, 0x30000,
 2. Check for interference sources (fans, AC, moving curtains)
 3. Increase `segmentation_window_size` for more stable detection
 
-### Calibration fails
+### Calibration fails (MVS only)
 
-1. Ensure room is quiet during calibration (first 5-10 seconds after boot)
+Applies only when `detector_algorithm: mvs` (default). The `ml` detector does not use NBVI calibration.
+
+1. Ensure room is quiet during calibration (first 10 seconds after boot)
 2. Check traffic generator is running
 3. Verify WiFi connection is stable
 

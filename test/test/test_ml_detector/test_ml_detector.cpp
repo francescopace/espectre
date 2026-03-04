@@ -98,10 +98,10 @@ void test_ml_detector_default_constructor(void) {
 }
 
 void test_ml_detector_custom_constructor(void) {
-    MLDetector detector(100, 0.7f);
+    MLDetector detector(100, 7.0f);
     
     TEST_ASSERT_EQUAL(100, detector.get_window_size());
-    TEST_ASSERT_EQUAL_FLOAT(0.7f, detector.get_threshold());
+    TEST_ASSERT_EQUAL_FLOAT(7.0f, detector.get_threshold());
 }
 
 void test_ml_detector_get_name(void) {
@@ -117,8 +117,8 @@ void test_ml_detector_get_name(void) {
 void test_ml_detector_set_threshold_valid(void) {
     MLDetector detector;
     
-    TEST_ASSERT_TRUE(detector.set_threshold(0.7f));
-    TEST_ASSERT_EQUAL_FLOAT(0.7f, detector.get_threshold());
+    TEST_ASSERT_TRUE(detector.set_threshold(7.0f));
+    TEST_ASSERT_EQUAL_FLOAT(7.0f, detector.get_threshold());
 }
 
 void test_ml_detector_set_threshold_min(void) {
@@ -147,7 +147,7 @@ void test_ml_detector_set_threshold_above_max(void) {
     MLDetector detector;
     float original = detector.get_threshold();
     
-    TEST_ASSERT_FALSE(detector.set_threshold(1.1f));
+    TEST_ASSERT_FALSE(detector.set_threshold(10.1f));
     TEST_ASSERT_EQUAL_FLOAT(original, detector.get_threshold());
 }
 
@@ -190,10 +190,10 @@ static float run_inference(const float* features) {
         out += h2[i] * ML_W3[i][0];
     }
     
-    // Sigmoid with overflow protection
+    // Sigmoid with overflow protection and scaling to 0-10
     if (out < -20.0f) return 0.0f;
-    if (out > 20.0f) return 1.0f;
-    return 1.0f / (1.0f + std::exp(-out));
+    if (out > 20.0f) return ML_METRIC_SCALE;
+    return (1.0f / (1.0f + std::exp(-out))) * ML_METRIC_SCALE;
 }
 
 void test_ml_inference_matches_reference(void) {
@@ -202,7 +202,7 @@ void test_ml_inference_matches_reference(void) {
     
     for (int i = 0; i < num_test_samples; i++) {
         float result = run_inference(test_features[i].data());
-        float expected = test_expected[i];
+        float expected = test_expected[i] * ML_METRIC_SCALE;
         float error = std::abs(result - expected);
         
         ESP_LOGD(TAG, "Sample %d (idx=%d): expected=%.6f, got=%.6f, error=%.2e",
@@ -219,18 +219,18 @@ void test_ml_inference_output_range(void) {
         float result = run_inference(test_features[i].data());
         
         TEST_ASSERT_TRUE(result >= 0.0f);
-        TEST_ASSERT_TRUE(result <= 1.0f);
+        TEST_ASSERT_TRUE(result <= ML_METRIC_SCALE);
     }
 }
 
 void test_ml_inference_classification(void) {
     // Test that motion/idle classification is correct
-    const float THRESHOLD = 0.5f;
+    const float THRESHOLD = ML_DEFAULT_THRESHOLD;
     TEST_ASSERT_TRUE_MESSAGE(num_test_samples > 0, "No test data loaded");
     
     for (int i = 0; i < num_test_samples; i++) {
         float result = run_inference(test_features[i].data());
-        float expected = test_expected[i];
+        float expected = test_expected[i] * ML_METRIC_SCALE;
         
         bool result_motion = (result > THRESHOLD);
         bool expected_motion = (expected > THRESHOLD);

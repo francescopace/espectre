@@ -108,8 +108,8 @@ class TestMVSDetectorBasics:
         detector = MVSDetector()
         original = detector.get_threshold()
         
-        # Too low
-        result = detector.set_threshold(0.05)
+        # Too low (new minimum is 0.0)
+        result = detector.set_threshold(-0.1)
         assert result is False
         assert detector.get_threshold() == original
         

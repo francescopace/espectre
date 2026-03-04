@@ -57,7 +57,7 @@ espectre:
 |-------|-------------|
 | `auto` | Adaptive threshold - Minimizes false positives (default) |
 | `min` | Maximum sensitivity (may have false positives) |
-| `0.1-10.0` | Fixed manual threshold |
+| `0.0-10.0` | Fixed manual threshold |
 
 **Examples:**
 ```yaml
@@ -100,7 +100,7 @@ esphome run <your-config>.yaml
 **Configuration:**
 ```yaml
 espectre:
-  segmentation_threshold: auto  # or "min" or a number (0.1-10.0)
+  segmentation_threshold: auto  # or "min" or a number (0.0-10.0)
 ```
 
 | Value | Formula | Effect |
@@ -124,12 +124,12 @@ espectre:
 
 | Algorithm | Description | Threshold Range | Best For |
 |-----------|-------------|-----------------|----------|
-| `mvs` | Moving Variance Segmentation | 0.1 - 10.0 | General purpose, adaptive |
-| `ml` | Neural Network (MLP 12→16→8→1) | 0.0 - 1.0 | Higher accuracy |
+| `mvs` | Moving Variance Segmentation | 0.0 - 10.0 | General purpose, adaptive |
+| `ml` | Neural Network (MLP 12→16→8→1) | 0.0 - 10.0 (scaled metric) | Higher accuracy |
 
 **ML Detector Notes:**
 - Uses fixed subcarriers `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]` for consistency with training
-- Threshold is a probability (0.5 = 50% confidence)
+- Motion decision uses a scaled ML metric with default threshold `5.0` (range `0.0-10.0`, aligned with MVS UI)
 - Pre-trained weights are embedded in the component (no external files needed)
 - Architecture validated as optimal (12→16→8→1, 353 params, 1.4 KB) via 5-fold CV
 - Training uses early stopping, dropout, class weights, and LR scheduling
@@ -404,7 +404,7 @@ The distance between the ESP32 sensor and your WiFi access point (AP) significan
 |----------|------|-----|--------|-------|
 | < 0.5m | > -30 dB | 0-15 | System may freeze | Too close, signal saturated |
 | 0.5-2m | -30 to -40 dB | 15-30 | Marginal | Works with `gain_lock: disabled` |
-| **2-8m** | -40 to -70 dB | **30-60** | **Optimal** | Best CSI quality and stability |
+| **3-8m** | -40 to -70 dB | **30-60** | **Optimal** | Best CSI quality and stability |
 | 8-15m | -70 to -80 dB | 60-80 | Good | Still reliable detection |
 | > 15m | < -80 dB | > 80 | Reduced quality | Weaker signal, more noise |
 
@@ -681,9 +681,9 @@ Use **History** graphs to visualize detection patterns over time.
 2. **One change at a time:** Adjust one parameter, re-flash, test for 5-10 minutes
 3. **Document your settings:** Note what works for your environment
 4. **Seasonal adjustments:** Retune when furniture changes or new interference sources appear
-5. **Distance matters:** Keep sensor 2-8m from router (RSSI between -40 and -70 dB for best results)
+5. **Distance matters:** Keep sensor 3-8m from router (RSSI between -40 and -70 dB for best results)
 6. **Check AGC value:** After boot, look for "Gain locked: AGC=XX" - values 30-60 are optimal
-7. **Quiet calibration:** Ensure no movement during first 5-10 seconds after boot
+7. **Quiet calibration:** Ensure no movement during first 10 seconds after boot
 8. **Try the game:** Use [ESPectre - The Game](https://espectre.dev/game) for interactive threshold tuning with real-time visual feedback
 
 ---

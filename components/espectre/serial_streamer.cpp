@@ -87,13 +87,13 @@ void SerialStreamer::process_command_(const char* cmd) {
   } else if (strncmp(cmd, "T:", 2) == 0) {
     // Threshold command: T:X.XX
     float threshold = atof(cmd + 2);
-    if (threshold >= 0.1f && threshold <= 10.0f) {
+    if (threshold >= 0.0f && threshold <= 10.0f) {
       ESP_LOGI(TAG, "Threshold set via serial: %.2f", threshold);
       if (threshold_callback_) {
         threshold_callback_(threshold);
       }
     } else {
-      ESP_LOGW(TAG, "Invalid threshold value: %.2f (must be 0.1-10.0)", threshold);
+      ESP_LOGW(TAG, "Invalid threshold value: %.2f (must be 0.0-10.0)", threshold);
     }
   }
   // Ignore other commands (could be ESPHome debug commands)

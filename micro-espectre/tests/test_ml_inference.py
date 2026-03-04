@@ -20,7 +20,7 @@ src_path = str(Path(__file__).parent.parent / 'src')
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from ml_detector import predict
+from ml_detector import predict, ML_METRIC_SCALE, ML_DEFAULT_THRESHOLD
 
 # Test data path
 MODELS_DIR = Path(__file__).parent.parent / 'models'
@@ -47,7 +47,7 @@ class TestMLInferenceAccuracy:
         
         for i in range(num_samples):
             features = self.features[i].tolist()
-            expected = self.expected_outputs[i]
+            expected = self.expected_outputs[i] * ML_METRIC_SCALE
             
             result = predict(features)
             error = abs(result - expected)
@@ -68,7 +68,7 @@ class TestMLInferenceAccuracy:
         
         for i in range(len(self.features)):
             features = self.features[i].tolist()
-            expected = self.expected_outputs[i]
+            expected = self.expected_outputs[i] * ML_METRIC_SCALE
             result = predict(features)
             errors.append(abs(result - expected))
         
@@ -83,13 +83,13 @@ class TestMLInferenceAccuracy:
         assert max_error < 1e-3, f"Max error {max_error:.2e} exceeds tolerance"
     
     def test_output_range(self):
-        """Verify outputs are in valid probability range [0, 1]."""
+        """Verify outputs are in valid scaled range [0, 10]."""
         for i in range(len(self.features)):
             features = self.features[i].tolist()
             result = predict(features)
             
-            assert 0.0 <= result <= 1.0, (
-                f"Sample {i}: output {result} outside [0, 1] range"
+            assert 0.0 <= result <= ML_METRIC_SCALE, (
+                f"Sample {i}: output {result} outside [0, {ML_METRIC_SCALE}] range"
             )
 
 
@@ -148,10 +148,10 @@ class TestMLDetectorIntegration:
         """Test MLDetector initialization."""
         from ml_detector import MLDetector
         
-        detector = MLDetector(window_size=50, threshold=0.5)
+        detector = MLDetector(window_size=50, threshold=ML_DEFAULT_THRESHOLD)
         assert detector is not None
         assert detector.get_name() == "ML"
-        assert detector.get_threshold() == 0.5
+        assert detector.get_threshold() == ML_DEFAULT_THRESHOLD
     
     def test_mldetector_threshold_bounds(self):
         """Test threshold validation."""
@@ -161,9 +161,9 @@ class TestMLDetectorIntegration:
         
         # Valid thresholds
         assert detector.set_threshold(0.0)
-        assert detector.set_threshold(1.0)
-        assert detector.set_threshold(0.5)
+        assert detector.set_threshold(10.0)
+        assert detector.set_threshold(ML_DEFAULT_THRESHOLD)
         
         # Invalid thresholds
         assert not detector.set_threshold(-0.1)
-        assert not detector.set_threshold(1.1)
+        assert not detector.set_threshold(10.1)
