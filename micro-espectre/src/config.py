@@ -8,6 +8,9 @@ License: GPLv3
 # WiFi Configuration
 WIFI_SSID = "YourSSID"
 WIFI_PASSWORD = "YourPassword"
+# Optional AP lock for mesh/repeater environments.
+# Format: "AA:BB:CC:DD:EE:FF" (or without separators).
+# WIFI_BSSID = "AA:BB:CC:DD:EE:FF"
 
 # MQTT Configuration
 MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP

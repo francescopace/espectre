@@ -20,7 +20,6 @@ try:
     from src.detector_interface import IDetector, MotionState
     from src.segmentation import SegmentationContext
     from src.features import extract_features_by_name, DEFAULT_FEATURES
-    from src.utils import extract_phases
     from src.ml_weights import (
         FEATURE_MEAN, FEATURE_SCALE,
         W1, B1, W2, B2, W3, B3
@@ -29,7 +28,6 @@ except ImportError:
     from detector_interface import IDetector, MotionState
     from segmentation import SegmentationContext
     from features import extract_features_by_name, DEFAULT_FEATURES
-    from utils import extract_phases
     from ml_weights import (
         FEATURE_MEAN, FEATURE_SCALE,
         W1, B1, W2, B2, W3, B3
@@ -190,9 +188,8 @@ class MLDetector(IDetector):
         self.state_history = []
         self.track_data = False
         
-        # Store current amplitudes and phases for feature extraction
+        # Store current amplitudes for feature extraction
         self._current_amplitudes = None
-        self._current_phases = None
     
     def process_packet(self, csi_data, selected_subcarriers=None):
         """
@@ -212,9 +209,6 @@ class MLDetector(IDetector):
         
         # Store amplitudes for feature extraction
         self._current_amplitudes = amplitudes
-        
-        # Extract phases for phase-based features
-        self._current_phases = extract_phases(csi_data, selected_subcarriers)
         
         # Add to buffer
         self._context.add_turbulence(turbulence)
@@ -283,8 +277,7 @@ class MLDetector(IDetector):
         return extract_features_by_name(
             turb_list, len(turb_list), 
             amplitudes=self._current_amplitudes,
-            feature_names=DEFAULT_FEATURES,
-            phases=self._current_phases
+            feature_names=DEFAULT_FEATURES
         )
     
     def get_state(self):

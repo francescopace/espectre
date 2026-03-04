@@ -218,16 +218,6 @@ public:
     uint16_t get_window_size() const { return window_size_; }
     
     /**
-     * Get last packet amplitudes (for feature extraction)
-     */
-    const float* get_last_amplitudes() const { return amplitude_buffer_; }
-    
-    /**
-     * Get number of amplitudes stored
-     */
-    uint8_t get_num_amplitudes() const { return num_amplitudes_; }
-    
-    /**
      * Get last turbulence value
      */
     float get_last_turbulence() const;

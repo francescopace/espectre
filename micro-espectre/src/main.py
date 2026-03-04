@@ -120,9 +120,17 @@ def connect_wifi():
     # Enable CSI after WiFi is stable
     wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
     
-    # Connect
-    print(f"Connecting to WiFi...")
-    wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
+    # Connect (optionally locked to a specific BSSID)
+    bssid_hex = getattr(config, 'WIFI_BSSID', None)
+    bssid = None
+    if bssid_hex:
+        # Accept "AABBCCDDEEFF" or "AA:BB:CC:DD:EE:FF"
+        bssid_clean = bssid_hex.replace(':', '').replace('-', '')
+        if len(bssid_clean) == 12:
+            bssid = bytes.fromhex(bssid_clean)
+    bssid_info = f" (BSSID: {bssid_hex})" if bssid else ""
+    print(f"Connecting to WiFi{bssid_info}...")
+    wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD, bssid=bssid)
     
     # Wait for connection
     timeout = 30

@@ -83,8 +83,6 @@ from csi_utils import (
 from config import SEG_WINDOW_SIZE
 from segmentation import SegmentationContext
 from features import (
-    calc_skewness, calc_kurtosis, calc_entropy_turb,
-    calc_zero_crossing_rate, calc_autocorrelation, calc_mad,
     extract_features_by_name, DEFAULT_FEATURES,
 )
 
@@ -92,8 +90,7 @@ from features import (
 # Feature Selection (v2.5.1)
 # ============================================================================
 #
-# Features ordered by category: Statistical (8), Temporal (3), Amplitude (1).
-# Multi-lag autocorr captures temporal patterns at 10ms, 20ms, 50ms scales.
+# Features ordered by category: Statistical (10), Temporal (1), Amplitude (1).
 #
 # USED FEATURES (12):
 # | Idx | Feature            | SHAP   | Corr   | Type       | Description                  |
@@ -104,36 +101,12 @@ from features import (
 # |  4  | turb_min           | 0.017  | -0.276 | Statistical| Minimum value                |
 # |  5  | turb_zcr           | 0.036  | -0.539 | Statistical| Zero-crossing rate           |
 # |  6  | turb_skewness      | 0.064  | +0.333 | Statistical| Asymmetry (3rd moment)       |
-# |  7  | turb_entropy       | 0.108  | +0.447 | Statistical| Shannon entropy (highest)    |
-# |  8  | turb_mad           | 0.080  | +0.287 | Statistical| Median absolute deviation    |
+# |  7  | turb_kurtosis      | 0.016  | -0.409 | Statistical| Tailedness (4th moment)      |
+# |  8  | turb_entropy       | 0.108  | +0.447 | Statistical| Shannon entropy              |
 # |  9  | turb_autocorr      | 0.033  | +0.737 | Temporal   | Lag-1 autocorr (10ms)        |
-# | 10  | turb_autocorr_lag2 | 0.066  | +0.701 | Temporal   | Lag-2 autocorr (20ms)        |
-# | 11  | turb_autocorr_lag5 | 0.007  | +0.488 | Temporal   | Lag-5 autocorr (50ms)        |
+# | 10  | turb_mad           | 0.080  | +0.287 | Statistical| Median absolute deviation    |
+# | 11  | turb_slope         | 0.004  | -0.020 | Statistical| Linear trend slope           |
 # | 12  | amp_entropy        | 0.037  | -0.124 | Amplitude  | Amplitude distribution       |
-#
-# EXCLUDED FEATURES:
-# | Feature            | SHAP   | Corr   | Type       | Reason                        |
-# |--------------------|--------|--------|------------|-------------------------------|
-# | turb_kurtosis      | 0.016  | -0.409 | Statistical| Low importance in 12-set      |
-# | turb_slope         | 0.004  | -0.020 | Statistical| Low importance                |
-# | turb_delta         | 0.002  | -0.015 | Statistical| Lowest importance             |
-# | turb_periodicity   | 0.005  | +0.063 | Temporal   | High overhead (FFT)           |
-# | amp_range          | 0.015  | -0.451 | Amplitude  | Low importance in 12-set      |
-# | amp_skewness       | 0.003  | -0.058 | Amplitude  | Low importance                |
-# | amp_kurtosis       | 0.004  | +0.030 | Amplitude  | Low importance                |
-# | phase_diff_var     | 0.004  | -0.296 | Phase      | Low importance                |
-# | phase_std          | 0.014  | -0.369 | Phase      | Low importance                |
-# | phase_entropy      | 0.005  | +0.213 | Phase      | Low importance                |
-# | phase_range        | 0.010  | -0.392 | Phase      | Low importance                |
-# | fft_total_energy   | 0.004  | -0.494 | Energy     | High overhead (FFT)           |
-# | fft_low_energy     | 0.004  | -0.496 | Energy     | High overhead (FFT)           |
-# | fft_mid_energy     | 0.012  | -0.453 | Energy     | High overhead (FFT)           |
-# | fft_high_energy    | 0.016  | -0.328 | Energy     | High overhead (FFT)           |
-# | fft_energy_ratio   | 0.012  | -0.454 | Energy     | High overhead (FFT)           |
-# | fft_dominant_freq  | 0.003  | +0.062 | Energy     | High overhead (FFT)           |
-# | spectral_centroid  | 0.018  | +0.336 | Spectral   | High overhead (FFT)           |
-# | spectral_flatness  | 0.024  | +0.364 | Spectral   | High overhead (FFT)           |
-# | spectral_rolloff   | 0.007  | +0.331 | Spectral   | High overhead (FFT)           |
 # ============================================================================
 
 # ============================================================================
@@ -145,8 +118,7 @@ from features import (
 # Current default (12 features, optimized via SHAP analysis):
 TRAINING_FEATURES = DEFAULT_FEATURES
 
-# To experiment with different features, define a custom list here:
-# See ALL_AVAILABLE_FEATURES in features.py for the full list
+# To experiment with different features, define a custom list here.
 
 
 # Directories
@@ -303,8 +275,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
     Returns:
         tuple: (X, y, feature_names) feature matrix, labels, and actual feature names
     """
-    from utils import extract_phases
-    
     if subcarriers is None:
         subcarriers = DEFAULT_SUBCARRIERS
     
@@ -314,7 +284,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
     X, y = [], []
     turb_buffer = deque(maxlen=window_size)
     last_amplitudes = None
-    last_phases = None
     
     for pkt in packets:
         csi_data = pkt['csi_data']
@@ -328,9 +297,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
         turb_buffer.append(turb)
         last_amplitudes = amps
         
-        # Extract phases for phase-based features
-        last_phases = extract_phases(csi_data, subcarriers)
-        
         # Wait for buffer to fill
         if len(turb_buffer) < window_size:
             continue
@@ -342,8 +308,7 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
         features = extract_features_by_name(
             turb_list, n, 
             amplitudes=last_amplitudes,
-            feature_names=feature_names,
-            phases=last_phases
+            feature_names=feature_names
         )
         
         X.append(features)
@@ -765,21 +730,19 @@ def export_test_data(model, scaler, X_test_raw, y_test, output_path):
 
 def calculate_correlation_importance(feature_names=None):
     """
-    Calculate correlation of ALL available features with motion label.
+    Calculate correlation of selected training features with motion label.
     
     This is a fast alternative to SHAP for initial feature screening.
     Reuses load_all_data() and extract_features() for DRY compliance.
     
     Args:
-        feature_names: Optional list of features to analyze (default: ALL_AVAILABLE_FEATURES)
+        feature_names: Optional list of features to analyze (default: TRAINING_FEATURES)
     
     Returns:
         dict: {feature_name: correlation} sorted by absolute correlation
     """
-    from src.features import ALL_AVAILABLE_FEATURES
-    
     if feature_names is None:
-        feature_names = list(ALL_AVAILABLE_FEATURES)
+        feature_names = list(TRAINING_FEATURES)
     
     print("\nCalculating feature correlations...")
     print(f"  Analyzing {len(feature_names)} features")
@@ -809,10 +772,7 @@ def calculate_correlation_importance(feature_names=None):
 
 def run_shap_all_features(n_samples=100):
     """
-    Train a model with ALL available features and calculate SHAP importance.
-    
-    This is useful for comparing importance of all features, not just the
-    default 12. Uses fewer samples for speed since we have more features.
+    Train a model with selected training features and calculate SHAP importance.
     
     Args:
         n_samples: Number of samples for SHAP (default: 100, lower for speed)
@@ -820,11 +780,9 @@ def run_shap_all_features(n_samples=100):
     Returns:
         int: Exit code
     """
-    from src.features import ALL_AVAILABLE_FEATURES
-    
-    all_features = list(ALL_AVAILABLE_FEATURES)
+    all_features = list(TRAINING_FEATURES)
     print(f"\n{'='*70}")
-    print(f"  SHAP Analysis with ALL {len(all_features)} features")
+    print(f"  SHAP Analysis with {len(all_features)} training features")
     print(f"{'='*70}")
     print(f"  Using {n_samples} samples (use --shap-samples to change)")
     
@@ -832,7 +790,7 @@ def run_shap_all_features(n_samples=100):
     all_packets, stats = load_all_data()
     print(f"\nLoaded {stats['total']} packets")
     
-    # Extract ALL features
+    # Extract selected features
     print(f"Extracting {len(all_features)} features...")
     X, y, actual_features = extract_features(all_packets, feature_names=all_features)
     print(f"  Samples: {len(X)}, Features: {len(actual_features)}")
@@ -1229,7 +1187,6 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
         seed: Optional random seed for reproducible training. If None, a random
               seed is generated and saved for reproducibility.
         feature_names: List of feature names to use. If None, uses DEFAULT_FEATURES.
-                       See ALL_AVAILABLE_FEATURES in features.py for options.
         feature_importance: If True, calculate and display SHAP feature importance.
         ablation: If True, run ablation study instead of training.
     """
@@ -1610,12 +1567,10 @@ To compare ML with MVS, use:
                             'Values >1.0 make the model more conservative (default: 2.0)')
     parser.add_argument('--shap', action='store_true',
                        help='Calculate and display SHAP feature importance (12 default features)')
-    parser.add_argument('--shap-all', action='store_true',
-                       help='Calculate SHAP for ALL available features (slower, uses fewer samples)')
     parser.add_argument('--shap-samples', type=int, default=200,
                        help='Number of samples for SHAP analysis (default: 200)')
     parser.add_argument('--correlation', action='store_true',
-                       help='Calculate correlation of ALL available features with motion label')
+                       help='Calculate correlation of selected training features with motion label')
     parser.add_argument('--ablation', action='store_true',
                        help='Run ablation study (test removing each feature)')
     
@@ -1633,9 +1588,6 @@ To compare ML with MVS, use:
         if correlations:
             print_correlation_table(correlations, TRAINING_FEATURES)
         return 0
-    
-    if args.shap_all:
-        return run_shap_all_features(n_samples=args.shap_samples)
     
     return train_all(
         fp_weight=args.fp_weight, 

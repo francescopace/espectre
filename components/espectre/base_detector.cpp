@@ -122,7 +122,7 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
         return;
     }
     
-    // Store amplitudes and phases for feature extraction (before computing turbulence)
+    // Store amplitudes for feature extraction (before computing turbulence)
     // HT20: 64 subcarriers max
     int total_subcarriers = static_cast<int>(csi_len / 2);
     num_amplitudes_ = 0;
