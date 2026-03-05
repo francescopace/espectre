@@ -127,7 +127,7 @@ jobs:
           fi
       
       - name: Upload firmware artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: firmware-${{ matrix.chip }}-${{ matrix.algorithm }}
           path: output/espectre-*.bin
