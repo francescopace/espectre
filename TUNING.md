@@ -525,6 +525,8 @@ Look at the gain lock log after WiFi connection:
 
 4. **Check router compatibility:** Some mesh routers or WiFi 6E may have issues
 
+5. **If protocol/bandwidth logs show `unavailable`:** this can happen on some target/band mode API paths and does not automatically mean CSI is broken. Focus on CSI packet flow (`pps`, dropped packets, calibration progress) to assess runtime health.
+
 ### System Freezes During Calibration
 
 **Symptoms:** Device freezes after "Auto-Calibration Starting (file-based storage)" message. May show watchdog timeout or repeated "ping_sock: send error=0" messages.

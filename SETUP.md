@@ -88,6 +88,8 @@ Download the example configuration for your hardware:
 | **ESP32-S2** | [espectre-s2.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s2.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
 
 > **Note**: ESPectre uses WiFi 4 (802.11b/g/n) mode for stable 64 subcarriers and faster calibration, even on WiFi 6 capable chips (C5, C6). This ensures consistent performance across all platforms.
+>
+> On ESP32-C5, ESPectre also forces `2.4 GHz only` band mode at runtime to avoid unintended 5 GHz association and keep CSI behavior stable.
 
 **Recommendations**:
 - **ESP32-C6**: Modern RISC-V platform, good performance, compact form factor
@@ -743,6 +745,17 @@ spiffs,   data, spiffs,  0x7D0000, 0x30000,
 ---
 
 ## Troubleshooting
+
+### WiFi protocol/bandwidth shows "unavailable"
+
+On some targets or band modes, the WiFi driver may not expose protocol/bandwidth values through all read APIs. In this case, ESPectre logs:
+
+```
+WiFi Protocol: unavailable (...)
+WiFi Bandwidth: unavailable (...)
+```
+
+This is expected for unsupported read paths and does not necessarily indicate a WiFi connection failure.
 
 ### No motion detection
 

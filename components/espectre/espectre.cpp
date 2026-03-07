@@ -27,7 +27,13 @@ void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
   
   // 0. Initialize WiFi for optimal CSI capture
-  this->wifi_lifecycle_.init();
+  esp_err_t wifi_init_err = this->wifi_lifecycle_.init();
+  if (wifi_init_err != ESP_OK) {
+    ESP_LOGE(TAG, "WiFi lifecycle init failed: %s. ESPectre setup aborted.",
+             esp_err_to_name(wifi_init_err));
+    this->mark_failed();
+    return;
+  }
   
   // 1. Configure the motion detector based on algorithm selection
   if (this->detection_algorithm_ == DetectionAlgorithm::ML) {
@@ -75,10 +81,16 @@ void ESpectreComponent::setup() {
   );
   
   // 4. Register WiFi lifecycle handlers
-  this->wifi_lifecycle_.register_handlers(
+  esp_err_t handlers_err = this->wifi_lifecycle_.register_handlers(
       [this]() { this->on_wifi_connected_(); },
       [this]() { this->on_wifi_disconnected_(); }
   );
+  if (handlers_err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to register WiFi handlers: %s. ESPectre setup aborted.",
+             esp_err_to_name(handlers_err));
+    this->mark_failed();
+    return;
+  }
   
   ESP_LOGI(TAG, "ESPectre initialized successfully");
   ESP_LOGD(TAG, "[resources] Free heap: %lu bytes, largest block: %lu bytes",

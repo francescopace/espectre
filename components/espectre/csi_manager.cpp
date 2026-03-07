@@ -11,6 +11,7 @@
 #include "esphome/core/log.h"
 #include "esp_timer.h"
 #include "esp_attr.h"
+#include <cstring>
 
 namespace esphome {
 namespace espectre {
@@ -83,13 +84,50 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
     // 64 subcarriers (HT-LTF1) which is a valid channel estimate.
     csi_len = HT20_CSI_LEN;
   }
+
+#if CONFIG_IDF_TARGET_ESP32C5
+  // ESP32-C5 HT packets can expose 57 complex samples (114 bytes) with DC already
+  // present in the stream. Remap to our internal HT20 layout (64 SC, 128 bytes)
+  // by padding guard bins: +4 on the left and +3 on the right.
+  int8_t csi_remapped[HT20_CSI_LEN];
+  if (csi_len == 114) {
+    std::memset(csi_remapped, 0, sizeof(csi_remapped));
+    std::memcpy(&csi_remapped[8], csi_data, csi_len);  // 4 SC * 2 bytes offset
+    csi_data = csi_remapped;
+    csi_len = HT20_CSI_LEN;
+
+    static bool remap_logged = false;
+    if (!remap_logged) {
+      ESP_LOGI(TAG, "C5 CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
+      remap_logged = true;
+    }
+  }
+#endif
   
   // Filter packets with unexpected SC count (HT20 only: 64 SC = 128 bytes)
   if (csi_len != HT20_CSI_LEN) {
     packets_filtered_++;
     if (packets_filtered_ % 100 == 1) {
-      ESP_LOGW(TAG, "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d)",
-               (unsigned long)packets_filtered_, csi_len, HT20_CSI_LEN);
+      const auto &rx = data->rx_ctrl;
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+      ESP_LOGW(TAG,
+               "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
+               "[ch=%u bb=%u est_len=%u est_vld=%u]",
+               (unsigned long)packets_filtered_, csi_len, HT20_CSI_LEN,
+               static_cast<unsigned>(rx.channel),
+               static_cast<unsigned>(rx.cur_bb_format),
+               static_cast<unsigned>(rx.rx_channel_estimate_len),
+               static_cast<unsigned>(rx.rx_channel_estimate_info_vld));
+#else
+      ESP_LOGW(TAG,
+               "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
+               "[ch=%u sig_mode=%u cwb=%u mcs=%u]",
+               (unsigned long)packets_filtered_, csi_len, HT20_CSI_LEN,
+               static_cast<unsigned>(rx.channel),
+               static_cast<unsigned>(rx.sig_mode),
+               static_cast<unsigned>(rx.cwb),
+               static_cast<unsigned>(rx.mcs));
+#endif
     }
     return;
   }

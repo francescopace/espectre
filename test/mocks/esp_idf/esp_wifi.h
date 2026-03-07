@@ -89,12 +89,31 @@ typedef enum {
   WIFI_BW_HT40,
 } wifi_bandwidth_t;
 
+// WiFi Band mode (dual-band capable targets)
+typedef enum {
+  WIFI_BAND_MODE_2G_ONLY = 1,
+  WIFI_BAND_MODE_5G_ONLY = 2,
+  WIFI_BAND_MODE_AUTO = 3,
+} wifi_band_mode_t;
+
 // WiFi Protocols
 #define WIFI_PROTOCOL_11B 1
 #define WIFI_PROTOCOL_11G 2
 #define WIFI_PROTOCOL_11N 4
 #define WIFI_PROTOCOL_LR 8
-#define WIFI_PROTOCOL_11AX 16
+#define WIFI_PROTOCOL_11A 16
+#define WIFI_PROTOCOL_11AC 32
+#define WIFI_PROTOCOL_11AX 64
+
+typedef struct {
+  uint16_t ghz_2g;
+  uint16_t ghz_5g;
+} wifi_protocols_t;
+
+typedef struct {
+  wifi_bandwidth_t ghz_2g;
+  wifi_bandwidth_t ghz_5g;
+} wifi_bandwidths_t;
 
 // WiFi Power Save
 typedef enum {
@@ -157,12 +176,36 @@ static inline esp_err_t esp_wifi_set_bandwidth(wifi_interface_t ifx,
   return ESP_OK;
 }
 
+static inline esp_err_t esp_wifi_set_band_mode(wifi_band_mode_t band_mode) {
+  (void)band_mode;
+  return ESP_OK;
+}
+
+static inline esp_err_t esp_wifi_set_protocols(wifi_interface_t ifx,
+                                               wifi_protocols_t *protocols) {
+  (void)ifx;
+  (void)protocols;
+  return ESP_OK;
+}
+
 static inline esp_err_t esp_wifi_get_protocol(wifi_interface_t ifx,
                                               uint8_t *protocol_bitmap) {
   (void)ifx;
   if (protocol_bitmap)
     *protocol_bitmap =
-        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AX;
+  return ESP_OK;
+}
+
+static inline esp_err_t esp_wifi_get_protocols(wifi_interface_t ifx,
+                                               wifi_protocols_t *protocols) {
+  (void)ifx;
+  if (protocols) {
+    protocols->ghz_2g =
+        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AX;
+    protocols->ghz_5g = WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AC |
+                        WIFI_PROTOCOL_11AX;
+  }
   return ESP_OK;
 }
 
@@ -172,11 +215,28 @@ static inline esp_err_t esp_wifi_get_ps(wifi_ps_type_t *ps_type) {
   return ESP_OK;
 }
 
+static inline esp_err_t esp_wifi_set_bandwidths(wifi_interface_t ifx,
+                                                wifi_bandwidths_t *bw) {
+  (void)ifx;
+  (void)bw;
+  return ESP_OK;
+}
+
 static inline esp_err_t esp_wifi_get_bandwidth(wifi_interface_t ifx,
                                                 wifi_bandwidth_t *bw) {
   (void)ifx;
   if (bw)
     *bw = WIFI_BW_HT20;
+  return ESP_OK;
+}
+
+static inline esp_err_t esp_wifi_get_bandwidths(wifi_interface_t ifx,
+                                                wifi_bandwidths_t *bw) {
+  (void)ifx;
+  if (bw) {
+    bw->ghz_2g = WIFI_BW_HT20;
+    bw->ghz_5g = WIFI_BW_HT20;
+  }
   return ESP_OK;
 }
 

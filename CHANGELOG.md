@@ -11,6 +11,10 @@ All notable changes to this project will be documented in this file.
 - **Threshold range consistency across all stacks**: Motion threshold validation is now aligned to `0.0-10.0` in ESPHome/C++ and Micro-ESPectre/Python, including Home Assistant number control, Serial streamer command parsing, MQTT runtime commands, and detector-level setters
 - **ML runtime threshold handling**: MQTT command processing now validates and propagates detector-level threshold rejections correctly, avoiding false success responses when a value is outside the effective detector constraints
 - **Factory reset ML default (Micro-ESPectre)**: `factory_reset` now restores the ML threshold to `5.0` (scaled metric default) instead of using a too-low out-of-range fallback
+- **ESP32-C5/C6 WiFi protocol/bandwidth API compatibility**: `WiFiLifecycle` now uses dual-band APIs (`esp_wifi_set/get_protocols`, `esp_wifi_set/get_bandwidths`) on C5/C6 with legacy fallback on other targets, avoiding invalid reads under dual-band mode and improving cross-target compatibility (#93)
+- **ESP32-C5 2.4 GHz enforcement for CSI stability**: C5 now explicitly sets `WIFI_BAND_MODE_2G_ONLY` during WiFi lifecycle initialization to prevent unintended 5 GHz association in AUTO mode (#93)
+- **WiFi diagnostics reliability on dual-band targets**: protocol/bandwidth/power-save logs now validate API return codes and report `unavailable` on failure instead of printing misleading values (e.g. fake `HT40` / `0x00`) (#93)
+- **Component startup safety on WiFi lifecycle failures**: `ESpectreComponent::setup()` now fails fast (`mark_failed()`) if WiFi lifecycle init or handler registration fails, preventing partial startup in invalid runtime states
 
 ### Changed
 
@@ -21,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - **C++ detector cleanup**: Removed unused `BaseDetector` amplitude getters and fixed stale wording in comments about stored packet data
 - **Dataset metadata normalization source of truth**: Micro-ESPectre training and collection now use `gain_locked` as the single source of truth for CV normalization decisions; `use_cv_normalization` was removed from `dataset_info.json` and related docs
 - **Collection metadata consistency**: `me collect`/`CSICollector` now persist `gain_locked` consistently in both `.npz` files and `dataset_info.json`, with no `label_id` metadata written
+- **ESP-IDF WiFi mock alignment**: `test/mocks/esp_idf/esp_wifi.h` now mirrors modern protocol bitmasks (`11A/11AC/11AX`), band mode enums, and dual-band API types/functions (`wifi_protocols_t`, `wifi_bandwidths_t`, `*_protocols`, `*_bandwidths`)
 
 ---
 

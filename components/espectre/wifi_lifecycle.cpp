@@ -14,24 +14,153 @@ namespace espectre {
 
 static const char *TAG = "WiFiLifecycle";
 
+namespace {
+
+// HT20-only policy: force 11n protocol for all targets.
+constexpr uint16_t WIFI_PROTOCOL_CSI_2G = WIFI_PROTOCOL_11N;
+constexpr wifi_bandwidth_t WIFI_BANDWIDTH_CSI = WIFI_BW_HT20;
+
+const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
+  switch (bw) {
+    case WIFI_BW_HT20:
+      return "HT20";
+    case WIFI_BW_HT40:
+      return "HT40";
+#ifdef WIFI_BW80
+    case WIFI_BW80:
+      return "BW80";
+#endif
+#ifdef WIFI_BW160
+    case WIFI_BW160:
+      return "BW160";
+#endif
+#ifdef WIFI_BW80_BW80
+    case WIFI_BW80_BW80:
+      return "BW80+80";
+#endif
+    default:
+      return "UNKNOWN";
+  }
+}
+
+#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
+esp_err_t set_wifi_protocol_for_csi_() {
+  wifi_protocols_t protocols{};
+  protocols.ghz_2g = WIFI_PROTOCOL_CSI_2G;
+#if CONFIG_SOC_WIFI_SUPPORT_5G
+  protocols.ghz_5g = WIFI_PROTOCOL_11N;
+#ifdef WIFI_PROTOCOL_11A
+  protocols.ghz_5g |= WIFI_PROTOCOL_11A;
+#endif
+#ifdef WIFI_PROTOCOL_11AX
+  protocols.ghz_5g |= WIFI_PROTOCOL_11AX;
+#endif
+#ifdef WIFI_PROTOCOL_11AC
+  protocols.ghz_5g |= WIFI_PROTOCOL_11AC;
+#endif
+#endif
+  return esp_wifi_set_protocols(WIFI_IF_STA, &protocols);
+}
+
+esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
+  if (protocol == nullptr) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  wifi_protocols_t protocols{};
+  esp_err_t err = esp_wifi_get_protocols(WIFI_IF_STA, &protocols);
+  if (err != ESP_OK) {
+    return err;
+  }
+  uint8_t primary_channel = 0;
+  wifi_second_chan_t second_channel = WIFI_SECOND_CHAN_NONE;
+  const bool is_5g = (esp_wifi_get_channel(&primary_channel, &second_channel) == ESP_OK)
+                         ? (primary_channel > 14)
+                         : false;
+  *protocol = is_5g ? protocols.ghz_5g : protocols.ghz_2g;
+  return ESP_OK;
+}
+
+esp_err_t set_wifi_bandwidth_for_csi_() {
+  wifi_bandwidths_t bandwidths{};
+  bandwidths.ghz_2g = WIFI_BANDWIDTH_CSI;
+#if CONFIG_SOC_WIFI_SUPPORT_5G
+  bandwidths.ghz_5g = WIFI_BANDWIDTH_CSI;
+#endif
+  return esp_wifi_set_bandwidths(WIFI_IF_STA, &bandwidths);
+}
+
+esp_err_t get_wifi_bandwidth_for_log_(wifi_bandwidth_t *bw) {
+  if (bw == nullptr) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  wifi_bandwidths_t bandwidths{};
+  esp_err_t err = esp_wifi_get_bandwidths(WIFI_IF_STA, &bandwidths);
+  if (err != ESP_OK) {
+    return err;
+  }
+  uint8_t primary_channel = 0;
+  wifi_second_chan_t second_channel = WIFI_SECOND_CHAN_NONE;
+  const bool is_5g = (esp_wifi_get_channel(&primary_channel, &second_channel) == ESP_OK)
+                         ? (primary_channel > 14)
+                         : false;
+  *bw = is_5g ? bandwidths.ghz_5g : bandwidths.ghz_2g;
+  return ESP_OK;
+}
+#else
+esp_err_t set_wifi_protocol_for_csi_() {
+  return esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G);
+}
+
+esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
+  if (protocol == nullptr) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  uint8_t protocol_bitmap = 0;
+  esp_err_t err = esp_wifi_get_protocol(WIFI_IF_STA, &protocol_bitmap);
+  if (err != ESP_OK) {
+    return err;
+  }
+  *protocol = protocol_bitmap;
+  return ESP_OK;
+}
+
+esp_err_t set_wifi_bandwidth_for_csi_() {
+  return esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BANDWIDTH_CSI);
+}
+
+esp_err_t get_wifi_bandwidth_for_log_(wifi_bandwidth_t *bw) {
+  return esp_wifi_get_bandwidth(WIFI_IF_STA, bw);
+}
+#endif
+
+}  // namespace
+
   
 // Configure WiFi for optimal CSI capture
 esp_err_t WiFiLifecycleManager::init() {
   esp_err_t ret;
   
+#if CONFIG_IDF_TARGET_ESP32C5
+  // ESP32-C5 is dual-band: force 2.4 GHz for stable CSI motion sensing.
+  ret = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to force 2.4 GHz band mode: 0x%x", ret);
+    // Non-fatal: continue, but runtime may still associate on 5 GHz in AUTO mode.
+  } else {
+    ESP_LOGI(TAG, "WiFi band mode: 2.4 GHz only");
+  }
+#endif
+
   // Configure WiFi protocol mode (MUST be done before CSI configuration)
   // This initializes internal WiFi structures required for CSI
   // HT20 only: 802.11b/g/n for stable 64 subcarriers
-  ret = esp_wifi_set_protocol(WIFI_IF_STA,
-      WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+  ret = set_wifi_protocol_for_csi_();
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Failed to set WiFi protocol: 0x%x", ret);
     return ret;
   }
-  ESP_LOGI(TAG, "WiFi protocol: 802.11b/g/n (HT20, 64 subcarriers)");
-
   // HT20 bandwidth for 64 subcarriers
-  ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+  ret = set_wifi_bandwidth_for_csi_();
   if (ret != ESP_OK) {
     ESP_LOGW(TAG, "Failed to set bandwidth: 0x%x", ret);
     // Non-fatal: continue anyway
@@ -121,22 +250,42 @@ void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_b
     ESP_LOGD(TAG, "WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
     
     wifi_ps_type_t ps_type;
-    esp_wifi_get_ps(&ps_type);
-    const char* ps_str = (ps_type == WIFI_PS_NONE) ? "NONE" : 
-                         (ps_type == WIFI_PS_MIN_MODEM) ? "MIN_MODEM" : "MAX_MODEM";
-    ESP_LOGD(TAG, "WiFi Power Save: %s", ps_str);
+    esp_err_t ps_err = esp_wifi_get_ps(&ps_type);
+    if (ps_err == ESP_OK) {
+      const char* ps_str = (ps_type == WIFI_PS_NONE) ? "NONE" :
+                           (ps_type == WIFI_PS_MIN_MODEM) ? "MIN_MODEM" : "MAX_MODEM";
+      ESP_LOGD(TAG, "WiFi Power Save: %s", ps_str);
+    } else {
+      ESP_LOGW(TAG, "WiFi Power Save: unavailable (%s)", esp_err_to_name(ps_err));
+    }
     
-    uint8_t protocol = 0;
-    esp_wifi_get_protocol(WIFI_IF_STA, &protocol);
-    ESP_LOGD(TAG, "WiFi Protocol: 0x%02X (802.11b=%d, 802.11g=%d, 802.11n=%d)", 
-             protocol,
-             (protocol & WIFI_PROTOCOL_11B) ? 1 : 0,
-             (protocol & WIFI_PROTOCOL_11G) ? 1 : 0,
-             (protocol & WIFI_PROTOCOL_11N) ? 1 : 0);
+    uint16_t protocol = 0;
+    esp_err_t protocol_err = get_wifi_protocol_for_log_(&protocol);
+    if (protocol_err == ESP_OK) {
+      const int has_11b = (protocol & WIFI_PROTOCOL_11B) ? 1 : 0;
+      const int has_11g = (protocol & WIFI_PROTOCOL_11G) ? 1 : 0;
+      const int has_11n = (protocol & WIFI_PROTOCOL_11N) ? 1 : 0;
+#ifdef WIFI_PROTOCOL_11AX
+      const int has_11ax = (protocol & WIFI_PROTOCOL_11AX) ? 1 : 0;
+#else
+      const int has_11ax = 0;
+#endif
+      ESP_LOGD(TAG, "WiFi Protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
+               protocol, has_11b, has_11g, has_11n, has_11ax);
+      if (protocol != WIFI_PROTOCOL_11N) {
+        ESP_LOGW(TAG, "WiFi protocol differs from requested 11n-only mode: 0x%04X", protocol);
+      }
+    } else {
+      ESP_LOGW(TAG, "WiFi Protocol: unavailable (%s)", esp_err_to_name(protocol_err));
+    }
     
-    wifi_bandwidth_t bw;
-    esp_wifi_get_bandwidth(WIFI_IF_STA, &bw);
-    ESP_LOGD(TAG, "WiFi Bandwidth: %s", (bw == WIFI_BW_HT20) ? "HT20" : "HT40");
+    wifi_bandwidth_t bw = WIFI_BW_HT20;
+    esp_err_t bw_err = get_wifi_bandwidth_for_log_(&bw);
+    if (bw_err == ESP_OK) {
+      ESP_LOGD(TAG, "WiFi Bandwidth: %s", bandwidth_to_str_(bw));
+    } else {
+      ESP_LOGW(TAG, "WiFi Bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
+    }
     
     if (manager->connected_callback_) {
       manager->connected_callback_();
