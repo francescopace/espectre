@@ -25,14 +25,18 @@ from pathlib import Path
 from typing import Any
 
 from csi_utils import DATA_DIR, MVSDetector, load_dataset_info, load_npz_as_packets, save_dataset_info
-from config import SEG_WINDOW_SIZE, GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER
+from config import (
+    SEG_WINDOW_SIZE,
+    CALIBRATION_BUFFER_SIZE,
+    GUARD_BAND_LOW,
+    GUARD_BAND_HIGH,
+    DC_SUBCARRIER,
+)
+from segmentation import SegmentationContext
+from threshold import calculate_adaptive_threshold
 
-LEGACY_VALIDATED_SUBCARRIERS_BY_CHIP: dict[str, list[int]] = {
-    # Empirically validated on current ESP32 dataset pair.
-    "ESP32": [12, 13, 14, 17, 44, 45, 46, 48, 49, 50, 51, 52],
-    # Empirically validated on current S3 dataset pair (MVS + entropy separation).
-    "S3": [47, 48, 49, 31, 46, 30, 33, 50, 29, 13, 45, 12],
-}
+GAIN_LOCK_SKIP = 300
+CPP_ALIGNED_MAX_CANDIDATES = 120
 
 
 def _load_tool2_module():
@@ -147,6 +151,12 @@ def _collect_entries(dataset_info: dict[str, Any], label: str) -> dict[str, dict
     return out
 
 
+def _has_gridsearch_metadata(entry: dict[str, Any]) -> bool:
+    subcarriers = entry.get("optimal_subcarriers_gridsearch")
+    threshold = entry.get("optimal_threshold_gridsearch")
+    return isinstance(subcarriers, list) and len(subcarriers) > 0 and threshold is not None
+
+
 def _find_valid_pairs(
     baselines: dict[str, dict[str, Any]],
     movements: dict[str, dict[str, Any]],
@@ -196,7 +206,12 @@ def _find_valid_pairs(
     return pairs, unpaired_baselines, unpaired_movements
 
 
-def _run_full_gridsearch(tool2, baseline_packets, movement_packets) -> tuple[list[int], float]:
+def _run_full_gridsearch(
+    tool2,
+    baseline_packets,
+    movement_packets,
+) -> tuple[list[int], float]:
+    baseline_packets = baseline_packets[GAIN_LOCK_SKIP:] if len(baseline_packets) > GAIN_LOCK_SKIP else baseline_packets
     num_sc = len(baseline_packets[0]["csi_data"]) // 2
     r1 = tool2.test_different_cluster_sizes(baseline_packets, movement_packets, num_sc, quick=False)
     r2 = tool2.test_dual_clusters(baseline_packets, movement_packets, num_sc, quick=False)
@@ -207,8 +222,99 @@ def _run_full_gridsearch(tool2, baseline_packets, movement_packets) -> tuple[lis
     all_results.sort(key=lambda x: x["score"], reverse=True)
     if not all_results:
         raise RuntimeError("Grid search returned no results")
-    best = all_results[0]
-    return [int(x) for x in best["cluster"]], float(best["threshold"])
+    # Re-rank top candidates with C++-aligned evaluation path:
+    # - baseline gain-lock warm-up skipped
+    # - adaptive threshold from calibration buffer (P95 x 1.1)
+    # - continuous baseline -> movement processing
+    unique_candidates: list[list[int]] = []
+    seen: set[tuple[int, ...]] = set()
+    for result in all_results:
+        cluster = [int(x) for x in result.get("cluster", [])]
+        key = tuple(cluster)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_candidates.append(cluster)
+        if len(unique_candidates) >= CPP_ALIGNED_MAX_CANDIDATES:
+            break
+
+    best_rank: tuple[int, float, float, float] | None = None
+    best_band: list[int] | None = None
+    best_threshold = 1.0
+    for cluster in unique_candidates:
+        recall, fp_rate, f1, adaptive_threshold = _evaluate_cpp_aligned_candidate(
+            baseline_packets, movement_packets, cluster
+        )
+        pass_targets = int(recall > 95.0 and fp_rate < 10.0)
+        rank = (pass_targets, recall, -fp_rate, f1)
+        if best_rank is None or rank > best_rank:
+            best_rank = rank
+            best_band = cluster
+            best_threshold = adaptive_threshold
+
+    if best_band is None:
+        raise RuntimeError("C++-aligned re-ranking returned no candidates")
+    return best_band, best_threshold
+
+
+def _evaluate_cpp_aligned_candidate(
+    baseline_packets: list[dict[str, Any]],
+    movement_packets: list[dict[str, Any]],
+    selected_band: list[int],
+) -> tuple[float, float, float, float]:
+    """Evaluate a 12-SC candidate with the same pipeline used by C++ motion tests."""
+    use_cv_normalization = not bool(baseline_packets[0].get("gain_locked", True)) if baseline_packets else False
+
+    cal_ctx = SegmentationContext(window_size=SEG_WINDOW_SIZE, threshold=1.0, enable_hampel=False)
+    cal_ctx.use_cv_normalization = use_cv_normalization
+    mv_values: list[float] = []
+
+    calibration_packets = min(len(baseline_packets), CALIBRATION_BUFFER_SIZE)
+    for pkt in baseline_packets[:calibration_packets]:
+        turb = cal_ctx.calculate_spatial_turbulence(pkt["csi_data"], selected_band)
+        cal_ctx.add_turbulence(turb)
+        cal_ctx.update_state()
+        if cal_ctx.buffer_count >= cal_ctx.window_size:
+            mv_values.append(cal_ctx.current_moving_variance)
+
+    adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, threshold_mode="auto")
+
+    ctx = SegmentationContext(
+        window_size=SEG_WINDOW_SIZE, threshold=adaptive_threshold, enable_hampel=False
+    )
+    ctx.use_cv_normalization = use_cv_normalization
+
+    baseline_motion = 0
+    for pkt in baseline_packets:
+        turb = ctx.calculate_spatial_turbulence(pkt["csi_data"], selected_band)
+        ctx.add_turbulence(turb)
+        ctx.update_state()
+        if ctx.get_state() == SegmentationContext.STATE_MOTION:
+            baseline_motion += 1
+
+    movement_motion = 0
+    movement_idle = 0
+    for pkt in movement_packets:
+        turb = ctx.calculate_spatial_turbulence(pkt["csi_data"], selected_band)
+        ctx.add_turbulence(turb)
+        ctx.update_state()
+        if ctx.get_state() == SegmentationContext.STATE_MOTION:
+            movement_motion += 1
+        else:
+            movement_idle += 1
+
+    tp = movement_motion
+    fn = movement_idle
+    fp = baseline_motion
+    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
+    fp_rate = fp / len(baseline_packets) * 100.0 if baseline_packets else 0.0
+    precision = tp / (tp + fp) * 100.0 if (tp + fp) > 0 else 0.0
+    f1 = (
+        2 * (precision / 100.0) * (recall / 100.0) / ((precision + recall) / 100.0) * 100.0
+        if (precision + recall) > 0
+        else 0.0
+    )
+    return recall, fp_rate, f1, float(adaptive_threshold)
 
 
 def main():
@@ -219,18 +325,41 @@ def main():
         default=30.0,
         help="Max time delta for valid baseline/movement pairing (default: 30)",
     )
+    parser.add_argument(
+        "--only-missing",
+        action="store_true",
+        help="Process only files missing optimal_*_gridsearch metadata",
+    )
     args = parser.parse_args()
 
     max_delta_seconds = args.max_pair_minutes * 60.0
     info = load_dataset_info()
     baselines = _collect_entries(info, "baseline")
     movements = _collect_entries(info, "movement")
-    tool2 = _load_tool2_module()
 
     pairs, unpaired_baselines, unpaired_movements = _find_valid_pairs(
         baselines, movements, max_delta_seconds
     )
 
+    missing_baselines = {name for name, entry in baselines.items() if not _has_gridsearch_metadata(entry)}
+    missing_movements = {name for name, entry in movements.items() if not _has_gridsearch_metadata(entry)}
+    if args.only_missing:
+        pairs = [
+            pair
+            for pair in pairs
+            if pair.baseline in missing_baselines or pair.movement in missing_movements
+        ]
+        unpaired_baselines = [name for name in unpaired_baselines if name in missing_baselines]
+        unpaired_movements = [name for name in unpaired_movements if name in missing_movements]
+
+        total_targets = len(pairs) * 2 + len(unpaired_baselines) + len(unpaired_movements)
+        print(f"Only-missing mode: {len(missing_baselines)} baseline + {len(missing_movements)} movement missing")
+        if total_targets == 0:
+            print("No missing grid-search metadata found; nothing to update.")
+            return
+
+    tool2 = _load_tool2_module()
+    print("C++-aligned evaluation: ON")
     print(f"Valid pairs (<= {args.max_pair_minutes:.1f} min): {len(pairs)}")
     for pair in pairs:
         print(f"  - {pair.baseline} <-> {pair.movement} (delta={pair.delta_seconds:.1f}s)")
@@ -241,18 +370,23 @@ def main():
         movement_path = DATA_DIR / "movement" / pair.movement
         baseline_packets = load_npz_as_packets(baseline_path)
         movement_packets = load_npz_as_packets(movement_path)
-        subcarriers, threshold = _run_full_gridsearch(tool2, baseline_packets, movement_packets)
-        chip = str(baselines[pair.baseline].get("chip", "")).upper()
-        if chip in LEGACY_VALIDATED_SUBCARRIERS_BY_CHIP:
-            subcarriers = list(LEGACY_VALIDATED_SUBCARRIERS_BY_CHIP[chip])
+        subcarriers, threshold = _run_full_gridsearch(
+            tool2,
+            baseline_packets,
+            movement_packets,
+        )
+        update_baseline = not args.only_missing or pair.baseline in missing_baselines
+        update_movement = not args.only_missing or pair.movement in missing_movements
 
-        baselines[pair.baseline]["optimal_subcarriers_gridsearch"] = subcarriers
-        baselines[pair.baseline]["optimal_threshold_gridsearch"] = threshold
-        baselines[pair.baseline]["optimal_pair_movement_file"] = pair.movement
+        if update_baseline:
+            baselines[pair.baseline]["optimal_subcarriers_gridsearch"] = subcarriers
+            baselines[pair.baseline]["optimal_threshold_gridsearch"] = threshold
+            baselines[pair.baseline]["optimal_pair_movement_file"] = pair.movement
 
-        movements[pair.movement]["optimal_subcarriers_gridsearch"] = subcarriers
-        movements[pair.movement]["optimal_threshold_gridsearch"] = threshold
-        movements[pair.movement]["optimal_pair_baseline_file"] = pair.baseline
+        if update_movement:
+            movements[pair.movement]["optimal_subcarriers_gridsearch"] = subcarriers
+            movements[pair.movement]["optimal_threshold_gridsearch"] = threshold
+            movements[pair.movement]["optimal_pair_baseline_file"] = pair.baseline
 
     # Single-dataset fallback for distant/unpaired files.
     for bname in unpaired_baselines:

@@ -567,6 +567,26 @@ class NBVICalibrator:
             
             return search_band, mv_values
         
+        # Prefer hint band when FP degradation is negligible.
+        # This prevents selecting pathological low-motion bands that can keep
+        # baseline FP low while hurting movement recall.
+        HINT_FP_TOLERANCE = 0.01  # 1.0 percentage point
+        use_hint_band = False
+        hint_fp_rate = 1.0
+        hint_mv_values = []
+        if hint_band is not None and len(hint_band) == BAND_SIZE:
+            hint_fp_rate, hint_mv_values = self._validate_subcarriers(hint_band)
+            if hint_fp_rate <= (best_fp_rate + HINT_FP_TOLERANCE):
+                use_hint_band = True
+
+        if use_hint_band:
+            best_band = list(hint_band)
+            best_mv_values = hint_mv_values
+            print(
+                f"NBVI: Using hint band (FP {hint_fp_rate * 100:.1f}% "
+                f"vs best {best_fp_rate * 100:.1f}%, tol {HINT_FP_TOLERANCE * 100:.1f}%)"
+            )
+
         print(f"NBVI: Selected window {best_window_idx + 1}/{len(candidates)} with FP rate {best_fp_rate * 100:.1f}%")
         
         print(f"NBVI: Band selection successful")

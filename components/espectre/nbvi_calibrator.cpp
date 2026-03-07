@@ -259,10 +259,36 @@ esp_err_t NBVICalibrator::run_calibration_() {
     return ESP_OK;
   }
   
+  // Prefer hinted/current band when FP degradation is negligible.
+  // This avoids drift to pathological bands that can preserve baseline FP
+  // but collapse movement recall on some datasets.
+  constexpr float HINT_FP_TOLERANCE = 0.01f;  // 1.0 percentage point
+  bool use_hint_band = false;
+  float hint_fp_rate = 1.0f;
+  std::vector<float> hint_mv_values;
+  if (current_band_.size() == HT20_SELECTED_BAND_SIZE) {
+    if (validate_subcarriers_(current_band_.data(),
+                              static_cast<uint8_t>(current_band_.size()),
+                              &hint_fp_rate,
+                              hint_mv_values)) {
+      if (hint_fp_rate <= (best_fp_rate + HINT_FP_TOLERANCE)) {
+        use_hint_band = true;
+      }
+    }
+  }
+
   // Store results
-  std::memcpy(selected_band_, best_band, HT20_SELECTED_BAND_SIZE);
-  selected_band_size_ = HT20_SELECTED_BAND_SIZE;
-  mv_values_ = std::move(best_mv_values);
+  if (use_hint_band) {
+    std::memcpy(selected_band_, current_band_.data(), HT20_SELECTED_BAND_SIZE);
+    selected_band_size_ = HT20_SELECTED_BAND_SIZE;
+    mv_values_ = std::move(hint_mv_values);
+    ESP_LOGI(TAG, "Using hinted/current band (FP %.1f%% vs best %.1f%%, tol %.1f%%)",
+             hint_fp_rate * 100.0f, best_fp_rate * 100.0f, HINT_FP_TOLERANCE * 100.0f);
+  } else {
+    std::memcpy(selected_band_, best_band, HT20_SELECTED_BAND_SIZE);
+    selected_band_size_ = HT20_SELECTED_BAND_SIZE;
+    mv_values_ = std::move(best_mv_values);
+  }
   
   ESP_LOGI(TAG, "NBVI Calibration successful");
   ESP_LOGD(TAG, "  Band: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d]",

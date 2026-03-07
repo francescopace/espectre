@@ -373,7 +373,7 @@ def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
     Record performance metrics for the summary table.
     
     Args:
-        chip: Chip type (C3, C6, ESP32, S3)
+        chip: Chip type (C3, C5, C6, ESP32, S3)
         algorithm: Algorithm name (mvs_optimal, mvs_nbvi, ml)
         recall: Recall percentage
         fp_rate: False positive rate percentage
@@ -433,7 +433,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line("|--------|-------------------------|-------------------------|-------------------------|")
     
     # Sort chips for consistent output
-    for chip in ['C3', 'C6', 'ESP32', 'S3']:
+    for chip in ['C3', 'C5', 'C6', 'ESP32', 'S3']:
         if chip not in results:
             continue
         
@@ -474,7 +474,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line("| Chip   | Algorithm   | Recall  | Precision | FP Rate | F1-Score |")
     terminalreporter.write_line("|--------|-------------|---------|-----------|---------|----------|")
     
-    for chip in ['C3', 'C6', 'ESP32', 'S3']:
+    for chip in ['C3', 'C5', 'C6', 'ESP32', 'S3']:
         if chip not in results:
             continue
         

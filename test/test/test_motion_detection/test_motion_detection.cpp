@@ -71,7 +71,7 @@ struct ChipResults {
     PerformanceResult ml;
 };
 
-static ChipResults g_results[4];  // C3, C6, ESP32, S3
+static ChipResults g_results[5];  // C3, C5, C6, ESP32, S3
 static int g_results_count = 0;
 
 static void record_result(const char* algorithm, float recall, float fp_rate, float precision, float f1) {
@@ -408,7 +408,7 @@ void test_mvs_nbvi_calibration(void) {
         printf("Adaptive threshold: %.6f (P%d x %.1f, from %zu MV values)\n\n",
                calibrated_threshold, percentile, DEFAULT_ADAPTIVE_FACTOR, mv_values.size());
     } else {
-        // Use NBVI calibration for chips without CV normalization (C6, S3)
+        // Use NBVI calibration for chips without CV normalization (C5, C6, S3)
         CSIManager csi_manager;
         csi_manager.init(&detector, get_optimal_subcarriers(), 100, GainLockMode::DISABLED, &g_wifi_mock);
         

@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.5.2] - in progress - Threshold Unification & ML Dataset Metadata Cleanup
+## [2.6.0] - in progress - Threshold Unification & ML Dataset Metadata Cleanup
 
 ### Fixed
 

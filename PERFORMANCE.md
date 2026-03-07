@@ -7,6 +7,7 @@ This document provides detailed performance metrics for ESPectre's motion detect
 | Chip | Baseline | Movement | Total | Gain Lock | CV Norm |
 |------|----------|----------|-------|-----------|---------|
 | ESP32-C3 | 2656 | 3154 | 5810 | Mixed | Mixed |
+| ESP32-C5 | 1011 | 1304 | 2315 | Yes | No |
 | ESP32-C6 | 7379 | 1000 | 8379 | Yes | No |
 | ESP32-S3 | 1353 | 1366 | 2719 | Yes | No |
 | ESP32 | 961 | 1103 | 2064 | No | Yes |
@@ -17,7 +18,7 @@ Data location: `micro-espectre/data/`
 
 **AGC Gain Lock** stabilizes CSI amplitudes by locking the receiver's automatic gain control. Without it, amplitudes vary with signal strength, making raw values unreliable for detection.
 
-- **ESP32-C6, ESP32-S3**: Support gain lock via `esp_wifi_set_csi_rx_ctrl()`
+- **ESP32-C5, ESP32-C6, ESP32-S3**: Support gain lock via `esp_wifi_set_csi_rx_ctrl()`
 - **ESP32-C3**: Supports gain lock, but ESPectre skips it when AGC gain < 30 (weak signal). Some C3 datasets were collected with gain 28, so gain lock was skipped.
 - **ESP32 (original)**: Does not support gain lock in the CSI driver
 
@@ -27,19 +28,19 @@ Data location: `micro-espectre/data/`
 
 ### MVS Detector (NBVI Calibration)
 
-| Metric | C3 Target | C6 Target | S3 Target | ESP32 Target | Rationale |
-|--------|-----------|-----------|-----------|--------------|-----------|
-| Recall | >90% | >95% | >90% | >90% | Minimize missed detections |
-| FP Rate | <20% | <5% | <15% | <20% | Avoid false alarms |
+| Metric | C3 Target | C5 Target | C6 Target | S3 Target | ESP32 Target | Rationale |
+|--------|-----------|-----------|-----------|-----------|--------------|-----------|
+| Recall | >90% | >95% | >95% | >90% | >90% | Minimize missed detections |
+| FP Rate | <20% | <10% | <5% | <15% | <20% | Avoid false alarms |
 
 NBVI's non-consecutive subcarrier selection provides spectral diversity for robust detection.
 
 ### ML Detector
 
-| Metric | C3 Target | C6 Target | S3 Target | ESP32 Target | Rationale |
-|--------|-----------|-----------|-----------|--------------|-----------|
-| Recall | >93% | >93% | >93% | >93% | Minimize missed detections |
-| FP Rate | <10% | <10% | <10% | <10% | Avoid false alarms |
+| Metric | C3 Target | C5 Target | C6 Target | S3 Target | ESP32 Target | Rationale |
+|--------|-----------|-----------|-----------|-----------|--------------|-----------|
+| Recall | >93% | >93% | >93% | >93% | >93% | Minimize missed detections |
+| FP Rate | <10% | <10% | <10% | <10% | <10% | Avoid false alarms |
 
 ML uses fixed sparse subcarriers and pre-trained weights (no calibration needed). CV normalization is applied during training for datasets without gain lock.
 
@@ -47,13 +48,13 @@ See [TUNING.md](TUNING.md) for environment-specific adjustments.
 
 ### Test Coverage Matrix
 
-| Test | C3 | C6 | S3 | ESP32 |
-|------|-----|-----|-----|-------|
-| MVS + NBVI auto-calibration | ✅ | ✅ | ✅ | ✅ |
-| MVS + Optimal subcarriers | ✅ | ✅ | ✅ | ✅ |
-| ML detection | ✅ | ✅ | ✅ | ✅ |
-| Threshold sensitivity (C++) | ✅ | ✅ | ✅ | ✅ |
-| Window size sensitivity (C++) | ✅ | ✅ | ✅ | ✅ |
+| Test | C3 | C5 | C6 | S3 | ESP32 |
+|------|-----|-----|-----|-----|-------|
+| MVS + NBVI auto-calibration | ✅ | ✅ | ✅ | ✅ | ✅ |
+| MVS + Optimal subcarriers | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ML detection | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Threshold sensitivity (C++) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Window size sensitivity (C++) | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 **MVS + Optimal subcarriers**: Uses offline-tuned subcarriers (best case reference).
 **MVS + NBVI auto-calibration**: Uses NBVI for runtime subcarrier selection (production case).
@@ -80,17 +81,20 @@ Results from C++ and Python tests follow the same trends (same algorithms, same 
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
-| ESP32-C3 | MVS Optimal | 98.9% | 99.7% | 0.5% | 99.3% |
-| ESP32-C3 | MVS + NBVI | 98.9% | 99.7% | 0.5% | 99.3% |
+| ESP32-C3 | MVS Optimal | 99.7% | 100.0% | 0.0% | 99.8% |
+| ESP32-C3 | MVS + NBVI | 99.7% | 100.0% | 0.0% | 99.8% |
 | ESP32-C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-C6 | MVS Optimal | 98.9% | 99.8% | 0.3% | 99.3% |
-| ESP32-C6 | MVS + NBVI | 99.9% | 99.9% | 0.1% | 99.9% |
+| ESP32-C5 | MVS Optimal | 100.0% | 99.8% | 0.3% | 99.9% |
+| ESP32-C5 | MVS + NBVI | 97.8% | 100.0% | 0.0% | 98.9% |
+| ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| ESP32-C6 | MVS Optimal | 99.9% | 98.4% | 2.3% | 99.2% |
+| ESP32-C6 | MVS + NBVI | 99.9% | 98.4% | 2.3% | 99.2% |
 | ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS Optimal | 99.9% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS + NBVI | 99.4% | 94.8% | 7.1% | 97.0% |
-| ESP32-S3 | ML | 97.6% | 100.0% | 0.0% | 98.8% |
-| ESP32 | MVS Optimal | 100.0% | 98.7% | 2.3% | 99.3% |
-| ESP32 | MVS + NBVI | 100.0% | 98.7% | 2.3% | 99.3% |
+| ESP32-S3 | MVS Optimal | 100.0% | 100.0% | 0.0% | 100.0% |
+| ESP32-S3 | MVS + NBVI | 100.0% | 99.3% | 0.9% | 99.6% |
+| ESP32-S3 | ML | 98.8% | 100.0% | 0.0% | 99.4% |
+| ESP32 | MVS Optimal | 100.0% | 100.0% | 0.0% | 100.0% |
+| ESP32 | MVS + NBVI | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 
 **MVS Optimal**: Uses offline-tuned subcarriers (best case reference).
@@ -166,22 +170,20 @@ Additional performance logs are available at DEBUG level (`logger.level: DEBUG`)
 
 ---
 
-## Result History
+## Result History (ESP32-C6)
 
-| Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
-|------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
-| 2026-03-07 | v2.5.2 | C6 |   -  | ML  | 100.0% | 100.0% | 0.0% | 100.0% |
-| 2026-03-07 | v2.5.2 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |
-| 2026-02-15 | v2.5.0 | C6 |   -  | ML  | 99.9% | 100.0% | 0.0% | 99.9% |
-| 2026-02-15 | v2.5.0 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |
-| 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | 99.8% | 96.5% | 3.6% | 98.1% |
-| 2025-12-27 | v2.3.0 | C6 | NBVI | MVS | 96.4% | 100.0% | 0.0% | 98.2% |
+| Date | Version | Dataset | Calibration | Algorithm | Evaluation Mode | Recall | Precision | FP Rate | F1-Score |
+|------|---------|---------|-------------|-----------|-----------------|--------|-----------|---------|----------|
+| 2026-03-08 | v2.6.0 | C6 |   -  | ML  | Context-aware | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-03-08 | v2.6.0 | C6 | NBVI | MVS | Context-aware | 99.9% | 98.4% | 2.3% | 99.2% |
+| 2026-02-15 | v2.5.0 | C6 |   -  | ML  | Fixed-config | 99.9% | 100.0% | 0.0% | 99.9% |
+| 2026-02-15 | v2.5.0 | C6 | NBVI | MVS | Fixed-config | 99.9% | 99.9% | 0.1% | 99.9% |
+| 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | Fixed-config | 99.8% | 96.5% | 3.6% | 98.1% |
+| 2025-12-27 | v2.3.0 | C6 | NBVI | MVS | Fixed-config | 96.4% | 100.0% | 0.0% | 98.2% |
 
 ### Comparability Notes
 
-- **Legacy fixed-config results** (older releases) used static per-chip test bands and fixed pairing assumptions.
-- **Current context-aware results** use dataset metadata and temporal pairing policy.
-- When comparing across versions, compare like-for-like (legacy vs legacy, context-aware vs context-aware).
+Starting from v2.6.0 results are context-aware (more precise), so compare them only with other context-aware results, not with legacy fixed-config ones.
 
 ### Test Configuration
 

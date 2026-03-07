@@ -29,6 +29,9 @@
 // C3 dataset
 #define BASELINE_C3_64SC  "../micro-espectre/data/baseline/baseline_c3_64sc_20260214_185025.npz"
 #define MOVEMENT_C3_64SC  "../micro-espectre/data/movement/movement_c3_64sc_20260214_185048.npz"
+// C5 dataset
+#define BASELINE_C5_64SC  "../micro-espectre/data/baseline/baseline_c5_64sc_20260307_235549.npz"
+#define MOVEMENT_C5_64SC  "../micro-espectre/data/movement/movement_c5_64sc_20260307_235616.npz"
 // C6 dataset (validated)
 #define BASELINE_C6_64SC  "../micro-espectre/data/baseline/baseline_c6_64sc_20251212_142443.npz"
 #define MOVEMENT_C6_64SC  "../micro-espectre/data/movement/movement_c6_64sc_20251212_142443.npz"
@@ -147,6 +150,7 @@ inline std::vector<const int8_t*> get_packet_pointers(const CsiData& csi_data) {
 
 enum class ChipType {
     C3,    // Uses forced subcarriers [20-31] - auto-calibration skipped per-test
+    C5,
     C6,
     ESP32, // Control set (excluded from ML training)
     S3
@@ -155,6 +159,7 @@ enum class ChipType {
 inline const char* chip_name(ChipType chip) {
     switch (chip) {
         case ChipType::C3: return "C3";
+        case ChipType::C5: return "C5";
         case ChipType::C6: return "C6";
         case ChipType::ESP32: return "ESP32";
         case ChipType::S3: return "S3";
@@ -165,6 +170,7 @@ inline const char* chip_name(ChipType chip) {
 inline const char* baseline_file_for_chip(ChipType chip) {
     switch (chip) {
         case ChipType::C3: return BASELINE_C3_64SC;
+        case ChipType::C5: return BASELINE_C5_64SC;
         case ChipType::C6: return BASELINE_C6_64SC;
         case ChipType::ESP32: return BASELINE_ESP32_64SC;
         case ChipType::S3: return BASELINE_S3_64SC;
@@ -175,6 +181,7 @@ inline const char* baseline_file_for_chip(ChipType chip) {
 inline const char* movement_file_for_chip(ChipType chip) {
     switch (chip) {
         case ChipType::C3: return MOVEMENT_C3_64SC;
+        case ChipType::C5: return MOVEMENT_C5_64SC;
         case ChipType::C6: return MOVEMENT_C6_64SC;
         case ChipType::ESP32: return MOVEMENT_ESP32_64SC;
         case ChipType::S3: return MOVEMENT_S3_64SC;
@@ -376,7 +383,7 @@ inline bool switch_dataset(ChipType chip) {
  * Note: Some chips are skipped (check chip_skip_reason()).
  */
 inline std::vector<ChipType> get_available_chips() {
-    return {ChipType::C3, ChipType::C6, ChipType::ESP32, ChipType::S3};
+    return {ChipType::C3, ChipType::C5, ChipType::C6, ChipType::ESP32, ChipType::S3};
 }
 
 // ============================================================================

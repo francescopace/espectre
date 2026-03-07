@@ -16,6 +16,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import time
+import json
+from datetime import datetime
+from pathlib import Path
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
@@ -41,6 +44,82 @@ except ImportError:
 SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
+PAIR_MAX_DELTA_SECONDS = 30 * 60
+DATASET_INFO_PATH = Path(__file__).parent.parent / 'data' / 'dataset_info.json'
+
+
+def load_dataset_info():
+    """Load dataset_info.json metadata used for context-aware tuning."""
+    if not DATASET_INFO_PATH.exists():
+        return {'files': {}}
+    with open(DATASET_INFO_PATH, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def lookup_file_info(dataset_info, filename):
+    """Return (label, entry) for a dataset filename, or (None, None)."""
+    files = dataset_info.get('files', {})
+    for label in ('baseline', 'movement'):
+        for entry in files.get(label, []):
+            if entry.get('filename') == filename:
+                return label, entry
+    return None, None
+
+
+def pair_is_temporally_valid(dataset_info, label, entry):
+    """Validate pair metadata and ensure temporal distance <= 30 minutes."""
+    if label == 'baseline':
+        pair_name = entry.get('optimal_pair_movement_file')
+        pair_label = 'movement'
+    else:
+        pair_name = entry.get('optimal_pair_baseline_file')
+        pair_label = 'baseline'
+    if not pair_name:
+        return False
+
+    files = dataset_info.get('files', {}).get(pair_label, [])
+    counterpart = next((x for x in files if x.get('filename') == pair_name), None)
+    if counterpart is None:
+        return False
+
+    try:
+        t1 = datetime.fromisoformat(entry['collected_at'])
+        t2 = datetime.fromisoformat(counterpart['collected_at'])
+    except Exception:
+        return False
+    return abs((t2 - t1).total_seconds()) <= PAIR_MAX_DELTA_SECONDS
+
+
+def resolve_context_aware_config(baseline_path):
+    """
+    Resolve context-aware subcarriers/threshold from dataset_info metadata.
+
+    Fallback policy:
+    - missing metadata -> project defaults
+    - metadata present but no pairing -> still use gridsearch values
+    """
+    dataset_info = load_dataset_info()
+    label, entry = lookup_file_info(dataset_info, baseline_path.name)
+
+    if entry is None:
+        return {
+            'subcarriers': SELECTED_SUBCARRIERS,
+            'threshold': THRESHOLD,
+            'pairing_mode': 'metadata-missing fallback',
+            'confidence_factor': 0.5,
+        }
+
+    subcarriers = entry.get('optimal_subcarriers_gridsearch') or SELECTED_SUBCARRIERS
+    threshold = float(entry.get('optimal_threshold_gridsearch', THRESHOLD))
+    paired = pair_is_temporally_valid(dataset_info, label, entry) if label else False
+    pairing_mode = 'paired' if paired else 'single-dataset fallback'
+
+    return {
+        'subcarriers': list(subcarriers),
+        'threshold': threshold,
+        'pairing_mode': pairing_mode,
+        'confidence_factor': 1.0 if paired else 0.5,
+    }
 
 
 def calculate_rssi(csi_packet):
@@ -98,7 +177,8 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     Compare different detection methods on same data.
     Returns metrics for each method.
     """
-    ml_subcarriers = ML_SUBCARRIERS
+    # Keep all methods aligned to dataset-aware subcarriers from metadata.
+    ml_subcarriers = subcarriers
     methods = {
         'RSSI': {'baseline': [], 'movement': []},
         'Mean Amplitude': {'baseline': [], 'movement': []},
@@ -319,14 +399,9 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         
         # Title
         title_prefix = '[BEST] ' if method_name == best_method else ''
-        if method_name in ['MVS', 'Turbulence', 'Mean Amplitude', 'ML']:
-            sc_info = f"SC: {subcarriers[0]}-{subcarriers[-1]}"
-        else:
-            sc_info = "SC: all"
-        
         time_us = timing.get(method_name, 0)
         time_info = f"{time_us:.0f}us/pkt" if time_us > 0 else ""
-        ax_baseline.set_title(f'{title_prefix}{method_name} - Baseline (FP={fp}) [{sc_info}, {time_info}]', 
+        ax_baseline.set_title(f'{title_prefix}{method_name} - Baseline (FP={fp}) [{time_info}]', 
                             fontsize=11, fontweight='bold')
         ax_baseline.set_ylabel('Value', fontsize=10)
         ax_baseline.grid(True, alpha=0.3)
@@ -537,14 +612,23 @@ def run_all_chips():
     
     for chip in chips:
         try:
-            baseline_packets, movement_packets = load_baseline_and_movement(chip=chip)
+            baseline_path, movement_path, _ = find_dataset(chip=chip)
+            baseline_packets, movement_packets = load_baseline_and_movement(
+                baseline_file=baseline_path,
+                movement_file=movement_path,
+                chip=chip
+            )
         except FileNotFoundError:
             continue
+
+        context_cfg = resolve_context_aware_config(baseline_path)
+        chip_subcarriers = context_cfg['subcarriers']
+        chip_threshold = context_cfg['threshold']
         
         print(f"Processing {chip}...", end=" ", flush=True)
         
         result = compare_detection_methods(
-            baseline_packets, movement_packets, SELECTED_SUBCARRIERS, WINDOW_SIZE, THRESHOLD
+            baseline_packets, movement_packets, chip_subcarriers, WINDOW_SIZE, chip_threshold
         )
         methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, ml_baseline_states = result
         
@@ -573,6 +657,7 @@ def run_all_chips():
         
         all_results.append({
             'chip': chip,
+            'pairing_mode': context_cfg['pairing_mode'],
             'mvs': {'recall': mvs_recall, 'fp': mvs_fp, 'precision': mvs_precision, 'f1': mvs_f1},
             'ml': {'recall': ml_recall, 'fp': ml_fp, 'precision': ml_precision, 'f1': ml_f1},
         })
@@ -589,6 +674,7 @@ def run_all_chips():
     for r in all_results:
         chip = r['chip']
         num_baseline = 1000  # Approximate for FP rate calculation
+        print(f"Context mode ({chip}): {r['pairing_mode']}")
         
         for detector, data in [('MVS', r['mvs']), ('ML', r['ml'])]:
             fp_rate = data['fp'] / num_baseline * 100 if num_baseline > 0 else 0
@@ -623,28 +709,41 @@ def main():
     print(f"Loading {chip} data...")
     try:
         baseline_path, movement_path, chip_name = find_dataset(chip=chip)
-        baseline_packets, movement_packets = load_baseline_and_movement(chip=chip)
+        baseline_packets, movement_packets = load_baseline_and_movement(
+            baseline_file=baseline_path,
+            movement_file=movement_path,
+            chip=chip
+        )
     except FileNotFoundError as e:
         print(f"Error: {e}")
         return
+
+    context_cfg = resolve_context_aware_config(baseline_path)
+    selected_subcarriers = context_cfg['subcarriers']
+    threshold = context_cfg['threshold']
+    pairing_mode = context_cfg['pairing_mode']
     
     print(f"   Chip: {chip_name}")
+    print(f"   Pairing mode: {pairing_mode}")
     print(f"   Baseline: {len(baseline_packets)} packets")
     print(f"   Movement: {len(movement_packets)} packets\n")
+    print(f"   Context-aware subcarriers: {selected_subcarriers}")
+    print(f"   Context-aware threshold: {threshold:.6f}")
+    print(f"   Confidence factor: {context_cfg['confidence_factor']:.1f}\n")
     
     result = compare_detection_methods(
-        baseline_packets, movement_packets, SELECTED_SUBCARRIERS, WINDOW_SIZE, THRESHOLD
+        baseline_packets, movement_packets, selected_subcarriers, WINDOW_SIZE, threshold
     )
     methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, ml_baseline_states = result
     
     print_comparison_summary(methods, mvs_baseline, mvs_movement,
-                            THRESHOLD, SELECTED_SUBCARRIERS, timing,
+                            threshold, selected_subcarriers, timing,
                             ml_baseline, ml_movement, ml_baseline_states)
     
     if args.plot:
         print("Generating comparison visualization...\n")
         plot_comparison(methods, mvs_baseline, mvs_movement,
-                       THRESHOLD, SELECTED_SUBCARRIERS, timing,
+                       threshold, selected_subcarriers, timing,
                        ml_baseline, ml_movement)
 
 

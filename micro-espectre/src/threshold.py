@@ -25,7 +25,6 @@ DEFAULT_PERCENTILE = 95
 # Multiplier for "auto" mode threshold (reduces false positives)
 DEFAULT_ADAPTIVE_FACTOR = 1.1
 
-
 def get_threshold_percentile(threshold_mode):
     """
     Get percentile based on threshold mode.
