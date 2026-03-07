@@ -6,9 +6,12 @@
 #
 # Made for ESPHome - https://github.com/francescopace/espectre
 #
-# ⚠️ EXPERIMENTAL: This platform has NOT been tested yet.
+# Tested boards:
+# - ESP32-C5-DevKitC-1 (ESP32-C5 rev1.0) with CP2102N USB-UART bridge
+# - ESP32-C5 boards with equivalent USB-UART bridges
+#
 # ESP32-C5 uses the same modern CSI API as ESP32-C6 with WiFi 6 support.
-# Please report your results on GitHub Discussions!
+# ESPectre enforces 2.4 GHz mode and remaps 57->64 subcarriers at runtime.
 #
 # Compatible boards:
 # - ESP32-C5-DevKitC

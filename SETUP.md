@@ -16,8 +16,8 @@ Choose one of the two installation methods below:
 
 **Hardware:**
 - **ESP32 board** with CSI support:
-  - ✅ Tested: ESP32-S3, ESP32-C6, ESP32-C3, ESP32 (original)
-  - ⚠️ Experimental: ESP32-S2, ESP32-C5
+  - ✅ Tested: ESP32-S3, ESP32-C6, ESP32-C5, ESP32-C3, ESP32 (original)
+  - ⚠️ Experimental: ESP32-S2
 - **USB cable** (USB-C or Micro-USB, depending on your board)
 - **Wi-Fi router** (2.4 GHz, 802.11b/g/n/ax)
 
@@ -84,7 +84,7 @@ Download the example configuration for your hardware:
 | **ESP32-S3** | [espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) | Xtensa @ 240MHz | WiFi 4 | ✅ 8MB | ✅ Tested |
 | **ESP32-C3** | [espectre-c3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c3.yaml) | RISC-V @ 160MHz | WiFi 4 | ❌ | ✅ Tested ² |
 | **ESP32** | [espectre-esp32.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-esp32.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ✅ Tested ³ |
-| **ESP32-C5** | [espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | RISC-V @ 240MHz | WiFi 6 capable | ❌ | ⚠️ Experimental ¹ |
+| **ESP32-C5** | [espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | RISC-V @ 240MHz | WiFi 6 capable | ❌ | ✅ Tested ¹ |
 | **ESP32-S2** | [espectre-s2.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s2.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
 
 > **Note**: ESPectre uses WiFi 4 (802.11b/g/n) mode for stable 64 subcarriers and faster calibration, even on WiFi 6 capable chips (C5, C6). This ensures consistent performance across all platforms.
@@ -98,7 +98,7 @@ Download the example configuration for your hardware:
 
 These files are pre-configured to download the component automatically from GitHub.
 
-> ⚠️ **Experimental platforms**: ESP32-S2 and ESP32-C5 have CSI support but have not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
+> ⚠️ **Experimental platform**: ESP32-S2 has CSI support but has not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
 >
 > ¹ ESP32-C5: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
 >

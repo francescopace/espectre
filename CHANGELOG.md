@@ -13,12 +13,14 @@ All notable changes to this project will be documented in this file.
 - **Factory reset ML default (Micro-ESPectre)**: `factory_reset` now restores the ML threshold to `5.0` (scaled metric default) instead of using a too-low out-of-range fallback
 - **ESP32-C5/C6 WiFi protocol/bandwidth API compatibility**: `WiFiLifecycle` now uses dual-band APIs (`esp_wifi_set/get_protocols`, `esp_wifi_set/get_bandwidths`) on C5/C6 with legacy fallback on other targets, avoiding invalid reads under dual-band mode and improving cross-target compatibility (#93)
 - **ESP32-C5 2.4 GHz enforcement for CSI stability**: C5 now explicitly sets `WIFI_BAND_MODE_2G_ONLY` during WiFi lifecycle initialization to prevent unintended 5 GHz association in AUTO mode (#93)
+- **ESP32-C5 57->64 subcarrier normalization**: C5 HT CSI packets with 57 complex samples (`114 bytes`) are now remapped to the internal HT20 64-subcarrier layout (`128 bytes`) with guard padding while preserving DC alignment, enabling stable motion detection startup on C5 (#93)
 - **WiFi diagnostics reliability on dual-band targets**: protocol/bandwidth/power-save logs now validate API return codes and report `unavailable` on failure instead of printing misleading values (e.g. fake `HT40` / `0x00`) (#93)
 - **Component startup safety on WiFi lifecycle failures**: `ESpectreComponent::setup()` now fails fast (`mark_failed()`) if WiFi lifecycle init or handler registration fails, preventing partial startup in invalid runtime states
 
 ### Changed
 
 - **Documentation alignment**: Updated threshold ranges and notes in `SETUP.md`, `TUNING.md`, and `micro-espectre/README.md` to reflect the unified `0.0-10.0` behavior
+- **ESP32-C5 platform status**: C5 is now documented as tested in setup and example headers (S2 remains experimental)
 - **Test suite alignment**: Updated Python and C++ threshold boundary tests (MVS/ML/MQTT/Serial streamer) to the new minimum threshold and kept full suite compatibility
 - **Micro-ESPectre feature pipeline cleanup**: Simplified `src/features.py` to the selected 12 motion features used by training/inference, aligned `ml_detector.py` and `tools/10_train_ml_model.py`, and removed deprecated experimental feature tests
 - **Optional WiFi BSSID lock (Micro-ESPectre)**: Added optional BSSID pinning in `src/main.py` (configured via `WIFI_BSSID`) to keep association on a specific AP
