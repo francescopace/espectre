@@ -146,6 +146,31 @@ constexpr float SEGMENTATION_MIN_THRESHOLD = 1e-9f;
 constexpr float SEGMENTATION_MAX_THRESHOLD = 10.0f;
 
 /**
+ * Validate threshold value against finite/range constraints.
+ */
+inline bool is_valid_threshold(float threshold, float min_threshold, float max_threshold) {
+    return std::isfinite(threshold) &&
+           threshold >= min_threshold &&
+           threshold <= max_threshold;
+}
+
+/**
+ * Clamp threshold to [min, max] and recover non-finite values.
+ */
+inline float clamp_threshold(float threshold, float min_threshold, float max_threshold) {
+    if (!std::isfinite(threshold)) {
+        return min_threshold;
+    }
+    if (threshold < min_threshold) {
+        return min_threshold;
+    }
+    if (threshold > max_threshold) {
+        return max_threshold;
+    }
+    return threshold;
+}
+
+/**
  * Calculate variance using two-pass algorithm (numerically stable)
  * 
  * Two-pass algorithm: variance = sum((x - mean)^2) / n
@@ -343,6 +368,16 @@ inline int compare_float_abs(const void *a, const void *b) {
  */
 inline void log_progress_bar(const char* tag, float progress, int width = 20, 
                              int threshold_pos = -1, const char* format = nullptr, ...) {
+  // Bar buffer is fixed-size: clamp width to stay within bounds.
+  if (width < 1) {
+    width = 1;
+  } else if (width > 20) {
+    width = 20;
+  }
+  if (threshold_pos >= width) {
+    threshold_pos = width - 1;
+  }
+
   // Create progress bar
   int filled = (int)(progress * (threshold_pos > 0 ? threshold_pos : width));
   filled = (filled < 0) ? 0 : (filled > width ? width : filled);

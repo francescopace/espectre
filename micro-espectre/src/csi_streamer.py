@@ -29,6 +29,7 @@ import src.config as config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN
 from src.traffic_generator import TrafficGenerator
 from src.main import connect_wifi, cleanup_wifi, run_gain_lock
+from src.utils import normalize_ht20_csi_payload
 
 # Streaming configuration
 STREAM_PORT = 5001
@@ -144,6 +145,8 @@ def stream_csi(dest_ip, duration_sec=0):
     seq_num = 0
     last_progress_time = start_time
     last_progress_count = 0
+    remap_logged = False
+    c5_remap_buffer = bytearray(EXPECTED_CSI_LEN) if chip_code == CHIP_C5 else None
     
     try:
         while True:
@@ -155,19 +158,20 @@ def stream_csi(dest_ip, duration_sec=0):
             
             frame = wlan.csi_read()
             if frame:
-                raw_len = len(frame[5])
-                # STBC workaround (GitHub issue #76, espressif/esp-csi#238)
-                if raw_len == EXPECTED_CSI_LEN * 2:
-                    raw_len = EXPECTED_CSI_LEN
-                
-                if raw_len != EXPECTED_CSI_LEN:
+                csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
+                    frame[5], EXPECTED_CSI_LEN, chip_type=chip_type, remap_buffer=c5_remap_buffer
+                )
+
+                if csi_data is None:
                     filtered_count += 1
                     if filtered_count % 100 == 1:
                         print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
                     del frame
                     continue
-                
-                csi_data = frame[5][:EXPECTED_CSI_LEN]
+
+                if remap_tag == 'c5_57_to_64' and not remap_logged:
+                    print("[INFO] C5 CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
+                    remap_logged = True
                 del frame
                 
                 # Build and send packet using pre-allocated buffer (zero allocation)

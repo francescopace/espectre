@@ -26,13 +26,7 @@ MVSDetector::MVSDetector(uint16_t window_size, float threshold)
     : BaseDetector(window_size)
     , threshold_(threshold)
     , current_moving_variance_(0.0f) {
-    
-    // Validate and clamp threshold
-    if (threshold_ < MVS_MIN_THRESHOLD) {
-        threshold_ = MVS_MIN_THRESHOLD;
-    } else if (threshold_ > MVS_MAX_THRESHOLD) {
-        threshold_ = MVS_MAX_THRESHOLD;
-    }
+    threshold_ = clamp_threshold(threshold_, MVS_MIN_THRESHOLD, MVS_MAX_THRESHOLD);
     
     ESP_LOGI(TAG, "Initialized (window=%d, threshold=%.2f)", window_size_, threshold_);
 }
@@ -75,8 +69,7 @@ void MVSDetector::update_state() {
 }
 
 bool MVSDetector::set_threshold(float threshold) {
-    if (std::isnan(threshold) || std::isinf(threshold) ||
-        threshold < MVS_MIN_THRESHOLD || threshold > MVS_MAX_THRESHOLD) {
+    if (!is_valid_threshold(threshold, MVS_MIN_THRESHOLD, MVS_MAX_THRESHOLD)) {
         ESP_LOGE(TAG, "Invalid threshold: %.2f (must be %.1f-%.1f)",
                  threshold, MVS_MIN_THRESHOLD, MVS_MAX_THRESHOLD);
         return false;

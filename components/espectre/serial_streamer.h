@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <functional>
+#include "sdkconfig.h"
 
 namespace esphome {
 namespace espectre {
@@ -103,6 +104,13 @@ class SerialStreamer {
   void process_command(const char* cmd) { process_command_(cmd); }
   
  private:
+  // UART port used for command input when logger runs on USB-UART bridge boards.
+#if defined(USE_LOGGER_UART_SELECTION_UART1)
+  static constexpr int SERIAL_STREAMER_UART_PORT = 1;
+#else
+  static constexpr int SERIAL_STREAMER_UART_PORT = 0;
+#endif
+
   bool active_{false};  // Streaming currently active
   ThresholdCallback threshold_callback_{nullptr};
   StartCallback start_callback_{nullptr};

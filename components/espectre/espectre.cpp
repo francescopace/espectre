@@ -314,11 +314,17 @@ void ESpectreComponent::start_calibration_() {
     this->traffic_generator_.pause();
   });
   
-  this->nbvi_calibrator_.start_calibration(
+  esp_err_t cal_start_err = this->nbvi_calibrator_.start_calibration(
     this->selected_subcarriers_,
     12,
     calibration_callback
   );
+  if (cal_start_err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to start calibration: %s", esp_err_to_name(cal_start_err));
+    if (this->calibrate_switch_ != nullptr) {
+      static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
+    }
+  }
 }
 
 void ESpectreComponent::trigger_recalibration() {

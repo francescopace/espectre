@@ -117,6 +117,7 @@ class MQTTCommands:
         channel_secondary = 0
         bandwidth = "HT20"  # MicroPython ESP32 default
         protocol = "unknown"
+        band_mode = "unknown"
         csi_enabled = False
         
         if self.wlan.active():
@@ -155,6 +156,20 @@ class MQTTCommands:
                 protocol = '802.11' + '/'.join(modes) if modes else 'unknown'
             except Exception:  # pragma: no cover
                 pass
+
+            # WiFi band mode (available on modern dual-band firmware)
+            try:
+                band_mode_val = self.wlan.config('band_mode')
+                if band_mode_val == getattr(self.wlan, 'BAND_MODE_2G_ONLY', 1):
+                    band_mode = '2g-only'
+                elif band_mode_val == getattr(self.wlan, 'BAND_MODE_5G_ONLY', 2):
+                    band_mode = '5g-only'
+                elif band_mode_val == getattr(self.wlan, 'BAND_MODE_AUTO', 3):
+                    band_mode = 'auto'
+                else:
+                    band_mode = str(band_mode_val)
+            except Exception:  # pragma: no cover
+                pass
             
             # CSI enabled (indicates promiscuous-like mode for CSI capture)
             try:
@@ -176,6 +191,7 @@ class MQTTCommands:
                     "primary": channel_primary,
                     "secondary": channel_secondary
                 },
+                "band_mode": band_mode,
                 "bandwidth": bandwidth,
                 "protocol": protocol,
                 "csi_enabled": csi_enabled

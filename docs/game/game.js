@@ -36,6 +36,9 @@ const EnemyTypes = [
 // Game progression constants
 const MAX_WAVE = 15;
 const SPECTRES_PER_WAVE = 3;
+const MOVEMENT_SCALE_MAX = 10.0;
+const THRESHOLD_MIN = 0.0;
+const THRESHOLD_MAX = 10.0;
 
 // Hit strength categories based on power (movement / threshold * 0.3)
 const HitStrength = {
@@ -304,8 +307,8 @@ class ESPectreGame {
         if (!marker) return;
         
         this.isDraggingThreshold = false;
-        this.thresholdMin = 0.5;
-        this.thresholdMax = 5.0;
+        this.thresholdMin = THRESHOLD_MIN;
+        this.thresholdMax = THRESHOLD_MAX;
         
         // Update marker position based on current threshold
         this.updateThresholdMarkerPosition();
@@ -347,9 +350,9 @@ class ESPectreGame {
         const relativeY = rect.bottom - clientY;
         const percentage = Math.max(0, Math.min(100, (relativeY / rect.height) * 100));
         
-        // Map percentage to threshold value (0-100% → 0-5, same scale as movement bar)
+        // Map percentage to threshold value (0-100% → 0-10, same scale as movement bar)
         // Clamp to valid range (thresholdMin to thresholdMax)
-        const newThreshold = (percentage / 100) * 5;
+        const newThreshold = (percentage / 100) * this.thresholdMax;
         this.threshold = Math.max(this.thresholdMin, Math.min(this.thresholdMax, Math.round(newThreshold * 10) / 10));
         
         // Update UI while dragging
@@ -370,8 +373,8 @@ class ESPectreGame {
         const valueEl = this.elements.thresholdValue;
         if (!marker) return;
         
-        // Map threshold to percentage (0-100) using same scale as movement bar (0-5)
-        const percentage = (this.threshold / 5) * 100;
+        // Map threshold to percentage (0-100) using same scale as movement bar (0-10).
+        const percentage = (this.threshold / this.thresholdMax) * 100;
         marker.style.bottom = `${percentage}%`;
         
         if (valueEl) {
@@ -731,7 +734,7 @@ class ESPectreGame {
             const dy = e.clientY - this.lastMouseY;
             const distance = Math.sqrt(dx * dx + dy * dy);
             const velocity = (distance / dt) * 0.3;
-            const movement = Math.min(velocity, 5.0);
+            const movement = Math.min(velocity, MOVEMENT_SCALE_MAX);
             
             this.updateInput(movement);
             
@@ -767,7 +770,7 @@ class ESPectreGame {
             const dy = e.touches[0].clientY - this.lastTouchY;
             const distance = Math.sqrt(dx * dx + dy * dy);
             const velocity = (distance / dt) * 0.3;
-            const movement = Math.min(velocity, 5.0);
+            const movement = Math.min(velocity, MOVEMENT_SCALE_MAX);
             
             this.updateInput(movement);
             
@@ -796,10 +799,10 @@ class ESPectreGame {
      * Unified input handler - updates movement bar and audio for all sources
      */
     updateInput(value) {
-        this.movement = Math.max(0, Math.min(5, value));
+        this.movement = Math.max(0, Math.min(MOVEMENT_SCALE_MAX, value));
         
         // Update vertical movement bar (height-based)
-        const percent = (this.movement / 5) * 100;
+        const percent = (this.movement / MOVEMENT_SCALE_MAX) * 100;
         if (this.elements.movementFill) {
             this.elements.movementFill.style.height = percent + '%';
         }

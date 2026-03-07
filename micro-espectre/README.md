@@ -678,6 +678,7 @@ Publish JSON commands to `home/espectre/node1/cmd`:
     "ip_address": "192.168.1.28",
     "mac_address": "7C:2C:67:42:BB:AC",
     "channel": {"primary": 4, "secondary": 0},
+    "band_mode": "2g-only",
     "protocol": "802.11b/g/n/ax",
     "bandwidth": "HT20",
     "csi_enabled": true,

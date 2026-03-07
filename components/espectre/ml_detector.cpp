@@ -27,13 +27,7 @@ MLDetector::MLDetector(uint16_t window_size, float threshold)
     : BaseDetector(window_size)
     , threshold_(threshold)
     , current_probability_(0.0f) {
-    
-    // Validate and clamp threshold
-    if (threshold_ < ML_MIN_THRESHOLD) {
-        threshold_ = ML_MIN_THRESHOLD;
-    } else if (threshold_ > ML_MAX_THRESHOLD) {
-        threshold_ = ML_MAX_THRESHOLD;
-    }
+    threshold_ = clamp_threshold(threshold_, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
     
     ESP_LOGI(TAG, "Initialized (window=%d, threshold=%.2f)", window_size_, threshold_);
 }
@@ -85,8 +79,7 @@ void MLDetector::update_state() {
 }
 
 bool MLDetector::set_threshold(float threshold) {
-    if (std::isnan(threshold) || std::isinf(threshold) ||
-        threshold < ML_MIN_THRESHOLD || threshold > ML_MAX_THRESHOLD) {
+    if (!is_valid_threshold(threshold, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD)) {
         ESP_LOGE(TAG, "Invalid threshold: %.2f (must be %.1f-%.1f)",
                  threshold, ML_MIN_THRESHOLD, ML_MAX_THRESHOLD);
         return false;

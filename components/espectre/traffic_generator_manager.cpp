@@ -228,6 +228,8 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   esp_ip4_addr_t gw;
   if (!get_gateway_ip(&gw)) {
     ESP_LOGE(TAG, "Failed to get gateway in task");
+    // Keep manager state coherent if task exits unexpectedly.
+    mgr->running_.store(false);
     vTaskDelete(NULL);
     return;
   }

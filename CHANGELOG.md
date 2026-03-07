@@ -8,30 +8,33 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- **Threshold range consistency across all stacks**: Motion threshold validation is now aligned to `0.0-10.0` in ESPHome/C++ and Micro-ESPectre/Python, including Home Assistant number control, Serial streamer command parsing, MQTT runtime commands, and detector-level setters
-- **ML runtime threshold handling**: MQTT command processing now validates and propagates detector-level threshold rejections correctly, avoiding false success responses when a value is outside the effective detector constraints
-- **Factory reset ML default (Micro-ESPectre)**: `factory_reset` now restores the ML threshold to `5.0` (scaled metric default) instead of using a too-low out-of-range fallback
-- **ESP32-C5/C6 WiFi protocol/bandwidth API compatibility**: `WiFiLifecycle` now uses dual-band APIs (`esp_wifi_set/get_protocols`, `esp_wifi_set/get_bandwidths`) on C5/C6 with legacy fallback on other targets, avoiding invalid reads under dual-band mode and improving cross-target compatibility (#93)
-- **ESP32-C5 2.4 GHz enforcement for CSI stability**: C5 now explicitly sets `WIFI_BAND_MODE_2G_ONLY` during WiFi lifecycle initialization to prevent unintended 5 GHz association in AUTO mode (#93)
-- **ESP32-C5 57->64 subcarrier normalization**: C5 HT CSI packets with 57 complex samples (`114 bytes`) are now remapped to the internal HT20 64-subcarrier layout (`128 bytes`) with guard padding while preserving DC alignment, enabling stable motion detection startup on C5 (#93)
-- **WiFi diagnostics reliability on dual-band targets**: protocol/bandwidth/power-save logs now validate API return codes and report `unavailable` on failure instead of printing misleading values (e.g. fake `HT40` / `0x00`) (#93)
-- **Component startup safety on WiFi lifecycle failures**: `ESpectreComponent::setup()` now fails fast (`mark_failed()`) if WiFi lifecycle init or handler registration fails, preventing partial startup in invalid runtime states
+- **Cold reset after calibration/channel switch**: `CSIManager::clear_detector_buffer()` now uses `clear_buffer()` (not warm `reset()`), avoiding stale turbulence history
+- **Calibration start failure handling**: `ESpectreComponent::start_calibration_()` now checks `start_calibration()` return code and rolls back calibrate-switch state on failure
+- **DNS task state consistency**: DNS task now always clears `running_` on early exit, preventing false “already running” states
+- **NBVI input safety**: calibration now validates null/empty band input, clamps `current_band_size` to `HT20_SELECTED_BAND_SIZE`, and uses bounded copies
+- **Serial threshold parsing hardening**: `T:<value>` now uses validated `strtof` parsing (`endptr` + finite/range checks), rejecting malformed commands
+- **Unified threshold behavior across stacks**: threshold validation is aligned to `0.0-10.0` across ESPHome/C++ and Micro-ESPectre/Python (HA number, Serial, MQTT, detector setters); MQTT now propagates detector rejections correctly; `factory_reset` restores ML threshold to `5.0`
+- **ESP32-C5/C6 WiFi lifecycle reliability (#93)**: dual-band protocol/bandwidth APIs are now used correctly on C5/C6 (with legacy fallback), C5 is forced to 2.4 GHz, C5 `114-byte` CSI packets are remapped to HT20 `128-byte` layout, and diagnostics now report `unavailable` when API calls fail
+- **Startup fail-fast on WiFi lifecycle errors**: `ESpectreComponent::setup()` now calls `mark_failed()` if WiFi init/handler registration fails
+- **Micro-ESPectre deploy diagnostics on bad flash image**: `./me deploy` now performs a MicroPython REPL health-check before upload and reports a clear remediation path (`./me flash --erase --chip c5`) when the device is stuck in ROM boot loop (`invalid header`)
+- **Micro-ESPectre CSI packet compatibility on ESP32-C5**: runtime loops now normalize C5 `114-byte` HT payloads to internal HT20 `128-byte` layout (57->64 SC with guard padding), avoiding large packet drop rates during `run`/`stream`
 
 ### Changed
 
-- **Documentation alignment**: Updated threshold ranges and notes in `SETUP.md`, `TUNING.md`, and `micro-espectre/README.md` to reflect the unified `0.0-10.0` behavior
-- **ESP32-C5 platform status**: C5 is now documented as tested in setup and example headers (S2 remains experimental)
-- **Test suite alignment**: Updated Python and C++ threshold boundary tests (MVS/ML/MQTT/Serial streamer) to the new minimum threshold and kept full suite compatibility
-- **Micro-ESPectre feature pipeline cleanup**: Simplified `src/features.py` to the selected 12 motion features used by training/inference, aligned `ml_detector.py` and `tools/10_train_ml_model.py`, and removed deprecated experimental feature tests
-- **Optional WiFi BSSID lock (Micro-ESPectre)**: Added optional BSSID pinning in `src/main.py` (configured via `WIFI_BSSID`) to keep association on a specific AP
-- **C++ detector cleanup**: Removed unused `BaseDetector` amplitude getters and fixed stale wording in comments about stored packet data
-- **Dataset metadata normalization source of truth**: Micro-ESPectre training and collection now use `gain_locked` as the single source of truth for CV normalization decisions; `use_cv_normalization` was removed from `dataset_info.json` and related docs
-- **Collection metadata consistency**: `me collect`/`CSICollector` now persist `gain_locked` consistently in both `.npz` files and `dataset_info.json`, with no `label_id` metadata written
-- **ESP-IDF WiFi mock alignment**: `test/mocks/esp_idf/esp_wifi.h` now mirrors modern protocol bitmasks (`11A/11AC/11AX`), band mode enums, and dual-band API types/functions (`wifi_protocols_t`, `wifi_bandwidths_t`, `*_protocols`, `*_bandwidths`)
-- **ML fixed subcarriers (training + inference)**: Updated `ML_SUBCARRIERS` to the even/no-DC set `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]` in both Micro-ESPectre and ESPHome C++ to reduce null-subcarrier risk and keep parity across stacks
-- **ML model refresh with validated seed**: Re-trained and re-exported `ml_weights.py`, `ml_weights.h`, and model artifacts using seed `693446532` after seed sweep validation to keep S3 recall above target while preserving cross-chip performance
-- **ML diagnostics and docs cleanup**: Motion-detection test logs now print the runtime `ML_SUBCARRIERS` array (no hardcoded preview), and stale references to the old ML subcarrier set were updated in docs/tests
-- **Grid-search metadata refresh tool added and aligned**: Added `micro-espectre/tools/11_refresh_gridsearch_metadata.py`, documented it in `micro-espectre/tools/README.md`, and aligned single-dataset fallback scoring with current MVS objectives
+- **NBVI calibration hot-path optimization**: reduced loop allocations, switched validation from per-packet reads to block reads, and replaced O(window) shifts with ring buffer + running statistics
+- **Shared threshold helpers (DRY)**: threshold validation/clamping is now centralized in `utils.h` and reused by both `MVSDetector` and `MLDetector`
+- **Progress bar safety guard**: `log_progress_bar()` now clamps width/marker bounds for fixed-buffer safety
+- **Micro-ESPectre feature pipeline cleanup**: simplified `src/features.py` to the selected 12 training/inference features and aligned `ml_detector.py` and `tools/10_train_ml_model.py`
+- **ML pipeline alignment (training + inference)**: both stacks now use `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`, models were re-trained/re-exported with validated seed, and diagnostics/docs were updated to the runtime subcarrier set
+- **Dataset metadata consistency**: `gain_locked` is now the source of truth in training/collection and is persisted consistently in `.npz` and `dataset_info.json`; `use_cv_normalization` and `label_id` metadata were removed
+- **ESP-IDF WiFi mock alignment**: `test/mocks/esp_idf/esp_wifi.h` now mirrors modern protocol bitmasks, band mode enums, and dual-band API types/functions
+- **Optional WiFi BSSID lock (Micro-ESPectre)**: added optional BSSID pinning in `src/main.py` via `WIFI_BSSID`
+- **C++ detector cleanup**: removed unused `BaseDetector` amplitude getters and fixed stale comments
+- **Docs/tests alignment**: updated threshold docs/tests for unified `0.0-10.0` behavior and marked ESP32-C5 as tested in setup/examples (S2 remains experimental)
+- **Grid-search metadata refresh tool**: added `micro-espectre/tools/11_refresh_gridsearch_metadata.py` and documentation; aligned single-dataset fallback scoring with current MVS objectives
+- **Micro-ESPectre C5 flashing support in `me` CLI**: added ESP32-C5 auto-detection/manual selection, `--chip c5` support, correct esptool target mapping (`esp32c5`), and C5 firmware artifact selection (`ESP32_CSI_C5.bin`)
+- **Micro-ESPectre flash offset mapping hardening**: `me flash` now uses per-chip offsets aligned to MicroPython board deploy options (including C5 `0x2000`)
+- **Micro-ESPectre dual-band safety defaults**: startup now attempts `wlan.config(band_mode=BAND_MODE_2G_ONLY)` (with legacy-safe fallback), and MQTT `info` now reports `network.band_mode`
 
 ---
 

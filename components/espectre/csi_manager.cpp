@@ -51,8 +51,9 @@ void CSIManager::set_threshold(float threshold) {
 
 void CSIManager::clear_detector_buffer() {
   if (detector_) {
-    // Reset detector state (clears buffers for all detector types)
-    detector_->reset();
+    // Cold reset: clear turbulence history and state.
+    // Required after channel switch and post-calibration to avoid stale samples.
+    detector_->clear_buffer();
   }
 }
 

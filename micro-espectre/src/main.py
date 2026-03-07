@@ -25,7 +25,7 @@ GAIN_LOCK_PACKETS = 300  # ~3 seconds at 100 Hz
 
 # Import HT20 constants from config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
-from src.utils import to_signed_int8, calculate_median
+from src.utils import to_signed_int8, calculate_median, normalize_ht20_csi_payload
 
 # Global state for calibration mode and performance metrics
 class GlobalState:
@@ -110,6 +110,13 @@ def connect_wifi():
     
     # Wait for hardware initialization
     time.sleep(2)
+
+    # Dual-band targets (e.g. ESP32-C5/C6): force 2.4GHz for stable CSI capture.
+    try:
+        wlan.config(band_mode=wlan.BAND_MODE_2G_ONLY)
+    except Exception:
+        # Legacy/single-band firmware may not expose band_mode.
+        pass
         
     # Configure WiFi protocol
     # Force WiFi 4 (802.11b/g/n) only to get 64 subcarriers
@@ -386,25 +393,28 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     filtered_count = 0
     last_progress_time = time.ticks_ms()
     last_progress_count = 0
+    remap_logged = False
+    c5_remap_buffer = bytearray(EXPECTED_CSI_LEN) if chip_type == 'C5' else None
     
     while calibration_progress < config.CALIBRATION_BUFFER_SIZE:
         frame = wlan.csi_read()
         packets_read += 1
         
         if frame:
-            raw_len = len(frame[5])
-            # STBC workaround (GitHub issue #76, espressif/esp-csi#238)
-            if raw_len == EXPECTED_CSI_LEN * 2:
-                raw_len = EXPECTED_CSI_LEN
+            csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
+                frame[5], EXPECTED_CSI_LEN, chip_type=chip_type, remap_buffer=c5_remap_buffer
+            )
 
-            if raw_len != EXPECTED_CSI_LEN:
+            if csi_data is None:
                 filtered_count += 1
                 if filtered_count % 100 == 1:
                     print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
                 del frame
                 continue
 
-            csi_data = frame[5][:EXPECTED_CSI_LEN]
+            if remap_tag == 'c5_57_to_64' and not remap_logged:
+                print("[INFO] C5 CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
+                remap_logged = True
             del frame
             calibration_progress = calibrator.add_packet(csi_data)
             timeout_counter = 0  # Reset timeout on successful read
@@ -650,6 +660,8 @@ def main():
     last_dropped = 0
     filtered_count = 0  # Packets with wrong SC count
     last_publish_time = time.ticks_ms()
+    remap_logged = False
+    c5_remap_buffer = bytearray(EXPECTED_CSI_LEN) if g_state.chip_type == 'C5' else None
     
     # Calculate optimal sleep based on traffic rate
     publish_rate = traffic_gen.get_rate() if traffic_gen.is_running() else 100
@@ -669,19 +681,20 @@ def main():
             frame = wlan.csi_read()
             
             if frame:
-                raw_len = len(frame[5])
-                # STBC workaround — see nbvi_calibrator.py for details
-                if raw_len == EXPECTED_CSI_LEN * 2:
-                    raw_len = EXPECTED_CSI_LEN
-                
-                if raw_len != EXPECTED_CSI_LEN:
+                csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
+                    frame[5], EXPECTED_CSI_LEN, chip_type=g_state.chip_type, remap_buffer=c5_remap_buffer
+                )
+
+                if csi_data is None:
                     filtered_count += 1
                     if filtered_count % 100 == 1:
                         print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
                     del frame
                     continue
-                
-                csi_data = frame[5][:EXPECTED_CSI_LEN]
+
+                if remap_tag == 'c5_57_to_64' and not remap_logged:
+                    print("[INFO] C5 CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
+                    remap_logged = True
                 packet_channel = frame[1]
                 
                 del frame

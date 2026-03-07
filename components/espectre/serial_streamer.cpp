@@ -14,6 +14,8 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <cerrno>
+#include <cmath>
 
 #include "sdkconfig.h"
 
@@ -31,6 +33,15 @@
 #define USE_USB_SERIAL_JTAG 0
 #endif
 
+// UART backend for boards using USB-UART bridges (logger on UART0/UART1).
+// This keeps Web Serial game commands working even without native USB Serial JTAG.
+#if !USE_USB_SERIAL_JTAG && __has_include("driver/uart.h")
+#include "driver/uart.h"
+#define USE_UART_SERIAL_BACKEND 1
+#else
+#define USE_UART_SERIAL_BACKEND 0
+#endif
+
 namespace esphome {
 namespace espectre {
 
@@ -42,7 +53,9 @@ void SerialStreamer::init() {
   cmd_buffer_index_ = 0;
   memset(cmd_buffer_, 0, CMD_BUFFER_SIZE);
 #if !USE_USB_SERIAL_JTAG
-#if defined(CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED) && CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED
+#if USE_UART_SERIAL_BACKEND
+  ESP_LOGD(TAG, "Serial streaming backend: UART");
+#elif defined(CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED) && CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED
   // Chip supports USB Serial JTAG but ESPHome is using hardware UART for logging
   ESP_LOGD(TAG, "Serial streaming disabled (logger using hardware UART)");
 #else
@@ -67,7 +80,23 @@ void SerialStreamer::check_commands() {
       cmd_buffer_[cmd_buffer_index_++] = (char)byte;
     }
   }
-  
+#elif USE_UART_SERIAL_BACKEND
+  // Read available bytes from logger UART (typically UART0 on bridge boards).
+  uint8_t byte;
+  while (uart_read_bytes(static_cast<uart_port_t>(SERIAL_STREAMER_UART_PORT), &byte, 1, 0) > 0) {
+    if (byte == '\n' || byte == '\r') {
+      if (cmd_buffer_index_ > 0) {
+        cmd_buffer_[cmd_buffer_index_] = '\0';
+        process_command_(cmd_buffer_);
+        cmd_buffer_index_ = 0;
+      }
+    } else if (cmd_buffer_index_ < CMD_BUFFER_SIZE - 1) {
+      cmd_buffer_[cmd_buffer_index_++] = (char)byte;
+    }
+  }
+#endif
+
+#if USE_USB_SERIAL_JTAG || USE_UART_SERIAL_BACKEND
   // Check ping timeout (auto-stop if browser disconnected)
   if (active_ && (millis() - last_ping_time_ > PING_TIMEOUT_MS)) {
     ESP_LOGW(TAG, "Ping timeout - stopping stream");
@@ -86,7 +115,17 @@ void SerialStreamer::process_command_(const char* cmd) {
     last_ping_time_ = millis();
   } else if (strncmp(cmd, "T:", 2) == 0) {
     // Threshold command: T:X.XX
-    float threshold = atof(cmd + 2);
+    const char *value_str = cmd + 2;
+    char *end_ptr = nullptr;
+    errno = 0;
+    float threshold = strtof(value_str, &end_ptr);
+    bool parse_ok = (end_ptr != value_str) && (end_ptr != nullptr) && (*end_ptr == '\0') &&
+                    (errno != ERANGE) && std::isfinite(threshold);
+    if (!parse_ok) {
+      ESP_LOGW(TAG, "Invalid threshold command: %s", cmd);
+      return;
+    }
+
     if (threshold >= 0.0f && threshold <= 10.0f) {
       ESP_LOGI(TAG, "Threshold set via serial: %.2f", threshold);
       if (threshold_callback_) {
@@ -120,14 +159,12 @@ void SerialStreamer::stop() {
 }
 
 void SerialStreamer::send_data(float movement, float threshold) {
-#if USE_USB_SERIAL_JTAG
   if (!active_) return;
   
   // Use ESP_LOGI with short tag "G" for clean log format
   // Output: [I][G][]: 0.73,1.50
   // This ensures proper line separation and no mixing with other logs
   ESP_LOGI(STREAM_TAG, "%.2f,%.2f", movement, threshold);
-#endif
 }
 
 }  // namespace espectre

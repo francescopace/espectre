@@ -45,10 +45,16 @@ esp_err_t NBVICalibrator::start_calibration(const uint8_t* current_band,
     ESP_LOGW(TAG, "Calibration already in progress");
     return ESP_ERR_INVALID_STATE;
   }
+
+  if (current_band == nullptr || current_band_size == 0) {
+    ESP_LOGE(TAG, "Invalid current band input");
+    return ESP_ERR_INVALID_ARG;
+  }
   
   // Store context
   result_callback_ = callback;
-  current_band_.assign(current_band, current_band + current_band_size);
+  const uint8_t safe_band_size = std::min<uint8_t>(current_band_size, HT20_SELECTED_BAND_SIZE);
+  current_band_.assign(current_band, current_band + safe_band_size);
   
   // Prepare file buffer
   file_buffer_.remove_file();
@@ -214,7 +220,10 @@ esp_err_t NBVICalibrator::run_calibration_() {
     // Validate
     float fp_rate = 0.0f;
     std::vector<float> temp_mv_values;
-    validate_subcarriers_(temp_band, temp_band_size, &fp_rate, temp_mv_values);
+    if (!validate_subcarriers_(temp_band, temp_band_size, &fp_rate, temp_mv_values)) {
+      ESP_LOGW(TAG, "Window %zu: validation failed, skipping candidate", idx + 1);
+      continue;
+    }
     
     ESP_LOGV(TAG, "Window %zu: FP rate %.1f%%", idx + 1, fp_rate * 100.0f);
     
@@ -230,13 +239,21 @@ esp_err_t NBVICalibrator::run_calibration_() {
   
   if (!found_valid) {
     ESP_LOGW(TAG, "All candidate windows failed - using default subcarriers");
-    
-    selected_band_size_ = current_band_.size();
-    std::memcpy(selected_band_, current_band_.data(), selected_band_size_);
+
+    selected_band_size_ = static_cast<uint8_t>(std::min<size_t>(current_band_.size(), HT20_SELECTED_BAND_SIZE));
+    if (selected_band_size_ == 0) {
+      ESP_LOGE(TAG, "Fallback band is empty");
+      return ESP_FAIL;
+    }
+    std::memcpy(selected_band_, current_band_.data(),
+                selected_band_size_ * sizeof(selected_band_[0]));
     
     // Get MV values for default band
-    float fp_rate;
-    validate_subcarriers_(selected_band_, selected_band_size_, &fp_rate, mv_values_);
+    float fp_rate = 0.0f;
+    if (!validate_subcarriers_(selected_band_, selected_band_size_, &fp_rate, mv_values_)) {
+      ESP_LOGE(TAG, "Fallback band validation failed");
+      return ESP_FAIL;
+    }
     
     ESP_LOGI(TAG, "Fallback to default band");
     return ESP_OK;
@@ -267,16 +284,17 @@ esp_err_t NBVICalibrator::find_candidate_windows_(std::vector<WindowVariance>& c
   }
   
   std::vector<WindowVariance> all_windows;
+  all_windows.reserve(((buffer_count - window_size_) / window_step_) + 1);
+  const size_t expected_window_bytes = static_cast<size_t>(window_size_) * HT20_NUM_SUBCARRIERS;
+  std::vector<float> turbulences(window_size_);
   
   for (uint16_t start = 0; start + window_size_ <= buffer_count; start += window_step_) {
     std::vector<uint8_t> window_data = file_buffer_.read_window(start, window_size_);
-    if (window_data.size() != window_size_ * HT20_NUM_SUBCARRIERS) {
+    if (window_data.size() != expected_window_bytes) {
       continue;
     }
-    
-    // Calculate turbulence for each packet using current band
-    std::vector<float> turbulences(window_size_);
-    
+
+    // Calculate turbulence for each packet using current band.
     for (uint16_t pkt = 0; pkt < window_size_; pkt++) {
       const uint8_t* packet_magnitudes = &window_data[pkt * HT20_NUM_SUBCARRIERS];
       
@@ -312,6 +330,7 @@ esp_err_t NBVICalibrator::find_candidate_windows_(std::vector<WindowVariance>& c
   
   // Get percentile threshold
   std::vector<float> variances;
+  variances.reserve(all_windows.size());
   for (const auto& w : all_windows) {
     variances.push_back(w.variance);
   }
@@ -334,9 +353,8 @@ void NBVICalibrator::calculate_nbvi_metrics_(uint16_t baseline_start,
     return;
   }
   
+  std::vector<float> magnitudes(window_size_);
   for (uint8_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
-    std::vector<float> magnitudes(window_size_);
-    
     for (uint16_t pkt = 0; pkt < window_size_; pkt++) {
       magnitudes[pkt] = static_cast<float>(window_data[pkt * HT20_NUM_SUBCARRIERS + sc]);
     }
@@ -445,19 +463,37 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
                                            float* out_fp_rate,
                                            std::vector<float>& out_mv_values) {
   out_mv_values.clear();
-  
+  if (band == nullptr || band_size == 0 || out_fp_rate == nullptr || mvs_window_size_ == 0) {
+    return false;
+  }
+
   uint16_t buffer_count = file_buffer_.get_count();
-  
-  std::vector<float> turbulence_buffer(mvs_window_size_);
+  if (buffer_count == 0 || buffer_count < mvs_window_size_) {
+    *out_fp_rate = 0.0f;
+    return true;
+  }
+
+  // Read calibration packets in one shot to avoid per-packet seek/read overhead.
+  std::vector<uint8_t> all_packets = file_buffer_.read_window(0, buffer_count);
+  const size_t expected_bytes = static_cast<size_t>(buffer_count) * HT20_NUM_SUBCARRIERS;
+  if (all_packets.size() != expected_bytes) {
+    ESP_LOGW(TAG, "Validation read mismatch: got %zu, expected %zu",
+             all_packets.size(), expected_bytes);
+    return false;
+  }
+
+  std::vector<float> turbulence_ring(mvs_window_size_, 0.0f);
+  out_mv_values.reserve(buffer_count - mvs_window_size_ + 1);
+
+  uint16_t ring_idx = 0;
+  uint16_t ring_count = 0;
+  float running_sum = 0.0f;
+  float running_sum_sq = 0.0f;
   uint16_t motion_count = 0;
   uint16_t total_packets = 0;
-  
+
   for (uint16_t pkt = 0; pkt < buffer_count; pkt++) {
-    std::vector<uint8_t> packet_data = file_buffer_.read_window(pkt, 1);
-    if (packet_data.size() != HT20_NUM_SUBCARRIERS) {
-      continue;
-    }
-    
+    const uint8_t* packet_data = &all_packets[pkt * HT20_NUM_SUBCARRIERS];
     float float_mags[HT20_NUM_SUBCARRIERS];
     for (uint8_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
       float_mags[sc] = static_cast<float>(packet_data[sc]);
@@ -465,20 +501,34 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
     
     float turbulence = calculate_spatial_turbulence(float_mags, band, band_size, 64,
                                                      use_cv_normalization_);
-    
-    // Shift buffer
-    for (uint16_t i = 0; i < mvs_window_size_ - 1; i++) {
-      turbulence_buffer[i] = turbulence_buffer[i + 1];
+
+    if (ring_count < mvs_window_size_) {
+      turbulence_ring[ring_idx] = turbulence;
+      running_sum += turbulence;
+      running_sum_sq += turbulence * turbulence;
+      ring_count++;
+      ring_idx = (ring_idx + 1) % mvs_window_size_;
+    } else {
+      const float old = turbulence_ring[ring_idx];
+      running_sum -= old;
+      running_sum_sq -= old * old;
+      turbulence_ring[ring_idx] = turbulence;
+      running_sum += turbulence;
+      running_sum_sq += turbulence * turbulence;
+      ring_idx = (ring_idx + 1) % mvs_window_size_;
     }
-    turbulence_buffer[mvs_window_size_ - 1] = turbulence;
-    
-    if (pkt < mvs_window_size_) {
+
+    if (ring_count < mvs_window_size_) {
       continue;
     }
-    
-    float variance = calculate_variance_two_pass(turbulence_buffer.data(), mvs_window_size_);
+
+    float mean = running_sum / mvs_window_size_;
+    float variance = (running_sum_sq / mvs_window_size_) - (mean * mean);
+    if (variance < 0.0f) {
+      variance = 0.0f;
+    }
     out_mv_values.push_back(variance);
-    
+
     if (variance > MVS_THRESHOLD) {
       motion_count++;
     }

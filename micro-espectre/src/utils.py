@@ -11,6 +11,53 @@ License: GPLv3
 import math
 
 
+def normalize_ht20_csi_payload(csi_data, expected_len=128, chip_type=None, remap_buffer=None):
+    """
+    Normalize CSI payload length to HT20 expected layout.
+
+    Handles:
+    - STBC doubled HT-LTF payload (2x expected): keep first HT-LTF block
+    - ESP32-C5 short HT payload (114 bytes): remap to 128 bytes with guard padding
+
+    Args:
+        csi_data: Raw CSI payload (bytes/bytearray)
+        expected_len: Target HT20 payload length (default: 128)
+        chip_type: Optional chip hint ('C5', 'ESP32-C5', etc.)
+        remap_buffer: Optional pre-allocated bytearray(expected_len) reused by caller
+
+    Returns:
+        tuple: (normalized_payload, raw_len, remap_tag)
+            - normalized_payload: bytes-like object or None if unsupported length
+            - raw_len: original payload length
+            - remap_tag: None | 'stbc' | 'c5_57_to_64'
+    """
+    raw_len = len(csi_data)
+
+    # STBC workaround: two HT-LTF blocks, keep first 64 SC (HT20).
+    if raw_len == expected_len * 2:
+        return csi_data[:expected_len], raw_len, 'stbc'
+
+    if raw_len == expected_len:
+        return csi_data, raw_len, None
+
+    # ESP32-C5 HT packets may expose 57 complex samples (114 bytes).
+    # Remap to 64 SC (128 bytes): left pad 4 SC and right pad 3 SC.
+    is_c5 = chip_type is not None and 'C5' in str(chip_type).upper()
+    if is_c5 and expected_len == 128 and raw_len == 114:
+        if remap_buffer is None or len(remap_buffer) != expected_len:
+            remap_buffer = bytearray(expected_len)
+
+        # Clear left/right guard bins and copy payload in the middle.
+        for i in range(8):
+            remap_buffer[i] = 0
+        for i in range(122, expected_len):
+            remap_buffer[i] = 0
+        remap_buffer[8:122] = csi_data
+        return remap_buffer, raw_len, 'c5_57_to_64'
+
+    return None, raw_len, None
+
+
 def to_signed_int8(value):
     """
     Convert unsigned byte to signed int8.
