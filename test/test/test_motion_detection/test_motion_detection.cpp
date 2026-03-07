@@ -164,16 +164,6 @@ static void print_summary_table() {
 }
 
 // ============================================================================
-// Optimal Subcarriers (found via offline grid search analysis)
-// ============================================================================
-// These represent the "best case" for each chip, found by analyzing datasets
-static const uint8_t SUBCARRIERS_ESP32_64SC[] = {12, 13, 14, 17, 44, 45, 46, 48, 49, 50, 51, 52};
-static const uint8_t SUBCARRIERS_C3_64SC[] = {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29};
-static const uint8_t SUBCARRIERS_C6_64SC[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
-static const uint8_t SUBCARRIERS_S3_64SC[] = {48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59};
-static const uint8_t NUM_SELECTED_SUBCARRIERS = 12;
-
-// ============================================================================
 // Chip-Specific Configuration
 // ============================================================================
 
@@ -201,12 +191,24 @@ inline bool needs_cv_normalization() {
 }
 
 inline const uint8_t* get_optimal_subcarriers() {
-    switch (csi_test_data::current_chip()) {
-        case csi_test_data::ChipType::C3: return SUBCARRIERS_C3_64SC;
-        case csi_test_data::ChipType::ESP32: return SUBCARRIERS_ESP32_64SC;
-        case csi_test_data::ChipType::S3: return SUBCARRIERS_S3_64SC;
-        default: return SUBCARRIERS_C6_64SC;
+    static uint8_t band[12] = {0};
+    std::vector<uint8_t> loaded;
+    if (!csi_test_data::current_optimal_subcarriers(loaded) || loaded.size() != 12) {
+        std::fprintf(stderr,
+                     "ERROR: Missing/invalid context-aware subcarriers in dataset_info.json "
+                     "for current chip.\n");
+        std::abort();
     }
+    memcpy(band, loaded.data(), 12);
+    return band;
+}
+
+inline uint8_t get_optimal_subcarriers_size() {
+    return 12;
+}
+
+inline const char* get_pairing_mode() {
+    return csi_test_data::is_temporally_paired_30m() ? "paired" : "single-dataset fallback";
 }
 
 // MVS targets
@@ -247,38 +249,45 @@ void test_mvs_optimal_subcarriers(void) {
     printf("  Chip: %s, Window: %d, CV Norm: %s\n", 
            csi_test_data::chip_name(csi_test_data::current_chip()), 
            window_size, cv_norm ? "ON" : "OFF");
+    double pair_delta_sec = 0.0;
+    if (csi_test_data::current_pair_delta_seconds(pair_delta_sec)) {
+        printf("  Pair mode: %s (delta: %.1fs)\n", get_pairing_mode(), pair_delta_sec);
+    } else {
+        printf("  Pair mode: %s (delta: N/A)\n", get_pairing_mode());
+    }
     printf("═══════════════════════════════════════════════════════\n\n");
     
     // Get optimal subcarriers for this chip
     const uint8_t* optimal_band = get_optimal_subcarriers();
+    const uint8_t optimal_size = get_optimal_subcarriers_size();
     printf("Optimal subcarriers: [");
-    for (int i = 0; i < NUM_SELECTED_SUBCARRIERS; i++) {
+    for (int i = 0; i < optimal_size; i++) {
         printf("%d", optimal_band[i]);
-        if (i < NUM_SELECTED_SUBCARRIERS - 1) printf(", ");
+        if (i < optimal_size - 1) printf(", ");
     }
     printf("]\n\n");
     
-    // Create calibration detector to calculate adaptive threshold
+    // Calculate adaptive threshold from baseline using selected band.
     MVSDetector cal_detector(window_size, SEGMENTATION_DEFAULT_THRESHOLD);
     cal_detector.configure_lowpass(false);
     cal_detector.configure_hampel(enable_hampel, 7, 4.0f);
     cal_detector.set_cv_normalization(cv_norm);
-    
+
     std::vector<float> mv_values;
     int calibration_packets = std::min(num_baseline, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
     for (int i = 0; i < calibration_packets; i++) {
         cal_detector.process_packet((const int8_t*)baseline_packets[i], pkt_size,
-                          optimal_band, NUM_SELECTED_SUBCARRIERS);
+                          optimal_band, optimal_size);
         cal_detector.update_state();
         if (cal_detector.is_ready()) {
             mv_values.push_back(cal_detector.get_motion_metric());
         }
     }
-    
+
     float adaptive_threshold;
     uint8_t percentile;
     calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, adaptive_threshold, percentile);
-    printf("Adaptive threshold: %.6f (P%d x %.1f, from %zu MV values)\n\n", 
+    printf("Adaptive threshold: %.6f (P%d x %.1f, from %zu MV values)\n\n",
            adaptive_threshold, percentile, DEFAULT_ADAPTIVE_FACTOR, mv_values.size());
     
     // Create detector for evaluation
@@ -291,7 +300,7 @@ void test_mvs_optimal_subcarriers(void) {
     int baseline_motion = 0;
     for (int p = 0; p < num_baseline; p++) {
         detector.process_packet((const int8_t*)baseline_packets[p], pkt_size, 
-                          optimal_band, NUM_SELECTED_SUBCARRIERS);
+                          optimal_band, optimal_size);
         detector.update_state();
         if (detector.get_state() == MotionState::MOTION) {
             baseline_motion++;
@@ -302,7 +311,7 @@ void test_mvs_optimal_subcarriers(void) {
     int movement_motion = 0;
     for (int p = 0; p < num_movement; p++) {
         detector.process_packet((const int8_t*)movement_packets[p], pkt_size,
-                          optimal_band, NUM_SELECTED_SUBCARRIERS);
+                          optimal_band, optimal_size);
         detector.update_state();
         if (detector.get_state() == MotionState::MOTION) {
             movement_motion++;
@@ -351,6 +360,12 @@ void test_mvs_nbvi_calibration(void) {
     printf("  Chip: %s, Window: %d, CV Norm: %s\n", 
            csi_test_data::chip_name(csi_test_data::current_chip()), 
            window_size, cv_norm ? "ON" : "OFF");
+    double pair_delta_sec = 0.0;
+    if (csi_test_data::current_pair_delta_seconds(pair_delta_sec)) {
+        printf("  Pair mode: %s (delta: %.1fs)\n", get_pairing_mode(), pair_delta_sec);
+    } else {
+        printf("  Pair mode: %s (delta: N/A)\n", get_pairing_mode());
+    }
     printf("═══════════════════════════════════════════════════════\n\n");
     
     MVSDetector detector(window_size, SEGMENTATION_DEFAULT_THRESHOLD);
@@ -367,29 +382,30 @@ void test_mvs_nbvi_calibration(void) {
     if (cv_norm) {
         printf("CV normalization enabled - using optimal subcarriers (NBVI skipped)\n");
         const uint8_t* optimal_band = get_optimal_subcarriers();
-        memcpy(calibrated_band, optimal_band, NUM_SELECTED_SUBCARRIERS);
-        calibrated_size = NUM_SELECTED_SUBCARRIERS;
+        const uint8_t optimal_size = get_optimal_subcarriers_size();
+        memcpy(calibrated_band, optimal_band, optimal_size);
+        calibrated_size = optimal_size;
         
-        // Calculate adaptive threshold using calibration detector (same as test_mvs_optimal_subcarriers)
+        // Calculate adaptive threshold from baseline using selected band.
         MVSDetector cal_detector(window_size, SEGMENTATION_DEFAULT_THRESHOLD);
         cal_detector.configure_lowpass(false);
         cal_detector.configure_hampel(enable_hampel, 7, 4.0f);
         cal_detector.set_cv_normalization(cv_norm);
-        
+
         std::vector<float> mv_values;
         int calibration_packets = std::min(num_baseline, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
         for (int i = 0; i < calibration_packets; i++) {
             cal_detector.process_packet((const int8_t*)baseline_packets[i], pkt_size,
-                              optimal_band, NUM_SELECTED_SUBCARRIERS);
+                              optimal_band, calibrated_size);
             cal_detector.update_state();
             if (cal_detector.is_ready()) {
                 mv_values.push_back(cal_detector.get_motion_metric());
             }
         }
-        
+
         uint8_t percentile;
         calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, calibrated_threshold, percentile);
-        printf("Adaptive threshold: %.6f (P%d x %.1f, from %zu MV values)\n\n", 
+        printf("Adaptive threshold: %.6f (P%d x %.1f, from %zu MV values)\n\n",
                calibrated_threshold, percentile, DEFAULT_ADAPTIVE_FACTOR, mv_values.size());
     } else {
         // Use NBVI calibration for chips without CV normalization (C6, S3)
@@ -406,13 +422,14 @@ void test_mvs_nbvi_calibration(void) {
         
         bool calibration_success = false;
         
-        esp_err_t err = nbvi.start_calibration(get_optimal_subcarriers(), NUM_SELECTED_SUBCARRIERS,
+        const uint8_t hinted_size = get_optimal_subcarriers_size();
+        uint8_t percentile_tmp = 95;
+        esp_err_t err = nbvi.start_calibration(get_optimal_subcarriers(), hinted_size,
             [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
                 if (success && size > 0) {
                     memcpy(calibrated_band, band, size);
                     calibrated_size = size;
-                    uint8_t pct;
-                    calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, calibrated_threshold, pct);
+                    calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, calibrated_threshold, percentile_tmp);
                 }
                 calibration_success = success;
             });

@@ -361,25 +361,26 @@ See [tools/README.md](tools/README.md) for complete documentation of all analysi
 Once you have collected labeled data, train the ML model:
 
 ```bash
-# Train model with FP penalty (recommended for production)
-python tools/10_train_ml_model.py --fp-weight 2.0
+# Refresh context-aware grid-search metadata used by training/tests
+python tools/11_refresh_gridsearch_metadata.py
 
-# Train with balanced weights (default)
+# Train model (default uses --fp-weight 2.0)
 python tools/10_train_ml_model.py
 
 # Show dataset info (including excluded files)
 python tools/10_train_ml_model.py --info
 ```
 
-The `--fp-weight` parameter multiplies the IDLE class weight during training. Values >1.0 reduce false positives at the cost of slightly lower recall. Recommended: 2.0 for production.
+The `--fp-weight` parameter multiplies the IDLE class weight during training. Values >1.0 reduce false positives at the cost of slightly lower recall. Current default: `2.0` (production-oriented).
 
 This will:
 1. Load all `.npz` files from `data/`
 2. Apply CV normalization to files with `gain_locked: false`
-3. Extract 12 features per sliding window
-4. 5-fold cross-validation for reliable metrics
-5. Train MLP model (12 → 16 → 8 → 1) with early stopping and dropout
-6. Export to:
+3. Apply context-aware MVS-guided sample weighting from `dataset_info.json` metadata
+4. Extract 12 features per sliding window
+5. 5-fold cross-validation for reliable metrics
+6. Train MLP model (12 → 16 → 8 → 1) with early stopping and dropout
+7. Export to:
    - `src/ml_weights.py` (MicroPython) - includes seed and timestamp
    - `components/espectre/ml_weights.h` (C++/ESPHome) - includes seed and timestamp
    - `models/motion_detector_small.tflite` (TFLite int8)

@@ -48,6 +48,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
+#include <ctime>
+#include <cmath>
+#include <fstream>
+#include <unordered_map>
+#include <ArduinoJson.h>
 
 namespace csi_test_data {
 
@@ -157,6 +162,26 @@ inline const char* chip_name(ChipType chip) {
     }
 }
 
+inline const char* baseline_file_for_chip(ChipType chip) {
+    switch (chip) {
+        case ChipType::C3: return BASELINE_C3_64SC;
+        case ChipType::C6: return BASELINE_C6_64SC;
+        case ChipType::ESP32: return BASELINE_ESP32_64SC;
+        case ChipType::S3: return BASELINE_S3_64SC;
+        default: return nullptr;
+    }
+}
+
+inline const char* movement_file_for_chip(ChipType chip) {
+    switch (chip) {
+        case ChipType::C3: return MOVEMENT_C3_64SC;
+        case ChipType::C6: return MOVEMENT_C6_64SC;
+        case ChipType::ESP32: return MOVEMENT_ESP32_64SC;
+        case ChipType::S3: return MOVEMENT_S3_64SC;
+        default: return nullptr;
+    }
+}
+
 /**
  * Check if a chip type should be skipped in tests.
  * Returns skip reason or nullptr if chip should run.
@@ -184,6 +209,107 @@ static std::vector<const int8_t*> g_baseline_ptrs;
 static std::vector<const int8_t*> g_movement_ptrs;
 static bool g_loaded = false;
 static ChipType g_current_chip = ChipType::C6;
+static bool g_tuning_cache_loaded = false;
+struct BaselineTuningEntry {
+    std::vector<uint8_t> subcarriers;
+    std::string collected_at;
+    std::string pair_movement_file;
+};
+static std::unordered_map<std::string, BaselineTuningEntry> g_tuning_by_baseline;
+static std::unordered_map<std::string, std::string> g_movement_collected_at;
+
+inline std::string filename_from_path(const char* filepath) {
+    std::string path(filepath ? filepath : "");
+    size_t slash = path.find_last_of("/\\");
+    return (slash == std::string::npos) ? path : path.substr(slash + 1);
+}
+
+inline bool load_tuning_cache() {
+    if (g_tuning_cache_loaded) {
+        return true;
+    }
+
+    const std::string dataset_info_path = "../micro-espectre/data/dataset_info.json";
+    std::ifstream in(dataset_info_path);
+    if (!in.is_open()) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Cannot open %s\n", dataset_info_path.c_str());
+        return false;
+    }
+
+    DynamicJsonDocument doc(128 * 1024);
+    auto err = deserializeJson(doc, in);
+    if (err) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Failed parsing dataset_info.json: %s\n", err.c_str());
+        return false;
+    }
+
+    JsonArray baseline_entries = doc["files"]["baseline"].as<JsonArray>();
+    for (JsonObject entry : baseline_entries) {
+        const char* filename = entry["filename"];
+        JsonArray arr = entry["optimal_subcarriers_gridsearch"].as<JsonArray>();
+        if (filename == nullptr || arr.isNull() || arr.size() != 12) {
+            continue;
+        }
+
+        std::vector<uint8_t> band;
+        band.reserve(12);
+        bool valid = true;
+        for (JsonVariant sc : arr) {
+            if (!sc.is<int>()) {
+                valid = false;
+                break;
+            }
+            int value = sc.as<int>();
+            if (value < 0 || value > 255) {
+                valid = false;
+                break;
+            }
+            band.push_back(static_cast<uint8_t>(value));
+        }
+        if (valid && band.size() == 12) {
+            BaselineTuningEntry tuning{};
+            tuning.subcarriers = band;
+            const char* collected_at = entry["collected_at"];
+            const char* pair_movement = entry["optimal_pair_movement_file"];
+            if (collected_at != nullptr) {
+                tuning.collected_at = collected_at;
+            }
+            if (pair_movement != nullptr) {
+                tuning.pair_movement_file = pair_movement;
+            }
+            g_tuning_by_baseline[filename] = tuning;
+        }
+    }
+
+    JsonArray movement_entries = doc["files"]["movement"].as<JsonArray>();
+    for (JsonObject entry : movement_entries) {
+        const char* filename = entry["filename"];
+        const char* collected_at = entry["collected_at"];
+        if (filename != nullptr && collected_at != nullptr) {
+            g_movement_collected_at[filename] = collected_at;
+        }
+    }
+
+    g_tuning_cache_loaded = true;
+    return true;
+}
+
+inline bool current_optimal_subcarriers(std::vector<uint8_t>& out_band) {
+    if (!load_tuning_cache()) {
+        return false;
+    }
+    const char* baseline_file = baseline_file_for_chip(g_current_chip);
+    if (baseline_file == nullptr) {
+        return false;
+    }
+    const std::string key = filename_from_path(baseline_file);
+    auto it = g_tuning_by_baseline.find(key);
+    if (it == g_tuning_by_baseline.end()) {
+        return false;
+    }
+    out_band = it->second.subcarriers;
+    return true;
+}
 
 /**
  * Remove first N packets from a CsiData struct (in-place).
@@ -203,26 +329,11 @@ inline bool load(ChipType chip = ChipType::C6) {
     // If already loaded with same chip, skip
     if (g_loaded && chip == g_current_chip) return true;
     
-    const char* baseline_file = nullptr;
-    const char* movement_file = nullptr;
-    
-    switch (chip) {
-        case ChipType::C3:
-            baseline_file = BASELINE_C3_64SC;
-            movement_file = MOVEMENT_C3_64SC;
-            break;
-        case ChipType::C6:
-            baseline_file = BASELINE_C6_64SC;
-            movement_file = MOVEMENT_C6_64SC;
-            break;
-        case ChipType::ESP32:
-            baseline_file = BASELINE_ESP32_64SC;
-            movement_file = MOVEMENT_ESP32_64SC;
-            break;
-        case ChipType::S3:
-            baseline_file = BASELINE_S3_64SC;
-            movement_file = MOVEMENT_S3_64SC;
-            break;
+    const char* baseline_file = baseline_file_for_chip(chip);
+    const char* movement_file = movement_file_for_chip(chip);
+    if (baseline_file == nullptr || movement_file == nullptr) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Unknown chip type in load()\n");
+        return false;
     }
     
     try {
@@ -292,6 +403,77 @@ inline bool baseline_gain_locked() { return g_baseline_data.gain_locked; }
  * If false, callers should fall back to chip-based heuristics.
  */
 inline bool baseline_gain_locked_known() { return g_baseline_data.has_gain_locked; }
+
+inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm) {
+    // Expected examples:
+    // 2025-12-12T14:24:43.381306
+    // 2026-03-07T19:01:52.250007+00:00
+    if (text.size() < 19) {
+        return false;
+    }
+    int y = 0, mo = 0, d = 0, hh = 0, mm = 0, ss = 0;
+    int matched = std::sscanf(text.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d",
+                              &y, &mo, &d, &hh, &mm, &ss);
+    if (matched != 6) {
+        return false;
+    }
+    std::tm tm_val{};
+    tm_val.tm_year = y - 1900;
+    tm_val.tm_mon = mo - 1;
+    tm_val.tm_mday = d;
+    tm_val.tm_hour = hh;
+    tm_val.tm_min = mm;
+    tm_val.tm_sec = ss;
+    out_tm = tm_val;
+    return true;
+}
+
+inline bool current_pair_delta_seconds(double& out_delta_sec) {
+    if (!load_tuning_cache()) {
+        return false;
+    }
+
+    const char* baseline_file = baseline_file_for_chip(g_current_chip);
+    if (baseline_file == nullptr) {
+        return false;
+    }
+    const std::string baseline_name = filename_from_path(baseline_file);
+    auto bit = g_tuning_by_baseline.find(baseline_name);
+    if (bit == g_tuning_by_baseline.end()) {
+        return false;
+    }
+    const std::string& movement_name = bit->second.pair_movement_file;
+    if (movement_name.empty()) {
+        return false;
+    }
+    auto mit = g_movement_collected_at.find(movement_name);
+    if (mit == g_movement_collected_at.end()) {
+        return false;
+    }
+
+    std::tm btm{}, mtm{};
+    if (!parse_iso8601_datetime(bit->second.collected_at, btm) ||
+        !parse_iso8601_datetime(mit->second, mtm)) {
+        return false;
+    }
+
+    std::time_t bt = std::mktime(&btm);
+    std::time_t mt = std::mktime(&mtm);
+    if (bt == static_cast<std::time_t>(-1) || mt == static_cast<std::time_t>(-1)) {
+        return false;
+    }
+
+    out_delta_sec = std::difftime(mt, bt);
+    return true;
+}
+
+inline bool is_temporally_paired_30m() {
+    double delta_sec = 0.0;
+    if (!current_pair_delta_seconds(delta_sec)) {
+        return false;
+    }
+    return std::fabs(delta_sec) <= (30.0 * 60.0);
+}
 
 } // namespace csi_test_data
 

@@ -1222,7 +1222,7 @@ class MVSDetector:
         return self.motion_packet_count
 
 
-def test_mvs_configuration(baseline_packets, movement_packets, 
+def test_mvs_configuration(baseline_packets, movement_packets,
                           subcarriers, threshold, window_size) -> Tuple[int, int, float]:
     """
     Test MVS configuration and return FP, TP counts
@@ -1237,24 +1237,50 @@ def test_mvs_configuration(baseline_packets, movement_packets,
     Returns:
         tuple: (fp, tp, score)
     """
+    num_baseline = len(baseline_packets)
+    num_movement = len(movement_packets)
+
     # Test on baseline (FP)
     detector = MVSDetector(window_size, threshold, subcarriers)
     for pkt in baseline_packets:
         detector.process_packet(pkt)
     fp = detector.get_motion_count()
-    
+
+    # Keep the turbulence buffer warm across baseline -> movement to match
+    # real performance tests and runtime behavior. Reset only motion counter.
+    detector.motion_packet_count = 0
+
     # Test on movement (TP)
-    detector.reset()
     for pkt in movement_packets:
         detector.process_packet(pkt)
     tp = detector.get_motion_count()
-    
-    # Calculate score
-    if tp == 0:
-        score = -1000.0
-    elif fp == 0:
-        score = 1000.0 + tp
+
+    fn = max(0, num_movement - tp)
+    recall = (tp / num_movement * 100.0) if num_movement > 0 else 0.0
+    precision = (tp / (tp + fp) * 100.0) if (tp + fp) > 0 else 0.0
+    fp_rate = (fp / num_baseline * 100.0) if num_baseline > 0 else 100.0
+    f1_score = 0.0
+    if (precision + recall) > 0.0:
+        f1_score = 2.0 * precision * recall / (precision + recall)
+
+    # Match performance objectives:
+    # - primary: satisfy recall/FP constraints
+    # - secondary: maximize F1 among valid candidates
+    recall_target = 95.0
+    fp_target = 10.0
+    fn_rate = (fn / num_movement * 100.0) if num_movement > 0 else 100.0
+
+    if recall >= recall_target and fp_rate <= fp_target:
+        score = 1_000_000.0 + f1_score * 100.0 - fp_rate
+    elif recall >= recall_target:
+        score = 100_000.0 - (fp_rate - fp_target) * 1_000.0 + f1_score * 10.0
     else:
-        score = tp - fp * 100
-    
+        score = (
+            -1_000_000.0
+            - (recall_target - recall) * 2_000.0
+            - fn_rate * 200.0
+            - fp_rate * 20.0
+            + precision
+        )
+
     return fp, tp, score

@@ -58,7 +58,7 @@ See [TUNING.md](TUNING.md) for environment-specific adjustments.
 **MVS + Optimal subcarriers**: Uses offline-tuned subcarriers (best case reference).
 **MVS + NBVI auto-calibration**: Uses NBVI for runtime subcarrier selection (production case).
 
-Tests run on both C++ (PlatformIO) and Python (pytest) platforms with identical results.
+Tests run on both C++ (PlatformIO) and Python (pytest) platforms with aligned trends.
 
 ## Running Tests
 
@@ -80,15 +80,15 @@ Results from C++ and Python tests follow the same trends (same algorithms, same 
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
-| ESP32-C3 | MVS Optimal | 99.6% | 100.0% | 0.0% | 99.8% |
-| ESP32-C3 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
-| ESP32-C3 | ML | 99.7% | 100.0% | 0.0% | 99.8% |
-| ESP32-C6 | MVS Optimal | 98.8% | 99.8% | 0.3% | 99.3% |
+| ESP32-C3 | MVS Optimal | 98.9% | 99.7% | 0.5% | 99.3% |
+| ESP32-C3 | MVS + NBVI | 98.9% | 99.7% | 0.5% | 99.3% |
+| ESP32-C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| ESP32-C6 | MVS Optimal | 98.9% | 99.8% | 0.3% | 99.3% |
 | ESP32-C6 | MVS + NBVI | 99.9% | 99.9% | 0.1% | 99.9% |
 | ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS Optimal | 98.6% | 99.3% | 0.9% | 99.0% |
-| ESP32-S3 | MVS + NBVI | 99.6% | 98.4% | 2.1% | 99.0% |
-| ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| ESP32-S3 | MVS Optimal | 99.9% | 100.0% | 0.0% | 100.0% |
+| ESP32-S3 | MVS + NBVI | 99.4% | 94.8% | 7.1% | 97.0% |
+| ESP32-S3 | ML | 97.6% | 100.0% | 0.0% | 98.8% |
 | ESP32 | MVS Optimal | 100.0% | 98.7% | 2.3% | 99.3% |
 | ESP32 | MVS + NBVI | 100.0% | 98.7% | 2.3% | 99.3% |
 | ESP32 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
@@ -176,6 +176,12 @@ Additional performance logs are available at DEBUG level (`logger.level: DEBUG`)
 | 2026-02-15 | v2.5.0 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |
 | 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | 99.8% | 96.5% | 3.6% | 98.1% |
 | 2025-12-27 | v2.3.0 | C6 | NBVI | MVS | 96.4% | 100.0% | 0.0% | 98.2% |
+
+### Comparability Notes
+
+- **Legacy fixed-config results** (older releases) used static per-chip test bands and fixed pairing assumptions.
+- **Current context-aware results** use dataset metadata and temporal pairing policy.
+- When comparing across versions, compare like-for-like (legacy vs legacy, context-aware vs context-aware).
 
 ### Test Configuration
 

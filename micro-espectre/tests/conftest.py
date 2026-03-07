@@ -11,8 +11,10 @@ import sys
 import math
 import pytest
 import numpy as np
+import json
 from pathlib import Path
 from collections import defaultdict
+from datetime import datetime
 
 # Add src and tools to path for imports
 # src is inserted last (position 0) so it takes precedence for config imports
@@ -23,6 +25,48 @@ sys.path.insert(0, str(SRC_PATH))
 
 # Data directory (shared between tests and tools)
 DATA_DIR = Path(__file__).parent.parent / 'data'
+DATASET_INFO_PATH = DATA_DIR / 'dataset_info.json'
+PAIR_MAX_DELTA_SECONDS = 30 * 60
+UNIT_TEST_SUBCARRIERS = [12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]
+
+
+def _load_dataset_info():
+    if not DATASET_INFO_PATH.exists():
+        return {"files": {}}
+    with open(DATASET_INFO_PATH, "r") as f:
+        return json.load(f)
+
+
+def _lookup_file_info(dataset_info, filename):
+    files = dataset_info.get("files", {})
+    for label in ("baseline", "movement"):
+        for entry in files.get(label, []):
+            if entry.get("filename") == filename:
+                return label, entry
+    return None, None
+
+
+def _pair_is_temporally_valid(dataset_info, label, entry):
+    if label == "baseline":
+        pair_name = entry.get("optimal_pair_movement_file")
+        pair_label = "movement"
+    else:
+        pair_name = entry.get("optimal_pair_baseline_file")
+        pair_label = "baseline"
+    if not pair_name:
+        return False
+
+    files = dataset_info.get("files", {}).get(pair_label, [])
+    counterpart = next((x for x in files if x.get("filename") == pair_name), None)
+    if counterpart is None:
+        return False
+
+    try:
+        t1 = datetime.fromisoformat(entry["collected_at"])
+        t2 = datetime.fromisoformat(counterpart["collected_at"])
+    except Exception:
+        return False
+    return abs((t2 - t1).total_seconds()) <= PAIR_MAX_DELTA_SECONDS
 
 # ============================================================================
 # Configuration Fixtures
@@ -34,26 +78,70 @@ def default_subcarriers(request):
     Optimal subcarrier band for testing (HT20: 64 SC only).
     
     Matches C++ test configuration exactly (test_motion_detection.cpp).
-    
-    SUBCARRIERS_ESP32_64SC = {12, 13, 14, 17, 44, 45, 46, 48, 49, 50, 51, 52}
-    SUBCARRIERS_C3_64SC = {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29}
-    SUBCARRIERS_C6_64SC = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}
-    SUBCARRIERS_S3_64SC = {48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59}
     """
     try:
-        chip_type = request.getfixturevalue('chip_type')
-        if chip_type == 'C3':
-            return [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
-        if chip_type == 'C6':
-            return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
-        if chip_type == 'S3':
-            return [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]
-        if chip_type == 'ESP32':
-            return [12, 13, 14, 17, 44, 45, 46, 48, 49, 50, 51, 52]
-        raise ValueError(f"Unknown chip type: {chip_type}. Add subcarrier config for this chip.")
+        dataset_config = request.getfixturevalue('dataset_config')
     except pytest.FixtureLookupError:
-        # No chip_type fixture available, use C6 default for backward compatibility
-        return [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+        # Unit/integration tests that do not define dataset_config still need
+        # a deterministic 12-SC band. Real-data performance tests define
+        # dataset_config and stay strict metadata-driven.
+        return UNIT_TEST_SUBCARRIERS
+
+    baseline_path, _, _, _ = dataset_config
+    filename = Path(baseline_path).name
+    dataset_info = _load_dataset_info()
+    _, entry = _lookup_file_info(dataset_info, filename)
+    if entry and "optimal_subcarriers_gridsearch" in entry:
+        band = entry["optimal_subcarriers_gridsearch"]
+        if isinstance(band, list) and len(band) == 12:
+            return band
+
+    raise RuntimeError(
+        f"Missing valid optimal_subcarriers_gridsearch for dataset '{filename}' in dataset_info.json"
+    )
+
+
+@pytest.fixture
+def optimal_threshold(request):
+    """
+    Dataset-aware threshold from dataset_info grid-search metadata.
+
+    If temporal pairing is invalid (>30 min) or metadata is missing,
+    falls back to 1.0.
+    """
+    try:
+        dataset_config = request.getfixturevalue('dataset_config')
+        baseline_path, _, _, _ = dataset_config
+    except pytest.FixtureLookupError:
+        return 1.0
+
+    filename = Path(baseline_path).name
+    dataset_info = _load_dataset_info()
+    label, entry = _lookup_file_info(dataset_info, filename)
+    if entry is None:
+        return 1.0
+
+    if _pair_is_temporally_valid(dataset_info, label, entry):
+        return float(entry.get("optimal_threshold_gridsearch", 1.0))
+    # Single-dataset fallback mode.
+    return float(entry.get("optimal_threshold_gridsearch", 1.0))
+
+
+@pytest.fixture
+def pairing_mode(request):
+    """Return pairing mode for logs: paired or single-dataset fallback."""
+    try:
+        dataset_config = request.getfixturevalue('dataset_config')
+        baseline_path, _, _, _ = dataset_config
+    except pytest.FixtureLookupError:
+        return "paired"
+
+    filename = Path(baseline_path).name
+    dataset_info = _load_dataset_info()
+    label, entry = _lookup_file_info(dataset_info, filename)
+    if entry is None:
+        return "single-dataset fallback"
+    return "paired" if _pair_is_temporally_valid(dataset_info, label, entry) else "single-dataset fallback"
 
 
 @pytest.fixture

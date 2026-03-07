@@ -643,7 +643,7 @@ class TestPublishTimeFeaturesRealData:
             min_j = 0.3 if chip_type == 'S3' else 0.5
             assert J > min_j, f"MAD Fisher's J too low: {J:.3f} (target: >{min_j})"
     
-    def test_entropy_turb_separation(self, real_data, default_subcarriers, window_size):
+    def test_entropy_turb_separation(self, real_data, default_subcarriers, window_size, chip_type):
         """Test entropy of turbulence buffer separates baseline from movement"""
         baseline_packets, movement_packets = real_data
         ws = window_size
@@ -749,7 +749,9 @@ class TestHampelFilterRealData:
 class TestPerformanceMetrics:
     """Test that we achieve expected performance metrics with NBVI calibration"""
     
-    def test_mvs_optimal_subcarriers(self, real_data, window_size, fp_rate_target, recall_target, enable_hampel, chip_type, default_subcarriers, use_cv_normalization):
+    def test_mvs_optimal_subcarriers(self, real_data, window_size, fp_rate_target, recall_target,
+                                     enable_hampel, chip_type, default_subcarriers,
+                                     use_cv_normalization, pairing_mode):
         """
         Test MVS motion detection with optimal (offline-tuned) subcarriers.
         
@@ -762,30 +764,24 @@ class TestPerformanceMetrics:
         """
         import numpy as np
         from threshold import calculate_adaptive_threshold
-        
         baseline_packets, movement_packets = real_data
         
-        # Use optimal subcarriers (from conftest.py, matches C++ configuration)
+        # Context-aware subcarriers from dataset_info metadata.
         selected_band = default_subcarriers
         
-        # Calculate adaptive threshold using a calibration detector (matches C++)
-        # C++ uses a separate cal_detector to collect MV values
+        # Keep threshold calibration aligned with runtime test pipeline.
         cal_ctx = SegmentationContext(
             window_size=window_size, threshold=1.0, enable_hampel=enable_hampel
         )
         cal_ctx.use_cv_normalization = use_cv_normalization
-        
         mv_values = []
         calibration_packets = min(len(baseline_packets), CALIBRATION_BUFFER_SIZE)
         for pkt in baseline_packets[:calibration_packets]:
             turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             cal_ctx.add_turbulence(turb)
             cal_ctx.update_state()
-            # Check if buffer is ready (buffer_count >= window_size)
             if cal_ctx.buffer_count >= cal_ctx.window_size:
                 mv_values.append(cal_ctx.current_moving_variance)
-        
-        # Use P95 × 1.2 (matches C++ calculate_adaptive_threshold with DEFAULT_ADAPTIVE_FACTOR)
         adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, threshold_mode="auto")
         
         # Initialize with adaptive threshold (new detector, matches C++)
@@ -829,7 +825,10 @@ class TestPerformanceMetrics:
         pkt_fp_rate = pkt_fp / num_baseline * 100.0 if num_baseline > 0 else 0
         pkt_f1 = 2 * (pkt_precision / 100) * (pkt_recall / 100) / ((pkt_precision + pkt_recall) / 100) * 100 if (pkt_precision + pkt_recall) > 0 else 0
         
-        print(f"\n  * Recall:     {pkt_recall:.1f}% (target: >{recall_target}%)")
+        print(f"\n  * Pairing mode: {pairing_mode}")
+        print(f"  * Subcarriers: {selected_band}")
+        print(f"  * Threshold:  {adaptive_threshold:.3f}")
+        print(f"  * Recall:     {pkt_recall:.1f}% (target: >{recall_target}%)")
         print(f"  * Precision:  {pkt_precision:.1f}%")
         print(f"  * FP Rate:    {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)")
         print(f"  * F1-Score:   {pkt_f1:.1f}%")
@@ -845,7 +844,9 @@ class TestPerformanceMetrics:
         assert pkt_recall > recall_target, f"Recall too low: {pkt_recall:.1f}% (target: >{recall_target}%)"
         assert pkt_fp_rate < fp_rate_target, f"FP Rate too high: {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)"
 
-    def test_mvs_detection_accuracy(self, real_data, num_subcarriers, window_size, fp_rate_target, recall_target, enable_hampel, calibration_algorithm, chip_type, default_subcarriers, use_cv_normalization):
+    def test_mvs_detection_accuracy(self, real_data, num_subcarriers, window_size, fp_rate_target,
+                                    recall_target, enable_hampel, calibration_algorithm, chip_type,
+                                    default_subcarriers, use_cv_normalization, pairing_mode):
         """
         Test MVS motion detection accuracy with real CSI data.
         
@@ -860,39 +861,19 @@ class TestPerformanceMetrics:
         
         Target: >96% Recall, <10% FP Rate for all chips.
         """
-        import numpy as np
-        from threshold import calculate_adaptive_threshold
-        
         baseline_packets, movement_packets = real_data
-        
-        # Chips with CV normalization need optimal subcarriers since NBVI calibrator
-        # doesn't support CV normalization. For chips with gain lock, use NBVI.
+
+        # Use context-aware subcarriers from metadata, but runtime-aligned threshold path.
         if use_cv_normalization:
-            # Use optimal subcarriers (from conftest.py, matches C++ configuration)
             selected_band = default_subcarriers
-            
-            # Calculate adaptive threshold using a calibration detector (matches C++)
-            cal_ctx = SegmentationContext(
-                window_size=window_size, threshold=1.0, enable_hampel=enable_hampel
+            adaptive_threshold = run_calibration_with_cv(
+                baseline_packets, window_size, selected_band, use_cv_normalization
             )
-            cal_ctx.use_cv_normalization = use_cv_normalization
-            
-            mv_values = []
-            calibration_packets = min(len(baseline_packets), CALIBRATION_BUFFER_SIZE)
-            for pkt in baseline_packets[:calibration_packets]:
-                turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
-                cal_ctx.add_turbulence(turb)
-                cal_ctx.update_state()
-                # Check if buffer is ready (buffer_count >= window_size)
-                if cal_ctx.buffer_count >= cal_ctx.window_size:
-                    mv_values.append(cal_ctx.current_moving_variance)
-            
-            # Use P95 × 1.2 (matches C++ calculate_adaptive_threshold with DEFAULT_ADAPTIVE_FACTOR)
-            adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, threshold_mode="auto")
         else:
-            # Use NBVI calibration for chips with gain lock (C6, S3)
-            # Pass default_subcarriers as hint_band (matches C++ start_calibration behavior)
-            selected_band, adaptive_threshold = run_calibration(baseline_packets, num_subcarriers, calibration_algorithm, hint_band=default_subcarriers, mvs_window_size=window_size)
+            selected_band, adaptive_threshold = run_calibration(
+                baseline_packets, num_subcarriers, calibration_algorithm,
+                hint_band=default_subcarriers, mvs_window_size=window_size
+            )
         
         # Initialize with adaptive threshold from calibration
         ctx = SegmentationContext(
@@ -950,8 +931,11 @@ class TestPerformanceMetrics:
         # ========================================
         print("\n")
         print("=" * 70)
-        print("                         TEST SUMMARY")
+        print("                   TEST SUMMARY (Context-aware)")
         print("=" * 70)
+        print(f"Pairing mode: {pairing_mode}")
+        print(f"Subcarriers: {selected_band}")
+        print(f"Threshold:   {adaptive_threshold:.3f}")
         print()
         print(f"CONFUSION MATRIX ({num_baseline} baseline + {num_movement} movement packets):")
         print("                    Predicted")

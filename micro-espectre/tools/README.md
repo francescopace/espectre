@@ -200,6 +200,7 @@ python 9_compare_chips.py --plot
 **Purpose**: Train, evaluate, and export the production ML model
 
 - Trains the MLP detector with weighted binary cross-entropy
+- Default training uses `--fp-weight 2.0` and context-aware MVS-guided sample weights
 - Supports architecture experiments and feature-importance analysis
 - Exports weights for both platforms:
   - `micro-espectre/src/ml_weights.py`
@@ -214,6 +215,31 @@ python 10_train_ml_model.py --shap         # Show SHAP feature importance
 ```
 
 For full training workflow and dataset preparation, see [ML_DATA_COLLECTION.md](../ML_DATA_COLLECTION.md#5-train-model).
+
+---
+
+### 11. Grid-Search Metadata Refresh (`11_refresh_gridsearch_metadata.py`)
+
+**Purpose**: Refresh `dataset_info.json` with context-aware grid-search metadata
+
+- Runs full MVS grid search on valid baseline/movement temporal pairs
+- Applies pairing policy with configurable max delta (default: 30 minutes)
+- Uses single-dataset fallback when a valid pair is not available
+- Writes per-file metadata used by tests/training:
+  - `optimal_subcarriers_gridsearch`
+  - `optimal_threshold_gridsearch`
+  - `optimal_pair_movement_file` / `optimal_pair_baseline_file` (paired mode only)
+
+```bash
+python 11_refresh_gridsearch_metadata.py
+python 11_refresh_gridsearch_metadata.py --max-pair-minutes 30
+python 11_refresh_gridsearch_metadata.py --max-pair-minutes 15
+```
+
+Use this tool after:
+- collecting new datasets
+- changing grid-search objective/logic
+- changing temporal pairing policy
 
 ---
 
@@ -236,6 +262,9 @@ python 1_analyze_raw_data.py
 
 # 2. Optimize parameters
 python 2_analyze_system_tuning.py --quick
+
+# 2b. Refresh dataset metadata for context-aware tests/training
+python 11_refresh_gridsearch_metadata.py
 
 # 3. Visualize MVS
 python 3_analyze_moving_variance_segmentation.py --plot

@@ -47,6 +47,7 @@ import numpy as np
 from pathlib import Path
 from collections import deque
 from contextlib import contextmanager
+from datetime import datetime
 
 
 @contextmanager
@@ -140,6 +141,79 @@ def load_dataset_info():
     return {'labels': {}}
 
 
+def _build_dataset_file_index(dataset_info):
+    """Build filename -> (label, entry) index from dataset_info files section."""
+    index = {}
+    for label, files in dataset_info.get('files', {}).items():
+        for entry in files:
+            name = entry.get('filename')
+            if name:
+                index[name] = (label, entry)
+    return index
+
+
+def _is_temporally_paired(dataset_info, label, entry, max_delta_seconds=30 * 60):
+    """Check if entry has a valid counterpart within max delta."""
+    if label == 'baseline':
+        counterpart_label = 'movement'
+        counterpart_name = entry.get('optimal_pair_movement_file')
+    else:
+        counterpart_label = 'baseline'
+        counterpart_name = entry.get('optimal_pair_baseline_file')
+    if not counterpart_name:
+        return False
+
+    counterpart = None
+    for candidate in dataset_info.get('files', {}).get(counterpart_label, []):
+        if candidate.get('filename') == counterpart_name:
+            counterpart = candidate
+            break
+    if counterpart is None:
+        return False
+
+    try:
+        t1 = datetime.fromisoformat(entry['collected_at'])
+        t2 = datetime.fromisoformat(counterpart['collected_at'])
+    except Exception:
+        return False
+    return abs((t2 - t1).total_seconds()) <= max_delta_seconds
+
+
+def build_gridsearch_tuning_map(dataset_info, default_subcarriers, default_threshold=1.0):
+    """
+    Build per-file tuning map from dataset_info.
+
+    Returns:
+        dict: {
+            filename: {
+                'subcarriers': list[int],
+                'threshold': float,
+                'mode': 'paired' | 'single-dataset fallback' | 'missing',
+                'confidence_factor': float,
+            }
+        }
+    """
+    tuning = {}
+    for label, files in dataset_info.get('files', {}).items():
+        for entry in files:
+            name = entry.get('filename')
+            if not name:
+                continue
+
+            subcarriers = entry.get('optimal_subcarriers_gridsearch') or default_subcarriers
+            threshold = float(entry.get('optimal_threshold_gridsearch', default_threshold))
+            paired = _is_temporally_paired(dataset_info, label, entry)
+            mode = 'paired' if paired else 'single-dataset fallback'
+            confidence_factor = 1.0 if paired else 0.5
+            tuning[name] = {
+                'subcarriers': list(subcarriers),
+                'threshold': threshold,
+                'mode': mode,
+                'confidence_factor': confidence_factor,
+            }
+    return tuning
+
+
 def is_motion_label(label_name, dataset_info):
     """
     Determine if a label represents motion or idle.
@@ -198,7 +272,7 @@ def load_all_data():
         tuple: (all_packets, stats) where stats is a dict with dataset info
     """
     all_packets = []
-    stats = {'chips': set(), 'labels': {}, 'total': 0, 'cv_norm_files': set()}
+    stats = {'chips': set(), 'labels': {}, 'total': 0, 'cv_norm_files': set(), 'files': []}
     
     # Load dataset info for label mapping and file metadata
     dataset_info = load_dataset_info()
@@ -206,12 +280,12 @@ def load_all_data():
     
     # Scan all subdirectories in data/
     excluded_dirs = {'.'}
-    for subdir in DATA_DIR.iterdir():
+    for subdir in sorted(DATA_DIR.iterdir()):
         if not subdir.is_dir() or subdir.name in excluded_dirs:
             continue
         
         # Load all npz files in this directory
-        for npz_file in subdir.glob('*.npz'):
+        for npz_file in sorted(subdir.glob('*.npz')):
             try:
                 packets = load_npz_as_packets(npz_file)
                 if not packets:
@@ -239,11 +313,14 @@ def load_all_data():
                 
                 # Add flags to each packet
                 is_motion = is_motion_label(label, dataset_info)
-                for p in packets:
+                for idx, p in enumerate(packets):
                     p['is_motion'] = is_motion
                     p['gain_locked'] = gain_locked
+                    p['source_file'] = npz_file.name
+                    p['packet_index'] = idx
                 
                 all_packets.extend(packets)
+                stats['files'].append(npz_file.name)
                 
             except Exception as e:
                 print(f"  Warning: Could not load {npz_file.name}: {e}")
@@ -258,7 +335,7 @@ def load_all_data():
 # ============================================================================
 
 def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
-                     feature_names=None):
+                     feature_names=None, return_metadata=False):
     """
     Extract features from CSI packets using sliding window.
     
@@ -269,7 +346,9 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
         feature_names: List of feature names to extract (default: DEFAULT_FEATURES)
     
     Returns:
-        tuple: (X, y, feature_names) feature matrix, labels, and actual feature names
+        tuple:
+            - (X, y, feature_names) by default
+            - (X, y, feature_names, sample_meta) if return_metadata=True
     """
     if subcarriers is None:
         subcarriers = DEFAULT_SUBCARRIERS
@@ -278,40 +357,108 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
         feature_names = DEFAULT_FEATURES.copy()
     
     X, y = [], []
-    turb_buffer = deque(maxlen=window_size)
-    last_amplitudes = None
-    
+    sample_meta = []
+
+    # Process each source file independently to avoid window leakage across files.
+    grouped = {}
     for pkt in packets:
-        csi_data = pkt['csi_data']
-        
-        # Calculate turbulence with normalization derived from gain lock status.
-        # If gain lock was not active, use CV normalization for gain invariance.
-        use_cv_norm = not pkt.get('gain_locked', True)
-        turb, amps = SegmentationContext.compute_spatial_turbulence(
-            csi_data, subcarriers, use_cv_normalization=use_cv_norm
-        )
-        turb_buffer.append(turb)
-        last_amplitudes = amps
-        
-        # Wait for buffer to fill
-        if len(turb_buffer) < window_size:
-            continue
-        
-        turb_list = list(turb_buffer)
-        n = len(turb_list)
-        
-        # Extract features using configurable feature set
-        features = extract_features_by_name(
-            turb_list, n, 
-            amplitudes=last_amplitudes,
-            feature_names=feature_names
-        )
-        
-        X.append(features)
-        # Label: 0 = IDLE, 1 = MOTION (from metadata)
-        y.append(1 if pkt.get('is_motion', False) else 0)
-    
-    return np.array(X), np.array(y), feature_names
+        source = pkt.get('source_file', '__single_stream__')
+        grouped.setdefault(source, []).append(pkt)
+
+    for source_file, file_packets in grouped.items():
+        turb_buffer = deque(maxlen=window_size)
+        last_amplitudes = None
+        for pkt in file_packets:
+            csi_data = pkt['csi_data']
+
+            # Calculate turbulence with normalization derived from gain lock status.
+            # If gain lock was not active, use CV normalization for gain invariance.
+            use_cv_norm = not pkt.get('gain_locked', True)
+            turb, amps = SegmentationContext.compute_spatial_turbulence(
+                csi_data, subcarriers, use_cv_normalization=use_cv_norm
+            )
+            turb_buffer.append(turb)
+            last_amplitudes = amps
+
+            # Wait for buffer to fill
+            if len(turb_buffer) < window_size:
+                continue
+
+            turb_list = list(turb_buffer)
+            n = len(turb_list)
+
+            # Extract features using configurable feature set
+            features = extract_features_by_name(
+                turb_list, n,
+                amplitudes=last_amplitudes,
+                feature_names=feature_names
+            )
+
+            X.append(features)
+            # Label: 0 = IDLE, 1 = MOTION (from metadata)
+            y.append(1 if pkt.get('is_motion', False) else 0)
+            if return_metadata:
+                sample_meta.append({
+                    'source_file': source_file,
+                    'packet_index': int(pkt.get('packet_index', -1)),
+                    'is_motion': bool(pkt.get('is_motion', False)),
+                })
+
+    X_arr = np.array(X)
+    y_arr = np.array(y)
+    if return_metadata:
+        return X_arr, y_arr, feature_names, sample_meta
+    return X_arr, y_arr, feature_names
+
+
+def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDOW_SIZE):
+    """
+    Compute sample weights using context-aware MVS scoring per source file.
+
+    Weight policy:
+    - movement samples: proportional to motion metric / threshold (clipped 0.2..2.0)
+    - baseline samples: promote hard negatives (2.0) when metric >= threshold, else 1.0
+    - single-dataset fallback files get reduced confidence factor (0.5)
+    """
+    weights = []
+
+    grouped = {}
+    for pkt in packets:
+        source = pkt.get('source_file', '__single_stream__')
+        grouped.setdefault(source, []).append(pkt)
+
+    for source_file, file_packets in grouped.items():
+        cfg = tuning_map.get(source_file, None)
+        if cfg is None:
+            subcarriers = DEFAULT_SUBCARRIERS
+            threshold = 1.0
+            confidence_factor = 0.5
+            mode = 'missing'
+        else:
+            subcarriers = cfg['subcarriers']
+            threshold = max(float(cfg['threshold']), 1e-6)
+            confidence_factor = float(cfg['confidence_factor'])
+            mode = cfg['mode']
+
+        ctx = SegmentationContext(window_size=window_size, threshold=threshold)
+        for pkt in file_packets:
+            use_cv_norm = not pkt.get('gain_locked', True)
+            turb, _ = SegmentationContext.compute_spatial_turbulence(
+                pkt['csi_data'], subcarriers, use_cv_normalization=use_cv_norm
+            )
+            ctx.add_turbulence(turb)
+            ctx.update_state()
+            if ctx.buffer_count < window_size:
+                continue
+
+            ratio = max(0.0, float(ctx.current_moving_variance)) / threshold
+            if pkt.get('is_motion', False):
+                base = float(np.clip(ratio, 0.2, 2.0))
+            else:
+                base = 2.0 if ratio >= 1.0 else 1.0
+            weights.append(base * confidence_factor)
+
+    return np.array(weights, dtype=np.float32)
 
 
 # ============================================================================
@@ -356,7 +503,7 @@ def build_model(hidden_layers=[16, 8], num_features=12, use_dropout=True, dropou
 
 
 def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
-                class_weight=None, fp_weight=1.0, verbose=0):
+                class_weight=None, fp_weight=1.0, sample_weight=None, verbose=0):
     """
     Train a neural network model with best practices.
     
@@ -372,6 +519,7 @@ def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
         class_weight: Class weight dict (e.g., {0: 1.0, 1: 2.0}) or None for auto
         fp_weight: Multiplier for class 0 (IDLE) weight to penalize false positives.
                    Values >1.0 make the model more conservative (fewer FP, lower recall).
+        sample_weight: Optional per-sample weights
         verbose: Training verbosity
     
     Returns:
@@ -395,6 +543,14 @@ def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
     # This makes misclassifying baseline as motion more costly
     if fp_weight != 1.0 and class_weight is not None:
         class_weight[0] *= fp_weight
+
+    # Keras forbids passing class_weight and sample_weight together.
+    # Merge class weights into sample_weight when both are requested.
+    if sample_weight is not None and class_weight is not None:
+        sample_weight = np.asarray(sample_weight, dtype=np.float32).copy()
+        class_multiplier = np.where(np.asarray(y) == 1, class_weight[1], class_weight[0])
+        sample_weight *= class_multiplier.astype(np.float32)
+        class_weight = None
     
     # Determine number of features from input shape
     num_features = X.shape[1] if hasattr(X, 'shape') else len(X[0])
@@ -422,6 +578,7 @@ def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
         batch_size=32,
         validation_split=0.1,
         class_weight=class_weight,
+        sample_weight=sample_weight,
         callbacks=callbacks,
         verbose=verbose
     )
@@ -460,7 +617,7 @@ def evaluate_model(model, X_test, y_test):
 
 
 def cross_validate(X, y, hidden_layers=[16, 8], n_folds=5, max_epochs=200,
-                   fp_weight=1.0):
+                   fp_weight=1.0, sample_weight=None):
     """
     Perform stratified k-fold cross-validation.
     
@@ -471,6 +628,7 @@ def cross_validate(X, y, hidden_layers=[16, 8], n_folds=5, max_epochs=200,
         n_folds: Number of CV folds
         max_epochs: Maximum training epochs per fold
         fp_weight: Multiplier for class 0 weight (>1.0 penalizes FP more)
+        sample_weight: Optional per-sample weights aligned with X/y
     
     Returns:
         dict: Mean and std of each metric across folds
@@ -484,6 +642,7 @@ def cross_validate(X, y, hidden_layers=[16, 8], n_folds=5, max_epochs=200,
     for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
         X_train_fold, X_val_fold = X[train_idx], X[val_idx]
         y_train_fold, y_val_fold = y[train_idx], y[val_idx]
+        sw_train_fold = sample_weight[train_idx] if sample_weight is not None else None
         
         # Fit scaler on training fold only
         scaler = StandardScaler()
@@ -493,7 +652,7 @@ def cross_validate(X, y, hidden_layers=[16, 8], n_folds=5, max_epochs=200,
         with suppress_stderr():
             model = train_model(X_train_scaled, y_train_fold,
                               hidden_layers=hidden_layers, max_epochs=max_epochs,
-                              fp_weight=fp_weight)
+                              fp_weight=fp_weight, sample_weight=sw_train_fold)
             metrics = evaluate_model(model, X_val_scaled, y_val_fold)
         
         fold_metrics.append(metrics)
@@ -1254,8 +1413,9 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     
     # Extract features
     print("\nExtracting features...")
-    X, y, actual_feature_names = extract_features(all_packets, subcarriers=subcarriers,
-                                                   feature_names=feature_names)
+    X, y, actual_feature_names = extract_features(
+        all_packets, subcarriers=subcarriers, feature_names=feature_names
+    )
     print(f"  Samples: {len(X)}")
     print(f"  Features: {len(actual_feature_names)}")
     print(f"  Feature set: {', '.join(actual_feature_names)}")
@@ -1265,6 +1425,24 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     if n_idle > 0 and n_motion > 0:
         ratio = max(n_idle, n_motion) / min(n_idle, n_motion)
         print(f"  Imbalance ratio: {ratio:.1f}:1")
+
+    print("\nComputing MVS-guided sample weights...")
+    dataset_info = load_dataset_info()
+    tuning_map = build_gridsearch_tuning_map(dataset_info, DEFAULT_SUBCARRIERS, default_threshold=1.0)
+    sample_weights = compute_mvs_guided_sample_weights(
+        all_packets, tuning_map, window_size=SEG_WINDOW_SIZE
+    )
+    if len(sample_weights) != len(X):
+        print(
+            f"Error: sample weights mismatch (weights={len(sample_weights)}, samples={len(X)})."
+        )
+        return 1
+    print(f"  Weight mode: context-aware (pair<=30min + single-dataset fallback)")
+    print(
+        f"  Weight stats: min={float(np.min(sample_weights)):.3f}, "
+        f"max={float(np.max(sample_weights)):.3f}, "
+        f"mean={float(np.mean(sample_weights)):.3f}"
+    )
     
     # Run ablation study if requested
     if ablation:
@@ -1277,7 +1455,8 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     print("\n5-fold cross-validation (12 -> 16 -> 8 -> 1)...")
     with suppress_stderr():
         cv_results = cross_validate(X, y, hidden_layers=[16, 8], n_folds=5,
-                                    max_epochs=200, fp_weight=fp_weight)
+                                    max_epochs=200, fp_weight=fp_weight,
+                                    sample_weight=sample_weights)
     
     print(f"  Recall:    {cv_results['recall_mean']:.1f}% (+/- {cv_results['recall_std']:.1f}%)")
     print(f"  Precision: {cv_results['precision_mean']:.1f}% (+/- {cv_results['precision_std']:.1f}%)")
@@ -1297,7 +1476,7 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     
     with suppress_stderr():
         model = train_model(X_scaled, y, hidden_layers=[16, 8], max_epochs=200,
-                           fp_weight=fp_weight)
+                           fp_weight=fp_weight, sample_weight=sample_weights)
     
     # Quick evaluation on the held-out test set (for reference)
     X_test_scaled = scaler.transform(X_test_raw)
@@ -1569,7 +1748,6 @@ To compare ML with MVS, use:
                        help='Calculate correlation of selected training features with motion label')
     parser.add_argument('--ablation', action='store_true',
                        help='Run ablation study (test removing each feature)')
-    
     args = parser.parse_args()
     
     if args.info:
