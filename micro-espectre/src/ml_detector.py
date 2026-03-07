@@ -44,7 +44,7 @@ ML_METRIC_SCALE = 10.0
 
 # Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
 # These must match the subcarriers used during model training
-ML_SUBCARRIERS = [11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]
+ML_SUBCARRIERS = [12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]
 
 
 # ============================================================================

@@ -991,7 +991,7 @@ class TestPerformanceMetrics:
         ML uses a pre-trained MLP model for motion classification.
         No calibration needed - uses pre-trained weights.
         
-        Note: ML model uses fixed subcarriers [11-22] regardless of chip type.
+        Note: ML model uses fixed subcarriers from ML_SUBCARRIERS regardless of chip type.
         CV normalization is enabled for chips without gain lock (ESP32).
         
         Target: >90% Recall, <fp_rate_target% FP Rate

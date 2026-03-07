@@ -507,7 +507,10 @@ void test_ml_detection(void) {
     MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
     detector.set_cv_normalization(cv_norm);
     
-    printf("ML subcarriers: [11, 14, 17, ..., 49] (fixed)\n");
+    printf("ML subcarriers: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d] (fixed)\n",
+           ML_SUBCARRIERS[0], ML_SUBCARRIERS[1], ML_SUBCARRIERS[2], ML_SUBCARRIERS[3],
+           ML_SUBCARRIERS[4], ML_SUBCARRIERS[5], ML_SUBCARRIERS[6], ML_SUBCARRIERS[7],
+           ML_SUBCARRIERS[8], ML_SUBCARRIERS[9], ML_SUBCARRIERS[10], ML_SUBCARRIERS[11]);
     printf("Threshold: %.1f\n\n", detector.get_threshold());
     
     // Warmup = window_size: detector needs full buffer before producing valid predictions

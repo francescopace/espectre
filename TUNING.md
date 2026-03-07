@@ -128,7 +128,7 @@ espectre:
 | `ml` | Neural Network (MLP 12→16→8→1) | 0.0 - 10.0 (scaled metric) | Higher accuracy |
 
 **ML Detector Notes:**
-- Uses fixed subcarriers `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]` for consistency with training
+- Uses fixed subcarriers `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]` for consistency with training
 - Motion decision uses a scaled ML metric with default threshold `5.0` (range `0.0-10.0`, aligned with MVS UI)
 - Pre-trained weights are embedded in the component (no external files needed)
 - Architecture validated as optimal (12→16→8→1, 353 params, 1.4 KB) via 5-fold CV

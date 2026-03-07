@@ -327,9 +327,9 @@ ML uses **fixed subcarriers** - no calibration needed:
 | Algorithm | Subcarrier Selection | Threshold | Boot Time |
 |-----------|---------------------|-----------|-----------|
 | MVS | NBVI (~7.5s) | Adaptive (percentile-based) | ~10.5s |
-| ML | **Fixed** (12 evenly distributed) | Fixed (0.5 probability) | **~3s** |
+| ML | **Fixed** (12 even, DC excluded) | Fixed (0.5 probability) | **~3s** |
 
-ML uses 12 pre-selected subcarriers evenly distributed across the valid range: `[11, 14, 17, 21, 24, 28, 31, 35, 39, 42, 46, 49]`. This eliminates the 7.5-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
+ML uses 12 fixed subcarriers selected to avoid DC and improve stability: `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`. This eliminates the 7.5-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
 
 ### Training
 

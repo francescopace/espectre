@@ -76,19 +76,19 @@ cd micro-espectre && pytest tests/test_validation_real_data.py -v
 
 ## Current Results
 
-Results from C++ and Python tests are identical (same algorithms, same data, same methodology).
+Results from C++ and Python tests follow the same trends (same algorithms, same data, same methodology), with small per-chip differences due to platform/runtime implementation details.
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
 | ESP32-C3 | MVS Optimal | 99.6% | 100.0% | 0.0% | 99.8% |
 | ESP32-C3 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
-| ESP32-C3 | ML | 99.7% | 99.8% | 0.3% | 99.8% |
+| ESP32-C3 | ML | 99.7% | 100.0% | 0.0% | 99.8% |
 | ESP32-C6 | MVS Optimal | 98.8% | 99.8% | 0.3% | 99.3% |
 | ESP32-C6 | MVS + NBVI | 99.9% | 99.9% | 0.1% | 99.9% |
-| ESP32-C6 | ML | 99.7% | 100.0% | 0.0% | 99.8% |
+| ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32-S3 | MVS Optimal | 98.6% | 99.3% | 0.9% | 99.0% |
-| ESP32-S3 | MVS + NBVI | 95.8% | 100.0% | 0.0% | 97.9% |
-| ESP32-S3 | ML | 98.1% | 100.0% | 0.0% | 99.0% |
+| ESP32-S3 | MVS + NBVI | 99.6% | 98.4% | 2.1% | 99.0% |
+| ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32 | MVS Optimal | 100.0% | 98.7% | 2.3% | 99.3% |
 | ESP32 | MVS + NBVI | 100.0% | 98.7% | 2.3% | 99.3% |
 | ESP32 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
@@ -170,7 +170,9 @@ Additional performance logs are available at DEBUG level (`logger.level: DEBUG`)
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
-| 2026-02-15 | v2.5.0 | C6 | - | ML | 99.9% | 100.0% | 0.0% | 99.9% |
+| 2026-03-07 | v2.5.2 | C6 |   -  | ML  | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-03-07 | v2.5.2 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |
+| 2026-02-15 | v2.5.0 | C6 |   -  | ML  | 99.9% | 100.0% | 0.0% | 99.9% |
 | 2026-02-15 | v2.5.0 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |
 | 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | 99.8% | 96.5% | 3.6% | 98.1% |
 | 2025-12-27 | v2.3.0 | C6 | NBVI | MVS | 96.4% | 100.0% | 0.0% | 98.2% |

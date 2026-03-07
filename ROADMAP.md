@@ -2,7 +2,7 @@
 
 **Vision**: ESPectre aims to democratize Wi-Fi sensing by providing an open-source, privacy-first motion detection system with a path toward machine learning-powered gesture recognition, Human Activity Recognition (HAR), and 3D indoor localization.
 
-This roadmap outlines the evolution from the current mathematical approach (just IDLE/MOTION) toward ML-enhanced capabilities (Gesture detection, Human Activity Recognition) and advanced spatial sensing (3D localization via phase-coherent multi-antenna arrays), while maintaining the project's core principles: community-friendly, vendor-neutral, and privacy-first.
+This roadmap outlines the evolution from the current mathematical approach (just IDLE/MOTION) toward ML-enhanced capabilities (Gesture detection, Human Activity Recognition) and advanced spatial sensing (3D localization via phase-coherent multi-node arrays), while maintaining the project's core principles: community-friendly, vendor-neutral, and privacy-first.
 
 ---
 
@@ -167,17 +167,21 @@ This capability represents a significant leap from binary motion detection to pr
 
 | Capability | Description |
 |------------|-------------|
-| **Technology** | Phase-coherent multi-antenna array (4× ESP32-C5) |
+| **Technology** | Phase-coherent multi-node array (3-4× ESP32-C5) |
 | **Frequency** | 5GHz WiFi 6 for improved accuracy |
 | **Algorithm** | MUSIC (Multiple Signal Classification) for AoA triangulation |
 | **Target Accuracy** | 30-50 cm in 3D space |
-| **Hardware Cost** | ~€75 per unit (custom PCB) |
+| **Hardware Cost** | Stage-gated: devkit cluster first, custom hardware later |
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Phase coherence validation (2-device prototype) | High | Research |
+| Wired shared-clock phase coherence validation (2-device prototype) | High | Research |
 | AoA estimation proof-of-concept | High | Research |
-| Custom PCB design (4× ESP32-C5 + shared clock) | Medium | Research |
+| Wireless clock discipline + ping-pong reference calibration prototype | High | Research |
+| Architecture trade-off study (wired shared-clock vs wireless disciplined sync) | High | Research |
+| Decision gate: select long-term architecture from benchmark results | High | Research |
+| Node count scaling policy (3 -> 4 based on RMS/availability) | Medium | Research |
+| Custom carrier/backplane (optional, post-validation) | Medium | Research |
 | MUSIC algorithm implementation | Medium | Research |
 | 5GHz CSI extraction validation | Medium | Research |
 
@@ -240,7 +244,7 @@ ESPectre's architecture evolves through three major versions, each adding capabi
 |---------|------------|------------|----------------|
 | **v2.x** | Motion detection (IDLE/MOTION) | 100% Edge | MVS algorithm, auto-calibration |
 | **v3.x** | Gesture, HAR, fall detection | 100% Edge | TFLite Micro inference |
-| **v4.x** | 3D indoor localization | Edge + Local/Cloud | Phase-coherent antenna array |
+| **v4.x** | 3D indoor localization | Edge + Local/Cloud | Phase-coherent multi-node array |
 
 ---
 

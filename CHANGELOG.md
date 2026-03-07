@@ -28,6 +28,9 @@ All notable changes to this project will be documented in this file.
 - **Dataset metadata normalization source of truth**: Micro-ESPectre training and collection now use `gain_locked` as the single source of truth for CV normalization decisions; `use_cv_normalization` was removed from `dataset_info.json` and related docs
 - **Collection metadata consistency**: `me collect`/`CSICollector` now persist `gain_locked` consistently in both `.npz` files and `dataset_info.json`, with no `label_id` metadata written
 - **ESP-IDF WiFi mock alignment**: `test/mocks/esp_idf/esp_wifi.h` now mirrors modern protocol bitmasks (`11A/11AC/11AX`), band mode enums, and dual-band API types/functions (`wifi_protocols_t`, `wifi_bandwidths_t`, `*_protocols`, `*_bandwidths`)
+- **ML fixed subcarriers (training + inference)**: Updated `ML_SUBCARRIERS` to the even/no-DC set `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]` in both Micro-ESPectre and ESPHome C++ to reduce null-subcarrier risk and keep parity across stacks
+- **ML model refresh with reproducible seed**: Re-trained and re-exported `ml_weights.py`, `ml_weights.h`, and model artifacts using seed `1963475594` so C++/Python inference stays aligned with the new fixed subcarrier set
+- **ML diagnostics and docs cleanup**: Motion-detection test logs now print the runtime `ML_SUBCARRIERS` array (no hardcoded preview), and stale references to the old ML subcarrier set were updated in docs/tests
 
 ---
 
