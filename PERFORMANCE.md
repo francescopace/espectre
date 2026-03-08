@@ -30,8 +30,8 @@ Data location: `micro-espectre/data/`
 
 | Metric | C3 Target | C5 Target | C6 Target | S3 Target | ESP32 Target | Rationale |
 |--------|-----------|-----------|-----------|-----------|--------------|-----------|
-| Recall | >90% | >95% | >95% | >90% | >90% | Minimize missed detections |
-| FP Rate | <20% | <10% | <5% | <15% | <20% | Avoid false alarms |
+| Recall | >95% | >95% | >95% | >95% | >95% | Minimize missed detections |
+| FP Rate | <5% | <5% | <5% | <5% | <5% | Avoid false alarms |
 
 NBVI's non-consecutive subcarrier selection provides spectral diversity for robust detection.
 
@@ -39,8 +39,8 @@ NBVI's non-consecutive subcarrier selection provides spectral diversity for robu
 
 | Metric | C3 Target | C5 Target | C6 Target | S3 Target | ESP32 Target | Rationale |
 |--------|-----------|-----------|-----------|-----------|--------------|-----------|
-| Recall | >93% | >93% | >93% | >93% | >93% | Minimize missed detections |
-| FP Rate | <10% | <10% | <10% | <10% | <10% | Avoid false alarms |
+| Recall | >95% | >95% | >95% | >95% | >95% | Minimize missed detections |
+| FP Rate | <5% | <5% | <5% | <5% | <5% | Avoid false alarms |
 
 ML uses fixed sparse subcarriers and pre-trained weights (no calibration needed). CV normalization is applied during training for datasets without gain lock.
 

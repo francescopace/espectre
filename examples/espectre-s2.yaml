@@ -1,8 +1,6 @@
 # ESPectre - ESP32-S2 Configuration
 # WiFi CSI-based motion detection with Home Assistant integration
 #
-# Made for ESPHome - https://github.com/francescopace/espectre
-#
 # ⚠️ EXPERIMENTAL: This platform has NOT been tested yet.
 # Please report your results on GitHub Discussions!
 #

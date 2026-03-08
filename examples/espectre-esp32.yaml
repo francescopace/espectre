@@ -1,8 +1,6 @@
 # ESPectre - ESP32 (Original/WROOM-32) Configuration
 # WiFi CSI-based motion detection with Home Assistant integration
 #
-# Made for ESPHome - https://github.com/francescopace/espectre
-#
 # Note: AGC/FFT gain lock is not available on ESP32 original.
 # Band calibration works but CSI amplitudes may have more variance than newer chips.
 #

@@ -4,37 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.6.0] - in progress - Threshold Unification & ML Dataset Metadata Cleanup
+## [2.6.0] - 2026-03-08 - ESP32-C5 Support, Context-Aware Calibration, and Stricter Validation Targets
 
-### Fixed
+### Highlights
 
-- **Cold reset after calibration/channel switch**: `CSIManager::clear_detector_buffer()` now uses `clear_buffer()` (not warm `reset()`), avoiding stale turbulence history
-- **Calibration start failure handling**: `ESpectreComponent::start_calibration_()` now checks `start_calibration()` return code and rolls back calibrate-switch state on failure
-- **DNS task state consistency**: DNS task now always clears `running_` on early exit, preventing false “already running” states
-- **NBVI input safety**: calibration now validates null/empty band input, clamps `current_band_size` to `HT20_SELECTED_BAND_SIZE`, and uses bounded copies
-- **Serial threshold parsing hardening**: `T:<value>` now uses validated `strtof` parsing (`endptr` + finite/range checks), rejecting malformed commands
-- **Unified threshold behavior across stacks**: threshold validation is aligned to `0.0-10.0` across ESPHome/C++ and Micro-ESPectre/Python (HA number, Serial, MQTT, detector setters); MQTT now propagates detector rejections correctly; `factory_reset` restores ML threshold to `5.0`
-- **ESP32-C5/C6 WiFi lifecycle reliability (#93)**: dual-band protocol/bandwidth APIs are now used correctly on C5/C6 (with legacy fallback), C5 is forced to 2.4 GHz, C5 `114-byte` CSI packets are remapped to HT20 `128-byte` layout, and diagnostics now report `unavailable` when API calls fail
-- **Startup fail-fast on WiFi lifecycle errors**: `ESpectreComponent::setup()` now calls `mark_failed()` if WiFi init/handler registration fails
-- **Micro-ESPectre deploy diagnostics on bad flash image**: `./me deploy` now performs a MicroPython REPL health-check before upload and reports a clear remediation path (`./me flash --erase --chip c5`) when the device is stuck in ROM boot loop (`invalid header`)
-- **Micro-ESPectre CSI packet compatibility on ESP32-C5**: runtime loops now normalize C5 `114-byte` HT payloads to internal HT20 `128-byte` layout (57->64 SC with guard padding), avoiding large packet drop rates during `run`/`stream`
+- **More robust runtime on modern chips (ESP32-C5/C6)**: WiFi lifecycle handling is hardened, dual-band protocol/bandwidth APIs are used correctly (with safe fallback), C5 is forced to 2.4 GHz, and C5 CSI `114-byte` payloads are normalized to HT20 `128-byte` internal layout
+- **Safer calibration and detector state transitions**: calibration start failures are now handled explicitly, detector buffers are cold-cleared after calibration/channel switches, and NBVI input/band-size validation is hardened
+- **Stricter quality bar for motion validation**: Python and C++ performance targets are now unified to `Recall >95%` and `FP <5%` for both MVS and ML, with docs updated accordingly (`PERFORMANCE.md`, `test/README.md`)
 
-### Changed
+### Reliability and Runtime Fixes
 
-- **NBVI calibration hot-path optimization**: reduced loop allocations, switched validation from per-packet reads to block reads, and replaced O(window) shifts with ring buffer + running statistics
-- **Shared threshold helpers (DRY)**: threshold validation/clamping is now centralized in `utils.h` and reused by both `MVSDetector` and `MLDetector`
-- **Progress bar safety guard**: `log_progress_bar()` now clamps width/marker bounds for fixed-buffer safety
-- **Micro-ESPectre feature pipeline cleanup**: simplified `src/features.py` to the selected 12 training/inference features and aligned `ml_detector.py` and `tools/10_train_ml_model.py`
-- **ML pipeline alignment (training + inference)**: both stacks now use `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`, models were re-trained/re-exported with validated seed, and diagnostics/docs were updated to the runtime subcarrier set
-- **Dataset metadata consistency**: `gain_locked` is now the source of truth in training/collection and is persisted consistently in `.npz` and `dataset_info.json`; `use_cv_normalization` and `label_id` metadata were removed
-- **ESP-IDF WiFi mock alignment**: `test/mocks/esp_idf/esp_wifi.h` now mirrors modern protocol bitmasks, band mode enums, and dual-band API types/functions
-- **Optional WiFi BSSID lock (Micro-ESPectre)**: added optional BSSID pinning in `src/main.py` via `WIFI_BSSID`
-- **C++ detector cleanup**: removed unused `BaseDetector` amplitude getters and fixed stale comments
-- **Docs/tests alignment**: updated threshold docs/tests for unified `0.0-10.0` behavior and marked ESP32-C5 as tested in setup/examples (S2 remains experimental)
-- **Grid-search metadata refresh tool**: added `micro-espectre/tools/11_refresh_gridsearch_metadata.py` and documentation; aligned single-dataset fallback scoring with current MVS objectives
-- **Micro-ESPectre C5 flashing support in `me` CLI**: added ESP32-C5 auto-detection/manual selection, `--chip c5` support, correct esptool target mapping (`esp32c5`), and C5 firmware artifact selection (`ESP32_CSI_C5.bin`)
-- **Micro-ESPectre flash offset mapping hardening**: `me flash` now uses per-chip offsets aligned to MicroPython board deploy options (including C5 `0x2000`)
-- **Micro-ESPectre dual-band safety defaults**: startup now attempts `wlan.config(band_mode=BAND_MODE_2G_ONLY)` (with legacy-safe fallback), and MQTT `info` now reports `network.band_mode`
+- **Threshold handling unified across stacks**: validation is aligned to `0.0-10.0` across ESPHome/C++ and Micro-ESPectre/Python (HA number, Serial, MQTT, detector setters); MQTT now propagates detector rejection correctly; `factory_reset` restores ML threshold to `5.0`
+- **Serial command parsing hardening**: `T:<value>` now uses validated `strtof` parsing (`endptr`, finite/range checks)
+- **Startup fail-fast behavior**: setup now marks the component failed when WiFi initialization/handler registration fails
+- **Auxiliary task stability**: DNS task always clears `running_` on early exits, avoiding stale "already running" states
+- **Safety guards in diagnostics utilities**: progress-bar width/marker bounds are now clamped to prevent fixed-buffer edge cases
+
+### Calibration, ML, and Dataset Pipeline
+
+- **NBVI hot-path optimization**: reduced allocations, enforced memory-bounded chunked validation reads (avoids `std::bad_alloc`/`abort()` on low-heap targets), and replaced O(window) shifts with ring buffer + running statistics
+- **Context-aware grid-search metadata workflow**: `micro-espectre/tools/11_refresh_gridsearch_metadata.py` introduced and then simplified to a single C++-aligned evaluation path (legacy hardcoded subcarrier override removed)
+- **Metadata consistency cleanup**: `gain_locked` is now the single source of truth in `.npz` and `dataset_info.json`; deprecated `use_cv_normalization` and `label_id` metadata removed
+- **ML pipeline alignment (training + inference)**: both stacks now use `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`; models were retrained/re-exported with validated seed, and feature extraction was simplified to the selected 12 runtime features
+
+### Tooling and Developer Experience
+
+- **Micro-ESPectre deploy diagnostics improved**: `./me deploy` now performs a REPL health-check and reports explicit remediation for ROM boot-loop (`invalid header`) with `./me flash --erase`
+- **C5 support in `me` CLI expanded**: C5 auto/manual selection, `--chip c5`, correct `esp32c5` target mapping, and C5 firmware artifact selection (`ESP32_CSI_C5.bin`)
+- **Flash mapping hardening**: per-chip offsets aligned with MicroPython board deploy options (including C5 `0x2000`)
+- **Optional BSSID lock in Micro-ESPectre**: `WIFI_BSSID` support added in `src/main.py`
+- **ESP-IDF mock alignment**: WiFi mock headers updated to modern protocol bitmasks, band-mode enums, and dual-band API signatures
+- **General cleanup**: removed unused `BaseDetector` amplitude getters and refreshed stale comments/documentation (including C5 tested status in setup/examples, S2 still experimental)
+- **ESPHome 2026.2.4 validation**: project configuration was re-validated after upgrading ESPHome from `2026.2.0` to `2026.2.4` (`esphome config examples/espectre-c6-dev.yaml`), with full Python and C++ test suites passing
 
 ---
 

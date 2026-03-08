@@ -130,7 +130,7 @@ static void print_summary_table() {
     
     printf("\n");
     printf("Legend: R = Recall, FP = False Positive Rate\n");
-    printf("Targets: MVS Recall >97%%, ML Recall >93%%, FP Rate <10%%\n");
+    printf("Targets: MVS Recall >95%%, ML Recall >95%%, FP Rate <5%%\n");
     printf("================================================================================\n");
     
     // Detailed table for PERFORMANCE.md
@@ -213,7 +213,7 @@ inline const char* get_pairing_mode() {
 
 // MVS targets
 // All chips achieve >95% recall
-inline float get_fp_rate_target() { return 10.0f; }
+inline float get_fp_rate_target() { return 5.0f; }
 inline float get_recall_target() { return 95.0f; }
 inline float get_nbvi_recall_target() { return 95.0f; }
 
@@ -222,9 +222,9 @@ inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
 inline bool get_enable_hampel() { return false; }
 
 // ML targets
-// All chips achieve >94% recall and <10% FP rate
-inline float get_ml_fp_rate_target() { return 10.0f; }
-inline float get_ml_recall_target() { return 93.0f; }
+// All chips target >95% recall and <5% FP rate
+inline float get_ml_fp_rate_target() { return 5.0f; }
+inline float get_ml_recall_target() { return 95.0f; }
 
 void setUp(void) {}
 void tearDown(void) {}

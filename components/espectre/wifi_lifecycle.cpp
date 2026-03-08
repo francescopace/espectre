@@ -16,8 +16,12 @@ static const char *TAG = "WiFiLifecycle";
 
 namespace {
 
-// HT20-only policy: force 11n protocol for all targets.
-constexpr uint16_t WIFI_PROTOCOL_CSI_2G = WIFI_PROTOCOL_11N;
+// HT20-only CSI policy on 2.4 GHz:
+// - Prefer 11n-only for deterministic HT20 behavior when supported.
+// - Some targets/IDF builds reject 11n-only with ESP_ERR_INVALID_ARG; in that
+//   case we fallback to b/g/n to keep the component operational.
+constexpr uint16_t WIFI_PROTOCOL_CSI_2G_PREFERRED = WIFI_PROTOCOL_11N;
+constexpr uint16_t WIFI_PROTOCOL_CSI_2G_FALLBACK = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
 constexpr wifi_bandwidth_t WIFI_BANDWIDTH_CSI = WIFI_BW_HT20;
 
 const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
@@ -45,8 +49,10 @@ const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
 
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
 esp_err_t set_wifi_protocol_for_csi_() {
+  esp_err_t ret;
+
   wifi_protocols_t protocols{};
-  protocols.ghz_2g = WIFI_PROTOCOL_CSI_2G;
+  protocols.ghz_2g = WIFI_PROTOCOL_CSI_2G_PREFERRED;
 #if CONFIG_SOC_WIFI_SUPPORT_5G
   protocols.ghz_5g = WIFI_PROTOCOL_11N;
 #ifdef WIFI_PROTOCOL_11A
@@ -59,7 +65,17 @@ esp_err_t set_wifi_protocol_for_csi_() {
   protocols.ghz_5g |= WIFI_PROTOCOL_11AC;
 #endif
 #endif
-  return esp_wifi_set_protocols(WIFI_IF_STA, &protocols);
+  ret = esp_wifi_set_protocols(WIFI_IF_STA, &protocols);
+  if (ret == ESP_OK) {
+    return ESP_OK;
+  }
+
+  protocols.ghz_2g = WIFI_PROTOCOL_CSI_2G_FALLBACK;
+  ret = esp_wifi_set_protocols(WIFI_IF_STA, &protocols);
+  if (ret == ESP_OK) {
+    ESP_LOGW(TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
+  }
+  return ret;
 }
 
 esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
@@ -108,7 +124,16 @@ esp_err_t get_wifi_bandwidth_for_log_(wifi_bandwidth_t *bw) {
 }
 #else
 esp_err_t set_wifi_protocol_for_csi_() {
-  return esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G);
+  esp_err_t ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G_PREFERRED);
+  if (ret == ESP_OK) {
+    return ESP_OK;
+  }
+
+  ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G_FALLBACK);
+  if (ret == ESP_OK) {
+    ESP_LOGW(TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
+  }
+  return ret;
 }
 
 esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
@@ -272,8 +297,8 @@ void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_b
 #endif
       ESP_LOGD(TAG, "WiFi Protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
                protocol, has_11b, has_11g, has_11n, has_11ax);
-      if (protocol != WIFI_PROTOCOL_11N) {
-        ESP_LOGW(TAG, "WiFi protocol differs from requested 11n-only mode: 0x%04X", protocol);
+      if ((protocol & WIFI_PROTOCOL_11N) == 0) {
+        ESP_LOGW(TAG, "WiFi protocol does not include 11n support: 0x%04X", protocol);
       }
     } else {
       ESP_LOGW(TAG, "WiFi Protocol: unavailable (%s)", esp_err_to_name(protocol_err));

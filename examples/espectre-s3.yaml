@@ -1,8 +1,6 @@
 # ESPectre - ESP32-S3 Configuration
 # WiFi CSI-based motion detection with Home Assistant integration
 #
-# Made for ESPHome - https://github.com/francescopace/espectre
-#
 # Tested boards:
 # - ESP32-S3-DevKitC-1 (WROOM-1-N16R8)
 #

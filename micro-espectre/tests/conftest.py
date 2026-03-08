@@ -464,7 +464,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     
     terminalreporter.write_line("")
     terminalreporter.write_line("Legend: R = Recall, FP = False Positive Rate")
-    terminalreporter.write_line("Targets: MVS Recall >97%, ML Recall >93%, FP Rate <10%")
+    terminalreporter.write_line("Targets: MVS Recall >95%, ML Recall >95%, FP Rate <5%")
     terminalreporter.write_line("=" * 105)
     
     # Detailed table for PERFORMANCE.md

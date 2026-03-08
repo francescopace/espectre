@@ -24,6 +24,14 @@ namespace espectre {
 
 static const char *TAG = "NBVI";
 
+namespace {
+inline void packet_u8_to_float_magnitudes(const uint8_t* packet_data, float* out_magnitudes) {
+  for (uint8_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
+    out_magnitudes[sc] = static_cast<float>(packet_data[sc]);
+  }
+}
+}  // namespace
+
 // ============================================================================
 // PUBLIC API
 // ============================================================================
@@ -325,12 +333,10 @@ esp_err_t NBVICalibrator::find_candidate_windows_(std::vector<WindowVariance>& c
       const uint8_t* packet_magnitudes = &window_data[pkt * HT20_NUM_SUBCARRIERS];
       
       float float_mags[HT20_NUM_SUBCARRIERS];
-      for (uint8_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
-        float_mags[sc] = static_cast<float>(packet_magnitudes[sc]);
-      }
+      packet_u8_to_float_magnitudes(packet_magnitudes, float_mags);
       
       turbulences[pkt] = calculate_spatial_turbulence(float_mags, current_band_.data(),
-                                                       current_band_.size(), 64,
+                                                       current_band_.size(), HT20_NUM_SUBCARRIERS,
                                                        use_cv_normalization_);
     }
     
@@ -499,14 +505,15 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
     return true;
   }
 
-  // Read calibration packets in one shot to avoid per-packet seek/read overhead.
-  std::vector<uint8_t> all_packets = file_buffer_.read_window(0, buffer_count);
-  const size_t expected_bytes = static_cast<size_t>(buffer_count) * HT20_NUM_SUBCARRIERS;
-  if (all_packets.size() != expected_bytes) {
-    ESP_LOGW(TAG, "Validation read mismatch: got %zu, expected %zu",
-             all_packets.size(), expected_bytes);
-    return false;
-  }
+  // IMPORTANT (memory safety on constrained targets, e.g. ESP32-C5):
+  // Do NOT read the full calibration buffer in one allocation.
+  // A previous refactor used read_window(0, buffer_count), which can allocate
+  // ~50 KB for 750 packets and trigger std::bad_alloc/abort during NBVI.
+  //
+  // Keep validation bounded by reading fixed-size chunks from SPIFFS.
+  // This is intentionally more conservative than a single bulk read to avoid
+  // runtime panics during calibration.
+  constexpr uint16_t VALIDATION_CHUNK_PACKETS = 64;
 
   std::vector<float> turbulence_ring(mvs_window_size_, 0.0f);
   out_mv_values.reserve(buffer_count - mvs_window_size_ + 1);
@@ -518,47 +525,57 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
   uint16_t motion_count = 0;
   uint16_t total_packets = 0;
 
-  for (uint16_t pkt = 0; pkt < buffer_count; pkt++) {
-    const uint8_t* packet_data = &all_packets[pkt * HT20_NUM_SUBCARRIERS];
-    float float_mags[HT20_NUM_SUBCARRIERS];
-    for (uint8_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
-      float_mags[sc] = static_cast<float>(packet_data[sc]);
-    }
-    
-    float turbulence = calculate_spatial_turbulence(float_mags, band, band_size, 64,
-                                                     use_cv_normalization_);
-
-    if (ring_count < mvs_window_size_) {
-      turbulence_ring[ring_idx] = turbulence;
-      running_sum += turbulence;
-      running_sum_sq += turbulence * turbulence;
-      ring_count++;
-      ring_idx = (ring_idx + 1) % mvs_window_size_;
-    } else {
-      const float old = turbulence_ring[ring_idx];
-      running_sum -= old;
-      running_sum_sq -= old * old;
-      turbulence_ring[ring_idx] = turbulence;
-      running_sum += turbulence;
-      running_sum_sq += turbulence * turbulence;
-      ring_idx = (ring_idx + 1) % mvs_window_size_;
+  for (uint16_t start_pkt = 0; start_pkt < buffer_count; start_pkt += VALIDATION_CHUNK_PACKETS) {
+    const uint16_t chunk_packets = std::min<uint16_t>(VALIDATION_CHUNK_PACKETS, buffer_count - start_pkt);
+    std::vector<uint8_t> chunk_data = file_buffer_.read_window(start_pkt, chunk_packets);
+    const size_t expected_chunk_bytes = static_cast<size_t>(chunk_packets) * HT20_NUM_SUBCARRIERS;
+    if (chunk_data.size() != expected_chunk_bytes) {
+      ESP_LOGW(TAG, "Validation read mismatch at pkt %u: got %zu, expected %zu",
+               start_pkt, chunk_data.size(), expected_chunk_bytes);
+      return false;
     }
 
-    if (ring_count < mvs_window_size_) {
-      continue;
-    }
+    for (uint16_t pkt = 0; pkt < chunk_packets; pkt++) {
+      const uint8_t* packet_data = &chunk_data[pkt * HT20_NUM_SUBCARRIERS];
+      float float_mags[HT20_NUM_SUBCARRIERS];
+      packet_u8_to_float_magnitudes(packet_data, float_mags);
+      
+      float turbulence = calculate_spatial_turbulence(float_mags, band, band_size,
+                                                       HT20_NUM_SUBCARRIERS,
+                                                       use_cv_normalization_);
 
-    float mean = running_sum / mvs_window_size_;
-    float variance = (running_sum_sq / mvs_window_size_) - (mean * mean);
-    if (variance < 0.0f) {
-      variance = 0.0f;
-    }
-    out_mv_values.push_back(variance);
+      if (ring_count < mvs_window_size_) {
+        turbulence_ring[ring_idx] = turbulence;
+        running_sum += turbulence;
+        running_sum_sq += turbulence * turbulence;
+        ring_count++;
+        ring_idx = (ring_idx + 1) % mvs_window_size_;
+      } else {
+        const float old = turbulence_ring[ring_idx];
+        running_sum -= old;
+        running_sum_sq -= old * old;
+        turbulence_ring[ring_idx] = turbulence;
+        running_sum += turbulence;
+        running_sum_sq += turbulence * turbulence;
+        ring_idx = (ring_idx + 1) % mvs_window_size_;
+      }
 
-    if (variance > MVS_THRESHOLD) {
-      motion_count++;
+      if (ring_count < mvs_window_size_) {
+        continue;
+      }
+
+      float mean = running_sum / mvs_window_size_;
+      float variance = (running_sum_sq / mvs_window_size_) - (mean * mean);
+      if (variance < 0.0f) {
+        variance = 0.0f;
+      }
+      out_mv_values.push_back(variance);
+
+      if (variance > MVS_THRESHOLD) {
+        motion_count++;
+      }
+      total_packets++;
     }
-    total_packets++;
   }
   
   *out_fp_rate = (total_packets > 0) ? static_cast<float>(motion_count) / total_packets : 0.0f;

@@ -5,8 +5,6 @@
 #
 # For standard ESP32-S3 boards with native USB, use espectre-s3.yaml instead.
 #
-# Made for ESPHome - https://github.com/francescopace/espectre
-#
 # Tested boards:
 # - ESP32-S3-DevKitC-1 (WROOM-1-N16R8)
 #

@@ -10,8 +10,8 @@ Configuration is aligned with C++ tests (test_motion_detection.cpp):
 - adaptive_factor = 1.1 (DEFAULT_ADAPTIVE_FACTOR)
 - enable_hampel = false
 - CV normalization for ESP32 and C3 (needs_cv_normalization())
-- MVS targets: 97% recall, 10% FP rate
-- ML targets: 93% recall, 10% FP rate
+- MVS targets: 95% recall, 5% FP rate
+- ML targets: 95% recall, 5% FP rate
 - Baseline packets: first 300 skipped (GAIN_LOCK_SKIP)
 
 Converted from:
@@ -220,9 +220,9 @@ def use_cv_normalization(dataset_config):
 def fp_rate_target(chip_type):
     """Get MVS target FP rate for chip type.
     
-    Matches C++ get_fp_rate_target(): 10.0f for all chips.
+    Matches C++ get_fp_rate_target(): 5.0f for all chips.
     """
-    return 10.0
+    return 5.0
 
 
 @pytest.fixture
@@ -238,18 +238,18 @@ def recall_target(chip_type):
 def ml_fp_rate_target(chip_type):
     """Get ML-specific FP rate target for chip type.
     
-    Matches C++ get_ml_fp_rate_target(): 10.0f for all chips.
+    Matches C++ get_ml_fp_rate_target(): 5.0f for all chips.
     """
-    return 10.0
+    return 5.0
 
 
 @pytest.fixture
 def ml_recall_target(chip_type):
     """Get ML-specific recall target for chip type.
     
-    Matches C++ get_ml_recall_target(): 93.0f for all chips.
+    Matches C++ get_ml_recall_target(): 95.0f for all chips.
     """
-    return 93.0
+    return 95.0
 
 
 @pytest.fixture
@@ -774,7 +774,7 @@ class TestPerformanceMetrics:
         
         No NBVI calibration is used - subcarriers are fixed from conftest.py.
         
-        Target: >96% Recall, <10% FP Rate for all chips.
+        Target: >95% Recall, <5% FP Rate for all chips.
         """
         import numpy as np
         from threshold import calculate_adaptive_threshold
@@ -873,7 +873,7 @@ class TestPerformanceMetrics:
         - Unified window_size (75) and adaptive threshold (P95 × 1.1)
         - CV normalization for ESP32 and C3 (no gain lock / skipped gain lock)
         
-        Target: >96% Recall, <10% FP Rate for all chips.
+        Target: >95% Recall, <5% FP Rate for all chips.
         """
         baseline_packets, movement_packets = real_data
 
@@ -992,7 +992,7 @@ class TestPerformanceMetrics:
         Note: ML model uses fixed subcarriers from ML_SUBCARRIERS regardless of chip type.
         CV normalization is enabled for chips without gain lock (ESP32).
         
-        Target: >90% Recall, <fp_rate_target% FP Rate
+        Target: >95% Recall, <fp_rate_target% FP Rate
         """
         from ml_detector import MLDetector, ML_SUBCARRIERS
         from detector_interface import MotionState
@@ -1279,7 +1279,7 @@ class TestEndToEndWithCalibration:
         """
         Test complete end-to-end flow: Band Calibration → MVS → Detection
         
-        This test verifies that the system achieves target performance (>96% Recall, <10% FP)
+        This test verifies that the system achieves target performance (>95% Recall, <5% FP)
         when using automatic band selection for optimal subcarrier bands.
         """
         baseline_packets, movement_packets = real_data

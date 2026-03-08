@@ -21,7 +21,7 @@ espectre:
   # Gain Lock Mode
   gain_lock: auto               # auto (default), enabled, disabled
   # Detection Algorithm
-  detection_algorithm: mvs      # mvs (default) or ml (neural network)
+  detection_algorithm: ml      # mvs (default) or ml (neural network)
   # Segmentation parameters
   segmentation_window_size: 75  # Analysis window size in packets (10-200)
   segmentation_threshold: auto  # auto/min (mvs/ml: 0.0-10.0)
@@ -38,7 +38,7 @@ wifi:
   networks:
     - ssid: !secret wifi_ssid
       password: !secret wifi_password
-      #bssid: !secret wifi_bssid  # Lock to specific Access Point (useful for mesh networks)
+      bssid: !secret wifi_bssid  # Lock to specific Access Point (useful for mesh networks)
 
 logger:
   level: DEBUG

@@ -4,12 +4,7 @@
 #
 # For standard ESP32-C5 boards, use ../espectre-c5.yaml instead.
 #
-# Made for ESPHome - https://github.com/francescopace/espectre
-#
-# Tested boards:
-# - ESP32-C5-DevKitC-1 (ESP32-C5 rev1.0) with CP2102N USB-UART bridge
-# - ESP32-C5 boards with equivalent USB-UART bridges
-#
+# TESTED: This platform is validated for HT20 CSI motion detection.
 # ESP32-C5 uses the same modern CSI API as ESP32-C6 with WiFi 6 support.
 # ESPectre enforces 2.4 GHz mode and remaps 57->64 subcarriers at runtime.
 #
