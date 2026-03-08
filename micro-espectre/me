@@ -11,16 +11,16 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Tuple
 
-FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc6"
+FIRMWARE_RELEASE_URL = "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc7"
 FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 
 # SHA256 hashes for firmware verification (update when releasing new firmware)
 FIRMWARE_HASHES = {
-    'ESP32_CSI.bin': '6ef24b43338b899e1f71d4be16ab5ecf629e45e8d240eeef1fb7f4eafe58637b',
-    'ESP32_CSI_C3.bin': 'a53252140a028fdeb54d2265c4052bac683f432bbfe83f321ebf17f011951939',
-    'ESP32_CSI_C5.bin': '5942c6d80a58a05c299192dac7e9da05dae0e2efc902f50d6f730c9dc0750db9',
-    'ESP32_CSI_C6.bin': 'a74a61b0d3a47f5f679157429c8e2692de29b4d5f4a077cd01d5679fd8df994f',
-    'ESP32_CSI_S3.bin': '1a5c6aceae3d6d69bc3f040d86e39f1d3da0311e358d8c26f09521b15202599f'
+    'ESP32_CSI.bin': '632e9898f283dfe473bc75d14e40c9b6802f7997cbab600be3502fe6dc5a5651',
+    'ESP32_CSI_C3.bin': '5613e2fdfb1541b1b2ad20e5ac424f8ffaa363f7b44d2121cf33ff9548d16c98',
+    'ESP32_CSI_C5.bin': '66a9a9a16fb67baa248167f6928e63b12b3010780476c23ea1e78d30b3851f0d',
+    'ESP32_CSI_C6.bin': '1f29e11c82cce53da1a47d5b930bedc4446b477d5819fc7916c70d1295438b77',
+    'ESP32_CSI_S3.bin': 'e4a07da0b079425b642fe80311b56731a9ea8a0165e67d1df090a051e43553ee'
 }
 
 try:
