@@ -2,7 +2,7 @@
 # Python dependencies for Micro-ESPectre CLI and analysis tools
 
 # Device Management Dependencies
-esptool==5.1.0          # Flash firmware to ESP32 (pinned for ESPHome 2026.2.0 compatibility)
+esptool==5.2.0          # Flash firmware to ESP32 (pinned for ESPHome 2026.2.0 compatibility)
 mpremote>=1.26.1        # Deploy code to MicroPython device (used as CLI tool)
 pyserial>=3.5           # Serial port detection and communication
 
