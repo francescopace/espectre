@@ -18,6 +18,30 @@ namespace espectre {
 
 static const char *TAG = "CSIManager";
 
+static void log_wrong_sc_packet_(const wifi_csi_info_t* data, size_t csi_len,
+                                 uint32_t packets_filtered) {
+  const auto &rx = data->rx_ctrl;
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+  ESP_LOGW(TAG,
+           "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
+           "[ch=%u bb=%u est_len=%u est_vld=%u]",
+           static_cast<unsigned long>(packets_filtered), csi_len, HT20_CSI_LEN,
+           static_cast<unsigned>(rx.channel),
+           static_cast<unsigned>(rx.cur_bb_format),
+           static_cast<unsigned>(rx.rx_channel_estimate_len),
+           static_cast<unsigned>(rx.rx_channel_estimate_info_vld));
+#else
+  ESP_LOGW(TAG,
+           "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
+           "[ch=%u sig_mode=%u cwb=%u mcs=%u]",
+           static_cast<unsigned long>(packets_filtered), csi_len, HT20_CSI_LEN,
+           static_cast<unsigned>(rx.channel),
+           static_cast<unsigned>(rx.sig_mode),
+           static_cast<unsigned>(rx.cwb),
+           static_cast<unsigned>(rx.mcs));
+#endif
+}
+
 void CSIManager::init(BaseDetector* detector,
                      const uint8_t selected_subcarriers[12],
                      uint32_t publish_rate,
@@ -76,59 +100,39 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
     return;
   }
   
-  // STBC workaround (GitHub issue #76, espressif/esp-csi#238)
-  // Multi-antenna routers with STBC TX send two HT training fields per frame
-  // (HT-LTF1 + HT-LTF2), so the CSI callback receives 256 bytes (128 SC)
-  // instead of the normal 128 bytes (64 SC) for HT20.
-  if (csi_len == HT20_CSI_LEN * 2) {
-    // The two LTFs share the same HT20 subcarrier layout, so we take the first
-    // 64 subcarriers (HT-LTF1) which is a valid channel estimate.
-    csi_len = HT20_CSI_LEN;
+  // STBC workaround (GitHub issue #76, #93, espressif/esp-csi#238):
+  // some Multi-antenna routers can expose doubled HT CSI blocks (256->128 for HT20, or 228->114 for short 57-SC).
+  if (csi_len == HT20_CSI_LEN_DOUBLE || csi_len == HT20_CSI_LEN_SHORT_DOUBLE) {
+    // The two LTFs share the same HT20 subcarrier layout, so we keep the first block as a valid channel estimate.
+    csi_len = (csi_len == HT20_CSI_LEN_DOUBLE) ? HT20_CSI_LEN : HT20_CSI_LEN_SHORT;
+
+    static bool double_len_collapse_logged = false;
+    if (!double_len_collapse_logged) {
+      ESP_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
+      double_len_collapse_logged = true;
+    }
   }
 
-#if CONFIG_IDF_TARGET_ESP32C5
-  // ESP32-C5 HT packets can expose 57 complex samples (114 bytes) with DC already
-  // present in the stream. Remap to our internal HT20 layout (64 SC, 128 bytes)
-  // by padding guard bins: +4 on the left and +3 on the right.
+  // Fallback for short HT20 seen on C5 and potentially on other targets/AP combinations: 114 bytes maps to 57 complex samples with DC already present
+  // We pad guards to fit our internal HT20 layout (64 SC, 128 bytes).
   int8_t csi_remapped[HT20_CSI_LEN];
-  if (csi_len == 114) {
+  if (csi_len == HT20_CSI_LEN_SHORT) {
     std::memset(csi_remapped, 0, sizeof(csi_remapped));
-    std::memcpy(&csi_remapped[8], csi_data, csi_len);  // 4 SC * 2 bytes offset
+    std::memcpy(&csi_remapped[HT20_CSI_LEN_SHORT_LEFT_PAD], csi_data, HT20_CSI_LEN_SHORT);
     csi_data = csi_remapped;
     csi_len = HT20_CSI_LEN;
 
     static bool remap_logged = false;
     if (!remap_logged) {
-      ESP_LOGI(TAG, "C5 CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
+      ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
       remap_logged = true;
     }
   }
-#endif
   
-  // Filter packets with unexpected SC count (HT20 only: 64 SC = 128 bytes)
+  // At this point we expect 128 bytes (64 SC) for HT20. Filter packets with unexpected SC count.
   if (csi_len != HT20_CSI_LEN) {
-    packets_filtered_++;
-    if (packets_filtered_ % 100 == 1) {
-      const auto &rx = data->rx_ctrl;
-#if CONFIG_SOC_WIFI_HE_SUPPORT
-      ESP_LOGW(TAG,
-               "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
-               "[ch=%u bb=%u est_len=%u est_vld=%u]",
-               (unsigned long)packets_filtered_, csi_len, HT20_CSI_LEN,
-               static_cast<unsigned>(rx.channel),
-               static_cast<unsigned>(rx.cur_bb_format),
-               static_cast<unsigned>(rx.rx_channel_estimate_len),
-               static_cast<unsigned>(rx.rx_channel_estimate_info_vld));
-#else
-      ESP_LOGW(TAG,
-               "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
-               "[ch=%u sig_mode=%u cwb=%u mcs=%u]",
-               (unsigned long)packets_filtered_, csi_len, HT20_CSI_LEN,
-               static_cast<unsigned>(rx.channel),
-               static_cast<unsigned>(rx.sig_mode),
-               static_cast<unsigned>(rx.cwb),
-               static_cast<unsigned>(rx.mcs));
-#endif
+    if (++packets_filtered_ % 100 == 1) {
+      log_wrong_sc_packet_(data, csi_len, packets_filtered_);
     }
     return;
   }

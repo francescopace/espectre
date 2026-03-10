@@ -757,6 +757,16 @@ WiFi Bandwidth: unavailable (...)
 
 This is expected for unsupported read paths and does not necessarily indicate a WiFi connection failure.
 
+### CSI packet length warnings (`wrong SC count`)
+
+ESPectre expects HT20 CSI payloads mapped to `128 bytes` (64 subcarriers). Runtime normalization already handles common alternate lengths:
+
+- `256 -> 128` (double HT-LTF / STBC-like packet)
+- `228 -> 114 -> 128` (double short HT estimate, then remap)
+- `114 -> 128` (57-subcarrier short HT estimate remapped to 64)
+
+If you still see repeated `Filtered ... wrong SC count` warnings, packets are likely arriving in another unsupported format. In that case, keep an eye on the logged metadata (`ch`, `bb`/`sig_mode`, `est_len`) and open an issue with logs and target chip/AP details.
+
 ### No motion detection
 
 1. **Verify traffic generator is enabled** (`traffic_generator_rate > 0`)

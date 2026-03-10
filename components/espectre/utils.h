@@ -129,6 +129,10 @@ inline float calculate_turbulence_from_variance(float variance,
 // =============================================================================
 constexpr uint16_t HT20_NUM_SUBCARRIERS = 64;      // HT20: 64 subcarriers
 constexpr uint16_t HT20_CSI_LEN = 128;             // 64 SC × 2 bytes (I/Q pairs)
+constexpr uint16_t HT20_CSI_LEN_DOUBLE = 256;      // 2 x HT20_CSI_LEN (double-LTF/STBC-like)
+constexpr uint16_t HT20_CSI_LEN_SHORT = 114;       // 57 SC × 2 bytes (short HT estimate)
+constexpr uint16_t HT20_CSI_LEN_SHORT_DOUBLE = 228; // 2 x HT20_CSI_LEN_SHORT
+constexpr uint8_t HT20_CSI_LEN_SHORT_LEFT_PAD = 8; // 4 SC × 2 bytes left guard padding
 constexpr uint8_t HT20_GUARD_BAND_LOW = 11;        // First valid subcarrier
 constexpr uint8_t HT20_GUARD_BAND_HIGH = 52;       // Last valid subcarrier
 constexpr uint8_t HT20_DC_SUBCARRIER = 32;         // DC null subcarrier

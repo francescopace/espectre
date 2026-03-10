@@ -242,6 +242,49 @@ void test_csi_manager_process_stbc_256_byte_packet(void) {
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
 
+void test_csi_manager_process_short_ht_114_byte_packet(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, 100, GainLockMode::DISABLED, &g_wifi_mock);
+
+    // Short HT packet: 114 bytes (57 SC) — should be remapped to 128 and processed.
+    int8_t csi_buf[114];
+    for (int i = 0; i < 114; i++) {
+        csi_buf[i] = (int8_t)(i % 64 - 32);
+    }
+
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 114;
+    csi_info.rx_ctrl.channel = 6;
+
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+}
+
+void test_csi_manager_process_double_short_ht_228_byte_packet(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, 100, GainLockMode::DISABLED, &g_wifi_mock);
+
+    // Doubled short HT packet: 228 bytes (2 x 114) — should collapse to 114,
+    // then remap to 128 and be processed.
+    int8_t csi_buf[228];
+    for (int i = 0; i < 228; i++) {
+        csi_buf[i] = (int8_t)(i % 64 - 32);
+    }
+
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 228;
+    csi_info.rx_ctrl.channel = 6;
+
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+}
+
 void test_csi_manager_process_wrong_length_filtered(void) {
     MVSDetector detector(50, 1.0f);
     CSIManager manager;
@@ -432,6 +475,8 @@ int process(void) {
     
     // STBC packet tests (issue #76)
     RUN_TEST(test_csi_manager_process_stbc_256_byte_packet);
+    RUN_TEST(test_csi_manager_process_short_ht_114_byte_packet);
+    RUN_TEST(test_csi_manager_process_double_short_ht_228_byte_packet);
     RUN_TEST(test_csi_manager_process_wrong_length_filtered);
     
     // Error path tests

@@ -12,6 +12,7 @@ import math
 import numpy as np
 from utils import (
     to_signed_int8,
+    normalize_ht20_csi_payload,
     calculate_median,
     insertion_sort,
     calculate_percentile,
@@ -27,6 +28,56 @@ from utils import (
     extract_phases,
     extract_amplitudes_and_phases,
 )
+
+class TestNormalizeHt20CsiPayload:
+    """Test HT20 CSI payload normalization/remap scenarios."""
+
+    def test_passthrough_128_bytes(self):
+        payload = bytes(range(128))
+        normalized, raw_len, tag = normalize_ht20_csi_payload(payload, expected_len=128)
+        assert normalized == payload
+        assert raw_len == 128
+        assert tag is None
+
+    def test_collapse_256_to_128(self):
+        payload = bytes([x % 256 for x in range(256)])
+        normalized, raw_len, tag = normalize_ht20_csi_payload(payload, expected_len=128)
+        assert normalized == payload[:128]
+        assert raw_len == 256
+        assert tag == "double_ht20"
+
+    def test_remap_114_to_128(self):
+        payload = bytes([x % 256 for x in range(114)])
+        remap_buffer = bytearray(128)
+        normalized, raw_len, tag = normalize_ht20_csi_payload(
+            payload, expected_len=128, remap_buffer=remap_buffer
+        )
+        assert len(normalized) == 128
+        assert normalized[:8] == b"\x00" * 8
+        assert normalized[8:122] == payload
+        assert normalized[122:] == b"\x00" * 6
+        assert raw_len == 114
+        assert tag == "ht57_to_64"
+
+    def test_collapse_228_then_remap_to_128(self):
+        payload = bytes([x % 256 for x in range(228)])
+        remap_buffer = bytearray(128)
+        normalized, raw_len, tag = normalize_ht20_csi_payload(
+            payload, expected_len=128, remap_buffer=remap_buffer
+        )
+        assert len(normalized) == 128
+        assert normalized[:8] == b"\x00" * 8
+        assert normalized[8:122] == payload[:114]
+        assert normalized[122:] == b"\x00" * 6
+        assert raw_len == 228
+        assert tag == "double_ht57_and_remap"
+
+    def test_unsupported_length_returns_none(self):
+        payload = bytes([0] * 64)
+        normalized, raw_len, tag = normalize_ht20_csi_payload(payload, expected_len=128)
+        assert normalized is None
+        assert raw_len == 64
+        assert tag is None
 
 
 # ============================================================================

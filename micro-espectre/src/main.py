@@ -393,8 +393,9 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     filtered_count = 0
     last_progress_time = time.ticks_ms()
     last_progress_count = 0
+    collapse_logged = False
     remap_logged = False
-    c5_remap_buffer = bytearray(EXPECTED_CSI_LEN) if chip_type == 'C5' else None
+    ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     
     while calibration_progress < config.CALIBRATION_BUFFER_SIZE:
         frame = wlan.csi_read()
@@ -402,18 +403,21 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         
         if frame:
             csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
-                frame[5], EXPECTED_CSI_LEN, chip_type=chip_type, remap_buffer=c5_remap_buffer
+                frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
             )
 
             if csi_data is None:
                 filtered_count += 1
                 if filtered_count % 100 == 1:
-                    print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
+                    print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {raw_len} bytes, expected {EXPECTED_CSI_LEN})")
                 del frame
                 continue
 
-            if remap_tag == 'c5_57_to_64' and not remap_logged:
-                print("[INFO] C5 CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
+            if remap_tag in ('double_ht20', 'double_ht57_and_remap') and not collapse_logged:
+                print("[INFO] CSI double-length collapse active: 256->128 and/or 228->114")
+                collapse_logged = True
+            if remap_tag in ('ht57_to_64', 'double_ht57_and_remap') and not remap_logged:
+                print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                 remap_logged = True
             del frame
             calibration_progress = calibrator.add_packet(csi_data)
@@ -660,8 +664,9 @@ def main():
     last_dropped = 0
     filtered_count = 0  # Packets with wrong SC count
     last_publish_time = time.ticks_ms()
+    collapse_logged = False
     remap_logged = False
-    c5_remap_buffer = bytearray(EXPECTED_CSI_LEN) if g_state.chip_type == 'C5' else None
+    ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     
     # Calculate optimal sleep based on traffic rate
     publish_rate = traffic_gen.get_rate() if traffic_gen.is_running() else 100
@@ -682,18 +687,21 @@ def main():
             
             if frame:
                 csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
-                    frame[5], EXPECTED_CSI_LEN, chip_type=g_state.chip_type, remap_buffer=c5_remap_buffer
+                    frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
                 )
 
                 if csi_data is None:
                     filtered_count += 1
                     if filtered_count % 100 == 1:
-                        print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {len(frame[5])} bytes, expected {EXPECTED_CSI_LEN})")
+                        print(f"[WARN] Filtered {filtered_count} packets with wrong SC count (got {raw_len} bytes, expected {EXPECTED_CSI_LEN})")
                     del frame
                     continue
 
-                if remap_tag == 'c5_57_to_64' and not remap_logged:
-                    print("[INFO] C5 CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
+                if remap_tag in ('double_ht20', 'double_ht57_and_remap') and not collapse_logged:
+                    print("[INFO] CSI double-length collapse active: 256->128 and/or 228->114")
+                    collapse_logged = True
+                if remap_tag in ('ht57_to_64', 'double_ht57_and_remap') and not remap_logged:
+                    print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                     remap_logged = True
                 packet_channel = frame[1]
                 

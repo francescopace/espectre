@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.6.1] - in proogress - CSI Normalization and Test Coverage Update
+
+### Fixed
+
+- **Extended CSI normalization paths (ESPHome/C++ and Micro-ESPectre/Python)**: runtime now consistently handles `256->128` (double HT-LTF), `228->114`, and `114->128` remap paths before HT20 processing, reducing packet drops on short/double CSI payload variants (#93).
+- **Cross-stack alignment for CSI length handling**: Micro-ESPectre normalization behavior and runtime logs are now aligned with ESPHome component behavior.
+
+### Added
+
+- **Unit tests for new CSI payload scenarios**: added coverage for `114-byte` and `228-byte` CSI handling in C++ (`test_csi_manager`) and dedicated Python tests for `128/256/114/228` normalization paths (`micro-espectre/tests/test_utils.py`).
+
+### Documentation
+
+- **Troubleshooting update**: added explicit `wrong SC count` normalization notes in `SETUP.md` for `256`, `228`, and `114` payload cases.
+
+---
+
 ## [2.6.0] - 2026-03-08 - ESP32-C5 Support, Context-Aware Calibration, and Stricter Validation Targets
 
 ### Highlights
