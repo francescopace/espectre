@@ -11,6 +11,8 @@ import pytest
 import math
 import sys
 import os
+from pathlib import Path
+import numpy as np
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -122,22 +124,24 @@ class TestPredict:
     
     def test_predict_different_inputs_different_outputs(self):
         """Different inputs produce different outputs."""
-        # Use realistic feature values based on actual data distributions
-        # (CV-normalized turbulence scale: ~0.05-0.25)
-        # Features: turb_mean, turb_std, turb_max, turb_min, turb_zcr,
-        #           turb_skewness, turb_kurtosis, turb_entropy,
-        #           turb_autocorr, turb_mad, turb_slope, amp_entropy
-        # Baseline-like: low CV turbulence, stable signal, low amp_entropy
-        features1 = [0.07, 0.005, 0.09, 0.05, 0.20,
-                     -3.0, 15.0, 1.5, 0.35, 0.003, 0.0, 1.0]
-        # Motion-like: high CV turbulence, turbulent signal, high amp_entropy
-        features2 = [0.18, 0.06, 0.30, 0.08, 0.50,
-                     1.0, 3.0, 3.0, -0.10, 0.04, 0.002, 2.5]
-        
+        # Use two real reference samples from the current exported model data.
+        # This avoids brittle hand-picked vectors that may both saturate to 0
+        # after retraining, while still verifying input sensitivity.
+        test_data_path = Path(__file__).parent.parent / "models" / "ml_test_data.npz"
+        if not test_data_path.exists():
+            pytest.skip(f"Test data not found: {test_data_path}")
+
+        test_data = np.load(test_data_path)
+        features = test_data["features"]
+
+        # Pick two distinct feature vectors from reference set.
+        features1 = features[0].tolist()
+        features2 = features[1].tolist()
+
         result1 = predict(features1)
         result2 = predict(features2)
-        
-        # Different inputs should produce different outputs
+
+        assert features1 != features2
         assert result1 != result2
 
 

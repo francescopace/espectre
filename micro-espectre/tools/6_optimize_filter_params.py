@@ -218,12 +218,7 @@ def main():
     
     # Find data files
     data_dir = Path(__file__).parent.parent / 'data'
-    
-    # baseline_noisy samples are stored under data/baseline with filename prefix
-    baseline_file = find_latest_file(data_dir / 'baseline', 'baseline_noisy', chip_filter)
-    if baseline_file is None:
-        # Fallback to regular baseline
-        baseline_file = find_latest_file(data_dir / 'baseline', 'baseline', chip_filter)
+    baseline_file = find_latest_file(data_dir / 'baseline', 'baseline', chip_filter)
     
     # Extract chip from baseline file metadata to ensure matching movement data
     if baseline_file and chip_filter is None:

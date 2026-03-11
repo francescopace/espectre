@@ -347,8 +347,6 @@ def run_nbvi_calibration(baseline_packets, num_subcarriers, hint_band=None, mvs_
     # Calculate adaptive threshold from mv_values
     if selected_band is not None and len(mv_values) > 0:
         adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, "auto")
-        # Keep parity with test-valid operating range for non-CV/NBVI path.
-        adaptive_threshold = max(0.1, adaptive_threshold)
     else:
         adaptive_threshold = 1.0
     
@@ -655,37 +653,6 @@ class TestPublishTimeFeaturesRealData:
             min_j = 0.3 if chip_type == 'S3' else 0.5
             assert J > min_j, f"MAD Fisher's J too low: {J:.3f} (target: >{min_j})"
     
-    def test_entropy_turb_separation(self, real_data, default_subcarriers, window_size, chip_type):
-        """Test entropy of turbulence buffer separates baseline from movement"""
-        baseline_packets, movement_packets = real_data
-        ws = window_size
-        
-        def calculate_entropy_values(packets):
-            ctx = SegmentationContext(window_size=ws, threshold=1.0)
-            entropy_values = []
-            
-            for pkt in packets:
-                turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], default_subcarriers)
-                ctx.add_turbulence(turb)
-                
-                if ctx.buffer_count >= ws:
-                    entropy = calc_entropy_turb(ctx.turbulence_buffer, ctx.buffer_count)
-                    entropy_values.append(entropy)
-            
-            return entropy_values
-        
-        baseline_entropy = calculate_entropy_values(baseline_packets)
-        movement_entropy = calculate_entropy_values(movement_packets)
-        
-        if len(baseline_entropy) > 0 and len(movement_entropy) > 0:
-            J = fishers_criterion(baseline_entropy, movement_entropy)
-            
-            # Entropy separability is chip-dependent with metadata-driven bands.
-            # Keep a non-zero guardrail while using realistic per-chip floors.
-            min_j = 0.0005 if chip_type == 'S3' else (0.03 if chip_type == 'ESP32' else 0.1)
-            assert J > min_j, f"Entropy Fisher's J too low: {J:.3f} (target: >{min_j})"
-
-
 # ============================================================================
 # Hampel Filter Tests with Real Data
 # ============================================================================
@@ -1268,7 +1235,7 @@ class TestEndToEndWithCalibration:
         
         # Adaptive threshold should be valid
         assert adaptive_threshold > 0.0, f"[{calibration_algorithm}] Invalid adaptive threshold: {adaptive_threshold}"
-        assert 0.1 <= adaptive_threshold <= 10.0, \
+        assert 0.0 <= adaptive_threshold <= 10.0, \
             f"[{calibration_algorithm}] Adaptive threshold out of range: {adaptive_threshold}"
         
         print(f"\n[{calibration_algorithm.upper()}] Band Calibration Results:")

@@ -219,7 +219,9 @@ def run_gain_lock(wlan):
     if not gain_lock_supported:
         print(f"Gain lock: Not supported on this platform")
         print(f"  HT20 mode: {NUM_SUBCARRIERS} subcarriers")
-        return None, None, False
+        print("  CV normalization enabled")
+        # No hardware gain lock support -> must use CV normalization.
+        return None, None, True
     
     print('')
     print('-'*60)

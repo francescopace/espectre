@@ -36,15 +36,16 @@ For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../ML_DATA_COLL
 
 **Purpose**: Analyze data quality and verify dataset integrity
 
-- Automatically discovers and analyzes all available chip datasets
+- Default mode reads `dataset_info.json` and analyzes all explicit historical pairs
 - Verifies labels are correct (baseline vs movement)
 - Compares turbulence variance between states
-- Shows summary table with status for each chip
+- Prints a compact table with per-pair metrics (`Baseline Var`, `Movement Var`, `Ratio`, `Gap end->start`, status)
+- Supports per-chip detailed mode on the most recent dataset for that chip
 
 ```bash
-python 1_analyze_raw_data.py           # Analyze all available datasets
-python 1_analyze_raw_data.py --chip C6 # Analyze only C6 dataset
-python 1_analyze_raw_data.py --chip C3 # Analyze only C3 dataset
+python 1_analyze_raw_data.py           # Historical table from dataset_info.json
+python 1_analyze_raw_data.py --chip C6 # Detailed analysis on latest C6 dataset
+python 1_analyze_raw_data.py --chip C3 # Detailed analysis on latest C3 dataset
 ```
 
 ---
@@ -211,6 +212,7 @@ python 10_train_ml_model.py                # Train with default settings
 python 10_train_ml_model.py --info         # Show dataset and split info
 python 10_train_ml_model.py --experiment   # Compare model architectures
 python 10_train_ml_model.py --fp-weight 2.0  # Penalize false positives 2x
+python 10_train_ml_model.py --seed-search-until-improvement 20  # Stop at first better seed
 python 10_train_ml_model.py --shap         # Show SHAP feature importance
 ```
 

@@ -44,6 +44,10 @@ os.environ['GLOG_minloglevel'] = '2'
 
 import argparse
 import numpy as np
+import subprocess
+import re
+import shutil
+import tempfile
 from pathlib import Path
 from collections import deque
 from contextlib import contextmanager
@@ -1344,6 +1348,12 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
         feature_names: List of feature names to use. If None, uses DEFAULT_FEATURES.
         feature_importance: If True, calculate and display SHAP feature importance.
         ablation: If True, run ablation study instead of training.
+
+    Returns:
+        tuple[int, int | None]:
+            (exit_code, used_seed)
+            - exit_code: 0 on success, non-zero on failure
+            - used_seed: seed used for training (None only on early dependency errors)
     """
     from ml_detector import ML_SUBCARRIERS
     subcarriers = ML_SUBCARRIERS
@@ -1387,7 +1397,7 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     except ImportError as e:
         print(f"Error: Missing dependency - {e}")
         print("Install with: pip install tensorflow scikit-learn")
-        return 1
+        return 1, None
     
     # Load data
     print("Loading data...")
@@ -1396,7 +1406,7 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     if not stats['chips']:
         print("Error: No datasets found in data/")
         print("Collect data using: ./me collect --label baseline --duration 60")
-        return 1
+        return 1, seed
     
     print(f"  Chips: {', '.join(stats['chips'])}")
     if stats.get('excluded_chips'):
@@ -1436,7 +1446,7 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
         print(
             f"Error: sample weights mismatch (weights={len(sample_weights)}, samples={len(X)})."
         )
-        return 1
+        return 1, seed
     print(f"  Weight mode: context-aware (pair<=30min + single-dataset fallback)")
     print(
         f"  Weight stats: min={float(np.min(sample_weights)):.3f}, "
@@ -1447,7 +1457,7 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     # Run ablation study if requested
     if ablation:
         run_ablation_study(X, y, actual_feature_names, fp_weight=fp_weight)
-        return 0
+        return 0, seed
     
     # 5-fold cross-validation for reliable evaluation
     if fp_weight != 1.0:
@@ -1539,7 +1549,214 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     print(f"  - {test_data_path} (test data for validation)")
     print()
     
-    return 0
+    return 0, seed
+
+
+def _run_ml_performance_tests():
+    """
+    Run ML-only performance tests and parse per-chip metrics.
+
+    Returns:
+        tuple: (metrics_dict_or_none, raw_output)
+    """
+    project_root = Path(__file__).parent.parent
+    cmd = [
+        sys.executable,
+        '-m',
+        'pytest',
+        'tests/test_validation_real_data.py::TestPerformanceMetrics::test_ml_detection_accuracy',
+        '-v',
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    output = (result.stdout or "") + "\n" + (result.stderr or "")
+    if result.returncode != 0:
+        return None, output
+
+    # Parse lines from the "DETAILED METRICS (for PERFORMANCE.md)" table.
+    pattern = re.compile(
+        r"\|\s*([A-Za-z0-9_-]+)\s*\|\s*ML\s*\|\s*([0-9.]+)%\s*\|\s*([0-9.]+)%\s*\|\s*([0-9.]+)%\s*\|\s*([0-9.]+)%\s*\|"
+    )
+    rows = []
+    for match in pattern.finditer(output):
+        chip, recall, precision, fp_rate, f1 = match.groups()
+        rows.append({
+            'chip': chip,
+            'recall': float(recall),
+            'precision': float(precision),
+            'fp_rate': float(fp_rate),
+            'f1': float(f1),
+        })
+
+    if not rows:
+        return None, output
+
+    metrics = {
+        'rows': rows,
+        'mean_recall': float(np.mean([r['recall'] for r in rows])),
+        'min_recall': float(np.min([r['recall'] for r in rows])),
+        'mean_fp_rate': float(np.mean([r['fp_rate'] for r in rows])),
+        'mean_f1': float(np.mean([r['f1'] for r in rows])),
+    }
+    return metrics, output
+
+
+def _seed_candidate_key(metrics):
+    """
+    Ranking key for selecting best seed from ML performance tests.
+
+    Priority:
+      1) higher min recall (worst-chip protection)
+      2) lower mean FP rate
+      3) higher mean recall
+      4) higher mean F1
+    """
+    return (
+        metrics['min_recall'],
+        -metrics['mean_fp_rate'],
+        metrics['mean_recall'],
+        metrics['mean_f1'],
+    )
+
+
+def _model_artifact_paths():
+    """Return paths of generated model artifacts."""
+    return [
+        SRC_DIR / 'ml_weights.py',
+        CPP_DIR / 'ml_weights.h',
+        MODELS_DIR / 'motion_detector_small.tflite',
+        MODELS_DIR / 'feature_scaler.npz',
+        MODELS_DIR / 'ml_test_data.npz',
+    ]
+
+
+def _backup_artifacts():
+    """Backup model artifacts to a temporary directory."""
+    backup_dir = Path(tempfile.mkdtemp(prefix='ml_seed_search_backup_'))
+    saved_files = []
+    for path in _model_artifact_paths():
+        if path.exists():
+            rel_name = path.name
+            shutil.copy2(path, backup_dir / rel_name)
+            saved_files.append((path, backup_dir / rel_name))
+    return backup_dir, saved_files
+
+
+def _restore_artifacts(saved_files):
+    """Restore model artifacts from backup copies."""
+    for original, backup in saved_files:
+        if backup.exists():
+            original.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(backup, original)
+
+
+def train_until_improvement(max_trials, fp_weight=2.0, feature_names=None):
+    """
+    Train repeatedly with auto-generated seeds until ML performance improves.
+
+    Baseline is the current model performance from ML real-data tests.
+    Stops on first strict improvement according to _seed_candidate_key.
+    """
+    if max_trials < 1:
+        print("Error: --seed-search-until-improvement must be >= 1")
+        return 1
+
+    if feature_names is None:
+        feature_names = DEFAULT_FEATURES
+
+    print("\n" + "=" * 70)
+    print("  SEED SEARCH (loop until improvement)")
+    print("=" * 70)
+    print(f"Max trials: {max_trials}")
+    print(f"FP weight: {fp_weight}")
+
+    print("\nEvaluating current model baseline with ML performance tests...")
+    baseline_metrics, baseline_output = _run_ml_performance_tests()
+    if baseline_metrics is None:
+        print("Error: unable to evaluate current model baseline")
+        print("--- pytest tail ---")
+        print("\n".join(baseline_output.splitlines()[-20:]))
+        return 1
+
+    print(
+        f"Baseline: min_recall={baseline_metrics['min_recall']:.1f}% "
+        f"mean_recall={baseline_metrics['mean_recall']:.1f}% "
+        f"mean_fp={baseline_metrics['mean_fp_rate']:.1f}% "
+        f"mean_f1={baseline_metrics['mean_f1']:.1f}%"
+    )
+
+    backup_dir, saved_files = _backup_artifacts()
+    print(f"Artifacts backup: {backup_dir}")
+
+    trial_summaries = []
+    improved = False
+    improved_seed = None
+    improved_metrics = None
+
+    for idx in range(1, max_trials + 1):
+        print(f"\n[{idx}/{max_trials}] Training with auto-generated seed")
+        train_rc, used_seed = train_all(
+            fp_weight=fp_weight,
+            seed=None,
+            feature_names=feature_names,
+            feature_importance=False,
+            ablation=False,
+            shap_samples=200,
+        )
+        if train_rc != 0:
+            print(f"  Training failed (exit={train_rc})")
+            continue
+
+        print(f"  Seed generated by training script: {used_seed}")
+        print("  Running ML performance tests...")
+        metrics, output = _run_ml_performance_tests()
+        if metrics is None:
+            print(f"  Could not evaluate seed={used_seed} from pytest output")
+            print("  --- pytest tail ---")
+            print("\n".join(output.splitlines()[-20:]))
+            continue
+
+        trial_summaries.append((used_seed, metrics))
+        print(
+            f"  Result: min_recall={metrics['min_recall']:.1f}% "
+            f"mean_recall={metrics['mean_recall']:.1f}% "
+            f"mean_fp={metrics['mean_fp_rate']:.1f}% "
+            f"mean_f1={metrics['mean_f1']:.1f}%"
+        )
+
+        if _seed_candidate_key(metrics) > _seed_candidate_key(baseline_metrics):
+            improved = True
+            improved_seed = used_seed
+            improved_metrics = metrics
+            print("  Improvement found: stopping search")
+            break
+
+    print("\n" + "=" * 70)
+    print("  UNTIL-IMPROVEMENT SUMMARY")
+    print("=" * 70)
+    for seed, metrics in trial_summaries:
+        print(
+            f"  seed={seed} | minR={metrics['min_recall']:.1f}% "
+            f"meanR={metrics['mean_recall']:.1f}% "
+            f"meanFP={metrics['mean_fp_rate']:.1f}% "
+            f"meanF1={metrics['mean_f1']:.1f}%"
+        )
+
+    if improved:
+        print(
+            f"\nSelected seed: {improved_seed} "
+            f"(min_recall={improved_metrics['min_recall']:.1f}%, "
+            f"mean_fp={improved_metrics['mean_fp_rate']:.1f}%)"
+        )
+        return 0
+
+    print("\nNo improvement found within max trials: restoring original artifacts")
+    _restore_artifacts(saved_files)
+    return 1
 
 
 def experiment_architectures():
@@ -1722,6 +1939,8 @@ Examples:
   python tools/10_train_ml_model.py --experiment       # Compare architectures
   python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
   python tools/10_train_ml_model.py --seed 42          # Reproducible training
+  python tools/10_train_ml_model.py --seed-search-until-improvement 20
+                                           # Stop at first improvement (max 20 trials)
   python tools/10_train_ml_model.py --shap             # Show SHAP feature importance
 
 Configuration (edit at top of this file):
@@ -1737,6 +1956,10 @@ To compare ML with MVS, use:
                        help='Compare multiple MLP architectures using cross-validation')
     parser.add_argument('--seed', type=int, default=None,
                        help='Use specific random seed for reproducible training')
+    parser.add_argument('--seed-search-until-improvement', type=int, default=0, metavar='MAX_TRIALS',
+                       help='Train with auto-generated seeds until first '
+                            'improvement over current ML performance, with '
+                            'at most MAX_TRIALS attempts')
     parser.add_argument('--fp-weight', type=float, default=2.0,
                        help='Multiplier for IDLE class weight to penalize false positives. '
                             'Values >1.0 make the model more conservative (default: 2.0)')
@@ -1762,8 +1985,21 @@ To compare ML with MVS, use:
         if correlations:
             print_correlation_table(correlations, TRAINING_FEATURES)
         return 0
+
+    if args.seed_search_until_improvement > 0:
+        if args.seed is not None:
+            print("Error: --seed and --seed-search-until-improvement are mutually exclusive")
+            return 1
+        if args.shap or args.ablation:
+            print("Error: --seed-search-until-improvement cannot be combined with --shap or --ablation")
+            return 1
+        return train_until_improvement(
+            max_trials=args.seed_search_until_improvement,
+            fp_weight=args.fp_weight,
+            feature_names=TRAINING_FEATURES
+        )
     
-    return train_all(
+    train_rc, _ = train_all(
         fp_weight=args.fp_weight, 
         seed=args.seed,
         feature_names=TRAINING_FEATURES,
@@ -1771,6 +2007,7 @@ To compare ML with MVS, use:
         ablation=args.ablation,
         shap_samples=args.shap_samples
     )
+    return train_rc
 
 
 if __name__ == '__main__':

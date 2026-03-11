@@ -14,16 +14,33 @@ License: GPLv3
 
 import argparse
 import re
+from datetime import datetime, timedelta
 import numpy as np
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     calculate_spatial_turbulence, load_baseline_and_movement,
-    find_dataset, DATA_DIR, DEFAULT_SUBCARRIERS
+    find_dataset, DATA_DIR, DEFAULT_SUBCARRIERS, load_dataset_info,
+    load_npz_as_packets
 )
 
 # Alias for backward compatibility
 SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+
+
+def format_variance(value: float, width: int = 12) -> str:
+    """
+    Format variance for readability.
+
+    Values below 0.01 are shown in scientific notation to avoid displaying 0.00.
+    """
+    if width <= 0:
+        if value < 0.01:
+            return f"{value:.2e}"
+        return f"{value:.2f}"
+    if value < 0.01:
+        return f"{value:>{width}.2e}"
+    return f"{value:>{width}.2f}"
 
 
 def discover_available_chips() -> list:
@@ -98,7 +115,7 @@ def analyze_packets(packets, label_name):
     print(f"  Std:  {np.std(turbulences):.2f}")
     
     turb_variance = np.var(turbulences)
-    print(f"\nTurbulence Variance: {turb_variance:.2f}")
+    print(f"\nTurbulence Variance: {format_variance(turb_variance, width=0)}")
     print(f"  (This is what MVS uses to detect motion)")
     
     return {
@@ -110,6 +127,130 @@ def analyze_packets(packets, label_name):
         'rssi_mean': np.mean(rssi_values),
         'rssi_std': np.std(rssi_values)
     }
+
+
+def compute_packet_stats(packets):
+    """Compute turbulence statistics without verbose prints."""
+    if not packets:
+        return None
+
+    label = str(packets[0].get('label', 'unknown'))
+    turbulences = []
+    rssi_values = []
+
+    for pkt in packets:
+        turb = calculate_spatial_turbulence(
+            pkt['csi_data'],
+            SELECTED_SUBCARRIERS,
+            gain_locked=pkt.get('gain_locked', True)
+        )
+        turbulences.append(turb)
+        rssi_values.append(pkt.get('rssi', 0))
+
+    return {
+        'label_name': label,
+        'packet_count': len(packets),
+        'turb_mean': float(np.mean(turbulences)),
+        'turb_std': float(np.std(turbulences)),
+        'turb_variance': float(np.var(turbulences)),
+        'rssi_mean': float(np.mean(rssi_values)),
+        'rssi_std': float(np.std(rssi_values)),
+    }
+
+
+def analyze_all_pairs_from_dataset_info() -> list:
+    """
+    Analyze all explicit baseline/movement pairs from dataset_info.json.
+
+    Returns:
+        list: table rows sorted by chip asc and ratio desc
+    """
+    info = load_dataset_info()
+    files = info.get('files', {})
+    baseline_entries = files.get('baseline', [])
+    movement_entries = files.get('movement', [])
+    movement_by_name = {m.get('filename'): m for m in movement_entries}
+
+    rows = []
+    for baseline in baseline_entries:
+        baseline_name = baseline.get('filename')
+        movement_name = baseline.get('optimal_pair_movement_file')
+
+        if not baseline_name or not movement_name:
+            continue
+        if movement_name not in movement_by_name:
+            continue
+
+        baseline_path = DATA_DIR / 'baseline' / baseline_name
+        movement_path = DATA_DIR / 'movement' / movement_name
+        if not baseline_path.exists() or not movement_path.exists():
+            continue
+
+        baseline_packets = load_npz_as_packets(baseline_path)
+        movement_packets = load_npz_as_packets(movement_path)
+        baseline_stats = compute_packet_stats(baseline_packets)
+        movement_stats = compute_packet_stats(movement_packets)
+        if baseline_stats is None or movement_stats is None:
+            continue
+
+        baseline_ok = baseline_stats['label_name'].lower() == 'baseline'
+        movement_ok = movement_stats['label_name'].lower() == 'movement'
+        variance_ok = baseline_stats['turb_variance'] < movement_stats['turb_variance']
+
+        baseline_var = baseline_stats['turb_variance']
+        movement_var = movement_stats['turb_variance']
+        ratio = movement_var / baseline_var if baseline_var > 0 else 0.0
+
+        # Temporal gap between baseline end and movement start
+        baseline_start = datetime.fromisoformat(baseline['collected_at'])
+        movement_start = datetime.fromisoformat(
+            movement_by_name[movement_name]['collected_at']
+        )
+        baseline_end = baseline_start + timedelta(milliseconds=int(baseline.get('duration_ms', 0)))
+        gap_seconds = (movement_start - baseline_end).total_seconds()
+
+        status = "PASS" if (baseline_ok and movement_ok and variance_ok) else "FAIL"
+        rows.append({
+            'chip': str(baseline.get('chip', '?')).upper(),
+            'pair': f"{baseline_name} / {movement_name}",
+            'baseline_var': baseline_var,
+            'movement_var': movement_var,
+            'ratio': ratio,
+            'gap_seconds': gap_seconds,
+            'status': status,
+        })
+
+    return sorted(rows, key=lambda r: (r['chip'], -r['ratio']))
+
+
+def print_pairs_table(rows: list):
+    """Print compact table for all historical pairs."""
+    print(f"\n{'='*70}")
+    print("  HISTORICAL PAIRS TABLE (dataset_info.json)")
+    print(f"{'='*70}")
+    print(
+        f"\n{'Chip':<6} {'Baseline Var':>12} {'Movement Var':>12} "
+        f"{'Ratio':>8} {'Gap end->start':>15} {'Status':<8} File pair"
+    )
+    print(f"{'-'*6} {'-'*12} {'-'*12} {'-'*8} {'-'*15} {'-'*8} {'-'*50}")
+
+    pass_count = 0
+    for row in rows:
+        if row['status'] == "PASS":
+            pass_count += 1
+        print(
+            f"{row['chip']:<6} {format_variance(row['baseline_var'])} {format_variance(row['movement_var'])} "
+            f"{row['ratio']:>7.2f}x {row['gap_seconds']:>14.2f}s {row['status']:<8} {row['pair']}"
+        )
+
+    fail_count = len(rows) - pass_count
+    print()
+    print(f"SUMMARY: total={len(rows)} pass={pass_count} fail={fail_count}")
+    if fail_count == 0:
+        print("VERDICT: All historical paired datasets are valid")
+    else:
+        print("VERDICT: Some historical pairs have issues")
+    print()
 
 
 def analyze_chip(chip: str) -> dict:
@@ -188,7 +329,7 @@ def print_summary(results: list):
             status = "SWAPPED?"
             all_valid = False
         
-        print(f"{r['chip']:<6} {baseline_var:>12.2f} {movement_var:>12.2f} {ratio:>8.1f}x {status:<10}")
+        print(f"{r['chip']:<6} {format_variance(baseline_var)} {format_variance(movement_var)} {ratio:>8.1f}x {status:<10}")
     
     print()
     
@@ -216,24 +357,17 @@ def main():
     print("=" * 70)
     
     if args.chip:
-        # Analyze specific chip
-        chips = [args.chip.upper()]
-    else:
-        # Discover and analyze all available chips
-        chips = discover_available_chips()
-        if not chips:
-            print("\nError: No datasets found in data/ directory")
-            print("Collect data using: ./me collect --label baseline --duration 10")
-            return
-        print(f"\nFound datasets for: {', '.join(chips)}")
-    
-    results = []
-    for chip in chips:
-        result = analyze_chip(chip)
-        results.append(result)
-    
-    if len(results) > 1 or (len(results) == 1 and results[0] is not None):
-        print_summary(results)
+        result = analyze_chip(args.chip.upper())
+        if result is not None:
+            print_summary([result])
+        return
+
+    # Default mode: export historical table from dataset_info pairs
+    rows = analyze_all_pairs_from_dataset_info()
+    if not rows:
+        print("\nError: No valid baseline/movement pairs found in dataset_info.json")
+        return
+    print_pairs_table(rows)
 
 
 if __name__ == '__main__':

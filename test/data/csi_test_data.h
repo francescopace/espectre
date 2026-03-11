@@ -23,28 +23,10 @@
 #ifndef CSI_TEST_DATA_H
 #define CSI_TEST_DATA_H
 
-// ============================================================================
-// Test Data Files (HT20: 64 subcarriers only)
-// ============================================================================
-// C3 dataset
-#define BASELINE_C3_64SC  "../micro-espectre/data/baseline/baseline_c3_64sc_20260214_185025.npz"
-#define MOVEMENT_C3_64SC  "../micro-espectre/data/movement/movement_c3_64sc_20260214_185048.npz"
-// C5 dataset
-#define BASELINE_C5_64SC  "../micro-espectre/data/baseline/baseline_c5_64sc_20260307_235549.npz"
-#define MOVEMENT_C5_64SC  "../micro-espectre/data/movement/movement_c5_64sc_20260307_235616.npz"
-// C6 dataset (validated)
-#define BASELINE_C6_64SC  "../micro-espectre/data/baseline/baseline_c6_64sc_20251212_142443.npz"
-#define MOVEMENT_C6_64SC  "../micro-espectre/data/movement/movement_c6_64sc_20251212_142443.npz"
-// ESP32 (Base) dataset - control set (excluded from ML training)
-#define BASELINE_ESP32_64SC  "../micro-espectre/data/baseline/baseline_esp32_64sc_20260214_183059.npz"
-#define MOVEMENT_ESP32_64SC  "../micro-espectre/data/movement/movement_esp32_64sc_20260214_183141.npz"
-// S3 dataset
-#define BASELINE_S3_64SC  "../micro-espectre/data/baseline/baseline_s3_64sc_20260117_222606.npz"
-#define MOVEMENT_S3_64SC  "../micro-espectre/data/movement/movement_s3_64sc_20260117_222626.npz"
-
 // Include cnpy implementation (with ZIP64 support)
 #include "cnpy.cpp"
 
+#include <array>
 #include <vector>
 #include <string>
 #include <cstdint>
@@ -54,6 +36,7 @@
 #include <ctime>
 #include <cmath>
 #include <fstream>
+#include <cstring>
 #include <unordered_map>
 #include <ArduinoJson.h>
 
@@ -156,6 +139,46 @@ enum class ChipType {
     S3
 };
 
+static constexpr size_t CHIP_COUNT = 5;
+
+inline int chip_index(ChipType chip) {
+    switch (chip) {
+        case ChipType::C3: return 0;
+        case ChipType::C5: return 1;
+        case ChipType::C6: return 2;
+        case ChipType::ESP32: return 3;
+        case ChipType::S3: return 4;
+        default: return -1;
+    }
+}
+
+inline bool chip_from_string(const char* text, ChipType& out_chip) {
+    if (text == nullptr) {
+        return false;
+    }
+    if (std::strcmp(text, "C3") == 0) {
+        out_chip = ChipType::C3;
+        return true;
+    }
+    if (std::strcmp(text, "C5") == 0) {
+        out_chip = ChipType::C5;
+        return true;
+    }
+    if (std::strcmp(text, "C6") == 0) {
+        out_chip = ChipType::C6;
+        return true;
+    }
+    if (std::strcmp(text, "ESP32") == 0) {
+        out_chip = ChipType::ESP32;
+        return true;
+    }
+    if (std::strcmp(text, "S3") == 0) {
+        out_chip = ChipType::S3;
+        return true;
+    }
+    return false;
+}
+
 inline const char* chip_name(ChipType chip) {
     switch (chip) {
         case ChipType::C3: return "C3";
@@ -167,27 +190,10 @@ inline const char* chip_name(ChipType chip) {
     }
 }
 
-inline const char* baseline_file_for_chip(ChipType chip) {
-    switch (chip) {
-        case ChipType::C3: return BASELINE_C3_64SC;
-        case ChipType::C5: return BASELINE_C5_64SC;
-        case ChipType::C6: return BASELINE_C6_64SC;
-        case ChipType::ESP32: return BASELINE_ESP32_64SC;
-        case ChipType::S3: return BASELINE_S3_64SC;
-        default: return nullptr;
-    }
-}
-
-inline const char* movement_file_for_chip(ChipType chip) {
-    switch (chip) {
-        case ChipType::C3: return MOVEMENT_C3_64SC;
-        case ChipType::C5: return MOVEMENT_C5_64SC;
-        case ChipType::C6: return MOVEMENT_C6_64SC;
-        case ChipType::ESP32: return MOVEMENT_ESP32_64SC;
-        case ChipType::S3: return MOVEMENT_S3_64SC;
-        default: return nullptr;
-    }
-}
+inline bool load_tuning_cache();
+inline const char* baseline_file_for_chip(ChipType chip);
+inline const char* movement_file_for_chip(ChipType chip);
+inline std::vector<ChipType> get_available_chips();
 
 /**
  * Check if a chip type should be skipped in tests.
@@ -217,6 +223,14 @@ static std::vector<const int8_t*> g_movement_ptrs;
 static bool g_loaded = false;
 static ChipType g_current_chip = ChipType::C6;
 static bool g_tuning_cache_loaded = false;
+struct ChipDatasetSelection {
+    std::string baseline_filename;
+    std::string movement_filename;
+    std::string baseline_path;
+    std::string movement_path;
+    std::string baseline_collected_at;
+    bool valid = false;
+};
 struct BaselineTuningEntry {
     std::vector<uint8_t> subcarriers;
     std::string collected_at;
@@ -224,6 +238,7 @@ struct BaselineTuningEntry {
 };
 static std::unordered_map<std::string, BaselineTuningEntry> g_tuning_by_baseline;
 static std::unordered_map<std::string, std::string> g_movement_collected_at;
+static std::array<ChipDatasetSelection, CHIP_COUNT> g_selected_by_chip;
 
 inline std::string filename_from_path(const char* filepath) {
     std::string path(filepath ? filepath : "");
@@ -289,16 +304,109 @@ inline bool load_tuning_cache() {
     }
 
     JsonArray movement_entries = doc["files"]["movement"].as<JsonArray>();
+    struct MovementMeta {
+        ChipType chip;
+        int subcarriers;
+    };
+    std::unordered_map<std::string, MovementMeta> movement_meta;
     for (JsonObject entry : movement_entries) {
         const char* filename = entry["filename"];
         const char* collected_at = entry["collected_at"];
+        const char* chip_text = entry["chip"];
+        int subcarriers = entry["subcarriers"] | 0;
+        ChipType chip{};
+        if (filename != nullptr && chip_from_string(chip_text, chip)) {
+            movement_meta[filename] = MovementMeta{chip, subcarriers};
+        }
         if (filename != nullptr && collected_at != nullptr) {
             g_movement_collected_at[filename] = collected_at;
         }
     }
 
+    for (auto& selected : g_selected_by_chip) {
+        selected = ChipDatasetSelection{};
+    }
+
+    const std::string base_path = "../micro-espectre/data/";
+    for (JsonObject entry : baseline_entries) {
+        const char* filename = entry["filename"];
+        const char* chip_text = entry["chip"];
+        int subcarriers = entry["subcarriers"] | 0;
+        const char* pair_movement = entry["optimal_pair_movement_file"];
+        const char* collected_at = entry["collected_at"];
+        if (filename == nullptr || chip_text == nullptr ||
+            pair_movement == nullptr || collected_at == nullptr) {
+            continue;
+        }
+        if (subcarriers != 64) {
+            continue;
+        }
+
+        ChipType chip{};
+        if (!chip_from_string(chip_text, chip)) {
+            continue;
+        }
+        auto mit = movement_meta.find(pair_movement);
+        if (mit == movement_meta.end()) {
+            continue;
+        }
+        if (mit->second.chip != chip || mit->second.subcarriers != 64) {
+            continue;
+        }
+
+        const int idx = chip_index(chip);
+        if (idx < 0) {
+            continue;
+        }
+
+        ChipDatasetSelection& selected = g_selected_by_chip[idx];
+        const std::string current_ts(collected_at);
+        if (selected.valid && current_ts <= selected.baseline_collected_at) {
+            continue;
+        }
+
+        selected.baseline_filename = filename;
+        selected.movement_filename = pair_movement;
+        selected.baseline_collected_at = current_ts;
+        selected.baseline_path = base_path + "baseline/" + selected.baseline_filename;
+        selected.movement_path = base_path + "movement/" + selected.movement_filename;
+        selected.valid = true;
+    }
+
+    for (ChipType chip : get_available_chips()) {
+        const int idx = chip_index(chip);
+        if (idx < 0 || !g_selected_by_chip[idx].valid) {
+            std::fprintf(stderr,
+                "[CSI Test Data] ERROR: Missing selected 64SC pair for chip %s in dataset_info.json\n",
+                chip_name(chip));
+            return false;
+        }
+    }
+
     g_tuning_cache_loaded = true;
     return true;
+}
+
+inline const char* baseline_file_for_chip(ChipType chip) {
+    if (!load_tuning_cache()) {
+        return nullptr;
+    }
+    const int idx = chip_index(chip);
+    if (idx < 0 || !g_selected_by_chip[idx].valid) {
+        return nullptr;
+    }
+    return g_selected_by_chip[idx].baseline_path.c_str();
+}
+
+inline const char* movement_file_for_chip(ChipType chip) {
+    if (!load_tuning_cache()) {
+        return nullptr;
+    }
+    const int idx = chip_index(chip);
+    if (idx < 0 || !g_selected_by_chip[idx].valid) {
+        return nullptr;
+    }
+    return g_selected_by_chip[idx].movement_path.c_str();
 }
 
 inline bool current_optimal_subcarriers(std::vector<uint8_t>& out_band) {

@@ -2,64 +2,45 @@
 
 This document provides detailed performance metrics for ESPectre's motion detection algorithms.
 
-## Test Data
-
-| Chip | Baseline | Movement | Total | Gain Lock | CV Norm |
-|------|----------|----------|-------|-----------|---------|
-| ESP32-C3 | 2656 | 3154 | 5810 | Mixed | Mixed |
-| ESP32-C5 | 1011 | 1304 | 2315 | Yes | No |
-| ESP32-C6 | 7379 | 1000 | 8379 | Yes | No |
-| ESP32-S3 | 1353 | 1366 | 2719 | Yes | No |
-| ESP32 | 961 | 1103 | 2064 | No | Yes |
-
-Data location: `micro-espectre/data/`
-
-### Gain Lock and CV Normalization
-
-**AGC Gain Lock** stabilizes CSI amplitudes by locking the receiver's automatic gain control. Without it, amplitudes vary with signal strength, making raw values unreliable for detection.
-
-- **ESP32-C5, ESP32-C6, ESP32-S3**: Support gain lock via `esp_wifi_set_csi_rx_ctrl()`
-- **ESP32-C3**: Supports gain lock, but ESPectre skips it when AGC gain < 30 (weak signal). Some C3 datasets were collected with gain 28, so gain lock was skipped.
-- **ESP32 (original)**: Does not support gain lock in the CSI driver
-
-**CV Normalization** (`std/mean`) makes detection gain-invariant by normalizing spatial turbulence. It's applied during feature extraction for files with `gain_locked: false`.
+---
 
 ## Performance Targets
 
-### MVS Detector (NBVI Calibration)
+| Metric | Target (all chips) | Rationale |
+|--------|--------------------|-----------|
+| Recall | >95% | Minimize missed detections |
+| FP Rate | <5% | Avoid false alarms |
 
-| Metric | C3 Target | C5 Target | C6 Target | S3 Target | ESP32 Target | Rationale |
-|--------|-----------|-----------|-----------|-----------|--------------|-----------|
-| Recall | >95% | >95% | >95% | >95% | >95% | Minimize missed detections |
-| FP Rate | <5% | <5% | <5% | <5% | <5% | Avoid false alarms |
+--
+### Test Configuration
 
-NBVI's non-consecutive subcarrier selection provides spectral diversity for robust detection.
+Configuration used for all test results (unified across chips):
 
-### ML Detector
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Window Size | 75 | `DETECTOR_DEFAULT_WINDOW_SIZE` |
+| Calibration | NBVI | Auto-selects 12 non-consecutive subcarriers |
+| Hampel Filter | OFF | Can be enabled for noisy environments |
+| Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
+| CV Normalization | Per-file | Based on `gain_locked` metadata (`false` => apply CV norm) |
 
-| Metric | C3 Target | C5 Target | C6 Target | S3 Target | ESP32 Target | Rationale |
-|--------|-----------|-----------|-----------|-----------|--------------|-----------|
-| Recall | >95% | >95% | >95% | >95% | >95% | Minimize missed detections |
-| FP Rate | <5% | <5% | <5% | <5% | <5% | Avoid false alarms |
+CV normalization is applied per-file based on whether data was collected with AGC gain lock enabled. See Test Data section for details.
 
-ML uses fixed sparse subcarriers and pre-trained weights (no calibration needed). CV normalization is applied during training for datasets without gain lock.
+---
 
-See [TUNING.md](TUNING.md) for environment-specific adjustments.
+## Test Data
 
-### Test Coverage Matrix
+| Chip | Baseline | Movement | Total | Gain Lock |
+|------|----------|----------|-------|-----------|
+| ESP32-C3 | 2684 | 2658 | 5342 | Yes |
+| ESP32-C5 | 2609 | 2607 | 5216 | Yes |
+| ESP32-C6 | 2697 | 2779 | 5476 | Yes |
+| ESP32-S3 | 2655 | 2670 | 5325 | Yes |
+| ESP32 | 2081 | 2189 | 4270 | No |
 
-| Test | C3 | C5 | C6 | S3 | ESP32 |
-|------|-----|-----|-----|-----|-------|
-| MVS + NBVI auto-calibration | ✅ | ✅ | ✅ | ✅ | ✅ |
-| MVS + Optimal subcarriers | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ML detection | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Threshold sensitivity (C++) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Window size sensitivity (C++) | ✅ | ✅ | ✅ | ✅ | ✅ |
+Data location: `micro-espectre/data/`
 
-**MVS + Optimal subcarriers**: Uses offline-tuned subcarriers (best case reference).
-**MVS + NBVI auto-calibration**: Uses NBVI for runtime subcarrier selection (production case).
-
-Tests run on both C++ (PlatformIO) and Python (pytest) platforms with aligned trends.
+---
 
 ## Running Tests
 
@@ -81,42 +62,24 @@ Results from C++ and Python tests follow the same trends (same algorithms, same 
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
-| ESP32-C3 | MVS Optimal | 99.7% | 100.0% | 0.0% | 99.8% |
-| ESP32-C3 | MVS + NBVI | 99.7% | 100.0% | 0.0% | 99.8% |
+| ESP32-C3 | MVS Optimal | 98.8% | 100.0% | 0.0% | 99.4% |
+| ESP32-C3 | MVS + NBVI | 99.3% | 99.7% | 0.4% | 99.5% |
 | ESP32-C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-C5 | MVS Optimal | 100.0% | 99.8% | 0.3% | 99.9% |
-| ESP32-C5 | MVS + NBVI | 97.8% | 100.0% | 0.0% | 98.9% |
+| ESP32-C5 | MVS Optimal | 100.0% | 99.2% | 1.1% | 99.6% |
+| ESP32-C5 | MVS + NBVI | 96.0% | 100.0% | 0.0% | 98.0% |
 | ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-C6 | MVS Optimal | 99.9% | 98.4% | 2.3% | 99.2% |
-| ESP32-C6 | MVS + NBVI | 99.9% | 98.4% | 2.3% | 99.2% |
+| ESP32-C6 | MVS Optimal | 99.6% | 100.0% | 0.0% | 99.8% |
+| ESP32-C6 | MVS + NBVI | 99.3% | 100.0% | 0.0% | 99.7% |
 | ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS Optimal | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS + NBVI | 100.0% | 99.3% | 0.9% | 99.6% |
-| ESP32-S3 | ML | 98.8% | 100.0% | 0.0% | 99.4% |
+| ESP32-S3 | MVS Optimal | 95.3% | 100.0% | 0.0% | 97.6% |
+| ESP32-S3 | MVS + NBVI | 95.3% | 100.0% | 0.0% | 97.6% |
+| ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32 | MVS Optimal | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32 | MVS + NBVI | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| ESP32 | ML | 98.6% | 100.0% | 0.0% | 99.3% |
 
 **MVS Optimal**: Uses offline-tuned subcarriers (best case reference).
 **MVS + NBVI**: Uses NBVI auto-calibration (production case).
-
-ESP32 (original) is excluded from ML training data due to lack of gain lock support. CV normalization is applied to compensate. Despite being excluded from training, it achieves 100.0% recall and F1-score, demonstrating strong cross-chip generalization.
-
----
-
-## Chip Comparison
-
-Real-time NBVI calibration results from the same environment.
-
-| Chip              | RSSI | Baseline MV | Band    | Stability |
-|-------------------|------|-------------|---------|-----------|
-| ESP32-C6          | -46 dB | 0.73 | [11-22] | ✅        |
-| ESP32-S3          | -64 dB | 0.80 | [15-26] | ✅        |
-| ESP32             | -49 dB | 0.82 | [19-30] | ⚠️        |
-| ESP32-C3          | -73 dB | 0.83 | [37-48] | ⚠️        |
-| ESP32-S3 (clone)  | -80 dB | 1.71 | [37-48] | ❌        |
-
-**Recommendation**: ESP32-C6 for best CSI stability. Avoid clone chips with non-Espressif silicon.
 
 ---
 
@@ -124,45 +87,8 @@ Real-time NBVI calibration results from the same environment.
 
 Resource usage benchmarks for ESPectre with full ESPHome stack (WiFi, API, OTA, debug sensors).
 
-### Flash Usage
-
-| Chip | Firmware Size | Flash Used | Available (OTA) |
-|------|---------------|------------|-----------------|
-| ESP32-C3 | 856 KB | 45% | 1.0 MB |
-
-Partition layout uses dual OTA partitions (1.81 MB each) for safe updates.
-
-### RAM Usage
-
-| Chip | Phase | Free Heap | Notes |
-|------|-------|-----------|-------|
-| ESP32-C3 | Post-setup | 214 KB | After ESPectre init |
-| ESP32-C3 | Post-calibration | 174 KB | After NBVI completes |
-| ESP32-C6 | Post-setup | 311 KB | After ESPectre init |
-| ESP32-C6 | Post-calibration | 269 KB | After NBVI completes |
-
-ESPectre runtime footprint: ~40 KB (calibration buffers released after completion).
-
-### Detection Timing
-
-Time to process one CSI packet (feature extraction + detection, measured on hardware):
-
-| Chip | Algorithm | Detection Time | CPU @ 100 pps |
-|------|-----------|----------------|---------------|
-| ESP32-C3 | MVS | ~440 µs | ~4.4% |
-| ESP32-C3 | ML | ~3300 µs | ~33% |
-| ESP32-C6 | MVS | ~250 µs | ~2.5% |
-| ESP32-C6 | ML | ~2100 µs | ~21% |
-
-At 100 pps, each packet has a 10 ms budget. MVS uses ~0.44 ms (4.4%) and ML uses ~3.3 ms (33%), leaving ample headroom for WiFi, ESPHome, and Home Assistant communication.
-
-**MVS**: Extracts a single feature (spatial turbulence) and its moving variance.
-
-**ML**: Extracts 12 statistical features from sliding window, then runs MLP inference (12 → 16 → 8 → 1 = 328 MACs). The MLP itself is lightweight; most time is spent on feature extraction. For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#architecture-selection).
-
-### Monitoring
-
-Development YAML files (`-dev.yaml`) include ESPHome debug sensors for runtime monitoring of free heap, max block size, and loop time. These sensors are available in Home Assistant for continuous monitoring.
+Development YAML files (`-dev.yaml`) include ESPHome debug sensors for runtime monitoring of free heap, max block size, and loop time. 
+These sensors are available in Home Assistant for continuous monitoring.
 
 Additional performance logs are available at DEBUG level (`logger.level: DEBUG`):
 - `[resources]` - Free heap at startup and post-calibration
@@ -170,10 +96,67 @@ Additional performance logs are available at DEBUG level (`logger.level: DEBUG`)
 
 ---
 
+### Flash Usage
+
+| Chip | Firmware Size | Flash Used | Free App Slot |
+|------|---------------|------------|---------------|
+| ESP32-C3 | 1370 KB | 73.8% | 486 KB |
+| ESP32-C5 | 1587 KB | 85.5% | 269 KB |
+| ESP32-C6 | 1539 KB | 82.9% | 317 KB |
+| ESP32-S3 | 1246 KB | 67.1% | 610 KB |
+
+Partition layout uses two app slots (`app0`/`app1`, 1.81 MB each) plus a small `otadata` partition for OTA metadata.
+ `Free App Slot` is the remaining space in one app slot after placing the firmware image.
+
+---
+
+### RAM Usage
+
+| Chip | Phase | Free Heap | Notes |
+|------|-------|-----------|-------|
+| ESP32-C3 | Post-setup | 179 KB | After ESPectre init |
+| ESP32-C3 | Post-calibration | 83 KB | After NBVI completes |
+| ESP32-C5 | Post-setup | 162 KB | After ESPectre init |
+| ESP32-C5 | Post-calibration | 71 KB | After NBVI completes |
+| ESP32-C6 | Post-setup | 272 KB | After ESPectre init |
+| ESP32-C6 | Post-calibration | 180 KB | After NBVI completes |
+| ESP32-S3 | Post-setup | 8425 KB | After ESPectre init (includes PSRAM heap) |
+| ESP32-S3 | Post-calibration | 8331 KB | After NBVI completes (includes PSRAM heap) |
+
+---
+
+### Detection Timing
+
+Time to process one CSI packet (feature extraction + detection, measured on hardware).
+At 100 pps, each packet has a 10 ms budget. 
+
+| Chip | Algorithm | Detection Time | CPU @ 100 pps |
+|------|-----------|----------------|---------------|
+| ESP32-C3 | MVS | ~440 µs | ~4.4% |
+| ESP32-C3 | ML | ~3400 µs | ~34% |
+| ESP32-C5 | MVS | ~220 µs | ~2.2% |
+| ESP32-C5 | ML | ~1500 µs | ~15% |
+| ESP32-C6 | MVS | ~250 µs | ~2.5% |
+| ESP32-C6 | ML | ~1900 µs | ~19% |
+| ESP32-S3 | MVS | ~150 µs | ~1.5% |
+| ESP32-S3 | ML | ~430 µs | ~4.3% |
+
+The worst-case path is ML on ESP32-C3 (~3.5 ms peak, ~35% CPU), which still leaves substantial budget for WiFi, ESPHome, and Home Assistant communication.
+
+**MVS**: Extracts a single feature (spatial turbulence) and its moving variance.
+
+**ML**: Extracts 12 statistical features from sliding window, then runs MLP inference (12 → 16 → 8 → 1 = 328 MACs). 
+The MLP itself is lightweight; most time is spent on feature extraction. 
+For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#architecture-selection).
+
+---
+
 ## Result History (ESP32-C6)
 
 | Date | Version | Dataset | Calibration | Algorithm | Evaluation Mode | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|-----------------|--------|-----------|---------|----------|
+| 2026-03-11 | v2.6.1 | C6 |   -  | ML  | Context-aware | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-03-11 | v2.6.1 | C6 | NBVI | MVS | Context-aware | 99.3% | 100.0% | 0.0% | 99.7% |
 | 2026-03-08 | v2.6.0 | C6 |   -  | ML  | Context-aware | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-03-08 | v2.6.0 | C6 | NBVI | MVS | Context-aware | 99.9% | 98.4% | 2.3% | 99.2% |
 | 2026-02-15 | v2.5.0 | C6 |   -  | ML  | Fixed-config | 99.9% | 100.0% | 0.0% | 99.9% |
@@ -181,23 +164,7 @@ Additional performance logs are available at DEBUG level (`logger.level: DEBUG`)
 | 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | Fixed-config | 99.8% | 96.5% | 3.6% | 98.1% |
 | 2025-12-27 | v2.3.0 | C6 | NBVI | MVS | Fixed-config | 96.4% | 100.0% | 0.0% | 98.2% |
 
-### Comparability Notes
-
 Starting from v2.6.0 results are context-aware (more precise), so compare them only with other context-aware results, not with legacy fixed-config ones.
-
-### Test Configuration
-
-Configuration used for all test results (unified across chips):
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Window Size | 75 | `DETECTOR_DEFAULT_WINDOW_SIZE` |
-| Calibration | NBVI | Auto-selects 12 non-consecutive subcarriers |
-| Hampel Filter | OFF | Can be enabled for noisy environments |
-| Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
-| CV Normalization | Per-file | Based on `gain_locked` metadata (`false` => apply CV norm) |
-
-CV normalization is applied per-file based on whether data was collected with AGC gain lock enabled. See Test Data section for details.
 
 ---
 

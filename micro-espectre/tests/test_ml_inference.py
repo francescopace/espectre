@@ -25,6 +25,7 @@ from ml_detector import predict, ML_METRIC_SCALE, ML_DEFAULT_THRESHOLD
 # Test data path
 MODELS_DIR = Path(__file__).parent.parent / 'models'
 TEST_DATA_PATH = MODELS_DIR / 'ml_test_data.npz'
+INFERENCE_TOLERANCE = 1e-3
 
 
 class TestMLInferenceAccuracy:
@@ -53,9 +54,9 @@ class TestMLInferenceAccuracy:
             error = abs(result - expected)
             max_error = max(max_error, error)
             
-            # Allow small numerical error (1e-3) due to float32 precision
+            # Allow small numerical error due to float32 precision
             # in manual MLP inference vs TensorFlow reference
-            assert error < 1e-3, (
+            assert error < INFERENCE_TOLERANCE, (
                 f"Sample {i}: expected {expected:.6f}, got {result:.6f}, "
                 f"error {error:.6f}"
             )
@@ -80,7 +81,9 @@ class TestMLInferenceAccuracy:
         print(f"  Max error:  {max_error:.2e}")
         print(f"  Mean error: {mean_error:.2e}")
         
-        assert max_error < 1e-3, f"Max error {max_error:.2e} exceeds tolerance"
+        assert max_error < INFERENCE_TOLERANCE, (
+            f"Max error {max_error:.2e} exceeds tolerance {INFERENCE_TOLERANCE:.2e}"
+        )
     
     def test_output_range(self):
         """Verify outputs are in valid scaled range [0, 10]."""
