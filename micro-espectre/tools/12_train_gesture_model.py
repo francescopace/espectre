@@ -40,12 +40,23 @@ os.environ['ABSL_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 import argparse
+import contextlib
+import importlib.util
+import io
 import numpy as np
+import random
+import re
+import statistics
 import time
 from pathlib import Path
 
 # Import project modules (csi_utils sets up sys.path)
-from csi_utils import load_npz_as_packets, DATA_DIR
+from csi_utils import (
+    load_npz_as_packets,
+    DATA_DIR,
+    TARGET_NO_GESTURE_RECALL,
+    TARGET_GESTURE_RECALL,
+)
 
 try:
     from ml_utils import (
@@ -99,9 +110,9 @@ GESTURE_LABELS = [
 ]
 
 # Synthetic negative class for gesture classification.
-# Data is sourced from baseline/ and movement/ directories.
+# Source is data/no_gesture (3s quiet/non-gesture samples).
 NO_GESTURE_LABEL = 'no_gesture'
-NO_GESTURE_SOURCE_LABELS = ['baseline', 'movement']
+NO_GESTURE_PRIMARY_SOURCE_LABELS = ['no_gesture']
 NO_GESTURE_WINDOW_SECONDS = 2.0
 
 # Fixed subcarriers used for gesture feature extraction (aligned with ML motion model)
@@ -112,19 +123,41 @@ DEFAULT_PACKET_RATE = 100.0
 DEFAULT_NO_GESTURE_MAX_PER_SOURCE = 20
 DEFAULT_GESTURE_MLP_HIDDEN = (24, 12)
 DEFAULT_GESTURE_MLP_ALPHA = 0.001
-DEFAULT_FEATURE_PRESET = 'coherence_swap'
+DEFAULT_FEATURE_PRESET = 'reduced_plus_paper'
 DEFAULT_REJECT_CONFIDENCE = 0.55
 DEFAULT_REJECT_MARGIN = 0.05
-TARGET_NO_GESTURE_RECALL = 0.50
-TARGET_GESTURE_RECALL = 0.65
 
-CANONICAL_GESTURE_FEATURES = list(GESTURE_FEATURES) + ['phase_inter_sc_coherence']
+# Validation thresholds for dataset filtering.
+VALIDATION_DURATION_SECONDS = 3.0
+VALIDATION_PPS_MIN = 98.0
+VALIDATION_PPS_MAX = 116.0
+VALIDATION_SHARE_THRESHOLD = 0.47
+VALIDATION_CONTRAST_THRESHOLD = 0.92
+VALIDATION_PEAK_MIN = 0.12
+VALIDATION_PEAK_MAX = 0.93
+VALIDATION_KEEP_MIN_SCORE = 3
+SEQUENTIAL_BENCHMARK_SEED_COUNT = 6
+
+CANONICAL_GESTURE_FEATURES = []
+for _name in list(GESTURE_FEATURES) + list(EXPERIMENTAL_GESTURE_FEATURES):
+    if _name not in CANONICAL_GESTURE_FEATURES:
+        CANONICAL_GESTURE_FEATURES.append(_name)
 FEATURE_NAME_TO_ID = {name: idx for idx, name in enumerate(CANONICAL_GESTURE_FEATURES)}
 
 
 # ============================================================================
 # Data Loading
 # ============================================================================
+
+def _discover_no_gesture_sources():
+    """Discover required no_gesture sources."""
+    preferred = []
+    for source_label in NO_GESTURE_PRIMARY_SOURCE_LABELS:
+        source_dir = DATA_DIR / source_label
+        if source_dir.exists() and source_dir.is_dir() and list(source_dir.glob('*.npz')):
+            preferred.append(source_label)
+    return preferred
+
 
 def _discover_class_names(label_filter=None, include_no_gesture=True):
     """Discover available class names and no_gesture source labels.
@@ -150,10 +183,7 @@ def _discover_class_names(label_filter=None, include_no_gesture=True):
     # Synthetic no_gesture class if source directories contain data.
     no_gesture_sources_found = []
     if include_no_gesture:
-        for source_label in NO_GESTURE_SOURCE_LABELS:
-            source_dir = DATA_DIR / source_label
-            if source_dir.exists() and source_dir.is_dir() and list(source_dir.glob('*.npz')):
-                no_gesture_sources_found.append(source_label)
+        no_gesture_sources_found = _discover_no_gesture_sources()
         if no_gesture_sources_found:
             found_labels.append(NO_GESTURE_LABEL)
 
@@ -165,6 +195,177 @@ def _source_labels_for_class(label, no_gesture_sources_found):
     if label == NO_GESTURE_LABEL:
         return list(no_gesture_sources_found)
     return [label]
+
+
+def _compute_gesture_guidance(duration_s):
+    """Return expected gesture interval inside a fixed-length sample."""
+    still_before = max(0.4, duration_s * 0.20)
+    still_after = max(0.7, duration_s * 0.25)
+    cue_start = still_before
+    cue_stop = duration_s - still_after
+
+    min_gesture_span = 1.4
+    span = cue_stop - cue_start
+    if span < min_gesture_span:
+        deficit = min_gesture_span - span
+        reduce_before = min(deficit * 0.5, max(0.0, cue_start - 0.3))
+        cue_start -= reduce_before
+        deficit -= reduce_before
+        reduce_after = min(deficit, max(0.0, (duration_s - cue_stop) - 0.3))
+        cue_stop += reduce_after
+
+    cue_start = max(0.2, min(cue_start, duration_s - 0.4))
+    cue_stop = max(cue_start + 0.4, min(cue_stop, duration_s - 0.2))
+    return cue_start, cue_stop
+
+
+def _validate_dataset_file(npz_path, label, duration_hint_s=VALIDATION_DURATION_SECONDS):
+    """Return (keep, row) for a single file with fixed internal thresholds."""
+    try:
+        packets = load_npz_as_packets(npz_path)
+        if not packets or len(packets) < 10:
+            return False, {'name': npz_path.name, 'status': 'REVIEW', 'reason': 'empty_or_too_short', 'score': 0}
+
+        use_cv_norm = any(not p.get('gain_locked', True) for p in packets)
+        ctx = SegmentationContext(window_size=1, threshold=1.0)
+        ctx.use_cv_normalization = use_cv_norm
+
+        turb = []
+        for pkt in packets:
+            v, _ = ctx.compute_spatial_turbulence(
+                pkt['csi_data'], GESTURE_SUBCARRIERS, use_cv_normalization=use_cv_norm
+            )
+            turb.append(v)
+        turb = np.asarray(turb, dtype=np.float32)
+        if turb.size < 10:
+            return False, {'name': npz_path.name, 'status': 'REVIEW', 'reason': 'too_short_after_parse', 'score': 0}
+
+        smooth_win = 15
+        kernel = np.ones(smooth_win, dtype=np.float32) / float(smooth_win)
+        sm = np.convolve(turb, kernel, mode='same')
+        n = sm.size
+        duration_s = max(duration_hint_s, n / DEFAULT_PACKET_RATE)
+        pps = float(n / duration_s)
+
+        if label == NO_GESTURE_LABEL:
+            keep = (VALIDATION_PPS_MIN <= pps <= VALIDATION_PPS_MAX)
+            return keep, {
+                'name': npz_path.name,
+                'status': 'KEEP' if keep else 'REVIEW',
+                'score': 1 if keep else 0,
+                'pps': pps,
+                'share_g': np.nan,
+                'contrast': np.nan,
+                'peak_pos': np.nan,
+            }
+
+        cue_start, cue_stop = _compute_gesture_guidance(duration_hint_s)
+        t_axis = np.linspace(0.0, duration_s, num=n, endpoint=False)
+        gmask = (t_axis >= cue_start) & (t_axis < cue_stop)
+        omask = ~gmask
+
+        total_energy = float(np.sum(sm * sm)) + 1e-12
+        gesture_energy = float(np.sum(sm[gmask] * sm[gmask])) if gmask.any() else 0.0
+        share_g = gesture_energy / total_energy
+
+        mean_g = float(np.mean(sm[gmask])) if gmask.any() else 0.0
+        mean_o = float(np.mean(sm[omask])) if omask.any() else 0.0
+        contrast = mean_g / (mean_o + 1e-12)
+        peak_pos = float(np.argmax(sm)) / float(max(n - 1, 1))
+
+        score = 0
+        score += 1 if (VALIDATION_PPS_MIN <= pps <= VALIDATION_PPS_MAX) else 0
+        score += 1 if (share_g >= VALIDATION_SHARE_THRESHOLD) else 0
+        score += 1 if (contrast >= VALIDATION_CONTRAST_THRESHOLD) else 0
+        score += 1 if (VALIDATION_PEAK_MIN <= peak_pos <= VALIDATION_PEAK_MAX) else 0
+        keep = score >= VALIDATION_KEEP_MIN_SCORE
+        return keep, {
+            'name': npz_path.name,
+            'status': 'KEEP' if keep else 'REVIEW',
+            'score': score,
+            'pps': pps,
+            'share_g': share_g,
+            'contrast': contrast,
+            'peak_pos': peak_pos,
+        }
+    except Exception as exc:
+        return False, {'name': npz_path.name, 'status': 'REVIEW', 'reason': f'exception:{exc}', 'score': 0}
+
+
+def _build_validation_allowlist(duration_hint_s=VALIDATION_DURATION_SECONDS):
+    """Build per-source allowlist of files that pass validation."""
+    found_labels, no_gesture_sources_found = _discover_class_names(include_no_gesture=True)
+    allowlist = {}
+    summary = {}
+    for label in found_labels:
+        rows = []
+        source_labels = _source_labels_for_class(label, no_gesture_sources_found)
+        for source_label in source_labels:
+            label_dir = DATA_DIR / source_label
+            for npz_file in sorted(label_dir.glob('*.npz')):
+                keep, row = _validate_dataset_file(npz_file, label, duration_hint_s=duration_hint_s)
+                row['source'] = source_label
+                rows.append(row)
+                if keep:
+                    allowlist.setdefault(source_label, set()).add(npz_file.name)
+        summary[label] = rows
+    return allowlist, summary
+
+
+def _print_validation_summary(summary, context='dataset-validation'):
+    """Print compact validation summary."""
+    print(f'Dataset validation ({context}):')
+    headers = ('label', 'total', 'keep', 'review', 'keep%')
+    rows_out = []
+    review_preview = []
+    total_all = 0
+    keep_all = 0
+
+    for label, rows in summary.items():
+        total = len(rows)
+        keep = sum(1 for r in rows if r.get('status') == 'KEEP')
+        review = total - keep
+        keep_pct = (keep / total * 100.0) if total else 0.0
+        rows_out.append((label, total, keep, review, keep_pct))
+        total_all += total
+        keep_all += keep
+
+        if review > 0:
+            review_names = [r['name'] for r in rows if r.get('status') == 'REVIEW']
+            preview = ', '.join(review_names[:3])
+            extra = '' if review <= 3 else f' ... (+{review - 3})'
+            review_preview.append(f'  - {label}: {preview}{extra}')
+
+    if not rows_out:
+        print('  no files')
+        return
+
+    label_w = max(len(headers[0]), max(len(r[0]) for r in rows_out))
+    total_w = len(headers[1])
+    keep_w = len(headers[2])
+    review_w = len(headers[3])
+    pct_w = len(headers[4])
+
+    line = (
+        f"  {{:<{label_w}}}  "
+        f"{{:>{total_w}}}  "
+        f"{{:>{keep_w}}}  "
+        f"{{:>{review_w}}}  "
+        f"{{:>{pct_w}}}"
+    )
+    print(line.format(*headers))
+    print('  ' + '-' * (label_w + total_w + keep_w + review_w + pct_w + 10))
+    for lbl, total, keep, review, keep_pct in rows_out:
+        print(line.format(lbl, total, keep, review, f'{keep_pct:5.1f}'))
+
+    keep_pct_all = (keep_all / total_all * 100.0) if total_all else 0.0
+    print('  ' + '-' * (label_w + total_w + keep_w + review_w + pct_w + 10))
+    print(line.format('TOTAL', total_all, keep_all, total_all - keep_all, f'{keep_pct_all:5.1f}'))
+
+    if review_preview:
+        print('\n  Review examples:')
+        for row in review_preview:
+            print(row)
 
 
 def _print_dataset_label_stats(stats, class_names):
@@ -179,14 +380,15 @@ def _print_dataset_label_stats(stats, class_names):
 def load_gesture_data(window_packets=None, stride_packets=None, window_labels=None,
                       no_gesture_window_packets=None, no_gesture_stride_packets=None,
                       first_window_only=False, no_gesture_max_per_source=None,
-                      random_seed=None, feature_names=None):
+                      random_seed=None, feature_names=None, allowed_files_by_source=None):
     """Load gesture data from data/<label>/ directories.
 
     By default, each NPZ file is treated as a single sample (variable-length I/Q stream).
     Optionally, selected labels can be split into fixed-size windows.
     When first_window_only=True, only the first fixed-size window is kept.
-    A synthetic class named "no_gesture" is built by aggregating baseline/movement
-    directories. Those sources can be forced to fixed windowing independently.
+    A synthetic class named "no_gesture" is built from data/no_gesture when
+    available; otherwise it falls back to baseline/movement. Those sources can
+    be forced to fixed windowing independently.
 
     Returns:
         tuple: (X, y, class_names, stats, groups)
@@ -224,6 +426,9 @@ def load_gesture_data(window_packets=None, stride_packets=None, window_labels=No
             label_dir = DATA_DIR / source_label
             source_samples = []
             for npz_file in sorted(label_dir.glob('*.npz')):
+                if (allowed_files_by_source is not None and
+                        npz_file.name not in allowed_files_by_source.get(source_label, set())):
+                    continue
                 force_no_gesture_window = (
                     label == NO_GESTURE_LABEL and
                     no_gesture_window_packets is not None and
@@ -242,7 +447,7 @@ def load_gesture_data(window_packets=None, stride_packets=None, window_labels=No
                     stride_packets=sp,
                     feature_names=feature_names,
                     # Apply first-window truncation only to positive gesture labels.
-                    # Keep no_gesture (baseline/movement) with normal windowing.
+                    # Keep no_gesture sources with normal windowing.
                     first_window_only=(first_window_only and label != NO_GESTURE_LABEL),
                 )
                 if not feature_vectors:
@@ -352,7 +557,8 @@ def _extract_event_features(npz_path: Path, window_packets=None, stride_packets=
 
 
 def _estimate_positive_gesture_counts(window_packets=None, stride_packets=None, window_labels=None,
-                                      first_window_only=False, feature_names=None):
+                                      first_window_only=False, feature_names=None,
+                                      allowed_files_by_source=None):
     """Estimate valid sample counts for positive gesture classes only.
 
     Returns:
@@ -368,6 +574,9 @@ def _estimate_positive_gesture_counts(window_packets=None, stride_packets=None, 
 
         sample_count = 0
         for npz_file in sorted(label_dir.glob('*.npz')):
+            if (allowed_files_by_source is not None and
+                    npz_file.name not in allowed_files_by_source.get(label, set())):
+                continue
             wp = window_packets if label in window_labels else None
             sp = stride_packets if label in window_labels else None
             vectors = _extract_event_features(
@@ -596,6 +805,17 @@ def _resolve_feature_names(feature_preset='baseline'):
         return [f for f in GESTURE_FEATURES if f != 'phase_circular_variance'] + ['phase_inter_sc_coherence']
     if feature_preset == 'plus_coherence':
         return list(GESTURE_FEATURES) + ['phase_inter_sc_coherence']
+    if feature_preset == 'reduced_plus_paper':
+        # Empirically selected on no_gesture-first optimization for 3s single-gesture datasets.
+        return [
+            'phase_entropy',
+            'turb_iqr',
+            'event_duration',
+            'turb_diff_abs_mean',
+            'turb_mid_mean',
+            'phase_diff_var',
+            'phase_inter_sc_coherence',
+        ]
     raise ValueError(f'Unknown feature preset: {feature_preset}')
 
 
@@ -784,7 +1004,11 @@ def show_info():
 def _prepare_gesture_dataset(seed=None, window_seconds=2.0, window_overlap=0.0,
                              window_labels=None,
                              no_gesture_max_per_source=DEFAULT_NO_GESTURE_MAX_PER_SOURCE,
-                             feature_names=None):
+                             feature_names=None,
+                             validate_dataset=False,
+                             validated_files_by_source=None,
+                             validation_summary=None,
+                             print_validation_summary=True):
     """Prepare shared gesture dataset/config for both training and experiments."""
     if seed is None:
         seed = generate_seed()
@@ -823,9 +1047,24 @@ def _prepare_gesture_dataset(seed=None, window_seconds=2.0, window_overlap=0.0,
     no_gesture_window_packets = max(10, int(round(NO_GESTURE_WINDOW_SECONDS * packet_rate)))
     no_gesture_stride_packets = no_gesture_window_packets
 
+    no_gesture_sources = _discover_no_gesture_sources()
+    if not no_gesture_sources:
+        print(f"Error: required dataset source '{NO_GESTURE_LABEL}' not found or empty in {DATA_DIR / NO_GESTURE_LABEL}")
+        return None
+    no_gesture_sources_msg = no_gesture_sources
+    allowed_files_by_source = None
+    if validate_dataset:
+        if validated_files_by_source is None:
+            allowed_files_by_source, validation_summary = _build_validation_allowlist(
+                duration_hint_s=VALIDATION_DURATION_SECONDS
+            )
+        else:
+            allowed_files_by_source = validated_files_by_source
+        if print_validation_summary and validation_summary is not None:
+            _print_validation_summary(validation_summary, context='train-on-validated')
     print('Loading gesture data...')
-    print(f'  Synthetic class: {NO_GESTURE_LABEL} <= {NO_GESTURE_SOURCE_LABELS}')
-    print(f'  Forced windowing for {NO_GESTURE_SOURCE_LABELS}: '
+    print(f'  Class source: {NO_GESTURE_LABEL} <= {no_gesture_sources_msg}')
+    print(f'  Forced windowing for {no_gesture_sources_msg}: '
           f'{NO_GESTURE_WINDOW_SECONDS:.2f}s ({no_gesture_window_packets} packets), '
           f'stride={no_gesture_stride_packets}')
     if no_gesture_max_per_source == -1:
@@ -835,6 +1074,7 @@ def _prepare_gesture_dataset(seed=None, window_seconds=2.0, window_overlap=0.0,
             window_labels=effective_window_labels,
             first_window_only=True,
             feature_names=feature_names,
+            allowed_files_by_source=allowed_files_by_source,
         )
         if positive_counts:
             no_gesture_cap = max(positive_counts.values())
@@ -860,6 +1100,7 @@ def _prepare_gesture_dataset(seed=None, window_seconds=2.0, window_overlap=0.0,
         no_gesture_max_per_source=no_gesture_cap,
         random_seed=seed,
         feature_names=feature_names,
+        allowed_files_by_source=allowed_files_by_source,
     )
 
     return {
@@ -881,7 +1122,11 @@ def train_all(seed=None, window_seconds=2.0, window_overlap=0.0,
               no_gesture_max_per_source=DEFAULT_NO_GESTURE_MAX_PER_SOURCE,
               mlp_hidden=DEFAULT_GESTURE_MLP_HIDDEN,
               mlp_alpha=DEFAULT_GESTURE_MLP_ALPHA,
-              feature_preset=DEFAULT_FEATURE_PRESET):
+              feature_preset=DEFAULT_FEATURE_PRESET,
+              validate_dataset=False,
+              validated_files_by_source=None,
+              validation_summary=None,
+              print_validation_summary=True):
     """Train gesture classifier (tiny MLP) with selected feature preset.
 
     Args:
@@ -890,9 +1135,14 @@ def train_all(seed=None, window_seconds=2.0, window_overlap=0.0,
         window_overlap: Overlap ratio between consecutive windows [0.0, 1.0).
         window_labels: Labels to split into windows.
         no_gesture_max_per_source: Cap of no_gesture samples per source label
-                                  (baseline/movement) after windowing.
+                                  (source: no_gesture)
+                                  after windowing.
                                   -1 = auto (match positive gesture sample count),
                                    0 = no cap, >0 = explicit cap.
+        validate_dataset: If True, train only on files marked KEEP by validation.
+        validated_files_by_source: Optional precomputed validation allowlist.
+        validation_summary: Optional precomputed validation summary for printing.
+        print_validation_summary: Print validation table when validation is enabled.
     """
     print(f'\n{"="*60}')
     print('  GESTURE CLASSIFIER TRAINING')
@@ -906,6 +1156,10 @@ def train_all(seed=None, window_seconds=2.0, window_overlap=0.0,
         window_labels=window_labels,
         no_gesture_max_per_source=no_gesture_max_per_source,
         feature_names=feature_names,
+        validate_dataset=validate_dataset,
+        validated_files_by_source=validated_files_by_source,
+        validation_summary=validation_summary,
+        print_validation_summary=print_validation_summary,
     )
     if prep is None:
         return 1
@@ -1020,7 +1274,8 @@ def run_ablation(seed=None, window_seconds=2.0, window_overlap=0.0,
                  window_labels=None,
                  no_gesture_max_per_source=DEFAULT_NO_GESTURE_MAX_PER_SOURCE,
                  mlp_hidden=DEFAULT_GESTURE_MLP_HIDDEN,
-                 mlp_alpha=DEFAULT_GESTURE_MLP_ALPHA):
+                 mlp_alpha=DEFAULT_GESTURE_MLP_ALPHA,
+                 validate_dataset=False):
     """Run leave-one-feature-out ablation for gesture features."""
     print(f'\n{"="*60}')
     print('  GESTURE FEATURE ABLATION')
@@ -1032,6 +1287,7 @@ def run_ablation(seed=None, window_seconds=2.0, window_overlap=0.0,
         window_overlap=window_overlap,
         window_labels=window_labels,
         no_gesture_max_per_source=no_gesture_max_per_source,
+        validate_dataset=validate_dataset,
     )
     if prep is None:
         return 1
@@ -1127,7 +1383,8 @@ def _evaluate_feature_set(feature_names, seed=None, window_seconds=2.0, window_o
                           window_labels=None,
                           no_gesture_max_per_source=DEFAULT_NO_GESTURE_MAX_PER_SOURCE,
                           mlp_hidden=DEFAULT_GESTURE_MLP_HIDDEN,
-                          mlp_alpha=DEFAULT_GESTURE_MLP_ALPHA):
+                          mlp_alpha=DEFAULT_GESTURE_MLP_ALPHA,
+                          validate_dataset=False):
     """Train/evaluate one feature set with no_gesture-first threshold tuning."""
     prep = _prepare_gesture_dataset(
         seed=seed,
@@ -1136,6 +1393,7 @@ def _evaluate_feature_set(feature_names, seed=None, window_seconds=2.0, window_o
         window_labels=window_labels,
         no_gesture_max_per_source=no_gesture_max_per_source,
         feature_names=feature_names,
+        validate_dataset=validate_dataset,
     )
     if prep is None:
         return None
@@ -1209,7 +1467,8 @@ def run_no_gesture_optimization(seed=None, window_seconds=2.0, window_overlap=0.
                                 no_gesture_max_per_source=DEFAULT_NO_GESTURE_MAX_PER_SOURCE,
                                 mlp_hidden=DEFAULT_GESTURE_MLP_HIDDEN,
                                 mlp_alpha=DEFAULT_GESTURE_MLP_ALPHA,
-                                feature_preset='baseline'):
+                                feature_preset='baseline',
+                                validate_dataset=False):
     """Feature minimization + paper-inspired features for no_gesture-first policy."""
     print(f'\n{"="*60}')
     print('  GESTURE OPTIMIZATION (NO_GESTURE-FIRST)')
@@ -1227,6 +1486,7 @@ def run_no_gesture_optimization(seed=None, window_seconds=2.0, window_overlap=0.
         no_gesture_max_per_source=no_gesture_max_per_source,
         mlp_hidden=mlp_hidden,
         mlp_alpha=mlp_alpha,
+        validate_dataset=validate_dataset,
     )
     if baseline is None:
         print('Error: unable to build baseline dataset.')
@@ -1252,6 +1512,7 @@ def run_no_gesture_optimization(seed=None, window_seconds=2.0, window_overlap=0.
         window_labels=window_labels,
         no_gesture_max_per_source=no_gesture_max_per_source,
         feature_names=default_feature_names,
+        validate_dataset=validate_dataset,
     )
     X = prep_default['X']
     y = prep_default['y']
@@ -1301,6 +1562,7 @@ def run_no_gesture_optimization(seed=None, window_seconds=2.0, window_overlap=0.
             no_gesture_max_per_source=no_gesture_max_per_source,
             mlp_hidden=mlp_hidden,
             mlp_alpha=mlp_alpha,
+            validate_dataset=validate_dataset,
         )
         if res is None:
             continue
@@ -1346,6 +1608,167 @@ def run_no_gesture_optimization(seed=None, window_seconds=2.0, window_overlap=0.
     return 0
 
 
+def _load_stream_benchmark_module(stream_script):
+    """Load 13_test_gesture_stream.py as a module."""
+    spec = importlib.util.spec_from_file_location('gesture_stream_benchmark', str(stream_script))
+    if spec is None or spec.loader is None:
+        return None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _run_stream_benchmark_once(stream_mod, seed):
+    """Run streaming benchmark once and return parsed metrics dict."""
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        metrics = stream_mod.run_stream_test(seed=int(seed), return_metrics=True)
+    if not isinstance(metrics, dict) or metrics.get('error'):
+        return None
+    per = metrics.get('per_class_accuracy', {})
+    return {
+        'seed': int(seed),
+        'circle': float(per.get('circle_cw', 0.0)),
+        'wave': float(per.get('wave', 0.0)),
+        'no_gesture': float(per.get('no_gesture', 0.0)),
+        'overall': float(metrics.get('overall_accuracy', 0.0)),
+        'pass': bool(metrics.get('constraint_pass', False)),
+    }
+
+
+def run_sequential_train_search(max_runs=12,
+                                window_seconds=2.0, window_overlap=0.0, window_labels=None,
+                                no_gesture_max_per_source=DEFAULT_NO_GESTURE_MAX_PER_SOURCE,
+                                mlp_hidden=DEFAULT_GESTURE_MLP_HIDDEN,
+                                mlp_alpha=DEFAULT_GESTURE_MLP_ALPHA,
+                                feature_preset=DEFAULT_FEATURE_PRESET):
+    """Run sequential auto-seed training and benchmark after each run."""
+    if max_runs < 1:
+        print('Error: --sequential-train-search must be >= 1 when provided.')
+        return 1
+
+    stream_script = Path(__file__).resolve().with_name('13_test_gesture_stream.py')
+    stream_mod = _load_stream_benchmark_module(stream_script)
+    if stream_mod is None:
+        print('Error: unable to load 13_test_gesture_stream.py')
+        return 1
+    benchmark_seeds = [random.SystemRandom().randrange(0, 2**31) for _ in range(SEQUENTIAL_BENCHMARK_SEED_COUNT)]
+
+    best = None
+    validation_allowlist, validation_summary = _build_validation_allowlist(
+        duration_hint_s=VALIDATION_DURATION_SECONDS
+    )
+
+    print(f'\n{"="*60}')
+    print('  SEQUENTIAL TRAIN SEARCH (AUTO-SEED + STREAM TEST)')
+    print(f'{"="*60}\n')
+    print(f'Max runs: {max_runs}')
+    print(f'Train config: hidden={mlp_hidden}, alpha={mlp_alpha}, preset={feature_preset}')
+    print('Mode: --train-on-validated enabled for every run\n')
+    _print_validation_summary(validation_summary, context='train-search')
+
+    for run_idx in range(1, max_runs + 1):
+        print(f'--- Run {run_idx}/{max_runs} ---')
+        train_seed = generate_seed()
+        rc = train_all(
+            seed=train_seed,
+            window_seconds=window_seconds,
+            window_overlap=window_overlap,
+            window_labels=window_labels,
+            no_gesture_max_per_source=no_gesture_max_per_source,
+            mlp_hidden=mlp_hidden,
+            mlp_alpha=mlp_alpha,
+            feature_preset=feature_preset,
+            validate_dataset=True,
+            validated_files_by_source=validation_allowlist,
+            validation_summary=validation_summary,
+            print_validation_summary=False,
+        )
+        if rc != 0:
+            print('Training failed, stopping search.')
+            return 1
+        print(f'  train seed: {train_seed}')
+
+        rows = []
+        for seed in benchmark_seeds:
+            row = _run_stream_benchmark_once(stream_mod, seed)
+            if row is None:
+                print(f'Error: benchmark failed on seed={seed}')
+                return 1
+            rows.append(row)
+
+        pass_count = sum(1 for r in rows if r['pass'])
+        avg_circle = statistics.mean(r['circle'] for r in rows)
+        avg_wave = statistics.mean(r['wave'] for r in rows)
+        avg_ng = statistics.mean(r['no_gesture'] for r in rows)
+        avg_overall = statistics.mean(r['overall'] for r in rows)
+        worst_single = min(min(r['circle'], r['wave'], r['no_gesture']) for r in rows)
+        score = (pass_count, avg_wave, avg_circle, avg_ng, avg_overall, worst_single)
+
+        print(
+            f'  pass={pass_count}/{len(benchmark_seeds)} '
+            f'avg(c/w/ng)={avg_circle:.1f}/{avg_wave:.1f}/{avg_ng:.1f} '
+            f'avg_overall={avg_overall:.1f} worst={worst_single:.1f}'
+        )
+
+        rec = {
+            'run': run_idx,
+            'train_seed': train_seed,
+            'pass_count': pass_count,
+            'total': len(benchmark_seeds),
+            'avg_circle': avg_circle,
+            'avg_wave': avg_wave,
+            'avg_no_gesture': avg_ng,
+            'avg_overall': avg_overall,
+            'worst_single_class': worst_single,
+            'rows': rows,
+            'score': score,
+        }
+
+        improved = (best is None) or (score > best['score'])
+        if improved:
+            best = rec
+            print(f'  NEW BEST (run={run_idx}, seed={train_seed})')
+
+        if pass_count == len(benchmark_seeds):
+            print('  Full PASS reached, stopping early.')
+            break
+
+    if best is None or best['train_seed'] is None:
+        print('Error: no valid best run found.')
+        return 1
+
+    print(f'\nBest run: #{best["run"]} seed={best["train_seed"]} '
+          f'pass={best["pass_count"]}/{best["total"]} '
+          f'avg(c/w/ng)={best["avg_circle"]:.1f}/{best["avg_wave"]:.1f}/{best["avg_no_gesture"]:.1f} '
+          f'avg_overall={best["avg_overall"]:.1f}')
+    print('Retraining best seed to keep exported weights aligned...')
+    rr = train_all(
+        seed=best['train_seed'],
+        window_seconds=window_seconds,
+        window_overlap=window_overlap,
+        window_labels=window_labels,
+        no_gesture_max_per_source=no_gesture_max_per_source,
+        mlp_hidden=mlp_hidden,
+        mlp_alpha=mlp_alpha,
+        feature_preset=feature_preset,
+        validate_dataset=True,
+        validated_files_by_source=validation_allowlist,
+        validation_summary=validation_summary,
+        print_validation_summary=False,
+    )
+    if rr != 0:
+        print('Error: retraining best seed failed.')
+        return 1
+
+    print('\nBest-run benchmark details:')
+    for r in best['rows']:
+        status = 'PASS' if r['pass'] else 'FAIL'
+        print(f'  seed={r["seed"]}: c/w/ng={r["circle"]:.1f}/{r["wave"]:.1f}/{r["no_gesture"]:.1f} '
+              f'overall={r["overall"]:.1f} -> {status}')
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Train gesture classifier from labeled CSI data',
@@ -1375,14 +1798,21 @@ Motion model (binary IDLE/MOTION): python tools/10_train_motion_model.py
                         help='Comma-separated labels to window (default: auto all gesture labels)')
     parser.add_argument('--no-gesture-max-per-source', type=int,
                         default=DEFAULT_NO_GESTURE_MAX_PER_SOURCE,
-                        help='Cap no_gesture samples per source label (baseline/movement). '
+                        help='Cap no_gesture samples per source label '
+                             '(source: no_gesture). '
                              '-1 = auto (match gesture count), 0 = no cap, >0 = explicit cap '
                              f'(default: {DEFAULT_NO_GESTURE_MAX_PER_SOURCE})')
     parser.add_argument('--ablation', action='store_true',
                         help='Run leave-one-feature-out ablation study and exit')
     parser.add_argument('--optimize-no-gesture', action='store_true',
                         help='Run no_gesture-first feature minimization + paper-inspired evaluation')
-    parser.add_argument('--feature-preset', choices=['baseline', 'coherence_swap', 'plus_coherence'],
+    parser.add_argument('--validate-dataset', action='store_true',
+                        help='Validate dataset only (print KEEP/REVIEW report and exit)')
+    parser.add_argument('--train-on-validated', action='store_true',
+                        help='Train using only files marked KEEP by dataset validation')
+    parser.add_argument('--sequential-train-search', nargs='?', type=int, const=12, default=0,
+                        help='Run sequential auto-seed training search (optional N=max runs, default: 12)')
+    parser.add_argument('--feature-preset', choices=['baseline', 'coherence_swap', 'plus_coherence', 'reduced_plus_paper'],
                         default=DEFAULT_FEATURE_PRESET,
                         help=f'Feature preset (default: {DEFAULT_FEATURE_PRESET})')
     parser.add_argument('--mlp-hidden', type=str, default='24,12',
@@ -1401,6 +1831,27 @@ Motion model (binary IDLE/MOTION): python tools/10_train_motion_model.py
         show_info()
         return 0
 
+    if args.validate_dataset:
+        _, validation_summary = _build_validation_allowlist(
+            duration_hint_s=VALIDATION_DURATION_SECONDS
+        )
+        _print_validation_summary(validation_summary, context='validate-dataset')
+        return 0
+
+    if args.sequential_train_search:
+        if args.seed is not None:
+            print('Warning: --seed is ignored in --sequential-train-search mode (auto-seed enabled).')
+        return run_sequential_train_search(
+            max_runs=args.sequential_train_search,
+            window_seconds=args.window_seconds,
+            window_overlap=args.window_overlap,
+            window_labels=window_labels,
+            no_gesture_max_per_source=args.no_gesture_max_per_source,
+            mlp_hidden=mlp_hidden,
+            mlp_alpha=args.mlp_alpha,
+            feature_preset=args.feature_preset,
+        )
+
     if args.ablation:
         return run_ablation(
             seed=args.seed,
@@ -1408,6 +1859,7 @@ Motion model (binary IDLE/MOTION): python tools/10_train_motion_model.py
             window_overlap=args.window_overlap,
             window_labels=window_labels,
             no_gesture_max_per_source=args.no_gesture_max_per_source,
+            validate_dataset=args.train_on_validated,
         )
 
     if args.optimize_no_gesture:
@@ -1420,6 +1872,7 @@ Motion model (binary IDLE/MOTION): python tools/10_train_motion_model.py
             mlp_hidden=mlp_hidden,
             mlp_alpha=args.mlp_alpha,
             feature_preset=args.feature_preset,
+            validate_dataset=args.train_on_validated,
         )
 
     return train_all(
@@ -1431,6 +1884,7 @@ Motion model (binary IDLE/MOTION): python tools/10_train_motion_model.py
         mlp_hidden=mlp_hidden,
         mlp_alpha=args.mlp_alpha,
         feature_preset=args.feature_preset,
+        validate_dataset=args.train_on_validated,
     )
 
 

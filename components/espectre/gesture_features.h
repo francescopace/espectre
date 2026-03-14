@@ -8,7 +8,7 @@
  * statistics over a sliding window), these describe the morphology of
  * the full event.
  *
- * Canonical feature list (17 total):
+ * Canonical feature list (19 total):
  *   0. event_duration       - Log-compressed duration, quantized to 0.1, bounded
  *   1. peak_position        - Normalized peak position within event (0..1)
  *   2. peak_to_mean_ratio   - Peak / mean turbulence (clamped 0..10)
@@ -26,6 +26,8 @@
  *  14. phase_entropy        - Mean phase Shannon entropy across event
  *  15. phase_circular_variance - Mean circular variance across event
  *  16. phase_inter_sc_coherence - 1/(1+var) of wrapped adjacent phase differences
+ *  17. turb_range          - Global turbulence range (max-min)
+ *  18. turb_delta_energy   - Mean squared first difference of turbulence
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -42,7 +44,7 @@ namespace espectre {
 
 // Gesture feature extractor output size (must match model feature count).
 constexpr uint8_t GESTURE_FEATURE_VECTOR_SIZE = 17;
-constexpr uint8_t GESTURE_TOTAL_AVAILABLE_FEATURES = 17;
+constexpr uint8_t GESTURE_TOTAL_AVAILABLE_FEATURES = 19;
 constexpr uint8_t GESTURE_PHASE_ENTROPY_BINS = 5;
 constexpr uint16_t GESTURE_MAX_EVENT_PACKETS = 512;
 
@@ -214,6 +216,26 @@ inline float gesture_turb_diff_abs_mean(const float* turb, uint16_t n) {
     if (n < 2) return 0.0f;
     float sum = 0.0f;
     for (uint16_t i = 1; i < n; i++) sum += std::fabs(turb[i] - turb[i - 1]);
+    return sum / static_cast<float>(n - 1);
+}
+
+inline float gesture_turb_range(const float* turb, uint16_t n) {
+    if (n < 1) return 0.0f;
+    float min_val = turb[0], max_val = turb[0];
+    for (uint16_t i = 1; i < n; i++) {
+        if (turb[i] < min_val) min_val = turb[i];
+        if (turb[i] > max_val) max_val = turb[i];
+    }
+    return max_val - min_val;
+}
+
+inline float gesture_turb_delta_energy(const float* turb, uint16_t n) {
+    if (n < 2) return 0.0f;
+    float sum = 0.0f;
+    for (uint16_t i = 1; i < n; i++) {
+        const float d = turb[i] - turb[i - 1];
+        sum += d * d;
+    }
     return sum / static_cast<float>(n - 1);
 }
 
@@ -404,6 +426,8 @@ inline float extract_gesture_feature_by_id(const float* turb_buf,
         case 14: return gesture_phase_entropy(phases_buf, n_phases, n_packets);
         case 15: return gesture_phase_circular_variance(phases_buf, n_phases, n_packets);
         case 16: return gesture_phase_inter_sc_coherence(phases_buf, n_phases, n_packets);
+        case 17: return gesture_turb_range(turb_buf, n_packets);
+        case 18: return gesture_turb_delta_energy(turb_buf, n_packets);
         default: return 0.0f;
     }
 }

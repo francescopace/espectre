@@ -50,7 +50,7 @@ static void make_csi(int8_t* buf, float amplitude = 10.0f, uint8_t phase_shift =
 // ============================================================================
 
 void test_gesture_features_empty_buffer(void) {
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(nullptr, nullptr, 0, 12, features);
 
     for (int i = 0; i < GESTURE_NUM_FEATURES; i++) {
@@ -70,7 +70,7 @@ void test_gesture_features_constant_signal(void) {
         }
     }
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     // event_duration is log-compressed and quantized (N=100 -> 0.9)
@@ -104,7 +104,7 @@ void test_gesture_features_single_peak(void) {
     turb[mid]     = 10.0f;  // Peak (prominence = 10 - 3 = 7, threshold = 0.1 * 9 = 0.9)
     turb[mid + 1] = 3.0f;
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     // Peak should be near center (0.4..0.6)
@@ -135,7 +135,7 @@ void test_gesture_features_pre_post_energy_symmetric(void) {
         turb[i] = 1.0f + (N / 2.0f - x) / (N / 2.0f);
     }
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     // pre_post_energy_ratio should be close to 1.0 for symmetric signal
@@ -155,7 +155,7 @@ void test_gesture_features_output_range(void) {
         }
     }
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     TEST_ASSERT_TRUE(features[0] >= 0.0f);    // event_duration >= 0
@@ -376,7 +376,7 @@ void test_cross_platform_triangular_peak(void) {
     turb[mid] = 10.0f;
     turb[mid + 1] = 3.0f;
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     // event_duration: log-compressed + quantized (N=100 -> 0.9)
@@ -406,7 +406,7 @@ void test_cross_platform_constant_signal(void) {
         turb[i] = 5.0f;
     }
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     // event_duration = 200/200 = 1.0
@@ -433,7 +433,7 @@ void test_cross_platform_ramp_signal(void) {
         turb[i] = static_cast<float>(i);
     }
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     // peak_position = 99/99 = 1.0 (peak at end)
@@ -460,7 +460,7 @@ void test_cross_platform_phases_constant(void) {
         }
     }
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, N_PH, features);
 
     // phase_diff_var = 0 (all phases identical)
@@ -488,7 +488,7 @@ void test_cross_platform_phases_linear_ramp(void) {
         phases[i * N_PH + 3] = 3.0f;
     }
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, N_PH, features);
 
     // Circular variance for phases [0,1,2,3] is ~0.526
@@ -509,7 +509,7 @@ void test_gesture_feature_turb_diff_abs_mean_known_value(void) {
     float phases[N * 12];
     memset(phases, 0, sizeof(phases));
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, features[12]);
@@ -527,7 +527,7 @@ void test_gesture_feature_late_minus_mid_negative(void) {
     float phases[N * 12];
     memset(phases, 0, sizeof(phases));
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     TEST_ASSERT_TRUE(features[11] < 0.0f);
@@ -549,7 +549,7 @@ void test_gesture_feature_phase_entropy_uniform_bins(void) {
         phases[p * N_PH + 4] = 4.0f;
     }
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, N_PH, features);
 
     TEST_ASSERT_FLOAT_WITHIN(0.02f, 2.321928f, features[14]);
@@ -562,7 +562,7 @@ void test_gesture_features_minimum_length(void) {
     float phases[N * 12];
     memset(phases, 0, sizeof(phases));
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     // Should produce valid (non-zero) output
@@ -578,7 +578,7 @@ void test_gesture_features_single_packet(void) {
     float phases[N * 12];
     memset(phases, 0, sizeof(phases));
 
-    float features[GESTURE_NUM_FEATURES];
+    float features[GESTURE_FEATURE_VECTOR_SIZE];
     extract_gesture_features(turb, phases, N, 12, features);
 
     // n < 2 triggers default values

@@ -764,12 +764,15 @@ def collect_csi_data(args):
     
     try:
         if args.interactive:
-            saved = collector.collect_interactive(num_samples=args.samples)
+            saved = collector.collect_interactive(
+                num_samples=args.samples,
+                duration=args.duration
+            )
         else:
             saved = collector.collect_timed(
                 duration=args.duration,
                 num_samples=args.samples,
-                countdown=3
+                countdown=0
             )
         
         if saved:
@@ -998,8 +1001,8 @@ Examples:
                                help='Label for collected data (e.g., wave, baseline, idle)')
     collect_parser.add_argument('--samples', '-n', type=int, default=1,
                                help='Number of samples to collect (default: 1)')
-    collect_parser.add_argument('--duration', '-d', type=float, default=2.0,
-                               help='Duration per sample in seconds (default: 2.0)')
+    collect_parser.add_argument('--duration', '-d', type=float, default=3.0,
+                               help='Duration per sample in seconds (default: 3.0)')
     collect_parser.add_argument('--info', '-i', action='store_true',
                                help='Show dataset statistics')
     collect_parser.add_argument('--interactive', action='store_true',

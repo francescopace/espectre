@@ -447,7 +447,7 @@ The `tools/` directory contains Python scripts for CSI data analysis and algorit
 See [tools/README.md](tools/README.md) for complete script documentation.
 For gesture-specific workflow, see:
 - `12_train_gesture_model.py` (gesture training + reject-threshold calibration)
-- `13_test_gesture_stream.py` (continuous runtime benchmark with `no_gesture`)
+- `13_test_gesture_stream.py` (offline benchmark + live mode via `--live`)
 
 ## Automatic Subcarrier Selection
 
@@ -486,7 +486,7 @@ The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real 
 ### ML Applications and Roadmap
 
 Current status:
-- Gesture detection workflow: **experimental and available** in `tools/` (SVM-RBF + runtime reject calibration)
+- Gesture detection workflow: **experimental and available** in `tools/` (tiny-MLP + runtime reject calibration)
 - HAR / people counting / localization: planned for future releases
 
 - Human Activity Recognition (HAR)

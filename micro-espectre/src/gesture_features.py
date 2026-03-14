@@ -44,11 +44,13 @@ GESTURE_FEATURES = [
 
 NUM_GESTURE_FEATURES = len(GESTURE_FEATURES)
 
-# Experimental phase-oriented features inspired by 3D/AoA literature.
+# Experimental features inspired by v2/windowed studies and 3D/AoA literature.
 # They are NOT part of the default exported feature set to keep runtime
 # compatibility with existing gesture_weights.* until retraining is finalized.
 EXPERIMENTAL_GESTURE_FEATURES = [
     'phase_inter_sc_coherence',
+    'turb_range',
+    'turb_delta_energy',
 ]
 
 
@@ -339,6 +341,23 @@ def calc_turb_diff_abs_mean(turb_list):
     return sum(diffs) / len(diffs)
 
 
+def calc_turb_range(turb_list):
+    """Global turbulence range (max - min) over the full event."""
+    n = len(turb_list)
+    if n < 1:
+        return 0.0
+    return max(turb_list) - min(turb_list)
+
+
+def calc_turb_delta_energy(turb_list):
+    """Mean squared first difference of turbulence signal."""
+    n = len(turb_list)
+    if n < 2:
+        return 0.0
+    diffs = [turb_list[i] - turb_list[i - 1] for i in range(1, n)]
+    return sum(d * d for d in diffs) / len(diffs)
+
+
 # ============================================================================
 # Phase features (per-event averages of per-packet phase statistics)
 # ============================================================================
@@ -510,6 +529,8 @@ def extract_gesture_features(event_buffer, feature_names=None):
         'turb_late_mean': calc_turb_late_mean(turb_list),
         'turb_late_minus_mid': calc_turb_late_minus_mid(turb_list),
         'turb_diff_abs_mean': calc_turb_diff_abs_mean(turb_list),
+        'turb_range': calc_turb_range(turb_list),
+        'turb_delta_energy': calc_turb_delta_energy(turb_list),
         'phase_diff_var': calc_phase_diff_var(phases_list),
         'phase_entropy': calc_phase_entropy(phases_list),
         'phase_circular_variance': calc_phase_circular_variance(phases_list),

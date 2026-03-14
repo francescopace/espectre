@@ -17,10 +17,17 @@ All notable changes to this project will be documented in this file.
 - **Gesture benchmark metrics upgraded**: streaming test now reports `macro-F1` and `balanced accuracy` in addition to overall/per-class accuracy and confusion matrix, with explicit constraint check for `no_gesture` vs gesture recall targets.
 - **Gesture training reject calibration (`tools/12_train_gesture_model.py`)**: training now calibrates confidence/margin reject thresholds using macro-F1/balanced-accuracy objective with recall constraints and exports those thresholds into generated Python/C++ gesture weights.
 - **Runtime reject behavior aligned across Python/C++**: low-confidence predictions are now explicitly rejected to `no_gesture` instead of forcing a gesture label, with shared exported thresholds consumed by both stacks.
+- **Runtime gesture profiles introduced (`balanced`, `target80`, `no_gesture_first`)**: both Python and C++ gesture detectors now share profile-driven confidence floors/consecutive-vote behavior for easier FP/recall trade-offs.
+- **Gesture benchmark sampling modes expanded**: `13_test_gesture_stream.py` now supports `uniform`, `balanced`, and `proportional` class sampling (`proportional` default) to better match dataset composition.
+- **Live tool unification and DRY cleanup**: live UDP inference moved into `13_test_gesture_stream.py --live`; deprecated `13_live_gesture_inference.py` removed.
+- **Gesture training dataset validation workflow refined (`tools/12_train_gesture_model.py`)**: `--validate-dataset` now performs report-only validation (KEEP/REVIEW table) without training; `--train-on-validated` explicitly enables KEEP-only training.
+- **Sequential train+benchmark search mode added (`tools/12_train_gesture_model.py`)**: new `--sequential-train-search` mode runs multiple auto-seed trainings in sequence, evaluates each run with `13_test_gesture_stream.py`, and keeps/retrains the best run automatically.
+- **Sequential search CLI simplified**: `--search-max-runs` and `--search-patience` removed; max runs can now be passed directly as optional value to `--sequential-train-search [N]`.
 
 ### Documentation
 
 - **Tools documentation refresh**: added/updated sections for `12_train_gesture_model.py` and `13_test_gesture_stream.py` in `micro-espectre/tools/README.md` with current commands, fixed defaults, removed CLI options, and metric interpretation notes.
+- **Micro-ESPectre docs update**: updated gesture workflow references to the unified `13_test_gesture_stream.py` offline/live command model.
 
 ---
 

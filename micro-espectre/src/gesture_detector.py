@@ -59,13 +59,16 @@ MAX_EVENT_LEN = GESTURE_WINDOW_LEN
 RING_BUFFER_LEN = 300
 
 # Runtime gating to reduce false positives on live stream.
-# Thresholds are auto-calibrated during training and exported in gesture_weights.
+# Use the exact thresholds exported by training for train/runtime parity.
 _export_conf = float(getattr(_gw, 'GESTURE_REJECT_CONFIDENCE', 0.55)) if _weights_available else 0.55
 _export_margin = float(getattr(_gw, 'GESTURE_REJECT_MARGIN', 0.05)) if _weights_available else 0.05
-# Streaming-oriented caps: keep reject behavior but avoid over-suppressing gestures.
-GESTURE_MIN_CONFIDENCE = min(_export_conf, 0.15)
-GESTURE_MIN_MARGIN = min(_export_margin, 0.00)
-GESTURE_MIN_CONSECUTIVE = 1
+
+GESTURE_CONFIDENCE_FLOOR = 0.90
+GESTURE_MARGIN_FLOOR = 0.00
+GESTURE_MIN_CONSECUTIVE_FLOOR = 2
+GESTURE_MIN_CONFIDENCE = max(_export_conf, GESTURE_CONFIDENCE_FLOOR)
+GESTURE_MIN_MARGIN = max(_export_margin, GESTURE_MARGIN_FLOOR)
+GESTURE_MIN_CONSECUTIVE = int(GESTURE_MIN_CONSECUTIVE_FLOOR)
 GESTURE_SELECTED_FEATURES = list(getattr(_gw, 'GESTURE_FEATURE_NAMES', GESTURE_FEATURES)) if _weights_available else list(GESTURE_FEATURES)
 
 # Fixed subcarriers for turbulence/phase calculation (same as MLDetector)

@@ -57,11 +57,19 @@ constexpr uint16_t GESTURE_MAX_EVENT_LEN = GESTURE_WINDOW_LEN;
 constexpr uint8_t GESTURE_PHASE_SC = 12;
 
 // Runtime gating to reduce false positives on live stream.
-// Thresholds are auto-calibrated during training and exported in gesture_weights.h.
+constexpr float GESTURE_CONFIDENCE_FLOOR = 0.90f;
+constexpr float GESTURE_MARGIN_FLOOR = 0.00f;
+constexpr uint8_t GESTURE_MIN_CONSECUTIVE_FLOOR = 2;
+
 constexpr float GESTURE_MIN_CONFIDENCE =
-    (GESTURE_REJECT_CONFIDENCE < 0.15f) ? GESTURE_REJECT_CONFIDENCE : 0.15f;
-constexpr float GESTURE_MIN_MARGIN = 0.00f;
-constexpr uint8_t GESTURE_MIN_CONSECUTIVE = 1;
+    (GESTURE_REJECT_CONFIDENCE > GESTURE_CONFIDENCE_FLOOR)
+        ? GESTURE_REJECT_CONFIDENCE
+        : GESTURE_CONFIDENCE_FLOOR;
+constexpr float GESTURE_MIN_MARGIN =
+    (GESTURE_REJECT_MARGIN > GESTURE_MARGIN_FLOOR)
+        ? GESTURE_REJECT_MARGIN
+        : GESTURE_MARGIN_FLOOR;
+constexpr uint8_t GESTURE_MIN_CONSECUTIVE = GESTURE_MIN_CONSECUTIVE_FLOOR;
 
 /**
  * Gesture Detector
