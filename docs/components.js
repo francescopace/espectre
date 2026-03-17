@@ -30,7 +30,7 @@ function loadHeader(options = {}) {
             </a>
             <div class="header-controls-group">
                 <span class="header-separator">|</span>
-                <button id="btn-usb" class="header-control btn-usb" title="Connect ESPectre device via USB"><i class="fab fa-usb"></i></button>
+                <button id="btn-usb" class="header-control btn-usb" title="Connect ESPectre device via Bluetooth"><i class="fab fa-bluetooth-b"></i></button>
                 <button id="btn-mute" class="header-control btn-mute" title="Enable sound"><i class="fas fa-volume-mute"></i></button>
             </div>
         </div>

@@ -4,9 +4,11 @@
  * A reaction game powered by ESPectre WiFi motion detection.
  * Stay still. Move fast. React to survive.
  * 
- * Communication: USB Serial (all ESP32 variants)
- * Protocol: "G<movement>,<threshold>\n" from ESP32
- *           "START\n" / "STOP\n" / "T:X.XX\n" from browser
+ * Communication: Web Bluetooth (desktop Chrome/Edge)
+ * Protocol:
+ *   - telemetry notify: [float32 movement, float32 threshold]
+ *   - sysinfo notify: text "key=value" lines + "END"
+ *   - control write: REQ_SYSINFO, SET_THRESHOLD:X.XX
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -49,19 +51,10 @@ const HitStrength = {
     CRITICAL: { name: 'critical', minPower: 3.0, damage: 3 }
 };
 
-// USB VID/PID for ESP32 variants
-const ESP32_USB_FILTERS = [
-    // Espressif USB JTAG/Serial (ESP32-C3, C5, C6)
-    { usbVendorId: 0x303A, usbProductId: 0x1001 },
-    // ESP32-S2/S3 CDC
-    { usbVendorId: 0x303A, usbProductId: 0x0002 },
-    // CP210x (common USB-UART bridge)
-    { usbVendorId: 0x10C4, usbProductId: 0xEA60 },
-    // CH340 (common USB-UART bridge)
-    { usbVendorId: 0x1A86, usbProductId: 0x7523 },
-    // FTDI (common USB-UART bridge)
-    { usbVendorId: 0x0403, usbProductId: 0x6001 }
-];
+const BLE_ESPECTRE_SERVICE_UUID = 'd33ff46b-2203-4775-bc6f-b3a2c36af8f0';
+const BLE_ESPECTRE_TELEMETRY_UUID = '119d5cac-48da-4bd9-bfc3-169805868258';
+const BLE_ESPECTRE_SYSINFO_UUID = 'c8c89ffa-c401-461f-9ffc-942fa04adfe3';
+const BLE_ESPECTRE_CONTROL_UUID = '33ed9214-a8d7-40e8-82d1-c82747dcdc71';
 
 // ==================== GAME CLASS ====================
 
@@ -69,17 +62,17 @@ class ESPectreGame {
     constructor() {
         // Game state
         this.state = GameState.IDLE;
-        this.inputMode = 'mouse'; // 'mouse', 'touch', or 'serial'
+        this.inputMode = 'mouse'; // 'mouse', 'touch', or 'bluetooth'
         this.isTouching = false;  // Touch state for mobile
         
-        // USB Serial connection
-        this.serialPort = null;
-        this.serialReader = null;
-        this.serialWriter = null;
-        this.readBuffer = '';
-        this.readableStreamClosed = null;
-        this.writableStreamClosed = null;
-        this.pingInterval = null;  // Keep-alive ping timer
+        // Web Bluetooth connection
+        this.bleDevice = null;
+        this.bleGattServer = null;
+        this.bleService = null;
+        this.bleTelemetryChar = null;
+        this.bleSysinfoChar = null;
+        this.bleControlChar = null;
+        this.isDisconnecting = false;
         
         // Stats
         this.score = 0;
@@ -240,12 +233,7 @@ class ESPectreGame {
                 this.goHome();
             }
         });
-        
-        // Stop streaming when page is closed/navigated away
-        // Using both beforeunload and pagehide for maximum browser compatibility
-        window.addEventListener('beforeunload', () => this.stopStreamingSync());
-        window.addEventListener('pagehide', () => this.stopStreamingSync());
-        
+          
         // Check browser support
         this.checkBrowserSupport();
         
@@ -257,10 +245,10 @@ class ESPectreGame {
         // Show touch button on mobile, mouse button on desktop
         // Also check touchDetected flag for runtime detection (e.g., Chrome DevTools device mode)
         const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0 || this.touchDetected;
-        const hasSerial = 'serial' in navigator;
+        const hasBluetooth = 'bluetooth' in navigator;
         
-        // Update header controls (hide USB if not supported or on mobile)
-        this.updateHeaderControls(hasSerial, isMobile);
+        // Update header controls (hide button if not supported or on mobile)
+        this.updateHeaderControls(hasBluetooth, isMobile);
         
         if (isMobile) {
             // Mobile: hide USB connection box entirely, show swipe as primary
@@ -278,9 +266,9 @@ class ESPectreGame {
             if (this.elements.connectionBox) {
                 this.elements.connectionBox.classList.remove('mobile-hidden');
             }
-            if (!hasSerial) {
+            if (!hasBluetooth) {
                 this.showConnectionStatus(
-                    'Web Serial not supported. Use Chrome or Edge.',
+                    'Web Bluetooth not supported. Use Chrome or Edge desktop.',
                     'error'
                 );
                 this.elements.btnConnect.disabled = true;
@@ -292,10 +280,10 @@ class ESPectreGame {
         }
     }
     
-    updateHeaderControls(hasSerial, isMobile) {
-        // Hide USB button if Web Serial not supported or on mobile
+    updateHeaderControls(hasBluetooth, isMobile) {
+        // Hide device button if Web Bluetooth not supported or on mobile
         if (this.elements.btnUsb) {
-            this.elements.btnUsb.style.display = (hasSerial && !isMobile) ? '' : 'none';
+            this.elements.btnUsb.style.display = (hasBluetooth && !isMobile) ? '' : 'none';
         }
     }
     
@@ -363,8 +351,6 @@ class ESPectreGame {
         if (!this.isDraggingThreshold) return;
         this.isDraggingThreshold = false;
         this.elements.thresholdMarker.classList.remove('dragging');
-        
-        // Send threshold to device when drag ends
         this.sendThresholdToDevice();
     }
     
@@ -386,21 +372,15 @@ class ESPectreGame {
             this.elements.infoThreshold.textContent = this.threshold.toFixed(2);
         }
     }
-    
+
     async sendThresholdToDevice() {
-        if (!this.serialWriter) {
-            return;
-        }
-        
-        const cmd = `T:${this.threshold.toFixed(2)}`;
         try {
-            await this.sendSerialCommand(cmd);
-            console.log(`Threshold sent to device: ${this.threshold.toFixed(2)}`);
+            await this.sendBleControlCommand(`SET_THRESHOLD:${this.threshold.toFixed(2)}`);
         } catch (e) {
-            console.error('Failed to send threshold:', e);
+            console.warn('Failed to send threshold command:', e);
         }
     }
-    
+
     // ==================== SCREENS ====================
     
     showScreen(screenName) {
@@ -410,70 +390,56 @@ class ESPectreGame {
         this.screens[screenName].classList.add('active');
     }
     
-    // ==================== USB CONNECTION ====================
+    // ==================== BLUETOOTH CONNECTION ====================
     
     async connect() {
         try {
-            await this.connectSerial();
+            await this.connectBluetooth();
         } catch (e) {
-            console.error('Serial connection failed:', e);
+            console.error('Bluetooth connection failed:', e);
             let errorType = 'unknown';
-            if (e.message.includes('No port selected')) {
+            if (e.message.includes('No device selected')) {
                 this.showConnectionStatus(
                     'No ESPectre device found. Make sure your ESP32 is flashed with ESPectre firmware.',
                     'error'
                 );
-                errorType = 'no_port_selected';
-            } else if (e.message.includes('already open') || e.message.includes('in use')) {
-                this.showConnectionStatus(
-                    'Port in use! Close esphome logs or other serial monitors.',
-                    'error'
-                );
-                errorType = 'port_in_use';
+                errorType = 'no_device_selected';
             } else {
                 this.showConnectionStatus('Connection failed: ' + e.message, 'error');
                 errorType = e.message.substring(0, 50);
             }
-            // Track failed connection attempt
-            trackEvent('usb_connect_fail', { error: errorType });
+            trackEvent('ble_connect_fail', { error: errorType });
         }
     }
     
-    async connectSerial() {
-        this.showConnectionStatus('Requesting serial port...', 'connecting');
-        
-        this.serialPort = await navigator.serial.requestPort({
-            filters: ESP32_USB_FILTERS
+    async connectBluetooth() {
+        this.showConnectionStatus('Requesting Bluetooth device...', 'connecting');
+
+        this.bleDevice = await navigator.bluetooth.requestDevice({
+            filters: [{ services: [BLE_ESPECTRE_SERVICE_UUID] }]
         });
-        
-        await this.serialPort.open({ baudRate: 115200 });
-        
-        this.inputMode = 'serial';
-        this.showConnectionStatus('Connected via USB Serial!', 'connected');
-        
-        // Track successful USB connection
-        trackEvent('usb_connect');
-        
-        // Setup reader/writer with TransformStreams for text encoding/decoding
-        const textDecoder = new TextDecoderStream();
-        this.readableStreamClosed = this.serialPort.readable.pipeTo(textDecoder.writable);
-        this.serialReader = textDecoder.readable.getReader();
-        
-        const textEncoder = new TextEncoderStream();
-        this.writableStreamClosed = textEncoder.readable.pipeTo(this.serialPort.writable);
-        this.serialWriter = textEncoder.writable.getWriter();
-        
-        // Start reading
-        this.readSerialLoop();
-        
-        // Send START command to begin receiving data
-        await this.sendSerialCommand('START');
-        
-        // Start ping keep-alive (every 2 seconds)
-        this.startPing();
-        
-        // Show USB ready screen with live movement preview
-        this.showUsbReady('ESP32 (Serial)');
+        this.bleDevice.addEventListener('gattserverdisconnected', () => this.handleBluetoothDisconnect());
+
+        this.bleGattServer = await this.bleDevice.gatt.connect();
+        this.bleService = await this.bleGattServer.getPrimaryService(BLE_ESPECTRE_SERVICE_UUID);
+        this.bleTelemetryChar = await this.bleService.getCharacteristic(BLE_ESPECTRE_TELEMETRY_UUID);
+        this.bleSysinfoChar = await this.bleService.getCharacteristic(BLE_ESPECTRE_SYSINFO_UUID);
+        this.bleControlChar = await this.bleService.getCharacteristic(BLE_ESPECTRE_CONTROL_UUID);
+
+        await this.bleTelemetryChar.startNotifications();
+        this.bleTelemetryChar.addEventListener('characteristicvaluechanged', (event) =>
+            this.handleTelemetryNotification(event)
+        );
+        await this.bleSysinfoChar.startNotifications();
+        this.bleSysinfoChar.addEventListener('characteristicvaluechanged', (event) =>
+            this.handleSysinfoNotification(event)
+        );
+
+        this.inputMode = 'bluetooth';
+        this.showConnectionStatus('Connected via Bluetooth!', 'connected');
+        trackEvent('ble_connect');
+        await this.sendBleControlCommand('REQ_SYSINFO');
+        this.showUsbReady('ESP32 (Bluetooth)');
     }
     
     showUsbReady(deviceName) {
@@ -502,83 +468,56 @@ class ESPectreGame {
         }
     }
     
-    async readSerialLoop() {
-        try {
-            while (this.serialPort && this.serialPort.readable) {
-                const { value, done } = await this.serialReader.read();
-                if (done) break;
-                
-                // Accumulate data and parse lines
-                this.readBuffer += value;
-                const lines = this.readBuffer.split('\n');
-                this.readBuffer = lines.pop(); // Keep incomplete line
-                
-                for (const line of lines) {
-                    this.parseGameData(line.trim());
-                }
-            }
-        } catch (e) {
-            console.error('Serial read error:', e);
-            // Connection lost - cancel game timers to stop background game activity
-            this.clearGameTimers();
-            // Reset all game visual elements
-            this.resetGameVisuals();
-            if (this.state !== GameState.IDLE) {
-                this.state = GameState.IDLE;
-                this.showScreen('connect');
-                this.showConnectionStatus('Connection lost. Please reconnect.', 'error');
-                // Reset to pre-connection state
-                if (this.elements.connectionPre) {
-                    this.elements.connectionPre.classList.remove('hidden');
-                }
-                if (this.elements.connectionReady) {
-                    this.elements.connectionReady.classList.add('hidden');
-                }
-                this.updateUsbButton();
-            }
-            // Clean up serial connection
-            this.serialPort = null;
-            this.serialReader = null;
-            this.serialWriter = null;
-            this.stopPing();
+    handleTelemetryNotification(event) {
+        const dv = event.target.value;
+        if (!dv || dv.byteLength < 8) return;
+        const movement = dv.getFloat32(0, true);
+        const threshold = dv.getFloat32(4, true);
+        if (!Number.isFinite(movement) || !Number.isFinite(threshold)) return;
+        if (!this.isDraggingThreshold) {
+            this.threshold = threshold;
+            this.updateThresholdMarkerPosition();
         }
+        this.updateInput(movement);
     }
     
-    parseGameData(line) {
-        // Strip ANSI color codes from ESPHome logs
-        const cleanLine = line.replace(/\u001b\[[0-9;]*m/g, '');
-        
-        // Check for system info messages
-        // Format: [I][espectre:NNN][espectre]: [sysinfo] key=value or [sysinfo] END
-        const sysInfoMatch = cleanLine.match(/\[sysinfo\]\s+(\w+)(?:=(.+))?/);
-        if (sysInfoMatch) {
-            this.handleSystemInfo(sysInfoMatch[1], sysInfoMatch[2] || '');
+    handleSysinfoNotification(event) {
+        const value = event.target.value;
+        if (!value) return;
+        const line = new TextDecoder().decode(value.buffer);
+        if (!line) return;
+        const trimmed = line.trim();
+        if (trimmed === 'END') {
+            this.handleSystemInfo('END', '');
             return;
         }
-        
-        // Look for stream tag with data
-        // Format: [I][stream:NNN][espectre]: <movement>,<threshold>
-        // Example: [I][stream:075][espectre]: 0.08,1.00
-        const match = cleanLine.match(/\[stream:\d+\]\[.*?\]: ([\d.]+),([\d.]+)/);
-        if (!match) {
-            console.log(line);
+        const equalIdx = trimmed.indexOf('=');
+        if (equalIdx <= 0) return;
+        const key = trimmed.slice(0, equalIdx).trim();
+        const data = trimmed.slice(equalIdx + 1).trim();
+        this.handleSystemInfo(key, data);
+    }
+
+    async sendBleControlCommand(command) {
+        if (!this.bleControlChar) return;
+        const payload = new TextEncoder().encode(command);
+        if (typeof this.bleControlChar.writeValueWithResponse === 'function') {
+            await this.bleControlChar.writeValueWithResponse(payload);
             return;
         }
-        
-        const movement = parseFloat(match[1]);
-        const threshold = parseFloat(match[2]);
-        
-        if (!isNaN(movement) && !isNaN(threshold)) {
-            // Only update threshold from device if NOT currently dragging
-            // This prevents the device overwriting the user's slider value
-            if (!this.isDraggingThreshold) {
-                this.threshold = threshold;
-                this.updateThresholdMarkerPosition();
-            }
-            
-            // Unified input update (bar + audio + game logic)
-            this.updateInput(movement);
+        if (typeof this.bleControlChar.writeValueWithoutResponse === 'function') {
+            await this.bleControlChar.writeValueWithoutResponse(payload);
+            return;
         }
+        // Legacy fallback for older browser implementations.
+        await this.bleControlChar.writeValue(payload);
+    }
+
+    async handleBluetoothDisconnect() {
+        if (this.bleDevice && this.bleDevice.gatt && this.bleDevice.gatt.connected) {
+            return;
+        }
+        await this.disconnect();
     }
     
     handleSystemInfo(key, value) {
@@ -587,12 +526,12 @@ class ESPectreGame {
         // Update UI based on key
         switch (key) {
             case 'chip':
-                // Update device name in USB ready status (uppercase chip name)
+                // Update device name in ready status (uppercase chip name)
                 if (this.elements.usbDeviceName) {
                     this.elements.usbDeviceName.textContent = value.toUpperCase() + ' Connected';
                 }
                 // Track device type
-                trackEvent('usb_device_info', { chip: value.toUpperCase() });
+                trackEvent('ble_device_info', { chip: value.toUpperCase() });
                 break;
             case 'threshold':
                 if (this.elements.infoThreshold) {
@@ -650,43 +589,6 @@ class ESPectreGame {
         }
     }
     
-    async sendSerialCommand(cmd) {
-        if (this.serialWriter) {
-            await this.serialWriter.write(cmd + '\n');
-        }
-    }
-    
-    startPing() {
-        // Send PING every 2 seconds to keep connection alive
-        this.stopPing();  // Clear any existing interval
-        this.pingInterval = setInterval(async () => {
-            try {
-                await this.sendSerialCommand('PING');
-            } catch (e) {
-                // Connection lost, stop pinging
-                this.stopPing();
-            }
-        }, 2000);
-    }
-    
-    stopPing() {
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-            this.pingInterval = null;
-        }
-    }
-    
-    /**
-     * Synchronously stop streaming - called on page unload.
-     * Uses fire-and-forget pattern since we can't await during beforeunload.
-     */
-    stopStreamingSync() {
-        if (this.serialWriter) {
-            // Fire-and-forget: we can't await during unload events
-            this.serialWriter.write('STOP\n').catch(() => {});
-        }
-    }
-    
     showConnectionStatus(message, type) {
         this.elements.connectionStatus.textContent = message;
         this.elements.connectionStatus.className = 'connection-status ' + type;
@@ -723,8 +625,8 @@ class ESPectreGame {
     }
     
     handleMouseMove(e) {
-        // Ignore mouse input when USB is connected
-        if (this.inputMode === 'serial') return;
+        // Ignore mouse input when device stream is connected
+        if (this.inputMode === 'bluetooth') return;
         
         const now = performance.now();
         const dt = now - this.lastMouseTime;
@@ -757,8 +659,8 @@ class ESPectreGame {
     }
     
     handleTouchMove(e) {
-        // Ignore touch input when USB is connected
-        if (this.inputMode === 'serial') return;
+        // Ignore touch input when device stream is connected
+        if (this.inputMode === 'bluetooth') return;
         
         if (e.touches.length === 0) return;
         
@@ -784,8 +686,8 @@ class ESPectreGame {
     }
     
     handleTouchEnd(e) {
-        // Ignore touch input when USB is connected
-        if (this.inputMode === 'serial') return;
+        // Ignore touch input when device stream is connected
+        if (this.inputMode === 'bluetooth') return;
         
         this.isTouching = false;
         this.updateInput(0);
@@ -1224,9 +1126,7 @@ class ESPectreGame {
         // Re-enable touch gestures for scrolling on results screen
         this.enableTouchGestures();
         
-        // Don't send STOP here - keep receiving movement data
-        // to show live movement bar on game over screen.
-        // STOP will be sent when user goes back home.
+        // Keep Bluetooth telemetry active to show live movement on game over screen.
         
         // Update results
         document.getElementById('result-wave').textContent = this.wave;
@@ -1351,10 +1251,6 @@ class ESPectreGame {
     }
     
     async restart() {
-        // Send START command (for serial mode)
-        if (this.inputMode === 'serial') {
-            await this.sendSerialCommand('START');
-        }
         this.startGame();
     }
     
@@ -1394,12 +1290,12 @@ class ESPectreGame {
         // Reset all game visual elements
         this.resetGameVisuals();
         
-        // Go back to connect screen but keep USB connection active
+        // Go back to connect screen but keep device connection active
         this.state = GameState.IDLE;
         this.showScreen('connect');
         
-        // If still connected via serial, show the ready state
-        if (this.serialPort && this.inputMode === 'serial') {
+        // If still connected via Bluetooth, show the ready state
+        if (this.bleGattServer && this.bleGattServer.connected && this.inputMode === 'bluetooth') {
             // Keep connection-ready visible, movement bar stays visible
             return;
         }
@@ -1432,53 +1328,37 @@ class ESPectreGame {
     }
     
     async disconnect() {
+        if (this.isDisconnecting) return;
+        this.isDisconnecting = true;
+
         // Cancel any pending game timers
         this.clearGameTimers();
         
         // Reset all game visual elements
         this.resetGameVisuals();
         
-        // Stop ping keep-alive
-        this.stopPing();
-        
-        // Send STOP command first
-        try {
-            await this.sendSerialCommand('STOP');
-        } catch (e) {}
-        
-        // Close Serial connection properly
-        // Order: cancel reader, close writer, wait for streams, close port
-        if (this.serialReader) {
+        if (this.bleTelemetryChar) {
             try {
-                await this.serialReader.cancel();
+                await this.bleTelemetryChar.stopNotifications();
             } catch (e) {}
-            this.serialReader = null;
+            this.bleTelemetryChar = null;
         }
-        
-        if (this.serialWriter) {
+        if (this.bleSysinfoChar) {
             try {
-                await this.serialWriter.close();
+                await this.bleSysinfoChar.stopNotifications();
             } catch (e) {}
-            this.serialWriter = null;
+            this.bleSysinfoChar = null;
         }
-        
-        // Wait for streams to finish
-        try {
-            if (this.readableStreamClosed) await this.readableStreamClosed.catch(() => {});
-            if (this.writableStreamClosed) await this.writableStreamClosed.catch(() => {});
-        } catch (e) {}
-        this.readableStreamClosed = null;
-        this.writableStreamClosed = null;
-        
-        if (this.serialPort) {
+        this.bleControlChar = null;
+        this.bleService = null;
+
+        if (this.bleGattServer && this.bleGattServer.connected) {
             try {
-                await this.serialPort.close();
+                this.bleGattServer.disconnect();
             } catch (e) {}
-            this.serialPort = null;
         }
-        
-        // Clear read buffer
-        this.readBuffer = '';
+        this.bleGattServer = null;
+        this.bleDevice = null;
         
         this.state = GameState.IDLE;
         this.inputMode = 'mouse';
@@ -1511,6 +1391,7 @@ class ESPectreGame {
         if (this.elements.mouseHint) {
             this.elements.mouseHint.style.display = '';
         }
+        this.isDisconnecting = false;
     }
     
     // ==================== AUDIO SYSTEM ====================
@@ -1626,7 +1507,7 @@ class ESPectreGame {
     }
     
     /**
-     * Update audio based on movement input (mouse/touch/serial).
+     * Update audio based on movement input (mouse/touch/bluetooth).
      * This is called for all input sources and provides theremin-like audio feedback.
      * Initializes and starts ambient audio on first movement.
      */
@@ -1706,7 +1587,7 @@ class ESPectreGame {
     
     toggleUsb() {
         // If connected, disconnect; otherwise connect
-        if (this.serialPort) {
+        if (this.bleGattServer && this.bleGattServer.connected) {
             this.disconnect();
         } else {
             this.connect();
@@ -1715,9 +1596,9 @@ class ESPectreGame {
     
     updateUsbButton() {
         if (this.elements.btnUsb) {
-            const isConnected = !!this.serialPort;
+            const isConnected = !!(this.bleGattServer && this.bleGattServer.connected);
             this.elements.btnUsb.classList.toggle('connected', isConnected);
-            this.elements.btnUsb.title = isConnected ? 'Disconnect USB' : 'Connect USB';
+            this.elements.btnUsb.title = isConnected ? 'Disconnect Bluetooth' : 'Connect Bluetooth';
         }
     }
     

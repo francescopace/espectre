@@ -29,7 +29,6 @@ pio test -f test_motion_detection
 | `test_nbvi_calibrator` | Unit | **Real** | NBVI subcarrier selection, configuration |
 | `test_calibration_file_storage` | Unit | Synthetic | File-based magnitude storage |
 | `test_traffic_generator` | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
-| `test_serial_streamer` | Unit | Synthetic | Serial streaming API |
 | `test_motion_detection` | Integration | **Real** | MVS/ML performance, NBVI calibration end-to-end |
 
 

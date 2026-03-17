@@ -35,7 +35,13 @@
 #include "nbvi_calibrator.h"
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
-#include "serial_streamer.h"
+
+namespace esphome {
+namespace esp32_ble_server {
+class BLEServer;
+class BLECharacteristic;
+}  // namespace esp32_ble_server
+}  // namespace esphome
 
 namespace esphome {
 namespace espectre {
@@ -100,6 +106,19 @@ class ESpectreComponent : public Component {
   void set_hampel_enabled(bool enabled) { this->hampel_enabled_ = enabled; }
   void set_hampel_window(uint8_t window) { this->hampel_window_ = window; }
   void set_hampel_threshold(float threshold) { this->hampel_threshold_ = threshold; }
+ 
+  void set_ble_channel_enabled(bool enabled) { this->ble_channel_enabled_ = enabled; }
+  void set_ble_telemetry_interval_ms(uint32_t interval_ms) { this->ble_telemetry_interval_ms_ = interval_ms; }
+ void set_ble_server(esp32_ble_server::BLEServer *server) { this->ble_server_ = server; }
+  void set_ble_telemetry_characteristic(esp32_ble_server::BLECharacteristic *characteristic) {
+    this->ble_telemetry_char_ = characteristic;
+  }
+  void set_ble_sysinfo_characteristic(esp32_ble_server::BLECharacteristic *characteristic) {
+    this->ble_sysinfo_char_ = characteristic;
+  }
+  void set_ble_control_characteristic(esp32_ble_server::BLECharacteristic *characteristic) {
+    this->ble_control_char_ = characteristic;
+  }
   
   // Subcarrier selection (optional, defaults to auto-calibrated or DEFAULT_SUBCARRIERS)
   void set_selected_subcarriers(const std::vector<uint8_t> &subcarriers) {
@@ -139,8 +158,12 @@ class ESpectreComponent : public Component {
   void on_wifi_connected_();
   void on_wifi_disconnected_();
   
-  // Send system info over serial (for game display)
-  void send_system_info_();
+  // Send system info over BLE (for game display)
+  void send_system_info_ble_();
+  // BLE callbacks and control command parser
+  void on_ble_client_connected_(uint16_t conn_id);
+  void on_ble_client_disconnected_(uint16_t conn_id);
+  void handle_ble_control_command_(const std::string &command);
   
   // Motion detector
   BaseDetector* detector_{nullptr};
@@ -173,7 +196,12 @@ class ESpectreComponent : public Component {
   NBVICalibrator nbvi_calibrator_;          // NBVI band selection algorithm
   TrafficGeneratorManager traffic_generator_;
   UDPListener udp_listener_;
-  SerialStreamer serial_streamer_;
+
+  // BLE telemetry/control channel
+  esp32_ble_server::BLEServer *ble_server_{nullptr};
+  esp32_ble_server::BLECharacteristic *ble_telemetry_char_{nullptr};
+  esp32_ble_server::BLECharacteristic *ble_sysinfo_char_{nullptr};
+  esp32_ble_server::BLECharacteristic *ble_control_char_{nullptr};
   
   // Number controls
   number::Number *threshold_number_{nullptr};
@@ -187,6 +215,10 @@ class ESpectreComponent : public Component {
   // State flags
   bool ready_to_publish_{false};      // True when CSI is ready and calibration done
   bool threshold_republished_{false}; // True after threshold has been re-published to HA
+  bool ble_channel_enabled_{false};   // Enable BLE telemetry/control protocol
+  bool ble_client_connected_{false};  // At least one BLE client connected
+  uint32_t ble_telemetry_interval_ms_{40};  // BLE notify interval (throttling)
+  uint32_t last_ble_telemetry_ms_{0};  // Last telemetry notify timestamp
 };
 
 }  // namespace espectre

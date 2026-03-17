@@ -237,6 +237,8 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `hampel_window` | int | 7 | Hampel filter window size (3-11) |
 | `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) (1.0-10.0) |
 | `gain_lock` | string | auto | AGC/FFT gain lock: `auto`, `enabled`, `disabled` |
+| `ble_channel_enabled` | bool/string | auto | Enable BLE telemetry/control channel: `auto`, `true`, `false` |
+| `ble_telemetry_interval_ms` | int | 40 | BLE telemetry notify interval in ms (20-500) |
 
 For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 
@@ -741,6 +743,47 @@ spiffs,   data, spiffs,  0x7D0000, 0x30000,
 **Notes**:
 - SPIFFS is required. ESPectre uses it as a temporary buffer during calibration. Removing SPIFFS will cause the component to fail during initialization.
 - If you remove OTA partitions, you must also remove the `ota:` section from your YAML (OTA updates won't work without the partitions).
+
+---
+
+## BLE Control API (Optional)
+
+ESPectre can expose a BLE telemetry/control channel for custom integrations, even without Home Assistant.
+
+For the complete protocol reference (UUIDs, commands, limits, and frame examples), see [docs/game/README.md#communication-protocol](docs/game/README.md#communication-protocol).
+
+Minimal setup:
+
+```yaml
+espectre:
+  ble_channel_enabled: auto
+  ble_telemetry_interval_ms: 40
+
+esp32_ble_server:
+  id: espectre_ble_server
+  services:
+    - uuid: "d33ff46b-2203-4775-bc6f-b3a2c36af8f0"
+      advertise: true
+      characteristics:
+        - id: espectre_ble_telemetry
+          uuid: "119d5cac-48da-4bd9-bfc3-169805868258"
+          notify: true
+        - id: espectre_ble_sysinfo
+          uuid: "c8c89ffa-c401-461f-9ffc-942fa04adfe3"
+          read: true
+          notify: true
+          value: ""
+        - id: espectre_ble_control
+          uuid: "33ed9214-a8d7-40e8-82d1-c82747dcdc71"
+          write: true
+          write_no_response: true
+```
+
+Use this channel with any standard BLE client by implementing the same UUID/profile contract.
+
+If you do not use BLE integrations, you can remove the `esp32_ble_server:` section entirely. With `ble_channel_enabled: auto` (default), ESPectre will keep the BLE channel disabled when no BLE server is configured.
+
+This can slightly reduce runtime overhead (RAM/CPU usage and BLE radio activity), which may be useful on constrained boards or when you only use Home Assistant entities.
 
 ---
 

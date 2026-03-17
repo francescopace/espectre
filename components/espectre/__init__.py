@@ -29,6 +29,7 @@ from esphome.const import (
     ENTITY_CATEGORY_CONFIG,
     ICON_PULSE,
 )
+from esphome.core import CORE, ID
 
 DEPENDENCIES = ["wifi"]
 AUTO_LOAD = ["sensor", "binary_sensor", "number", "switch"]
@@ -60,6 +61,14 @@ CONF_GAIN_LOCK = "gain_lock"
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
 
+# BLE telemetry/control channel
+CONF_BLE_CHANNEL_ENABLED = "ble_channel_enabled"
+CONF_BLE_SERVER_ID = "ble_server_id"
+CONF_BLE_TELEMETRY_CHAR_ID = "ble_telemetry_char_id"
+CONF_BLE_SYSINFO_CHAR_ID = "ble_sysinfo_char_id"
+CONF_BLE_CONTROL_CHAR_ID = "ble_control_char_id"
+CONF_BLE_TELEMETRY_INTERVAL_MS = "ble_telemetry_interval_ms"
+
 # Threshold limits (keep in sync with csi_processor.h)
 THRESHOLD_MIN = 0.0
 THRESHOLD_MAX = 10.0
@@ -79,6 +88,9 @@ espectre_ns = cg.esphome_ns.namespace("espectre")
 ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
 ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.Number, cg.Component)
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
+esp32_ble_server_ns = cg.esphome_ns.namespace("esp32_ble_server")
+BLEServer = esp32_ble_server_ns.class_("BLEServer")
+BLECharacteristic = esp32_ble_server_ns.class_("BLECharacteristic")
 
 def validate_segmentation_threshold(value):
     """Validate segmentation_threshold: accepts 'auto', 'min', or a float."""
@@ -126,6 +138,17 @@ CONFIG_SCHEMA = cv.Schema({
     # MVS: Moving Variance Segmentation - adaptive threshold, general purpose
     # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
     cv.Optional(CONF_DETECTION_ALGORITHM, default="mvs"): cv.one_of("mvs", "ml", lower=True),
+
+    # BLE telemetry/control channel (Web Bluetooth)
+    # "auto" = enable when compatible BLE IDs are present in config
+    cv.Optional(CONF_BLE_CHANNEL_ENABLED, default="auto"): cv.Any(
+        cv.boolean, cv.one_of("auto", lower=True)
+    ),
+    cv.Optional(CONF_BLE_SERVER_ID): cv.use_id(BLEServer),
+    cv.Optional(CONF_BLE_TELEMETRY_CHAR_ID): cv.use_id(BLECharacteristic),
+    cv.Optional(CONF_BLE_SYSINFO_CHAR_ID): cv.use_id(BLECharacteristic),
+    cv.Optional(CONF_BLE_CONTROL_CHAR_ID): cv.use_id(BLECharacteristic),
+    cv.Optional(CONF_BLE_TELEMETRY_INTERVAL_MS, default=40): cv.int_range(min=20, max=500),
     
     # Publish interval in packets (default: same as traffic_generator_rate, or 100 if traffic is 0)
     cv.Optional(CONF_PUBLISH_INTERVAL): cv.int_range(min=1, max=1000),
@@ -180,7 +203,62 @@ def _compute_publish_interval(config):
     return config
 
 
-FINAL_VALIDATE_SCHEMA = _compute_publish_interval
+def _normalize_ble_config(config):
+    """Normalize BLE channel configuration."""
+    # Auto mode: enable channel when a known BLE server ID exists.
+    if config.get(CONF_BLE_CHANNEL_ENABLED) == "auto":
+        config[CONF_BLE_CHANNEL_ENABLED] = "esp32_ble_server" in CORE.raw_config
+    return config
+
+
+def _inject_ble_defaults(config):
+    """Inject default BLE IDs when channel is enabled and IDs are omitted."""
+    if not config.get(CONF_BLE_CHANNEL_ENABLED, False):
+        return config
+    if CONF_BLE_SERVER_ID not in config:
+        config[CONF_BLE_SERVER_ID] = ID(
+            "espectre_ble_server", is_declaration=False, type=BLEServer
+        )
+    if CONF_BLE_TELEMETRY_CHAR_ID not in config:
+        config[CONF_BLE_TELEMETRY_CHAR_ID] = ID(
+            "espectre_ble_telemetry", is_declaration=False, type=BLECharacteristic
+        )
+    if CONF_BLE_SYSINFO_CHAR_ID not in config:
+        config[CONF_BLE_SYSINFO_CHAR_ID] = ID(
+            "espectre_ble_sysinfo", is_declaration=False, type=BLECharacteristic
+        )
+    if CONF_BLE_CONTROL_CHAR_ID not in config:
+        config[CONF_BLE_CONTROL_CHAR_ID] = ID(
+            "espectre_ble_control", is_declaration=False, type=BLECharacteristic
+        )
+    return config
+
+
+def _validate_ble_config(config):
+    """Validate BLE telemetry/control channel configuration consistency."""
+    ble_enabled = config.get(CONF_BLE_CHANNEL_ENABLED, False)
+    ble_keys = [
+        CONF_BLE_SERVER_ID,
+        CONF_BLE_TELEMETRY_CHAR_ID,
+        CONF_BLE_SYSINFO_CHAR_ID,
+        CONF_BLE_CONTROL_CHAR_ID,
+    ]
+    if ble_enabled:
+        missing = [k for k in ble_keys if k not in config or config[k] is None]
+        if missing:
+            raise cv.Invalid(
+                "ble_channel_enabled requires these options: "
+                + ", ".join(missing)
+            )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = cv.All(
+    _compute_publish_interval,
+    _normalize_ble_config,
+    _inject_ble_defaults,
+    _validate_ble_config,
+)
 
 
 async def to_code(config):
@@ -228,6 +306,8 @@ async def to_code(config):
     cg.add(var.set_gain_lock_mode(config[CONF_GAIN_LOCK]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))
+    cg.add(var.set_ble_channel_enabled(config[CONF_BLE_CHANNEL_ENABLED]))
+    cg.add(var.set_ble_telemetry_interval_ms(config[CONF_BLE_TELEMETRY_INTERVAL_MS]))
     
     # Configure subcarriers if specified
     if CONF_SELECTED_SUBCARRIERS in config:
@@ -269,3 +349,14 @@ async def to_code(config):
     sw = await switch.new_switch(config[CONF_CALIBRATE_SWITCH])
     cg.add(sw.set_parent(var))
     cg.add(var.set_calibrate_switch(sw))
+
+    # Configure BLE channel pointers (optional)
+    if config[CONF_BLE_CHANNEL_ENABLED]:
+        ble_server = await cg.get_variable(config[CONF_BLE_SERVER_ID])
+        telemetry_char = await cg.get_variable(config[CONF_BLE_TELEMETRY_CHAR_ID])
+        sysinfo_char = await cg.get_variable(config[CONF_BLE_SYSINFO_CHAR_ID])
+        control_char = await cg.get_variable(config[CONF_BLE_CONTROL_CHAR_ID])
+        cg.add(var.set_ble_server(ble_server))
+        cg.add(var.set_ble_telemetry_characteristic(telemetry_char))
+        cg.add(var.set_ble_sysinfo_characteristic(sysinfo_char))
+        cg.add(var.set_ble_control_characteristic(control_char))

@@ -4,7 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.6.1] - in proogress - CSI Normalization and Test Coverage Update
+## [2.7.0] - 2026-03-17 - ESPectre configuration over BLE and subcarrier normalization
+
+### Highlights
+
+- **BLE control unlocks standalone integrations**: ESPectre can now be used even without Home Assistant by building custom BLE clients.
+- **Runtime threshold is now configurable via BLE**: the current BLE command channel enables live threshold updates and can be extended to additional runtime parameters.
+- **Web game moved from Serial to Web Bluetooth**: `docs/game` is now an example BLE client instead of a Web Serial-only path.
+- **CSI normalization supports more payload variants**: runtime handling now covers `256->128`, `228->114`, and `114->128` remap paths before HT20 processing.
+- **Behavior and validation are aligned across stacks**: ESPHome/C++ and Micro-ESPectre/Python follow the same CSI-length normalization logic, with dedicated tests for `128/256/114/228`.
 
 ### Fixed
 
@@ -15,9 +23,12 @@ All notable changes to this project will be documented in this file.
 
 - **Unit tests for new CSI payload scenarios**: added coverage for `114-byte` and `228-byte` CSI handling in C++ (`test_csi_manager`) and dedicated Python tests for `128/256/114/228` normalization paths (`micro-espectre/tests/test_utils.py`).
 
-### Documentation
+### Changed
 
-- **Troubleshooting update**: added explicit `wrong SC count` normalization notes in `SETUP.md` for `256`, `228`, and `114` payload cases.
+- **Web game transport migrated to BLE**: `docs/game` now uses Web Bluetooth (desktop Chrome/Edge) with a custom ESPectre BLE service for telemetry (`movement`, `threshold`) and sysinfo notifications, replacing the previous Web Serial path.
+- **BLE control channel opened to generic clients**: `docs/game` is now an example client built with the Web Bluetooth API, but ESPectre can be controlled by any standard BLE client implementing the same commands.
+- **Legacy USB serial monitor path removed from firmware loop**: USB Serial/JTAG attach detection for game sysinfo emission has been cleaned up as it is no longer needed with BLE transport.
+- **Practical BLE benefits documented in this release**: the game/channel flow is now compatible with standard ESP32 boards (no native USB serial/JTAG required), does not require an active wired serial connection, and enables runtime threshold tuning over BLE from any compatible BLE client (not only `docs/game`).
 
 ---
 

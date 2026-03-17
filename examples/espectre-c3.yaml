@@ -71,11 +71,30 @@ esp32_improv:
 # Improv provisioning via USB
 improv_serial:
 
+esp32_ble_server:
+  id: espectre_ble_server
+  services:
+    - uuid: "d33ff46b-2203-4775-bc6f-b3a2c36af8f0"
+      advertise: true
+      characteristics:
+        # Telemetry notify payload: 8 bytes (float32 movement, float32 threshold)
+        - id: espectre_ble_telemetry
+          uuid: "119d5cac-48da-4bd9-bfc3-169805868258"
+          notify: true
+        # Sysinfo notifications: text key=value lines, ending with END
+        - id: espectre_ble_sysinfo
+          uuid: "c8c89ffa-c401-461f-9ffc-942fa04adfe3"
+          read: true
+          notify: true
+          value: ""
+        # Control writes: REQ_SYSINFO, SET_THRESHOLD:X.XX
+        - id: espectre_ble_control
+          uuid: "33ed9214-a8d7-40e8-82d1-c82747dcdc71"
+          write: true
+          write_no_response: true
+
 # Logging
-# Note: ESPHome defaults to native USB Serial/JTAG on C3. Boards with external USB-UART
-# bridges (like CH343, CP2102) need hardware_uart: UART0 to see logs.
 logger:
-  # hardware_uart: UART0
 
 # Home Assistant API
 api:

@@ -32,51 +32,51 @@ You are a **Spectrum Guardian** - an entity that protects WiFi frequencies from 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
-│   Browser (https://espectre.dev/game)         ESP32 (USB)       │
+│   Browser (https://espectre.dev/game)           ESP32 (BLE)      │
 │                                                                 │
 │   ┌───────────────────────┐          ┌───────────────────────┐  │
 │   │   Game (JavaScript)   │◄────────►│   ESP32 + ESPectre    │  │
-│   │                       │   USB    │                       │  │
-│   │   • Web Serial API    │          │   • Detects movement  │  │
-│   │   • ~100 Hz updates   │          │   • Sends motion data │  │
-│   │                       │          │   • On-demand mode    │  │
+│   │                       │   BLE    │                       │  │
+│   │   • Web Bluetooth API │          │   • Detects movement  │  │
+│   │   • Notify telemetry  │          │   • Sends telemetry   │  │
+│   │   • Write controls    │          │   • Sends sysinfo     │  │
 │   └───────────────────────┘          └───────────────────────┘  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 1. Visit `https://espectre.dev/game` in Chrome or Edge
-2. Connect your device via USB cable
+2. Connect your device via BLE
 3. Click "Connect" and grant permission
 4. Your physical movement controls the game!
 
-**No backend server required.** The browser communicates directly with the ESP32 via USB.
+**No backend server required.** The browser communicates directly with the ESP32 via BLE.
 
 ---
 
 ## Connection Modes
 
-### USB Serial Mode
+### BLE Mode
 
-Works with ESP32 variants that have native USB Serial JTAG support:
+Works with ESP32 variants that support BLE:
 
 | Chip | Supported |
 |------|-----------|
-| ESP32 (classic) | ❌ No native USB |
-| ESP32-S2 | ✅ |
+| ESP32 (classic) | ✅ |
+| ESP32-S2 | ❌ |
 | ESP32-S3 | ✅ |
 | ESP32-C3 | ✅ |
 | ESP32-C5 | ✅ |
 | ESP32-C6 | ✅ |
-| ESP32-H2 | ✅ |
+| ESP32-H2 | ❌ |
 
-The classic ESP32 lacks native USB and uses UART via an external USB-to-serial chip, which cannot receive commands from the browser's Web Serial API while ESPHome logs are active.
+The game is designed for desktop browsers with Web Bluetooth support.
 
 | Aspect | Details |
 |--------|---------|
-| API | Web Serial |
-| Conflict with esphome logs | Yes (close logs first) |
-| Latency | ~1-5ms |
+| API | Web Bluetooth |
+| Conflict with esphome logs | No |
+| Latency | ~10-50ms (depends on notify rate) |
 
 ### Mouse Mode (Demo)
 
@@ -89,14 +89,14 @@ For testing without hardware or in unsupported browsers.
 | Component | Technology |
 |-----------|------------|
 | Frontend | Vanilla JavaScript + CSS |
-| USB | Web Serial API (Chrome/Edge) |
+| Device channel | Web Bluetooth API (Chrome/Edge) |
 | Hosting | GitHub Pages (espectre.dev/game) |
 | Backend | None (fully client-side) |
 
 ### Browser Support
 
-| Browser | Web Serial | Mouse Mode |
-|---------|------------|------------|
+| Browser | Web Bluetooth | Mouse Mode |
+|---------|---------------|------------|
 | Chrome 89+ | ✅ | ✅ |
 | Edge 89+ | ✅ | ✅ |
 | Opera 76+ | ✅ | ✅ |
@@ -107,25 +107,27 @@ For testing without hardware or in unsupported browsers.
 
 ## Communication Protocol
 
-The game uses an on-demand protocol - data is only sent when the browser requests it.
+The game uses a BLE protocol with telemetry notifications and control writes.
 
-### Commands (Browser → ESP32)
+### UUIDs (Reference Profile)
 
-| Command | Description |
-|---------|-------------|
-| `START\n` | Start streaming game data (also triggers system info) |
-| `STOP\n` | Stop streaming game data |
-| `PING\n` | Keep-alive signal (sent every 2 seconds) |
-| `T:X.XX\n` | Set threshold (e.g., `T:1.50\n`) |
-
-The ESP32 automatically stops streaming if no `PING` is received for 5 seconds. This handles browser crashes or sudden disconnections.
+| Item | UUID | Direction | Notes |
+|------|------|-----------|-------|
+| Service | `d33ff46b-2203-4775-bc6f-b3a2c36af8f0` | - | ESPectre BLE service |
+| Telemetry characteristic | `119d5cac-48da-4bd9-bfc3-169805868258` | ESP32 -> Browser (`notify`) | Binary payload |
+| Sysinfo characteristic | `c8c89ffa-c401-461f-9ffc-942fa04adfe3` | ESP32 -> Browser (`notify`) | Text `key=value` lines |
+| Control characteristic | `33ed9214-a8d7-40e8-82d1-c82747dcdc71` | Browser -> ESP32 (`write`) | ASCII commands |
 
 ### System Info (ESP32 → Browser)
 
-Sent once when `START` command is received. Used to display device configuration in the UI.
+Sent over BLE notify when requested and at client connect.
 
 ```
-[I][espectre:NNN][espectre]: [sysinfo] key=value
+proto_version=1
+chip=esp32c6
+threshold=1.20 (auto)
+window=75
+END
 ```
 
 | Key | Description |
@@ -133,23 +135,26 @@ Sent once when `START` command is received. Used to display device configuration
 | `chip` | ESP32 chip model (e.g., `esp32c6`) |
 | `threshold` | Current motion detection threshold |
 | `window` | Segmentation window size (packets) |
+| `detector` | Active detector (`MVS` or `ML`) |
 | `subcarriers` | Subcarrier selection mode (`yaml` or `auto`) |
 | `lowpass` | Low-pass filter status (`on`/`off`) |
 | `lowpass_cutoff` | Low-pass cutoff frequency (Hz) |
 | `hampel` | Hampel filter status (`on`/`off`) |
+| `hampel_window` | Hampel window size |
+| `hampel_threshold` | Hampel threshold |
 | `traffic_rate` | Traffic generator rate (packets/sec) |
-| `adaptive_thr` | Adaptive threshold value |
-| `END` | Marks end of system info |
+| `publish_interval` | ESPectre publish interval (packets) |
+| `best_pxx` | Calibration baseline metric used for adaptive thresholding |
+| `proto_version` | Game BLE protocol version |
+| `END` | Marks end of system info block |
 
 ### Data (ESP32 → Browser)
 
-Sent at ~100 Hz (every CSI packet) while streaming is active. Uses ESPHome log format for clean line separation.
+Sent via BLE `telemetry` characteristic notifications.
 
 ```
-[I][stream:NNN][espectre]: <movement>,<threshold>
+[float32 movement][float32 threshold]
 ```
-
-Example: `[I][stream:075][espectre]: 0.73,1.50`
 
 ### Data Fields
 
@@ -157,6 +162,45 @@ Example: `[I][stream:075][espectre]: 0.73,1.50`
 |-------|------|-------------|
 | `movement` | float | Current movement intensity (moving variance, same as Home Assistant sensor) |
 | `threshold` | float | Motion detection threshold (from ESPectre config) |
+
+Telemetry uses little-endian `float32` values.
+
+### Control Commands (Browser/Client -> ESP32)
+
+| Command | Description | Limits |
+|---------|-------------|--------|
+| `REQ_SYSINFO` | Requests a fresh sysinfo block | Exact command string |
+| `SET_THRESHOLD:X.XX` | Updates runtime threshold | `X` must be finite and in range `0.0-10.0` |
+
+Notes:
+- Threshold updates are runtime/session-only and are recalculated at boot.
+- Unknown or invalid commands are ignored by firmware (warning logged on device).
+- The BLE protocol is reusable by any standard BLE client, not only this game.
+
+### Frame Examples
+
+Telemetry notification (`movement=0.75`, `threshold=1.20`):
+
+```text
+00 00 40 3F  9A 99 99 3F
+```
+
+Sysinfo notification sequence:
+
+```text
+proto_version=1
+chip=esp32c6
+threshold=1.20 (auto)
+window=75
+END
+```
+
+Control write examples:
+
+```text
+REQ_SYSINFO
+SET_THRESHOLD:1.80
+```
 
 ### Movement Detection
 
@@ -260,7 +304,7 @@ Move faster for stronger hits - the velocity of your mouse maps to movement inte
 
 ## System Info Panel
 
-After connecting via USB, the game displays a **System Info** panel showing the current ESPectre configuration:
+After connecting via BLE, the game displays a **System Info** panel showing the current ESPectre configuration:
 
 | Field | Description |
 |-------|-------------|
@@ -281,10 +325,15 @@ The game doubles as a fun way to tune your ESPectre system. The movement bar at 
 
 **Drag the threshold marker** to adjust sensitivity:
 
-- Drag **left** → Lower threshold = more sensitive (detects smaller movements)
-- Drag **right** → Higher threshold = less sensitive (requires larger movements)
+- Drag **left** → lower ESPectre threshold on device (more sensitive)
+- Drag **right** → higher ESPectre threshold on device (less sensitive)
 
-Changes are sent to the ESP32 in real-time and apply to Home Assistant as well. Note: adjustments are session-only - the adaptive threshold is recalculated on every boot.
+Threshold drag sends a BLE control command (`SET_THRESHOLD:X.XX`) and updates ESPectre runtime threshold for the active session.
+
+### Runtime Controls via BLE
+
+- `SET_THRESHOLD:X.XX` updates detection threshold at runtime (session-only)
+- `REQ_SYSINFO` requests a fresh sysinfo block
 
 This provides immediate visual feedback:
 - See exactly how your movements register
@@ -298,7 +347,7 @@ This provides immediate visual feedback:
 
 | Document | Description |
 |----------|-------------|
-| [Web Serial API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API) | Browser Web Serial API (MDN) |
+| [Web Bluetooth API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API) | Browser Web Bluetooth API (MDN) |
 
 ---
 

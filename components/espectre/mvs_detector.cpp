@@ -76,7 +76,7 @@ bool MVSDetector::set_threshold(float threshold) {
     }
     
     threshold_ = threshold;
-    ESP_LOGI(TAG, "Threshold updated: %.2f", threshold);
+    ESP_LOGD(TAG, "Threshold updated: %.2f", threshold);
     return true;
 }
 

@@ -73,7 +73,7 @@
         <div class="movement-bar-track">
             <div id="movement-fill" class="movement-bar-fill"></div>
             <!-- Threshold marker (draggable) -->
-            <div id="threshold-marker" class="threshold-marker" title="Drag to adjust threshold">
+            <div id="threshold-marker" class="threshold-marker" title="Drag to adjust motion threshold on device">
                 <span id="threshold-value" class="threshold-value">1.0</span>
             </div>
         </div>
@@ -94,9 +94,9 @@
                 <!-- Pre-connection state -->
                 <div id="connection-pre" class="connection-pre">
                     <button id="btn-connect" class="btn btn-primary btn-large">
-                        <i class="fab fa-usb"></i> Connect ESPectre
+                        <i class="fab fa-bluetooth-b"></i> Connect ESPectre
                     </button>
-                    <p class="connection-hint">Connect your ESP32 with ESPectre firmware via USB</p>
+                    <p class="connection-hint">Connect your ESPectre device via Bluetooth</p>
                     <div id="connection-status" class="connection-status"></div>
                 </div>
                 
@@ -144,7 +144,7 @@
                 <i class="fas fa-hand-pointer"></i> Play with Swipe
             </button>
             <p id="mobile-usb-hint" class="mobile-usb-hint" style="display: none;">
-                <i class="fas fa-laptop"></i> For real WiFi motion detection, play on a PC with USB connection
+                <i class="fas fa-laptop"></i> For real WiFi motion detection, play on a PC with Bluetooth support
             </p>
             
             <button id="btn-mouse" class="btn btn-secondary" style="display: none;">
@@ -156,7 +156,7 @@
                 <h3><i class="fas fa-question-circle"></i> How to Play</h3>
                 <!-- Desktop instructions -->
                 <ol class="desktop-only">
-                    <li>Connect your device via USB (close any serial monitor first!)</li>
+                    <li>Connect your device via Bluetooth</li>
                     <li class="threshold-hint">Drag the <strong>threshold</strong> slider on the left to adjust sensitivity</li>
                     <li>Once started, <strong>stay still</strong> and wait for the Spectre</li>
                     <li>When the Spectre appears, <strong>move quickly</strong> to defeat it!</li>

@@ -39,7 +39,7 @@ void ESpectreThresholdNumber::republish_state() {
   if (this->parent_ != nullptr) {
     float current = this->parent_->get_threshold();
     this->publish_state(current);
-    ESP_LOGI(TAG_THRESHOLD, "Threshold re-published to HA: %.2f", current);
+    ESP_LOGD(TAG_THRESHOLD, "Threshold re-published to HA: %.2f", current);
   }
 }
 

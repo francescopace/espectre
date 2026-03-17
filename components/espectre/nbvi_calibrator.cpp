@@ -299,7 +299,7 @@ esp_err_t NBVICalibrator::run_calibration_() {
   }
   
   ESP_LOGI(TAG, "NBVI Calibration successful");
-  ESP_LOGD(TAG, "  Band: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d]",
+  ESP_LOGI(TAG, "  Band: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d]",
            selected_band_[0], selected_band_[1], selected_band_[2], selected_band_[3],
            selected_band_[4], selected_band_[5], selected_band_[6], selected_band_[7],
            selected_band_[8], selected_band_[9], selected_band_[10], selected_band_[11]);
