@@ -146,10 +146,10 @@ Sent once when `START` command is received. Used to display device configuration
 Sent at ~100 Hz (every CSI packet) while streaming is active. Uses ESPHome log format for clean line separation.
 
 ```
-[I][stream:NNN][espectre]: <movement>,<threshold>
+[I][espectre:NNN][wifi]: [---------------|----|] 0% | mvmt:<movement> thr:<threshold> | IDLE | NNN pkt/s | ch:N rssi:-NN
 ```
 
-Example: `[I][stream:075][espectre]: 0.73,1.50`
+Example: `[I][espectre:413][wifi]: [---------------|----] 0% | mvmt:0.7300 thr:1.5000 | MOTION | 107 pkt/s | ch:7 rssi:-47`
 
 ### Data Fields
 

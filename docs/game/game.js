@@ -5,7 +5,8 @@
  * Stay still. Move fast. React to survive.
  * 
  * Communication: USB Serial (all ESP32 variants)
- * Protocol: "G<movement>,<threshold>\n" from ESP32
+ * Protocol: ESP32 → Browser: ESPHome wifi log line containing mvmt:<float> thr:<float>
+ *           Browser → ESP32: "START\n" / "STOP\n" / "T:X.XX\n"
  *           "START\n" / "STOP\n" / "T:X.XX\n" from browser
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -556,10 +557,10 @@ class ESPectreGame {
             return;
         }
         
-        // Look for stream tag with data
-        // Format: [I][stream:NNN][espectre]: <movement>,<threshold>
-        // Example: [I][stream:075][espectre]: 0.08,1.00
-        const match = cleanLine.match(/\[stream:\d+\]\[.*?\]: ([\d.]+),([\d.]+)/);
+        // Look for wifi stream lines with mvmt/thr key-value pairs
+        // Format: [I][espectre:NNN][wifi]: ... mvmt:<movement> thr:<threshold> ...
+        // Example: [I][espectre:413][wifi]: [---------------|----] 0% | mvmt:0.0000 thr:5.0000 | IDLE | 109 pkt/s | ch:7 rssi:-57
+        const match = cleanLine.match(/\[I\]\[espectre:\d+\]\[wifi\]:.*mvmt:([\d.]+)\s+thr:([\d.]+)/);
         if (!match) {
             console.log(line);
             return;
