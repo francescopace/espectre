@@ -1,0 +1,25 @@
+# Arduino build files
+build/
+*.hex
+*.bin
+*.elf
+
+# PlatformIO
+.pio/
+.vscode/
+.clang_complete
+.gcc-flags.json
+
+# IDE files
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+
+# Compiled Object files
+*.o
+*.a
+
+# User configuration (keep template, ignore user changes)
+config_local.h
