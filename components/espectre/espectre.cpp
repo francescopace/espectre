@@ -76,6 +76,8 @@ void ESpectreComponent::setup() {
   // 2. Initialize managers (each manager handles its own internal initialization)
   this->nbvi_calibrator_.init(&this->csi_manager_);
   this->nbvi_calibrator_.set_mvs_window_size(this->segmentation_window_size_);
+  this->nbvi_calibrator_.configure_lowpass(this->lowpass_enabled_, this->lowpass_cutoff_);
+  this->nbvi_calibrator_.configure_hampel(this->hampel_enabled_, this->hampel_window_, this->hampel_threshold_);
   // Buffer size = 10 windows (matches CALIBRATION_NUM_WINDOWS constant)
   this->nbvi_calibrator_.set_buffer_size(this->segmentation_window_size_ * CALIBRATION_NUM_WINDOWS);
   this->traffic_generator_.init(this->traffic_generator_rate_, this->traffic_generator_mode_);

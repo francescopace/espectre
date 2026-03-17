@@ -29,22 +29,28 @@ try:
     from src.config import (
         NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
         GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE,
-        SEG_WINDOW_SIZE, CALIBRATION_BUFFER_SIZE
+        SEG_WINDOW_SIZE, CALIBRATION_BUFFER_SIZE,
+        ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
+        ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF
     )
     from src.utils import (
         to_signed_int8, calculate_percentile,
         calculate_variance, calculate_std, calculate_moving_variance
     )
+    from src.filters import HampelFilter, LowPassFilter
 except ImportError:
     from config import (
         NUM_SUBCARRIERS, EXPECTED_CSI_LEN,
         GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER, BAND_SIZE,
-        SEG_WINDOW_SIZE, CALIBRATION_BUFFER_SIZE
+        SEG_WINDOW_SIZE, CALIBRATION_BUFFER_SIZE,
+        ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
+        ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF
     )
     from utils import (
         to_signed_int8, calculate_percentile,
         calculate_variance, calculate_std, calculate_moving_variance
     )
+    from filters import HampelFilter, LowPassFilter
 
 # Constants
 BUFFER_FILE = '/nbvi_buffer.bin'
@@ -380,11 +386,10 @@ class NBVICalibrator:
     def _validate_subcarriers(self, band):
         """
         Validate subcarriers by running MVS on entire buffer.
-        
-        Note: Hampel filter is NOT applied during calibration. Outliers are useful
-        information for identifying unstable subcarriers. Hampel is only applied
-        during normal operation in the CSI processor.
-        
+
+        Uses the same runtime filter chain when enabled:
+        turbulence -> Hampel -> low-pass -> moving variance
+
         Returns:
             tuple: (fp_rate, mv_values) where mv_values is list of moving variance values
         """
@@ -401,6 +406,21 @@ class NBVICalibrator:
         # NBVI streaming phase, while 140 floats (560 bytes) fits comfortably.
         MV_SUBSAMPLE = 5
         mv_values = []
+
+        # Match runtime filter pipeline when enabled in config.
+        hampel_filter = None
+        lowpass_filter = None
+        if ENABLE_HAMPEL_FILTER:
+            hampel_filter = HampelFilter(
+                window_size=HAMPEL_WINDOW,
+                threshold=HAMPEL_THRESHOLD
+            )
+        if ENABLE_LOWPASS_FILTER:
+            lowpass_filter = LowPassFilter(
+                cutoff_hz=LOWPASS_CUTOFF,
+                sample_rate_hz=100.0,
+                enabled=True
+            )
         
         for pkt_idx in range(self._packet_count):
             packet_mags = self._read_packet(pkt_idx)
@@ -415,8 +435,14 @@ class NBVICalibrator:
             variance = sum((m - mean_mag) ** 2 for m in band_mags) / len(band_mags)
             turbulence = math.sqrt(variance) if variance > 0 else 0.0
             
+            filtered_turbulence = turbulence
+            if hampel_filter is not None:
+                filtered_turbulence = hampel_filter.filter(filtered_turbulence)
+            if lowpass_filter is not None:
+                filtered_turbulence = lowpass_filter.filter(filtered_turbulence)
+
             turbulence_buffer.pop(0)
-            turbulence_buffer.append(turbulence)
+            turbulence_buffer.append(filtered_turbulence)
             
             if pkt_idx < self.mvs_window_size:
                 continue

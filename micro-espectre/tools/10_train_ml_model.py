@@ -276,7 +276,14 @@ def load_all_data():
         tuple: (all_packets, stats) where stats is a dict with dataset info
     """
     all_packets = []
-    stats = {'chips': set(), 'labels': {}, 'total': 0, 'cv_norm_files': set(), 'files': []}
+    stats = {
+        'chips': set(),
+        'labels': {},
+        'total': 0,
+        'cv_norm_files': set(),
+        'files': [],
+        'excluded_labels': set(),
+    }
     
     # Load dataset info for label mapping and file metadata
     dataset_info = load_dataset_info()
@@ -298,6 +305,13 @@ def load_all_data():
                 # Get label from file metadata (already set by load_npz_as_packets)
                 label = packets[0].get('label', subdir.name)
                 
+                # Keep training strictly on baseline/movement labels.
+                # Test/control datasets must never be part of model training.
+                label_lc = str(label).lower()
+                if label_lc not in ('baseline', 'movement'):
+                    stats['excluded_labels'].add(label_lc)
+                    continue
+
                 # Get chip
                 chip = packets[0].get('chip', 'unknown').upper()
                 
@@ -331,6 +345,7 @@ def load_all_data():
     
     stats['chips'] = sorted(stats['chips'])
     stats['cv_norm_files'] = sorted(stats['cv_norm_files'])
+    stats['excluded_labels'] = sorted(stats['excluded_labels'])
     return all_packets, stats
 
 

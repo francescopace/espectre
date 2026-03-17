@@ -515,6 +515,16 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
   // runtime panics during calibration.
   constexpr uint16_t VALIDATION_CHUNK_PACKETS = 64;
 
+  // Keep calibration validation aligned with runtime detector filter chain.
+  lowpass_filter_state_t lowpass_state{};
+  hampel_turbulence_state_t hampel_state{};
+  if (lowpass_enabled_) {
+    lowpass_filter_init(&lowpass_state, lowpass_cutoff_hz_, LOWPASS_SAMPLE_RATE, true);
+  }
+  if (hampel_enabled_) {
+    hampel_turbulence_init(&hampel_state, hampel_window_, hampel_threshold_, true);
+  }
+
   std::vector<float> turbulence_ring(mvs_window_size_, 0.0f);
   out_mv_values.reserve(buffer_count - mvs_window_size_ + 1);
 
@@ -543,20 +553,27 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
       float turbulence = calculate_spatial_turbulence(float_mags, band, band_size,
                                                        HT20_NUM_SUBCARRIERS,
                                                        use_cv_normalization_);
+      float filtered_turbulence = turbulence;
+      if (hampel_enabled_) {
+        filtered_turbulence = hampel_filter_turbulence(&hampel_state, filtered_turbulence);
+      }
+      if (lowpass_enabled_) {
+        filtered_turbulence = lowpass_filter_apply(&lowpass_state, filtered_turbulence);
+      }
 
       if (ring_count < mvs_window_size_) {
-        turbulence_ring[ring_idx] = turbulence;
-        running_sum += turbulence;
-        running_sum_sq += turbulence * turbulence;
+        turbulence_ring[ring_idx] = filtered_turbulence;
+        running_sum += filtered_turbulence;
+        running_sum_sq += filtered_turbulence * filtered_turbulence;
         ring_count++;
         ring_idx = (ring_idx + 1) % mvs_window_size_;
       } else {
         const float old = turbulence_ring[ring_idx];
         running_sum -= old;
         running_sum_sq -= old * old;
-        turbulence_ring[ring_idx] = turbulence;
-        running_sum += turbulence;
-        running_sum_sq += turbulence * turbulence;
+        turbulence_ring[ring_idx] = filtered_turbulence;
+        running_sum += filtered_turbulence;
+        running_sum_sq += filtered_turbulence * filtered_turbulence;
         ring_idx = (ring_idx + 1) % mvs_window_size_;
       }
 

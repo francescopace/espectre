@@ -127,6 +127,26 @@ class NBVICalibrator {
   void set_noise_gate_percentile(uint8_t percentile) { noise_gate_percentile_ = percentile; }
   
   /**
+   * Configure low-pass filter for calibration validation path.
+   * Must match detector runtime configuration.
+   */
+  void configure_lowpass(bool enabled, float cutoff_hz = LOWPASS_CUTOFF_DEFAULT) {
+    lowpass_enabled_ = enabled;
+    lowpass_cutoff_hz_ = cutoff_hz;
+  }
+
+  /**
+   * Configure Hampel filter for calibration validation path.
+   * Must match detector runtime configuration.
+   */
+  void configure_hampel(bool enabled, uint8_t window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT,
+                        float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT) {
+    hampel_enabled_ = enabled;
+    hampel_window_ = window_size;
+    hampel_threshold_ = threshold;
+  }
+  
+  /**
    * Set CV normalization mode for turbulence calculation during calibration.
    * Must match the detector's normalization mode.
    */
@@ -204,6 +224,13 @@ class NBVICalibrator {
   float alpha_{0.5f};
   uint8_t min_spacing_{1};
   uint8_t noise_gate_percentile_{25};
+
+  // Validation filter configuration (must stay aligned with runtime detector).
+  bool lowpass_enabled_{false};
+  float lowpass_cutoff_hz_{LOWPASS_CUTOFF_DEFAULT};
+  bool hampel_enabled_{false};
+  uint8_t hampel_window_{HAMPEL_TURBULENCE_WINDOW_DEFAULT};
+  float hampel_threshold_{HAMPEL_TURBULENCE_THRESHOLD_DEFAULT};
   
   // Shared constants
   static constexpr float MVS_THRESHOLD = 1.0f;

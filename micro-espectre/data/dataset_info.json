@@ -1,13 +1,16 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-03-10T23:48:39.456677",
+  "updated_at": "2026-03-17T18:08:17.002163",
   "labels": {
     "baseline": {
       "description": "Quiet room, no motion"
     },
     "movement": {
       "description": "Human movement in room"
+    },
+    "test": {
+      "description": "30 seconds of quiet room, then 30 seconds of human movement"
     }
   },
   "files": {
@@ -553,6 +556,34 @@
         ],
         "optimal_threshold_gridsearch": 0.09498326360560681,
         "optimal_pair_baseline_file": "baseline_c6_64sc_20260310_234819.npz"
+      }
+    ],
+    "test": [
+      {
+        "filename": "test_c3_64sc_20260317_180816.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-03-17T18:08:16.954857",
+        "duration_ms": 60004,
+        "num_packets": 6910,
+        "gain_locked": true,
+        "description": "HT20 test, AGC gain locked. Motion starts at packet index 3455 (~30.0 s).",
+        "optimal_subcarriers_gridsearch": [
+          29,
+          30,
+          31,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41
+        ],
+        "optimal_threshold_gridsearch": 3.0
       }
     ]
   },

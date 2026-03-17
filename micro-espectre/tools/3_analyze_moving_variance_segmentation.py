@@ -19,11 +19,14 @@ import numpy as np
 import argparse
 import math
 import time
+import re
+import sys
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     load_baseline_and_movement, MVSDetector, find_dataset,
-    NBVICalibrator, DEFAULT_SUBCARRIERS
+    NBVICalibrator, DEFAULT_SUBCARRIERS, load_dataset_info,
+    load_npz_as_packets, DATA_DIR
 )
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
@@ -132,6 +135,87 @@ def select_subcarriers_nbvi(baseline_packets):
     finally:
         # Restore original path
         nbvi_calibrator.BUFFER_FILE = original_buffer_file
+
+
+# ============================================================================
+# Test Dataset Loader
+# ============================================================================
+
+def _extract_motion_start_from_description(description):
+    """Extract motion start packet index from free-text description."""
+    if not description:
+        return None
+    # Matches phrases like:
+    # - "Motion starts at packet 3455."
+    # - "Motion starts at packet n. 3455"
+    # - "Motion starts at packet index 3455"
+    match = re.search(
+        r'motion\s+starts\s+at\s+packet(?:\s+index)?(?:\s+n\.)?\s+(\d+)',
+        description,
+        re.IGNORECASE
+    )
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def load_test_dataset(chip=None, motion_start_packet=None):
+    """
+    Load latest test dataset for a chip and split into baseline/movement packets.
+
+    Split logic:
+    - Use --test-motion-start-packet if provided
+    - Else try parsing packet index from dataset_info.json test description
+    - Else fallback to half of the stream
+    """
+    dataset_info = load_dataset_info()
+    test_entries = dataset_info.get('files', {}).get('test', [])
+    if not test_entries:
+        raise FileNotFoundError("No test datasets found in dataset_info.json")
+
+    chip_upper = chip.upper() if chip else None
+    if chip_upper:
+        candidates = [
+            entry for entry in test_entries
+            if str(entry.get('chip', '')).upper() == chip_upper
+        ]
+        if not candidates:
+            raise FileNotFoundError(
+                f"No test dataset found for chip {chip_upper} in dataset_info.json"
+            )
+    else:
+        candidates = list(test_entries)
+
+    # Keep behavior consistent with find_dataset(): latest by filename timestamp.
+    selected = sorted(candidates, key=lambda e: str(e.get('filename', '')))[-1]
+    filename = selected.get('filename')
+    selected_chip = str(selected.get('chip', 'unknown')).upper()
+    test_path = DATA_DIR / 'test' / filename
+    if not test_path.exists():
+        raise FileNotFoundError(f"Test dataset file not found: {test_path}")
+
+    packets = load_npz_as_packets(test_path)
+    if len(packets) < 2:
+        raise ValueError(f"Test dataset too small: {len(packets)} packets")
+
+    if motion_start_packet is None:
+        motion_start_packet = _extract_motion_start_from_description(
+            str(selected.get('description', ''))
+        )
+
+    if motion_start_packet is None:
+        motion_start_packet = len(packets) // 2
+
+    if motion_start_packet <= 0 or motion_start_packet >= len(packets):
+        raise ValueError(
+            f"Invalid motion start packet {motion_start_packet} "
+            f"for {len(packets)} packets"
+        )
+
+    baseline_packets = packets[:motion_start_packet]
+    movement_packets = packets[motion_start_packet:]
+
+    return test_path, baseline_packets, movement_packets, motion_start_packet, selected_chip
 
 
 # ============================================================================
@@ -247,7 +331,7 @@ def plot_comparison(results, threshold):
     """Visualize comparison of subcarrier selection strategies"""
     import matplotlib.pyplot as plt
     
-    fig, axes = plt.subplots(3, 2, figsize=(20, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(20, 9))
     fig.suptitle(f'Subcarrier Selection Comparison - Window={WINDOW_SIZE}, Adaptive P{ADAPTIVE_PERCENTILE}x{ADAPTIVE_FACTOR}', 
                  fontsize=14, fontweight='bold')
     
@@ -390,9 +474,15 @@ def print_comparison_summary(results, threshold):
 
 
 def main():
+    raw_args = sys.argv[1:]
+    chip_explicit = '--chip' in raw_args
     parser = argparse.ArgumentParser(description='Compare subcarrier selection strategies for MVS')
     parser.add_argument('--chip', type=str, default='C6',
                         help='Chip type to use: C6, S3, etc. (default: C6)')
+    parser.add_argument('--use-test-dataset', action='store_true',
+                        help='Use latest data/test dataset for selected chip and split by motion start packet')
+    parser.add_argument('--test-motion-start-packet', type=int, default=None,
+                        help='Override motion start packet index when using --use-test-dataset')
     parser.add_argument('--plot', action='store_true', help='Show visualization plots')
     args = parser.parse_args()
     
@@ -401,11 +491,35 @@ def main():
     print("║         Subcarrier Selection Comparison: Fixed vs NBVI           ║")
     print("╚═══════════════════════════════════════════════════════════════════╝\n")
     
-    print(f"📂 Loading {chip} data...")
+    if args.use_test_dataset:
+        print("📂 Loading test dataset...")
+    else:
+        print(f"📂 Loading {chip} data...")
     try:
-        baseline_path, movement_path, chip_name = find_dataset(chip=chip)
-        baseline_packets, movement_packets = load_baseline_and_movement(chip=chip)
+        if args.use_test_dataset:
+            try:
+                test_path, baseline_packets, movement_packets, motion_start_packet, chip_name = load_test_dataset(
+                    chip=chip,
+                    motion_start_packet=args.test_motion_start_packet
+                )
+            except FileNotFoundError:
+                if chip_explicit:
+                    raise
+                # If user did not explicitly choose --chip, fallback to latest test dataset
+                print(f"   No test dataset for default chip {chip}, using latest available test dataset")
+                test_path, baseline_packets, movement_packets, motion_start_packet, chip_name = load_test_dataset(
+                    chip=None,
+                    motion_start_packet=args.test_motion_start_packet
+                )
+            print(f"   Test dataset: {test_path.name}")
+            print(f"   Motion starts at packet: {motion_start_packet}")
+        else:
+            baseline_path, movement_path, chip_name = find_dataset(chip=chip)
+            baseline_packets, movement_packets = load_baseline_and_movement(chip=chip)
     except FileNotFoundError as e:
+        print(f"❌ Error: {e}")
+        return
+    except ValueError as e:
         print(f"❌ Error: {e}")
         return
     
