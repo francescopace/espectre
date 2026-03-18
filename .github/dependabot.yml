@@ -19,12 +19,16 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "deps(python)"
     labels:
       - "dependencies"
       - "python"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
     ignore:
       # paho-mqtt 2.x is incompatible with ESPHome (requires 1.6.1)
       - dependency-name: "paho-mqtt"
@@ -38,10 +42,14 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "deps(ci)"
     labels:
       - "dependencies"
       - "github-actions"
-
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+          
