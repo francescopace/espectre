@@ -3,8 +3,15 @@
   "cla": {
     "path": "CLA.md",
     "branch": "develop",
-    "sha": null,
-    "updatedAt": null
+    "sha": "2f99c0263af847d68ac550b3df362c848c9cd8b8",
+    "updatedAt": "2026-03-18T21:58:14.657Z"
   },
-  "signedContributors": []
+  "signedContributors": [
+    {
+      "login": "francescopace",
+      "userId": 11478455,
+      "signedAt": "2026-03-18T21:58:14.657Z",
+      "claSha": "2f99c0263af847d68ac550b3df362c848c9cd8b8"
+    }
+  ]
 }
