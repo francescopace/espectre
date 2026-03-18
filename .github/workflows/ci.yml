@@ -3,32 +3,8 @@ name: CI
 on:
   push:
     branches: [main, develop]
-    paths:
-      - 'components/espectre/**'
-      - 'micro-espectre/src/**'
-      - 'micro-espectre/tests/**'
-      - 'micro-espectre/requirements.txt'
-      - 'test/**'
-      - 'examples/*.yaml'
-      - '.github/workflows/**'
-      - '.github/scripts/**'
-      - '*.md'
-      - 'micro-espectre/*.md'
-      - 'docs/**'
   pull_request:
     branches: [develop]
-    paths:
-      - 'components/espectre/**'
-      - 'micro-espectre/src/**'
-      - 'micro-espectre/tests/**'
-      - 'micro-espectre/requirements.txt'
-      - 'test/**'
-      - 'examples/*.yaml'
-      - '.github/workflows/**'
-      - '.github/scripts/**'
-      - '*.md'
-      - 'micro-espectre/*.md'
-      - 'docs/**'
   workflow_dispatch:  # Manual trigger to warm up cache
 
 # Permissions for GitHub Pages deployment
@@ -43,8 +19,61 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  detect-push-origin:
+    name: Detect Push Origin
+    runs-on: ubuntu-latest
+    outputs:
+      run_ci: ${{ steps.detect.outputs.run_ci }}
+      is_pr_push: ${{ steps.detect.outputs.is_pr_push }}
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Detect if push commit belongs to merged PR
+        id: detect
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Default: run CI unless we prove this is a merged-PR push to develop.
+            if (context.eventName !== "push" || context.ref !== "refs/heads/develop") {
+              core.setOutput("run_ci", "true");
+              core.setOutput("is_pr_push", "false");
+              core.info("Not a push on develop. CI will run.");
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sha = context.sha;
+
+            const response = await github.request("GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls", {
+              owner,
+              repo,
+              commit_sha: sha,
+              mediaType: { previews: ["groot"] }
+            });
+
+            const relatedMergedPr = response.data.find((pr) =>
+              pr &&
+              pr.merged_at &&
+              pr.base &&
+              pr.base.ref === "develop"
+            );
+
+            const isPrPush = Boolean(relatedMergedPr);
+            core.setOutput("is_pr_push", isPrPush ? "true" : "false");
+            core.setOutput("run_ci", isPrPush ? "false" : "true");
+
+            if (isPrPush) {
+              core.info(`Detected merged PR push (PR #${relatedMergedPr.number}). Skipping duplicate CI on develop push.`);
+            } else {
+              core.info("No merged PR associated with this push commit. Treating as direct push; CI will run.");
+            }
+
   build-docs:
     name: Build Documentation
+    needs: detect-push-origin
+    if: needs.detect-push-origin.outputs.run_ci == 'true'
     runs-on: ubuntu-latest
     
     steps:
@@ -118,6 +147,8 @@ jobs:
 
   test-cpp:
     name: C++ Unit Tests
+    needs: detect-push-origin
+    if: needs.detect-push-origin.outputs.run_ci == 'true'
     runs-on: ubuntu-latest
     
     steps:
@@ -158,6 +189,8 @@ jobs:
 
   test-python:
     name: Python Unit Tests (micro-espectre)
+    needs: detect-push-origin
+    if: needs.detect-push-origin.outputs.run_ci == 'true'
     runs-on: ubuntu-latest
     
     steps:
@@ -189,6 +222,8 @@ jobs:
   # Pre-cache job: downloads toolchain once, shared by all build jobs
   setup-cache:
     name: Setup Build Cache
+    needs: detect-push-origin
+    if: needs.detect-push-origin.outputs.run_ci == 'true'
     runs-on: ubuntu-latest
     outputs:
       cache-hit: ${{ steps.cache.outputs.cache-hit }}
@@ -221,7 +256,8 @@ jobs:
   build:
     name: ${{ matrix.qemu_chip && 'Smoke Test' || 'Build' }} ${{ matrix.chip }}
     runs-on: ubuntu-latest
-    needs: setup-cache
+    needs: [detect-push-origin, setup-cache]
+    if: needs.detect-push-origin.outputs.run_ci == 'true'
     strategy:
       fail-fast: false
       matrix:

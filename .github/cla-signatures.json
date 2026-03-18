@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "cla": {
+    "path": "CLA.md",
+    "branch": "develop",
+    "sha": null,
+    "updatedAt": null
+  },
+  "signedContributors": []
+}

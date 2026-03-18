@@ -462,6 +462,10 @@ GPLv3 ensures that:
 
 See [LICENSE](LICENSE) for the full license text.
 
+Contributions are submitted under GPLv3 and require acceptance of the
+[Contributor License Agreement](CLA.md), which grants the maintainer
+additional relicensing rights.
+
 ## Author
 
 **Francesco Pace**  

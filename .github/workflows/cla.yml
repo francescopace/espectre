@@ -1,0 +1,336 @@
+name: CLA Assistant
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    name: CLA Signature Check
+    runs-on: ubuntu-latest
+    env:
+      CLA_TEXT: I have read the CLA Document and I hereby sign the CLA
+      CLA_FILE_PATH: .github/cla-signatures.json
+      CLA_DOC_PATH: CLA.md
+      CLA_BRANCH: develop
+      ALLOWLIST: dependabot[bot]
+      CLA_SIGN_ACK: Thanks for signing the CLA. I recorded your signature. If the check is still red, comment `recheck`.
+      CLA_NOT_SIGNED_INTRO: Thank you for contributing to ESPectre! We are glad to have your help.
+      CLA_NOT_SIGNED_REASON: The CLA confirms contribution rights so we can legally review, distribute, and maintain the project long-term.
+      CLA_NOT_SIGNED_RECHECK_HINT: If you already signed in a previous PR, just comment `recheck`.
+      CLA_LEDGER_COMMIT_MESSAGE: "cla: add contributor to signatures [skip ci]"
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.CLA_APP_ID }}
+          private-key: ${{ secrets.CLA_APP_PRIVATE_KEY }}
+
+      - name: Handle CLA events
+        if: >-
+          github.event_name == 'pull_request_target' ||
+          (github.event_name == 'issue_comment' && github.event.issue.pull_request)
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const body = (context.payload.comment?.body || "").trim();
+            const signer = context.payload.comment?.user?.login || null;
+            const signerId = context.payload.comment?.user?.id || null;
+            const filePath = process.env.CLA_FILE_PATH;
+            const claPath = process.env.CLA_DOC_PATH;
+            const branch = process.env.CLA_BRANCH;
+            const allowlist = new Set((process.env.ALLOWLIST || "").split(",").map(s => s.trim()).filter(Boolean));
+            const marker = "<!-- cla-check -->";
+            const claUrl = `https://github.com/${owner}/${repo}/blob/develop/CLA.md`;
+            const requiredText = process.env.CLA_TEXT;
+            const recheckCommands = new Set(["recheck", "/recheck-cla"]);
+            const notSignedIntro = process.env.CLA_NOT_SIGNED_INTRO;
+            const notSignedReason = process.env.CLA_NOT_SIGNED_REASON;
+            const recheckHint = process.env.CLA_NOT_SIGNED_RECHECK_HINT;
+            const isIssueComment = context.eventName === "issue_comment";
+            const isSignatureComment = isIssueComment && body === requiredText;
+            const isRecheckComment = isIssueComment && recheckCommands.has(body);
+            const shouldValidate = context.eventName === "pull_request_target" || isSignatureComment || isRecheckComment;
+
+            const issueNumber = context.eventName === "pull_request_target"
+              ? context.payload.pull_request.number
+              : context.payload.issue.number;
+            const pr = await github.rest.pulls.get({ owner, repo, pull_number: issueNumber });
+
+            const claFile = await github.rest.repos.getContent({ owner, repo, path: claPath, ref: branch });
+            const currentClaSha = claFile.data.sha;
+
+            function normalizeSignatures(raw, fallbackUpdatedAt = null) {
+              const result = {
+                schemaVersion: 2,
+                cla: {
+                  path: claPath,
+                  branch,
+                  sha: currentClaSha,
+                  updatedAt: fallbackUpdatedAt
+                },
+                signedContributors: []
+              };
+
+              if (!raw || typeof raw !== "object") return result;
+
+              const entries = Array.isArray(raw.signedContributors) ? raw.signedContributors : [];
+              for (const entry of entries) {
+                if (typeof entry === "string") {
+                  result.signedContributors.push({
+                    login: entry,
+                    userId: null,
+                    signedAt: null,
+                    claSha: null
+                  });
+                } else if (entry && typeof entry === "object" && typeof entry.login === "string") {
+                  result.signedContributors.push({
+                    login: entry.login,
+                    userId: entry.userId ?? null,
+                    signedAt: entry.signedAt ?? null,
+                    claSha: entry.claSha ?? null
+                  });
+                }
+              }
+              return result;
+            }
+
+            async function loadSignatures() {
+              let sha = null;
+              let data = normalizeSignatures(null);
+              try {
+                const current = await github.rest.repos.getContent({ owner, repo, path: filePath, ref: branch });
+                sha = current.data.sha;
+                const content = Buffer.from(current.data.content, "base64").toString("utf8");
+                data = normalizeSignatures(JSON.parse(content));
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+              return { sha, data };
+            }
+
+            async function saveSignaturesWithRetry({ signerRecords, commitMessage, updatedAt }) {
+              const maxAttempts = 3;
+              for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                try {
+                  const current = await loadSignatures();
+                  const signatures = current.data;
+
+                  for (const record of signerRecords) {
+                    const existingIndex = signatures.signedContributors.findIndex((entry) => entry.login === record.login);
+                    const nextRecord = {
+                      login: record.login,
+                      userId: record.userId ?? (existingIndex >= 0 ? signatures.signedContributors[existingIndex].userId : null),
+                      signedAt: record.signedAt,
+                      claSha: currentClaSha
+                    };
+                    if (existingIndex >= 0) {
+                      signatures.signedContributors[existingIndex] = nextRecord;
+                    } else {
+                      signatures.signedContributors.push(nextRecord);
+                    }
+                  }
+
+                  signatures.signedContributors.sort((a, b) => a.login.localeCompare(b.login));
+                  signatures.cla = {
+                    path: claPath,
+                    branch,
+                    sha: currentClaSha,
+                    updatedAt
+                  };
+
+                  const encoded = Buffer.from(`${JSON.stringify(signatures, null, 2)}\n`).toString("base64");
+                  await github.rest.repos.createOrUpdateFileContents({
+                    owner,
+                    repo,
+                    path: filePath,
+                    message: commitMessage,
+                    content: encoded,
+                    branch,
+                    sha: current.sha || undefined
+                  });
+
+                  return signatures;
+                } catch (error) {
+                  if (error.status !== 409 || attempt === maxAttempts) {
+                    throw error;
+                  }
+                  core.info(`Write conflict on CLA signatures (attempt ${attempt}/${maxAttempts}), retrying...`);
+                }
+              }
+            }
+
+            async function rerunLatestValidationRun() {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: "cla.yml",
+                event: "pull_request_target",
+                branch: pr.data.head.ref,
+                per_page: 20
+              });
+              const targetRun = runs.data.workflow_runs.find((run) =>
+                run.id !== context.runId &&
+                run.head_sha === pr.data.head.sha
+              );
+              if (!targetRun) {
+                core.info("No matching pull_request_target CLA run found to rerun.");
+                return;
+              }
+              await github.request("POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun", {
+                owner,
+                repo,
+                run_id: targetRun.id
+              });
+              core.info(`Triggered rerun for CLA workflow run ${targetRun.id}`);
+            }
+
+            if (isSignatureComment) {
+              if (signer && !allowlist.has(signer)) {
+                const signedAt = new Date().toISOString();
+                await saveSignaturesWithRetry({
+                  signerRecords: [{ login: signer, userId: signerId, signedAt }],
+                  commitMessage: process.env.CLA_LEDGER_COMMIT_MESSAGE,
+                  updatedAt: signedAt
+                });
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  body: process.env.CLA_SIGN_ACK
+                });
+                await rerunLatestValidationRun();
+              } else {
+                core.info(`Skipping allowlisted signer: ${signer}`);
+              }
+            }
+
+            if (!shouldValidate) {
+              core.info("Comment is not a CLA command; skipping validation.");
+              return;
+            }
+
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner,
+              repo,
+              pull_number: issueNumber,
+              per_page: 100
+            });
+
+            const requiredSigners = new Set();
+            if (pr.data.user?.login) requiredSigners.add(pr.data.user.login);
+
+            for (const commit of commits) {
+              // Prefer the human author identity. Fallback to committer only when author is unavailable.
+              if (commit.author?.login) {
+                requiredSigners.add(commit.author.login);
+              } else if (commit.committer?.login) {
+                requiredSigners.add(commit.committer.login);
+              }
+            }
+
+            for (const login of allowlist) requiredSigners.delete(login);
+
+            let signatures = (await loadSignatures()).data;
+
+            function computeMissingSigners(signatureState) {
+              const byLogin = new Map(signatureState.signedContributors.map((entry) => [entry.login, entry]));
+              const missingList = [];
+              for (const login of requiredSigners) {
+                const entry = byLogin.get(login);
+                if (!entry) {
+                  missingList.push(login);
+                }
+              }
+              missingList.sort();
+              return missingList;
+            }
+
+            let missing = computeMissingSigners(signatures);
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: issueNumber,
+              per_page: 100
+            });
+            const existing = comments.find(c => typeof c.body === "string" && c.body.includes(marker));
+
+            const signatureCommentsByLogin = new Map();
+            for (const comment of comments) {
+              const commentBody = (comment.body || "").trim();
+              const commentLogin = comment.user?.login;
+              if (commentBody === requiredText && commentLogin) {
+                signatureCommentsByLogin.set(commentLogin, {
+                  userId: comment.user?.id ?? null
+                });
+              }
+            }
+
+            const recoveredSigners = missing.filter((login) => signatureCommentsByLogin.has(login));
+            if (recoveredSigners.length > 0) {
+              const signedAt = new Date().toISOString();
+              signatures = await saveSignaturesWithRetry({
+                signerRecords: recoveredSigners.map((login) => ({
+                  login,
+                  userId: (signatureCommentsByLogin.get(login) || {}).userId ?? null,
+                  signedAt
+                })),
+                commitMessage: process.env.CLA_LEDGER_COMMIT_MESSAGE,
+                updatedAt: signedAt
+              });
+              missing = computeMissingSigners(signatures);
+            }
+
+            if (missing.length === 0) {
+              // Keep the signature request comment unchanged for clarity/history.
+              core.info("CLA check passed.");
+              return;
+            }
+
+            const message = [
+              marker,
+              notSignedIntro,
+              "",
+              `Before we can merge this pull request, please review the [Contributor License Agreement](${claUrl}).`,
+              notSignedReason,
+              "",
+              `Missing signatures: ${missing.map(login => `@${login}`).join(", ")}`,
+              "",
+              "Once you have read it, reply to this thread with the exact text below:",
+              "",
+              `\`${requiredText}\``,
+              "",
+              recheckHint
+            ].join("\n");
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body: message
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: message
+              });
+            }
+
+            core.setFailed(`Missing CLA signatures for: ${missing.join(", ")}`);

@@ -323,11 +323,19 @@ All contributors are recognized in:
 
 ## License
 
-By contributing to ESPectre, you agree that your contributions will be licensed under the **GPLv3** license. This means:
+By contributing to ESPectre, you agree that your contributions are licensed
+under the **GPLv3** license.
 
-- Your code will remain free and open source
-- You retain copyright of your contributions
-- No CLA (Contributor License Agreement) is required
+In addition, by submitting a contribution you agree to the
+[Contributor License Agreement](CLA.md), which grants the maintainer the
+right to relicense your contribution in future distributions. You retain full
+ownership of your contribution.
+Contributions in this repository remain available under GPLv3.
+
+### CLA Requirement
+
+All pull requests require CLA acceptance. If you have not signed yet, follow
+the instructions shown in the CLA check or bot comment.
 
 See [LICENSE](LICENSE) for details.
 
