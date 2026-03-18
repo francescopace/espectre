@@ -460,7 +460,7 @@ The `tools/` directory contains Python scripts for CSI data analysis and algorit
 
 See [tools/README.md](tools/README.md) for complete script documentation.
 For gesture-specific workflow, see:
-- `12_train_gesture_model.py` (gesture training + reject-threshold calibration)
+- `11_train_gesture_model.py` (gesture training + reject-threshold calibration)
 - `13_test_gesture_stream.py` (offline benchmark + live mode via `--live`)
 
 ## Automatic Subcarrier Selection

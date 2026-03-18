@@ -237,7 +237,7 @@ class LiveGestureRunner:
 
     def run(self):
         if not gd_mod._weights_available:
-            print("Error: gesture_weights.py not found. Train first with 12_train_gesture_model.py.")
+            print("Error: gesture_weights.py not found. Train first with 11_train_gesture_model.py.")
             return 1
 
         print("\n" + "=" * 72)

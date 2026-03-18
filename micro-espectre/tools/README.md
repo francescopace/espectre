@@ -217,7 +217,7 @@ For full training workflow and dataset preparation, see [ML_DATA_COLLECTION.md](
 
 ---
 
-### 12. Gesture Model Training (`12_train_gesture_model.py`)
+### 12. Gesture Model Training (`11_train_gesture_model.py`)
 
 **Purpose**: Train, calibrate, and export the multi-class gesture model (`wave`, `circle_cw`, `no_gesture`, ...)
 
@@ -233,12 +233,12 @@ For full training workflow and dataset preparation, see [ML_DATA_COLLECTION.md](
   - `components/espectre/gesture_weights.h`
 
 ```bash
-python 12_train_gesture_model.py --info
-python 12_train_gesture_model.py --seed 42 --window-seconds 2.0 --window-labels wave,circle_cw --no-gesture-max-per-source -1
-python 12_train_gesture_model.py --validate-dataset
-python 12_train_gesture_model.py --train-on-validated
-python 12_train_gesture_model.py --sequential-train-search
-python 12_train_gesture_model.py --sequential-train-search 20
+python 11_train_gesture_model.py --info
+python 11_train_gesture_model.py --seed 42 --window-seconds 2.0 --window-labels wave,circle_cw --no-gesture-max-per-source -1
+python 11_train_gesture_model.py --validate-dataset
+python 11_train_gesture_model.py --train-on-validated
+python 11_train_gesture_model.py --sequential-train-search
+python 11_train_gesture_model.py --sequential-train-search 20
 ```
 
 Notes:
@@ -301,7 +301,7 @@ python 1_analyze_raw_data.py
 python 2_analyze_system_tuning.py --quick
 
 # 3. Train gesture model (includes threshold calibration)
-python 12_train_gesture_model.py --seed 13 --window-seconds 2.0 --window-overlap 0.5 --window-labels wave,circle_cw --no-gesture-max-per-source 5
+python 11_train_gesture_model.py --seed 13 --window-seconds 2.0 --window-overlap 0.5 --window-labels wave,circle_cw --no-gesture-max-per-source 5
 
 # 4. Run continuous gesture benchmark (full coverage)
 python 13_test_gesture_stream.py
@@ -310,7 +310,6 @@ python 13_test_gesture_stream.py
 python 13_test_gesture_stream.py --live
 
 # 5. Visualize MVS
->>>>>>> 98f4321 (feat: introduce model for gesture recognition)
 python 3_analyze_moving_variance_segmentation.py --plot
 
 # 6. Run unit tests
