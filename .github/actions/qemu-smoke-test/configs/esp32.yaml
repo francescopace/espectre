@@ -5,7 +5,7 @@
 esphome:
   name: espectre
   friendly_name: ESPectre
-  min_version: 2026.2.0
+  min_version: 2026.3.0
   project:
     name: francescopace.espectre
     version: "ci"

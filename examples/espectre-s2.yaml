@@ -23,7 +23,7 @@ substitutions:
 esphome:
   name: espectre
   friendly_name: ESPectre
-  min_version: 2026.2.0
+  min_version: 2026.3.0
   # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
   # name_add_mac_suffix: true
   project:

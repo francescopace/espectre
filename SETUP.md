@@ -59,7 +59,7 @@ That's it! The device will be automatically discovered by Home Assistant.
 
 **Software:**
 - Python 3.12 (⚠️ Python 3.14 has known issues with ESPHome)
-- ESPHome 2024.x or newer
+- ESPHome 2026.3.0 or newer
 - Home Assistant (recommended, but optional)
 
 ### 1. Install ESPHome
