@@ -17,6 +17,7 @@ import struct
 import subprocess
 import sys
 import time
+import ipaddress
 import json
 import numpy as np
 import math
@@ -60,6 +61,31 @@ DEFAULT_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 # UDP Protocol constants
 MAGIC_STREAM = 0x4353  # "CS" in little-endian
 DEFAULT_PORT = 5001
+
+
+def get_default_bind_host() -> str:
+    """
+    Determine a safe default bind interface (single host address, no wildcard).
+
+    Priority:
+    1. CSI_BIND_HOST env var if set
+    2. Primary outbound IPv4 detected via UDP connect trick
+    3. Loopback as final fallback
+    """
+    import os
+
+    env_host = os.getenv('CSI_BIND_HOST', '').strip()
+    if env_host:
+        return env_host
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(('8.8.8.8', 80))
+        return probe.getsockname()[0]
+    except OSError:
+        return '127.0.0.1'
+    finally:
+        probe.close()
 
 # Dataset paths (shared between tools and tests)
 DATA_DIR = Path(__file__).parent.parent / 'data'
@@ -113,16 +139,30 @@ class CSIReceiver:
         receiver.run()
     """
     
-    def __init__(self, port: int = DEFAULT_PORT, buffer_size: int = 500):
+    def __init__(
+        self,
+        port: int = DEFAULT_PORT,
+        buffer_size: int = 500,
+        bind_host: Optional[str] = None
+    ):
         """
         Initialize CSI receiver.
         
         Args:
             port: UDP port to listen on
             buffer_size: Circular buffer size (packets)
+            bind_host: Local interface IP to bind UDP socket
         """
         self.port = port
         self.buffer_size = buffer_size
+        resolved_bind_host = bind_host or get_default_bind_host()
+        self.bind_host = str(resolved_bind_host).strip()
+        if not self.bind_host:
+            raise ValueError('bind_host cannot be empty')
+        try:
+            ipaddress.ip_address(self.bind_host)
+        except ValueError as exc:
+            raise ValueError(f'Invalid bind_host: {self.bind_host}') from exc
         
         # Packet buffer (circular)
         self.buffer: deque[CSIPacket] = deque(maxlen=buffer_size)
@@ -335,11 +375,11 @@ class CSIReceiver:
         """
         # Create socket
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(('0.0.0.0', self.port))
+        self.sock.bind((self.bind_host, self.port))
         self.sock.settimeout(1.0)  # 1 second timeout for graceful shutdown
         
         if not quiet:
-            print(f'CSI Receiver listening on UDP port {self.port}')
+            print(f'CSI Receiver listening on {self.bind_host}:{self.port}')
             print(f'Buffer size: {self.buffer_size} packets')
             print('Waiting for data...')
             print()
@@ -450,8 +490,14 @@ class CSICollector:
     # File format version - increment when format changes
     FORMAT_VERSION = '1.0'
     
-    def __init__(self, label: str, port: int = DEFAULT_PORT, contributor: str = None,
-                 description: str = None):
+    def __init__(
+        self,
+        label: str,
+        port: int = DEFAULT_PORT,
+        contributor: str = None,
+        description: str = None,
+        bind_host: Optional[str] = None
+    ):
         """
         Initialize collector.
         
@@ -460,14 +506,16 @@ class CSICollector:
             port: UDP port for CSI receiver
             contributor: GitHub username of the contributor (auto-detected from git if not provided)
             description: Optional description for the collected samples
+            bind_host: Local interface IP to bind UDP socket
         """
         self.label = label
         self.port = port
+        self.bind_host = bind_host
         self.chip = None  # Auto-detected from CSI packets
         self.contributor = contributor or get_git_username()
         self.description = description
         
-        self.receiver = CSIReceiver(port=port, buffer_size=2000)
+        self.receiver = CSIReceiver(port=port, buffer_size=2000, bind_host=bind_host)
         self._recording = False
         self._recorded_packets: List[CSIPacket] = []
         self._sample_count = 0
@@ -614,7 +662,39 @@ class CSICollector:
                 info['files'][self.label].append(file_info)
         
         save_dataset_info(info)
-    
+
+    def _drain_udp_backlog(self, max_packets: int = 10000) -> int:
+        """
+        Drain queued UDP packets to align sample start with current time.
+
+        When `collect_timed()` waits during countdown, packets can accumulate in
+        the OS socket buffer. Without draining, the next sample may include old
+        packets (pre-countdown), inflating packet count and breaking duration
+        coherence against streamer PPS.
+
+        Args:
+            max_packets: Safety cap to avoid infinite loops
+
+        Returns:
+            int: Number of drained packets
+        """
+        if self.receiver.sock is None:
+            return 0
+
+        drained = 0
+        previous_timeout = self.receiver.sock.gettimeout()
+        self.receiver.sock.settimeout(0.0)  # non-blocking drain
+        try:
+            while drained < max_packets:
+                try:
+                    self.receiver.sock.recvfrom(1024)
+                    drained += 1
+                except (BlockingIOError, socket.timeout):
+                    break
+        finally:
+            self.receiver.sock.settimeout(previous_timeout)
+        return drained
+
     def collect_timed(self, duration: float, num_samples: int = 1,
                      countdown: int = 3, quiet: bool = False) -> List[Path]:
         """
@@ -641,27 +721,28 @@ class CSICollector:
         
         # Create socket once
         self.receiver.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.receiver.sock.bind(('0.0.0.0', self.port))
+        self.receiver.sock.bind((self.receiver.bind_host, self.port))
         self.receiver.sock.settimeout(0.1)
         
         try:
             for sample_idx in range(num_samples):
                 if not quiet:
                     print(f'\nSample {sample_idx + 1}/{num_samples}')
-                    
-                    # Countdown
-                    for i in range(countdown, 0, -1):
-                        print(f'  Starting in {i}...', end='\r')
-                        time.sleep(1)
-                    
+                    if countdown > 0:
+                        for i in range(countdown, 0, -1):
+                            print(f'  Starting in {i}...', end='\r')
+                            time.sleep(1)
                     print(f'  ▶ RECORDING...', end='', flush=True)
-                
+
+                # Flush packets that accumulated during countdown/idle time.
+                self._drain_udp_backlog()
+
                 # Reset and collect
                 self.receiver.reset_stats()
                 packets = []
-                start_time = time.time()
-                
-                while time.time() - start_time < duration:
+                deadline = time.monotonic() + duration
+
+                while time.monotonic() < deadline:
                     try:
                         data, addr = self.receiver.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)
                         packet = self.receiver._parse_packet(data)
@@ -693,7 +774,7 @@ class CSICollector:
         
         return saved_files
     
-    def collect_interactive(self, num_samples: int = 10) -> List[Path]:
+    def collect_interactive(self, num_samples: int = 10, duration: float = 2.0) -> List[Path]:
         """
         Collect samples with keyboard control.
         
@@ -701,6 +782,7 @@ class CSICollector:
         
         Args:
             num_samples: Target number of samples
+            duration: Duration per sample in seconds
         
         Returns:
             List of paths to saved samples
@@ -718,7 +800,7 @@ class CSICollector:
         
         # Create socket once
         self.receiver.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.receiver.sock.bind(('0.0.0.0', self.port))
+        self.receiver.sock.bind((self.receiver.bind_host, self.port))
         self.receiver.sock.settimeout(0.1)
         
         try:
@@ -731,19 +813,23 @@ class CSICollector:
                         print('Collection cancelled.')
                         break
                     
-                    print('  Recording for 2 seconds...', end='', flush=True)
-                    
-                    # Collect for 2 seconds
+                    print(f'  Recording for {duration} seconds...', end='', flush=True)
+
+                    # Flush packets that accumulated while waiting for user input.
+                    self._drain_udp_backlog()
+
+                    # Collect for configured duration
                     self.receiver.reset_stats()
                     packets = []
-                    start_time = time.time()
-                    
-                    while time.time() - start_time < 2.0:
+                    deadline = time.monotonic() + duration
+
+                    while time.monotonic() < deadline:
                         try:
                             data, addr = self.receiver.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)
                             packet = self.receiver._parse_packet(data)
                             if packet:
                                 packets.append(packet)
+                                self.receiver._check_sequence(packet.seq_num)
                         except socket.timeout:
                             continue
                     

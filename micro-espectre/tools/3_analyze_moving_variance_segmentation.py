@@ -99,12 +99,18 @@ def select_subcarriers_nbvi(baseline_packets):
         tuple: (selected_band, adaptive_threshold, calibration_time_ms)
     """
     import tempfile
+    from pathlib import Path
     import nbvi_calibrator
     from threshold import calculate_adaptive_threshold
     
     # Patch buffer file path to use temp directory
     original_buffer_file = nbvi_calibrator.BUFFER_FILE
-    temp_buffer = tempfile.mktemp(suffix='_nbvi_buffer.bin')
+    with tempfile.NamedTemporaryFile(
+        mode='wb',
+        suffix='_nbvi_buffer.bin',
+        delete=False
+    ) as tmp_file:
+        temp_buffer = tmp_file.name
     nbvi_calibrator.BUFFER_FILE = temp_buffer
     
     try:
@@ -135,6 +141,9 @@ def select_subcarriers_nbvi(baseline_packets):
     finally:
         # Restore original path
         nbvi_calibrator.BUFFER_FILE = original_buffer_file
+        temp_path = Path(temp_buffer)
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 # ============================================================================

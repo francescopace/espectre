@@ -696,7 +696,7 @@ def collect_csi_data(args):
         sys.path.insert(0, str(parent_dir))
     
     try:
-        from tools.csi_utils import CSICollector, get_dataset_stats
+        from tools.csi_utils import CSICollector, get_dataset_stats, get_default_bind_host
     except ImportError as e:
         print(f"{Fore.RED}❌ Failed to import csi_utils: {e}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Make sure tools/csi_utils.py exists{Style.RESET_ALL}")
@@ -739,9 +739,11 @@ def collect_csi_data(args):
     print(f"{Fore.MAGENTA}║           μESPectre - CSI Data Collection                 ║{Style.RESET_ALL}")
     print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
     print()
+    resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
     print(f"  {Fore.CYAN}Label:{Style.RESET_ALL}     {args.label}")
     print(f"  {Fore.CYAN}Samples:{Style.RESET_ALL}   {args.samples}")
     print(f"  {Fore.CYAN}Duration:{Style.RESET_ALL}  {args.duration}s per sample")
+    print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
     if args.description:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
@@ -755,12 +757,16 @@ def collect_csi_data(args):
         label=args.label,
         port=args.udp_port,
         contributor=args.contributor,
-        description=args.description
+        description=args.description,
+        bind_host=resolved_bind_ip
     )
     
     try:
         if args.interactive:
-            saved = collector.collect_interactive(num_samples=args.samples)
+            saved = collector.collect_interactive(
+                num_samples=args.samples,
+                duration=args.duration
+            )
         else:
             saved = collector.collect_timed(
                 duration=args.duration,
@@ -1002,6 +1008,8 @@ Examples:
                                help='Interactive mode (press ENTER for each sample)')
     collect_parser.add_argument('--udp-port', type=int, default=5001,
                                help='UDP port for CSI reception (default: 5001)')
+    collect_parser.add_argument('--bind-ip', default=None,
+                               help='Local IP/interface for UDP bind (default: auto-detect)')
     collect_parser.add_argument('--contributor', '-c',
                                help='GitHub username of the contributor')
     collect_parser.add_argument('--description', 
