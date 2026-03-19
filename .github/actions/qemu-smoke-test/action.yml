@@ -26,7 +26,7 @@ runs:
       id: firmware
       shell: bash
       run: |
-        FIRMWARE=$(find examples -name "firmware.factory.bin" -type f | head -1)
+        FIRMWARE=$(find .github/actions/qemu-smoke-test/configs -name "firmware.factory.bin" -type f | head -1)
         if [ -z "$FIRMWARE" ]; then
           echo "Error: firmware.factory.bin not found"
           exit 1
@@ -73,18 +73,25 @@ runs:
         cat qemu_output.log
         echo "========================================"
         
+        # Filter out known QEMU limitations before crash detection.
+        # esp_phy_enable asserts when WiFi starts because QEMU does not emulate
+        # the modem clock registers (PHY_INIT_MODEM_CLOCK_REQUIRED_BITS). This is
+        # a known, expected limitation - not a firmware bug. IDF 5.5.3 made this
+        # assert explicit; older versions would silently stall instead.
+        grep -viE "phy_module_has_clock_bits|PHY_INIT_MODEM_CLOCK_REQUIRED_BITS" qemu_output.log > qemu_output_filtered.log || true
+
         # Check for crashes
-        if grep -qiE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output.log; then
+        if grep -qiE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output_filtered.log; then
           echo ""
           echo "SMOKE TEST FAILED - CRASH DETECTED!"
-          grep -iE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output.log
+          grep -iE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output_filtered.log
           
           # Decode stack trace if backtrace is present
           BACKTRACE=$(grep -oE "Backtrace: [0-9a-fx: ]+" qemu_output.log | head -1 | sed 's/Backtrace: //')
           if [ -n "$BACKTRACE" ]; then
             echo ""
             echo "=== Stack Trace Analysis ==="
-            FIRMWARE_ELF=$(find examples -name "firmware.elf" -type f | head -1)
+              FIRMWARE_ELF=$(find .github/actions/qemu-smoke-test/configs -name "firmware.elf" -type f | head -1)
             if [ -n "$FIRMWARE_ELF" ]; then
               # Extract addresses and decode with addr2line
               ADDRS=$(echo "$BACKTRACE" | grep -oE "0x[0-9a-f]+" | tr '\n' ' ')

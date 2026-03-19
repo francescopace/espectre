@@ -16,7 +16,7 @@ substitutions:
 esphome:
   name: espectre
   friendly_name: ESPectre
-  min_version: 2025.11.0
+  min_version: 2026.2.0
   # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
   # name_add_mac_suffix: true
   project:
@@ -85,6 +85,7 @@ esp32_ble_server:
 
 # Logging
 logger:
+  #hardware_uart: UART0  # Uncomment for boards with external USB-UART bridges (CH340, CP2102, etc.)
 
 # Home Assistant API
 api:

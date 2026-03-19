@@ -282,27 +282,25 @@ jobs:
           - chip: ESP32-C6
             config: examples/espectre-c6.yaml
             config_dev: examples/espectre-c6-dev.yaml
-          # QEMU smoke tests (examples/uart/)
-          # Note: ESP32 original excluded - QEMU doesn't emulate PHY registers correctly
-          # QEMU configs use UART0 logging for QEMU compatibility
+          # QEMU smoke tests (.github/actions/qemu-smoke-test/configs/)
+          # Supported targets: ESP32, ESP32-S3, ESP32-C3 (official Espressif QEMU fork)
+          # WiFi PHY is not emulated by QEMU; the PHY assert is filtered in the CI action
+          # ESP32-C6 and newer chips are not supported by the Espressif QEMU fork
+          - chip: ESP32
+            config: .github/actions/qemu-smoke-test/configs/esp32.yaml
+            qemu_chip: esp32
+            qemu_arch: xtensa
+            qemu_machine: esp32
           - chip: ESP32-S3
-            config: examples/uart/espectre-s3.yaml
-            config_dev: examples/uart/espectre-s3-dev.yaml
+            config: .github/actions/qemu-smoke-test/configs/esp32s3.yaml
             qemu_chip: esp32s3
             qemu_arch: xtensa
             qemu_machine: esp32s3
           - chip: ESP32-C3
-            config: examples/uart/espectre-c3.yaml
-            config_dev: examples/uart/espectre-c3-dev.yaml
+            config: .github/actions/qemu-smoke-test/configs/esp32c3.yaml
             qemu_chip: esp32c3
             qemu_arch: riscv32
             qemu_machine: esp32c3
-          - chip: ESP32-C6
-            config: examples/uart/espectre-c6.yaml
-            config_dev: examples/uart/espectre-c6-dev.yaml
-            qemu_chip: esp32c6
-            qemu_arch: riscv32
-            qemu_machine: esp32c6
     
     steps:
       - uses: actions/checkout@v6
@@ -329,18 +327,20 @@ jobs:
           pip install esphome
       
       - name: Create secrets.yaml for dev configs
-        if: github.ref != 'refs/heads/main'
+        if: github.ref != 'refs/heads/main' && !matrix.qemu_chip
         run: |
           cat > examples/secrets.yaml << 'EOF'
           wifi_ssid: CI_TEST
           wifi_password: ci_password
           EOF
-          cp examples/secrets.yaml examples/uart/secrets.yaml
       
       - name: Compile
         run: |
-          # Use -dev configs (local component) on develop/PR, production configs on main
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          # QEMU configs always use local component (no branch distinction)
+          # Standard configs use -dev (local component) on develop/PR, production on main
+          if [ -n "${{ matrix.qemu_chip }}" ]; then
+            esphome compile ${{ matrix.config }}
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
             esphome compile ${{ matrix.config }}
           else
             esphome compile ${{ matrix.config_dev }}

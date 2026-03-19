@@ -1,0 +1,32 @@
+# ESPectre - ESP32-S3 QEMU Smoke Test
+# Used exclusively for CI boot testing in QEMU.
+# WiFi PHY is not emulated by QEMU; on S3/xtensa it silently stalls at timeout.
+
+esphome:
+  name: espectre
+  friendly_name: ESPectre
+  min_version: 2026.2.0
+  project:
+    name: francescopace.espectre
+    version: "ci"
+
+esp32:
+  variant: ESP32S3
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../../../../components
+    components: [ espectre ]
+
+espectre:
+  id: espectre_csi
+
+wifi:
+  ap:
+    ssid: "ESPectre Fallback"
+
+logger:
+  hardware_uart: UART0
