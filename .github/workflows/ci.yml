@@ -31,7 +31,7 @@ jobs:
     steps:
       - name: Detect if push commit belongs to merged PR
         id: detect
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             // Default: run CI unless we prove this is a merged-PR push to develop.
