@@ -1,0 +1,109 @@
+# ESPectre - ESP32-S3 Touch LCD 1.47"
+# Extends base ESP32-S3 config with local TFT status view.
+#
+# Tested boards:
+# - ESP32-S3-Touch-LCD-1.47 (waveshare)
+#
+# Pin mapping (vendor pin map):
+# - LCD_CLK: GPIO38
+# - LCD_DIN: GPIO39
+# - LCD_CS:  GPIO21
+# - LCD_DC:  GPIO45
+# - LCD_RST: GPIO40
+# - LCD_BL:  GPIO46
+
+packages:
+  base: !include espectre-s3.yaml
+
+# Touch-LCD board profile
+esp32:
+  board: esp32s3_120_16_8-qio_opi
+
+# ESPectre cadence and display-driven updates
+espectre:
+  id: espectre_csi
+  movement_sensor:
+    name: "Movement Score"
+    id: espectre_movement_score
+    on_value:
+      then:
+        - component.update: tft_display
+  motion_sensor:
+    name: "Motion Detected"
+    id: espectre_motion_detected
+    on_state:
+      then:
+        - component.update: tft_display
+  threshold_number:
+    name: "Threshold"
+    id: espectre_threshold
+
+spi:
+  clk_pin: GPIO38
+  mosi_pin: GPIO39
+
+display:
+  - platform: mipi_spi
+    id: tft_display
+    model: ST7789V
+    dimensions:
+      width: 172
+      height: 320
+      offset_width: 34
+      offset_height: 0
+    color_order: RGB
+    invert_colors: false
+    transform:
+      mirror_x: true
+      mirror_y: false
+      swap_xy: false
+    cs_pin: GPIO21
+    dc_pin: GPIO45
+    reset_pin: GPIO40
+    enable_pin: GPIO46
+    data_rate: 40MHz
+    update_interval: never
+    lambda: |-
+      it.fill(Color(0, 0, 0));
+
+      const bool motion_valid = id(espectre_motion_detected).has_state();
+      const bool movement_valid = id(espectre_movement_score).has_state();
+      const bool threshold_valid = id(espectre_threshold).has_state();
+
+      it.printf(8, 10, id(font_title), Color(255, 255, 255), "ESPectre");
+
+      if (motion_valid && id(espectre_motion_detected).state) {
+        it.printf(8, 46, id(font_state), Color(255, 0, 0), "MOTION");
+      } else if (motion_valid) {
+        it.printf(8, 46, id(font_state), Color(0, 255, 0), "IDLE");
+      } else {
+        it.printf(8, 46, id(font_state), Color(255, 255, 0), "BOOT");
+      }
+
+      if (movement_valid) {
+        it.printf(8, 110, id(font_body), Color(0, 255, 255), "Movement: %.2f", id(espectre_movement_score).state);
+      } else {
+        it.printf(8, 110, id(font_body), Color(0, 255, 255), "Movement: --");
+      }
+
+      if (threshold_valid) {
+        it.printf(8, 136, id(font_body), Color(255, 255, 255), "Threshold: %.2f", id(espectre_threshold).state);
+      } else {
+        it.printf(8, 136, id(font_body), Color(255, 255, 255), "Threshold: --");
+      }
+
+      it.printf(8, 292, id(font_small), Color(140, 140, 140), "refresh: every 100 packets");
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_title
+    size: 22
+  - file: "gfonts://Roboto"
+    id: font_state
+    size: 42
+  - file: "gfonts://Roboto"
+    id: font_body
+    size: 22
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 14

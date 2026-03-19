@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.7.1] - in progress - CI hardening, dependency refresh, and S3 Touch LCD example
+
+### Highlights
+
+- **Security and governance tightened**: introduced automated CLA enforcement with contributor-assistant, tracked signature registry, and a dedicated CodeQL SAST workflow for C++ and Python.
+- **CI reliability improved for emulated targets**: ESP32 QEMU smoke tests now handle known PHY emulator limitations, restore ESP32 coverage, remove unsupported C6 matrix entries, and consolidate per-chip local test configs.
+- **Developer and runtime tooling updated**: upgraded ESPHome 2026.3.0, with measured improvements in flash footprint, heap availability, and loop-time stability.
+- **New hardware profile for S3 display boards**: added a dedicated `ESP32-S3 Touch LCD 1.47"` example extending `espectre-s3.yaml`, with tuned ST7789 settings and on-device motion status rendering.
+
+### Fixed
+
+- **Code scanning findings addressed in Micro-ESPectre tools**: replaced insecure temporary-file creation, added safer UDP bind behavior with environment-aware host detection, and exposed `--bind-ip` in `./me collect`.
+- **Interactive collection backlog handling**: CSI collector now drains queued UDP packets after countdown/prompt phases and uses monotonic timing to avoid stale packet artifacts in captures.
+- **Workflow permission hardening**: added explicit `contents: read` permissions where required by security checks.
+
+### Changed
+
+- **Dependabot signal-to-noise in CI**: grouped update strategy was refined to reduce PR noise while keeping critical dependency maintenance active.
+- **QEMU example/config organization**: moved smoke-test configs under a single reusable action path and removed obsolete branch-split config handling.
+- **UART example cleanup**: removed `examples/uart/` and documented optional `hardware_uart: UART0` usage in classic configs for USB-UART bridge boards.
+- **Baseline version alignment for examples/tests**: raised `min_version` to `2026.2.0` in example and QEMU configs.
+
+### Added
+
+- **ESP32-S3 Touch LCD example**: new `examples/espectre-s3-touch-lcd.yaml` package-based configuration for Waveshare/compatible 1.47" boards.
+
+---
+
 ## [2.7.0] - 2026-03-17 - ESPectre configuration over BLE and subcarrier normalization
 
 ### Highlights
