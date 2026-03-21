@@ -169,13 +169,27 @@ If you've already set up the main ESPectre project, you can reuse that virtual e
 git clone https://github.com/francescopace/espectre.git
 cd espectre/micro-espectre
 
+# Verify Python version (3.12 required)
+python3 --version  # Should show Python 3.12.x
+
 # Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On macOS/Linux
-# venv\Scripts\activate   # On Windows
+python3.12 -m venv venv      # macOS/Linux — use python3 if pyenv auto-selected 3.12
+source venv/bin/activate     # On macOS/Linux
+# venv\Scripts\activate      # On Windows
 
 # Your prompt should now show (venv) prefix
 ```
+
+> **Tip — Python 3.12 not found?**
+>
+> **macOS (Homebrew):** `brew install python@3.12`
+>
+> **pyenv (any OS):**
+> ```bash
+> pyenv install 3.12
+> # The .python-version file in this directory selects it automatically
+> ```
+> After installing, re-run `python3.12 -m venv venv`.
 
 **Why use a virtual environment?**
 - Isolates project dependencies from system Python
