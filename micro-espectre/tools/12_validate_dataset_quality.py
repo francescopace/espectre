@@ -203,7 +203,7 @@ def validate_signal_quality(csi_data, filename):
     for i in range(num_packets):
         if np.all(csi_data[i] == 0):
             zero_packets += 1
-    zero_ratio = zero_packets / num_packets
+    zero_ratio = zero_packets / num_packets if num_packets > 0 else 0
     if zero_ratio > MAX_ZERO_PACKET_RATIO:
         results.append(ValidationResult("zero_packets", "WARN",
             f"Zero-packet ratio: {zero_ratio:.4f} ({zero_packets}/{num_packets})", zero_ratio))
