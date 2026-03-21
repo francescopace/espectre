@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **ESP32-S3 Touch LCD example**: new `examples/espectre-s3-touch-lcd.yaml` package-based configuration for Waveshare/compatible 1.47" boards.
+- **Research notebooks and dataset quality tooling (Micro-ESPectre)**: added `micro-espectre/notebooks/01_csi_data_explorer.ipynb` and `micro-espectre/notebooks/02_feature_extraction_and_ml.ipynb` for interactive CSI/ML walkthroughs
 
 ---
 
