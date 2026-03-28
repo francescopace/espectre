@@ -25,12 +25,9 @@ import numpy as np
 import math
 
 # Import csi_utils first - it sets up paths automatically
-from csi_utils import load_baseline_and_movement, DEFAULT_SUBCARRIERS, DATA_DIR
-from config import SEG_WINDOW_SIZE, SEG_THRESHOLD
+from csi_utils import load_baseline_and_movement, DATA_DIR
+from config import SEG_WINDOW_SIZE, SEG_THRESHOLD, DEFAULT_SUBCARRIERS
 from segmentation import SegmentationContext
-
-# Alias for backward compatibility
-SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
 
 # Alias for backward compatibility
 WINDOW_SIZE = SEG_WINDOW_SIZE
@@ -283,7 +280,7 @@ def main():
             data['baseline'] + data['movement'], chip, data['num_sc']
         )
         # Use proportional subcarrier selection for each chip
-        selected_scs[chip] = [int(sc * data['num_sc'] / 64) for sc in SELECTED_SUBCARRIERS]
+        selected_scs[chip] = [int(sc * data['num_sc'] / 64) for sc in DEFAULT_SUBCARRIERS]
         print(f"\n  {chip} selected subcarriers: {selected_scs[chip]}")
     
     # Calculate selected SC averages
@@ -414,7 +411,7 @@ def main():
             for chip in chip_list:
                 means = [amp_stats[chip]['stats'][i]['mean'] for i in range(64)]
                 ax.plot(means, label=chip, alpha=0.7, color=chip_colors.get(chip, 'gray'))
-            ax.axvspan(min(SELECTED_SUBCARRIERS), max(SELECTED_SUBCARRIERS), 
+            ax.axvspan(min(DEFAULT_SUBCARRIERS), max(DEFAULT_SUBCARRIERS), 
                        alpha=0.2, color='yellow', label='Selected SC')
             ax.set_xlabel('Subcarrier Index')
             ax.set_ylabel('Mean Amplitude')

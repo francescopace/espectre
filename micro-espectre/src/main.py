@@ -17,9 +17,6 @@ from src.mqtt.handler import MQTTHandler
 from src.traffic_generator import TrafficGenerator
 import src.config as config
 
-# Default subcarriers (used if not configured or for fallback in case of error)
-DEFAULT_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
-
 # Gain lock configuration
 GAIN_LOCK_PACKETS = 300  # ~3 seconds at 100 Hz
 
@@ -328,9 +325,8 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
         # CV normalization: only needed when gain is not locked
         detector.set_cv_normalization(needs_cv)
         
-        # Use ML-specific subcarriers (must match model training)
-        from src.ml_detector import ML_SUBCARRIERS
-        config.SELECTED_SUBCARRIERS = ML_SUBCARRIERS
+        # Use unified default subcarriers from central config
+        config.SELECTED_SUBCARRIERS = config.DEFAULT_SUBCARRIERS
         
         print('')
         print('='*60)
@@ -449,7 +445,7 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None):
     
     # Run calibration (both algorithms now return adaptive_threshold)
     success = False
-    config.SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+    config.SELECTED_SUBCARRIERS = config.DEFAULT_SUBCARRIERS
     
     # Stop traffic generator during band evaluation to free memory
     tg_was_running = traffic_gen.is_running()

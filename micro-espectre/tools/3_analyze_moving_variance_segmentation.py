@@ -3,7 +3,7 @@
 MVS Subcarrier Selection Comparison Tool
 
 Compares two subcarrier selection strategies for MVS motion detection:
-1. Fixed: Hardcoded subcarriers (SELECTED_SUBCARRIERS constant)
+1. Fixed: Default subcarriers (DEFAULT_SUBCARRIERS from config)
 2. NBVI: Normalized Baseline Variability Index algorithm
 
 Usage:
@@ -25,15 +25,12 @@ import sys
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     load_baseline_and_movement, MVSDetector, find_dataset,
-    NBVICalibrator, DEFAULT_SUBCARRIERS, load_dataset_info,
+    NBVICalibrator, load_dataset_info,
     load_npz_as_packets, DATA_DIR
 )
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
-                    ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF)
-
-# Alias for backward compatibility
-SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+                    ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF, DEFAULT_SUBCARRIERS)
 
 # Alias for backward compatibility
 WINDOW_SIZE = SEG_WINDOW_SIZE
@@ -538,7 +535,7 @@ def main():
     # Select subcarriers using each strategy
     print("\n🔧 Selecting subcarriers...")
     
-    fixed_subcarriers = list(SELECTED_SUBCARRIERS)
+    fixed_subcarriers = list(DEFAULT_SUBCARRIERS)
     print(f"   Fixed: {fixed_subcarriers}")
     
     nbvi_subcarriers, nbvi_adaptive_threshold, nbvi_time_ms = select_subcarriers_nbvi(baseline_packets)

@@ -22,14 +22,11 @@ import argparse
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     load_baseline_and_movement, HampelFilter,
-    calculate_spatial_turbulence, find_dataset, DEFAULT_SUBCARRIERS
+    calculate_spatial_turbulence, find_dataset
 )
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
-                    HAMPEL_WINDOW, HAMPEL_THRESHOLD)
+                    HAMPEL_WINDOW, HAMPEL_THRESHOLD, DEFAULT_SUBCARRIERS)
 from segmentation import SegmentationContext
-
-# Alias for backward compatibility
-SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
 
 # Alias for backward compatibility
 WINDOW_SIZE = SEG_WINDOW_SIZE
@@ -127,7 +124,7 @@ def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarrier
 def run_comparison(baseline_packets, movement_packets, track_data=False):
     """Compare 4 filtering approaches"""
     results = {}
-    num_sc = len(SELECTED_SUBCARRIERS)
+    num_sc = len(DEFAULT_SUBCARRIERS)
     
     # 1. No Filter
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
@@ -135,7 +132,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                SELECTED_SUBCARRIERS,
+                DEFAULT_SUBCARRIERS,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
@@ -147,7 +144,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                SELECTED_SUBCARRIERS,
+                DEFAULT_SUBCARRIERS,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
@@ -163,7 +160,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                SELECTED_SUBCARRIERS,
+                DEFAULT_SUBCARRIERS,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
@@ -175,7 +172,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                SELECTED_SUBCARRIERS,
+                DEFAULT_SUBCARRIERS,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
@@ -195,7 +192,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
             pkt['csi_data'],
             hampel_I,
             hampel_Q,
-            SELECTED_SUBCARRIERS,
+            DEFAULT_SUBCARRIERS,
             gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)
@@ -210,7 +207,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
             pkt['csi_data'],
             hampel_I,
             hampel_Q,
-            SELECTED_SUBCARRIERS,
+            DEFAULT_SUBCARRIERS,
             gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)
@@ -228,7 +225,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         turb = calculate_turbulence_filtered_amplitudes(
             pkt['csi_data'],
             hampel_amps,
-            SELECTED_SUBCARRIERS,
+            DEFAULT_SUBCARRIERS,
             gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)
@@ -241,7 +238,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         turb = calculate_turbulence_filtered_amplitudes(
             pkt['csi_data'],
             hampel_amps,
-            SELECTED_SUBCARRIERS,
+            DEFAULT_SUBCARRIERS,
             gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)

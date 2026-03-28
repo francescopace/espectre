@@ -23,11 +23,13 @@ TOOLS_PATH = Path(__file__).parent.parent / 'tools'
 sys.path.insert(0, str(TOOLS_PATH))
 sys.path.insert(0, str(SRC_PATH))
 
+from config import DEFAULT_SUBCARRIERS
+
 # Data directory (shared between tests and tools)
 DATA_DIR = Path(__file__).parent.parent / 'data'
 DATASET_INFO_PATH = DATA_DIR / 'dataset_info.json'
 PAIR_MAX_DELTA_SECONDS = 30 * 60
-UNIT_TEST_SUBCARRIERS = [12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]
+UNIT_TEST_SUBCARRIERS = DEFAULT_SUBCARRIERS
 
 
 def _load_dataset_info():
@@ -87,18 +89,7 @@ def default_subcarriers(request):
         # dataset_config and stay strict metadata-driven.
         return UNIT_TEST_SUBCARRIERS
 
-    baseline_path, _, _, _ = dataset_config
-    filename = Path(baseline_path).name
-    dataset_info = _load_dataset_info()
-    _, entry = _lookup_file_info(dataset_info, filename)
-    if entry and "optimal_subcarriers_gridsearch" in entry:
-        band = entry["optimal_subcarriers_gridsearch"]
-        if isinstance(band, list) and len(band) == 12:
-            return band
-
-    raise RuntimeError(
-        f"Missing valid optimal_subcarriers_gridsearch for dataset '{filename}' in dataset_info.json"
-    )
+    return UNIT_TEST_SUBCARRIERS
 
 
 @pytest.fixture
@@ -109,39 +100,13 @@ def optimal_threshold(request):
     If temporal pairing is invalid (>30 min) or metadata is missing,
     falls back to 1.0.
     """
-    try:
-        dataset_config = request.getfixturevalue('dataset_config')
-        baseline_path, _, _, _ = dataset_config
-    except pytest.FixtureLookupError:
-        return 1.0
-
-    filename = Path(baseline_path).name
-    dataset_info = _load_dataset_info()
-    label, entry = _lookup_file_info(dataset_info, filename)
-    if entry is None:
-        return 1.0
-
-    if _pair_is_temporally_valid(dataset_info, label, entry):
-        return float(entry.get("optimal_threshold_gridsearch", 1.0))
-    # Single-dataset fallback mode.
-    return float(entry.get("optimal_threshold_gridsearch", 1.0))
+    return 1.0
 
 
 @pytest.fixture
 def pairing_mode(request):
     """Return pairing mode for logs: paired or single-dataset fallback."""
-    try:
-        dataset_config = request.getfixturevalue('dataset_config')
-        baseline_path, _, _, _ = dataset_config
-    except pytest.FixtureLookupError:
-        return "paired"
-
-    filename = Path(baseline_path).name
-    dataset_info = _load_dataset_info()
-    label, entry = _lookup_file_info(dataset_info, filename)
-    if entry is None:
-        return "single-dataset fallback"
-    return "paired" if _pair_is_temporally_valid(dataset_info, label, entry) else "single-dataset fallback"
+    return "default"
 
 
 @pytest.fixture

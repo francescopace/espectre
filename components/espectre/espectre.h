@@ -48,9 +48,6 @@ namespace espectre {
 
 static const char *const TAG = "espectre";
 
-// Default subcarrier selection (top 12 most informative)
-constexpr uint8_t DEFAULT_SUBCARRIERS[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
-
 class ESpectreComponent : public Component {
  public:
   void setup() override;
@@ -184,7 +181,11 @@ class ESpectreComponent : public Component {
   bool hampel_enabled_{false};
   uint8_t hampel_window_{7};
   float hampel_threshold_{4.0f};
-  uint8_t selected_subcarriers_[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+  uint8_t selected_subcarriers_[12] = {
+    DEFAULT_SUBCARRIERS[0], DEFAULT_SUBCARRIERS[1], DEFAULT_SUBCARRIERS[2], DEFAULT_SUBCARRIERS[3],
+    DEFAULT_SUBCARRIERS[4], DEFAULT_SUBCARRIERS[5], DEFAULT_SUBCARRIERS[6], DEFAULT_SUBCARRIERS[7],
+    DEFAULT_SUBCARRIERS[8], DEFAULT_SUBCARRIERS[9], DEFAULT_SUBCARRIERS[10], DEFAULT_SUBCARRIERS[11]
+  };
   
   bool user_specified_subcarriers_{false};  // True if user specified in YAML
   ThresholdMode threshold_mode_{ThresholdMode::AUTO};  // Threshold calculation mode

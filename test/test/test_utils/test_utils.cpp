@@ -253,7 +253,7 @@ void test_turbulence_baseline_vs_movement(void) {
         return;
     }
     
-    uint8_t subcarriers[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+    const uint8_t* subcarriers = DEFAULT_SUBCARRIERS;
     
     float baseline_turb = calculate_spatial_turbulence_from_csi(
         baseline_packets[50], 128, subcarriers, 12);
@@ -275,7 +275,7 @@ void test_turbulence_from_csi_nonzero_real_data(void) {
         return;
     }
     
-    uint8_t subcarriers[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+    const uint8_t* subcarriers = DEFAULT_SUBCARRIERS;
     
     int nonzero_count = 0;
     for (int i = 0; i < 50 && i < num_baseline; i++) {

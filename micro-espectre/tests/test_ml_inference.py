@@ -142,10 +142,11 @@ class TestMLDetectorIntegration:
     
     def test_mldetector_import(self):
         """Test that MLDetector can be imported."""
-        from ml_detector import MLDetector, ML_SUBCARRIERS
+        from ml_detector import MLDetector
+        from config import DEFAULT_SUBCARRIERS
         
         assert MLDetector is not None
-        assert len(ML_SUBCARRIERS) == 12
+        assert len(DEFAULT_SUBCARRIERS) == 12
     
     def test_mldetector_initialization(self):
         """Test MLDetector initialization."""

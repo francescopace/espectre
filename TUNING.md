@@ -29,8 +29,10 @@ On first boot, keep the room **empty and still** for 10 seconds. The system will
 
 Look for log messages like:
 ```
-[I][Calibration]: ✓ Calibration successful: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+[I][Calibration]: ✓ Calibration successful: [<12 auto-selected subcarriers>]
 ```
+
+NOTE: In ML mode, calibration is skipped and logs show fixed defaults.
 
 ### 3. Test Movement
 
@@ -126,13 +128,6 @@ espectre:
 |-----------|-------------|-----------------|----------|
 | `mvs` | Moving Variance Segmentation | 0.0 - 10.0 | General purpose, adaptive |
 | `ml` | Neural Network (MLP 12→16→8→1) | 0.0 - 10.0 (scaled metric) | Higher accuracy |
-
-**ML Detector Notes:**
-- Uses fixed subcarriers `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]` for consistency with training
-- Motion decision uses a scaled ML metric with default threshold `5.0` (range `0.0-10.0`, aligned with MVS UI)
-- Pre-trained weights are embedded in the component (no external files needed)
-- Architecture validated as optimal (12→16→8→1, 353 params, 1.4 KB) via 5-fold CV
-- Training uses early stopping, dropout, class weights, and LR scheduling
 
 ### Window Size (10-200 packets)
 

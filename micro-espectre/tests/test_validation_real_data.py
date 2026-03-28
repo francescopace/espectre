@@ -956,12 +956,13 @@ class TestPerformanceMetrics:
         ML uses a pre-trained MLP model for motion classification.
         No calibration needed - uses pre-trained weights.
         
-        Note: ML model uses fixed subcarriers from ML_SUBCARRIERS regardless of chip type.
+        Note: ML model uses fixed subcarriers from config.DEFAULT_SUBCARRIERS regardless of chip type.
         CV normalization is enabled for chips without gain lock (ESP32).
         
         Target: >95% Recall, <fp_rate_target% FP Rate
         """
-        from ml_detector import MLDetector, ML_SUBCARRIERS
+        from ml_detector import MLDetector
+        from config import DEFAULT_SUBCARRIERS
         from detector_interface import MotionState
 
         baseline_packets, movement_packets = real_data
@@ -970,7 +971,7 @@ class TestPerformanceMetrics:
         num_movement = len(movement_packets)
         
         # ML model uses fixed subcarriers (must match training)
-        ml_subcarriers = ML_SUBCARRIERS
+        ml_subcarriers = DEFAULT_SUBCARRIERS
         
         # ========================================
         # Initialize ML Detector (no calibration needed)

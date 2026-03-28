@@ -20,9 +20,10 @@ import argparse
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     load_npz_as_packets, test_mvs_configuration, MVSDetector,
-    find_dataset, DEFAULT_SUBCARRIERS
+    find_dataset
 )
 from config import (
+    DEFAULT_SUBCARRIERS,
     SEG_WINDOW_SIZE,
     SEG_THRESHOLD,
     GUARD_BAND_LOW,
@@ -30,11 +31,6 @@ from config import (
     DC_SUBCARRIER,
 )
 
-# Alias for backward compatibility
-SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
-
-# Alias for backward compatibility
-SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
 
@@ -571,7 +567,7 @@ def print_top_results(results, num_sc, top_n=20):
     print(f"\nConfiguration for src/config.py ({num_sc} SC):")
     print(f"   WINDOW_SIZE = {best['window_size']}")
     print(f"   THRESHOLD = {best['threshold']}")
-    print(f"   SELECTED_SUBCARRIERS_{num_sc} = {best['cluster']}")
+    print(f"   DEFAULT_SUBCARRIERS_{num_sc} = {best['cluster']}")
 
     # Show alternatives with the same threshold and objective-compliant behavior
     same_threshold = [

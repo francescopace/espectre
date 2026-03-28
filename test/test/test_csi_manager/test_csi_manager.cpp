@@ -12,6 +12,7 @@
 #include <cstring>
 #include "csi_manager.h"
 #include "mvs_detector.h"
+#include "utils.h"
 #include "wifi_csi_interface.h"
 #include "esphome/core/log.h"
 #include "esp_wifi.h"
@@ -20,8 +21,8 @@ using namespace esphome::espectre;
 
 static const char *TAG = "test_csi_manager";
 
-// Test subcarrier selection
-static const uint8_t TEST_SUBCARRIERS[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+// Use project default subcarriers in all CSIManager tests.
+static const uint8_t* const TEST_SUBCARRIERS = DEFAULT_SUBCARRIERS;
 
 /**
  * Mock WiFi CSI for testing

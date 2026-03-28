@@ -39,6 +39,7 @@
 #include <cstring>
 #include <unordered_map>
 #include <ArduinoJson.h>
+#include "utils.h"
 
 namespace csi_test_data {
 
@@ -194,6 +195,7 @@ inline bool load_tuning_cache();
 inline const char* baseline_file_for_chip(ChipType chip);
 inline const char* movement_file_for_chip(ChipType chip);
 inline std::vector<ChipType> get_available_chips();
+inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm);
 
 /**
  * Check if a chip type should be skipped in tests.
@@ -229,22 +231,10 @@ struct ChipDatasetSelection {
     std::string baseline_path;
     std::string movement_path;
     std::string baseline_collected_at;
+    std::string movement_collected_at;
     bool valid = false;
 };
-struct BaselineTuningEntry {
-    std::vector<uint8_t> subcarriers;
-    std::string collected_at;
-    std::string pair_movement_file;
-};
-static std::unordered_map<std::string, BaselineTuningEntry> g_tuning_by_baseline;
-static std::unordered_map<std::string, std::string> g_movement_collected_at;
 static std::array<ChipDatasetSelection, CHIP_COUNT> g_selected_by_chip;
-
-inline std::string filename_from_path(const char* filepath) {
-    std::string path(filepath ? filepath : "");
-    size_t slash = path.find_last_of("/\\");
-    return (slash == std::string::npos) ? path : path.substr(slash + 1);
-}
 
 inline bool load_tuning_cache() {
     if (g_tuning_cache_loaded) {
@@ -266,79 +256,23 @@ inline bool load_tuning_cache() {
     }
 
     JsonArray baseline_entries = doc["files"]["baseline"].as<JsonArray>();
-    for (JsonObject entry : baseline_entries) {
-        const char* filename = entry["filename"];
-        JsonArray arr = entry["optimal_subcarriers_gridsearch"].as<JsonArray>();
-        if (filename == nullptr || arr.isNull() || arr.size() != 12) {
-            continue;
-        }
-
-        std::vector<uint8_t> band;
-        band.reserve(12);
-        bool valid = true;
-        for (JsonVariant sc : arr) {
-            if (!sc.is<int>()) {
-                valid = false;
-                break;
-            }
-            int value = sc.as<int>();
-            if (value < 0 || value > 255) {
-                valid = false;
-                break;
-            }
-            band.push_back(static_cast<uint8_t>(value));
-        }
-        if (valid && band.size() == 12) {
-            BaselineTuningEntry tuning{};
-            tuning.subcarriers = band;
-            const char* collected_at = entry["collected_at"];
-            const char* pair_movement = entry["optimal_pair_movement_file"];
-            if (collected_at != nullptr) {
-                tuning.collected_at = collected_at;
-            }
-            if (pair_movement != nullptr) {
-                tuning.pair_movement_file = pair_movement;
-            }
-            g_tuning_by_baseline[filename] = tuning;
-        }
-    }
-
-    JsonArray movement_entries = doc["files"]["movement"].as<JsonArray>();
-    struct MovementMeta {
-        ChipType chip;
-        int subcarriers;
+    struct LatestFile {
+        std::string filename;
+        std::string path;
+        std::string collected_at;
+        bool valid = false;
     };
-    std::unordered_map<std::string, MovementMeta> movement_meta;
-    for (JsonObject entry : movement_entries) {
-        const char* filename = entry["filename"];
-        const char* collected_at = entry["collected_at"];
-        const char* chip_text = entry["chip"];
-        int subcarriers = entry["subcarriers"] | 0;
-        ChipType chip{};
-        if (filename != nullptr && chip_from_string(chip_text, chip)) {
-            movement_meta[filename] = MovementMeta{chip, subcarriers};
-        }
-        if (filename != nullptr && collected_at != nullptr) {
-            g_movement_collected_at[filename] = collected_at;
-        }
-    }
+    std::array<LatestFile, CHIP_COUNT> latest_baseline{};
+    std::array<LatestFile, CHIP_COUNT> latest_movement{};
+    std::array<std::vector<LatestFile>, CHIP_COUNT> baseline_candidates{};
+    std::array<std::vector<LatestFile>, CHIP_COUNT> movement_candidates{};
 
-    for (auto& selected : g_selected_by_chip) {
-        selected = ChipDatasetSelection{};
-    }
-
-    const std::string base_path = "../micro-espectre/data/";
     for (JsonObject entry : baseline_entries) {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
         int subcarriers = entry["subcarriers"] | 0;
-        const char* pair_movement = entry["optimal_pair_movement_file"];
         const char* collected_at = entry["collected_at"];
-        if (filename == nullptr || chip_text == nullptr ||
-            pair_movement == nullptr || collected_at == nullptr) {
-            continue;
-        }
-        if (subcarriers != 64) {
+        if (filename == nullptr || chip_text == nullptr || collected_at == nullptr) {
             continue;
         }
 
@@ -346,30 +280,134 @@ inline bool load_tuning_cache() {
         if (!chip_from_string(chip_text, chip)) {
             continue;
         }
-        auto mit = movement_meta.find(pair_movement);
-        if (mit == movement_meta.end()) {
-            continue;
-        }
-        if (mit->second.chip != chip || mit->second.subcarriers != 64) {
-            continue;
-        }
-
         const int idx = chip_index(chip);
         if (idx < 0) {
             continue;
         }
 
-        ChipDatasetSelection& selected = g_selected_by_chip[idx];
-        const std::string current_ts(collected_at);
-        if (selected.valid && current_ts <= selected.baseline_collected_at) {
+        // Keep the latest baseline per chip for robust fallback pairing.
+        if (subcarriers == 64) {
+            LatestFile candidate{};
+            candidate.filename = filename;
+            candidate.path = std::string("../micro-espectre/data/baseline/") + filename;
+            candidate.collected_at = collected_at;
+            candidate.valid = true;
+            baseline_candidates[idx].push_back(candidate);
+
+            LatestFile& latest = latest_baseline[idx];
+            const std::string ts(collected_at);
+            if (!latest.valid || ts > latest.collected_at) {
+                latest.filename = filename;
+                latest.path = std::string("../micro-espectre/data/baseline/") + filename;
+                latest.collected_at = ts;
+                latest.valid = true;
+            }
+        }
+
+    }
+
+    JsonArray movement_entries = doc["files"]["movement"].as<JsonArray>();
+    for (JsonObject entry : movement_entries) {
+        const char* filename = entry["filename"];
+        const char* collected_at = entry["collected_at"];
+        const char* chip_text = entry["chip"];
+        int subcarriers = entry["subcarriers"] | 0;
+        ChipType chip{};
+        if (filename != nullptr && chip_from_string(chip_text, chip)) {
+            if (subcarriers == 64 && collected_at != nullptr) {
+                const int idx = chip_index(chip);
+                if (idx >= 0) {
+                    LatestFile& latest = latest_movement[idx];
+                    const std::string ts(collected_at);
+                    LatestFile candidate{};
+                    candidate.filename = filename;
+                    candidate.path = std::string("../micro-espectre/data/movement/") + filename;
+                    candidate.collected_at = ts;
+                    candidate.valid = true;
+                    movement_candidates[idx].push_back(candidate);
+
+                    if (!latest.valid || ts > latest.collected_at) {
+                        latest.filename = filename;
+                        latest.path = std::string("../micro-espectre/data/movement/") + filename;
+                        latest.collected_at = ts;
+                        latest.valid = true;
+                    }
+                }
+            }
+        }
+    }
+
+    for (auto& selected : g_selected_by_chip) {
+        selected = ChipDatasetSelection{};
+    }
+
+    // Select one 64SC baseline/movement pair per chip using nearest timestamps.
+    auto parse_epoch = [](const std::string& ts, std::time_t& out_epoch) -> bool {
+        std::tm tm_val{};
+        if (!parse_iso8601_datetime(ts, tm_val)) {
+            return false;
+        }
+        std::time_t epoch = std::mktime(&tm_val);
+        if (epoch == static_cast<std::time_t>(-1)) {
+            return false;
+        }
+        out_epoch = epoch;
+        return true;
+    };
+
+    for (ChipType chip : get_available_chips()) {
+        const int idx = chip_index(chip);
+        if (idx < 0) {
             continue;
         }
 
-        selected.baseline_filename = filename;
-        selected.movement_filename = pair_movement;
-        selected.baseline_collected_at = current_ts;
-        selected.baseline_path = base_path + "baseline/" + selected.baseline_filename;
-        selected.movement_path = base_path + "movement/" + selected.movement_filename;
+        if (baseline_candidates[idx].empty() || movement_candidates[idx].empty()) {
+            continue;
+        }
+
+        LatestFile best_baseline{};
+        LatestFile best_movement{};
+        bool found_nearest_pair = false;
+        double best_delta = 1e100;
+        for (const auto& b : baseline_candidates[idx]) {
+            std::time_t b_epoch{};
+            if (!parse_epoch(b.collected_at, b_epoch)) {
+                continue;
+            }
+            for (const auto& m : movement_candidates[idx]) {
+                std::time_t m_epoch{};
+                if (!parse_epoch(m.collected_at, m_epoch)) {
+                    continue;
+                }
+                const double delta = std::fabs(std::difftime(m_epoch, b_epoch));
+                if (!found_nearest_pair || delta < best_delta) {
+                    best_delta = delta;
+                    best_baseline = b;
+                    best_movement = m;
+                    found_nearest_pair = true;
+                }
+            }
+        }
+
+        ChipDatasetSelection& selected = g_selected_by_chip[idx];
+        if (found_nearest_pair) {
+            selected.baseline_filename = best_baseline.filename;
+            selected.movement_filename = best_movement.filename;
+            selected.baseline_path = best_baseline.path;
+            selected.movement_path = best_movement.path;
+            selected.baseline_collected_at = best_baseline.collected_at;
+            selected.movement_collected_at = best_movement.collected_at;
+        } else {
+            if (!latest_baseline[idx].valid || !latest_movement[idx].valid) {
+                continue;
+            }
+            selected.baseline_filename = latest_baseline[idx].filename;
+            selected.movement_filename = latest_movement[idx].filename;
+            selected.baseline_path = latest_baseline[idx].path;
+            selected.movement_path = latest_movement[idx].path;
+            selected.baseline_collected_at = latest_baseline[idx].collected_at;
+            selected.movement_collected_at = latest_movement[idx].collected_at;
+        }
         selected.valid = true;
     }
 
@@ -377,7 +415,7 @@ inline bool load_tuning_cache() {
         const int idx = chip_index(chip);
         if (idx < 0 || !g_selected_by_chip[idx].valid) {
             std::fprintf(stderr,
-                "[CSI Test Data] ERROR: Missing selected 64SC pair for chip %s in dataset_info.json\n",
+                "[CSI Test Data] ERROR: Missing 64SC baseline/movement datasets for chip %s\n",
                 chip_name(chip));
             return false;
         }
@@ -407,23 +445,6 @@ inline const char* movement_file_for_chip(ChipType chip) {
         return nullptr;
     }
     return g_selected_by_chip[idx].movement_path.c_str();
-}
-
-inline bool current_optimal_subcarriers(std::vector<uint8_t>& out_band) {
-    if (!load_tuning_cache()) {
-        return false;
-    }
-    const char* baseline_file = baseline_file_for_chip(g_current_chip);
-    if (baseline_file == nullptr) {
-        return false;
-    }
-    const std::string key = filename_from_path(baseline_file);
-    auto it = g_tuning_by_baseline.find(key);
-    if (it == g_tuning_by_baseline.end()) {
-        return false;
-    }
-    out_band = it->second.subcarriers;
-    return true;
 }
 
 /**
@@ -547,28 +568,18 @@ inline bool current_pair_delta_seconds(double& out_delta_sec) {
     if (!load_tuning_cache()) {
         return false;
     }
-
-    const char* baseline_file = baseline_file_for_chip(g_current_chip);
-    if (baseline_file == nullptr) {
+    const int idx = chip_index(g_current_chip);
+    if (idx < 0 || !g_selected_by_chip[idx].valid) {
         return false;
     }
-    const std::string baseline_name = filename_from_path(baseline_file);
-    auto bit = g_tuning_by_baseline.find(baseline_name);
-    if (bit == g_tuning_by_baseline.end()) {
-        return false;
-    }
-    const std::string& movement_name = bit->second.pair_movement_file;
-    if (movement_name.empty()) {
-        return false;
-    }
-    auto mit = g_movement_collected_at.find(movement_name);
-    if (mit == g_movement_collected_at.end()) {
+    const ChipDatasetSelection& selected = g_selected_by_chip[idx];
+    if (selected.baseline_collected_at.empty() || selected.movement_collected_at.empty()) {
         return false;
     }
 
     std::tm btm{}, mtm{};
-    if (!parse_iso8601_datetime(bit->second.collected_at, btm) ||
-        !parse_iso8601_datetime(mit->second, mtm)) {
+    if (!parse_iso8601_datetime(selected.baseline_collected_at, btm) ||
+        !parse_iso8601_datetime(selected.movement_collected_at, mtm)) {
         return false;
     }
 

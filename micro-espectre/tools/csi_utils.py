@@ -50,13 +50,11 @@ def setup_paths():
 
 # Auto-setup paths when this module is imported
 setup_paths()
+import src.config as config
 
 # ============================================================================
 # Constants
 # ============================================================================
-
-# Default subcarrier band for analysis (shared across all tools)
-DEFAULT_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 # UDP Protocol constants
 MAGIC_STREAM = 0x4353  # "CS" in little-endian
@@ -489,6 +487,10 @@ class CSICollector:
     
     # File format version - increment when format changes
     FORMAT_VERSION = '1.0'
+    # Implicit readiness gate before each sample recording
+    READY_STABLE_SECONDS = 3.0
+    READY_MV_THRESHOLD = 1.0
+    READY_REFRESH_SECONDS = 0.2
     
     def __init__(
         self,
@@ -519,6 +521,7 @@ class CSICollector:
         self._recording = False
         self._recorded_packets: List[CSIPacket] = []
         self._sample_count = 0
+        self._ready_detector = self._build_ready_detector()
     
     def _get_label_dir(self) -> Path:
         """Get directory for this label, create if needed"""
@@ -695,15 +698,152 @@ class CSICollector:
             self.receiver.sock.settimeout(previous_timeout)
         return drained
 
-    def collect_timed(self, duration: float, num_samples: int = 1,
-                     countdown: int = 3, quiet: bool = False) -> List[Path]:
+    def _build_ready_detector(self) -> "MVSDetector":
+        """
+        Build a lightweight MVS detector used only as pre-recording gate.
+
+        Uses the unified default subcarriers to provide a stable and model-aligned
+        readiness indicator before each sample acquisition.
+        """
+        window_size = int(getattr(config, 'SEG_WINDOW_SIZE', 75))
+        if window_size < 10:
+            window_size = 10
+        elif window_size > 200:
+            window_size = 200
+
+        return MVSDetector(
+            window_size=window_size,
+            threshold=self.READY_MV_THRESHOLD,
+            selected_subcarriers=config.DEFAULT_SUBCARRIERS,
+            track_data=False,
+            gain_locked=True
+        )
+
+    @staticmethod
+    def _build_status_bar(ratio: float, width: int = 18) -> str:
+        """Build a compact ASCII progress bar for terminal status."""
+        clamped = max(0.0, min(1.0, ratio))
+        filled = int(round(clamped * width))
+        return '[' + ('#' * filled) + ('-' * (width - filled)) + ']'
+
+    def _wait_for_ready_state(self, quiet: bool = False) -> None:
+        """
+        Wait until environment is stable before recording.
+
+        Ready condition:
+        - moving variance <= READY_MV_THRESHOLD
+        - condition remains true for READY_STABLE_SECONDS continuously
+        """
+        if self.receiver.sock is None:
+            raise RuntimeError('Receiver socket is not initialized')
+
+        self.receiver.reset_stats()
+        self._ready_detector.reset()
+
+        warmup_target = self._ready_detector.window_size
+        processed_packets = 0
+        stable_since = None
+        last_render = 0.0
+        last_pps_time = time.monotonic()
+        last_pps_count = 0
+        current_pps = 0
+        current_mv = 0.0
+        current_state = 'WARMUP'
+        ready_ratio = 0.0
+
+        while True:
+            try:
+                data, addr = self.receiver.sock.recvfrom(1024)
+                packet = self.receiver._parse_packet(data)
+                if packet is None:
+                    continue
+
+                processed_packets += 1
+                self.receiver.packet_count += 1
+                self.receiver._check_sequence(packet.seq_num)
+
+                packet_dict = {
+                    'csi_data': packet.iq_raw,
+                    'gain_locked': packet.gain_locked
+                }
+                self._ready_detector.process_packet(packet_dict)
+
+                if processed_packets >= warmup_target:
+                    current_mv = self._ready_detector._context.current_moving_variance
+                    current_state = 'UNSTABLE' if current_mv > self.READY_MV_THRESHOLD else 'READY'
+                    ready_ratio = min(current_mv / self.READY_MV_THRESHOLD, 1.0)
+
+                    now = time.monotonic()
+                    if current_mv <= self.READY_MV_THRESHOLD:
+                        if stable_since is None:
+                            stable_since = now
+                    else:
+                        stable_since = None
+
+                    stable_elapsed = 0.0 if stable_since is None else (now - stable_since)
+                    if stable_elapsed >= self.READY_STABLE_SECONDS:
+                        if not quiet:
+                            print(
+                                '\r'
+                                + f'  {self._build_status_bar(ready_ratio)} '
+                                + f'MV {current_mv:.3f}/{self.READY_MV_THRESHOLD:.3f} '
+                                + f'| stable {self.READY_STABLE_SECONDS:.1f}/{self.READY_STABLE_SECONDS:.1f}s '
+                                + f'| pps {current_pps:3d} '
+                                + f'| drop {self.receiver.get_stats()["drop_rate"]:.1f}% '
+                                + '| READY',
+                                end='',
+                                flush=True
+                            )
+                            print()
+                        return
+                else:
+                    current_state = f'WARMUP {processed_packets}/{warmup_target}'
+                    stable_elapsed = 0.0
+
+                now = time.monotonic()
+                if now - last_pps_time >= 1.0:
+                    delta = processed_packets - last_pps_count
+                    elapsed = now - last_pps_time
+                    current_pps = int(delta / elapsed) if elapsed > 0 else 0
+                    last_pps_time = now
+                    last_pps_count = processed_packets
+
+                if (not quiet) and (now - last_render >= self.READY_REFRESH_SECONDS):
+                    drop_rate = self.receiver.get_stats()['drop_rate']
+                    status_bar = self._build_status_bar(ready_ratio)
+                    print(
+                        '\r'
+                        + f'  {status_bar} '
+                        + f'MV {current_mv:.3f}/{self.READY_MV_THRESHOLD:.3f} '
+                        + f'| stable {stable_elapsed:.1f}/{self.READY_STABLE_SECONDS:.1f}s '
+                        + f'| pps {current_pps:3d} '
+                        + f'| drop {drop_rate:.1f}% '
+                        + f'| {current_state}',
+                        end='',
+                        flush=True
+                    )
+                    last_render = now
+
+            except socket.timeout:
+                now = time.monotonic()
+                if (not quiet) and (now - last_render >= self.READY_REFRESH_SECONDS):
+                    print(
+                        '\r'
+                        + '  [------------------] waiting packets...'
+                        + ' | stable 0.0/3.0s | pps   0 | drop 0.0% | NO DATA',
+                        end='',
+                        flush=True
+                    )
+                    last_render = now
+                continue
+
+    def collect_timed(self, duration: float, num_samples: int = 1, quiet: bool = False) -> List[Path]:
         """
         Collect samples with fixed duration.
         
         Args:
             duration: Duration per sample in seconds
             num_samples: Number of samples to collect
-            countdown: Countdown seconds before each sample
             quiet: Suppress output
         
         Returns:
@@ -717,6 +857,7 @@ class CSICollector:
             print(f'{"=" * 60}')
             print(f'  Duration per sample: {duration}s')
             print(f'  Samples to collect:  {num_samples}')
+            print(f'  Ready gate:          implicit ({self.READY_STABLE_SECONDS:.1f}s stable)')
             print(f'{"=" * 60}\n')
         
         # Create socket once
@@ -728,14 +869,14 @@ class CSICollector:
             for sample_idx in range(num_samples):
                 if not quiet:
                     print(f'\nSample {sample_idx + 1}/{num_samples}')
-                    if countdown > 0:
-                        for i in range(countdown, 0, -1):
-                            print(f'  Starting in {i}...', end='\r')
-                            time.sleep(1)
-                    print(f'  ▶ RECORDING...', end='', flush=True)
+                    print('  Waiting for stable scene (ML subcarriers + MVS)...', flush=True)
 
                 # Flush packets that accumulated during countdown/idle time.
                 self._drain_udp_backlog()
+                self._wait_for_ready_state(quiet=quiet)
+
+                if not quiet:
+                    print('  ▶ RECORDING...', end='', flush=True)
 
                 # Reset and collect
                 self.receiver.reset_stats()
@@ -817,6 +958,9 @@ class CSICollector:
 
                     # Flush packets that accumulated while waiting for user input.
                     self._drain_udp_backlog()
+                    print('  Waiting for stable scene (ML subcarriers + MVS)...', flush=True)
+                    self._wait_for_ready_state(quiet=False)
+                    print('  ▶ RECORDING...', end='', flush=True)
 
                     # Collect for configured duration
                     self.receiver.reset_stats()

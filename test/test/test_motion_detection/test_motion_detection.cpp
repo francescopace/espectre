@@ -25,6 +25,7 @@
 #include "mvs_detector.h"
 #include "ml_detector.h"
 #include "csi_manager.h"
+#include "espectre.h"
 #include "nbvi_calibrator.h"
 #include "threshold.h"
 #include "esphome/core/log.h"
@@ -190,23 +191,6 @@ inline bool needs_cv_normalization() {
     return is_esp32_chip() || is_c3_chip();
 }
 
-inline const uint8_t* get_optimal_subcarriers() {
-    static uint8_t band[12] = {0};
-    std::vector<uint8_t> loaded;
-    if (!csi_test_data::current_optimal_subcarriers(loaded) || loaded.size() != 12) {
-        std::fprintf(stderr,
-                     "ERROR: Missing/invalid context-aware subcarriers in dataset_info.json "
-                     "for current chip.\n");
-        std::abort();
-    }
-    memcpy(band, loaded.data(), 12);
-    return band;
-}
-
-inline uint8_t get_optimal_subcarriers_size() {
-    return 12;
-}
-
 inline const char* get_pairing_mode() {
     return csi_test_data::is_temporally_paired_30m() ? "paired" : "single-dataset fallback";
 }
@@ -258,8 +242,8 @@ void test_mvs_optimal_subcarriers(void) {
     printf("═══════════════════════════════════════════════════════\n\n");
     
     // Get optimal subcarriers for this chip
-    const uint8_t* optimal_band = get_optimal_subcarriers();
-    const uint8_t optimal_size = get_optimal_subcarriers_size();
+    const uint8_t* optimal_band = DEFAULT_SUBCARRIERS;
+    const uint8_t optimal_size = 12;
     printf("Optimal subcarriers: [");
     for (int i = 0; i < optimal_size; i++) {
         printf("%d", optimal_band[i]);
@@ -381,8 +365,8 @@ void test_mvs_nbvi_calibration(void) {
     // (NBVI calibrator doesn't support CV normalization in Python, so we match that behavior)
     if (cv_norm) {
         printf("CV normalization enabled - using optimal subcarriers (NBVI skipped)\n");
-        const uint8_t* optimal_band = get_optimal_subcarriers();
-        const uint8_t optimal_size = get_optimal_subcarriers_size();
+        const uint8_t* optimal_band = DEFAULT_SUBCARRIERS;
+        const uint8_t optimal_size = 12;
         memcpy(calibrated_band, optimal_band, optimal_size);
         calibrated_size = optimal_size;
         
@@ -410,7 +394,7 @@ void test_mvs_nbvi_calibration(void) {
     } else {
         // Use NBVI calibration for chips without CV normalization (C5, C6, S3)
         CSIManager csi_manager;
-        csi_manager.init(&detector, get_optimal_subcarriers(), 100, GainLockMode::DISABLED, &g_wifi_mock);
+        csi_manager.init(&detector, DEFAULT_SUBCARRIERS, 100, GainLockMode::DISABLED, &g_wifi_mock);
         
         NBVICalibrator nbvi;
         nbvi.init(&csi_manager, "/tmp/test_nbvi_buffer.bin");
@@ -422,9 +406,9 @@ void test_mvs_nbvi_calibration(void) {
         
         bool calibration_success = false;
         
-        const uint8_t hinted_size = get_optimal_subcarriers_size();
+        const uint8_t hinted_size = 12;
         uint8_t percentile_tmp = 95;
-        esp_err_t err = nbvi.start_calibration(get_optimal_subcarriers(), hinted_size,
+        esp_err_t err = nbvi.start_calibration(DEFAULT_SUBCARRIERS, hinted_size,
             [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
                 if (success && size > 0) {
                     memcpy(calibrated_band, band, size);
@@ -525,9 +509,9 @@ void test_ml_detection(void) {
     detector.set_cv_normalization(cv_norm);
     
     printf("ML subcarriers: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d] (fixed)\n",
-           ML_SUBCARRIERS[0], ML_SUBCARRIERS[1], ML_SUBCARRIERS[2], ML_SUBCARRIERS[3],
-           ML_SUBCARRIERS[4], ML_SUBCARRIERS[5], ML_SUBCARRIERS[6], ML_SUBCARRIERS[7],
-           ML_SUBCARRIERS[8], ML_SUBCARRIERS[9], ML_SUBCARRIERS[10], ML_SUBCARRIERS[11]);
+           DEFAULT_SUBCARRIERS[0], DEFAULT_SUBCARRIERS[1], DEFAULT_SUBCARRIERS[2], DEFAULT_SUBCARRIERS[3],
+           DEFAULT_SUBCARRIERS[4], DEFAULT_SUBCARRIERS[5], DEFAULT_SUBCARRIERS[6], DEFAULT_SUBCARRIERS[7],
+           DEFAULT_SUBCARRIERS[8], DEFAULT_SUBCARRIERS[9], DEFAULT_SUBCARRIERS[10], DEFAULT_SUBCARRIERS[11]);
     printf("Threshold: %.1f\n\n", detector.get_threshold());
     
     // Warmup = window_size: detector needs full buffer before producing valid predictions
@@ -537,7 +521,7 @@ void test_ml_detection(void) {
     int baseline_motion = 0;
     for (int i = 0; i < num_baseline; i++) {
         detector.process_packet((const int8_t*)baseline_packets[i], pkt_size,
-                               ML_SUBCARRIERS, 12);
+                               DEFAULT_SUBCARRIERS, 12);
         detector.update_state();
         // Only count after warmup (when buffer is full)
         if (i >= warmup && detector.get_state() == MotionState::MOTION) {
@@ -551,7 +535,7 @@ void test_ml_detection(void) {
     
     for (int i = 0; i < num_movement; i++) {
         detector.process_packet((const int8_t*)movement_packets[i], pkt_size,
-                               ML_SUBCARRIERS, 12);
+                               DEFAULT_SUBCARRIERS, 12);
         detector.update_state();
         if (i >= warmup) {
             if (detector.get_state() == MotionState::MOTION) {

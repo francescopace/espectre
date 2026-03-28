@@ -14,8 +14,7 @@ Checks performed:
 SOURCE CODE ALIGNMENT:
   This script imports core functions directly from src/ to ensure correctness:
   - src/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
-  - src/ml_detector.py: ML_SUBCARRIERS [12,14,16,18,20,24,28,36,40,44,48,52]
-  - src/config.py: SEG_WINDOW_SIZE
+  - src/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
 
   Amplitude extraction is vectorized with numpy (int8 → int16 to avoid overflow)
   rather than looping through src/utils.py:extract_amplitudes() per packet.
@@ -49,8 +48,7 @@ from utils import (                                      # noqa: E402
     calculate_spatial_turbulence as _src_spatial_turbulence,
     calculate_moving_variance as _src_moving_variance,
 )
-from ml_detector import ML_SUBCARRIERS                   # noqa: E402
-from config import SEG_WINDOW_SIZE                       # noqa: E402
+from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS  # noqa: E402
 
 # ------------------------------------------------------------------
 # Constants
@@ -225,7 +223,7 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data,
     results = []
 
     if subcarriers is None:
-        subcarriers = ML_SUBCARRIERS
+        subcarriers = DEFAULT_SUBCARRIERS
 
     use_cv = not gain_locked
 
@@ -426,15 +424,11 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                 dt = None
             return chip, dt
 
-        # Build lookups from dataset_info.json
-        optimal_sc_map = {}
+        # Build gain-lock lookup from dataset_info.json
         gain_locked_map = {}
         for label in ('baseline', 'movement'):
             for entry in dataset_info.get('files', {}).get(label, []):
                 fname = entry['filename']
-                sc = entry.get('optimal_subcarriers_gridsearch')
-                if sc:
-                    optimal_sc_map[fname] = sc
                 if 'gain_locked' in entry:
                     gain_locked_map[fname] = entry['gain_locked']
 
@@ -472,8 +466,8 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
             chip = bl_chip
             mv_file = best_mv
 
-            pair_sc = optimal_sc_map.get(bl_file.name)
-            sc_source = "optimal" if pair_sc else "ML_SUBCARRIERS"
+            pair_sc = DEFAULT_SUBCARRIERS
+            sc_source = "DEFAULT_SUBCARRIERS"
             pair_gain_locked = gain_locked_map.get(bl_file.name, True)
             cv_mode = "CV" if not pair_gain_locked else "raw_std"
 
@@ -587,8 +581,7 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("- `Movement Var`: variance of spatial turbulence on movement file")
     lines.append("- `Ratio`: `Movement Var / Baseline Var`")
     lines.append("- `Gap end->start`: time between baseline end and movement start (negative means overlap)")
-    lines.append("- `Subcarriers`: `optimal` = per-pair gridsearch from dataset_info.json, "
-                 "`ML_SUBCARRIERS` = fixed production set")
+    lines.append("- `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set")
     lines.append("- `Turbulence`: `raw_std` = gain locked (raw standard deviation), "
                  "`CV` = gain not locked (coefficient of variation)\n")
 

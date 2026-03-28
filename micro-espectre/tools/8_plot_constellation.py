@@ -21,10 +21,8 @@ import argparse
 import matplotlib.pyplot as plt
 
 # Import csi_utils first - it sets up paths automatically
-from csi_utils import load_baseline_and_movement, find_dataset, DEFAULT_SUBCARRIERS
-
-# Alias for backward compatibility
-SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+from csi_utils import load_baseline_and_movement, find_dataset
+from config import DEFAULT_SUBCARRIERS
 
 def extract_iq_data(packets, subcarriers, num_packets=50, offset=0):
     """
@@ -343,7 +341,7 @@ Examples:
     if args.subcarriers:
         subcarriers = [int(x.strip()) for x in args.subcarriers.split(',')]
     else:
-        subcarriers = SELECTED_SUBCARRIERS
+        subcarriers = DEFAULT_SUBCARRIERS
     
     print("")
     print("╔═══════════════════════════════════════════════════════╗")

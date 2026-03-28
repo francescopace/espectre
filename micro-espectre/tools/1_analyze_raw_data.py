@@ -20,12 +20,10 @@ import numpy as np
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     calculate_spatial_turbulence, load_baseline_and_movement,
-    find_dataset, DATA_DIR, DEFAULT_SUBCARRIERS, load_dataset_info,
+    find_dataset, DATA_DIR, load_dataset_info,
     load_npz_as_packets
 )
-
-# Alias for backward compatibility
-SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
+from config import DEFAULT_SUBCARRIERS
 
 
 def format_variance(value: float, width: int = 12) -> str:
@@ -100,7 +98,7 @@ def analyze_packets(packets, label_name):
     for pkt in packets:
         turb = calculate_spatial_turbulence(
             pkt['csi_data'],
-            SELECTED_SUBCARRIERS,
+            DEFAULT_SUBCARRIERS,
             gain_locked=pkt.get('gain_locked', True)
         )
         turbulences.append(turb)
@@ -141,7 +139,7 @@ def compute_packet_stats(packets):
     for pkt in packets:
         turb = calculate_spatial_turbulence(
             pkt['csi_data'],
-            SELECTED_SUBCARRIERS,
+            DEFAULT_SUBCARRIERS,
             gain_locked=pkt.get('gain_locked', True)
         )
         turbulences.append(turb)

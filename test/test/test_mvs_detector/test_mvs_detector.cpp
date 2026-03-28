@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cmath>
 #include "mvs_detector.h"
+#include "utils.h"
 #include "esphome/core/log.h"
 
 // Include CSI data loader
@@ -26,7 +27,7 @@ using namespace esphome::espectre;
 
 static const char *TAG = "test_mvs_detector";
 
-static const uint8_t TEST_SUBCARRIERS[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+static const uint8_t* const TEST_SUBCARRIERS = DEFAULT_SUBCARRIERS;
 
 void setUp(void) {}
 void tearDown(void) {}

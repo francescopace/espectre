@@ -27,6 +27,9 @@ TRAFFIC_GENERATOR_RATE = 100  # Default rate (packets per second, recommended: 1
 # CSI Configuration
 CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
 
+# Default subcarriers (12 spread across HT20 band)
+DEFAULT_SUBCARRIERS = [12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]
+
 # Selected subcarriers for turbulence calculation. None to auto-calibrate at boot.
 #SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 

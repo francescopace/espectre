@@ -235,12 +235,6 @@ void test_hampel_with_varying_values(void) {
 
 // Using calculate_spatial_turbulence_from_csi from utils.h
 
-// Optimal subcarriers by dataset (found via grid search analysis)
-static const uint8_t SUBCARRIERS_64SC[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
-static const uint8_t SUBCARRIERS_256SC[] = {147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158};
-inline const uint8_t* get_subcarriers() {
-    return (csi_test_data::num_subcarriers() == 64) ? SUBCARRIERS_64SC : SUBCARRIERS_256SC;
-}
 static const uint8_t NUM_SC = 12;
 
 void test_hampel_with_real_baseline_turbulence(void) {
@@ -252,7 +246,7 @@ void test_hampel_with_real_baseline_turbulence(void) {
     float filtered_values[100];
     
     for (int i = 0; i < 100; i++) {
-        float turb = calculate_spatial_turbulence_from_csi(baseline_packets[i], packet_size, get_subcarriers(), NUM_SC);
+        float turb = calculate_spatial_turbulence_from_csi(baseline_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
         raw_values[i] = turb;
         filtered_values[i] = hampel_filter_turbulence(&state, turb);
     }
@@ -290,7 +284,7 @@ void test_hampel_with_real_movement_turbulence(void) {
     float filtered_values[100];
     
     for (int i = 0; i < 100; i++) {
-        float turb = calculate_spatial_turbulence_from_csi(movement_packets[i], packet_size, get_subcarriers(), NUM_SC);
+        float turb = calculate_spatial_turbulence_from_csi(movement_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
         raw_values[i] = turb;
         filtered_values[i] = hampel_filter_turbulence(&state, turb);
     }
@@ -314,12 +308,12 @@ void test_hampel_outlier_detection_on_real_data(void) {
     
     // Fill with baseline turbulence values
     for (int i = 0; i < 20; i++) {
-        float turb = calculate_spatial_turbulence_from_csi(baseline_packets[i], packet_size, get_subcarriers(), NUM_SC);
+        float turb = calculate_spatial_turbulence_from_csi(baseline_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
         hampel_filter_turbulence(&state, turb);
     }
     
     // Now inject a synthetic outlier (10x normal value)
-    float normal_turb = calculate_spatial_turbulence_from_csi(baseline_packets[20], packet_size, get_subcarriers(), NUM_SC);
+    float normal_turb = calculate_spatial_turbulence_from_csi(baseline_packets[20], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
     float outlier = normal_turb * 10.0f;
     
     float filtered = hampel_filter_turbulence(&state, outlier);
@@ -345,14 +339,14 @@ void test_hampel_preserves_movement_signal(void) {
     
     // First 50 baseline
     for (int i = 0; i < 50; i++) {
-        float turb = calculate_spatial_turbulence_from_csi(baseline_packets[i], packet_size, get_subcarriers(), NUM_SC);
+        float turb = calculate_spatial_turbulence_from_csi(baseline_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
         baseline_filtered[i] = hampel_filter_turbulence(&state, turb);
     }
     
     // Reset and process movement
     hampel_turbulence_init(&state, 7, 4.0f, true);
     for (int i = 0; i < 50; i++) {
-        float turb = calculate_spatial_turbulence_from_csi(movement_packets[i], packet_size, get_subcarriers(), NUM_SC);
+        float turb = calculate_spatial_turbulence_from_csi(movement_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
         movement_filtered[i] = hampel_filter_turbulence(&state, turb);
     }
     

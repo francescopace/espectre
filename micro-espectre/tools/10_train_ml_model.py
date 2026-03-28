@@ -82,9 +82,8 @@ def suppress_stderr():
 from csi_utils import (
     load_npz_as_packets,
     DATA_DIR,
-    DEFAULT_SUBCARRIERS,
 )
-from config import SEG_WINDOW_SIZE
+from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
 from segmentation import SegmentationContext
 from features import (
     extract_features_by_name, DEFAULT_FEATURES,
@@ -1370,8 +1369,7 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
             - exit_code: 0 on success, non-zero on failure
             - used_seed: seed used for training (None only on early dependency errors)
     """
-    from ml_detector import ML_SUBCARRIERS
-    subcarriers = ML_SUBCARRIERS
+    subcarriers = DEFAULT_SUBCARRIERS
     
     print("\n" + "="*60)
     print("           ML MOTION DETECTOR TRAINING")
@@ -1783,8 +1781,7 @@ def experiment_architectures():
     Recommends the best architecture by F1 (inference time as tiebreaker).
     """
     import time
-    from ml_detector import ML_SUBCARRIERS
-    subcarriers = ML_SUBCARRIERS
+    subcarriers = DEFAULT_SUBCARRIERS
     
     print("\n" + "="*60)
     print("       ARCHITECTURE EXPERIMENT")

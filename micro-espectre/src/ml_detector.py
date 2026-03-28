@@ -20,6 +20,7 @@ try:
     from src.detector_interface import IDetector, MotionState
     from src.segmentation import SegmentationContext
     from src.features import extract_features_by_name, DEFAULT_FEATURES
+    from src.config import DEFAULT_SUBCARRIERS
     from src.ml_weights import (
         FEATURE_MEAN, FEATURE_SCALE,
         W1, B1, W2, B2, W3, B3
@@ -28,24 +29,20 @@ except ImportError:
     from detector_interface import IDetector, MotionState
     from segmentation import SegmentationContext
     from features import extract_features_by_name, DEFAULT_FEATURES
+    from config import DEFAULT_SUBCARRIERS
     from ml_weights import (
         FEATURE_MEAN, FEATURE_SCALE,
         W1, B1, W2, B2, W3, B3
     )
 
 # Re-export for convenience
-__all__ = ['MLDetector', 'predict', 'is_motion', 'ML_SUBCARRIERS']
+__all__ = ['MLDetector', 'predict', 'is_motion', 'DEFAULT_SUBCARRIERS']
 
 # ML-specific constants (unified with MVS for consistent UI)
 ML_DEFAULT_THRESHOLD = 5.0
 ML_MIN_THRESHOLD = 0.0
 ML_MAX_THRESHOLD = 10.0
 ML_METRIC_SCALE = 10.0
-
-# Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
-# These must match the subcarriers used during model training
-ML_SUBCARRIERS = [12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]
-
 
 # ============================================================================
 # Neural Network Inference Functions

@@ -274,19 +274,19 @@ void ESpectreComponent::start_calibration_() {
   if (this->detection_algorithm_ == DetectionAlgorithm::ML) {
     ESP_LOGI(TAG, "ML detector uses fixed subcarriers - skipping calibration");
     
-    // Use ML_SUBCARRIERS from ml_detector.h
-    memcpy(this->selected_subcarriers_, ML_SUBCARRIERS, 12);
-    this->csi_manager_.update_subcarrier_selection(ML_SUBCARRIERS);
+    // Use unified default subcarriers
+    memcpy(this->selected_subcarriers_, DEFAULT_SUBCARRIERS, 12);
+    this->csi_manager_.update_subcarrier_selection(DEFAULT_SUBCARRIERS);
     
     // Update switch state
     if (this->calibrate_switch_ != nullptr) {
       static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
     }
     
-    ESP_LOGI(TAG, "Using ML subcarriers: [%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
-             ML_SUBCARRIERS[0], ML_SUBCARRIERS[1], ML_SUBCARRIERS[2], ML_SUBCARRIERS[3],
-             ML_SUBCARRIERS[4], ML_SUBCARRIERS[5], ML_SUBCARRIERS[6], ML_SUBCARRIERS[7],
-             ML_SUBCARRIERS[8], ML_SUBCARRIERS[9], ML_SUBCARRIERS[10], ML_SUBCARRIERS[11]);
+    ESP_LOGI(TAG, "Using default subcarriers: [%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
+             DEFAULT_SUBCARRIERS[0], DEFAULT_SUBCARRIERS[1], DEFAULT_SUBCARRIERS[2], DEFAULT_SUBCARRIERS[3],
+             DEFAULT_SUBCARRIERS[4], DEFAULT_SUBCARRIERS[5], DEFAULT_SUBCARRIERS[6], DEFAULT_SUBCARRIERS[7],
+             DEFAULT_SUBCARRIERS[8], DEFAULT_SUBCARRIERS[9], DEFAULT_SUBCARRIERS[10], DEFAULT_SUBCARRIERS[11]);
     return;
   }
   

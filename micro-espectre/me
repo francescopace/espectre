@@ -770,8 +770,7 @@ def collect_csi_data(args):
         else:
             saved = collector.collect_timed(
                 duration=args.duration,
-                num_samples=args.samples,
-                countdown=3
+                num_samples=args.samples
             )
         
         if saved:

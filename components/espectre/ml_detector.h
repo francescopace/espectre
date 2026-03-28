@@ -30,10 +30,6 @@ constexpr float ML_MIN_THRESHOLD = 0.0f;
 constexpr float ML_MAX_THRESHOLD = 10.0f;
 constexpr float ML_METRIC_SCALE = 10.0f;
 
-// Fixed subcarriers for ML (12 evenly distributed across 64, excluding guard bands and DC)
-// These must match the subcarriers used during model training
-constexpr uint8_t ML_SUBCARRIERS[12] = {12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52};
-
 /**
  * ML (Machine Learning) Detector
  * 

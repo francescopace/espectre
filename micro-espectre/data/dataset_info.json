@@ -24,23 +24,7 @@
         "collected_at": "2026-01-17T22:26:06.497945",
         "duration_ms": 10008,
         "num_packets": 1353,
-        "description": "HT20 baseline, AGC gain locked",
-        "optimal_pair_movement_file": "movement_s3_64sc_20260117_222626.npz",
-        "optimal_subcarriers_gridsearch": [
-          20,
-          21,
-          22,
-          23,
-          24,
-          25,
-          39,
-          40,
-          41,
-          42,
-          43,
-          44
-        ],
-        "optimal_threshold_gridsearch": 0.6715782199768894
+        "description": "HT20 baseline, AGC gain locked"
       },
       {
         "filename": "baseline_c3_64sc_20260203_203509.npz",
@@ -51,23 +35,7 @@
         "collected_at": "2026-02-03T20:35:09.180014",
         "duration_ms": 10006,
         "num_packets": 1344,
-        "description": "HT20 baseline, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          23,
-          24,
-          25,
-          26,
-          27,
-          28,
-          29,
-          30,
-          31,
-          33,
-          34,
-          35
-        ],
-        "optimal_threshold_gridsearch": 10.77970164729309,
-        "optimal_pair_movement_file": "movement_c3_64sc_20260203_203533.npz"
+        "description": "HT20 baseline, AGC gain locked"
       },
       {
         "filename": "baseline_esp32_64sc_20260214_183059.npz",
@@ -78,23 +46,7 @@
         "collected_at": "2026-02-14T18:30:59.355439",
         "duration_ms": 9998,
         "num_packets": 961,
-        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)",
-        "optimal_pair_movement_file": "movement_esp32_64sc_20260214_183141.npz",
-        "optimal_subcarriers_gridsearch": [
-          11,
-          12,
-          13,
-          14,
-          15,
-          16,
-          39,
-          40,
-          41,
-          42,
-          43,
-          44
-        ],
-        "optimal_threshold_gridsearch": 0.0001314312335612848
+        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)"
       },
       {
         "filename": "baseline_c6_64sc_20260310_230414.npz",
@@ -105,23 +57,7 @@
         "duration_ms": 10001,
         "num_packets": 1351,
         "gain_locked": true,
-        "description": "HT20 baseline, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          11,
-          12,
-          13,
-          14,
-          15,
-          16,
-          17,
-          18,
-          19,
-          20,
-          21,
-          22
-        ],
-        "optimal_threshold_gridsearch": 0.09423446658464983,
-        "optimal_pair_movement_file": "movement_c6_64sc_20260310_230434.npz"
+        "description": "HT20 baseline, AGC gain locked"
       },
       {
         "filename": "baseline_c5_64sc_20260310_230906.npz",
@@ -132,23 +68,7 @@
         "duration_ms": 10005,
         "num_packets": 1305,
         "gain_locked": true,
-        "description": "HT20 baseline, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          26,
-          27,
-          28,
-          29,
-          30,
-          31,
-          42,
-          43,
-          44,
-          45,
-          46,
-          47
-        ],
-        "optimal_threshold_gridsearch": 0.040256259196391565,
-        "optimal_pair_movement_file": "movement_c5_64sc_20260310_230925.npz"
+        "description": "HT20 baseline, AGC gain locked"
       },
       {
         "filename": "baseline_s3_64sc_20260310_231250.npz",
@@ -159,23 +79,7 @@
         "duration_ms": 9999,
         "num_packets": 1302,
         "gain_locked": true,
-        "description": "HT20 baseline, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          23,
-          24,
-          25,
-          26,
-          27,
-          28,
-          36,
-          37,
-          38,
-          39,
-          40,
-          41
-        ],
-        "optimal_threshold_gridsearch": 0.5503063569061978,
-        "optimal_pair_movement_file": "movement_s3_64sc_20260310_231306.npz"
+        "description": "HT20 baseline, AGC gain locked"
       },
       {
         "filename": "baseline_esp32_64sc_20260310_232100.npz",
@@ -186,23 +90,7 @@
         "duration_ms": 10012,
         "num_packets": 1120,
         "gain_locked": false,
-        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)",
-        "optimal_subcarriers_gridsearch": [
-          14,
-          15,
-          16,
-          17,
-          18,
-          19,
-          45,
-          46,
-          47,
-          48,
-          49,
-          50
-        ],
-        "optimal_threshold_gridsearch": 0.8876174077284784,
-        "optimal_pair_movement_file": "movement_esp32_64sc_20260310_232137.npz"
+        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)"
       },
       {
         "filename": "baseline_c3_64sc_20260310_232427.npz",
@@ -213,23 +101,7 @@
         "duration_ms": 9999,
         "num_packets": 1340,
         "gain_locked": true,
-        "description": "HT20 baseline, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          17,
-          18,
-          19,
-          20,
-          23,
-          24,
-          25,
-          26,
-          43,
-          44,
-          45,
-          46
-        ],
-        "optimal_threshold_gridsearch": 0.6876379718881173,
-        "optimal_pair_movement_file": "movement_c3_64sc_20260310_232443.npz"
+        "description": "HT20 baseline, AGC gain locked"
       },
       {
         "filename": "baseline_c5_64sc_20260310_233856.npz",
@@ -240,23 +112,7 @@
         "duration_ms": 10006,
         "num_packets": 1304,
         "gain_locked": true,
-        "description": "HT20 baseline, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          13,
-          14,
-          15,
-          16,
-          17,
-          18,
-          19,
-          20,
-          21,
-          22,
-          23,
-          24
-        ],
-        "optimal_threshold_gridsearch": 0.046728108543610036,
-        "optimal_pair_movement_file": "movement_c5_64sc_20260310_233928.npz"
+        "description": "HT20 baseline, AGC gain locked"
       },
       {
         "filename": "baseline_c6_64sc_20260310_234819.npz",
@@ -267,23 +123,7 @@
         "duration_ms": 10013,
         "num_packets": 1346,
         "gain_locked": true,
-        "description": "HT20 baseline, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          17,
-          18,
-          19,
-          20,
-          21,
-          22,
-          36,
-          37,
-          38,
-          39,
-          40,
-          41
-        ],
-        "optimal_threshold_gridsearch": 0.09498326360560681,
-        "optimal_pair_movement_file": "movement_c6_64sc_20260310_234839.npz"
+        "description": "HT20 baseline, AGC gain locked"
       }
     ],
     "movement": [
@@ -296,23 +136,7 @@
         "collected_at": "2026-01-17T22:26:26.747046",
         "duration_ms": 10010,
         "num_packets": 1366,
-        "description": "HT20 movement, AGC gain locked",
-        "optimal_pair_baseline_file": "baseline_s3_64sc_20260117_222606.npz",
-        "optimal_subcarriers_gridsearch": [
-          20,
-          21,
-          22,
-          23,
-          24,
-          25,
-          39,
-          40,
-          41,
-          42,
-          43,
-          44
-        ],
-        "optimal_threshold_gridsearch": 0.6715782199768894
+        "description": "HT20 movement, AGC gain locked"
       },
       {
         "filename": "movement_c3_64sc_20260203_203533.npz",
@@ -323,23 +147,7 @@
         "collected_at": "2026-02-03T20:35:33.828831",
         "duration_ms": 9998,
         "num_packets": 1318,
-        "description": "HT20 movement, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          23,
-          24,
-          25,
-          26,
-          27,
-          28,
-          29,
-          30,
-          31,
-          33,
-          34,
-          35
-        ],
-        "optimal_threshold_gridsearch": 10.77970164729309,
-        "optimal_pair_baseline_file": "baseline_c3_64sc_20260203_203509.npz"
+        "description": "HT20 movement, AGC gain locked"
       },
       {
         "filename": "movement_esp32_64sc_20260214_183141.npz",
@@ -350,23 +158,7 @@
         "collected_at": "2026-02-14T18:31:41.344311",
         "duration_ms": 15053,
         "num_packets": 1103,
-        "description": "HT20 movement, no gain lock (ESP32 lacks AGC lock support)",
-        "optimal_pair_baseline_file": "baseline_esp32_64sc_20260214_183059.npz",
-        "optimal_subcarriers_gridsearch": [
-          11,
-          12,
-          13,
-          14,
-          15,
-          16,
-          39,
-          40,
-          41,
-          42,
-          43,
-          44
-        ],
-        "optimal_threshold_gridsearch": 0.0001314312335612848
+        "description": "HT20 movement, no gain lock (ESP32 lacks AGC lock support)"
       },
       {
         "filename": "movement_c6_64sc_20260310_230434.npz",
@@ -377,23 +169,7 @@
         "duration_ms": 10009,
         "num_packets": 1432,
         "gain_locked": true,
-        "description": "HT20 movement, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          11,
-          12,
-          13,
-          14,
-          15,
-          16,
-          17,
-          18,
-          19,
-          20,
-          21,
-          22
-        ],
-        "optimal_threshold_gridsearch": 0.09423446658464983,
-        "optimal_pair_baseline_file": "baseline_c6_64sc_20260310_230414.npz"
+        "description": "HT20 movement, AGC gain locked"
       },
       {
         "filename": "movement_c5_64sc_20260310_230925.npz",
@@ -404,23 +180,7 @@
         "duration_ms": 10002,
         "num_packets": 1301,
         "gain_locked": true,
-        "description": "HT20 movement, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          26,
-          27,
-          28,
-          29,
-          30,
-          31,
-          42,
-          43,
-          44,
-          45,
-          46,
-          47
-        ],
-        "optimal_threshold_gridsearch": 0.040256259196391565,
-        "optimal_pair_baseline_file": "baseline_c5_64sc_20260310_230906.npz"
+        "description": "HT20 movement, AGC gain locked"
       },
       {
         "filename": "movement_s3_64sc_20260310_231306.npz",
@@ -431,23 +191,7 @@
         "duration_ms": 10009,
         "num_packets": 1304,
         "gain_locked": true,
-        "description": "HT20 movement, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          23,
-          24,
-          25,
-          26,
-          27,
-          28,
-          36,
-          37,
-          38,
-          39,
-          40,
-          41
-        ],
-        "optimal_threshold_gridsearch": 0.5503063569061978,
-        "optimal_pair_baseline_file": "baseline_s3_64sc_20260310_231250.npz"
+        "description": "HT20 movement, AGC gain locked"
       },
       {
         "filename": "movement_esp32_64sc_20260310_232137.npz",
@@ -458,23 +202,7 @@
         "duration_ms": 10011,
         "num_packets": 1086,
         "gain_locked": false,
-        "description": "HT20 movement, no gain lock (ESP32 lacks AGC lock support)",
-        "optimal_subcarriers_gridsearch": [
-          14,
-          15,
-          16,
-          17,
-          18,
-          19,
-          45,
-          46,
-          47,
-          48,
-          49,
-          50
-        ],
-        "optimal_threshold_gridsearch": 0.8876174077284784,
-        "optimal_pair_baseline_file": "baseline_esp32_64sc_20260310_232100.npz"
+        "description": "HT20 movement, no gain lock (ESP32 lacks AGC lock support)"
       },
       {
         "filename": "movement_c3_64sc_20260310_232443.npz",
@@ -485,23 +213,7 @@
         "duration_ms": 10006,
         "num_packets": 1340,
         "gain_locked": true,
-        "description": "HT20 movement, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          17,
-          18,
-          19,
-          20,
-          23,
-          24,
-          25,
-          26,
-          43,
-          44,
-          45,
-          46
-        ],
-        "optimal_threshold_gridsearch": 0.6876379718881173,
-        "optimal_pair_baseline_file": "baseline_c3_64sc_20260310_232427.npz"
+        "description": "HT20 movement, AGC gain locked"
       },
       {
         "filename": "movement_c5_64sc_20260310_233928.npz",
@@ -512,23 +224,7 @@
         "duration_ms": 10005,
         "num_packets": 1306,
         "gain_locked": true,
-        "description": "HT20 movement, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          13,
-          14,
-          15,
-          16,
-          17,
-          18,
-          19,
-          20,
-          21,
-          22,
-          23,
-          24
-        ],
-        "optimal_threshold_gridsearch": 0.046728108543610036,
-        "optimal_pair_baseline_file": "baseline_c5_64sc_20260310_233856.npz"
+        "description": "HT20 movement, AGC gain locked"
       },
       {
         "filename": "movement_c6_64sc_20260310_234839.npz",
@@ -539,23 +235,7 @@
         "duration_ms": 10008,
         "num_packets": 1347,
         "gain_locked": true,
-        "description": "HT20 movement, AGC gain locked",
-        "optimal_subcarriers_gridsearch": [
-          17,
-          18,
-          19,
-          20,
-          21,
-          22,
-          36,
-          37,
-          38,
-          39,
-          40,
-          41
-        ],
-        "optimal_threshold_gridsearch": 0.09498326360560681,
-        "optimal_pair_baseline_file": "baseline_c6_64sc_20260310_234819.npz"
+        "description": "HT20 movement, AGC gain locked"
       }
     ],
     "test": [
@@ -568,22 +248,7 @@
         "duration_ms": 60004,
         "num_packets": 6910,
         "gain_locked": true,
-        "description": "HT20 test, AGC gain locked. Motion starts at packet index 3455 (~30.0 s).",
-        "optimal_subcarriers_gridsearch": [
-          29,
-          30,
-          31,
-          33,
-          34,
-          35,
-          36,
-          37,
-          38,
-          39,
-          40,
-          41
-        ],
-        "optimal_threshold_gridsearch": 3.0
+        "description": "HT20 test, AGC gain locked. Motion starts at packet index 3455 (~30.0 s)."
       }
     ]
   },

@@ -14,6 +14,7 @@
 #include "nbvi_calibrator.h"
 #include "csi_manager.h"
 #include "mvs_detector.h"
+#include "utils.h"
 #include "wifi_csi_interface.h"
 #include "esphome/core/log.h"
 
@@ -28,7 +29,7 @@ using namespace esphome::espectre;
 static const char *TAG = "test_nbvi_calibrator";
 
 // Default subcarrier selection for testing
-static const uint8_t DEFAULT_BAND[12] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+static const uint8_t* const DEFAULT_BAND = DEFAULT_SUBCARRIERS;
 
 /**
  * Mock WiFi CSI for testing

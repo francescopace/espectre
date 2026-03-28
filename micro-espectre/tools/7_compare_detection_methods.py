@@ -28,29 +28,27 @@ from csi_utils import (
     MVSDetector, 
     calculate_spatial_turbulence, 
     find_dataset, 
-    DEFAULT_SUBCARRIERS,
     load_npz_as_packets,
     DATA_DIR,
 )
 from config import (
     SEG_WINDOW_SIZE, SEG_THRESHOLD,
     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
-    ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF
+    ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF,
+    DEFAULT_SUBCARRIERS
 )
 from filters import HampelFilter, LowPassFilter
 
 # Check if ML model is available (production implementation).
 ML_AVAILABLE = False
 try:
-    from ml_detector import MLDetector as ProdMLDetector, ML_SUBCARRIERS, ML_DEFAULT_THRESHOLD
+    from ml_detector import MLDetector as ProdMLDetector, ML_DEFAULT_THRESHOLD
     ML_AVAILABLE = True
 except ImportError:
     ProdMLDetector = None
-    ML_SUBCARRIERS = DEFAULT_SUBCARRIERS
     ML_DEFAULT_THRESHOLD = 5.0
 
 # Configuration
-SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else float(SEG_THRESHOLD)
 PAIR_MAX_DELTA_SECONDS = 30 * 60
@@ -184,7 +182,7 @@ def load_test_dataset(chip=None, motion_start_packet=None):
 
 def resolve_context_aware_config_for_test(test_entry):
     """Resolve subcarriers/threshold for a test dataset from metadata."""
-    subcarriers = test_entry.get('optimal_subcarriers_gridsearch') or SELECTED_SUBCARRIERS
+    subcarriers = test_entry.get('optimal_subcarriers_gridsearch') or DEFAULT_SUBCARRIERS
     threshold = float(test_entry.get('optimal_threshold_gridsearch', THRESHOLD))
     has_optimal = (
         isinstance(test_entry.get('optimal_subcarriers_gridsearch'), list)
@@ -211,13 +209,13 @@ def resolve_context_aware_config(baseline_path):
 
     if entry is None:
         return {
-            'subcarriers': SELECTED_SUBCARRIERS,
+            'subcarriers': DEFAULT_SUBCARRIERS,
             'threshold': THRESHOLD,
             'pairing_mode': 'metadata-missing fallback',
             'confidence_factor': 0.5,
         }
 
-    subcarriers = entry.get('optimal_subcarriers_gridsearch') or SELECTED_SUBCARRIERS
+    subcarriers = entry.get('optimal_subcarriers_gridsearch') or DEFAULT_SUBCARRIERS
     threshold = float(entry.get('optimal_threshold_gridsearch', THRESHOLD))
     paired = pair_is_temporally_valid(dataset_info, label, entry) if label else False
     pairing_mode = 'paired' if paired else 'single-dataset fallback'
@@ -307,7 +305,7 @@ class MLDetectorAdapter:
     """Compatibility wrapper around production MLDetector."""
 
     def __init__(self, window_size=SEG_WINDOW_SIZE, subcarriers=None, track_data=False, use_cv_normalization=False):
-        self.subcarriers = subcarriers or ML_SUBCARRIERS
+        self.subcarriers = subcarriers or DEFAULT_SUBCARRIERS
         self._detector = ProdMLDetector(
             window_size=window_size,
             threshold=ML_DEFAULT_THRESHOLD,
@@ -343,8 +341,8 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     Compare different detection methods on same data.
     Returns metrics for each method.
     """
-    # ML must use fixed training-time subcarriers for consistent inference.
-    ml_subcarriers = ML_SUBCARRIERS
+    # ML uses unified default subcarriers from central config.
+    ml_subcarriers = DEFAULT_SUBCARRIERS
     methods = {
         'RSSI': {'baseline': [], 'movement': []},
         'Mean Amplitude': {'baseline': [], 'movement': []},

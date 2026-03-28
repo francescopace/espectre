@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.7.1] - in progress - CI hardening, dependency refresh, and S3 Touch LCD example
+## [2.8.0] - in progress - CI hardening, dependency refresh, and S3 Touch LCD example
 
 ### Highlights
 
@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - **Code scanning findings addressed in Micro-ESPectre tools**: replaced insecure temporary-file creation, added safer UDP bind behavior with environment-aware host detection, and exposed `--bind-ip` in `./me collect`.
 - **Interactive collection backlog handling**: CSI collector now drains queued UDP packets after countdown/prompt phases and uses monotonic timing to avoid stale packet artifacts in captures.
 - **Workflow permission hardening**: added explicit `contents: read` permissions where required by security checks.
+- **Legacy subcarrier drift removed from C++ tests and docs**: test suites now consistently consume shared defaults instead of local hardcoded bands, and tuning log examples no longer imply obsolete fixed `[11..22]` calibration output.
 
 ### Changed
 
@@ -25,6 +26,7 @@ All notable changes to this project will be documented in this file.
 - **QEMU example/config organization**: moved smoke-test configs under a single reusable action path and removed obsolete branch-split config handling.
 - **UART example cleanup**: removed `examples/uart/` and documented optional `hardware_uart: UART0` usage in classic configs for USB-UART bridge boards.
 - **Baseline version alignment for examples/tests**: raised `min_version` to `2026.2.0` in example and QEMU configs.
+- **Unified default subcarriers across stacks**: Python tools/tests and ESPHome/C++ runtime/tests now use a centralized 12-subcarrier default (`DEFAULT_SUBCARRIERS`), with ML-specific aliases and grid-search metadata dependencies removed from active workflows.
 
 ### Added
 

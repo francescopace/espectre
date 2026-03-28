@@ -18,12 +18,13 @@
 #include "ml_detector.h"
 #include "ml_features.h"
 #include "ml_weights.h"
+#include "espectre.h"
 #include "esphome/core/log.h"
 #include "cnpy.cpp"
 
 using namespace esphome::espectre;
 
-static const char *TAG = "test_ml_detector";
+static const char *TEST_TAG = "test_ml_detector";
 
 // ============================================================================
 // TEST DATA (loaded from ml_test_data.npz at runtime)
@@ -76,7 +77,7 @@ static void load_test_data() {
         num_test_samples++;
     }
     
-    ESP_LOGI(TAG, "Loaded %d test samples from %s (total: %d)", 
+    ESP_LOGI(TEST_TAG, "Loaded %d test samples from %s (total: %d)", 
              num_test_samples, ML_TEST_DATA_PATH, total_samples);
     data_loaded = true;
 }
@@ -205,7 +206,7 @@ void test_ml_inference_matches_reference(void) {
         float expected = test_expected[i] * ML_METRIC_SCALE;
         float error = std::abs(result - expected);
         
-        ESP_LOGD(TAG, "Sample %d (idx=%d): expected=%.6f, got=%.6f, error=%.2e",
+        ESP_LOGD(TEST_TAG, "Sample %d (idx=%d): expected=%.6f, got=%.6f, error=%.2e",
                  i, SAMPLE_INDICES[i], expected, result, error);
         
         TEST_ASSERT_FLOAT_WITHIN(TOLERANCE, expected, result);
@@ -289,19 +290,19 @@ void test_feature_extraction_empty_buffer(void) {
 // ============================================================================
 
 void test_ml_subcarriers_count(void) {
-    TEST_ASSERT_EQUAL(12, sizeof(ML_SUBCARRIERS) / sizeof(ML_SUBCARRIERS[0]));
+    TEST_ASSERT_EQUAL(12, sizeof(DEFAULT_SUBCARRIERS) / sizeof(DEFAULT_SUBCARRIERS[0]));
 }
 
 void test_ml_subcarriers_range(void) {
     for (int i = 0; i < 12; i++) {
-        TEST_ASSERT_TRUE(ML_SUBCARRIERS[i] >= 0);
-        TEST_ASSERT_TRUE(ML_SUBCARRIERS[i] < 64);  // HT20 has 64 subcarriers
+        TEST_ASSERT_TRUE(DEFAULT_SUBCARRIERS[i] >= 0);
+        TEST_ASSERT_TRUE(DEFAULT_SUBCARRIERS[i] < 64);  // HT20 has 64 subcarriers
     }
 }
 
 void test_ml_subcarriers_sorted(void) {
     for (int i = 1; i < 12; i++) {
-        TEST_ASSERT_TRUE(ML_SUBCARRIERS[i] > ML_SUBCARRIERS[i-1]);
+        TEST_ASSERT_TRUE(DEFAULT_SUBCARRIERS[i] > DEFAULT_SUBCARRIERS[i-1]);
     }
 }
 
@@ -329,7 +330,7 @@ void test_ml_inference_performance(void) {
     uint32_t elapsed = 0;  // Would calculate elapsed time
     
     // Just verify it completes without error
-    ESP_LOGI(TAG, "Completed %d inference iterations", NUM_ITERATIONS);
+    ESP_LOGI(TEST_TAG, "Completed %d inference iterations", NUM_ITERATIONS);
     TEST_PASS();
 }
 

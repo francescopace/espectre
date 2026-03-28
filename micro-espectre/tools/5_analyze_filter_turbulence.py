@@ -32,14 +32,12 @@ import pywt
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     calculate_spatial_turbulence, HampelFilter,
-    find_dataset, DEFAULT_SUBCARRIERS, load_baseline_and_movement
+    find_dataset, load_baseline_and_movement
 )
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
-                    HAMPEL_WINDOW, HAMPEL_THRESHOLD, LOWPASS_CUTOFF)
+                    HAMPEL_WINDOW, HAMPEL_THRESHOLD, LOWPASS_CUTOFF,
+                    DEFAULT_SUBCARRIERS)
 from segmentation import SegmentationContext
-
-# Alias for backward compatibility
-SELECTED_SUBCARRIERS = DEFAULT_SUBCARRIERS
 
 # Alias for backward compatibility
 WINDOW_SIZE = SEG_WINDOW_SIZE
@@ -593,7 +591,7 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=None, tr
             csi_data, gain_locked = extract_csi_and_gain_locked(packet)
             turbulence = calculate_spatial_turbulence(
                 csi_data,
-                SELECTED_SUBCARRIERS,
+                DEFAULT_SUBCARRIERS,
                 gain_locked=gain_locked
             )
             seg.add_turbulence(turbulence)
@@ -620,7 +618,7 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=None, tr
             csi_data, gain_locked = extract_csi_and_gain_locked(packet)
             turbulence = calculate_spatial_turbulence(
                 csi_data,
-                SELECTED_SUBCARRIERS,
+                DEFAULT_SUBCARRIERS,
                 gain_locked=gain_locked
             )
             seg.add_turbulence(turbulence)
@@ -711,7 +709,7 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
             csi_data, gain_locked = extract_csi_and_gain_locked(baseline_packets[i])
             turb = calculate_spatial_turbulence(
                 csi_data,
-                SELECTED_SUBCARRIERS,
+                DEFAULT_SUBCARRIERS,
                 gain_locked=gain_locked
             )
             ctx_baseline.add_turbulence(turb)
@@ -734,7 +732,7 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
             csi_data, gain_locked = extract_csi_and_gain_locked(movement_packets[i])
             turb = calculate_spatial_turbulence(
                 csi_data,
-                SELECTED_SUBCARRIERS,
+                DEFAULT_SUBCARRIERS,
                 gain_locked=gain_locked
             )
             ctx_movement.add_turbulence(turb)
@@ -984,7 +982,7 @@ def optimize_filter_parameters(baseline_packets, movement_packets):
             seg.add_turbulence(
                 calculate_spatial_turbulence(
                     csi_data,
-                    SELECTED_SUBCARRIERS,
+                    DEFAULT_SUBCARRIERS,
                     gain_locked=gain_locked
                 )
             )
@@ -997,7 +995,7 @@ def optimize_filter_parameters(baseline_packets, movement_packets):
             seg.add_turbulence(
                 calculate_spatial_turbulence(
                     csi_data,
-                    SELECTED_SUBCARRIERS,
+                    DEFAULT_SUBCARRIERS,
                     gain_locked=gain_locked
                 )
             )

@@ -361,9 +361,6 @@ See [tools/README.md](tools/README.md) for complete documentation of all analysi
 Once you have collected labeled data, train the ML model:
 
 ```bash
-# Refresh context-aware grid-search metadata used by training/tests
-python tools/11_refresh_gridsearch_metadata.py
-
 # Train model (default uses --fp-weight 2.0)
 python tools/10_train_ml_model.py
 
@@ -376,7 +373,7 @@ The `--fp-weight` parameter multiplies the IDLE class weight during training. Va
 This will:
 1. Load all `.npz` files from `data/`
 2. Apply CV normalization to files with `gain_locked: false`
-3. Apply context-aware MVS-guided sample weighting from `dataset_info.json` metadata
+3. Apply MVS-guided sample weighting on the default subcarrier set
 4. Extract 12 features per sliding window
 5. 5-fold cross-validation for reliable metrics
 6. Train MLP model (12 → 16 → 8 → 1) with early stopping and dropout
