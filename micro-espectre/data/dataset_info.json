@@ -26,17 +26,7 @@
         "num_packets": 1353,
         "description": "HT20 baseline, AGC gain locked"
       },
-      {
-        "filename": "baseline_c3_64sc_20260203_203509.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "gain_locked": true,
-        "collected_at": "2026-02-03T20:35:09.180014",
-        "duration_ms": 10006,
-        "num_packets": 1344,
-        "description": "HT20 baseline, AGC gain locked"
-      },
+      
       {
         "filename": "baseline_esp32_64sc_20260214_183059.npz",
         "chip": "ESP32",
@@ -59,28 +49,7 @@
         "gain_locked": true,
         "description": "HT20 baseline, AGC gain locked"
       },
-      {
-        "filename": "baseline_c5_64sc_20260310_230906.npz",
-        "chip": "C5",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-03-10T23:09:06.370273",
-        "duration_ms": 10005,
-        "num_packets": 1305,
-        "gain_locked": true,
-        "description": "HT20 baseline, AGC gain locked"
-      },
-      {
-        "filename": "baseline_s3_64sc_20260310_231250.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-03-10T23:12:50.972894",
-        "duration_ms": 9999,
-        "num_packets": 1302,
-        "gain_locked": true,
-        "description": "HT20 baseline, AGC gain locked"
-      },
+      
       {
         "filename": "baseline_esp32_64sc_20260310_232100.npz",
         "chip": "ESP32",
@@ -138,17 +107,7 @@
         "num_packets": 1366,
         "description": "HT20 movement, AGC gain locked"
       },
-      {
-        "filename": "movement_c3_64sc_20260203_203533.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "gain_locked": true,
-        "collected_at": "2026-02-03T20:35:33.828831",
-        "duration_ms": 9998,
-        "num_packets": 1318,
-        "description": "HT20 movement, AGC gain locked"
-      },
+      
       {
         "filename": "movement_esp32_64sc_20260214_183141.npz",
         "chip": "ESP32",
@@ -171,28 +130,7 @@
         "gain_locked": true,
         "description": "HT20 movement, AGC gain locked"
       },
-      {
-        "filename": "movement_c5_64sc_20260310_230925.npz",
-        "chip": "C5",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-03-10T23:09:25.779254",
-        "duration_ms": 10002,
-        "num_packets": 1301,
-        "gain_locked": true,
-        "description": "HT20 movement, AGC gain locked"
-      },
-      {
-        "filename": "movement_s3_64sc_20260310_231306.npz",
-        "chip": "S3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-03-10T23:13:06.552314",
-        "duration_ms": 10009,
-        "num_packets": 1304,
-        "gain_locked": true,
-        "description": "HT20 movement, AGC gain locked"
-      },
+      
       {
         "filename": "movement_esp32_64sc_20260310_232137.npz",
         "chip": "ESP32",

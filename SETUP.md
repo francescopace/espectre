@@ -831,7 +831,7 @@ Applies only when `detector_algorithm: mvs` (default). The `ml` detector does no
 2. Check traffic generator is running
 3. Verify WiFi connection is stable
 
-**Note:** If band selection fails, the system automatically falls back to default subcarriers [11-22] with a default threshold of 1.0. Motion detection will work but may be less optimal. Look for the log message `⚠ Fallback calibration: using default subcarriers`.
+**Note:** If band selection fails, the system automatically falls back to the shared default subcarriers `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]` with a default threshold of `1.0`. Motion detection still works but may be less optimal. Look for the log message `⚠ Fallback calibration: using default subcarriers`.
 
 ### SPIFFS partition not found
 

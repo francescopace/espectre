@@ -77,7 +77,7 @@ def _pair_is_temporally_valid(dataset_info, label, entry):
 @pytest.fixture
 def default_subcarriers(request):
     """
-    Optimal subcarrier band for testing (HT20: 64 SC only).
+    Default subcarrier band for testing (HT20: 64 SC only).
     
     Matches C++ test configuration exactly (test_motion_detection.cpp).
     """
@@ -339,7 +339,7 @@ def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
     
     Args:
         chip: Chip type (C3, C5, C6, ESP32, S3)
-        algorithm: Algorithm name (mvs_optimal, mvs_nbvi, ml)
+        algorithm: Algorithm name (mvs_default, mvs_nbvi, ml)
         recall: Recall percentage
         fp_rate: False positive rate percentage
         precision: Precision percentage
@@ -394,7 +394,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line("                              PERFORMANCE SUMMARY TABLE (Python)")
     terminalreporter.write_line("=" * 105)
     terminalreporter.write_line("")
-    terminalreporter.write_line("| Chip   | MVS Optimal             | MVS + NBVI              | ML                      |")
+    terminalreporter.write_line("| Chip   | MVS Default             | MVS + NBVI              | ML                      |")
     terminalreporter.write_line("|--------|-------------------------|-------------------------|-------------------------|")
     
     # Sort chips for consistent output
@@ -404,12 +404,12 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         
         chip_results = results[chip]
         
-        # MVS Optimal
-        if 'mvs_optimal' in chip_results:
-            mvs_opt = chip_results['mvs_optimal']
-            mvs_opt_str = f"{mvs_opt['recall']:.1f}% R, {mvs_opt['fp_rate']:.1f}% FP"
+        # MVS Default
+        if 'mvs_default' in chip_results:
+            mvs_default = chip_results['mvs_default']
+            mvs_default_str = f"{mvs_default['recall']:.1f}% R, {mvs_default['fp_rate']:.1f}% FP"
         else:
-            mvs_opt_str = "N/A"
+            mvs_default_str = "N/A"
         
         # MVS + NBVI
         if 'mvs_nbvi' in chip_results:
@@ -425,11 +425,11 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         else:
             ml_str = "N/A"
         
-        terminalreporter.write_line(f"| {chip:<6} | {mvs_opt_str:<23} | {mvs_str:<23} | {ml_str:<23} |")
+        terminalreporter.write_line(f"| {chip:<6} | {mvs_default_str:<23} | {mvs_str:<23} | {ml_str:<23} |")
     
     terminalreporter.write_line("")
     terminalreporter.write_line("Legend: R = Recall, FP = False Positive Rate")
-    terminalreporter.write_line("Targets: MVS Recall >95%, ML Recall >95%, FP Rate <5%")
+    terminalreporter.write_line("Targets: MVS default recall >70% and FP <20%; NBVI/ML recall >95% and FP <5%")
     terminalreporter.write_line("=" * 105)
     
     # Detailed table for PERFORMANCE.md
@@ -445,7 +445,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         
         chip_results = results[chip]
         
-        for algo_key, algo_name in [('mvs_optimal', 'MVS Optimal'), ('mvs_nbvi', 'MVS + NBVI'), ('ml', 'ML')]:
+        for algo_key, algo_name in [('mvs_default', 'MVS Default'), ('mvs_nbvi', 'MVS + NBVI'), ('ml', 'ML')]:
             if algo_key in chip_results:
                 r = chip_results[algo_key]
                 terminalreporter.write_line(

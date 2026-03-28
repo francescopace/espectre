@@ -58,11 +58,11 @@ DATASET_INFO = DATA_DIR / "dataset_info.json"
 REPORT_OUTPUT = DATA_DIR / "DATASET_QUALITY_CHECK.md"
 
 # Quality thresholds
-MIN_PACKETS = 100
-MAX_ZERO_PACKET_RATIO = 0.05
-MIN_VARIANCE_RATIO = 1.5
-MAX_TEMPORAL_GAP_S = 300
-MIN_AMPLITUDE_MEAN = 1.0
+MIN_PACKETS = 800
+MAX_ZERO_PACKET_RATIO = 0.01
+MIN_VARIANCE_RATIO = 3.5
+MAX_TEMPORAL_GAP_S = 60
+MIN_AMPLITUDE_MEAN = 10.0
 
 
 # ------------------------------------------------------------------
@@ -247,13 +247,15 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data,
     mv_var = np.mean(mv_mv) if mv_mv else 0
 
     ratio = mv_var / bl_var if bl_var > 1e-10 else float('inf')
+    # Keep threshold check aligned with displayed ratio precision.
+    ratio_for_check = float(f"{ratio:.2f}") if np.isfinite(ratio) else ratio
 
-    if ratio < MIN_VARIANCE_RATIO:
+    if ratio_for_check < MIN_VARIANCE_RATIO:
         results.append(ValidationResult("variance_ratio", "FAIL",
-            f"Ratio {ratio:.2f}x < {MIN_VARIANCE_RATIO}x (bl={bl_var:.4f}, mv={mv_var:.4f})", ratio))
+            f"Ratio {ratio_for_check}x < {MIN_VARIANCE_RATIO}x (bl={bl_var:.4f}, mv={mv_var:.4f})", ratio_for_check))
     else:
         results.append(ValidationResult("variance_ratio", "PASS",
-            f"Ratio {ratio:.2f}x (bl={bl_var:.6f}, mv={mv_var:.6f})", ratio))
+            f"Ratio {ratio_for_check}x (bl={bl_var:.6f}, mv={mv_var:.6f})", ratio_for_check))
 
     # Temporal gap: baseline end → movement start
     gap_s = None
@@ -286,7 +288,8 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data,
         results.append(ValidationResult("temporal_gap", "WARN",
             "Could not parse collected_at/duration_ms timestamps"))
 
-    return results, bl_var, mv_var, ratio, gap_s
+    # Return the same ratio value used by PASS/FAIL checks and logs.
+    return results, bl_var, mv_var, ratio_for_check, gap_s
 
 
 def validate_ml_readiness(dataset_info):

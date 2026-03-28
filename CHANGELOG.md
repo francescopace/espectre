@@ -19,6 +19,8 @@ All notable changes to this project will be documented in this file.
 - **Interactive collection backlog handling**: CSI collector now drains queued UDP packets after countdown/prompt phases and uses monotonic timing to avoid stale packet artifacts in captures.
 - **Workflow permission hardening**: added explicit `contents: read` permissions where required by security checks.
 - **Legacy subcarrier drift removed from C++ tests and docs**: test suites now consistently consume shared defaults instead of local hardcoded bands, and tuning log examples no longer imply obsolete fixed `[11..22]` calibration output.
+- **NBVI calibration path aligned across CV modes**: NBVI is now executed for all chips in Python and C++ validation flows, including datasets that require CV normalization (`gain_locked=false`), instead of bypassing calibration on CV paths.
+- **Dataset quality pair accounting fixed**: `12_validate_dataset_quality.py` now reports pair pass/fail totals using the same rounded variance ratio used in per-pair checks, removing summary/count mismatches.
 
 ### Changed
 
@@ -27,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - **UART example cleanup**: removed `examples/uart/` and documented optional `hardware_uart: UART0` usage in classic configs for USB-UART bridge boards.
 - **Baseline version alignment for examples/tests**: raised `min_version` to `2026.2.0` in example and QEMU configs.
 - **Unified default subcarriers across stacks**: Python tools/tests and ESPHome/C++ runtime/tests now use a centralized 12-subcarrier default (`DEFAULT_SUBCARRIERS`), with ML-specific aliases and grid-search metadata dependencies removed from active workflows.
+- **Motion-validation targets and curated dataset pool**: `test_mvs_default_subcarriers` now uses production-baseline targets (`recall >70%`, `FP <20%`) and low-quality 64SC captures failing this gate were removed from `micro-espectre/data` and `dataset_info.json` for recollection.
 
 ### Added
 

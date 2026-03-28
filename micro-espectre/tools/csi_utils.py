@@ -1171,7 +1171,7 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
 
 def find_dataset(chip: str = None, num_sc: int = 64) -> Tuple[Path, Path, str]:
     """
-    Find the most recent baseline and movement dataset files.
+    Find baseline and movement dataset files with nearest timestamps.
     
     Args:
         chip: Chip type (C6, S3, etc.) or None to find any chip
@@ -1211,9 +1211,69 @@ def find_dataset(chip: str = None, num_sc: int = 64) -> Tuple[Path, Path, str]:
             f"Collect data using: ./me collect --label movement --duration 10"
         )
     
-    # Use the most recent file (sorted by name, which includes timestamp)
-    baseline_file = sorted(baseline_files)[-1]
-    movement_file = sorted(movement_files)[-1]
+    # Prefer nearest baseline/movement pair from dataset_info metadata, so
+    # Python tests match C++ csi_test_data.h pairing policy.
+    baseline_file = None
+    movement_file = None
+    try:
+        info = load_dataset_info()
+        files_section = info.get('files', {})
+        baseline_meta = files_section.get('baseline', [])
+        movement_meta = files_section.get('movement', [])
+
+        def _meta_matches(entry: Dict[str, Any], label_chip: Optional[str]) -> bool:
+            if int(entry.get('subcarriers', 0)) != int(num_sc):
+                return False
+            if label_chip is None:
+                return True
+            return str(entry.get('chip', '')).upper() == label_chip.upper()
+
+        def _parse_ts(value: Any) -> Optional[datetime]:
+            if not value:
+                return None
+            try:
+                # Supports both naive and timezone-aware ISO strings.
+                return datetime.fromisoformat(str(value))
+            except ValueError:
+                return None
+
+        selected_chip = chip.upper() if chip else None
+        baseline_candidates = []
+        movement_candidates = []
+        for entry in baseline_meta:
+            if _meta_matches(entry, selected_chip):
+                ts = _parse_ts(entry.get('collected_at'))
+                filename = entry.get('filename')
+                if ts and filename:
+                    candidate = baseline_dir / str(filename)
+                    if candidate.exists():
+                        baseline_candidates.append((ts, candidate))
+        for entry in movement_meta:
+            if _meta_matches(entry, selected_chip):
+                ts = _parse_ts(entry.get('collected_at'))
+                filename = entry.get('filename')
+                if ts and filename:
+                    candidate = movement_dir / str(filename)
+                    if candidate.exists():
+                        movement_candidates.append((ts, candidate))
+
+        best_delta = None
+        for b_ts, b_path in baseline_candidates:
+            for m_ts, m_path in movement_candidates:
+                delta = abs((m_ts - b_ts).total_seconds())
+                if best_delta is None or delta < best_delta:
+                    best_delta = delta
+                    baseline_file = b_path
+                    movement_file = m_path
+    except Exception:
+        # Keep backward-compatible fallback below.
+        baseline_file = None
+        movement_file = None
+
+    # Fallback: use the most recent files by filename timestamp.
+    if baseline_file is None or movement_file is None:
+        baseline_file = sorted(baseline_files)[-1]
+        movement_file = sorted(movement_files)[-1]
     
     # Extract chip name from filename (e.g., baseline_c6_64sc_... -> C6)
     chip_name = baseline_file.stem.split('_')[1].upper()

@@ -124,6 +124,12 @@ class NBVICalibrator:
         self.alpha = alpha
         self.min_spacing = min_spacing
         self.noise_gate_percentile = noise_gate_percentile
+        # False: raw std (gain lock active), True: CV std/mean (gain lock absent)
+        self.use_cv_normalization = False
+
+    def set_cv_normalization(self, enabled):
+        """Enable or disable CV normalization for turbulence calculations."""
+        self.use_cv_normalization = bool(enabled)
     
     # ========================================================================
     # Buffer management
@@ -245,13 +251,20 @@ class NBVICalibrator:
         return list(data) if data else None
     
     def _packet_turbulence(self, data, band):
-        """Calculate spatial turbulence (std of band magnitudes) from raw packet bytes."""
+        """Calculate spatial turbulence from raw packet bytes.
+
+        Uses raw standard deviation by default. When CV normalization is enabled,
+        uses std/mean to maintain gain invariance when gain lock is not active.
+        """
         band_mags = [data[sc] for sc in band if sc < len(data)]
         if not band_mags:
             return 0.0
         mean_mag = sum(band_mags) / len(band_mags)
         variance = sum((m - mean_mag) ** 2 for m in band_mags) / len(band_mags)
-        return math.sqrt(variance) if variance > 0 else 0.0
+        std = math.sqrt(variance) if variance > 0 else 0.0
+        if self.use_cv_normalization:
+            return std / mean_mag if mean_mag > 1e-6 else 0.0
+        return std
     
     # ========================================================================
     # Calibration algorithm
@@ -433,7 +446,11 @@ class NBVICalibrator:
             
             mean_mag = sum(band_mags) / len(band_mags)
             variance = sum((m - mean_mag) ** 2 for m in band_mags) / len(band_mags)
-            turbulence = math.sqrt(variance) if variance > 0 else 0.0
+            std = math.sqrt(variance) if variance > 0 else 0.0
+            if self.use_cv_normalization:
+                turbulence = std / mean_mag if mean_mag > 1e-6 else 0.0
+            else:
+                turbulence = std
             
             filtered_turbulence = turbulence
             if hampel_filter is not None:
