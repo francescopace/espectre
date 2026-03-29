@@ -62,25 +62,25 @@ Results from C++ and Python tests follow the same trends (same algorithms, same 
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
-| ESP32-C3 | MVS Default | 81.4% | 97.8% | 2.3% | 88.9% |
-| ESP32-C3 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
-| ESP32-C3 | ML | 97.9% | 100.0% | 0.0% | 98.9% |
-| ESP32-C5 | MVS Default | 99.7% | 86.9% | 19.6% | 92.8% |
-| ESP32-C5 | MVS + NBVI | 99.8% | 100.0% | 0.0% | 99.9% |
+| ESP32-C3 | MVS Default | 96.1% | 99.9% | 0.1% | 98.0% |
+| ESP32-C3 | MVS + NBVI | 96.5% | 100.0% | 0.0% | 98.2% |
+| ESP32-C3 | ML | 99.6% | 100.0% | 0.0% | 99.8% |
+| ESP32-C5 | MVS Default | 99.7% | 99.2% | 1.1% | 99.5% |
+| ESP32-C5 | MVS + NBVI | 99.1% | 100.0% | 0.0% | 99.6% |
 | ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32-C6 | MVS Default | 98.1% | 100.0% | 0.0% | 99.0% |
 | ESP32-C6 | MVS + NBVI | 99.6% | 99.8% | 0.3% | 99.7% |
 | ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS Default | 99.9% | 100.0% | 0.0% | 99.9% |
-| ESP32-S3 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
-| ESP32-S3 | ML | 96.3% | 100.0% | 0.0% | 98.1% |
+| ESP32-S3 | MVS Default | 99.8% | 98.0% | 2.8% | 98.9% |
+| ESP32-S3 | MVS + NBVI | 96.7% | 100.0% | 0.0% | 98.3% |
+| ESP32-S3 | ML | 99.8% | 100.0% | 0.0% | 99.9% |
 | ESP32 | MVS Default | 99.8% | 100.0% | 0.0% | 99.9% |
 | ESP32 | MVS + NBVI | 99.8% | 100.0% | 0.0% | 99.9% |
-| ESP32 | ML | 99.1% | 100.0% | 0.0% | 99.6% |
+| ESP32 | ML | 99.6% | 100.0% | 0.0% | 99.8% |
 
 **MVS Default**: Uses default subcarriers.
 **MVS + NBVI**: Uses NBVI auto-calibration (production case).
-**ML**: Neural network trained with Hampel filter (fp-weight 1.0).
+**ML**: Neural network with chip-grouped CV, hard-positive mining, and Hampel filter.
 
 ---
 
@@ -148,7 +148,7 @@ The worst-case path is ML on ESP32-C3 (~3.5 ms peak, ~35% CPU), which still leav
 
 **ML**: Extracts 12 statistical features from sliding window, then runs MLP inference (12 → 16 → 8 → 1 = 328 MACs). 
 The MLP itself is lightweight; most time is spent on feature extraction. 
-For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#architecture-selection).
+For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#architecture).
 
 ---
 
@@ -156,11 +156,11 @@ For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#ar
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
-| 2026-03-29 | v2.8.0 | C6 | - | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
-| 2026-03-29 | v2.8.0 | C6 | NBVI | MVS + Hampel | 99.6% | 99.8% | 0.3% | 99.7% |
-| 2026-03-11 | v2.6.1 | C6 | - | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-03-29 | v2.8.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-03-29 | v2.8.0 | C6 | NBVI | MVS + Hampel| 99.6% | 99.8% | 0.3% | 99.7% |
+| 2026-03-11 | v2.6.1 | C6 |  -   | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-03-11 | v2.6.1 | C6 | NBVI | MVS | 99.3% | 100.0% | 0.0% | 99.7% |
-| 2026-03-08 | v2.6.0 | C6 | - | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-03-08 | v2.6.0 | C6 |  -   | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-03-08 | v2.6.0 | C6 | NBVI | MVS | 99.9% | 98.4% | 2.3% | 99.2% |
 | 2026-02-15 | v2.5.0 | C6 |   -  | ML  | 99.9% | 100.0% | 0.0% | 99.9% |
 | 2026-02-15 | v2.5.0 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |

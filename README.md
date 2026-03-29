@@ -221,7 +221,7 @@ ESPectre implements **NBVI** (Normalized Band Variance Index) for automatic subc
 
 > ⚠️ **IMPORTANT** (MVS mode): Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy. ML mode skips calibration.
 
-For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#automatic-subcarrier-selection).
+For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#subcarrier-selection-nbvi).
 
 ---
 

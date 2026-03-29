@@ -209,7 +209,8 @@ python 10_train_ml_model.py --info         # Show dataset and split info
 python 10_train_ml_model.py --experiment   # Compare model architectures
 python 10_train_ml_model.py --fp-weight 2.0  # Penalize false positives 2x
 python 10_train_ml_model.py --seed-search-until-improvement 20  # Stop at first better seed
-python 10_train_ml_model.py --shap         # Show SHAP feature importance
+python 10_train_ml_model.py --shap         # SHAP importance (200 samples)
+python 10_train_ml_model.py --shap 500     # SHAP importance (500 samples)
 ```
 
 For full training workflow and dataset preparation, see [ML_DATA_COLLECTION.md](../ML_DATA_COLLECTION.md#5-train-model).
@@ -274,7 +275,7 @@ Tested on 60-second noisy baseline with C6 chip:
 
 **NBVI** achieves excellent results with zero configuration, automatically selecting the optimal 12 subcarriers for each environment.
 
-For complete algorithm documentation, see [ALGORITHMS.md](../ALGORITHMS.md#automatic-subcarrier-selection).
+For complete algorithm documentation, see [ALGORITHMS.md](../ALGORITHMS.md#subcarrier-selection-nbvi).
 
 For detailed performance metrics, see [PERFORMANCE.md](../../PERFORMANCE.md).
 

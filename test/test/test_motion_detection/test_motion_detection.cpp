@@ -75,6 +75,14 @@ struct ChipResults {
 static ChipResults g_results[5];  // C3, C5, C6, ESP32, S3
 static int g_results_count = 0;
 
+// Forward declarations for target getters used in summary output.
+inline float get_default_fp_rate_target();
+inline float get_default_recall_target();
+inline float get_fp_rate_target();
+inline float get_nbvi_recall_target();
+inline float get_ml_fp_rate_target();
+inline float get_ml_recall_target();
+
 static void record_result(const char* algorithm, float recall, float fp_rate, float precision, float f1) {
     if (g_results_count == 0 || strcmp(g_results[g_results_count - 1].chip_name, 
             csi_test_data::chip_name(csi_test_data::current_chip())) != 0) {
@@ -131,7 +139,10 @@ static void print_summary_table() {
     
     printf("\n");
     printf("Legend: R = Recall, FP = False Positive Rate\n");
-    printf("Targets: MVS default recall >70%% and FP <20%%, NBVI/ML recall >95%% and FP <5%%\n");
+    printf("Targets: MVS default >%.0f%% R, <%.1f%% FP | NBVI >=%.0f%% R, <=%.1f%% FP | ML >%.0f%% R, <%.1f%% FP\n",
+           get_default_recall_target(), get_default_fp_rate_target(),
+           get_nbvi_recall_target(), get_fp_rate_target(),
+           get_ml_recall_target(), get_ml_fp_rate_target());
     printf("================================================================================\n");
     
     // Detailed table for PERFORMANCE.md
@@ -187,20 +198,19 @@ inline const char* get_pairing_mode() {
     return csi_test_data::is_temporally_paired() ? "paired" : "single-dataset fallback";
 }
 
-// MVS targets
-// Default-band baseline test uses softer targets than NBVI/ML.
-inline float get_default_fp_rate_target() { return 20.0f; }
-inline float get_default_recall_target() { return 80.0f; }
-// NBVI targets
-inline float get_fp_rate_target() { return 5.0f; }
-inline float get_nbvi_recall_target() { return 95.0f; }
-
 // Unified parameters for all chips (use production defaults)
 inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
 inline bool get_enable_hampel() { return true; }
 
+// MVS targets
+// Default-band baseline test uses the same strict targets as NBVI/ML.
+inline float get_default_fp_rate_target() { return 5.0f; }
+inline float get_default_recall_target() { return 95.0f; }
+// NBVI targets
+inline float get_fp_rate_target() { return 5.0f; }
+inline float get_nbvi_recall_target() { return 95.0f; }
+
 // ML targets
-// All chips target >95% recall and <5% FP rate
 inline float get_ml_fp_rate_target() { return 5.0f; }
 inline float get_ml_recall_target() { return 95.0f; }
 

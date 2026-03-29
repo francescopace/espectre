@@ -472,7 +472,7 @@ Both algorithms achieve high performance (>90% recall, <15% FP rate) with **zero
 > - **MVS**: ~10 seconds (gain lock + band calibration)
 > - **ML**: ~3 seconds (gain lock only, no band calibration needed)
 
-For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#automatic-subcarrier-selection).
+For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#subcarrier-selection-nbvi).
 
 ## Machine Learning
 

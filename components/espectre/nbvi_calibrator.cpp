@@ -25,6 +25,8 @@ namespace espectre {
 static const char *TAG = "NBVI";
 
 namespace {
+constexpr float NBVI_ACCEPTABLE_FP_RATE = 0.05f;
+
 inline void packet_u8_to_float_magnitudes(const uint8_t* packet_data, float* out_magnitudes) {
   for (uint8_t sc = 0; sc < HT20_NUM_SUBCARRIERS; sc++) {
     out_magnitudes[sc] = static_cast<float>(packet_data[sc]);
@@ -258,8 +260,8 @@ esp_err_t NBVICalibrator::run_calibration_() {
       bool override = false;
       if (!found_valid) {
         override = true;
-      } else if (fp_rate <= 0.05f) {
-        if (best_fp_rate > 0.05f) {
+      } else if (fp_rate <= NBVI_ACCEPTABLE_FP_RATE) {
+        if (best_fp_rate > NBVI_ACCEPTABLE_FP_RATE) {
           override = true;
         }
       } else {
@@ -301,7 +303,7 @@ esp_err_t NBVICalibrator::run_calibration_() {
     return ESP_OK;
   }
   
-  // Prefer hinted/current band only when candidate is NOT acceptable (>5% FP)
+  // Prefer hinted/current band only when candidate is NOT acceptable (>target FP)
   // AND the hint band has better or comparable FP rate.
   constexpr float FP_COMPARE_EPSILON = 1e-6f;
   bool use_hint_band = false;
@@ -312,7 +314,7 @@ esp_err_t NBVICalibrator::run_calibration_() {
                               static_cast<uint8_t>(current_band_.size()),
                               &hint_fp_rate,
                               hint_mv_values)) {
-      if (best_fp_rate > 0.05f) {
+      if (best_fp_rate > NBVI_ACCEPTABLE_FP_RATE) {
         const float hint_cmp = hint_fp_rate + FP_COMPARE_EPSILON;
         const float best_cmp = best_fp_rate + hint_fp_tolerance_;
         const bool hint_fp_ok = prefer_hint_on_tie_
@@ -322,7 +324,8 @@ esp_err_t NBVICalibrator::run_calibration_() {
           use_hint_band = true;
         }
       } else {
-        ESP_LOGD(TAG, "Keeping candidate band with FP %.1f%% (target <5.0%%)", best_fp_rate * 100.0f);
+        ESP_LOGD(TAG, "Keeping candidate band with FP %.1f%% (target <%.1f%%)",
+                 best_fp_rate * 100.0f, NBVI_ACCEPTABLE_FP_RATE * 100.0f);
       }
     }
   }

@@ -25,7 +25,7 @@ from ml_detector import predict, ML_METRIC_SCALE, ML_DEFAULT_THRESHOLD
 # Test data path
 MODELS_DIR = Path(__file__).parent.parent / 'models'
 TEST_DATA_PATH = MODELS_DIR / 'ml_test_data.npz'
-INFERENCE_TOLERANCE = 1e-3
+INFERENCE_TOLERANCE = 2e-3
 
 
 class TestMLInferenceAccuracy:

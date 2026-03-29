@@ -158,41 +158,25 @@ def calc_mad(turbulence_buffer, buffer_count):
     return abs_devs[mid]
 
 
-def calc_amp_entropy(amplitudes, n_bins=5):
-    """Calculate entropy of amplitude distribution across subcarriers."""
-    if amplitudes is None:
-        return 0.0
-    n = len(amplitudes)
-    if n < 2:
+def calc_waveform_length(turbulence_buffer, buffer_count):
+    """Calculate waveform length as total absolute first-difference."""
+    if buffer_count < 2:
         return 0.0
 
-    min_val = min(amplitudes)
-    max_val = max(amplitudes)
-    if max_val - min_val < 1e-10:
-        return 0.0
-
-    bin_width = (max_val - min_val) / n_bins
-    bins = [0] * n_bins
-    for val in amplitudes:
-        bin_idx = int((val - min_val) / bin_width)
-        if bin_idx >= n_bins:
-            bin_idx = n_bins - 1
-        bins[bin_idx] += 1
-
-    entropy = 0.0
-    log2 = math.log(2)
-    for count in bins:
-        if count > 0:
-            p = count / n
-            entropy -= p * math.log(p) / log2
-    return entropy
+    total = 0.0
+    prev = turbulence_buffer[0]
+    for i in range(1, buffer_count):
+        curr = turbulence_buffer[i]
+        total += abs(curr - prev)
+        prev = curr
+    return total
 
 
-# Default feature set (12 features: 11 turbulence + 1 amplitude)
+# Default feature set (12 features from turbulence window statistics/temporal patterns)
 DEFAULT_FEATURES = [
     'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_zcr',
     'turb_skewness', 'turb_kurtosis', 'turb_entropy', 'turb_autocorr', 'turb_mad',
-    'turb_slope', 'amp_entropy'
+    'turb_slope', 'waveform_length'
 ]
 
 
@@ -241,7 +225,7 @@ def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, f
         'turb_autocorr': lambda: calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var),
         'turb_mad': lambda: calc_mad(turb_list, n),
         'turb_slope': lambda: turb_slope,
-        'amp_entropy': lambda: calc_amp_entropy(amplitudes),
+        'waveform_length': lambda: calc_waveform_length(turb_list, n),
     }
 
     features = []

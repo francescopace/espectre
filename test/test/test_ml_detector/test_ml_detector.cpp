@@ -258,7 +258,7 @@ void test_feature_extraction_basic(void) {
     extract_ml_features(turb_buffer, 50, amplitudes, 12, features);
     
     // Verify features are reasonable
-    // Order: mean, std, max, min, zcr, skewness, kurtosis, entropy, autocorr, mad, slope, amp_entropy
+    // Order: mean, std, max, min, zcr, skewness, kurtosis, entropy, autocorr, mad, slope, waveform_length
     TEST_ASSERT_TRUE(features[0] > 0);   // turb_mean > 0
     TEST_ASSERT_TRUE(features[1] >= 0);  // turb_std >= 0
     TEST_ASSERT_TRUE(features[2] >= features[3]); // turb_max >= turb_min
@@ -270,7 +270,7 @@ void test_feature_extraction_basic(void) {
     TEST_ASSERT_TRUE(features[8] >= -1.0f && features[8] <= 1.0f);  // autocorr in [-1, 1]
     TEST_ASSERT_TRUE(features[9] >= 0);  // turb_mad >= 0
     // features[10] = slope (can be any value)
-    TEST_ASSERT_TRUE(features[11] >= 0); // amp_entropy >= 0
+    TEST_ASSERT_TRUE(features[11] >= 0); // waveform_length >= 0
 }
 
 void test_feature_extraction_empty_buffer(void) {

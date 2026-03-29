@@ -32,6 +32,82 @@ PAIR_MAX_DELTA_SECONDS = 30 * 60
 UNIT_TEST_SUBCARRIERS = DEFAULT_SUBCARRIERS
 
 
+def get_default_fp_rate_target():
+    """Match C++ get_default_fp_rate_target()."""
+    return 5.0
+
+
+def get_default_recall_target():
+    """Match C++ get_default_recall_target()."""
+    return 95.0
+
+
+def get_nbvi_fp_rate_target():
+    """Match C++ get_fp_rate_target()."""
+    return 5.0
+
+
+def get_nbvi_recall_target():
+    """Match C++ get_nbvi_recall_target()."""
+    return 95.0
+
+
+def get_ml_fp_rate_target():
+    """Match C++ get_ml_fp_rate_target()."""
+    return 5.0
+
+
+def get_ml_recall_target():
+    """Match C++ get_ml_recall_target()."""
+    return 95.0
+
+
+def format_targets_summary_line():
+    """Build summary line from target getter functions."""
+    return (
+        "Targets: "
+        f"MVS default >{get_default_recall_target():.0f}% R, <{get_default_fp_rate_target():.1f}% FP | "
+        f"NBVI >{get_nbvi_recall_target():.0f}% R, <{get_nbvi_fp_rate_target():.1f}% FP | "
+        f"ML >{get_ml_recall_target():.0f}% R, <{get_ml_fp_rate_target():.1f}% FP"
+    )
+
+
+@pytest.fixture
+def fp_rate_target(chip_type):
+    """NBVI FP-rate target fixture shared across test modules."""
+    return get_nbvi_fp_rate_target()
+
+
+@pytest.fixture
+def recall_target(chip_type):
+    """NBVI recall target fixture shared across test modules."""
+    return get_nbvi_recall_target()
+
+
+@pytest.fixture
+def mvs_default_fp_rate_target(chip_type):
+    """MVS default-band FP-rate target fixture shared across test modules."""
+    return get_default_fp_rate_target()
+
+
+@pytest.fixture
+def mvs_default_recall_target(chip_type):
+    """MVS default-band recall target fixture shared across test modules."""
+    return get_default_recall_target()
+
+
+@pytest.fixture
+def ml_fp_rate_target(chip_type):
+    """ML FP-rate target fixture shared across test modules."""
+    return get_ml_fp_rate_target()
+
+
+@pytest.fixture
+def ml_recall_target(chip_type):
+    """ML recall target fixture shared across test modules."""
+    return get_ml_recall_target()
+
+
 def _load_dataset_info():
     if not DATASET_INFO_PATH.exists():
         return {"files": {}}
@@ -429,7 +505,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     
     terminalreporter.write_line("")
     terminalreporter.write_line("Legend: R = Recall, FP = False Positive Rate")
-    terminalreporter.write_line("Targets: MVS default recall >70% and FP <20%; NBVI/ML recall >95% and FP <5%")
+    terminalreporter.write_line(format_targets_summary_line())
     terminalreporter.write_line("=" * 105)
     
     # Detailed table for PERFORMANCE.md

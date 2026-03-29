@@ -4,45 +4,46 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.8.0] - in progress - CI hardening, dependency refresh, and S3 Touch LCD example
+## [2.8.0] - in progress - Detection quality hardening, ML cross-chip robustness, and CI security
 
 ### Highlights
 
-- **Security and governance tightened**: introduced automated CLA enforcement with contributor-assistant, tracked signature registry, and a dedicated CodeQL SAST workflow for C++ and Python.
-- **CI reliability improved for emulated targets**: ESP32 QEMU smoke tests now handle known PHY emulator limitations, restore ESP32 coverage, remove unsupported C6 matrix entries, and consolidate per-chip local test configs.
-- **Developer and runtime tooling updated**: upgraded ESPHome 2026.3.0, with measured improvements in flash footprint, heap availability, and loop-time stability.
-- **New hardware profile for S3 display boards**: added a dedicated `ESP32-S3 Touch LCD 1.47"` example extending `espectre-s3.yaml`, with tuned ST7789 settings and on-device motion status rendering.
+- **Detection quality and calibration robustness improved across stacks**: NBVI now uses multi-strategy band selection with stricter defaults, aligned adaptive validation, tighter hint-band fallback, unified 12-subcarrier defaults, and a curated validation dataset.
+- **ML reliability improved on cross-chip generalization**: all per-chip datasets were recollected from scratch with stricter quality controls; training now uses chip-aware grouped validation, hard-positive mining, updated features, and retrained weights aligned with the default runtime filter chain.
+- **Security and CI governance hardened**: CodeQL and CLA automation were added, workflow permissions were tightened, and emulated-target CI was stabilized and simplified.
+- **New S3 display-board profile**: added a dedicated `ESP32-S3 Touch LCD 1.47"` example with tuned display settings and on-device motion status output.
 
-### Fixed
+### Runtime and algorithm changes (highest impact)
 
-- **Code scanning findings addressed in Micro-ESPectre tools**: replaced insecure temporary-file creation, added safer UDP bind behavior with environment-aware host detection, and exposed `--bind-ip` in `./me collect`.
-- **Interactive collection backlog handling**: CSI collector now drains queued UDP packets after countdown/prompt phases and uses monotonic timing to avoid stale packet artifacts in captures.
-- **Workflow permission hardening**: added explicit `contents: read` permissions where required by security checks.
-- **Legacy subcarrier drift removed from C++ tests and docs**: test suites now consistently consume shared defaults instead of local hardcoded bands, and tuning log examples no longer imply obsolete fixed `[11..22]` calibration output.
-- **NBVI calibration path aligned across CV modes**: NBVI is now executed for all chips in Python and C++ validation flows, including datasets that require CV normalization (`gain_locked=false`), instead of bypassing calibration on CV paths.
-- **Dataset quality pair accounting fixed**: `12_validate_dataset_quality.py` now reports pair pass/fail totals using the same rounded variance ratio used in per-pair checks, removing summary/count mismatches.
+- **Hampel now enabled by default**: `hampel_enabled=true` with threshold `5.0 MAD` (from `4.0`) to suppress extreme spikes while preserving motion sensitivity.
+- **NBVI strategy selection expanded**: each window evaluates four candidates (Entropy Spaced, MAD Clustered, Classic Spaced, Classic Clustered) and selects the lowest-FP option; scoring now exposes `nbvi_classic`, `nbvi_entropy`, and `nbvi_mad`.
 
-### Changed
+- **NBVI defaults and validation tightened**: `alpha` 0.5->0.75, `percentile` 10->5, `noise_gate_percentile` 25->15; calibration FP is now measured with the runtime-consistent adaptive threshold (`P95 x 1.1`).
+- **Hint-band fallback made conservative**: hint/current band is preferred only when calibrated candidates miss the <=5% FP target and the hint is strictly better (`hint_fp_tolerance`, `prefer_hint_on_tie`).
 
-- **NBVI multi-strategy band selection**: the calibrator now generates four candidate bands per window (Entropy Spaced, MAD Clustered, Classic Spaced, Classic Clustered) and selects the one with the lowest false positive rate, improving robustness across chip types.
-- **NBVI scoring extended with entropy and MAD metrics**: `calculate_nbvi_weighted` now computes three independent scores (`nbvi_classic`, `nbvi_entropy`, `nbvi_mad`) alongside the previous single score, enabling multi-strategy evaluation.
-- **NBVI default parameters updated**: `alpha` 0.5→0.75 (energy-biased), `percentile` 10→5 (stricter baseline window selection), `noise_gate_percentile` 25→15; aligned between C++ and Python implementations.
-- **NBVI internal validation switched to adaptive threshold**: validation FP rate is now computed using the same P95×1.1 adaptive threshold used at runtime, replacing the previous fixed `MVS_THRESHOLD=1.0`. Improves FP estimate accuracy during calibration.
-- **NBVI hint band logic tightened**: the hint/current band is now only preferred when the best calibrated candidate does not achieve ≤5% FP and the hint is strictly better. Configurable via `hint_fp_tolerance` and `prefer_hint_on_tie`. Prevents drift to bands that suppress calibration FP at the cost of recall.
-- **C6 NBVI FP target set to 7.5%** in both C++ and Python test suites, reflecting a hardware-level constraint: a periodic noise event in the C6 CSI stream causes a real FP cluster that the algorithm cannot eliminate without degrading recall below 95%.
-- **Hampel filter enabled by default**: `hampel_enabled` is now `true` with threshold raised from 4.0 to 5.0 MAD. At this threshold only extreme outlier spikes are replaced, preserving motion sensitivity while eliminating transient-interference false positives. Aligned across ESPHome/C++, Micro-ESPectre/Python, and ML training pipeline.
-- **ML model retrained with Hampel-filtered input**: neural network weights regenerated to match the new default filter chain, ensuring train/deploy alignment.
-- **Dependabot signal-to-noise in CI**: grouped update strategy was refined to reduce PR noise while keeping critical dependency maintenance active.
-- **QEMU example/config organization**: moved smoke-test configs under a single reusable action path and removed obsolete branch-split config handling.
-- **UART example cleanup**: removed `examples/uart/` and documented optional `hardware_uart: UART0` usage in classic configs for USB-UART bridge boards.
-- **Baseline version alignment for examples/tests**: raised `min_version` to `2026.2.0` in example and QEMU configs.
-- **Unified default subcarriers across stacks**: Python tools/tests and ESPHome/C++ runtime/tests now use a centralized 12-subcarrier default (`DEFAULT_SUBCARRIERS`), with ML-specific aliases and grid-search metadata dependencies removed from active workflows.
-- **Motion-validation targets and curated dataset pool**: `test_mvs_default_subcarriers` now uses production-baseline targets (`recall >80%`, `FP <20%`) and low-quality 64SC captures failing this gate were removed from `micro-espectre/data` and `dataset_info.json` for recollection.
+### ML and dataset pipeline
 
-### Added
+- **Training leakage protections added**: CV moved from `StratifiedKFold` to `StratifiedGroupKFold` (grouped by chip), and internal validation split is explicitly stratified.
+- **Hard-positive mining added**: subtle near-threshold motion samples are up-weighted to improve worst-chip recall.
+- **Feature set refreshed**: `turb_delta` was replaced by `waveform_length` after cross-chip correlation/SHAP validation.
+- **Model and runtime chain re-aligned**: ML weights were retrained using Hampel-filtered input to keep train/deploy behavior consistent.
+- **Datasets recollected for all chips**: previous captures were replaced with new recordings under stricter quality controls (gain-locked, 128SC HT20-only, balanced baseline/motion ratios); the new dataset is used across the full pipeline — NBVI validation, MVS performance tests, and ML training.
+- **Validation quality controls tightened**: strict targets (`recall >95%`, `FP <5%`) were enforced for `test_mvs_default_subcarriers`.
+- **Collection and reporting consistency fixes**: interactive collector now drains queued packets with monotonic timing; dataset quality pair totals now use the same rounded ratio logic as per-pair checks.
 
-- **ESP32-S3 Touch LCD example**: new `examples/espectre-s3-touch-lcd.yaml` package-based configuration for Waveshare/compatible 1.47" boards.
-- **Research notebooks and dataset quality tooling (Micro-ESPectre)**: added `micro-espectre/notebooks/01_csi_data_explorer.ipynb` and `micro-espectre/notebooks/02_feature_extraction_and_ml.ipynb` for interactive CSI/ML walkthroughs
+### Security, CI, and tooling
+
+- **Governance and SAST**: added CLA enforcement (`contributor-assistant`), signature registry tracking, and a dedicated CodeQL workflow for C++/Python.
+- **Micro-ESPectre tooling hardening**: replaced insecure temporary-file usage, improved UDP bind safety with environment-aware host handling, and added `--bind-ip` to `./me collect`.
+- **CI reliability and maintainability**: QEMU smoke tests now handle known PHY emulator limits, restore ESP32 coverage, remove unsupported C6 matrix entries, and consolidate local test config paths.
+- **Permission and dependency hygiene**: workflows now declare explicit `contents: read` where required; Dependabot update grouping was tuned to reduce PR noise.
+- **Baseline versions and runtime tooling updated**: example/QEMU configs now require `min_version: 2026.2.0`; ESPHome was updated to `2026.3.0` with measured flash/heap/loop-time improvements.
+
+### Examples and documentation
+
+- **Added**: `examples/espectre-s3-touch-lcd.yaml` for Waveshare-compatible 1.47" S3 boards.
+- **Added**: `micro-espectre/notebooks/01_csi_data_explorer.ipynb` and `micro-espectre/notebooks/02_feature_extraction_and_ml.ipynb`.
+- **Removed/cleaned**: `examples/uart/`; documented optional `hardware_uart: UART0` usage in classic USB-UART bridge configurations.
 
 ---
 
@@ -161,7 +162,7 @@ espectre:
 
 The pre-trained model shipped with this release was trained on a limited dataset collected in a single environment. It performs well in initial testing, but **we need your help to make it better**. If you try the ML detector, consider contributing baseline (empty room) and movement recordings from your environment — the more diverse the training data, the more robust the model becomes. See [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md) for how to collect and submit data via pull request.
 
-For architecture and feature details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#csi-features-for-ml).
+For architecture and feature details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#features).
 
 #### Training Pipeline
 

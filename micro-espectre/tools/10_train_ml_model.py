@@ -18,7 +18,8 @@ Usage:
     python tools/10_train_ml_model.py --info             # Show dataset info
     python tools/10_train_ml_model.py --experiment       # Compare architectures
     python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
-    python tools/10_train_ml_model.py --shap             # Show SHAP feature importance
+    python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
+    python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
 
 Configuration:
   - TRAINING_FEATURES: Edit at top of file to change feature set
@@ -90,26 +91,12 @@ from features import (
 )
 
 # ============================================================================
-# Feature Selection (v2.5.1)
+# Feature Selection
 # ============================================================================
 #
-# Features ordered by category: Statistical (10), Temporal (1), Amplitude (1).
-#
-# USED FEATURES (12):
-# | Idx | Feature            | SHAP   | Corr   | Type       | Description                  |
-# |-----|--------------------|--------|--------|------------|------------------------------|
-# |  1  | turb_mean          | 0.030  | -0.486 | Statistical| Mean turbulence              |
-# |  2  | turb_std           | 0.020  | -0.116 | Statistical| Standard deviation           |
-# |  3  | turb_max           | 0.014  | -0.388 | Statistical| Maximum value                |
-# |  4  | turb_min           | 0.017  | -0.276 | Statistical| Minimum value                |
-# |  5  | turb_zcr           | 0.036  | -0.539 | Statistical| Zero-crossing rate           |
-# |  6  | turb_skewness      | 0.064  | +0.333 | Statistical| Asymmetry (3rd moment)       |
-# |  7  | turb_kurtosis      | 0.016  | -0.409 | Statistical| Tailedness (4th moment)      |
-# |  8  | turb_entropy       | 0.108  | +0.447 | Statistical| Shannon entropy              |
-# |  9  | turb_autocorr      | 0.033  | +0.737 | Temporal   | Lag-1 autocorr (10ms)        |
-# | 10  | turb_mad           | 0.080  | +0.287 | Statistical| Median absolute deviation    |
-# | 11  | turb_slope         | 0.004  | -0.020 | Statistical| Linear trend slope           |
-# | 12  | amp_entropy        | 0.037  | -0.124 | Amplitude  | Amplitude distribution       |
+# 12 features: 11 turbulence-based + 1 temporal.
+# Top-3 by SHAP: turb_autocorr (40.9%), turb_std (12.0%), turb_mean (8.1%).
+# See ALGORITHMS.md "Feature Importance" for full SHAP/correlation table.
 # ============================================================================
 
 # ============================================================================
@@ -118,7 +105,7 @@ from features import (
 # Change this list to experiment with different features.
 # Available features are defined in src/features.py
 #
-# Current default (12 features, optimized via SHAP analysis):
+# Current default (12 features):
 TRAINING_FEATURES = DEFAULT_FEATURES
 
 # To experiment with different features, define a custom list here.
@@ -372,9 +359,11 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
         hampel_threshold: Hampel filter threshold in MAD units (default: 5.0)
     
     Returns:
-        tuple:
-            - (X, y, feature_names) by default
-            - (X, y, feature_names, sample_meta) if return_metadata=True
+        tuple: (X, y, feature_names, groups)
+            - X: Feature matrix (n_samples, n_features)
+            - y: Labels (n_samples,)
+            - feature_names: List of feature names
+            - groups: Chip group labels per sample (n_samples,) for grouped CV
     """
     if subcarriers is None:
         subcarriers = DEFAULT_SUBCARRIERS
@@ -383,7 +372,7 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
         feature_names = DEFAULT_FEATURES.copy()
     
     X, y = [], []
-    sample_meta = []
+    groups = []
 
     # Process each source file independently to avoid window leakage across files.
     grouped = {}
@@ -392,6 +381,7 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
         grouped.setdefault(source, []).append(pkt)
 
     for source_file, file_packets in grouped.items():
+        chip = file_packets[0].get('chip', 'unknown').upper()
         ctx = SegmentationContext(
             window_size=window_size,
             threshold=1.0,
@@ -430,18 +420,12 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
 
             X.append(features)
             y.append(1 if pkt.get('is_motion', False) else 0)
-            if return_metadata:
-                sample_meta.append({
-                    'source_file': source_file,
-                    'packet_index': int(pkt.get('packet_index', -1)),
-                    'is_motion': bool(pkt.get('is_motion', False)),
-                })
+            groups.append(chip)
 
     X_arr = np.array(X)
     y_arr = np.array(y)
-    if return_metadata:
-        return X_arr, y_arr, feature_names, sample_meta
-    return X_arr, y_arr, feature_names
+    groups_arr = np.array(groups)
+    return X_arr, y_arr, feature_names, groups_arr
 
 
 def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDOW_SIZE):
@@ -449,7 +433,8 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
     Compute sample weights using context-aware MVS scoring per source file.
 
     Weight policy:
-    - movement samples: proportional to motion metric / threshold (clipped 0.2..2.0)
+    - movement samples: hard-positive mining
+      (harder positives near threshold are weighted more)
     - baseline samples: promote hard negatives (2.0) when metric >= threshold, else 1.0
     - single-dataset fallback files get reduced confidence factor (0.5)
     """
@@ -486,7 +471,21 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
 
             ratio = max(0.0, float(ctx.current_moving_variance)) / threshold
             if pkt.get('is_motion', False):
-                base = float(np.clip(ratio, 0.2, 2.0))
+                # Hard-positive mining:
+                # subtle/near-threshold motion is exactly where recall drops in
+                # deployment, so up-weight it; easy positives get lower weight.
+                if ratio < 0.5:
+                    base = 2.4
+                elif ratio < 0.8:
+                    base = 2.0
+                elif ratio < 1.0:
+                    base = 1.7
+                elif ratio < 1.3:
+                    base = 1.3
+                elif ratio < 1.8:
+                    base = 1.0
+                else:
+                    base = 0.8
             else:
                 base = 2.0 if ratio >= 1.0 else 1.0
             weights.append(base * confidence_factor)
@@ -589,6 +588,18 @@ def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
     num_features = X.shape[1] if hasattr(X, 'shape') else len(X[0])
     model = build_model(hidden_layers=hidden_layers, num_features=num_features, use_dropout=use_dropout)
     
+    # Stratified validation split (Keras validation_split takes the last N%
+    # in order, which can skew chip representation)
+    from sklearn.model_selection import train_test_split as _val_split
+    split_kwargs = dict(test_size=0.1, random_state=42, stratify=np.asarray(y))
+    if sample_weight is not None:
+        X_t, X_v, y_t, y_v, sw_t, sw_v = _val_split(
+            X, y, sample_weight, **split_kwargs
+        )
+    else:
+        X_t, X_v, y_t, y_v = _val_split(X, y, **split_kwargs)
+        sw_t, sw_v = None, None
+
     # Callbacks for training robustness
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
@@ -606,12 +617,12 @@ def train_model(X, y, hidden_layers=[16, 8], max_epochs=200, use_dropout=True,
     ]
     
     model.fit(
-        X, y,
+        X_t, y_t,
         epochs=max_epochs,
         batch_size=32,
-        validation_split=0.1,
+        validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
         class_weight=class_weight,
-        sample_weight=sample_weight,
+        sample_weight=sw_t,
         callbacks=callbacks,
         verbose=verbose
     )
@@ -650,9 +661,13 @@ def evaluate_model(model, X_test, y_test):
 
 
 def cross_validate(X, y, hidden_layers=[16, 8], n_folds=5, max_epochs=200,
-                   fp_weight=1.0, sample_weight=None):
+                   fp_weight=1.0, sample_weight=None, groups=None):
     """
-    Perform stratified k-fold cross-validation.
+    Perform stratified k-fold cross-validation, grouped by chip when available.
+    
+    When groups are provided, uses StratifiedGroupKFold so each fold's
+    validation set contains chips not seen during training for that fold.
+    This prevents inflated CV metrics from chip-level data leakage.
     
     Args:
         X: Feature matrix (NOT normalized - scaler fit per fold)
@@ -662,17 +677,28 @@ def cross_validate(X, y, hidden_layers=[16, 8], n_folds=5, max_epochs=200,
         max_epochs: Maximum training epochs per fold
         fp_weight: Multiplier for class 0 weight (>1.0 penalizes FP more)
         sample_weight: Optional per-sample weights aligned with X/y
+        groups: Optional chip group labels per sample for grouped splitting
     
     Returns:
         dict: Mean and std of each metric across folds
     """
-    from sklearn.model_selection import StratifiedKFold
     from sklearn.preprocessing import StandardScaler
-    
-    skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
+
+    if groups is not None:
+        from sklearn.model_selection import StratifiedGroupKFold
+        unique_groups = len(set(groups))
+        effective_folds = min(n_folds, unique_groups)
+        splitter = StratifiedGroupKFold(n_splits=effective_folds, shuffle=True, random_state=42)
+        split_iter = splitter.split(X, y, groups)
+    else:
+        from sklearn.model_selection import StratifiedKFold
+        effective_folds = n_folds
+        splitter = StratifiedKFold(n_splits=effective_folds, shuffle=True, random_state=42)
+        split_iter = splitter.split(X, y)
+
     fold_metrics = []
     
-    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+    for fold, (train_idx, val_idx) in enumerate(split_iter):
         X_train_fold, X_val_fold = X[train_idx], X[val_idx]
         y_train_fold, y_val_fold = y[train_idx], y[val_idx]
         sw_train_fold = sample_weight[train_idx] if sample_weight is not None else None
@@ -942,7 +968,7 @@ def calculate_correlation_importance(feature_names=None):
         print(f"  Files using CV normalization: {len(stats['cv_norm_files'])}")
     
     print("  Extracting features...")
-    X, y, actual_features = extract_features(all_packets, feature_names=feature_names)
+    X, y, actual_features, _ = extract_features(all_packets, feature_names=feature_names)
     print(f"  Extracted features for {len(X)} samples")
     
     # Calculate correlations for each feature column
@@ -972,7 +998,7 @@ def run_shap_all_features(n_samples=100):
     print(f"\n{'='*70}")
     print(f"  SHAP Analysis with {len(all_features)} training features")
     print(f"{'='*70}")
-    print(f"  Using {n_samples} samples (use --shap-samples to change)")
+    print(f"  Using {n_samples} samples (use --shap <N> to change)")
     
     # Load data
     all_packets, stats = load_all_data()
@@ -980,7 +1006,7 @@ def run_shap_all_features(n_samples=100):
     
     # Extract selected features
     print(f"Extracting {len(all_features)} features...")
-    X, y, actual_features = extract_features(all_packets, feature_names=all_features)
+    X, y, actual_features, _ = extract_features(all_packets, feature_names=all_features)
     print(f"  Samples: {len(X)}, Features: {len(actual_features)}")
     
     # Normalize
@@ -1364,7 +1390,7 @@ def show_info():
     print()
 
 
-def train_all(fp_weight=2.0, seed=None, feature_names=None,
+def train_all(fp_weight=1.0, seed=None, feature_names=None,
               feature_importance=False, ablation=False, shap_samples=200):
     """
     Train models with all available data.
@@ -1451,7 +1477,7 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
     
     # Extract features
     print("\nExtracting features...")
-    X, y, actual_feature_names = extract_features(
+    X, y, actual_feature_names, groups = extract_features(
         all_packets, subcarriers=subcarriers, feature_names=feature_names
     )
     print(f"  Samples: {len(X)}")
@@ -1475,7 +1501,10 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
             f"Error: sample weights mismatch (weights={len(sample_weights)}, samples={len(X)})."
         )
         return 1, seed
-    print(f"  Weight mode: context-aware (pair<=30min + single-dataset fallback)")
+    print(
+        "  Weight mode: context-aware + hard-positive mining "
+        "(pair<=30min + single-dataset fallback)"
+    )
     print(
         f"  Weight stats: min={float(np.min(sample_weights)):.3f}, "
         f"max={float(np.max(sample_weights)):.3f}, "
@@ -1487,14 +1516,15 @@ def train_all(fp_weight=2.0, seed=None, feature_names=None,
         run_ablation_study(X, y, actual_feature_names, fp_weight=fp_weight)
         return 0, seed
     
-    # 5-fold cross-validation for reliable evaluation
+    # Cross-validation grouped by chip for realistic per-chip evaluation
+    n_chips = len(set(groups))
     if fp_weight != 1.0:
         print(f"\nFP weight: {fp_weight}x (penalizing false positives)")
-    print("\n5-fold cross-validation (12 -> 16 -> 8 -> 1)...")
+    print(f"\n{n_chips}-fold grouped CV by chip (12 -> 16 -> 8 -> 1)...")
     with suppress_stderr():
-        cv_results = cross_validate(X, y, hidden_layers=[16, 8], n_folds=5,
+        cv_results = cross_validate(X, y, hidden_layers=[16, 8], n_folds=n_chips,
                                     max_epochs=200, fp_weight=fp_weight,
-                                    sample_weight=sample_weights)
+                                    sample_weight=sample_weights, groups=groups)
     
     print(f"  Recall:    {cv_results['recall_mean']:.1f}% (+/- {cv_results['recall_std']:.1f}%)")
     print(f"  Precision: {cv_results['precision_mean']:.1f}% (+/- {cv_results['precision_std']:.1f}%)")
@@ -1602,8 +1632,6 @@ def _run_ml_performance_tests():
         text=True,
     )
     output = (result.stdout or "") + "\n" + (result.stderr or "")
-    if result.returncode != 0:
-        return None, output
 
     # Parse lines from the "DETAILED METRICS (for PERFORMANCE.md)" table.
     pattern = re.compile(
@@ -1833,7 +1861,7 @@ def experiment_architectures():
     print(f"  Total: {stats['total']} packets")
     
     print("\nExtracting features...")
-    X, y, feature_names = extract_features(all_packets, subcarriers=subcarriers)
+    X, y, feature_names, _ = extract_features(all_packets, subcarriers=subcarriers)
     print(f"  Samples: {len(X)}")
     print(f"  Features: {len(feature_names)}")
     print(f"  Class balance: IDLE={np.sum(y==0)}, MOTION={np.sum(y==1)}")
@@ -1968,7 +1996,8 @@ Examples:
   python tools/10_train_ml_model.py --seed 42          # Reproducible training
   python tools/10_train_ml_model.py --seed-search-until-improvement 20
                                            # Stop at first improvement (max 20 trials)
-  python tools/10_train_ml_model.py --shap             # Show SHAP feature importance
+  python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
+  python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
 
 Configuration (edit at top of this file):
   TRAINING_FEATURES = [...]   # Feature list to use
@@ -1990,10 +2019,9 @@ To compare ML with MVS, use:
     parser.add_argument('--fp-weight', type=float, default=1.0,
                        help='Multiplier for IDLE class weight to penalize false positives. '
                             'Values >1.0 make the model more conservative (default: 1.0)')
-    parser.add_argument('--shap', action='store_true',
-                       help='Calculate and display SHAP feature importance (12 default features)')
-    parser.add_argument('--shap-samples', type=int, default=200,
-                       help='Number of samples for SHAP analysis (default: 200)')
+    parser.add_argument('--shap', type=int, nargs='?', const=200, default=None,
+                       metavar='SAMPLES',
+                       help='Calculate SHAP feature importance (default: 200 samples)')
     parser.add_argument('--correlation', action='store_true',
                        help='Calculate correlation of selected training features with motion label')
     parser.add_argument('--ablation', action='store_true',
@@ -2017,7 +2045,7 @@ To compare ML with MVS, use:
         if args.seed is not None:
             print("Error: --seed and --seed-search-until-improvement are mutually exclusive")
             return 1
-        if args.shap or args.ablation:
+        if args.shap is not None or args.ablation:
             print("Error: --seed-search-until-improvement cannot be combined with --shap or --ablation")
             return 1
         return train_until_improvement(
@@ -2030,9 +2058,9 @@ To compare ML with MVS, use:
         fp_weight=args.fp_weight, 
         seed=args.seed,
         feature_names=TRAINING_FEATURES,
-        feature_importance=args.shap,
+        feature_importance=args.shap is not None,
         ablation=args.ablation,
-        shap_samples=args.shap_samples
+        shap_samples=args.shap if args.shap is not None else 200
     )
     return train_rc
 
