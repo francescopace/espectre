@@ -184,6 +184,16 @@ class TestMLDetector:
         assert detector._packet_count == 0
         assert detector.track_data == False
     
+    def test_hampel_enabled_by_default(self):
+        """Hampel filter is enabled by default (matches training pipeline)."""
+        detector = MLDetector()
+        assert detector._context.hampel_filter is not None
+    
+    def test_hampel_disabled_explicitly(self):
+        """Hampel filter can be disabled explicitly."""
+        detector = MLDetector(enable_hampel=False)
+        assert detector._context.hampel_filter is None
+    
     def test_initialization_custom_params(self):
         """Test initialization with custom parameters."""
         detector = MLDetector(window_size=100, threshold=7.0)

@@ -210,36 +210,70 @@ esp_err_t NBVICalibrator::run_calibration_() {
       continue;
     }
     
-    // Sort by NBVI (ascending)
+    // Generate candidates
+    std::vector<std::vector<uint8_t>> candidates_to_eval;
+    uint8_t temp_band[HT20_SELECTED_BAND_SIZE];
+    uint8_t temp_size;
+
+    auto push_if_unique = [&](const uint8_t* band, uint8_t size) {
+      if (size != HT20_SELECTED_BAND_SIZE) return;
+      std::vector<uint8_t> b(band, band + size);
+      if (std::find(candidates_to_eval.begin(), candidates_to_eval.end(), b) == candidates_to_eval.end()) {
+        candidates_to_eval.push_back(b);
+      }
+    };
+
+    // 1. Entropy Spaced
+    for (auto& m : all_metrics) m.nbvi = m.nbvi_entropy;
     std::sort(all_metrics.begin(), all_metrics.begin() + filtered_count,
-              [](const NBVIMetrics& a, const NBVIMetrics& b) {
-                return a.nbvi < b.nbvi;
-              });
+              [](const NBVIMetrics& a, const NBVIMetrics& b) { return a.nbvi < b.nbvi; });
+    select_with_spacing_strict_(all_metrics, temp_band, &temp_size);
+    push_if_unique(temp_band, temp_size);
+
+    // 2. MAD Clustered
+    for (auto& m : all_metrics) m.nbvi = m.nbvi_mad;
+    std::sort(all_metrics.begin(), all_metrics.begin() + filtered_count,
+              [](const NBVIMetrics& a, const NBVIMetrics& b) { return a.nbvi < b.nbvi; });
+    select_with_spacing_(all_metrics, temp_band, &temp_size);
+    push_if_unique(temp_band, temp_size);
+
+    // 3. Classic Spaced
+    for (auto& m : all_metrics) m.nbvi = m.nbvi_classic;
+    std::sort(all_metrics.begin(), all_metrics.begin() + filtered_count,
+              [](const NBVIMetrics& a, const NBVIMetrics& b) { return a.nbvi < b.nbvi; });
+    select_with_spacing_strict_(all_metrics, temp_band, &temp_size);
+    push_if_unique(temp_band, temp_size);
+
+    // 4. Classic Clustered
+    select_with_spacing_(all_metrics, temp_band, &temp_size);
+    push_if_unique(temp_band, temp_size);
     
-    // Select with spacing
-    uint8_t temp_band[HT20_SELECTED_BAND_SIZE] = {0};
-    uint8_t temp_band_size = 0;
-    select_with_spacing_(all_metrics, temp_band, &temp_band_size);
-    
-    if (temp_band_size != HT20_SELECTED_BAND_SIZE) {
-      continue;
-    }
-    
-    // Validate
-    float fp_rate = 0.0f;
-    std::vector<float> temp_mv_values;
-    if (!validate_subcarriers_(temp_band, temp_band_size, &fp_rate, temp_mv_values)) {
-      ESP_LOGW(TAG, "Window %zu: validation failed, skipping candidate", idx + 1);
-      continue;
-    }
-    
-    ESP_LOGV(TAG, "Window %zu: FP rate %.1f%%", idx + 1, fp_rate * 100.0f);
-    
-    if (fp_rate < best_fp_rate) {
-      best_fp_rate = fp_rate;
-      std::memcpy(best_band, temp_band, HT20_SELECTED_BAND_SIZE);
-      best_mv_values = std::move(temp_mv_values);
-      found_valid = true;
+    for (const auto& candidate_band : candidates_to_eval) {
+      float fp_rate = 0.0f;
+      std::vector<float> temp_mv_values;
+      if (!validate_subcarriers_(candidate_band.data(), candidate_band.size(), &fp_rate, temp_mv_values)) {
+        continue;
+      }
+      
+      bool override = false;
+      if (!found_valid) {
+        override = true;
+      } else if (fp_rate <= 0.05f) {
+        if (best_fp_rate > 0.05f) {
+          override = true;
+        }
+      } else {
+        if (fp_rate < best_fp_rate) {
+          override = true;
+        }
+      }
+      
+      if (override) {
+        best_fp_rate = fp_rate;
+        std::memcpy(best_band, candidate_band.data(), HT20_SELECTED_BAND_SIZE);
+        best_mv_values = std::move(temp_mv_values);
+        found_valid = true;
+      }
     }
     
     vTaskDelay(1);  // Yield
@@ -267,10 +301,9 @@ esp_err_t NBVICalibrator::run_calibration_() {
     return ESP_OK;
   }
   
-  // Prefer hinted/current band when FP degradation is negligible.
-  // This avoids drift to pathological bands that can preserve baseline FP
-  // but collapse movement recall on some datasets.
-  constexpr float HINT_FP_TOLERANCE = 0.01f;  // 1.0 percentage point
+  // Prefer hinted/current band only when candidate is NOT acceptable (>5% FP)
+  // AND the hint band has better or comparable FP rate.
+  constexpr float FP_COMPARE_EPSILON = 1e-6f;
   bool use_hint_band = false;
   float hint_fp_rate = 1.0f;
   std::vector<float> hint_mv_values;
@@ -279,8 +312,17 @@ esp_err_t NBVICalibrator::run_calibration_() {
                               static_cast<uint8_t>(current_band_.size()),
                               &hint_fp_rate,
                               hint_mv_values)) {
-      if (hint_fp_rate <= (best_fp_rate + HINT_FP_TOLERANCE)) {
-        use_hint_band = true;
+      if (best_fp_rate > 0.05f) {
+        const float hint_cmp = hint_fp_rate + FP_COMPARE_EPSILON;
+        const float best_cmp = best_fp_rate + hint_fp_tolerance_;
+        const bool hint_fp_ok = prefer_hint_on_tie_
+                                    ? (hint_cmp <= best_cmp)
+                                    : (hint_cmp < best_cmp);
+        if (hint_fp_ok) {
+          use_hint_band = true;
+        }
+      } else {
+        ESP_LOGD(TAG, "Keeping candidate band with FP %.1f%% (target <5.0%%)", best_fp_rate * 100.0f);
       }
     }
   }
@@ -290,8 +332,9 @@ esp_err_t NBVICalibrator::run_calibration_() {
     std::memcpy(selected_band_, current_band_.data(), HT20_SELECTED_BAND_SIZE);
     selected_band_size_ = HT20_SELECTED_BAND_SIZE;
     mv_values_ = std::move(hint_mv_values);
-    ESP_LOGI(TAG, "Using hinted/current band (FP %.1f%% vs best %.1f%%, tol %.1f%%)",
-             hint_fp_rate * 100.0f, best_fp_rate * 100.0f, HINT_FP_TOLERANCE * 100.0f);
+    ESP_LOGI(TAG, "Using hinted/current band (FP %.1f%% vs best %.1f%%, tol %.1f%%, tie=%s)",
+             hint_fp_rate * 100.0f, best_fp_rate * 100.0f, hint_fp_tolerance_ * 100.0f,
+             prefer_hint_on_tie_ ? "prefer" : "strict");
   } else {
     std::memcpy(selected_band_, best_band, HT20_SELECTED_BAND_SIZE);
     selected_band_size_ = HT20_SELECTED_BAND_SIZE;
@@ -396,9 +439,11 @@ void NBVICalibrator::calculate_nbvi_metrics_(uint16_t baseline_start,
     
     // Exclude guard bands and DC
     if (sc < HT20_GUARD_BAND_LOW || sc > HT20_GUARD_BAND_HIGH || sc == HT20_DC_SUBCARRIER) {
-      metrics[sc].nbvi = std::numeric_limits<float>::infinity();
+      metrics[sc].nbvi = metrics[sc].nbvi_classic = metrics[sc].nbvi_entropy =
+        metrics[sc].nbvi_mad = std::numeric_limits<float>::infinity();
     } else if (metrics[sc].mean < NULL_SUBCARRIER_THRESHOLD) {
-      metrics[sc].nbvi = std::numeric_limits<float>::infinity();
+      metrics[sc].nbvi = metrics[sc].nbvi_classic = metrics[sc].nbvi_entropy =
+        metrics[sc].nbvi_mad = std::numeric_limits<float>::infinity();
     }
   }
 }
@@ -432,12 +477,56 @@ uint8_t NBVICalibrator::apply_noise_gate_(std::vector<NBVIMetrics>& metrics) {
   return count;
 }
 
+void NBVICalibrator::select_with_spacing_strict_(const std::vector<NBVIMetrics>& sorted_metrics,
+                                                 uint8_t* output_band, uint8_t* output_size) {
+  std::vector<uint8_t> valid_candidates;
+  for (const auto& m : sorted_metrics) {
+    if (!std::isinf(m.nbvi)) {
+      valid_candidates.push_back(m.subcarrier);
+    }
+  }
+  
+  std::vector<uint8_t> selected;
+  for (int current_spacing = min_spacing_; current_spacing >= 0; --current_spacing) {
+    selected.clear();
+    for (uint8_t sc : valid_candidates) {
+      if (selected.size() >= HT20_SELECTED_BAND_SIZE) break;
+      
+      bool too_close = false;
+      for (uint8_t existing : selected) {
+        if (std::abs(sc - existing) < current_spacing) {
+          too_close = true;
+          break;
+        }
+      }
+      if (!too_close) {
+        selected.push_back(sc);
+      }
+    }
+    if (selected.size() >= HT20_SELECTED_BAND_SIZE) {
+      break;
+    }
+  }
+  
+  if (selected.size() < HT20_SELECTED_BAND_SIZE) {
+    selected.clear();
+    for (size_t i = 0; i < valid_candidates.size() && selected.size() < HT20_SELECTED_BAND_SIZE; i++) {
+      selected.push_back(valid_candidates[i]);
+    }
+  }
+  
+  std::sort(selected.begin(), selected.end());
+  
+  *output_size = selected.size();
+  std::memcpy(output_band, selected.data(), selected.size());
+}
+
 void NBVICalibrator::select_with_spacing_(const std::vector<NBVIMetrics>& sorted_metrics,
                                           uint8_t* output_band,
                                           uint8_t* output_size) {
   std::vector<uint8_t> selected;
   
-  // Always include top 5 (best NBVI)
+  // Always include top 5 (best NBVI) without spacing constraint
   for (size_t i = 0; i < sorted_metrics.size() && selected.size() < 5; i++) {
     if (!std::isinf(sorted_metrics[i].nbvi)) {
       selected.push_back(sorted_metrics[i].subcarrier);
@@ -532,9 +621,6 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
   uint16_t ring_count = 0;
   float running_sum = 0.0f;
   float running_sum_sq = 0.0f;
-  uint16_t motion_count = 0;
-  uint16_t total_packets = 0;
-
   for (uint16_t start_pkt = 0; start_pkt < buffer_count; start_pkt += VALIDATION_CHUNK_PACKETS) {
     const uint16_t chunk_packets = std::min<uint16_t>(VALIDATION_CHUNK_PACKETS, buffer_count - start_pkt);
     std::vector<uint8_t> chunk_data = file_buffer_.read_window(start_pkt, chunk_packets);
@@ -587,15 +673,28 @@ bool NBVICalibrator::validate_subcarriers_(const uint8_t* band, uint8_t band_siz
         variance = 0.0f;
       }
       out_mv_values.push_back(variance);
-
-      if (variance > MVS_THRESHOLD) {
-        motion_count++;
-      }
-      total_packets++;
     }
   }
-  
-  *out_fp_rate = (total_packets > 0) ? static_cast<float>(motion_count) / total_packets : 0.0f;
+
+  if (out_mv_values.empty()) {
+    *out_fp_rate = 0.0f;
+    return true;
+  }
+
+  float adaptive_threshold = 0.0f;
+  uint8_t threshold_percentile = 0;
+  calculate_adaptive_threshold(out_mv_values, ThresholdMode::AUTO,
+                               adaptive_threshold, threshold_percentile);
+
+  uint32_t motion_count = 0;
+  for (float variance : out_mv_values) {
+    if (variance > adaptive_threshold) {
+      motion_count++;
+    }
+  }
+
+  *out_fp_rate = static_cast<float>(motion_count) /
+                 static_cast<float>(out_mv_values.size());
   
   return true;
 }
@@ -609,8 +708,13 @@ void NBVICalibrator::calculate_nbvi_weighted_(const std::vector<float>& magnitud
   size_t count = magnitudes.size();
   if (count == 0) {
     out_metrics.nbvi = std::numeric_limits<float>::infinity();
+    out_metrics.nbvi_classic = std::numeric_limits<float>::infinity();
+    out_metrics.nbvi_entropy = std::numeric_limits<float>::infinity();
+    out_metrics.nbvi_mad = std::numeric_limits<float>::infinity();
     out_metrics.mean = 0.0f;
     out_metrics.std = 0.0f;
+    out_metrics.mad = 0.0f;
+    out_metrics.entropy = 0.0f;
     return;
   }
   
@@ -622,21 +726,79 @@ void NBVICalibrator::calculate_nbvi_weighted_(const std::vector<float>& magnitud
   
   if (mean < 1e-6f) {
     out_metrics.nbvi = std::numeric_limits<float>::infinity();
+    out_metrics.nbvi_classic = std::numeric_limits<float>::infinity();
+    out_metrics.nbvi_entropy = std::numeric_limits<float>::infinity();
+    out_metrics.nbvi_mad = std::numeric_limits<float>::infinity();
     out_metrics.mean = mean;
     out_metrics.std = 0.0f;
+    out_metrics.mad = 0.0f;
+    out_metrics.entropy = 0.0f;
     return;
   }
   
   float variance = calculate_variance_two_pass(magnitudes.data(), count);
   float stddev = std::sqrt(variance);
   
+  // Entropy
+  float min_v = magnitudes[0];
+  float max_v = magnitudes[0];
+  for (float mag : magnitudes) {
+    if (mag < min_v) min_v = mag;
+    if (mag > max_v) max_v = mag;
+  }
+  float range_v = max_v - min_v;
+  float entropy = 0.0f;
+  if (range_v > 0) {
+    int bins[10] = {0};
+    float bin_w = range_v / 10.0f;
+    for (float v : magnitudes) {
+      int b = static_cast<int>((v - min_v) / bin_w);
+      if (b == 10) b = 9;
+      bins[b]++;
+    }
+    for (int b : bins) {
+      if (b > 0) {
+        float p = static_cast<float>(b) / count;
+        entropy -= p * std::log2(p);
+      }
+    }
+  }
+  
+  // MAD
+  std::vector<float> sorted_vals = magnitudes;
+  std::sort(sorted_vals.begin(), sorted_vals.end());
+  float median = sorted_vals[count / 2];
+  std::vector<float> abs_devs(count);
+  for (size_t i = 0; i < count; i++) {
+    abs_devs[i] = std::abs(magnitudes[i] - median);
+  }
+  std::sort(abs_devs.begin(), abs_devs.end());
+  float mad = abs_devs[count / 2];
+
+  // Classic score
   float cv = stddev / mean;
   float nbvi_energy = stddev / (mean * mean);
-  float nbvi_weighted = alpha_ * nbvi_energy + (1.0f - alpha_) * cv;
-  
-  out_metrics.nbvi = nbvi_weighted;
+  float base_score = alpha_ * nbvi_energy + (1.0f - alpha_) * cv;
+
+  // Entropy score
+  float entropy_factor = std::max(0.5f, entropy);
+  float entropy_score = base_score / entropy_factor;
+
+  // MAD score
+  float robust_std = (mad > 1e-6f) ? (mad * 1.4826f) : stddev;
+  float cv_mad = robust_std / mean;
+  float energy_mad = robust_std / (mean * mean);
+  float mad_score = alpha_ * energy_mad + (1.0f - alpha_) * cv_mad;
+
+  out_metrics.nbvi_classic = base_score;
+  out_metrics.nbvi_entropy = entropy_score;
+  out_metrics.nbvi_mad = mad_score;
+
+  out_metrics.nbvi = out_metrics.nbvi_classic;  // default
   out_metrics.mean = mean;
   out_metrics.std = stddev;
+  out_metrics.mad = mad;
+  out_metrics.entropy = entropy;
 }
 
 }  // namespace espectre

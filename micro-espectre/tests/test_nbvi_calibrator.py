@@ -61,7 +61,7 @@ class TestNBVICalibrator:
         
         assert calibrator.buffer_size == 500
         assert calibrator.percentile == 10
-        assert calibrator.alpha == 0.5
+        assert calibrator.alpha == 0.75
         assert calibrator.min_spacing == 1
         assert calibrator._packet_count == 0
         
@@ -149,11 +149,11 @@ class TestNBVICalculation:
         
         result = calibrator._calculate_nbvi_from_stats(mean, std)
         
-        assert 'nbvi' in result
+        assert 'nbvi_classic' in result
         assert 'mean' in result
         assert 'std' in result
         assert result['mean'] == pytest.approx(30.0, rel=1e-6)
-        assert result['nbvi'] > 0
+        assert result['nbvi_classic'] > 0
         
         calibrator.free_buffer()
     
@@ -161,31 +161,52 @@ class TestNBVICalculation:
         """Test NBVI with zero mean returns inf"""
         calibrator = NBVICalibrator()
         result = calibrator._calculate_nbvi_from_stats(0.0, 0.0)
-        
-        assert result['nbvi'] == float('inf')
-        
+
+        assert result['nbvi_classic'] == float('inf')
+        assert result['nbvi_entropy'] == float('inf')
+        assert result['nbvi_mad'] == float('inf')
+
         calibrator.free_buffer()
     
     def test_nbvi_lower_is_better(self):
         """Test that stable signal has lower NBVI than noisy signal"""
         calibrator = NBVICalibrator()
-        
+
         import math
         # Stable signal (low std)
         stable = [50.0, 50.5, 49.5, 50.2, 49.8]
         mean_s = sum(stable) / len(stable)
         std_s = math.sqrt(sum((m - mean_s) ** 2 for m in stable) / len(stable))
         result_stable = calibrator._calculate_nbvi_from_stats(mean_s, std_s)
-        
+
         # Noisy signal (high std)
         noisy = [50.0, 60.0, 40.0, 55.0, 45.0]
         mean_n = sum(noisy) / len(noisy)
         std_n = math.sqrt(sum((m - mean_n) ** 2 for m in noisy) / len(noisy))
         result_noisy = calibrator._calculate_nbvi_from_stats(mean_n, std_n)
-        
+
         # Lower NBVI = better subcarrier
-        assert result_stable['nbvi'] < result_noisy['nbvi']
-        
+        assert result_stable['nbvi_classic'] < result_noisy['nbvi_classic']
+
+        calibrator.free_buffer()
+
+    def test_nbvi_entropy_rewards_informative_distribution(self):
+        """Test that entropy score rewards subcarriers with higher entropy"""
+        calibrator = NBVICalibrator()
+
+        import math
+        vals = [50.0, 51.0, 50.5, 49.5, 50.2]
+        mean = sum(vals) / len(vals)
+        std = math.sqrt(sum((v - mean) ** 2 for v in vals) / len(vals))
+
+        # High entropy → lower score (informative subcarrier preferred)
+        result_high = calibrator._calculate_nbvi_from_stats(mean, std, entropy=3.0)
+        # Low entropy → higher score (flat distribution penalized)
+        result_low = calibrator._calculate_nbvi_from_stats(mean, std, entropy=0.1)
+
+        assert 'nbvi_entropy' in result_high
+        assert result_high['nbvi_entropy'] < result_low['nbvi_entropy']
+
         calibrator.free_buffer()
 
 

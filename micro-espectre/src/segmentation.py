@@ -41,9 +41,9 @@ class SegmentationContext:
                  threshold=1.0,
                  enable_lowpass=False,
                  lowpass_cutoff=11.0,
-                 enable_hampel=False,
+                 enable_hampel=True,
                  hampel_window=7,
-                 hampel_threshold=4.0):
+                 hampel_threshold=5.0):
         """
         Initialize segmentation context
         
@@ -53,9 +53,9 @@ class SegmentationContext:
                        Can be set dynamically via set_adaptive_threshold() after calibration
             enable_lowpass: Enable low-pass filter for noise reduction (default: False)
             lowpass_cutoff: Low-pass filter cutoff frequency in Hz (default: 11.0)
-            enable_hampel: Enable Hampel filter for outlier removal (default: False)
+            enable_hampel: Enable Hampel filter for outlier removal (default: True)
             hampel_window: Hampel filter window size (default: 7)
-            hampel_threshold: Hampel filter threshold in MAD units (default: 4.0)
+            hampel_threshold: Hampel filter threshold in MAD units (default: 5.0)
         """
         self.window_size = window_size
         self.threshold = threshold

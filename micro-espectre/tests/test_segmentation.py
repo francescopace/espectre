@@ -39,10 +39,10 @@ class TestSegmentationContextInit:
         ctx = SegmentationContext(window_size=75)
         assert len(ctx.turbulence_buffer) == 75
     
-    def test_hampel_disabled_by_default(self):
-        """Test that Hampel filter is disabled by default"""
+    def test_hampel_enabled_by_default(self):
+        """Test that Hampel filter is enabled by default"""
         ctx = SegmentationContext()
-        assert ctx.hampel_filter is None
+        assert ctx.hampel_filter is not None
     
     def test_hampel_enabled(self):
         """Test Hampel filter initialization when enabled"""

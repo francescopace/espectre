@@ -145,7 +145,7 @@ class MLDetector(IDetector):
     
     def __init__(self, window_size=75, threshold=ML_DEFAULT_THRESHOLD,
                  enable_lowpass=False, lowpass_cutoff=11.0,
-                 enable_hampel=False, hampel_window=7, hampel_threshold=4.0,
+                 enable_hampel=True, hampel_window=7, hampel_threshold=5.0,
                  use_cv_normalization=False):
         """
         Initialize ML detector.
@@ -155,9 +155,9 @@ class MLDetector(IDetector):
             threshold: Motion detection threshold (default: 5.0, range 0.0-10.0)
             enable_lowpass: Enable low-pass filter (default: False)
             lowpass_cutoff: Low-pass cutoff frequency Hz (default: 11.0)
-            enable_hampel: Enable Hampel filter (default: False)
+            enable_hampel: Enable Hampel filter (default: True, model trained with Hampel)
             hampel_window: Hampel window size (default: 7)
-            hampel_threshold: Hampel threshold in MAD (default: 4.0)
+            hampel_threshold: Hampel threshold in MAD (default: 5.0)
             use_cv_normalization: Use CV (std/mean) instead of raw std (default: False)
                                   Set True for chips without gain lock (e.g., ESP32)
         """

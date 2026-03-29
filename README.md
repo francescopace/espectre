@@ -170,7 +170,7 @@ ESPectre uses a focused processing pipeline for motion detection:
        ▼
 ┌─────────────┐
 │   Hampel    │  Turbulence outlier removal
-│   Filter    │  (optional, disabled by default)
+│   Filter    │  (enabled by default)
 └──────┬──────┘
        │
        ▼

@@ -83,7 +83,7 @@ from csi_utils import (
     load_npz_as_packets,
     DATA_DIR,
 )
-from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
+from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS, HAMPEL_WINDOW, HAMPEL_THRESHOLD
 from segmentation import SegmentationContext
 from features import (
     extract_features_by_name, DEFAULT_FEATURES,
@@ -203,7 +203,7 @@ def build_gridsearch_tuning_map(dataset_info, default_subcarriers, default_thres
             if not name:
                 continue
 
-            subcarriers = entry.get('optimal_subcarriers_gridsearch') or default_subcarriers
+            subcarriers = default_subcarriers
             threshold = float(entry.get('optimal_threshold_gridsearch', default_threshold))
             paired = _is_temporally_paired(dataset_info, label, entry)
             mode = 'paired' if paired else 'single-dataset fallback'
@@ -353,15 +353,23 @@ def load_all_data():
 # ============================================================================
 
 def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
-                     feature_names=None, return_metadata=False):
+                     feature_names=None, return_metadata=False,
+                     enable_hampel=True, hampel_window=HAMPEL_WINDOW, hampel_threshold=HAMPEL_THRESHOLD):
     """
     Extract features from CSI packets using sliding window.
+    
+    Uses SegmentationContext.add_turbulence() so the filter chain (Hampel -> low-pass)
+    matches the runtime pipeline, ensuring train/deploy alignment.
     
     Args:
         packets: List of CSI packets with 'csi_data' and 'label'
         window_size: Sliding window size (default: SEG_WINDOW_SIZE from config.py)
         subcarriers: List of subcarrier indices to use (default: DEFAULT_SUBCARRIERS)
         feature_names: List of feature names to extract (default: DEFAULT_FEATURES)
+        return_metadata: If True, return per-sample metadata
+        enable_hampel: Enable Hampel outlier filter on turbulence (default: True)
+        hampel_window: Hampel filter window size (default: 7)
+        hampel_threshold: Hampel filter threshold in MAD units (default: 5.0)
     
     Returns:
         tuple:
@@ -384,28 +392,36 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
         grouped.setdefault(source, []).append(pkt)
 
     for source_file, file_packets in grouped.items():
-        turb_buffer = deque(maxlen=window_size)
+        ctx = SegmentationContext(
+            window_size=window_size,
+            threshold=1.0,
+            enable_hampel=enable_hampel,
+            hampel_window=hampel_window,
+            hampel_threshold=hampel_threshold,
+        )
         last_amplitudes = None
         for pkt in file_packets:
             csi_data = pkt['csi_data']
 
-            # Calculate turbulence with normalization derived from gain lock status.
-            # If gain lock was not active, use CV normalization for gain invariance.
             use_cv_norm = not pkt.get('gain_locked', True)
+            ctx.use_cv_normalization = use_cv_norm
             turb, amps = SegmentationContext.compute_spatial_turbulence(
                 csi_data, subcarriers, use_cv_normalization=use_cv_norm
             )
-            turb_buffer.append(turb)
+            ctx.add_turbulence(turb)
             last_amplitudes = amps
 
-            # Wait for buffer to fill
-            if len(turb_buffer) < window_size:
+            if ctx.buffer_count < window_size:
                 continue
 
-            turb_list = list(turb_buffer)
+            # Reconstruct chronological order from circular buffer
+            idx = ctx.buffer_index
+            if ctx.buffer_count < ctx.window_size:
+                turb_list = ctx.turbulence_buffer[:ctx.buffer_count]
+            else:
+                turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
             n = len(turb_list)
 
-            # Extract features using configurable feature set
             features = extract_features_by_name(
                 turb_list, n,
                 amplitudes=last_amplitudes,
@@ -413,7 +429,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
             )
 
             X.append(features)
-            # Label: 0 = IDLE, 1 = MOTION (from metadata)
             y.append(1 if pkt.get('is_motion', False) else 0)
             if return_metadata:
                 sample_meta.append({
@@ -1667,7 +1682,7 @@ def _restore_artifacts(saved_files):
             shutil.copy2(backup, original)
 
 
-def train_until_improvement(max_trials, fp_weight=2.0, feature_names=None):
+def train_until_improvement(max_trials, fp_weight=1.0, feature_names=None):
     """
     Train repeatedly with auto-generated seeds until ML performance improves.
 
@@ -1972,9 +1987,9 @@ To compare ML with MVS, use:
                        help='Train with auto-generated seeds until first '
                             'improvement over current ML performance, with '
                             'at most MAX_TRIALS attempts')
-    parser.add_argument('--fp-weight', type=float, default=2.0,
+    parser.add_argument('--fp-weight', type=float, default=1.0,
                        help='Multiplier for IDLE class weight to penalize false positives. '
-                            'Values >1.0 make the model more conservative (default: 2.0)')
+                            'Values >1.0 make the model more conservative (default: 1.0)')
     parser.add_argument('--shap', action='store_true',
                        help='Calculate and display SHAP feature importance (12 default features)')
     parser.add_argument('--shap-samples', type=int, default=200,

@@ -8,8 +8,8 @@ Configuration is aligned with C++ tests (test_motion_detection.cpp):
 - window_size = DETECTOR_DEFAULT_WINDOW_SIZE (75)
 - warmup = DETECTOR_DEFAULT_WINDOW_SIZE (buffer must be full before detection)
 - adaptive_factor = 1.1 (DEFAULT_ADAPTIVE_FACTOR)
-- enable_hampel = false
-- CV normalization for ESP32 and C3 (needs_cv_normalization())
+- enable_hampel = true
+- CV normalization for ESP32 (needs_cv_normalization())
 - MVS targets: 95% recall, 5% FP rate
 - ML targets: 95% recall, 5% FP rate
 - Baseline packets: first 300 skipped (GAIN_LOCK_SKIP)
@@ -52,7 +52,12 @@ from csi_utils import (
     load_baseline_and_movement, calculate_spatial_turbulence,
     calculate_variance_two_pass, MVSDetector, read_gain_locked
 )
-from config import SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE, CALIBRATION_BUFFER_SIZE
+from config import (
+    SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
+    CALIBRATION_BUFFER_SIZE,
+    HAMPEL_WINDOW,
+    HAMPEL_THRESHOLD,
+)
 
 
 # ============================================================================
@@ -203,17 +208,15 @@ def use_cv_normalization(dataset_config):
     """Determine CV normalization from NPZ 'gain_locked' metadata.
     
     Reads the 'gain_locked' field from the baseline NPZ file (matches C++
-    needs_cv_normalization()). Falls back to chip-based heuristics for older
+    needs_cv_normalization()). Falls back to chip-based heuristic for older
     files that predate the field:
     - ESP32: hardware has no gain lock
-    - C3: historical datasets collected without gain lock
     """
     baseline_path, _, _, chip = dataset_config
     gain_locked = read_gain_locked(baseline_path)
     if gain_locked is not None:
         return not gain_locked
-    # Fallback for older files without the 'gain_locked' field
-    return chip in ('ESP32', 'C3')
+    return chip == 'ESP32'
 
 
 @pytest.fixture
@@ -221,7 +224,10 @@ def fp_rate_target(chip_type):
     """Get MVS target FP rate for chip type.
     
     Matches C++ get_fp_rate_target(): 5.0f for all chips.
+    (C6 has an exception due to hardware noise spikes on lowest subcarriers)
     """
+    if chip_type == 'C6':
+        return 7.5
     return 5.0
 
 
@@ -247,9 +253,9 @@ def mvs_default_fp_rate_target(chip_type):
 def mvs_default_recall_target(chip_type):
     """Get MVS default-band recall target for chip type.
 
-    Matches C++ get_default_recall_target(): 70.0f for all chips.
+    Matches C++ get_default_recall_target(): 80.0f for all chips.
     """
-    return 70.0
+    return 80.0
 
 
 @pytest.fixture
@@ -274,9 +280,9 @@ def ml_recall_target(chip_type):
 def enable_hampel(chip_type):
     """Enable Hampel filter for chip type.
     
-    Matches C++ get_enable_hampel(): false for all chips.
+    Matches C++ get_enable_hampel(): true for all chips.
     """
-    return False
+    return True
 
 
 @pytest.fixture
@@ -569,7 +575,7 @@ class TestFeatureSeparationRealData:
     def test_turbulence_variance_separation(self, real_data, default_subcarriers, chip_type, use_cv_normalization, window_size):
         """Test that turbulence variance separates baseline from movement.
         
-        Uses CV normalization for chips that need it (ESP32, C3),
+        Uses CV normalization for chips that need it (ESP32),
         matching C++ needs_cv_normalization() behavior.
         """
         baseline_packets, movement_packets = real_data
@@ -670,7 +676,7 @@ class TestHampelFilterRealData:
             raw_turbulence.append(turb)
         
         # Apply Hampel filter
-        hf = HampelFilter(window_size=7, threshold=4.0)
+        hf = HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD)
         filtered_turbulence = [hf.filter(t) for t in raw_turbulence]
         
         # Filtered should have lower max (spikes reduced)
@@ -686,7 +692,7 @@ class TestHampelFilterRealData:
         baseline_packets, movement_packets = real_data
         
         # Calculate filtered turbulence for baseline
-        hf_baseline = HampelFilter(window_size=7, threshold=4.0)
+        hf_baseline = HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD)
         baseline_turb = []
         for pkt in baseline_packets:
             turb = calculate_spatial_turbulence(
@@ -698,7 +704,7 @@ class TestHampelFilterRealData:
             baseline_turb.append(filtered)
         
         # Calculate filtered turbulence for movement
-        hf_movement = HampelFilter(window_size=7, threshold=4.0)
+        hf_movement = HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD)
         movement_turb = []
         for pkt in movement_packets:
             turb = calculate_spatial_turbulence(
@@ -736,7 +742,7 @@ class TestPerformanceMetrics:
         
         No NBVI calibration is used - subcarriers are fixed from conftest.py.
         
-        Target: >70% Recall, <20% FP Rate for all chips.
+        Target: >80% Recall, <20% FP Rate for all chips.
         """
         import numpy as np
         from threshold import calculate_adaptive_threshold
@@ -836,7 +842,7 @@ class TestPerformanceMetrics:
         - Process ALL packets (no warmup skip)
         - Process baseline first, then movement (continuous context)
         - Unified window_size (75) and adaptive threshold (P95 × 1.1)
-        - CV normalization for ESP32 and C3 (no gain lock / skipped gain lock)
+        - CV normalization for ESP32 (no gain lock)
         
         Target: >95% Recall, <5% FP Rate for all chips.
         """

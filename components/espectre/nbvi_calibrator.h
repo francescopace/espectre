@@ -125,6 +125,8 @@ class NBVICalibrator {
   void set_alpha(float alpha) { alpha_ = alpha; }
   void set_min_spacing(uint8_t spacing) { min_spacing_ = spacing; }
   void set_noise_gate_percentile(uint8_t percentile) { noise_gate_percentile_ = percentile; }
+  void set_hint_fp_tolerance(float tolerance) { hint_fp_tolerance_ = tolerance; }
+  void set_prefer_hint_on_tie(bool enabled) { prefer_hint_on_tie_ = enabled; }
   
   /**
    * Configure low-pass filter for calibration validation path.
@@ -160,9 +162,14 @@ class NBVICalibrator {
   
   struct NBVIMetrics {
     uint8_t subcarrier;
-    float nbvi;
+    float nbvi;         // Active score used for sorting
+    float nbvi_classic; // Classic base score
+    float nbvi_entropy; // Entropy-rewarded score
+    float nbvi_mad;     // MAD-based robust score
     float mean;
     float std;
+    float mad;
+    float entropy;
   };
   
   struct WindowVariance {
@@ -186,6 +193,8 @@ class NBVICalibrator {
   esp_err_t find_candidate_windows_(std::vector<WindowVariance>& candidates);
   void calculate_nbvi_metrics_(uint16_t baseline_start, std::vector<NBVIMetrics>& metrics);
   uint8_t apply_noise_gate_(std::vector<NBVIMetrics>& metrics);
+  void select_with_spacing_strict_(const std::vector<NBVIMetrics>& sorted_metrics,
+                                  uint8_t* output_band, uint8_t* output_size);
   void select_with_spacing_(const std::vector<NBVIMetrics>& sorted_metrics,
                            uint8_t* output_band, uint8_t* output_size);
   bool validate_subcarriers_(const uint8_t* band, uint8_t band_size, 
@@ -220,10 +229,12 @@ class NBVICalibrator {
   // NBVI algorithm parameters
   uint16_t window_size_{200};
   uint16_t window_step_{50};
-  uint8_t percentile_{10};
-  float alpha_{0.5f};
+  uint8_t percentile_{5};
+  float alpha_{0.75f};
   uint8_t min_spacing_{1};
-  uint8_t noise_gate_percentile_{25};
+  uint8_t noise_gate_percentile_{15};
+  float hint_fp_tolerance_{0.0f};
+  bool prefer_hint_on_tie_{false};
 
   // Validation filter configuration (must stay aligned with runtime detector).
   bool lowpass_enabled_{false};
@@ -233,7 +244,6 @@ class NBVICalibrator {
   float hampel_threshold_{HAMPEL_TURBULENCE_THRESHOLD_DEFAULT};
   
   // Shared constants
-  static constexpr float MVS_THRESHOLD = 1.0f;
   static constexpr float NULL_SUBCARRIER_THRESHOLD = 1.0f;
 };
 

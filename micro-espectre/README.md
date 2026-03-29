@@ -68,7 +68,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | CV Normalization | ✅ | ✅ | Gain-invariant normalization when lock skipped |
 | **Filters** |
 | Low-Pass | ✅ | ✅ | Butterworth 1st order, 11 Hz cutoff (disabled by default) |
-| Hampel | ✅ | ✅ | MAD-based outlier removal (disabled by default) |
+| Hampel | ✅ | ✅ | MAD-based outlier removal (enabled by default) |
 | **Traffic Generator** |
 | DNS Method | ✅ | ✅ | UDP packets to gateway (default) |
 | Ping Method | ✅ | ❌ | ICMP packets (ESPHome only) |
@@ -431,9 +431,9 @@ ENABLE_LOWPASS_FILTER = False
 LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz
 
 # Hampel filter (outlier/spike removal)
-ENABLE_HAMPEL_FILTER = False
+ENABLE_HAMPEL_FILTER = True
 HAMPEL_WINDOW = 7
-HAMPEL_THRESHOLD = 4.0
+HAMPEL_THRESHOLD = 5.0
 ```
 
 For detailed parameter tuning, see [TUNING.md](../TUNING.md).

@@ -25,9 +25,9 @@ class TestHampelFilterInit:
     
     def test_custom_parameters(self):
         """Test custom window_size and threshold"""
-        hf = HampelFilter(window_size=7, threshold=4.0)
+        hf = HampelFilter(window_size=7, threshold=5.0)
         assert hf.window_size == 7
-        assert hf.scaled_threshold == pytest.approx(4.0 * 1.4826, rel=1e-6)
+        assert hf.scaled_threshold == pytest.approx(5.0 * 1.4826, rel=1e-6)
     
     def test_buffer_pre_allocation(self):
         """Test that buffers are pre-allocated"""
@@ -242,8 +242,8 @@ class TestHampelFilterRealWorldScenarios:
     
     def test_baseline_vs_movement_turbulence(self, synthetic_turbulence_baseline, synthetic_turbulence_movement):
         """Test filtering baseline and movement turbulence"""
-        hf_baseline = HampelFilter(window_size=7, threshold=4.0)
-        hf_movement = HampelFilter(window_size=7, threshold=4.0)
+        hf_baseline = HampelFilter(window_size=7, threshold=5.0)
+        hf_movement = HampelFilter(window_size=7, threshold=5.0)
         
         filtered_baseline = [hf_baseline.filter(v) for v in synthetic_turbulence_baseline]
         filtered_movement = [hf_movement.filter(v) for v in synthetic_turbulence_movement]

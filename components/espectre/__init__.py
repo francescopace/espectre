@@ -164,9 +164,9 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_LOWPASS_CUTOFF, default=11.0): cv.float_range(min=5.0, max=20.0),
     
     # Hampel filter for turbulence outlier removal
-    cv.Optional(CONF_HAMPEL_ENABLED, default=False): cv.boolean,
+    cv.Optional(CONF_HAMPEL_ENABLED, default=True): cv.boolean,
     cv.Optional(CONF_HAMPEL_WINDOW, default=7): cv.int_range(min=3, max=11),
-    cv.Optional(CONF_HAMPEL_THRESHOLD, default=4.0): cv.float_range(min=1.0, max=10.0),
+    cv.Optional(CONF_HAMPEL_THRESHOLD, default=5.0): cv.float_range(min=1.0, max=10.0),
     
     # Sensors - optional with defaults, always created
     cv.Optional(CONF_MOVEMENT_SENSOR, default={"name": "Movement Score"}): sensor.sensor_schema(

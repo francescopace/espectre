@@ -168,14 +168,6 @@ static void print_summary_table() {
 // Chip-Specific Configuration
 // ============================================================================
 
-inline bool is_s3_chip() {
-    return csi_test_data::current_chip() == csi_test_data::ChipType::S3;
-}
-
-inline bool is_c3_chip() {
-    return csi_test_data::current_chip() == csi_test_data::ChipType::C3;
-}
-
 inline bool is_esp32_chip() {
     return csi_test_data::current_chip() == csi_test_data::ChipType::ESP32;
 }
@@ -187,25 +179,25 @@ inline bool needs_cv_normalization() {
     if (csi_test_data::baseline_gain_locked_known()) {
         return !csi_test_data::baseline_gain_locked();
     }
-    // Fallback: ESP32 has no hardware gain lock; C3 dataset collected without it
-    return is_esp32_chip() || is_c3_chip();
+    // Fallback: ESP32 has no hardware gain lock;
+    return is_esp32_chip();
 }
 
 inline const char* get_pairing_mode() {
-    return csi_test_data::is_temporally_paired_30m() ? "paired" : "single-dataset fallback";
+    return csi_test_data::is_temporally_paired() ? "paired" : "single-dataset fallback";
 }
 
 // MVS targets
 // Default-band baseline test uses softer targets than NBVI/ML.
 inline float get_default_fp_rate_target() { return 20.0f; }
-inline float get_default_recall_target() { return 70.0f; }
+inline float get_default_recall_target() { return 80.0f; }
 // NBVI targets
 inline float get_fp_rate_target() { return 5.0f; }
 inline float get_nbvi_recall_target() { return 95.0f; }
 
 // Unified parameters for all chips (use production defaults)
 inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
-inline bool get_enable_hampel() { return false; }
+inline bool get_enable_hampel() { return true; }
 
 // ML targets
 // All chips target >95% recall and <5% FP rate
@@ -256,7 +248,7 @@ void test_mvs_default_subcarriers(void) {
     // Calculate adaptive threshold from baseline using selected band.
     MVSDetector cal_detector(window_size, SEGMENTATION_DEFAULT_THRESHOLD);
     cal_detector.configure_lowpass(false);
-    cal_detector.configure_hampel(enable_hampel, 7, 4.0f);
+    cal_detector.configure_hampel(enable_hampel);
     cal_detector.set_cv_normalization(cv_norm);
 
     std::vector<float> mv_values;
@@ -279,7 +271,7 @@ void test_mvs_default_subcarriers(void) {
     // Create detector for evaluation
     MVSDetector detector(window_size, adaptive_threshold);
     detector.configure_lowpass(false);
-    detector.configure_hampel(enable_hampel, 7, 4.0f);
+    detector.configure_hampel(enable_hampel);
     detector.set_cv_normalization(cv_norm);
     
     // Process baseline
@@ -357,31 +349,29 @@ void test_mvs_nbvi_calibration(void) {
     
     MVSDetector detector(window_size, SEGMENTATION_DEFAULT_THRESHOLD);
     detector.configure_lowpass(false);
-    detector.configure_hampel(enable_hampel, 7, 4.0f);
+    detector.configure_hampel(enable_hampel);
     detector.set_cv_normalization(cv_norm);
-    
-    uint8_t calibrated_band[12] = {0};
-    uint8_t calibrated_size = 0;
-    float calibrated_threshold = 1.0f;
-    
-    // Always run NBVI calibration, regardless of CV normalization mode.
-    // CV mode is handled inside detector/calibrator turbulence calculations.
+
     CSIManager csi_manager;
     csi_manager.init(&detector, DEFAULT_SUBCARRIERS, 100, GainLockMode::DISABLED, &g_wifi_mock);
-    
+
+    const char* buffer_path = "/tmp/test_nbvi_buffer.bin";
     NBVICalibrator nbvi;
-    nbvi.init(&csi_manager, "/tmp/test_nbvi_buffer.bin");
+    nbvi.init(&csi_manager, buffer_path);
     nbvi.set_mvs_window_size(window_size);
     nbvi.set_cv_normalization(cv_norm);
-    
+    nbvi.configure_hampel(enable_hampel);
+
     uint16_t buffer_size = std::min(static_cast<int>(nbvi.get_buffer_size()), num_baseline);
     nbvi.set_buffer_size(buffer_size);
-    
+
     bool calibration_success = false;
-    
-    const uint8_t hinted_size = 12;
     uint8_t percentile_tmp = 95;
-    esp_err_t err = nbvi.start_calibration(DEFAULT_SUBCARRIERS, hinted_size,
+    float calibrated_threshold = 1.0f;
+    uint8_t calibrated_band[12] = {0};
+    uint8_t calibrated_size = 0;
+
+    esp_err_t err = nbvi.start_calibration(DEFAULT_SUBCARRIERS, 12,
         [&](const uint8_t* band, uint8_t size, const std::vector<float>& mv_values, bool success) {
             if (success && size > 0) {
                 memcpy(calibrated_band, band, size);
@@ -390,70 +380,63 @@ void test_mvs_nbvi_calibration(void) {
             }
             calibration_success = success;
         });
-    
-    TEST_ASSERT_EQUAL(ESP_OK, err);
-    
-    printf("NBVI calibrating with %d baseline packets...\n", buffer_size);
+
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, err, "NBVI calibration start failed");
+
     for (int i = 0; i < buffer_size && i < num_baseline; i++) {
         nbvi.add_packet(baseline_packets[i], pkt_size);
     }
-    
+
+    for (int wait = 0; wait < 500 && nbvi.is_calibrating(); wait++) {
+        vTaskDelay(1);
+    }
+
     TEST_ASSERT_TRUE_MESSAGE(calibration_success, "NBVI calibration failed");
-    
-    printf("NBVI selected band: [");
+    TEST_ASSERT_EQUAL_MESSAGE(12, calibrated_size, "NBVI band size mismatch");
+
+    printf("  Selected band: [");
     for (int i = 0; i < calibrated_size; i++) {
         printf("%d", calibrated_band[i]);
         if (i < calibrated_size - 1) printf(", ");
     }
     printf("]\n");
-    printf("Adaptive threshold: %.6f (P95 x %.1f)\n\n", calibrated_threshold, DEFAULT_ADAPTIVE_FACTOR);
-    
-    // Apply calibration
+    printf("  Adaptive threshold: %.6f\n\n", calibrated_threshold);
+
     detector.set_threshold(calibrated_threshold);
     detector.clear_buffer();
-    
-    // Process baseline
+
     int baseline_motion = 0;
     for (int i = 0; i < num_baseline; i++) {
-        detector.process_packet((const int8_t*)baseline_packets[i], pkt_size, 
-                          calibrated_band, calibrated_size);
+        detector.process_packet((const int8_t*)baseline_packets[i], pkt_size, calibrated_band, calibrated_size);
         detector.update_state();
-        if (detector.get_state() == MotionState::MOTION) {
-            baseline_motion++;
-        }
+        if (detector.get_state() == MotionState::MOTION) baseline_motion++;
     }
-    
-    // Process movement
+
     int movement_motion = 0;
     for (int i = 0; i < num_movement; i++) {
-        detector.process_packet((const int8_t*)movement_packets[i], pkt_size, 
-                          calibrated_band, calibrated_size);
+        detector.process_packet((const int8_t*)movement_packets[i], pkt_size, calibrated_band, calibrated_size);
         detector.update_state();
-        if (detector.get_state() == MotionState::MOTION) {
-            movement_motion++;
-        }
+        if (detector.get_state() == MotionState::MOTION) movement_motion++;
     }
-    
-    // Calculate metrics
+
     float recall = (float)movement_motion / num_movement * 100.0f;
     float fp_rate = (float)baseline_motion / num_baseline * 100.0f;
     float precision = (movement_motion + baseline_motion > 0) ?
         (float)movement_motion / (movement_motion + baseline_motion) * 100.0f : 0.0f;
     float f1 = (precision + recall > 0) ?
-        2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
-    
+        2.0f * (precision / 100.0f) * (recall / 100.0f) /
+        ((precision + recall) / 100.0f) * 100.0f : 0.0f;
+
     printf("Results:\n");
     printf("  * Recall:    %.1f%% (target: >%.0f%%)\n", recall, recall_target);
     printf("  * FP Rate:   %.1f%% (target: <%.0f%%)\n", fp_rate, fp_target);
     printf("  * Precision: %.1f%%\n", precision);
     printf("  * F1-Score:  %.1f%%\n\n", f1);
-    
-    // Cleanup
-    remove("/tmp/test_nbvi_buffer.bin");
-    
-    // Record for summary table
+
     record_result("mvs_nbvi", recall, fp_rate, precision, f1);
-    
+
+    remove(buffer_path);
+
     TEST_ASSERT_TRUE_MESSAGE(recall >= recall_target, "NBVI Recall too low");
     TEST_ASSERT_TRUE_MESSAGE(fp_rate <= fp_target, "NBVI FP Rate too high");
 }
@@ -478,6 +461,7 @@ void test_ml_detection(void) {
     printf("═══════════════════════════════════════════════════════\n\n");
     
     MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
+    detector.configure_hampel(get_enable_hampel());
     detector.set_cv_normalization(cv_norm);
     
     printf("ML subcarriers: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d] (fixed)\n",

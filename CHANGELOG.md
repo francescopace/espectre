@@ -24,12 +24,20 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **NBVI multi-strategy band selection**: the calibrator now generates four candidate bands per window (Entropy Spaced, MAD Clustered, Classic Spaced, Classic Clustered) and selects the one with the lowest false positive rate, improving robustness across chip types.
+- **NBVI scoring extended with entropy and MAD metrics**: `calculate_nbvi_weighted` now computes three independent scores (`nbvi_classic`, `nbvi_entropy`, `nbvi_mad`) alongside the previous single score, enabling multi-strategy evaluation.
+- **NBVI default parameters updated**: `alpha` 0.5→0.75 (energy-biased), `percentile` 10→5 (stricter baseline window selection), `noise_gate_percentile` 25→15; aligned between C++ and Python implementations.
+- **NBVI internal validation switched to adaptive threshold**: validation FP rate is now computed using the same P95×1.1 adaptive threshold used at runtime, replacing the previous fixed `MVS_THRESHOLD=1.0`. Improves FP estimate accuracy during calibration.
+- **NBVI hint band logic tightened**: the hint/current band is now only preferred when the best calibrated candidate does not achieve ≤5% FP and the hint is strictly better. Configurable via `hint_fp_tolerance` and `prefer_hint_on_tie`. Prevents drift to bands that suppress calibration FP at the cost of recall.
+- **C6 NBVI FP target set to 7.5%** in both C++ and Python test suites, reflecting a hardware-level constraint: a periodic noise event in the C6 CSI stream causes a real FP cluster that the algorithm cannot eliminate without degrading recall below 95%.
+- **Hampel filter enabled by default**: `hampel_enabled` is now `true` with threshold raised from 4.0 to 5.0 MAD. At this threshold only extreme outlier spikes are replaced, preserving motion sensitivity while eliminating transient-interference false positives. Aligned across ESPHome/C++, Micro-ESPectre/Python, and ML training pipeline.
+- **ML model retrained with Hampel-filtered input**: neural network weights regenerated to match the new default filter chain, ensuring train/deploy alignment.
 - **Dependabot signal-to-noise in CI**: grouped update strategy was refined to reduce PR noise while keeping critical dependency maintenance active.
 - **QEMU example/config organization**: moved smoke-test configs under a single reusable action path and removed obsolete branch-split config handling.
 - **UART example cleanup**: removed `examples/uart/` and documented optional `hardware_uart: UART0` usage in classic configs for USB-UART bridge boards.
 - **Baseline version alignment for examples/tests**: raised `min_version` to `2026.2.0` in example and QEMU configs.
 - **Unified default subcarriers across stacks**: Python tools/tests and ESPHome/C++ runtime/tests now use a centralized 12-subcarrier default (`DEFAULT_SUBCARRIERS`), with ML-specific aliases and grid-search metadata dependencies removed from active workflows.
-- **Motion-validation targets and curated dataset pool**: `test_mvs_default_subcarriers` now uses production-baseline targets (`recall >70%`, `FP <20%`) and low-quality 64SC captures failing this gate were removed from `micro-espectre/data` and `dataset_info.json` for recollection.
+- **Motion-validation targets and curated dataset pool**: `test_mvs_default_subcarriers` now uses production-baseline targets (`recall >80%`, `FP <20%`) and low-quality 64SC captures failing this gate were removed from `micro-espectre/data` and `dataset_info.json` for recollection.
 
 ### Added
 

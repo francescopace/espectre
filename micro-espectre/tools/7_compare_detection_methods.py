@@ -182,7 +182,7 @@ def load_test_dataset(chip=None, motion_start_packet=None):
 
 def resolve_context_aware_config_for_test(test_entry):
     """Resolve subcarriers/threshold for a test dataset from metadata."""
-    subcarriers = test_entry.get('optimal_subcarriers_gridsearch') or DEFAULT_SUBCARRIERS
+    subcarriers = DEFAULT_SUBCARRIERS
     threshold = float(test_entry.get('optimal_threshold_gridsearch', THRESHOLD))
     has_optimal = (
         isinstance(test_entry.get('optimal_subcarriers_gridsearch'), list)
@@ -215,8 +215,8 @@ def resolve_context_aware_config(baseline_path):
             'confidence_factor': 0.5,
         }
 
-    subcarriers = entry.get('optimal_subcarriers_gridsearch') or DEFAULT_SUBCARRIERS
-    threshold = float(entry.get('optimal_threshold_gridsearch', THRESHOLD))
+    subcarriers = DEFAULT_SUBCARRIERS
+    threshold = float(THRESHOLD)
     paired = pair_is_temporally_valid(dataset_info, label, entry) if label else False
     pairing_mode = 'paired' if paired else 'single-dataset fallback'
 

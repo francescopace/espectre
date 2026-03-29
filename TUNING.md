@@ -284,29 +284,23 @@ espectre:
 
 **Applies to:** Both MVS and ML detectors.
 
-**Default:** Disabled
+**Default:** Enabled (threshold: 5.0 MAD, window: 7)
 
-> ⚠️ **Note:** The Hampel filter is disabled by default because MVS already provides robust motion detection with 0% false positives in typical environments. Enabling it reduces detection sensitivity (Recall drops from 98.1% to 96.3%). Only enable in environments with high electromagnetic interference causing sudden spikes.
+> The Hampel filter removes outlier spikes in turbulence values. With threshold 5.0 it only replaces extreme outliers (>5 MAD from median), preserving motion sensitivity while eliminating false positives caused by transient interference.
 
 **Configuration:**
 ```yaml
 espectre:
-  hampel_enabled: true
-  hampel_window: 7
-  hampel_threshold: 4.0
+  hampel_enabled: true     # default
+  hampel_window: 7         # sliding window size (3-11)
+  hampel_threshold: 5.0    # MAD multiplier, higher = less aggressive
 ```
 
 See [SETUP.md](SETUP.md#configuration-parameters) for parameter details.
 
-**When to enable:**
-- Environments with high electromagnetic interference causing sudden spikes
-- Industrial settings with heavy machinery
-- Proximity to microwave ovens or multiple WiFi access points
-- Experiencing unexplained false positives during baseline (room empty)
-
-**When to keep disabled (default):**
-- Normal home/office environment
-- Maximum detection sensitivity needed
+**When to disable:**
+- If you observe reduced sensitivity in very low-SNR environments
+- When maximum detection sensitivity is needed and the environment has no transient interference
 
 ---
 

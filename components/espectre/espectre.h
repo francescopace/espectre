@@ -178,9 +178,9 @@ class ESpectreComponent : public Component {
   uint32_t publish_interval_{100};  // Publish interval in packets (default: same as traffic_generator_rate)
   bool lowpass_enabled_{false};     // Low-pass filter disabled by default
   float lowpass_cutoff_{11.0f};     // Default cutoff frequency in Hz
-  bool hampel_enabled_{false};
+  bool hampel_enabled_{true};
   uint8_t hampel_window_{7};
-  float hampel_threshold_{4.0f};
+  float hampel_threshold_{5.0f};
   uint8_t selected_subcarriers_[12] = {
     DEFAULT_SUBCARRIERS[0], DEFAULT_SUBCARRIERS[1], DEFAULT_SUBCARRIERS[2], DEFAULT_SUBCARRIERS[3],
     DEFAULT_SUBCARRIERS[4], DEFAULT_SUBCARRIERS[5], DEFAULT_SUBCARRIERS[6], DEFAULT_SUBCARRIERS[7],

@@ -20,7 +20,7 @@ Configuration used for all test results (unified across chips):
 |-----------|-------|-------|
 | Window Size | 75 | `DETECTOR_DEFAULT_WINDOW_SIZE` |
 | Calibration | NBVI | Auto-selects 12 non-consecutive subcarriers |
-| Hampel Filter | OFF | Can be enabled for noisy environments |
+| Hampel Filter | ON | Enabled for both MVS and ML (window=7, threshold=5.0 MAD) |
 | Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
 | CV Normalization | Per-file | Based on `gain_locked` metadata (`false` => apply CV norm) |
 
@@ -62,24 +62,25 @@ Results from C++ and Python tests follow the same trends (same algorithms, same 
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
-| ESP32-C3 | MVS Optimal | 98.8% | 100.0% | 0.0% | 99.4% |
-| ESP32-C3 | MVS + NBVI | 99.3% | 99.7% | 0.4% | 99.5% |
-| ESP32-C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-C5 | MVS Optimal | 100.0% | 99.2% | 1.1% | 99.6% |
-| ESP32-C5 | MVS + NBVI | 96.0% | 100.0% | 0.0% | 98.0% |
+| ESP32-C3 | MVS Default | 81.4% | 97.8% | 2.3% | 88.9% |
+| ESP32-C3 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
+| ESP32-C3 | ML | 97.9% | 100.0% | 0.0% | 98.9% |
+| ESP32-C5 | MVS Default | 99.7% | 86.9% | 19.6% | 92.8% |
+| ESP32-C5 | MVS + NBVI | 99.8% | 100.0% | 0.0% | 99.9% |
 | ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-C6 | MVS Optimal | 99.6% | 100.0% | 0.0% | 99.8% |
-| ESP32-C6 | MVS + NBVI | 99.3% | 100.0% | 0.0% | 99.7% |
+| ESP32-C6 | MVS Default | 98.1% | 100.0% | 0.0% | 99.0% |
+| ESP32-C6 | MVS + NBVI | 99.6% | 99.8% | 0.3% | 99.7% |
 | ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS Optimal | 95.3% | 100.0% | 0.0% | 97.6% |
-| ESP32-S3 | MVS + NBVI | 95.3% | 100.0% | 0.0% | 97.6% |
-| ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32 | MVS Optimal | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32 | MVS + NBVI | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32 | ML | 98.6% | 100.0% | 0.0% | 99.3% |
+| ESP32-S3 | MVS Default | 99.9% | 100.0% | 0.0% | 99.9% |
+| ESP32-S3 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
+| ESP32-S3 | ML | 96.3% | 100.0% | 0.0% | 98.1% |
+| ESP32 | MVS Default | 99.8% | 100.0% | 0.0% | 99.9% |
+| ESP32 | MVS + NBVI | 99.8% | 100.0% | 0.0% | 99.9% |
+| ESP32 | ML | 99.1% | 100.0% | 0.0% | 99.6% |
 
-**MVS Optimal**: Uses offline-tuned subcarriers (best case reference).
+**MVS Default**: Uses default subcarriers.
 **MVS + NBVI**: Uses NBVI auto-calibration (production case).
+**ML**: Neural network trained with Hampel filter (fp-weight 1.0).
 
 ---
 
@@ -153,18 +154,18 @@ For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#ar
 
 ## Result History (ESP32-C6)
 
-| Date | Version | Dataset | Calibration | Algorithm | Evaluation Mode | Recall | Precision | FP Rate | F1-Score |
-|------|---------|---------|-------------|-----------|-----------------|--------|-----------|---------|----------|
-| 2026-03-11 | v2.6.1 | C6 |   -  | ML  | Context-aware | 100.0% | 100.0% | 0.0% | 100.0% |
-| 2026-03-11 | v2.6.1 | C6 | NBVI | MVS | Context-aware | 99.3% | 100.0% | 0.0% | 99.7% |
-| 2026-03-08 | v2.6.0 | C6 |   -  | ML  | Context-aware | 100.0% | 100.0% | 0.0% | 100.0% |
-| 2026-03-08 | v2.6.0 | C6 | NBVI | MVS | Context-aware | 99.9% | 98.4% | 2.3% | 99.2% |
-| 2026-02-15 | v2.5.0 | C6 |   -  | ML  | Fixed-config | 99.9% | 100.0% | 0.0% | 99.9% |
-| 2026-02-15 | v2.5.0 | C6 | NBVI | MVS | Fixed-config | 99.9% | 99.9% | 0.1% | 99.9% |
-| 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | Fixed-config | 99.8% | 96.5% | 3.6% | 98.1% |
-| 2025-12-27 | v2.3.0 | C6 | NBVI | MVS | Fixed-config | 96.4% | 100.0% | 0.0% | 98.2% |
-
-Starting from v2.6.0 results are context-aware (more precise), so compare them only with other context-aware results, not with legacy fixed-config ones.
+| Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
+|------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
+| 2026-03-29 | v2.8.0 | C6 | - | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-03-29 | v2.8.0 | C6 | NBVI | MVS + Hampel | 99.6% | 99.8% | 0.3% | 99.7% |
+| 2026-03-11 | v2.6.1 | C6 | - | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-03-11 | v2.6.1 | C6 | NBVI | MVS | 99.3% | 100.0% | 0.0% | 99.7% |
+| 2026-03-08 | v2.6.0 | C6 | - | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-03-08 | v2.6.0 | C6 | NBVI | MVS | 99.9% | 98.4% | 2.3% | 99.2% |
+| 2026-02-15 | v2.5.0 | C6 |   -  | ML  | 99.9% | 100.0% | 0.0% | 99.9% |
+| 2026-02-15 | v2.5.0 | C6 | NBVI | MVS | 99.9% | 99.9% | 0.1% | 99.9% |
+| 2026-01-23 | v2.4.0 | C6 | NBVI | MVS | 99.8% | 96.5% | 3.6% | 98.1% |
+| 2025-12-27 | v2.3.0 | C6 | NBVI | MVS | 96.4% | 100.0% | 0.0% | 98.2% |
 
 ---
 

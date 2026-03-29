@@ -1411,8 +1411,8 @@ class MVSDetector:
     
     def __init__(self, window_size: int, threshold: float, 
                  selected_subcarriers: List[int], track_data: bool = False,
-                 enable_hampel: bool = False, hampel_window: int = 7,
-                 hampel_threshold: float = 4.0,
+                 enable_hampel: bool = True, hampel_window: int = config.HAMPEL_WINDOW,
+                 hampel_threshold: float = config.HAMPEL_THRESHOLD,
                  enable_lowpass: bool = False, lowpass_cutoff: float = 11.0,
                  gain_locked: bool = True):
         """

@@ -23,7 +23,7 @@ TOOLS_PATH = Path(__file__).parent.parent / 'tools'
 sys.path.insert(0, str(TOOLS_PATH))
 sys.path.insert(0, str(SRC_PATH))
 
-from config import DEFAULT_SUBCARRIERS
+from config import DEFAULT_SUBCARRIERS, HAMPEL_WINDOW, HAMPEL_THRESHOLD
 
 # Data directory (shared between tests and tools)
 DATA_DIR = Path(__file__).parent.parent / 'data'
@@ -115,9 +115,9 @@ def segmentation_config():
     return {
         'window_size': 75,  # DETECTOR_DEFAULT_WINDOW_SIZE
         'threshold': 1.0,
-        'enable_hampel': False,
-        'hampel_window': 7,
-        'hampel_threshold': 4.0,
+        'enable_hampel': True,
+        'hampel_window': HAMPEL_WINDOW,
+        'hampel_threshold': HAMPEL_THRESHOLD,
     }
 
 
@@ -125,8 +125,8 @@ def segmentation_config():
 def hampel_config():
     """Default Hampel filter configuration"""
     return {
-        'window_size': 7,
-        'threshold': 4.0,
+        'window_size': HAMPEL_WINDOW,
+        'threshold': HAMPEL_THRESHOLD,
     }
 
 

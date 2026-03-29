@@ -233,9 +233,9 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
 | `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction (MVS and ML) |
 | `lowpass_cutoff` | float | 11.0 | Low-pass filter cutoff frequency in Hz (5-20) |
-| `hampel_enabled` | bool | false | Enable Hampel outlier filter (MVS and ML) |
+| `hampel_enabled` | bool | true | Enable Hampel outlier filter (MVS and ML) |
 | `hampel_window` | int | 7 | Hampel filter window size (3-11) |
-| `hampel_threshold` | float | 4.0 | Hampel filter sensitivity (MAD multiplier) (1.0-10.0) |
+| `hampel_threshold` | float | 5.0 | Hampel filter sensitivity (MAD multiplier) (1.0-10.0) |
 | `gain_lock` | string | auto | AGC/FFT gain lock: `auto`, `enabled`, `disabled` |
 | `ble_channel_enabled` | bool/string | auto | Enable BLE telemetry/control channel: `auto`, `true`, `false` |
 | `ble_telemetry_interval_ms` | int | 40 | BLE telemetry notify interval in ms (20-500) |

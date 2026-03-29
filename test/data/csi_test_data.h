@@ -593,12 +593,12 @@ inline bool current_pair_delta_seconds(double& out_delta_sec) {
     return true;
 }
 
-inline bool is_temporally_paired_30m() {
+inline bool is_temporally_paired() {
     double delta_sec = 0.0;
     if (!current_pair_delta_seconds(delta_sec)) {
         return false;
     }
-    return std::fabs(delta_sec) <= (30.0 * 60.0);
+    return std::fabs(delta_sec) <= (60.0);
 }
 
 } // namespace csi_test_data

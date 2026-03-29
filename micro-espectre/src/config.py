@@ -68,9 +68,9 @@ LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz: 2.3% FP, 92.4% R
                                # Human movement is typically 0.5-10 Hz, RF noise is >15 Hz
 
 # Hampel filter (removes outliers/spikes in turbulence)
-ENABLE_HAMPEL_FILTER = False   # Enable/disable Hampel outlier filter (spikes in turbulence)
+ENABLE_HAMPEL_FILTER = True    # Enable/disable Hampel outlier filter (spikes in turbulence)
 HAMPEL_WINDOW = 7             # Window size for median calculation (3-11)
-HAMPEL_THRESHOLD = 4.0        # Outlier detection threshold in MAD units (2.0-4.0 recommended)
+HAMPEL_THRESHOLD = 5.0        # Outlier detection threshold in MAD units (2.0-6.0 recommended)
                               # Higher values = less aggressive filtering
 
 # HT20 Constants (64 subcarriers - do not change)

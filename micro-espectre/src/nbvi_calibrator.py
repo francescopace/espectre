@@ -58,8 +58,9 @@ BUFFER_FILE = '/nbvi_buffer.bin'
 # Threshold for null subcarrier detection (mean amplitude below this = null)
 NULL_SUBCARRIER_THRESHOLD = 1.0
 
-# MVS parameters for validation (uses SEG_WINDOW_SIZE from config.py)
-MVS_THRESHOLD = 1.0
+# Adaptive validation threshold parameters (aligned with runtime threshold mode AUTO)
+VALIDATION_ADAPTIVE_PERCENTILE = 95
+VALIDATION_ADAPTIVE_FACTOR = 1.1
 
 
 def cleanup_buffer_file():
@@ -76,7 +77,7 @@ class NBVICalibrator:
     Automatic NBVI calibrator with percentile-based baseline detection
     
     Collects CSI packets at boot and automatically selects optimal subcarriers
-    using NBVI Weighted alpha=0.5 algorithm with percentile-based detection.
+    using multi-strategy NBVI with percentile-based baseline detection.
     
     Uses file-based storage to avoid RAM limitations. Magnitudes stored as
     uint8 (max CSI magnitude ~181 fits in 1 byte).
@@ -85,17 +86,17 @@ class NBVICalibrator:
     """
     
     def __init__(self, buffer_size=None, mvs_window_size=None,
-                 percentile=10, alpha=0.5, min_spacing=1, noise_gate_percentile=25):
+                 percentile=5, alpha=0.75, min_spacing=1, noise_gate_percentile=15):
         """
         Initialize NBVI calibrator
         
         Args:
             buffer_size: Number of packets to collect (default: CALIBRATION_BUFFER_SIZE from config)
             mvs_window_size: MVS window size for validation (default: SEG_WINDOW_SIZE from config)
-            percentile: Percentile for baseline window detection (default: 10)
-            alpha: NBVI weighting factor (default: 0.5)
+            percentile: Percentile for baseline window detection (default: 5)
+            alpha: NBVI weighting factor (default: 0.75)
             min_spacing: Minimum spacing between subcarriers (default: 1)
-            noise_gate_percentile: Percentile for noise gate (default: 25)
+            noise_gate_percentile: Percentile for noise gate (default: 15)
         """
         self.buffer_size = buffer_size if buffer_size is not None else CALIBRATION_BUFFER_SIZE
         self._buffer_file = BUFFER_FILE
@@ -124,12 +125,22 @@ class NBVICalibrator:
         self.alpha = alpha
         self.min_spacing = min_spacing
         self.noise_gate_percentile = noise_gate_percentile
+        self.hint_fp_tolerance = 0.0
+        self.prefer_hint_on_tie = False
         # False: raw std (gain lock active), True: CV std/mean (gain lock absent)
         self.use_cv_normalization = False
 
     def set_cv_normalization(self, enabled):
         """Enable or disable CV normalization for turbulence calculations."""
         self.use_cv_normalization = bool(enabled)
+
+    def set_hint_fp_tolerance(self, tolerance):
+        """Set max FP degradation allowed when keeping hint band."""
+        self.hint_fp_tolerance = float(tolerance)
+
+    def set_prefer_hint_on_tie(self, enabled):
+        """If False, hint band must be strictly better than best candidate."""
+        self.prefer_hint_on_tie = bool(enabled)
     
     # ========================================================================
     # Buffer management
@@ -325,23 +336,39 @@ class NBVICalibrator:
         
         return candidates
     
-    def _calculate_nbvi_from_stats(self, mean, std):
+    def _calculate_nbvi_from_stats(self, mean, std, mad=0.0, entropy=0.0):
         """
-        Calculate NBVI Weighted from pre-computed mean and std.
-        
-        NBVI = alpha * (std/mean^2) + (1-alpha) * (std/mean)
+        Calculate multiple NBVI scores to evaluate different candidate bands.
         """
         if mean < 1e-6:
-            return {'nbvi': float('inf'), 'mean': mean, 'std': std}
-        
+            return {
+                'nbvi_classic': float('inf'), 'nbvi_entropy': float('inf'),
+                'nbvi_mad': float('inf'),
+                'mean': mean, 'std': std,
+            }
+
         cv = std / mean
         nbvi_energy = std / (mean * mean)
-        nbvi_weighted = self.alpha * nbvi_energy + (1 - self.alpha) * cv
-        
+        base_score = self.alpha * nbvi_energy + (1 - self.alpha) * cv
+
+        # Entropy-rewarded score
+        entropy_factor = max(0.5, entropy)
+        entropy_score = base_score / entropy_factor
+
+        # MAD-based robust score
+        robust_std = mad * 1.4826 if mad > 1e-6 else std
+        cv_mad = robust_std / mean
+        energy_mad = robust_std / (mean * mean)
+        mad_score = self.alpha * energy_mad + (1 - self.alpha) * cv_mad
+
         return {
-            'nbvi': nbvi_weighted,
+            'nbvi_classic': base_score,
+            'nbvi_entropy': entropy_score,
+            'nbvi_mad': mad_score,
             'mean': mean,
-            'std': std
+            'std': std,
+            'mad': mad,
+            'entropy': entropy,
         }
     
     def _apply_noise_gate(self, subcarrier_metrics):
@@ -356,18 +383,31 @@ class NBVICalibrator:
         
         threshold = calculate_percentile(valid_means, self.noise_gate_percentile)
         # Filter by mean threshold AND exclude infinite NBVI (matching C++)
-        return [m for m in subcarrier_metrics 
+        filtered = [m for m in subcarrier_metrics 
                 if m['mean'] >= threshold and m['nbvi'] != float('inf')]
-    
-    def _select_with_spacing(self, sorted_metrics, k=12):
-        """
-        Select subcarriers with spectral de-correlation
         
-        Strategy:
-        - Top 5: Always include (highest priority, excluding infinite NBVI)
-        - Remaining 7: Select with minimum spacing
-        """
-        # Top 5: exclude infinite NBVI (matching C++ implementation)
+        return filtered
+    
+    def _select_with_spacing_strict(self, sorted_metrics, k=12):
+        valid_candidates = [c for c in sorted_metrics if c['nbvi'] != float('inf')]
+        for current_spacing in range(self.min_spacing, -1, -1):
+            selected = []
+            for candidate in valid_candidates:
+                if len(selected) >= k:
+                    break
+                sc = candidate['subcarrier']
+                if selected and min(abs(sc - s) for s in selected) < current_spacing:
+                    continue
+                selected.append(sc)
+            if len(selected) >= k:
+                selected.sort()
+                return selected
+        selected = [c['subcarrier'] for c in valid_candidates[:k]]
+        selected.sort()
+        return selected
+
+    def _select_with_spacing(self, sorted_metrics, k=12):
+        """Original clustered strategy for backward compatibility"""
         selected = []
         for m in sorted_metrics:
             if len(selected) >= 5:
@@ -378,11 +418,8 @@ class NBVICalibrator:
         for candidate in sorted_metrics[5:]:
             if len(selected) >= k:
                 break
-            
             sc = candidate['subcarrier']
-            min_dist = min(abs(sc - s) for s in selected)
-            
-            if min_dist >= self.min_spacing:
+            if min(abs(sc - s) for s in selected) >= self.min_spacing:
                 selected.append(sc)
         
         if len(selected) < k:
@@ -410,7 +447,6 @@ class NBVICalibrator:
             return 0.0, []
         
         turbulence_buffer = [0.0] * self.mvs_window_size
-        motion_count = 0
         total_packets = 0
         # Subsample mv_values at 1:5 for the adaptive threshold (P95).
         # The 750-packet buffer is needed for band selection quality, but P95
@@ -468,11 +504,14 @@ class NBVICalibrator:
             if total_packets % MV_SUBSAMPLE == 0:
                 mv_values.append(mv_variance)
             
-            if mv_variance > MVS_THRESHOLD:
-                motion_count += 1
             total_packets += 1
-        
-        fp_rate = motion_count / total_packets if total_packets > 0 else 0.0
+
+        if not mv_values:
+            return 0.0, []
+
+        adaptive_thr = calculate_percentile(mv_values, VALIDATION_ADAPTIVE_PERCENTILE) * VALIDATION_ADAPTIVE_FACTOR
+        motion_count = sum(1 for mv in mv_values if mv > adaptive_thr)
+        fp_rate = motion_count / len(mv_values)
         return fp_rate, mv_values
     
     def calibrate(self, hint_band=None):
@@ -519,83 +558,132 @@ class NBVICalibrator:
         best_window_idx = 0
         
         for idx, (start_idx, window_variance) in enumerate(candidates):
-            # Two-pass streaming NBVI per subcarrier (~1 KB instead of ~62 KB)
-            # Pass 1: accumulate sum per subcarrier for mean
-            sum_sc = [0.0] * NUM_SUBCARRIERS
-            count = 0
             self._file.seek(start_idx * NUM_SUBCARRIERS)
-            for _ in range(window_size):
-                data = self._file.read(NUM_SUBCARRIERS)
-                if not data or len(data) < NUM_SUBCARRIERS:
-                    break
-                for sc in range(NUM_SUBCARRIERS):
-                    sum_sc[sc] += data[sc]
-                count += 1
+            # Read whole window (up to 200 * 64 = 12800 bytes) into memory
+            # This avoids 64 separate passes over the file
+            raw_data = self._file.read(window_size * NUM_SUBCARRIERS)
+            count = len(raw_data) // NUM_SUBCARRIERS
             
             if count == 0:
                 continue
-            # Divide in-place to avoid allocating 64 new float objects (~1 KB)
-            for i in range(NUM_SUBCARRIERS):
-                sum_sc[i] /= count
-            mean_sc = sum_sc
             
-            # Pass 2: accumulate sum of squared differences for std
-            sum_sq_sc = [0.0] * NUM_SUBCARRIERS
-            self._file.seek(start_idx * NUM_SUBCARRIERS)
-            for _ in range(window_size):
-                data = self._file.read(NUM_SUBCARRIERS)
-                if not data or len(data) < NUM_SUBCARRIERS:
-                    break
-                for sc in range(NUM_SUBCARRIERS):
-                    diff = data[sc] - mean_sc[sc]
-                    sum_sq_sc[sc] += diff * diff
-            
-            # Build metrics from streaming stats
+            # Build metrics from stats
             all_metrics = []
             for sc in range(NUM_SUBCARRIERS):
-                std = math.sqrt(sum_sq_sc[sc] / count) if sum_sq_sc[sc] > 0 else 0.0
-                metrics = self._calculate_nbvi_from_stats(mean_sc[sc], std)
+                # Extract values for this subcarrier
+                vals = [raw_data[i * NUM_SUBCARRIERS + sc] for i in range(count)]
+                
+                mean = sum(vals) / count
+                diffs = [v - mean for v in vals]
+                var = sum(d * d for d in diffs) / count
+                std = math.sqrt(var) if var > 0 else 0.0
+                
+                # Entropy
+                min_v = min(vals)
+                max_v = max(vals)
+                range_v = max_v - min_v
+                entropy = 0.0
+                if range_v > 0:
+                    bins = [0] * 10
+                    bin_w = range_v / 10
+                    for v in vals:
+                        b = int((v - min_v) / bin_w)
+                        if b == 10: b = 9
+                        bins[b] += 1
+                    for b in bins:
+                        if b > 0:
+                            p = b / count
+                            entropy -= p * math.log2(p)
+                            
+                # MAD
+                sorted_vals = sorted(vals)
+                median = sorted_vals[count // 2]
+                abs_devs = sorted([abs(v - median) for v in vals])
+                mad = abs_devs[count // 2]
+
+                metrics = self._calculate_nbvi_from_stats(mean, std, mad=mad, entropy=entropy)
                 metrics['subcarrier'] = sc
                 
+                _INF = float('inf')
                 if sc < GUARD_BAND_LOW or sc > GUARD_BAND_HIGH or sc == DC_SUBCARRIER:
-                    metrics['nbvi'] = float('inf')
+                    metrics['nbvi_classic'] = _INF
+                    metrics['nbvi_entropy'] = _INF
+                    metrics['nbvi_mad'] = _INF
                 elif metrics['mean'] < NULL_SUBCARRIER_THRESHOLD:
-                    metrics['nbvi'] = float('inf')
+                    metrics['nbvi_classic'] = _INF
+                    metrics['nbvi_entropy'] = _INF
+                    metrics['nbvi_mad'] = _INF
+
+                # Default for _apply_noise_gate compatibility
+                metrics['nbvi'] = metrics['nbvi_classic']
                 
                 all_metrics.append(metrics)
             
-            del sum_sc
-            del sum_sq_sc
-            del mean_sc
-            
             filtered_metrics = self._apply_noise_gate(all_metrics)
             
-            if len(filtered_metrics) < BAND_SIZE:
-                continue
+            # Generate Candidate 1: Entropy Spaced (Best for all chips in experiments)
+            sorted_entropy = sorted(filtered_metrics, key=lambda x: x['nbvi_entropy'])
+            for m in sorted_entropy:
+                m['nbvi'] = m['nbvi_entropy']
+            band_entropy = self._select_with_spacing_strict(sorted_entropy, k=BAND_SIZE)
+
+            # Generate Candidate 2: MAD Clustered (Robust against noise spikes like on C6)
+            sorted_mad = sorted(filtered_metrics, key=lambda x: x['nbvi_mad'])
+            for m in sorted_mad:
+                m['nbvi'] = m['nbvi_mad']
+            band_mad = self._select_with_spacing(sorted_mad, k=BAND_SIZE)
+
+            # Generate Candidate 3: Classic Spaced (Alternative for tricky chips like C6)
+            sorted_classic = sorted(filtered_metrics, key=lambda x: x['nbvi_classic'])
+            for m in sorted_classic:
+                m['nbvi'] = m['nbvi_classic']
+            band_classic_spaced = self._select_with_spacing_strict(sorted_classic, k=BAND_SIZE)
+
+            # Generate Candidate 4: Classic Clustered (Best for C3)
+            band_classic = self._select_with_spacing(sorted_classic, k=BAND_SIZE)
+
+            candidates_to_eval = []
+
+            if len(band_entropy) == BAND_SIZE:
+                candidates_to_eval.append(band_entropy)
+            if len(band_mad) == BAND_SIZE and band_mad not in candidates_to_eval:
+                candidates_to_eval.append(band_mad)
+            if len(band_classic_spaced) == BAND_SIZE and band_classic_spaced not in candidates_to_eval:
+                candidates_to_eval.append(band_classic_spaced)
+            if len(band_classic) == BAND_SIZE and band_classic not in candidates_to_eval:
+                candidates_to_eval.append(band_classic)
             
-            sorted_metrics = sorted(filtered_metrics, key=lambda x: x['nbvi'])
-            candidate_band = self._select_with_spacing(sorted_metrics, k=BAND_SIZE)
+            for is_clustered, candidate_band in enumerate(candidates_to_eval):
+                if len(candidate_band) != BAND_SIZE:
+                    continue
+                
+                # Save reporting stats before freeing all_metrics
+                selected_metrics = [m for m in all_metrics if m['subcarrier'] in candidate_band]
+                avg_nbvi = sum(m['nbvi'] for m in selected_metrics) / len(selected_metrics)
+                avg_mean = sum(m['mean'] for m in selected_metrics) / len(selected_metrics)
+                
+                fp_rate, mv_values = self._validate_subcarriers(candidate_band)
+                
+                override = False
+                
+                if best_band is None:
+                    override = True
+                elif fp_rate <= 0.05:
+                    if best_fp_rate > 0.05:
+                        override = True
+                else:
+                    if fp_rate < best_fp_rate:
+                        override = True
+
+                if override:
+                    best_fp_rate = fp_rate
+                    best_band = candidate_band
+                    best_mv_values = mv_values
+                    best_window_idx = idx
+                    best_avg_nbvi = avg_nbvi
+                    best_avg_mean = avg_mean
             
-            if len(candidate_band) != BAND_SIZE:
-                continue
-            
-            # Save reporting stats before freeing all_metrics
-            selected_metrics = [m for m in all_metrics if m['subcarrier'] in candidate_band]
-            avg_nbvi = sum(m['nbvi'] for m in selected_metrics) / len(selected_metrics)
-            avg_mean = sum(m['mean'] for m in selected_metrics) / len(selected_metrics)
-            del selected_metrics
             del all_metrics
-            gc.collect()
-            
-            fp_rate, mv_values = self._validate_subcarriers(candidate_band)
-            
-            if fp_rate < best_fp_rate:
-                best_fp_rate = fp_rate
-                best_band = candidate_band
-                best_mv_values = mv_values
-                best_window_idx = idx
-                best_avg_nbvi = avg_nbvi
-                best_avg_mean = avg_mean
         
         if best_band is None:
             print("NBVI: All candidate windows failed - using default subcarriers")
@@ -610,26 +698,36 @@ class NBVICalibrator:
             
             return search_band, mv_values
         
-        # Prefer hint band when FP degradation is negligible.
-        # This prevents selecting pathological low-motion bands that can keep
-        # baseline FP low while hurting movement recall.
-        HINT_FP_TOLERANCE = 0.01  # 1.0 percentage point
+        HINT_FP_TOLERANCE = self.hint_fp_tolerance
         use_hint_band = False
         hint_fp_rate = 1.0
         hint_mv_values = []
         if hint_band is not None and len(hint_band) == BAND_SIZE:
             hint_fp_rate, hint_mv_values = self._validate_subcarriers(hint_band)
-            if hint_fp_rate <= (best_fp_rate + HINT_FP_TOLERANCE):
-                use_hint_band = True
-
+            
+            if best_fp_rate > 0.05:
+                if self.prefer_hint_on_tie:
+                    hint_fp_ok = hint_fp_rate <= (best_fp_rate + HINT_FP_TOLERANCE)
+                else:
+                    hint_fp_ok = hint_fp_rate < (best_fp_rate + HINT_FP_TOLERANCE)
+                
+                if hint_fp_ok:
+                    use_hint_band = True
+                else:
+                    print(f"NBVI: Hint FP ({hint_fp_rate*100:.1f}%) not better than "
+                          f"candidate ({best_fp_rate*100:.1f}%) - keeping NBVI band")
+            else:
+                print(f"NBVI: Keeping candidate band with FP {best_fp_rate*100:.1f}% (target <5.0%)")
+        
         if use_hint_band:
             best_band = list(hint_band)
             best_mv_values = hint_mv_values
             print(
                 f"NBVI: Using hint band (FP {hint_fp_rate * 100:.1f}% "
-                f"vs best {best_fp_rate * 100:.1f}%, tol {HINT_FP_TOLERANCE * 100:.1f}%)"
+                f"vs best {best_fp_rate * 100:.1f}%, tol {HINT_FP_TOLERANCE * 100:.1f}%, "
+                f"tie={'prefer' if self.prefer_hint_on_tie else 'strict'})"
             )
-
+        
         print(f"NBVI: Selected window {best_window_idx + 1}/{len(candidates)} with FP rate {best_fp_rate * 100:.1f}%")
         
         print(f"NBVI: Band selection successful")

@@ -138,10 +138,6 @@ python 6_optimize_filter_params.py c6 --hampel  # C6 + Hampel
 python 6_optimize_filter_params.py --all        # Combined optimization (low-pass + Hampel)
 ```
 
-**Current optimal configuration (60s noisy baseline):**
-- Low-pass: Cutoff=11 Hz, Target=28 → Recall 92.4%, FP 2.3%
-- With Hampel: Window=9, Threshold=4.0 → **Recall 92.1%, FP 0.84%, F1 93.2%**
-
 ---
 
 ### 7. Detection Methods Comparison (`7_compare_detection_methods.py`)

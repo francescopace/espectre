@@ -318,7 +318,7 @@ For each sliding window of 75 turbulence values, 12 statistical features are ext
 └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
 ```
 
-**Filter support**: The ML detector shares the same `SegmentationContext` as MVS, so it supports optional low-pass and Hampel filters on the turbulence stream before feature extraction. Filters are disabled by default.
+**Filter support**: The ML detector shares the same `SegmentationContext` as MVS, so it supports low-pass and Hampel filters on the turbulence stream before feature extraction. Hampel is enabled by default; low-pass is disabled by default.
 
 ### Calibration
 
@@ -400,49 +400,86 @@ The **NBVI (Normalized Baseline Variability Index)** algorithm selects 12 non-co
 
 #### Key Insight
 
-NBVI combines two factors for each subcarrier:
-1. **σ/μ** (coefficient of variation): Lower = more stable
-2. **σ/μ²** (signal strength factor): Favors subcarriers with strong signals
+NBVI computes three complementary scores per subcarrier and evaluates four candidate bands derived from them. This multi-strategy approach improves robustness across different chip behaviors and RF environments.
 
-The weighted formula balances stability and signal strength:
+**Base score** (classic NBVI):
 ```
-NBVI = α × (σ/μ²) + (1-α) × (σ/μ)
+NBVI_classic = α × (σ/μ²) + (1-α) × (σ/μ)
 ```
 
-Where α = 0.5 by default (balanced weighting).
+Where α = 0.75 by default (energy-biased weighting).
+
+**Entropy-rewarded score** — penalizes subcarriers with flat, low-information distributions:
+```
+NBVI_entropy = NBVI_classic / max(0.5, H)
+```
+
+Where H is the Shannon entropy of the magnitude histogram.
+
+**MAD-robust score** — replaces std with a robust estimator (median absolute deviation) to reduce sensitivity to outlier spikes:
+```
+σ_robust = MAD × 1.4826
+NBVI_mad = α × (σ_robust/μ²) + (1-α) × (σ_robust/μ)
+```
+
 
 #### Algorithm
 
 ```python
-def nbvi_calibrate(csi_buffer, band_size=12, alpha=0.5):
-    # 1. Find quietest baseline window using percentile detection
-    windows = find_candidate_windows(csi_buffer, window_size=200)
-    
-    # 2. For best window, calculate NBVI for each subcarrier
+def nbvi_calibrate(csi_buffer, band_size=12, alpha=0.75):
+    # 1. Find quietest baseline windows (P5 of variance distribution)
+    windows = find_candidate_windows(csi_buffer, window_size=200, percentile=5)
+
     for window in windows:
+        # 2. Calculate NBVI scores for all subcarriers
         for subcarrier in valid_subcarriers:
             magnitudes = extract_magnitudes(window, subcarrier)
-            mean = sum(magnitudes) / len(magnitudes)
-            std = standard_deviation(magnitudes)
-            
-            # NBVI formula
-            nbvi[subcarrier] = alpha * (std / mean**2) + (1-alpha) * (std / mean)
-        
-        # 3. Apply noise gate (exclude weak subcarriers)
-        valid = [sc for sc in subcarriers if mean[sc] > percentile(means, 25)]
-        
-        # 4. Select 12 subcarriers with lowest NBVI and spacing
-        selected = select_with_spacing(sorted_by_nbvi(valid), k=12)
-        
-        # 5. Validate using MVS false positive rate
-        fp_rate, mv_values = validate_subcarriers(selected)
-        
-        if fp_rate < best_fp_rate:
-            best_band = selected
-            best_mv_values = mv_values
-    
-    return best_band, best_mv_values
+            mean, std, mad, entropy = compute_stats(magnitudes)
+            nbvi_classic[sc] = alpha * (std / mean**2) + (1-alpha) * (std / mean)
+            nbvi_entropy[sc] = nbvi_classic[sc] / max(0.5, entropy)
+            nbvi_mad[sc]     = alpha * (mad*1.4826 / mean**2) + (1-alpha) * (mad*1.4826 / mean)
+
+        # 3. Noise gate: exclude subcarriers below P15 mean amplitude
+        valid = noise_gate(all_metrics, percentile=15)
+
+        # 4. Generate four candidate bands from different strategies
+        band_entropy        = select_spaced(sort_by(nbvi_entropy), k=12)   # strict spacing
+        band_mad            = select_clustered(sort_by(nbvi_mad), k=12)    # top-5 + spacing
+        band_classic_spaced = select_spaced(sort_by(nbvi_classic), k=12)  # strict spacing
+        band_classic        = select_clustered(sort_by(nbvi_classic), k=12)
+
+        # 5. Validate each unique candidate with adaptive threshold (P95 × 1.1)
+        for band in [band_entropy, band_mad, band_classic_spaced, band_classic]:
+            fp_rate, mv_values = validate(band)
+            # Prefer any band with FP ≤ 5%; otherwise keep lowest FP
+            if fp_rate <= 0.05 or fp_rate < best_fp_rate:
+                best_band, best_fp_rate = band, fp_rate
+
+    return best_band, mv_values
 ```
+
+#### Selection Strategies
+
+Two complementary strategies generate candidate bands from sorted subcarrier rankings:
+
+| Strategy | Description | Tuned For |
+|----------|-------------|-----------|
+| **Strict spaced** (`select_spaced`) | All 12 subcarriers respect `min_spacing`; relaxes spacing if needed to reach 12 | Spectral diversity (ESP32, C6) |
+| **Clustered** (`select_clustered`) | Top 5 unrestricted, remaining 7 with `min_spacing` | Dense high-quality clusters (C3) |
+
+#### Validation
+
+Internal validation runs MVS on the full calibration buffer and calculates the false positive rate using the same adaptive threshold that will be used at runtime (P95 × 1.1):
+
+```
+fp_rate = count(mv > threshold) / len(mv_values)
+```
+
+The band with the lowest FP rate below 5% is selected. If no candidate achieves ≤5%, the one with the lowest FP overall is used.
+
+#### Hint Band Logic
+
+After selection, the calibrator optionally compares the result against a hint band (the current production default). The hint band is used only when the best candidate does not achieve ≤5% FP and the hint has a strictly better FP rate. This prevents drift to bands that minimize calibration-time FP but collapse movement recall in production.
 
 #### Why NBVI?
 
@@ -475,26 +512,28 @@ See [TUNING.md](../TUNING.md) for configuration options (`segmentation_threshold
 
 ### Performance
 
-NBVI is the default calibration algorithm, selecting 12 non-consecutive subcarriers for spectral diversity and resilience to narrowband interference. See [PERFORMANCE.md](../PERFORMANCE.md) for detailed metrics.
+NBVI is the default calibration algorithm. It evaluates four candidate bands per window using three complementary scoring functions, selecting the one with the lowest false positive rate. See [PERFORMANCE.md](../PERFORMANCE.md) for detailed metrics.
 
 ---
 
+### Default Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `alpha` | 0.75 | Weight between energy (σ/μ²) and CV (σ/μ) terms |
+| `percentile` | 5 | Percentile of window variances used to select candidate windows |
+| `noise_gate_percentile` | 15 | Percentile of subcarrier means below which subcarriers are excluded |
+| `min_spacing` | 1 | Minimum index spacing between selected subcarriers |
+| `window_size` | 200 | Packets per candidate window |
+| `window_step` | 50 | Step between windows |
+
 ### Computational Complexity
 
-| Algorithm | Complexity | Calibration Time (Python) | Notes |
-|-----------|------------|---------------------------|-------|
-| NBVI | O(W × N × P) | ~30-50ms | Single-pass analysis |
+| Algorithm | Complexity | Notes |
+|-----------|------------|-------|
+| NBVI | O(C × S × W × N) | C = candidates, S = strategies (4), W = window size, N = subcarriers |
 
-Where W = window size, N = subcarriers, P = packets.
-
-**Benchmark Results** (1000 packets, Python on desktop):
-
-| Chip | NBVI Calibration Time |
-|------|----------------------|
-| C6 | 32ms |
-| S3 | 52ms |
-
-NBVI analyzes each subcarrier independently in a single pass, making it efficient for real-time calibration on embedded devices.
+Each candidate window generates four bands, each validated against the full calibration buffer. The dominant cost is the validation pass (O(buffer\_size × band\_size) per band).
 
 ### Guard Bands and DC Zone
 
@@ -581,7 +620,7 @@ The constant **1.4826** is the consistency constant for Gaussian distributions.
 ### Algorithm
 
 ```python
-def hampel_filter(value, buffer, threshold=4.0):
+def hampel_filter(value, buffer, threshold=5.0):
     # Add to circular buffer
     buffer.append(value)
     

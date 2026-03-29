@@ -45,7 +45,7 @@ constexpr float MAD_SCALE_FACTOR = 1.4826f;        // Median Absolute Deviation 
 constexpr uint8_t HAMPEL_TURBULENCE_WINDOW_MIN = 3;
 constexpr uint8_t HAMPEL_TURBULENCE_WINDOW_MAX = 11;
 constexpr uint8_t HAMPEL_TURBULENCE_WINDOW_DEFAULT = 7;
-constexpr float HAMPEL_TURBULENCE_THRESHOLD_DEFAULT = 4.0f;
+constexpr float HAMPEL_TURBULENCE_THRESHOLD_DEFAULT = 5.0f;
 
 struct hampel_turbulence_state_t {
     float buffer[HAMPEL_TURBULENCE_WINDOW_MAX];       // Circular buffer for values
