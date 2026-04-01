@@ -102,7 +102,7 @@ jobs:
       
       - name: Setup Pages
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       
       - name: Upload Pages Artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -122,7 +122,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   notify-indexnow:
     name: Notify IndexNow
@@ -178,7 +178,7 @@ jobs:
         run: ./run_coverage.sh --ci
       
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: test/coverage.xml,test/coverage.lcov
           flags: cpp
@@ -210,7 +210,7 @@ jobs:
           pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing
       
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: micro-espectre/coverage.xml
           flags: python
