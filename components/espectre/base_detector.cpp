@@ -66,6 +66,8 @@ BaseDetector::~BaseDetector() {
 BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     : turbulence_buffer_(other.turbulence_buffer_)
     , num_amplitudes_(other.num_amplitudes_)
+    , last_phase_turbulence_(other.last_phase_turbulence_)
+    , last_ratio_turbulence_(other.last_ratio_turbulence_)
     , buffer_index_(other.buffer_index_)
     , buffer_count_(other.buffer_count_)
     , window_size_(other.window_size_)
@@ -91,6 +93,8 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         // Transfer all state
         turbulence_buffer_ = other.turbulence_buffer_;
         num_amplitudes_ = other.num_amplitudes_;
+        last_phase_turbulence_ = other.last_phase_turbulence_;
+        last_ratio_turbulence_ = other.last_ratio_turbulence_;
         buffer_index_ = other.buffer_index_;
         buffer_count_ = other.buffer_count_;
         window_size_ = other.window_size_;
@@ -127,19 +131,52 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     int total_subcarriers = static_cast<int>(csi_len / 2);
     num_amplitudes_ = 0;
     
+    float phase_diffs[HT20_SELECTED_BAND_SIZE];
+    uint8_t num_phase_diffs = 0;
+    float prev_phase = 0.0f;
+    bool has_prev_phase = false;
+
     if (selected_subcarriers && num_subcarriers > 0) {
         for (int i = 0; i < num_subcarriers && num_amplitudes_ < HT20_SELECTED_BAND_SIZE; i++) {
             int sc_idx = selected_subcarriers[i];
             if (sc_idx >= total_subcarriers) continue;
-            
+
             // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
             float Q = static_cast<float>(csi_data[sc_idx * 2]);      // Imaginary first
             float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);  // Real second
             amplitude_buffer_[num_amplitudes_] = std::sqrt(I * I + Q * Q);
             num_amplitudes_++;
+
+            float phase = std::atan2(Q, I);
+            if (has_prev_phase && num_phase_diffs < HT20_SELECTED_BAND_SIZE) {
+                phase_diffs[num_phase_diffs++] = phase - prev_phase;
+            }
+            prev_phase = phase;
+            has_prev_phase = true;
         }
     }
     
+    // Phase turbulence: std of inter-subcarrier phase differences
+    last_phase_turbulence_ = (num_phase_diffs > 1)
+        ? std::sqrt(calculate_variance_two_pass(phase_diffs, num_phase_diffs))
+        : 0.0f;
+
+    // SA-WiSense ratio turbulence: std of adjacent amplitude ratios
+    if (num_amplitudes_ > 1) {
+        float ratios[HT20_SELECTED_BAND_SIZE];
+        uint8_t num_ratios = 0;
+        for (uint8_t i = 0; i + 1 < num_amplitudes_; i++) {
+            if (amplitude_buffer_[i + 1] > 0.1f) {
+                ratios[num_ratios++] = amplitude_buffer_[i] / amplitude_buffer_[i + 1];
+            }
+        }
+        last_ratio_turbulence_ = (num_ratios > 1)
+            ? std::sqrt(calculate_variance_two_pass(ratios, num_ratios))
+            : 0.0f;
+    } else {
+        last_ratio_turbulence_ = 0.0f;
+    }
+
     // Calculate spatial turbulence
     // Two modes:
     //   CV normalization (std/mean): gain-invariant, used when gain is NOT locked

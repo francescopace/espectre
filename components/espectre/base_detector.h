@@ -232,6 +232,9 @@ public:
      */
     bool is_hampel_enabled() const { return hampel_state_.enabled; }
 
+    float get_last_phase_turbulence() const { return last_phase_turbulence_; }
+    float get_last_ratio_turbulence() const { return last_ratio_turbulence_; }
+
 protected:
     /**
      * Add turbulence value to buffer (with filtering)
@@ -242,6 +245,8 @@ protected:
     float* turbulence_buffer_;
     float amplitude_buffer_[HT20_SELECTED_BAND_SIZE];  // Last packet amplitudes
     uint8_t num_amplitudes_;
+    float last_phase_turbulence_{0.0f};
+    float last_ratio_turbulence_{0.0f};
     uint16_t buffer_index_;
     uint16_t buffer_count_;
     uint16_t window_size_;
