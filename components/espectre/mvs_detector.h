@@ -29,6 +29,10 @@ constexpr float MVS_DEFAULT_THRESHOLD = 1.0f;
 constexpr float MVS_MIN_THRESHOLD = 0.0f;
 constexpr float MVS_MAX_THRESHOLD = 10.0f;
 
+constexpr float MVS_DEFAULT_HYSTERESIS = 0.7f;
+constexpr float MVS_MIN_HYSTERESIS = 0.3f;
+constexpr float MVS_MAX_HYSTERESIS = 1.0f;
+
 /**
  * MVS (Moving Variance Segmentation) Detector
  * 
@@ -43,8 +47,9 @@ public:
      * @param window_size Moving variance window size (10-200 packets)
      * @param threshold Motion detection threshold (0.0-10.0)
      */
-    MVSDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE, 
-                float threshold = MVS_DEFAULT_THRESHOLD);
+    MVSDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE,
+                float threshold = MVS_DEFAULT_THRESHOLD,
+                float hysteresis = MVS_DEFAULT_HYSTERESIS);
     
     ~MVSDetector() override = default;
     
@@ -64,6 +69,8 @@ public:
     float get_motion_metric() const override { return current_moving_variance_; }
     bool set_threshold(float threshold) override;
     float get_threshold() const override { return threshold_; }
+    bool set_hysteresis(float factor) override;
+    float get_hysteresis_factor() const override { return hysteresis_factor_; }
     const char* get_name() const override { return "MVS"; }
 
 private:
@@ -71,6 +78,7 @@ private:
     
     float threshold_;
     float current_moving_variance_;
+    float hysteresis_factor_;
 };
 
 }  // namespace espectre

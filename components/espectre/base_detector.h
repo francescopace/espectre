@@ -149,7 +149,10 @@ public:
      * Get current threshold
      */
     virtual float get_threshold() const = 0;
-    
+
+    virtual bool set_hysteresis(float factor) { return false; }
+    virtual float get_hysteresis_factor() const { return 1.0f; }
+
     /**
      * Get detector name for logging
      */
@@ -259,6 +262,15 @@ protected:
     // Default false: raw std is more sensitive and matches ML model training
     // Set true only for chips without gain lock (e.g., ESP32)
     bool use_cv_normalization_{false};
+
+    // Temporal smoothing: require N of last M raw decisions to agree
+    static constexpr uint8_t SMOOTH_WINDOW = 6;
+    static constexpr uint8_t SMOOTH_ENTER = 3;   // 3/6 for IDLE→MOTION
+    static constexpr uint8_t SMOOTH_EXIT = 5;     // 5/6 for MOTION→IDLE
+    uint8_t smooth_history_{0};  // Bitmask of last SMOOTH_WINDOW raw decisions
+    uint8_t smooth_count_{0};    // Samples in history
+
+    MotionState apply_temporal_smoothing(bool raw_motion);
 };
 
 }  // namespace espectre
