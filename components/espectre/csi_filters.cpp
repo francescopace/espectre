@@ -167,5 +167,51 @@ float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulenc
     return turbulence;
 }
 
+// =============================================================================
+// Breathing Bandpass Filter
+// =============================================================================
+
+static constexpr float BREATH_HP_B0 = 0.99749f;
+static constexpr float BREATH_HP_A1 = -0.99498f;
+static constexpr float BREATH_LP_B0 = 0.01850f;
+static constexpr float BREATH_LP_A1 = -0.96300f;
+static constexpr float BREATH_ENERGY_ALPHA = 0.00333f;
+
+void breathing_filter_init(breathing_filter_state_t *state) {
+    if (!state) return;
+    state->hp_x_prev = 0.0f;
+    state->hp_y_prev = 0.0f;
+    state->lp_x_prev = 0.0f;
+    state->lp_y_prev = 0.0f;
+    state->energy = 0.0f;
+    state->initialized = false;
+}
+
+float breathing_filter_apply(breathing_filter_state_t *state, float amplitude_sum) {
+    if (!state) return 0.0f;
+    if (!state->initialized) {
+        state->hp_x_prev = amplitude_sum;
+        state->hp_y_prev = 0.0f;
+        state->lp_x_prev = 0.0f;
+        state->lp_y_prev = 0.0f;
+        state->energy = 0.0f;
+        state->initialized = true;
+        return 0.0f;
+    }
+    float hp_out = BREATH_HP_B0 * (amplitude_sum - state->hp_x_prev) - BREATH_HP_A1 * state->hp_y_prev;
+    state->hp_x_prev = amplitude_sum;
+    state->hp_y_prev = hp_out;
+    float lp_out = BREATH_LP_B0 * (hp_out + state->lp_x_prev) - BREATH_LP_A1 * state->lp_y_prev;
+    state->lp_x_prev = hp_out;
+    state->lp_y_prev = lp_out;
+    float sq = lp_out * lp_out;
+    state->energy = BREATH_ENERGY_ALPHA * sq + (1.0f - BREATH_ENERGY_ALPHA) * state->energy;
+    return std::sqrt(state->energy);
+}
+
+float breathing_filter_get_score(const breathing_filter_state_t *state) {
+    return (state && state->initialized) ? std::sqrt(state->energy) : 0.0f;
+}
+
 }  // namespace espectre
 }  // namespace esphome

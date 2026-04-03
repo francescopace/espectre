@@ -232,6 +232,8 @@ public:
      */
     bool is_hampel_enabled() const { return hampel_state_.enabled; }
 
+    float get_breathing_score() const;
+
 protected:
     /**
      * Add turbulence value to buffer (with filtering)
@@ -259,6 +261,7 @@ protected:
     // Default false: raw std is more sensitive and matches ML model training
     // Set true only for chips without gain lock (e.g., ESP32)
     bool use_cv_normalization_{false};
+    breathing_filter_state_t breathing_filter_{};
 };
 
 }  // namespace espectre
