@@ -74,8 +74,10 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , packet_index_(other.packet_index_)
     , lowpass_state_(other.lowpass_state_)
     , hampel_state_(other.hampel_state_)
-    , use_cv_normalization_(other.use_cv_normalization_) {
-    
+    , use_cv_normalization_(other.use_cv_normalization_)
+    , smooth_history_(other.smooth_history_)
+    , smooth_count_(other.smooth_count_) {
+
     // Copy amplitude buffer
     std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
     
@@ -100,7 +102,9 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         lowpass_state_ = other.lowpass_state_;
         hampel_state_ = other.hampel_state_;
         use_cv_normalization_ = other.use_cv_normalization_;
-        
+        smooth_history_ = other.smooth_history_;
+        smooth_count_ = other.smooth_count_;
+
         // Copy amplitude buffer
         std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
         
@@ -159,7 +163,9 @@ void BaseDetector::reset() {
     state_ = MotionState::IDLE;
     packet_index_ = 0;
     total_packets_ = 0;
-    
+    smooth_history_ = 0;
+    smooth_count_ = 0;
+
     // Don't clear buffer - preserve "warm" state
 }
 
@@ -193,9 +199,11 @@ void BaseDetector::clear_buffer() {
     
     // Reset filters
     lowpass_filter_reset(&lowpass_state_);
-    hampel_turbulence_init(&hampel_state_, hampel_state_.window_size, 
+    hampel_turbulence_init(&hampel_state_, hampel_state_.window_size,
                            hampel_state_.threshold, hampel_state_.enabled);
-    
+
+    smooth_history_ = 0;
+    smooth_count_ = 0;
     ESP_LOGD(TAG, "Buffer cleared");
 }
 
@@ -236,6 +244,30 @@ void BaseDetector::add_turbulence_to_buffer(float turbulence) {
     
     packet_index_++;
     total_packets_++;
+}
+
+MotionState BaseDetector::apply_temporal_smoothing(bool raw_motion) {
+    smooth_history_ = ((smooth_history_ << 1) | (raw_motion ? 1 : 0)) & ((1 << SMOOTH_WINDOW) - 1);
+    if (smooth_count_ < SMOOTH_WINDOW) smooth_count_++;
+
+    uint8_t motion_count = 0;
+    uint8_t h = smooth_history_;
+    for (uint8_t i = 0; i < smooth_count_; i++) {
+        motion_count += (h & 1);
+        h >>= 1;
+    }
+
+    if (state_ == MotionState::IDLE) {
+        if (motion_count >= SMOOTH_ENTER && smooth_count_ >= SMOOTH_ENTER) {
+            return MotionState::MOTION;
+        }
+    } else {
+        uint8_t idle_count = smooth_count_ - motion_count;
+        if (idle_count >= SMOOTH_EXIT && smooth_count_ >= SMOOTH_EXIT) {
+            return MotionState::IDLE;
+        }
+    }
+    return state_;
 }
 
 }  // namespace espectre
