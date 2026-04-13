@@ -265,7 +265,7 @@ protected:
 
     // Temporal smoothing: require N of last M raw decisions to agree
     static constexpr uint8_t SMOOTH_WINDOW = 6;
-    static constexpr uint8_t SMOOTH_ENTER = 3;   // 3/6 for IDLE→MOTION
+    static constexpr uint8_t SMOOTH_ENTER = 4;   // 4/6 for IDLE→MOTION
     static constexpr uint8_t SMOOTH_EXIT = 5;     // 5/6 for MOTION→IDLE
     uint8_t smooth_history_{0};  // Bitmask of last SMOOTH_WINDOW raw decisions
     uint8_t smooth_count_{0};    // Samples in history

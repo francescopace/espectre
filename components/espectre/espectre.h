@@ -103,7 +103,8 @@ class ESpectreComponent : public Component {
   void set_hampel_enabled(bool enabled) { this->hampel_enabled_ = enabled; }
   void set_hampel_window(uint8_t window) { this->hampel_window_ = window; }
   void set_hampel_threshold(float threshold) { this->hampel_threshold_ = threshold; }
- 
+  void set_hysteresis_factor(float factor) { this->hysteresis_factor_ = factor; }
+
   void set_ble_channel_enabled(bool enabled) { this->ble_channel_enabled_ = enabled; }
   void set_ble_telemetry_interval_ms(uint32_t interval_ms) { this->ble_telemetry_interval_ms_ = interval_ms; }
  void set_ble_server(esp32_ble_server::BLEServer *server) { this->ble_server_ = server; }
@@ -181,6 +182,7 @@ class ESpectreComponent : public Component {
   bool hampel_enabled_{true};
   uint8_t hampel_window_{7};
   float hampel_threshold_{5.0f};
+  float hysteresis_factor_{0.7f};
   uint8_t selected_subcarriers_[12] = {
     DEFAULT_SUBCARRIERS[0], DEFAULT_SUBCARRIERS[1], DEFAULT_SUBCARRIERS[2], DEFAULT_SUBCARRIERS[3],
     DEFAULT_SUBCARRIERS[4], DEFAULT_SUBCARRIERS[5], DEFAULT_SUBCARRIERS[6], DEFAULT_SUBCARRIERS[7],
