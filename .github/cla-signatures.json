@@ -4,7 +4,7 @@
     "path": "CLA.md",
     "branch": "develop",
     "sha": "2f99c0263af847d68ac550b3df362c848c9cd8b8",
-    "updatedAt": "2026-04-03T18:17:42.969Z"
+    "updatedAt": "2026-04-13T07:26:58.432Z"
   },
   "signedContributors": [
     {
@@ -17,6 +17,12 @@
       "login": "hkar19",
       "userId": 5562429,
       "signedAt": "2026-03-20T09:26:17.605Z",
+      "claSha": "2f99c0263af847d68ac550b3df362c848c9cd8b8"
+    },
+    {
+      "login": "PeterkoCZ91",
+      "userId": 226746019,
+      "signedAt": "2026-04-13T07:26:58.432Z",
       "claSha": "2f99c0263af847d68ac550b3df362c848c9cd8b8"
     },
     {
