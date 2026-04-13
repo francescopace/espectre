@@ -50,6 +50,8 @@ CONF_HAMPEL_ENABLED = "hampel_enabled"
 CONF_HAMPEL_WINDOW = "hampel_window"
 CONF_HAMPEL_THRESHOLD = "hampel_threshold"
 
+# Hysteresis for asymmetric IDLE<->MOTION transitions
+CONF_HYSTERESIS_FACTOR = "hysteresis_factor"
 
 # Traffic generator mode
 CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
@@ -167,7 +169,11 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_HAMPEL_ENABLED, default=True): cv.boolean,
     cv.Optional(CONF_HAMPEL_WINDOW, default=7): cv.int_range(min=3, max=11),
     cv.Optional(CONF_HAMPEL_THRESHOLD, default=5.0): cv.float_range(min=1.0, max=10.0),
-    
+
+    # Hysteresis factor for asymmetric IDLE<->MOTION transitions
+    # MOTION->IDLE requires variance < threshold * hysteresis_factor
+    cv.Optional(CONF_HYSTERESIS_FACTOR, default=0.7): cv.float_range(min=0.3, max=1.0),
+
     # Sensors - optional with defaults, always created
     cv.Optional(CONF_MOVEMENT_SENSOR, default={"name": "Movement Score"}): sensor.sensor_schema(
         unit_of_measurement=UNIT_EMPTY,
@@ -321,7 +327,10 @@ async def to_code(config):
     cg.add(var.set_hampel_enabled(config[CONF_HAMPEL_ENABLED]))
     cg.add(var.set_hampel_window(config[CONF_HAMPEL_WINDOW]))
     cg.add(var.set_hampel_threshold(config[CONF_HAMPEL_THRESHOLD]))
-    
+
+    # Configure hysteresis
+    cg.add(var.set_hysteresis_factor(config[CONF_HYSTERESIS_FACTOR]))
+
     # Register sensors (required, always present)
     sens = await sensor.new_sensor(config[CONF_MOVEMENT_SENSOR])
     cg.add(var.set_movement_sensor(sens))

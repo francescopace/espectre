@@ -66,7 +66,18 @@ void MVSDetector::update_state() {
     } else {
         raw_motion = current_moving_variance_ >= threshold_ * hysteresis_factor_;
     }
-    state_ = apply_temporal_smoothing(raw_motion);
+    MotionState new_state = apply_temporal_smoothing(raw_motion);
+    if (new_state != state_) {
+        if (new_state == MotionState::MOTION) {
+            ESP_LOGV(TAG, "Motion started at packet %lu (var=%.4f, thr=%.4f)",
+                     (unsigned long)packet_index_, current_moving_variance_, threshold_);
+        } else {
+            ESP_LOGV(TAG, "Motion ended at packet %lu (var=%.4f, thr×hyst=%.4f)",
+                     (unsigned long)packet_index_, current_moving_variance_,
+                     threshold_ * hysteresis_factor_);
+        }
+        state_ = new_state;
+    }
 }
 
 bool MVSDetector::set_threshold(float threshold) {
