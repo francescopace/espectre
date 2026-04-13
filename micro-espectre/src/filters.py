@@ -214,3 +214,85 @@ class HampelFilter:
         self.count = 0
         self.index = 0
         # No need to clear pre-allocated buffers - they'll be overwritten
+
+
+class BreathingFilter:
+    """
+    Breathing bandpass filter (cascaded HP 0.08 Hz + LP 0.6 Hz)
+
+    Isolates the breathing frequency band (0.08-0.6 Hz = 5-36 BPM) from
+    CSI amplitude sum, then tracks RMS energy via exponential moving average.
+
+    Elevated score indicates periodic amplitude variation consistent with
+    breathing, useful for detecting stationary presence (sitting/sleeping).
+
+    Coefficients are pre-computed for 100 Hz sample rate using bilinear
+    transform of 1st-order Butterworth prototypes. Must match C++ exactly.
+
+    Signal flow:
+        amplitude_sum → HP(0.08Hz) → LP(0.6Hz) → square → EMA → sqrt → score
+    """
+
+    # Pre-computed filter coefficients (must match csi_filters.cpp)
+    HP_B0 = 0.99749
+    HP_A1 = -0.99498
+    LP_B0 = 0.01850
+    LP_A1 = -0.96300
+    ENERGY_ALPHA = 0.00333  # ~3 second time constant at 100 Hz
+
+    def __init__(self):
+        """Initialize breathing filter with zeroed state"""
+        self.reset()
+
+    def filter(self, amplitude_sum):
+        """
+        Apply breathing bandpass filter to amplitude sum
+
+        Args:
+            amplitude_sum: Sum of subcarrier amplitudes for current packet
+
+        Returns:
+            float: Current breathing score (RMS of bandpassed energy)
+        """
+        if not self.initialized:
+            self.hp_x_prev = amplitude_sum
+            self.hp_y_prev = 0.0
+            self.lp_x_prev = 0.0
+            self.lp_y_prev = 0.0
+            self.energy = 0.0
+            self.initialized = True
+            return 0.0
+
+        # High-pass filter (removes DC / slow drift, passes > 0.08 Hz)
+        hp_out = self.HP_B0 * (amplitude_sum - self.hp_x_prev) - self.HP_A1 * self.hp_y_prev
+        self.hp_x_prev = amplitude_sum
+        self.hp_y_prev = hp_out
+
+        # Low-pass filter (removes fast noise, passes < 0.6 Hz)
+        lp_out = self.LP_B0 * (hp_out + self.lp_x_prev) - self.LP_A1 * self.lp_y_prev
+        self.lp_x_prev = hp_out
+        self.lp_y_prev = lp_out
+
+        # Energy estimation (EMA of squared bandpassed signal)
+        sq = lp_out * lp_out
+        self.energy = self.ENERGY_ALPHA * sq + (1.0 - self.ENERGY_ALPHA) * self.energy
+
+        return math.sqrt(self.energy)
+
+    def get_score(self):
+        """
+        Get current breathing score
+
+        Returns:
+            float: RMS of bandpassed energy (0.0 if not initialized)
+        """
+        return math.sqrt(self.energy) if self.initialized else 0.0
+
+    def reset(self):
+        """Reset filter to initial state"""
+        self.hp_x_prev = 0.0
+        self.hp_y_prev = 0.0
+        self.lp_x_prev = 0.0
+        self.lp_y_prev = 0.0
+        self.energy = 0.0
+        self.initialized = False
