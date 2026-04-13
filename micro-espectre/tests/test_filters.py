@@ -1,7 +1,7 @@
 """
 Micro-ESPectre - Signal Filter Unit Tests
 
-Tests for HampelFilter and LowPassFilter classes in src/filters.py.
+Tests for HampelFilter, LowPassFilter, and BreathingFilter classes in src/filters.py.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -598,8 +598,8 @@ class TestBreathingFilterCppParity:
     def test_known_sequence(self):
         """Test a known input sequence produces expected outputs
 
-        These expected values were computed from the C++ reference
-        implementation in csi_filters.cpp using the same coefficients.
+        Verify step-by-step against the C++ filter math
+        (csi_filters.cpp) using the same coefficients.
         """
         bf = BreathingFilter()
 

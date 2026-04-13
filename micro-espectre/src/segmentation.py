@@ -356,12 +356,15 @@ class SegmentationContext:
     
     def get_metrics(self):
         """Get current metrics as dict"""
-        return {
+        metrics = {
             'moving_variance': self.current_moving_variance,
             'threshold': self.threshold,
             'turbulence': self.last_turbulence,
             'state': self.state
         }
+        if self.breathing_filter is not None:
+            metrics['breathing_score'] = self.get_breathing_score()
+        return metrics
     
     def reset(self, full=False):
         """

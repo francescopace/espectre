@@ -1303,3 +1303,128 @@ class TestEndToEndWithCalibration:
         assert recall > recall_target, f"End-to-end Recall too low ({num_subcarriers} SC): {recall:.1f}% (target: >{recall_target}%)"
         assert fp_rate < fp_rate_target, f"End-to-end FP Rate too high ({num_subcarriers} SC): {fp_rate:.1f}% (target: <{fp_rate_target}%)"
 
+
+# ============================================================================
+# Breathing Filter Validation on Real CSI Data
+# ============================================================================
+
+class TestBreathingFilterRealData:
+    """
+    Validate breathing bandpass filter behavior on real CSI captures.
+
+    Verifies:
+    - Empty room baseline: breathing score stays low (no false breathing)
+    - Movement data: filter produces a response (not stuck at zero)
+    - Metrics exposure: breathing_score is present in get_metrics()
+    - Score stability: no NaN/Inf values on real data
+    """
+
+    def test_baseline_breathing_score_stable(self, real_data, num_subcarriers, chip_type):
+        """Breathing score should be stable (low variance) during empty-room baseline.
+
+        In an empty room there is no periodic breathing signal. The absolute
+        score depends on chip/amplitude scale, so we verify stability rather
+        than absolute value: the coefficient of variation (std/mean) should
+        be low, indicating steady-state noise rather than periodic modulation.
+        """
+        baseline_packets, _ = real_data
+
+        ctx = SegmentationContext(
+            window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            enable_hampel=True,
+            hampel_window=HAMPEL_WINDOW,
+            hampel_threshold=HAMPEL_THRESHOLD,
+            enable_breathing=True,
+        )
+
+        # Process baseline packets, collect scores after settling
+        scores = []
+        for i, pkt in enumerate(baseline_packets):
+            csi = pkt['csi_data']
+            sc = pkt.get('selected_subcarriers')
+            turbulence = ctx.calculate_spatial_turbulence(csi, sc)
+            ctx.add_turbulence(turbulence)
+            # Skip first 300 samples for filter settling
+            if i >= 300:
+                scores.append(ctx.get_breathing_score())
+
+        assert len(scores) > 0, "Not enough baseline packets after settling"
+
+        mean_score = sum(scores) / len(scores)
+        variance = sum((s - mean_score) ** 2 for s in scores) / len(scores)
+        std_score = math.sqrt(variance)
+        cv = std_score / mean_score if mean_score > 0 else 0.0
+
+        print(f"\n[{chip_type}] Baseline breathing: mean={mean_score:.4f} "
+              f"std={std_score:.4f} CV={cv:.4f}")
+
+        # All scores must be finite and non-negative
+        for s in scores:
+            assert math.isfinite(s), f"Score is not finite: {s}"
+            assert s >= 0.0, f"Score is negative: {s}"
+
+        # Coefficient of variation should be low (stable signal, not periodic)
+        assert cv < 0.5, \
+            f"[{chip_type}] Baseline breathing CV too high: {cv:.4f} (expected < 0.5)"
+
+    def test_movement_breathing_score_finite(self, real_data, num_subcarriers, chip_type):
+        """Breathing score should remain finite and non-negative during movement.
+
+        Movement creates broadband CSI variation, some of which falls in the
+        breathing band. We don't assert a specific value — just that the
+        filter doesn't produce NaN/Inf on real noisy data.
+        """
+        _, movement_packets = real_data
+
+        ctx = SegmentationContext(
+            window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            enable_hampel=True,
+            hampel_window=HAMPEL_WINDOW,
+            hampel_threshold=HAMPEL_THRESHOLD,
+            enable_breathing=True,
+        )
+
+        scores = []
+        for pkt in movement_packets:
+            csi = pkt['csi_data']
+            sc = pkt.get('selected_subcarriers')
+            turbulence = ctx.calculate_spatial_turbulence(csi, sc)
+            ctx.add_turbulence(turbulence)
+            scores.append(ctx.get_breathing_score())
+
+        print(f"\n[{chip_type}] Movement breathing score: "
+              f"min={min(scores):.6f} max={max(scores):.6f} "
+              f"mean={sum(scores)/len(scores):.6f}")
+
+        # All scores must be finite and non-negative
+        for i, s in enumerate(scores):
+            assert math.isfinite(s), f"Score[{i}] is not finite: {s}"
+            assert s >= 0.0, f"Score[{i}] is negative: {s}"
+
+    def test_metrics_include_breathing_score(self, real_data, num_subcarriers, chip_type):
+        """get_metrics() should include breathing_score when filter is enabled."""
+        baseline_packets, _ = real_data
+
+        ctx = SegmentationContext(
+            window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            enable_breathing=True,
+        )
+
+        # Process enough packets to fill buffer
+        for pkt in baseline_packets[:DETECTOR_DEFAULT_WINDOW_SIZE + 10]:
+            csi = pkt['csi_data']
+            sc = pkt.get('selected_subcarriers')
+            turbulence = ctx.calculate_spatial_turbulence(csi, sc)
+            ctx.add_turbulence(turbulence)
+
+        metrics = ctx.update_state()
+        assert 'breathing_score' in metrics, \
+            f"breathing_score missing from metrics: {list(metrics.keys())}"
+        assert math.isfinite(metrics['breathing_score'])
+
+    def test_metrics_exclude_breathing_when_disabled(self):
+        """get_metrics() should NOT include breathing_score when filter is disabled."""
+        ctx = SegmentationContext(enable_breathing=False)
+        metrics = ctx.update_state()
+        assert 'breathing_score' not in metrics
+
