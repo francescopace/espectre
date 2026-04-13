@@ -75,8 +75,9 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , packet_index_(other.packet_index_)
     , lowpass_state_(other.lowpass_state_)
     , hampel_state_(other.hampel_state_)
-    , use_cv_normalization_(other.use_cv_normalization_) {
-    
+    , use_cv_normalization_(other.use_cv_normalization_)
+    , breathing_filter_(other.breathing_filter_) {
+
     // Copy amplitude buffer
     std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
     
@@ -101,7 +102,8 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         lowpass_state_ = other.lowpass_state_;
         hampel_state_ = other.hampel_state_;
         use_cv_normalization_ = other.use_cv_normalization_;
-        
+        breathing_filter_ = other.breathing_filter_;
+
         // Copy amplitude buffer
         std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
         
@@ -199,9 +201,10 @@ void BaseDetector::clear_buffer() {
     
     // Reset filters
     lowpass_filter_reset(&lowpass_state_);
-    hampel_turbulence_init(&hampel_state_, hampel_state_.window_size, 
+    hampel_turbulence_init(&hampel_state_, hampel_state_.window_size,
                            hampel_state_.threshold, hampel_state_.enabled);
-    
+    breathing_filter_init(&breathing_filter_);
+
     ESP_LOGD(TAG, "Buffer cleared");
 }
 
