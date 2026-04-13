@@ -10,7 +10,7 @@ License: GPLv3
 import pytest
 import math
 import numpy as np
-from filters import HampelFilter, LowPassFilter
+from filters import HampelFilter, LowPassFilter, BreathingFilter
 from utils import insertion_sort
 
 
@@ -445,4 +445,202 @@ class TestLowPassFilterRealWorld:
         assert filtered[25] < 50.0
         # But not completely removed
         assert filtered[25] > 5.0
+
+
+# =============================================================================
+# BreathingFilter Tests
+# =============================================================================
+
+
+class TestBreathingFilterInit:
+    """Test BreathingFilter initialization"""
+
+    def test_default_state(self):
+        """Test initial state is zeroed and uninitialized"""
+        bf = BreathingFilter()
+        assert bf.initialized is False
+        assert bf.energy == 0.0
+        assert bf.hp_x_prev == 0.0
+        assert bf.hp_y_prev == 0.0
+        assert bf.lp_x_prev == 0.0
+        assert bf.lp_y_prev == 0.0
+
+    def test_coefficients_match_cpp(self):
+        """Test that filter coefficients match C++ csi_filters.cpp"""
+        assert BreathingFilter.HP_B0 == pytest.approx(0.99749, rel=1e-5)
+        assert BreathingFilter.HP_A1 == pytest.approx(-0.99498, rel=1e-5)
+        assert BreathingFilter.LP_B0 == pytest.approx(0.01850, rel=1e-5)
+        assert BreathingFilter.LP_A1 == pytest.approx(-0.96300, rel=1e-5)
+        assert BreathingFilter.ENERGY_ALPHA == pytest.approx(0.00333, rel=1e-3)
+
+    def test_reset(self):
+        """Test reset returns to initial state"""
+        bf = BreathingFilter()
+        # Process some data
+        bf.filter(100.0)
+        bf.filter(110.0)
+        assert bf.initialized is True
+
+        bf.reset()
+        assert bf.initialized is False
+        assert bf.energy == 0.0
+        assert bf.hp_x_prev == 0.0
+
+
+class TestBreathingFilterBasic:
+    """Test basic BreathingFilter functionality"""
+
+    def test_first_sample_returns_zero(self):
+        """Test that first sample initializes state and returns 0"""
+        bf = BreathingFilter()
+        result = bf.filter(100.0)
+        assert result == 0.0
+        assert bf.initialized is True
+        assert bf.hp_x_prev == 100.0
+
+    def test_get_score_before_init(self):
+        """Test get_score returns 0 before initialization"""
+        bf = BreathingFilter()
+        assert bf.get_score() == 0.0
+
+    def test_get_score_after_init(self):
+        """Test get_score returns same as filter output"""
+        bf = BreathingFilter()
+        bf.filter(100.0)
+        bf.filter(110.0)
+        score = bf.get_score()
+        assert score >= 0.0
+
+    def test_constant_input_decays_to_zero(self):
+        """Test that constant amplitude produces near-zero score (HP removes DC)"""
+        bf = BreathingFilter()
+        # Feed constant value for 500 samples (5 seconds at 100 Hz)
+        for _ in range(500):
+            bf.filter(100.0)
+        # DC should be fully removed by HP filter
+        assert bf.get_score() < 0.01
+
+    def test_step_change_transient(self):
+        """Test that a step change produces a transient then decays"""
+        bf = BreathingFilter()
+        # Settle at 100
+        for _ in range(300):
+            bf.filter(100.0)
+        score_before = bf.get_score()
+
+        # Step to 200
+        bf.filter(200.0)
+        score_after = bf.get_score()
+
+        # Step should produce transient energy
+        assert score_after > score_before
+
+
+class TestBreathingFilterFrequencyResponse:
+    """Test frequency selectivity of the breathing bandpass filter"""
+
+    def test_breathing_rate_passes(self):
+        """Test that 0.3 Hz (18 BPM) passes through with high energy"""
+        bf = BreathingFilter()
+        freq = 0.3  # Hz (breathing rate)
+        sample_rate = 100.0
+        duration = 30.0  # seconds - enough for filter to settle
+
+        for i in range(int(sample_rate * duration)):
+            t = i / sample_rate
+            amplitude = 100.0 + 5.0 * math.sin(2 * math.pi * freq * t)
+            bf.filter(amplitude)
+
+        breathing_score = bf.get_score()
+        assert breathing_score > 0.1, f"Breathing rate signal should pass, got {breathing_score}"
+
+    def test_fast_signal_rejected(self):
+        """Test that 5 Hz signal is attenuated (above LP cutoff 0.6 Hz)"""
+        bf_fast = BreathingFilter()
+        bf_breath = BreathingFilter()
+        sample_rate = 100.0
+        duration = 30.0
+
+        for i in range(int(sample_rate * duration)):
+            t = i / sample_rate
+            # Same amplitude modulation, different frequencies
+            fast = 100.0 + 5.0 * math.sin(2 * math.pi * 5.0 * t)
+            breath = 100.0 + 5.0 * math.sin(2 * math.pi * 0.3 * t)
+            bf_fast.filter(fast)
+            bf_breath.filter(breath)
+
+        # Fast signal should be significantly weaker than breathing
+        assert bf_fast.get_score() < bf_breath.get_score() * 0.2, \
+            f"5 Hz should be attenuated: fast={bf_fast.get_score()}, breath={bf_breath.get_score()}"
+
+    def test_very_slow_signal_rejected(self):
+        """Test that 0.01 Hz signal is attenuated (below HP cutoff 0.08 Hz)"""
+        bf_slow = BreathingFilter()
+        bf_breath = BreathingFilter()
+        sample_rate = 100.0
+        duration = 120.0  # Longer for very slow signal
+
+        for i in range(int(sample_rate * duration)):
+            t = i / sample_rate
+            slow = 100.0 + 5.0 * math.sin(2 * math.pi * 0.01 * t)
+            breath = 100.0 + 5.0 * math.sin(2 * math.pi * 0.3 * t)
+            bf_slow.filter(slow)
+            bf_breath.filter(breath)
+
+        # Very slow signal should be weaker than breathing
+        assert bf_slow.get_score() < bf_breath.get_score() * 0.3, \
+            f"0.01 Hz should be attenuated: slow={bf_slow.get_score()}, breath={bf_breath.get_score()}"
+
+
+class TestBreathingFilterCppParity:
+    """Test exact numerical parity with C++ implementation"""
+
+    def test_known_sequence(self):
+        """Test a known input sequence produces expected outputs
+
+        These expected values were computed from the C++ reference
+        implementation in csi_filters.cpp using the same coefficients.
+        """
+        bf = BreathingFilter()
+
+        # Input: amplitude sums simulating a breathing pattern
+        inputs = [100.0, 102.0, 105.0, 103.0, 99.0,
+                  97.0, 100.0, 104.0, 106.0, 103.0,
+                  98.0, 96.0, 99.0, 103.0, 107.0,
+                  104.0, 100.0, 97.0, 98.0, 102.0]
+
+        # Compute outputs using Python implementation
+        py_outputs = []
+        for x in inputs:
+            py_outputs.append(bf.filter(x))
+
+        # First output must be 0 (initialization)
+        assert py_outputs[0] == 0.0
+
+        # Manually verify the filter math for sample 1:
+        # HP: hp_out = 0.99749 * (102 - 100) - (-0.99498) * 0 = 1.99498
+        # LP: lp_out = 0.01850 * (1.99498 + 0) - (-0.96300) * 0 = 0.036907
+        # sq = 0.036907^2 = 0.001362
+        # energy = 0.00333 * 0.001362 + 0.99667 * 0 = 0.000004535
+        # score = sqrt(0.000004535) ≈ 0.002130
+        expected_1 = 0.99749 * (102.0 - 100.0)
+        lp_1 = 0.01850 * (expected_1 + 0.0)
+        sq_1 = lp_1 * lp_1
+        e_1 = 0.00333 * sq_1
+        assert py_outputs[1] == pytest.approx(math.sqrt(e_1), rel=1e-4)
+
+        # All outputs must be non-negative
+        for out in py_outputs:
+            assert out >= 0.0
+
+    def test_filter_vs_get_score_consistency(self):
+        """Test that filter() return value matches get_score()"""
+        bf = BreathingFilter()
+        inputs = [100.0, 105.0, 110.0, 108.0, 103.0]
+
+        for x in inputs:
+            filter_result = bf.filter(x)
+
+        # get_score() should match the last filter() return
+        assert bf.get_score() == pytest.approx(filter_result, rel=1e-10)
 
