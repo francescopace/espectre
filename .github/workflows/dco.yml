@@ -1,0 +1,61 @@
+name: DCO Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  dco:
+    name: Verify Signed-off-by trailers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate commit DCO trailers
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const allowlistedLogins = new Set(["dependabot[bot]"]);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pullNumber = context.payload.pull_request.number;
+
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner,
+              repo,
+              pull_number: pullNumber,
+              per_page: 100
+            });
+
+            const missing = [];
+            const dcoRegex = /^Signed-off-by:\s+.+\s+<[^>]+>$/im;
+
+            for (const commit of commits) {
+              const login = commit.author?.login || commit.committer?.login || "unknown";
+              if (allowlistedLogins.has(login)) {
+                core.info(`Skipping allowlisted commit author: ${login} (${commit.sha.substring(0, 7)})`);
+                continue;
+              }
+
+              const message = commit.commit?.message || "";
+              if (!dcoRegex.test(message)) {
+                missing.push({
+                  sha: commit.sha.substring(0, 7),
+                  login
+                });
+              }
+            }
+
+            if (missing.length > 0) {
+              const details = missing.map((entry) => `- ${entry.sha} (${entry.login})`).join("\n");
+              core.setFailed(
+                "Missing Signed-off-by trailer in one or more commits.\n" +
+                "Add DCO sign-off with `git commit -s` (or amend existing commits) and push again.\n\n" +
+                `Commits without DCO:\n${details}`
+              );
+              return;
+            }
+
+            core.info("DCO check passed: all commits contain Signed-off-by trailers.");
