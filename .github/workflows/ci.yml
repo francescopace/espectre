@@ -31,7 +31,7 @@ jobs:
     steps:
       - name: Detect if push commit belongs to merged PR
         id: detect
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             // Default: run CI unless we prove this is a merged-PR push to develop.
@@ -106,7 +106,7 @@ jobs:
       
       - name: Upload Pages Artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs
 
