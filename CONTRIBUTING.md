@@ -141,6 +141,24 @@ docs: update TUNING.md with filter examples
 test: add unit tests for Hampel filter
 ```
 
+### DCO Sign-off (required)
+
+This repository enforces the Developer Certificate of Origin (DCO) in CI.
+Every commit in a pull request must include a valid `Signed-off-by` trailer.
+
+Use:
+
+```bash
+git commit -s -m "type: short description"
+```
+
+For existing commits, add the sign-off and force-push your branch:
+
+```bash
+git commit --amend -s
+git push --force-with-lease
+```
+
 ### Code Style
 
 #### C++ (ESPHome Component)
@@ -326,16 +344,10 @@ All contributors are recognized in:
 By contributing to ESPectre, you agree that your contributions are licensed
 under the **GPLv3** license.
 
-In addition, by submitting a contribution you agree to the
-[Contributor License Agreement](CLA.md), which grants the maintainer the
-right to relicense your contribution in future distributions. You retain full
-ownership of your contribution.
-Contributions in this repository remain available under GPLv3.
-
-### CLA Requirement
-
-All pull requests require CLA acceptance. If you have not signed yet, follow
-the instructions shown in the CLA check or bot comment.
+All contributions must also be certified under the Developer Certificate of
+Origin (DCO) by adding the `Signed-off-by` trailer to each commit.
+This certifies that you have the right to submit the contribution under the
+project license.
 
 See [LICENSE](LICENSE) for details.
 

@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 
 - **Detection quality and calibration robustness improved across stacks**: NBVI now uses multi-strategy band selection with stricter defaults, aligned adaptive validation, tighter hint-band fallback, unified 12-subcarrier defaults, and a curated validation dataset.
 - **ML reliability improved on cross-chip generalization**: all per-chip datasets were recollected from scratch with stricter quality controls; training now uses chip-aware grouped validation, hard-positive mining, updated features, and retrained weights aligned with the default runtime filter chain.
-- **Security and CI governance hardened**: CodeQL and CLA automation were added, workflow permissions were tightened, and emulated-target CI was stabilized and simplified.
+- **Security and CI governance hardened**: CodeQL and DCO enforcement were added, workflow permissions were tightened, and emulated-target CI was stabilized and simplified.
 - **New S3 display-board profile**: added a dedicated `ESP32-S3 Touch LCD 1.47"` example with tuned display settings and on-device motion status output.
 
 ### Runtime and algorithm changes (highest impact)
@@ -33,7 +33,7 @@ All notable changes to this project will be documented in this file.
 
 ### Security, CI, and tooling
 
-- **Governance and SAST**: added CLA enforcement (`contributor-assistant`), signature registry tracking, and a dedicated CodeQL workflow for C++/Python.
+- **Governance and SAST**: moved contribution governance to DCO commit-signoff enforcement and kept a dedicated CodeQL workflow for C++/Python.
 - **Micro-ESPectre tooling hardening**: replaced insecure temporary-file usage, improved UDP bind safety with environment-aware host handling, and added `--bind-ip` to `./me collect`.
 - **CI reliability and maintainability**: QEMU smoke tests now handle known PHY emulator limits, restore ESP32 coverage, remove unsupported C6 matrix entries, and consolidate local test config paths.
 - **Permission and dependency hygiene**: workflows now declare explicit `contents: read` where required; Dependabot update grouping was tuned to reduce PR noise.

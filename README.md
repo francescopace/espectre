@@ -462,9 +462,8 @@ GPLv3 ensures that:
 
 See [LICENSE](LICENSE) for the full license text.
 
-Contributions are submitted under GPLv3 and require acceptance of the
-[Contributor License Agreement](CLA.md), which grants the maintainer
-additional relicensing rights.
+Contributions are submitted under GPLv3 and must include a DCO
+`Signed-off-by` trailer on each commit (`git commit -s`).
 
 ## Author
 
