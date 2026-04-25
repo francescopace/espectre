@@ -29,7 +29,7 @@ constexpr float MVS_DEFAULT_THRESHOLD = 1.0f;
 constexpr float MVS_MIN_THRESHOLD = 0.0f;
 constexpr float MVS_MAX_THRESHOLD = 10.0f;
 
-constexpr float MVS_DEFAULT_HYSTERESIS = 0.7f;
+constexpr float MVS_DEFAULT_HYSTERESIS = 1.0f;
 constexpr float MVS_MIN_HYSTERESIS = 0.3f;
 constexpr float MVS_MAX_HYSTERESIS = 1.0f;
 
