@@ -64,17 +64,16 @@ void MLDetector::update_state() {
     // Run MLP inference
     current_probability_ = predict(features);
     
-    // State machine
-    if (state_ == MotionState::IDLE) {
-        if (current_probability_ > threshold_) {
-            state_ = MotionState::MOTION;
+    // Temporal smoothing
+    bool raw_motion = current_probability_ > threshold_;
+    MotionState new_state = apply_temporal_smoothing(raw_motion);
+    if (new_state != state_) {
+        if (new_state == MotionState::MOTION) {
             ESP_LOGV(TAG, "Motion started (prob=%.3f)", current_probability_);
-        }
-    } else {
-        if (current_probability_ <= threshold_) {
-            state_ = MotionState::IDLE;
+        } else {
             ESP_LOGV(TAG, "Motion ended (prob=%.3f)", current_probability_);
         }
+        state_ = new_state;
     }
 }
 

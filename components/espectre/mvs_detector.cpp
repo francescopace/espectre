@@ -22,19 +22,23 @@ static const char *TAG = "MVSDetector";
 // CONSTRUCTOR
 // ============================================================================
 
-MVSDetector::MVSDetector(uint16_t window_size, float threshold)
+MVSDetector::MVSDetector(uint16_t window_size, float threshold, float hysteresis)
     : BaseDetector(window_size)
     , threshold_(threshold)
-    , current_moving_variance_(0.0f) {
+    , current_moving_variance_(0.0f)
+    , hysteresis_factor_(hysteresis) {
     threshold_ = clamp_threshold(threshold_, MVS_MIN_THRESHOLD, MVS_MAX_THRESHOLD);
-    
-    ESP_LOGI(TAG, "Initialized (window=%d, threshold=%.2f)", window_size_, threshold_);
+    if (hysteresis_factor_ < MVS_MIN_HYSTERESIS) hysteresis_factor_ = MVS_MIN_HYSTERESIS;
+    if (hysteresis_factor_ > MVS_MAX_HYSTERESIS) hysteresis_factor_ = MVS_MAX_HYSTERESIS;
+
+    ESP_LOGI(TAG, "Initialized (window=%d, threshold=%.2f, hysteresis=%.2f)", window_size_, threshold_, hysteresis_factor_);
 }
 
 MVSDetector::MVSDetector(MVSDetector&& other) noexcept
     : BaseDetector(std::move(other))
     , threshold_(other.threshold_)
-    , current_moving_variance_(other.current_moving_variance_) {
+    , current_moving_variance_(other.current_moving_variance_)
+    , hysteresis_factor_(other.hysteresis_factor_) {
 }
 
 MVSDetector& MVSDetector::operator=(MVSDetector&& other) noexcept {
@@ -42,6 +46,7 @@ MVSDetector& MVSDetector::operator=(MVSDetector&& other) noexcept {
         BaseDetector::operator=(std::move(other));
         threshold_ = other.threshold_;
         current_moving_variance_ = other.current_moving_variance_;
+        hysteresis_factor_ = other.hysteresis_factor_;
     }
     return *this;
 }
@@ -54,17 +59,24 @@ void MVSDetector::update_state() {
     // Calculate moving variance (lazy evaluation)
     current_moving_variance_ = calculate_moving_variance();
     
-    // State machine
+    // Hysteresis + temporal smoothing
+    bool raw_motion;
     if (state_ == MotionState::IDLE) {
-        if (current_moving_variance_ > threshold_) {
-            state_ = MotionState::MOTION;
-            ESP_LOGV(TAG, "Motion started at packet %lu", (unsigned long)packet_index_);
-        }
+        raw_motion = current_moving_variance_ > threshold_;
     } else {
-        if (current_moving_variance_ < threshold_) {
-            state_ = MotionState::IDLE;
-            ESP_LOGV(TAG, "Motion ended at packet %lu", (unsigned long)packet_index_);
+        raw_motion = current_moving_variance_ >= threshold_ * hysteresis_factor_;
+    }
+    MotionState new_state = apply_temporal_smoothing(raw_motion);
+    if (new_state != state_) {
+        if (new_state == MotionState::MOTION) {
+            ESP_LOGV(TAG, "Motion started at packet %lu (var=%.4f, thr=%.4f)",
+                     (unsigned long)packet_index_, current_moving_variance_, threshold_);
+        } else {
+            ESP_LOGV(TAG, "Motion ended at packet %lu (var=%.4f, thr×hyst=%.4f)",
+                     (unsigned long)packet_index_, current_moving_variance_,
+                     threshold_ * hysteresis_factor_);
         }
+        state_ = new_state;
     }
 }
 
@@ -77,6 +89,17 @@ bool MVSDetector::set_threshold(float threshold) {
     
     threshold_ = threshold;
     ESP_LOGD(TAG, "Threshold updated: %.2f", threshold);
+    return true;
+}
+
+bool MVSDetector::set_hysteresis(float factor) {
+    if (factor < MVS_MIN_HYSTERESIS || factor > MVS_MAX_HYSTERESIS) {
+        ESP_LOGE(TAG, "Invalid hysteresis: %.2f (must be %.1f-%.1f)",
+                 factor, MVS_MIN_HYSTERESIS, MVS_MAX_HYSTERESIS);
+        return false;
+    }
+    hysteresis_factor_ = factor;
+    ESP_LOGD(TAG, "Hysteresis updated: %.2f", factor);
     return true;
 }
 
