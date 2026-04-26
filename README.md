@@ -30,6 +30,7 @@
 - [Future Evolution](#future-evolution)
 - [Documentation](#documentation)
 - [Media](#media)
+- [Related Projects](#related-projects)
 - [Acknowledgments](#acknowledgments)
 - [License](#license)
 - [Author](#author)
@@ -429,6 +430,8 @@ See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribut
 | Medium | [How I Turned My Wi-Fi Into a Motion Sensor - Part 2](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-part-2-62038130e530?sk=7c8b6f11cf3fcb8d279648016ebff72a&utm_source=github&utm_medium=readme&utm_campaign=espectre) |
 | IoT For All | [How I Turned My Wi-Fi Into a Motion Sensor](https://www.iotforall.com/wifi-motion-sensor-iot) |
 | Hackaday | [Make Your Own ESP32-Based Person Sensor, No Special Hardware Needed](https://hackaday.com/2026/01/28/make-your-own-esp32-based-person-sensor-no-special-hardware-needed/) |
+| Adafruit Learn | [ESPectre Human Detector for Feather](https://learn.adafruit.com/espectre-human-detector-for-feather) |
+| Seeed Studio Wiki | [Deploying Espectre on Seeed Studio XIAO ESP32 Series with ESPHome](https://wiki.seeedstudio.com/xiao-esp32--series-espresense/) |
 
 | Blog | Discussion |
 |----------|------------|
@@ -441,6 +444,13 @@ See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribut
 | Podcasts | Episode |
 |-------------|---------|
 | Hackaday | [Podcast Episode 355: Person Detectors, Walkie Talkies, Open Smartphones...](https://hackaday.com/2026/01/30/hackaday-podcast-episode-355-person-detectors-walkie-talkies-open-smartphones-and-a-wifi-traffic-light/) |
+
+---
+
+## Related Projects
+
+- [radio-presence-scanner](https://github.com/francescopace/radio-presence-scanner): complementary presence-sensing project focused on BLE radio observations from host devices (Python), with optional HTTP dashboard.
+- [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi): custom MicroPython fork exposing ESP32 CSI APIs, used as the firmware foundation for rapid CSI prototyping in the Micro-ESPectre workflow.
 
 ---
 
