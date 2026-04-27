@@ -67,5 +67,22 @@ float hampel_filter(const float *window, size_t window_size,
                     float current_value, float threshold);
 float hampel_filter_turbulence(hampel_turbulence_state_t *state, float turbulence);
 
+// =============================================================================
+// Breathing Bandpass Filter (cascaded HP 0.08Hz + LP 0.6Hz at ~100Hz sample rate)
+// =============================================================================
+
+struct breathing_filter_state_t {
+    float hp_x_prev;
+    float hp_y_prev;
+    float lp_x_prev;
+    float lp_y_prev;
+    float energy;
+    bool initialized;
+};
+
+void breathing_filter_init(breathing_filter_state_t *state);
+float breathing_filter_apply(breathing_filter_state_t *state, float amplitude_sum);
+float breathing_filter_get_score(const breathing_filter_state_t *state);
+
 }  // namespace espectre
 }  // namespace esphome

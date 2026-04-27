@@ -36,14 +36,15 @@ class SegmentationContext:
     STATE_IDLE = MotionState.IDLE
     STATE_MOTION = MotionState.MOTION
     
-    def __init__(self, 
+    def __init__(self,
                  window_size=75,
                  threshold=1.0,
                  enable_lowpass=False,
                  lowpass_cutoff=11.0,
                  enable_hampel=True,
                  hampel_window=7,
-                 hampel_threshold=5.0):
+                 hampel_threshold=5.0,
+                 enable_breathing=False):
         """
         Initialize segmentation context
         
@@ -56,6 +57,8 @@ class SegmentationContext:
             enable_hampel: Enable Hampel filter for outlier removal (default: True)
             hampel_window: Hampel filter window size (default: 7)
             hampel_threshold: Hampel filter threshold in MAD units (default: 5.0)
+            enable_breathing: Enable breathing bandpass filter for stationary
+                              presence detection (default: False)
         """
         self.window_size = window_size
         self.threshold = threshold
@@ -115,6 +118,19 @@ class SegmentationContext:
             except Exception as e:
                 print(f"[ERROR] Failed to initialize HampelFilter: {e}")
                 self.hampel_filter = None
+
+        # Initialize breathing bandpass filter if enabled
+        self.breathing_filter = None
+        if enable_breathing:
+            try:
+                try:
+                    from src.filters import BreathingFilter
+                except ImportError:
+                    from filters import BreathingFilter
+                self.breathing_filter = BreathingFilter()
+            except Exception as e:
+                print(f"[ERROR] Failed to initialize BreathingFilter: {e}")
+                self.breathing_filter = None
         
         
     @staticmethod
@@ -279,7 +295,15 @@ class SegmentationContext:
                 print(f"[ERROR] LowPass filter failed: {e}")
         
         self.last_turbulence = filtered_turbulence
-        
+
+        # Apply breathing bandpass filter on amplitude sum (mirrors C++ process_packet)
+        if self.breathing_filter is not None and self.last_amplitudes is not None:
+            try:
+                amp_sum = sum(self.last_amplitudes)
+                self.breathing_filter.filter(amp_sum)
+            except Exception as e:
+                print(f"[ERROR] BreathingFilter failed: {e}")
+
         # Store value in circular buffer
         self.turbulence_buffer[self.buffer_index] = filtered_turbulence
         self.buffer_index = (self.buffer_index + 1) % self.window_size
@@ -315,18 +339,32 @@ class SegmentationContext:
         
         return self.get_metrics()
     
+    def get_breathing_score(self):
+        """
+        Get current breathing score (RMS of bandpass-filtered amplitude energy)
+
+        Returns:
+            float: Breathing score (0.0 if filter disabled or not initialized)
+        """
+        if self.breathing_filter is not None:
+            return self.breathing_filter.get_score()
+        return 0.0
+
     def get_state(self):
         """Get current state (IDLE or MOTION)"""
         return self.state
     
     def get_metrics(self):
         """Get current metrics as dict"""
-        return {
+        metrics = {
             'moving_variance': self.current_moving_variance,
             'threshold': self.threshold,
             'turbulence': self.last_turbulence,
             'state': self.state
         }
+        if self.breathing_filter is not None:
+            metrics['breathing_score'] = self.get_breathing_score()
+        return metrics
     
     def reset(self, full=False):
         """
@@ -352,3 +390,5 @@ class SegmentationContext:
                 self.lowpass_filter.reset()
             if self.hampel_filter is not None:
                 self.hampel_filter.reset()
+            if self.breathing_filter is not None:
+                self.breathing_filter.reset()

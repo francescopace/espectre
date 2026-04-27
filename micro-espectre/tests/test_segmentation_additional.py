@@ -159,3 +159,57 @@ class TestSegmentationEdgeCases:
         # Should still be in MOTION
         assert ctx.state == SegmentationContext.STATE_MOTION
 
+
+class TestBreathingFilterIntegration:
+    """Test breathing filter integration in SegmentationContext"""
+
+    def test_breathing_disabled_by_default(self):
+        """Test that breathing filter is disabled by default"""
+        ctx = SegmentationContext()
+        assert ctx.breathing_filter is None
+        assert ctx.get_breathing_score() == 0.0
+
+    def test_breathing_enabled(self):
+        """Test that breathing filter can be enabled"""
+        ctx = SegmentationContext(enable_breathing=True)
+        assert ctx.breathing_filter is not None
+
+    def test_breathing_score_with_csi_data(self):
+        """Test breathing score responds to CSI amplitude modulation"""
+        ctx = SegmentationContext(enable_breathing=True)
+
+        # Simulate CSI packets with breathing-rate amplitude modulation
+        # 12 subcarriers × 2 bytes (I/Q) = 24 bytes per packet
+        import math
+        sample_rate = 100.0
+        freq = 0.25  # Hz (15 BPM)
+
+        for i in range(int(sample_rate * 15)):  # 15 seconds
+            t = i / sample_rate
+            # Modulate all subcarrier amplitudes with breathing signal
+            base_amp = 50.0 + 5.0 * math.sin(2 * math.pi * freq * t)
+            amp_int = int(base_amp)
+            # Create CSI data: [imag, real] pairs — set real=amp, imag=0
+            csi = [0, amp_int] * 12
+
+            turbulence = ctx.calculate_spatial_turbulence(csi)
+            ctx.add_turbulence(turbulence)
+
+        score = ctx.get_breathing_score()
+        assert score > 0.0, f"Breathing score should be positive, got {score}"
+
+    def test_breathing_reset(self):
+        """Test that breathing filter resets on full reset"""
+        ctx = SegmentationContext(enable_breathing=True)
+
+        # Feed some data
+        csi = [0, 50] * 12
+        for _ in range(100):
+            turbulence = ctx.calculate_spatial_turbulence(csi)
+            ctx.add_turbulence(turbulence)
+
+        # Full reset should reset breathing filter
+        ctx.reset(full=True)
+        assert ctx.get_breathing_score() == 0.0
+        assert ctx.breathing_filter.initialized is False
+

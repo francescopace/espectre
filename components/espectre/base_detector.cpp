@@ -54,6 +54,7 @@ BaseDetector::BaseDetector(uint16_t window_size)
     // Initialize filters (disabled by default)
     lowpass_filter_init(&lowpass_state_, LOWPASS_CUTOFF_DEFAULT, LOWPASS_SAMPLE_RATE, false);
     hampel_turbulence_init(&hampel_state_, HAMPEL_TURBULENCE_WINDOW_DEFAULT, HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
+    breathing_filter_init(&breathing_filter_);
 }
 
 BaseDetector::~BaseDetector() {
@@ -74,8 +75,9 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , packet_index_(other.packet_index_)
     , lowpass_state_(other.lowpass_state_)
     , hampel_state_(other.hampel_state_)
-    , use_cv_normalization_(other.use_cv_normalization_) {
-    
+    , use_cv_normalization_(other.use_cv_normalization_)
+    , breathing_filter_(other.breathing_filter_) {
+
     // Copy amplitude buffer
     std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
     
@@ -100,7 +102,8 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         lowpass_state_ = other.lowpass_state_;
         hampel_state_ = other.hampel_state_;
         use_cv_normalization_ = other.use_cv_normalization_;
-        
+        breathing_filter_ = other.breathing_filter_;
+
         // Copy amplitude buffer
         std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
         
@@ -151,6 +154,11 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                                          num_amplitudes_, use_cv_normalization_);
     }
     
+    // Breathing bandpass: filter amplitude_sum at packet rate
+    float amp_sum = 0.0f;
+    for (uint8_t i = 0; i < num_amplitudes_; i++) amp_sum += amplitude_buffer_[i];
+    breathing_filter_apply(&breathing_filter_, amp_sum);
+
     // Add to buffer with filtering
     add_turbulence_to_buffer(turbulence);
 }
@@ -193,9 +201,10 @@ void BaseDetector::clear_buffer() {
     
     // Reset filters
     lowpass_filter_reset(&lowpass_state_);
-    hampel_turbulence_init(&hampel_state_, hampel_state_.window_size, 
+    hampel_turbulence_init(&hampel_state_, hampel_state_.window_size,
                            hampel_state_.threshold, hampel_state_.enabled);
-    
+    breathing_filter_init(&breathing_filter_);
+
     ESP_LOGD(TAG, "Buffer cleared");
 }
 
@@ -236,6 +245,10 @@ void BaseDetector::add_turbulence_to_buffer(float turbulence) {
     
     packet_index_++;
     total_packets_++;
+}
+
+float BaseDetector::get_breathing_score() const {
+    return breathing_filter_get_score(&breathing_filter_);
 }
 
 }  // namespace espectre
