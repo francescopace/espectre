@@ -236,9 +236,13 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `hampel_enabled` | bool | true | Enable Hampel outlier filter (MVS and ML) |
 | `hampel_window` | int | 7 | Hampel filter window size (3-11) |
 | `hampel_threshold` | float | 5.0 | Hampel filter sensitivity (MAD multiplier) (1.0-10.0) |
+| `hysteresis_factor` | float | 1.0 | MVS: asymmetric exit — MOTION→IDLE requires variance < threshold × hysteresis_factor. Values < 1.0 make MOTION state stickier. Range: 0.3–1.0. Applies to MVS detector only. |
+| `smoothing_enabled` | bool | false | Enable temporal N/M voting (4/6 IDLE→MOTION, 5/6 MOTION→IDLE). Reduces flicker at the cost of ~0.5 s detection latency. Applies to MVS detector only. |
 | `gain_lock` | string | auto | AGC/FFT gain lock: `auto`, `enabled`, `disabled` |
 | `ble_channel_enabled` | bool/string | auto | Enable BLE telemetry/control channel: `auto`, `true`, `false` |
 | `ble_telemetry_interval_ms` | int | 40 | BLE telemetry notify interval in ms (20-500) |
+
+> **Note:** When `smoothing_enabled: true`, runtime C++ behavior diverges from `micro-espectre` (Python). Alignment is tracked as a follow-up issue. Default behavior (smoothing disabled) is identical.
 
 For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 

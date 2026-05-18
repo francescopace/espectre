@@ -542,6 +542,48 @@ void test_mvs_detector_all_zero_csi(void) {
 }
 
 // ============================================================================
+// HYSTERESIS CONFIG→RUNTIME WIRING TESTS
+// ============================================================================
+
+void test_mvs_hysteresis_default(void) {
+    MVSDetector detector;
+    TEST_ASSERT_EQUAL_FLOAT(MVS_DEFAULT_HYSTERESIS, detector.get_hysteresis_factor());
+}
+
+void test_mvs_hysteresis_set_valid(void) {
+    MVSDetector detector;
+    TEST_ASSERT_TRUE(detector.set_hysteresis(0.5f));
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, detector.get_hysteresis_factor());
+}
+
+void test_mvs_hysteresis_invalid_low(void) {
+    MVSDetector detector;
+    TEST_ASSERT_FALSE(detector.set_hysteresis(0.1f));
+    TEST_ASSERT_EQUAL_FLOAT(MVS_DEFAULT_HYSTERESIS, detector.get_hysteresis_factor());
+}
+
+void test_mvs_hysteresis_invalid_high(void) {
+    MVSDetector detector;
+    TEST_ASSERT_FALSE(detector.set_hysteresis(1.5f));
+    TEST_ASSERT_EQUAL_FLOAT(MVS_DEFAULT_HYSTERESIS, detector.get_hysteresis_factor());
+}
+
+// ============================================================================
+// SMOOTHING CONFIG→RUNTIME WIRING TESTS
+// ============================================================================
+
+void test_mvs_smoothing_disabled_by_default(void) {
+    MVSDetector detector;
+    TEST_ASSERT_FALSE(detector.is_smoothing_enabled());
+}
+
+void test_mvs_smoothing_enable(void) {
+    MVSDetector detector;
+    detector.set_smoothing_enabled(true);
+    TEST_ASSERT_TRUE(detector.is_smoothing_enabled());
+}
+
+// ============================================================================
 // ENTRY POINT
 // ============================================================================
 
@@ -612,7 +654,17 @@ int process(void) {
     RUN_TEST(test_mvs_detector_short_csi_data);
     RUN_TEST(test_mvs_detector_extreme_csi_values);
     RUN_TEST(test_mvs_detector_all_zero_csi);
-    
+
+    // Hysteresis config→runtime wiring tests
+    RUN_TEST(test_mvs_hysteresis_default);
+    RUN_TEST(test_mvs_hysteresis_set_valid);
+    RUN_TEST(test_mvs_hysteresis_invalid_low);
+    RUN_TEST(test_mvs_hysteresis_invalid_high);
+
+    // Smoothing config→runtime wiring tests
+    RUN_TEST(test_mvs_smoothing_disabled_by_default);
+    RUN_TEST(test_mvs_smoothing_enable);
+
     return UNITY_END();
 }
 
