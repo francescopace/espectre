@@ -153,6 +153,9 @@ public:
     virtual bool set_hysteresis(float factor) { return false; }
     virtual float get_hysteresis_factor() const { return 1.0f; }
 
+    virtual void set_smoothing_enabled(bool enabled) { smoothing_enabled_ = enabled; }
+    bool is_smoothing_enabled() const { return smoothing_enabled_; }
+
     /**
      * Get detector name for logging
      */
@@ -262,6 +265,9 @@ protected:
     // Default false: raw std is more sensitive and matches ML model training
     // Set true only for chips without gain lock (e.g., ESP32)
     bool use_cv_normalization_{false};
+
+    // Temporal smoothing: opt-in N/M voting to reduce flicker
+    bool smoothing_enabled_{false};
 
     // Temporal smoothing: require N of last M raw decisions to agree
     static constexpr uint8_t SMOOTH_WINDOW = 6;

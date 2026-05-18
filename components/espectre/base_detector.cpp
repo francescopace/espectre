@@ -75,12 +75,13 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , lowpass_state_(other.lowpass_state_)
     , hampel_state_(other.hampel_state_)
     , use_cv_normalization_(other.use_cv_normalization_)
+    , smoothing_enabled_(other.smoothing_enabled_)
     , smooth_history_(other.smooth_history_)
     , smooth_count_(other.smooth_count_) {
 
     // Copy amplitude buffer
     std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
-    
+
     // Transfer ownership - null out source pointer
     other.turbulence_buffer_ = nullptr;
 }
@@ -102,6 +103,7 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         lowpass_state_ = other.lowpass_state_;
         hampel_state_ = other.hampel_state_;
         use_cv_normalization_ = other.use_cv_normalization_;
+        smoothing_enabled_ = other.smoothing_enabled_;
         smooth_history_ = other.smooth_history_;
         smooth_count_ = other.smooth_count_;
 
@@ -247,6 +249,10 @@ void BaseDetector::add_turbulence_to_buffer(float turbulence) {
 }
 
 MotionState BaseDetector::apply_temporal_smoothing(bool raw_motion) {
+    if (!smoothing_enabled_) {
+        return raw_motion ? MotionState::MOTION : MotionState::IDLE;
+    }
+
     smooth_history_ = ((smooth_history_ << 1) | (raw_motion ? 1 : 0)) & ((1 << SMOOTH_WINDOW) - 1);
     if (smooth_count_ < SMOOTH_WINDOW) smooth_count_++;
 

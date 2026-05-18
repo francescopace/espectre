@@ -68,6 +68,7 @@ void ESpectreComponent::setup() {
     this->mvs_detector_ = MVSDetector(this->segmentation_window_size_, this->segmentation_threshold_, this->hysteresis_factor_);
     this->mvs_detector_.configure_lowpass(this->lowpass_enabled_, this->lowpass_cutoff_);
     this->mvs_detector_.configure_hampel(this->hampel_enabled_, this->hampel_window_, this->hampel_threshold_);
+    this->mvs_detector_.set_smoothing_enabled(this->smoothing_enabled_);
     this->detector_ = &this->mvs_detector_;
     ESP_LOGI(TAG, "Using MVS detector (window=%d, threshold=%.2f, hysteresis=%.2f)",
              this->segmentation_window_size_, this->segmentation_threshold_, this->hysteresis_factor_);

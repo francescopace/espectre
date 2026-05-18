@@ -53,6 +53,9 @@ CONF_HAMPEL_THRESHOLD = "hampel_threshold"
 # Hysteresis for asymmetric IDLE<->MOTION transitions
 CONF_HYSTERESIS_FACTOR = "hysteresis_factor"
 
+# Temporal smoothing (N/M voting, opt-in)
+CONF_SMOOTHING_ENABLED = "smoothing_enabled"
+
 # Traffic generator mode
 CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 
@@ -172,7 +175,10 @@ CONFIG_SCHEMA = cv.Schema({
 
     # Hysteresis factor for asymmetric IDLE<->MOTION transitions
     # MOTION->IDLE requires variance < threshold * hysteresis_factor
-    cv.Optional(CONF_HYSTERESIS_FACTOR, default=0.7): cv.float_range(min=0.3, max=1.0),
+    cv.Optional(CONF_HYSTERESIS_FACTOR, default=1.0): cv.float_range(min=0.3, max=1.0),
+
+    # Temporal smoothing: N/M voting (opt-in, disabled by default)
+    cv.Optional(CONF_SMOOTHING_ENABLED, default=False): cv.boolean,
 
     # Sensors - optional with defaults, always created
     cv.Optional(CONF_MOVEMENT_SENSOR, default={"name": "Movement Score"}): sensor.sensor_schema(
@@ -330,6 +336,9 @@ async def to_code(config):
 
     # Configure hysteresis
     cg.add(var.set_hysteresis_factor(config[CONF_HYSTERESIS_FACTOR]))
+
+    # Configure temporal smoothing
+    cg.add(var.set_smoothing_enabled(config[CONF_SMOOTHING_ENABLED]))
 
     # Register sensors (required, always present)
     sens = await sensor.new_sensor(config[CONF_MOVEMENT_SENSOR])
