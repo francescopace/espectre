@@ -242,7 +242,7 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `ble_channel_enabled` | bool/string | auto | Enable BLE telemetry/control channel: `auto`, `true`, `false` |
 | `ble_telemetry_interval_ms` | int | 40 | BLE telemetry notify interval in ms (20-500) |
 
-> **Note:** When `smoothing_enabled: true`, runtime C++ behavior diverges from `micro-espectre` (Python). Alignment is tracked as a follow-up issue. Default behavior (smoothing disabled) is identical.
+> **Note:** When `smoothing_enabled: true`, runtime C++ behavior diverges from `micro-espectre` (Python), which does not implement N/M voting. Default behavior (`smoothing_enabled: false`) is identical between the two.
 
 For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 
