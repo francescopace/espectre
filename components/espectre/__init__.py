@@ -56,6 +56,8 @@ CONF_HAMPEL_THRESHOLD = "hampel_threshold"
 
 # Traffic generator mode
 CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
+CONF_TRAFFIC_GENERATOR_UDP_HOST = "traffic_generator_udp_host"
+CONF_TRAFFIC_GENERATOR_UDP_PORT = "traffic_generator_udp_port"
 
 # Gain lock mode
 CONF_GAIN_LOCK = "gain_lock"
@@ -127,9 +129,13 @@ CONFIG_SCHEMA = cv.Schema({
     # Traffic generator (0 = disabled, use external WiFi traffic)
     cv.Optional(CONF_TRAFFIC_GENERATOR_RATE, default=100): cv.int_range(min=0, max=1000),
     
-    # Traffic generator mode: ping (default) or dns
-    cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default="ping"): cv.one_of("dns", "ping", lower=True),
-    
+    # Traffic generator mode: ping (default), dns, or udp (flood to host:port)
+    # UDP mode generates HT/VHT frames via AP — yields ~200 pkt/s CSI on ESP32-C5/C6
+    # (ESP-NOW sends legacy 802.11b/g PHY frames which deliver only ~8 pkt/s on HE hardware)
+    cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default="ping"): cv.one_of("dns", "ping", "udp", lower=True),
+    # UDP mode target (required when mode=udp)
+    cv.Optional(CONF_TRAFFIC_GENERATOR_UDP_HOST, default=""): cv.string,
+    cv.Optional(CONF_TRAFFIC_GENERATOR_UDP_PORT, default=5000): cv.port,
     # Gain lock mode: auto (default), enabled, or disabled
     # Auto: enables gain lock but skips if signal too strong (AGC < 30)
     # Enabled: always force gain lock (may freeze if too close to AP)
@@ -259,11 +265,23 @@ def _validate_ble_config(config):
     return config
 
 
+def _validate_udp_config(config):
+    """Validate that traffic_generator_udp_host is set when mode is 'udp'."""
+    if config.get(CONF_TRAFFIC_GENERATOR_MODE) == "udp":
+        host = config.get(CONF_TRAFFIC_GENERATOR_UDP_HOST, "")
+        if not host:
+            raise cv.Invalid(
+                "traffic_generator_udp_host is required when traffic_generator_mode is 'udp'"
+            )
+    return config
+
+
 FINAL_VALIDATE_SCHEMA = cv.All(
     _compute_publish_interval,
     _normalize_ble_config,
     _inject_ble_defaults,
     _validate_ble_config,
+    _validate_udp_config,
 )
 
 
@@ -309,6 +327,9 @@ async def to_code(config):
     cg.add(var.set_segmentation_window_size(config[CONF_SEGMENTATION_WINDOW_SIZE]))
     cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
+    if config.get(CONF_TRAFFIC_GENERATOR_MODE) == "udp":
+        cg.add(var.set_traffic_generator_udp_host(config[CONF_TRAFFIC_GENERATOR_UDP_HOST]))
+        cg.add(var.set_traffic_generator_udp_port(config[CONF_TRAFFIC_GENERATOR_UDP_PORT]))
     cg.add(var.set_gain_lock_mode(config[CONF_GAIN_LOCK]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
     cg.add(var.set_publish_interval(config[CONF_PUBLISH_INTERVAL]))

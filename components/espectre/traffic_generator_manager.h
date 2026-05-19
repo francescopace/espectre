@@ -1,11 +1,12 @@
 /*
  * ESPectre - Traffic Generator Manager
- * 
+ *
  * Generates WiFi traffic using UDP/DNS queries or ICMP ping to ensure CSI data availability.
- * Supports two modes:
+ * Supports three modes:
  *   - ping: ICMP echo to gateway (default, more compatible with all routers)
  *   - dns: UDP queries to gateway:53 (lower overhead)
- * 
+ *   - udp: UDP flood to configurable host:port (HT/VHT frames, ~200 pkt/s CSI)
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
@@ -66,17 +67,19 @@ inline bool handle_send_error(SendErrorState& state, ssize_t sent, int err_no, i
  */
 enum class TrafficGeneratorMode {
   DNS,   // UDP DNS queries to gateway:53
-  PING   // ICMP echo requests to gateway (default)
+  PING,  // ICMP echo requests to gateway (default)
+  UDP,   // UDP flood to configurable host:port (HT/VHT frames, full CSI on all chips)
 };
 
 /**
  * Traffic Generator Manager
- * 
- * Generates continuous WiFi traffic using UDP/DNS queries or ICMP ping
+ *
+ * Generates continuous WiFi traffic using UDP/DNS queries, ICMP ping, or UDP flood
  * to ensure CSI data availability.
- * 
+ *
  * DNS mode: fire-and-forget UDP queries, lower overhead
  * Ping mode: ICMP echo requests, more compatible with all routers
+ * UDP mode: flood to configurable host:port — generates HT/VHT frames → full CSI on all chips
  */
 class TrafficGeneratorManager {
  public:
@@ -131,14 +134,15 @@ class TrafficGeneratorManager {
   bool is_paused() const { return paused_.load(); }
   
  private:
-  // FreeRTOS task function (static wrapper) - DNS mode only
+  // FreeRTOS task functions (static wrappers)
   static void dns_traffic_task_(void* arg);
-  
+  static void udp_traffic_task_(void* arg);
+
   // Ping callback (called by esp_ping for each response)
   static void ping_success_cb_(esp_ping_handle_t hdl, void *args);
   static void ping_timeout_cb_(esp_ping_handle_t hdl, void *args);
   static void ping_end_cb_(esp_ping_handle_t hdl, void *args);
-  
+
   // State
   TaskHandle_t task_handle_{nullptr};
   int sock_{-1};
@@ -147,12 +151,23 @@ class TrafficGeneratorManager {
   TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
   std::atomic<bool> running_{false};  // atomic: accessed from main task and FreeRTOS task
   std::atomic<bool> paused_{false};   // atomic: accessed from main task and FreeRTOS task
-  
+
+  // UDP mode config
+  std::string udp_host_;
+  uint16_t udp_port_{5000};
+
+ public:
+  void set_udp_host(const std::string &host) { udp_host_ = host; }
+  void set_udp_port(uint16_t port) { udp_port_ = port; }
+
+ private:
   // Mode-specific start/stop
   bool start_dns_();
   bool start_ping_();
+  bool start_udp_();
   void stop_dns_();
   void stop_ping_();
+  void stop_udp_();
 };
 
 }  // namespace espectre

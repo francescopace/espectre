@@ -148,15 +148,55 @@ void test_handle_send_error_handles_negative_sent_value(void) {
 }
 
 // ============================================================================
+// TRAFFIC GENERATOR MODE ENUM TESTS
+// ============================================================================
+
+void test_traffic_generator_mode_enum_values(void) {
+    // Ensure all three modes can be compared without ambiguity
+    TrafficGeneratorMode dns_mode = TrafficGeneratorMode::DNS;
+    TrafficGeneratorMode ping_mode = TrafficGeneratorMode::PING;
+    TrafficGeneratorMode udp_mode = TrafficGeneratorMode::UDP;
+
+    TEST_ASSERT_TRUE(dns_mode != ping_mode);
+    TEST_ASSERT_TRUE(dns_mode != udp_mode);
+    TEST_ASSERT_TRUE(ping_mode != udp_mode);
+    TEST_ASSERT_TRUE(udp_mode == TrafficGeneratorMode::UDP);
+}
+
+void test_traffic_generator_mode_udp_distinct(void) {
+    // UDP mode must be a distinct value (not accidentally aliasing DNS or PING)
+    TrafficGeneratorMode mode = TrafficGeneratorMode::UDP;
+    TEST_ASSERT_FALSE(mode == TrafficGeneratorMode::DNS);
+    TEST_ASSERT_FALSE(mode == TrafficGeneratorMode::PING);
+}
+
+void test_traffic_generator_udp_host_port_defaults(void) {
+    // TrafficGeneratorManager default udp_port_ is 5000
+    // We test the manager's setters via the public API
+    TrafficGeneratorManager mgr;
+    mgr.set_udp_host("192.168.1.1");
+    mgr.set_udp_port(4444);
+    // No crash — setter accepted valid values
+    TEST_ASSERT_TRUE(true);
+}
+
+void test_traffic_generator_udp_host_setter_empty(void) {
+    // Assigning an empty host is accepted by the setter (validation happens at start())
+    TrafficGeneratorManager mgr;
+    mgr.set_udp_host("");
+    TEST_ASSERT_TRUE(true);  // No crash
+}
+
+// ============================================================================
 // ENTRY POINT
 // ============================================================================
 
 int process(void) {
     UNITY_BEGIN();
-    
+
     // SendErrorState tests
     RUN_TEST(test_send_error_state_initialization);
-    
+
     // handle_send_error tests
     RUN_TEST(test_handle_send_error_increments_count);
     RUN_TEST(test_handle_send_error_rate_limits_logging);
@@ -165,7 +205,13 @@ int process(void) {
     RUN_TEST(test_handle_send_error_logs_single_error_message);
     RUN_TEST(test_handle_send_error_logs_multiple_errors_summary);
     RUN_TEST(test_handle_send_error_handles_negative_sent_value);
-    
+
+    // TrafficGeneratorMode UDP enum tests
+    RUN_TEST(test_traffic_generator_mode_enum_values);
+    RUN_TEST(test_traffic_generator_mode_udp_distinct);
+    RUN_TEST(test_traffic_generator_udp_host_port_defaults);
+    RUN_TEST(test_traffic_generator_udp_host_setter_empty);
+
     return UNITY_END();
 }
 

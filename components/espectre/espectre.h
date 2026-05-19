@@ -78,9 +78,17 @@ class ESpectreComponent : public Component {
   }
   void set_segmentation_window_size(uint16_t size) { this->segmentation_window_size_ = size; }
   void set_traffic_generator_rate(uint32_t rate) { this->traffic_generator_rate_ = rate; }
-  void set_traffic_generator_mode(const std::string &mode) { 
-    this->traffic_generator_mode_ = (mode == "ping") ? TrafficGeneratorMode::PING : TrafficGeneratorMode::DNS; 
+  void set_traffic_generator_mode(const std::string &mode) {
+    if (mode == "ping") {
+      this->traffic_generator_mode_ = TrafficGeneratorMode::PING;
+    } else if (mode == "udp") {
+      this->traffic_generator_mode_ = TrafficGeneratorMode::UDP;
+    } else {
+      this->traffic_generator_mode_ = TrafficGeneratorMode::DNS;
+    }
   }
+  void set_traffic_generator_udp_host(const std::string &host) { this->traffic_generator_.set_udp_host(host); }
+  void set_traffic_generator_udp_port(uint16_t port) { this->traffic_generator_.set_udp_port(port); }
   void set_gain_lock_mode(const std::string &mode) {
     if (mode == "enabled") {
       this->gain_lock_mode_ = GainLockMode::ENABLED;

@@ -521,7 +521,9 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
   if (this->traffic_generator_rate_ > 0) {
-    const char* mode_str = (this->traffic_generator_mode_ == TrafficGeneratorMode::PING) ? "ping" : "dns";
+    const char* mode_str =
+        (this->traffic_generator_mode_ == TrafficGeneratorMode::PING) ? "ping" :
+        (this->traffic_generator_mode_ == TrafficGeneratorMode::UDP)  ? "udp"  : "dns";
     ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", mode_str);
     ESP_LOGCONFIG(TAG, " ├─ Rate ............... %u pps", this->traffic_generator_rate_);
     ESP_LOGCONFIG(TAG, " └─ Status ............. %s", 

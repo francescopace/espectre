@@ -1,11 +1,12 @@
 /*
  * ESPectre - Traffic Generator Manager Implementation
- * 
+ *
  * Manages traffic generator for CSI packet generation.
- * Supports two modes:
+ * Supports three modes:
  *   - DNS: UDP queries to gateway:53 (default, lower overhead)
  *   - Ping: ICMP echo to gateway (more compatible with all routers)
- * 
+ *   - UDP: flood to configurable host:port (HT/VHT frames, full CSI on all chips)
+ *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
@@ -82,7 +83,12 @@ void TrafficGeneratorManager::init(uint32_t rate_pps, TrafficGeneratorMode mode)
   mode_ = mode;
   running_.store(false);
   
-  const char* mode_str = (mode == TrafficGeneratorMode::PING) ? "ping" : "dns";
+  const char* mode_str = "dns";
+  if (mode == TrafficGeneratorMode::PING) {
+    mode_str = "ping";
+  } else if (mode == TrafficGeneratorMode::UDP) {
+    mode_str = "udp";
+  }
   ESP_LOGD(TAG, "Traffic Generator Manager initialized (rate: %u pps, mode: %s)", rate_pps, mode_str);
 }
 
@@ -101,6 +107,8 @@ bool TrafficGeneratorManager::start() {
   // Start based on mode
   if (mode_ == TrafficGeneratorMode::PING) {
     return start_ping_();
+  } else if (mode_ == TrafficGeneratorMode::UDP) {
+    return start_udp_();
   } else {
     return start_dns_();
   }
@@ -130,6 +138,8 @@ void TrafficGeneratorManager::stop() {
   // Stop based on mode
   if (mode_ == TrafficGeneratorMode::PING) {
     stop_ping_();
+  } else if (mode_ == TrafficGeneratorMode::UDP) {
+    stop_udp_();
   } else {
     stop_dns_();
   }
@@ -309,6 +319,150 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   }
   
   ESP_LOGI(TAG, "DNS traffic task stopped");
+  vTaskDelete(NULL);
+}
+
+// ============================================================================
+// UDP MODE IMPLEMENTATION
+// ============================================================================
+
+bool TrafficGeneratorManager::start_udp_() {
+  if (udp_host_.empty()) {
+    ESP_LOGE(TAG, "UDP mode requires traffic_generator_udp_host");
+    return false;
+  }
+
+  // Resolve target IP
+  struct in_addr target_addr;
+  if (inet_aton(udp_host_.c_str(), &target_addr) == 0) {
+    ESP_LOGE(TAG, "UDP: invalid host '%s'", udp_host_.c_str());
+    return false;
+  }
+
+  sock_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (sock_ < 0) {
+    ESP_LOGE(TAG, "UDP: failed to create socket");
+    return false;
+  }
+
+  int flags = fcntl(sock_, F_GETFL, 0);
+  if (fcntl(sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
+    ESP_LOGW(TAG, "UDP: failed to set non-blocking (continuing anyway)");
+  }
+
+  running_.store(true);
+
+  BaseType_t result = xTaskCreate(
+      udp_traffic_task_,
+      "csi_udp_tx",
+      4096,
+      this,
+      5,
+      &task_handle_
+  );
+
+  if (result != pdPASS) {
+    ESP_LOGE(TAG, "UDP: failed to create task (result: %d)", result);
+    close(sock_);
+    sock_ = -1;
+    running_.store(false);
+    return false;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(100));
+  ESP_LOGI(TAG, "Traffic generator started (mode: udp, %u pps → %s:%u)",
+           rate_pps_, udp_host_.c_str(), udp_port_);
+  return true;
+}
+
+void TrafficGeneratorManager::stop_udp_() {
+  if (task_handle_) {
+    for (int i = 0; i < 10 && eTaskGetState(task_handle_) != eDeleted; i++) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    task_handle_ = nullptr;
+  }
+  if (sock_ >= 0) {
+    close(sock_);
+    sock_ = -1;
+  }
+}
+
+// Fixed 100-byte payload — large enough for reliable HT/VHT frame generation
+static const uint8_t UDP_PAYLOAD[100] = {0};
+
+void TrafficGeneratorManager::udp_traffic_task_(void* arg) {
+  TrafficGeneratorManager* mgr = static_cast<TrafficGeneratorManager*>(arg);
+  if (!mgr) {
+    vTaskDelete(NULL);
+    return;
+  }
+
+  struct in_addr target_ip;
+  if (inet_aton(mgr->udp_host_.c_str(), &target_ip) == 0) {
+    ESP_LOGE(TAG, "UDP task: invalid host");
+    mgr->running_.store(false);
+    vTaskDelete(NULL);
+    return;
+  }
+
+  struct sockaddr_in dest_addr;
+  memset(&dest_addr, 0, sizeof(dest_addr));
+  dest_addr.sin_family = AF_INET;
+  dest_addr.sin_port = htons(mgr->udp_port_);
+  dest_addr.sin_addr = target_ip;
+
+  const uint32_t interval_us = 1000000 / mgr->rate_pps_;
+  const uint32_t remainder_us = 1000000 % mgr->rate_pps_;
+  uint32_t accumulator = 0;
+
+  ESP_LOGI(TAG, "UDP task started (%s:%u, interval: %u µs)",
+           mgr->udp_host_.c_str(), mgr->udp_port_, interval_us);
+
+  int64_t next_send_time = esp_timer_get_time();
+  SendErrorState error_state;
+
+  while (mgr->running_.load()) {
+    if (mgr->paused_.load()) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+      next_send_time = esp_timer_get_time();
+      continue;
+    }
+
+    ssize_t sent = sendto(
+        mgr->sock_,
+        UDP_PAYLOAD,
+        sizeof(UDP_PAYLOAD),
+        0,
+        (struct sockaddr*)&dest_addr,
+        sizeof(dest_addr)
+    );
+
+    if (sent <= 0) {
+      bool needs_backoff = handle_send_error(error_state, sent, errno, esp_timer_get_time());
+      if (needs_backoff) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+      }
+    }
+
+    accumulator += remainder_us;
+    uint32_t extra_us = accumulator / mgr->rate_pps_;
+    accumulator %= mgr->rate_pps_;
+    next_send_time += interval_us + extra_us;
+
+    int64_t now = esp_timer_get_time();
+    int64_t sleep_us = next_send_time - now;
+    if (sleep_us > 0) {
+      TickType_t sleep_ticks = pdMS_TO_TICKS((sleep_us + 999) / 1000);
+      if (sleep_ticks > 0) {
+        vTaskDelay(sleep_ticks);
+      }
+    } else if (sleep_us < -100000) {
+      next_send_time = esp_timer_get_time();
+    }
+  }
+
+  ESP_LOGI(TAG, "UDP traffic task stopped");
   vTaskDelete(NULL);
 }
 
