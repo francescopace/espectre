@@ -14,7 +14,7 @@ PyYAML>=6.0.3           # YAML parsing
 prompt_toolkit>=3.0.52   # Interactive CLI with autocompletion
 
 # Analysis Tools Dependencies
-numpy>=2.4.4            # Numerical computing for data analysis
+numpy>=2.4.6            # Numerical computing for data analysis
 matplotlib>=3.10.9      # Plotting and visualization
 scipy>=1.17.1           # Scientific computing (signal processing)
 PyWavelets>=1.9.0       # Wavelet transforms (pywt)
