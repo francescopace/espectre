@@ -12,8 +12,6 @@ import math
 import numpy as np
 from features import (
     calc_skewness,
-    calc_kurtosis,
-    calc_entropy_turb,
     calc_iqr,
     calc_autocorrelation,
     calc_mad,
@@ -101,101 +99,6 @@ class TestCalcSkewness:
         skew_partial = calc_skewness(values, n_part, m_part, s_part)
         # Skewness without outlier should be different
         assert abs(skew_all) != abs(skew_partial)
-
-
-class TestCalcKurtosis:
-    """Test kurtosis calculation"""
-    
-    def test_empty_list(self):
-        """Test kurtosis of empty list"""
-        assert calc_kurtosis([], 0, 0.0, 0.0) == 0.0
-    
-    def test_single_value(self):
-        """Test kurtosis of single value"""
-        assert calc_kurtosis([5.0], 1, 5.0, 0.0) == 0.0
-    
-    def test_three_values(self):
-        """Test kurtosis of three values (needs 4+)"""
-        n, m, s = _stats([1.0, 2.0, 3.0])
-        assert calc_kurtosis([1.0, 2.0, 3.0], n, m, s) == 0.0
-    
-    def test_normal_distribution(self):
-        """Test kurtosis of normal distribution (should be ~0)"""
-        np.random.seed(42)
-        values = list(np.random.normal(0, 1, 1000))
-        n, m, s = _stats(values)
-        kurt = calc_kurtosis(values, n, m, s)
-        # Excess kurtosis of normal is 0
-        assert abs(kurt) < 0.5
-    
-    def test_uniform_distribution(self):
-        """Test kurtosis of uniform distribution (should be < 0)"""
-        np.random.seed(42)
-        values = list(np.random.uniform(0, 1, 1000))
-        n, m, s = _stats(values)
-        kurt = calc_kurtosis(values, n, m, s)
-        # Uniform distribution has negative excess kurtosis
-        assert kurt < 0
-    
-    def test_heavy_tailed(self):
-        """Test kurtosis of heavy-tailed distribution (should be > 0)"""
-        # Create data with outliers -> heavy tails
-        values = list(np.random.normal(0, 1, 100))
-        values.extend([10.0, -10.0, 15.0, -15.0])  # Add outliers
-        n, m, s = _stats(values)
-        kurt = calc_kurtosis(values, n, m, s)
-        # Should have positive excess kurtosis
-        assert kurt > 0
-    
-    def test_constant_values(self):
-        """Test kurtosis of constant values (std=0)"""
-        values = [5.0] * 10
-        n, m, s = _stats(values)
-        kurt = calc_kurtosis(values, n, m, s)
-        assert kurt == 0.0
-
-
-class TestCalcEntropyTurb:
-    """Test Shannon entropy calculation"""
-    
-    def test_empty_buffer(self):
-        """Test entropy of empty buffer"""
-        assert calc_entropy_turb([], 0) == 0.0
-    
-    def test_single_value(self):
-        """Test entropy of single value"""
-        assert calc_entropy_turb([5.0], 1) == 0.0
-    
-    def test_constant_values(self):
-        """Test entropy of constant values (max-min ~0)"""
-        buffer = [5.0] * 10
-        entropy = calc_entropy_turb(buffer, 10)
-        assert entropy == 0.0
-    
-    def test_uniform_distribution_max_entropy(self):
-        """Test that uniform distribution has higher entropy"""
-        # Uniform across bins -> high entropy
-        buffer = [float(i % 10) for i in range(100)]  # 0-9 evenly
-        entropy = calc_entropy_turb(buffer, 100, n_bins=10)
-        
-        # Max entropy for 10 bins = log2(10) ~ 3.32
-        assert entropy > 2.0
-    
-    def test_concentrated_distribution_low_entropy(self):
-        """Test that concentrated distribution has low entropy"""
-        # All values in one bin -> low entropy
-        buffer = [5.0 + 0.01 * i for i in range(100)]  # Very narrow range
-        entropy = calc_entropy_turb(buffer, 100, n_bins=10)
-        
-        # Most values in few bins -> lower entropy
-        assert entropy >= 0
-    
-    def test_returns_positive(self):
-        """Test that entropy is non-negative"""
-        np.random.seed(42)
-        buffer = list(np.random.normal(5, 2, 50))
-        entropy = calc_entropy_turb(buffer, 50)
-        assert entropy >= 0
 
 
 class TestCalcIQR:
@@ -343,6 +246,12 @@ class TestExtractAllFeatures:
     def test_feature_names_match(self):
         """Test that FEATURE_NAMES matches DEFAULT_FEATURES"""
         assert len(FEATURE_NAMES) == len(DEFAULT_FEATURES)
+
+    def test_unknown_feature_raises(self):
+        """Removed legacy features are no longer accepted."""
+        buffer = [float(i) for i in range(50)]
+        with pytest.raises(ValueError, match="Unknown feature"):
+            extract_features_by_name(buffer, 50, feature_names=['turb_kurtosis'])
     
     def test_amplitudes_parameter_ignored(self):
         """Test that amplitudes parameter does not affect output"""

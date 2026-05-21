@@ -175,7 +175,7 @@ espectre:
 
 The pre-trained model shipped with this release was trained on a limited dataset collected in a single environment. It performs well in initial testing, but **we need your help to make it better**. If you try the ML detector, consider contributing baseline (empty room) and movement recordings from your environment — the more diverse the training data, the more robust the model becomes. See [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md) for how to collect and submit data via pull request.
 
-For architecture and feature details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#features).
+For architecture and feature details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#ml-neural-network-detector).
 
 #### Training Pipeline
 

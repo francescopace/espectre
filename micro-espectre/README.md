@@ -59,7 +59,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | **Motion Detection** |
 | MVS Detector | ✅ | ✅ | Moving Variance Segmentation (default) |
 | ML Detector | ✅ | ✅ | Neural Network (experimental) |
-| ML Features (12) | ✅ | ✅ | mean, std, max, min, zcr, skewness, kurtosis, entropy, autocorr, mad, slope, delta |
+| ML Features (9) | ✅ | ✅ | mean, std, max, min, iqr, skewness, autocorr, mad, waveform_length |
 | **Calibration (MVS only)** |
 | NBVI | ✅ | ✅ | 12 non-consecutive subcarriers |
 | Adaptive Threshold | ✅ | ✅ | P95 × 1.1 of baseline variance |
@@ -354,7 +354,7 @@ pytest tests/test_segmentation.py::TestStateMachine -v
 |-------|------|------|-------|
 | `test_config` | Unit | — | Configuration constants, guard bands |
 | `test_filters` | Unit | Synthetic | Hampel, low-pass filters |
-| `test_features` | Unit | Synthetic | Feature extraction (entropy, skewness, kurtosis) |
+| `test_features` | Unit | Synthetic | Production ML feature extraction (9 inputs) |
 | `test_segmentation` | Unit | Synthetic | MVS state machine, variance calculation |
 | `test_segmentation_additional` | Unit | Synthetic | Additional segmentation edge cases |
 | `test_nbvi_calibrator` | Unit | **Real** | NBVI subcarrier selection |

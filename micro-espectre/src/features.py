@@ -2,11 +2,9 @@
 Micro-ESPectre - CSI Feature Extraction (Publish-Time)
 
 Pure Python implementation for MicroPython.
-Extracts statistical features from turbulence buffer and subcarrier amplitudes
-for ML-based motion detection.
+Extracts statistical features from turbulence buffer for ML-based motion detection.
 
-This module intentionally exposes only the features used by the motion
-training pipeline and on-device inference.
+This module exposes only the nine features used by the production MLP.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -26,57 +24,6 @@ def calc_skewness(values, count, mean, std):
         m3 += diff * diff * diff
     m3 /= count
     return m3 / (std * std * std)
-
-
-def calc_kurtosis(values, count, mean, std):
-    """Calculate excess kurtosis (4th standardized moment - 3)."""
-    if count < 4 or std < 1e-10:
-        return 0.0
-
-    m4 = 0.0
-    for i in range(count):
-        diff = values[i] - mean
-        diff2 = diff * diff
-        m4 += diff2 * diff2
-    m4 /= count
-
-    std4 = std * std * std * std
-    return (m4 / std4) - 3.0
-
-
-def calc_entropy_turb(turbulence_buffer, buffer_count, n_bins=10):
-    """Calculate Shannon entropy of turbulence distribution."""
-    if buffer_count < 2:
-        return 0.0
-
-    min_val = turbulence_buffer[0]
-    max_val = turbulence_buffer[0]
-    for i in range(1, buffer_count):
-        val = turbulence_buffer[i]
-        if val < min_val:
-            min_val = val
-        if val > max_val:
-            max_val = val
-
-    if max_val - min_val < 1e-10:
-        return 0.0
-
-    bin_width = (max_val - min_val) / n_bins
-    bins = [0] * n_bins
-    for i in range(buffer_count):
-        val = turbulence_buffer[i]
-        bin_idx = int((val - min_val) / bin_width)
-        if bin_idx >= n_bins:
-            bin_idx = n_bins - 1
-        bins[bin_idx] += 1
-
-    entropy = 0.0
-    log2 = math.log(2)
-    for count in bins:
-        if count > 0:
-            p = count / buffer_count
-            entropy -= p * math.log(p) / log2
-    return entropy
 
 
 def _interpolate_sorted_percentile(sorted_values, count, percentile):
@@ -100,7 +47,7 @@ def _interpolate_sorted_percentile(sorted_values, count, percentile):
 
 def calc_iqr(turbulence_buffer, buffer_count, sorted_values=None):
     """Calculate interquartile range (P75 - P25).
-    
+
     Args:
         sorted_values: Pre-sorted copy to avoid redundant sorting.
     """
@@ -148,7 +95,7 @@ def calc_autocorrelation(turbulence_buffer, buffer_count, mean=None, variance=No
 
 def calc_mad(turbulence_buffer, buffer_count, sorted_values=None):
     """Calculate median absolute deviation (MAD).
-    
+
     Args:
         sorted_values: Pre-sorted copy to avoid redundant sorting.
     """
@@ -189,7 +136,7 @@ def calc_waveform_length(turbulence_buffer, buffer_count):
     return total
 
 
-# Default feature set (9 features from turbulence window statistics/temporal patterns)
+# Production feature set (9 turbulence-window statistics/temporal patterns)
 DEFAULT_FEATURES = [
     'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_iqr',
     'turb_skewness', 'turb_autocorr', 'turb_mad', 'waveform_length'
@@ -197,7 +144,7 @@ DEFAULT_FEATURES = [
 
 
 def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, feature_names=None):
-    """Extract configured feature vector from turbulence buffer and amplitudes."""
+    """Extract configured feature vector from turbulence buffer."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES
 
@@ -232,7 +179,6 @@ def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, f
             _sorted.sort()
             break
 
-    # Build feature vector directly (avoids dict/lambda creation overhead).
     features = []
     for name in feature_names:
         if name == 'turb_mean':
@@ -247,23 +193,10 @@ def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, f
             features.append(calc_iqr(turb_list, n, sorted_values=_sorted))
         elif name == 'turb_skewness':
             features.append(calc_skewness(turb_list, n, turb_mean, turb_std))
-        elif name == 'turb_kurtosis':
-            features.append(calc_kurtosis(turb_list, n, turb_mean, turb_std))
-        elif name == 'turb_entropy':
-            features.append(calc_entropy_turb(turb_list, n))
         elif name == 'turb_autocorr':
             features.append(calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var))
         elif name == 'turb_mad':
             features.append(calc_mad(turb_list, n, sorted_values=_sorted))
-        elif name == 'turb_slope':
-            mean_i = (n - 1) / 2.0
-            num = 0.0
-            den = 0.0
-            for i in range(n):
-                di = i - mean_i
-                num += di * (turb_list[i] - turb_mean)
-                den += di * di
-            features.append(num / den if den > 0 else 0.0)
         elif name == 'waveform_length':
             features.append(calc_waveform_length(turb_list, n))
         else:

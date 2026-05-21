@@ -155,22 +155,11 @@ from features import (
 # Feature Selection
 # ============================================================================
 #
-# 9 features: 8 turbulence-based + 1 temporal.
-# Current production set drops turb_kurtosis, turb_entropy, and turb_slope
-# after long-recording sweeps showed they reduced deployment robustness.
-# See ALGORITHMS.md "Feature Importance" for full SHAP/correlation table.
+# Production MLP uses the nine features in src/features.DEFAULT_FEATURES.
+# See ALGORITHMS.md "Feature Importance" for SHAP/correlation rankings.
 # ============================================================================
 
-# ============================================================================
-# FEATURE SET TO USE FOR TRAINING
-# ============================================================================
-# Change this list to experiment with different features.
-# Available features are defined in src/features.py
-#
-# Current default (9 features):
 TRAINING_FEATURES = DEFAULT_FEATURES
-
-# To experiment with different features, define a custom list here.
 
 
 # Directories

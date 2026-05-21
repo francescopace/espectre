@@ -398,22 +398,48 @@ The Hampel filter removes statistical outliers using the Median Absolute Deviati
 The constant **1.4826** is the consistency constant that makes MAD a consistent estimator of standard deviation for Gaussian distributions.
 
 ```python
-def hampel_filter(value, buffer, threshold=5.0):
-    buffer.append(value)
-    
-    sorted_buffer = sorted(buffer)
-    median = sorted_buffer[len(buffer) // 2]
-    
-    deviations = [abs(x - median) for x in buffer]
-    mad = sorted(deviations)[len(deviations) // 2]
-    
-    scaled_mad = 1.4826 * mad * threshold
-    if abs(value - median) > scaled_mad:
-        return median  # Replace outlier
-    return value       # Keep original
+# Matches micro-espectre/src/filters.py (MicroPython) and the same logic in C++.
+# threshold_scaled = threshold * 1.4826  (pre-computed at init)
+
+def insertion_sort(arr, n):
+    for i in range(1, n):
+        key = arr[i]
+        j = i - 1
+        while j >= 0 and arr[j] > key:
+            arr[j + 1] = arr[j]
+            j -= 1
+        arr[j + 1] = key
+
+def hampel_filter(value, buffer, sorted_scratch, window_size, index, count,
+                  threshold_scaled):
+    buffer[index] = value
+    index = (index + 1) % window_size
+    if count < window_size:
+        count += 1
+    if count < 3:
+        return value
+
+    n = count
+    mid = n // 2
+
+    for i in range(n):
+        sorted_scratch[i] = buffer[i]
+    insertion_sort(sorted_scratch, n)
+    median = sorted_scratch[mid]
+
+    for i in range(n):
+        sorted_scratch[i] = abs(buffer[i] - median)
+    insertion_sort(sorted_scratch, n)
+    mad = sorted_scratch[mid]
+
+    if mad > 1e-6:
+        deviation = abs(value - median) / mad
+        if deviation > threshold_scaled:
+            return median
+    return value
 ```
 
-**Embedded optimization**: Insertion sort instead of quicksort (faster for N < 15), pre-allocated buffers (no dynamic allocation), circular buffer for O(1) insertion.
+**Embedded optimization**: Circular turbulence buffer, pre-allocated `buffer` and `sorted_scratch` (no per-packet list growth). Insertion sort on the active window (N ≤ 11) on MicroPython; the C++ component uses the same MAD test with `std::sort` on stack copies of the same small window.
 
 **Reference**: [5] CSI-F: Feature Fusion Method (MDPI Sensors)
 
@@ -536,8 +562,8 @@ positive behavior without regressing the paired validation gate.
                                                                         │
                                                                         ▼
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│ IDLE/MOTION  │◀───│ Threshold    │◀───│ Probability  │◀───│ 9 Features   │
-│              │    │ > 0.5        │    │ [0.0-1.0]    │    │ → Neural Net │
+│ IDLE/MOTION  │◀───│ Threshold    │◀───│ Motion Score │◀───│ 9 Features   │
+│              │    │ > 5.0        │    │ [0.0-10.0]   │    │ → Neural Net │
 └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
 ```
 
@@ -548,7 +574,7 @@ ML uses **fixed subcarriers** -- no band calibration needed:
 | Algorithm | Subcarrier Selection | Threshold | Boot Time |
 |-----------|---------------------|-----------|-----------|
 | MVS | NBVI (~10s) | Adaptive (percentile-based) | ~13s |
-| ML | **Fixed** (12 even, DC excluded) | Fixed (0.5 probability) | **~3s** |
+| ML | **Fixed** (12 even, DC excluded) | Fixed (5.0 on 0-10 scale) | **~3s** |
 
 ML uses 12 fixed subcarriers selected to avoid DC and improve stability: `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`. This eliminates the 10-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
 
@@ -582,7 +608,7 @@ The ML detector extracts **9 non-redundant statistical features** from a sliding
 - **MAD**: Robust alternative to std, less sensitive to outliers.
 
 **Higher-Order Moments (5)**:
-- **Skewness**: Asymmetry of turbulence distribution. It remains useful after the feature sweep, while kurtosis was dropped as redundant/noisy on long holdouts.
+- **Skewness**: Asymmetry of turbulence distribution.
 
 **Temporal Structure (6)**:
 - **Autocorrelation**: Lag-1 temporal correlation. High during idle (smooth signal), low during motion (turbulent)
@@ -638,20 +664,6 @@ Measures the width of the middle 50% of the turbulence distribution. Unlike zero
 - γ₁ < 0: Left-skewed (tail on left)
 - γ₁ = 0: Symmetric
 
-**Kurtosis** (fourth standardized moment, excess):
-```
-γ₂ = E[(X - μ)⁴] / σ⁴ - 3
-```
-- γ₂ > 0: Heavy tails (leptokurtic)
-- γ₂ < 0: Light tails (platykurtic)
-- γ₂ = 0: Normal distribution (mesokurtic)
-
-**Shannon Entropy**:
-```
-H = -Σ pᵢ × log₂(pᵢ)
-```
-Computed by binning turbulence values (10 bins) and calculating the entropy of the histogram. Higher entropy indicates more randomness/unpredictability.
-
 **Lag-1 Autocorrelation**:
 ```
 r₁ = (1/(n-1)) Σ(xᵢ - μ)(xᵢ₊₁ - μ) / σ²
@@ -662,13 +674,7 @@ Measures temporal correlation between consecutive values. Ranges from -1.0 to 1.
 ```
 MAD = median(|xᵢ - median(x)|)
 ```
-Robust measure of spread. Unlike std, a single outlier cannot dramatically inflate the MAD. Computed using insertion sort (efficient for n=100 on ESP32).
-
-**Linear Regression Slope**:
-```
-slope = Σ(iᵢ - ī)(xᵢ - x̄) / Σ(iᵢ - ī)²
-```
-Where i = time index, x = turbulence value. Positive slope indicates increasing motion intensity.
+Robust measure of spread. Unlike std, a single outlier cannot dramatically inflate the MAD. IQR and MAD share one sorted copy of the turbulence window per evaluation (`std::sort` in C++, `list.sort()` in MicroPython).
 
 **Waveform Length**:
 ```

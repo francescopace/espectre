@@ -876,8 +876,6 @@ def detect_live_motion(args):
         "running": True,
         "packet_count": 0,
         "publish_counter": 0,
-        "last_stats_packet": 0,
-        "last_dropped": 0,
     }
 
     def should_log_publish(effective_state):
@@ -919,15 +917,12 @@ def detect_live_motion(args):
             metric_threshold = metrics["threshold"]
             progress_bar = format_progress_bar(motion_metric, metric_threshold)
             state_str = "MOTION" if effective_state == 1 else "IDLE"
-            dropped = receiver.dropped_count
-            dropped_delta = dropped - state["last_dropped"]
-            state["last_dropped"] = dropped
 
             if should_log_publish(effective_state):
                 print(
-                    f"{progress_bar} | pkts:{state['publish_counter']} drop:{dropped_delta} "
-                    f"pps:{receiver.pps} | mvmt:{motion_metric:.4f} "
-                    f"thr:{metric_threshold:.4f} | {state_str}"
+                    f"{progress_bar} | mvmt:{motion_metric:.4f} thr:{metric_threshold:.4f} | "
+                    f"{state_str} | pkt:{state['packet_count']} drop:{receiver.dropped_count} "
+                    f"pps:{receiver.pps}"
                 )
                 if args.log_turbulence:
                     window_tail = get_ordered_turbulence_tail(detector._context, args.window_tail)
@@ -942,13 +937,6 @@ def detect_live_motion(args):
                     print(f"  features: {format_feature_vector(features)}")
 
             state["publish_counter"] = 0
-
-        if (state["packet_count"] - state["last_stats_packet"]) >= args.print_every_n:
-            state["last_stats_packet"] = state["packet_count"]
-            print(
-                f"[stats] pkt={state['packet_count']} pps={receiver.pps} "
-                f"drop={receiver.dropped_count} ready={detector.is_ready()}"
-            )
 
     receiver.add_callback(on_packet)
     signal.signal(signal.SIGINT, handle_sigint)
@@ -1221,8 +1209,6 @@ Examples:
                               help='UDP port for CSI reception (default: 5001)')
     detect_parser.add_argument('--bind-ip', default=None,
                               help='Local IP/interface for UDP bind (default: auto-detect)')
-    detect_parser.add_argument('--print-every-n', type=int, default=200,
-                              help='Print periodic stats every N packets (default: 200)')
     detect_parser.add_argument('--log-features', action='store_true',
                               help='Print the 9 ML features after each published sample')
     detect_parser.add_argument('--log-turbulence', action='store_true',
