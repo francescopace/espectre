@@ -75,13 +75,13 @@ Current C++ and Python validation runs match on this dataset/configuration (same
 | ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32-C6 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-C6 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
-| ESP32-C6 | ML | 99.9% | 100.0% | 0.0% | 99.9% |
+| ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32-S3 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-S3 | MVS + NBVI | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32 | MVS Default | 99.4% | 100.0% | 0.0% | 99.7% |
 | ESP32 | MVS + NBVI | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32 | ML | 98.6% | 100.0% | 0.0% | 99.3% |
+| ESP32 | ML | 99.1% | 100.0% | 0.0% | 99.5% |
 
 **MVS Default**: Uses default subcarriers.
 **MVS + NBVI**: Uses NBVI auto-calibration (production case).
@@ -151,7 +151,7 @@ The worst-case path is ML on ESP32-C3 (~3.5 ms peak, ~35% CPU), which still leav
 
 **MVS**: Extracts a single feature (spatial turbulence) and its moving variance.
 
-**ML**: Extracts 9 statistical features from sliding window, then runs MLP inference (9 → 24 → 12 → 1 = 516 MACs).
+**ML**: Extracts 9 statistical features from sliding window, then runs MLP inference (9 → 32 → 16 → 1 = 816 MACs).
 The MLP itself is lightweight; most time is spent on feature extraction. 
 For ML architecture details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#architecture).
 
@@ -172,13 +172,13 @@ Methodology:
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score | FP Count |
 |------|-----------|--------|-----------|---------|----------|----------|
 | C3 | MVS + NBVI | 100.0% | 100.0% | 0.0% | 100.0% | 0 |
-| C3 | ML | 98.0% | 100.0% | 0.0% | 99.0% | 0 |
+| C3 | ML | 99.1% | 100.0% | 0.0% | 99.6% | 0 |
 | C5 | MVS + NBVI | 100.0% | 91.1% | 7.9% | 95.3% | 253 |
-| C5 | ML | 100.0% | 91.1% | 7.9% | 95.3% | 254 |
+| C5 | ML | 100.0% | 91.1% | 7.9% | 95.3% | 253 |
 | C6 | MVS + NBVI | 100.0% | 81.4% | 21.8% | 89.7% | 691 |
-| C6 | ML | 94.9% | 93.3% | 6.5% | 94.1% | 205 |
+| C6 | ML | 89.5% | 96.2% | 3.4% | 92.7% | 108 |
 | S3 | MVS + NBVI | 100.0% | 96.9% | 2.8% | 98.4% | 86 |
-| S3 | ML | 98.6% | 95.5% | 4.1% | 97.0% | 127 |
+| S3 | ML | 96.4% | 99.1% | 0.8% | 97.7% | 25 |
 
 ---
 
@@ -186,7 +186,7 @@ Methodology:
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
-| 2026-05-18 | v2.8.0 | C6 |  -   | ML + Hampel | 99.9% | 100.0% | 0.0% | 99.9% |
+| 2026-05-20 | v2.8.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-05-04 | v2.8.0 | C6 | NBVI | MVS + Hampel| 99.6% | 100.0% | 0.0% | 99.8% |
 | 2026-03-11 | v2.6.1 | C6 |  -   | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-03-11 | v2.6.1 | C6 | NBVI | MVS | 99.3% | 100.0% | 0.0% | 99.7% |

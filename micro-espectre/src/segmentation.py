@@ -35,6 +35,9 @@ class SegmentationContext:
     # States (aliases for backward compatibility - source of truth is MotionState)
     STATE_IDLE = MotionState.IDLE
     STATE_MOTION = MotionState.MOTION
+
+    # Pre-allocated amplitude scratch (12 selected subcarriers, matches C++ path)
+    AMPLITUDE_BUFFER_SIZE = 12
     
     def __init__(self, 
                  window_size=100,
@@ -80,7 +83,9 @@ class SegmentationContext:
         
         # Last amplitudes (stored for external use)
         self.last_amplitudes = None
-        
+        self._amplitude_buffer = [0.0] * self.AMPLITUDE_BUFFER_SIZE
+        self._amplitude_count = 0
+
         # Initialize low-pass filter if enabled
         self.lowpass_filter = None
         if enable_lowpass:
@@ -133,6 +138,67 @@ class SegmentationContext:
         return calculate_variance(values)
     
     @staticmethod
+    def _amplitude_at_subcarrier(csi_data, sc_idx):
+        """Return amplitude for one subcarrier, or None if CSI payload is too short."""
+        i = sc_idx * 2
+        if i + 1 >= len(csi_data):
+            return None
+        imag = float(to_signed_int8(csi_data[i]))
+        real = float(to_signed_int8(csi_data[i + 1]))
+        return math.sqrt(real * real + imag * imag)
+
+    @staticmethod
+    def _fill_amplitude_buffer(csi_data, selected_subcarriers, out_buffer):
+        """
+        Fill a pre-allocated amplitude buffer (no per-packet list allocations).
+
+        Returns:
+            int: Number of valid amplitudes written
+        """
+        n = 0
+        max_slots = len(out_buffer)
+
+        if selected_subcarriers is None:
+            max_values = min(128, len(csi_data))
+            for sc_idx in range(0, max_values // 2):
+                if n >= max_slots:
+                    break
+                amp = SegmentationContext._amplitude_at_subcarrier(csi_data, sc_idx)
+                if amp is not None:
+                    out_buffer[n] = amp
+                    n += 1
+        else:
+            for sc_idx in selected_subcarriers:
+                if n >= max_slots:
+                    break
+                amp = SegmentationContext._amplitude_at_subcarrier(csi_data, sc_idx)
+                if amp is not None:
+                    out_buffer[n] = amp
+                    n += 1
+        return n
+
+    @staticmethod
+    def _turbulence_from_amplitude_buffer(amplitude_buffer, count, use_cv_normalization=True):
+        """Compute spatial turbulence from amplitudes stored in a fixed buffer."""
+        if count < 2:
+            return 0.0
+
+        total = 0.0
+        for i in range(count):
+            total += amplitude_buffer[i]
+        mean = total / count
+
+        var_sum = 0.0
+        for i in range(count):
+            diff = amplitude_buffer[i] - mean
+            var_sum += diff * diff
+        variance = var_sum / count
+
+        if use_cv_normalization:
+            return math.sqrt(variance) / mean if mean > 0 else 0.0
+        return math.sqrt(variance)
+
+    @staticmethod
     def compute_spatial_turbulence(csi_data, selected_subcarriers=None, use_cv_normalization=True):
         """
         Calculate spatial turbulence from CSI subcarrier amplitudes
@@ -153,47 +219,31 @@ class SegmentationContext:
         """
         if len(csi_data) < 2:
             return 0.0, []
-        
-        # Calculate amplitudes for selected subcarriers
-        amplitudes = []
-        
-        # If no selection provided, use all available up to 64 subcarriers
-        if selected_subcarriers is None:
-            max_values = min(128, len(csi_data))
-            for i in range(0, max_values, 2):
-                if i + 1 < max_values:
-                    # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-                    # CSI values are signed int8 stored as uint8
-                    imag = float(to_signed_int8(csi_data[i]))
-                    real = float(to_signed_int8(csi_data[i + 1]))
-                    amplitudes.append(math.sqrt(real * real + imag * imag))
-        else:
-            # Use only selected subcarriers (matches C version)
-            for sc_idx in selected_subcarriers:
-                i = sc_idx * 2
-                if i + 1 < len(csi_data):
-                    # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-                    # CSI values are signed int8 stored as uint8
-                    imag = float(to_signed_int8(csi_data[i]))
-                    real = float(to_signed_int8(csi_data[i + 1]))
-                    amplitudes.append(math.sqrt(real * real + imag * imag))
-        
-        if len(amplitudes) < 2:
-            return 0.0, amplitudes
-        
-        # Calculate variance using two-pass for spatial turbulence (small N=12)
-        n = len(amplitudes)
-        mean = sum(amplitudes) / n
-        variance = sum((x - mean) ** 2 for x in amplitudes) / n
-        
-        if use_cv_normalization:
-            # CV normalization: std/mean (gain-invariant)
-            turbulence = math.sqrt(variance) / mean if mean > 0 else 0.0
-        else:
-            # Raw std: better sensitivity when gain is locked
-            turbulence = math.sqrt(variance)
-        return turbulence, amplitudes
-    
+
+        scratch = [0.0] * 64
+        count = SegmentationContext._fill_amplitude_buffer(
+            csi_data, selected_subcarriers, scratch
+        )
+        turbulence = SegmentationContext._turbulence_from_amplitude_buffer(
+            scratch, count, use_cv_normalization
+        )
+        return turbulence, scratch[:count]
+
+    def _compute_spatial_turbulence_in_buffer(self, csi_data, selected_subcarriers=None):
+        """Fast instance path: reuse pre-allocated amplitude buffer."""
+        if len(csi_data) < 2:
+            self._amplitude_count = 0
+            return 0.0
+
+        self._amplitude_count = self._fill_amplitude_buffer(
+            csi_data, selected_subcarriers, self._amplitude_buffer
+        )
+        return self._turbulence_from_amplitude_buffer(
+            self._amplitude_buffer,
+            self._amplitude_count,
+            self.use_cv_normalization,
+        )
+
     def calculate_spatial_turbulence(self, csi_data, selected_subcarriers=None, return_amplitudes=False):
         """
         Calculate spatial turbulence and store amplitudes for features
@@ -210,29 +260,51 @@ class SegmentationContext:
             float: Turbulence value (CV-normalized or raw std depending on config)
             OR tuple (turbulence, amplitudes) if return_amplitudes=True
         
-        Note: Stores last amplitudes for feature calculation at publish time.
+        Note: Stores last amplitudes only when return_amplitudes=True (legacy callers).
         """
-        turbulence, amplitudes = self.compute_spatial_turbulence(
-            csi_data, selected_subcarriers, self.use_cv_normalization
+        turbulence = self._compute_spatial_turbulence_in_buffer(
+            csi_data, selected_subcarriers
         )
-        self.last_amplitudes = amplitudes
         if return_amplitudes:
-            return turbulence, amplitudes
+            self.last_amplitudes = self._amplitude_buffer[:self._amplitude_count]
+            return turbulence, self.last_amplitudes
+        self.last_amplitudes = None
         return turbulence
-    
+
     def _calculate_variance_two_pass(self):
         """
-        Calculate variance of turbulence buffer
+        Calculate variance of turbulence buffer without copying the window.
+
+        Order does not matter for variance; iterate the circular buffer in-place.
         
         Returns:
             float: Variance (0.0 if buffer not full)
         """
-        # Return 0 if buffer not full yet (matches C version behavior)
-        if self.buffer_count < self.window_size:
+        n = self.buffer_count
+        if n < 2:
             return 0.0
-        
-        # Delegate to static method
-        return self.compute_variance_two_pass(self.turbulence_buffer[:self.buffer_count])
+
+        total = 0.0
+        if n == self.window_size:
+            buf = self.turbulence_buffer
+            for i in range(n):
+                total += buf[i]
+        else:
+            for i in range(n):
+                total += self.turbulence_buffer[i]
+        mean = total / n
+
+        var_sum = 0.0
+        if n == self.window_size:
+            buf = self.turbulence_buffer
+            for i in range(n):
+                diff = buf[i] - mean
+                var_sum += diff * diff
+        else:
+            for i in range(n):
+                diff = self.turbulence_buffer[i] - mean
+                var_sum += diff * diff
+        return var_sum / n
     
     def set_adaptive_threshold(self, threshold):
         """

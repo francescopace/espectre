@@ -34,10 +34,7 @@ namespace espectre {
 // Number of features extracted
 constexpr uint8_t ML_NUM_FEATURES = 9;
 
-// Number of entropy bins
-constexpr uint8_t ML_ENTROPY_BINS = 10;
-
-// Maximum buffer size for sorting (MAD calculation)
+// Maximum buffer size for sorting (IQR / MAD)
 constexpr uint16_t ML_MAX_SORT_SIZE = 200;
 
 /**
@@ -62,72 +59,12 @@ inline float calc_skewness(const float* values, uint16_t count, float mean, floa
     return m3 / (std_dev * std_dev * std_dev);
 }
 
-/**
- * Calculate Fisher's kurtosis (fourth standardized moment, excess).
- * 
- * @param values Array of values
- * @param count Number of values
- * @param mean Pre-computed mean (must be valid)
- * @param std_dev Pre-computed standard deviation (must be valid)
- * @return Excess kurtosis (0 for normal distribution)
- */
-inline float calc_kurtosis(const float* values, uint16_t count, float mean, float std_dev) {
-    if (count < 4 || std_dev < 1e-10f) return 0.0f;
-    
-    float m4 = 0.0f;
-    for (uint16_t i = 0; i < count; i++) {
-        float diff = values[i] - mean;
-        float diff2 = diff * diff;
-        m4 += diff2 * diff2;
+inline float median_from_sorted(const float* sorted_values, uint16_t count) {
+    if (count == 0 || sorted_values == nullptr) return 0.0f;
+    if (count % 2 == 0) {
+        return (sorted_values[count / 2 - 1] + sorted_values[count / 2]) / 2.0f;
     }
-    m4 /= count;
-    
-    float std4 = std_dev * std_dev * std_dev * std_dev;
-    return (m4 / std4) - 3.0f;  // Excess kurtosis
-}
-
-/**
- * Calculate Shannon entropy of values.
- * 
- * @param values Array of values
- * @param count Number of values
- * @return Shannon entropy in bits
- */
-inline float calc_entropy(const float* values, uint16_t count) {
-    if (count < 2) return 0.0f;
-    
-    // Find min/max
-    float min_val = values[0];
-    float max_val = values[0];
-    for (uint16_t i = 1; i < count; i++) {
-        if (values[i] < min_val) min_val = values[i];
-        if (values[i] > max_val) max_val = values[i];
-    }
-    
-    float range = max_val - min_val;
-    if (range < 1e-10f) return 0.0f;
-    
-    // Create histogram
-    uint16_t bins[ML_ENTROPY_BINS] = {0};
-    float bin_width = range / ML_ENTROPY_BINS;
-    
-    for (uint16_t i = 0; i < count; i++) {
-        int bin_idx = static_cast<int>((values[i] - min_val) / bin_width);
-        if (bin_idx >= ML_ENTROPY_BINS) bin_idx = ML_ENTROPY_BINS - 1;
-        bins[bin_idx]++;
-    }
-    
-    // Calculate entropy
-    float entropy = 0.0f;
-    float log2 = std::log(2.0f);
-    for (uint8_t i = 0; i < ML_ENTROPY_BINS; i++) {
-        if (bins[i] > 0) {
-            float p = static_cast<float>(bins[i]) / count;
-            entropy -= p * std::log(p) / log2;
-        }
-    }
-    
-    return entropy;
+    return sorted_values[count / 2];
 }
 
 inline float interpolate_sorted_percentile(const float* sorted_values, uint16_t count,
@@ -149,21 +86,22 @@ inline float interpolate_sorted_percentile(const float* sorted_values, uint16_t 
 /**
  * Calculate interquartile range (P75 - P25).
  *
- * Robust measure of spread, less sensitive to oscillatory sign flips than
- * zero-crossing rate on quiet-but-noisy windows.
- *
- * @param values Array of values
+ * @param values Source values (used when sorted_values is null)
  * @param count Number of values
- * @return IQR value
+ * @param sorted_values Pre-sorted copy of values (optional, avoids redundant sort)
  */
-inline float calc_iqr(const float* values, uint16_t count) {
+inline float calc_iqr(const float* values, uint16_t count, const float* sorted_values = nullptr) {
     if (count < 2 || count > ML_MAX_SORT_SIZE) return 0.0f;
 
-    float sorted[ML_MAX_SORT_SIZE];
-    for (uint16_t i = 0; i < count; i++) {
-        sorted[i] = values[i];
+    float sorted_scratch[ML_MAX_SORT_SIZE];
+    const float* sorted = sorted_values;
+    if (sorted == nullptr) {
+        for (uint16_t i = 0; i < count; i++) {
+            sorted_scratch[i] = values[i];
+        }
+        std::sort(sorted_scratch, sorted_scratch + count);
+        sorted = sorted_scratch;
     }
-    std::sort(sorted, sorted + count);
 
     float q1 = interpolate_sorted_percentile(sorted, count, 25.0f);
     float q3 = interpolate_sorted_percentile(sorted, count, 75.0f);
@@ -197,33 +135,31 @@ inline float calc_autocorrelation(const float* values, uint16_t count, float mea
 
 /**
  * Calculate Median Absolute Deviation (MAD).
- * 
- * Robust measure of variability, less sensitive to outliers than std.
- * Uses insertion sort (efficient for small n, e.g. 50).
- * 
- * @param values Array of values
+ *
+ * @param values Source values
  * @param count Number of values
- * @return MAD value
+ * @param sorted_values Pre-sorted copy of values for median (optional)
  */
-inline float calc_mad(const float* values, uint16_t count) {
+inline float calc_mad(const float* values, uint16_t count, const float* sorted_values = nullptr) {
     if (count < 2 || count > ML_MAX_SORT_SIZE) return 0.0f;
     
-    // Copy for sorting (stack allocation, max 200 floats = 800 bytes)
-    float sorted[ML_MAX_SORT_SIZE];
-    for (uint16_t i = 0; i < count; i++) {
-        sorted[i] = values[i];
+    float sorted_scratch[ML_MAX_SORT_SIZE];
+    const float* sorted = sorted_values;
+    if (sorted == nullptr) {
+        for (uint16_t i = 0; i < count; i++) {
+            sorted_scratch[i] = values[i];
+        }
+        std::sort(sorted_scratch, sorted_scratch + count);
+        sorted = sorted_scratch;
     }
-    
-    // Calculate median using utils.h helper
-    float median = calculate_median_float(sorted, count);
-    
-    // Calculate absolute deviations
+
+    float median = median_from_sorted(sorted, count);
+
     float abs_devs[ML_MAX_SORT_SIZE];
     for (uint16_t i = 0; i < count; i++) {
         abs_devs[i] = std::fabs(values[i] - median);
     }
-    
-    // Return median of absolute deviations
+
     return calculate_median_float(abs_devs, count);
 }
 
@@ -250,21 +186,16 @@ inline float calc_waveform_length(const float* values, uint16_t count) {
 }
 
 /**
- * Extract all 9 ML features from turbulence buffer and amplitudes.
- * 
- * All 9 features are computed from the turbulence buffer (typically 100 samples).
- * 
- * @param turb_buffer Turbulence buffer
+ * Extract all 9 ML features from the turbulence buffer.
+ *
+ * All features are computed from the turbulence window (typically 100 samples).
+ *
+ * @param turb_buffer Turbulence buffer (chronological order when wrapped)
  * @param turb_count Number of valid values in turbulence buffer
- * @param amplitudes Subcarrier amplitudes (unused, kept for API compatibility)
- * @param amp_count Number of amplitude values
  * @param features_out Output array for 9 features (must be pre-allocated)
  */
 inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
-                                const float* amplitudes, uint8_t amp_count,
                                 float* features_out) {
-    (void) amplitudes;
-    (void) amp_count;
     // Initialize to zero
     for (uint8_t i = 0; i < ML_NUM_FEATURES; i++) {
         features_out[i] = 0.0f;
@@ -295,19 +226,21 @@ inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
     float turb_var = var_sum / turb_count;
     float turb_std = std::sqrt(turb_var);
     
-    // Interquartile range
-    float turb_iqr = calc_iqr(turb_buffer, turb_count);
-    
-    // Skewness (pre-computed mean/std passed to avoid redundant calculation)
+    // Sort once for IQR and MAD (median uses sorted copy; MAD re-sorts abs deviations).
+    float sorted[ML_MAX_SORT_SIZE];
+    const float* sorted_ptr = nullptr;
+    if (turb_count <= ML_MAX_SORT_SIZE) {
+        for (uint16_t i = 0; i < turb_count; i++) {
+            sorted[i] = turb_buffer[i];
+        }
+        std::sort(sorted, sorted + turb_count);
+        sorted_ptr = sorted;
+    }
+
+    float turb_iqr = calc_iqr(turb_buffer, turb_count, sorted_ptr);
     float turb_skewness = calc_skewness(turb_buffer, turb_count, turb_mean, turb_std);
-    
-    // Lag-1 autocorrelation
     float turb_autocorr = calc_autocorrelation(turb_buffer, turb_count, turb_mean, turb_var, 1);
-    
-    // Median absolute deviation
-    float turb_mad = calc_mad(turb_buffer, turb_count);
-    
-    // Temporal variation feature
+    float turb_mad = calc_mad(turb_buffer, turb_count, sorted_ptr);
     float waveform_length = calc_waveform_length(turb_buffer, turb_count);
     
     // Fill output array in correct order (matches Python DEFAULT_FEATURES)

@@ -98,9 +98,7 @@ bool MLDetector::set_threshold(float threshold) {
 
 void MLDetector::extract_features(float* features_out) {
     if (buffer_count_ < window_size_) {
-        extract_ml_features(turbulence_buffer_, buffer_count_,
-                            amplitude_buffer_, num_amplitudes_,
-                            features_out);
+        extract_ml_features(turbulence_buffer_, buffer_count_, features_out);
         return;
     }
 
@@ -111,9 +109,7 @@ void MLDetector::extract_features(float* features_out) {
         ordered_buffer[i] = turbulence_buffer_[(buffer_index_ + i) % window_size_];
     }
 
-    extract_ml_features(ordered_buffer, buffer_count_,
-                        amplitude_buffer_, num_amplitudes_,
-                        features_out);
+    extract_ml_features(ordered_buffer, buffer_count_, features_out);
 }
 
 // ============================================================================

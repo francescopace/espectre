@@ -258,8 +258,6 @@ void test_ml_inference_classification(void) {
 
 void test_feature_extraction_basic(void) {
     float turb_buffer[50];
-    float amplitudes[12] = {10.0f, 12.0f, 11.0f, 13.0f, 9.0f, 14.0f,
-                            10.5f, 11.5f, 12.5f, 10.0f, 11.0f, 13.0f};
     float features[ML_NUM_FEATURES];
     
     // Fill buffer with synthetic data
@@ -267,7 +265,7 @@ void test_feature_extraction_basic(void) {
         turb_buffer[i] = 10.0f + (i % 5) * 0.5f;
     }
     
-    extract_ml_features(turb_buffer, 50, amplitudes, 12, features);
+    extract_ml_features(turb_buffer, 50, features);
     
     // Verify features are reasonable
     // Order: mean, std, max, min, iqr, skewness, autocorr, mad, waveform_length
@@ -285,7 +283,7 @@ void test_feature_extraction_empty_buffer(void) {
     float turb_buffer[50] = {0};
     float features[ML_NUM_FEATURES];
     
-    extract_ml_features(turb_buffer, 0, nullptr, 0, features);
+    extract_ml_features(turb_buffer, 0, features);
     
     // All features should be 0 for empty buffer
     for (int i = 0; i < ML_NUM_FEATURES; i++) {

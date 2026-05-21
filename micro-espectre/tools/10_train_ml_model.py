@@ -16,7 +16,9 @@ Training features:
 Usage:
     python tools/10_train_ml_model.py                    # Train with current production defaults
     python tools/10_train_ml_model.py --info             # Show dataset info
-    python tools/10_train_ml_model.py --experiment       # Compare architectures
+    python tools/10_train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
+    python tools/10_train_ml_model.py --experiment --experiment-promote
+                                                    # Promote the winner if it beats the baseline
     python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
     python tools/10_train_ml_model.py --scaler clipped_standard
                                                     # Robust clipping + z-score
@@ -47,6 +49,7 @@ os.environ['GRPC_VERBOSITY'] = 'ERROR'
 os.environ['GLOG_minloglevel'] = '2'
 
 import argparse
+import json
 import numpy as np
 import random
 import subprocess
@@ -133,7 +136,12 @@ def set_global_determinism(seed, tf_module=None):
         pass
 
 # Import csi_utils first - it sets up paths automatically
+TESTS_DIR = Path(__file__).parent.parent / 'tests'
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
+
 from csi_utils import (
+    find_dataset,
     load_npz_as_packets,
     DATA_DIR,
 )
@@ -147,22 +155,11 @@ from features import (
 # Feature Selection
 # ============================================================================
 #
-# 9 features: 8 turbulence-based + 1 temporal.
-# Current production set drops turb_kurtosis, turb_entropy, and turb_slope
-# after long-recording sweeps showed they reduced deployment robustness.
-# See ALGORITHMS.md "Feature Importance" for full SHAP/correlation table.
+# Production MLP uses the nine features in src/features.DEFAULT_FEATURES.
+# See ALGORITHMS.md "Feature Importance" for SHAP/correlation rankings.
 # ============================================================================
 
-# ============================================================================
-# FEATURE SET TO USE FOR TRAINING
-# ============================================================================
-# Change this list to experiment with different features.
-# Available features are defined in src/features.py
-#
-# Current default (9 features):
 TRAINING_FEATURES = DEFAULT_FEATURES
-
-# To experiment with different features, define a custom list here.
 
 
 # Directories
@@ -183,9 +180,16 @@ DEFAULT_EXCLUDED_CHIPS = ()
 DEFAULT_ARCHITECTURE_SWEEP = (
     {'name': 'Legacy (16-8)', 'layers': [16, 8]},
     {'name': 'Current default (24-12)', 'layers': [24, 12]},
+    {'name': 'Shallow (24)', 'layers': [24]},
     {'name': 'Wider (32-16)', 'layers': [32, 16]},
-    {'name': 'Deep (16-8-4)', 'layers': [16, 8, 4]},
+    {'name': 'Deep (24-12-6)', 'layers': [24, 12, 6]},
 )
+DEFAULT_EXPERIMENT_OUTPUT = MODELS_DIR / 'mlp_architecture_experiment.json'
+DEFAULT_EXPERIMENT_SCREENING_SEED = 20260519
+DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
+DEFAULT_EXPERIMENT_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
+DEFAULT_PAIRED_GATE_CHIPS = ('C3', 'C5', 'C6', 'ESP32', 'S3')
+DEFAULT_LONG_GATE_CHIPS = ('C3', 'C5', 'C6', 'S3')
 DEFAULT_MAX_EPOCHS = 100
 DEFAULT_EARLY_STOP_PATIENCE = 8
 DEFAULT_LR_PATIENCE = 4
@@ -260,6 +264,63 @@ def parse_hidden_layers(value):
             "hidden layers must contain one or more positive integers"
         )
     return layers
+
+
+def format_hidden_layers(layers):
+    """Return hidden layers as a stable dash-separated string."""
+    return '-'.join(str(int(layer)) for layer in layers)
+
+
+def normalize_architecture_specs(architectures):
+    """Normalize architecture definitions into {name, layers} dicts."""
+    specs = []
+    seen = set()
+    for idx, arch in enumerate(architectures):
+        if isinstance(arch, dict):
+            layers = parse_hidden_layers(arch.get('layers'))
+            name = str(arch.get('name') or f"MLP ({format_hidden_layers(layers)})")
+        else:
+            layers = parse_hidden_layers(arch)
+            name = f"MLP ({format_hidden_layers(layers)})"
+        key = tuple(layers)
+        if key in seen:
+            continue
+        seen.add(key)
+        specs.append({
+            'name': name,
+            'layers': list(layers),
+        })
+    return specs
+
+
+def parse_architecture_sweep(value):
+    """Parse semicolon-separated hidden-layer specs for --experiment-architectures."""
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        return normalize_architecture_specs(value)
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    specs = []
+    for idx, chunk in enumerate(text.split(';'), start=1):
+        item = chunk.strip()
+        if not item:
+            continue
+        if '=' in item:
+            name, layer_text = item.split('=', 1)
+            layers = parse_hidden_layers(layer_text)
+            specs.append({'name': name.strip() or f"MLP #{idx}", 'layers': layers})
+        else:
+            layers = parse_hidden_layers(item)
+            specs.append({'name': f"MLP ({format_hidden_layers(layers)})", 'layers': layers})
+    if not specs:
+        raise argparse.ArgumentTypeError(
+            "experiment architectures must contain one or more layer specs, e.g. 16,8;24,12;32,16"
+        )
+    return normalize_architecture_specs(specs)
 
 
 def parse_positive_chip_boost(value):
@@ -2683,6 +2744,179 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     return 0, seed, cv_results
 
 
+def summarize_gate(by_chip):
+    """Aggregate per-chip gate metrics."""
+    rows = list(by_chip.values())
+    if not rows:
+        return None
+    return {
+        'by_chip': by_chip,
+        'pass_count': int(sum(1 for row in rows if row['recall'] > 95.0 and row['fp_rate'] < 5.0)),
+        'mean_recall': float(np.mean([row['recall'] for row in rows])),
+        'worst_chip_recall': float(np.min([row['recall'] for row in rows])),
+        'mean_fp_rate': float(np.mean([row['fp_rate'] for row in rows])),
+        'max_fp_rate': float(np.max([row['fp_rate'] for row in rows])),
+        'mean_f1': float(np.mean([row['f1'] for row in rows])),
+        'worst_chip_f1': float(np.min([row['f1'] for row in rows])),
+        'total_fp': int(sum(row['fp'] for row in rows)),
+        'total_fn': int(sum(row['fn'] for row in rows)),
+    }
+
+
+class StreamingEvaluator:
+    """Evaluate a trained Keras model with the runtime-equivalent feature path."""
+
+    def __init__(self, model, scaler, feature_names):
+        self.feature_names = list(feature_names)
+        self.center, self.scale = get_preprocessor_arrays(scaler)
+        raw_weights = model.get_weights()
+        self.layers = []
+        for idx in range(0, len(raw_weights), 2):
+            weights = raw_weights[idx]
+            biases = raw_weights[idx + 1]
+            is_output = idx == len(raw_weights) - 2
+            self.layers.append((weights, biases, is_output))
+        self.context = SegmentationContext(
+            window_size=SEG_WINDOW_SIZE,
+            threshold=1.0,
+            enable_hampel=True,
+            hampel_window=HAMPEL_WINDOW,
+            hampel_threshold=HAMPEL_THRESHOLD,
+        )
+        self.context.use_cv_normalization = False
+        self.current_amplitudes = None
+
+    def _predict_probability(self, features):
+        activations = (np.asarray(features, dtype=np.float32) - self.center) / self.scale
+        for weights, biases, is_output in self.layers:
+            activations = activations @ weights + biases
+            if not is_output:
+                activations = activations.clip(min=0.0)
+
+        logit = float(activations.reshape(-1)[0]) / float(DEFAULT_ML_TEMPERATURE)
+        if logit < -20.0:
+            return 0.0
+        if logit > 20.0:
+            return 1.0
+        return 1.0 / (1.0 + np.exp(-logit))
+
+    def process_packet(self, csi_data):
+        turbulence, amplitudes = self.context.calculate_spatial_turbulence(
+            csi_data,
+            DEFAULT_SUBCARRIERS,
+            return_amplitudes=True,
+        )
+        self.current_amplitudes = amplitudes
+        self.context.add_turbulence(turbulence)
+        if self.context.buffer_count < self.context.window_size:
+            return None
+
+        idx = self.context.buffer_index
+        turb_list = (
+            self.context.turbulence_buffer[idx:]
+            + self.context.turbulence_buffer[:idx]
+        )
+        features = extract_features_by_name(
+            turb_list,
+            len(turb_list),
+            amplitudes=self.current_amplitudes,
+            feature_names=self.feature_names,
+        )
+        return float(self._predict_probability(features))
+
+
+def evaluate_split(model, scaler, feature_names, baseline_packets, movement_packets, threshold=0.5):
+    """Evaluate a split with the same windowing path used at runtime."""
+    evaluator = StreamingEvaluator(model, scaler, feature_names)
+
+    warmup = SEG_WINDOW_SIZE
+    baseline_eval_count = max(len(baseline_packets) - warmup, 0)
+    movement_eval_count = max(len(movement_packets) - warmup, 0)
+    baseline_motion_packets = 0
+    movement_with_motion = 0
+    movement_without_motion = 0
+
+    for i, pkt in enumerate(baseline_packets):
+        prob = evaluator.process_packet(pkt['csi_data'])
+        if i >= warmup and prob is not None and prob > threshold:
+            baseline_motion_packets += 1
+
+    for i, pkt in enumerate(movement_packets):
+        prob = evaluator.process_packet(pkt['csi_data'])
+        if i >= warmup and prob is not None:
+            if prob > threshold:
+                movement_with_motion += 1
+            else:
+                movement_without_motion += 1
+
+    tp = movement_with_motion
+    fn = movement_without_motion
+    fp = baseline_motion_packets
+    tn = max(baseline_eval_count - baseline_motion_packets, 0)
+    recall = tp / (tp + fn) * 100.0 if (tp + fn) else 0.0
+    precision = tp / (tp + fp) * 100.0 if (tp + fp) else 0.0
+    fp_rate = fp / baseline_eval_count * 100.0 if baseline_eval_count else 0.0
+    f1 = (
+        2 * (precision / 100.0) * (recall / 100.0) / ((precision + recall) / 100.0) * 100.0
+        if (precision + recall)
+        else 0.0
+    )
+    return {
+        'recall': float(recall),
+        'precision': float(precision),
+        'fp_rate': float(fp_rate),
+        'f1': float(f1),
+        'tp': int(tp),
+        'fp': int(fp),
+        'tn': int(tn),
+        'fn': int(fn),
+        'baseline_eval_count': int(baseline_eval_count),
+        'movement_eval_count': int(movement_eval_count),
+    }
+
+
+def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None):
+    """Evaluate a candidate on the paired validation datasets."""
+    chips = tuple(chips or DEFAULT_PAIRED_GATE_CHIPS)
+    by_chip = {}
+    for chip in chips:
+        try:
+            baseline_path, movement_path, _ = find_dataset(chip=chip, num_sc=64)
+        except FileNotFoundError:
+            continue
+        baseline_packets = load_npz_as_packets(baseline_path)[300:]
+        movement_packets = load_npz_as_packets(movement_path)
+        by_chip[chip] = evaluate_split(
+            model,
+            scaler,
+            feature_names,
+            baseline_packets,
+            movement_packets,
+            threshold=threshold,
+        )
+    return summarize_gate(by_chip)
+
+
+def evaluate_long_gate(model, scaler, feature_names, threshold=0.5, chips=None):
+    """Evaluate a candidate on the curated long recordings."""
+    from conftest import get_available_long_test_datasets
+
+    chips = tuple(chips or DEFAULT_LONG_GATE_CHIPS)
+    by_chip = {}
+    for _, baseline_packets, movement_packets, _, chip, _ in get_available_long_test_datasets(
+        chips=chips
+    ):
+        by_chip[chip] = evaluate_split(
+            model,
+            scaler,
+            feature_names,
+            baseline_packets,
+            movement_packets,
+            threshold=threshold,
+        )
+    return summarize_gate(by_chip)
+
+
 def _parse_long_recording_metrics(output):
     """Parse the stable long-recording ML summary table emitted by pytest."""
     pattern = re.compile(
@@ -2746,6 +2980,27 @@ def _run_ml_performance_tests():
     )
     output = (result.stdout or "") + "\n" + (result.stderr or "")
     return _parse_long_recording_metrics(output), output
+
+
+def _run_ml_paired_tests():
+    """Run the paired ML regression suite and return (returncode, output)."""
+    project_root = Path(__file__).parent.parent
+    cmd = [
+        sys.executable,
+        '-m',
+        'pytest',
+        'tests/test_validation_real_data.py::TestPerformanceMetrics::test_ml_detection_accuracy',
+        '-v',
+        '-s',
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    output = (result.stdout or "") + "\n" + (result.stderr or "")
+    return int(result.returncode), output
 
 
 def _real_ml_gate_key(real_metrics):
@@ -3018,31 +3273,255 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     return 1
 
 
+def write_json_results(path, payload):
+    """Write a JSON experiment payload."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2))
+
+
+def slim_cv_result(cv_results):
+    """Keep only the CV fields needed by experiment payloads."""
+    session_report = cv_results.get('group_reports', {}).get('session_group', {})
+    chip_report = cv_results.get('group_reports', {}).get('chip', {})
+    return {
+        'f1_mean': float(cv_results['f1_mean']),
+        'f1_std': float(cv_results['f1_std']),
+        'oof_f1': float(cv_results['oof_f1']),
+        'recall_mean': float(cv_results['recall_mean']),
+        'fp_rate_mean': float(cv_results['fp_rate_mean']),
+        'worst_session_recall': float(session_report.get('worst_recall', {}).get('recall', 0.0)),
+        'worst_session_fp_rate': float(session_report.get('worst_fp_rate', {}).get('fp_rate', 0.0)),
+        'worst_chip_recall': float(chip_report.get('worst_recall', {}).get('recall', 0.0)),
+        'candidate_key': list(build_candidate_key(cv_results)),
+    }
+
+
+def architecture_stats(input_dim, hidden_layers):
+    """Return parameter, size, and FLOP estimates for an MLP."""
+    layer_sizes = [input_dim] + list(hidden_layers) + [1]
+    n_params = 0
+    flops = 0
+    for idx in range(len(layer_sizes) - 1):
+        n_params += layer_sizes[idx] * layer_sizes[idx + 1]
+        n_params += layer_sizes[idx + 1]
+        flops += layer_sizes[idx] * layer_sizes[idx + 1]
+    return {
+        'layer_sizes': layer_sizes,
+        'params': int(n_params),
+        'weight_kb': float(n_params * 4 / 1024),
+        'flops': int(flops),
+    }
+
+
+def architecture_campaign_rank_key(result):
+    """Sort key for single-run architecture candidates (lower is better)."""
+    return (
+        result['long']['max_fp_rate'],
+        result['long']['total_fp'],
+        -result['long']['pass_count'],
+        -result['long']['worst_chip_f1'],
+        -result['paired']['pass_count'],
+        result['paired']['max_fp_rate'],
+        -result['paired']['worst_chip_f1'],
+        -result['cv']['oof_f1'],
+        -result['cv']['f1_mean'],
+        result['params'],
+    )
+
+
+def aggregate_architecture_runs(name, runs):
+    """Aggregate multi-seed runs for one architecture."""
+    template = runs[0]
+    return {
+        'name': name,
+        'layers': list(template['layers']),
+        'architecture': template['architecture'],
+        'params': int(template['params']),
+        'weight_kb': float(template['weight_kb']),
+        'flops': int(template['flops']),
+        'seeds': [int(run['seed']) for run in runs],
+        'median_long_max_fp_rate': float(np.median([run['long']['max_fp_rate'] for run in runs])),
+        'median_long_total_fp': float(np.median([run['long']['total_fp'] for run in runs])),
+        'median_long_pass_count': float(np.median([run['long']['pass_count'] for run in runs])),
+        'median_long_worst_chip_f1': float(np.median([run['long']['worst_chip_f1'] for run in runs])),
+        'worst_long_max_fp_rate': float(np.max([run['long']['max_fp_rate'] for run in runs])),
+        'median_paired_pass_count': float(np.median([run['paired']['pass_count'] for run in runs])),
+        'median_paired_max_fp_rate': float(np.median([run['paired']['max_fp_rate'] for run in runs])),
+        'median_paired_worst_chip_f1': float(np.median([run['paired']['worst_chip_f1'] for run in runs])),
+        'median_oof_f1': float(np.median([run['cv']['oof_f1'] for run in runs])),
+        'best_single_run': min(runs, key=architecture_campaign_rank_key),
+        'runs': runs,
+    }
+
+
+def aggregate_architecture_rank_key(summary):
+    """Sort key for aggregated architecture summaries (lower is better)."""
+    return (
+        summary['median_long_max_fp_rate'],
+        summary['median_long_total_fp'],
+        -summary['median_long_pass_count'],
+        -summary['median_long_worst_chip_f1'],
+        summary['worst_long_max_fp_rate'],
+        -summary['median_paired_pass_count'],
+        summary['median_paired_max_fp_rate'],
+        -summary['median_paired_worst_chip_f1'],
+        -summary['median_oof_f1'],
+        summary['params'],
+    )
+
+
+def paired_non_regression(candidate, baseline):
+    """Treat paired validation as a non-regression constraint."""
+    return (
+        candidate['median_paired_pass_count'] >= baseline['median_paired_pass_count']
+        and candidate['median_paired_max_fp_rate'] <= baseline['median_paired_max_fp_rate'] + 1e-6
+        and candidate['median_paired_worst_chip_f1'] >= baseline['median_paired_worst_chip_f1'] - 1.0
+    )
+
+
+def architecture_candidate_beats_baseline(candidate, baseline):
+    """Promote only stable FP-first improvements that do not regress paired validation."""
+    if candidate['name'] == baseline['name']:
+        return True
+    if not paired_non_regression(candidate, baseline):
+        return False
+    candidate_long = (
+        candidate['median_long_max_fp_rate'],
+        candidate['median_long_total_fp'],
+        -candidate['median_long_pass_count'],
+        -candidate['median_long_worst_chip_f1'],
+        candidate['worst_long_max_fp_rate'],
+    )
+    baseline_long = (
+        baseline['median_long_max_fp_rate'],
+        baseline['median_long_total_fp'],
+        -baseline['median_long_pass_count'],
+        -baseline['median_long_worst_chip_f1'],
+        baseline['worst_long_max_fp_rate'],
+    )
+    if candidate_long >= baseline_long:
+        return False
+    return aggregate_architecture_rank_key(candidate) < aggregate_architecture_rank_key(baseline)
+
+
+def evaluate_architecture_candidate(name, hidden_layers, seed, dataset, scaler_mode, batch_size, fp_weight):
+    """Train and evaluate one architecture on CV, paired gate, and long gate."""
+    stats = architecture_stats(dataset['X'].shape[1], hidden_layers)
+    print(f"\n== {name} | seed {seed} ==")
+    print(
+        f"Architecture: {' -> '.join(map(str, stats['layer_sizes']))} | "
+        f"params={stats['params']} | weights={stats['weight_kb']:.1f} KB | flops={stats['flops']}"
+    )
+
+    with suppress_stderr():
+        cv = cross_validate(
+            dataset['X'],
+            dataset['y'],
+            hidden_layers=list(hidden_layers),
+            n_folds=DEFAULT_CV_FOLDS,
+            max_epochs=DEFAULT_MAX_EPOCHS,
+            fp_weight=fp_weight,
+            sample_weight=dataset['sample_weights'],
+            groups=dataset['groups'],
+            sample_context=dataset['sample_context'],
+            scaler_mode=scaler_mode,
+            batch_size=batch_size,
+            block_stride=SEG_WINDOW_SIZE,
+            block_group_key=DEFAULT_BLOCK_GROUP_KEY,
+            report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
+            seed=seed,
+        )
+
+    scaler = build_preprocessor(scaler_mode)
+    X_scaled = scaler.fit_transform(dataset['X'])
+    with suppress_stderr():
+        model = train_model(
+            X_scaled,
+            dataset['y'],
+            hidden_layers=list(hidden_layers),
+            max_epochs=DEFAULT_MAX_EPOCHS,
+            fp_weight=fp_weight,
+            sample_weight=dataset['sample_weights'],
+            batch_size=batch_size,
+            seed=derive_seed(seed, 10_000),
+        )
+
+    sample = X_scaled[:1].astype(np.float32)
+    for _ in range(10):
+        predict_probabilities(model, sample)
+    n_bench = 1000
+    bench_start = perf_counter()
+    for _ in range(n_bench):
+        predict_probabilities(model, sample)
+    inference_us = (perf_counter() - bench_start) / n_bench * 1e6
+
+    paired = evaluate_paired_gate(model, scaler, dataset['feature_names'])
+    long_gate = evaluate_long_gate(model, scaler, dataset['feature_names'])
+    result = {
+        'name': name,
+        'seed': int(seed),
+        'layers': list(hidden_layers),
+        'architecture': ' -> '.join(map(str, stats['layer_sizes'])),
+        'params': int(stats['params']),
+        'weight_kb': float(stats['weight_kb']),
+        'flops': int(stats['flops']),
+        'inference_us': float(inference_us),
+        'cv': slim_cv_result(cv),
+        'paired': paired,
+        'long': long_gate,
+    }
+    print(
+        f"{name} | OOF={result['cv']['oof_f1']:.1f}% | "
+        f"paired pass={paired['pass_count']} maxFP={paired['max_fp_rate']:.1f}% | "
+        f"long pass={long_gate['pass_count']} maxFP={long_gate['max_fp_rate']:.1f}% "
+        f"totalFP={long_gate['total_fp']} worstF1={long_gate['worst_chip_f1']:.1f}% | "
+        f"inf={inference_us:.1f} us"
+    )
+    return result
+
+
 def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
                              batch_size=DEFAULT_BATCH_SIZE,
                              fp_weight=DEFAULT_FP_WEIGHT,
                              environment_filter=None,
                              excluded_chips=None,
                              architectures=None,
-                             positive_chip_boost=None):
-    """
-    Compare candidate architectures with the robust grouped evaluation protocol.
-    """
-    import time
-    subcarriers = DEFAULT_SUBCARRIERS
-    
-    print("\n" + "="*60)
-    print("       ARCHITECTURE EXPERIMENT")
-    print("="*60 + "\n")
+                             positive_chip_boost=None,
+                             output_path=DEFAULT_EXPERIMENT_OUTPUT,
+                             promote_winner=False):
+    """Run the FP-first architecture campaign and optionally promote a winner."""
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    if architectures is None:
-        architectures = list(DEFAULT_ARCHITECTURE_SWEEP)
+    architectures = normalize_architecture_specs(architectures or DEFAULT_ARCHITECTURE_SWEEP)
 
+    baseline_layers = tuple(DEFAULT_HIDDEN_LAYERS)
+    if baseline_layers not in {tuple(spec['layers']) for spec in architectures}:
+        architectures.insert(0, {
+            'name': f"Current default ({format_hidden_layers(DEFAULT_HIDDEN_LAYERS)})",
+            'layers': list(DEFAULT_HIDDEN_LAYERS),
+        })
+    else:
+        architectures = sorted(
+            architectures,
+            key=lambda spec: tuple(spec['layers']) != baseline_layers,
+        )
+    baseline_name = next(
+        spec['name'] for spec in architectures if tuple(spec['layers']) == baseline_layers
+    )
+    screening_seed = read_exported_seed() or DEFAULT_EXPERIMENT_SCREENING_SEED
+
+    print("\n" + "=" * 70)
+    print("  FP-FIRST MLP ARCHITECTURE CAMPAIGN")
+    print("=" * 70)
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}")
     print(f"FP weight: {fp_weight}")
+    print(f"Screening seed: {screening_seed}")
+    print(
+        "Architectures: "
+        + ', '.join(f"{spec['name']} [{format_hidden_layers(spec['layers'])}]" for spec in architectures)
+    )
     if environment_filter is not None:
         print(f"Environment filter: {', '.join(sorted(environment_filter))}")
     if excluded_chips is not None:
@@ -3052,9 +3531,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
             "Positive chip boost: "
             + ', '.join(f"{chip}={factor:.2f}" for chip, factor in sorted(positive_chip_boost.items()))
         )
-    print()
-    
-    # Check dependencies
+
     try:
         with suppress_stderr():
             import tensorflow as tf
@@ -3065,194 +3542,254 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
                 absl.logging.set_stderrthreshold(absl.logging.ERROR)
             except ImportError:
                 pass
-    except ImportError as e:
-        print(f"Error: Missing dependency - {e}")
+    except ImportError as exc:
+        print(f"Error: Missing dependency - {exc}")
         return 1
-    
-    # Load and extract features
-    print("Loading data...")
+
+    print("\nLoading data...")
     all_packets, stats = load_all_data(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
     )
-    
     if not stats['chips']:
         print("Error: No datasets found in data/")
         return 1
-    
+
     print(f"  Chips: {', '.join(stats['chips'])}")
-    if stats.get('excluded_chips'):
-        print(f"  Excluded chips: {', '.join(stats['excluded_chips'])}")
-    if stats.get('cv_norm_files'):
-        print(f"  Files using CV normalization: {len(stats['cv_norm_files'])}")
     print(f"  Session groups: {len(stats.get('session_groups', []))}")
     print(f"  Total: {stats['total']} packets")
-    
-    print("\nExtracting features...")
-    X, y, feature_names, sample_context = extract_features(all_packets, subcarriers=subcarriers)
-    print(f"  Samples: {len(X)}")
-    print(f"  Features: {len(feature_names)}")
-    print(f"  Class balance: IDLE={np.sum(y==0)}, MOTION={np.sum(y==1)}")
 
-    dataset_info = load_dataset_info()
-    tuning_map = build_gridsearch_tuning_map(dataset_info, DEFAULT_SUBCARRIERS, default_threshold=1.0)
-    sample_weights = compute_mvs_guided_sample_weights(
-        all_packets, tuning_map, window_size=SEG_WINDOW_SIZE
+    print("\nExtracting features...")
+    X, y, feature_names, sample_context = extract_features(
+        all_packets,
+        subcarriers=DEFAULT_SUBCARRIERS,
+        feature_names=TRAINING_FEATURES,
     )
-    sample_weights, _ = apply_positive_chip_boost(
+    dataset_info = load_dataset_info()
+    tuning_map = build_gridsearch_tuning_map(
+        dataset_info,
+        DEFAULT_SUBCARRIERS,
+        default_threshold=1.0,
+    )
+    sample_weights = compute_mvs_guided_sample_weights(
+        all_packets,
+        tuning_map,
+        window_size=SEG_WINDOW_SIZE,
+    )
+    sample_weights, boost_summary = apply_positive_chip_boost(
         sample_weights,
         sample_context,
         y,
         positive_chip_boost,
     )
-    groups = sample_context[DEFAULT_PRIMARY_GROUP_KEY]
-    
-    results = []
-    
-    for arch in architectures:
-        name = arch['name']
-        layers = arch['layers']
-        
-        # Calculate parameter count
-        layer_sizes = [X.shape[1]] + layers + [1]
-        n_params = 0
-        for i in range(len(layer_sizes) - 1):
-            n_params += layer_sizes[i] * layer_sizes[i + 1]  # weights
-            n_params += layer_sizes[i + 1]  # biases
-        
-        weight_kb = n_params * 4 / 1024  # float32
-        
-        # Estimate inference FLOPS (multiply-accumulate operations)
-        flops = 0
-        for i in range(len(layer_sizes) - 1):
-            flops += layer_sizes[i] * layer_sizes[i + 1]  # MAC operations
-        
-        print(f"\nEvaluating: {name} ({' -> '.join(map(str, layer_sizes))})...")
-        print(f"  Parameters: {n_params}, Weights: {weight_kb:.1f} KB, FLOPS: {flops}")
-        
-        # Cross-validate
-        with suppress_stderr():
-            cv = cross_validate(
-                X, y,
-                hidden_layers=layers,
-                n_folds=DEFAULT_CV_FOLDS,
-                max_epochs=DEFAULT_MAX_EPOCHS,
-                fp_weight=fp_weight,
-                sample_weight=sample_weights,
-                groups=groups,
-                sample_context=sample_context,
-                scaler_mode=scaler_mode,
-                batch_size=batch_size,
-                block_stride=SEG_WINDOW_SIZE,
-                block_group_key=DEFAULT_BLOCK_GROUP_KEY,
-                report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
-            )
-        
-        # Measure Python inference time
-        scaler = build_preprocessor(scaler_mode)
-        X_scaled = scaler.fit_transform(X)
-        
-        with suppress_stderr():
-            model = train_model(
-                X_scaled, y,
-                hidden_layers=layers,
-                max_epochs=DEFAULT_MAX_EPOCHS,
-                fp_weight=fp_weight,
-                sample_weight=sample_weights,
-                batch_size=batch_size,
-            )
-        
-        # Benchmark the standard Keras inference path used by exports/tests.
-        sample = X_scaled[:1].astype(np.float32)
-        # Warm up
-        for _ in range(10):
-            predict_probabilities(model, sample)
-        
-        n_bench = 1000
-        start_t = time.perf_counter()
-        for _ in range(n_bench):
-            predict_probabilities(model, sample)
-        elapsed = time.perf_counter() - start_t
-        inference_us = elapsed / n_bench * 1e6
+    dataset = {
+        'X': np.asarray(X, dtype=np.float32),
+        'y': np.asarray(y, dtype=np.int8),
+        'feature_names': list(feature_names),
+        'sample_context': sample_context,
+        'sample_weights': np.asarray(sample_weights, dtype=np.float32),
+        'groups': sample_context[DEFAULT_PRIMARY_GROUP_KEY],
+        'boost_summary': boost_summary,
+    }
+    print(f"  Samples: {len(dataset['X'])}")
+    print(f"  Features: {len(dataset['feature_names'])}")
+    print(f"  Class balance: IDLE={np.sum(dataset['y']==0)}, MOTION={np.sum(dataset['y']==1)}")
 
-        session_report = cv.get('group_reports', {}).get('session_group', {})
-        chip_report = cv.get('group_reports', {}).get('chip', {})
-        worst_session = session_report.get('worst_recall', {})
-        worst_session_fp = session_report.get('worst_fp_rate', {})
-        worst_chip = chip_report.get('worst_recall', {})
-        
-        result = {
-            'name': name,
-            'layers': layers,
-            'params': n_params,
-            'weight_kb': weight_kb,
-            'flops': flops,
-            'f1_mean': cv['f1_mean'],
-            'f1_std': cv['f1_std'],
-            'oof_f1': cv['oof_f1'],
-            'recall_mean': cv['recall_mean'],
-            'recall_std': cv['recall_std'],
-            'precision_mean': cv['precision_mean'],
-            'fp_rate_mean': cv['fp_rate_mean'],
-            'worst_session_recall': worst_session.get('recall', 0.0),
-            'worst_session_fp': worst_session_fp.get('fp_rate', 0.0),
-            'worst_chip_recall': worst_chip.get('recall', 0.0),
-            'candidate_key': build_candidate_key(cv),
-            'inference_us': inference_us,
-        }
-        results.append(result)
-        
-        print(f"  Blocked OOF F1: {cv['oof_f1']:.1f}%")
-        print(
-            f"  Worst session recall: {result['worst_session_recall']:.1f}%, "
-            f"worst session FP: {result['worst_session_fp']:.1f}%"
+    results = {
+        'config': {
+            'scaler': scaler_mode,
+            'batch_size': batch_size,
+            'fp_weight': fp_weight,
+            'environment': sorted(environment_filter) if environment_filter else None,
+            'exclude_chip': sorted(excluded_chips) if excluded_chips else [],
+            'positive_chip_boost': positive_chip_boost,
+            'screening_seed': screening_seed,
+            'initial_seeds': list(DEFAULT_EXPERIMENT_INITIAL_SEEDS),
+            'final_seeds': list(DEFAULT_EXPERIMENT_FINAL_SEEDS),
+            'promote_winner': bool(promote_winner),
+            'architectures': architectures,
+            'feature_names': list(feature_names),
+        },
+        'screening': [],
+        'seed_filter': [],
+        'seed_finalists': [],
+        'promotion': None,
+    }
+
+    print("\n== Single-seed screening ==")
+    screening_results = []
+    for spec in architectures:
+        run = evaluate_architecture_candidate(
+            spec['name'],
+            spec['layers'],
+            screening_seed,
+            dataset,
+            scaler_mode,
+            batch_size,
+            fp_weight,
         )
-        print(f"  Inference: {inference_us:.1f} us/sample")
-    
-    # Print comparison table
-    print("\n" + "="*118)
-    print("                                   ARCHITECTURE COMPARISON")
-    print("="*118 + "\n")
-    
-    print(
-        f"{'Architecture':<18} {'Params':>7} {'KB':>6} {'OOF F1':>8} "
-        f"{'WorstSessionR':>13} {'WorstSessionFP':>14} {'WorstChipR':>11} {'Inf (us)':>10}"
-    )
-    print("-"*118)
-    
-    best = max(results, key=lambda r: r['candidate_key'])
-    best_oof = max(results, key=lambda r: r['oof_f1'])
-    shortlist = [
-        r for r in results
-        if r['worst_session_recall'] >= best['worst_session_recall'] - 0.5
-        and r['oof_f1'] >= best['oof_f1'] - 0.3
+        screening_results.append(run)
+        results['screening'] = screening_results
+        write_json_results(output_path, results)
+
+    challengers = [
+        item for item in sorted(screening_results, key=architecture_campaign_rank_key)
+        if item['name'] != baseline_name
+    ][:2]
+    finalists = [baseline_name] + [item['name'] for item in challengers]
+    print(f"\nFinalists for 3-seed filter: {', '.join(finalists)}")
+
+    specs_by_name = {spec['name']: spec for spec in architectures}
+
+    print("\n== 3-seed robustness filter ==")
+    seed_filter = []
+    for name in finalists:
+        spec = specs_by_name[name]
+        runs = [
+            evaluate_architecture_candidate(
+                name,
+                spec['layers'],
+                seed,
+                dataset,
+                scaler_mode,
+                batch_size,
+                fp_weight,
+            )
+            for seed in DEFAULT_EXPERIMENT_INITIAL_SEEDS
+        ]
+        summary = aggregate_architecture_runs(name, runs)
+        seed_filter.append(summary)
+        results['seed_filter'] = seed_filter
+        write_json_results(output_path, results)
+        print(
+            f"{name} | median long maxFP={summary['median_long_max_fp_rate']:.1f}% | "
+            f"median totalFP={summary['median_long_total_fp']:.1f} | "
+            f"median worstF1={summary['median_long_worst_chip_f1']:.1f}% | "
+            f"median paired pass={summary['median_paired_pass_count']:.1f}"
+        )
+
+    baseline_filter = next(item for item in seed_filter if item['name'] == baseline_name)
+    challenger_summaries = [
+        item for item in sorted(seed_filter, key=aggregate_architecture_rank_key)
+        if item['name'] != baseline_name
     ]
-    recommended = min(shortlist, key=lambda r: (r['params'], -r['worst_session_recall'], -r['oof_f1']))
-    
-    for r in results:
-        marker = " **" if r == recommended else "   "
+    head_to_head = [baseline_name]
+    if challenger_summaries:
+        head_to_head.append(challenger_summaries[0]['name'])
+    print(f"\n5-seed head-to-head: {', '.join(head_to_head)}")
+
+    print("\n== 5-seed final comparison ==")
+    seed_finalists = []
+    for name in head_to_head:
+        spec = specs_by_name[name]
+        runs = [
+            evaluate_architecture_candidate(
+                name,
+                spec['layers'],
+                seed,
+                dataset,
+                scaler_mode,
+                batch_size,
+                fp_weight,
+            )
+            for seed in DEFAULT_EXPERIMENT_FINAL_SEEDS
+        ]
+        summary = aggregate_architecture_runs(name, runs)
+        seed_finalists.append(summary)
+        results['seed_finalists'] = seed_finalists
+        write_json_results(output_path, results)
         print(
-            f"{marker}{r['name']:<15} {r['params']:>7} {r['weight_kb']:>5.1f} "
-            f"{r['oof_f1']:>7.1f}% {r['worst_session_recall']:>12.1f}% "
-            f"{r['worst_session_fp']:>13.1f}% {r['worst_chip_recall']:>10.1f}% "
-            f"{r['inference_us']:>9.1f}"
+            f"{name} | median long maxFP={summary['median_long_max_fp_rate']:.1f}% | "
+            f"median totalFP={summary['median_long_total_fp']:.1f} | "
+            f"median worstF1={summary['median_long_worst_chip_f1']:.1f}% | "
+            f"median paired pass={summary['median_paired_pass_count']:.1f}"
         )
-    
-    print("-"*118)
-    print(f"\nBest robust score: {best['name']}")
-    print(
-        f"  Worst-session recall={best['worst_session_recall']:.1f}% | "
-        f"blocked OOF F1={best['oof_f1']:.1f}% | params={best['params']}"
+
+    seed_finalists = sorted(seed_finalists, key=aggregate_architecture_rank_key)
+    baseline_final = next(item for item in seed_finalists if item['name'] == baseline_name)
+    winner = seed_finalists[0]
+    promote_candidate = (
+        winner['name'] != baseline_name
+        and architecture_candidate_beats_baseline(winner, baseline_final)
     )
-    print(f"Best OOF F1: {best_oof['name']} ({best_oof['oof_f1']:.1f}%)")
-    print(f"Recommended smallest robust model: {recommended['name']}")
-    print(
-        f"  Layers: {recommended['layers']} | "
-        f"worst-session recall={recommended['worst_session_recall']:.1f}% | "
-        f"blocked OOF F1={recommended['oof_f1']:.1f}%"
+    results['promotion'] = {
+        'winner': winner['name'],
+        'baseline': baseline_final['name'],
+        'decision': f"promote {winner['name']}" if promote_candidate else f"keep {baseline_name}",
+        'clear_winner': bool(promote_candidate),
+        'summary': winner,
+        'baseline_summary': baseline_final,
+        'output_path': str(output_path),
+    }
+    write_json_results(output_path, results)
+
+    if not promote_candidate:
+        print(f"\nDecision: keep {baseline_name}")
+        return 0
+
+    print(f"\nDecision: {winner['name']} beats {baseline_name} on FP-first ranking")
+    if not promote_winner:
+        print("Promotion disabled (--experiment-promote not set), leaving current artifacts unchanged")
+        return 0
+
+    print("\n== Exporting promoted architecture ==")
+    backup_dir, saved_files = _backup_artifacts()
+    spec = specs_by_name[winner['name']]
+    export_rc, used_seed, export_metrics = train_all(
+        fp_weight=fp_weight,
+        seed=winner['best_single_run']['seed'],
+        feature_names=TRAINING_FEATURES,
+        feature_importance=False,
+        ablation=False,
+        shap_samples=200,
+        hidden_layers=spec['layers'],
+        scaler_mode=scaler_mode,
+        batch_size=batch_size,
+        export_artifacts=True,
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        positive_chip_boost=positive_chip_boost,
     )
-    
-    print()
+    if export_rc != 0 or export_metrics is None:
+        _restore_artifacts(saved_files)
+        results['promotion']['final_export'] = {
+            'status': 'export_failed',
+            'backup_dir': str(backup_dir),
+        }
+        write_json_results(output_path, results)
+        print("Promotion export failed, restored previous artifacts")
+        return 1
+
+    paired_rc, paired_output = _run_ml_paired_tests()
+    long_metrics, long_output = _run_ml_performance_tests()
+    if paired_rc != 0 or long_metrics is None:
+        _restore_artifacts(saved_files)
+        results['promotion']['final_export'] = {
+            'status': 'verification_failed',
+            'seed': int(used_seed),
+            'paired_returncode': int(paired_rc),
+            'long_metrics': long_metrics,
+            'backup_dir': str(backup_dir),
+        }
+        write_json_results(output_path, results)
+        print("Promotion verification failed, restored previous artifacts")
+        if paired_output.strip():
+            print(paired_output.strip())
+        if long_output.strip():
+            print(long_output.strip())
+        return 1
+
+    results['promotion']['final_export'] = {
+        'status': 'promoted',
+        'seed': int(used_seed),
+        'paired_returncode': int(paired_rc),
+        'long_metrics': long_metrics,
+        'backup_dir': str(backup_dir),
+        'paired_output': paired_output,
+        'long_output': long_output,
+    }
+    write_json_results(output_path, results)
+    print(f"Promoted architecture: {winner['name']} (seed {used_seed})")
     return 0
 
 
@@ -3264,7 +3801,11 @@ def main():
 Examples:
   python tools/10_train_ml_model.py                    # Train with current production defaults
   python tools/10_train_ml_model.py --info             # Show dataset info
-  python tools/10_train_ml_model.py --experiment       # Compare the current MLP sweep
+  python tools/10_train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
+  python tools/10_train_ml_model.py --experiment --experiment-promote
+                                           # Promote the winner if it beats the baseline
+  python tools/10_train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"
+                                           # Custom shortlist for the topology campaign
   python tools/10_train_ml_model.py --hidden-layers 24,12
                                            # Train/export the 12 -> 24 -> 12 -> 1 candidate
   python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
@@ -3289,7 +3830,15 @@ To compare ML with MVS, use:
     parser.add_argument('--info', action='store_true', 
                        help='Show dataset information')
     parser.add_argument('--experiment', action='store_true',
-                       help='Compare the current MLP architecture sweep using cross-validation')
+                       help='Run the FP-first MLP topology campaign')
+    parser.add_argument('--experiment-promote', action='store_true',
+                       help='When used with --experiment, export the winning topology if it beats the baseline')
+    parser.add_argument('--experiment-output', type=Path, default=DEFAULT_EXPERIMENT_OUTPUT,
+                       help='JSON output path for --experiment results '
+                            f'(default: {DEFAULT_EXPERIMENT_OUTPUT})')
+    parser.add_argument('--experiment-architectures', type=parse_architecture_sweep, default=None,
+                       help='Semicolon-separated hidden-layer specs for --experiment, '
+                            'e.g. "16,8;24,12;32,16;24;24,12,6"')
     parser.add_argument('--seed', type=int, default=None,
                        help='Use specific random seed for reproducible training')
     parser.add_argument('--seed-search-until-improvement', type=int, default=0, metavar='MAX_TRIALS',
@@ -3338,7 +3887,10 @@ To compare ML with MVS, use:
             fp_weight=args.fp_weight,
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
+            architectures=args.experiment_architectures,
             positive_chip_boost=args.positive_chip_boost,
+            output_path=args.experiment_output,
+            promote_winner=args.experiment_promote,
         )
     
     if args.correlation:

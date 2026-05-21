@@ -665,6 +665,7 @@ def main():
     
     # Main CSI processing loop with integrated MQTT publishing
     publish_counter = 0
+    mqtt_poll_counter = 0
     last_dropped = 0
     filtered_count = 0  # Packets with wrong SC count
     last_publish_time = time.ticks_ms()
@@ -689,9 +690,6 @@ def main():
             if g_state.calibration_mode:
                 time.sleep_ms(1000) # Sleep for 1 second to yield CPU
                 continue
-            
-            # Check MQTT messages (non-blocking)
-            mqtt_handler.check_messages()
             
             frame = wlan.csi_read()
             
@@ -719,6 +717,13 @@ def main():
                 
                 # Process packet through detector interface
                 detector.process_packet(csi_data, config.SELECTED_SUBCARRIERS)
+
+                # Poll MQTT commands every 10 packets to reduce hot-loop overhead
+                # without making command responsiveness noticeable to users.
+                mqtt_poll_counter += 1
+                if mqtt_poll_counter >= 10:
+                    mqtt_handler.check_messages()
+                    mqtt_poll_counter = 0
                 
                 publish_counter += 1
                 runtime_policy.note_packet()

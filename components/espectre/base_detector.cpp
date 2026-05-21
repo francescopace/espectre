@@ -9,7 +9,6 @@
 
 #include "base_detector.h"
 #include "utils.h"
-#include <cmath>
 #include <cstring>
 #include <new>
 #include "esphome/core/log.h"
@@ -25,7 +24,6 @@ static const char *TAG = "BaseDetector";
 
 BaseDetector::BaseDetector(uint16_t window_size)
     : turbulence_buffer_(nullptr)
-    , num_amplitudes_(0)
     , buffer_index_(0)
     , buffer_count_(0)
     , window_size_(window_size)
@@ -48,9 +46,6 @@ BaseDetector::BaseDetector(uint16_t window_size)
         std::memset(turbulence_buffer_, 0, window_size_ * sizeof(float));
     }
     
-    // Initialize amplitude buffer
-    std::memset(amplitude_buffer_, 0, sizeof(amplitude_buffer_));
-    
     // Initialize filters (disabled by default)
     lowpass_filter_init(&lowpass_state_, LOWPASS_CUTOFF_DEFAULT, LOWPASS_SAMPLE_RATE, false);
     hampel_turbulence_init(&hampel_state_, HAMPEL_TURBULENCE_WINDOW_DEFAULT, HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
@@ -65,7 +60,6 @@ BaseDetector::~BaseDetector() {
 
 BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     : turbulence_buffer_(other.turbulence_buffer_)
-    , num_amplitudes_(other.num_amplitudes_)
     , buffer_index_(other.buffer_index_)
     , buffer_count_(other.buffer_count_)
     , window_size_(other.window_size_)
@@ -75,10 +69,6 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , lowpass_state_(other.lowpass_state_)
     , hampel_state_(other.hampel_state_)
     , use_cv_normalization_(other.use_cv_normalization_) {
-    
-    // Copy amplitude buffer
-    std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
-    
     // Transfer ownership - null out source pointer
     other.turbulence_buffer_ = nullptr;
 }
@@ -90,7 +80,6 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         
         // Transfer all state
         turbulence_buffer_ = other.turbulence_buffer_;
-        num_amplitudes_ = other.num_amplitudes_;
         buffer_index_ = other.buffer_index_;
         buffer_count_ = other.buffer_count_;
         window_size_ = other.window_size_;
@@ -100,9 +89,6 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         lowpass_state_ = other.lowpass_state_;
         hampel_state_ = other.hampel_state_;
         use_cv_normalization_ = other.use_cv_normalization_;
-        
-        // Copy amplitude buffer
-        std::memcpy(amplitude_buffer_, other.amplitude_buffer_, sizeof(amplitude_buffer_));
         
         // Transfer ownership - null out source pointer
         other.turbulence_buffer_ = nullptr;
@@ -122,35 +108,13 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
         return;
     }
     
-    // Store amplitudes for feature extraction (before computing turbulence)
-    // HT20: 64 subcarriers max
-    int total_subcarriers = static_cast<int>(csi_len / 2);
-    num_amplitudes_ = 0;
-    
-    if (selected_subcarriers && num_subcarriers > 0) {
-        for (int i = 0; i < num_subcarriers && num_amplitudes_ < HT20_SELECTED_BAND_SIZE; i++) {
-            int sc_idx = selected_subcarriers[i];
-            if (sc_idx >= total_subcarriers) continue;
-            
-            // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-            float Q = static_cast<float>(csi_data[sc_idx * 2]);      // Imaginary first
-            float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);  // Real second
-            amplitude_buffer_[num_amplitudes_] = std::sqrt(I * I + Q * Q);
-            num_amplitudes_++;
-        }
-    }
-    
-    // Calculate spatial turbulence
-    // Two modes:
-    //   CV normalization (std/mean): gain-invariant, used when gain is NOT locked
-    //   Raw std: better sensitivity for contiguous bands, used when gain IS locked
     float turbulence = 0.0f;
-    if (num_amplitudes_ > 0) {
-        float variance = calculate_variance_two_pass(amplitude_buffer_, num_amplitudes_);
-        turbulence = calculate_turbulence_from_variance(variance, amplitude_buffer_, 
-                                                         num_amplitudes_, use_cv_normalization_);
+    if (selected_subcarriers && num_subcarriers > 0) {
+        turbulence = calculate_spatial_turbulence_from_csi(
+            csi_data, csi_len, selected_subcarriers, num_subcarriers,
+            use_cv_normalization_);
     }
-    
+
     // Add to buffer with filtering
     add_turbulence_to_buffer(turbulence);
 }

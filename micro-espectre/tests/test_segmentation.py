@@ -442,13 +442,16 @@ class TestCalculateSpatialTurbulence:
     """Test the instance method calculate_spatial_turbulence"""
     
     def test_stores_amplitudes(self, synthetic_csi_packet, default_subcarriers):
-        """Test that amplitudes are stored for feature calculation"""
+        """Test that amplitudes are available when explicitly requested"""
         ctx = SegmentationContext()
         
-        turb = ctx.calculate_spatial_turbulence(synthetic_csi_packet, default_subcarriers)
+        turb, amps = ctx.calculate_spatial_turbulence(
+            synthetic_csi_packet, default_subcarriers, return_amplitudes=True
+        )
         
-        assert ctx.last_amplitudes is not None
-        assert len(ctx.last_amplitudes) == len(default_subcarriers)
+        assert len(amps) == len(default_subcarriers)
+        assert ctx._amplitude_count == len(default_subcarriers)
+        assert turb >= 0.0
 
 
 class TestEndToEnd:

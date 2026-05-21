@@ -291,33 +291,29 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
     if (!csi_data || csi_len < 2 || num_subcarriers == 0 || !subcarriers) {
         return 0.0f;
     }
-    
-    // HT20: 64 subcarriers max
+
     int total_subcarriers = static_cast<int>(csi_len / 2);
-    
-    // Calculate magnitudes only for selected subcarriers (max 12)
     float amplitudes[12];
-    int valid_count = 0;
-    
-    for (int i = 0; i < num_subcarriers && i < 12; i++) {
+    uint8_t compact_indices[12];
+    uint8_t valid_count = 0;
+
+    for (int i = 0; i < num_subcarriers && valid_count < 12; i++) {
         int sc_idx = subcarriers[i];
-        
         if (sc_idx >= total_subcarriers) {
             continue;
         }
-        
+
         // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-        float Q = static_cast<float>(csi_data[sc_idx * 2]);      // Imaginary first
-        float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);  // Real second
-        amplitudes[valid_count++] = std::sqrt(I * I + Q * Q);
+        float Q = static_cast<float>(csi_data[sc_idx * 2]);
+        float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);
+        amplitudes[valid_count] = std::sqrt(I * I + Q * Q);
+        compact_indices[valid_count] = valid_count;
+        valid_count++;
     }
-    
-    if (valid_count == 0) {
-        return 0.0f;
-    }
-    
-    float variance = calculate_variance_two_pass(amplitudes, valid_count);
-    return calculate_turbulence_from_variance(variance, amplitudes, valid_count, use_cv_normalization);
+
+    return calculate_spatial_turbulence(
+        amplitudes, compact_indices, valid_count,
+        static_cast<uint16_t>(valid_count), use_cv_normalization);
 }
 
 /**

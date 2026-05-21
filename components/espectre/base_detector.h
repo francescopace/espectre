@@ -50,7 +50,6 @@ constexpr uint16_t CALIBRATION_DEFAULT_BUFFER_SIZE = DETECTOR_DEFAULT_WINDOW_SIZ
  * - Turbulence buffer management (circular buffer)
  * - Hampel and low-pass filtering
  * - CSI processing and spatial turbulence calculation
- * - Amplitude storage for feature extraction
  * 
  * Subclasses must implement:
  * - update_state(): detection algorithm logic
@@ -85,8 +84,7 @@ public:
      * Process a CSI packet and update internal state
      * 
      * Calculates spatial turbulence from CSI data, applies filtering,
-     * and stores in circular buffer. Also stores amplitudes for feature
-     * extraction by ML detector.
+     * and stores in circular buffer.
      * 
      * @param csi_data Raw CSI data (I/Q interleaved)
      * @param csi_len Length of CSI data
@@ -240,8 +238,6 @@ protected:
     
     // Buffer state
     float* turbulence_buffer_;
-    float amplitude_buffer_[HT20_SELECTED_BAND_SIZE];  // Last packet amplitudes
-    uint8_t num_amplitudes_;
     uint16_t buffer_index_;
     uint16_t buffer_count_;
     uint16_t window_size_;

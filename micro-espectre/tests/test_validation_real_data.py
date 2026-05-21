@@ -43,7 +43,7 @@ nbvi_calibrator.BUFFER_FILE = os.path.join(tempfile.gettempdir(), 'nbvi_buffer_v
 # Import from src and tools
 from segmentation import SegmentationContext
 from features import (
-    calc_skewness, calc_kurtosis, calc_mad,
+    calc_skewness, calc_mad,
 )
 from filters import HampelFilter
 from csi_utils import (
@@ -504,18 +504,6 @@ class TestFeatureSeparationRealData:
         # Note: Skewness is not the primary detection method (MVS is)
         # so we only require minimal separation to confirm the feature works
         assert J > 0.0001, f"Skewness Fisher's J too low: {J:.6f}"
-    
-    def test_kurtosis_separation(self, baseline_amplitudes, movement_amplitudes):
-        """Test that kurtosis shows separation between baseline and movement"""
-        baseline_kurt = [calc_kurtosis(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in baseline_amplitudes]
-        movement_kurt = [calc_kurtosis(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in movement_amplitudes]
-        
-        J = fishers_criterion(baseline_kurt, movement_kurt)
-        
-        # Should have some separation
-        # Note: Kurtosis is not the primary detection method (MVS is)
-        # so we only require minimal separation to confirm the feature works
-        assert J > 0.0001, f"Kurtosis Fisher's J too low: {J:.6f}"
     
     def test_turbulence_variance_separation(self, real_data, default_subcarriers, chip_type, use_cv_normalization, window_size):
         """Test that turbulence variance separates baseline from movement.

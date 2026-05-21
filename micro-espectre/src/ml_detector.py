@@ -39,7 +39,7 @@ except ImportError:
     )
 
 # Re-export for convenience
-__all__ = ['MLDetector', 'predict', 'is_motion', 'DEFAULT_SUBCARRIERS']
+__all__ = ['MLDetector', 'predict', 'is_motion', 'DEFAULT_SUBCARRIERS', 'FEATURE_NAMES']
 
 # ML-specific constants (unified with MVS for consistent UI)
 ML_DEFAULT_THRESHOLD = 5.0
@@ -47,6 +47,16 @@ ML_MIN_THRESHOLD = 0.0
 ML_MAX_THRESHOLD = 10.0
 ML_METRIC_SCALE = 10.0
 ML_TEMPERATURE = 5.0
+
+# Transpose weight matrices at load time: [input][output] → [output][input].
+# This makes the inner multiply-add loop access weights[j] once per output
+# neuron instead of weights[i][j] (2 lookups) per multiply-add.
+_WEIGHTS_T = []
+for _lw in WEIGHTS:
+    _n_in = len(_lw)
+    _n_out = len(_lw[0])
+    _WEIGHTS_T.append([[_lw[i][j] for i in range(_n_in)] for j in range(_n_out)])
+del _lw, _n_in, _n_out
 
 # ============================================================================
 # Neural Network Inference Functions
@@ -88,20 +98,24 @@ def predict(features):
     Returns:
         float: Scaled motion metric (0.0 to 10.0)
     """
-    # Normalize
-    activations = normalize_features(features)
+    n_feat = len(features)
+    activations = [0.0] * n_feat
+    for i in range(n_feat):
+        activations[i] = (features[i] - FEATURE_MEAN[i]) / FEATURE_SCALE[i]
 
-    for layer_idx, (weights, biases) in enumerate(zip(WEIGHTS, BIASES)):
-        next_activations = []
-        for j in range(len(biases)):
+    n_layers = len(_WEIGHTS_T)
+    for layer_idx in range(n_layers):
+        weights_t = _WEIGHTS_T[layer_idx]
+        biases = BIASES[layer_idx]
+        n_out = len(biases)
+        next_activations = [0.0] * n_out
+        is_last = layer_idx == n_layers - 1
+        for j in range(n_out):
             val = biases[j]
+            w_row = weights_t[j]
             for i in range(len(activations)):
-                val += activations[i] * weights[i][j]
-
-            if layer_idx == len(WEIGHTS) - 1:
-                next_activations.append(val)
-            else:
-                next_activations.append(relu(val))
+                val += activations[i] * w_row[i]
+            next_activations[j] = val if is_last else (val if val > 0 else 0.0)
         activations = next_activations
 
     return sigmoid(activations[0] / ML_TEMPERATURE) * ML_METRIC_SCALE
@@ -179,9 +193,6 @@ class MLDetector(IDetector):
         self.probability_history = []
         self.state_history = []
         self.track_data = False
-        
-        # Store current amplitudes for feature extraction
-        self._current_amplitudes = None
     
     def process_packet(self, csi_data, selected_subcarriers=None):
         """
@@ -193,15 +204,11 @@ class MLDetector(IDetector):
         """
         self._packet_count += 1
         
-        # Calculate spatial turbulence using instance method (raw std)
-        # Also get amplitudes for cross-subcarrier features
-        turbulence, amplitudes = self._context.calculate_spatial_turbulence(
-            csi_data, selected_subcarriers, return_amplitudes=True
+        # ML features use only the turbulence window; skip per-packet amplitude lists.
+        turbulence = self._context.calculate_spatial_turbulence(
+            csi_data, selected_subcarriers
         )
-        
-        # Store amplitudes for feature extraction
-        self._current_amplitudes = amplitudes
-        
+
         # Add to buffer
         self._context.add_turbulence(turbulence)
     
@@ -267,8 +274,7 @@ class MLDetector(IDetector):
             turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
         
         return extract_features_by_name(
-            turb_list, len(turb_list), 
-            amplitudes=self._current_amplitudes,
+            turb_list, len(turb_list),
             feature_names=FEATURE_NAMES
         )
     

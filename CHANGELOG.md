@@ -35,6 +35,7 @@ All notable changes to this project will be documented in this file.
 - **Hard-positive mining added**: subtle near-threshold motion samples are up-weighted to improve worst-chip recall.
 - **Feature set refreshed**: `turb_delta` was replaced by `waveform_length`, and the latest long-run tuning swapped `turb_zcr` for `turb_iqr` to reduce quiet-window false positives while preserving recall across chips.
 - **ML feature set trimmed for holdout robustness**: the production MLP now uses 9 inputs (`turb_mean`, `turb_std`, `turb_max`, `turb_min`, `turb_iqr`, `turb_skewness`, `turb_autocorr`, `turb_mad`, `waveform_length`), dropping `turb_kurtosis`, `turb_entropy`, and `turb_slope` after multi-seed long-recording sweeps showed better real-world behavior with the smaller set.
+- **ML topology widened after FP-first architecture sweep**: the production MLP hidden layers moved from `9 -> 24 -> 12 -> 1` to `9 -> 32 -> 16 -> 1` after a focused architecture campaign reduced median long-run FP (`506` vs `567`) while keeping paired validation pass count unchanged (`5/5`).
 - **Model and runtime chain re-aligned**: ML weights were retrained using Hampel-filtered input to keep train/deploy behavior consistent.
 - **Datasets recollected for all chips**: previous captures were replaced with new recordings under stricter quality controls (gain-locked, 128SC HT20-only, balanced baseline/motion ratios); the new dataset is used across the full pipeline — NBVI validation, MVS performance tests, and ML training.
 - **Validation quality controls tightened**: strict targets (`recall >95%`, `FP <5%`) were enforced for `test_mvs_default_subcarriers`.
@@ -174,7 +175,7 @@ espectre:
 
 The pre-trained model shipped with this release was trained on a limited dataset collected in a single environment. It performs well in initial testing, but **we need your help to make it better**. If you try the ML detector, consider contributing baseline (empty room) and movement recordings from your environment — the more diverse the training data, the more robust the model becomes. See [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md) for how to collect and submit data via pull request.
 
-For architecture and feature details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#features).
+For architecture and feature details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#ml-neural-network-detector).
 
 #### Training Pipeline
 

@@ -639,7 +639,7 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement,
         if 'ML' in method_thresholds:
             print(f"    - ML: {method_thresholds['ML']:.4f} (fixed)")
     if ML_AVAILABLE:
-        print(f"  ML Model: Neural Network (9→24→12→1)")
+        print(f"  ML Model: Neural Network (9→32→16→1)")
     print()
     
     results = results or compute_method_results(methods, method_thresholds or {})

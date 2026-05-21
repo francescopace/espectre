@@ -380,7 +380,7 @@ While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier 
 
 | Capability | Status | Description |
 |------------|--------|-------------|
-| **ML Detector** | Experimental | Neural network (MLP 9→24→12→1)|
+| **ML Detector** | Experimental | Neural network (MLP 9→32→16→1)|
 | **Gesture Recognition** | Planned | Detect hand gestures (swipe, push, circle) for smart home control |
 | **Human Activity Recognition** | Planned | Identify activities (sitting, walking, falling) |
 | **People Counting** | Planned | Estimate number of people in a room |
