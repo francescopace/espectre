@@ -29,7 +29,7 @@ import src.config as config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN
 from src.traffic_generator import TrafficGenerator
 from src.main import connect_wifi, cleanup_wifi, run_gain_lock
-from src.utils import normalize_ht20_csi_payload
+from src.utils import normalize_ht20_csi_payload, csi_read_frame
 
 # Streaming configuration
 STREAM_PORT = 5001
@@ -149,6 +149,7 @@ def stream_csi(dest_ip, duration_sec=0):
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
+    frame_result = None
     
     try:
         while True:
@@ -158,8 +159,9 @@ def stream_csi(dest_ip, duration_sec=0):
                 if elapsed >= duration_sec:
                     break
             
-            frame = wlan.csi_read()
+            frame = csi_read_frame(wlan, frame_result)
             if frame:
+                frame_result = frame
                 csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
                     frame[5], EXPECTED_CSI_LEN, remap_buffer=ht57_remap_buffer
                 )

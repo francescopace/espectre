@@ -157,6 +157,30 @@ class TestTrafficGeneratorGetGatewayIP:
         mock_network.WLAN.side_effect = None
 
 
+class TestTrafficGeneratorPingPacket:
+    """Test reusable ICMP packet generation."""
+
+    def test_build_ping_packet_reuses_buffer_and_updates_sequence(self, traffic_gen):
+        """Ping packet builder should reuse the same bytearray."""
+        first_packet = traffic_gen._build_ping_packet()
+        second_packet = traffic_gen._build_ping_packet()
+
+        assert first_packet is second_packet
+        assert len(first_packet) == 8
+        assert first_packet[0] == 8
+        assert first_packet[1] == 0
+        assert traffic_gen.ping_sequence == 2
+
+        # First packet had sequence 0, second had sequence 1.
+        assert second_packet[6] == 0
+        assert second_packet[7] == 1
+
+    def test_build_ping_packet_produces_valid_checksum(self, traffic_gen):
+        """Checksum over the final packet should validate to zero."""
+        packet = traffic_gen._build_ping_packet()
+        assert traffic_gen._checksum(packet) == 0
+
+
 class TestTrafficGeneratorStart:
     """Test start method"""
     
@@ -280,6 +304,8 @@ class TestTrafficGeneratorDnsTask:
         # Mock socket
         mock_sock = MagicMock()
         mock_sock.setblocking = MagicMock()
+        mock_sock.connect = MagicMock()
+        mock_sock.send = MagicMock()
         mock_sock.sendto = MagicMock()
         mock_sock.close = MagicMock()
         
@@ -290,12 +316,13 @@ class TestTrafficGeneratorDnsTask:
             if packets_sent[0] >= 3:
                 traffic_gen.running = False
         
+        mock_sock.send.side_effect = send_and_stop
         mock_sock.sendto.side_effect = send_and_stop
         
         with patch('traffic_generator.socket.socket', return_value=mock_sock):
             traffic_gen._dns_task()
         
-        assert mock_sock.sendto.call_count >= 1
+        assert (mock_sock.send.call_count + mock_sock.sendto.call_count) >= 1
         mock_sock.close.assert_called_once()
     
     def test_dns_task_socket_error(self, traffic_gen):
@@ -306,6 +333,8 @@ class TestTrafficGeneratorDnsTask:
         
         mock_sock = MagicMock()
         mock_sock.setblocking = MagicMock()
+        mock_sock.connect = MagicMock()
+        mock_sock.send = MagicMock()
         mock_sock.close = MagicMock()
         
         error_count = [0]
@@ -316,6 +345,7 @@ class TestTrafficGeneratorDnsTask:
                 traffic_gen.running = False
             raise OSError("Network unavailable")
         
+        mock_sock.send.side_effect = send_with_error
         mock_sock.sendto.side_effect = send_with_error
         
         with patch('traffic_generator.socket.socket', return_value=mock_sock):
@@ -331,6 +361,8 @@ class TestTrafficGeneratorDnsTask:
         
         mock_sock = MagicMock()
         mock_sock.setblocking = MagicMock()
+        mock_sock.connect = MagicMock()
+        mock_sock.send = MagicMock()
         mock_sock.close = MagicMock()
         
         exception_count = [0]
@@ -341,10 +373,35 @@ class TestTrafficGeneratorDnsTask:
                 traffic_gen.running = False
             raise Exception("General error")
         
+        mock_sock.send.side_effect = send_with_exception
         mock_sock.sendto.side_effect = send_with_exception
         
         with patch('traffic_generator.socket.socket', return_value=mock_sock):
             traffic_gen._dns_task()
         
         assert traffic_gen.error_count >= 1
+
+    def test_dns_task_falls_back_to_sendto_when_connect_fails(self, traffic_gen):
+        """DNS task should fall back to sendto() if connect() is unsupported."""
+        traffic_gen.rate_pps = 100
+        traffic_gen.gateway_ip = '192.168.1.1'
+        traffic_gen.running = True
+
+        mock_sock = MagicMock()
+        mock_sock.setblocking = MagicMock()
+        mock_sock.connect.side_effect = OSError("connect unsupported")
+        mock_sock.send = MagicMock()
+        mock_sock.sendto = MagicMock()
+        mock_sock.close = MagicMock()
+
+        def sendto_and_stop(*args):
+            traffic_gen.running = False
+
+        mock_sock.sendto.side_effect = sendto_and_stop
+
+        with patch('traffic_generator.socket.socket', return_value=mock_sock):
+            traffic_gen._dns_task()
+
+        assert mock_sock.send.call_count == 0
+        assert mock_sock.sendto.call_count >= 1
 

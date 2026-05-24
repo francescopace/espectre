@@ -19,6 +19,32 @@ HT20_CSI_SHORT_RIGHT_PAD = HT20_CSI_LEN - HT20_CSI_SHORT_COPY_END
 HT20_CSI_SHORT_LEFT_ZEROS = b"\x00" * HT20_CSI_SHORT_LEFT_PAD
 HT20_CSI_SHORT_RIGHT_ZEROS = b"\x00" * HT20_CSI_SHORT_RIGHT_PAD
 
+_CSI_READ_SUPPORTS_REUSE = None
+
+
+def csi_read_frame(wlan, reuse_frame=None):
+    """
+    Read a CSI frame, reusing the previous result tuple when supported.
+
+    Newer firmware accepts an optional previous result object:
+        frame = wlan.csi_read(previous_frame)
+
+    Older firmware only accepts wlan.csi_read() with no reuse argument.
+    Cache the capability after the first call so hot loops avoid repeated
+    exception handling on legacy firmware.
+    """
+    global _CSI_READ_SUPPORTS_REUSE
+
+    if _CSI_READ_SUPPORTS_REUSE is not False:
+        try:
+            frame = wlan.csi_read(reuse_frame)
+            _CSI_READ_SUPPORTS_REUSE = True
+            return frame
+        except TypeError:
+            _CSI_READ_SUPPORTS_REUSE = False
+
+    return wlan.csi_read()
+
 
 def normalize_ht20_csi_payload(csi_data, expected_len=128, chip_type=None, remap_buffer=None):
     """

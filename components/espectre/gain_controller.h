@@ -7,7 +7,7 @@
  * The ESP32 WiFi hardware has automatic gain control that can cause CSI amplitude
  * variations even in static environments. This controller:
  * 1. Collects gain statistics from the first N packets after boot
- * 2. Calculates average AGC and FFT gain values
+ * 2. Calculates median AGC and FFT gain values
  * 3. Locks (forces) these values to eliminate gain-induced variations
  * 
  * Supported platforms: ESP32-S3, ESP32-C3, ESP32-C5, ESP32-C6

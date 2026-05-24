@@ -14,6 +14,7 @@ WIFI_PASSWORD = "YourPassword"
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"
 
 # MQTT Configuration
+MQTT_ENABLED = True
 MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP
 MQTT_PORT = 1883
 MQTT_CLIENT_ID = "micro-espectre"

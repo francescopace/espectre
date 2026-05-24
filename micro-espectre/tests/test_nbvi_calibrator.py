@@ -82,6 +82,19 @@ class TestNBVICalibrator:
         assert calibrator.min_spacing == 5
         
         calibrator.free_buffer()
+
+    def test_validation_context_is_lazily_allocated_and_reused(self):
+        """Validation context should be allocated on demand and then reused."""
+        calibrator = NBVICalibrator(buffer_size=100)
+
+        assert calibrator._validation_ctx is None
+        calibrator._ensure_analysis_resources()
+        ctx = calibrator._validation_ctx
+        assert ctx is not None
+        assert calibrator._get_validation_context() is ctx
+        assert calibrator._get_validation_context() is ctx
+
+        calibrator.free_buffer()
     
     def test_add_packet_returns_count(self):
         """Test that add_packet returns packet count"""
@@ -729,9 +742,9 @@ class TestCalibrationFailurePaths:
         # Calibrate
         selected_band, mv_values = calibrator.calibrate()
         
-        # With all zeros, calibration may fail or use fallback
-        # Either way, mv_values should be a list
-        assert isinstance(mv_values, list)
+        # With all zeros, calibration may fail or use fallback.
+        # Either way, mv_values should be an indexable sequence.
+        assert hasattr(mv_values, '__len__')
         
         calibrator.free_buffer()
     
@@ -755,8 +768,8 @@ class TestCalibrationFailurePaths:
         # Calibrate
         selected_band, mv_values = calibrator.calibrate()
         
-        # With few valid subcarriers, calibration may fail or use fallback
-        # Either way, mv_values should be a list
-        assert isinstance(mv_values, list)
+        # With few valid subcarriers, calibration may fail or use fallback.
+        # Either way, mv_values should be an indexable sequence.
+        assert hasattr(mv_values, '__len__')
         
         calibrator.free_buffer()
