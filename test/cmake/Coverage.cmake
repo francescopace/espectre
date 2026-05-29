@@ -1,0 +1,15 @@
+option(ESPECTRE_ENABLE_COVERAGE "Enable compiler coverage flags for host-side tests" OFF)
+
+function(espectre_apply_coverage target_name)
+    if(NOT ESPECTRE_ENABLE_COVERAGE)
+        return()
+    endif()
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options("${target_name}" PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+        target_link_options("${target_name}" PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+        target_compile_options("${target_name}" PRIVATE --coverage)
+        target_link_options("${target_name}" PRIVATE --coverage)
+    endif()
+endfunction()

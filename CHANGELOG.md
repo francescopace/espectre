@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - **`ESpectreComponent` is now a thin frontend adapter**: setup/orchestration responsibilities were moved behind the runtime facade.
 - **ESPHome local development path now uses `src/frontend/esphome`** as the external-components root.
 - **Native tests and CI build plumbing were updated** to follow the new `src/` layout.
+- **Host-side C++ tests now use a layered `CMake + CTest` suite under `test/`**: PlatformIO-specific scaffolding was removed, suites were regrouped by `core` / `runtime` / `integration` / `frontend`, shared support code was consolidated, and coverage reporting now includes per-layer breakdowns.
 - **Documentation was aligned** to the new structure and `.venv` activation flow.
 
 ### Notes

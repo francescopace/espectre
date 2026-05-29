@@ -89,6 +89,12 @@ typedef enum {
   WIFI_BW_HT40,
 } wifi_bandwidth_t;
 
+typedef enum {
+  WIFI_SECOND_CHAN_NONE = 0,
+  WIFI_SECOND_CHAN_ABOVE,
+  WIFI_SECOND_CHAN_BELOW,
+} wifi_second_chan_t;
+
 // WiFi Band mode (dual-band capable targets)
 typedef enum {
   WIFI_BAND_MODE_2G_ONLY = 1,
@@ -125,6 +131,64 @@ typedef enum {
 // CSI callback type
 typedef void (*wifi_csi_cb_t)(void *ctx, wifi_csi_info_t *data);
 
+typedef struct {
+  int8_t rssi;
+  uint8_t primary;
+} wifi_ap_record_t;
+
+typedef struct {
+  esp_err_t set_protocol_results[4];
+  int set_protocol_result_count;
+  int set_protocol_call_count;
+  uint8_t last_protocol_bitmap;
+
+  esp_err_t set_protocols_result;
+  int set_protocols_call_count;
+  wifi_protocols_t last_protocols;
+
+  esp_err_t get_protocol_result;
+  uint8_t protocol_bitmap;
+
+  esp_err_t get_protocols_result;
+  wifi_protocols_t protocols;
+
+  esp_err_t set_bandwidth_result;
+  int set_bandwidth_call_count;
+  wifi_bandwidth_t last_bandwidth;
+
+  esp_err_t set_bandwidths_result;
+  int set_bandwidths_call_count;
+  wifi_bandwidths_t last_bandwidths;
+
+  esp_err_t get_bandwidth_result;
+  wifi_bandwidth_t bandwidth;
+
+  esp_err_t get_bandwidths_result;
+  wifi_bandwidths_t bandwidths;
+
+  esp_err_t set_promiscuous_result;
+  int set_promiscuous_call_count;
+  bool last_promiscuous;
+
+  esp_err_t get_promiscuous_result;
+  bool promiscuous;
+
+  esp_err_t get_ps_result;
+  wifi_ps_type_t ps_type;
+
+  esp_err_t get_channel_result;
+  uint8_t primary_channel;
+  wifi_second_chan_t second_channel;
+
+  esp_err_t set_band_mode_result;
+  int set_band_mode_call_count;
+  wifi_band_mode_t last_band_mode;
+} esp_wifi_mock_state_t;
+
+extern esp_wifi_mock_state_t g_esp_wifi_mock;
+
+void esp_wifi_mock_reset(void);
+
 // Mock WiFi functions
 static inline esp_err_t esp_wifi_set_mode(wifi_mode_t mode) {
   (void)mode;
@@ -159,83 +223,138 @@ static inline esp_err_t esp_wifi_set_csi(bool en) {
 }
 
 static inline esp_err_t esp_wifi_set_promiscuous(bool en) {
-  (void)en;
-  return ESP_OK;
+  g_esp_wifi_mock.set_promiscuous_call_count++;
+  g_esp_wifi_mock.last_promiscuous = en;
+  if (g_esp_wifi_mock.set_promiscuous_result == ESP_OK) {
+    g_esp_wifi_mock.promiscuous = en;
+  }
+  return g_esp_wifi_mock.set_promiscuous_result;
 }
 
 static inline esp_err_t esp_wifi_get_promiscuous(bool *en) {
-  if (en)
-    *en = false;
-  return ESP_OK;
+  if (en) {
+    *en = g_esp_wifi_mock.promiscuous;
+  }
+  return g_esp_wifi_mock.get_promiscuous_result;
 }
 
 static inline esp_err_t esp_wifi_set_bandwidth(wifi_interface_t ifx,
                                                wifi_bandwidth_t bw) {
   (void)ifx;
-  (void)bw;
-  return ESP_OK;
+  g_esp_wifi_mock.set_bandwidth_call_count++;
+  g_esp_wifi_mock.last_bandwidth = bw;
+  if (g_esp_wifi_mock.set_bandwidth_result == ESP_OK) {
+    g_esp_wifi_mock.bandwidth = bw;
+  }
+  return g_esp_wifi_mock.set_bandwidth_result;
 }
 
 static inline esp_err_t esp_wifi_set_band_mode(wifi_band_mode_t band_mode) {
-  (void)band_mode;
-  return ESP_OK;
+  g_esp_wifi_mock.set_band_mode_call_count++;
+  g_esp_wifi_mock.last_band_mode = band_mode;
+  return g_esp_wifi_mock.set_band_mode_result;
+}
+
+static inline esp_err_t esp_wifi_set_protocol(wifi_interface_t ifx,
+                                              uint8_t protocol_bitmap) {
+  (void)ifx;
+  esp_err_t result = ESP_OK;
+  if (g_esp_wifi_mock.set_protocol_call_count < g_esp_wifi_mock.set_protocol_result_count) {
+    result =
+        g_esp_wifi_mock.set_protocol_results[g_esp_wifi_mock.set_protocol_call_count];
+  }
+  g_esp_wifi_mock.set_protocol_call_count++;
+  g_esp_wifi_mock.last_protocol_bitmap = protocol_bitmap;
+  if (result == ESP_OK) {
+    g_esp_wifi_mock.protocol_bitmap = protocol_bitmap;
+  }
+  return result;
 }
 
 static inline esp_err_t esp_wifi_set_protocols(wifi_interface_t ifx,
                                                wifi_protocols_t *protocols) {
   (void)ifx;
-  (void)protocols;
-  return ESP_OK;
+  g_esp_wifi_mock.set_protocols_call_count++;
+  if (protocols) {
+    g_esp_wifi_mock.last_protocols = *protocols;
+    if (g_esp_wifi_mock.set_protocols_result == ESP_OK) {
+      g_esp_wifi_mock.protocols = *protocols;
+    }
+  }
+  return g_esp_wifi_mock.set_protocols_result;
 }
 
 static inline esp_err_t esp_wifi_get_protocol(wifi_interface_t ifx,
                                               uint8_t *protocol_bitmap) {
   (void)ifx;
-  if (protocol_bitmap)
-    *protocol_bitmap =
-        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AX;
-  return ESP_OK;
+  if (protocol_bitmap) {
+    *protocol_bitmap = g_esp_wifi_mock.protocol_bitmap;
+  }
+  return g_esp_wifi_mock.get_protocol_result;
 }
 
 static inline esp_err_t esp_wifi_get_protocols(wifi_interface_t ifx,
                                                wifi_protocols_t *protocols) {
   (void)ifx;
   if (protocols) {
-    protocols->ghz_2g =
-        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AX;
-    protocols->ghz_5g = WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AC |
-                        WIFI_PROTOCOL_11AX;
+    *protocols = g_esp_wifi_mock.protocols;
   }
-  return ESP_OK;
+  return g_esp_wifi_mock.get_protocols_result;
 }
 
 static inline esp_err_t esp_wifi_get_ps(wifi_ps_type_t *ps_type) {
-  if (ps_type)
-    *ps_type = WIFI_PS_NONE;
-  return ESP_OK;
+  if (ps_type) {
+    *ps_type = g_esp_wifi_mock.ps_type;
+  }
+  return g_esp_wifi_mock.get_ps_result;
 }
 
 static inline esp_err_t esp_wifi_set_bandwidths(wifi_interface_t ifx,
                                                 wifi_bandwidths_t *bw) {
   (void)ifx;
-  (void)bw;
-  return ESP_OK;
+  g_esp_wifi_mock.set_bandwidths_call_count++;
+  if (bw) {
+    g_esp_wifi_mock.last_bandwidths = *bw;
+    if (g_esp_wifi_mock.set_bandwidths_result == ESP_OK) {
+      g_esp_wifi_mock.bandwidths = *bw;
+    }
+  }
+  return g_esp_wifi_mock.set_bandwidths_result;
 }
 
 static inline esp_err_t esp_wifi_get_bandwidth(wifi_interface_t ifx,
                                                 wifi_bandwidth_t *bw) {
   (void)ifx;
-  if (bw)
-    *bw = WIFI_BW_HT20;
-  return ESP_OK;
+  if (bw) {
+    *bw = g_esp_wifi_mock.bandwidth;
+  }
+  return g_esp_wifi_mock.get_bandwidth_result;
 }
 
 static inline esp_err_t esp_wifi_get_bandwidths(wifi_interface_t ifx,
                                                 wifi_bandwidths_t *bw) {
   (void)ifx;
   if (bw) {
-    bw->ghz_2g = WIFI_BW_HT20;
-    bw->ghz_5g = WIFI_BW_HT20;
+    *bw = g_esp_wifi_mock.bandwidths;
+  }
+  return g_esp_wifi_mock.get_bandwidths_result;
+}
+
+static inline esp_err_t esp_wifi_get_channel(uint8_t *primary,
+                                             wifi_second_chan_t *second) {
+  if (primary) {
+    *primary = g_esp_wifi_mock.primary_channel;
+  }
+  if (second) {
+    *second = g_esp_wifi_mock.second_channel;
+  }
+  return g_esp_wifi_mock.get_channel_result;
+}
+
+static inline esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *ap_info) {
+  if (ap_info) {
+    ap_info->rssi = -55;
+    ap_info->primary = 6;
   }
   return ESP_OK;
 }

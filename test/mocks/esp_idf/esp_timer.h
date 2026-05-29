@@ -55,7 +55,11 @@ static inline esp_err_t esp_timer_delete(esp_timer_handle_t timer) {
   return ESP_OK;
 }
 
-static inline int64_t esp_timer_get_time(void) { return 0; }
+static inline int64_t esp_timer_get_time(void) {
+  static int64_t mock_time_us = 0;
+  mock_time_us += 100000;  // Advance 100 ms on each call.
+  return mock_time_us;
+}
 
 #ifdef __cplusplus
 }
