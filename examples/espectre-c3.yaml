@@ -43,6 +43,7 @@ external_components:
       type: git
       url: https://github.com/francescopace/espectre
       ref: ${git_ref}
+      path: src/frontend/esphome
     components: [ espectre ]
     refresh: always
 

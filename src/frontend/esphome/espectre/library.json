@@ -13,16 +13,23 @@
   "frameworks": "*",
   "platforms": "*",
   "build": {
+    "flags": [
+      "-I../../../core",
+      "-I../../../runtime",
+      "-I../../../runtime/esp_idf",
+      "-I."
+    ],
+    "srcDir": ".",
     "srcFilter": [
       "+<*.cpp>",
       "-<espectre.cpp>",
       "-<calibrate_switch.cpp>",
-      "-<config_manager.cpp>",
       "-<sensor_publisher.cpp>",
       "-<threshold_number.cpp>",
       "-<traffic_generator_manager.cpp>",
       "-<udp_listener.cpp>",
-      "-<wifi_lifecycle.cpp>"
+      "-<wifi_lifecycle.cpp>",
+      "-<esp_idf_runtime.cpp>"
     ]
   }
 }

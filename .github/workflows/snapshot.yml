@@ -29,7 +29,7 @@ jobs:
         id: filter
         run: |
           # Check if any code files changed in the last commit
-          if git diff --name-only HEAD~1 HEAD | grep -qE '^(components/espectre/|examples/[^/]+\.yaml$)'; then
+          if git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|examples/[^/]+\.yaml$)'; then
             echo "code=true" >> $GITHUB_OUTPUT
             echo "Code changes detected, will build snapshot"
           else
@@ -100,7 +100,7 @@ jobs:
           path: |
             ~/.platformio
             ~/.esphome/cache
-          key: pio-espidf-${{ hashFiles('components/espectre/**') }}
+          key: pio-espidf-${{ hashFiles('src/**') }}
           restore-keys: |
             pio-espidf-
       

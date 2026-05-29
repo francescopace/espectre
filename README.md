@@ -23,6 +23,7 @@
 - [What You Can Do With It](#what-you-can-do-with-it)
 - [Sensor Placement Guide](#where-to-place-the-sensor)
 - [System Architecture](#system-architecture)
+- [Codebase Architecture](#codebase-architecture)
 - [FAQ](#faq-for-beginners)
 - [Security and Privacy](#security-and-privacy)
 - [Technical Deep Dive](#technical-deep-dive)
@@ -232,6 +233,45 @@ For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#subcarri
 
 ---
 
+## Codebase Architecture
+
+The runtime processing pipeline above is implemented with a separate internal code layout:
+
+- `src/core/` for reusable detectors, filters, thresholds, and domain logic
+- `src/runtime/` for the shared runtime contract and `src/runtime/esp_idf/` for the current ESP-IDF CSI/Wi-Fi/calibration implementation
+- `src/frontend/esphome/espectre/` for the ESPHome adapter and packaging entrypoint
+
+```text
+┌──────────────────────────────┐
+│ Frontend                     │
+│ ESPHome today, Matter later  │
+└──────────────┬───────────────┘
+               │ uses
+               ▼
+┌──────────────────────────────┐
+│ Runtime                      │
+│ CSI / Wi-Fi / calibration    │
+│ orchestration + facade       │
+└──────────────┬───────────────┘
+               │ drives
+               ▼
+┌──────────────────────────────┐
+│ Core                         │
+│ detectors, filters, math,    │
+│ thresholds, shared types     │
+└──────────────────────────────┘
+```
+
+This split keeps the current ESPHome behavior intact while preparing the project for:
+
+- future frontends such as Matter
+- alternate runtimes
+- standalone reuse of the shared motion-detection core
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the detailed rationale, folder structure, and reuse model.
+
+---
+
 ## FAQ for Beginners
 
 <details>
@@ -403,6 +443,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribut
 | [Setup Guide](SETUP.md) | Installation and configuration with ESPHome |
 | [Tuning Guide](TUNING.md) | Parameter tuning for optimal detection |
 | [Performance](PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
+| [Architecture Guide](ARCHITECTURE.md) | Internal source layout, runtime/frontend split, standalone core reuse |
 | [The Game](docs/game/README.md) | Browser game, USB streaming API, interactive threshold tuning |
 | [Test Suite](test/README.md) | PlatformIO Unity test documentation |
 

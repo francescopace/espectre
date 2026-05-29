@@ -50,7 +50,7 @@ Data location: `micro-espectre/data/`
 ## Running Tests
 
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 
 # C++
 cd test && pio test -f test_motion_detection -v

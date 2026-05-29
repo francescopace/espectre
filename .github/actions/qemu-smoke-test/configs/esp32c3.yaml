@@ -18,7 +18,7 @@ esp32:
 external_components:
   - source:
       type: local
-      path: ../../../../components
+      path: ../../../../src/frontend/esphome
     components: [ espectre ]
 
 espectre:

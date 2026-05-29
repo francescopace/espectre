@@ -177,11 +177,11 @@ cd espectre/micro-espectre
 python3 --version  # Should show Python 3.12.x
 
 # Create and activate virtual environment
-python3.12 -m venv venv      # macOS/Linux — use python3 if pyenv auto-selected 3.12
-source venv/bin/activate     # On macOS/Linux
-# venv\Scripts\activate      # On Windows
+python3.12 -m venv .venv      # macOS/Linux — use python3 if pyenv auto-selected 3.12
+source .venv/bin/activate     # On macOS/Linux
+# .venv\Scripts\activate      # On Windows
 
-# Your prompt should now show (venv) prefix
+# Your prompt should now show (.venv) prefix
 ```
 
 > **Tip — Python 3.12 not found?**
@@ -193,19 +193,19 @@ source venv/bin/activate     # On macOS/Linux
 > pyenv install 3.12
 > # The .python-version file in this directory selects it automatically
 > ```
-> After installing, re-run `python3.12 -m venv venv`.
+> After installing, re-run `python3.12 -m venv .venv`.
 
 **Why use a virtual environment?**
 - Isolates project dependencies from system Python
 - Prevents version conflicts with other projects
 - Makes the project portable and reproducible
 
-**Note:** Remember to activate the virtual environment (`source venv/bin/activate`) every time you open a new terminal session to work with this project.
+**Note:** Remember to activate the virtual environment (`source .venv/bin/activate`) every time you open a new terminal session to work with this project.
 
 ### 1. Install Dependencies
 
 ```bash
-# Install Python dependencies (venv should be active)
+# Install Python dependencies (.venv should be active)
 pip install -r requirements.txt
 ```
 
@@ -333,7 +333,7 @@ Micro-ESPectre includes a comprehensive test suite using pytest.
 
 ```bash
 # Activate virtual environment
-source venv/bin/activate
+source .venv/bin/activate
 
 # Run all tests
 pytest tests/ -v
@@ -577,8 +577,8 @@ Beyond the basic commands covered in the [CLI Tool Overview](#cli-tool-overview)
 
 ```bash
 # Make sure virtual environment is active
-# (your prompt should show (venv) prefix)
-# If not: source venv/bin/activate  # On macOS/Linux
+# (your prompt should show (.venv) prefix)
+# If not: source .venv/bin/activate  # On macOS/Linux
 
 # Run the interactive CLI:
 ./me

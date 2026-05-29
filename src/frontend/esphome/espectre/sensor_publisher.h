@@ -12,8 +12,8 @@
 
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
-#include "utils.h"
 #include "base_detector.h"
+#include "runtime_snapshot.h"
 
 namespace esphome {
 namespace espectre {
@@ -40,21 +40,20 @@ class SensorPublisher {
   /**
    * Publish the movement metric only.
    *
-   * @param detector Motion detector (BaseDetector*)
+   * @param movement_metric Movement metric value
    */
-  void publish_movement_metric(const BaseDetector *detector);
+  void publish_movement_metric(float movement_metric);
   
   /**
    * Log status with progress bar
    * 
    * @param tag Log tag
-   * @param detector Motion detector
+   * @param snapshot Runtime snapshot
    * @param motion_state Current motion state
    * @param packets_per_publish Number of packets processed per publish cycle
    */
   void log_status(const char *tag,
-                  const BaseDetector *detector,
-                  MotionState motion_state,
+                  const RuntimeSnapshot &snapshot,
                   uint32_t packets_per_publish);
   
   /**
