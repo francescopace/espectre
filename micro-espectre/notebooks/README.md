@@ -26,9 +26,9 @@ The notebooks share the same virtual environment as the rest of Micro-ESPectre.
 cd espectre/micro-espectre
 
 # Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate  # macOS/Linux
-# venv\Scripts\activate   # Windows
+python3 -m venv .venv
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\activate   # Windows
 ```
 
 ### 2. Install dependencies

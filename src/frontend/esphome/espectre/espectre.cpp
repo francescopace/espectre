@@ -1,0 +1,374 @@
+/*
+ * ESPectre - Main Component Implementation
+ * 
+ * Main ESPHome component that orchestrates all ESPectre subsystems.
+ * Integrates CSI processing, calibration, and Home Assistant publishing.
+ * 
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
+
+#include "espectre.h"
+#include "esp_idf_runtime.h"
+#include "threshold_number.h"
+#include "calibrate_switch.h"
+
+#include "esphome/core/log.h"
+#include "esphome/core/application.h"
+#include "esphome/core/defines.h"
+#include "esphome/core/hal.h"
+#include <cstring>
+#include <cstdio>
+#include <cstdlib>
+#include <cerrno>
+#include <cmath>
+#include <vector>
+#include <string>
+#include <span>
+
+#include "sdkconfig.h"
+
+#ifdef USE_ESP32_BLE_SERVER
+#include "esphome/components/esp32_ble_server/ble_server.h"
+#include "esphome/components/esp32_ble_server/ble_characteristic.h"
+#endif
+
+namespace esphome {
+namespace espectre {
+
+void ESpectreComponent::setup() {
+  ESP_LOGI(TAG, "Initializing ESPectre component...");
+
+#ifdef USE_ESP32_BLE_SERVER
+  if (this->ble_channel_enabled_) {
+    if (this->ble_server_ == nullptr || this->ble_telemetry_char_ == nullptr ||
+        this->ble_sysinfo_char_ == nullptr || this->ble_control_char_ == nullptr) {
+      ESP_LOGW(TAG, "BLE channel enabled but server/characteristics are not configured; disabling BLE channel");
+      this->ble_channel_enabled_ = false;
+    } else {
+      this->ble_server_->on_connect([this](uint16_t conn_id) { this->on_ble_client_connected_(conn_id); });
+      this->ble_server_->on_disconnect([this](uint16_t conn_id) { this->on_ble_client_disconnected_(conn_id); });
+      this->ble_control_char_->on_write([this](std::span<const uint8_t> value, uint16_t) {
+        std::string command(reinterpret_cast<const char *>(value.data()), value.size());
+        this->handle_ble_control_command_(command);
+      });
+    }
+  }
+#elif !defined(USE_ESP32_BLE_SERVER)
+  if (this->ble_channel_enabled_) {
+    ESP_LOGW(TAG, "BLE channel requested but esp32_ble_server is not available");
+    this->ble_channel_enabled_ = false;
+  }
+#endif
+
+  this->runtime_.reset(new EspIdfRuntime(this->runtime_config_));
+  this->runtime_->set_listener(this);
+  if (!this->runtime_->setup()) {
+    ESP_LOGE(TAG, "ESPectre runtime setup failed");
+    this->mark_failed();
+    return;
+  }
+
+  this->runtime_snapshot_ = this->runtime_->get_snapshot();
+  this->runtime_capabilities_ = this->runtime_->get_capabilities();
+  ESP_LOGI(TAG, "ESPectre initialized successfully");
+}
+
+ESpectreComponent::~ESpectreComponent() {
+  if (this->runtime_) {
+    this->runtime_->shutdown();
+  }
+}
+
+void ESpectreComponent::loop() {
+  if (this->runtime_) {
+    this->runtime_->loop();
+  }
+}
+
+void ESpectreComponent::set_threshold_runtime(float threshold) {
+  this->runtime_config_.segmentation_threshold = threshold;
+  if (this->runtime_) {
+    this->runtime_->set_threshold_runtime(threshold);
+  } else {
+    this->runtime_snapshot_.threshold = threshold;
+  }
+}
+
+void ESpectreComponent::trigger_recalibration() {
+  if (this->runtime_ && this->runtime_capabilities_.supports_manual_recalibration) {
+    this->runtime_->trigger_recalibration();
+  }
+}
+
+void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
+  if (!snapshot.ready_to_publish) {
+    this->threshold_republished_ = false;
+  }
+  this->runtime_snapshot_ = snapshot;
+  if (snapshot.ready_to_publish) {
+    this->sensor_publisher_.publish_motion_binary(snapshot.motion_state);
+  }
+}
+
+void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
+  if (!this->runtime_snapshot_.ready_to_publish && snapshot.ready_to_publish) {
+    this->threshold_republished_ = false;
+  }
+  this->runtime_snapshot_ = snapshot;
+  if (!snapshot.ready_to_publish) {
+    return;
+  }
+
+  if (!this->threshold_republished_ && this->threshold_number_ != nullptr) {
+    auto *threshold_num = static_cast<ESpectreThresholdNumber *>(this->threshold_number_);
+    threshold_num->republish_state();
+    this->threshold_republished_ = true;
+  }
+
+  this->sensor_publisher_.log_status(TAG, snapshot, packets_received);
+  this->sensor_publisher_.publish_movement_metric(snapshot.movement_metric);
+}
+
+void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
+  this->runtime_snapshot_ = snapshot;
+  this->runtime_config_.segmentation_threshold = snapshot.threshold;
+  if (this->threshold_number_ != nullptr) {
+    this->threshold_number_->publish_state(snapshot.threshold);
+  }
+  this->send_system_info_ble_();
+}
+
+void ESpectreComponent::on_calibration_started(const RuntimeSnapshot &snapshot) {
+  this->runtime_snapshot_ = snapshot;
+  if (this->calibrate_switch_ != nullptr) {
+    static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(true);
+  }
+  this->send_system_info_ble_();
+}
+
+void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
+  this->runtime_snapshot_ = snapshot;
+  if (this->calibrate_switch_ != nullptr) {
+    static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
+  }
+  this->sensor_publisher_.reset_rate_counter();
+  if (!success) {
+    ESP_LOGW(TAG, "Calibration finished without a valid update");
+  }
+  this->send_system_info_ble_();
+}
+
+void ESpectreComponent::on_live_telemetry(float movement, float threshold) {
+  if (!this->ble_channel_enabled_ || !this->ble_client_connected_ || this->ble_telemetry_char_ == nullptr) {
+    return;
+  }
+  const uint32_t now = millis();
+  if (now - this->last_ble_telemetry_ms_ < this->ble_telemetry_interval_ms_) {
+    return;
+  }
+  this->last_ble_telemetry_ms_ = now;
+
+  std::vector<uint8_t> payload(sizeof(float) * 2);
+  memcpy(payload.data(), &movement, sizeof(float));
+  memcpy(payload.data() + sizeof(float), &threshold, sizeof(float));
+#ifdef USE_ESP32_BLE_SERVER
+  this->ble_telemetry_char_->set_value(std::move(payload));
+  this->ble_telemetry_char_->notify();
+#endif
+}
+
+void ESpectreComponent::on_runtime_fault(const char *message) {
+  if (message != nullptr) {
+    ESP_LOGW(TAG, "Runtime fault: %s", message);
+  }
+}
+
+void ESpectreComponent::send_system_info_ble_() {
+#ifndef USE_ESP32_BLE_SERVER
+  return;
+#else
+  if (!this->ble_channel_enabled_ || this->ble_sysinfo_char_ == nullptr) {
+    return;
+  }
+  auto notify_sysinfo = [this](const std::string &line) {
+    this->ble_sysinfo_char_->set_value(line);
+    this->ble_sysinfo_char_->notify();
+  };
+  const char *thr_mode = (this->runtime_config_.threshold_mode == ThresholdMode::MANUAL)
+                             ? "manual"
+                             : (this->runtime_config_.threshold_mode == ThresholdMode::MIN) ? "min" : "auto";
+  const char *subcarrier_source = "auto";
+  if (this->runtime_snapshot_.subcarrier_source == RuntimeSubcarrierSource::USER_CONFIGURED) {
+    subcarrier_source = "yaml";
+  } else if (this->runtime_snapshot_.subcarrier_source == RuntimeSubcarrierSource::MODEL_DEFAULT) {
+    subcarrier_source = "model";
+  }
+  char line[96];
+  notify_sysinfo("proto_version=1");
+  snprintf(line, sizeof(line), "chip=%s", CONFIG_IDF_TARGET);
+  notify_sysinfo(line);
+  snprintf(line, sizeof(line), "threshold=%.2f (%s)", this->runtime_snapshot_.threshold, thr_mode);
+  notify_sysinfo(line);
+  snprintf(line, sizeof(line), "window=%d", this->runtime_config_.segmentation_window_size);
+  notify_sysinfo(line);
+  snprintf(line, sizeof(line), "detector=%s", this->runtime_snapshot_.detector_name);
+  notify_sysinfo(line);
+  snprintf(line, sizeof(line), "subcarriers=%s", subcarrier_source);
+  notify_sysinfo(line);
+  snprintf(line, sizeof(line), "lowpass=%s", this->runtime_config_.lowpass_enabled ? "on" : "off");
+  notify_sysinfo(line);
+  if (this->runtime_config_.lowpass_enabled) {
+    snprintf(line, sizeof(line), "lowpass_cutoff=%.1f", this->runtime_config_.lowpass_cutoff);
+    notify_sysinfo(line);
+  }
+  snprintf(line, sizeof(line), "hampel=%s", this->runtime_config_.hampel_enabled ? "on" : "off");
+  notify_sysinfo(line);
+  if (this->runtime_config_.hampel_enabled) {
+    snprintf(line, sizeof(line), "hampel_window=%d", this->runtime_config_.hampel_window);
+    notify_sysinfo(line);
+    snprintf(line, sizeof(line), "hampel_threshold=%.1f", this->runtime_config_.hampel_threshold);
+    notify_sysinfo(line);
+  }
+  snprintf(line, sizeof(line), "traffic_rate=%u", this->runtime_config_.traffic_generator_rate);
+  notify_sysinfo(line);
+  snprintf(line, sizeof(line), "publish_interval=%u", this->runtime_config_.publish_interval);
+  notify_sysinfo(line);
+  snprintf(line, sizeof(line), "evaluation_interval=%u", this->runtime_config_.evaluation_interval);
+  notify_sysinfo(line);
+  snprintf(line, sizeof(line), "motion_hits=%u/%u", this->runtime_config_.motion_on_hits,
+           this->runtime_config_.motion_off_hits);
+  notify_sysinfo(line);
+  snprintf(line, sizeof(line), "best_pxx=%.4f", this->runtime_snapshot_.best_pxx);
+  notify_sysinfo(line);
+  notify_sysinfo("END");
+#endif
+}
+
+void ESpectreComponent::on_ble_client_connected_(uint16_t conn_id) {
+  (void) conn_id;
+  this->ble_client_connected_ = true;
+  this->last_ble_telemetry_ms_ = 0;
+  this->send_system_info_ble_();
+}
+
+void ESpectreComponent::on_ble_client_disconnected_(uint16_t conn_id) {
+  (void) conn_id;
+#ifdef USE_ESP32_BLE_SERVER
+  this->ble_client_connected_ = this->ble_server_ != nullptr && this->ble_server_->get_client_count() > 0;
+#else
+  this->ble_client_connected_ = false;
+#endif
+}
+
+void ESpectreComponent::handle_ble_control_command_(const std::string &command) {
+  if (!this->ble_channel_enabled_) {
+    return;
+  }
+  if (command == "REQ_SYSINFO") {
+    this->send_system_info_ble_();
+    return;
+  }
+  if (command.rfind("SET_THRESHOLD:", 0) == 0) {
+    const char *value_str = command.c_str() + 14;
+    char *end_ptr = nullptr;
+    errno = 0;
+    float threshold = strtof(value_str, &end_ptr);
+    bool parse_ok = (end_ptr != value_str) && (end_ptr != nullptr) && (*end_ptr == '\0') &&
+                    (errno != ERANGE) && std::isfinite(threshold);
+    if (!parse_ok || threshold < 0.0f || threshold > 10.0f) {
+      ESP_LOGW(TAG, "Invalid BLE threshold command: %s", command.c_str());
+      return;
+    }
+    this->set_threshold_runtime(threshold);
+    this->send_system_info_ble_();
+    return;
+  }
+  ESP_LOGW(TAG, "Unknown BLE control command: %s", command.c_str());
+}
+
+void ESpectreComponent::dump_config() {
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, "  _____ ____  ____           __            ");
+  ESP_LOGCONFIG(TAG, " | ____/ ___||  _ \\ ___  ___| |_ _ __ ___ ");
+  ESP_LOGCONFIG(TAG, " |  _| \\___ \\| |_) / _ \\/ __| __| '__/ _ \\");
+  ESP_LOGCONFIG(TAG, " | |___ ___) |  __/  __/ (__| |_| | |  __/");
+  ESP_LOGCONFIG(TAG, " |_____|____/|_|   \\___|\\___|\\__|_|  \\___|");
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, "      Wi-Fi CSI Motion Detection System");
+  ESP_LOGCONFIG(TAG, "");
+  const char *thr_mode_str = (this->runtime_config_.threshold_mode == ThresholdMode::MANUAL)
+                                 ? "Manual"
+                                 : (this->runtime_config_.threshold_mode == ThresholdMode::MIN) ? "Min (P100)"
+                                                                                                 : "Auto (P95x1.1)";
+  const char *subcarrier_source = "NBVI";
+  if (this->runtime_snapshot_.subcarrier_source == RuntimeSubcarrierSource::USER_CONFIGURED) {
+    subcarrier_source = "YAML";
+  } else if (this->runtime_snapshot_.subcarrier_source == RuntimeSubcarrierSource::MODEL_DEFAULT) {
+    subcarrier_source = "MODEL";
+  }
+  ESP_LOGCONFIG(TAG, " MOTION DETECTION");
+  ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", this->runtime_snapshot_.detector_name);
+  ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f (%s)", this->runtime_snapshot_.threshold, thr_mode_str);
+  ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", this->runtime_config_.segmentation_window_size);
+  ESP_LOGCONFIG(TAG, " └─ Baseline Pxx ....... %.4f", this->runtime_snapshot_.best_pxx);
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
+                this->runtime_snapshot_.selected_subcarriers[0], this->runtime_snapshot_.selected_subcarriers[1],
+                this->runtime_snapshot_.selected_subcarriers[2], this->runtime_snapshot_.selected_subcarriers[3],
+                this->runtime_snapshot_.selected_subcarriers[4], this->runtime_snapshot_.selected_subcarriers[5],
+                this->runtime_snapshot_.selected_subcarriers[6], this->runtime_snapshot_.selected_subcarriers[7],
+                this->runtime_snapshot_.selected_subcarriers[8], this->runtime_snapshot_.selected_subcarriers[9],
+                this->runtime_snapshot_.selected_subcarriers[10], this->runtime_snapshot_.selected_subcarriers[11]);
+  ESP_LOGCONFIG(TAG, " └─ Source ............. %s", subcarrier_source);
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
+  if (this->runtime_config_.traffic_generator_rate > 0) {
+    const char *mode_str = (this->runtime_config_.traffic_generator_mode == RuntimeTrafficMode::PING) ? "ping" : "dns";
+    ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", mode_str);
+    ESP_LOGCONFIG(TAG, " ├─ Rate ............... %u pps", this->runtime_config_.traffic_generator_rate);
+    ESP_LOGCONFIG(TAG, " └─ Status ............. %s", this->runtime_snapshot_.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
+  } else {
+    ESP_LOGCONFIG(TAG, " └─ Mode ............... External Traffic");
+  }
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");
+  ESP_LOGCONFIG(TAG, " └─ Packets ............ %u", this->runtime_config_.publish_interval);
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " EVALUATION");
+  ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u pkts", this->runtime_config_.evaluation_interval);
+  ESP_LOGCONFIG(TAG, " └─ Hits on/off ........ %u / %u", this->runtime_config_.motion_on_hits,
+                this->runtime_config_.motion_off_hits);
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " LOW-PASS FILTER");
+  ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", this->runtime_config_.lowpass_enabled ? "[ENABLED]" : "[DISABLED]");
+  if (this->runtime_config_.lowpass_enabled) {
+    ESP_LOGCONFIG(TAG, " └─ Cutoff ............. %.1f Hz", this->runtime_config_.lowpass_cutoff);
+  }
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " HAMPEL FILTER");
+  ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", this->runtime_config_.hampel_enabled ? "[ENABLED]" : "[DISABLED]");
+  if (this->runtime_config_.hampel_enabled) {
+    ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", this->runtime_config_.hampel_window);
+    ESP_LOGCONFIG(TAG, " └─ Threshold .......... %.1f MAD", this->runtime_config_.hampel_threshold);
+  }
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " GAIN LOCK");
+  const char *gain_mode_str = "auto";
+  if (this->runtime_config_.gain_lock_mode == RuntimeGainLockMode::ENABLED) {
+    gain_mode_str = "enabled";
+  } else if (this->runtime_config_.gain_lock_mode == RuntimeGainLockMode::DISABLED) {
+    gain_mode_str = "disabled";
+  }
+  ESP_LOGCONFIG(TAG, " └─ Mode ............... %s", gain_mode_str);
+  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " SENSORS");
+  ESP_LOGCONFIG(TAG, " ├─ Movement ........... %s", 
+                this->sensor_publisher_.has_movement_sensor() ? "[OK]" : "[--]");
+  ESP_LOGCONFIG(TAG, " └─ Motion Binary ...... %s", 
+                this->sensor_publisher_.has_motion_binary_sensor() ? "[OK]" : "[--]");
+  ESP_LOGCONFIG(TAG, "");
+}
+
+}  // namespace espectre
+}  // namespace esphome

@@ -70,7 +70,7 @@ jobs:
           path: |
             ~/.platformio
             ~/.esphome/cache
-          key: pio-espidf-${{ hashFiles('components/espectre/**') }}
+          key: pio-espidf-${{ hashFiles('src/**') }}
           restore-keys: |
             pio-espidf-
       

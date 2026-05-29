@@ -66,9 +66,9 @@ That's it! The device will be automatically discovered by Home Assistant.
 
 ```bash
 # Create virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate  # On macOS/Linux
-# venv\Scripts\activate   # On Windows
+python3 -m venv .venv
+source .venv/bin/activate  # On macOS/Linux
+# .venv\Scripts\activate   # On Windows
 
 # Install ESPHome
 pip install esphome
@@ -141,8 +141,8 @@ cd espectre
 ### 2. Install ESPHome
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On macOS/Linux
+python3 -m venv .venv
+source .venv/bin/activate  # On macOS/Linux
 pip install esphome
 ```
 
@@ -160,6 +160,8 @@ EOF
 ### 4. Build and flash
 
 Use the development configuration files (with debug sensors and local component path):
+
+These files load the local ESPHome component from `src/frontend/esphome`, which is the external-components root of the refactored source tree.
 
 | Platform | Development File |
 |----------|-----------------|

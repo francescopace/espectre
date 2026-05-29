@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [3.0.0] - Unreleased - Core/runtime/frontend split
+
+### Highlights
+
+- **Internal architecture refactored**: the firmware codebase is now split into `core`, `runtime`, and `frontend` layers to separate reusable detection logic from ESP-IDF orchestration and ESPHome integration.
+- **ESPHome kept as the production frontend**: the existing ESPHome component model is preserved while the implementation now lives under the new `src/` layout.
+- **Foundation prepared for future frontends and runtimes**: the runtime contract is now explicit, making it possible to add a Matter frontend or alternate runtimes without cloning the motion pipeline.
+
+### Added
+
+- **New product-first source layout**:
+  - `src/core/` for detectors, filters, thresholds, math, and shared domain logic
+  - `src/runtime/` for CSI, Wi-Fi, calibration, gain lock, and traffic orchestration
+  - `src/frontend/esphome/espectre/` for the ESPHome adapter and external component root
+  - `src/frontend/matter/espectre/` as a placeholder for a future Matter adapter
+- **Frontend-oriented runtime contract** with:
+  - `IEspectreRuntime`
+  - `RuntimeSnapshot`
+  - runtime events/listener callbacks
+  - runtime capability reporting
+- **`ARCHITECTURE.md`** documenting the new structure, rationale, and standalone core reuse model.
+
+### Changed
+
+- **`ESpectreComponent` is now a thin frontend adapter**: setup/orchestration responsibilities were moved behind the runtime facade.
+- **ESPHome local development path now uses `src/frontend/esphome`** as the external-components root.
+- **Native tests and CI build plumbing were updated** to follow the new `src/` layout.
+- **Documentation was aligned** to the new structure and `.venv` activation flow.
+
+### Notes
+
+- This is an architectural refactor, not an algorithm change.
+- The `core` layer is now reusable as a clean standalone building block for future SDK-style embedding, even though no separately packaged public SDK exists yet.
+
+---
+
 ## [2.8.0] - 2026-05-21 - Detection hardening, ML cross-chip reliability, and runtime motion policy
 
 ### Highlights

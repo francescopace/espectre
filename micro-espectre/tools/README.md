@@ -204,7 +204,7 @@ python 9_compare_chips.py --plot
 - Supports optional chip exclusion experiments via `--exclude-chip CHIP[,CHIP...]`
 - Exports weights for both platforms:
   - `micro-espectre/src/ml_weights.py`
-  - `components/espectre/ml_weights.h`
+  - `src/core/ml_weights.h`
 
 ```bash
 python 10_train_ml_model.py                # Train with default settings

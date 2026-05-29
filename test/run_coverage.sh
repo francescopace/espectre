@@ -113,7 +113,7 @@ if [ "$COMPILER" = "clang" ]; then
     echo "---------------------------------------------------------------------"
     $LLVM_COV report "$PROGRAM" \
         -instr-profile=coverage.profdata \
-        ../components/espectre/ 2>/dev/null | \
+        ../src/ 2>/dev/null | \
         grep -E '\.(cpp|h)' | grep -v "^-" | \
         while read -r line; do
             file=$(echo "$line" | awk '{print $1}')
@@ -128,7 +128,7 @@ if [ "$COMPILER" = "clang" ]; then
     echo "---------------------------------------------------------------------"
     $LLVM_COV report "$PROGRAM" \
         -instr-profile=coverage.profdata \
-        ../components/espectre/ 2>/dev/null | \
+        ../src/ 2>/dev/null | \
         grep "^TOTAL" | \
         while read -r line; do
             func_pct=$(echo "$line" | awk '{print $7}')
@@ -147,7 +147,7 @@ if [ "$COMPILER" = "clang" ]; then
         $LLVM_COV export "$PROGRAM" \
             -instr-profile=coverage.profdata \
             -format=lcov \
-            ../components/espectre/ > coverage.lcov.tmp 2>/dev/null
+            ../src/ > coverage.lcov.tmp 2>/dev/null
         
         # Convert absolute paths to relative paths for Codecov
         sed "s|SF:$WORKSPACE_ROOT/|SF:|g" coverage.lcov.tmp > coverage.lcov
@@ -176,7 +176,7 @@ else
         
         # Get absolute paths
         WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-        ESPECTRE_DIR="$WORKSPACE_ROOT/components/espectre"
+        ESPECTRE_DIR="$WORKSPACE_ROOT/src"
         
         # Print text report
         gcovr --root "$ESPECTRE_DIR" \
@@ -212,7 +212,7 @@ else
         lcov --capture \
              --directory .pio/build/native_coverage/ \
              --output-file coverage.lcov \
-             --include '*/components/espectre/*' \
+             --include '*/src/*' \
              --quiet
         
         # Print summary

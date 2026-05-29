@@ -41,7 +41,7 @@ Before running any command, activate the virtual environment:
 
 ```bash
 cd micro-espectre
-source ../venv/bin/activate  # Your prompt should show (venv)
+source ../.venv/bin/activate  # Your prompt should show (.venv)
 ```
 
 ### 2. Flash and Deploy (First Time Only)
@@ -401,7 +401,7 @@ This will:
 7. Train the selected MLP architecture with early stopping and dropout
 8. Export to:
    - `src/ml_weights.py` (MicroPython) - includes seed and timestamp
-   - `components/espectre/ml_weights.h` (C++/ESPHome) - includes seed and timestamp
+   - `src/core/ml_weights.h` (C++ shared core) - includes seed and timestamp
    - `models/motion_detector_small.tflite` (TFLite int8)
    - `models/feature_scaler.npz` (normalization params)
    - `models/ml_test_data.npz` (blocked regression subset for inference validation)

@@ -346,6 +346,7 @@ esp_err_t CSIManager::configure_platform_specific_() {
     .channel_filter_en = false,
     .manu_scale = false,
     .shift = 0,
+    .dump_ack_en = false,
   };
 #endif
   

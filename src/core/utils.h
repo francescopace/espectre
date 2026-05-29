@@ -10,11 +10,8 @@
 #pragma once
 
 #include <cstdint>
-#include <cstdarg>
-#include <cstdio>
 #include <cmath>
 #include <algorithm>
-#include "esphome/core/log.h"
 
 namespace esphome {
 namespace espectre {
@@ -353,66 +350,6 @@ inline int compare_float_abs(const void *a, const void *b) {
     if (fa < 0) fa = -fa;
     if (fb < 0) fb = -fb;
     return (fa > fb) - (fa < fb);
-}
-
-/**
- * Create and log a progress bar with optional metrics
- * 
- * @param tag Log tag (e.g., TAG)
- * @param progress Progress value (0.0 to 1.0+)
- * @param width Bar width in characters (default: 20)
- * @param threshold_pos Optional threshold marker position (-1 = no threshold marker)
- * @param format Optional format string for additional text after the bar (can be NULL)
- * @param ... Variable arguments for format string
- * 
- * Examples:
- *   log_progress_bar(TAG, 0.8f, 20, 15, "%d%% | mvmt:%.4f thr:%.4f", percent, mv, thr);
- *   log_progress_bar(TAG, progress, 20, -1, "%d%% (%d/%d)", percent, current, total);
- */
-inline void log_progress_bar(const char* tag, float progress, int width = 20, 
-                             int threshold_pos = -1, const char* format = nullptr, ...) {
-  // Bar buffer is fixed-size: clamp width to stay within bounds.
-  if (width < 1) {
-    width = 1;
-  } else if (width > 20) {
-    width = 20;
-  }
-  if (threshold_pos >= width) {
-    threshold_pos = width - 1;
-  }
-
-  // Create progress bar
-  int filled = (int)(progress * (threshold_pos > 0 ? threshold_pos : width));
-  filled = (filled < 0) ? 0 : (filled > width ? width : filled);
-  
-  char bar[24];  // '[' + 20 chars + '|' + ']' + '\0'
-  int idx = 0;
-  bar[idx++] = '[';
-  
-  for (int i = 0; i < width; i++) {
-    if (threshold_pos >= 0 && i == threshold_pos) {
-      bar[idx++] = '|';
-    } else if (i < filled) {
-      bar[idx++] = '#';
-    } else {
-      bar[idx++] = '-';
-    }
-  }
-  
-  bar[idx++] = ']';
-  bar[idx] = '\0';
-  
-  // Log with optional formatted text
-  if (format != nullptr) {
-    char text[256];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(text, sizeof(text), format, args);
-    va_end(args);
-    ESP_LOGI(tag, "%s %s", bar, text);
-  } else {
-    ESP_LOGI(tag, "%s", bar);
-  }
 }
 
 }  // namespace espectre

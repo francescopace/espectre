@@ -22,7 +22,7 @@
 namespace esphome {
 namespace espectre {
 
-static const char *TAG = "TrafficGen";
+static const char *TRAFFIC_TAG = "TrafficGen";
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -37,18 +37,18 @@ static const char *TAG = "TrafficGen";
 static bool get_gateway_ip(esp_ip4_addr_t* out_gw) {
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (!netif) {
-        ESP_LOGE(TAG, "Failed to get network interface");
+        ESP_LOGE(TRAFFIC_TAG, "Failed to get network interface");
         return false;
     }
     
     esp_netif_ip_info_t ip_info;
     if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to get IP info");
+        ESP_LOGE(TRAFFIC_TAG, "Failed to get IP info");
         return false;
     }
     
     if (ip_info.gw.addr == 0) {
-        ESP_LOGE(TAG, "Gateway IP not available");
+        ESP_LOGE(TRAFFIC_TAG, "Gateway IP not available");
         return false;
     }
     
@@ -83,18 +83,18 @@ void TrafficGeneratorManager::init(uint32_t rate_pps, TrafficGeneratorMode mode)
   running_.store(false);
   
   const char* mode_str = (mode == TrafficGeneratorMode::PING) ? "ping" : "dns";
-  ESP_LOGD(TAG, "Traffic Generator Manager initialized (rate: %u pps, mode: %s)", rate_pps, mode_str);
+  ESP_LOGD(TRAFFIC_TAG, "Traffic Generator Manager initialized (rate: %u pps, mode: %s)", rate_pps, mode_str);
 }
 
 bool TrafficGeneratorManager::start() {
   if (running_.load()) {
-    ESP_LOGW(TAG, "Traffic generator already running");
+    ESP_LOGW(TRAFFIC_TAG, "Traffic generator already running");
     return false;
   }
   
   // Validate rate
   if (rate_pps_ == 0) {
-    ESP_LOGE(TAG, "Invalid rate: 0 pps (must be > 0)");
+    ESP_LOGE(TRAFFIC_TAG, "Invalid rate: 0 pps (must be > 0)");
     return false;
   }
   
@@ -109,14 +109,14 @@ bool TrafficGeneratorManager::start() {
 void TrafficGeneratorManager::pause() {
   if (!paused_.load()) {
     paused_.store(true);
-    ESP_LOGD(TAG, "Traffic generator paused");
+    ESP_LOGD(TRAFFIC_TAG, "Traffic generator paused");
   }
 }
 
 void TrafficGeneratorManager::resume() {
   if (paused_.load()) {
     paused_.store(false);
-    ESP_LOGD(TAG, "Traffic generator resumed");
+    ESP_LOGD(TRAFFIC_TAG, "Traffic generator resumed");
   }
 }
 
@@ -134,7 +134,7 @@ void TrafficGeneratorManager::stop() {
     stop_dns_();
   }
   
-  ESP_LOGI(TAG, "Traffic generator stopped");
+  ESP_LOGI(TRAFFIC_TAG, "Traffic generator stopped");
 }
 
 
@@ -152,19 +152,19 @@ bool TrafficGeneratorManager::start_dns_() {
   // Log gateway IP
   char gw_str[16];
   snprintf(gw_str, sizeof(gw_str), IPSTR, IP2STR(&gw));
-  ESP_LOGI(TAG, "Target gateway: %s", gw_str);
+  ESP_LOGI(TRAFFIC_TAG, "Target gateway: %s", gw_str);
   
   // Create UDP socket
   sock_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (sock_ < 0) {
-    ESP_LOGE(TAG, "Failed to create socket");
+    ESP_LOGE(TRAFFIC_TAG, "Failed to create socket");
     return false;
   }
   
   // Set socket to non-blocking mode for fire-and-forget operation
   int flags = fcntl(sock_, F_GETFL, 0);
   if (fcntl(sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ESP_LOGW(TAG, "Failed to set socket non-blocking (continuing anyway)");
+    ESP_LOGW(TRAFFIC_TAG, "Failed to set socket non-blocking (continuing anyway)");
   }
   
   // Reset counters
@@ -183,7 +183,7 @@ bool TrafficGeneratorManager::start_dns_() {
   );
   
   if (result != pdPASS) {
-    ESP_LOGE(TAG, "Failed to create traffic generator task (result: %d)", result);
+    ESP_LOGE(TRAFFIC_TAG, "Failed to create traffic generator task (result: %d)", result);
     close(sock_);
     sock_ = -1;
     running_.store(false);
@@ -194,7 +194,7 @@ bool TrafficGeneratorManager::start_dns_() {
   vTaskDelay(pdMS_TO_TICKS(100));
   
   uint32_t interval_ms = 1000 / rate_pps_;
-  ESP_LOGI(TAG, "Traffic generator started (mode: dns, %u pps, interval: %u ms)", 
+  ESP_LOGI(TRAFFIC_TAG, "Traffic generator started (mode: dns, %u pps, interval: %u ms)", 
            rate_pps_, interval_ms);
   
   return true;
@@ -219,7 +219,7 @@ void TrafficGeneratorManager::stop_dns_() {
 void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   TrafficGeneratorManager* mgr = static_cast<TrafficGeneratorManager*>(arg);
   if (!mgr) {
-    ESP_LOGE(TAG, "Invalid manager pointer");
+    ESP_LOGE(TRAFFIC_TAG, "Invalid manager pointer");
     vTaskDelete(NULL);
     return;
   }
@@ -227,7 +227,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   // Get gateway address
   esp_ip4_addr_t gw;
   if (!get_gateway_ip(&gw)) {
-    ESP_LOGE(TAG, "Failed to get gateway in task");
+    ESP_LOGE(TRAFFIC_TAG, "Failed to get gateway in task");
     // Keep manager state coherent if task exits unexpectedly.
     mgr->running_.store(false);
     vTaskDelete(NULL);
@@ -247,7 +247,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   const uint32_t remainder_us = 1000000 % mgr->rate_pps_; // Remainder to distribute
   uint32_t accumulator = 0;  // Accumulates fractional microseconds
   
-  ESP_LOGI(TAG, "Traffic task started (gateway: " IPSTR ", interval: %u µs, remainder: %u)", 
+  ESP_LOGI(TRAFFIC_TAG, "Traffic task started (gateway: " IPSTR ", interval: %u µs, remainder: %u)", 
            IP2STR(&gw), interval_us, remainder_us);
   
   int64_t next_send_time = esp_timer_get_time();
@@ -308,7 +308,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
     }
   }
   
-  ESP_LOGI(TAG, "DNS traffic task stopped");
+  ESP_LOGI(TRAFFIC_TAG, "DNS traffic task stopped");
   vTaskDelete(NULL);
 }
 
@@ -340,7 +340,7 @@ bool TrafficGeneratorManager::start_ping_() {
   // Log gateway IP
   char gw_str[16];
   snprintf(gw_str, sizeof(gw_str), IPSTR, IP2STR(&gw));
-  ESP_LOGI(TAG, "Target gateway: %s", gw_str);
+  ESP_LOGI(TRAFFIC_TAG, "Target gateway: %s", gw_str);
   
   // Configure ping session
   esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
@@ -373,14 +373,14 @@ bool TrafficGeneratorManager::start_ping_() {
   // Create ping session
   esp_err_t ret = esp_ping_new_session(&ping_config, &cbs, &ping_handle_);
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to create ping session: %s", esp_err_to_name(ret));
+    ESP_LOGE(TRAFFIC_TAG, "Failed to create ping session: %s", esp_err_to_name(ret));
     return false;
   }
   
   // Start ping session
   ret = esp_ping_start(ping_handle_);
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to start ping session: %s", esp_err_to_name(ret));
+    ESP_LOGE(TRAFFIC_TAG, "Failed to start ping session: %s", esp_err_to_name(ret));
     esp_ping_delete_session(ping_handle_);
     ping_handle_ = nullptr;
     return false;
@@ -389,7 +389,7 @@ bool TrafficGeneratorManager::start_ping_() {
   running_.store(true);
   
   uint32_t interval_ms = 1000 / rate_pps_;
-  ESP_LOGI(TAG, "Traffic generator started (mode: ping, %u pps, interval: %u ms)", 
+  ESP_LOGI(TRAFFIC_TAG, "Traffic generator started (mode: ping, %u pps, interval: %u ms)",
            rate_pps_, interval_ms);
   
   return true;

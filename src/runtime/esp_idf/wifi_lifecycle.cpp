@@ -12,7 +12,7 @@
 namespace esphome {
 namespace espectre {
 
-static const char *TAG = "WiFiLifecycle";
+static const char *WIFI_LIFECYCLE_TAG = "WiFiLifecycle";
 
 namespace {
 
@@ -73,7 +73,7 @@ esp_err_t set_wifi_protocol_for_csi_() {
   protocols.ghz_2g = WIFI_PROTOCOL_CSI_2G_FALLBACK;
   ret = esp_wifi_set_protocols(WIFI_IF_STA, &protocols);
   if (ret == ESP_OK) {
-    ESP_LOGW(TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
   }
   return ret;
 }
@@ -131,7 +131,7 @@ esp_err_t set_wifi_protocol_for_csi_() {
 
   ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G_FALLBACK);
   if (ret == ESP_OK) {
-    ESP_LOGW(TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
   }
   return ret;
 }
@@ -169,10 +169,10 @@ esp_err_t WiFiLifecycleManager::init() {
   // ESP32-C5 is dual-band: force 2.4 GHz for stable CSI motion sensing.
   ret = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY);
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to force 2.4 GHz band mode: 0x%x", ret);
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to force 2.4 GHz band mode: 0x%x", ret);
     // Non-fatal: continue, but runtime may still associate on 5 GHz in AUTO mode.
   } else {
-    ESP_LOGI(TAG, "WiFi band mode: 2.4 GHz only");
+    ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi band mode: 2.4 GHz only");
   }
 #endif
 
@@ -181,13 +181,13 @@ esp_err_t WiFiLifecycleManager::init() {
   // HT20 only: 802.11b/g/n for stable 64 subcarriers
   ret = set_wifi_protocol_for_csi_();
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to set WiFi protocol: 0x%x", ret);
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set WiFi protocol: 0x%x", ret);
     return ret;
   }
   // HT20 bandwidth for 64 subcarriers
   ret = set_wifi_bandwidth_for_csi_();
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to set bandwidth: 0x%x", ret);
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to set bandwidth: 0x%x", ret);
     // Non-fatal: continue anyway
   }
 
@@ -195,7 +195,7 @@ esp_err_t WiFiLifecycleManager::init() {
   // This initializes internal WiFi structures required for CSI, even when set to false
   ret = esp_wifi_set_promiscuous(false);
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to set promiscuous mode: 0x%x", ret);
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set promiscuous mode: 0x%x", ret);
     return ret;
   }
 
@@ -217,7 +217,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   );
   
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to register connected handler: %s", esp_err_to_name(err));
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register connected handler: %s", esp_err_to_name(err));
     return err;
   }
   
@@ -231,7 +231,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   );
   
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to register disconnected handler: %s", esp_err_to_name(err));
+    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register disconnected handler: %s", esp_err_to_name(err));
     // Cleanup connected handler
     if (connected_instance_) {
       esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, connected_instance_);
@@ -240,7 +240,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
     return err;
   }
   
-  ESP_LOGI(TAG, "WiFi event handlers registered");
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi event handlers registered");
   return ESP_OK;
 }
 
@@ -255,7 +255,7 @@ void WiFiLifecycleManager::unregister_handlers() {
     disconnected_instance_ = nullptr;
   }
   
-  ESP_LOGI(TAG, "WiFi event handlers unregistered");
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi event handlers unregistered");
 }
 
 void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_base,
@@ -267,21 +267,21 @@ void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_b
   
   // WiFi connected (got IP address)
   if (event_id == IP_EVENT_STA_GOT_IP) {
-    ESP_LOGD(TAG, "WiFi connected");
+    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi connected");
     
     // Log current WiFi parameters for debugging
     bool promiscuous = false;
     esp_wifi_get_promiscuous(&promiscuous);
-    ESP_LOGD(TAG, "WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
+    ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
     
     wifi_ps_type_t ps_type;
     esp_err_t ps_err = esp_wifi_get_ps(&ps_type);
     if (ps_err == ESP_OK) {
       const char* ps_str = (ps_type == WIFI_PS_NONE) ? "NONE" :
                            (ps_type == WIFI_PS_MIN_MODEM) ? "MIN_MODEM" : "MAX_MODEM";
-      ESP_LOGD(TAG, "WiFi Power Save: %s", ps_str);
+      ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Power Save: %s", ps_str);
     } else {
-      ESP_LOGW(TAG, "WiFi Power Save: unavailable (%s)", esp_err_to_name(ps_err));
+      ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Power Save: unavailable (%s)", esp_err_to_name(ps_err));
     }
     
     uint16_t protocol = 0;
@@ -295,21 +295,21 @@ void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_b
 #else
       const int has_11ax = 0;
 #endif
-      ESP_LOGD(TAG, "WiFi Protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
+      ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Protocol: 0x%04X (802.11b=%d, 802.11g=%d, 802.11n=%d, 802.11ax=%d)",
                protocol, has_11b, has_11g, has_11n, has_11ax);
       if ((protocol & WIFI_PROTOCOL_11N) == 0) {
-        ESP_LOGW(TAG, "WiFi protocol does not include 11n support: 0x%04X", protocol);
+        ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi protocol does not include 11n support: 0x%04X", protocol);
       }
     } else {
-      ESP_LOGW(TAG, "WiFi Protocol: unavailable (%s)", esp_err_to_name(protocol_err));
+      ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Protocol: unavailable (%s)", esp_err_to_name(protocol_err));
     }
     
     wifi_bandwidth_t bw = WIFI_BW_HT20;
     esp_err_t bw_err = get_wifi_bandwidth_for_log_(&bw);
     if (bw_err == ESP_OK) {
-      ESP_LOGD(TAG, "WiFi Bandwidth: %s", bandwidth_to_str_(bw));
+      ESP_LOGD(WIFI_LIFECYCLE_TAG, "WiFi Bandwidth: %s", bandwidth_to_str_(bw));
     } else {
-      ESP_LOGW(TAG, "WiFi Bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
+      ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi Bandwidth: unavailable (%s)", esp_err_to_name(bw_err));
     }
     
     if (manager->connected_callback_) {
@@ -325,7 +325,7 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
   
   // WiFi disconnected
   if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-    ESP_LOGW(TAG, "WiFi disconnected");
+    ESP_LOGW(WIFI_LIFECYCLE_TAG, "WiFi disconnected");
     if (manager->disconnected_callback_) {
       manager->disconnected_callback_();
     }

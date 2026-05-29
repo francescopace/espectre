@@ -6,7 +6,7 @@
  */
 
 #include "sensor_publisher.h"
-#include "utils.h"
+#include "espectre_log.h"
 #include "esphome/core/log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -21,29 +21,22 @@ void SensorPublisher::publish_motion_binary(MotionState motion_state) {
   }
 }
 
-void SensorPublisher::publish_movement_metric(const BaseDetector *detector) {
-  if (!detector) {
-    return;
-  }
-
-  float motion_metric = detector->get_motion_metric();
+void SensorPublisher::publish_movement_metric(float motion_metric) {
   if (movement_sensor_) {
     movement_sensor_->publish_state(motion_metric);
   }
 }
 
 void SensorPublisher::log_status(const char *tag,
-                                 const BaseDetector *detector,
-                                 MotionState motion_state,
+                                 const RuntimeSnapshot &snapshot,
                                  uint32_t packets_per_publish) {
-  if (!detector || !tag) {
+  if (!tag) {
     return;
   }
-  
-  // Get current values
-  float motion_metric = detector->get_motion_metric();
-  float threshold = detector->get_threshold();
-  bool is_motion = (motion_state == MotionState::MOTION);
+
+  float motion_metric = snapshot.movement_metric;
+  float threshold = snapshot.threshold;
+  bool is_motion = (snapshot.motion_state == MotionState::MOTION);
   
   // Calculate CSI rate (packets per second)
   uint32_t now_ms = esp_timer_get_time() / 1000;

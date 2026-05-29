@@ -6,7 +6,7 @@ Test suite based on **PlatformIO Unity** to validate ESPectre CSI algorithms.
 
 ```bash
 # Activate virtualenv
-source ../venv/bin/activate
+source ../.venv/bin/activate
 
 # Run all tests (native is the default environment)
 cd test && pio test
@@ -81,6 +81,12 @@ test/
 ├── platformio.ini      # PlatformIO configuration
 └── run_coverage.sh     # Coverage script
 ```
+
+Production code under test lives outside `test/`:
+
+- `../src/core/` for reusable detection logic
+- `../src/runtime/` for the shared runtime contract and `../src/runtime/esp_idf/` for the current runtime orchestration
+- `../src/frontend/esphome/espectre/` for the ESPHome component manifest and adapter layer
 
 ---
 

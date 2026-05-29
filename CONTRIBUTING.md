@@ -66,13 +66,23 @@ git clone https://github.com/francescopace/espectre.git
 cd espectre
 
 # Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On macOS/Linux
-# venv\Scripts\activate   # On Windows
+python3 -m venv .venv
+source .venv/bin/activate  # On macOS/Linux
+# .venv\Scripts\activate   # On Windows
 
 # Install dependencies
 pip install -r micro-espectre/requirements.txt
 ```
+
+### Source Layout
+
+The production firmware code now lives under `src/`:
+
+- `src/core/` for reusable detectors and math
+- `src/runtime/` for the shared runtime contract and `src/runtime/esp_idf/` for the current ESP-IDF-specific orchestration
+- `src/frontend/esphome/espectre/` for the ESPHome adapter/component root
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the rationale behind the split and the planned evolution toward additional runtimes/frontends.
 
 ### Running Tests
 
