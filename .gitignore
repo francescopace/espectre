@@ -1,8 +1,6 @@
-# PlatformIO
-test/.pio/
-test/.vscode/
-test/.clang_complete
-test/.gcc-flags.json
+# CTest
+test/build/
+test/build-coverage/
 *.elf
 *.bin
 *.map
@@ -11,7 +9,9 @@ test/.gcc-flags.json
 *.profraw
 *.profdata
 coverage.lcov
+coverage.xml
 .coverage
+test/.coverage.tmp.lcov
 htmlcov/
 
 # Pytest

@@ -1,0 +1,795 @@
+/*
+ * ESPectre - CSIManager Unit Tests
+ *
+ * Tests the CSIManager class functionality
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
+
+#include "test_harness.h"
+#include <cstdint>
+#include <cstring>
+#include "csi_manager.h"
+#include "mvs_detector.h"
+#include "utils.h"
+#include "wifi_csi_interface.h"
+#include "esphome/core/log.h"
+#include "esp_wifi.h"
+
+using namespace esphome::espectre;
+
+static const char *TAG = "test_csi_manager";
+
+// Use project default subcarriers in all CSIManager tests.
+static const uint8_t* const TEST_SUBCARRIERS = DEFAULT_SUBCARRIERS;
+static constexpr uint32_t TEST_PUBLISH_RATE = 100;
+static constexpr uint32_t TEST_EVALUATION_INTERVAL = 25;
+static constexpr uint8_t TEST_DEFAULT_MOTION_ON_HITS = 3;
+static constexpr uint32_t TEST_MOTION_CALLBACK_TRIGGER_PACKET =
+    TEST_EVALUATION_INTERVAL * TEST_DEFAULT_MOTION_ON_HITS;
+
+class TransitionDetectorMock : public BaseDetector {
+ public:
+  TransitionDetectorMock() : BaseDetector(10) {}
+
+  void update_state() override {
+    if (total_packets_ >= 2) {
+      state_ = MotionState::MOTION;
+    }
+  }
+
+  float get_motion_metric() const override {
+    return state_ == MotionState::MOTION ? 1.0f : 0.0f;
+  }
+
+  bool set_threshold(float threshold) override {
+    threshold_ = threshold;
+    return true;
+  }
+
+  float get_threshold() const override { return threshold_; }
+  const char* get_name() const override { return "TransitionMock"; }
+
+ private:
+  float threshold_{0.0f};
+};
+
+class WindowedTransitionDetectorMock : public BaseDetector {
+ public:
+  WindowedTransitionDetectorMock() : BaseDetector(10) {}
+
+  void update_state() override {
+    if (total_packets_ <= TEST_PUBLISH_RATE) {
+      state_ = MotionState::MOTION;
+    } else {
+      state_ = MotionState::IDLE;
+    }
+  }
+
+  float get_motion_metric() const override {
+    return state_ == MotionState::MOTION ? 1.0f : 0.0f;
+  }
+
+  bool set_threshold(float threshold) override {
+    threshold_ = threshold;
+    return true;
+  }
+
+  float get_threshold() const override { return threshold_; }
+  const char* get_name() const override { return "WindowedTransitionMock"; }
+
+ private:
+  float threshold_{0.0f};
+};
+
+static void fill_valid_csi_info_(wifi_csi_info_t* csi_info, int8_t* csi_buf, uint8_t channel = 6) {
+  for (int i = 0; i < 128; i++) {
+    csi_buf[i] = static_cast<int8_t>(i % 64 - 32);
+  }
+  std::memset(csi_info, 0, sizeof(*csi_info));
+  csi_info->buf = csi_buf;
+  csi_info->len = 128;
+  csi_info->rx_ctrl.channel = channel;
+}
+
+/**
+ * Mock WiFi CSI for testing
+ */
+class WiFiCSIMock : public IWiFiCSI {
+ public:
+  esp_err_t set_csi_config(const wifi_csi_config_t* config) override {
+    (void)config;
+    return config_error_;
+  }
+  esp_err_t set_csi_rx_cb(wifi_csi_cb_t cb, void* ctx) override {
+    callback_ = cb;
+    callback_ctx_ = ctx;
+    return callback_error_;
+  }
+  esp_err_t set_csi(bool enable) override {
+    if (csi_error_ != ESP_OK) return csi_error_;
+    enabled_ = enable;
+    return ESP_OK;
+  }
+  bool is_enabled() const { return enabled_; }
+  
+  void set_config_error(esp_err_t err) { config_error_ = err; }
+  void set_callback_error(esp_err_t err) { callback_error_ = err; }
+  void set_csi_error(esp_err_t err) { csi_error_ = err; }
+  void reset_errors() { config_error_ = ESP_OK; callback_error_ = ESP_OK; csi_error_ = ESP_OK; }
+  
+  void trigger_callback(wifi_csi_info_t* data) {
+    if (callback_ && callback_ctx_) {
+      callback_(callback_ctx_, data);
+    }
+  }
+  
+ private:
+  bool enabled_{false};
+  esp_err_t config_error_{ESP_OK};
+  esp_err_t callback_error_{ESP_OK};
+  esp_err_t csi_error_{ESP_OK};
+  wifi_csi_cb_t callback_{nullptr};
+  void* callback_ctx_{nullptr};
+};
+
+static WiFiCSIMock g_wifi_mock;
+
+void setUp(void) {
+    g_wifi_mock.reset_errors();
+}
+
+void tearDown(void) {
+}
+
+// ============================================================================
+// INITIALIZATION TESTS
+// ============================================================================
+
+void test_csi_manager_init(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    TEST_ASSERT_FALSE(manager.is_enabled());
+    TEST_ASSERT_NOT_NULL(manager.get_detector());
+}
+
+// ============================================================================
+// ENABLE/DISABLE TESTS
+// ============================================================================
+
+void test_csi_manager_enable(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    esp_err_t err = manager.enable();
+    
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_TRUE(manager.is_enabled());
+    TEST_ASSERT_TRUE(g_wifi_mock.is_enabled());
+}
+
+void test_csi_manager_enable_twice_returns_ok(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    manager.enable();
+    esp_err_t err = manager.enable();
+    
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_TRUE(manager.is_enabled());
+}
+
+void test_csi_manager_disable(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    manager.enable();
+    esp_err_t err = manager.disable();
+    
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_disable_when_not_enabled(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    esp_err_t err = manager.disable();
+    
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+// ============================================================================
+// THRESHOLD TESTS
+// ============================================================================
+
+void test_csi_manager_set_threshold(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    manager.set_threshold(2.5f);
+    
+    TEST_ASSERT_EQUAL_FLOAT(2.5f, detector.get_threshold());
+}
+
+// ============================================================================
+// SUBCARRIER SELECTION TESTS
+// ============================================================================
+
+void test_csi_manager_update_subcarrier_selection(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    uint8_t new_subcarriers[12] = {20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31};
+    manager.update_subcarrier_selection(new_subcarriers);
+    
+    TEST_PASS();
+}
+
+// ============================================================================
+// PROCESS PACKET TESTS
+// ============================================================================
+
+void test_csi_manager_process_packet_null_data(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    manager.process_packet(nullptr);
+    
+    TEST_ASSERT_EQUAL(MotionState::IDLE, detector.get_state());
+}
+
+void test_csi_manager_process_packet_short_data(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    wifi_csi_info_t csi_info = {};
+    int8_t short_buf[5] = {0};
+    csi_info.buf = short_buf;
+    csi_info.len = 5;
+    
+    manager.process_packet(&csi_info);
+    
+    TEST_ASSERT_EQUAL(MotionState::IDLE, detector.get_state());
+}
+
+void test_csi_manager_process_packet_valid_data(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    // Create valid CSI data (128 bytes for HT20)
+    int8_t csi_buf[128];
+    for (int i = 0; i < 128; i++) {
+        csi_buf[i] = (int8_t)(i % 64 - 32);
+    }
+    
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 128;
+    csi_info.rx_ctrl.channel = 6;
+    
+    manager.process_packet(&csi_info);
+    
+    TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+}
+
+void test_csi_manager_motion_state_callback_fires_before_periodic_publish(void) {
+    TransitionDetectorMock detector;
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    manager.set_motion_on_hits(1);
+    manager.set_motion_off_hits(1);
+
+    int motion_callback_count = 0;
+    MotionState last_motion_state = MotionState::IDLE;
+    int periodic_callback_count = 0;
+    manager.set_game_mode_callback([](float, float) {});
+    manager.set_motion_state_callback([&](MotionState state) {
+        motion_callback_count++;
+        last_motion_state = state;
+    });
+
+    manager.enable([&](MotionState, uint32_t) {
+        periodic_callback_count++;
+    });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    for (int i = 0; i < 24; i++) {
+        manager.process_packet(&csi_info);
+    }
+
+    TEST_ASSERT_EQUAL(0, motion_callback_count);
+    TEST_ASSERT_EQUAL(0, periodic_callback_count);
+
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(1, motion_callback_count);
+    TEST_ASSERT_EQUAL(MotionState::MOTION, last_motion_state);
+    TEST_ASSERT_EQUAL(0, periodic_callback_count);
+}
+
+void test_csi_manager_motion_state_callback_does_not_repeat_without_new_edge(void) {
+    TransitionDetectorMock detector;
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+
+    int motion_callback_count = 0;
+    manager.set_game_mode_callback([](float, float) {});
+    manager.set_motion_state_callback([&](MotionState) {
+        motion_callback_count++;
+    });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    for (int i = 0; i < TEST_MOTION_CALLBACK_TRIGGER_PACKET; i++) {
+        manager.process_packet(&csi_info);
+    }
+
+    TEST_ASSERT_EQUAL(1, motion_callback_count);
+}
+
+void test_csi_manager_clear_detector_buffer_publishes_idle_edge(void) {
+    TransitionDetectorMock detector;
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    manager.set_motion_on_hits(1);
+    manager.set_motion_off_hits(1);
+
+    int motion_callback_count = 0;
+    MotionState last_motion_state = MotionState::IDLE;
+    manager.set_game_mode_callback([](float, float) {});
+    manager.set_motion_state_callback([&](MotionState state) {
+        motion_callback_count++;
+        last_motion_state = state;
+    });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    for (int i = 0; i < 25; i++) {
+        manager.process_packet(&csi_info);
+    }
+    manager.clear_detector_buffer();
+
+    TEST_ASSERT_EQUAL(2, motion_callback_count);
+    TEST_ASSERT_EQUAL(MotionState::IDLE, last_motion_state);
+}
+
+void test_csi_manager_motion_state_callback_honors_motion_on_hits(void) {
+    TransitionDetectorMock detector;
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    manager.set_motion_on_hits(3);
+
+    int motion_callback_count = 0;
+    MotionState last_motion_state = MotionState::IDLE;
+    manager.set_game_mode_callback([](float, float) {});
+    manager.set_motion_state_callback([&](MotionState state) {
+        motion_callback_count++;
+        last_motion_state = state;
+    });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    for (int i = 0; i < 74; i++) {
+        manager.process_packet(&csi_info);
+    }
+
+    TEST_ASSERT_EQUAL(0, motion_callback_count);
+
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(1, motion_callback_count);
+    TEST_ASSERT_EQUAL(MotionState::MOTION, last_motion_state);
+}
+
+void test_csi_manager_motion_state_callback_honors_motion_off_hits(void) {
+    WindowedTransitionDetectorMock detector;
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    manager.set_motion_on_hits(2);
+    manager.set_motion_off_hits(3);
+    manager.set_evaluation_interval(TEST_EVALUATION_INTERVAL);
+
+    int motion_callback_count = 0;
+    MotionState last_motion_state = MotionState::IDLE;
+    manager.set_game_mode_callback([](float, float) {});
+    manager.set_motion_state_callback([&](MotionState state) {
+        motion_callback_count++;
+        last_motion_state = state;
+    });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    // Evaluation ticks happen every 25 packets:
+    //  25 -> MOTION hit 1
+    //  50 -> MOTION hit 2 => callback #1 (MOTION)
+    //  75 -> MOTION steady
+    // 100 -> MOTION steady
+    // 125 -> IDLE hit 1
+    // 150 -> IDLE hit 2
+    // 175 -> IDLE hit 3 => callback #2 (IDLE)
+    for (int i = 0; i < 175; i++) {
+        manager.process_packet(&csi_info);
+    }
+
+    TEST_ASSERT_EQUAL(2, motion_callback_count);
+    TEST_ASSERT_EQUAL(MotionState::IDLE, last_motion_state);
+}
+
+void test_csi_manager_periodic_callback_uses_filtered_motion_state(void) {
+    TransitionDetectorMock detector;
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, 2, GainLockMode::DISABLED, &g_wifi_mock);
+    manager.set_motion_on_hits(3);
+
+    int periodic_callback_count = 0;
+    MotionState periodic_state = MotionState::MOTION;
+    manager.set_game_mode_callback([](float, float) {});
+    manager.enable([&](MotionState state, uint32_t) {
+        periodic_callback_count++;
+        periodic_state = state;
+    });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    manager.process_packet(&csi_info);  // raw IDLE
+    manager.process_packet(&csi_info);  // raw MOTION hit 1, publish tick
+
+    TEST_ASSERT_EQUAL(1, periodic_callback_count);
+    TEST_ASSERT_EQUAL(MotionState::IDLE, periodic_state);
+}
+
+void test_csi_manager_game_mode_callback_does_not_force_every_packet_evaluation(void) {
+    TransitionDetectorMock detector;
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    manager.set_motion_on_hits(1);
+    manager.set_motion_off_hits(1);
+
+    int motion_callback_count = 0;
+    int game_mode_callback_count = 0;
+    manager.set_game_mode_callback([&](float, float) {
+        game_mode_callback_count++;
+    });
+    manager.set_motion_state_callback([&](MotionState) {
+        motion_callback_count++;
+    });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    for (int i = 0; i < 24; i++) {
+        manager.process_packet(&csi_info);
+    }
+
+    TEST_ASSERT_EQUAL(0, motion_callback_count);
+    TEST_ASSERT_EQUAL(0, game_mode_callback_count);
+
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(1, motion_callback_count);
+    TEST_ASSERT_EQUAL(1, game_mode_callback_count);
+}
+
+// ============================================================================
+// STBC PACKET TESTS (GitHub issue #76)
+// ============================================================================
+
+void test_csi_manager_process_stbc_256_byte_packet(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    // STBC packet: 256 bytes (2x HT-LTF, 128 SC) — should be truncated to 128
+    int8_t csi_buf[256];
+    for (int i = 0; i < 256; i++) {
+        csi_buf[i] = (int8_t)(i % 64 - 32);
+    }
+    
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 256;
+    csi_info.rx_ctrl.channel = 6;
+    
+    manager.process_packet(&csi_info);
+    
+    TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+}
+
+void test_csi_manager_process_short_ht_114_byte_packet(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+
+    // Short HT packet: 114 bytes (57 SC) — should be remapped to 128 and processed.
+    int8_t csi_buf[114];
+    for (int i = 0; i < 114; i++) {
+        csi_buf[i] = (int8_t)(i % 64 - 32);
+    }
+
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 114;
+    csi_info.rx_ctrl.channel = 6;
+
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+}
+
+void test_csi_manager_process_double_short_ht_228_byte_packet(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+
+    // Doubled short HT packet: 228 bytes (2 x 114) — should collapse to 114,
+    // then remap to 128 and be processed.
+    int8_t csi_buf[228];
+    for (int i = 0; i < 228; i++) {
+        csi_buf[i] = (int8_t)(i % 64 - 32);
+    }
+
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 228;
+    csi_info.rx_ctrl.channel = 6;
+
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(1, detector.get_total_packets());
+}
+
+void test_csi_manager_process_wrong_length_filtered(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    // 64 bytes — not HT20 (128) nor STBC (256), must be filtered
+    int8_t csi_buf[64];
+    memset(csi_buf, 0, sizeof(csi_buf));
+    
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 64;
+    csi_info.rx_ctrl.channel = 6;
+    
+    manager.process_packet(&csi_info);
+    
+    TEST_ASSERT_EQUAL(0, detector.get_total_packets());
+}
+
+// ============================================================================
+// ERROR PATH TESTS
+// ============================================================================
+
+void test_csi_manager_enable_config_error(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    g_wifi_mock.set_config_error(ESP_ERR_INVALID_ARG);
+    
+    esp_err_t result = manager.enable(nullptr);
+    
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, result);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_enable_callback_error(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    g_wifi_mock.set_callback_error(ESP_ERR_NO_MEM);
+    
+    esp_err_t result = manager.enable(nullptr);
+    
+    TEST_ASSERT_EQUAL(ESP_ERR_NO_MEM, result);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_enable_csi_error(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    g_wifi_mock.set_csi_error(ESP_FAIL);
+    
+    esp_err_t result = manager.enable(nullptr);
+    
+    TEST_ASSERT_EQUAL(ESP_FAIL, result);
+    TEST_ASSERT_FALSE(manager.is_enabled());
+}
+
+void test_csi_manager_disable_error(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    manager.enable(nullptr);
+    g_wifi_mock.set_csi_error(ESP_FAIL);
+    
+    esp_err_t result = manager.disable();
+    
+    TEST_ASSERT_EQUAL(ESP_FAIL, result);
+    TEST_ASSERT_TRUE(manager.is_enabled());
+}
+
+// ============================================================================
+// CALLBACK WRAPPER TESTS
+// ============================================================================
+
+void test_csi_manager_callback_wrapper_triggered(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    manager.enable(nullptr);
+    
+    int8_t csi_buf[128] = {0};
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 128;
+    csi_info.rx_ctrl.channel = 6;
+    
+    g_wifi_mock.trigger_callback(&csi_info);
+    
+    TEST_ASSERT_TRUE(detector.get_total_packets() > 0);
+}
+
+void test_csi_manager_callback_wrapper_null_data(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    manager.enable(nullptr);
+    
+    uint32_t packets_before = detector.get_total_packets();
+    
+    g_wifi_mock.trigger_callback(nullptr);
+    
+    TEST_ASSERT_EQUAL(packets_before, detector.get_total_packets());
+}
+
+// ============================================================================
+// CLEAR DETECTOR BUFFER TEST
+// ============================================================================
+
+void test_csi_manager_clear_detector_buffer(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    // Process some packets
+    int8_t csi_buf[128] = {0};
+    wifi_csi_info_t csi_info = {};
+    csi_info.buf = csi_buf;
+    csi_info.len = 128;
+    csi_info.rx_ctrl.channel = 6;
+    
+    for (int i = 0; i < 10; i++) {
+        manager.process_packet(&csi_info);
+    }
+    
+    // Clear buffer
+    manager.clear_detector_buffer();
+    
+    // Detector should be reset
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_motion_metric());
+}
+
+// ============================================================================
+// GAIN LOCK TESTS
+// ============================================================================
+
+void test_csi_manager_gain_lock_disabled(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    // With DISABLED, gain is immediately locked
+    TEST_ASSERT_TRUE(manager.is_gain_locked());
+}
+
+void test_csi_manager_get_gain_controller(void) {
+    MVSDetector detector(50, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_SUBCARRIERS, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    
+    const GainController& gc = manager.get_gain_controller();
+    TEST_ASSERT_TRUE(gc.is_locked());
+}
+
+// ============================================================================
+// ENTRY POINT
+// ============================================================================
+
+int process(void) {
+    UNITY_BEGIN();
+    
+    // Initialization tests
+    RUN_TEST(test_csi_manager_init);
+    
+    // Enable/Disable tests
+    RUN_TEST(test_csi_manager_enable);
+    RUN_TEST(test_csi_manager_enable_twice_returns_ok);
+    RUN_TEST(test_csi_manager_disable);
+    RUN_TEST(test_csi_manager_disable_when_not_enabled);
+    
+    // Threshold tests
+    RUN_TEST(test_csi_manager_set_threshold);
+    
+    // Subcarrier selection tests
+    RUN_TEST(test_csi_manager_update_subcarrier_selection);
+    
+    // Process packet tests
+    RUN_TEST(test_csi_manager_process_packet_null_data);
+    RUN_TEST(test_csi_manager_process_packet_short_data);
+    RUN_TEST(test_csi_manager_process_packet_valid_data);
+    RUN_TEST(test_csi_manager_motion_state_callback_fires_before_periodic_publish);
+    RUN_TEST(test_csi_manager_motion_state_callback_does_not_repeat_without_new_edge);
+    RUN_TEST(test_csi_manager_clear_detector_buffer_publishes_idle_edge);
+    RUN_TEST(test_csi_manager_motion_state_callback_honors_motion_on_hits);
+    RUN_TEST(test_csi_manager_motion_state_callback_honors_motion_off_hits);
+    RUN_TEST(test_csi_manager_periodic_callback_uses_filtered_motion_state);
+    RUN_TEST(test_csi_manager_game_mode_callback_does_not_force_every_packet_evaluation);
+    
+    // STBC packet tests (issue #76)
+    RUN_TEST(test_csi_manager_process_stbc_256_byte_packet);
+    RUN_TEST(test_csi_manager_process_short_ht_114_byte_packet);
+    RUN_TEST(test_csi_manager_process_double_short_ht_228_byte_packet);
+    RUN_TEST(test_csi_manager_process_wrong_length_filtered);
+    
+    // Error path tests
+    RUN_TEST(test_csi_manager_enable_config_error);
+    RUN_TEST(test_csi_manager_enable_callback_error);
+    RUN_TEST(test_csi_manager_enable_csi_error);
+    RUN_TEST(test_csi_manager_disable_error);
+    
+    // Callback wrapper tests
+    RUN_TEST(test_csi_manager_callback_wrapper_triggered);
+    RUN_TEST(test_csi_manager_callback_wrapper_null_data);
+    
+    // Clear buffer test
+    RUN_TEST(test_csi_manager_clear_detector_buffer);
+    
+    // Gain lock tests
+    RUN_TEST(test_csi_manager_gain_lock_disabled);
+    RUN_TEST(test_csi_manager_get_gain_controller);
+    
+    return UNITY_END();
+}
+
+#if defined(ESP_PLATFORM)
+extern "C" void app_main(void) { process(); }
+#else
+int main(int argc, char **argv) { return process(); }
+#endif

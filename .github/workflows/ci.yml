@@ -160,22 +160,13 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
       
-      - name: Cache PlatformIO
-        uses: actions/cache@v5
-        with:
-          path: ~/.platformio
-          key: pio-test-${{ hashFiles('test/platformio.ini') }}
-          restore-keys: |
-            pio-test-
-      
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install platformio gcovr
+          pip install gcovr
       
-      - name: Run Tests with Coverage
-        working-directory: test
-        run: ./run_coverage.sh --ci
+      - name: Run Host-side Tests with Coverage
+        run: ./test/run_coverage.sh --ci
       
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v6

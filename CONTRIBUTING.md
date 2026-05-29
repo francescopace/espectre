@@ -87,8 +87,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the rationale behind the split and th
 ### Running Tests
 
 ```bash
-# C++ tests (ESPHome component)
-cd test && pio test
+# C++ tests (host-side core/runtime/frontend suite)
+cmake -S test -B test/build
+cmake --build test/build
+ctest --test-dir test/build --output-on-failure
+
+# C++ tests with coverage
+./test/run_coverage.sh
 
 # Python tests (Micro-ESPectre)
 cd micro-espectre && pytest tests/ -v
@@ -222,7 +227,7 @@ License: GPLv3
 
 | Requirement | Target |
 |-------------|--------|
-| Test coverage | >80% for core modules |
+| Test coverage | Run `./test/run_coverage.sh` and avoid unexplained regressions in the relevant layer |
 | CI passing | All checks must pass |
 | Documentation | Features require docs |
 | Code review | At least one approval |

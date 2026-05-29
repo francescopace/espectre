@@ -2,6 +2,7 @@
 #define ESP_NETIF_H
 
 #include "esp_err.h"
+#include "lwip/ip_addr.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -11,10 +12,8 @@ extern "C" {
 // Network interface handle
 typedef void *esp_netif_t;
 
-// IP address structure
-typedef struct {
-  uint32_t addr;
-} esp_netif_ip4_addr_t;
+typedef ip4_addr_t esp_ip4_addr_t;
+typedef ip4_addr_t esp_netif_ip4_addr_t;
 
 // IP info structure
 typedef struct {

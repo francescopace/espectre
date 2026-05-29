@@ -1,0 +1,94 @@
+function(add_espectre_test target_name source_path)
+    set(options)
+    set(oneValueArgs)
+    set(multiValueArgs LIBRARIES)
+    cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    add_executable("${target_name}" "${source_path}")
+    target_link_libraries("${target_name}"
+        PRIVATE
+            espectre_test_framework
+            espectre_test_support
+            ${ARG_LIBRARIES}
+    )
+    add_test(NAME "${target_name}" COMMAND "${target_name}")
+    set_tests_properties("${target_name}" PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+    espectre_apply_coverage("${target_name}")
+endfunction()
+
+add_espectre_test(test_utils
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_utils.cpp"
+    LIBRARIES espectre_core_testlib
+)
+
+add_espectre_test(test_core_helpers
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_core_helpers.cpp"
+    LIBRARIES espectre_core_testlib
+)
+
+add_espectre_test(test_hampel_filter
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_hampel_filter.cpp"
+    LIBRARIES espectre_core_testlib
+)
+
+add_espectre_test(test_mvs_detector
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_mvs_detector.cpp"
+    LIBRARIES espectre_core_testlib
+)
+
+add_espectre_test(test_ml_detector
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_ml_detector.cpp"
+    LIBRARIES espectre_core_testlib
+)
+
+add_espectre_test(test_traffic_generator
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_traffic_generator.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_runtime_helpers
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_runtime_helpers.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_wifi_lifecycle
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_wifi_lifecycle.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_calibration_file_storage
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_calibration_file_storage.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_csi_manager
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_csi_manager.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_nbvi_calibrator
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_nbvi_calibrator.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_motion_detection
+    "${CMAKE_CURRENT_SOURCE_DIR}/integration/test_motion_detection.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_long_recordings
+    "${CMAKE_CURRENT_SOURCE_DIR}/integration/test_long_recordings.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_sensor_publisher
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_sensor_publisher.cpp"
+    LIBRARIES espectre_frontend_esphome_testlib
+)
+
+add_espectre_test(test_frontend_controls
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_frontend_controls.cpp"
+    LIBRARIES espectre_frontend_esphome_testlib
+)

@@ -35,10 +35,10 @@ typedef struct {
 #define IPADDR_TYPE_V6 6
 
 // Macros for extracting octets from ip4_addr_t
-#define ip4_addr1(addr) (((addr)->addr >> 0) & 0xFF)
-#define ip4_addr2(addr) (((addr)->addr >> 8) & 0xFF)
-#define ip4_addr3(addr) (((addr)->addr >> 16) & 0xFF)
-#define ip4_addr4(addr) (((addr)->addr >> 24) & 0xFF)
+#define ip4_addr1(ip_ptr) (((ip_ptr)->addr >> 0) & 0xFF)
+#define ip4_addr2(ip_ptr) (((ip_ptr)->addr >> 8) & 0xFF)
+#define ip4_addr3(ip_ptr) (((ip_ptr)->addr >> 16) & 0xFF)
+#define ip4_addr4(ip_ptr) (((ip_ptr)->addr >> 24) & 0xFF)
 
 // Macro to set IP4 address
 #define IP_ADDR4(ipaddr, a, b, c, d) do { \

@@ -28,13 +28,17 @@ public:
     virtual float get_setup_priority() const { return 0.0f; }
     virtual float get_loop_priority() const { return 0.0f; }
     
-    void set_setup_priority(float priority) {}
+    void set_setup_priority(float priority) { setup_priority_ = priority; }
     
-    bool is_failed() const { return false; }
-    void mark_failed() {}
+    bool is_failed() const { return failed_; }
+    void mark_failed() { failed_ = true; }
     
     void set_timeout(uint32_t timeout, void (*func)()) {}
     void set_interval(uint32_t interval, void (*func)()) {}
+
+protected:
+    float setup_priority_{0.0f};
+    bool failed_{false};
 };
 
 // Mock PollingComponent

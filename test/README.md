@@ -1,6 +1,6 @@
 # Test Suite
 
-Test suite based on **PlatformIO Unity** to validate ESPectre CSI algorithms.
+Host-side **CMake + CTest** suite for validating the ESPectre `core / runtime / frontend` layers.
 
 ## Quick Start
 
@@ -8,28 +8,36 @@ Test suite based on **PlatformIO Unity** to validate ESPectre CSI algorithms.
 # Activate virtualenv
 source ../.venv/bin/activate
 
-# Run all tests (native is the default environment)
-cd test && pio test
+# Configure and run the full host-side suite
+cmake -S test -B test/build
+cmake --build test/build
+ctest --test-dir test/build --output-on-failure
 
 # Run specific suite
-pio test -f test_motion_detection
+ctest --test-dir test/build -R test_motion_detection --output-on-failure
 ```
 
 ---
 
 ## Test Suites
 
-| Suite | Type | Data | Focus |
-|-------|------|------|-------|
-| `test_mvs_detector` | Unit | **Real** | MVS algorithm, threshold, filters, state machine, lowpass |
-| `test_ml_detector` | Unit | **Real** | ML detector, feature extraction, inference |
-| `test_csi_manager` | Unit | Synthetic | CSIManager API, enable/disable, callbacks |
-| `test_utils` | Unit | **Real** | Variance, magnitude, turbulence, compare functions |
-| `test_hampel_filter` | Unit | **Real** | Outlier removal filter |
-| `test_nbvi_calibrator` | Unit | **Real** | NBVI subcarrier selection, configuration |
-| `test_calibration_file_storage` | Unit | Synthetic | File-based magnitude storage |
-| `test_traffic_generator` | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
-| `test_motion_detection` | Integration | **Real** | MVS/ML performance, NBVI calibration end-to-end |
+| Suite | Layer | Type | Data | Focus |
+|-------|-------|------|------|-------|
+| `test_utils` | Core | Unit | **Real** | Variance, magnitude, turbulence, compare functions |
+| `test_core_helpers` | Core | Unit | Synthetic | Core helper edge cases, thresholds, move semantics |
+| `test_hampel_filter` | Core | Unit | **Real** | Outlier removal filter |
+| `test_mvs_detector` | Core | Unit | **Real** | MVS algorithm, threshold, filters, state machine, lowpass |
+| `test_ml_detector` | Core | Unit | **Real** | ML detector, feature extraction, inference |
+| `test_traffic_generator` | Runtime | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
+| `test_runtime_helpers` | Runtime | Unit | Synthetic | Gain controller and WiFi CSI helper behavior |
+| `test_wifi_lifecycle` | Runtime | Unit | Synthetic | WiFi init policy, handler registration, cleanup paths |
+| `test_calibration_file_storage` | Runtime | Unit | Synthetic | File-based magnitude storage |
+| `test_csi_manager` | Runtime | Unit | Synthetic | CSIManager API, enable/disable, callbacks |
+| `test_nbvi_calibrator` | Runtime | Unit | **Real** | NBVI subcarrier selection, configuration |
+| `test_motion_detection` | Integration | Integration | **Real** | MVS/ML performance, NBVI calibration end-to-end |
+| `test_long_recordings` | Integration | Integration | **Real** | Long-recording diagnostics for MVS/NBVI and ML |
+| `test_sensor_publisher` | Frontend | Unit | Synthetic | ESPHome sensor publishing and status logging |
+| `test_frontend_controls` | Frontend | Unit | Synthetic | Threshold number, calibrate switch, frontend runtime shim |
 
 
 ### Target Metrics (Motion Detection)
@@ -61,11 +69,20 @@ Both Python and C++ tests use the same NPZ files, eliminating duplication.
 
 ## Code Coverage
 
-Run tests with coverage instrumentation:
+Run the host-side suite with coverage instrumentation:
 
 ```bash
 ./run_coverage.sh
 ```
+
+The coverage script prints both the aggregate report and the per-layer breakdown used during development (`core`, `runtime`, `frontend`).
+
+Recent local snapshot (2026-05-30):
+
+- Total line coverage: `87.09%`
+- `core`: `92.25%`
+- `runtime`: `80.92%`
+- `frontend`: `97.69%`
 
 ---
 
@@ -73,12 +90,15 @@ Run tests with coverage instrumentation:
 
 ```
 test/
-├── mocks/              # Mock implementations
-│   ├── esp_idf/        # ESP-IDF mocks (native only)
-│   └── esphome/        # ESPHome mocks (native only)
-├── data/               # CSI test data loader (cnpy library)
-├── test/               # Test suites (one folder per suite)
-├── platformio.ini      # PlatformIO configuration
+├── cmake/              # Shared CMake modules for the host-side suite
+├── mocks/              # ESP-IDF / ESPHome host-side fakes
+├── suites/             # Test suites grouped by layer
+│   ├── core/
+│   ├── runtime/
+│   ├── integration/
+│   └── frontend/
+├── support/            # Harness and shared test-side support (cnpy, dataset loader, runtime shim)
+├── CMakeLists.txt      # Host-side test entrypoint
 └── run_coverage.sh     # Coverage script
 ```
 
@@ -127,10 +147,10 @@ act -j build --matrix chip:"QEMU ESP32-C3" -P ubuntu-latest=catthehacker/ubuntu:
 
 ## Adding New Tests
 
-Create `test/test_my_feature/test_my_feature.cpp`:
+Create `test/suites/core/test_my_feature.cpp`:
 
 ```cpp
-#include <unity.h>
+#include "test_harness.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -152,7 +172,7 @@ int main(int argc, char **argv) { return process(); }
 #endif
 ```
 
-> **Note**: PlatformIO requires each suite in a separate folder.
+Register the file in `test/suites/CMakeLists.txt` and run it with `ctest -R test_my_feature`.
 
 ---
 

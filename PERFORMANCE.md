@@ -53,7 +53,9 @@ Data location: `micro-espectre/data/`
 source .venv/bin/activate
 
 # C++
-cd test && pio test -f test_motion_detection -v
+cmake -S test -B test/build
+cmake --build test/build
+ctest --test-dir test/build -R test_motion_detection --output-on-failure
 
 # Python (real-data validation)
 cd micro-espectre && pytest tests/test_validation_real_data.py::TestPerformanceMetrics -v

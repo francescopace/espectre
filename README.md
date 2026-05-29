@@ -445,7 +445,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribut
 | [Performance](PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
 | [Architecture Guide](ARCHITECTURE.md) | Internal source layout, runtime/frontend split, standalone core reuse |
 | [The Game](docs/game/README.md) | Browser game, USB streaming API, interactive threshold tuning |
-| [Test Suite](test/README.md) | PlatformIO Unity test documentation |
+| [Test Suite](test/README.md) | Layered CMake/CTest suite, coverage flow, and support layout |
 
 ### Micro-ESPectre (R&D)
 
