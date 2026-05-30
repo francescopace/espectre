@@ -10,7 +10,7 @@
 
 #include "gain_controller.h"
 #include "utils.h"
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 
 namespace esphome {
 namespace espectre {

@@ -240,11 +240,12 @@ The runtime processing pipeline above is implemented with a separate internal co
 - `src/core/` for reusable detectors, filters, thresholds, and domain logic
 - `src/runtime/` for the shared runtime contract and `src/runtime/esp_idf/` for the current ESP-IDF CSI/Wi-Fi/calibration implementation
 - `src/frontend/esphome/espectre/` for the ESPHome adapter and packaging entrypoint
+- `src/frontend/matter/espectre/` for the Matter adapter and esp-matter firmware app
 
 ```text
 ┌──────────────────────────────┐
 │ Frontend                     │
-│ ESPHome today, Matter later  │
+│ ESPHome + Matter frontends   │
 └──────────────┬───────────────┘
                │ uses
                ▼
@@ -262,11 +263,13 @@ The runtime processing pipeline above is implemented with a separate internal co
 └──────────────────────────────┘
 ```
 
-This split keeps the current ESPHome behavior intact while preparing the project for:
+This split keeps the current ESPHome behavior intact while enabling:
 
-- future frontends such as Matter
+- the Matter frontend under `src/frontend/matter/`
 - alternate runtimes
 - standalone reuse of the shared motion-detection core
+
+The experimental Matter firmware under `src/frontend/matter/` now builds through managed `espressif/esp_matter` dependencies and has been smoke-tested on real ESP32-C3 hardware.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the detailed rationale, folder structure, and reuse model.
 

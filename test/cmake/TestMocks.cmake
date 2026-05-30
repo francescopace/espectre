@@ -10,6 +10,7 @@ target_include_directories(espectre_test_mocks
         "${ESPECTRE_REPO_ROOT}/src/runtime"
         "${ESPECTRE_REPO_ROOT}/src/runtime/esp_idf"
         "${ESPECTRE_REPO_ROOT}/src/frontend/esphome/espectre"
+        "${ESPECTRE_REPO_ROOT}/src/frontend/matter/espectre"
 )
 
 target_compile_definitions(espectre_test_mocks

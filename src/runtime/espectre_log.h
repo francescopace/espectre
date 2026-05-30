@@ -5,6 +5,8 @@
 
 #if __has_include("esphome/core/log.h")
 #include "esphome/core/log.h"
+#elif defined(ESP_PLATFORM)
+#include "esp_log.h"
 #else
 #ifndef ESP_LOGE
 #define ESP_LOGE(tag, format, ...) std::fprintf(stderr, "[E][%s] " format "\n", tag, ##__VA_ARGS__)
@@ -17,6 +19,9 @@
 #endif
 #ifndef ESP_LOGD
 #define ESP_LOGD(tag, format, ...) std::fprintf(stdout, "[D][%s] " format "\n", tag, ##__VA_ARGS__)
+#endif
+#ifndef ESP_LOGV
+#define ESP_LOGV(tag, format, ...) ((void)0)
 #endif
 #endif
 

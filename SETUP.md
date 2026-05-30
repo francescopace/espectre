@@ -928,6 +928,71 @@ esphome logs <your-config>.yaml --device espectre.local
 
 ---
 
+## Option C: Matter Firmware (experimental)
+
+The Matter frontend is a separate ESP-IDF + esp-matter build. It reuses the same `core` and `runtime` layers as the ESPHome firmware, but exposes motion and runtime controls through Matter clusters instead of Home Assistant entities.
+
+### Prerequisites
+
+- ESP-IDF **5.4+** (see [espressif/esp_matter](https://components.espressif.com/components/espressif/esp_matter) component requirements)
+- An ESP32-family board with CSI support
+
+Current smoke-tested target:
+
+- **ESP32-C3** with native USB Serial/JTAG and 4 MB flash
+
+No manual clone of the esp-matter repository is required. The firmware app declares `espressif/esp_matter` in `main/idf_component.yml` and the IDF Component Manager downloads it into `managed_components/` during the first build.
+
+If you are using the repository `.venv` for Python tooling, deactivate it before running `install.sh` from ESP-IDF. The ESP-IDF installer creates and manages its own Python environment and refuses to run from inside another virtualenv.
+
+### Build
+
+```bash
+cd src/frontend/matter/app
+idf.py set-target esp32
+idf.py build
+```
+
+For ESP32-C3:
+
+```bash
+deactivate  # only if you are inside the project .venv
+export IDF_PATH="$HOME/.platformio/packages/framework-espidf"
+cd "$IDF_PATH"
+./install.sh esp32c3
+. ./export.sh
+
+cd /path/to/espectre/src/frontend/matter/app
+idf.py set-target esp32c3
+idf.py build
+```
+
+Flash and monitor:
+
+```bash
+idf.py -p /dev/cu.usbmodemXXXX flash
+idf.py -p /dev/cu.usbmodemXXXX monitor
+```
+
+### Exposed Matter surface
+
+| Feature | Matter mapping |
+|---------|----------------|
+| Motion detected | `OccupancySensing` occupancy |
+| Movement metric / diagnostics | Vendor cluster `0xFFF1FC01` read-only attributes |
+| Threshold | Vendor cluster writable threshold attribute |
+| Recalibration | Vendor cluster writable `request_recalibrate` trigger |
+
+Notes:
+
+- BLE telemetry/control from the ESPHome frontend is not available in the Matter build.
+- On ESP32-C3, ESPectre currently falls back from `11n-only` to `11b/g/n` if the Wi-Fi driver rejects the stricter CSI protocol setup.
+- The firmware has been verified to boot, start BLE commissioning advertising, and initialize the Matter frontend on ESP32-C3 hardware.
+- Commission the device with a standard Matter controller after flashing.
+- See [ARCHITECTURE.md](ARCHITECTURE.md) for the frontend/runtime boundary and current parity limits.
+
+---
+
 ## Next Steps
 
 - **Tuning Guide**: [TUNING.md](TUNING.md) - Optimize for your environment

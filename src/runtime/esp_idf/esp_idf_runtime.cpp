@@ -4,7 +4,7 @@
 #include <cstring>
 #include <vector>
 
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 

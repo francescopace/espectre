@@ -8,7 +8,7 @@
 #include "csi_manager.h"
 #include "nbvi_calibrator.h"
 #include "gain_controller.h"
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 #include "esp_timer.h"
 #include "esp_attr.h"
 #include <cstring>

@@ -1,0 +1,189 @@
+/*
+ * ESPectre Matter firmware entrypoint.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
+
+#include <esp_err.h>
+#include <esp_log.h>
+#include <nvs_flash.h>
+
+#include <app/server/CommissioningWindowManager.h>
+#include <app/server/Server.h>
+#include <esp_matter.h>
+#include <esp_matter_attribute.h>
+#include <esp_matter_cluster.h>
+#include <esp_matter_endpoint.h>
+
+#include "matter_bindings_esp_matter.h"
+#include "matter_frontend.h"
+#include "matter_surface.h"
+
+static const char *TAG = "espectre.matter.app";
+
+using namespace esp_matter;
+using namespace esp_matter::attribute;
+using namespace esp_matter::cluster;
+using namespace esp_matter::endpoint;
+using namespace chip::app::Clusters;
+
+namespace {
+
+esphome::espectre::MatterEspBindings g_bindings;
+esphome::espectre::MatterFrontend *g_frontend = nullptr;
+uint16_t g_motion_endpoint_id = 0;
+
+cluster_t *create_espectre_vendor_cluster(endpoint_t *endpoint) {
+  cluster_t *vendor_cluster = cluster::create(endpoint, esphome::espectre::ESPECTRE_MATTER_VENDOR_CLUSTER_ID,
+                                            CLUSTER_FLAG_SERVER);
+  if (vendor_cluster == nullptr) {
+    return nullptr;
+  }
+
+  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_MOVEMENT_METRIC, ATTRIBUTE_FLAG_NONE,
+                    esp_matter_nullable_float(0.0f));
+  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_THRESHOLD,
+                    ATTRIBUTE_FLAG_WRITABLE | ATTRIBUTE_FLAG_NONVOLATILE, esp_matter_nullable_float(1.0f));
+  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_CALIBRATING, ATTRIBUTE_FLAG_NONE,
+                    esp_matter_bool(false));
+  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_READY_TO_PUBLISH, ATTRIBUTE_FLAG_NONE,
+                    esp_matter_bool(false));
+  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_BEST_PXX, ATTRIBUTE_FLAG_NONE,
+                    esp_matter_nullable_float(0.0f));
+  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_GAIN_LOCKED, ATTRIBUTE_FLAG_NONE,
+                    esp_matter_bool(false));
+  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE,
+                    ATTRIBUTE_FLAG_WRITABLE, esp_matter_bool(false));
+  return vendor_cluster;
+}
+
+void open_commissioning_window_if_necessary() {
+  if (chip::Server::GetInstance().GetFabricTable().FabricCount() != 0) {
+    return;
+  }
+
+  chip::CommissioningWindowManager &commission_mgr = chip::Server::GetInstance().GetCommissioningWindowManager();
+  if (commission_mgr.IsCommissioningWindowOpen()) {
+    return;
+  }
+
+  CHIP_ERROR err = commission_mgr.OpenBasicCommissioningWindow(chip::System::Clock::Seconds16(300),
+                                                               chip::CommissioningWindowAdvertisement::kDnssdOnly);
+  if (err != CHIP_NO_ERROR) {
+    ESP_LOGE(TAG, "Failed to open commissioning window");
+  }
+}
+
+void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
+  switch (event->Type) {
+    case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
+      ESP_LOGI(TAG, "Commissioning complete");
+      break;
+    case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
+      ESP_LOGW(TAG, "Commissioning failed, fail safe timer expired");
+      break;
+    case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
+      ESP_LOGI(TAG, "Fabric removed");
+      open_commissioning_window_if_necessary();
+      break;
+    default:
+      break;
+  }
+}
+
+esp_err_t app_identification_cb(identification::callback_type_t type, uint16_t endpoint_id, uint8_t effect_id,
+                                uint8_t effect_variant, void *priv_data) {
+  ESP_LOGI(TAG, "Identify endpoint %u", endpoint_id);
+  return ESP_OK;
+}
+
+esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16_t endpoint_id, uint32_t cluster_id,
+                                  uint32_t attribute_id, esp_matter_attr_val_t *val, void *priv_data) {
+  if (g_frontend == nullptr || endpoint_id != g_motion_endpoint_id ||
+      cluster_id != esphome::espectre::ESPECTRE_MATTER_VENDOR_CLUSTER_ID) {
+    return ESP_OK;
+  }
+
+  if (attribute_id == esphome::espectre::ESPECTRE_MATTER_ATTR_THRESHOLD && val != nullptr &&
+      val->type == ESP_MATTER_VAL_TYPE_NULLABLE_FLOAT) {
+    if (!g_frontend->handle_threshold_write(val->val.f)) {
+      return ESP_FAIL;
+    }
+    return ESP_OK;
+  }
+
+  if (attribute_id == esphome::espectre::ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE && val != nullptr &&
+      val->type == ESP_MATTER_VAL_TYPE_BOOLEAN && val->val.b) {
+    if (!g_frontend->handle_recalibrate_request()) {
+      return ESP_FAIL;
+    }
+    esp_matter_attr_val_t cleared = esp_matter_bool(false);
+    attribute::update(endpoint_id, cluster_id, attribute_id, &cleared);
+    return ESP_OK;
+  }
+
+  return ESP_OK;
+}
+
+void espectre_loop_task(void *arg) {
+  (void) arg;
+  while (true) {
+    if (g_frontend != nullptr) {
+      g_frontend->loop();
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+}  // namespace
+
+extern "C" void app_main() {
+  esp_err_t err = nvs_flash_init();
+  if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    err = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(err);
+
+  node::config_t node_config;
+  node_t *node = node::create(&node_config, app_attribute_update_cb, app_identification_cb);
+  if (node == nullptr) {
+    ESP_LOGE(TAG, "Failed to create Matter node");
+    return;
+  }
+
+  occupancy_sensor::config_t occupancy_config;
+  occupancy_config.occupancy_sensing.feature_flags =
+      chip::to_underlying(OccupancySensing::Feature::kOther);
+
+  endpoint_t *motion_endpoint = occupancy_sensor::create(node, &occupancy_config, ENDPOINT_FLAG_NONE, nullptr);
+  if (motion_endpoint == nullptr) {
+    ESP_LOGE(TAG, "Failed to create occupancy endpoint");
+    return;
+  }
+
+  if (create_espectre_vendor_cluster(motion_endpoint) == nullptr) {
+    ESP_LOGE(TAG, "Failed to create ESPectre vendor cluster");
+    return;
+  }
+
+  g_motion_endpoint_id = endpoint::get_id(motion_endpoint);
+
+  static esphome::espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id);
+  g_frontend = &frontend;
+  err = esp_matter::start(app_event_cb);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to start Matter (%d)", err);
+    return;
+  }
+
+  if (!frontend.setup()) {
+    ESP_LOGE(TAG, "Failed to initialize ESPectre Matter frontend");
+    return;
+  }
+
+  xTaskCreate(espectre_loop_task, "espectre_loop", 8192, nullptr, 5, nullptr);
+
+  ESP_LOGI(TAG, "ESPectre Matter firmware started on endpoint %u", g_motion_endpoint_id);
+}

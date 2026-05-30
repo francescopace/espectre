@@ -80,11 +80,24 @@ target_link_libraries(espectre_frontend_esphome_testlib
         espectre_test_mocks
 )
 
+add_library(espectre_frontend_matter_testlib STATIC
+    "${ESPECTRE_REPO_ROOT}/src/frontend/matter/espectre/matter_frontend.cpp"
+    "${ESPECTRE_REPO_ROOT}/src/frontend/matter/espectre/matter_surface.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/support/matter_bindings_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
+)
+target_link_libraries(espectre_frontend_matter_testlib
+    PUBLIC
+        espectre_runtime_testlib
+        espectre_test_mocks
+)
+
 foreach(target_name
         espectre_test_framework
         espectre_test_support
         espectre_core_testlib
         espectre_runtime_testlib
-        espectre_frontend_esphome_testlib)
+        espectre_frontend_esphome_testlib
+        espectre_frontend_matter_testlib)
     espectre_apply_coverage("${target_name}")
 endforeach()
