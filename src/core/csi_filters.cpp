@@ -12,7 +12,7 @@
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 
 namespace esphome {
 namespace espectre {

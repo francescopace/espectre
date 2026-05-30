@@ -11,7 +11,7 @@
 #include "utils.h"
 #include <cmath>
 #include <utility>
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 
 namespace esphome {
 namespace espectre {

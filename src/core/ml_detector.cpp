@@ -12,7 +12,7 @@
 #include "ml_weights.h"
 #include <cmath>
 #include <algorithm>
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 
 namespace esphome {
 namespace espectre {

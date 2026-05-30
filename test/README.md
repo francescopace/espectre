@@ -37,7 +37,8 @@ ctest --test-dir test/build -R test_motion_detection --output-on-failure
 | `test_motion_detection` | Integration | Integration | **Real** | MVS/ML performance, NBVI calibration end-to-end |
 | `test_long_recordings` | Integration | Integration | **Real** | Long-recording diagnostics for MVS/NBVI and ML |
 | `test_sensor_publisher` | Frontend | Unit | Synthetic | ESPHome sensor publishing and status logging |
-| `test_frontend_controls` | Frontend | Unit | Synthetic | Threshold number, calibrate switch, frontend runtime shim |
+| `test_frontend_controls` | Frontend | Unit | Synthetic | ESPHome threshold number, calibrate switch, frontend runtime shim |
+| `test_matter_frontend` | Frontend | Unit | Synthetic | Matter adapter lifecycle, event mapping, threshold/recalibration controls |
 
 
 ### Target Metrics (Motion Detection)
@@ -107,6 +108,7 @@ Production code under test lives outside `test/`:
 - `../src/core/` for reusable detection logic
 - `../src/runtime/` for the shared runtime contract and `../src/runtime/esp_idf/` for the current runtime orchestration
 - `../src/frontend/esphome/espectre/` for the ESPHome component manifest and adapter layer
+- `../src/frontend/matter/espectre/` for the Matter adapter and surface mapping
 
 ---
 

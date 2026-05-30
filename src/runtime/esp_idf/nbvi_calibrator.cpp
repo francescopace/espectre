@@ -11,7 +11,7 @@
 #include "threshold.h"
 #include "csi_manager.h"
 #include "utils.h"
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>

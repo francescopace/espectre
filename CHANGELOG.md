@@ -18,7 +18,14 @@ All notable changes to this project will be documented in this file.
   - `src/core/` for detectors, filters, thresholds, math, and shared domain logic
   - `src/runtime/` for CSI, Wi-Fi, calibration, gain lock, and traffic orchestration
   - `src/frontend/esphome/espectre/` for the ESPHome adapter and external component root
-  - `src/frontend/matter/espectre/` as a placeholder for a future Matter adapter
+  - `src/frontend/matter/espectre/` for the Matter adapter and esp-matter firmware app
+- **Matter frontend scaffold using managed `espressif/esp_matter`**:
+  - `MatterFrontend` adapter over `IEspectreRuntime`
+  - occupancy endpoint plus ESPectre vendor cluster for diagnostics and runtime controls
+  - ESP-IDF firmware app under `src/frontend/matter/app/` with `main/idf_component.yml`
+  - host-side tests in `test_matter_frontend`
+  - verified `esp32c3` build/flash path using ESP-IDF managed toolchains and component registry dependencies
+- **Runtime/core logging decoupled from ESPHome headers** via `espectre_log.h`, so non-ESPHome frontends can reuse the same runtime sources.
 - **Frontend-oriented runtime contract** with:
   - `IEspectreRuntime`
   - `RuntimeSnapshot`
@@ -32,7 +39,13 @@ All notable changes to this project will be documented in this file.
 - **ESPHome local development path now uses `src/frontend/esphome`** as the external-components root.
 - **Native tests and CI build plumbing were updated** to follow the new `src/` layout.
 - **Host-side C++ tests now use a layered `CMake + CTest` suite under `test/`**: PlatformIO-specific scaffolding was removed, suites were regrouped by `core` / `runtime` / `integration` / `frontend`, shared support code was consolidated, and coverage reporting now includes per-layer breakdowns.
-- **Documentation was aligned** to the new structure and `.venv` activation flow.
+- **Matter firmware startup ordering was hardened** so the shared runtime initializes after `esp_matter::start()`, allowing the Matter stack to bring up Wi-Fi before CSI-specific runtime configuration runs.
+- **Documentation was aligned** to the new structure, `.venv` activation flow, and the practical ESP32-C3 Matter build/flash workflow.
+
+### Fixed
+
+- **Matter vendor cluster registration**: the custom ESPectre diagnostics/control cluster is now created as a server cluster, so the firmware can boot cleanly on hardware instead of failing during endpoint setup.
+- **ESP32-C3 Matter bring-up**: build defaults now include the flash size, BLE, IPv6, and HKDF options required by `esp-matter`, and the runtime Wi-Fi init order now matches the Matter stack lifecycle.
 
 ### Notes
 

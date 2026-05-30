@@ -11,7 +11,7 @@
  */
 
 #include "traffic_generator_manager.h"
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 #include "esp_timer.h"
 #include "esp_netif.h"
 #include "lwip/sockets.h"

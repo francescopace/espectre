@@ -6,7 +6,7 @@
  */
 
 #include "wifi_lifecycle.h"
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 #include "esp_wifi.h"
 
 namespace esphome {

@@ -37,7 +37,7 @@ Dependency shape:
 ┌────────────────────────────────────────────────────────────┐
 │ FRONTEND                                                   │
 │                                                            │
-│  ESPHome frontend                Future Matter frontend    │
+│  ESPHome frontend                Matter frontend          │
 │  src/frontend/esphome/espectre   src/frontend/matter/...   │
 └───────────────────────────┬────────────────────────────────┘
                             │ uses
@@ -107,9 +107,25 @@ For ESPHome, `src/frontend/esphome` is the external-components search root and `
 
 ### `src/frontend/matter/espectre/`
 
-This is currently a placeholder for the future Matter adapter.
+This is the Matter adapter and firmware entrypoint.
 
-The intent is to map the same runtime snapshot/events/capabilities into Matter endpoints without pulling Matter-specific concerns into `core` or the shared runtime contract.
+It maps the same runtime snapshot/events/capabilities into Matter endpoints without pulling Matter-specific concerns into `core` or the shared runtime contract.
+
+Current mapping:
+
+| Runtime event / state | Matter surface |
+|-----------------------|----------------|
+| Motion state | `OccupancySensing` occupancy bitmap on a dedicated endpoint |
+| Movement metric, best Pxx, gain lock, ready state | Vendor cluster `0xFFF1FC01` read-only attributes |
+| Threshold | Vendor cluster writable attribute + runtime `set_threshold_runtime()` |
+| Manual recalibration | Vendor cluster writable `request_recalibrate` trigger |
+| Runtime faults | Logged and forwarded through the Matter bindings layer |
+
+The host-side adapter lives under `src/frontend/matter/espectre/`. The ESP-IDF firmware app lives under `src/frontend/matter/app/` and pulls **`espressif/esp_matter`** from the ESP Component Registry via `main/idf_component.yml` (no manual esp-matter clone required).
+
+The current experimental firmware has been smoke-tested on ESP32-C3 hardware. In that startup path, the Matter stack is started before the shared runtime setup so Wi-Fi ownership remains with `esp-matter` and the reused runtime can layer CSI configuration on top of an initialized station stack.
+
+ESPHome-specific features such as YAML/codegen, Home Assistant entities, and the BLE telemetry channel remain in the ESPHome frontend only.
 
 ---
 
@@ -260,15 +276,12 @@ After the refactor:
 - native tests use the same frontend component root and shared `src/` layout
 - the runtime contract is in place for future frontend expansion
 
-Current implemented path:
+Current implemented paths:
 
 - `core`: shared detectors and math
 - `runtime`: ESP-IDF runtime
-- `frontend`: ESPHome
-
-Planned next architectural step:
-
-- add a Matter frontend on top of the same runtime contract
+- `frontend/esphome`: ESPHome adapter
+- `frontend/matter`: Matter adapter + esp-matter firmware app (experimental)
 
 ---
 

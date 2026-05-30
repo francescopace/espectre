@@ -10,7 +10,7 @@
 #include "calibration_file_buffer.h"
 #include "utils.h"
 #include "espectre_log.h"
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 #include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"

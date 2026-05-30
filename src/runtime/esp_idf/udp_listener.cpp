@@ -6,7 +6,7 @@
  */
 
 #include "udp_listener.h"
-#include "esphome/core/log.h"
+#include "espectre_log.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include <cstring>
