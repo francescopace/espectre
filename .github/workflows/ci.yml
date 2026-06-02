@@ -91,13 +91,13 @@ jobs:
         run: python .github/scripts/build_docs.py
       
       - name: Build Search Index
-        run: npx -y pagefind --site docs --output-path docs/_pagefind --glob "documentation/**/*.html"
+        run: npx -y pagefind --site docs/web --output-path docs/web/_pagefind --glob "documentation/**/*.html"
       
       - name: Verify Build
         run: |
-          test -f docs/sitemap.xml
-          test -d docs/documentation
-          test -d docs/_pagefind
+          test -f docs/web/sitemap.xml
+          test -d docs/web/documentation
+          test -d docs/web/_pagefind
           echo "Documentation build verified!"
       
       - name: Setup Pages
@@ -108,7 +108,7 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:
-          path: docs
+          path: docs/web
 
   deploy-docs:
     name: Deploy to GitHub Pages
@@ -136,7 +136,7 @@ jobs:
       - name: Extract URLs and notify IndexNow
         run: |
           # Extract URLs from sitemap
-          URLS=$(grep -oP '(?<=<loc>)[^<]+' docs/sitemap.xml | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          URLS=$(grep -oP '(?<=<loc>)[^<]+' docs/web/sitemap.xml | jq -R -s -c 'split("\n") | map(select(length > 0))')
           
           # Notify IndexNow (Bing, Yandex, Seznam, Naver)
           curl -s -X POST "https://api.indexnow.org/indexnow" \
@@ -166,12 +166,12 @@ jobs:
           pip install gcovr
       
       - name: Run Host-side Tests with Coverage
-        run: ./test/run_coverage.sh --ci
+        run: ./test/cpp/run_coverage.sh --ci
       
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
-          files: test/coverage.xml,test/coverage.lcov
+          files: test/cpp/coverage.xml,test/cpp/coverage.lcov
           flags: cpp
           fail_ci_if_error: true
           verbose: true
@@ -179,7 +179,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   test-python:
-    name: Python Unit Tests (micro-espectre)
+    name: Python Unit Tests (src/python)
     needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
     runs-on: ubuntu-latest
@@ -196,14 +196,13 @@ jobs:
         run: pip install pytest pytest-cov numpy
       
       - name: Run Tests with Coverage
-        working-directory: micro-espectre
         run: |
-          pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing
+          pytest test/python -v --cov=src/python --cov-report=xml --cov-report=term-missing
       
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
-          files: micro-espectre/coverage.xml
+          files: coverage.xml
           flags: python
           fail_ci_if_error: true
           verbose: true

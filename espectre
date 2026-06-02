@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent
+PYTHON_SRC_DIR = REPO_ROOT / "src" / "python"
+if str(PYTHON_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(PYTHON_SRC_DIR))
+
+from espectre_cli.app import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

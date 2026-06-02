@@ -135,7 +135,7 @@ jobs:
               if (index($0, "[" ver "]")) found=1
             }
             found { print }
-          ' CHANGELOG.md)
+          ' docs/CHANGELOG.md)
           
           # Extract title from first line
           # Format: "## [2.5.0] - 2026-02-08 - Title Here" or "## [2.5.0] - in progress - Title Here"
@@ -155,7 +155,7 @@ jobs:
           
           # If no specific version found, use generic message
           if [ -z "$NOTES" ]; then
-            NOTES="See [CHANGELOG.md](https://github.com/francescopace/espectre/blob/main/CHANGELOG.md) for details."
+            NOTES="See [CHANGELOG.md](https://github.com/francescopace/espectre/blob/main/docs/CHANGELOG.md) for details."
             TITLE="Release"
           else
             # Remove first line (header) from body - it's already in the release title

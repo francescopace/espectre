@@ -1,0 +1,1 @@
+"""ESPectre repository CLI package."""

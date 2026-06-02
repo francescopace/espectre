@@ -71,35 +71,35 @@ source .venv/bin/activate  # On macOS/Linux
 # .venv\Scripts\activate   # On Windows
 
 # Install dependencies
-pip install -r micro-espectre/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Source Layout
 
 The production firmware code now lives under `src/`:
 
-- `src/core/` for reusable detectors and math
-- `src/runtime/` for the shared runtime contract and `src/runtime/esp_idf/` for the current ESP-IDF-specific orchestration
-- `src/frontend/esphome/espectre/` for the ESPHome adapter/component root
+- `src/cpp/core/` for reusable detectors and math
+- `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current ESP-IDF-specific orchestration
+- `src/cpp/frontend/esphome/espectre/` for the ESPHome adapter/component root
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the rationale behind the split and the planned evolution toward additional runtimes/frontends.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the rationale behind the split and the planned evolution toward additional runtimes/frontends.
 
 ### Running Tests
 
 ```bash
 # C++ tests (host-side core/runtime/frontend suite)
-cmake -S test -B test/build
-cmake --build test/build
-ctest --test-dir test/build --output-on-failure
+cmake -S test/cpp -B test/cpp/build
+cmake --build test/cpp/build
+ctest --test-dir test/cpp/build --output-on-failure
 
 # C++ tests with coverage
-./test/run_coverage.sh
+./test/cpp/run_coverage.sh
 
 # Python tests (Micro-ESPectre)
-cd micro-espectre && pytest tests/ -v
+pytest test/python -v
 
-# With coverage (run from micro-espectre/)
-cd micro-espectre && pytest tests/ -v --cov=src --cov-report=term-missing
+# With coverage (run from repo root)
+pytest test/python -v --cov=src/python --cov-report=term-missing
 ```
 
 ---
@@ -227,7 +227,7 @@ License: GPLv3
 
 | Requirement | Target |
 |-------------|--------|
-| Test coverage | Run `./test/run_coverage.sh` and avoid unexplained regressions in the relevant layer |
+| Test coverage | Run `./test/cpp/run_coverage.sh` and avoid unexplained regressions in the relevant layer |
 | CI passing | All checks must pass |
 | Documentation | Features require docs |
 | Code review | At least one approval |
@@ -240,7 +240,7 @@ Help build a diverse CSI dataset for ML training! Your contributions will improv
 
 ### How to Contribute Data
 
-1. **Collect data** following [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md)
+1. **Collect data** following [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md)
 2. **Ensure quality**:
    - At least 10 samples per label
    - 30+ seconds per sample
@@ -251,7 +251,7 @@ Help build a diverse CSI dataset for ML training! Your contributions will improv
    - Room type (living room, office, etc.)
    - Any notable characteristics
 4. **Submit via Pull Request**:
-   - Add your data to `micro-espectre/data/<label>/`
+   - Add your data to `data/<label>/`
    - Include a brief description in the PR
 
 ### Priority Gestures
@@ -286,9 +286,9 @@ Good documentation is essential! Here's how you can help:
 | Type | Location | Description |
 |------|----------|-------------|
 | **README** | `README.md` | Project overview, quick start |
-| **Setup Guide** | `SETUP.md` | Installation and configuration |
-| **Tuning Guide** | `TUNING.md` | Parameter optimization |
-| **Algorithms** | `micro-espectre/ALGORITHMS.md` | Scientific documentation |
+| **Setup Guide** | `docs/SETUP.md` | Installation and configuration |
+| **Tuning Guide** | `docs/TUNING.md` | Parameter optimization |
+| **Algorithms** | `docs/ALGORITHMS.md` | Scientific documentation |
 | **API Docs** | Code comments | Function/class documentation |
 
 ### Documentation Guidelines

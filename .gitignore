@@ -1,6 +1,8 @@
 # CTest
 test/build/
 test/build-coverage/
+test/cpp/build/
+test/cpp/build-coverage/
 *.elf
 *.bin
 *.map
@@ -22,6 +24,7 @@ __pycache__/
 *.pyc
 *.pyo
 .cache
+src/python/config_local.py
 
 # Virtual environment
 venv/
@@ -33,11 +36,11 @@ env/
 secrets.yaml
 
 #ESP-IDF app build artifacts
-src/frontend/*/app/build/
-src/frontend/*/app/managed_components/
-src/frontend/*/app/sdkconfig
-src/frontend/*/app/sdkconfig.old
-src/frontend/*/app/dependencies.lock
+src/cpp/frontend/*/app/build/
+src/cpp/frontend/*/app/managed_components/
+src/cpp/frontend/*/app/sdkconfig
+src/cpp/frontend/*/app/sdkconfig.old
+src/cpp/frontend/*/app/dependencies.lock
 
 # Editor
 .tmp/
@@ -54,10 +57,13 @@ src/frontend/*/app/dependencies.lock
 *.log
 .log.
 
+# MicroPython firmware cache
+.firmware/
+
 # Documentation
 .papers/
 
 # Generated documentation (built by CI)
-docs/documentation/
-docs/_pagefind/
-docs/sitemap.xml
+docs/web/documentation/
+docs/web/_pagefind/
+docs/web/sitemap.xml

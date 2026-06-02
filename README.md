@@ -10,7 +10,7 @@
 **Motion detection system based on Wi-Fi spectre analysis (CSI), with native Home Assistant integration via ESPHome.**
 
 > [!TIP]
-> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or follow [Setup guide](SETUP.md#choosing-detection-algorithm) for custom configuration.
+> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or follow the [Setup guide](docs/SETUP.md#choosing-detection-algorithm) for custom configuration.
 
 ---
 
@@ -51,9 +51,9 @@
 ### Hardware
 
 - **2.4GHz Wi-Fi Router** - the one you already have at home works fine
-- **ESP32 with CSI support** - ESP32-C6, ESP32-S3, ESP32-C3, ESP32 (original) or other variants. See [SETUP.md](SETUP.md) for the complete platform comparison table.
+- **ESP32 with CSI support** - ESP32-C6, ESP32-S3, ESP32-C3, ESP32 (original) or other variants. See [SETUP.md](docs/SETUP.md) for the complete platform comparison table.
 
-![3 x ESP32-S3 DevKit bundle with external antennas](images/home_lab.jpg)
+![3 x ESP32-S3 DevKit bundle with external antennas](docs/images/home_lab.jpg)
 *ESP32-S3 DevKit with external antennas*
 
 ### Software (All Free)
@@ -75,10 +75,17 @@
 **Setup time**: ~10-15 minutes  
 **Difficulty**: Easy (YAML configuration only)
 
-1. **Setup & Installation**: Follow the complete guide in [SETUP.md](SETUP.md)
-2. **Tuning**: Optimize for your environment with [TUNING.md](TUNING.md)
+1. **Setup & Installation**: Follow the complete guide in [SETUP.md](docs/SETUP.md)
+2. **Tuning**: Optimize for your environment with [TUNING.md](docs/TUNING.md)
+3. **Local repo workflows**: use `./espectre esphome ...`, `./espectre matter ...`, `./espectre streamer ...`, and `./espectre micro ...` when building or testing directly from this repository (`./me` remains a temporary legacy shim for the micro workflow)
 
-![ESPectre Home Assistant Dashboard](images/espectre-home-assistant.png)
+Repository CLI namespaces:
+- `./espectre micro ...` for MicroPython flashing, deploy, streaming, dataset collection, and MQTT control
+- `./espectre esphome ...` for local ESPHome example builds
+- `./espectre matter ...` for Matter `idf.py` build/flash/monitor
+- `./espectre streamer ...` for streamer firmware `idf.py` build/flash/monitor
+
+![ESPectre Home Assistant Dashboard](docs/images/espectre-home-assistant.png)
 *Home Assistant dashboard with real-time motion detection, threshold control, and debug sensors*
 
 ---
@@ -96,7 +103,7 @@ The ESP32 device "listens" to these changes and understands if there's movement.
 - **Works through walls** (Wi-Fi passes through walls)
 - **Very cheap** (~€10 total)
 
-Want to understand the technical details? See [ALGORITHMS.md](micro-espectre/ALGORITHMS.md) for CSI explanation and signal processing documentation.
+Want to understand the technical details? See [ALGORITHMS.md](docs/ALGORITHMS.md) for CSI explanation and signal processing documentation.
 
 ---
 
@@ -229,7 +236,7 @@ ESPectre implements **NBVI** (Normalized Band Variance Index) for automatic subc
 
 > ⚠️ **IMPORTANT** (MVS mode): Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy. ML mode skips calibration.
 
-For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#subcarrier-selection-nbvi).
+For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md#subcarrier-selection-nbvi).
 
 ---
 
@@ -237,10 +244,10 @@ For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#subcarri
 
 The runtime processing pipeline above is implemented with a separate internal code layout:
 
-- `src/core/` for reusable detectors, filters, thresholds, and domain logic
-- `src/runtime/` for the shared runtime contract and `src/runtime/esp_idf/` for the current ESP-IDF CSI/Wi-Fi/calibration implementation
-- `src/frontend/esphome/espectre/` for the ESPHome adapter and packaging entrypoint
-- `src/frontend/matter/espectre/` for the Matter adapter and esp-matter firmware app
+- `src/cpp/core/` for reusable detectors, filters, thresholds, and domain logic
+- `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current ESP-IDF CSI/Wi-Fi/calibration implementation
+- `src/cpp/frontend/esphome/espectre/` for the ESPHome adapter and packaging entrypoint
+- `src/cpp/frontend/matter/espectre/` for the Matter adapter and esp-matter firmware app
 
 ```text
 ┌──────────────────────────────┐
@@ -265,13 +272,13 @@ The runtime processing pipeline above is implemented with a separate internal co
 
 This split keeps the current ESPHome behavior intact while enabling:
 
-- the Matter frontend under `src/frontend/matter/`
+- the Matter frontend under `src/cpp/frontend/matter/`
 - alternate runtimes
 - standalone reuse of the shared motion-detection core
 
-The experimental Matter firmware under `src/frontend/matter/` now builds through managed `espressif/esp_matter` dependencies and has been smoke-tested on real ESP32-C3 hardware.
+The experimental Matter firmware under `src/cpp/frontend/matter/` now builds through managed `espressif/esp_matter` dependencies and has been smoke-tested on real ESP32-C3 hardware.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the detailed rationale, folder structure, and reuse model.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the detailed rationale, folder structure, and reuse model.
 
 ---
 
@@ -363,9 +370,9 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ## Technical Deep Dive
 
-For algorithm details (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
+For algorithm details (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md](docs/ALGORITHMS.md).
 
-For performance metrics (confusion matrix, F1-score, benchmarks), see [PERFORMANCE.md](PERFORMANCE.md).
+For performance metrics (confusion matrix, F1-score, benchmarks), see [PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ---
 
@@ -383,7 +390,7 @@ This project follows a **dual-platform approach** to balance innovation speed wi
 - **Production-ready** - stable, tested, easy to deploy
 - **Demonstrative** - showcases research results in a user-friendly package
 
-### [Micro-ESPectre](micro-espectre/) - R&D Platform
+### [Micro-ESPectre](docs/MICRO_ESPECTRE.md) - R&D Platform
 
 **Target**: Researchers, developers, academic/industrial applications
 
@@ -415,6 +422,11 @@ Micro-ESPectre gives you the fundamentals for:
 
 **Innovation cycle**: New features and algorithms are first developed and validated in Micro-ESPectre (Python), then ported to ESPectre (C++) once proven effective.
 
+For local development, the repository CLI is rooted at `./espectre`:
+- `./espectre micro ...` for MicroPython tooling, data collection, and MQTT control
+- `./espectre esphome ...` for local ESPHome example builds
+- `./espectre matter ...` and `./espectre streamer ...` as thin `idf.py` wrappers
+
 ---
 
 ## Future Evolution
@@ -429,10 +441,10 @@ While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier 
 | **People Counting** | Planned | Estimate number of people in a room |
 | **3D Localization** | Research | Indoor positioning (30-50cm accuracy) via phase-coherent antenna array |
 
-The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#ml-neural-network-detector) and `PERFORMANCE.md` for current metrics  
-The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md).
+The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md#ml-neural-network-detector) and `PERFORMANCE.md` for current metrics  
+The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md).
 
-See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribute.
+See [ROADMAP.md](docs/ROADMAP.md) for detailed plans, timelines, and how to contribute.
 
 ---
 
@@ -443,30 +455,30 @@ See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribut
 | Document | Description |
 |----------|-------------|
 | [Intro](README.md) | (This file) Project overview, quick start, FAQ |
-| [Setup Guide](SETUP.md) | Installation and configuration with ESPHome |
-| [Tuning Guide](TUNING.md) | Parameter tuning for optimal detection |
-| [Performance](PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
-| [Architecture Guide](ARCHITECTURE.md) | Internal source layout, runtime/frontend split, standalone core reuse |
-| [The Game](docs/game/README.md) | Browser game, USB streaming API, interactive threshold tuning |
-| [Test Suite](test/README.md) | Layered CMake/CTest suite, coverage flow, and support layout |
+| [Setup Guide](docs/SETUP.md) | Installation and configuration with ESPHome |
+| [Tuning Guide](docs/TUNING.md) | Parameter tuning for optimal detection |
+| [Performance](docs/PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
+| [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, runtime/frontend split, standalone core reuse |
+| [The Game](docs/web/game/README.md) | Browser game, USB streaming API, interactive threshold tuning |
+| [Test Suite](test/cpp/README.md) | Layered CMake/CTest suite, coverage flow, and support layout |
 
 ### Micro-ESPectre (R&D)
 
 | Document | Description |
 |----------|-------------|
-| [Intro](micro-espectre/README.md) | R&D platform overview, CLI, MQTT, Web Monitor |
-| [Algorithms](micro-espectre/ALGORITHMS.md) | Scientific documentation of MVS, NBVI calibration, Hampel filter |
-| [Analysis Tools](micro-espectre/tools/README.md) | CSI analysis and optimization scripts |
-| [ML Data Collection](micro-espectre/ML_DATA_COLLECTION.md) | Building labeled datasets for machine learning |
-| [References](micro-espectre/README.md#references) | Academic papers and research resources |
+| [Intro](docs/MICRO_ESPECTRE.md) | R&D platform overview, CLI, MQTT, Web Monitor |
+| [Algorithms](docs/ALGORITHMS.md) | Scientific documentation of MVS, NBVI calibration, Hampel filter |
+| [Analysis Tools](tools/README.md) | CSI analysis and optimization scripts |
+| [ML Data Collection](docs/ML_DATA_COLLECTION.md) | Building labeled datasets for machine learning |
+| [References](docs/MICRO_ESPECTRE.md#references) | Academic papers and research resources |
 
 ### Project
 
 | Document | Description |
 |----------|-------------|
-| [Roadmap](ROADMAP.md) | Project vision and ML plans |
+| [Roadmap](docs/ROADMAP.md) | Project vision and ML plans |
 | [Contributing](CONTRIBUTING.md) | How to contribute (code, data, docs) |
-| [Changelog](CHANGELOG.md) | Version history and release notes |
+| [Changelog](docs/CHANGELOG.md) | Version history and release notes |
 | [Security](SECURITY.md) | Security policy and vulnerability reporting |
 | [Code of Conduct](CODE_OF_CONDUCT.md) | Community guidelines |
 
