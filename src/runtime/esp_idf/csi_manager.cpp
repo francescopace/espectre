@@ -6,6 +6,8 @@
  */
 
 #include "csi_manager.h"
+#include "csi_payload_normalizer.h"
+#include "csi_platform_config.h"
 #include "nbvi_calibrator.h"
 #include "gain_controller.h"
 #include "espectre_log.h"
@@ -142,34 +144,28 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
     return;
   }
   
-  // STBC workaround (GitHub issue #76, #93, espressif/esp-csi#238):
-  // some Multi-antenna routers can expose doubled HT CSI blocks (256->128 for HT20, or 228->114 for short 57-SC).
-  if (csi_len == HT20_CSI_LEN_DOUBLE || csi_len == HT20_CSI_LEN_SHORT_DOUBLE) {
-    // The two LTFs share the same HT20 subcarrier layout, so we keep the first block as a valid channel estimate.
-    csi_len = (csi_len == HT20_CSI_LEN_DOUBLE) ? HT20_CSI_LEN : HT20_CSI_LEN_SHORT;
-
-    static bool double_len_collapse_logged = false;
-    if (!double_len_collapse_logged) {
-      ESP_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
-      double_len_collapse_logged = true;
-    }
-  }
-
-  // Fallback for short HT20 seen on C5 and potentially on other targets/AP combinations: 114 bytes maps to 57 complex samples with DC already present
-  // We pad guards to fit our internal HT20 layout (64 SC, 128 bytes).
   int8_t csi_remapped[HT20_CSI_LEN];
-  if (csi_len == HT20_CSI_LEN_SHORT) {
-    std::memset(csi_remapped, 0, sizeof(csi_remapped));
-    std::memcpy(&csi_remapped[HT20_CSI_LEN_SHORT_LEFT_PAD], csi_data, HT20_CSI_LEN_SHORT);
-    csi_data = csi_remapped;
-    csi_len = HT20_CSI_LEN;
+  const NormalizedCSIPayload normalized =
+      normalize_ht20_csi_payload(csi_data, csi_len, csi_remapped, sizeof(csi_remapped));
 
-    static bool remap_logged = false;
-    if (!remap_logged) {
-      ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
-      remap_logged = true;
-    }
+  static bool double_len_collapse_logged = false;
+  if (!double_len_collapse_logged &&
+      (normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT20 ||
+       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
+    ESP_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
+    double_len_collapse_logged = true;
   }
+
+  static bool remap_logged = false;
+  if (!remap_logged &&
+      (normalized.tag == NormalizedCSIPayloadTag::HT57_TO_64 ||
+       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
+    ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
+    remap_logged = true;
+  }
+
+  csi_data = const_cast<int8_t *>(normalized.data);
+  csi_len = normalized.len;
   
   // At this point we expect 128 bytes (64 SC) for HT20. Filter packets with unexpected SC count.
   if (csi_len != HT20_CSI_LEN) {
@@ -305,53 +301,8 @@ esp_err_t CSIManager::disable() {
 }
 
 esp_err_t CSIManager::configure_platform_specific_() {
-#if CONFIG_IDF_TARGET_ESP32C5
-  // ESP32-C5: MAC_VERSION_NUM = 3, WiFi 6 capable
-  wifi_csi_config_t csi_config = {
-    .enable = 1,
-    .acquire_csi_legacy = 0,
-    .acquire_csi_force_lltf = 0,
-    .acquire_csi_ht20 = 1,
-    .acquire_csi_ht40 = 0,
-    .acquire_csi_vht = 0,
-    .acquire_csi_su = 0,
-    .acquire_csi_mu = 0,
-    .acquire_csi_dcm = 0,
-    .acquire_csi_beamformed = 0,
-    .acquire_csi_he_stbc_mode = 0,
-    .val_scale_cfg = 0,
-    .dump_ack_en = 0,
-  };
-#elif CONFIG_IDF_TARGET_ESP32C6
-  // ESP32-C6: MAC_VERSION_NUM = 2, WiFi 6 capable
-  wifi_csi_config_t csi_config = {
-    .enable = 1,
-    .acquire_csi_legacy = 0,
-    .acquire_csi_ht20 = 1,
-    .acquire_csi_ht40 = 0,
-    .acquire_csi_su = 0,
-    .acquire_csi_mu = 0,
-    .acquire_csi_dcm = 0,
-    .acquire_csi_beamformed = 0,
-    .acquire_csi_he_stbc = 0,
-    .val_scale_cfg = 0,
-    .dump_ack_en = 0,
-  };
-#else
-  wifi_csi_config_t csi_config = {
-    .lltf_en = false,
-    .htltf_en = true,
-    .stbc_htltf2_en = false,
-    .ltf_merge_en = false,
-    .channel_filter_en = false,
-    .manu_scale = false,
-    .shift = 0,
-    .dump_ack_en = false,
-  };
-#endif
-  
   ESP_LOGI(TAG, "Using %s CSI configuration", CONFIG_IDF_TARGET);
-  return wifi_csi_->set_csi_config(&csi_config);
+  return configure_ht20_csi(wifi_csi_);
 }
 
 }  // namespace espectre

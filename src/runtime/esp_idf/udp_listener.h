@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 
 namespace esphome {
 namespace espectre {
@@ -31,6 +32,7 @@ class UDPListener {
    * @param port UDP port to listen on (default: 5555)
    */
   void init(uint16_t port = 5555);
+  void set_multicast_group(const char *group);
   
   /**
    * Start listening for UDP packets
@@ -55,6 +57,7 @@ class UDPListener {
    * Get the listening port
    */
   uint16_t get_port() const { return port_; }
+  uint64_t get_packets_received() const { return packets_received_; }
   
   /**
    * Process incoming packets (call from loop)
@@ -68,6 +71,8 @@ class UDPListener {
   int sock_{-1};
   uint16_t port_{5555};
   bool running_{false};
+  uint64_t packets_received_{0U};
+  char multicast_group_[16]{};
 };
 
 }  // namespace espectre
