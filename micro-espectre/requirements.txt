@@ -2,7 +2,7 @@
 # Python dependencies for Micro-ESPectre CLI and analysis tools
 
 # Device Management Dependencies
-esptool==5.2.0          # aligned with ESPHome 2026.5.0
+esptool==5.3.0          # aligned with ESPHome 2026.5.0
 mpremote>=1.28.0        # Deploy code to MicroPython device (used as CLI tool)
 pyserial>=3.5           # Serial port detection and communication
 
@@ -28,5 +28,5 @@ gcovr>=8.6              # Code coverage reports for C++ tests
 
 # ML Dependencies
 tensorflow>=2.21.0      # Machine learning framework
-scikit-learn>=1.8.0     # Machine learning library
-shap>=0.51.0            # SHAP feature importance analysis
+scikit-learn>=1.9.0     # Machine learning library
+shap>=0.52.0            # SHAP feature importance analysis
