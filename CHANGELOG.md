@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.0.0] - Unreleased - Core/runtime/frontend split
+## [2.9.0] - Unreleased - Core/runtime/frontend split
 
 ### Highlights
 
@@ -49,7 +49,8 @@ All notable changes to this project will be documented in this file.
 
 ### Notes
 
-- This is an architectural refactor, not an algorithm change.
+- This is an architectural/frontend release, not an algorithm change.
+- The small `core` / `runtime` edits included for the Matter frontend are enabling changes only (mainly removing residual ESPHome-only logging dependencies), so the shared motion-detection behavior remains unchanged.
 - The `core` layer is now reusable as a clean standalone building block for future SDK-style embedding, even though no separately packaged public SDK exists yet.
 
 ---
