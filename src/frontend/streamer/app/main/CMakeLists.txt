@@ -1,0 +1,13 @@
+idf_component_register(
+    SRCS
+        "app_main.cpp"
+    INCLUDE_DIRS
+        "."
+        "../../espectre"
+        "../../../../core"
+        "../../../../runtime"
+        "../../../../runtime/esp_idf"
+    REQUIRES
+        espectre
+        nvs_flash
+)

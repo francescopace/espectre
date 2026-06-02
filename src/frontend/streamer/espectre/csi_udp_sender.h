@@ -1,0 +1,65 @@
+/*
+ * ESPectre - CSI UDP Sender
+ *
+ * Dedicated UDP sender with a preallocated queue shared by CSI and FTM records.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
+
+#pragma once
+
+#include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "lwip/sockets.h"
+
+namespace esphome {
+namespace espectre {
+
+class CsiUdpSender {
+ public:
+  static constexpr size_t MAX_CSI_LEN_BYTES = 512U;
+  static constexpr size_t MAX_PACKET_BYTES = 76U + MAX_CSI_LEN_BYTES;
+
+  bool setup();
+  void shutdown();
+
+  void set_collector(const sockaddr_in &collector_addr, bool enabled);
+  bool queue_packet(const uint8_t *data, size_t data_len);
+
+  uint64_t queued_total() const { return queued_total_.load(std::memory_order_relaxed); }
+  uint64_t tx_total() const { return tx_total_.load(std::memory_order_relaxed); }
+  uint64_t drop_total() const { return drop_total_.load(std::memory_order_relaxed); }
+  uint64_t send_fail_total() const { return send_fail_total_.load(std::memory_order_relaxed); }
+
+ private:
+  struct PacketSlot final {
+    size_t packet_len{0U};
+    std::array<uint8_t, MAX_PACKET_BYTES> packet{};
+  };
+
+  static void sender_task_entry_(void *ctx);
+  void run_sender_task_();
+  void recycle_slot_(uint8_t slot_idx);
+
+  std::array<PacketSlot, CONFIG_ESPECTRE_STREAM_QUEUE_SLOTS> slots_{};
+  QueueHandle_t free_slots_{nullptr};
+  QueueHandle_t ready_slots_{nullptr};
+  TaskHandle_t sender_task_handle_{nullptr};
+  sockaddr_in collector_addr_{};
+  std::atomic<bool> collector_enabled_{false};
+  std::atomic<bool> running_{false};
+  std::atomic<uint64_t> queued_total_{0U};
+  std::atomic<uint64_t> tx_total_{0U};
+  std::atomic<uint64_t> drop_total_{0U};
+  std::atomic<uint64_t> send_fail_total_{0U};
+};
+
+}  // namespace espectre
+}  // namespace esphome

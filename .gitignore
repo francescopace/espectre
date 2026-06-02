@@ -32,12 +32,12 @@ env/
 .esphome/
 secrets.yaml
 
-# Matter / ESP-IDF app build artifacts
-src/frontend/matter/app/build/
-src/frontend/matter/app/managed_components/
-src/frontend/matter/app/sdkconfig
-src/frontend/matter/app/sdkconfig.old
-src/frontend/matter/app/dependencies.lock
+#ESP-IDF app build artifacts
+src/frontend/*/app/build/
+src/frontend/*/app/managed_components/
+src/frontend/*/app/sdkconfig
+src/frontend/*/app/sdkconfig.old
+src/frontend/*/app/dependencies.lock
 
 # Editor
 .tmp/
