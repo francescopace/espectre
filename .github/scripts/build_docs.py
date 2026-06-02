@@ -23,52 +23,57 @@ import os
 # Format: 'source.md': ('output_path', 'Page Title', 'Description')
 DOCS = {
     'README.md': (
-        'docs/documentation/index.html',
+        'docs/web/documentation/index.html',
         'Documentation',
         'Complete documentation for ESPectre Wi-Fi motion detection system'
     ),
-    'SETUP.md': (
-        'docs/documentation/setup/index.html',
+    'docs/SETUP.md': (
+        'docs/web/documentation/setup/index.html',
         'Setup Guide',
         'Installation and configuration guide for ESPectre'
     ),
-    'TUNING.md': (
-        'docs/documentation/tuning/index.html',
+    'docs/TUNING.md': (
+        'docs/web/documentation/tuning/index.html',
         'Tuning Guide',
         'Parameter tuning guide for optimal motion detection'
     ),
-    'PERFORMANCE.md': (
-        'docs/documentation/performance/index.html',
+    'docs/PERFORMANCE.md': (
+        'docs/web/documentation/performance/index.html',
         'Performance',
         'Performance metrics and benchmarks'
     ),
-    'CHANGELOG.md': (
-        'docs/documentation/changelog/index.html',
+    'docs/CHANGELOG.md': (
+        'docs/web/documentation/changelog/index.html',
         'Changelog',
         'Version history and release notes'
     ),
-    'ROADMAP.md': (
-        'docs/documentation/roadmap/index.html',
+    'docs/ARCHITECTURE.md': (
+        'docs/web/documentation/architecture/index.html',
+        'Architecture',
+        'Source layout, runtime boundaries, and frontend split'
+    ),
+    'docs/ROADMAP.md': (
+        'docs/web/documentation/roadmap/index.html',
         'Roadmap',
         'Project roadmap and future plans'
     ),
     'CONTRIBUTING.md': (
-        'docs/documentation/contributing/index.html',
+        'docs/web/documentation/contributing/index.html',
         'Contributing',
         'How to contribute to ESPectre'
     ),
-    'micro-espectre/ALGORITHMS.md': (
-        'docs/documentation/algorithms/index.html',
+    'docs/ALGORITHMS.md': (
+        'docs/web/documentation/algorithms/index.html',
         'Algorithms',
         'Scientific documentation of motion detection algorithms'
     ),
-    'micro-espectre/README.md': (
-        'docs/documentation/micro-espectre/index.html',
+    'docs/MICRO_ESPECTRE.md': (
+        'docs/web/documentation/micro-espectre/index.html',
         'Micro-ESPectre',
         'R&D platform for WiFi CSI motion detection'
     ),
-    'micro-espectre/ML_DATA_COLLECTION.md': (
-        'docs/documentation/ml-data-collection/index.html',
+    'docs/ML_DATA_COLLECTION.md': (
+        'docs/web/documentation/ml-data-collection/index.html',
         'ML Data Collection',
         'Guide for collecting labeled data for machine learning'
     ),
@@ -77,21 +82,23 @@ DOCS = {
 # Map original .md paths to new doc paths (for link rewriting)
 LINK_MAP = {
     'README.md': '/documentation/',
-    'SETUP.md': '/documentation/setup/',
-    'TUNING.md': '/documentation/tuning/',
-    'PERFORMANCE.md': '/documentation/performance/',
-    'CHANGELOG.md': '/documentation/changelog/',
-    'ROADMAP.md': '/documentation/roadmap/',
+    'docs/SETUP.md': '/documentation/setup/',
+    'docs/TUNING.md': '/documentation/tuning/',
+    'docs/PERFORMANCE.md': '/documentation/performance/',
+    'docs/CHANGELOG.md': '/documentation/changelog/',
+    'docs/ARCHITECTURE.md': '/documentation/architecture/',
+    'docs/ROADMAP.md': '/documentation/roadmap/',
     'CONTRIBUTING.md': '/documentation/contributing/',
     'CODE_OF_CONDUCT.md': 'https://github.com/francescopace/espectre/blob/main/CODE_OF_CONDUCT.md',
     'SECURITY.md': 'https://github.com/francescopace/espectre/blob/main/SECURITY.md',
     'LICENSE': 'https://github.com/francescopace/espectre/blob/main/LICENSE',
-    'micro-espectre/ALGORITHMS.md': '/documentation/algorithms/',
-    'micro-espectre/README.md': '/documentation/micro-espectre/',
-    'micro-espectre/ML_DATA_COLLECTION.md': '/documentation/ml-data-collection/',
-    'micro-espectre/tools/README.md': 'https://github.com/francescopace/espectre/blob/main/micro-espectre/tools/README.md',
-    'test/README.md': 'https://github.com/francescopace/espectre/blob/main/test/README.md',
-    'docs/game/README.md': 'https://github.com/francescopace/espectre/blob/main/docs/game/README.md',
+    'docs/ALGORITHMS.md': '/documentation/algorithms/',
+    'docs/MICRO_ESPECTRE.md': '/documentation/micro-espectre/',
+    'docs/ML_DATA_COLLECTION.md': '/documentation/ml-data-collection/',
+    'docs/EXPERIMENTS.md': 'https://github.com/francescopace/espectre/blob/main/docs/EXPERIMENTS.md',
+    'tools/README.md': 'https://github.com/francescopace/espectre/blob/main/tools/README.md',
+    'test/cpp/README.md': 'https://github.com/francescopace/espectre/blob/main/test/cpp/README.md',
+    'docs/web/game/README.md': 'https://github.com/francescopace/espectre/blob/main/docs/web/game/README.md',
 }
 
 # HTML template for documentation pages
@@ -150,7 +157,7 @@ TEMPLATE = '''<!DOCTYPE html>
 
     <!-- Styles -->
     <link rel="stylesheet" href="/styles.css">
-    <link rel="stylesheet" href="/_pagefind/pagefind-ui.css">
+    <link rel="stylesheet" href="/_pagefind/pagefind-component-ui.css">
 </head>
 <body class="doc-page">
     <canvas id="cosmic-bg"></canvas>
@@ -168,11 +175,16 @@ TEMPLATE = '''<!DOCTYPE html>
 
     <main>
         <section class="doc-section">
-            <div class="doc-search">
-                <div id="search"></div>
+            <div class="doc-search" data-pf-theme="light">
+                <pagefind-searchbox
+                    debounce="150"
+                    placeholder="Search documentation"
+                    show-sub-results
+                    hide-shortcut
+                ></pagefind-searchbox>
             </div>
             <div class="doc-section-inner">
-                <article class="doc-content">
+                <article class="doc-content" data-pagefind-body>
                     {content}
                 </article>
             </div>
@@ -186,16 +198,7 @@ TEMPLATE = '''<!DOCTYPE html>
     <script src="/cosmic-bg.js"></script>
     <script src="/analytics.js"></script>
     <script>hljs.highlightAll();</script>
-    <script src="/_pagefind/pagefind-ui.js"></script>
-    <script>
-        window.addEventListener('DOMContentLoaded', () => {{
-            new PagefindUI({{
-                element: "#search",
-                showSubResults: true,
-                showImages: false
-            }});
-        }});
-    </script>
+    <script src="/_pagefind/pagefind-component-ui.js" type="module"></script>
     
     <!-- Buy Me a Coffee Widget -->
     <script data-name="BMC-Widget" data-cfasync="false" src="https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js" data-id="espectre" data-description="Support me on Buy me a coffee!" data-color="#40DCA5" data-position="Right" data-x_margin="18" data-y_margin="18"></script>
@@ -320,9 +323,9 @@ def clean_content(content: str, source_path: str) -> str:
             )
             content = clean_header + content[toc_index:]
     
-    # micro-espectre/README.md: Replace MicroPython title with cleaner one
+    # docs/MICRO_ESPECTRE.md: Replace MicroPython title with cleaner one
     # Same as main.js: markdown.replace(/^# .+$/m, '# Micro-ESPectre')
-    if source_path == 'micro-espectre/README.md':
+    if source_path == 'docs/MICRO_ESPECTRE.md':
         content = re.sub(r'^# .+$', '# Micro-ESPectre', content, count=1, flags=re.MULTILINE)
     
     return content
@@ -384,7 +387,7 @@ def build_docs():
             )
             
             # Calculate canonical path
-            canonical_path = '/' + dest_path.replace('docs/', '').replace('index.html', '')
+            canonical_path = '/' + dest_path.replace('docs/web/', '').replace('index.html', '')
             
             # Generate final HTML
             html = TEMPLATE.format(
@@ -425,22 +428,23 @@ def generate_sitemap():
     
     # Static pages with their source files for lastmod
     static_pages = [
-        ('https://espectre.dev/', 'docs/index.html', 'daily', '1.0'),
-        ('https://espectre.dev/game/', 'docs/game/index.html', 'daily', '0.8'),
+        ('https://espectre.dev/', 'docs/web/index.html', 'daily', '1.0'),
+        ('https://espectre.dev/game/', 'docs/web/game/index.html', 'daily', '0.8'),
     ]
     
     # Documentation pages with priorities
     doc_priorities = {
         'README.md': ('https://espectre.dev/documentation/', 'daily', '0.9'),
-        'SETUP.md': ('https://espectre.dev/documentation/setup/', 'daily', '0.8'),
-        'TUNING.md': ('https://espectre.dev/documentation/tuning/', 'daily', '0.8'),
-        'PERFORMANCE.md': ('https://espectre.dev/documentation/performance/', 'daily', '0.7'),
-        'micro-espectre/ALGORITHMS.md': ('https://espectre.dev/documentation/algorithms/', 'daily', '0.8'),
-        'micro-espectre/README.md': ('https://espectre.dev/documentation/micro-espectre/', 'daily', '0.7'),
-        'CHANGELOG.md': ('https://espectre.dev/documentation/changelog/', 'daily', '0.6'),
-        'ROADMAP.md': ('https://espectre.dev/documentation/roadmap/', 'daily', '0.6'),
+        'docs/SETUP.md': ('https://espectre.dev/documentation/setup/', 'daily', '0.8'),
+        'docs/TUNING.md': ('https://espectre.dev/documentation/tuning/', 'daily', '0.8'),
+        'docs/PERFORMANCE.md': ('https://espectre.dev/documentation/performance/', 'daily', '0.7'),
+        'docs/ARCHITECTURE.md': ('https://espectre.dev/documentation/architecture/', 'daily', '0.7'),
+        'docs/ALGORITHMS.md': ('https://espectre.dev/documentation/algorithms/', 'daily', '0.8'),
+        'docs/MICRO_ESPECTRE.md': ('https://espectre.dev/documentation/micro-espectre/', 'daily', '0.7'),
+        'docs/CHANGELOG.md': ('https://espectre.dev/documentation/changelog/', 'daily', '0.6'),
+        'docs/ROADMAP.md': ('https://espectre.dev/documentation/roadmap/', 'daily', '0.6'),
         'CONTRIBUTING.md': ('https://espectre.dev/documentation/contributing/', 'daily', '0.5'),
-        'micro-espectre/ML_DATA_COLLECTION.md': ('https://espectre.dev/documentation/ml-data-collection/', 'daily', '0.5'),
+        'docs/ML_DATA_COLLECTION.md': ('https://espectre.dev/documentation/ml-data-collection/', 'daily', '0.5'),
     }
     
     def get_lastmod(filepath):
@@ -479,7 +483,7 @@ def generate_sitemap():
 </urlset>
 '''
     
-    sitemap_path = Path('docs/sitemap.xml')
+    sitemap_path = Path('docs/web/sitemap.xml')
     sitemap_path.write_text(sitemap, encoding='utf-8')
     print(f"  ✓ Generated sitemap.xml")
 

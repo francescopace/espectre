@@ -14,7 +14,7 @@ updates:
   # Python dependencies (micro-espectre)
   # Includes: numpy, scipy, matplotlib, pytest, paho-mqtt, etc.
   - package-ecosystem: "pip"
-    directory: "/micro-espectre"
+    directory: "/"
     target-branch: "develop"
     schedule:
       interval: "weekly"

@@ -1,0 +1,183 @@
+# Test Suite
+
+Host-side **CMake + CTest** suite for validating the ESPectre `core / runtime / frontend` layers.
+
+## Quick Start
+
+```bash
+# Activate virtualenv (from repo root)
+source .venv/bin/activate
+
+# Configure and run the full host-side suite
+cmake -S test/cpp -B test/cpp/build
+cmake --build test/cpp/build
+ctest --test-dir test/cpp/build --output-on-failure
+
+# Run specific suite
+ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
+```
+
+---
+
+## Test Suites
+
+| Suite | Layer | Type | Data | Focus |
+|-------|-------|------|------|-------|
+| `test_utils` | Core | Unit | **Real** | Variance, magnitude, turbulence, compare functions |
+| `test_core_helpers` | Core | Unit | Synthetic | Core helper edge cases, thresholds, move semantics |
+| `test_hampel_filter` | Core | Unit | **Real** | Outlier removal filter |
+| `test_mvs_detector` | Core | Unit | **Real** | MVS algorithm, threshold, filters, state machine, lowpass |
+| `test_ml_detector` | Core | Unit | **Real** | ML detector, feature extraction, inference |
+| `test_traffic_generator` | Runtime | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
+| `test_runtime_helpers` | Runtime | Unit | Synthetic | Gain controller and WiFi CSI helper behavior |
+| `test_wifi_lifecycle` | Runtime | Unit | Synthetic | WiFi init policy, handler registration, cleanup paths |
+| `test_calibration_file_storage` | Runtime | Unit | Synthetic | File-based magnitude storage |
+| `test_csi_manager` | Runtime | Unit | Synthetic | CSIManager API, enable/disable, callbacks |
+| `test_nbvi_calibrator` | Runtime | Unit | **Real** | NBVI subcarrier selection, configuration |
+| `test_motion_detection` | Integration | Integration | **Real** | MVS/ML performance, NBVI calibration end-to-end |
+| `test_long_recordings` | Integration | Integration | **Real** | Long-recording diagnostics for MVS/NBVI and ML |
+| `test_sensor_publisher` | Frontend | Unit | Synthetic | ESPHome sensor publishing and status logging |
+| `test_frontend_controls` | Frontend | Unit | Synthetic | ESPHome threshold number, calibrate switch, frontend runtime shim |
+| `test_matter_frontend` | Frontend | Unit | Synthetic | Matter adapter lifecycle, event mapping, threshold/recalibration controls |
+
+
+### Target Metrics (Motion Detection)
+- **Recall**: >95% for all chips (detect real movements)
+- **FP Rate**: <5% for all chips (avoid false alarms)
+
+See [PERFORMANCE.md](../../docs/PERFORMANCE.md) for detailed targets per chip and algorithm.
+
+---
+
+## Real CSI Data
+
+Tests load real CSI data from NPZ files in `data/` using the [cnpy](https://github.com/rogersce/cnpy) library.
+
+### Datasets
+
+| Chip | Baseline | Movement |
+|------|----------|----------|
+| ESP32-C3 | `baseline_c3_64sc_*.npz` | `movement_c3_64sc_*.npz` |
+| ESP32-C6 | `baseline_c6_64sc_*.npz` | `movement_c6_64sc_*.npz` |
+| ESP32-S3 | `baseline_s3_64sc_*.npz` | `movement_s3_64sc_*.npz` |
+| ESP32 | `baseline_esp32_64sc_*.npz` | `movement_esp32_64sc_*.npz` |
+
+Tests run with **multiple chip datasets** (C3, C6, S3, ESP32) using 64 SC (HT20 mode).
+
+Both Python and C++ tests use the same NPZ files, eliminating duplication.
+
+---
+
+## Code Coverage
+
+Run the host-side suite with coverage instrumentation:
+
+```bash
+./run_coverage.sh
+```
+
+The coverage script prints both the aggregate report and the per-layer breakdown used during development (`core`, `runtime`, `frontend`).
+
+Recent local snapshot (2026-05-30):
+
+- Total line coverage: `87.09%`
+- `core`: `92.25%`
+- `runtime`: `80.92%`
+- `frontend`: `97.69%`
+
+---
+
+## Project Structure
+
+```
+test/
+├── cmake/              # Shared CMake modules for the host-side suite
+├── mocks/              # ESP-IDF / ESPHome host-side fakes
+├── suites/             # Test suites grouped by layer
+│   ├── core/
+│   ├── runtime/
+│   ├── integration/
+│   └── frontend/
+├── support/            # Harness and shared test-side support (cnpy, dataset loader, runtime shim)
+├── CMakeLists.txt      # Host-side test entrypoint
+└── run_coverage.sh     # Coverage script
+```
+
+Production code under test lives outside `test/`:
+
+- `../src/cpp/core/` for reusable detection logic
+- `../src/cpp/runtime/` for the shared runtime contract and `../src/cpp/runtime/esp_idf/` for the current runtime orchestration
+- `../src/cpp/frontend/esphome/espectre/` for the ESPHome component manifest and adapter layer
+- `../src/cpp/frontend/matter/espectre/` for the Matter adapter and surface mapping
+
+---
+
+## Smoke Tests (QEMU)
+
+Smoke tests run automatically in CI using the composite action `.github/actions/qemu-smoke-test/`.
+
+To run locally with `act`:
+
+```bash
+# Install act (https://github.com/nektos/act)
+brew install act  # macOS
+
+# Run a specific smoke test
+act -j build --matrix chip:"QEMU ESP32-C3" -P ubuntu-latest=catthehacker/ubuntu:act-latest
+```
+
+### What it detects
+
+- Kernel panics
+- Guru Meditation errors
+- Assertion failures
+- Stack smashing
+
+### Supported chips
+
+| Chip | Architecture | QEMU Machine |
+|------|--------------|--------------|
+| ESP32 | Xtensa | esp32 |
+| ESP32-S3 | Xtensa | esp32s3 |
+| ESP32-C3 | RISC-V | esp32c3 |
+
+> Note: WiFi PHY is not fully emulated by QEMU. The CI smoke test filters the known PHY assert so boot regressions still surface without failing on emulator limitations.
+
+> **Note**: Smoke tests appear as "Smoke Test ESP32-C3" etc. in CI.
+
+---
+
+## Adding New Tests
+
+Create `test/suites/core/test_my_feature.cpp`:
+
+```cpp
+#include "test_harness.h"
+
+void setUp(void) {}
+void tearDown(void) {}
+
+void test_example(void) {
+    TEST_ASSERT_EQUAL(1, 1);
+}
+
+int process(void) {
+    UNITY_BEGIN();
+    RUN_TEST(test_example);
+    return UNITY_END();
+}
+
+#if defined(ESP_PLATFORM)
+extern "C" void app_main(void) { process(); }
+#else
+int main(int argc, char **argv) { return process(); }
+#endif
+```
+
+Register the file in `test/suites/CMakeLists.txt` and run it with `ctest -R test_my_feature`.
+
+---
+
+## License
+
+GPLv3 - See [LICENSE](../../LICENSE) for details.
