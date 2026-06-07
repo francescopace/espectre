@@ -2,6 +2,13 @@
 
 This document explains the internal code layout introduced with the `core / runtime / frontend` refactor, why the project was split this way, and how the new structure enables multiple firmware targets without duplicating the motion-detection logic.
 
+It also clarifies how the same split supports the current platform direction:
+
+- reusable sensing logic in `core`
+- multiple runtime implementations behind a stable contract
+- multiple frontends such as `ESPHome`, `Matter`, and custom firmware adapters
+- a future orchestration layer that can consume signals from multiple deployed devices
+
 ---
 
 ## Goals
@@ -12,8 +19,9 @@ The refactor was driven by four practical goals:
 2. Make the motion-detection logic reusable by future frontends such as Matter.
 3. Isolate ESP-IDF-specific orchestration from algorithmic code.
 4. Make the shared core embeddable as a standalone library building block.
+5. Create a clean foundation for multi-device product surfaces beyond a single firmware integration.
 
-This is an internal architectural split, not a new public product surface. The existing ESPHome component identity remains the same.
+This started as an internal architectural split, not a user-visible product rename. The existing ESPHome component identity remains the same, but the same structure now also acts as the foundation for additional frontends and future orchestration layers.
 
 ---
 
@@ -68,6 +76,11 @@ Dependency shape:
 └────────────────────────────────────────────────────────────┘
 ```
 
+This source tree describes the firmware-side architecture inside the repository.
+A future local service or web orchestration layer would sit above deployed
+devices and consume normalized state or events exposed through those frontend
+surfaces rather than reaching into `core` directly.
+
 ### `src/cpp/core/`
 
 `core` contains reusable detection logic and domain primitives:
@@ -111,6 +124,10 @@ This is the Matter adapter and firmware entrypoint.
 
 It maps the same runtime snapshot/events/capabilities into Matter endpoints without pulling Matter-specific concerns into `core` or the shared runtime contract.
 
+Architecturally, Matter is not a side experiment. It is the first explicit proof
+that the new split can support a second ecosystem-facing frontend without
+copying the detection pipeline or re-monolithizing the codebase.
+
 Current mapping:
 
 | Runtime event / state | Matter surface |
@@ -126,6 +143,24 @@ The host-side adapter lives under `src/cpp/frontend/matter/espectre/`. The ESP-I
 The current experimental firmware has been smoke-tested on ESP32-C3 hardware. In that startup path, the Matter stack is started before the shared runtime setup so Wi-Fi ownership remains with `esp-matter` and the reused runtime can layer CSI configuration on top of an initialized station stack.
 
 ESPHome-specific features such as YAML/codegen, Home Assistant entities, and the BLE telemetry channel remain in the ESPHome frontend only.
+
+---
+
+## Roadmap Alignment
+
+This document is architecture-focused, but it maps directly to the current
+roadmap direction:
+
+- `v2.x`: the existing ESPHome-first motion-detection product remains stable
+- `v3.x`: the project becomes a modular sensing platform where the same `core`
+  can be reused across different runtimes and frontends, including `Matter`
+- `v4.x`: a future local service or web orchestration layer can combine signals
+  from multiple ESPectre devices, regardless of whether those nodes are exposed
+  through `ESPHome`, `Matter`, or custom firmware
+
+The important point is that the roadmap shift does not require another deep
+refactor. The current code split is the enabling architecture for that
+direction.
 
 ---
 
@@ -192,6 +227,29 @@ If frontend-specific logic stays in the frontend layer, the same `core` and `run
 - other adapters without duplicating the motion pipeline
 
 This avoids the old pattern where a new frontend would have required copying orchestration logic out of the monolithic ESPHome component.
+
+---
+
+## Why This Split Also Enables Orchestration
+
+The same boundaries that make multiple firmware targets possible also make
+multi-device orchestration easier to build later.
+
+If each deployed node shares:
+
+- the same detector semantics from `core`
+- the same runtime-facing state model
+- frontend-specific adapters that translate those states into ecosystem surfaces
+
+then a future local service can reason about devices at the level of motion,
+presence, readiness, calibration state, and other normalized outputs instead of
+having to understand firmware-internal implementation details per device type.
+
+That is the architectural bridge between:
+
+- today's firmware modularization work
+- near-term multi-frontend support
+- longer-term room-to-room event fusion across the home
 
 ---
 
@@ -275,6 +333,10 @@ After the refactor:
 - the ESPHome build uses `src/cpp/frontend/esphome`
 - native tests use the same frontend component root and shared `src/` layout
 - the runtime contract is in place for future frontend expansion
+- the repository has a clear path for custom firmware targets without copying the
+  detector stack
+- the same architectural split is now aligned with the roadmap's `Matter` and
+  multi-device orchestration directions
 
 Current implemented paths:
 
