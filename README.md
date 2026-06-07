@@ -7,7 +7,7 @@
 
 # 🛜 ESPectre 👻
 
-**Motion detection system based on Wi-Fi spectre analysis (CSI), with native Home Assistant integration via ESPHome.**
+**Privacy-first Wi-Fi sensing platform based on CSI, with native Home Assistant integration via ESPHome, an emerging Matter frontend, and a path toward multi-device home orchestration.**
 
 > [!TIP]
 > **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or follow the [Setup guide](docs/SETUP.md#choosing-detection-algorithm) for custom configuration.
@@ -40,7 +40,7 @@
 
 ## In 3 Points
 
-1. **What it does**: Detects movement using Wi-Fi (no cameras, no microphones)
+1. **What it does**: Detects movement using Wi-Fi and is evolving into a broader sensing platform
 2. **What you need**: A ~€10 ESP32 device (S3 and C6 recommended, other variants supported)
 3. **Setup time**: 10-15 minutes
 
@@ -60,6 +60,7 @@
 
 - **Home Assistant** (on Raspberry Pi, PC, NAS, or cloud)
 - **ESPHome** (integrated in Home Assistant or standalone)
+- **Matter tooling** (optional, experimental, for local repository workflows)
 
 ### Required Skills
 
@@ -230,6 +231,11 @@ Each sensor is automatically discovered by Home Assistant with:
 - Movement score sensor, published on the periodic cadence
 - Adjustable threshold (number entity)
 
+Today, the main user-facing integration is still ESPHome + Home Assistant. The
+same internal architecture now also supports an emerging Matter frontend and
+future local orchestration layers that can combine events from multiple sensors
+across the home.
+
 ### Automatic Subcarrier Selection
 
 ESPectre implements **NBVI** (Normalized Band Variance Index) for automatic subcarrier selection, achieving near-optimal performance (F1>96%) with **zero manual configuration**. The algorithm selects 12 non-consecutive subcarriers based on stability metrics and spectral diversity.
@@ -275,6 +281,8 @@ This split keeps the current ESPHome behavior intact while enabling:
 - the Matter frontend under `src/cpp/frontend/matter/`
 - alternate runtimes
 - standalone reuse of the shared motion-detection core
+- custom firmware targets built from the same reusable platform layers
+- future local services that aggregate normalized signals from multiple devices
 
 The experimental Matter firmware under `src/cpp/frontend/matter/` now builds through managed `espressif/esp_matter` dependencies and has been smoke-tested on real ESP32-C3 hardware.
 
@@ -378,17 +386,19 @@ For performance metrics (confusion matrix, F1-score, benchmarks), see [PERFORMAN
 
 ## Two-Platform Strategy
 
-This project follows a **dual-platform approach** to balance innovation speed with production stability:
+This project follows a **dual-platform approach** to balance innovation speed with production stability while the main repository evolves from a single integration into a reusable sensing platform:
 
-### ESPectre (This Repository) - Production Platform
+### ESPectre (This Repository) - Product Platform
 
-**Target**: End users, smart home enthusiasts, Home Assistant users
+**Target**: End users, smart home enthusiasts, integrators, and future multi-frontend deployments
 
-- **ESPHome component** with native Home Assistant integration
+- **ESPHome-first product path** with native Home Assistant integration
+- **Matter frontend in progress** for compatibility with broader ecosystems
+- **Shared core/runtime/frontend architecture** for reusable firmware builds
 - **YAML configuration** - no programming required
 - **Auto-discovery** - devices appear automatically in Home Assistant
 - **Production-ready** - stable, tested, easy to deploy
-- **Demonstrative** - showcases research results in a user-friendly package
+- **Platform direction** - supports custom firmware targets and future orchestration layers
 
 ### [Micro-ESPectre](docs/MICRO_ESPECTRE.md) - R&D Platform
 
@@ -431,20 +441,22 @@ For local development, the repository CLI is rooted at `./espectre`:
 
 ## Future Evolution
 
-While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier selection), the project is exploring machine learning capabilities for advanced applications:
+While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier selection), the project is now evolving along multiple connected directions: platform modularization, multi-frontend support, practical presence and occupancy inference, and later-stage research tracks.
 
 | Capability | Status | Description |
 |------------|--------|-------------|
-| **ML Detector** | Experimental | Neural network (MLP 9→32→16→1)|
-| **Gesture Recognition** | Planned | Detect hand gestures (swipe, push, circle) for smart home control |
-| **Human Activity Recognition** | Planned | Identify activities (sitting, walking, falling) |
+| **Core / Runtime / Frontend platform split** | In Progress | Reusable architecture for multiple frontends and custom firmware |
+| **Matter Frontend** | In Progress | Compatibility path for Apple / Google / Alexa ecosystems via Matter |
+| **Presence / Occupancy Inference** | In Progress | Practical amplitude-first sensing beyond binary motion |
+| **Home Orchestration Service** | Planned | Local web/service layer for multi-room state, device visibility, and event fusion |
+| **Gesture Recognition** | Deferred | Future research/product phase after the current platform and orchestration work |
+| **Human Activity Recognition** | Deferred | Future research/product phase after the current platform and orchestration work |
 | **People Counting** | Planned | Estimate number of people in a room |
-| **3D Localization** | Research | Indoor positioning (30-50cm accuracy) via phase-coherent antenna array |
+| **3D Localization** | Research | Stage-gated research track for precise indoor positioning |
 
-The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md#ml-neural-network-detector) and `PERFORMANCE.md` for current metrics  
-The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md).
+The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md#ml-neural-network-detector) and `PERFORMANCE.md` for current metrics.
 
-See [ROADMAP.md](docs/ROADMAP.md) for detailed plans, timelines, and how to contribute.
+The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md). The broader product direction and sequencing between platform work, frontends, orchestration, and research tracks are described in [ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
@@ -458,7 +470,7 @@ See [ROADMAP.md](docs/ROADMAP.md) for detailed plans, timelines, and how to cont
 | [Setup Guide](docs/SETUP.md) | Installation and configuration with ESPHome |
 | [Tuning Guide](docs/TUNING.md) | Parameter tuning for optimal detection |
 | [Performance](docs/PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
-| [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, runtime/frontend split, standalone core reuse |
+| [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, runtime/frontend split, Matter path, and orchestration alignment |
 | [The Game](docs/web/game/README.md) | Browser game, USB streaming API, interactive threshold tuning |
 | [Test Suite](test/cpp/README.md) | Layered CMake/CTest suite, coverage flow, and support layout |
 
@@ -476,7 +488,7 @@ See [ROADMAP.md](docs/ROADMAP.md) for detailed plans, timelines, and how to cont
 
 | Document | Description |
 |----------|-------------|
-| [Roadmap](docs/ROADMAP.md) | Project vision and ML plans |
+| [Roadmap](docs/ROADMAP.md) | Project vision, platform evolution, orchestration path, and research tracks |
 | [Contributing](CONTRIBUTING.md) | How to contribute (code, data, docs) |
 | [Changelog](docs/CHANGELOG.md) | Version history and release notes |
 | [Security](SECURITY.md) | Security policy and vulnerability reporting |

@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [2.9.0] - Unreleased - Core/runtime/frontend split
+## [3.0.0] - Unreleased - Core/runtime/frontend split
 
 ### Highlights
 
@@ -43,6 +43,10 @@ All notable changes to this project will be documented in this file.
 - **Host-side C++ tests now use a layered `CMake + CTest` suite under `test/`**: PlatformIO-specific scaffolding was removed, suites were regrouped by `core` / `runtime` / `integration` / `frontend`, shared support code was consolidated, and coverage reporting now includes per-layer breakdowns.
 - **Matter firmware startup ordering was hardened** so the shared runtime initializes after `esp_matter::start()`, allowing the Matter stack to bring up Wi-Fi before CSI-specific runtime configuration runs.
 - **Documentation was aligned** to the new structure, `.venv` activation flow, and the practical ESP32-C3 Matter build/flash workflow.
+- **Project narrative was realigned around the new platform direction**:
+  - `README.md` now presents ESPectre as a modular Wi-Fi sensing platform, not only as a single ESPHome motion sensor
+  - `ROADMAP.md` now promotes `v3` as the `core` / `runtime` / `frontend` platform phase with `Matter`, `v4` as a local web/orchestration layer, and keeps 3D localization as a stage-gated research track
+  - `ARCHITECTURE.md` now explicitly connects the source split to multi-frontend firmware targets and future multi-device orchestration
 
 ### Fixed
 

@@ -1,8 +1,8 @@
 # Roadmap
 
-**Vision**: ESPectre aims to democratize Wi-Fi sensing by providing an open-source, privacy-first motion detection system with a path toward machine learning-powered gesture recognition, Human Activity Recognition (HAR), and 3D indoor localization.
+**Vision**: ESPectre aims to democratize Wi-Fi sensing by providing an open-source, privacy-first sensing platform that starts from motion detection and evolves toward interoperable frontends, practical presence and occupancy intelligence, multi-room home awareness, and long-term 3D localization research.
 
-This roadmap outlines the evolution from the current mathematical approach (just IDLE/MOTION) toward ML-enhanced capabilities (Gesture detection, Human Activity Recognition) and advanced spatial sensing (3D localization via phase-coherent multi-node arrays), while maintaining the project's core principles: community-friendly, vendor-neutral, and privacy-first.
+This roadmap outlines the evolution from the current mathematical approach (`IDLE` / `MOTION`) toward a modular platform with a clear separation between core logic, runtime, and frontend, support for multiple integration paths (`ESPHome`, `Matter`, and custom firmware), and a future orchestration layer that can aggregate signals from multiple devices across the home. Advanced 3D localization remains part of the long-term vision, but it is treated as a stage-gated research track rather than the default next product step.
 
 ---
 
@@ -40,12 +40,12 @@ The global Wi-Fi sensing market is experiencing rapid growth, driven by demand f
 
 | Application | Market Segment | ESPectre Capability |
 |-------------|----------------|---------------------|
-| **Smart Home** | Consumer IoT | Motion detection, presence sensing |
+| **Smart Home** | Consumer IoT | Motion detection, presence sensing, interoperable automation |
 | **Elderly Care** | Healthcare | Fall detection, activity monitoring |
 | **Security** | Commercial | Intrusion detection, occupancy |
 | **Retail Analytics** | Enterprise | People counting, traffic flow |
-| **Gesture Control** | Consumer Electronics | Hands-free device interaction |
-| **Indoor Localization** | Logistics/Retail | Asset tracking, navigation (30-50cm accuracy) |
+| **Home Orchestration** | Smart Home Platforms | Multi-room state, sensor fleet visibility, room-to-room tracking |
+| **Indoor Localization** | Logistics/Retail | Research track for asset tracking and navigation (30-50 cm target) |
 
 ### Competitive Positioning
 
@@ -54,19 +54,22 @@ The global Wi-Fi sensing market is experiencing rapid growth, driven by demand f
 | **Origin Wireless** | Proprietary, cloud-dependent | Open-source, edge-first, no subscription |
 | **Cognitive Systems** | Enterprise-only, high cost | Affordable ($5 hardware), DIY-friendly |
 
-ESPectre is uniquely positioned as the **only open-source, production-ready WiFi sensing platform** with native smart home integration.
+ESPectre is uniquely positioned as an **open-source Wi-Fi sensing platform** that combines edge-first sensing, smart home integration, and an emerging multi-device orchestration path.
 
 ---
 
 ## Current State
 
-ESPectre v2.x provides a motion detection system using mathematical algorithms:
+ESPectre v2.x provides a production motion detection system and the foundations for a broader sensing platform:
 
 | Component | Status | Description |
 |-----------|--------|-------------|
 | **MVS Algorithm** | Production | Moving Variance Segmentation for motion detection |
 | **Band Calibration** | Production | Automatic subcarrier selection (NBVI) |
 | **ESPHome Integration** | Production | Native Home Assistant integration with auto-discovery |
+| **Core / Runtime / Frontend Split** | In Progress | Decouple sensing logic from integration/runtime details |
+| **Custom Firmware Path** | In Progress | Enable alternate runtimes and frontends on top of the same core |
+| **Matter Frontend** | In Progress | Extend compatibility beyond Home Assistant toward major ecosystems |
 | **Micro-ESPectre** | Production | Python R&D platform for rapid prototyping |
 | **ML Data Collection** | Ready | Infrastructure for labeled CSI dataset creation |
 | **Analysis Tools** | Ready | Comprehensive suite for CSI analysis and validation |
@@ -76,30 +79,44 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 ## Timeline Overview
 
 ```
-     Q1 2026              Q2-Q3 2026              Q4 2026 - Q4 2027
-        │                     │                          │
-        ▼                     ▼                          ▼
-┌───────────────┐     ┌───────────────┐     ┌─────────────────────┐
-│  SHORT-TERM   │────▶│   MID-TERM    │────▶│     LONG-TERM       │
-│   3-6 months  │     │   6-12 months │     │    12-24 months     │
-├───────────────┤     ├───────────────┤     ├─────────────────────┤
-│ Data & Docs   │     │ ML Models     │     │ 3D Localization     │
-│ Dataset infra │     │ Training      │     │ Advanced Apps       │
-│ Tooling       │     │ Edge Inference│     │ Multi-sensor Fusion │
-└───────────────┘     └───────────────┘     └─────────────────────┘
+     Q1 2026               Q2-Q4 2026                2027+
+        │                      │                        │
+        ▼                      ▼                        ▼
+┌────────────────┐    ┌────────────────────┐   ┌──────────────────────┐
+│   SHORT-TERM   │───▶│      MID-TERM      │──▶│      LONG-TERM       │
+│    3-6 months  │    │     6-12 months    │   │      12-24 months    │
+├────────────────┤    ├────────────────────┤   ├──────────────────────┤
+│ Platform split │    │ Multi-frontend     │   │ Web orchestration    │
+│ Tooling        │    │ Matter             │   │ Multi-room fusion    │
+│ Data pipeline  │    │ Presence/occupancy │   │ Sensor management    │
+└────────────────┘    └────────────────────┘   └──────────────────────┘
 ```
+
+Parallel to the product roadmap, ESPectre keeps a separate research track for
+phase-coherent multi-node localization. That work remains active, but it is
+gated by synchronization, hardware, and phase-quality milestones before it can
+be treated as a mainline product direction.
 
 ---
 
 ## Short-Term (3-6 months)
 
-**Focus**: Data collection, documentation, and ML groundwork.
+**Focus**: Platform modularization, tooling, and replayable sensing workflows.
+
+### Architecture Platform
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Finalize separation between core, runtime, and frontend | High | In Progress |
+| Define stable interfaces for alternate runtimes and frontends | High | In Progress |
+| Enable custom firmware assembly from shared core components | High | Planned |
+| Document platform boundaries and integration contracts | Medium | Planned |
 
 ### Data & Datasets
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Expand labeled CSI dataset (gestures, activities) | High | Planned |
+| Expand labeled CSI dataset for occupancy, presence, and room-level scenarios | High | Planned |
 | Community data contribution guidelines | High | Planned |
 | Dataset versioning and reproducibility | Medium | Planned |
 | Multi-environment data collection (offices, homes, industrial) | Medium | Planned |
@@ -124,16 +141,27 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 
 ## Mid-Term (6-12 months)
 
-**Focus**: ML model development, training infrastructure, and initial inference capabilities.
+**Focus**: Multi-frontend support, practical inference, and interoperable deployments.
 
-### Model Development
+### Frontends and Runtimes
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Gesture recognition models (RF, CNN, LSTM) | High | Planned |
-| Human Activity Recognition (HAR) models | High | Planned |
-| People counting / presence estimation | Medium | Planned |
+| Ship `Matter` frontend for major ecosystem compatibility | High | In Progress |
+| Keep `ESPHome` frontend aligned with the modular platform | High | Planned |
+| Validate custom firmware builds on alternate runtime/frontend combinations | High | Planned |
+| Harden runtime abstraction for future deployment targets | Medium | Planned |
+
+### Practical Sensing Capabilities
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Presence and occupancy baselines across multiple environments | High | In Progress |
+| People counting / room-level estimation | Medium | Planned |
+| Multi-device event fusion without precise localization | Medium | Planned |
 | Fall detection | Medium | Planned |
+| Gesture detection research backlog | Low | Deferred |
+| Human Activity Recognition (HAR) research backlog | Low | Deferred |
 
 ### Training Infrastructure
 
@@ -157,40 +185,68 @@ ESPectre v2.x provides a motion detection system using mathematical algorithms:
 
 ## Long-Term (12-24 months)
 
-**Focus**: 3D indoor localization and advanced applications.
+**Focus**: Product orchestration for the home, with research-stage spatial sensing in parallel.
 
-### 3D Localization
+### Product / Platform Track
 
-**Goal**: Transform motion detection into real-time 3D indoor localization with 30-50 cm accuracy.
+**Goal**: Build a service layer that makes multiple ESPectre devices feel like one coherent home sensing system.
 
-This capability represents a significant leap from binary motion detection to precise spatial tracking, enabling applications like indoor navigation, asset tracking, and advanced gesture recognition.
+This track emphasizes practical value before precise localization: device visibility,
+sensor management, updates, realtime state, and room-to-room movement
+understanding driven by multi-device event fusion.
 
 | Capability | Description |
 |------------|-------------|
-| **Technology** | Phase-coherent multi-node array (3-4× ESP32-C5) |
-| **Frequency** | 5GHz WiFi 6 for improved accuracy |
-| **Algorithm** | MUSIC (Multiple Signal Classification) for AoA triangulation |
+| **Service Model** | Local-first or self-hosted web service for home sensing orchestration |
+| **Primary Value** | Sensor visibility, fleet management, realtime home state |
+| **Spatial Output** | Room-to-room movement and multi-room awareness without precise coordinates |
+| **Device Scope** | Multiple ESPectre nodes, multiple frontends, shared home view |
+| **Upgrade Path** | Product-grade orchestration first, finer spatial semantics later |
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Web service for sensor inventory and status inspection | High | Planned |
+| Device and firmware update management workflows | High | Planned |
+| Realtime multi-room home state visualization | High | Planned |
+| Multi-device event fusion for room-to-room movement tracking | High | Planned |
+| Unified view across `ESPHome`, `Matter`, and custom firmware nodes | Medium | Planned |
+
+### Research Track: 3D Localization
+
+**Goal**: Preserve a path toward real-time 3D indoor localization with a
+30-50 cm target, but only after the required synchronization and hardware gates
+are met.
+
+This remains a research milestone, not the default next product milestone. The
+current practical strength of the project is multi-device semantic fusion and
+occupancy-style inference, while phase-coherent localization still depends on
+open work around reference frames, hardware discipline, thermal stability, and
+phase observability under realistic occupied conditions.
+
+| Capability | Description |
+|------------|-------------|
+| **Technology** | Wireless phase-coherent multi-node architecture |
+| **Frequency** | Prefer 5 GHz capable hardware when the capture path is validated |
+| **Algorithm** | AoA / MUSIC only after phase-quality gates are passed |
 | **Target Accuracy** | 30-50 cm in 3D space |
-| **Hardware Cost** | Stage-gated: devkit cluster first, custom hardware later |
+| **Decision Policy** | Stage-gated: observability first, localization later |
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Wired shared-clock phase coherence validation (2-device prototype) | High | Research |
-| AoA estimation proof-of-concept | High | Research |
-| Wireless clock discipline + ping-pong reference calibration prototype | High | Research |
-| Architecture trade-off study (wired shared-clock vs wireless disciplined sync) | High | Research |
-| Decision gate: select long-term architecture from benchmark results | High | Research |
-| Node count scaling policy (3 -> 4 based on RMS/availability) | Medium | Research |
-| Custom carrier/backplane (optional, post-validation) | Medium | Research |
-| MUSIC algorithm implementation | Medium | Research |
-| 5GHz CSI extraction validation | Medium | Research |
+| Reference-frame compensation and cadence validation | High | Research |
+| Hardware tier comparison (`XO` vs `TCXO` / `VCTCXO`) | High | Research |
+| Thermal and drift characterization under realistic conditions | High | Research |
+| Go / no-go decision for phase-coherent path on current hardware | High | Research |
+| AoA estimation proof-of-concept after phase gates | Medium | Research |
+| Multi-node geometry scaling policy (`3` -> `4`) | Medium | Research |
+| Custom carrier/backplane only after validation gates | Low | Research |
 
-### Advanced Applications
+### Later Advanced Applications
 
 | Task | Priority | Status |
 |------|----------|--------|
-| Multi-sensor fusion (multiple ESP32 devices) | Medium | Exploratory |
-| Room-level activity tracking | Medium | Exploratory |
+| Gesture detection | Low | Deferred |
+| Human Activity Recognition (HAR) | Low | Deferred |
 | Vital signs monitoring (breathing, heartbeat) | Low | Research |
 | Integration with IEEE 802.11bf (Wi-Fi Sensing standard) | Low | Research |
 
@@ -198,44 +254,38 @@ This capability represents a significant leap from binary motion detection to pr
 
 ## Architecture Evolution
 
-ESPectre's architecture evolves through three major versions, each adding capabilities while maintaining backward compatibility.
+ESPectre's architecture evolves through major versions that widen the platform
+surface area while keeping the sensing core reusable across runtimes and
+frontends.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        ARCHITECTURE EVOLUTION                               │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  v2.x (Current)          v3.x (ML-Enhanced)         v4.x (3D Spatial)       │
-│  ───────────────         ─────────────────         ────────────────         │
+│  v2.x (Current)          v3.x (Platform)            v4.x (Orchestration)    │
+│  ───────────────         ───────────────            ─────────────────────    │
 │                                                                             │
 │  ┌───────────┐           ┌───────────┐             ┌───────────────┐        │
-│  │  ESP32    │           │  ESP32    │             │ 4× ESP32-C5   │        │
-│  │  ┌─────┐  │           │  ┌─────┐  │             │ Phase-Coherent│        │
-│  │  │ CSI │  │           │  │ CSI │  │             │   ┌─────┐     │        │
-│  │  └──┬──┘  │           │  └──┬──┘  │             │   │ CSI │     │        │
-│  │     │     │           │     │     │             │   └──┬──┘     │        │
-│  │  ┌──▼──┐  │           │  ┌──▼──┐  │             └──────┼────────┘        │
-│  │  │ MVS │  │           │  │ MVS │  │                    │                 │
-│  │  └──┬──┘  │           │  └──┬──┘  │             ┌──────▼────────┐        │
-│  └─────┼─────┘           │  ┌──▼──┐  │             │  Local/Cloud  │        │
-│        │                 │  │ ML  │  │             │  ┌─────────┐  │        │
-│        │                 │  │Edge │  │             │  │ MUSIC   │  │        │
-│        │                 │  └──┬──┘  │             │  │Algorithm│  │        │
-│        │                 └─────┼─────┘             │  └────┬────┘  │        │
-│        │                       │                   │  ┌────▼────┐  │        │
-│        │                       │                   │  │ 3D Pos  │  │        │
-│        ▼                       ▼                   │  │ (X,Y,Z) │  │        │
-│  ┌──────────┐            ┌──────────┐              │  └────┬────┘  │        │
-│  │   Home   │            │   Home   │              └───────┼───────┘        │
-│  │Assistant │            │Assistant │                      │                │
-│  └──────────┘            └──────────┘                      ▼                │
-│                                                      ┌──────────┐           │
-│  Output:                 Output:                     │   Home   │           │
-│  IDLE/MOTION             Gesture, HAR,               │Assistant │           │
-│                          Fall Detection              └──────────┘           │
+│  │  ESP32    │           │ SharedCore │             │ WebService │          │
+│  │  ┌─────┐  │           │ Runtime(s) │             │ MultiRoom  │          │
+│  │  │ CSI │  │           │ Frontend(s)│             │ Fusion     │          │
+│  │  └──┬──┘  │           │  ┌───────┐ │             │  ┌───────┐ │          │
+│  │     │     │           │  │Matter │ │             │  │Rooms  │ │          │
+│  │  ┌──▼──┐  │           │  │ESPHome│ │             │  │Events │ │          │
+│  │  │ MVS │  │           │  │Custom │ │             │  │Devices│ │          │
+│  │  └──┬──┘  │           │  └───┬───┘ │             │  └───┬───┘ │          │
+│  └─────┼─────┘           └──────┼──────┘             └──────┼──────┘         │
+│        │                        │                             │               │
+│        ▼                        ▼                             ▼               │
+│  ┌──────────┐            ┌──────────────┐              ┌──────────────┐      │
+│  │Assistant │            │ MultiEcosystem│             │ HomeDashboard │      │
+│  └──────────┘            │ Integration   │             └──────────────┘      │
 │                                                                             │
-│                                                      Output:                │
-│                                                      3D Position            │
+│  Output:                 Output:                      Output:                │
+│  IDLE/MOTION             Presence, occupancy,         Realtime home state,  │
+│                          custom firmware,             room-to-room movement  │
+│                          Matter support               understanding          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -243,8 +293,11 @@ ESPectre's architecture evolves through three major versions, each adding capabi
 | Version | Capability | Processing | Key Innovation |
 |---------|------------|------------|----------------|
 | **v2.x** | Motion detection (IDLE/MOTION) | 100% Edge | MVS algorithm, auto-calibration |
-| **v3.x** | Gesture, HAR, fall detection | 100% Edge | TFLite Micro inference |
-| **v4.x** | 3D indoor localization | Edge + Local/Cloud | Phase-coherent multi-node array |
+| **v3.x** | Modular sensing platform | Edge + host tooling | Core/runtime/frontend split, `Matter`, custom firmware |
+| **v4.x** | Home sensing orchestration | Edge + local service | Web service, multi-room fusion, device management |
+
+3D localization remains a separate research track that can influence future
+versions only after its validation gates are met.
 
 ---
 
@@ -256,7 +309,7 @@ ESPectre is committed to open-source principles and community-driven development
 
 | Principle | Description |
 |-----------|-------------|
-| **Edge-First** | All processing happens locally on ESP32 - no cloud dependency |
+| **Edge-First** | Sensing stays local-first on devices and local services, with no cloud dependency required |
 | **Privacy-Preserving** | CSI data never leaves the device; no cameras, no recordings |
 | **Hardware-Agnostic** | Supports ESP32, ESP32-S2/S3, ESP32-C3/C5/C6 variants |
 | **Open Development** | All development happens in the open on GitHub |
@@ -301,7 +354,7 @@ This roadmap evolves with community input. Here's how you can contribute:
 
 ## Roadmap Updates
 
-This roadmap is reviewed and updated quarterly. Last update: **February 2026**
+This roadmap is reviewed and updated quarterly. Last update: **June 2026**
 
 For the latest status and discussion:
 - [GitHub Issues](https://github.com/francescopace/espectre/issues?q=is%3Aissue+label%3Aroadmap)
