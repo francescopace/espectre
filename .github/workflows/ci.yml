@@ -178,7 +178,7 @@ jobs:
         run: ./run_coverage.sh --ci
       
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: test/coverage.xml,test/coverage.lcov
           flags: cpp
@@ -210,7 +210,7 @@ jobs:
           pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing
       
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: micro-espectre/coverage.xml
           flags: python
