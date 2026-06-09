@@ -8,7 +8,6 @@
 #include "csi_manager.h"
 #include "csi_payload_normalizer.h"
 #include "csi_platform_config.h"
-#include "nbvi_calibrator.h"
 #include "gain_controller.h"
 #include "espectre_log.h"
 #include "esp_timer.h"
@@ -53,12 +52,10 @@ static void log_wrong_sc_packet_(const wifi_csi_info_t* data, size_t csi_len,
 }
 
 void CSIManager::init(BaseDetector* detector,
-                     const uint8_t selected_subcarriers[12],
                      uint32_t publish_rate,
                      GainLockMode gain_lock_mode,
                      IWiFiCSI* wifi_csi) {
   detector_ = detector;
-  selected_subcarriers_ = selected_subcarriers;
   publish_rate_ = publish_rate;
   
   // Use injected WiFi CSI interface or default real implementation
@@ -70,11 +67,6 @@ void CSIManager::init(BaseDetector* detector,
   
   ESP_LOGD(TAG, "CSI Manager initialized with %s detector", 
            detector_ ? detector_->get_name() : "NULL");
-}
-
-void CSIManager::update_subcarrier_selection(const uint8_t subcarriers[12]) {
-  selected_subcarriers_ = subcarriers;
-  ESP_LOGD(TAG, "Subcarrier selection updated (%d subcarriers)", NUM_SUBCARRIERS);
 }
 
 void CSIManager::set_threshold(float threshold) {
@@ -175,9 +167,7 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
     return;
   }
   
-  // If calibration is in progress, delegate to calibrator
-  if (calibrator_ != nullptr && calibrator_->is_calibrating()) {
-    calibrator_->add_packet(csi_data, csi_len);
+  if (packet_interceptor_ && packet_interceptor_(csi_data, csi_len)) {
     return;
   }
   
@@ -185,7 +175,7 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
   const bool should_measure = (packets_total_++ % 1000 == 0);
   int64_t start_us = should_measure ? esp_timer_get_time() : 0;
   
-  detector_->process_packet(csi_data, csi_len, selected_subcarriers_, NUM_SUBCARRIERS);
+  detector_->process_packet(csi_data, csi_len, DEFAULT_SUBCARRIERS, NUM_SUBCARRIERS);
   
   // Evaluate state on the internal cadence, but always refresh before a periodic publish.
   packets_processed_++;

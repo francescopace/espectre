@@ -35,10 +35,7 @@ GainLockMode to_gain_lock_mode(RuntimeGainLockMode mode) {
 
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config) : config_(config) {
   snapshot_.threshold = config_.segmentation_threshold;
-  snapshot_.selected_subcarriers = config_.selected_subcarriers;
-  snapshot_.subcarrier_source =
-      config_.user_specified_subcarriers ? RuntimeSubcarrierSource::USER_CONFIGURED
-                                         : RuntimeSubcarrierSource::AUTO_CALIBRATED;
+  snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
 }
 
 bool EspIdfRuntime::setup() {
@@ -57,17 +54,10 @@ bool EspIdfRuntime::setup() {
     return false;
   }
 
-  nbvi_calibrator_.init(&csi_manager_);
-  nbvi_calibrator_.set_mvs_window_size(config_.segmentation_window_size);
-  nbvi_calibrator_.configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
-  nbvi_calibrator_.configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
-  nbvi_calibrator_.set_buffer_size(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS);
-
   traffic_generator_.init(config_.traffic_generator_rate, to_traffic_mode(config_.traffic_generator_mode));
   udp_listener_.init(5555);
 
-  csi_manager_.init(detector_, snapshot_.selected_subcarriers.data(), config_.publish_interval,
-                    to_gain_lock_mode(config_.gain_lock_mode));
+  csi_manager_.init(detector_, config_.publish_interval, to_gain_lock_mode(config_.gain_lock_mode));
   csi_manager_.set_evaluation_interval(config_.evaluation_interval);
   csi_manager_.set_motion_on_hits(config_.motion_on_hits);
   csi_manager_.set_motion_off_hits(config_.motion_off_hits);
@@ -118,7 +108,7 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
 }
 
 bool EspIdfRuntime::trigger_recalibration() {
-  if (nbvi_calibrator_.is_calibrating()) {
+  if (snapshot_.calibrating) {
     ESP_LOGW(RUNTIME_TAG, "Calibration already in progress");
     return false;
   }
@@ -132,7 +122,7 @@ bool EspIdfRuntime::trigger_recalibration() {
   return start_calibration_();
 }
 
-bool EspIdfRuntime::is_calibrating() const { return nbvi_calibrator_.is_calibrating(); }
+bool EspIdfRuntime::is_calibrating() const { return snapshot_.calibrating; }
 
 RuntimeSnapshot EspIdfRuntime::get_snapshot() const { return snapshot_; }
 
@@ -210,7 +200,6 @@ void EspIdfRuntime::on_wifi_connected_() {
     if (detector_ != nullptr) {
       detector_->set_cv_normalization(need_cv);
     }
-    nbvi_calibrator_.set_cv_normalization(need_cv);
     snapshot_.gain_locked = csi_manager_.is_gain_locked();
     start_calibration_();
   });
@@ -219,6 +208,8 @@ void EspIdfRuntime::on_wifi_connected_() {
 }
 
 void EspIdfRuntime::on_wifi_disconnected_() {
+  threshold_calibration_active_ = false;
+  csi_manager_.set_packet_interceptor({});
   csi_manager_.disable();
   if (traffic_generator_.is_running()) {
     traffic_generator_.stop();
@@ -234,12 +225,10 @@ void EspIdfRuntime::on_wifi_disconnected_() {
 }
 
 bool EspIdfRuntime::start_calibration_() {
+  snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
+
   if (config_.detection_algorithm == DetectionAlgorithm::ML) {
-    std::copy(DEFAULT_SUBCARRIERS, DEFAULT_SUBCARRIERS + HT20_SELECTED_BAND_SIZE,
-              snapshot_.selected_subcarriers.begin());
-    snapshot_.subcarrier_source = RuntimeSubcarrierSource::MODEL_DEFAULT;
     snapshot_.calibrating = false;
-    csi_manager_.update_subcarrier_selection(snapshot_.selected_subcarriers.data());
     if (listener_ != nullptr) {
       listener_->on_calibration_finished(snapshot_, true);
     }
@@ -251,46 +240,67 @@ bool EspIdfRuntime::start_calibration_() {
     listener_->on_calibration_started(snapshot_);
   }
 
-  nbvi_calibrator_.set_collection_complete_callback([this]() { traffic_generator_.pause(); });
-  const esp_err_t err = nbvi_calibrator_.start_calibration(
-      snapshot_.selected_subcarriers.data(), HT20_SELECTED_BAND_SIZE,
-      [this](const uint8_t *band, uint8_t size, const std::vector<float> &cal_values, bool success) {
-        if (success && band != nullptr && !config_.user_specified_subcarriers) {
-          std::memcpy(snapshot_.selected_subcarriers.data(), band, size);
-          csi_manager_.update_subcarrier_selection(band);
-          snapshot_.subcarrier_source = RuntimeSubcarrierSource::AUTO_CALIBRATED;
-        }
+  threshold_calibration_detector_ = MVSDetector(config_.segmentation_window_size, MVS_DEFAULT_THRESHOLD);
+  threshold_calibration_detector_.configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
+  threshold_calibration_detector_.configure_hampel(config_.hampel_enabled, config_.hampel_window,
+                                                   config_.hampel_threshold);
+  threshold_calibration_detector_.set_cv_normalization(detector_ != nullptr &&
+                                                       detector_->is_cv_normalization_enabled());
+  threshold_calibration_values_.clear();
+  threshold_calibration_values_.reserve(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS);
+  threshold_calibration_packets_ = 0;
+  threshold_calibration_target_ = config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS;
+  threshold_calibration_active_ = true;
+  csi_manager_.clear_detector_buffer();
+  csi_manager_.set_packet_interceptor(
+      [this](const int8_t *csi_data, size_t csi_len) { return handle_threshold_calibration_packet_(csi_data, csi_len); });
+  ESP_LOGI(RUNTIME_TAG, "Starting MVS threshold calibration with fixed subcarriers");
+  return true;
+}
 
-        if (band != nullptr && !cal_values.empty()) {
-          float adaptive_threshold = 0.0f;
-          uint8_t percentile = 0;
-          calculate_adaptive_threshold(cal_values, config_.threshold_mode, adaptive_threshold, percentile);
-          snapshot_.best_pxx = adaptive_threshold;
-
-          if (config_.threshold_mode != ThresholdMode::MANUAL) {
-            set_threshold_runtime(adaptive_threshold);
-            ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.4f (P%d)", adaptive_threshold, percentile);
-          }
-
-          csi_manager_.clear_detector_buffer();
-        }
-
-        traffic_generator_.resume();
-        snapshot_.calibrating = false;
-
-        if (listener_ != nullptr) {
-          listener_->on_calibration_finished(snapshot_, success);
-        }
-
-        ESP_LOGD(RUNTIME_TAG, "Calibration %s", success ? "completed successfully" : "failed");
-      });
-  if (err != ESP_OK) {
-    snapshot_.calibrating = false;
-    notify_fault_("Failed to start calibration");
+bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len) {
+  if (!threshold_calibration_active_) {
     return false;
   }
 
+  threshold_calibration_detector_.process_packet(csi_data, csi_len, snapshot_.fixed_subcarriers.data(),
+                                                 HT20_SELECTED_BAND_SIZE);
+  threshold_calibration_detector_.update_state();
+  if (threshold_calibration_detector_.is_ready()) {
+    threshold_calibration_values_.push_back(threshold_calibration_detector_.get_motion_metric());
+  }
+
+  threshold_calibration_packets_++;
+  if (threshold_calibration_packets_ >= threshold_calibration_target_) {
+    finish_threshold_calibration_(!threshold_calibration_values_.empty());
+  }
   return true;
+}
+
+void EspIdfRuntime::finish_threshold_calibration_(bool success) {
+  threshold_calibration_active_ = false;
+  csi_manager_.set_packet_interceptor({});
+  snapshot_.calibrating = false;
+
+  if (success) {
+    float adaptive_threshold = 0.0f;
+    uint8_t percentile = 0;
+    const ThresholdMode adaptive_mode =
+        (config_.threshold_mode == ThresholdMode::MANUAL) ? ThresholdMode::AUTO : config_.threshold_mode;
+    calculate_adaptive_threshold(threshold_calibration_values_, adaptive_mode, adaptive_threshold, percentile);
+    snapshot_.best_pxx = adaptive_threshold;
+
+    if (config_.threshold_mode != ThresholdMode::MANUAL) {
+      set_threshold_runtime(adaptive_threshold);
+      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.4f (P%d)", adaptive_threshold, percentile);
+    }
+    csi_manager_.clear_detector_buffer();
+  }
+
+  if (listener_ != nullptr) {
+    listener_->on_calibration_finished(snapshot_, success);
+  }
+  ESP_LOGD(RUNTIME_TAG, "Calibration %s", success ? "completed successfully" : "failed");
 }
 
 void EspIdfRuntime::notify_fault_(const char *message) {

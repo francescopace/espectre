@@ -292,9 +292,9 @@ def run_gain_lock(wlan):
     return median_agc, median_fft, False
 
 
-def run_band_calibration(wlan, detector, traffic_gen, chip_type=None, restart_traffic_gen=True):
+def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart_traffic_gen=True):
     """
-    Run band calibration with selected algorithm (with gain lock phase first)
+    Run startup calibration with fixed subcarriers.
     
     Args:
         wlan: WLAN instance
@@ -304,23 +304,14 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None, restart_tr
         restart_traffic_gen: Restart the traffic generator before returning
     
     Returns:
-        bool: True if calibration successful
+        bool: True if startup calibration completed
     """
-    # Get calibration algorithm from config (default: nbvi)
-    algorithm = getattr(config, 'CALIBRATION_ALGORITHM', 'nbvi').lower()
-    
-    # Determine calibration type based on detector
     detector_name = detector.get_name()
     is_ml = detector_name == "ML"
-    
+
     if is_ml:
-        # ML uses fixed subcarriers - no band calibration needed
-        # Only gain lock is required for stable CSI amplitudes
-        print("ML detector: Using fixed subcarriers (no band calibration needed)")
-        
-        # Set calibration mode for gain lock
         g_state.calibration_mode = True
-        
+
         print('')
         print('='*60)
         print('ML Quick Boot - Gain Lock Only')
@@ -341,13 +332,10 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None, restart_tr
         # CV normalization: only needed when gain is not locked
         detector.set_cv_normalization(needs_cv)
         
-        # Use unified default subcarriers from central config
-        config.SELECTED_SUBCARRIERS = config.DEFAULT_SUBCARRIERS
-        
         print('')
         print('='*60)
         print('ML Quick Boot Complete!')
-        print(f'   Subcarriers: {config.SELECTED_SUBCARRIERS}')
+        print(f'   Subcarriers: {list(config.DEFAULT_SUBCARRIERS)}')
         print(f'   Threshold: {detector.get_threshold():.1f} (scaled 0-10 score)')
         print(f'   Total boot time: ~3 seconds (gain lock only)')
         print('='*60)
@@ -355,51 +343,47 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None, restart_tr
         
         g_state.calibration_mode = False
         return True
-    else:
-        from src.nbvi_calibrator import NBVICalibrator, cleanup_buffer_file
-    
-    # Set calibration mode to suspend main loop
     g_state.calibration_mode = True
-    
-    # Aggressive garbage collection before allocating calibration buffer
+
     gc.collect()
-    
-    # Clean up any leftover files from previous interrupted runs
-    cleanup_buffer_file()
-    
+
     print('')
     print('='*60)
-    print('Two-Phase Calibration Starting')
+    print('Two-Phase Startup Calibration')
     print('='*60)
     print(f'Free memory: {gc.mem_free()} bytes')
     print('Please remain still for calibration...')
-    
-    # Phase 1: Gain Lock (~3 seconds)
-    # Stabilizes AGC/FFT before calibration to ensure clean data
+
     agc, fft, needs_cv = run_gain_lock(wlan)
-    
-    # Save CV normalization state
+
     if agc is not None and fft is not None:
         g_state.needs_cv_normalization = needs_cv
-    
+
     if needs_cv:
-        print("Note: Proceeding with band calibration without gain lock (CV normalization enabled)")
-    
-    # CV normalization: only needed when gain is not locked
+        print("Note: Proceeding with threshold bootstrap without gain lock (CV normalization enabled)")
+
     detector.set_cv_normalization(needs_cv)
-    
+
+    from src.mvs_detector import MVSDetector
+    from src.threshold import calculate_adaptive_threshold
+
+    calibration_detector = MVSDetector(
+        window_size=config.SEG_WINDOW_SIZE,
+        threshold=1.0,
+        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=config.LOWPASS_CUTOFF,
+        enable_hampel=config.ENABLE_HAMPEL_FILTER,
+        hampel_window=config.HAMPEL_WINDOW,
+        hampel_threshold=config.HAMPEL_THRESHOLD,
+    )
+    calibration_detector.use_cv_normalization = needs_cv
+    mv_values = []
+
     print('')
     print('-'*60)
-    print(f'Band Calibration (~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
+    print(f'Threshold Bootstrap (~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
-    
-    # Initialize NBVI calibrator
-    calibrator = NBVICalibrator(buffer_size=config.CALIBRATION_BUFFER_SIZE)
-    
-    # Match calibrator's normalization mode with detector
-    calibrator.use_cv_normalization = needs_cv
-    
-    # Collect packets for calibration (now with stable gain)
+
     calibration_progress = 0
     timeout_counter = 0
     max_timeout = 15000  # 15 seconds
@@ -436,10 +420,13 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None, restart_tr
                 print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                 remap_logged = True
             del frame
-            calibration_progress = calibrator.add_packet(csi_data)
+            calibration_detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
+            calibration_detector.update_state()
+            calibration_progress += 1
+            if calibration_detector.is_ready():
+                mv_values.append(calibration_detector.get_motion_metric())
             timeout_counter = 0  # Reset timeout on successful read
-            
-            # Print progress every 100 packets with pps
+
             if calibration_progress % 100 == 0:
                 current_time = time.ticks_ms()
                 elapsed = time.ticks_diff(current_time, last_progress_time)
@@ -453,104 +440,47 @@ def run_band_calibration(wlan, detector, traffic_gen, chip_type=None, restart_tr
         else:
             time.sleep_us(100)
             timeout_counter += 1
-            
+
             if timeout_counter >= max_timeout:
                 print(f"Timeout waiting for CSI packets (collected {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE})")
-                print("Calibration aborted - using default band")
+                print("Startup calibration aborted")
+                detector.reset()
+                g_state.calibration_mode = False
                 return False
-    
-    gc.collect()  # Free any temporary objects before calibration
-    
-    # Run calibration (both algorithms now return adaptive_threshold)
-    success = False
-    config.SELECTED_SUBCARRIERS = config.DEFAULT_SUBCARRIERS
-    
-    # Stop traffic generator during band evaluation to free memory
-    tg_was_running = traffic_gen.is_running()
-    if tg_was_running:
-        traffic_gen.stop()
-        gc.collect()
-    
-    nbvi_start_time = time.ticks_ms()
-    try:
-        # Calibrator returns: calibrate() -> (band, values)
-        # band = selected subcarriers, values = mv_values
-        selected_band, cal_values = calibrator.calibrate()
-        nbvi_elapsed_ms = time.ticks_diff(time.ticks_ms(), nbvi_start_time)
-        print(f"NBVI computation time: {nbvi_elapsed_ms / 1000:.2f}s")
-    except Exception as e:
-        nbvi_elapsed_ms = time.ticks_diff(time.ticks_ms(), nbvi_start_time)
-        print(f"Error during calibration after {nbvi_elapsed_ms / 1000:.2f}s: {e}")
-        selected_band, cal_values = None, []
-    
-    # Free calibrator memory BEFORE threshold calculation (C3 needs the headroom)
-    calibrator.free_buffer()
-    calibrator = None
+
     gc.collect()
-    
-    if selected_band and len(selected_band) == 12:
-        config.SELECTED_SUBCARRIERS = selected_band
-        
-        if is_ml:
-            threshold_source = f"fixed ({detector.get_threshold():.1f})"
-            success = True
-            
-            print('')
-            print('='*60)
-            print('ML Subcarrier Calibration Successful!')
-            print(f'   Algorithm: {algorithm.upper()} (subcarrier selection only)')
-            print(f'   Selected band: {selected_band}')
-            print(f'   Threshold: {detector.get_threshold():.2f} ({threshold_source})')
-            print('='*60)
-            print('')
+    success = bool(mv_values)
+    if success:
+        if isinstance(SEG_THRESHOLD, str):
+            adaptive_threshold, percentile = calculate_adaptive_threshold(mv_values, SEG_THRESHOLD)
+            detector.set_adaptive_threshold(adaptive_threshold)
+            threshold_source = f"{SEG_THRESHOLD} (P{percentile})"
+            print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
         else:
-            # MVS: apply adaptive threshold from MV values
-            from src.threshold import calculate_adaptive_threshold
-            
-            if isinstance(SEG_THRESHOLD, str):
-                adaptive_threshold, percentile = calculate_adaptive_threshold(cal_values, SEG_THRESHOLD)
-                detector.set_adaptive_threshold(adaptive_threshold)
-                threshold_source = f"{SEG_THRESHOLD} (P{percentile})"
-                print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
-            else:
-                adaptive_threshold, _ = calculate_adaptive_threshold(cal_values, "auto")
-                detector.set_threshold(float(SEG_THRESHOLD))
-                threshold_source = "manual"
-                print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
-            
-            del cal_values
-            gc.collect()
-            
-            success = True
-            
-            print('')
-            print('='*60)
-            print('Subcarrier Calibration Successful!')
-            print(f'   Algorithm: {algorithm.upper()}')
-            print(f'   Selected band: {selected_band}')
-            print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
-            print('='*60)
-            print('')
+            adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, "auto")
+            detector.set_threshold(float(SEG_THRESHOLD))
+            threshold_source = "manual"
+            print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
+
+        detector.reset()
+
+        print('')
+        print('='*60)
+        print('Startup Calibration Complete!')
+        print(f'   Subcarriers: {list(config.DEFAULT_SUBCARRIERS)}')
+        print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
+        print('='*60)
+        print('')
     else:
-        print(f"Using default band: {config.SELECTED_SUBCARRIERS}")
         print('')
         print('='*60)
-        print('Subcarrier Calibration Failed')
-        print(f'   Using default band: {config.SELECTED_SUBCARRIERS}')
+        print('Startup Calibration Failed')
+        print(f'   Keeping threshold: {detector.get_threshold():.4f}')
+        print(f'   Subcarriers: {list(config.DEFAULT_SUBCARRIERS)}')
         print('='*60)
         print('')
-    
-    # Restart traffic generator if it was running
-    if tg_was_running and restart_traffic_gen:
-        time.sleep(1)  # Wait for network stack to stabilize
-        if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE):
-            print("Warning: Failed to restart traffic generator, retrying...")
-            time.sleep(2)
-            traffic_gen.start(config.TRAFFIC_GENERATOR_RATE)
-    
-    # Resume main loop
+
     g_state.calibration_mode = False
-    
     return success
 
 def get_chip_type():
@@ -672,16 +602,7 @@ def main():
                 sys.exit(1)
         print_heap('after_csi_flow_check')
     
-    # P95 Auto-Calibration at boot if subcarriers not configured
-    # Handle case where SELECTED_SUBCARRIERS is None, empty, or not defined (commented out)
-    current_subcarriers = getattr(config, 'SELECTED_SUBCARRIERS', None)
-    needs_calibration = not current_subcarriers
-    
-    if needs_calibration:
-        # Set default fallback before calibration
-        run_band_calibration(wlan, detector, traffic_gen, g_state.chip_type, restart_traffic_gen=False)
-    else:
-        print(f'Using configured subcarriers: {config.SELECTED_SUBCARRIERS}')
+    run_startup_calibration(wlan, detector, traffic_gen, g_state.chip_type, restart_traffic_gen=False)
     print_heap('after_calibration')
     
     mqtt_enabled = getattr(config, 'MQTT_ENABLED', True)
@@ -689,7 +610,7 @@ def main():
     if mqtt_enabled:
         # Initialize MQTT (pass calibration function for factory_reset and global state for metrics)
         from src.mqtt.handler import MQTTHandler
-        mqtt_handler = MQTTHandler(config, detector, wlan, traffic_gen, run_band_calibration, g_state)
+        mqtt_handler = MQTTHandler(config, detector, wlan, traffic_gen, run_startup_calibration, g_state)
         print_heap('after_mqtt_handler_init')
         mqtt_handler.connect()
         print_heap('after_mqtt_connect')
@@ -774,7 +695,7 @@ def main():
                 del frame
                 
                 # Process packet through detector interface
-                detector.process_packet(csi_data, config.SELECTED_SUBCARRIERS)
+                detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
 
                 # Poll MQTT commands every 10 packets to reduce hot-loop overhead
                 # without making command responsiveness noticeable to users.

@@ -29,8 +29,6 @@ std::vector<int8_t> make_constant_packet(int8_t i_value, int8_t q_value) {
     return packet;
 }
 
-constexpr uint8_t kBand[] = {12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52};
-
 }  // namespace
 
 void test_utils_statistical_helpers_cover_edge_cases(void) {
@@ -155,8 +153,8 @@ void test_mvs_detector_move_semantics_and_base_accessors(void) {
     source.configure_lowpass(true, 2.0f);
     source.configure_hampel(true, 5, 2.5f);
     source.set_cv_normalization(true);
-    source.process_packet(nullptr, packet.size(), kBand, HT20_SELECTED_BAND_SIZE);
-    source.process_packet(packet.data(), packet.size(), kBand, HT20_SELECTED_BAND_SIZE);
+    source.process_packet(nullptr, packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
+    source.process_packet(packet.data(), packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
 
     TEST_ASSERT_TRUE(source.is_cv_normalization_enabled());
     TEST_ASSERT_NOT_NULL(source.get_turbulence_buffer());
@@ -185,7 +183,7 @@ void test_ml_detector_move_semantics_and_cv_override(void) {
     auto packet = make_constant_packet(3, 4);
 
     MLDetector source(6, 6.0f);
-    source.process_packet(packet.data(), packet.size(), kBand, HT20_SELECTED_BAND_SIZE);
+    source.process_packet(packet.data(), packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
     source.set_cv_normalization(true);  // No-op in ML detector.
 
     TEST_ASSERT_FALSE(source.is_cv_normalization_enabled());

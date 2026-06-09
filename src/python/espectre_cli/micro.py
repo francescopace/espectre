@@ -304,7 +304,6 @@ def deploy_code(args) -> None:
             (str(PYTHON_SRC_DIR / "mvs_detector.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "ml_detector.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "ml_weights.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "nbvi_calibrator.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "traffic_generator.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "main.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "csi_streamer.py"), ":src/"),

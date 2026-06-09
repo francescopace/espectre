@@ -31,11 +31,9 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 | `test_traffic_generator` | Runtime | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
 | `test_runtime_helpers` | Runtime | Unit | Synthetic | Gain controller and WiFi CSI helper behavior |
 | `test_wifi_lifecycle` | Runtime | Unit | Synthetic | WiFi init policy, handler registration, cleanup paths |
-| `test_calibration_file_storage` | Runtime | Unit | Synthetic | File-based magnitude storage |
 | `test_csi_manager` | Runtime | Unit | Synthetic | CSIManager API, enable/disable, callbacks |
-| `test_nbvi_calibrator` | Runtime | Unit | **Real** | NBVI subcarrier selection, configuration |
-| `test_motion_detection` | Integration | Integration | **Real** | MVS/ML performance, NBVI calibration end-to-end |
-| `test_long_recordings` | Integration | Integration | **Real** | Long-recording diagnostics for MVS/NBVI and ML |
+| `test_motion_detection` | Integration | Integration | **Real** | MVS/ML performance with the fixed-subcarrier runtime |
+| `test_long_recordings` | Integration | Integration | **Real** | Long-recording diagnostics for MVS fixed-subcarrier runtime and ML |
 | `test_sensor_publisher` | Frontend | Unit | Synthetic | ESPHome sensor publishing and status logging |
 | `test_frontend_controls` | Frontend | Unit | Synthetic | ESPHome threshold number, calibrate switch, frontend runtime shim |
 | `test_matter_frontend` | Frontend | Unit | Synthetic | Matter adapter lifecycle, event mapping, threshold/recalibration controls |

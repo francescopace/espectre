@@ -49,7 +49,7 @@ inline bool handle_send_error(SendErrorState& state, ssize_t sent, int err_no, i
   state.error_count++;
   
   // Rate-limit error logging: log at most once per second to avoid console spam
-  // during high-load periods (e.g., SPIFFS calibration + UDP can cause ENOMEM)
+  // during high-load periods where UDP sends can temporarily hit ENOMEM.
   if (current_time - state.last_log_time > SendErrorState::LOG_INTERVAL_US) {
     // Logging would happen here on ESP32 (ESP_LOGW)
     // For testing, we just update state

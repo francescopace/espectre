@@ -1,13 +1,14 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
+#include <vector>
 
 #include "base_detector.h"
 #include "csi_manager.h"
 #include "gain_controller.h"
 #include "ml_detector.h"
 #include "mvs_detector.h"
-#include "nbvi_calibrator.h"
 #include "runtime_interface.h"
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
@@ -38,6 +39,8 @@ class EspIdfRuntime : public IEspectreRuntime {
   void on_wifi_connected_();
   void on_wifi_disconnected_();
   bool start_calibration_();
+  bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len);
+  void finish_threshold_calibration_(bool success);
   void notify_fault_(const char *message);
 
   RuntimeConfig config_;
@@ -48,13 +51,17 @@ class EspIdfRuntime : public IEspectreRuntime {
   BaseDetector *detector_{nullptr};
   MVSDetector mvs_detector_;
   MLDetector ml_detector_;
+  MVSDetector threshold_calibration_detector_;
 
   CSIManager csi_manager_;
   WiFiLifecycleManager wifi_lifecycle_;
-  NBVICalibrator nbvi_calibrator_;
   TrafficGeneratorManager traffic_generator_;
   UDPListener udp_listener_;
 
+  std::vector<float> threshold_calibration_values_;
+  uint16_t threshold_calibration_packets_{0};
+  uint16_t threshold_calibration_target_{0};
+  bool threshold_calibration_active_{false};
   bool setup_complete_{false};
   std::string last_fault_;
 };

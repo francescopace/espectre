@@ -35,6 +35,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **NBVI removed from the active runtime path**: MVS now uses the same fixed 12-subcarrier set as ML, startup calibration computes only the adaptive threshold in RAM, and no disk-backed calibration buffer is required anymore.
+- **Subcarrier selection fully centralized and fixed across the repo**: C++ runtime, Micro-ESPectre, tests, and analysis/training tools now all use the same shared default set `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`; runtime/config override paths were removed and related docs/tooling were simplified accordingly.
+- **SPIFFS removed from active firmware layouts**: ESPHome now relies on the default board partition table, while Matter keeps a custom layout without SPIFFS so more flash can be allocated to OTA app slots and the runtime matches the new in-RAM startup flow.
 - **`ESpectreComponent` is now a thin frontend adapter**: setup/orchestration responsibilities were moved behind the runtime facade.
 - **ESPHome local development path now uses `src/cpp/frontend/esphome`** as the external-components root.
 - **Native tests and CI build plumbing were updated** to follow the new `src/` layout.
@@ -471,7 +474,7 @@ Optimized subcarrier selection with multi-window validation, gain lock phase exc
 
 #### Calibration Fallback with Normalization
 
-When NBVI calibration fails, normalization is still calculated and default subcarriers [11-22] are used, preventing 2000%+ motion values from missing normalization.
+When NBVI calibration fails, normalization is still calculated and the shared default subcarriers `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]` are used, preventing 2000%+ motion values from missing normalization.
 
 ### Platform Support
 
@@ -705,9 +708,9 @@ Micro-ESPectre is the research and development platform of the ESPectre project,
 
 ### Test Suite Refactoring
 
-**Migration from Unity (ESP-IDF) to PlatformIO Unity for ESPHome consistency**
+**Migration from Unity (ESP-IDF) to host-side CMake/CTest for ESPHome consistency**
 
-The test suite has been migrated from ESP-IDF's Unity framework to PlatformIO Unity, aligning with the ESPHome ecosystem and enabling native (desktop) test execution without hardware.
+The test suite has been migrated from ESP-IDF's Unity framework to a host-side CMake/CTest workflow, aligning with the ESPHome development flow and enabling native (desktop) test execution without hardware.
 
 **Complete test suite with 68 test cases organized in 5 suites and Memory leak detection:**
 
@@ -720,8 +723,10 @@ The test suite has been migrated from ESP-IDF's Unity framework to PlatformIO Un
 | `test_motion_detection` | 3 | MVS performance with real CSI data (2000 packets) |
 
 ```bash
-# Run tests locally (native is the default environment)
-cd test && pio test
+# Run tests locally
+cmake -S test/cpp -B test/cpp/build
+cmake --build test/cpp/build
+ctest --test-dir test/cpp/build --output-on-failure
 ```
 
 ### CI/CD Pipeline

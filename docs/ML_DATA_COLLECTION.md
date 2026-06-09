@@ -76,10 +76,10 @@ host-side inference from the UDP CSI stream:
 ./espectre micro detect --log-turbulence
 ```
 
-`espectre micro detect` reads threshold, subcarriers, Hampel, low-pass, and hit filtering
-from `src/python/config.py` and `src/python/config_local.py`, just like the rest of
-micro-ESPectre. Use `--bind-ip <local_ip>` only when auto-detection picks the
-wrong interface.
+`espectre micro detect` reads threshold, the fixed production subcarrier set,
+Hampel, low-pass, and hit filtering from `src/python/config.py` and
+`src/python/config_local.py`, just like the rest of micro-ESPectre. Use
+`--bind-ip <local_ip>` only when auto-detection picks the wrong interface.
 
 ---
 
@@ -363,8 +363,8 @@ cd tools
 # Visualize raw CSI data
 python 1_analyze_raw_data.py
 
-# Test MVS detection on your data
-python 3_analyze_moving_variance_segmentation.py --plot
+# Compare filter placement on your data
+python 4_analyze_filter_location.py --plot
 ```
 
 See [tools/README.md](../tools/README.md) for complete documentation of all analysis scripts.

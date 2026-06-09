@@ -722,7 +722,6 @@ class CSICollector:
         return MVSDetector(
             window_size=window_size,
             threshold=self.READY_MV_THRESHOLD,
-            selected_subcarriers=config.DEFAULT_SUBCARRIERS,
             track_data=False,
             gain_locked=True
         )
@@ -1358,9 +1357,6 @@ from filters import HampelFilter
 # Import feature calculation functions from src/features.py
 from features import calc_skewness
 
-# Import calibrator from src (band selection algorithm)
-from nbvi_calibrator import NBVICalibrator
-
 # Import detectors from src (IDetector interface and implementations)
 from detector_interface import IDetector, MotionState
 from mvs_detector import MVSDetector as MVSDetectorNew
@@ -1370,7 +1366,7 @@ from mvs_detector import MVSDetector as MVSDetectorNew
 # Utility Functions (delegate to SegmentationContext static methods)
 # ============================================================================
 
-def calculate_spatial_turbulence(csi_data, selected_subcarriers, gain_locked: bool = True) -> float:
+def calculate_spatial_turbulence(csi_data, gain_locked: bool = True) -> float:
     """
     Calculate spatial turbulence from CSI data with gain-lock-aware normalization.
     
@@ -1380,7 +1376,7 @@ def calculate_spatial_turbulence(csi_data, selected_subcarriers, gain_locked: bo
     
     Args:
         csi_data: CSI data array (I/Q pairs)
-        selected_subcarriers: List of subcarrier indices to use
+        Uses the fixed production default subcarriers from config.DEFAULT_SUBCARRIERS
         gain_locked: True if AGC gain lock was active for this packet/file
     
     Returns:
@@ -1388,7 +1384,7 @@ def calculate_spatial_turbulence(csi_data, selected_subcarriers, gain_locked: bo
     """
     use_cv_norm = not bool(gain_locked)
     turbulence, _ = SegmentationContext.compute_spatial_turbulence(
-        csi_data, selected_subcarriers, use_cv_normalization=use_cv_norm
+        csi_data, config.DEFAULT_SUBCARRIERS, use_cv_normalization=use_cv_norm
     )
     return turbulence
 
@@ -1417,8 +1413,8 @@ class MVSDetector:
     production implementation from src/segmentation.py.
     """
     
-    def __init__(self, window_size: int, threshold: float, 
-                 selected_subcarriers: List[int], track_data: bool = False,
+    def __init__(self, window_size: int, threshold: float,
+                 track_data: bool = False,
                  enable_hampel: bool = True, hampel_window: int = config.HAMPEL_WINDOW,
                  hampel_threshold: float = config.HAMPEL_THRESHOLD,
                  enable_lowpass: bool = False, lowpass_cutoff: float = 11.0,
@@ -1429,7 +1425,7 @@ class MVSDetector:
         Args:
             window_size: Size of the sliding window for variance calculation
             threshold: Threshold for motion detection
-            selected_subcarriers: List of subcarrier indices to use
+            Uses the fixed production default subcarriers from config.DEFAULT_SUBCARRIERS
             track_data: If True, track moving variance and state history
             enable_hampel: Enable Hampel filter for outlier removal
             hampel_window: Hampel filter window size
@@ -1440,7 +1436,7 @@ class MVSDetector:
         """
         self.window_size = window_size
         self.threshold = threshold
-        self.selected_subcarriers = selected_subcarriers
+        self.fixed_subcarriers = config.DEFAULT_SUBCARRIERS
         self.track_data = track_data
         self.default_gain_locked = bool(gain_locked)
         
@@ -1485,7 +1481,7 @@ class MVSDetector:
         self._context.use_cv_normalization = not packet_gain_locked
         
         # Calculate turbulence using SegmentationContext method
-        turb = self._context.calculate_spatial_turbulence(csi_data, self.selected_subcarriers)
+        turb = self._context.calculate_spatial_turbulence(csi_data, self.fixed_subcarriers)
         
         # Add to segmentation context
         self._context.add_turbulence(turb)
@@ -1521,14 +1517,13 @@ class MVSDetector:
 
 
 def test_mvs_configuration(baseline_packets, movement_packets,
-                          subcarriers, threshold, window_size) -> Tuple[int, int, float]:
+                          threshold, window_size) -> Tuple[int, int, float]:
     """
     Test MVS configuration and return FP, TP counts
     
     Args:
         baseline_packets: List of baseline packets
         movement_packets: List of movement packets
-        subcarriers: List of subcarrier indices to use
         threshold: Motion detection threshold
         window_size: Sliding window size
     
@@ -1539,7 +1534,7 @@ def test_mvs_configuration(baseline_packets, movement_packets,
     num_movement = len(movement_packets)
 
     # Test on baseline (FP)
-    detector = MVSDetector(window_size, threshold, subcarriers)
+    detector = MVSDetector(window_size, threshold)
     for pkt in baseline_packets:
         detector.process_packet(pkt)
     fp = detector.get_motion_count()

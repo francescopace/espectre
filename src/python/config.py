@@ -34,11 +34,8 @@ MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -
 # CSI Configuration
 CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
 
-# Default subcarriers (12 spread across HT20 band)
-DEFAULT_SUBCARRIERS = [12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]
-
-# Selected subcarriers for turbulence calculation. None to auto-calibrate at boot.
-#SELECTED_SUBCARRIERS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+# Fixed subcarriers shared by MVS and ML detectors.
+DEFAULT_SUBCARRIERS = (12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52)
 
 # Gain Lock Configuration
 # Controls AGC/FFT gain locking for stable CSI amplitudes
@@ -48,11 +45,10 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is
 
 # Detection Algorithm
 # "mvs" (default): Moving Variance Segmentation - fast, good accuracy
-# "ml": Neural Network (9 features -> MLP) - learned patterns, no calibration needed
+# "ml": Neural Network (9 features -> MLP) - learned patterns, fixed threshold
 DETECTION_ALGORITHM = "mvs"
 
-# Band Calibration Configuration (used when SELECTED_SUBCARRIERS is None)
-# NBVI: Normalized Band Variance Index (12 non-consecutive subcarriers)
+# Threshold bootstrap configuration (fixed subcarriers, no disk I/O)
 CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect
 # CALIBRATION_BUFFER_SIZE calculated after SEG_WINDOW_SIZE is defined
 
@@ -86,7 +82,7 @@ EXPECTED_CSI_LEN = 128         # 64 SC × 2 bytes (I/Q pairs)
 GUARD_BAND_LOW = 11            # First valid subcarrier
 GUARD_BAND_HIGH = 52           # Last valid subcarrier  
 DC_SUBCARRIER = 32             # DC null subcarrier
-BAND_SIZE = 12                 # Selected subcarriers for motion detection
+BAND_SIZE = len(DEFAULT_SUBCARRIERS)  # Selected subcarriers for motion detection
 
 # Optional local overrides (config_local.py is gitignored)
 # Skip local overrides only under pytest to keep tests hermetic.
@@ -94,7 +90,7 @@ if "pytest" not in sys.modules:
     try:
         import src.config_local as _local
         for _name in dir(_local):
-            if _name.isupper():
+            if _name.isupper() and _name != "DEFAULT_SUBCARRIERS":
                 globals()[_name] = getattr(_local, _name)
     except ImportError:
         pass

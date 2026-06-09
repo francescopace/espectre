@@ -22,9 +22,6 @@
 namespace esphome {
 namespace espectre {
 
-// Forward declaration
-class NBVICalibrator;
-
 // Callback type for processed CSI data
 using csi_processed_callback_t = std::function<void(MotionState, uint32_t)>;
 
@@ -33,6 +30,9 @@ using motion_state_callback_t = std::function<void(MotionState)>;
 
 // Callback type for game mode (called every packet with movement and threshold)
 using game_mode_callback_t = std::function<void(float movement, float threshold)>;
+
+// Callback type for intercepting normalized CSI packets after gain lock.
+using csi_packet_interceptor_t = std::function<bool(const int8_t *, size_t)>;
 
 /**
  * CSI Manager
@@ -47,23 +47,14 @@ class CSIManager {
    * Initialize CSI Manager
    * 
    * @param detector Motion detector instance (BaseDetector*)
-   * @param selected_subcarriers Initial subcarrier selection (array of 12 subcarriers)
    * @param publish_rate Number of packets before triggering callback
    * @param gain_lock_mode Gain lock mode (auto/enabled/disabled)
    * @param wifi_csi WiFi CSI interface (nullptr for real implementation)
    */
   void init(BaseDetector* detector,
-            const uint8_t selected_subcarriers[12],
             uint32_t publish_rate,
             GainLockMode gain_lock_mode = GainLockMode::AUTO,
             IWiFiCSI* wifi_csi = nullptr);
-  
-  /**
-   * Update subcarrier selection
-   * 
-   * @param subcarriers New subcarrier selection (array of 12 subcarriers)
-   */
-  void update_subcarrier_selection(const uint8_t subcarriers[12]);
   
   /**
    * Update segmentation threshold
@@ -100,13 +91,14 @@ class CSIManager {
   void process_packet(wifi_csi_info_t* data);
   
   /**
-   * Set calibration mode
-   * 
-   * When a calibrator is set, CSI packets are routed to it during calibration.
-   * 
-   * @param calibrator Calibrator instance (nullptr to disable calibration mode)
+   * Set an optional packet interceptor.
+   *
+   * When present, normalized CSI packets are offered to the interceptor before
+   * the detector sees them. Returning true consumes the packet.
    */
-  void set_calibration_mode(NBVICalibrator* calibrator) { calibrator_ = calibrator; }
+  void set_packet_interceptor(csi_packet_interceptor_t interceptor) {
+    packet_interceptor_ = std::move(interceptor);
+  }
   
   /**
    * Check if CSI is currently enabled
@@ -166,8 +158,7 @@ class CSIManager {
   
   bool enabled_{false};
   BaseDetector* detector_{nullptr};
-  const uint8_t* selected_subcarriers_{nullptr};
-  NBVICalibrator* calibrator_{nullptr};
+  csi_packet_interceptor_t packet_interceptor_;
   csi_processed_callback_t packet_callback_;
   motion_state_callback_t motion_state_callback_;
   game_mode_callback_t game_mode_callback_;

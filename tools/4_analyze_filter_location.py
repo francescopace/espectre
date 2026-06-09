@@ -132,7 +132,6 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                DEFAULT_SUBCARRIERS,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
@@ -144,7 +143,6 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                DEFAULT_SUBCARRIERS,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
@@ -160,7 +158,6 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                DEFAULT_SUBCARRIERS,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
@@ -172,7 +169,6 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                DEFAULT_SUBCARRIERS,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )

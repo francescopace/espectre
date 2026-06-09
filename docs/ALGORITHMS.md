@@ -10,7 +10,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [Processing Pipeline](#processing-pipeline)
 - [Gain Lock (Hardware Stabilization)](#gain-lock-hardware-stabilization)
 - [CV Normalization (Gain-Invariant Turbulence)](#cv-normalization-gain-invariant-turbulence)
-- [Subcarrier Selection (NBVI)](#subcarrier-selection-nbvi)
+- [Fixed Subcarrier Set](#fixed-subcarrier-set)
 - [Signal Conditioning](#signal-conditioning)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
 - [ML: Neural Network Detector](#ml-neural-network-detector)
@@ -56,10 +56,10 @@ When a person moves in an environment, they alter multipath reflections, change 
 ├───────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                   │
 │  ┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌─────────────┐              │
-│  │ CSI Data │───▶│Gain Lock │───▶│ Band Select  │───▶│ Turbulence  │              │
-│  │ N subcs  │    │ AGC/FFT  │    │ 12 subcs     │    │ σ or σ/μ    │              │
+│  │ CSI Data │───▶│Gain Lock │───▶│ Fixed 12 SC  │───▶│ Turbulence  │              │
+│  │ N subcs  │    │ AGC/FFT  │    │ Threshold    │    │ σ or σ/μ    │              │
 │  └──────────┘    └──────────┘    └──────────────┘    └──────┬──────┘              │
-│                  (3s, 300 pkt)   (10s, 10×window)           │                     │
+│                  (3s, 300 pkt)   (~10s, 10×window)          │                     │
 │                                                             ▼                     │
 │  ┌───────────┐    ┌───────────────┐    ┌─────────────────┐  ┌──────────────────┐  │
 │  │ IDLE or   │◀───│ Adaptive      │◀───│ Moving Variance │◀─│ Optional Filters │  │
@@ -71,7 +71,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 
 **Calibration sequence (at boot):**
 1. **Gain Lock** (3s, 300 packets): Collect AGC/FFT, lock values
-2. **Band Calibration** (~10s, 10 × window_size packets): Select 12 optimal subcarriers, calculate baseline variance
+2. **Threshold Bootstrap** (~10s, 10 × window_size packets, MVS only): Keep the fixed 12-subcarrier set and calculate baseline moving variance
 
 With default `window_size=100`, this means 1000 packets. If you change `segmentation_window_size`, the calibration buffer adjusts automatically.
 
@@ -104,7 +104,7 @@ The ESP32 WiFi hardware includes automatic gain control (AGC) that dynamically a
 
 **Gain Lock** stabilizes CSI amplitude measurements by locking the ESP32's AGC and FFT scaling. Based on [Espressif's esp-csi recommendations](https://github.com/espressif/esp-csi).
 
-The lock happens in a **dedicated phase BEFORE band calibration** to ensure clean data:
+The lock happens in a **dedicated phase BEFORE threshold bootstrap** to ensure clean data:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -136,7 +136,7 @@ The lock happens in a **dedicated phase BEFORE band calibration** to ensure clea
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Why two phases?** Separating gain lock from band calibration ensures:
+**Why two phases?** Separating gain lock from threshold bootstrap ensures:
 - Calibration only sees data with **stable, locked gain**
 - Baseline variance is **accurate** (not inflated by AGC variations)
 - Adaptive threshold is calculated correctly
@@ -220,121 +220,44 @@ CV normalization is automatically enabled when:
 
 ---
 
-## Subcarrier Selection (NBVI)
+## Fixed Subcarrier Set
 
-### The Problem
+ESPectre uses one shared fixed 12-subcarrier set for both detectors:
 
-WiFi CSI provides 64 subcarriers in HT20 mode, but not all are equally useful for motion detection:
-- Some are too weak (low SNR)
-- Some are too noisy (high variance even at rest)
-- Some are in guard bands or DC zones
-- Manual selection works but doesn't scale across environments
+`[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`
 
-ESPectre uses the **NBVI (Normalized Baseline Variability Index)** algorithm to automatically select 12 non-consecutive subcarriers that maximize motion sensitivity while minimizing false positives.
+This set was originally validated offline and is now treated as part of the production detector definition.
 
 ![Subcarrier Analysis](images/subcarriers_constellation_diagram.png)
 *I/Q constellation diagrams showing the geometric representation of WiFi signal propagation in the complex plane. The baseline (idle) state exhibits a stable, compact pattern, while movement introduces entropic dispersion as multipath reflections change.*
 
-### NBVI Scoring
+### Why This Set
 
-NBVI computes three complementary scores per subcarrier and evaluates four candidate bands derived from them. This multi-strategy approach improves robustness across different chip behaviors and RF environments.
+The fixed set balances three goals:
 
-**Base score** (classic NBVI):
-```
-NBVI_classic = α × (σ/μ²) + (1-α) × (σ/μ)
-```
-
-Where α = 0.75 by default (energy-biased weighting).
-
-**Entropy-rewarded score** -- penalizes subcarriers with flat, low-information distributions:
-```
-NBVI_entropy = NBVI_classic / max(0.5, H)
-```
-
-Where H is the Shannon entropy of the magnitude histogram.
-
-**MAD-robust score** -- replaces std with a robust estimator (median absolute deviation) to reduce sensitivity to outlier spikes:
-```
-σ_robust = MAD × 1.4826
-NBVI_mad = α × (σ_robust/μ²) + (1-α) × (σ_robust/μ)
-```
-
-### Algorithm
-
-```python
-def nbvi_calibrate(csi_buffer, band_size=12, alpha=0.75):
-    # 1. Find quietest baseline windows (P5 of variance distribution)
-    windows = find_candidate_windows(csi_buffer, window_size=200, percentile=5)
-
-    for window in windows:
-        # 2. Calculate NBVI scores for all subcarriers
-        for subcarrier in valid_subcarriers:
-            magnitudes = extract_magnitudes(window, subcarrier)
-            mean, std, mad, entropy = compute_stats(magnitudes)
-            nbvi_classic[sc] = alpha * (std / mean**2) + (1-alpha) * (std / mean)
-            nbvi_entropy[sc] = nbvi_classic[sc] / max(0.5, entropy)
-            nbvi_mad[sc]     = alpha * (mad*1.4826 / mean**2) + (1-alpha) * (mad*1.4826 / mean)
-
-        # 3. Noise gate: exclude subcarriers below P15 mean amplitude
-        valid = noise_gate(all_metrics, percentile=15)
-
-        # 4. Generate four candidate bands from different strategies
-        band_entropy        = select_spaced(sort_by(nbvi_entropy), k=12)
-        band_mad            = select_clustered(sort_by(nbvi_mad), k=12)
-        band_classic_spaced = select_spaced(sort_by(nbvi_classic), k=12)
-        band_classic        = select_clustered(sort_by(nbvi_classic), k=12)
-
-        # 5. Validate each candidate with adaptive threshold (P95 × 1.1)
-        for band in [band_entropy, band_mad, band_classic_spaced, band_classic]:
-            fp_rate, mv_values = validate(band)
-            if fp_rate <= 0.05 or fp_rate < best_fp_rate:
-                best_band, best_fp_rate = band, fp_rate
-
-    return best_band, mv_values
-```
-
-### Selection Strategies
-
-Two complementary strategies generate candidate bands from sorted subcarrier rankings:
-
-| Strategy | Description | Tuned For |
-|----------|-------------|-----------|
-| **Strict spaced** (`select_spaced`) | All 12 subcarriers respect `min_spacing`; relaxes spacing if needed to reach 12 | Spectral diversity (ESP32, C6) |
-| **Clustered** (`select_clustered`) | Top 5 unrestricted, remaining 7 with `min_spacing` | Dense high-quality clusters (C3) |
-
-### Validation
-
-Internal validation runs MVS on the full calibration buffer and calculates the false positive rate using the same adaptive threshold that will be used at runtime (P95 × 1.1):
-
-```
-fp_rate = count(mv > threshold) / len(mv_values)
-```
-
-The band with the lowest FP rate below 5% is selected. If no candidate achieves ≤5%, the one with the lowest FP overall is used.
-
-### Hint Band Logic
-
-After selection, the calibrator optionally compares the result against a hint band (the current production default). The hint band is used only when the best candidate does not achieve ≤5% FP and the hint has a strictly better FP rate. This prevents drift to bands that minimize calibration-time FP but collapse movement recall in production.
+- avoid guard-band and DC subcarriers
+- spread energy across the valid HT20 band instead of clustering tightly
+- stay aligned with the ML training pipeline so both detectors consume the same CSI slice
 
 ### Adaptive Threshold Calculation
 
-After band selection, NBVI returns the **moving variance values** from baseline. The adaptive threshold is then calculated as a percentile with an optional multiplier:
+For MVS, startup calibration keeps this fixed band and derives the adaptive threshold from baseline moving-variance values:
 
 ```python
 def calculate_adaptive_threshold(mv_values, percentile, factor):
     return calculate_percentile(mv_values, percentile) * factor
 ```
 
-| Strategy | Formula | Effect |
-|----------|---------|--------|
+| Mode | Formula | Effect |
+|------|---------|--------|
 | Auto (default) | P95 × 1.1 | Balanced sensitivity/false positives |
 | Min | P100 × 1.0 | Maximum sensitivity (may have FP) |
 
 See [TUNING.md](TUNING.md) for configuration options (`segmentation_threshold`).
 
-### Why Non-Consecutive Subcarriers?
+### Why Spread-Out Subcarriers?
 
-NBVI selects **non-consecutive** subcarriers, which provides:
+Using **spread-out** subcarriers provides:
 - **Spectral diversity**: Different frequency components respond differently to motion
 - **Noise resilience**: Narrowband interference typically affects adjacent subcarriers
 - **Environment adaptation**: Works well in complex multipath environments
@@ -351,30 +274,7 @@ HT20 mode (64 subcarriers) configuration:
 | DC Subcarrier | 32 |
 | Valid Subcarriers | 41 |
 
-### Default Parameters
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `alpha` | 0.75 | Weight between energy (σ/μ²) and CV (σ/μ) terms |
-| `percentile` | 5 | Percentile of window variances used to select candidate windows |
-| `noise_gate_percentile` | 15 | Percentile of subcarrier means below which subcarriers are excluded |
-| `min_spacing` | 1 | Minimum index spacing between selected subcarriers |
-| `window_size` | 200 | Packets per candidate window |
-| `window_step` | 50 | Step between windows |
-
-### Computational Complexity
-
-| Algorithm | Complexity | Notes |
-|-----------|------------|-------|
-| NBVI | O(C × S × W × N) | C = candidates, S = strategies (4), W = window size, N = subcarriers |
-
-Each candidate window generates four bands, each validated against the full calibration buffer. The dominant cost is the validation pass (O(buffer_size × band_size) per band).
-
-### Fallback Behavior
-
-When calibration cannot find valid bands (e.g., motion during calibration, insufficient data), NBVI falls back to the default band [11-22].
-
-See [PERFORMANCE.md](PERFORMANCE.md) for detailed calibration metrics.
+See [PERFORMANCE.md](PERFORMANCE.md) for detailed fixed-band validation metrics.
 
 ---
 
@@ -569,14 +469,15 @@ positive behavior without regressing the paired validation gate.
 
 ### Calibration
 
-ML uses **fixed subcarriers** -- no band calibration needed:
+Both detectors use the same fixed, non-configurable subcarrier set:
 
-| Algorithm | Subcarrier Selection | Threshold | Boot Time |
-|-----------|---------------------|-----------|-----------|
-| MVS | NBVI (~10s) | Adaptive (percentile-based) | ~13s |
-| ML | **Fixed** (12 even, DC excluded) | Fixed (5.0 on 0-10 scale) | **~3s** |
+| Algorithm |Threshold | Boot Time |
+|-----------|---------------------|-----------|
+| MVS | Adaptive (percentile-based) | ~13s |
+| ML | Fixed (5.0 on 0-10 scale) | **~3s** |
 
-ML uses 12 fixed subcarriers selected to avoid DC and improve stability: `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`. This eliminates the 10-second band calibration phase, reducing boot time to ~3 seconds (gain lock only).
+The production subcarrier set is `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`.
+MVS uses a baseline threshold bootstrap after gain lock; ML keeps its fixed threshold and therefore finishes boot after gain lock only.
 
 ### Features
 

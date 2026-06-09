@@ -2,16 +2,14 @@
 """
 Plot I/Q Constellation Diagrams for CSI Subcarriers
 
-Visualizes the constellation diagrams (I/Q plots) for selected subcarriers,
+Visualizes the constellation diagrams (I/Q plots) for the fixed production subcarriers,
 comparing baseline (stable) vs movement (dispersed) patterns.
 Uses a limited number of contiguous packets to avoid overcrowding.
 
 Usage:
     python tools/8_plot_constellation.py              # Use C6 dataset
     python tools/8_plot_constellation.py --chip S3    # Use S3 dataset
-    python tools/8_plot_constellation.py --chip S3 --packets 50
-    python tools/8_plot_constellation.py --subcarriers 11,12,13,14
-
+    python tools/8_plot_constellation.py --chip S3 --packets 500 --offset 100
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
@@ -24,13 +22,13 @@ import matplotlib.pyplot as plt
 from csi_utils import load_baseline_and_movement, find_dataset
 from config import DEFAULT_SUBCARRIERS
 
-def extract_iq_data(packets, subcarriers, num_packets=50, offset=0):
+def extract_iq_data(packets, subcarriers, num_packets=500, offset=100):
     """
-    Extract I/Q data for selected subcarriers from packets
+    Extract I/Q data for the requested plotting subcarriers from packets.
     
     Args:
         packets: List of CSI packets
-        subcarriers: List of subcarrier indices to extract
+        subcarriers: Subcarrier indices to extract for plotting
         num_packets: Number of contiguous packets to use
         offset: Starting packet index
     
@@ -57,19 +55,19 @@ def extract_iq_data(packets, subcarriers, num_packets=50, offset=0):
     return iq_data
 
 def plot_constellation_comparison(baseline_packets, movement_packets, 
-                                 subcarriers, num_packets=50, offset=0,
+                                 subcarriers, num_packets=500, offset=100,
                                  total_subcarriers=64):
     """
     Plot I/Q constellation diagrams comparing baseline and movement
     
     Creates a 2x2 grid:
     - Top row: All subcarriers (baseline vs movement)
-    - Bottom row: Only selected subcarriers (baseline vs movement)
+    - Bottom row: Only the fixed production subcarriers (baseline vs movement)
     
     Args:
         baseline_packets: List of baseline packets
         movement_packets: List of movement packets
-        subcarriers: List of subcarrier indices to plot
+        subcarriers: Subcarrier indices to plot
         num_packets: Number of contiguous packets to use
         offset: Starting packet index
         total_subcarriers: Total number of subcarriers in the dataset (64 for HT20 mode)
@@ -80,7 +78,7 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     baseline_iq_all = extract_iq_data(baseline_packets, all_subcarriers, num_packets, offset)
     movement_iq_all = extract_iq_data(movement_packets, all_subcarriers, num_packets, offset)
     
-    # Extract I/Q data for selected subcarriers (bottom row)
+    # Extract I/Q data for the fixed production subcarriers (bottom row)
     baseline_iq = extract_iq_data(baseline_packets, subcarriers, num_packets, offset)
     movement_iq = extract_iq_data(movement_packets, subcarriers, num_packets, offset)
     
@@ -211,7 +209,7 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     plt.show()
 
 def plot_single_subcarrier_grid(baseline_packets, movement_packets, 
-                                subcarriers, num_packets=50, offset=0,
+                                subcarriers, num_packets=500, offset=100,
                                 total_subcarriers=64):
     """
     Plot individual constellation diagrams for each subcarrier in a grid
@@ -222,7 +220,7 @@ def plot_single_subcarrier_grid(baseline_packets, movement_packets,
     Args:
         baseline_packets: List of baseline packets
         movement_packets: List of movement packets
-        subcarriers: List of subcarrier indices to plot
+        subcarriers: Subcarrier indices to plot
         num_packets: Number of contiguous packets to use
         offset: Starting packet index
         total_subcarriers: Total number of subcarriers in the dataset (unused, for API consistency)
@@ -305,10 +303,7 @@ Examples:
   python tools/8_plot_constellation.py --chip S3
   
   # Plot with more packets
-  python tools/8_plot_constellation.py --chip C6 --packets 200
-  
-  # Plot specific subcarriers
-  python tools/8_plot_constellation.py --subcarriers 11,12,13,14
+  python tools/8_plot_constellation.py --chip C6 --packets 800 --offset 100
   
   # Use grid layout (one subplot per subcarrier)
   python tools/8_plot_constellation.py --chip S3 --grid
@@ -317,12 +312,10 @@ Examples:
     
     parser.add_argument('--chip', type=str, default='C6',
                        help='Chip type to use: C6, S3, etc. (default: C6)')
-    parser.add_argument('--packets', type=int, default=50,
-                       help='Number of contiguous packets to plot (default: 50)')
-    parser.add_argument('--offset', type=int, default=0,
-                       help='Starting packet index (default: 0)')
-    parser.add_argument('--subcarriers', type=str, default=None,
-                       help='Comma-separated list of subcarrier indices (default: central subcarriers)')
+    parser.add_argument('--packets', type=int, default=500,
+                       help='Number of contiguous packets to plot (default: 500)')
+    parser.add_argument('--offset', type=int, default=100,
+                       help='Starting packet index (default: 100)')
     parser.add_argument('--grid', action='store_true',
                        help='Use grid layout (one subplot per subcarrier)')
     
@@ -337,11 +330,8 @@ Examples:
         print(f"\nCollect data using: ./me collect --label baseline --duration 10")
         return
     
-    # Determine subcarriers to use
-    if args.subcarriers:
-        subcarriers = [int(x.strip()) for x in args.subcarriers.split(',')]
-    else:
-        subcarriers = DEFAULT_SUBCARRIERS
+    # Always use the fixed production subcarriers.
+    subcarriers = DEFAULT_SUBCARRIERS
     
     print("")
     print("╔═══════════════════════════════════════════════════════╗")

@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cmath>
 #include <algorithm>
@@ -134,9 +135,18 @@ constexpr uint8_t HT20_GUARD_BAND_LOW = 11;        // First valid subcarrier
 constexpr uint8_t HT20_GUARD_BAND_HIGH = 52;       // Last valid subcarrier
 constexpr uint8_t HT20_DC_SUBCARRIER = 32;         // DC null subcarrier
 constexpr uint8_t HT20_SELECTED_BAND_SIZE = 12;    // Selected subcarriers for motion detection
-constexpr uint8_t DEFAULT_SUBCARRIERS[12] = {
+constexpr uint8_t DEFAULT_SUBCARRIERS[HT20_SELECTED_BAND_SIZE] = {
     12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52
 };
+using SelectedSubcarriers = std::array<uint8_t, HT20_SELECTED_BAND_SIZE>;
+
+constexpr SelectedSubcarriers make_default_subcarriers() {
+    SelectedSubcarriers subcarriers{};
+    for (uint8_t i = 0; i < HT20_SELECTED_BAND_SIZE; ++i) {
+        subcarriers[i] = DEFAULT_SUBCARRIERS[i];
+    }
+    return subcarriers;
+}
 
 // =============================================================================
 // Segmentation Constants

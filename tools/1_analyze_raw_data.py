@@ -98,7 +98,6 @@ def analyze_packets(packets, label_name):
     for pkt in packets:
         turb = calculate_spatial_turbulence(
             pkt['csi_data'],
-            DEFAULT_SUBCARRIERS,
             gain_locked=pkt.get('gain_locked', True)
         )
         turbulences.append(turb)
@@ -139,7 +138,6 @@ def compute_packet_stats(packets):
     for pkt in packets:
         turb = calculate_spatial_turbulence(
             pkt['csi_data'],
-            DEFAULT_SUBCARRIERS,
             gain_locked=pkt.get('gain_locked', True)
         )
         turbulences.append(turb)

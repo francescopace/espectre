@@ -198,12 +198,7 @@ void ESpectreComponent::send_system_info_ble_() {
   const char *thr_mode = (this->runtime_config_.threshold_mode == ThresholdMode::MANUAL)
                              ? "manual"
                              : (this->runtime_config_.threshold_mode == ThresholdMode::MIN) ? "min" : "auto";
-  const char *subcarrier_source = "auto";
-  if (this->runtime_snapshot_.subcarrier_source == RuntimeSubcarrierSource::USER_CONFIGURED) {
-    subcarrier_source = "yaml";
-  } else if (this->runtime_snapshot_.subcarrier_source == RuntimeSubcarrierSource::MODEL_DEFAULT) {
-    subcarrier_source = "model";
-  }
+  const char *subcarrier_source = "fixed";
   char line[96];
   notify_sysinfo("proto_version=1");
   snprintf(line, sizeof(line), "chip=%s", CONFIG_IDF_TARGET);
@@ -301,12 +296,7 @@ void ESpectreComponent::dump_config() {
                                  ? "Manual"
                                  : (this->runtime_config_.threshold_mode == ThresholdMode::MIN) ? "Min (P100)"
                                                                                                  : "Auto (P95x1.1)";
-  const char *subcarrier_source = "NBVI";
-  if (this->runtime_snapshot_.subcarrier_source == RuntimeSubcarrierSource::USER_CONFIGURED) {
-    subcarrier_source = "YAML";
-  } else if (this->runtime_snapshot_.subcarrier_source == RuntimeSubcarrierSource::MODEL_DEFAULT) {
-    subcarrier_source = "MODEL";
-  }
+  const char *subcarrier_source = "FIXED";
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
   ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", this->runtime_snapshot_.detector_name);
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f (%s)", this->runtime_snapshot_.threshold, thr_mode_str);
@@ -314,12 +304,12 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " └─ Baseline Pxx ....... %.4f", this->runtime_snapshot_.best_pxx);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
-                this->runtime_snapshot_.selected_subcarriers[0], this->runtime_snapshot_.selected_subcarriers[1],
-                this->runtime_snapshot_.selected_subcarriers[2], this->runtime_snapshot_.selected_subcarriers[3],
-                this->runtime_snapshot_.selected_subcarriers[4], this->runtime_snapshot_.selected_subcarriers[5],
-                this->runtime_snapshot_.selected_subcarriers[6], this->runtime_snapshot_.selected_subcarriers[7],
-                this->runtime_snapshot_.selected_subcarriers[8], this->runtime_snapshot_.selected_subcarriers[9],
-                this->runtime_snapshot_.selected_subcarriers[10], this->runtime_snapshot_.selected_subcarriers[11]);
+                this->runtime_snapshot_.fixed_subcarriers[0], this->runtime_snapshot_.fixed_subcarriers[1],
+                this->runtime_snapshot_.fixed_subcarriers[2], this->runtime_snapshot_.fixed_subcarriers[3],
+                this->runtime_snapshot_.fixed_subcarriers[4], this->runtime_snapshot_.fixed_subcarriers[5],
+                this->runtime_snapshot_.fixed_subcarriers[6], this->runtime_snapshot_.fixed_subcarriers[7],
+                this->runtime_snapshot_.fixed_subcarriers[8], this->runtime_snapshot_.fixed_subcarriers[9],
+                this->runtime_snapshot_.fixed_subcarriers[10], this->runtime_snapshot_.fixed_subcarriers[11]);
   ESP_LOGCONFIG(TAG, " └─ Source ............. %s", subcarrier_source);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");

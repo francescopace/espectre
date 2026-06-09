@@ -2,7 +2,7 @@
 Micro-ESPectre - MQTT Commands Module
 
 Processes MQTT commands for remote configuration.
-Handles system configuration, calibration, and status queries via MQTT.
+Handles system configuration, startup calibration, and status queries via MQTT.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -15,6 +15,7 @@ import sys
 try:
     from src.config import (
         TRAFFIC_GENERATOR_RATE,
+        DEFAULT_SUBCARRIERS,
         SEG_WINDOW_SIZE,
         SEG_WINDOW_SIZE_MIN,
         SEG_WINDOW_SIZE_MAX
@@ -22,6 +23,7 @@ try:
 except ImportError:
     from config import (
         TRAFFIC_GENERATOR_RATE,
+        DEFAULT_SUBCARRIERS,
         SEG_WINDOW_SIZE,
         SEG_WINDOW_SIZE_MIN,
         SEG_WINDOW_SIZE_MAX
@@ -46,7 +48,7 @@ class MQTTCommands:
             response_topic: MQTT topic for responses
             wlan: wlan instance
             traffic_generator: TrafficGenerator instance (optional)
-            band_calibration_func: Function to run band calibration (optional)
+            band_calibration_func: Function to run startup calibration (optional)
             global_state: GlobalState instance for accessing loop metrics (optional)
         """
         self.mqtt = mqtt_client
@@ -54,7 +56,7 @@ class MQTTCommands:
         self.detector = detector
         self.wlan = wlan
         self.traffic_gen = traffic_generator
-        self.band_calibration_func = band_calibration_func
+        self.startup_calibration_func = band_calibration_func
         self.global_state = global_state
         self.response_topic = response_topic
         self.start_time = time.time()
@@ -66,9 +68,8 @@ class MQTTCommands:
         """Build detection info dict based on detector type."""
         algorithm = self.detector.get_name()
         
-        # Determine calibrator based on detector type
         if algorithm == "MVS":
-            calibrator = getattr(self.config, 'CALIBRATION_ALGORITHM', 'nbvi')
+            calibrator = "fixed_subcarriers"
         else:  # ML
             calibrator = "none"
         
@@ -219,7 +220,7 @@ class MQTTCommands:
             },
             "detection": self._get_detection_info(),
             "subcarriers": {
-                "indices": getattr(self.config, 'SELECTED_SUBCARRIERS', None) or []
+                "indices": list(DEFAULT_SUBCARRIERS)
             }
         }
         
@@ -338,7 +339,7 @@ class MQTTCommands:
             self.send_response("ERROR: Invalid window size value (must be integer)")
     
     def cmd_factory_reset(self, cmd_obj):
-        """Reset all parameters to defaults and trigger re-calibration"""
+        """Reset all parameters to defaults and trigger startup calibration"""
         print("Factory reset requested")
         
         # Reset detector
@@ -356,25 +357,25 @@ class MQTTCommands:
 
         print("Factory reset complete")
         
-        # Run calibration immediately if function provided
-        if self.band_calibration_func:
-            self.send_response("Factory reset complete. Starting re-calibration...")
-            print("Starting re-calibration...")
+        # Run startup calibration immediately if function provided
+        if self.startup_calibration_func:
+            self.send_response("Factory reset complete. Starting startup calibration...")
+            print("Starting startup calibration...")
             
             # Get chip_type from global_state if available
             chip_type = getattr(self.global_state, 'chip_type', None) if self.global_state else None
             
-            # Run calibration with detector
-            success = self.band_calibration_func(self.wlan, self.detector, self.traffic_gen, chip_type)
+            # Run startup calibration with detector
+            success = self.startup_calibration_func(self.wlan, self.detector, self.traffic_gen, chip_type)
             
             if success:
                 if self._is_mvs:
-                    band = getattr(self.config, 'SELECTED_SUBCARRIERS')
-                    self.send_response(f"Re-calibration successful! Band: {band}")
+                    band = list(DEFAULT_SUBCARRIERS)
+                    self.send_response(f"Startup calibration successful! Subcarriers: {band}")
                 else:
-                    self.send_response(f"Re-calibration successful! Threshold: {self.detector.get_threshold():.4f}")
+                    self.send_response(f"Startup calibration successful! Threshold: {self.detector.get_threshold():.4f}")
             else:
-                self.send_response(f"Re-calibration failed. Using default settings.")
+                self.send_response("Startup calibration failed. Using current settings.")
         else:
             self.send_response(f"Factory reset complete.")
             

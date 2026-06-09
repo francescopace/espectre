@@ -1,7 +1,7 @@
 # ESPectre Matter firmware defaults
 # esp_matter is resolved via main/idf_component.yml (ESP Component Registry)
 
-# Dual OTA app slots + SPIFFS require 4 MB flash (see partitions.csv)
+# Dual OTA app slots require 4 MB flash (see partitions.csv)
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 
 CONFIG_ESP_WIFI_CSI_ENABLED=y
@@ -11,7 +11,6 @@ CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
 CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=128
 
-# SPIFFS calibration buffer
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 

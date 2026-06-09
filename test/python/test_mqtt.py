@@ -77,8 +77,7 @@ class MockConfig:
     EVALUATION_INTERVAL = 25
     MOTION_ON_HITS = 3
     MOTION_OFF_HITS = 3
-    # SELECTED_SUBCARRIERS is set dynamically by mock_config fixture
-    SELECTED_SUBCARRIERS = None
+    DEFAULT_SUBCARRIERS = None
 
 
 class MockSegmentation:
@@ -189,7 +188,7 @@ def mock_wlan():
 def mock_config(default_subcarriers):
     """Create mock config with default subcarriers from conftest"""
     config = MockConfig()
-    config.SELECTED_SUBCARRIERS = default_subcarriers
+    config.DEFAULT_SUBCARRIERS = default_subcarriers
     return config
 
 
@@ -595,7 +594,7 @@ class TestMQTTCommands:
     def test_cmd_factory_reset_with_calibration(self, commands_instance, mock_mqtt_client_instance, mock_global_state):
         """Test factory reset with band re-calibration"""
         mock_calibration_func = MagicMock(return_value=True)
-        commands_instance.band_calibration_func = mock_calibration_func
+        commands_instance.startup_calibration_func = mock_calibration_func
         
         commands_instance.cmd_factory_reset({})
         

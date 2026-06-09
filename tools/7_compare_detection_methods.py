@@ -182,15 +182,10 @@ def load_test_dataset(chip=None, motion_start_packet=None):
 
 
 def resolve_context_aware_config_for_test(test_entry):
-    """Resolve subcarriers/threshold for a test dataset from metadata."""
-    subcarriers = DEFAULT_SUBCARRIERS
+    """Resolve threshold for a test dataset from metadata."""
     threshold = float(test_entry.get('optimal_threshold_gridsearch', THRESHOLD))
-    has_optimal = (
-        isinstance(test_entry.get('optimal_subcarriers_gridsearch'), list)
-        and test_entry.get('optimal_threshold_gridsearch') is not None
-    )
+    has_optimal = test_entry.get('optimal_threshold_gridsearch') is not None
     return {
-        'subcarriers': list(subcarriers),
         'threshold': threshold,
         'pairing_mode': 'test-metadata optimal' if has_optimal else 'test default fallback',
         'confidence_factor': 1.0 if has_optimal else 0.5,
@@ -199,30 +194,27 @@ def resolve_context_aware_config_for_test(test_entry):
 
 def resolve_context_aware_config(baseline_path):
     """
-    Resolve context-aware subcarriers/threshold from dataset_info metadata.
+    Resolve context-aware threshold from dataset_info metadata.
 
     Fallback policy:
     - missing metadata -> project defaults
-    - metadata present but no pairing -> still use gridsearch values
+    - metadata present but no pairing -> still use gridsearch threshold
     """
     dataset_info = load_dataset_info()
     label, entry = lookup_file_info(dataset_info, baseline_path.name)
 
     if entry is None:
         return {
-            'subcarriers': DEFAULT_SUBCARRIERS,
             'threshold': THRESHOLD,
             'pairing_mode': 'metadata-missing fallback',
             'confidence_factor': 0.5,
         }
 
-    subcarriers = DEFAULT_SUBCARRIERS
     threshold = float(THRESHOLD)
     paired = pair_is_temporally_valid(dataset_info, label, entry) if label else False
     pairing_mode = 'paired' if paired else 'single-dataset fallback'
 
     return {
-        'subcarriers': list(subcarriers),
         'threshold': threshold,
         'pairing_mode': pairing_mode,
         'confidence_factor': 1.0 if paired else 0.5,
@@ -239,10 +231,10 @@ def calculate_rssi(csi_packet):
     return np.mean(amplitudes)
 
 
-def calculate_mean_amplitude(csi_packet, selected_subcarriers):
-    """Calculate mean amplitude of selected subcarriers"""
+def calculate_mean_amplitude(csi_packet):
+    """Calculate mean amplitude of the fixed production subcarriers."""
     amplitudes = []
-    for sc_idx in selected_subcarriers:
+    for sc_idx in DEFAULT_SUBCARRIERS:
         Q = float(csi_packet[sc_idx * 2])
         I = float(csi_packet[sc_idx * 2 + 1])
         amplitudes.append(np.sqrt(I*I + Q*Q))
@@ -305,8 +297,7 @@ def compute_method_results(methods, method_thresholds):
 class MLDetectorAdapter:
     """Compatibility wrapper around production MLDetector."""
 
-    def __init__(self, window_size=SEG_WINDOW_SIZE, subcarriers=None, track_data=False, use_cv_normalization=False):
-        self.subcarriers = subcarriers or DEFAULT_SUBCARRIERS
+    def __init__(self, window_size=SEG_WINDOW_SIZE, track_data=False, use_cv_normalization=False):
         self._detector = ProdMLDetector(
             window_size=window_size,
             threshold=ML_DEFAULT_THRESHOLD,
@@ -323,7 +314,7 @@ class MLDetectorAdapter:
 
     def process_packet(self, packet):
         csi_data = packet['csi_data'] if isinstance(packet, dict) else packet
-        self._detector.process_packet(csi_data, self.subcarriers)
+        self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
         self._detector.update_state()
         self.probability_history = self._detector.probability_history
         self.state_history = self._detector.state_history
@@ -337,13 +328,11 @@ class MLDetectorAdapter:
         self.state_history = self._detector.state_history
 
 
-def compare_detection_methods(baseline_packets, movement_packets, subcarriers, window_size, threshold):
+def compare_detection_methods(baseline_packets, movement_packets, window_size, threshold):
     """
     Compare different detection methods on same data.
     Returns metrics for each method.
     """
-    # ML uses unified default subcarriers from central config.
-    ml_subcarriers = DEFAULT_SUBCARRIERS
     methods = {
         'RSSI': {'baseline': [], 'movement': []},
         'Mean Amplitude': {'baseline': [], 'movement': []},
@@ -361,11 +350,10 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     # Process baseline - simple metrics
     for pkt in baseline_packets:
         methods['RSSI']['baseline'].append(calculate_rssi(pkt['csi_data']))
-        methods['Mean Amplitude']['baseline'].append(calculate_mean_amplitude(pkt['csi_data'], subcarriers))
+        methods['Mean Amplitude']['baseline'].append(calculate_mean_amplitude(pkt['csi_data']))
         methods['Turbulence']['baseline'].append(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                subcarriers,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
@@ -377,7 +365,7 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     # MVS baseline
     start = time.perf_counter()
     mvs_baseline = MVSDetector(
-        window_size, threshold, subcarriers, track_data=True,
+        window_size, threshold, track_data=True,
         enable_hampel=ENABLE_HAMPEL_FILTER,
         hampel_window=HAMPEL_WINDOW,
         hampel_threshold=HAMPEL_THRESHOLD,
@@ -391,11 +379,10 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     # Process movement - simple metrics
     for pkt in movement_packets:
         methods['RSSI']['movement'].append(calculate_rssi(pkt['csi_data']))
-        methods['Mean Amplitude']['movement'].append(calculate_mean_amplitude(pkt['csi_data'], subcarriers))
+        methods['Mean Amplitude']['movement'].append(calculate_mean_amplitude(pkt['csi_data']))
         methods['Turbulence']['movement'].append(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
-                subcarriers,
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
@@ -406,7 +393,7 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     
     # MVS movement
     mvs_movement = MVSDetector(
-        window_size, threshold, subcarriers, track_data=True,
+        window_size, threshold, track_data=True,
         enable_hampel=ENABLE_HAMPEL_FILTER,
         hampel_window=HAMPEL_WINDOW,
         hampel_threshold=HAMPEL_THRESHOLD,
@@ -432,14 +419,13 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     
     start = time.perf_counter()
     for pkt in all_packets:
-        calculate_mean_amplitude(pkt['csi_data'], subcarriers)
+        calculate_mean_amplitude(pkt['csi_data'])
     timing['Mean Amplitude'] = ((time.perf_counter() - start) / num_packets) * 1e6
     
     start = time.perf_counter()
     for pkt in all_packets:
         calculate_spatial_turbulence(
             pkt['csi_data'],
-            subcarriers,
             gain_locked=pkt.get('gain_locked', True)
         )
     timing['Turbulence'] = ((time.perf_counter() - start) / num_packets) * 1e6
@@ -451,11 +437,11 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
     if ML_AVAILABLE:
         start = time.perf_counter()
         use_cv_norm_ml = not baseline_packets[0].get('gain_locked', True) if baseline_packets else False
-        ml_baseline = MLDetectorAdapter(window_size, ml_subcarriers, track_data=True, use_cv_normalization=use_cv_norm_ml)
+        ml_baseline = MLDetectorAdapter(window_size, track_data=True, use_cv_normalization=use_cv_norm_ml)
         for pkt in baseline_packets:
             ml_baseline.process_packet(pkt)
         methods['ML']['baseline'] = np.array(ml_baseline.probability_history)
-        ml_movement = MLDetectorAdapter(window_size, ml_subcarriers, track_data=True, use_cv_normalization=use_cv_norm_ml)
+        ml_movement = MLDetectorAdapter(window_size, track_data=True, use_cv_normalization=use_cv_norm_ml)
         for pkt in movement_packets:
             ml_movement.process_packet(pkt)
         methods['ML']['movement'] = np.array(ml_movement.probability_history)
@@ -479,7 +465,7 @@ def compare_detection_methods(baseline_packets, movement_packets, subcarriers, w
 
 
 def plot_comparison(methods, mvs_baseline, mvs_movement,
-                   threshold, subcarriers, timing,
+                   threshold, timing,
                    ml_baseline=None, ml_movement=None,
                    method_thresholds=None, results=None):
     """Plot comparison of detection methods"""
@@ -620,7 +606,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
 
 
 def print_comparison_summary(methods, mvs_baseline, mvs_movement,
-                           threshold, subcarriers, timing,
+                           threshold, timing,
                            ml_baseline=None, ml_movement=None, ml_baseline_states=0,
                            method_thresholds=None, results=None):
     """Print comparison summary"""
@@ -629,7 +615,7 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement,
     print("="*80 + "\n")
     
     print(f"Configuration:")
-    print(f"  Subcarriers (MVS): {subcarriers}")
+    print(f"  Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
     print(f"  MVS Window Size: {WINDOW_SIZE}")
     print(f"  MVS Threshold: {threshold}")
     if method_thresholds:
@@ -739,13 +725,12 @@ def run_all_chips():
             continue
 
         context_cfg = resolve_context_aware_config(baseline_path)
-        chip_subcarriers = context_cfg['subcarriers']
         chip_threshold = context_cfg['threshold']
         
         print(f"Processing {chip}...", end=" ", flush=True)
         
         result = compare_detection_methods(
-            baseline_packets, movement_packets, chip_subcarriers, WINDOW_SIZE, chip_threshold
+            baseline_packets, movement_packets, WINDOW_SIZE, chip_threshold
         )
         methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
         result_by_name = {r['name']: r for r in results}
@@ -853,7 +838,6 @@ def main():
                     motion_start_packet=args.test_motion_start_packet
                 )
             context_cfg = resolve_context_aware_config_for_test(test_entry)
-            selected_subcarriers = context_cfg['subcarriers']
             threshold = context_cfg['threshold']
             pairing_mode = context_cfg['pairing_mode']
             confidence_factor = context_cfg['confidence_factor']
@@ -865,7 +849,6 @@ def main():
                 chip=chip
             )
             context_cfg = resolve_context_aware_config(baseline_path)
-            selected_subcarriers = context_cfg['subcarriers']
             threshold = context_cfg['threshold']
             pairing_mode = context_cfg['pairing_mode']
             confidence_factor = context_cfg['confidence_factor']
@@ -884,24 +867,24 @@ def main():
         print(f"   Pairing mode: {pairing_mode}")
     print(f"   Baseline: {len(baseline_packets)} packets")
     print(f"   Movement: {len(movement_packets)} packets\n")
-    print(f"   Context-aware subcarriers: {selected_subcarriers}")
+    print(f"   Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
     print(f"   Context-aware threshold: {threshold:.6f}")
     print(f"   Confidence factor: {confidence_factor:.1f}\n")
     
     result = compare_detection_methods(
-        baseline_packets, movement_packets, selected_subcarriers, WINDOW_SIZE, threshold
+        baseline_packets, movement_packets, WINDOW_SIZE, threshold
     )
     methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
     
     print_comparison_summary(methods, mvs_baseline, mvs_movement,
-                            threshold, selected_subcarriers, timing,
+                            threshold, timing,
                             ml_baseline, ml_movement, 0,
                             method_thresholds, results)
     
     if args.plot:
         print("Generating comparison visualization...\n")
         plot_comparison(methods, mvs_baseline, mvs_movement,
-                       threshold, selected_subcarriers, timing,
+                       threshold, timing,
                        ml_baseline, ml_movement, method_thresholds, results)
 
 

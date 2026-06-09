@@ -246,7 +246,6 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `motion_off_hits` | int | 3 | Consecutive evaluated hits required before switching the binary sensor back to `IDLE` |
 | `segmentation_threshold` | string/float | auto | Threshold: `auto`, `min`, or number (0.0-10.0 for both MVS and ML) |
 | `segmentation_window_size` | int | 100 | Moving variance window in packets (10-200) |
-| `selected_subcarriers` | list | auto | Fixed subcarriers (omit for auto-calibration) |
 | `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction (MVS and ML) |
 | `lowpass_cutoff` | float | 11.0 | Low-pass filter cutoff frequency in Hz (5-20) |
 | `hampel_enabled` | bool | true | Enable Hampel outlier filter (MVS and ML) |
@@ -262,7 +261,7 @@ For detailed parameter tuning (ranges, recommended values, troubleshooting), see
 
 | Algorithm | How It Works | Pros | Cons | Best For |
 |-----------|--------------|------|------|----------|
-| **MVS** (default) | Variance of spatial turbulence | Low CPU, adaptive threshold | Requires 10s NBVI calibration | General use |
+| **MVS** (default) | Variance of spatial turbulence | Low CPU, adaptive threshold | Fixed subcarriers, short startup calibration | General use |
 | **ML** | Neural network (MLP 9→32→16→1) | Fast boot (~3s), no calibration | Pre-trained weights, fixed subcarriers | Experimental |
 
 Both algorithms support optional low-pass and Hampel filters on the turbulence stream.
@@ -627,26 +626,21 @@ High airtime (>30-50%) causes network congestion, increased latency, and packet 
 
 ---
 
-## Auto-Calibration (MVS only)
+## Startup Calibration
 
-> ⚠️ **CRITICAL**: The room must be **still** during the first ~13 seconds after boot. Movement during calibration will result in poor detection accuracy!
-
-Auto-calibration applies only to MVS mode. ML mode uses fixed subcarriers from pre-trained weights and skips this phase.
-
-ESPectre automatically calibrates in two phases:
+> ⚠️ **CRITICAL**: The room should be **still** after boot. Movement during startup calibration can bias the adaptive threshold.
+During startup, ESPEctre takes care of:
 
 1. **Gain Lock** (~3 seconds, 300 packets): Stabilizes AGC/FFT for consistent amplitudes
-2. **NBVI Band Calibration** (~10 seconds, 10 × `window_size` packets): Selects optimal 12-subcarrier band and calculates adaptive threshold
+2. **Adaptive threshold** (~10 seconds, 10 × `window_size` packets): When in MVS detection mode, espectre Calculates the adaptive threshold from baseline moving variance
 
-With default `segmentation_window_size: 100`, the calibration collects 1000 packets. If you change the window size, the calibration buffer adjusts automatically.
-
-Room must be quiet during the entire ~10 second calibration.
+With default `segmentation_window_size: 100`, MVS collects 1000 packets for threshold bootstrap. If you change the window size, the bootstrap buffer adjusts automatically.
 
 **Sensor placement:** Position the sensor 3-8 meters from your access point for optimal performance. See [Sensor Placement](TUNING.md#sensor-placement) in the Tuning Guide for details.
 
 **Gain lock modes:** The `gain_lock` parameter (`auto`/`enabled`/`disabled`) controls AGC stabilization. See [Gain Lock](TUNING.md#gain-lock) in the Tuning Guide.
 
-**Runtime recalibration:** You can trigger recalibration from Home Assistant using the Calibrate switch (`switch.espectre_calibrate`). The switch is automatically disabled during calibration to prevent accidental interruption. For a complete reset, erase flash and re-flash.
+**Runtime recalibration:** You can trigger startup recalibration from Home Assistant using the Calibrate switch (`switch.espectre_calibrate`). The switch is automatically disabled during calibration to prevent accidental interruption. This recomputes the adaptive threshold for MVS while keeping the fixed subcarriers.
 
 ---
 
@@ -708,29 +702,15 @@ ESPectre itself is very lightweight. The actual code overhead is minimal:
 
 The ESPectre component adds only **~70KB of Flash** and less than **100 bytes of RAM**. The majority of flash usage comes from standard ESPHome components (WiFi, API, OTA, provisioning).
 
-### Custom Partition Table
+### Partition Tables
 
-ESPectre includes a custom partition table (`partitions.csv`) that is automatically applied during compilation. This partition table:
+The ESPHome frontend now uses the board/framework default partition table.
 
-- Supports **OTA updates** (dual app partitions)
-- Includes **SPIFFS** for calibration buffer (320KB, used during boot only)
-- App partition size: **~1.8MB** per slot
+This keeps the external component simpler and avoids forcing a custom flash layout on user projects. It also means ESPectre no longer depends on SPIFFS for startup calibration or runtime operation.
 
-```
-# ESPectre Partition Table (4MB flash)
-# Name,   Type, SubType, Offset,   Size
-nvs,      data, nvs,     0x9000,   0x5000
-otadata,  data, ota,     0xe000,   0x2000
-app0,     app,  ota_0,   0x10000,  0x1D0000   # ~1.8MB
-app1,     app,  ota_1,   0x1E0000, 0x1D0000   # ~1.8MB
-spiffs,   data, spiffs,  0x3B0000, 0x50000    # 320KB
-```
+Other firmware frontends in this repository may still use custom partition tables when their build/runtime requirements need them. In particular, the Matter and streamer apps keep their own ESP-IDF partition layouts.
 
-### Combining with Other Components
-
-If you want to add ESPectre to an existing ESPHome configuration with other heavy components, be aware that ESPectre's partition table may override your existing partitions.
-
-**To use your own partition table**, you can override it in your YAML using an **absolute path**:
+If you need a custom partition table for your own ESPHome project, you can still override it in YAML using an **absolute path**:
 
 ```yaml
 esphome:
@@ -741,28 +721,27 @@ esphome:
 
 Then create the `partitions_custom.csv` file at that location.
 
-**Example for 4MB flash** (no OTA, ~3.7MB for app):
+**Example for 4MB flash** (no OTA, ~3.9MB for app):
 
 ```
 # Name,   Type, SubType, Offset,  Size
 nvs,      data, nvs,     0x9000,  0x5000,
 phy_init, data, phy,     0xe000,  0x1000,
-app0,     app,  factory, 0x10000, 0x3C0000,
-spiffs,   data, spiffs,  0x3D0000,0x30000,
+app0,     app,  factory, 0x10000, 0x3E0000,
 ```
 
-**Example for 8MB flash** (no OTA, ~7.7MB for app):
+**Example for 8MB flash** (no OTA, ~7.9MB for app):
 
 ```
 # Name,   Type, SubType, Offset,   Size
 nvs,      data, nvs,     0x9000,   0x5000,
 phy_init, data, phy,     0xe000,   0x1000,
-app0,     app,  factory, 0x10000,  0x7C0000,
-spiffs,   data, spiffs,  0x7D0000, 0x30000,
+app0,     app,  factory, 0x10000,  0x7E0000,
 ```
 
 **Notes**:
-- SPIFFS is required. ESPectre uses it as a temporary buffer during calibration. Removing SPIFFS will cause the component to fail during initialization.
+- The ESPHome frontend does not require a custom partition table.
+- Matter and streamer builds in this repository still use frontend-specific custom partition tables.
 - If you remove OTA partitions, you must also remove the `ota:` section from your YAML (OTA updates won't work without the partitions).
 
 ---
@@ -835,7 +814,7 @@ If you still see repeated `Filtered ... wrong SC count` warnings, packets are li
 
 1. **Verify traffic generator is enabled** (`traffic_generator_rate > 0`)
 2. Check WiFi is connected (look for IP address in logs)
-3. Wait for band calibration to complete (~13 seconds after boot)
+3. Wait for startup calibration to complete (~13 seconds after boot for MVS, ~3 seconds for ML)
 4. Adjust `segmentation_threshold` (try 0.5-2.0 for more sensitivity)
 
 ### False positives
@@ -846,34 +825,11 @@ If you still see repeated `Filtered ... wrong SC count` warnings, packets are li
 
 ### Calibration fails (MVS only)
 
-Applies only when `detector_algorithm: mvs` (default). The `ml` detector does not use NBVI calibration.
+Applies only when `detection_algorithm: mvs` (default). The `ml` detector skips threshold bootstrap and uses its fixed threshold.
 
 1. Ensure room is quiet during calibration (first ~13 seconds after boot)
 2. Check traffic generator is running
 3. Verify WiFi connection is stable
-
-**Note:** If band selection fails, the system automatically falls back to the shared default subcarriers `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]` with a default threshold of `1.0`. Motion detection still works but may be less optimal. Look for the log message `⚠ Fallback calibration: using default subcarriers`.
-
-### SPIFFS partition not found
-
-If you see `SPIFFS partition could not be found` in logs, ESPectre's partition table was not applied correctly. This commonly happens when:
-
-- Combining ESPectre with other components like `bluetooth_proxy` or `esp32_ble_tracker`
-- Using a custom YAML instead of the provided examples
-- Another component is overriding the partition table
-
-**Solution:**
-
-1. First, try a full flash erase and reflash:
-   ```bash
-   # Erase flash completely (replace /dev/ttyUSB0 with your port)
-   esptool.py --port /dev/ttyUSB0 erase_flash
-   # Then reflash
-   esphome run your-config.yaml
-   ```
-   Or use the ESPHome dashboard: click the three dots menu → "Install" → "Erase device before installing".
-
-2. If the problem persists, create a custom partition table that includes SPIFFS. See the "Combining with Other Components" section above for examples.
 
 ### Unstable detection with mesh networks
 

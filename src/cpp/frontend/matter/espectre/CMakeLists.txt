@@ -6,13 +6,11 @@ idf_component_register(
         "../../../core/csi_filters.cpp"
         "../../../core/ml_detector.cpp"
         "../../../core/mvs_detector.cpp"
-        "../../../runtime/esp_idf/calibration_file_buffer.cpp"
         "../../../runtime/esp_idf/csi_manager.cpp"
         "../../../runtime/esp_idf/csi_payload_normalizer.cpp"
         "../../../runtime/esp_idf/csi_platform_config.cpp"
         "../../../runtime/esp_idf/esp_idf_runtime.cpp"
         "../../../runtime/esp_idf/gain_controller.cpp"
-        "../../../runtime/esp_idf/nbvi_calibrator.cpp"
         "../../../runtime/esp_idf/traffic_generator_manager.cpp"
         "../../../runtime/esp_idf/udp_listener.cpp"
         "../../../runtime/esp_idf/wifi_lifecycle.cpp"
@@ -27,7 +25,6 @@ idf_component_register(
         esp_netif
         esp_timer
         nvs_flash
-        spiffs
         lwip
         driver
         freertos

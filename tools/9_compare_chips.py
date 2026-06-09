@@ -102,24 +102,23 @@ def analyze_amplitudes_per_subcarrier(packets, name, num_subcarriers=64):
     }
 
 
-def calculate_spatial_turbulence(csi_data, selected_subcarriers, gain_locked=True):
-    """Calculate spatial turbulence - delegates to SegmentationContext"""
+def calculate_spatial_turbulence(csi_data, gain_locked=True):
+    """Calculate spatial turbulence using the fixed production subcarriers."""
     return SegmentationContext.compute_spatial_turbulence(
         csi_data,
-        selected_subcarriers,
+        DEFAULT_SUBCARRIERS,
         use_cv_normalization=not bool(gain_locked)
     )
 
 
-def analyze_turbulence_and_mvs(packets, name, selected_subcarriers, window_size):
-    """Analyze turbulence and moving variance"""
+def analyze_turbulence_and_mvs(packets, name, window_size):
+    """Analyze turbulence and moving variance with the fixed production subcarriers."""
     turbulences = []
     all_amplitudes = []
     
     for pkt in packets:
         turb, amps = calculate_spatial_turbulence(
             pkt['csi_data'],
-            selected_subcarriers,
             gain_locked=pkt.get('gain_locked', True)
         )
         turbulences.append(turb)
@@ -281,7 +280,7 @@ def main():
         )
         # Use proportional subcarrier selection for each chip
         selected_scs[chip] = [int(sc * data['num_sc'] / 64) for sc in DEFAULT_SUBCARRIERS]
-        print(f"\n  {chip} selected subcarriers: {selected_scs[chip]}")
+        print(f"\n  {chip} fixed subcarriers: {selected_scs[chip]}")
     
     # Calculate selected SC averages
     selected_means = {}
@@ -306,10 +305,10 @@ def main():
     for chip in chips_data:
         data = chips_data[chip]
         turb_stats[f"{chip}_baseline"] = analyze_turbulence_and_mvs(
-            data['baseline'], f"{chip} Baseline", selected_scs[chip], WINDOW_SIZE
+            data['baseline'], f"{chip} Baseline", WINDOW_SIZE
         )
         turb_stats[f"{chip}_movement"] = analyze_turbulence_and_mvs(
-            data['movement'], f"{chip} Movement", selected_scs[chip], WINDOW_SIZE
+            data['movement'], f"{chip} Movement", WINDOW_SIZE
         )
     
     print(f"\nTurbulence (Spatial Std Dev):")

@@ -30,19 +30,14 @@ import pytest
 # ============================================================================
 import numpy as np
 import math
-import os
-import tempfile
 from pathlib import Path
 
-# Patch buffer file path BEFORE importing calibrators
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
 from repo_paths import data_dir, python_src_dir
 
 sys.path.insert(0, str(python_src_dir()))
-import nbvi_calibrator
-nbvi_calibrator.BUFFER_FILE = os.path.join(tempfile.gettempdir(), 'nbvi_buffer_validation_test.bin')
 
 # Import from src and tools
 from segmentation import SegmentationContext
@@ -194,12 +189,10 @@ def window_size(chip_type):
     return DETECTOR_DEFAULT_WINDOW_SIZE
 
 
-@pytest.fixture(params=["nbvi"])
+@pytest.fixture(params=["fixed_default"])
 def calibration_algorithm(request, chip_type):
     """
-    Parametrized fixture for calibration algorithm.
-    Tests using this fixture will run once per algorithm.
-    NBVI is the sole calibration algorithm.
+    Parametrized fixture for the fixed-subcarrier startup calibration path.
     """
     algo = request.param
     return algo
@@ -278,10 +271,10 @@ def movement_amplitudes(real_data, default_subcarriers):
 # MVS Detection Tests
 # ============================================================================
 
-def run_nbvi_calibration(baseline_packets, num_subcarriers, hint_band=None, mvs_window_size=None,
-                         use_cv_normalization=False):
+def run_fixed_subcarrier_calibration(baseline_packets, num_subcarriers, hint_band=None, mvs_window_size=None,
+                                     use_cv_normalization=False):
     """
-    Run NBVI calibration exactly as in production.
+    Run fixed-subcarrier threshold bootstrap exactly as in production.
     
     Note: baseline_packets is assumed to already have GAIN_LOCK_SKIP packets
     removed (done in real_data fixture to match C++ csi_test_data.h behavior).
@@ -289,60 +282,53 @@ def run_nbvi_calibration(baseline_packets, num_subcarriers, hint_band=None, mvs_
     Args:
         baseline_packets: List of baseline CSI packets (already gain-lock skipped)
         num_subcarriers: Number of subcarriers
-        hint_band: Optional subcarrier band to use when searching for baseline
-                   candidate windows. Matches C++ start_calibration(current_band).
-        mvs_window_size: MVS window size for validation (default: 50)
+        hint_band: Optional subcarrier band override (defaults to fixed defaults).
+        mvs_window_size: MVS window size for validation
         use_cv_normalization: True to use CV (std/mean) turbulence
     
     Returns:
         tuple: (selected_band, adaptive_threshold)
     """
-    from nbvi_calibrator import NBVICalibrator
     from threshold import calculate_adaptive_threshold
-    
-    # Use first 750 packets for calibration (gain lock skip already done in fixture)
+
+    selected_band = hint_band
+    mv_values = []
+    window_size = mvs_window_size or DETECTOR_DEFAULT_WINDOW_SIZE
+    cal_ctx = SegmentationContext(window_size=window_size, threshold=1.0, enable_hampel=True)
+    cal_ctx.use_cv_normalization = use_cv_normalization
+
     buffer_size = min(CALIBRATION_BUFFER_SIZE, len(baseline_packets))
-    
-    calibrator = NBVICalibrator(buffer_size=buffer_size, mvs_window_size=mvs_window_size)
-    calibrator.set_cv_normalization(use_cv_normalization)
-    
-    # Feed baseline packets for calibration
     for pkt in baseline_packets[:buffer_size]:
-        csi_bytes = bytes(int(x) & 0xFF for x in pkt['csi_data'])
-        calibrator.add_packet(csi_bytes)
-    
-    # Run calibration (NBVI-based algorithm)
-    # Pass hint_band to match C++ behavior where start_calibration() receives current_band
-    selected_band, mv_values = calibrator.calibrate(hint_band=hint_band)
-    calibrator.free_buffer()
-    
-    # Calculate adaptive threshold from mv_values
-    if selected_band is not None and len(mv_values) > 0:
+        turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
+        cal_ctx.add_turbulence(turb)
+        cal_ctx.update_state()
+        if cal_ctx.buffer_count >= cal_ctx.window_size:
+            mv_values.append(cal_ctx.current_moving_variance)
+
+    if mv_values:
         adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, "auto")
     else:
         adaptive_threshold = 1.0
-    
     return selected_band, adaptive_threshold
 
 
-def run_calibration(baseline_packets, num_subcarriers, algorithm="nbvi", hint_band=None,
+def run_calibration(baseline_packets, num_subcarriers, algorithm="fixed_default", hint_band=None,
                     mvs_window_size=None, use_cv_normalization=False):
     """
-    Run calibration using NBVI algorithm.
+    Run startup calibration using fixed subcarriers.
     
     Args:
         baseline_packets: List of baseline CSI packets
         num_subcarriers: Number of subcarriers
-        algorithm: Calibration algorithm (only "nbvi" supported)
-        hint_band: Optional subcarrier band to use as hint for calibration.
-                   Matches C++ start_calibration(current_band) behavior.
-        mvs_window_size: MVS window size for validation (default: 50)
+        algorithm: Calibration variant name (only "fixed_default" supported)
+        hint_band: Optional fixed subcarrier band to use
+        mvs_window_size: MVS window size for validation
         use_cv_normalization: True to use CV (std/mean) turbulence
     
     Returns:
         tuple: (selected_band, adaptive_threshold)
     """
-    return run_nbvi_calibration(
+    return run_fixed_subcarrier_calibration(
         baseline_packets,
         num_subcarriers,
         hint_band=hint_band,
@@ -352,14 +338,13 @@ def run_calibration(baseline_packets, num_subcarriers, algorithm="nbvi", hint_ba
 
 
 class TestMVSDetectionRealData:
-    """Test MVS motion detection with real CSI data using NBVI calibration"""
+    """Test MVS motion detection with real CSI data using fixed subcarriers."""
     
     def test_baseline_low_motion_rate(self, real_data, num_subcarriers, window_size, fp_rate_target, enable_hampel, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
         """Test that baseline data produces low motion detection rate"""
         
         baseline_packets, _ = real_data
         
-        # Always run NBVI; CV normalization is handled inside calibrator when enabled.
         selected_band, adaptive_threshold = run_calibration(
             baseline_packets,
             num_subcarriers,
@@ -393,7 +378,6 @@ class TestMVSDetectionRealData:
         
         baseline_packets, movement_packets = real_data
         
-        # Always run NBVI; CV normalization is handled inside calibrator when enabled.
         selected_band, adaptive_threshold = run_calibration(
             baseline_packets,
             num_subcarriers,
@@ -430,7 +414,6 @@ class TestMVSDetectionRealData:
         
         baseline_packets, movement_packets = real_data
         
-        # Always run NBVI; CV normalization is handled inside calibrator when enabled.
         selected_band, adaptive_threshold = run_calibration(
             baseline_packets,
             num_subcarriers,
@@ -665,7 +648,7 @@ class TestHampelFilterRealData:
 # ============================================================================
 
 class TestPerformanceMetrics:
-    """Test that we achieve expected performance metrics with NBVI calibration"""
+    """Test that we achieve expected performance metrics with fixed subcarriers."""
     
     def test_mvs_default_subcarriers(self, real_data, window_size, mvs_default_fp_rate_target,
                                      mvs_default_recall_target,
@@ -677,7 +660,7 @@ class TestPerformanceMetrics:
         This is the production-baseline reference test - uses pre-calculated default
         subcarriers for each chip (matches C++ test_mvs_default_subcarriers).
         
-        No NBVI calibration is used - subcarriers are fixed from conftest.py.
+        Startup uses fixed subcarriers from conftest.py.
         """
         import numpy as np
         from threshold import calculate_adaptive_threshold
@@ -771,9 +754,9 @@ class TestPerformanceMetrics:
         """
         Test MVS motion detection accuracy with real CSI data.
         
-        This test uses auto-calibration exactly as in production:
-        - Band selection from baseline data (NBVI) for all chips
-        - Adaptive threshold from calibration
+        This test uses the current production startup path:
+        - Fixed default subcarriers for all chips
+        - Adaptive threshold from baseline calibration
         - Process ALL packets (no warmup skip)
         - Process baseline first, then movement (continuous context)
         - Unified window_size (100) and adaptive threshold (P95 × 1.1)
@@ -783,7 +766,6 @@ class TestPerformanceMetrics:
         """
         baseline_packets, movement_packets = real_data
 
-        # Always run NBVI calibration. CV mode, when needed, is applied in calibrator.
         selected_band, adaptive_threshold = run_calibration(
             baseline_packets,
             num_subcarriers,
@@ -878,7 +860,7 @@ class TestPerformanceMetrics:
         from pathlib import Path
         sys.path.insert(0, str(Path(__file__).parent))
         from conftest import record_performance
-        record_performance(chip_type, 'mvs_nbvi', pkt_recall, pkt_fp_rate, pkt_precision, pkt_f1)
+        record_performance(chip_type, 'mvs', pkt_recall, pkt_fp_rate, pkt_precision, pkt_f1)
         
         # ========================================
         # Assertions (chip-specific thresholds)
@@ -1132,21 +1114,21 @@ class TestFloat32Stability:
 
 
 # ============================================================================
-# End-to-End Tests with Band Calibration and Normalization
+# End-to-End Tests with Startup Calibration and Normalization
 # ============================================================================
 
 class TestEndToEndWithCalibration:
     """
-    Test complete pipeline: Band Calibration → Normalization → MVS Detection
+    Test complete pipeline: Startup Calibration → Normalization → MVS Detection
     
     These tests verify that the system works end-to-end with:
-    - Auto-calibration selecting subcarriers from real data (NBVI)
+    - Fixed default subcarriers shared by MVS and ML
     - Adaptive threshold applied to turbulence values
     - MVS motion detection achieving target performance
     """
     
     def test_band_calibration_produces_valid_band(self, real_data, num_subcarriers, calibration_algorithm, chip_type, default_subcarriers):
-        """Test that band calibration produces valid subcarrier selection"""
+        """Test that startup calibration produces a valid fixed band and threshold."""
         
         from threshold import calculate_adaptive_threshold
         from config import GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER
@@ -1157,8 +1139,7 @@ class TestEndToEndWithCalibration:
         guard_low = GUARD_BAND_LOW
         guard_high = GUARD_BAND_HIGH
         
-        # Run calibration with selected algorithm
-        # Pass default_subcarriers as hint_band (matches C++ start_calibration behavior)
+        # Run calibration with the fixed default subcarriers.
         selected_band, adaptive_threshold = run_calibration(baseline_packets, num_subcarriers, calibration_algorithm, hint_band=default_subcarriers)
         
         # Verify calibration results
@@ -1175,28 +1156,28 @@ class TestEndToEndWithCalibration:
         assert 0.0 <= adaptive_threshold <= 10.0, \
             f"[{calibration_algorithm}] Adaptive threshold out of range: {adaptive_threshold}"
         
-        print(f"\n[{calibration_algorithm.upper()}] Band Calibration Results:")
+        print(f"\n[{calibration_algorithm.upper()}] Startup Calibration Results:")
         print(f"  Selected band: {selected_band}")
         print(f"  Adaptive threshold: {adaptive_threshold:.4f}")
     
     def test_end_to_end_with_band_calibration_and_mvs(self, real_data, num_subcarriers, window_size, fp_rate_target, recall_target, enable_hampel, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
         """
-        Test complete end-to-end flow: Band Calibration → MVS → Detection
+        Test complete end-to-end flow: Startup Calibration → MVS → Detection
         
         This test verifies that the system achieves target performance using
         recall_target/fp_rate_target fixtures.
-        when using automatic band selection for optimal subcarrier bands.
+        when using the fixed default subcarrier set.
         """
         baseline_packets, movement_packets = real_data
         
         # ========================================
-        # Step 1: Band Calibration
+        # Step 1: Startup Calibration
         # ========================================
         print("\n" + "=" * 70)
-        print(f"  END-TO-END TEST: Band Calibration + MVS ({num_subcarriers} SC, {calibration_algorithm.upper()})")
+        print(f"  END-TO-END TEST: Startup Calibration + MVS ({num_subcarriers} SC, {calibration_algorithm.upper()})")
         print("=" * 70)
         
-        print(f"\nStep 1: {calibration_algorithm.upper()} Band Calibration...")
+        print(f"\nStep 1: {calibration_algorithm.upper()} Startup Calibration...")
         selected_band, adaptive_threshold = run_calibration(
             baseline_packets,
             num_subcarriers,
@@ -1207,7 +1188,7 @@ class TestEndToEndWithCalibration:
         )
         print(f"  Selected band: {selected_band}")
         
-        assert selected_band is not None, f"[{calibration_algorithm}] Band calibration failed for {num_subcarriers} SC"
+        assert selected_band is not None, f"[{calibration_algorithm}] Startup calibration failed for {num_subcarriers} SC"
         print(f"  Adaptive threshold: {adaptive_threshold:.4f}")
         
         # ========================================
@@ -1268,7 +1249,7 @@ class TestEndToEndWithCalibration:
         
         print()
         print("=" * 70)
-        print("  END-TO-END RESULTS (Band Calibration + MVS)")
+        print("  END-TO-END RESULTS (Startup Calibration + MVS)")
         print("=" * 70)
         print()
         print(f"CONFUSION MATRIX ({num_baseline} baseline + {num_movement} movement packets):")
@@ -1288,8 +1269,7 @@ class TestEndToEndWithCalibration:
         # ========================================
         # Assertions (chip-specific thresholds)
         # ========================================
-        # Band calibrator auto-selects subcarriers using NBVI algorithm.
-        # This achieves excellent performance with spectral diversity.
+        # Startup calibration keeps the fixed default band and tunes only the threshold.
         assert recall > recall_target, f"End-to-end Recall too low ({num_subcarriers} SC): {recall:.1f}% (target: >{recall_target}%)"
         assert fp_rate < fp_rate_target, f"End-to-end FP Rate too high ({num_subcarriers} SC): {fp_rate:.1f}% (target: <{fp_rate_target}%)"
 

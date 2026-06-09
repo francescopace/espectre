@@ -12,9 +12,9 @@ Checks performed:
   4. ML readiness     - Label balance, minimum samples, chip diversity
 
 SOURCE CODE ALIGNMENT:
-  This script imports core functions directly from src/ to ensure correctness:
-  - src/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
-  - src/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
+  This script imports core functions directly from src/python/ to ensure correctness:
+  - src/python/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
+  - src/python/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
 
   Amplitude extraction is vectorized with numpy (int8 → int16 to avoid overflow)
   rather than looping through src/utils.py:extract_amplitudes() per packet.
@@ -38,10 +38,10 @@ from pathlib import Path
 import numpy as np
 
 # ------------------------------------------------------------------
-# Add src/ to path and import production code
+# Add src/python/ to path and import production code
 # ------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
-SRC_DIR = SCRIPT_DIR.parent / "src"
+SRC_DIR = SCRIPT_DIR.parent / "src" / "python"
 sys.path.insert(0, str(SRC_DIR))
 
 from utils import (                                      # noqa: E402
@@ -208,8 +208,7 @@ def validate_signal_quality(csi_data):
     return results
 
 
-def validate_pair(bl_csi, mv_csi, bl_data, mv_data,
-                  subcarriers=None, gain_locked=True):
+def validate_pair(bl_csi, mv_csi, bl_data, mv_data, gain_locked=True):
     """Validate a baseline/movement pair.
 
     Args:
@@ -217,16 +216,12 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data,
         mv_csi: movement CSI array (num_packets, 128)
         bl_data: full baseline NpzFile (for metadata)
         mv_data: full movement NpzFile (for metadata)
-        subcarriers: list of subcarrier indices for turbulence
         gain_locked: True → raw_std, False → CV normalization (MVS behavior)
 
     Returns:
         tuple: (results, bl_var, mv_var, ratio, gap_s)
     """
     results = []
-
-    if subcarriers is None:
-        subcarriers = DEFAULT_SUBCARRIERS
 
     use_cv = not gain_locked
 
@@ -235,11 +230,11 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data,
     mv_amps = _extract_amplitudes_matrix(mv_csi)
 
     bl_turbulence = [
-        _spatial_turbulence_from_amps(bl_amps[i].tolist(), subcarriers, use_cv)
+        _spatial_turbulence_from_amps(bl_amps[i].tolist(), DEFAULT_SUBCARRIERS, use_cv)
         for i in range(bl_amps.shape[0])
     ]
     mv_turbulence = [
-        _spatial_turbulence_from_amps(mv_amps[i].tolist(), subcarriers, use_cv)
+        _spatial_turbulence_from_amps(mv_amps[i].tolist(), DEFAULT_SUBCARRIERS, use_cv)
         for i in range(mv_amps.shape[0])
     ]
 
@@ -472,7 +467,6 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
             chip = bl_chip
             mv_file = best_mv
 
-            pair_sc = DEFAULT_SUBCARRIERS
             sc_source = "DEFAULT_SUBCARRIERS"
             pair_gain_locked = gain_locked_map.get(bl_file.name, True)
             cv_mode = "CV" if not pair_gain_locked else "raw_std"
@@ -500,7 +494,6 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
             pair_res, bl_var, mv_var, ratio, gap_s = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
                 bl_data, mv_data,
-                subcarriers=pair_sc,
                 gain_locked=pair_gain_locked,
             )
             for r in pair_res:

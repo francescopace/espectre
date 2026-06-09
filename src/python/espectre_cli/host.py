@@ -155,12 +155,6 @@ def detect_live_motion(args) -> None:
     def format_turbulence_tail(values):
         return " ".join(f"{value:.4f}" for value in values)
 
-    def get_runtime_subcarriers():
-        selected = getattr(config, "SELECTED_SUBCARRIERS", None)
-        if selected:
-            return list(selected)
-        return list(config.DEFAULT_SUBCARRIERS)
-
     def get_runtime_ml_threshold():
         threshold = getattr(config, "SEG_THRESHOLD", ML_DEFAULT_THRESHOLD)
         if isinstance(threshold, (int, float)):
@@ -168,7 +162,7 @@ def detect_live_motion(args) -> None:
         return ML_DEFAULT_THRESHOLD
 
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
-    subcarriers = get_runtime_subcarriers()
+    subcarriers = list(config.DEFAULT_SUBCARRIERS)
     threshold = get_runtime_ml_threshold()
     detector = MLDetector(
         window_size=config.SEG_WINDOW_SIZE,

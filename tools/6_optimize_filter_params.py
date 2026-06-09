@@ -35,7 +35,7 @@ from pathlib import Path
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import setup_paths  # noqa: F401 - side effect import
-from config import SEG_WINDOW_SIZE
+from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE
 from segmentation import SegmentationContext
 
 
@@ -49,11 +49,11 @@ def find_latest_file(data_dir, prefix, chip_filter=None):
     return max(files, key=lambda f: f.stat().st_mtime)
 
 
-def calc_avg_magnitude(iq_data, subcarriers, num_packets=500):
-    """Calculate average magnitude across subcarriers"""
+def calc_avg_magnitude(iq_data, num_packets=500):
+    """Calculate average magnitude across fixed default subcarriers."""
     mags = []
     for pkt in iq_data[:num_packets]:
-        for sc in subcarriers:
+        for sc in DEFAULT_SUBCARRIERS:
             # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
             Q = float(pkt[sc * 2])      # Imaginary first
             I = float(pkt[sc * 2 + 1])  # Real second
@@ -61,12 +61,12 @@ def calc_avg_magnitude(iq_data, subcarriers, num_packets=500):
     return np.mean(mags)
 
 
-def test_config(baseline_iq, movement_iq, subcarriers, target, cutoff,
+def test_config(baseline_iq, movement_iq, target, cutoff,
                 threshold=1.0, avg_mag=None,
                 baseline_gain_locked=True, movement_gain_locked=True):
     """Test a configuration and return metrics"""
     if avg_mag is None:
-        avg_mag = calc_avg_magnitude(baseline_iq, subcarriers)
+        avg_mag = calc_avg_magnitude(baseline_iq)
     
     norm_scale = target / avg_mag
     
@@ -82,7 +82,7 @@ def test_config(baseline_iq, movement_iq, subcarriers, target, cutoff,
     fp = 0
     seg.use_cv_normalization = not bool(baseline_gain_locked)
     for i in range(len(baseline_iq)):
-        turb = seg.calculate_spatial_turbulence(baseline_iq[i], subcarriers)
+        turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
         seg.update_state()  # Must call to calculate variance and update state
         if i >= 50 and seg.get_state() == seg.STATE_MOTION:
@@ -93,7 +93,7 @@ def test_config(baseline_iq, movement_iq, subcarriers, target, cutoff,
     tp = 0
     seg.use_cv_normalization = not bool(movement_gain_locked)
     for i in range(len(movement_iq)):
-        turb = seg.calculate_spatial_turbulence(movement_iq[i], subcarriers)
+        turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
         seg.update_state()  # Must call to calculate variance and update state
         if i >= 50 and seg.get_state() == seg.STATE_MOTION:
@@ -117,7 +117,7 @@ def test_config(baseline_iq, movement_iq, subcarriers, target, cutoff,
     }
 
 
-def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, cutoff=11,
+def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11,
                     baseline_gain_locked=True, movement_gain_locked=True):
     """Optimize Hampel filter parameters"""
     print('=' * 70)
@@ -153,7 +153,7 @@ def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, c
             fp = 0
             seg.use_cv_normalization = not bool(baseline_gain_locked)
             for i in range(len(baseline_iq)):
-                turb = seg.calculate_spatial_turbulence(baseline_iq[i], subcarriers)
+                turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)
                 seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
@@ -164,7 +164,7 @@ def optimize_hampel(baseline_iq, movement_iq, subcarriers, avg_mag, target=28, c
             tp = 0
             seg.use_cv_normalization = not bool(movement_gain_locked)
             for i in range(len(movement_iq)):
-                turb = seg.calculate_spatial_turbulence(movement_iq[i], subcarriers)
+                turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)
                 seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
@@ -269,19 +269,19 @@ def main():
     
     # Determine optimal band (64 SC HT20 mode)
     num_sc = len(baseline_iq[0]) // 2
-    # 64 SC optimal band (default fallback)
-    selected_band = list(range(11, 23))  # [11-22]
-    print(f"Subcarriers: {num_sc}, using band: [{selected_band[0]}-{selected_band[-1]}]")
+    # Use the fixed runtime/default subcarriers shared by both stacks.
+    selected_band = DEFAULT_SUBCARRIERS
+    print(f"Subcarriers: {num_sc}, using band: {list(selected_band)}")
     
     # Calculate average magnitude
-    avg_mag = calc_avg_magnitude(baseline_iq, selected_band)
+    avg_mag = calc_avg_magnitude(baseline_iq)
     print(f"Average magnitude: {avg_mag:.2f}")
     print()
     
     # Handle --hampel mode
     if args.hampel:
         optimize_hampel(
-            baseline_iq, movement_iq, selected_band, avg_mag,
+            baseline_iq, movement_iq, avg_mag,
             baseline_gain_locked=baseline_gain_locked,
             movement_gain_locked=movement_gain_locked
         )
@@ -305,7 +305,7 @@ def main():
     
     for target in range(20, 40, 2):
         m = test_config(
-            baseline_iq, movement_iq, selected_band, target, 10.0,
+            baseline_iq, movement_iq, target, 10.0,
             avg_mag=avg_mag,
             baseline_gain_locked=baseline_gain_locked,
             movement_gain_locked=movement_gain_locked

@@ -2,7 +2,7 @@
  * ESPectre - C++ Long Recording Tests
  *
  * Runs the same long recordings used by Python validation and prints
- * native MVS + NBVI and ML metrics for manual comparison.
+ * native MVS fixed-subcarrier and ML metrics for manual comparison.
  */
 
 #include "test_harness.h"
@@ -14,19 +14,9 @@
 #include "utils.h"
 #include "mvs_detector.h"
 #include "ml_detector.h"
-#include "csi_manager.h"
-#include "nbvi_calibrator.h"
 #include "threshold.h"
 
 using namespace esphome::espectre;
-
-class WiFiCSIMock : public IWiFiCSI {
- public:
-  esp_err_t set_csi_config(const wifi_csi_config_t* config) override { return ESP_OK; }
-  esp_err_t set_csi_rx_cb(wifi_csi_cb_t cb, void* ctx) override { return ESP_OK; }
-  esp_err_t set_csi(bool enable) override { return ESP_OK; }
-};
-static WiFiCSIMock g_wifi_mock;
 
 #include "csi_test_data.h"
 
@@ -49,9 +39,9 @@ struct LongRunMetrics {
 
 struct ChipLongRunResults {
   const char *chip_name{nullptr};
-  LongRunMetrics mvs_nbvi;
+  LongRunMetrics mvs_fixed;
   LongRunMetrics ml;
-  bool has_mvs_nbvi{false};
+  bool has_mvs_fixed{false};
   bool has_ml{false};
 };
 
@@ -90,9 +80,9 @@ static void record_result(const char *algorithm, const LongRunMetrics &metrics) 
   }
 
   ChipLongRunResults &current = g_results[g_results_count - 1];
-  if (std::strcmp(algorithm, "mvs_nbvi") == 0) {
-    current.mvs_nbvi = metrics;
-    current.has_mvs_nbvi = true;
+  if (std::strcmp(algorithm, "mvs_fixed") == 0) {
+    current.mvs_fixed = metrics;
+    current.has_mvs_fixed = true;
   } else if (std::strcmp(algorithm, "ml") == 0) {
     current.ml = metrics;
     current.has_ml = true;
@@ -147,7 +137,7 @@ static void print_summary_table() {
   printf("=====================================================================================================================\n");
   printf("                                     LONG RECORDING SUMMARY (C++)\n");
   printf("=====================================================================================================================\n");
-  printf("| Chip   | MVS + NBVI              | ML                      |\n");
+  printf("| Chip   | MVS Fixed               | ML                      |\n");
   printf("|--------|-------------------------|-------------------------|\n");
 
   for (int i = 0; i < g_results_count; i++) {
@@ -155,9 +145,9 @@ static void print_summary_table() {
     char mvs_str[32] = "N/A";
     char ml_str[32] = "N/A";
 
-    if (r.has_mvs_nbvi) {
+    if (r.has_mvs_fixed) {
       std::snprintf(mvs_str, sizeof(mvs_str), "%.1f%% R, %.1f%% FP",
-                    r.mvs_nbvi.recall, r.mvs_nbvi.fp_rate);
+                    r.mvs_fixed.recall, r.mvs_fixed.fp_rate);
     }
     if (r.has_ml) {
       std::snprintf(ml_str, sizeof(ml_str), "%.1f%% R, %.1f%% FP",
@@ -214,66 +204,41 @@ static LongRunMetrics evaluate_mvs_long_recording() {
 
   metrics.use_cv_normalization = needs_cv_normalization();
 
-  CSIManager csi_manager;
   MVSDetector calibration_detector(DETECTOR_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD);
   calibration_detector.configure_lowpass(false);
   calibration_detector.configure_hampel(true);
   calibration_detector.set_cv_normalization(metrics.use_cv_normalization);
-  csi_manager.init(&calibration_detector, DEFAULT_SUBCARRIERS, 100, GainLockMode::DISABLED, &g_wifi_mock);
 
-  const char *buffer_path = "/tmp/test_long_recordings_nbvi_buffer.bin";
-  NBVICalibrator nbvi;
-  nbvi.init(&csi_manager, buffer_path);
-  nbvi.set_mvs_window_size(DETECTOR_DEFAULT_WINDOW_SIZE);
-  nbvi.set_cv_normalization(metrics.use_cv_normalization);
-  nbvi.configure_hampel(true);
+  std::vector<float> mv_values;
+  const int calibration_packets = std::min(csi_test_data::num_baseline(),
+                                           static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
+  for (int i = 0; i < calibration_packets; i++) {
+    calibration_detector.process_packet(csi_test_data::baseline_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
+                                        HT20_SELECTED_BAND_SIZE);
+    calibration_detector.update_state();
+    if (calibration_detector.is_ready()) {
+      mv_values.push_back(calibration_detector.get_motion_metric());
+    }
+  }
 
-  const uint16_t buffer_size = std::min(static_cast<int>(nbvi.get_buffer_size()), csi_test_data::num_baseline());
-  nbvi.set_buffer_size(buffer_size);
-
-  bool calibration_success = false;
   uint8_t percentile_tmp = 95;
   float calibrated_threshold = 1.0f;
-  uint8_t calibrated_band[HT20_SELECTED_BAND_SIZE] = {0};
-  uint8_t calibrated_size = 0;
-
-  esp_err_t err = nbvi.start_calibration(
-      DEFAULT_SUBCARRIERS, 12,
-      [&](const uint8_t *band, uint8_t size, const std::vector<float> &mv_values, bool success) {
-        if (success && size > 0) {
-          std::memcpy(calibrated_band, band, size);
-          calibrated_size = size;
-          calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, calibrated_threshold, percentile_tmp);
-        }
-        calibration_success = success;
-      });
-
-  TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, err, "NBVI calibration start failed");
-
-  for (uint16_t i = 0; i < buffer_size; i++) {
-    nbvi.add_packet(csi_test_data::baseline_packets()[i], pkt_size);
-  }
-
-  for (int wait = 0; wait < 500 && nbvi.is_calibrating(); wait++) {
-    vTaskDelay(1);
-  }
-
-  TEST_ASSERT_TRUE_MESSAGE(calibration_success, "NBVI calibration failed");
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(HT20_SELECTED_BAND_SIZE, calibrated_size, "NBVI band size mismatch");
+  calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, calibrated_threshold, percentile_tmp);
 
   MVSDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, calibrated_threshold);
   detector.configure_lowpass(false);
   detector.configure_hampel(true);
   detector.set_cv_normalization(metrics.use_cv_normalization);
 
-  metrics.selected_band_size = calibrated_size;
-  std::copy(calibrated_band, calibrated_band + calibrated_size, metrics.selected_band.begin());
+  metrics.selected_band_size = HT20_SELECTED_BAND_SIZE;
+  std::copy(DEFAULT_SUBCARRIERS, DEFAULT_SUBCARRIERS + HT20_SELECTED_BAND_SIZE, metrics.selected_band.begin());
   metrics.adaptive_threshold = calibrated_threshold;
   metrics.baseline_eval_count = std::max(csi_test_data::num_baseline() - warmup, 0);
   metrics.movement_eval_count = std::max(csi_test_data::num_movement() - warmup, 0);
 
   for (int i = 0; i < csi_test_data::num_baseline(); i++) {
-    detector.process_packet(csi_test_data::baseline_packets()[i], pkt_size, calibrated_band, calibrated_size);
+    detector.process_packet(csi_test_data::baseline_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
+                            HT20_SELECTED_BAND_SIZE);
     detector.update_state();
     if (i >= warmup && detector.get_state() == MotionState::MOTION) {
       metrics.fp++;
@@ -281,7 +246,8 @@ static LongRunMetrics evaluate_mvs_long_recording() {
   }
 
   for (int i = 0; i < csi_test_data::num_movement(); i++) {
-    detector.process_packet(csi_test_data::movement_packets()[i], pkt_size, calibrated_band, calibrated_size);
+    detector.process_packet(csi_test_data::movement_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
+                            HT20_SELECTED_BAND_SIZE);
     detector.update_state();
     if (i >= warmup) {
       if (detector.get_state() == MotionState::MOTION) {
@@ -294,19 +260,18 @@ static LongRunMetrics evaluate_mvs_long_recording() {
 
   metrics.tn = std::max(metrics.baseline_eval_count - metrics.fp, 0);
   compute_derived_metrics(metrics);
-  std::remove(buffer_path);
   return metrics;
 }
 
 void setUp(void) {}
 void tearDown(void) {}
 
-void test_long_recording_mvs_nbvi(void) {
+void test_long_recording_mvs_fixed(void) {
   assert_dataset_metadata_is_valid();
   LongRunMetrics actual = evaluate_mvs_long_recording();
   print_metrics("MVS actual", actual);
   assert_mvs_metrics_are_valid(actual);
-  record_result("mvs_nbvi", actual);
+  record_result("mvs_fixed", actual);
 }
 
 void test_long_recording_ml(void) {
@@ -328,7 +293,7 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
   }
 
   UNITY_BEGIN();
-  RUN_TEST(test_long_recording_mvs_nbvi);
+  RUN_TEST(test_long_recording_mvs_fixed);
   RUN_TEST(test_long_recording_ml);
   return UNITY_END();
 }
