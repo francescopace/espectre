@@ -14,8 +14,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <limits>
-
 #include "csi_payload_normalizer.h"
 #include "csi_platform_config.h"
 #include "csi_stream_protocol.h"
@@ -32,8 +30,6 @@
 #include "lwip/inet.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
-
-extern "C" int get_rx_freq_local(void) __attribute__((weak));
 
 namespace esphome {
 namespace espectre {
@@ -261,7 +257,7 @@ bool parse_collector_addr(sockaddr_in *out_addr) {
   return true;
 }
 
-bool fill_gain_metadata(const wifi_csi_info_t *info, CsiStreamHeaderV1 *header) {
+bool fill_gain_metadata(const wifi_csi_info_t *info, CsiStreamHeaderV2 *header) {
   if (info == nullptr || header == nullptr) {
     return false;
   }
@@ -275,21 +271,6 @@ bool fill_gain_metadata(const wifi_csi_info_t *info, CsiStreamHeaderV1 *header) 
   header->fft_gain = 0;
   return false;
 #endif
-}
-
-bool fill_rf_metadata(CsiStreamHeaderV1 *header) {
-  if (header == nullptr || &get_rx_freq_local == nullptr) {
-    return false;
-  }
-
-  const int raw_step = get_rx_freq_local();
-  if (raw_step < static_cast<int>(std::numeric_limits<int16_t>::min()) ||
-      raw_step > static_cast<int>(std::numeric_limits<int16_t>::max())) {
-    return false;
-  }
-
-  header->rx_freq_offset_step = static_cast<int16_t>(raw_step);
-  return true;
 }
 
 #if CONFIG_IDF_TARGET_ESP32C3
@@ -335,7 +316,7 @@ static_assert(sizeof(wifi_pkt_rx_ctrl_time_t) == sizeof(wifi_pkt_rx_ctrl_t),
               "timestamp overlay must match wifi_pkt_rx_ctrl_t");
 #endif
 
-bool fill_rx_timestamp_metadata(const wifi_csi_info_t *info, CsiStreamHeaderV1 *header) {
+bool fill_rx_timestamp_metadata(const wifi_csi_info_t *info, CsiStreamHeaderV2 *header) {
   if (info == nullptr || header == nullptr) {
     return false;
   }
@@ -377,7 +358,6 @@ bool StreamFrontend::setup() {
   }
 
   device_id_ = derive_device_id();
-  boot_id_ = esp_random();
   stream_seq_ = 0U;
 
   if (!udp_sender_.setup()) {
@@ -402,7 +382,6 @@ bool StreamFrontend::setup() {
   }
   gain_controller_.init(kGainLockMode);
   gain_controller_.set_lock_complete_callback([this]() { gain_lock_complete_.store(true, std::memory_order_relaxed); });
-  ftm_manager_.init(device_id_, boot_id_, [this](const uint8_t *data, size_t len) { return udp_sender_.queue_packet(data, len); });
 
   if (!init_wifi_station_()) {
     return false;
@@ -455,7 +434,6 @@ void StreamFrontend::loop() {
     transition_to_(WorkflowState::STREAMING, "gain lock complete");
   }
 
-  maybe_run_ftm_manager_();
   log_runtime_telemetry_();
 }
 
@@ -584,11 +562,6 @@ void StreamFrontend::on_wifi_connected_() {
   gain_controller_.set_lock_complete_callback([this]() { gain_lock_complete_.store(true, std::memory_order_relaxed); });
   gain_lock_complete_.store(false, std::memory_order_relaxed);
 
-  wifi_ap_record_t ap_info{};
-  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-    ftm_manager_.on_wifi_connected(ap_info);
-  }
-
   if (CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE > 0) {
     if (!traffic_generator_.is_running() && !traffic_generator_.start()) {
       ESP_LOGW(TAG, "Failed to start traffic generator");
@@ -607,7 +580,6 @@ void StreamFrontend::on_wifi_disconnected_() {
   if (udp_listener_.is_running()) {
     udp_listener_.stop();
   }
-  ftm_manager_.on_wifi_disconnected();
   transition_to_(WorkflowState::WAIT_WIFI, "wifi disconnected");
 }
 
@@ -656,37 +628,24 @@ void StreamFrontend::handle_csi_packet_(wifi_csi_info_t *info) {
 
   uint32_t stimulus_id = 0U;
   bool is_reference = false;
-  if (!extract_stimulus_metadata(info, &stimulus_id, &is_reference)) {
-    return;
-  }
+  const bool has_stimulus = extract_stimulus_metadata(info, &stimulus_id, &is_reference);
 
   std::array<uint8_t, CsiUdpSender::MAX_PACKET_BYTES> packet{};
-  auto *header = reinterpret_cast<CsiStreamHeaderV1 *>(packet.data());
+  auto *header = reinterpret_cast<CsiStreamHeaderV2 *>(packet.data());
   header->magic = STREAM_MAGIC;
   header->version = STREAM_VERSION;
   header->header_len = static_cast<uint8_t>(sizeof(*header));
   header->chip = static_cast<uint8_t>(detect_chip_code());
-  header->flags = STREAM_FLAG_RAW_CSI_UNMODIFIED;
+  header->flags = 0U;
   header->seq_num = stream_seq_++;
   header->num_subcarriers = static_cast<uint16_t>(normalized.len / 2U);
   header->csi_len_bytes = static_cast<uint16_t>(normalized.len);
-  header->frame_ctrl =
-      (info->hdr != nullptr) ? static_cast<uint16_t>(static_cast<uint16_t>(info->hdr[0]) |
-                                                     (static_cast<uint16_t>(info->hdr[1]) << 8U))
-                             : 0U;
-  header->rx_seq = info->rx_seq;
   header->device_id = device_id_;
-  header->boot_id = boot_id_;
   header->device_ticks_us = static_cast<uint64_t>(esp_timer_get_time());
   header->wifi_rx_ts_us = info->rx_ctrl.timestamp;
-  std::memcpy(header->tx_mac, info->mac, sizeof(header->tx_mac));
-  std::memcpy(header->dmac, info->dmac, sizeof(header->dmac));
+  header->wifi_rx_start_ts_ns = 0U;
+  header->stimulus_id = 0U;
   header->channel = info->rx_ctrl.channel;
-#if CONFIG_IDF_TARGET_ESP32C5
-  header->secondary_channel = 0U;
-#else
-  header->secondary_channel = info->rx_ctrl.secondary_channel;
-#endif
   header->rssi_dbm = info->rx_ctrl.rssi;
 #if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || \
     CONFIG_IDF_TARGET_ESP32C2
@@ -694,15 +653,12 @@ void StreamFrontend::handle_csi_packet_(wifi_csi_info_t *info) {
 #else
   header->noise_floor_dbm = -128;
 #endif
-  header->rx_freq_offset_step = 0;
+  header->agc_gain = 0U;
+  header->fft_gain = 0;
   header->reserved0 = 0U;
 
-  stream_set_stimulus_id(header, stimulus_id);
-  stimulus_valid_total_++;
-  header->flags |= STREAM_FLAG_STIMULUS_ID_VALID;
-  if (is_reference) {
-    reference_frame_total_++;
-    header->flags |= STREAM_FLAG_REFERENCE_FRAME;
+  if (!gain_controller_.needs_cv_normalization()) {
+    header->flags |= STREAM_FLAG_GAIN_LOCKED;
   }
   if (info->first_word_invalid) {
     header->flags |= STREAM_FLAG_FIRST_WORD_INVALID;
@@ -710,16 +666,21 @@ void StreamFrontend::handle_csi_packet_(wifi_csi_info_t *info) {
   if (header->wifi_rx_ts_us != 0U) {
     header->flags |= STREAM_FLAG_WIFI_RX_TS_VALID;
   }
-  if (info->hdr != nullptr || info->rx_seq != 0U) {
-    header->flags |= STREAM_FLAG_FRAME_ID_FIELDS_VALID;
-  }
   if (fill_gain_metadata(info, header)) {
     header->flags |= STREAM_FLAG_GAIN_INFO_VALID;
   }
-  if (fill_rf_metadata(header)) {
-    header->flags |= STREAM_FLAG_RX_FREQ_OFFSET_VALID;
+  if (fill_rx_timestamp_metadata(info, header)) {
+    header->flags |= STREAM_FLAG_WIFI_RX_START_TS_NS_VALID;
   }
-  (void)fill_rx_timestamp_metadata(info, header);
+  if (has_stimulus) {
+    stream_set_stimulus_id(header, stimulus_id);
+    stimulus_valid_total_++;
+    header->flags |= STREAM_FLAG_STIMULUS_ID_VALID;
+    if (is_reference) {
+      reference_frame_total_++;
+      header->flags |= STREAM_FLAG_REFERENCE_FRAME;
+    }
+  }
 
   std::memcpy(packet.data() + sizeof(*header), normalized.data, normalized.len);
   const size_t packet_len = sizeof(*header) + normalized.len;
@@ -732,11 +693,6 @@ void StreamFrontend::transition_to_(WorkflowState next, const char *reason) {
     ESP_LOGI(TAG, "[STATE] %s -> %s (%s)", workflow_state_name(prev), workflow_state_name(next),
              reason != nullptr ? reason : "n/a");
   }
-}
-
-void StreamFrontend::maybe_run_ftm_manager_() {
-  const bool allow_periodic_sessions = (state_.load(std::memory_order_relaxed) == WorkflowState::STREAMING);
-  ftm_manager_.maybe_start_session(allow_periodic_sessions, udp_sender_.drop_total(), udp_sender_.send_fail_total());
 }
 
 void StreamFrontend::log_runtime_telemetry_() {
@@ -753,7 +709,6 @@ void StreamFrontend::log_runtime_telemetry_() {
   static uint64_t prev_tx = 0U;
   static uint64_t prev_drop = 0U;
   static uint64_t prev_fail = 0U;
-  static uint64_t prev_ftm = 0U;
   static uint64_t prev_ms = now_ms;
 
   const uint64_t dt_ms = std::max<uint64_t>(1U, now_ms - prev_ms);
@@ -771,13 +726,11 @@ void StreamFrontend::log_runtime_telemetry_() {
       static_cast<float>(udp_sender_.drop_total() - prev_drop) * 1000.0F / static_cast<float>(dt_ms);
   const float fail_pps =
       static_cast<float>(udp_sender_.send_fail_total() - prev_fail) * 1000.0F / static_cast<float>(dt_ms);
-  const float ftm_pps =
-      static_cast<float>(ftm_manager_.event_total() - prev_ftm) * 1000.0F / static_cast<float>(dt_ms);
   const uint32_t csi_age_ms = (last_csi_ms_ > 0U && now_ms >= last_csi_ms_) ? static_cast<uint32_t>(now_ms - last_csi_ms_)
                                                                               : 0U;
 
   ESP_LOGI(TAG,
-           "state=%s pps[csi=%.2f stim=%.2f ref=%.2f traffic_rx=%.2f queued=%.2f tx=%.2f ftm=%.2f] drop=%.2f fail=%.2f channel=%u age_ms=%" PRIu32,
+           "state=%s pps[csi=%.2f stim=%.2f ref=%.2f traffic_rx=%.2f queued=%.2f tx=%.2f] drop=%.2f fail=%.2f channel=%u age_ms=%" PRIu32,
            workflow_state_name(state_.load(std::memory_order_relaxed)),
            csi_rx_pps,
            stimulus_pps,
@@ -785,7 +738,6 @@ void StreamFrontend::log_runtime_telemetry_() {
            traffic_rx_pps,
            queued_pps,
            tx_pps,
-           ftm_pps,
            drop_pps,
            fail_pps,
            static_cast<unsigned>(last_csi_channel_),
@@ -799,7 +751,6 @@ void StreamFrontend::log_runtime_telemetry_() {
   prev_tx = udp_sender_.tx_total();
   prev_drop = udp_sender_.drop_total();
   prev_fail = udp_sender_.send_fail_total();
-  prev_ftm = ftm_manager_.event_total();
   prev_ms = now_ms;
   last_log_ms_ = now_ms;
 }
@@ -832,14 +783,7 @@ void StreamFrontend::wifi_event_handler_(void *arg, esp_event_base_t event_base,
     return;
   }
 
-#if defined(CONFIG_ESP_WIFI_FTM_ENABLE) && CONFIG_ESP_WIFI_FTM_ENABLE && defined(CONFIG_ESP_WIFI_FTM_INITIATOR_SUPPORT) && \
-    CONFIG_ESP_WIFI_FTM_INITIATOR_SUPPORT
-  if (event_id == WIFI_EVENT_FTM_REPORT && event_data != nullptr) {
-    frontend->ftm_manager_.handle_ftm_report(*static_cast<const wifi_event_ftm_report_t *>(event_data));
-  }
-#else
   (void)event_data;
-#endif
 }
 
 }  // namespace espectre

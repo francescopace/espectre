@@ -34,27 +34,6 @@ menu "ESPectre CSI Streamer"
         string "Optional external traffic multicast group"
         default ""
 
-    config ESPECTRE_WIFI_FTM_ENABLED
-        bool "Enable automatic Wi-Fi FTM when supported"
-        default y
-
-    config ESPECTRE_WIFI_FTM_PERIOD_MS
-        int "Wi-Fi FTM periodic interval (ms)"
-        range 1000 600000
-        default 10000
-        depends on ESPECTRE_WIFI_FTM_ENABLED
-
-    config ESPECTRE_WIFI_FTM_RETRY_BACKOFF_MS
-        int "Wi-Fi FTM retry backoff (ms)"
-        range 1000 3600000
-        default 60000
-        depends on ESPECTRE_WIFI_FTM_ENABLED
-
-    config ESPECTRE_WIFI_FTM_VERBOSE
-        bool "Verbose Wi-Fi FTM logs"
-        default n
-        depends on ESPECTRE_WIFI_FTM_ENABLED
-
     config ESPECTRE_GAIN_LOCK_ENABLED
         bool "Enable gain lock before streaming"
         default y

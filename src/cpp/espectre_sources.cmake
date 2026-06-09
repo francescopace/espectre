@@ -34,7 +34,6 @@ set(ESPECTRE_FRONTEND_MATTER_SOURCES
 
 set(ESPECTRE_FRONTEND_STREAMER_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/csi_udp_sender.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/ftm_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/stream_frontend.cpp"
 )
 

@@ -136,7 +136,6 @@ The `espectre micro` namespace provides these essential commands:
 | `flash` | Flash MicroPython firmware to device | `./espectre micro flash --erase` |
 | `deploy` | Deploy Python code to device | `./espectre micro deploy` |
 | `run` | Run the application | `./espectre micro run` |
-| `stream` | Stream raw CSI data via UDP | `./espectre micro stream --ip 192.168.1.100` |
 | `detect` | Run live ML motion detection on the PC | `./espectre micro detect --log-turbulence` |
 | `collect` | Collect labeled CSI data for ML training | `./espectre micro collect --label baseline --duration 10` |
 | `verify` | Verify firmware installation | `./espectre micro verify` |
@@ -158,7 +157,8 @@ The `espectre micro` namespace provides these essential commands:
 ./espectre micro                  # Interactive MQTT control
 
 # For real-time CSI streaming (gesture detection, research)
-./espectre micro stream --ip 192.168.1.100  # Stream to PC
+./espectre streamer flash --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX
 
 # On the PC, inspect live ML motion inference
 ./espectre micro detect --log-turbulence
@@ -327,7 +327,7 @@ mqtt:
 - **`me`**: Temporary compatibility shim for the legacy micro-only commands
 - **`.firmware/`**: Downloaded firmware cache (auto-created on first flash)
 - **`src/python/`**: Core Python implementation of motion detection algorithms
-- **`src/python/csi_streamer.py`**: UDP streaming module for real-time CSI data
+- **`src/cpp/frontend/streamer/`**: Standalone ESP-IDF CSI streamer frontend for live UDP collection
 - **`test/python/`**: Pytest test suite for all core modules
 - **`tools/`**: Analysis scripts for algorithm development and validation
 - **`tools/csi_utils.py`**: CSI utilities (receiver, collector, detectors) for PC-side processing

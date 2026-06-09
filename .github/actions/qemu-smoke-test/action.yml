@@ -72,7 +72,7 @@ runs:
           cp "${{ steps.firmware.outputs.path }}" /tmp/flash_qemu.bin
         else
           pip install esptool
-          python -m esptool --chip ${{ inputs.chip }} merge-bin --pad-to-size 4MB -o /tmp/flash_qemu.bin 0x0 "${{ steps.firmware.outputs.path }}"
+          python -m esptool --chip ${{ inputs.chip }} merge_bin --pad-to-size 4MB -o /tmp/flash_qemu.bin 0x0 "${{ steps.firmware.outputs.path }}"
         fi
         ls -lh /tmp/flash_qemu.bin
 

@@ -238,7 +238,7 @@ cd tools
 
 # 0. Collect data (files saved in data/)
 # Requires two terminals:
-#   Terminal 1: ./espectre micro stream --ip <PC_IP>
+#   Terminal 1: ESPectre streamer firmware running with collector IP/port set to this host
 #   Terminal 2: ./espectre micro collect --label baseline --duration 60
 #               ./espectre micro collect --label movement --duration 30
 # Optional debug terminal:

@@ -37,7 +37,7 @@ env/
 secrets.yaml
 
 #ESP-IDF app build artifacts
-src/cpp/frontend/*/app/build/
+src/cpp/frontend/*/app/build*
 src/cpp/frontend/*/app/managed_components/
 src/cpp/frontend/*/app/sdkconfig
 src/cpp/frontend/*/app/sdkconfig.old

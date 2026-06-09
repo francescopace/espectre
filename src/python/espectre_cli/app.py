@@ -8,7 +8,7 @@ from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_nam
 from .esphome import run_esphome_command
 from .host import collect_csi_data, detect_live_motion, open_web_ui
 from .idf import run_idf_command
-from .micro import deploy_code, flash_firmware, run_application, stream_csi, verify_installation
+from .micro import deploy_code, flash_firmware, run_application, verify_installation
 from .mqtt_shell import EspectreMQTTShell
 from .targets import ESPHOME_CONFIGS, IDF_FRONTENDS
 
@@ -42,12 +42,6 @@ def _add_micro_namespace(subparsers) -> None:
     run_parser = micro_subparsers.add_parser("run", help="Run application on ESP32")
     run_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
     run_parser.set_defaults(handler=run_application)
-
-    stream_parser = micro_subparsers.add_parser("stream", help="Stream CSI data via UDP for visualization")
-    stream_parser.add_argument("--ip", required=True, help="Destination IP address (PC running viewer)")
-    stream_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
-    stream_parser.add_argument("--duration", type=int, default=0, help="Streaming duration in seconds (0 = infinite, default: 0)")
-    stream_parser.set_defaults(handler=stream_csi)
 
     verify_parser = micro_subparsers.add_parser("verify", help="Verify installation")
     verify_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")

@@ -1020,6 +1020,10 @@ For the CSI streamer firmware, the same wrapper pattern applies:
 ./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX
 ```
 
+The streamer frontend is the supported live CSI producer for host-side collection.
+It uses the internal traffic generator by default and can also consume external
+traffic when the internal generator is disabled.
+
 ### Exposed Matter surface
 
 | Feature | Matter mapping |

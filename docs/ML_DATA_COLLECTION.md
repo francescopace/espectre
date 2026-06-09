@@ -53,18 +53,20 @@ If you haven't already flashed the firmware:
 ./espectre micro deploy
 ```
 
-### 3. Start CSI Streaming
+### 3. Start the Streamer Firmware
 
-Start streaming CSI data from ESP32 to your PC:
+Start the standalone streamer firmware and configure its collector IP/port to
+point to your PC (default UDP port: `5001`):
 
 ```bash
-./espectre micro stream --ip <your_pc_ip>
+./espectre streamer flash --chip <chip> --port <serial_port>
+./espectre streamer monitor --chip <chip> --port <serial_port>
 ```
 
 **Features:**
 - Gain lock phase (~3s) for stable CSI acquisition
 - 64 subcarriers (HT20 mode)
-- Sequence numbers for packet loss detection
+- 32-bit sequence numbers for packet loss detection
 - ~100 packets/second
 
 ### 4. Optional: Inspect Live ML Motion Detection
@@ -162,7 +164,7 @@ Central metadata file for the dataset:
 
 ```json
 {
-  "format_version": "1.0",
+  "format_version": "1.1",
   "labels": {
     "baseline": { "description": "Quiet room, no motion" },
     "movement": { "description": "Human movement in room" }
@@ -221,7 +223,15 @@ Each `.npz` file contains a minimal, compact format optimized for ML training:
 | `gain_locked` | `bool` | Whether AGC gain lock was active during collection |
 | `collected_at` | `str` | ISO timestamp of collection |
 | `duration_ms` | `float` | Sample duration in milliseconds |
-| `format_version` | `str` | NPZ format version ("1.0") |
+| `format_version` | `str` | NPZ format version ("1.1") |
+| `stream_seq_num` | `uint32[N]` | Per-packet stream sequence numbers |
+| `device_ticks_us` | `uint64[N]` | Device-side monotonic timestamps in microseconds |
+| `device_id` | `uint64` | Optional device identifier for multi-device fusion |
+| `wifi_rx_ts_us` | `uint32[N]` | Optional Wi-Fi RX timestamps when available |
+| `wifi_rx_start_ts_ns` | `uint64[N]` | Optional hardware-derived RX-start estimate |
+| `channel` | `uint8[N]` | Optional per-packet Wi-Fi channel metadata |
+| `rssi_dbm` | `int16[N]` | Optional per-packet RSSI metadata |
+| `stimulus_id` | `uint32[N]` | Optional per-packet stimulus identifier |
 
 Amplitudes and phases can be computed on-the-fly from `csi_data`:
 
@@ -464,23 +474,39 @@ receiver.run(timeout=60)  # Run for 60 seconds
 ### UDP Packet Format
 
 ```
-Header (7 bytes):
+Header (52 bytes):
   - Magic: 0x4353 ("CS") - 2 bytes
+  - Version: 2 - 1 byte
+  - Header length: 52 - 1 byte
   - Chip type: 1 byte (0=unknown, 1=ESP32, 2=S2, 3=S3, 4=C3, 5=C5, 6=C6)
-  - Flags: 1 byte (bit 0 = gain_locked)
-  - Sequence number: 1 byte (0-255, wrapping)
+  - Flags: 1 byte
+    - bit 0 = gain_locked
+    - bit 1 = first_word_invalid
+    - bit 2 = wifi_rx_ts_us valid
+    - bit 3 = wifi_rx_start_ts_ns valid
+    - bit 4 = gain metadata valid
+    - bit 5 = stimulus_id valid
+    - bit 6 = reference frame
+  - Sequence number: 4 bytes (uint32, wrapping)
   - Num subcarriers: 2 bytes (uint16, little-endian)
+  - CSI payload length: 2 bytes (uint16, little-endian)
+  - Device ID: 8 bytes
+  - Device ticks: 8 bytes (microseconds)
+  - Wi-Fi RX timestamp: 4 bytes (optional)
+  - Wi-Fi RX start estimate: 8 bytes (optional)
+  - Stimulus ID: 4 bytes (optional)
+  - Channel / RSSI / noise floor / AGC / FFT gain metadata
 
 Payload (N × 2 bytes):
-  - I0, Q0, I1, Q1, ... (int8 each)
+  - Q0, I0, Q1, I1, ... (int8 each, Espressif format)
 
 Example (HT20, 64 SC):
-  - 7 + 128 = 135 bytes
+  - 52 + 128 = 180 bytes
 ```
 
 The `gain_locked` flag indicates whether AGC gain lock was applied during data collection. MVS uses this flag to enable CV normalization when gain is not locked. ML ignores this flag and always uses raw std.
 
-Note: ESPectre uses HT20 mode (64 subcarriers) for consistent performance across all ESP32 variants. Chip type and gain lock status are automatically detected and included in each packet.
+Note: ESPectre uses HT20 mode (64 subcarriers) for consistent performance across all ESP32 variants. Chip type and gain lock status are automatically detected and included in each packet. `wifi_rx_start_ts_ns` is a hardware-derived estimate with nanosecond resolution, not a guaranteed nanosecond-accurate timestamp.
 
 ---
 

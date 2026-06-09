@@ -3,7 +3,6 @@ source = src/python
 omit =
     # MicroPython-only modules that require hardware/specific runtime
     src/python/main.py
-    src/python/csi_streamer.py
     src/python/config_local.py
 
 [report]

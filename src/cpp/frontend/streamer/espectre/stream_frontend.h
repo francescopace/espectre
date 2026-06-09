@@ -1,7 +1,7 @@
 /*
  * ESPectre - Streamer Frontend
  *
- * Standalone frontend for raw CSI UDP streaming with optional FTM telemetry.
+ * Standalone frontend for raw CSI UDP streaming.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -13,7 +13,6 @@
 #include <cstdint>
 
 #include "csi_udp_sender.h"
-#include "ftm_manager.h"
 #include "gain_controller.h"
 #include "traffic_generator_manager.h"
 #include "udp_listener.h"
@@ -50,7 +49,6 @@ class StreamFrontend {
   void on_wifi_disconnected_();
   void handle_csi_packet_(wifi_csi_info_t *info);
   void transition_to_(WorkflowState next, const char *reason);
-  void maybe_run_ftm_manager_();
   void log_runtime_telemetry_();
 
   WiFiLifecycleManager wifi_lifecycle_;
@@ -59,7 +57,6 @@ class StreamFrontend {
   TrafficGeneratorManager traffic_generator_;
   UDPListener udp_listener_;
   CsiUdpSender udp_sender_;
-  FtmManager ftm_manager_;
   esp_event_handler_instance_t wifi_event_instance_{nullptr};
   bool setup_complete_{false};
   std::atomic<bool> wifi_connected_{false};
@@ -67,7 +64,6 @@ class StreamFrontend {
   std::atomic<bool> gain_lock_complete_{false};
   std::atomic<WorkflowState> state_{WorkflowState::WAIT_WIFI};
   uint64_t device_id_{0U};
-  uint32_t boot_id_{0U};
   uint32_t stream_seq_{0U};
   uint32_t last_csi_ms_{0U};
   uint8_t last_csi_channel_{0U};
@@ -77,7 +73,6 @@ class StreamFrontend {
   uint64_t stimulus_valid_total_{0U};
   uint64_t reference_frame_total_{0U};
   uint64_t filtered_total_{0U};
-  uint64_t traffic_rx_total_last_{0U};
   uint64_t last_log_ms_{0U};
   int wifi_retry_count_{0};
 };

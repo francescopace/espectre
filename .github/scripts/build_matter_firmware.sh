@@ -24,5 +24,5 @@ docker run --rm \
     set -euo pipefail
     idf.py -B ${BUILD_DIR} set-target ${MATTER_TARGET}
     idf.py -B ${BUILD_DIR} build
-    python -m esptool --chip ${MATTER_TARGET} merge-bin --pad-to-size 4MB -o /work/${MATTER_OUTPUT#${REPO_ROOT}/} @${BUILD_DIR}/flash_args
+    python -m esptool --chip ${MATTER_TARGET} merge_bin --pad-to-size 4MB -o /work/${MATTER_OUTPUT#${REPO_ROOT}/} @${BUILD_DIR}/flash_args
   "
