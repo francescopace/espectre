@@ -174,7 +174,7 @@ def calculate_percentile(values, percentile):
         percentile: Percentile to calculate (0-100)
     
     Returns:
-        float: Percentile value (0.0 if list is empty, matching C++ NBVICalibrator)
+        float: Percentile value (0.0 if list is empty, matching the C++ helper)
     """
     if not values:
         return 0.0

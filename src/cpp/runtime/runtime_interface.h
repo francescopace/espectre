@@ -1,9 +1,9 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 
 #include "threshold.h"
+#include "utils.h"
 #include "runtime_capabilities.h"
 #include "runtime_events.h"
 #include "runtime_snapshot.h"
@@ -44,12 +44,6 @@ struct RuntimeConfig {
   bool hampel_enabled{true};
   uint8_t hampel_window{7};
   float hampel_threshold{5.0f};
-  bool user_specified_subcarriers{false};
-  std::array<uint8_t, HT20_SELECTED_BAND_SIZE> selected_subcarriers{
-      DEFAULT_SUBCARRIERS[0], DEFAULT_SUBCARRIERS[1], DEFAULT_SUBCARRIERS[2], DEFAULT_SUBCARRIERS[3],
-      DEFAULT_SUBCARRIERS[4], DEFAULT_SUBCARRIERS[5], DEFAULT_SUBCARRIERS[6], DEFAULT_SUBCARRIERS[7],
-      DEFAULT_SUBCARRIERS[8], DEFAULT_SUBCARRIERS[9], DEFAULT_SUBCARRIERS[10], DEFAULT_SUBCARRIERS[11],
-  };
 };
 
 class IEspectreRuntime {

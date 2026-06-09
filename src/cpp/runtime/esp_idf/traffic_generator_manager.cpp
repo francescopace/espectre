@@ -278,8 +278,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
       bool needs_backoff = handle_send_error(error_state, sent, errno, esp_timer_get_time());
       
       // Adaptive backoff on ENOMEM: give WiFi stack time to recover
-      // This commonly happens during SPIFFS operations (calibration) which compete
-      // for memory with the LwIP network stack.
+      // during transient memory pressure in the WiFi/LwIP stack.
       if (needs_backoff) {
         vTaskDelay(pdMS_TO_TICKS(5));  // 5ms backoff on memory pressure
       }

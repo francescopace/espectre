@@ -48,13 +48,13 @@ def get_default_recall_target():
     return 95.0
 
 
-def get_nbvi_fp_rate_target():
-    """Match C++ get_fp_rate_target()."""
+def get_mvs_fp_rate_target():
+    """Match the shared MVS FP-rate target."""
     return 5.0
 
 
-def get_nbvi_recall_target():
-    """Match C++ get_nbvi_recall_target()."""
+def get_mvs_recall_target():
+    """Match the shared MVS recall target."""
     return 95.0
 
 
@@ -72,22 +72,21 @@ def format_targets_summary_line():
     """Build summary line from target getter functions."""
     return (
         "Targets: "
-        f"MVS default >{get_default_recall_target():.0f}% R, <{get_default_fp_rate_target():.1f}% FP | "
-        f"NBVI >{get_nbvi_recall_target():.0f}% R, <{get_nbvi_fp_rate_target():.1f}% FP | "
+        f"MVS >{get_default_recall_target():.0f}% R, <{get_default_fp_rate_target():.1f}% FP | "
         f"ML >{get_ml_recall_target():.0f}% R, <{get_ml_fp_rate_target():.1f}% FP"
     )
 
 
 @pytest.fixture
 def fp_rate_target(chip_type):
-    """NBVI FP-rate target fixture shared across test modules."""
-    return get_nbvi_fp_rate_target()
+    """MVS FP-rate target fixture shared across test modules."""
+    return get_mvs_fp_rate_target()
 
 
 @pytest.fixture
 def recall_target(chip_type):
-    """NBVI recall target fixture shared across test modules."""
-    return get_nbvi_recall_target()
+    """MVS recall target fixture shared across test modules."""
+    return get_mvs_recall_target()
 
 
 @pytest.fixture
@@ -525,7 +524,7 @@ def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
     
     Args:
         chip: Chip type (C3, C5, C6, ESP32, S3)
-        algorithm: Algorithm name (mvs_default, mvs_nbvi, ml)
+        algorithm: Algorithm name (mvs_default, mvs, ml)
         recall: Recall percentage
         fp_rate: False positive rate percentage
         precision: Precision percentage
@@ -580,7 +579,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line("                              PERFORMANCE SUMMARY TABLE (Python)")
     terminalreporter.write_line("=" * 105)
     terminalreporter.write_line("")
-    terminalreporter.write_line("| Chip   | MVS Default             | MVS + NBVI              | ML                      |")
+    terminalreporter.write_line("| Chip   | MVS Default             | MVS Runtime             | ML                      |")
     terminalreporter.write_line("|--------|-------------------------|-------------------------|-------------------------|")
     
     # Sort chips for consistent output
@@ -597,9 +596,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         else:
             mvs_default_str = "N/A"
         
-        # MVS + NBVI
-        if 'mvs_nbvi' in chip_results:
-            mvs = chip_results['mvs_nbvi']
+        # MVS runtime path
+        if 'mvs' in chip_results:
+            mvs = chip_results['mvs']
             mvs_str = f"{mvs['recall']:.1f}% R, {mvs['fp_rate']:.1f}% FP"
         else:
             mvs_str = "N/A"
@@ -631,7 +630,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         
         chip_results = results[chip]
         
-        for algo_key, algo_name in [('mvs_default', 'MVS Default'), ('mvs_nbvi', 'MVS + NBVI'), ('ml', 'ML')]:
+        for algo_key, algo_name in [('mvs_default', 'MVS Default'), ('mvs', 'MVS Runtime'), ('ml', 'ML')]:
             if algo_key in chip_results:
                 r = chip_results[algo_key]
                 terminalreporter.write_line(

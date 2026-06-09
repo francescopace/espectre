@@ -20,6 +20,7 @@ from repo_paths import models_dir, python_src_dir
 # Add src to path for imports
 sys.path.insert(0, str(python_src_dir()))
 
+from config import DEFAULT_SUBCARRIERS
 from ml_detector import (
     relu, sigmoid, normalize_features, predict, is_motion,
     MLDetector, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE
@@ -300,12 +301,12 @@ class TestMLDetectorProcessing:
     def test_process_packet_increments_count(self, detector, sample_csi_data):
         """Processing packet increments packet count."""
         initial = detector._packet_count
-        detector.process_packet(sample_csi_data, list(range(11, 23)))
+        detector.process_packet(sample_csi_data, DEFAULT_SUBCARRIERS)
         assert detector._packet_count == initial + 1
     
     def test_process_multiple_packets(self, detector, sample_csi_data):
         """Processing multiple packets fills buffer."""
-        subcarriers = list(range(11, 23))
+        subcarriers = DEFAULT_SUBCARRIERS
         for _ in range(10):
             detector.process_packet(sample_csi_data, subcarriers)
         
@@ -314,7 +315,7 @@ class TestMLDetectorProcessing:
     
     def test_update_state_before_ready(self, detector, sample_csi_data):
         """Update state before buffer is full returns default values."""
-        detector.process_packet(sample_csi_data, list(range(11, 23)))
+        detector.process_packet(sample_csi_data, DEFAULT_SUBCARRIERS)
         
         metrics = detector.update_state()
         
@@ -324,7 +325,7 @@ class TestMLDetectorProcessing:
     
     def test_update_state_after_ready(self, detector, sample_csi_data):
         """Update state after buffer is full runs inference."""
-        subcarriers = list(range(11, 23))
+        subcarriers = DEFAULT_SUBCARRIERS
         for _ in range(10):
             detector.process_packet(sample_csi_data, subcarriers)
         
@@ -338,7 +339,7 @@ class TestMLDetectorProcessing:
     def test_tracking_enabled(self, detector, sample_csi_data):
         """Test that tracking records data when enabled."""
         detector.track_data = True
-        subcarriers = list(range(11, 23))
+        subcarriers = DEFAULT_SUBCARRIERS
         
         for _ in range(10):
             detector.process_packet(sample_csi_data, subcarriers)
@@ -351,7 +352,7 @@ class TestMLDetectorProcessing:
     def test_tracking_disabled(self, detector, sample_csi_data):
         """Test that tracking does not record when disabled."""
         detector.track_data = False
-        subcarriers = list(range(11, 23))
+        subcarriers = DEFAULT_SUBCARRIERS
         
         for _ in range(10):
             detector.process_packet(sample_csi_data, subcarriers)
@@ -371,7 +372,7 @@ class TestExtractFeaturesIntegration:
         
         # Fill buffer with synthetic data
         csi_data = [20] * 128  # 64 subcarriers * 2
-        subcarriers = list(range(11, 23))
+        subcarriers = DEFAULT_SUBCARRIERS
         
         for _ in range(10):
             detector.process_packet(csi_data, subcarriers)
@@ -391,7 +392,7 @@ class TestMLDetectorMotionTracking:
         detector.track_data = True
         
         # Create varying CSI data to trigger motion
-        subcarriers = list(range(11, 23))
+        subcarriers = DEFAULT_SUBCARRIERS
         for i in range(10):
             # Vary data to create turbulence
             csi_data = [(20 + i * 5) % 127] * 128
@@ -409,7 +410,7 @@ class TestMLDetectorMotionTracking:
         detector = MLDetector(window_size=10, threshold=0.0)
         detector.track_data = True
         
-        subcarriers = list(range(11, 23))
+        subcarriers = DEFAULT_SUBCARRIERS
         for i in range(10):
             csi_data = [(20 + i * 5) % 127] * 128
             detector.process_packet(csi_data, subcarriers)
@@ -425,7 +426,7 @@ class TestMLDetectorMotionTracking:
         """Test that state changes to MOTION with low threshold."""
         detector = MLDetector(window_size=10, threshold=0.0)
         
-        subcarriers = list(range(11, 23))
+        subcarriers = DEFAULT_SUBCARRIERS
         for i in range(10):
             csi_data = [50] * 128
             detector.process_packet(csi_data, subcarriers)

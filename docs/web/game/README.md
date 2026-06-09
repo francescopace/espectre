@@ -136,7 +136,7 @@ END
 | `threshold` | Current motion detection threshold |
 | `window` | Segmentation window size (packets) |
 | `detector` | Active detector (`MVS` or `ML`) |
-| `subcarriers` | Subcarrier selection mode (`yaml` or `auto`) |
+| `subcarriers` | Fixed production subcarrier set |
 | `lowpass` | Low-pass filter status (`on`/`off`) |
 | `lowpass_cutoff` | Low-pass cutoff frequency (Hz) |
 | `hampel` | Hampel filter status (`on`/`off`) |
@@ -312,7 +312,7 @@ After connecting via BLE, the game displays a **System Info** panel showing the 
 |-------|-------------|
 | Threshold | Motion detection threshold |
 | Window | Segmentation window size |
-| Subcarriers | Selection mode (YAML config or NBVI auto-calibration) |
+| Subcarriers | Fixed shared production set |
 | Low-pass | Filter status and cutoff frequency |
 | Hampel | Filter status |
 | Traffic | Traffic generator rate |

@@ -142,7 +142,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_motion_binary_sensor(&binary_sensor);
   component.set_threshold_number(&threshold_number);
   component.set_calibrate_switch(&calibrate_switch);
-  component.set_selected_subcarriers({1, 2, 3, 4});
 
   component.set_threshold_mode("min");
   component.set_traffic_generator_mode("dns");
@@ -169,9 +168,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_EQUAL(90, component.ble_telemetry_interval_ms_);
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_movement_sensor());
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_motion_binary_sensor());
-  TEST_ASSERT_TRUE(component.runtime_config_.user_specified_subcarriers);
-  TEST_ASSERT_EQUAL(1, component.runtime_config_.selected_subcarriers[0]);
-  TEST_ASSERT_EQUAL(4, component.runtime_config_.selected_subcarriers[3]);
   TEST_ASSERT_EQUAL(0.0f, component.get_setup_priority() - esphome::setup_priority::AFTER_WIFI);
 }
 
@@ -331,7 +327,7 @@ void test_dump_config_covers_configuration_branches(void) {
   component.runtime_snapshot_.threshold = 4.2f;
   component.runtime_snapshot_.best_pxx = 0.42f;
   component.runtime_snapshot_.ready_to_publish = true;
-  component.runtime_snapshot_.subcarrier_source = RuntimeSubcarrierSource::MODEL_DEFAULT;
+  component.runtime_snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
   component.runtime_config_.threshold_mode = ThresholdMode::MANUAL;
   component.runtime_config_.traffic_generator_rate = 25;
   component.runtime_config_.traffic_generator_mode = RuntimeTrafficMode::DNS;
@@ -348,7 +344,7 @@ void test_dump_config_covers_configuration_branches(void) {
   component.runtime_config_.lowpass_enabled = false;
   component.runtime_config_.hampel_enabled = false;
   component.runtime_config_.gain_lock_mode = RuntimeGainLockMode::AUTO;
-  component.runtime_snapshot_.subcarrier_source = RuntimeSubcarrierSource::USER_CONFIGURED;
+  component.runtime_snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
   component.dump_config();
 
   TEST_ASSERT_TRUE(true);

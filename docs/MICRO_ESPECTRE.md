@@ -61,7 +61,7 @@ This fork makes CSI-based applications accessible to Python developers and enabl
 | ML Detector | ✅ | ✅ | Neural Network (experimental) |
 | ML Features (9) | ✅ | ✅ | mean, std, max, min, iqr, skewness, autocorr, mad, waveform_length |
 | **Calibration (MVS only)** |
-| NBVI | ✅ | ✅ | 12 non-consecutive subcarriers |
+| Fixed subcarriers | ✅ | ✅ | Shared 12-subcarrier production set |
 | Adaptive Threshold | ✅ | ✅ | P95 × 1.1 of baseline variance |
 | **Gain Lock** |
 | AGC/FFT Lock | ✅ | ✅ | Hardware gain stabilization (S3/C3/C5/C6) |
@@ -279,7 +279,7 @@ That's it! The device will now:
 - Connect to WiFi
 - Connect to MQTT broker
 - Start publishing motion detection data
-- Automatically calibrate subcarriers (NBVI algorithm)
+- Keep the shared fixed subcarrier set and bootstrap the MVS threshold
 
 ### 5. Monitor and Control
 
@@ -366,7 +366,6 @@ pytest test/python/test_segmentation.py::TestStateMachine -v
 | `test_features` | Unit | Synthetic | Production ML feature extraction (9 inputs) |
 | `test_segmentation` | Unit | Synthetic | MVS state machine, variance calculation |
 | `test_segmentation_additional` | Unit | Synthetic | Additional segmentation edge cases |
-| `test_nbvi_calibrator` | Unit | **Real** | NBVI subcarrier selection |
 | `test_ml_detector` | Unit | **Real** | ML detector, features, inference |
 | `test_ml_inference` | Unit | **Real** | ML inference matches C++ reference |
 | `test_mqtt` | Unit | Synthetic | MQTT handler and commands |
@@ -417,15 +416,11 @@ DETECTION_ALGORITHM = "mvs"   # "mvs" (default) or "ml"
 
 ### 3. Calibration Algorithm (MVS only)
 
-Selects which subcarriers to use for detection.
+Uses the shared production subcarrier set and computes the adaptive threshold from baseline data.
 
-```python
-CALIBRATION_ALGORITHM = "nbvi"  # NBVI is the sole calibration algorithm
-```
-
-| Algorithm | Selection | Best For |
-|-----------|-----------|----------|
-| **NBVI** | 12 non-consecutive subcarriers | Spectral diversity, resilient to interference |
+| Setting | Value | Purpose |
+|---------|-------|---------|
+| Threshold bootstrap | P95 × 1.1 baseline MV | MVS startup calibration |
 
 ### 4. Detection Parameters (MVS only)
 
@@ -488,19 +483,19 @@ The `tools/` directory contains Python scripts for CSI data analysis and algorit
 
 See [tools/README.md](../tools/README.md) for complete script documentation.
 
-## Automatic Subcarrier Selection
+## Fixed Subcarrier Set
 
-Micro-ESPectre implements automatic subcarrier selection using the **NBVI** (Normalized Band Variance Index) algorithm:
+Micro-ESPectre uses the same fixed subcarrier set as the production C++ runtime:
 
-- **NBVI**: Selects 12 non-consecutive subcarriers based on baseline variability index
+- **Fixed defaults**: Uses the shared 12-subcarrier production set and calibrates only the MVS threshold at boot
 
 Both algorithms achieve high performance (>90% recall, <15% FP rate) with **zero manual configuration**.
 
 > ⚠️ **IMPORTANT**: Keep the room **quiet and still** after device boot during calibration:
-> - **MVS**: ~13 seconds (gain lock + band calibration)
-> - **ML**: ~3 seconds (gain lock only, no band calibration needed)
+> - **MVS**: ~13 seconds (gain lock + threshold bootstrap)
+> - **ML**: ~3 seconds (gain lock only)
 
-For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md#subcarrier-selection-nbvi).
+For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md).
 
 ## Machine Learning
 
@@ -734,7 +729,7 @@ Publish JSON commands to `home/espectre/node1/cmd`:
   },
   "detection": {
     "algorithm": "MVS",
-    "calibrator": "nbvi",
+    "calibrator": "fixed_subcarriers",
     "threshold": 1.0,
     "window_size": 100,
     "publish_interval": 100,
@@ -742,7 +737,7 @@ Publish JSON commands to `home/espectre/node1/cmd`:
     "motion_on_hits": 3,
     "motion_off_hits": 3
   },
-  "subcarriers": {"indices": [6, 9, 10, 15, 18, 19, 30, 33, 36, 40, 49, 52]}
+  "subcarriers": {"indices": [12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]}
 }
 ```
 

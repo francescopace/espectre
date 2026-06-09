@@ -8,8 +8,8 @@ This document provides detailed performance metrics for ESPectre's motion detect
 
 | Scope | Metric | Target | Rationale |
 |-------|--------|--------|-----------|
-| MVS / NBVI | Recall | >95% | Minimize missed detections |
-| MVS / NBVI | FP Rate | <5% | Avoid false alarms |
+| MVS | Recall | >95% | Minimize missed detections |
+| MVS | FP Rate | <5% | Avoid false alarms |
 | ML | Recall | >95% | All chips use raw std (CV normalization disabled for ML) |
 | ML | FP Rate | <5% | Avoid false alarms |
 
@@ -21,7 +21,7 @@ Configuration used for all test results (unified across chips):
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Window Size | 100 | `DETECTOR_DEFAULT_WINDOW_SIZE` |
-| Calibration | NBVI | Auto-selects 12 non-consecutive subcarriers |
+| Calibration | Fixed subcarriers + threshold bootstrap | Shared 12-subcarrier set, adaptive threshold for MVS |
 | Hampel Filter | ON | Enabled for both MVS and ML (window=7, threshold=5.0 MAD) |
 | Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
 | CV Normalization | MVS only | Based on `gain_locked` metadata (`false` => apply CV norm for MVS) |
@@ -56,6 +56,7 @@ source .venv/bin/activate
 cmake -S test/cpp -B test/cpp/build
 cmake --build test/cpp/build
 ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
+ctest --test-dir test/cpp/build -R test_long_recordings --output-on-failure
 
 # Python (real-data validation)
 pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -v
@@ -68,28 +69,28 @@ pytest test/python/test_validation_long_recordings.py -v -s
 
 ## Current Results
 
-**Last verified:** 2026-05-21 (v2.8.0)
+**Last verified:** 2026-06-09 (fixed-subcarrier runtime, Python + C++)
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
 | ESP32-C3 | MVS Default | 98.5% | 100.0% | 0.0% | 99.3% |
-| ESP32-C3 | MVS + NBVI | 96.3% | 100.0% | 0.0% | 98.1% |
+| ESP32-C3 | MVS Runtime | 98.5% | 100.0% | 0.0% | 99.3% |
 | ESP32-C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-C5 | MVS Default | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32-C5 | MVS + NBVI | 99.0% | 100.0% | 0.0% | 99.5% |
+| ESP32-C5 | MVS Default | 99.4% | 99.4% | 0.9% | 99.4% |
+| ESP32-C5 | MVS Runtime | 99.4% | 99.4% | 0.9% | 99.4% |
 | ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32-C6 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
-| ESP32-C6 | MVS + NBVI | 99.6% | 100.0% | 0.0% | 99.8% |
+| ESP32-C6 | MVS Runtime | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
-| ESP32-S3 | MVS + NBVI | 99.7% | 100.0% | 0.0% | 99.9% |
+| ESP32-S3 | MVS Default | 99.7% | 99.5% | 0.7% | 99.6% |
+| ESP32-S3 | MVS Runtime | 99.7% | 99.5% | 0.7% | 99.6% |
 | ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32 | MVS Default | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32 | MVS + NBVI | 99.4% | 100.0% | 0.0% | 99.7% |
+| ESP32 | MVS Runtime | 99.4% | 100.0% | 0.0% | 99.7% |
 | ESP32 | ML | 99.1% | 100.0% | 0.0% | 99.5% |
 
-**MVS Default**: Uses default subcarriers.
-**MVS + NBVI**: Uses NBVI auto-calibration (production case).
+**MVS Default**: Uses fixed default subcarriers with adaptive threshold from baseline.
+**MVS Runtime**: Current production startup path; matches `MVS Default`.
 **ML**: Neural network with grouped session-level blocked CV for model selection, context-aware MVS-guided weights, and Hampel filtering. CV normalization is always disabled for ML (raw std only).
 
 ---
@@ -126,13 +127,13 @@ Partition layout uses two app slots (`app0`/`app1`, 1.81 MB each) plus a small `
 | Chip | Phase | Free Heap | Notes |
 |------|-------|-----------|-------|
 | ESP32-C3 | Post-setup | 179 KB | After ESPectre init |
-| ESP32-C3 | Post-calibration | 83 KB | After NBVI completes |
+| ESP32-C3 | Post-calibration | 83 KB | After startup calibration completes |
 | ESP32-C5 | Post-setup | 162 KB | After ESPectre init |
-| ESP32-C5 | Post-calibration | 71 KB | After NBVI completes |
+| ESP32-C5 | Post-calibration | 71 KB | After startup calibration completes |
 | ESP32-C6 | Post-setup | 272 KB | After ESPectre init |
-| ESP32-C6 | Post-calibration | 180 KB | After NBVI completes |
+| ESP32-C6 | Post-calibration | 180 KB | After startup calibration completes |
 | ESP32-S3 | Post-setup | 8425 KB | After ESPectre init (includes PSRAM heap) |
-| ESP32-S3 | Post-calibration | 8331 KB | After NBVI completes (includes PSRAM heap) |
+| ESP32-S3 | Post-calibration | 8331 KB | After startup calibration completes (includes PSRAM heap) |
 
 ---
 
@@ -170,19 +171,19 @@ Test data: `data/test/`
 Source of truth: `test/python/test_validation_long_recordings.py`
 
 Methodology:
-- `MVS + NBVI`: run NBVI calibration on the idle segment, then evaluate the full recording with adaptive threshold and Hampel enabled
+- `MVS Fixed`: keep the shared fixed subcarrier set, run baseline threshold bootstrap on the idle segment, then evaluate the full recording with adaptive threshold and Hampel enabled
 - `ML`: use exported production weights with threshold `5.0` and Hampel enabled
 - Both paths skip the first `100` packets of each segment as warmup when scoring packet-level metrics
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score | FP Count |
 |------|-----------|--------|-----------|---------|----------|----------|
-| C3 | MVS + NBVI | 100.0% | 100.0% | 0.0% | 100.0% | 0 |
+| C3 | MVS Fixed | 100.0% | 99.8% | 0.2% | 99.9% | 5 |
 | C3 | ML | 99.1% | 100.0% | 0.0% | 99.6% | 0 |
-| C5 | MVS + NBVI | 100.0% | 91.1% | 7.9% | 95.3% | 253 |
+| C5 | MVS Fixed | 100.0% | 87.9% | 11.1% | 93.5% | 357 |
 | C5 | ML | 100.0% | 91.1% | 7.9% | 95.3% | 253 |
-| C6 | MVS + NBVI | 100.0% | 81.4% | 21.8% | 89.7% | 691 |
+| C6 | MVS Fixed | 100.0% | 70.4% | 40.2% | 82.6% | 1270 |
 | C6 | ML | 89.5% | 96.2% | 3.4% | 92.7% | 108 |
-| S3 | MVS + NBVI | 100.0% | 96.9% | 2.8% | 98.4% | 86 |
+| S3 | MVS Fixed | 100.0% | 94.8% | 4.9% | 97.3% | 151 |
 | S3 | ML | 96.4% | 99.1% | 0.8% | 97.7% | 25 |
 
 ---
@@ -191,6 +192,8 @@ Methodology:
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
+| 2026-06-09 | v3.0.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-06-09 | v3.0.0 | C6 |  -   | MVS + Hampel | 99.7% | 100.0% | 0.0% | 99.9% |
 | 2026-05-21 | v2.8.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-05-21 | v2.8.0 | C6 | NBVI | MVS + Hampel| 99.6% | 100.0% | 0.0% | 99.8% |
 | 2026-03-11 | v2.6.1 | C6 |  -   | ML | 100.0% | 100.0% | 0.0% | 100.0% |

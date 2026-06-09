@@ -63,7 +63,7 @@ Dependency shape:
 │  ESP-IDF runtime (`EspIdfRuntime` today)                   │
 │   ├─ CSIManager                                            │
 │   ├─ WiFiLifecycleManager                                  │
-│   ├─ NBVICalibrator                                        │
+│   ├─ Fixed-subcarrier threshold bootstrap                  │
 │   ├─ TrafficGeneratorManager                               │
 │   └─ UDPListener                                           │
 └───────────────────────────┬────────────────────────────────┘
@@ -101,11 +101,11 @@ This is the part that can be embedded by other applications as a standalone libr
 - CSI ingress and normalization
 - Wi-Fi lifecycle handling
 - gain lock
-- calibration orchestration
+- startup calibration orchestration
 - traffic generation / UDP listener
 - runtime facade and event contract
 
-The shared runtime contract stays in `src/cpp/runtime/`, while the current ESP-IDF-specific implementation lives in `src/cpp/runtime/esp_idf/` and is currently implemented by `EspIdfRuntime`. Frontends talk to the runtime through `IEspectreRuntime`, not through `CSIManager`, `WiFiLifecycleManager`, `NBVICalibrator`, or other low-level managers directly.
+The shared runtime contract stays in `src/cpp/runtime/`, while the current ESP-IDF-specific implementation lives in `src/cpp/runtime/esp_idf/` and is currently implemented by `EspIdfRuntime`. Frontends talk to the runtime through `IEspectreRuntime`, not through `CSIManager`, `WiFiLifecycleManager`, or other low-level managers directly.
 
 ### `src/cpp/frontend/esphome/espectre/`
 

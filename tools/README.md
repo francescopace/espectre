@@ -14,7 +14,7 @@ All analysis tools support any ESP32 variant with CSI capability:
 
 Use `--chip <name>` to specify the chip (e.g., `--chip c3`, `--chip s3`). Most tools default to C6 if not specified.
 
-For algorithm documentation (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md](../docs/ALGORITHMS.md).
+For algorithm documentation (MVS, fixed subcarriers, Hampel filter), see [ALGORITHMS.md](../docs/ALGORITHMS.md).
 
 For production performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 
@@ -52,9 +52,9 @@ python 1_analyze_raw_data.py --chip C3 # Detailed analysis on latest C3 dataset
 
 ### 2. System Tuning (`2_analyze_system_tuning.py`)
 
-**Purpose**: Grid search for optimal MVS parameters
+**Purpose**: Grid search for optimal fixed-subcarrier MVS parameters
 
-- Tests subcarrier clusters, thresholds, and window sizes
+- Tests threshold and window-size combinations using the fixed production subcarriers
 - Shows confusion matrix for best configuration
 - Finds optimal parameter combinations
 
@@ -66,23 +66,7 @@ python 2_analyze_system_tuning.py --quick      # Reduced parameter space
 
 ---
 
-### 3. MVS Visualization (`3_analyze_moving_variance_segmentation.py`)
-
-**Purpose**: Visualize MVS algorithm behavior
-
-- Shows moving variance, threshold, and detection states
-- Displays confusion matrix and performance metrics
-- Validates current configuration
-
-```bash
-python 3_analyze_moving_variance_segmentation.py              # Use C6 dataset
-python 3_analyze_moving_variance_segmentation.py --chip S3    # Use S3 dataset
-python 3_analyze_moving_variance_segmentation.py --plot       # Show graphs
-```
-
----
-
-### 4. Filter Location Analysis (`4_analyze_filter_location.py`)
+### 3. Filter Location Analysis (`4_analyze_filter_location.py`)
 
 **Purpose**: Compare filter placement in processing pipeline
 
@@ -98,7 +82,7 @@ python 4_analyze_filter_location.py --plot       # Show visualizations
 
 ---
 
-### 5. Filter Turbulence Analysis (`5_analyze_filter_turbulence.py`)
+### 4. Filter Turbulence Analysis (`5_analyze_filter_turbulence.py`)
 
 **Purpose**: Compare how different filters affect turbulence and motion detection
 
@@ -120,14 +104,14 @@ python 5_analyze_filter_turbulence.py --optimize-filters  # Optimize parameters
 
 ---
 
-### 6. Filter Parameters Optimization (`6_optimize_filter_params.py`)
+### 5. Filter Parameters Optimization (`6_optimize_filter_params.py`)
 
 **Purpose**: Optimize low-pass and Hampel filter parameters
 
 - Optimizes low-pass cutoff frequency and threshold parameters
 - Grid search for Hampel filter parameters (window, threshold)
 - Auto-detects chip from baseline file metadata (ensures matching movement data)
-- Automatically selects optimal subcarrier band based on subcarrier count
+- Uses the fixed production subcarrier set
 - Finds optimal configuration for noisy environments
 
 ```bash
@@ -163,7 +147,7 @@ python 7_compare_detection_methods.py --plot       # Show 5×2 comparison
 **Purpose**: Visualize I/Q constellation diagrams
 
 - Compares baseline (stable) vs movement (dispersed) patterns
-- Shows all 64 subcarriers (HT20) + selected subcarriers
+- Shows all 64 subcarriers (HT20) plus the fixed production subcarriers
 - Reveals geometric signal characteristics
 
 ```bash
@@ -171,7 +155,6 @@ python 8_plot_constellation.py              # Use C6 dataset
 python 8_plot_constellation.py --chip S3    # Use S3 dataset
 python 8_plot_constellation.py --packets 1000
 python 8_plot_constellation.py --packets 200 --offset 50  # Start from packet 50
-python 8_plot_constellation.py --subcarriers 47,48,49,50
 python 8_plot_constellation.py --grid       # One subplot per subcarrier
 ```
 
@@ -268,8 +251,8 @@ python 1_analyze_raw_data.py
 # 2. Optimize parameters
 python 2_analyze_system_tuning.py --quick
 
-# 3. Visualize MVS
-python 3_analyze_moving_variance_segmentation.py --plot
+# 3. Compare filter placement
+python 4_analyze_filter_location.py --plot
 
 # 4. Run unit tests
 cd ..
@@ -302,11 +285,9 @@ Tested on 60-second noisy baseline with C6 chip:
 | Low-pass 11Hz only | 92.4% | 2.34% | 88.9% |
 | **Low-pass 11Hz + Hampel (W=9, T=4)** | **92.1%** | **0.84%** | **93.2%** |
 
-### Automatic Band Selection
+### Fixed Subcarriers
 
-**NBVI** achieves excellent results with zero configuration, automatically selecting the optimal 12 subcarriers for each environment.
-
-For complete algorithm documentation, see [ALGORITHMS.md](../docs/ALGORITHMS.md#subcarrier-selection-nbvi).
+ESPectre now uses one shared fixed 12-subcarrier set for both MVS and ML. The runtime calibration step tunes only the MVS threshold from baseline data.
 
 For detailed performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 
@@ -314,7 +295,7 @@ For detailed performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 
 ## Additional Resources
 
-- [ALGORITHMS.md](../docs/ALGORITHMS.md) - Algorithm documentation (MVS, NBVI calibration, Hampel)
+- [ALGORITHMS.md](../docs/ALGORITHMS.md) - Algorithm documentation (MVS, fixed subcarriers, Hampel)
 - [Micro-ESPectre](../docs/MICRO_ESPECTRE.md) - R&D platform documentation
 - [ESPectre](../README.md) - Main project with Home Assistant integration
 

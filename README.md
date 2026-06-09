@@ -1,7 +1,6 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
 [![ESPHome](https://img.shields.io/badge/ESPHome-Component-blue.svg)](https://esphome.io/)
 [![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
-[![Release](https://img.shields.io/github/v/release/francescopace/espectre)](https://github.com/francescopace/espectre/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
 
@@ -167,8 +166,8 @@ ESPectre uses a focused processing pipeline for motion detection:
        │
        ▼
 ┌─────────────┐
-│    Auto     │  Automatic subcarrier selection (once at boot)
-│ Calibration │  Selects optimal 12 subcarriers (NBVI)
+│   Startup   │  Fixed shared subcarriers + threshold bootstrap
+│ Calibration │  Keeps the same 12 subcarriers for MVS and ML
 └──────┬──────┘
        │
        ▼
@@ -236,13 +235,11 @@ same internal architecture now also supports an emerging Matter frontend and
 future local orchestration layers that can combine events from multiple sensors
 across the home.
 
-### Automatic Subcarrier Selection
+### Calibration
 
-ESPectre implements **NBVI** (Normalized Band Variance Index) for automatic subcarrier selection, achieving near-optimal performance (F1>96%) with **zero manual configuration**. The algorithm selects 12 non-consecutive subcarriers based on stability metrics and spectral diversity.
+> ⚠️ **IMPORTANT** (MVS mode): Keep the room **quiet and still** for about 10 seconds after device boot. The startup calibration runs during this time and movement will affect detection accuracy. ML skips this threshold bootstrap.
 
-> ⚠️ **IMPORTANT** (MVS mode): Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy. ML mode skips calibration.
-
-For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md#subcarrier-selection-nbvi).
+For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md).
 
 ---
 
@@ -378,7 +375,7 @@ CSI data represents only the properties of the transmission medium and does not 
 
 ## Technical Deep Dive
 
-For algorithm details (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md](docs/ALGORITHMS.md).
+For algorithm details (MVS, fixed subcarriers, Hampel filter), see [ALGORITHMS.md](docs/ALGORITHMS.md).
 
 For performance metrics (confusion matrix, F1-score, benchmarks), see [PERFORMANCE.md](docs/PERFORMANCE.md).
 
@@ -441,7 +438,7 @@ For local development, the repository CLI is rooted at `./espectre`:
 
 ## Future Evolution
 
-While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier selection), the project is now evolving along multiple connected directions: platform modularization, multi-frontend support, practical presence and occupancy inference, and later-stage research tracks.
+While ESPectre v2.x focuses on **motion detection** (MVS + adaptive threshold bootstrap), the project is now evolving along multiple connected directions: platform modularization, multi-frontend support, practical presence and occupancy inference, and later-stage research tracks.
 
 | Capability | Status | Description |
 |------------|--------|-------------|
@@ -479,7 +476,7 @@ The ML data collection and training infrastructure is documented in [ML_DATA_COL
 | Document | Description |
 |----------|-------------|
 | [Intro](docs/MICRO_ESPECTRE.md) | R&D platform overview, CLI, MQTT, Web Monitor |
-| [Algorithms](docs/ALGORITHMS.md) | Scientific documentation of MVS, NBVI calibration, Hampel filter |
+| [Algorithms](docs/ALGORITHMS.md) | Scientific documentation of MVS, fixed subcarriers, Hampel filter |
 | [Analysis Tools](tools/README.md) | CSI analysis and optimization scripts |
 | [ML Data Collection](docs/ML_DATA_COLLECTION.md) | Building labeled datasets for machine learning |
 | [References](docs/MICRO_ESPECTRE.md#references) | Academic papers and research resources |

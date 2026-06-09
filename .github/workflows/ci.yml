@@ -227,7 +227,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       
-      - name: Cache PlatformIO
+      - name: Cache ESPHome build toolchain
         id: cache
         uses: actions/cache@v5
         with:
@@ -301,7 +301,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       
-      - name: Restore PlatformIO Cache
+      - name: Restore ESPHome build toolchain cache
         uses: actions/cache@v5
         with:
           path: |
@@ -341,6 +341,7 @@ jobs:
         if: matrix.qemu_chip
         uses: ./.github/actions/qemu-smoke-test
         with:
+          config: ${{ matrix.config }}
           chip: ${{ matrix.qemu_chip }}
           arch: ${{ matrix.qemu_arch }}
           machine: ${{ matrix.qemu_machine }}

@@ -455,13 +455,10 @@ def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 *
         return None
 
     chip = str(entry.get('chip', '')).upper()
-    subcarriers = entry.get('subcarriers')
     best_name = None
     best_delta = None
     for candidate in dataset_info.get('files', {}).get(target_label, []):
         if chip and str(candidate.get('chip', '')).upper() != chip:
-            continue
-        if subcarriers is not None and candidate.get('subcarriers') not in (None, subcarriers):
             continue
         candidate_ts = _parse_iso_timestamp(candidate.get('collected_at'))
         candidate_name = candidate.get('filename')
@@ -578,14 +575,13 @@ def _is_temporally_paired(dataset_info, label, entry, max_delta_seconds=30 * 60)
     return abs((t2 - t1).total_seconds()) <= max_delta_seconds
 
 
-def build_gridsearch_tuning_map(dataset_info, default_subcarriers, default_threshold=1.0):
+def build_gridsearch_tuning_map(dataset_info, default_threshold=1.0):
     """
     Build per-file tuning map from dataset_info.
 
     Returns:
         dict: {
             filename: {
-                'subcarriers': list[int],
                 'threshold': float,
                 'mode': 'paired' | 'single-dataset fallback' | 'missing',
                 'confidence_factor': float,
@@ -599,13 +595,11 @@ def build_gridsearch_tuning_map(dataset_info, default_subcarriers, default_thres
             if not name:
                 continue
 
-            subcarriers = default_subcarriers
             threshold = float(entry.get('optimal_threshold_gridsearch', default_threshold))
             paired = _is_temporally_paired(dataset_info, label, entry)
             mode = 'paired' if paired else 'single-dataset fallback'
             confidence_factor = 1.0 if paired else 0.5
             tuning[name] = {
-                'subcarriers': list(subcarriers),
                 'threshold': threshold,
                 'mode': mode,
                 'confidence_factor': confidence_factor,
@@ -780,7 +774,7 @@ def load_all_data(environment_filter=None, excluded_chips=None):
 # Feature Extraction
 # ============================================================================
 
-def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
+def extract_features(packets, window_size=SEG_WINDOW_SIZE,
                      feature_names=None, return_metadata=False,
                      enable_hampel=True, hampel_window=HAMPEL_WINDOW, hampel_threshold=HAMPEL_THRESHOLD):
     """
@@ -792,7 +786,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
     Args:
         packets: List of CSI packets with 'csi_data' and 'label'
         window_size: Sliding window size (default: SEG_WINDOW_SIZE from config.py)
-        subcarriers: List of subcarrier indices to use (default: DEFAULT_SUBCARRIERS)
         feature_names: List of feature names to extract (default: DEFAULT_FEATURES)
         return_metadata: If True, return per-sample metadata
         enable_hampel: Enable Hampel outlier filter on turbulence (default: True)
@@ -806,9 +799,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
             - feature_names: List of feature names
             - sample_context: Dict of aligned per-sample grouping metadata
     """
-    if subcarriers is None:
-        subcarriers = DEFAULT_SUBCARRIERS
-    
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
     
@@ -853,7 +843,7 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE, subcarriers=None,
             csi_data = pkt['csi_data']
 
             turb, amps = SegmentationContext.compute_spatial_turbulence(
-                csi_data, subcarriers, use_cv_normalization=False
+                csi_data, DEFAULT_SUBCARRIERS, use_cv_normalization=False
             )
             ctx.add_turbulence(turb)
             last_amplitudes = amps
@@ -911,11 +901,9 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
     for source_file, file_packets in grouped.items():
         cfg = tuning_map.get(source_file, None)
         if cfg is None:
-            subcarriers = DEFAULT_SUBCARRIERS
             threshold = 1.0
             confidence_factor = 0.5
         else:
-            subcarriers = cfg['subcarriers']
             threshold = max(float(cfg['threshold']), 1e-6)
             confidence_factor = float(cfg['confidence_factor'])
         effective_threshold = (
@@ -927,7 +915,7 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
         file_weights = []
         for pkt in file_packets:
             turb, _ = SegmentationContext.compute_spatial_turbulence(
-                pkt['csi_data'], subcarriers, use_cv_normalization=False
+                pkt['csi_data'], DEFAULT_SUBCARRIERS, use_cv_normalization=False
             )
             ctx.add_turbulence(turb)
             ctx.update_state()
@@ -2452,14 +2440,13 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    subcarriers = DEFAULT_SUBCARRIERS
     if hidden_layers is None:
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
     
     print("\n" + "="*60)
     print("           ML MOTION DETECTOR TRAINING")
     print("="*60 + "\n")
-    print(f"Subcarriers: {subcarriers}\n")
+    print(f"Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}\n")
     
     # Check dependencies (suppress TensorFlow C++ warnings during import)
     try:
@@ -2535,7 +2522,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print("\nExtracting features...")
     features_start = perf_counter()
     X, y, actual_feature_names, sample_context = extract_features(
-        all_packets, subcarriers=subcarriers, feature_names=feature_names
+        all_packets, feature_names=feature_names
     )
     print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
     print(f"  Samples: {len(X)}")
@@ -2556,7 +2543,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print("\nComputing MVS-guided sample weights...")
     weights_start = perf_counter()
     dataset_info = load_dataset_info()
-    tuning_map = build_gridsearch_tuning_map(dataset_info, DEFAULT_SUBCARRIERS, default_threshold=1.0)
+    tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
     sample_weights = compute_mvs_guided_sample_weights(
         all_packets, tuning_map, window_size=SEG_WINDOW_SIZE
     )
@@ -3564,13 +3551,11 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     print("\nExtracting features...")
     X, y, feature_names, sample_context = extract_features(
         all_packets,
-        subcarriers=DEFAULT_SUBCARRIERS,
         feature_names=TRAINING_FEATURES,
     )
     dataset_info = load_dataset_info()
     tuning_map = build_gridsearch_tuning_map(
         dataset_info,
-        DEFAULT_SUBCARRIERS,
         default_threshold=1.0,
     )
     sample_weights = compute_mvs_guided_sample_weights(

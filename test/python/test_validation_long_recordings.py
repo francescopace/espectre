@@ -108,14 +108,14 @@ def _long_recording_uses_cv_normalization(baseline_packets, movement_packets):
 
 
 def _evaluate_mvs_long_recording(baseline_packets, movement_packets):
-    """Run production-style MVS + NBVI across a long recording split."""
+    """Run production-style MVS with fixed subcarriers across a long recording split."""
     use_cv_normalization = _long_recording_uses_cv_normalization(
         baseline_packets, movement_packets
     )
     selected_band, adaptive_threshold = run_calibration(
         baseline_packets,
         num_subcarriers=64,
-        algorithm="nbvi",
+        algorithm="fixed_default",
         hint_band=DEFAULT_SUBCARRIERS,
         mvs_window_size=SEG_WINDOW_SIZE,
         use_cv_normalization=use_cv_normalization,
@@ -246,7 +246,7 @@ class TestLongRecordings:
 
 
 class TestLongRecordingsMVS:
-    """Validate MVS + NBVI on the curated 60-second recordings."""
+    """Validate MVS with fixed subcarriers on the curated 60-second recordings."""
 
     _rows = []
 
@@ -261,7 +261,7 @@ class TestLongRecordingsMVS:
 
         print("")
         print("=" * 118)
-        print("                              LONG RECORDING MVS+NBVI SUMMARY")
+        print("                             LONG RECORDING MVS FIXED SUMMARY")
         print("=" * 118)
         print("| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count | CV Norm |")
         print("|--------|---------|-----------|---------|----------|----------|---------|")
@@ -274,8 +274,8 @@ class TestLongRecordingsMVS:
         print("-" * 118)
 
     @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
-    def test_mvs_nbvi_vs_test_recordings(self, long_dataset):
-        """Evaluate MVS + NBVI on the 60-second test recordings."""
+    def test_mvs_vs_test_recordings(self, long_dataset):
+        """Evaluate MVS with fixed subcarriers on the 60-second test recordings."""
         if long_dataset is None:
             pytest.skip("No long test recordings available in data/test")
 

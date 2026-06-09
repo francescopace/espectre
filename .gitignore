@@ -24,6 +24,7 @@ __pycache__/
 *.pyc
 *.pyo
 .cache
+.matplotlib/
 src/python/config_local.py
 
 # Virtual environment

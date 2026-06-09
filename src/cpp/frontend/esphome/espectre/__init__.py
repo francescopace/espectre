@@ -8,19 +8,10 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-from pathlib import Path
-
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, binary_sensor, number, switch
-from esphome.components.esp32 import add_extra_build_file, add_idf_sdkconfig_option
-
-# ESPHome 2026.2.0+ excludes unused ESP-IDF components by default
-# include_builtin_idf_component re-enables them when needed
-try:
-    from esphome.components.esp32 import include_builtin_idf_component
-except ImportError:
-    include_builtin_idf_component = None
+from esphome.components.esp32 import add_idf_sdkconfig_option
 from esphome.const import (
     CONF_ID,
     STATE_CLASS_MEASUREMENT,
@@ -42,7 +33,6 @@ CONF_PUBLISH_INTERVAL = "publish_interval"
 CONF_EVALUATION_INTERVAL = "evaluation_interval"
 CONF_MOTION_ON_HITS = "motion_on_hits"
 CONF_MOTION_OFF_HITS = "motion_off_hits"
-CONF_SELECTED_SUBCARRIERS = "selected_subcarriers"
 
 # Low-pass filter
 CONF_LOWPASS_ENABLED = "lowpass_enabled"
@@ -159,12 +149,6 @@ CONFIG_SCHEMA = cv.Schema({
     # Publish interval in packets (default: same as traffic_generator_rate, or 100 if traffic is 0)
     cv.Optional(CONF_PUBLISH_INTERVAL): cv.int_range(min=1, max=1000),
     
-    # Subcarrier selection (optional - if not specified, auto-calibrates at every boot)
-    cv.Optional(CONF_SELECTED_SUBCARRIERS): cv.All(
-        cv.ensure_list(cv.int_range(min=0, max=63)),
-        cv.Length(min=1, max=12)
-    ),
-    
     # Low-pass filter for noise reduction (disabled by default)
     cv.Optional(CONF_LOWPASS_ENABLED, default=False): cv.boolean,
     cv.Optional(CONF_LOWPASS_CUTOFF, default=11.0): cv.float_range(min=5.0, max=20.0),
@@ -270,20 +254,7 @@ FINAL_VALIDATE_SCHEMA = cv.All(
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
-    
-    # Add custom partitions.csv with SPIFFS for calibration buffer
-    # This allows the component to work without requiring users to manually copy partitions.csv
-    partitions_path = Path(__file__).parent / "partitions.csv"
-    if partitions_path.exists():
-        add_extra_build_file("partitions.csv", partitions_path)
-        # Tell PlatformIO to use our custom partition table
-        cg.add_platformio_option("board_build.partitions", "partitions.csv")
-    
-    # Re-enable SPIFFS ESP-IDF component (excluded by default since ESPHome 2026.2.0)
-    # Required because calibration_file_buffer.cpp includes esp_spiffs.h
-    if include_builtin_idf_component is not None:
-        include_builtin_idf_component("spiffs")
-    
+
     # Set required sdkconfig options for CSI functionality
     # These are automatically applied - user doesn't need to specify them in YAML
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_CSI_ENABLED", True)
@@ -317,10 +288,6 @@ async def to_code(config):
     cg.add(var.set_motion_off_hits(config[CONF_MOTION_OFF_HITS]))
     cg.add(var.set_ble_channel_enabled(config[CONF_BLE_CHANNEL_ENABLED]))
     cg.add(var.set_ble_telemetry_interval_ms(config[CONF_BLE_TELEMETRY_INTERVAL_MS]))
-    
-    # Configure subcarriers if specified
-    if CONF_SELECTED_SUBCARRIERS in config:
-        cg.add(var.set_selected_subcarriers(config[CONF_SELECTED_SUBCARRIERS]))
     
     # Configure Low-pass filter
     cg.add(var.set_lowpass_enabled(config[CONF_LOWPASS_ENABLED]))

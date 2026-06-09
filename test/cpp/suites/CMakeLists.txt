@@ -58,18 +58,8 @@ add_espectre_test(test_wifi_lifecycle
     LIBRARIES espectre_runtime_testlib
 )
 
-add_espectre_test(test_calibration_file_storage
-    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_calibration_file_storage.cpp"
-    LIBRARIES espectre_runtime_testlib
-)
-
 add_espectre_test(test_csi_manager
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_csi_manager.cpp"
-    LIBRARIES espectre_runtime_testlib
-)
-
-add_espectre_test(test_nbvi_calibrator
-    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_nbvi_calibrator.cpp"
     LIBRARIES espectre_runtime_testlib
 )
 
