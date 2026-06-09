@@ -19,17 +19,20 @@
       "-I../../../runtime/esp_idf",
       "-I."
     ],
-    "srcDir": ".",
+    "srcDir": "../../../",
     "srcFilter": [
-      "+<*.cpp>",
-      "-<espectre.cpp>",
-      "-<calibrate_switch.cpp>",
-      "-<sensor_publisher.cpp>",
-      "-<threshold_number.cpp>",
-      "-<traffic_generator_manager.cpp>",
-      "-<udp_listener.cpp>",
-      "-<wifi_lifecycle.cpp>",
-      "-<esp_idf_runtime.cpp>"
+      "+<core/base_detector.cpp>",
+      "+<core/csi_filters.cpp>",
+      "+<core/ml_detector.cpp>",
+      "+<core/mvs_detector.cpp>",
+      "+<runtime/esp_idf/csi_manager.cpp>",
+      "+<runtime/esp_idf/csi_payload_normalizer.cpp>",
+      "+<runtime/esp_idf/csi_platform_config.cpp>",
+      "+<runtime/esp_idf/esp_idf_runtime.cpp>",
+      "+<runtime/esp_idf/gain_controller.cpp>",
+      "+<runtime/esp_idf/traffic_generator_manager.cpp>",
+      "+<runtime/esp_idf/udp_listener.cpp>",
+      "+<runtime/esp_idf/wifi_lifecycle.cpp>"
     ]
   }
 }

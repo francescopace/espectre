@@ -12,7 +12,7 @@
 
 #include "esp_err.h"
 #include "esp_wifi.h"
-#include "wifi_csi_interface.h"
+#include "../../../runtime/esp_idf/wifi_csi_interface.h"
 
 namespace esphome {
 namespace espectre {

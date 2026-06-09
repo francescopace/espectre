@@ -37,7 +37,7 @@ paths.
 
 - [x] Core / runtime / frontend split
 - [x] Runtime contract and platform boundaries
-- [ ] ESPHome frontend fully stabilized on the shared platform
+- [x] ESPHome frontend stabilized without symlink-dependent packaging
 - [ ] Matter frontend completed beyond the current experimental stage
 - [ ] Custom firmware assembly productized from shared platform layers
 - [ ] Presence / occupancy baselines validated for broader use

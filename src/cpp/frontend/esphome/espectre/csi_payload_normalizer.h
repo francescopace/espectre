@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include "utils.h"
+#include "../../../core/utils.h"
 
 namespace esphome {
 namespace espectre {

@@ -24,6 +24,7 @@ PyWavelets>=1.9.0       # Wavelet transforms (pywt)
 # Test Dependencies
 pytest>=9.0.3           # Test framework
 pytest-cov>=7.1.0       # Coverage plugin for pytest
+markdown>=3.10.2        # Static documentation builder
 
 # Code Coverage (C++ tests)
 gcovr>=8.6              # Code coverage reports for C++ tests

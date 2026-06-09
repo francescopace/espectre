@@ -1,0 +1,136 @@
+.flash-page .flash-main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 8rem 1.5rem 4rem;
+}
+
+.flash-hero {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.flash-hero h1 {
+    font-size: clamp(2.5rem, 6vw, 4rem);
+    margin-bottom: 0.75rem;
+}
+
+.flash-subtitle,
+.flash-copy {
+    color: var(--text-secondary);
+}
+
+.flash-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.flash-card {
+    background: rgba(26, 26, 36, 0.92);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 1.5rem;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}
+
+.flash-card h2 {
+    margin-bottom: 0.75rem;
+}
+
+.flash-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+.flash-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.flash-field span {
+    font-weight: 600;
+}
+
+.flash-field select {
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: rgba(10, 10, 15, 0.9);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 1rem;
+}
+
+.flash-summary,
+.flash-status {
+    min-height: 3rem;
+    padding: 0.85rem 1rem;
+    border-radius: 14px;
+    background: rgba(10, 10, 15, 0.7);
+    border: 1px solid rgba(42, 42, 58, 0.9);
+}
+
+.flash-summary {
+    margin-bottom: 0.75rem;
+}
+
+.flash-status {
+    color: var(--text-secondary);
+}
+
+.flash-status.is-error {
+    color: #ff9a9a;
+    border-color: rgba(255, 80, 80, 0.4);
+}
+
+.flash-status.is-ready {
+    color: var(--accent);
+    border-color: rgba(0, 212, 170, 0.35);
+}
+
+.flash-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 1.25rem;
+}
+
+.flash-actions esp-web-install-button {
+    min-width: 220px;
+}
+
+.flash-list {
+    padding-left: 1.1rem;
+    color: var(--text-secondary);
+}
+
+.flash-list li + li {
+    margin-top: 0.6rem;
+}
+
+@media (max-width: 920px) {
+    .flash-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .flash-page .flash-main {
+        padding-top: 7rem;
+    }
+
+    .flash-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .flash-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

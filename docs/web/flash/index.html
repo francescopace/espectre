@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESPectre | Web Flash</title>
+    <meta name="description" content="Flash ESPectre firmware from the browser. Choose ESPHome or Matter, then pick stable or main builds.">
+    <meta name="keywords" content="ESPectre, firmware, flash, ESP32, ESPHome, Matter, Web Serial">
+    <meta name="author" content="Francesco Pace">
+    <link rel="canonical" href="https://espectre.dev/flash/">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👻</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/flash/flash.css">
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+</head>
+
+<body class="flash-page">
+    <canvas id="cosmic-bg"></canvas>
+
+    <header id="site-header">
+        <noscript>
+            <a href="/" class="logo">ESPectre</a>
+            <nav>
+                <a href="/">Home</a>
+                <a href="https://github.com/francescopace/espectre">GitHub</a>
+            </nav>
+        </noscript>
+    </header>
+
+    <main class="flash-main">
+        <section class="flash-hero">
+            <div class="hero-badge">
+                <span class="dot"></span>
+                <span>Browser flashing for ESPectre firmware</span>
+            </div>
+            <h1>Web Flash</h1>
+            <p class="flash-subtitle">
+                Select the frontend, release channel, and chip, then flash the
+                matching factory firmware directly from a Chromium-based browser.
+            </p>
+        </section>
+
+        <section class="flash-layout">
+            <div class="flash-card">
+                <h2>Select Firmware</h2>
+                <p class="flash-copy">The page loads firmware manifests from GitHub Releases. `stable` tracks the latest official release, while `main` tracks the rolling snapshot release.</p>
+
+                <div class="flash-grid">
+                    <label class="flash-field">
+                        <span>Frontend</span>
+                        <select id="frontend-select">
+                            <option value="esphome">ESPHome</option>
+                            <option value="matter">Matter</option>
+                        </select>
+                    </label>
+
+                    <label class="flash-field">
+                        <span>Channel</span>
+                        <select id="channel-select">
+                            <option value="stable">Stable</option>
+                            <option value="main">Main</option>
+                        </select>
+                    </label>
+
+                    <label class="flash-field">
+                        <span>Chip</span>
+                        <select id="chip-select"></select>
+                    </label>
+
+                    <label id="algorithm-field" class="flash-field">
+                        <span>Detector</span>
+                        <select id="algorithm-select"></select>
+                    </label>
+                </div>
+
+                <div id="flash-summary" class="flash-summary"></div>
+                <div id="flash-status" class="flash-status" role="status"></div>
+
+                <div class="flash-actions">
+                    <esp-web-install-button id="install-button"></esp-web-install-button>
+                    <a id="download-link" class="btn btn-secondary" href="#" target="_blank" rel="noopener noreferrer">
+                        <i class="fas fa-download"></i> Download Binary
+                    </a>
+                </div>
+            </div>
+
+            <aside class="flash-sidebar">
+                <div class="flash-card">
+                    <h2>Requirements</h2>
+                    <ul class="flash-list">
+                        <li>Chrome, Edge, or another Chromium-based browser with Web Serial support.</li>
+                        <li>A USB data cable and direct serial access to the board.</li>
+                        <li>`ESPHome` for Home Assistant users, or `Matter` for controller-based commissioning.</li>
+                    </ul>
+                </div>
+
+                <div class="flash-card">
+                    <h2>Frontend Notes</h2>
+                    <ul class="flash-list">
+                        <li><strong>ESPHome:</strong> after flashing, provision Wi-Fi via BLE, USB, or captive portal and then wait for Home Assistant discovery.</li>
+                        <li><strong>Matter:</strong> after flashing, commission the device with a Matter controller.</li>
+                        <li><strong>ESP32-S2:</strong> not available for the current Matter frontend because the implementation relies on BLE commissioning.</li>
+                    </ul>
+                </div>
+
+                <div class="flash-card">
+                    <h2>Fallback</h2>
+                    <p class="flash-copy">If Web Serial is unavailable or your browser blocks the installer, use the download button and flash manually with your preferred ESP32 tool.</p>
+                </div>
+            </aside>
+        </section>
+    </main>
+
+    <footer id="site-footer"></footer>
+
+    <script src="/components.js"></script>
+    <script>loadHeader(); loadFooter();</script>
+    <script src="/cosmic-bg.js"></script>
+    <script src="/analytics.js"></script>
+    <script type="module" src="/flash/flash.js"></script>
+</body>
+
+</html>

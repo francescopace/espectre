@@ -9,7 +9,7 @@
 **Privacy-first Wi-Fi sensing platform based on CSI, with native Home Assistant integration via ESPHome, an emerging Matter frontend, and a path toward multi-device home orchestration.**
 
 > [!TIP]
-> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or follow the [Setup guide](docs/SETUP.md#choosing-detection-algorithm) for custom configuration.
+> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or use the browser-based [web flasher](https://espectre.dev/flash/) / [Setup guide](docs/SETUP.md#choosing-detection-algorithm) for custom configuration.
 
 ---
 
@@ -59,7 +59,7 @@
 
 - **Home Assistant** (on Raspberry Pi, PC, NAS, or cloud)
 - **ESPHome** (integrated in Home Assistant or standalone)
-- **Matter tooling** (optional, experimental, for local repository workflows)
+- **Matter tooling** (optional, experimental, now also available as pre-built firmware for ESP32, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6)
 
 ### Required Skills
 
@@ -75,7 +75,7 @@
 **Setup time**: ~10-15 minutes  
 **Difficulty**: Easy (YAML configuration only)
 
-1. **Setup & Installation**: Follow the complete guide in [SETUP.md](docs/SETUP.md)
+1. **Setup & Installation**: Follow the complete guide in [SETUP.md](docs/SETUP.md) or go directly to the [web flasher](https://espectre.dev/flash/)
 2. **Tuning**: Optimize for your environment with [TUNING.md](docs/TUNING.md)
 3. **Local repo workflows**: use `./espectre esphome ...`, `./espectre matter ...`, `./espectre streamer ...`, and `./espectre micro ...` when building or testing directly from this repository (`./me` remains a temporary legacy shim for the micro workflow)
 
@@ -281,7 +281,7 @@ This split keeps the current ESPHome behavior intact while enabling:
 - custom firmware targets built from the same reusable platform layers
 - future local services that aggregate normalized signals from multiple devices
 
-The experimental Matter firmware under `src/cpp/frontend/matter/` now builds through managed `espressif/esp_matter` dependencies and has been smoke-tested on real ESP32-C3 hardware.
+The experimental Matter firmware under `src/cpp/frontend/matter/` now builds through managed `espressif/esp_matter` dependencies. The current recorded hardware smoke test is on real `ESP32-C3` hardware, while the broader published-target validation matrix is tracked in [SETUP.md](docs/SETUP.md#matter-hardware-validation-matrix).
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the detailed rationale, folder structure, and reuse model.
 

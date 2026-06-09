@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
 - **Internal architecture refactored**: the firmware codebase is now split into `core`, `runtime`, and `frontend` layers to separate reusable detection logic from ESP-IDF orchestration and ESPHome integration.
 - **ESPHome kept as the production frontend**: the existing ESPHome component model is preserved while the implementation now lives under the new `src/` layout.
 - **Foundation prepared for future frontends and runtimes**: the runtime contract is now explicit, making it possible to add a Matter frontend or alternate runtimes without cloning the motion pipeline.
+- **ESPHome packaging no longer depends on repository symlinks**: shared code is now wired from canonical `core` / `runtime` sources, making ESPHome builds more reliable on Windows and in checkout/archive workflows where symlinks may be lost.
+- **Matter firmware is now part of the published firmware surface**: CI, stable releases, snapshot releases, and the web flasher can all resolve Matter artifacts for all supported Matter targets except `ESP32-S2`.
 
 ### Added
 
@@ -25,6 +27,10 @@ All notable changes to this project will be documented in this file.
   - ESP-IDF firmware app under `src/cpp/frontend/matter/app/` with `main/idf_component.yml`
   - host-side tests in `test_matter_frontend`
   - verified `esp32c3` build/flash path using ESP-IDF managed toolchains and component registry dependencies
+- **Published firmware manifests for the web flasher**:
+  - stable manifest attached to official GitHub releases
+  - main/snapshot manifest attached to the rolling `snapshot` release
+  - browser-side frontend/channel/chip selection on `espectre.dev/flash/`
 - **Runtime/core logging decoupled from ESPHome headers** via `espectre_log.h`, so non-ESPHome frontends can reuse the same runtime sources.
 - **Frontend-oriented runtime contract** with:
   - `IEspectreRuntime`
@@ -38,6 +44,8 @@ All notable changes to this project will be documented in this file.
 - **NBVI removed from the active runtime path**: MVS now uses the same fixed 12-subcarrier set as ML, startup calibration computes only the adaptive threshold in RAM, and no disk-backed calibration buffer is required anymore.
 - **Subcarrier selection fully centralized and fixed across the repo**: C++ runtime, Micro-ESPectre, tests, and analysis/training tools now all use the same shared default set `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`; runtime/config override paths were removed and related docs/tooling were simplified accordingly.
 - **SPIFFS removed from active firmware layouts**: ESPHome now relies on the default board partition table, while Matter keeps a custom layout without SPIFFS so more flash can be allocated to OTA app slots and the runtime matches the new in-RAM startup flow.
+- **Matter ESP32-C5 build flow simplified**: `idf.py set-target esp32c5` now uses the same standard path as the other published Matter targets; the repository and CI no longer need a special `--preview` branch for ESP-IDF 5.5.
+- **Matter CI now includes QEMU boot smoke coverage for `ESP32`, `ESP32-S3`, and `ESP32-C3`**: the shared QEMU action can now consume either ESPHome builds or prebuilt Matter merged images, so the emulatable Matter targets get crash/boot regression coverage in addition to plain artifact builds.
 - **`ESpectreComponent` is now a thin frontend adapter**: setup/orchestration responsibilities were moved behind the runtime facade.
 - **ESPHome local development path now uses `src/cpp/frontend/esphome`** as the external-components root.
 - **Native tests and CI build plumbing were updated** to follow the new `src/` layout.
@@ -46,6 +54,7 @@ All notable changes to this project will be documented in this file.
 - **Host-side C++ tests now use a layered `CMake + CTest` suite under `test/`**: PlatformIO-specific scaffolding was removed, suites were regrouped by `core` / `runtime` / `integration` / `frontend`, shared support code was consolidated, and coverage reporting now includes per-layer breakdowns.
 - **Matter firmware startup ordering was hardened** so the shared runtime initializes after `esp_matter::start()`, allowing the Matter stack to bring up Wi-Fi before CSI-specific runtime configuration runs.
 - **Documentation was aligned** to the new structure, `.venv` activation flow, and the practical ESP32-C3 Matter build/flash workflow.
+- **ESPHome build metadata now points directly at shared sources** instead of relying on symlinked files inside the component directory.
 - **Project narrative was realigned around the new platform direction**:
   - `README.md` now presents ESPectre as a modular Wi-Fi sensing platform, not only as a single ESPHome motion sensor
   - `ROADMAP.md` now promotes `v3` as the `core` / `runtime` / `frontend` platform phase with `Matter`, `v4` as a local web/orchestration layer, and keeps 3D localization as a stage-gated research track

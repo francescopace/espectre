@@ -3,6 +3,8 @@
 Quick guide to tune ESPectre for reliable movement detection in your environment.
 
 > **Note on Detection Algorithms**: This guide focuses on **MVS** (the default detection algorithm). Filters (low-pass, Hampel) apply to both MVS and ML detectors.
+>
+> **Frontend scope**: This tuning guide is primarily for the `ESPHome` frontend. The current `Matter` frontend exposes threshold and recalibration through its Matter surface, but it does not mirror the full Home Assistant-oriented workflow described here.
 
 ---
 

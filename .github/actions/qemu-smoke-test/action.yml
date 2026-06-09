@@ -4,7 +4,13 @@ description: 'Run ESP32 firmware smoke test in QEMU emulator'
 inputs:
   config:
     description: 'ESPHome config path used for the build'
-    required: true
+    required: false
+  firmware:
+    description: 'Path to a prebuilt firmware image already suitable for QEMU flash'
+    required: false
+  elf:
+    description: 'Optional ELF path used for stack trace decoding'
+    required: false
   chip:
     description: 'ESP32 chip variant (esp32, esp32s3, esp32c3, esp32c6)'
     required: true
@@ -29,23 +35,45 @@ runs:
       id: firmware
       shell: bash
       run: |
-        CONFIG_DIR=$(dirname "${{ inputs.config }}")
-        BUILD_DIR="$CONFIG_DIR/.esphome/build/espectre/.pioenvs/espectre"
-        FIRMWARE="$BUILD_DIR/firmware.factory.bin"
-        ELF="$BUILD_DIR/firmware.elf"
-        if [ ! -f "$FIRMWARE" ]; then
-          echo "Error: firmware.factory.bin not found"
+        if [ -n "${{ inputs.firmware }}" ]; then
+          FIRMWARE="${{ inputs.firmware }}"
+          ELF="${{ inputs.elf }}"
+          MERGED="true"
+        elif [ -n "${{ inputs.config }}" ]; then
+          CONFIG_DIR=$(dirname "${{ inputs.config }}")
+          BUILD_DIR="$CONFIG_DIR/.esphome/build/espectre/.pioenvs/espectre"
+          FIRMWARE="$BUILD_DIR/firmware.factory.bin"
+          ELF="$BUILD_DIR/firmware.elf"
+          MERGED="false"
+        else
+          echo "Error: either 'config' or 'firmware' input is required"
           exit 1
         fi
+
+        if [ ! -f "$FIRMWARE" ]; then
+          echo "Error: firmware image not found at $FIRMWARE"
+          exit 1
+        fi
+
+        if [ -n "$ELF" ] && [ ! -f "$ELF" ]; then
+          echo "Warning: ELF file not found at $ELF; stack traces will remain raw"
+          ELF=""
+        fi
+
         echo "path=$FIRMWARE" >> $GITHUB_OUTPUT
         echo "elf=$ELF" >> $GITHUB_OUTPUT
+        echo "merged=$MERGED" >> $GITHUB_OUTPUT
         echo "Found firmware: $FIRMWARE"
 
     - name: Prepare flash image
       shell: bash
       run: |
-        pip install esptool
-        python -m esptool --chip ${{ inputs.chip }} merge-bin --pad-to-size 4MB -o /tmp/flash_qemu.bin 0x0 "${{ steps.firmware.outputs.path }}"
+        if [ "${{ steps.firmware.outputs.merged }}" = "true" ]; then
+          cp "${{ steps.firmware.outputs.path }}" /tmp/flash_qemu.bin
+        else
+          pip install esptool
+          python -m esptool --chip ${{ inputs.chip }} merge-bin --pad-to-size 4MB -o /tmp/flash_qemu.bin 0x0 "${{ steps.firmware.outputs.path }}"
+        fi
         ls -lh /tmp/flash_qemu.bin
 
     - name: Pull Docker image

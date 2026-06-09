@@ -39,6 +39,7 @@ function loadHeader(options = {}) {
         </button>
         <nav>
             ${firstNavItem}
+            <a href="/flash/"><i class="fas fa-microchip"></i> Flash</a>
             <a href="https://github.com/francescopace/espectre/issues"><i class="fas fa-bug"></i> Issues</a>
             <a href="https://github.com/francescopace/espectre/discussions"><i class="fas fa-comments"></i> Discussions</a>
             <div class="nav-dropdown nav-dropdown-right">

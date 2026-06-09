@@ -39,6 +39,9 @@ IDF_FRONTENDS = {
         "targets": {
             "esp32": "esp32",
             "c3": "esp32c3",
+            "c5": "esp32c5",
+            "c6": "esp32c6",
+            "s3": "esp32s3",
         },
     },
     "streamer": {

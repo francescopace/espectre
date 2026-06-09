@@ -23,11 +23,11 @@
 #include <string>
 #include <vector>
 
-#include "runtime_capabilities.h"
-#include "runtime_events.h"
-#include "runtime_interface.h"
-#include "runtime_snapshot.h"
 #include "sensor_publisher.h"
+#include "../../../runtime/runtime_capabilities.h"
+#include "../../../runtime/runtime_events.h"
+#include "../../../runtime/runtime_interface.h"
+#include "../../../runtime/runtime_snapshot.h"
 
 namespace esphome {
 namespace esp32_ble_server {

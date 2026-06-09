@@ -66,8 +66,8 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , state_(other.state_)
     , total_packets_(other.total_packets_)
     , packet_index_(other.packet_index_)
-    , lowpass_state_(other.lowpass_state_)
     , hampel_state_(other.hampel_state_)
+    , lowpass_state_(other.lowpass_state_)
     , use_cv_normalization_(other.use_cv_normalization_) {
     // Transfer ownership - null out source pointer
     other.turbulence_buffer_ = nullptr;

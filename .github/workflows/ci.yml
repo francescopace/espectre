@@ -354,3 +354,68 @@ jobs:
           path: qemu_output.log
           retention-days: 7
 
+  build-matter:
+    name: ${{ matrix.qemu_machine && 'Smoke Test Matter' || 'Build Matter' }} ${{ matrix.chip }}
+    runs-on: ubuntu-latest
+    needs: detect-push-origin
+    if: needs.detect-push-origin.outputs.run_ci == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: ESP32
+            target: esp32
+            qemu_arch: xtensa
+            qemu_machine: esp32
+          - chip: ESP32-C3
+            target: esp32c3
+            qemu_arch: riscv32
+            qemu_machine: esp32c3
+          - chip: ESP32-C5
+            target: esp32c5
+          - chip: ESP32-C6
+            target: esp32c6
+          - chip: ESP32-S3
+            target: esp32s3
+            qemu_arch: xtensa
+            qemu_machine: esp32s3
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache Matter toolchain and components
+        uses: actions/cache@v5
+        with:
+          path: |
+            .github/.cache/matter-home
+            src/cpp/frontend/matter/app/managed_components
+          key: matter-${{ matrix.target }}-${{ hashFiles('src/cpp/**') }}
+          restore-keys: |
+            matter-${{ matrix.target }}-
+
+      - name: Build Matter firmware
+        run: |
+          mkdir -p output
+          .github/scripts/build_matter_firmware.sh
+        env:
+          MATTER_TARGET: ${{ matrix.target }}
+          MATTER_OUTPUT: ${{ github.workspace }}/output/espectre-matter-ci-${{ matrix.target }}.bin
+
+      - name: Run Matter QEMU smoke test
+        if: matrix.qemu_machine
+        uses: ./.github/actions/qemu-smoke-test
+        with:
+          firmware: ${{ github.workspace }}/output/espectre-matter-ci-${{ matrix.target }}.bin
+          elf: ${{ github.workspace }}/src/cpp/frontend/matter/app/build-${{ matrix.target }}/espectre-matter.elf
+          chip: ${{ matrix.target }}
+          arch: ${{ matrix.qemu_arch }}
+          machine: ${{ matrix.qemu_machine }}
+
+      - name: Upload Matter QEMU logs
+        if: matrix.qemu_machine && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qemu-matter-logs-${{ matrix.qemu_machine }}
+          path: qemu_output.log
+          retention-days: 7
+

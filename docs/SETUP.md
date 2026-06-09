@@ -1,13 +1,14 @@
 # Setup Guide
 
-Complete guide to install and configure ESPectre with ESPHome.
+Complete guide to install and configure ESPectre with ESPHome or Matter.
 
-Choose one of the two installation methods below:
+Choose one of the installation methods below:
 
 | Method | Best for | Tools |
 |--------|----------|-------|
-| **Option A** | End users, quick setup | Chrome + ESPConnect |
+| **Option A** | End users, quick setup | Chromium browser + ESPectre Web Flash |
 | **Option B** | Developers, customization | Python + ESPHome CLI |
+| **Option C** | Matter development / custom workflows | ESP-IDF + repository CLI |
 
 ---
 ## Option A: Web Flash (no coding required)
@@ -16,31 +17,43 @@ Choose one of the two installation methods below:
 
 **Hardware:**
 - **ESP32 board** with CSI support:
-  - ✅ Tested: ESP32-S3, ESP32-C6, ESP32-C5, ESP32-C3, ESP32 (original)
-  - ⚠️ Experimental: ESP32-S2
+  - **ESPHome frontend**: ESP32-S3, ESP32-C6, ESP32-C5, ESP32-C3, ESP32 (original), ESP32-S2 (experimental)
+  - **Matter frontend**: ESP32, ESP32-S3, ESP32-C3, ESP32-C5, ESP32-C6
 - **USB cable** (USB-C or Micro-USB, depending on your board)
 - **Wi-Fi router** (2.4 GHz, 802.11b/g/n/ax)
 
 **Software:**
-- Google Chrome browser (required for Web Serial API)
+- Chrome, Edge, or another Chromium-based browser with Web Serial support
 
-### 1. Download Firmware
+### 1. Open the Web Flasher
 
-Go to [Releases](https://github.com/francescopace/espectre/releases/latest) and download the `.bin` file for your chip (e.g., `espectre-2.5.0-esp32c6.bin`).
+Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
+
+- the firmware **frontend**: `ESPHome` or `Matter`
+- the firmware **channel**:
+  - `stable` for the latest official release
+  - `main` for the rolling snapshot build from the `main` branch
+- your target **chip**
+
+For `ESPHome`, the web flasher also lets you choose the detector variant:
+
+- `MVS` for the default variance-based detector
+- `ML` for the neural-network detector (`-ml` assets)
 
 ### 2. Flash Firmware
 
-1. Open [ESPConnect](https://thelastoutpostworkshop.github.io/ESPConnect/) in Chrome
-2. Connect your ESP32 via USB
-3. Click **Connect** and select the serial port
-4. Select the `.bin` file you downloaded
-5. Click **Flash**
+1. Connect your ESP32 via USB
+2. Click **Connect**
+3. Select the serial port
+4. Confirm the flash in the browser prompt
 
-![ESPConnect](images/ESPConnect.png)
+If your browser does not support Web Serial, the same page exposes a direct download link for the selected binary so you can flash it manually with your preferred ESP32 flashing tool.
 
-### 3. Configure WiFi
+### 3. Finish Setup
 
-After flashing, configure WiFi using one of these methods:
+#### ESPHome frontend
+
+After flashing `ESPHome`, configure WiFi using one of these methods:
 
 | Method | How |
 |--------|-----|
@@ -49,6 +62,16 @@ After flashing, configure WiFi using one of these methods:
 | **Captive Portal** | Connect to "ESPectre Fallback" WiFi → Configure in browser |
 
 That's it! The device will be automatically discovered by Home Assistant.
+
+#### Matter frontend
+
+After flashing `Matter`, commission the device with a standard Matter controller.
+
+Notes:
+
+- `ESP32-S2` is not currently supported by the Matter frontend.
+- The current ESPectre Matter implementation relies on BLE commissioning, and `ESP32-S2` does not provide Bluetooth LE.
+- Matter firmware assets are currently published for `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, and `ESP32-C6`.
 
 ---
 ## Option B: ESPHome CLI (for developers)
@@ -899,12 +922,55 @@ esphome logs <your-config>.yaml --device espectre.local
 
 The Matter frontend is a separate ESP-IDF + esp-matter build. It reuses the same `core` and `runtime` layers as the ESPHome firmware, but exposes motion and runtime controls through Matter clusters instead of Home Assistant entities.
 
+Pre-built Matter firmware is now published through the same release flow used by the web flasher:
+
+- **Stable**: latest official release assets
+- **Main**: rolling snapshot assets from the `main` branch
+
+Current published Matter targets:
+
+- **ESP32**
+- **ESP32-S3**
+- **ESP32-C3**
+- **ESP32-C5**
+- **ESP32-C6**
+
+### Matter hardware validation matrix
+
+Use this table to distinguish what is already published in CI from what has been
+confirmed on real hardware.
+
+| Target | Published build | CI QEMU smoke | Documented local build/flash path | Recorded hardware smoke test | Validation notes |
+|--------|-----------------|---------------|-----------------------------------|------------------------------|------------------|
+| `ESP32` | Yes | Yes | Generic Matter workflow | Pending | QEMU boot smoke is enabled in CI plus published build coverage; hardware validation not yet recorded |
+| `ESP32-S3` | Yes | Yes | Generic Matter workflow | Pending | QEMU boot smoke is enabled in CI plus published build coverage; hardware validation not yet recorded |
+| `ESP32-C3` | Yes | Yes | Dedicated example below | Yes | Current bring-up target with recorded real-hardware smoke test |
+| `ESP32-C5` | Yes | No | Generic Matter workflow | Pending | Published build coverage exists; `idf.py set-target esp32c5` no longer needs `--preview` on ESP-IDF 5.5 |
+| `ESP32-C6` | Yes | No | Generic Matter workflow | Pending | Published build coverage exists; QEMU coverage is not currently available for this target |
+
+### Matter hardware validation checklist
+
+When you test a new board, use the same minimum checklist before promoting it
+from `Pending` to a recorded hardware smoke test:
+
+1. Build succeeds with `./espectre matter build --chip <chip>` or the equivalent `idf.py` flow.
+2. Flash succeeds on the target board without manual project changes.
+3. Boot completes without panic/reboot loops and the runtime reaches an operational state.
+4. Matter commissioning succeeds with a standard controller.
+5. Wi-Fi and CSI runtime behavior look healthy after commissioning.
+6. The exposed Matter surface responds as expected:
+   - `OccupancySensing`
+   - vendor cluster diagnostics reads
+   - threshold write
+   - recalibration trigger
+7. Record the exact board, flash size, serial path, controller used, and any chip-specific notes when updating this table.
+
 ### Prerequisites
 
 - ESP-IDF **5.4+** (see [espressif/esp_matter](https://components.espressif.com/components/espressif/esp_matter) component requirements)
 - An ESP32-family board with CSI support
 
-Current smoke-tested target:
+Current recorded hardware smoke test:
 
 - **ESP32-C3** with native USB Serial/JTAG and 4 MB flash
 
@@ -922,6 +988,8 @@ cd src/cpp/frontend/matter/app
 idf.py set-target esp32
 idf.py build
 ```
+
+The same `idf.py set-target <target>` flow now applies to all published Matter targets, including `ESP32-C5`. With the current ESP-IDF 5.5 toolchain used by this repository and CI, no extra `--preview` flag is required for `esp32c5`.
 
 For ESP32-C3:
 
@@ -964,8 +1032,9 @@ For the CSI streamer firmware, the same wrapper pattern applies:
 Notes:
 
 - BLE telemetry/control from the ESPHome frontend is not available in the Matter build.
+- `ESP32-S2` is not currently supported by the Matter frontend because the current implementation relies on BLE commissioning and ESP32-S2 does not provide Bluetooth LE.
 - On ESP32-C3, ESPectre currently falls back from `11n-only` to `11b/g/n` if the Wi-Fi driver rejects the stricter CSI protocol setup.
-- The firmware has been verified to boot, start BLE commissioning advertising, and initialize the Matter frontend on ESP32-C3 hardware.
+- The published build matrix covers `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, and `ESP32-C6`; CI QEMU boot smoke now also covers `ESP32`, `ESP32-S3`, and `ESP32-C3`, while the current recorded hardware smoke test is `ESP32-C3`.
 - Commission the device with a standard Matter controller after flashing.
 - See [ARCHITECTURE.md](ARCHITECTURE.md) for the frontend/runtime boundary and current parity limits.
 

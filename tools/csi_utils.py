@@ -1366,7 +1366,9 @@ from mvs_detector import MVSDetector as MVSDetectorNew
 # Utility Functions (delegate to SegmentationContext static methods)
 # ============================================================================
 
-def calculate_spatial_turbulence(csi_data, gain_locked: bool = True) -> float:
+def calculate_spatial_turbulence(csi_data,
+                                 selected_subcarriers=None,
+                                 gain_locked: bool = True) -> float:
     """
     Calculate spatial turbulence from CSI data with gain-lock-aware normalization.
     
@@ -1376,15 +1378,17 @@ def calculate_spatial_turbulence(csi_data, gain_locked: bool = True) -> float:
     
     Args:
         csi_data: CSI data array (I/Q pairs)
-        Uses the fixed production default subcarriers from config.DEFAULT_SUBCARRIERS
+        selected_subcarriers: Optional explicit subcarrier list. When omitted,
+            the fixed production defaults from config.DEFAULT_SUBCARRIERS are used.
         gain_locked: True if AGC gain lock was active for this packet/file
     
     Returns:
         float: Spatial turbulence value
     """
     use_cv_norm = not bool(gain_locked)
+    band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else selected_subcarriers
     turbulence, _ = SegmentationContext.compute_spatial_turbulence(
-        csi_data, config.DEFAULT_SUBCARRIERS, use_cv_normalization=use_cv_norm
+        csi_data, band, use_cv_normalization=use_cv_norm
     )
     return turbulence
 
@@ -1414,6 +1418,7 @@ class MVSDetector:
     """
     
     def __init__(self, window_size: int, threshold: float,
+                 selected_subcarriers=None,
                  track_data: bool = False,
                  enable_hampel: bool = True, hampel_window: int = config.HAMPEL_WINDOW,
                  hampel_threshold: float = config.HAMPEL_THRESHOLD,
@@ -1425,7 +1430,7 @@ class MVSDetector:
         Args:
             window_size: Size of the sliding window for variance calculation
             threshold: Threshold for motion detection
-            Uses the fixed production default subcarriers from config.DEFAULT_SUBCARRIERS
+            selected_subcarriers: Optional explicit subcarrier band to use
             track_data: If True, track moving variance and state history
             enable_hampel: Enable Hampel filter for outlier removal
             hampel_window: Hampel filter window size
@@ -1436,7 +1441,9 @@ class MVSDetector:
         """
         self.window_size = window_size
         self.threshold = threshold
-        self.fixed_subcarriers = config.DEFAULT_SUBCARRIERS
+        self.fixed_subcarriers = (
+            config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else list(selected_subcarriers)
+        )
         self.track_data = track_data
         self.default_gain_locked = bool(gain_locked)
         

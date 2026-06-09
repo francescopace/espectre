@@ -1,19 +1,17 @@
+include("${CMAKE_CURRENT_LIST_DIR}/../../../espectre_sources.cmake")
+
 idf_component_register(
     SRCS
-        "csi_udp_sender.cpp"
-        "ftm_manager.cpp"
-        "stream_frontend.cpp"
-        "../../../runtime/esp_idf/csi_payload_normalizer.cpp"
-        "../../../runtime/esp_idf/csi_platform_config.cpp"
-        "../../../runtime/esp_idf/gain_controller.cpp"
-        "../../../runtime/esp_idf/traffic_generator_manager.cpp"
-        "../../../runtime/esp_idf/udp_listener.cpp"
-        "../../../runtime/esp_idf/wifi_lifecycle.cpp"
+        ${ESPECTRE_FRONTEND_STREAMER_SOURCES}
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/gain_controller.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
     INCLUDE_DIRS
         "."
-        "../../../core"
-        "../../../runtime"
-        "../../../runtime/esp_idf"
+        ${ESPECTRE_SHARED_INCLUDE_DIRS}
     REQUIRES
         esp_wifi
         esp_event

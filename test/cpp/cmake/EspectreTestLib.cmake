@@ -1,4 +1,5 @@
 include(FetchContent)
+include("${ESPECTRE_CPP_ROOT}/espectre_sources.cmake")
 
 find_package(ZLIB REQUIRED)
 
@@ -43,10 +44,7 @@ target_link_libraries(espectre_test_support
 )
 
 add_library(espectre_core_testlib STATIC
-    "${ESPECTRE_CPP_ROOT}/core/base_detector.cpp"
-    "${ESPECTRE_CPP_ROOT}/core/csi_filters.cpp"
-    "${ESPECTRE_CPP_ROOT}/core/ml_detector.cpp"
-    "${ESPECTRE_CPP_ROOT}/core/mvs_detector.cpp"
+    ${ESPECTRE_CORE_SOURCES}
 )
 target_link_libraries(espectre_core_testlib
     PUBLIC
@@ -68,10 +66,7 @@ target_link_libraries(espectre_runtime_testlib
 )
 
 add_library(espectre_frontend_esphome_testlib STATIC
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/calibrate_switch.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/espectre.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/sensor_publisher.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/threshold_number.cpp"
+    ${ESPECTRE_FRONTEND_ESPHOME_SOURCES}
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
 )
 target_link_libraries(espectre_frontend_esphome_testlib
@@ -81,8 +76,7 @@ target_link_libraries(espectre_frontend_esphome_testlib
 )
 
 add_library(espectre_frontend_matter_testlib STATIC
-    "${ESPECTRE_CPP_ROOT}/frontend/matter/espectre/matter_frontend.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/matter/espectre/matter_surface.cpp"
+    ${ESPECTRE_FRONTEND_MATTER_SOURCES}
     "${CMAKE_CURRENT_SOURCE_DIR}/support/matter_bindings_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
 )

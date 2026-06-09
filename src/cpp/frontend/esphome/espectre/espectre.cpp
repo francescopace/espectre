@@ -9,9 +9,9 @@
  */
 
 #include "espectre.h"
-#include "esp_idf_runtime.h"
 #include "threshold_number.h"
 #include "calibrate_switch.h"
+#include "../../../runtime/esp_idf/esp_idf_runtime.h"
 
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
