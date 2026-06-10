@@ -66,7 +66,17 @@ except ImportError:
 
 # UDP Protocol constants
 MAGIC_STREAM = 0x4353  # "CS" in little-endian
+STREAM_VERSION = 2
 DEFAULT_PORT = 5001
+STREAM_FLAG_GAIN_LOCKED = 1 << 0
+STREAM_FLAG_FIRST_WORD_INVALID = 1 << 1
+STREAM_FLAG_WIFI_RX_TS_VALID = 1 << 2
+STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1 << 3
+STREAM_FLAG_GAIN_INFO_VALID = 1 << 4
+STREAM_FLAG_STIMULUS_ID_VALID = 1 << 5
+STREAM_FLAG_REFERENCE_FRAME = 1 << 6
+CSI_HEADER_FORMAT = '<HBBBBIHHQQIQIBbbBbB'
+CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
 
 
 def get_default_bind_host() -> str:
@@ -107,7 +117,7 @@ DATASET_INFO_FILE = DATA_DIR / 'dataset_info.json'
 class CSIPacket:
     """Represents a single CSI packet received via UDP"""
     timestamp: float          # Reception timestamp (seconds since epoch)
-    seq_num: int             # Sequence number (0-255)
+    seq_num: int             # Sequence number (uint32)
     num_subcarriers: int     # Number of subcarriers
     iq_raw: np.ndarray       # Raw I/Q values as int8 array [Q0,I0,Q1,I1,...] (Espressif format)
     iq_complex: np.ndarray   # Complex representation [I0+jQ0, I1+jQ1, ...]
@@ -115,6 +125,17 @@ class CSIPacket:
     phases: np.ndarray       # Phase per subcarrier (radians)
     chip: str = 'unknown'    # Chip type (e.g., 'C6', 'S3', 'ESP32')
     gain_locked: bool = True # True if AGC gain lock was applied during collection
+    device_id: Optional[int] = None
+    device_ticks_us: Optional[int] = None
+    wifi_rx_ts_us: Optional[int] = None
+    wifi_rx_start_ts_ns: Optional[int] = None
+    stimulus_id: Optional[int] = None
+    is_reference: bool = False
+    channel: Optional[int] = None
+    rssi_dbm: Optional[int] = None
+    noise_floor_dbm: Optional[int] = None
+    agc_gain: Optional[int] = None
+    fft_gain: Optional[int] = None
 
 
 # Chip code to name mapping (must match streamer)
@@ -212,63 +233,56 @@ class CSIReceiver:
     def _parse_packet(self, data: bytes) -> Optional[CSIPacket]:
         """Parse raw UDP data into CSIPacket
         
-        Packet format (7 byte header, v2):
-            <magic:2><chip:1><flags:1><seq:1><num_sc:2><payload>
-        
-        Flags byte:
-            bit 0: gain_locked (1 = AGC gain lock was applied)
-        
-        For backwards compatibility, also accepts 6 byte header (v1):
-            <magic:2><chip:1><seq:1><num_sc:2><payload>
+        Packet format (version 2):
+            <magic:2><version:1><header_len:1><chip:1><flags:1>
+            <seq:4><num_sc:2><csi_len:2><device_id:8><device_ticks_us:8>
+            <wifi_rx_ts_us:4><wifi_rx_start_ts_ns:8><stimulus_id:4>
+            <channel:1><rssi_dbm:1><noise_floor_dbm:1><agc_gain:1><fft_gain:1><reserved0:1>
+            <payload>
         """
-        if len(data) < 6:
+        if len(data) < CSI_HEADER_STRUCT.size:
             return None
-        
-        # Parse magic to validate packet
-        magic = struct.unpack('<H', data[:2])[0]
-        if magic != MAGIC_STREAM:
+
+        (
+            magic,
+            version,
+            header_len,
+            chip_code,
+            flags,
+            seq_num,
+            num_sc,
+            csi_len_bytes,
+            device_id,
+            device_ticks_us,
+            wifi_rx_ts_us,
+            wifi_rx_start_ts_ns,
+            stimulus_id,
+            channel,
+            rssi_dbm,
+            noise_floor_dbm,
+            agc_gain,
+            fft_gain,
+            _reserved0,
+        ) = CSI_HEADER_STRUCT.unpack_from(data)
+
+        if magic != MAGIC_STREAM or version != STREAM_VERSION:
             return None
-        
-        # Detect header version based on packet size
-        # v1 (6 byte header): 6 + 128 = 134 bytes for HT20
-        # v2 (7 byte header): 7 + 128 = 135 bytes for HT20
-        # We detect by checking if data[3] looks like a flags byte (0x00 or 0x01)
-        # or a sequence number (0-255)
-        # Simpler: check packet length - v2 packets are 1 byte longer
-        
-        # Try v2 format first (7 byte header)
-        if len(data) >= 7:
-            chip_code, flags, seq_num, num_sc = struct.unpack('<BBBH', data[2:7])
-            header_size = 7
-            iq_size = num_sc * 2
-            
-            # Validate: if this doesn't make sense, fall back to v1
-            if len(data) == header_size + iq_size:
-                gain_locked = bool(flags & 0x01)
-            else:
-                # Try v1 format (6 byte header, no flags)
-                chip_code, seq_num, num_sc = struct.unpack('<BBH', data[2:6])
-                header_size = 6
-                iq_size = num_sc * 2
-                gain_locked = True  # Assume gain locked for legacy packets
-        else:
-            # v1 format
-            chip_code, seq_num, num_sc = struct.unpack('<BBH', data[2:6])
-            header_size = 6
-            iq_size = num_sc * 2
-            gain_locked = True  # Assume gain locked for legacy packets
-        
+
+        if header_len < CSI_HEADER_STRUCT.size:
+            return None
+        if csi_len_bytes == 0 or csi_len_bytes != num_sc * 2:
+            return None
+        if len(data) != header_len + csi_len_bytes:
+            return None
+
+        gain_locked = bool(flags & STREAM_FLAG_GAIN_LOCKED)
         chip = CHIP_CODES.get(chip_code, 'unknown')
-        
-        # Parse I/Q data
-        if len(data) < header_size + iq_size:
-            return None
-        
+
         iq_raw = np.array(
-            struct.unpack(f'<{iq_size}b', data[header_size:header_size+iq_size]),
+            struct.unpack(f'<{csi_len_bytes}b', data[header_len:header_len + csi_len_bytes]),
             dtype=np.int8
         )
-        
+
         # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
         Q = iq_raw[0::2].astype(np.float32)  # Imaginary first (even indices)
         I = iq_raw[1::2].astype(np.float32)  # Real second (odd indices)
@@ -287,19 +301,26 @@ class CSIReceiver:
             amplitudes=amplitudes,
             phases=phases,
             chip=chip,
-            gain_locked=gain_locked
+            gain_locked=gain_locked,
+            device_id=device_id or None,
+            device_ticks_us=device_ticks_us or None,
+            wifi_rx_ts_us=wifi_rx_ts_us if (flags & STREAM_FLAG_WIFI_RX_TS_VALID) else None,
+            wifi_rx_start_ts_ns=wifi_rx_start_ts_ns if (flags & STREAM_FLAG_WIFI_RX_START_TS_NS_VALID) else None,
+            stimulus_id=stimulus_id if (flags & STREAM_FLAG_STIMULUS_ID_VALID) else None,
+            is_reference=bool(flags & STREAM_FLAG_REFERENCE_FRAME),
+            channel=int(channel),
+            rssi_dbm=int(rssi_dbm),
+            noise_floor_dbm=int(noise_floor_dbm),
+            agc_gain=int(agc_gain) if (flags & STREAM_FLAG_GAIN_INFO_VALID) else None,
+            fft_gain=int(fft_gain) if (flags & STREAM_FLAG_GAIN_INFO_VALID) else None,
         )
     
     def _check_sequence(self, seq_num: int):
         """Track sequence numbers and detect drops"""
         if self.last_seq >= 0:
-            expected = (self.last_seq + 1) & 0xFF
+            expected = (self.last_seq + 1) & 0xFFFFFFFF
             if seq_num != expected:
-                # Calculate dropped packets (handling wrap-around)
-                if seq_num > expected:
-                    dropped = seq_num - expected
-                else:
-                    dropped = (256 - expected) + seq_num
+                dropped = (seq_num - expected) & 0xFFFFFFFF
                 self.dropped_count += dropped
         self.last_seq = seq_num
     
@@ -402,7 +423,7 @@ class CSIReceiver:
                         break
                 
                 try:
-                    data, addr = self.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)
+                    data, addr = self.sock.recvfrom(1024)  # Stream packets fit well below this cap
                 except socket.timeout:
                     self._update_pps()
                     continue
@@ -494,7 +515,7 @@ class CSICollector:
     """
     
     # File format version - increment when format changes
-    FORMAT_VERSION = '1.0'
+    FORMAT_VERSION = '1.1'
     # Implicit readiness gate before each sample recording
     READY_STABLE_SECONDS = 3.0
     READY_MV_THRESHOLD = 1.0
@@ -561,6 +582,8 @@ class CSICollector:
             collected_at: str - ISO timestamp
             duration_ms: float - Total duration
             format_version: str - Format version
+            gain_locked: bool - Session gain-lock status
+            optional stream metadata arrays - Device timestamps and RF metadata
         """
         if not packets:
             return None
@@ -600,6 +623,31 @@ class CSICollector:
         
         # Add gain_locked to sample for future reference
         sample['gain_locked'] = gain_locked
+
+        # Packet-level metadata for replay, synchronization, and realtime fusion.
+        sample['stream_seq_num'] = np.array([p.seq_num for p in packets], dtype=np.uint32)
+
+        device_ticks = [p.device_ticks_us for p in packets]
+        if all(value is not None for value in device_ticks):
+            sample['device_ticks_us'] = np.array(device_ticks, dtype=np.uint64)
+
+        device_ids = {p.device_id for p in packets if p.device_id is not None}
+        if len(device_ids) == 1:
+            sample['device_id'] = np.uint64(next(iter(device_ids)))
+
+        def add_optional_array(key: str, values, dtype) -> None:
+            if any(value is not None for value in values):
+                sample[key] = np.array([0 if value is None else value for value in values], dtype=dtype)
+
+        add_optional_array('wifi_rx_ts_us', [p.wifi_rx_ts_us for p in packets], np.uint32)
+        add_optional_array('wifi_rx_start_ts_ns', [p.wifi_rx_start_ts_ns for p in packets], np.uint64)
+        add_optional_array('stimulus_id', [p.stimulus_id for p in packets], np.uint32)
+        add_optional_array('is_reference', [1 if p.is_reference else 0 for p in packets], np.uint8)
+        add_optional_array('channel', [p.channel for p in packets], np.uint8)
+        add_optional_array('rssi_dbm', [p.rssi_dbm for p in packets], np.int16)
+        add_optional_array('noise_floor_dbm', [p.noise_floor_dbm for p in packets], np.int16)
+        add_optional_array('agc_gain', [p.agc_gain for p in packets], np.uint8)
+        add_optional_array('fft_gain', [p.fft_gain for p in packets], np.int8)
         
         # Save file
         label_dir = self._get_label_dir()
@@ -892,7 +940,7 @@ class CSICollector:
 
                 while time.monotonic() < deadline:
                     try:
-                        data, addr = self.receiver.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)
+                        data, addr = self.receiver.sock.recvfrom(1024)  # Stream packets fit well below this cap
                         packet = self.receiver._parse_packet(data)
                         if packet:
                             packets.append(packet)
@@ -976,7 +1024,7 @@ class CSICollector:
 
                     while time.monotonic() < deadline:
                         try:
-                            data, addr = self.receiver.sock.recvfrom(1024)  # 134 bytes for 64 SC (HT20)
+                            data, addr = self.receiver.sock.recvfrom(1024)  # Stream packets fit well below this cap
                             packet = self.receiver._parse_packet(data)
                             if packet:
                                 packets.append(packet)
@@ -992,7 +1040,7 @@ class CSICollector:
                         print(f'\r  ✅ Saved: {filepath.name} ({len(packets)} packets)')
                         sample_idx += 1
                     else:
-                        print(f'\r  ❌ No packets received! Check ESP32 streaming.')
+                        print(f'\r  ❌ No packets received! Check the streamer firmware and collector IP/port.')
                         
                 except KeyboardInterrupt:
                     print('\nCollection cancelled.')
@@ -1366,7 +1414,9 @@ from mvs_detector import MVSDetector as MVSDetectorNew
 # Utility Functions (delegate to SegmentationContext static methods)
 # ============================================================================
 
-def calculate_spatial_turbulence(csi_data, gain_locked: bool = True) -> float:
+def calculate_spatial_turbulence(csi_data,
+                                 selected_subcarriers=None,
+                                 gain_locked: bool = True) -> float:
     """
     Calculate spatial turbulence from CSI data with gain-lock-aware normalization.
     
@@ -1376,15 +1426,17 @@ def calculate_spatial_turbulence(csi_data, gain_locked: bool = True) -> float:
     
     Args:
         csi_data: CSI data array (I/Q pairs)
-        Uses the fixed production default subcarriers from config.DEFAULT_SUBCARRIERS
+        selected_subcarriers: Optional explicit subcarrier list. When omitted,
+            the fixed production defaults from config.DEFAULT_SUBCARRIERS are used.
         gain_locked: True if AGC gain lock was active for this packet/file
     
     Returns:
         float: Spatial turbulence value
     """
     use_cv_norm = not bool(gain_locked)
+    band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else selected_subcarriers
     turbulence, _ = SegmentationContext.compute_spatial_turbulence(
-        csi_data, config.DEFAULT_SUBCARRIERS, use_cv_normalization=use_cv_norm
+        csi_data, band, use_cv_normalization=use_cv_norm
     )
     return turbulence
 
@@ -1414,6 +1466,7 @@ class MVSDetector:
     """
     
     def __init__(self, window_size: int, threshold: float,
+                 selected_subcarriers=None,
                  track_data: bool = False,
                  enable_hampel: bool = True, hampel_window: int = config.HAMPEL_WINDOW,
                  hampel_threshold: float = config.HAMPEL_THRESHOLD,
@@ -1425,7 +1478,7 @@ class MVSDetector:
         Args:
             window_size: Size of the sliding window for variance calculation
             threshold: Threshold for motion detection
-            Uses the fixed production default subcarriers from config.DEFAULT_SUBCARRIERS
+            selected_subcarriers: Optional explicit subcarrier band to use
             track_data: If True, track moving variance and state history
             enable_hampel: Enable Hampel filter for outlier removal
             hampel_window: Hampel filter window size
@@ -1436,7 +1489,9 @@ class MVSDetector:
         """
         self.window_size = window_size
         self.threshold = threshold
-        self.fixed_subcarriers = config.DEFAULT_SUBCARRIERS
+        self.fixed_subcarriers = (
+            config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else list(selected_subcarriers)
+        )
         self.track_data = track_data
         self.default_gain_locked = bool(gain_locked)
         

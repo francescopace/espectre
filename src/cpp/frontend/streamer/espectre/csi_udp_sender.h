@@ -1,7 +1,7 @@
 /*
  * ESPectre - CSI UDP Sender
  *
- * Dedicated UDP sender with a preallocated queue shared by CSI and FTM records.
+ * Dedicated UDP sender with a preallocated queue for CSI records.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "csi_stream_protocol.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -25,7 +26,7 @@ namespace espectre {
 class CsiUdpSender {
  public:
   static constexpr size_t MAX_CSI_LEN_BYTES = 512U;
-  static constexpr size_t MAX_PACKET_BYTES = 76U + MAX_CSI_LEN_BYTES;
+  static constexpr size_t MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV2) + MAX_CSI_LEN_BYTES;
 
   bool setup();
   void shutdown();

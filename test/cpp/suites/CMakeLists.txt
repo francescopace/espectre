@@ -83,6 +83,11 @@ add_espectre_test(test_frontend_controls
     LIBRARIES espectre_frontend_esphome_testlib
 )
 
+add_espectre_test(test_ble_frontend
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_ble_frontend.cpp"
+    LIBRARIES espectre_frontend_ble_testlib
+)
+
 add_espectre_test(test_matter_frontend
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_matter_frontend.cpp"
     LIBRARIES espectre_frontend_matter_testlib

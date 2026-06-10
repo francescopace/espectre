@@ -100,6 +100,9 @@ pytest test/python -v
 
 # With coverage (run from repo root)
 pytest test/python -v --cov=src/python --cov-report=term-missing
+
+# Static documentation build
+python .github/scripts/build_docs.py
 ```
 
 ---

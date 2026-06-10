@@ -1,1 +1,0 @@
-../../../core/base_detector.h

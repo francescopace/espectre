@@ -1,0 +1,7 @@
+# ESPectre Matter QEMU smoke-test overrides
+#
+# QEMU is useful for boot smoke, but it does not emulate the BLE controller path
+# required by Matter commissioning on real hardware. Disable CHIPoBLE only for
+# the CI/QEMU build so the firmware can exercise the non-BLE bring-up path.
+
+CONFIG_ENABLE_CHIPOBLE=n

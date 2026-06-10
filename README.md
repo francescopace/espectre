@@ -9,7 +9,7 @@
 **Privacy-first Wi-Fi sensing platform based on CSI, with native Home Assistant integration via ESPHome, an emerging Matter frontend, and a path toward multi-device home orchestration.**
 
 > [!TIP]
-> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or follow the [Setup guide](docs/SETUP.md#choosing-detection-algorithm) for custom configuration.
+> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or use the browser-based [web flasher](https://espectre.dev/flash/) / [Setup guide](docs/SETUP.md#choosing-detection-algorithm) for custom configuration.
 
 ---
 
@@ -59,7 +59,7 @@
 
 - **Home Assistant** (on Raspberry Pi, PC, NAS, or cloud)
 - **ESPHome** (integrated in Home Assistant or standalone)
-- **Matter tooling** (optional, experimental, for local repository workflows)
+- **Matter tooling** (optional, experimental, now also available as pre-built firmware for ESP32, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6)
 
 ### Required Skills
 
@@ -75,13 +75,14 @@
 **Setup time**: ~10-15 minutes  
 **Difficulty**: Easy (YAML configuration only)
 
-1. **Setup & Installation**: Follow the complete guide in [SETUP.md](docs/SETUP.md)
+1. **Setup & Installation**: Follow the complete guide in [SETUP.md](docs/SETUP.md) or go directly to the [web flasher](https://espectre.dev/flash/)
 2. **Tuning**: Optimize for your environment with [TUNING.md](docs/TUNING.md)
-3. **Local repo workflows**: use `./espectre esphome ...`, `./espectre matter ...`, `./espectre streamer ...`, and `./espectre micro ...` when building or testing directly from this repository (`./me` remains a temporary legacy shim for the micro workflow)
+3. **Local repo workflows**: use `./espectre esphome ...`, `./espectre ble ...`, `./espectre matter ...`, `./espectre streamer ...`, and `./espectre micro ...` when building or testing directly from this repository (`./me` remains a temporary legacy shim for the micro workflow)
 
 Repository CLI namespaces:
 - `./espectre micro ...` for MicroPython flashing, deploy, streaming, dataset collection, and MQTT control
 - `./espectre esphome ...` for local ESPHome example builds
+- `./espectre ble ...` for the standalone BLE firmware `idf.py` workflow
 - `./espectre matter ...` for Matter `idf.py` build/flash/monitor
 - `./espectre streamer ...` for streamer firmware `idf.py` build/flash/monitor
 
@@ -250,12 +251,13 @@ The runtime processing pipeline above is implemented with a separate internal co
 - `src/cpp/core/` for reusable detectors, filters, thresholds, and domain logic
 - `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current ESP-IDF CSI/Wi-Fi/calibration implementation
 - `src/cpp/frontend/esphome/espectre/` for the ESPHome adapter and packaging entrypoint
+- `src/cpp/frontend/ble/espectre/` for the standalone BLE adapter and firmware app
 - `src/cpp/frontend/matter/espectre/` for the Matter adapter and esp-matter firmware app
 
 ```text
 ┌──────────────────────────────┐
 │ Frontend                     │
-│ ESPHome + Matter frontends   │
+│ ESPHome + BLE + Matter       │
 └──────────────┬───────────────┘
                │ uses
                ▼
@@ -275,13 +277,14 @@ The runtime processing pipeline above is implemented with a separate internal co
 
 This split keeps the current ESPHome behavior intact while enabling:
 
+- the standalone BLE frontend under `src/cpp/frontend/ble/`
 - the Matter frontend under `src/cpp/frontend/matter/`
 - alternate runtimes
 - standalone reuse of the shared motion-detection core
 - custom firmware targets built from the same reusable platform layers
 - future local services that aggregate normalized signals from multiple devices
 
-The experimental Matter firmware under `src/cpp/frontend/matter/` now builds through managed `espressif/esp_matter` dependencies and has been smoke-tested on real ESP32-C3 hardware.
+The experimental Matter firmware under `src/cpp/frontend/matter/` now builds through managed `espressif/esp_matter` dependencies. The current recorded hardware smoke test is on real `ESP32-C3` hardware, while the broader published-target validation matrix is tracked in [SETUP.md](docs/SETUP.md#matter-hardware-validation-matrix).
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the detailed rationale, folder structure, and reuse model.
 
@@ -432,7 +435,7 @@ Micro-ESPectre gives you the fundamentals for:
 For local development, the repository CLI is rooted at `./espectre`:
 - `./espectre micro ...` for MicroPython tooling, data collection, and MQTT control
 - `./espectre esphome ...` for local ESPHome example builds
-- `./espectre matter ...` and `./espectre streamer ...` as thin `idf.py` wrappers
+- `./espectre ble ...`, `./espectre matter ...`, and `./espectre streamer ...` as thin `idf.py` wrappers
 
 ---
 
@@ -464,11 +467,11 @@ The ML data collection and training infrastructure is documented in [ML_DATA_COL
 | Document | Description |
 |----------|-------------|
 | [Intro](README.md) | (This file) Project overview, quick start, FAQ |
-| [Setup Guide](docs/SETUP.md) | Installation and configuration with ESPHome |
+| [Setup Guide](docs/SETUP.md) | Installation and configuration with ESPHome, BLE, or Matter |
 | [Tuning Guide](docs/TUNING.md) | Parameter tuning for optimal detection |
 | [Performance](docs/PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
 | [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, runtime/frontend split, Matter path, and orchestration alignment |
-| [The Game](docs/web/game/README.md) | Browser game, USB streaming API, interactive threshold tuning |
+| [The Game](docs/web/game/README.md) | Browser game example built on the generic BLE frontend protocol, with interactive threshold tuning |
 | [Test Suite](test/cpp/README.md) | Layered CMake/CTest suite, coverage flow, and support layout |
 
 ### Micro-ESPectre (R&D)

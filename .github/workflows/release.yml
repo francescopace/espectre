@@ -104,9 +104,91 @@ jobs:
           path: output/espectre-*.bin
           retention-days: 7
 
+  build-matter:
+    name: Build Matter ${{ matrix.chip }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: ESP32
+            target: esp32
+          - chip: ESP32-C3
+            target: esp32c3
+          - chip: ESP32-C5
+            target: esp32c5
+          - chip: ESP32-C6
+            target: esp32c6
+          - chip: ESP32-S3
+            target: esp32s3
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache Matter toolchain and components
+        uses: actions/cache@v5
+        with:
+          path: |
+            .github/.cache/matter-home
+            src/cpp/frontend/matter/app/managed_components
+          key: matter-${{ matrix.target }}-${{ hashFiles('src/cpp/**') }}
+          restore-keys: |
+            matter-${{ matrix.target }}-
+
+      - name: Build Matter firmware
+        run: |
+          mkdir -p output
+          .github/scripts/build_matter_firmware.sh
+        env:
+          MATTER_TARGET: ${{ matrix.target }}
+          MATTER_OUTPUT: ${{ github.workspace }}/output/espectre-matter-${{ github.ref_name }}-${{ matrix.target }}.bin
+
+      - name: Upload Matter firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-matter-${{ matrix.chip }}
+          path: output/espectre-matter-*.bin
+          retention-days: 7
+
+  build-ble:
+    name: Build BLE ${{ matrix.chip }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: ESP32
+            target: esp32
+          - chip: ESP32-C3
+            target: esp32c3
+          - chip: ESP32-C5
+            target: esp32c5
+          - chip: ESP32-C6
+            target: esp32c6
+          - chip: ESP32-S3
+            target: esp32s3
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build BLE firmware
+        run: |
+          mkdir -p output
+          bash .github/scripts/build_ble_firmware.sh
+        env:
+          BLE_TARGET: ${{ matrix.target }}
+          BLE_OUTPUT: ${{ github.workspace }}/output/espectre-ble-${{ github.ref_name }}-${{ matrix.target }}.bin
+
+      - name: Upload BLE firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-ble-${{ matrix.chip }}
+          path: output/espectre-ble-*.bin
+          retention-days: 7
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, build-matter, build-ble]
     runs-on: ubuntu-latest
     
     steps:
@@ -121,6 +203,15 @@ jobs:
       
       - name: List firmware files
         run: ls -la firmware/
+
+      - name: Build stable firmware manifest
+        run: |
+          python .github/scripts/build_firmware_manifest.py \
+            --firmware-dir firmware \
+            --output firmware/firmware-manifest-stable.json \
+            --channel stable \
+            --version "${GITHUB_REF_NAME}" \
+            --release-tag "${GITHUB_REF_NAME}"
       
       - name: Extract release notes from CHANGELOG
         id: changelog
@@ -177,7 +268,9 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "v${{ github.ref_name }} - ${{ steps.changelog.outputs.title }}"
           body_path: release_notes.md
-          files: firmware/*.bin
+          files: |
+            firmware/*.bin
+            firmware/firmware-manifest-stable.json
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           discussion_category_name: "Announcements"

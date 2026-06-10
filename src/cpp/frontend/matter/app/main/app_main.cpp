@@ -172,6 +172,8 @@ extern "C" void app_main() {
 
   static esphome::espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id);
   g_frontend = &frontend;
+  ESP_LOGI(TAG, "ESPectre Matter smoke marker: endpoint %u configured, starting Matter stack",
+           g_motion_endpoint_id);
   err = esp_matter::start(app_event_cb);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start Matter (%d)", err);

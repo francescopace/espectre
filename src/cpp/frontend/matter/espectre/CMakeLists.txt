@@ -1,24 +1,13 @@
+include("${CMAKE_CURRENT_LIST_DIR}/../../../espectre_sources.cmake")
+
 idf_component_register(
     SRCS
-        "matter_frontend.cpp"
-        "matter_surface.cpp"
-        "../../../core/base_detector.cpp"
-        "../../../core/csi_filters.cpp"
-        "../../../core/ml_detector.cpp"
-        "../../../core/mvs_detector.cpp"
-        "../../../runtime/esp_idf/csi_manager.cpp"
-        "../../../runtime/esp_idf/csi_payload_normalizer.cpp"
-        "../../../runtime/esp_idf/csi_platform_config.cpp"
-        "../../../runtime/esp_idf/esp_idf_runtime.cpp"
-        "../../../runtime/esp_idf/gain_controller.cpp"
-        "../../../runtime/esp_idf/traffic_generator_manager.cpp"
-        "../../../runtime/esp_idf/udp_listener.cpp"
-        "../../../runtime/esp_idf/wifi_lifecycle.cpp"
+        ${ESPECTRE_FRONTEND_MATTER_SOURCES}
+        ${ESPECTRE_CORE_SOURCES}
+        ${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}
     INCLUDE_DIRS
         "."
-        "../../../core"
-        "../../../runtime"
-        "../../../runtime/esp_idf"
+        ${ESPECTRE_SHARED_INCLUDE_DIRS}
     REQUIRES
         esp_wifi
         esp_event

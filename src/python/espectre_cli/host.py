@@ -45,7 +45,7 @@ def collect_csi_data(args) -> None:
             print(f"  {Fore.YELLOW}No samples collected yet.{Style.RESET_ALL}")
             print()
             print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
-            print("    1. Start streaming on ESP32: ./espectre micro stream --ip <PC_IP>")
+            print("    1. Run the streamer firmware with collector IP/port configured to this host")
             print("    2. Collect samples: ./espectre micro collect --label wave --samples 10")
         else:
             print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10}{Style.RESET_ALL}")
@@ -79,7 +79,7 @@ def collect_csi_data(args) -> None:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
     print(f"  {Fore.YELLOW}Chip type and gain lock status auto-detected from CSI stream{Style.RESET_ALL}")
-    print(f"  {Fore.YELLOW}Make sure ESP32 is streaming: ./espectre micro stream --ip <PC_IP>{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is running and targeting this host{Style.RESET_ALL}")
     print()
 
     collector = CSICollector(
@@ -253,7 +253,7 @@ def detect_live_motion(args) -> None:
     print(f"  {Fore.CYAN}Low-pass:{Style.RESET_ALL}  {'ON' if config.ENABLE_LOWPASS_FILTER else 'OFF'}")
     print(f"  {Fore.CYAN}Hampel:{Style.RESET_ALL}    {'ON' if config.ENABLE_HAMPEL_FILTER else 'OFF'}")
     print()
-    print(f"  {Fore.YELLOW}Make sure ESP32 is streaming: ./espectre micro stream --ip <PC_IP>{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is running and targeting this host{Style.RESET_ALL}")
     print(f"  {Fore.YELLOW}Press Ctrl+C to stop{Style.RESET_ALL}")
     print()
 

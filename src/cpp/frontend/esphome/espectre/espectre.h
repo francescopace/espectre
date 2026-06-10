@@ -23,18 +23,11 @@
 #include <string>
 #include <vector>
 
-#include "runtime_capabilities.h"
-#include "runtime_events.h"
-#include "runtime_interface.h"
-#include "runtime_snapshot.h"
 #include "sensor_publisher.h"
-
-namespace esphome {
-namespace esp32_ble_server {
-class BLEServer;
-class BLECharacteristic;
-}  // namespace esp32_ble_server
-}  // namespace esphome
+#include "../../../runtime/runtime_capabilities.h"
+#include "../../../runtime/runtime_events.h"
+#include "../../../runtime/runtime_interface.h"
+#include "../../../runtime/runtime_snapshot.h"
 
 namespace esphome {
 namespace espectre {
@@ -92,19 +85,6 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_hampel_enabled(bool enabled) { this->runtime_config_.hampel_enabled = enabled; }
   void set_hampel_window(uint8_t window) { this->runtime_config_.hampel_window = window; }
   void set_hampel_threshold(float threshold) { this->runtime_config_.hampel_threshold = threshold; }
- 
-  void set_ble_channel_enabled(bool enabled) { this->ble_channel_enabled_ = enabled; }
-  void set_ble_telemetry_interval_ms(uint32_t interval_ms) { this->ble_telemetry_interval_ms_ = interval_ms; }
- void set_ble_server(esp32_ble_server::BLEServer *server) { this->ble_server_ = server; }
-  void set_ble_telemetry_characteristic(esp32_ble_server::BLECharacteristic *characteristic) {
-    this->ble_telemetry_char_ = characteristic;
-  }
-  void set_ble_sysinfo_characteristic(esp32_ble_server::BLECharacteristic *characteristic) {
-    this->ble_sysinfo_char_ = characteristic;
-  }
-  void set_ble_control_characteristic(esp32_ble_server::BLECharacteristic *characteristic) {
-    this->ble_control_char_ = characteristic;
-  }
   
   // Setters for ESPHome sensors (delegated to SensorPublisher)
   void set_movement_sensor(sensor::Sensor *sensor) { this->sensor_publisher_.set_movement_sensor(sensor); }
@@ -133,16 +113,8 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void on_threshold_changed(const RuntimeSnapshot &snapshot) override;
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
   void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override;
-  void on_live_telemetry(float movement, float threshold) override;
   void on_runtime_fault(const char *message) override;
-  
-  // Send system info over BLE (for game display)
-  void send_system_info_ble_();
-  // BLE callbacks and control command parser
-  void on_ble_client_connected_(uint16_t conn_id);
-  void on_ble_client_disconnected_(uint16_t conn_id);
-  void handle_ble_control_command_(const std::string &command);
-  
+
   RuntimeConfig runtime_config_{};
   RuntimeSnapshot runtime_snapshot_{};
   RuntimeCapabilities runtime_capabilities_{};
@@ -150,12 +122,6 @@ class ESpectreComponent : public Component, public IRuntimeListener {
 
   SensorPublisher sensor_publisher_;
 
-  // BLE telemetry/control channel
-  esp32_ble_server::BLEServer *ble_server_{nullptr};
-  esp32_ble_server::BLECharacteristic *ble_telemetry_char_{nullptr};
-  esp32_ble_server::BLECharacteristic *ble_sysinfo_char_{nullptr};
-  esp32_ble_server::BLECharacteristic *ble_control_char_{nullptr};
-  
   // Number controls
   number::Number *threshold_number_{nullptr};
   
@@ -163,10 +129,6 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   switch_::Switch *calibrate_switch_{nullptr};
 
   bool threshold_republished_{false};
-  bool ble_channel_enabled_{false};   // Enable BLE telemetry/control protocol
-  bool ble_client_connected_{false};  // At least one BLE client connected
-  uint32_t ble_telemetry_interval_ms_{40};  // BLE notify interval (throttling)
-  uint32_t last_ble_telemetry_ms_{0};  // Last telemetry notify timestamp
 };
 
 }  // namespace espectre

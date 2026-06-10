@@ -306,7 +306,6 @@ def deploy_code(args) -> None:
             (str(PYTHON_SRC_DIR / "ml_weights.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "traffic_generator.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "main.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "csi_streamer.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "mqtt" / "__init__.py"), ":src/mqtt/"),
             (str(PYTHON_SRC_DIR / "mqtt" / "handler.py"), ":src/mqtt/"),
             (str(PYTHON_SRC_DIR / "mqtt" / "commands.py"), ":src/mqtt/"),
@@ -330,54 +329,6 @@ def deploy_code(args) -> None:
     except Exception as e:
         print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
         raise SystemExit(1)
-
-
-def stream_csi(args) -> None:
-    """Stream CSI data via UDP for real-time visualization."""
-    _require_mpremote()
-    port = get_serial_port(args.port)
-    dest_ip = args.ip
-    if not dest_ip:
-        print(f"{Fore.RED}❌ Destination IP address required{Style.RESET_ALL}")
-        print(f"\n{Fore.YELLOW}Usage: ./espectre micro stream --ip <PC_IP_ADDRESS>{Style.RESET_ALL}")
-        print(f"\n{Fore.CYAN}Example: ./espectre micro stream --ip 192.168.1.100{Style.RESET_ALL}")
-        raise SystemExit(1)
-
-    duration = args.duration if args.duration else 0
-    print(f"{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}║           μESPectre - CSI UDP Streaming                   ║{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
-    print()
-    print(f"{Fore.CYAN}Destination: {dest_ip}:5001{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}Duration:    {'infinite' if duration == 0 else f'{duration}s'}{Style.RESET_ALL}")
-    print()
-    print(f"{Fore.YELLOW}On another terminal (PC), run:{Style.RESET_ALL}")
-    print(f"  ./espectre micro collect --label <name> --duration <sec>  {Fore.CYAN}# Collect labeled data{Style.RESET_ALL}")
-    print(f"  ./espectre micro detect --log-turbulence               {Fore.CYAN}# Debug live motion inference{Style.RESET_ALL}")
-    print()
-
-    process = None
-    try:
-        exec_cmd = f"from src.csi_streamer import stream_csi; stream_csi('{dest_ip}', duration_sec={duration})"
-        process = subprocess.Popen(["mpremote", "connect", port, "exec", exec_cmd])
-        process.wait()
-    except subprocess.CalledProcessError as e:
-        print(f"\n{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
-        raise SystemExit(1)
-    except KeyboardInterrupt:
-        print(f"\n{Fore.YELLOW}Streaming stopped - cleaning up ESP32...{Style.RESET_ALL}")
-        if process:
-            process.terminate()
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
-        _reset_device(port)
-    except Exception as e:
-        print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
-        raise SystemExit(1)
-
-
 def run_application(args) -> None:
     """Run the MicroPython application on ESP32."""
     _require_mpremote()
