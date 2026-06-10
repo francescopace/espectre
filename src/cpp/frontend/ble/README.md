@@ -6,14 +6,8 @@ Its role is to expose the shared ESPectre runtime through a lightweight custom
 GATT surface that can be used by generic BLE clients, including web clients,
 mobile apps, smart-device integrations, and other custom tooling.
 
-This file is the source of truth for the BLE frontend protocol.
-
-## Directory Layout
-
-- `espectre/`:
-  frontend adapter, protocol constants, and bindings interface
-- `app/`:
-  standalone ESP-IDF firmware app and NimBLE transport implementation
+This file is the source of truth for the BLE frontend protocol and firmware
+workflow.
 
 ## Scope
 
@@ -26,6 +20,59 @@ The BLE frontend is intentionally separate from the ESPHome frontend:
 The current BLE frontend preserves the protocol already used by
 `docs/web/game/`, but it is not tied to that specific client.
 
+## Directory Layout
+
+- `espectre/`:
+  frontend adapter, protocol constants, and bindings interface
+- `app/`:
+  standalone ESP-IDF firmware app and NimBLE transport implementation
+- `espectre/Kconfig.projbuild`:
+  frontend-owned Wi-Fi configuration knobs
+
+## Getting Started
+
+If you arrived here from [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md),
+this README is the next step for the standalone BLE firmware path.
+
+### Browser-Flashed Firmware
+
+The web flasher can install published `BLE` images for supported chips. After
+flashing, use a BLE client that understands this protocol, such as the example
+web client documented in [`../../../../docs/web/game/README.md`](../../../../docs/web/game/README.md).
+
+### Local ESP-IDF Workflow
+
+Repository CLI:
+
+```bash
+./espectre ble build --chip c3
+./espectre ble flash --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre ble monitor --chip c3 --port /dev/cu.usbmodemXXXX
+```
+
+The CLI is a thin wrapper over the ESP-IDF app in this directory.
+
+## Wi-Fi Configuration
+
+Unlike the ESPHome frontend, the standalone BLE firmware currently expects
+Wi-Fi credentials at build time through Kconfig.
+
+Frontend-owned options in [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild):
+
+| Option | Purpose |
+|--------|---------|
+| `ESPECTRE_WIFI_SSID` | Wi-Fi SSID |
+| `ESPECTRE_WIFI_PASSWORD` | Wi-Fi password |
+| `ESPECTRE_WIFI_BSSID` | Optional BSSID lock |
+
+This means the current standalone BLE firmware is best suited for:
+
+- local integration experiments
+- custom client development
+- controlled firmware deployments where build-time credentials are acceptable
+
+It is not yet a provisioning-oriented end-user flow comparable to ESPHome.
+
 ## Current Protocol
 
 Current protocol version: `1`
@@ -34,7 +81,7 @@ Transport model:
 
 - one primary BLE service
 - one notify characteristic for live telemetry
-- one notify/read characteristic for line-based system information
+- one notify and read characteristic for line-based system information
 - one write characteristic for control commands
 
 ## Stability Model
@@ -51,7 +98,7 @@ These parts should be considered the most stable client contract:
 - `proto_version`
 - `END` terminator for sysinfo blocks
 
-### 2. Current Operational/Diagnostic Surface
+### 2. Current Operational and Diagnostic Surface
 
 These fields are part of the current implementation and are useful for clients,
 but should be treated as more flexible than the transport primitives above:
@@ -68,8 +115,8 @@ Clients should parse these conservatively and ignore unknown keys.
 These are not part of the current contract and should not be assumed by
 clients until they are explicitly added:
 
-- richer status/state fields
-- firmware/build metadata
+- richer status and state fields
+- firmware and build metadata
 - extra health diagnostics
 - capability discovery
 - new control commands
@@ -129,7 +176,7 @@ This corresponds to:
 
 Purpose:
 
-- expose textual runtime/configuration information
+- expose textual runtime and configuration information
 - provide a simple transport that remains easy to inspect from generic BLE tools
 
 Framing:
@@ -165,15 +212,15 @@ Current keys emitted by the frontend:
 | `traffic_rate` | operational | Configured traffic generator rate |
 | `publish_interval` | operational | Runtime publish interval |
 | `evaluation_interval` | operational | Runtime evaluation interval |
-| `motion_hits` | operational | Motion enter/exit hit counters |
+| `motion_hits` | operational | Motion enter and exit hit counters |
 | `best_pxx` | diagnostic | Current adaptive-threshold baseline metric |
 | `END` | stable | End-of-block marker |
 
 Legend:
 
 - `stable`: clients can depend on it structurally
-- `operational`: useful current runtime/config information, expected to stay meaningful but may expand in presentation
-- `diagnostic`: primarily for visibility/debugging, not ideal as a hard dependency
+- `operational`: useful current runtime and configuration information
+- `diagnostic`: primarily for visibility and debugging
 
 Emission behavior:
 
@@ -196,14 +243,27 @@ Current commands:
 
 | Command | Description | Notes |
 |---------|-------------|-------|
-| `REQ_SYSINFO` | Requests a fresh sysinfo block | Exact string |
-| `SET_THRESHOLD:X.XX` | Updates runtime threshold | Value must be finite and in range `0.0-10.0` |
+| `REQ_SYSINFO` | Request a fresh sysinfo block | Exact string |
+| `SET_THRESHOLD:X.XX` | Update the runtime threshold | Value must be finite and in range `0.0-10.0` |
 
 Behavior notes:
 
-- threshold updates are runtime/session-only
+- threshold updates are runtime and session only
 - unknown commands are ignored and logged on the device
 - invalid threshold writes are rejected and logged on the device
+
+## Firmware Limits and Expectations
+
+The current standalone BLE frontend intentionally stays small.
+
+Important current limits:
+
+- Wi-Fi provisioning is build-time, not end-user interactive
+- threshold is the only runtime write command exposed today
+- clients should not assume diagnostic sysinfo fields are stable forever
+
+This keeps the transport simple while allowing external BLE clients to tune and
+observe the runtime in real time.
 
 ## Compatibility Guidance
 
@@ -212,7 +272,7 @@ as versioned:
 
 - always read and cache `proto_version`
 - ignore unknown sysinfo keys
-- ignore additional commands/features you do not understand
+- ignore additional commands or features you do not understand
 - do not assume the sysinfo key order is semantically important
 - treat new keys as additive unless a future protocol version states otherwise
 - avoid depending on diagnostic-only fields for core client behavior
@@ -227,7 +287,7 @@ extensions are:
   - `calibrating`
   - `gain_locked`
   - `motion_state`
-- firmware/build metadata:
+- firmware and build metadata:
   - firmware version
   - git ref
   - build id
@@ -237,12 +297,35 @@ extensions are:
   - uptime
   - reset reason
   - last runtime fault
-- feature/capability discovery:
+- feature and capability discovery:
   - supported commands
   - optional diagnostics availability
 
 These are intentionally ideas, not commitments.
 They should not be interpreted as part of protocol version `1`.
+
+## BLE-Specific Troubleshooting
+
+### The client cannot control the device after connecting
+
+Check these first:
+
+1. the client writes exact ASCII commands
+2. the value passed to `SET_THRESHOLD` is finite and inside `0.0-10.0`
+3. the client does not depend on sysinfo ordering
+
+### The firmware starts but never joins Wi-Fi
+
+Verify the Kconfig values used at build time:
+
+- `ESPECTRE_WIFI_SSID`
+- `ESPECTRE_WIFI_PASSWORD`
+- optional `ESPECTRE_WIFI_BSSID`
+
+### The BLE firmware is not the right fit for the workflow
+
+That can be expected. This frontend is optimized for custom BLE integrations,
+not for Home Assistant-style provisioning or the Matter commissioning flow.
 
 ## Related Files
 
@@ -254,3 +337,16 @@ They should not be interpreted as part of protocol version `1`.
   NimBLE transport implementation
 - `docs/web/game/README.md`:
   example client built on this protocol
+
+## Related Docs
+
+- [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md):
+  shared installation hub and frontend chooser
+- [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md):
+  shared architecture and runtime contract
+- [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md):
+  shared tuning guidance and parameter tradeoffs
+- [`../matter/README.md`](../matter/README.md):
+  Matter frontend
+- [`../esphome/README.md`](../esphome/README.md):
+  ESPHome frontend

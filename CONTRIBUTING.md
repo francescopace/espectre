@@ -289,9 +289,10 @@ Good documentation is essential! Here's how you can help:
 | Type | Location | Description |
 |------|----------|-------------|
 | **README** | `README.md` | Project overview, quick start |
-| **Setup Guide** | `docs/SETUP.md` | Installation and configuration |
-| **Tuning Guide** | `docs/TUNING.md` | Parameter optimization |
+| **Setup Guide** | `docs/SETUP.md` | Shared setup hub and frontend chooser |
+| **Tuning Guide** | `docs/TUNING.md` | Parameter optimization and tuning rationale |
 | **Algorithms** | `docs/ALGORITHMS.md` | Scientific documentation |
+| **Frontend READMEs** | `src/cpp/frontend/*/README.md` | Frontend-specific setup, workflow, protocol, and surface documentation |
 | **API Docs** | Code comments | Function/class documentation |
 
 ### Documentation Guidelines
@@ -300,6 +301,9 @@ Good documentation is essential! Here's how you can help:
 - Include code examples where helpful
 - Keep formatting consistent with existing docs
 - Test any commands or code snippets you include
+- Keep a single source of truth per topic: `docs/SETUP.md` for the shared hub,
+  frontend READMEs for frontend-specific workflows and surfaces,
+  `docs/TUNING.md` for tuning guidance, and `docs/ALGORITHMS.md` for theory
 
 ---
 

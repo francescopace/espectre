@@ -2492,7 +2492,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     
     if not stats['chips']:
         print("Error: No datasets found in data/")
-        print("Collect data using: ./me collect --label baseline --duration 60")
+        print("Collect data using: ./espectre collect --label baseline --duration 60")
         return 1, seed, None
     
     print(f"  Chips: {', '.join(stats['chips'])}")

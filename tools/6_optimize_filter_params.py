@@ -236,7 +236,7 @@ def main():
     
     if baseline_file is None:
         print("ERROR: No baseline data found in data/baseline/")
-        print("Run: ./me collect --label baseline --duration 60")
+        print("Run: ./espectre collect --label baseline --duration 60")
         return
     
     if movement_file is None:

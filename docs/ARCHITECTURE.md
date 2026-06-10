@@ -115,18 +115,12 @@ The shared runtime contract stays in `src/cpp/runtime/`, while the current ESP-I
 
 ### `src/cpp/frontend/esphome/espectre/`
 
-This is the ESPHome adapter layer and external component root:
+This is the ESPHome adapter layer and external component root. It maps the
+shared runtime into ESPHome/Home Assistant entities and owns the YAML schema,
+codegen, and packaging metadata for the production-oriented frontend.
 
-- `__init__.py` for YAML schema and codegen
-- `ESpectreComponent`
-- ESPHome entities such as `SensorPublisher`, `ESpectreThresholdNumber`, and `ESpectreCalibrateSwitch`
-- packaging/build metadata used by ESPHome and PlatformIO
-
-For ESPHome, `src/cpp/frontend/esphome` is the external-components search root and `espectre/` remains the component directory inside it.
-The packaging metadata now points directly at the canonical sources under `src/cpp/core/` and `src/cpp/runtime/esp_idf/`, so ESPHome no longer depends on repository symlinks to assemble the shared code.
-
-This frontend is now intentionally focused on Home Assistant integration only.
-The custom BLE protocol is no longer embedded in `ESpectreComponent`.
+For frontend-specific details, see
+[`src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md).
 
 ### `src/cpp/frontend/ble/espectre/`
 
@@ -137,19 +131,8 @@ It reuses the same runtime contract as the other frontends, but maps runtime
 events and controls to a custom GATT surface instead of Home Assistant entities
 or Matter clusters.
 
-Current mapping:
-
-| Runtime event / state | BLE surface |
-|-----------------------|-------------|
-| Live telemetry | notify characteristic with `[float32 movement][float32 threshold]` |
-| Threshold changes / calibration updates | sysinfo notify lines |
-| Runtime threshold write | `SET_THRESHOLD:X.XX` control command |
-| Sysinfo refresh | `REQ_SYSINFO` control command |
-
-The host-side adapter lives under `src/cpp/frontend/ble/espectre/`. The
-standalone ESP-IDF firmware app lives under `src/cpp/frontend/ble/app/`.
-The BLE protocol itself is documented in
-`src/cpp/frontend/ble/README.md`.
+For the BLE protocol, stability model, and firmware-specific surface, see
+[`src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md).
 
 ### `src/cpp/frontend/matter/espectre/`
 
@@ -161,19 +144,20 @@ Architecturally, Matter is not a side experiment. It is the first explicit proof
 that the new split can support a second ecosystem-facing frontend without
 copying the detection pipeline or re-monolithizing the codebase.
 
-Current mapping:
+For the Matter surface, commissioning notes, and firmware-specific workflow, see
+[`src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md).
 
-| Runtime event / state | Matter surface |
-|-----------------------|----------------|
-| Motion state | `OccupancySensing` occupancy bitmap on a dedicated endpoint |
-| Movement metric, best Pxx, gain lock, ready state | Vendor cluster `0xFFF1FC01` read-only attributes |
-| Threshold | Vendor cluster writable attribute + runtime `set_threshold_runtime()` |
-| Manual recalibration | Vendor cluster writable `request_recalibrate` trigger |
-| Runtime faults | Logged and forwarded through the Matter bindings layer |
+### `src/cpp/frontend/streamer/espectre/`
 
-The host-side adapter lives under `src/cpp/frontend/matter/espectre/`. The ESP-IDF firmware app lives under `src/cpp/frontend/matter/app/` and pulls **`espressif/esp_matter`** from the ESP Component Registry via `main/idf_component.yml` (no manual esp-matter clone required).
+This is the standalone CSI streamer frontend.
 
-The current experimental firmware's recorded hardware smoke test is on `ESP32-C3`. In that startup path, the Matter stack is started before the shared runtime setup so Wi-Fi ownership remains with `esp-matter` and the reused runtime can layer CSI configuration on top of an initialized station stack. The broader published-target validation matrix lives in `SETUP.md`.
+Unlike the other frontends, it is not an ecosystem-facing adapter over
+`IEspectreRuntime`. It uses lower-level `runtime/esp_idf` modules directly to
+capture CSI and emit a compact UDP stream for host-side tools and data
+collection workflows.
+
+For the UDP packet format, frontend state machine, and Kconfig surface, see
+[`src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md).
 
 ---
 
@@ -254,7 +238,7 @@ ESPHome and Matter solve different problems and have different constraints:
 If frontend-specific logic stays in the frontend layer, the same `core` and `runtime` can power:
 
 - the current ESPHome integration
-- a future Matter build
+- the current Matter frontend
 - other adapters without duplicating the motion pipeline
 
 This avoids the old pattern where a new frontend would have required copying orchestration logic out of the monolithic ESPHome component.
@@ -385,7 +369,7 @@ Current implemented paths:
 If you are new to the project:
 
 1. [README.md](../README.md) for product overview
-2. [SETUP.md](SETUP.md) for ESPHome usage
+2. [SETUP.md](SETUP.md) for the shared frontend chooser and install hub
 3. this file for internal architecture
 4. [test/cpp/README.md](../test/cpp/README.md) for validation strategy
 5. [ALGORITHMS.md](ALGORITHMS.md) for algorithm details
