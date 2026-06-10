@@ -7,7 +7,7 @@ mpremote>=1.28.0        # Deploy code to MicroPython device (used as CLI tool)
 pyserial>=3.5           # Serial port detection and communication
 
 # CLI Tool Dependencies
-paho-mqtt==1.6.1        # Used directly by ./me; aligned with ESPHome 2026.5.0 (avoid 2.x)
+paho-mqtt==1.6.1        # Used directly by ./espectre; aligned with ESPHome 2026.5.0 (avoid 2.x)
 click==8.3.3            # pinned for ESPHome 2026.5.0 / PlatformIO 6.1.19 compatibility
 requests==2.34.1        # pinned for ESPHome 2026.5.0 compatibility
 colorama>=0.4.6         # Terminal colors

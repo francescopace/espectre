@@ -6,7 +6,7 @@ Micro-ESPectre is the **research and development platform** of the ESPectre proj
 
 ## What is Micro-ESPectre?
 
-Micro-ESPectre implements the ESPectre motion-detection algorithms entirely in Python and serves as the **innovation lab** where new approaches and parameters are developed and validated before being migrated to the production ESPHome component.
+Micro-ESPectre implements the ESPectre motion-detection algorithms entirely in Python and serves as the **innovation lab** where new approaches and parameters are developed and validated before being migrated to the production C++ platform and its frontends.
 
 ### Role in the ESPectre Ecosystem
 
@@ -14,7 +14,7 @@ Micro-ESPectre is part of a **two-platform strategy**:
 
 | Platform | Purpose | Target Users |
 |----------|---------|--------------|
-| **[ESPectre](https://github.com/francescopace/espectre)** (C++) | Production deployment | Smart home users, Home Assistant |
+| **[ESPectre](https://github.com/francescopace/espectre)** (C++) | Production deployment across multiple frontends | Smart home users, integrators |
 | **[Micro-ESPectre](MICRO_ESPECTRE.md)** (Python) | R&D and prototyping | Researchers, developers, academics |
 
 **Why MQTT instead of Native API?**
@@ -29,12 +29,12 @@ Micro-ESPectre uses MQTT for maximum flexibility - it's not tied to Home Assista
 ┌─────────────────────────────────────────────────────────────┐
 │                    INNOVATION CYCLE                         │
 ├─────────────────────────────────────────────────────────────┤
-│  Micro-ESPectre (Python)          ESPectre (ESPHome)        │
+│  Micro-ESPectre (Python)          ESPectre (C++ Platform)   │
 │  ┌─────────────────────┐          ┌─────────────────────┐   │
 │  │ • Fast prototyping  │ ──────▶  │ • Production ready  │   │
-│  │ • Algorithm testing │  Port    │ • Home Assistant    │   │
-│  │ • Parameter tuning  │ ──────▶  │ • Native API        │   │
-│  │ • Research/academic │          │ • OTA updates       │   │
+│  │ • Algorithm testing │  Port    │ • Multi-frontend    │   │
+│  │ • Parameter tuning  │ ──────▶  │ • Reusable runtime  │   │
+│  │ • Research/academic │          │ • OTA and tooling   │   │
 │  └─────────────────────┘          └─────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -50,11 +50,11 @@ Micro-ESPectre uses MQTT for maximum flexibility - it's not tied to Home Assista
 [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) is a MicroPython fork that I wrote to expose ESP32's CSI (Channel State Information) capabilities to Python. 
 This fork makes CSI-based applications accessible to Python developers and enables rapid prototyping of WiFi sensing applications.
 
-## Comparison with C++ Version (ESPHome)
+## Comparison with the C++ Platform
 
 ### Feature Comparison
 
-| Feature | ESPHome (C++) | Python (MicroPython) | Status |
+| Feature | ESPectre C++ platform | Python (MicroPython) | Status |
 |---------|---------------|----------------------|--------|
 | **Motion Detection** |
 | MVS Detector | ✅ | ✅ | Moving Variance Segmentation (default) |
@@ -100,11 +100,11 @@ For detailed performance metrics (confusion matrix, F1-score, benchmarks), see [
 - Simple Python-based development
 - MQTT-based runtime configuration
 
-**Use ESPectre (ESPHome) if you need:**
+**Use the ESPectre C++ platform if you need:**
 - Native Home Assistant integration (auto-discovery)
 - Maximum performance and efficiency
 - Production-grade stability
-- YAML-based configuration
+- frontend-specific integration surfaces such as ESPHome, Matter, or BLE
 
 ## Requirements
 
@@ -119,7 +119,7 @@ For detailed performance metrics (confusion matrix, F1-score, benchmarks), see [
 
 ## CLI Tool Overview
 
-Micro-ESPectre now uses the repository CLI root **`espectre`**. The micro workflow lives under **`./espectre micro ...`**, while `./me` remains available as a temporary compatibility shim for the historical commands.
+Micro-ESPectre now uses the repository CLI root **`espectre`**. The micro workflow lives under **`./espectre micro ...`**.
 
 The repository CLI is now split by workflow:
 - `./espectre micro ...` for the MicroPython and host-side research loop documented here
@@ -164,7 +164,7 @@ The `espectre micro` namespace provides these essential commands:
 ./espectre micro detect --log-turbulence
 ```
 
-> **Note**: The interactive mode (`./espectre micro` without a subcommand) provides advanced MQTT control features and is covered in detail in the [Interactive CLI (Advanced)](#interactive-cli-advanced) section. The legacy `./me` entrypoint still forwards to the same workflow.
+> **Note**: The interactive mode (`./espectre micro` without a subcommand) provides advanced MQTT control features and is covered in detail in the [Interactive CLI (Advanced)](#interactive-cli-advanced) section.
 
 ## Quick Start
 
@@ -315,7 +315,6 @@ mqtt:
 ├── tools/web/espectre-monitor.html   # Web Monitor: real-time analysis & configuration
 ├── tools/web/espectre-theremin.html  # Audio sonification tool (experimental)
 ├── espectre                   # Repository CLI entrypoint
-├── me                         # Legacy shim for `espectre micro`
 ├── docs/ML_DATA_COLLECTION.md # Guide for ML data collection
 ├── .gitignore                 # Git ignore rules
 └── docs/MICRO_ESPECTRE.md     # This file
@@ -324,7 +323,6 @@ mqtt:
 ### Key Files
 
 - **`espectre`**: Main repository CLI with `micro`, `esphome`, `matter`, and `streamer` namespaces
-- **`me`**: Temporary compatibility shim for the legacy micro-only commands
 - **`.firmware/`**: Downloaded firmware cache (auto-created on first flash)
 - **`src/python/`**: Core Python implementation of motion detection algorithms
 - **`src/cpp/frontend/streamer/`**: Standalone ESP-IDF CSI streamer frontend for live UDP collection

@@ -327,7 +327,7 @@ Examples:
         baseline_file, movement_file, chip_name = find_dataset(chip=chip)
     except FileNotFoundError as e:
         print(f"\nError: {e}")
-        print(f"\nCollect data using: ./me collect --label baseline --duration 10")
+        print(f"\nCollect data using: ./espectre collect --label baseline --duration 10")
         return
     
     # Always use the fixed production subcarriers.

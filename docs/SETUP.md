@@ -1,1064 +1,165 @@
 # Setup Guide
 
-Complete guide to install and configure ESPectre with ESPHome, the BLE frontend, or Matter.
+This document is the shared setup hub for choosing a frontend and finding the
+right installation path.
 
-Choose one of the installation methods below:
+ESPectre now exposes multiple frontends, and each frontend owns its own
+configuration surface, integration workflow, and troubleshooting. This guide
+keeps only the shared entry points and links you to the frontend-specific
+source of truth.
 
-| Method | Best for | Tools |
-|--------|----------|-------|
-| **Option A** | End users, quick setup | Chromium browser + ESPectre Web Flash |
-| **Option B** | Developers, customization | Python + ESPHome CLI |
-| **Option C** | BLE/Matter development / custom workflows | ESP-IDF + repository CLI |
+Use the `stable` channel for the latest official release, or `main` when you
+want the newest development snapshot.
 
----
-## Option A: Web Flash (no coding required)
+## Choose Your Frontend
 
-### What You Need
+| Frontend | Best starting point | Frontend source of truth |
+|----------|---------------------|--------------------------|
+| `ESPHome` | [Web Flash](#web-flash-no-coding-required) for the quickest start, then the frontend README for YAML, Home Assistant, and local development | [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) |
+| `BLE` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the frontend README for protocol and local ESP-IDF workflow | [`../src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md) |
+| `Matter` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) |
+| `Streamer` | Frontend README for the dedicated CSI collection workflow | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) |
 
-**Hardware:**
-- **ESP32 board** with CSI support:
-  - **ESPHome frontend**: ESP32-S3, ESP32-C6, ESP32-C5, ESP32-C3, ESP32 (original), ESP32-S2 (experimental)
-  - **BLE frontend**: ESP32, ESP32-S3, ESP32-C3, ESP32-C5, ESP32-C6
-  - **Matter frontend**: ESP32, ESP32-S3, ESP32-C3, ESP32-C5, ESP32-C6
-- **USB cable** (USB-C or Micro-USB, depending on your board)
-- **Wi-Fi router** (2.4 GHz, 802.11b/g/n/ax)
+## Shared Prerequisites
 
-**Software:**
-- Chrome, Edge, or another Chromium-based browser with Web Serial support
+### Hardware
 
-### 1. Open the Web Flasher
+- ESP32 board with CSI support
+- USB cable for flashing
+- 2.4 GHz Wi-Fi network
+
+Current entry-point support by frontend:
+
+| Frontend | Supported published targets | Notes |
+|----------|-----------------------------|-------|
+| `ESPHome` | `ESP32-S3`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32`, `ESP32-S2` (experimental) | Web flasher supports the default `MVS` detector and `ML` assets |
+| `BLE` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Generic BLE integration surface |
+| `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Requires BLE commissioning, so `ESP32-S2` is excluded |
+| `Streamer` | local build workflow | Not part of the browser flasher path |
+
+### Software
+
+- Chromium-based browser with Web Serial support for browser flashing
+- For local workflows, use the repository CLI namespaces documented in each
+  frontend README
+
+## Web Flash (no coding required)
 
 Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 
-- the firmware **frontend**: `ESPHome`, `BLE`, or `Matter`
-- the firmware **channel**:
-  - `stable` for the latest official release
-  - `main` for the rolling snapshot build from the `main` branch
-- your target **chip**
+- the firmware frontend
+- the firmware channel
+- your target chip
 
-For `ESPHome`, the web flasher also lets you choose the detector variant:
+For the `ESPHome` frontend, the web flasher also exposes detector variants:
 
 - `MVS` for the default variance-based detector
-- `ML` for the neural-network detector (`-ml` assets)
+- `ML` for the neural-network detector assets
 
-### 2. Flash Firmware
+To flash:
 
-1. Connect your ESP32 via USB
+1. Connect the board over USB
 2. Click **Connect**
 3. Select the serial port
-4. Confirm the flash in the browser prompt
+4. Confirm the browser prompt
 
-If your browser does not support Web Serial, the same page exposes a direct download link for the selected binary so you can flash it manually with your preferred ESP32 flashing tool.
+If your browser does not support Web Serial, the same page exposes direct
+download links for manual flashing.
 
-### 3. Finish Setup
+## After Flashing
 
-#### ESPHome frontend
+The next step depends on the frontend you chose:
 
-After flashing `ESPHome`, configure WiFi using one of these methods:
+| Frontend | Continue here | What that README owns |
+|----------|---------------|-----------------------|
+| `ESPHome` | [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
+| `BLE` | [`../src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md) | BLE protocol, build/flash workflow, Wi-Fi build-time configuration, firmware limits |
+| `Matter` | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter surface, writable attributes, local ESP-IDF workflow |
+| `Streamer` | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, frontend-specific configuration |
 
-| Method | How |
-|--------|-----|
-| **BLE** (easiest) | Use ESPHome or Home Assistant Companion app |
-| **USB** | Go to [web.esphome.io](https://web.esphome.io) → Connect → Configure WiFi |
-| **Captive Portal** | Connect to "ESPectre Fallback" WiFi → Configure in browser |
+## Shared Runtime Concepts
 
-That's it! The device will be automatically discovered by Home Assistant.
+These concepts are shared across the C++ platform, even though each frontend
+exposes them differently.
 
-#### Matter frontend
+### Detection Algorithms
 
-After flashing `Matter`, commission the device with a standard Matter controller.
+ESPectre currently supports two detector families:
 
-Notes:
+| Algorithm | Summary | Shared behavior |
+|-----------|---------|-----------------|
+| `MVS` | Moving-variance detector | Requires startup threshold bootstrap from a quiet room |
+| `ML` | Neural-network detector | Skips threshold bootstrap and starts faster |
 
-- `ESP32-S2` is not currently supported by the Matter frontend.
-- The current ESPectre Matter implementation relies on BLE commissioning, and `ESP32-S2` does not provide Bluetooth LE.
-- Matter firmware assets are currently published for `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, and `ESP32-C6`.
+The algorithm theory belongs in [ALGORITHMS.md](ALGORITHMS.md). Frontend-level
+configuration syntax belongs in the README of the frontend you are using.
 
-#### BLE frontend
+### Startup Behavior
 
-`BLE` is the standalone generic frontend for custom BLE integrations.
+At boot, the shared runtime may perform:
 
-Notes:
+1. gain lock, when supported by the chip and enabled by the frontend surface
+2. startup calibration for `MVS`, which expects the room to stay quiet for
+   about 10 seconds
+3. transition into steady-state motion detection
 
-- It preserves the same custom BLE protocol currently used by [web/game](web/game/README.md) as one example integration (`REQ_SYSINFO`, `SET_THRESHOLD`, telemetry notify, sysinfo notify).
-- Unlike ESPHome, this frontend does not expose Home Assistant entities or ESPHome provisioning flows.
-- The current standalone firmware is intended as an example integration and expects Wi-Fi credentials to be configured at build time through `sdkconfig`.
+For practical tuning guidance, sensor placement, and parameter tradeoffs, see
+[TUNING.md](TUNING.md).
 
----
-## Option B: ESPHome CLI (for developers)
+### Traffic Generation
 
-### What You Need
+Motion detection depends on CSI packets. By default, the shared runtime
+generates traffic internally, but the way that traffic is configured or exposed
+belongs to each frontend surface.
 
-**Hardware:** Same as Easy Install above.
+If you are tuning `traffic_generator_rate`, thresholds, or filters, use
+[TUNING.md](TUNING.md) for the rationale and the frontend README for the
+configuration syntax.
 
-**Software:**
-- Python 3.12 (⚠️ Python 3.14 has known issues with ESPHome)
-- ESPHome 2026.5.0 or newer
-- Home Assistant (recommended, but optional)
+## Generic Troubleshooting
 
-### 1. Install ESPHome
+These notes apply regardless of frontend surface.
 
-```bash
-# Create virtual environment (recommended)
-python3 -m venv .venv
-source .venv/bin/activate  # On macOS/Linux
-# .venv\Scripts\activate   # On Windows
+### Wi-Fi driver logs show protocol or bandwidth as unavailable
 
-# Install ESPHome
-pip install esphome
-```
+Some targets do not expose protocol or bandwidth values through every read API.
+Logs such as the following do not automatically mean the Wi-Fi connection
+failed:
 
-### 2. Download a configuration file
-
-Download the example configuration for your hardware:
-
-| Platform | Configuration File | CPU | WiFi Chip | PSRAM | Status |
-|----------|-------------------|-----|-----------|-------|--------|
-| **ESP32-C6** | [espectre-c6.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml) | RISC-V @ 160MHz | WiFi 6 capable | ❌ | ✅ Tested |
-| **ESP32-S3** | [espectre-s3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s3.yaml) | Xtensa @ 240MHz | WiFi 4 | ✅ 8MB | ✅ Tested |
-| **ESP32-C3** | [espectre-c3.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c3.yaml) | RISC-V @ 160MHz | WiFi 4 | ❌ | ✅ Tested ² |
-| **ESP32** | [espectre-esp32.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-esp32.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ✅ Tested ³ |
-| **ESP32-C5** | [espectre-c5.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c5.yaml) | RISC-V @ 240MHz | WiFi 6 capable | ❌ | ✅ Tested ¹ |
-| **ESP32-S2** | [espectre-s2.yaml](https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-s2.yaml) | Xtensa @ 240MHz | WiFi 4 | Optional | ⚠️ Experimental |
-
-> **Note**: ESPectre uses WiFi 4 (802.11b/g/n) mode for stable 64 subcarriers and faster calibration, even on WiFi 6 capable chips (C5, C6). This ensures consistent performance across all platforms.
->
-> On ESP32-C5, ESPectre also forces `2.4 GHz only` band mode at runtime to avoid unintended 5 GHz association and keep CSI behavior stable.
-
-**Recommendations**:
-- **ESP32-C6**: Modern RISC-V platform, good performance, compact form factor
-- **ESP32-S3**: Best for advanced applications, future ML features (more memory)
-- **ESP32-C3**: Budget-friendly option, compact form factor
-
-These files are pre-configured to download the component automatically from GitHub.
-
-> ⚠️ **Experimental platform**: ESP32-S2 has CSI support but has not been extensively tested. Please report your results on [GitHub Discussions](https://github.com/francescopace/espectre/discussions)!
->
-> ¹ ESP32-C5: `improv_serial` (USB provisioning) not yet supported by ESPHome. Use BLE or WiFi AP provisioning instead.
->
->
-> ³ ESP32 (original/WROOM-32): AGC/FFT gain lock is not available on this platform. Band calibration works but CSI amplitudes may have more variance than newer chips.
->
-> ⁴ **Boards with USB-UART bridges** (CH340, CP2102, CH343): If you don't see logs after flashing, uncomment the `hardware_uart: UART0` line in the `logger:` section of your configuration file to enable logging on UART0.
-
-### 3. Build and flash
-
-```bash
-esphome run espectre-c6.yaml  # replace with your platform's file
-```
-
-### 4. Configure WiFi
-
-After flashing, configure WiFi using one of these methods:
-
-| Method | How |
-|--------|-----|
-| **BLE** (easiest) | Use ESPHome app or Home Assistant Companion app |
-| **USB** | Go to [web.esphome.io](https://web.esphome.io) → Connect → Configure WiFi |
-| **Captive Portal** | Connect to "ESPectre Fallback" WiFi → Configure in browser |
-
-That's it! The device will be automatically discovered by Home Assistant.
-
----
-
-## Development Setup
-
-For development, contributions, or offline use, use the pre-configured development files.
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/francescopace/espectre.git
-cd espectre
-```
-
-### 2. Install ESPHome
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate  # On macOS/Linux
-pip install esphome
-```
-
-### 3. Create secrets file
-
-```bash
-cat > examples/secrets.yaml << EOF
-wifi_ssid: "YourWiFiName"
-wifi_password: "YourWiFiPassword"
-# Optional: lock to specific AP (useful for mesh networks)
-# wifi_bssid: "AA:BB:CC:DD:EE:FF"
-EOF
-```
-
-### 4. Build and flash
-
-Use the development configuration files (with debug sensors and local component path):
-
-These files load the local ESPHome component from `src/cpp/frontend/esphome`, which is the external-components root of the refactored source tree.
-
-For local development, prefer the repository wrapper `./espectre`. It keeps the chip/config mapping in one place and forwards to the underlying tool (`esphome` or `idf.py`) without hiding it.
-
-| Platform | Development File |
-|----------|-----------------|
-| **ESP32-C6** | `examples/espectre-c6-dev.yaml` |
-| **ESP32-C5** | `examples/espectre-c5-dev.yaml` |
-| **ESP32-S3** | `examples/espectre-s3-dev.yaml` |
-| **ESP32-C3** | `examples/espectre-c3-dev.yaml` |
-| **ESP32** | `examples/espectre-esp32-dev.yaml` |
-
-```bash
-# Preferred wrapper
-./espectre esphome flash --chip c6 --dev
-
-# Equivalent raw ESPHome command
-esphome run examples/espectre-c6-dev.yaml
-
-# For ESP32-S3
-./espectre esphome flash --chip s3 --dev
-
-# For ESP32 (original)
-./espectre esphome flash --chip esp32 --dev
-```
-
-Useful local subcommands:
-- `./espectre esphome build --chip <chip> [--dev]` → `esphome compile`
-- `./espectre esphome flash --chip <chip> [--dev]` → `esphome run`
-- `./espectre esphome config --chip <chip> [--dev]` → `esphome config`
-- `./espectre esphome logs --chip <chip> [--dev] --device <port>` → `esphome logs`
-
-### Development vs Production Files
-
-| File | Component Source | WiFi | Logger | Debug Sensors |
-|------|-----------------|------|--------|---------------|
-| `espectre-c6.yaml` | GitHub | Provisioning (BLE/USB/AP) | INFO | ❌ |
-| `espectre-c6-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
-| `espectre-s3.yaml` | GitHub | Provisioning (BLE/USB/AP) | INFO | ❌ |
-| `espectre-s3-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
-| `espectre-esp32.yaml` | GitHub | Provisioning (BLE/USB/AP) | INFO | ❌ |
-| `espectre-esp32-dev.yaml` | Local | secrets.yaml | DEBUG | ✅ |
-
----
-
-## Docker / Home Assistant Add-on
-
-If you run ESPHome in Docker or as a Home Assistant add-on, just download an example file to your config directory.
-
-**Example for Docker with bind mount:**
-
-```bash
-# Your docker-compose.yml mounts /home/user/esphome/config:/config
-cd /home/user/esphome/config
-
-# Download the configuration file
-curl -O https://raw.githubusercontent.com/francescopace/espectre/main/examples/espectre-c6.yaml
-
-# Run ESPHome
-docker compose exec esphome esphome run espectre-c6.yaml
-
-# After flashing, configure WiFi via BLE, USB, or Captive Portal
-```
-
-No need to copy any files manually - the component is downloaded automatically from GitHub!
-
----
-
-## Configuration Parameters
-
-### ESPectre Component
-
-All parameters can be adjusted in the YAML file under the `espectre:` section:
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `detection_algorithm` | string | mvs | Detection algorithm: `mvs` (variance) or `ml` (neural network) |
-| `traffic_generator_rate` | int | 100 | Packets/sec for CSI generation (0-1000, 0=disabled) |
-| `traffic_generator_mode` | string | ping | Traffic generator mode: `ping` (ICMP) or `dns` (UDP queries) |
-| `publish_interval` | int | auto | Packets between periodic sensor/log updates (default: same as traffic_generator_rate, or 100 if traffic is 0) |
-| `evaluation_interval` | int | 25 | Packets between internal detector state evaluations |
-| `motion_on_hits` | int | 3 | Consecutive evaluated hits required before switching the binary sensor to `MOTION` |
-| `motion_off_hits` | int | 3 | Consecutive evaluated hits required before switching the binary sensor back to `IDLE` |
-| `segmentation_threshold` | string/float | auto | Threshold: `auto`, `min`, or number (0.0-10.0 for both MVS and ML) |
-| `segmentation_window_size` | int | 100 | Moving variance window in packets (10-200) |
-| `lowpass_enabled` | bool | false | Enable low-pass filter for noise reduction (MVS and ML) |
-| `lowpass_cutoff` | float | 11.0 | Low-pass filter cutoff frequency in Hz (5-20) |
-| `hampel_enabled` | bool | true | Enable Hampel outlier filter (MVS and ML) |
-| `hampel_window` | int | 7 | Hampel filter window size (3-11) |
-| `hampel_threshold` | float | 5.0 | Hampel filter sensitivity (MAD multiplier) (1.0-10.0) |
-| `gain_lock` | string | auto | AGC/FFT gain lock: `auto`, `enabled`, `disabled` |
-
-For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
-
-### Choosing Detection Algorithm
-
-| Algorithm | How It Works | Pros | Cons | Best For |
-|-----------|--------------|------|------|----------|
-| **MVS** (default) | Variance of spatial turbulence | Low CPU, adaptive threshold | Fixed subcarriers, short startup calibration | General use |
-| **ML** | Neural network (MLP 9→32→16→1) | Fast boot (~3s), no calibration | Pre-trained weights, fixed subcarriers | Experimental |
-
-Both algorithms support optional low-pass and Hampel filters on the turbulence stream.
-
-```yaml
-espectre:
-  detection_algorithm: mvs  # or ml
-```
-
-**Threshold ranges (unified for both algorithms):**
-- Range: 0.0 - 10.0
-- MVS default: `auto` (adaptive based on baseline noise)
-- ML default: 5.0 (equivalent to 0.5 probability)
-
-### Integrated Sensors (Created Automatically)
-
-All sensors are created automatically when the `espectre` component is configured. You can optionally customize their names.
-
-| Sensor Config | Type | Default Name | Description |
-|---------------|------|--------------|-------------|
-| `movement_sensor` | sensor | "Movement Score" | Current motion score on a 0-10 scale (more gradual in ML mode) |
-| `motion_sensor` | binary_sensor | "Motion Detected" | Edge-driven motion state (on/off), filtered by `evaluation_interval` and hit counters |
-| `threshold_number` | number | "Threshold" | Detection threshold (adjustable from HA) |
-| `calibrate_switch` | switch | "Calibrate" | Trigger band recalibration (ON during calibration) |
-
-### Customizing Sensors
-
-All sensor entities support standard ESPHome options:
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `name` | string | Custom entity name |
-| `internal` | bool | If `true`, hide from Home Assistant (still processes data) |
-| `icon` | string | Custom MDI icon (e.g., `mdi:motion-sensor`) |
-| `disabled_by_default` | bool | Entity disabled until manually enabled in HA |
-
-The `movement_sensor` also supports ESPHome [sensor filters](https://esphome.io/components/sensor/#sensor-filters) for data transformation.
-
-- **MVS mode**: publishes the current moving-variance based metric
-- **ML mode**: publishes a 0-10 confidence-like score derived from the neural network output
-- **ML temperature scaling**: the ML score is intentionally softened before the sigmoid so Home Assistant can show intermediate values instead of a nearly binary 0/10 output
-
-Common filters:
-
-| Filter | Example | Description |
-|--------|---------|-------------|
-| `multiply` | `multiply: 10` | Scale values (e.g., 0-10 → 0-100) |
-| `round` | `round: 1` | Round to N decimal places |
-| `clamp` | `min_value: 0, max_value: 100` | Limit value range |
-| `offset` | `offset: -0.5` | Add/subtract constant |
-| `sliding_window_moving_average` | `window_size: 5` | Smooth noisy readings |
-
-See the [ESPHome sensor filters documentation](https://esphome.io/components/sensor/#sensor-filters) for the complete list.
-
-**Example:**
-
-```yaml
-espectre:
-  movement_sensor:
-    name: "Living Room Movement"
-    internal: true              # Hide from Home Assistant
-    icon: "mdi:sine-wave"
-    filters:
-      - multiply: 100           # Scale 0-1 to 0-100
-      - clamp:
-          min_value: 0
-          max_value: 100        # Cap at 100%
-      - round: 1                # Round to 1 decimal
-  motion_sensor:
-    name: "Living Room Motion"
-    icon: "mdi:motion-sensor"
-  threshold_number:
-    name: "Living Room Threshold"
-```
-
-> **Tip:** Use `internal: true` on `movement_sensor` to reduce data sent to Home Assistant while keeping `motion_sensor` for automations.
-
----
-
-## Home Assistant Integration
-
-ESPHome provides **automatic Home Assistant integration**. Once the device is flashed and connected to WiFi:
-
-1. Home Assistant will automatically discover the device
-2. Go to **Settings** → **Devices & Services** → **ESPHome**
-3. Click **Configure** on the discovered device
-4. All sensors will be automatically added
-
-### Entities Created
-
-Entity names are based on the device name in your YAML (default: `espectre`):
-
-- **binary_sensor.espectre_motion_detected** - Motion state (on/off)
-- **sensor.espectre_movement_score** - Movement intensity value
-- **number.espectre_threshold** - Detection threshold (adjustable from Home Assistant)
-- **switch.espectre_calibrate** - Trigger recalibration (ON during calibration)
-
-> **Note:** If you change the device name, replace `espectre` with your device name in automations and dashboards.
-
-### Automation Example
-
-```yaml
-automation:
-  - alias: "Turn on light on motion"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.espectre_motion_detected
-        to: "on"
-    action:
-      - service: light.turn_on
-        target:
-          entity_id: light.living_room
-
-  - alias: "Turn off light after no motion"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.espectre_motion_detected
-        to: "off"
-        for:
-          minutes: 5
-    action:
-      - service: light.turn_off
-        target:
-          entity_id: light.living_room
-```
-
-**Inactivity alert:**
-
-```yaml
-automation:
-  - alias: "Inactivity Alert"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.espectre_motion_detected
-        to: "off"
-        for:
-          hours: 4
-    condition:
-      - condition: time
-        after: "08:00:00"
-        before: "22:00:00"
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "No movement detected for 4 hours"
-```
-
-### Dashboard Examples
-
-Two dashboard examples are available:
-
-| Dashboard | Description |
-|-----------|-------------|
-| [home-assistant-dashboard.yaml](../examples/home-assistant-dashboard.yaml) | Production dashboard with motion sensors |
-| [home-assistant-dashboard-dev.yaml](../examples/home-assistant-dashboard-dev.yaml) | Development dashboard with debug sensors (Free Heap, Loop Time, etc.) |
-
-**How to use:**
-1. Go to **Settings** → **Dashboards** → **Add Dashboard**
-2. Open the new dashboard and click **Edit** (pencil icon)
-3. Click the three dots menu → **Raw configuration editor**
-4. Replace ALL content with the YAML from the file (delete the default content first)
-5. Click **Save**
-
-> **Note:** If you changed the device name from `espectre`, replace all occurrences of `espectre_` with your device name (e.g., `espectre_living_room_`).
-
-> ⚠️ **Multiple devices?** If you uncommented `name_add_mac_suffix: true` in your YAML, entity names will include the MAC suffix (e.g., `sensor.espectre_a1b2c3_movement_score`). Update the dashboard entities accordingly.
-
-**Production dashboard includes:**
-- **Gauge**: Visual representation of movement score with color-coded severity
-- **Motion tile**: Current motion state with last changed time
-- **Threshold control**: Adjustable detection threshold
-- **History graph**: 24-hour view of movement and threshold
-
-**Development dashboard adds:**
-- **Free Heap**: Available memory (monitor for leaks)
-- **Max Free Block**: Largest contiguous memory block
-- **Loop Time**: Main loop execution time
-
----
-
-## Traffic Generator
-
-The traffic generator creates network packets that trigger CSI callbacks from the WiFi driver. Default rate is **100 pps** (packets per second).
-
-> ⚠️ **Important**: The traffic generator runs **continuously** while the device is powered on, not just during calibration. Each ESPectre device constantly sends packets to generate CSI data for motion detection. See [Network Impact](#network-impact) below to understand the bandwidth and airtime implications for your WiFi network.
-
-```yaml
-espectre:
-  traffic_generator_rate: 100  # packets per second (0-1000)
-  traffic_generator_mode: ping  # ping (default) or dns
-```
-
-### Traffic Generator Mode
-
-Two modes are available:
-
-| Mode | Protocol | Description |
-|------|----------|-------------|
-| `ping` | ICMP | Sends ICMP echo requests to gateway. Default mode, more reliable on routers that ignore root-domain DNS queries. |
-| `dns` | UDP | Sends DNS queries to gateway:53. Lower-overhead alternative when DNS works well in your environment. |
-
-Both modes generate minimal network traffic (<20 bytes per packet). 
-
-**Choosing a mode:**
-- Start with `ping` (default) - more reliable when routers ignore root-domain DNS queries
-- Try `dns` if you prefer lower-overhead UDP traffic and your router responds consistently
-- Note: some routers/firewalls may rate-limit or block ICMP ping responses
-
-```yaml
-espectre:
-  traffic_generator_rate: 100
-  traffic_generator_mode: dns  # Use DNS queries instead of the default ping mode
-```
-
-**Community test results** (thanks to [@gasment](https://github.com/francescopace/espectre/issues/48)):
-
-| Board | Antenna | Mode | Rate | RSSI | AGC | Result |
-|-------|---------|------|------|------|-----|--------|
-| ESP32-S3-N16R8 | built-in | DNS | 100 | -15±5 | 15±5 | ✅ |
-| ESP32-S3-N16R8 | built-in | PING | 100 | -15±5 | 10±5 | ✅ |
-| ESP32-S3-N16R8 | external | DNS | 100 | -10±5 | 5±5 | ✅ |
-| ESP32-S3-N16R8 | external | PING | 100 | -5±5 | 5±5 | ✅ |
-| ESP32-C6 Super Mini | built-in | DNS | 100 | -20±5 | 15±5 | ✅ |
-| ESP32-C6 Super Mini | built-in | PING | 100 | -20±5 | 15±5 | ✅ |
-| ESP32-C3 Core | built-in | DNS | 94 | -20±5 | 15±5 | ✅ |
-| ESP32-C3 Core | built-in | PING | 94 | -20±5 | 15±5 | ✅ |
-
-Both modes work reliably across different boards and antenna configurations.
-
-For detailed rate recommendations and Nyquist-Shannon sampling theory, see [TUNING.md](TUNING.md#traffic-generator-rate-0-1000-pps).
-
-### Network Impact
-
-Each ESPectre device generates **continuous** WiFi traffic as long as it's powered on. This is required for motion detection to work. Here's the approximate impact per device:
-
-| Rate | Packets/sec | Approximate Bandwidth |
-|------|-------------|----------------------|
-| 50 pps | 50 | ~4.5 KB/s |
-| 100 pps (default) | 100 | ~9 KB/s |
-| 200 pps | 200 | ~18 KB/s |
-
-For single devices or small deployments (< 5 devices), the default 100 pps has negligible impact on most home networks (typically <1% of available bandwidth).
-
-> ⚠️ **Planning a large deployment?** With many ESPectre devices, the cumulative traffic can consume noticeable WiFi airtime. For example, 10 devices at 100 pps each = 2000 packets/sec (1000 requests + 1000 responses), using approximately 10-15% of airtime. Consider using [External Traffic Mode](#external-traffic-mode) with UDP broadcast to reduce this to ~0.5% airtime.
-
-### External Traffic Mode
-
-You can disable the internal traffic generator and rely on external WiFi traffic:
-
-```yaml
-espectre:
-  traffic_generator_rate: 0      # Disable internal generator
-  publish_interval: 100          # Publish movement score/logs every 100 packets
-  evaluation_interval: 25        # Re-evaluate motion state every 25 packets
-```
-
-This is useful when:
-- You have multiple ESPectre devices and want to reduce total network traffic
-- You already have continuous WiFi traffic on your network
-- You want centralized control over traffic generation
-
-**Generating external traffic:**
-
-When `traffic_generator_rate: 0`, ESPectre opens a UDP listener on **port 5555**. Send UDP packets to this port to generate CSI data.
-
-Use the standalone Python script: [`espectre_traffic_generator.py`](../examples/espectre_traffic_generator.py)
-
-**Configuration:** Edit the script and set your device IP(s):
-
-```python
-TARGETS = ['192.168.1.255']  # Broadcast address (recommended for multiple devices)
-# TARGETS = ['192.168.1.100', '192.168.1.101']  # Or list specific device IPs
-PORT = 5555
-RATE = 100  # packets per second (recommended: 100)
-```
-
-> ⚠️ **ESP32 (original) limitation:** The CSI driver on ESP32 has a known issue where it doesn't detect traffic that was already flowing when CSI was enabled. You must start the external traffic generator **after** the ESP32 connects to WiFi. Additionally, broadcast mode is not supported - use unicast (specific device IP) instead. ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3 don't have these limitations. See [espressif/esp-csi#247](https://github.com/espressif/esp-csi/issues/247) for details.
-
-**Usage:**
-
-```bash
-python3 espectre_traffic_generator.py run      # Foreground (Ctrl+C to stop)
-python3 espectre_traffic_generator.py start    # Background daemon
-python3 espectre_traffic_generator.py stop     # Stop daemon
-python3 espectre_traffic_generator.py status   # Check if running
-```
-
-**Home Assistant (Docker) note:**
-
-The script starts the background process using `subprocess.Popen` (no `fork()`), which avoids the deprecation warning emitted by Python in multi-threaded Home Assistant environments.
-
-Run on any device on the network: Raspberry Pi, NAS, Home Assistant server, etc.
-
-**Home Assistant integration:**
-
-Copy the script to `/config/python_scripts/espectre_traffic_generator.py` and add to `configuration.yaml` (see [command_line integration docs](https://www.home-assistant.io/integrations/command_line/)):
-
-```yaml
-command_line:
-  - switch:
-      name: "ESPectre Traffic Generator"
-      command_on: "python3 /config/python_scripts/espectre_traffic_generator.py start"
-      command_off: "python3 /config/python_scripts/espectre_traffic_generator.py stop"
-      command_state: "python3 /config/python_scripts/espectre_traffic_generator.py status"
-      value_template: '{{ "Running" in value }}'
-      unique_id: espectre_traffic_generator
-```
-
-This creates a `switch.espectre_traffic_generator` entity you can toggle from dashboards or use in automations.
-
-<details>
-<summary><b>Why UDP instead of ping?</b></summary>
-
-You might wonder why we don't just use `ping -b` (broadcast ping) for external traffic. While ping works for CSI generation, UDP has significant advantages:
-
-| Aspect | Ping broadcast | UDP broadcast |
-|--------|----------------|---------------|
-| Response traffic | Yes (ICMP Echo Reply from each device) | None |
-| Network overhead | N+1 packets (1 request + N replies) | 1 packet |
-| Root required | Yes (for broadcast and high-rate) | No |
-
-For 10 devices at 100 pps, ping broadcast generates 1100 packets/sec (100 requests + 1000 replies), while UDP broadcast generates only 100 packets/sec total.
-
-</details>
-
-### Network Impact: Internal vs External Traffic
-
-**Packet sizes by mode:**
-
-| Mode | Payload | IP packet | On-wire (with MAC) |
-|------|---------|-----------|-------------------|
-| DNS (default) | 17 bytes | 45 bytes | ~75 bytes |
-| Ping | 8 bytes | 28 bytes | ~58 bytes |
-| External UDP | 3 bytes | 31 bytes | ~61 bytes |
-
-*On-wire size includes WiFi MAC header (~30 bytes). Actual size varies with encryption and PHY rate.*
-
-**Comparison for 10 devices at 100 pps:**
-
-| Approach | Total packets/sec | Total airtime |
-|----------|-------------------|---------------|
-| Internal traffic generator (DNS) | 1000 + 1000 replies | ~14% |
-| Internal traffic generator (Ping) | 1000 + 1000 replies | ~11% |
-| **UDP broadcast (recommended)** | **100** | **~0.5%** |
-
-UDP broadcast is the most efficient option for multi-device deployments: one packet reaches all devices, with no response traffic.
-
-<details>
-<summary><b>What is airtime?</b></summary>
-
-Airtime is the percentage of time the WiFi channel is occupied by transmissions. Since WiFi is a shared medium, only one device can transmit at a time.
-
-Each packet occupies the channel for:
-- **Transmission time**: packet size / PHY rate (e.g., 60 bytes at 54 Mbps ≈ 9 µs)
-- **Protocol overhead**: preamble, inter-frame spacing, ACK (~40 µs)
-
-At 100 pps with ~50 µs per packet: **airtime = 0.5%**
-
-High airtime (>30-50%) causes network congestion, increased latency, and packet loss. The UDP broadcast approach keeps airtime minimal even with many ESPectre devices.
-
-</details>
-
----
-
-## Startup Calibration
-
-> ⚠️ **CRITICAL**: The room should be **still** after boot. Movement during startup calibration can bias the adaptive threshold.
-During startup, ESPEctre takes care of:
-
-1. **Gain Lock** (~3 seconds, 300 packets): Stabilizes AGC/FFT for consistent amplitudes
-2. **Adaptive threshold** (~10 seconds, 10 × `window_size` packets): When in MVS detection mode, espectre Calculates the adaptive threshold from baseline moving variance
-
-With default `segmentation_window_size: 100`, MVS collects 1000 packets for threshold bootstrap. If you change the window size, the bootstrap buffer adjusts automatically.
-
-**Sensor placement:** Position the sensor 3-8 meters from your access point for optimal performance. See [Sensor Placement](TUNING.md#sensor-placement) in the Tuning Guide for details.
-
-**Gain lock modes:** The `gain_lock` parameter (`auto`/`enabled`/`disabled`) controls AGC stabilization. See [Gain Lock](TUNING.md#gain-lock) in the Tuning Guide.
-
-**Runtime recalibration:** You can trigger startup recalibration from Home Assistant using the Calibrate switch (`switch.espectre_calibrate`). The switch is automatically disabled during calibration to prevent accidental interruption. This recomputes the adaptive threshold for MVS while keeping the fixed subcarriers.
-
----
-
-## Custom Hardware Configuration
-
-ESPectre now provides example configurations for all ESP32 variants with CSI support. If you need to customize further, use these guidelines:
-
-### Automatic sdkconfig options
-
-ESPectre automatically sets all required and recommended sdkconfig options. You don't need to manually configure anything in most cases.
-
-The component automatically configures:
-
-| Option | Value | Purpose |
-|--------|-------|---------|
-| `CONFIG_ESP_WIFI_CSI_ENABLED` | `y` | Enable CSI (mandatory) |
-| `CONFIG_PM_ENABLE` | `n` | Disable power management |
-| `CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE` | `n` | Disable disconnected PM |
-| `CONFIG_ESP_WIFI_AMPDU_TX_ENABLED` | `n` | More CSI callbacks |
-| `CONFIG_ESP_WIFI_AMPDU_RX_ENABLED` | `n` | More CSI callbacks |
-| `CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM` | `128` | Larger RX buffer |
-| `CONFIG_FREERTOS_HZ` | `1000` | 1ms tick for precise timing |
-
-### Platform-specific options (optional)
-
-You only need to add sdkconfig options for platform-specific features:
-
-```yaml
-esp32:
-  variant: ESP32C6  # or ESP32S3, etc.
-  framework:
-    type: esp-idf
-    version: 5.5.1
-    sdkconfig_options:
-      # CPU frequency (platform-dependent)
-      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ: "160"  # 160 for C6, 240 for S3
-      
-      # PSRAM (if available on your board)
-      # CONFIG_ESP32S3_SPIRAM_SUPPORT: y
-```
-
-**Reference:** For advanced sdkconfig tuning see official Espressif documentation: [ESP32 WiFi](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/wifi.html#how-to-configure-parameters).
-
----
-
-## Flash Size and Partitions
-
-> **Minimum requirement: 4MB flash.** ESPectre fits comfortably in 4MB with full OTA support. Larger flash (8MB/16MB) is only useful for additional components (like `bluetooth_proxy`) or future ML features planned for v3.x.
-
-### ESPectre Flash Footprint
-
-ESPectre itself is very lightweight. The actual code overhead is minimal:
-
-| Configuration | Flash | RAM | Notes |
-|---------------|-------|-----|-------|
-| ESPHome base + provisioning | 1,464 KB | 49.9 KB | BLE, captive portal, improv |
-| ESPectre production | 1,535 KB | 50.0 KB | Full featured |
-| **ESPectre overhead** | **~70 KB** | **88 bytes** | Just the CSI code |
-
-The ESPectre component adds only **~70KB of Flash** and less than **100 bytes of RAM**. The majority of flash usage comes from standard ESPHome components (WiFi, API, OTA, provisioning).
-
-### Partition Tables
-
-The ESPHome frontend now uses the board/framework default partition table.
-
-This keeps the external component simpler and avoids forcing a custom flash layout on user projects. It also means ESPectre no longer depends on SPIFFS for startup calibration or runtime operation.
-
-Other firmware frontends in this repository may still use custom partition tables when their build/runtime requirements need them. In particular, the Matter and streamer apps keep their own ESP-IDF partition layouts.
-
-If you need a custom partition table for your own ESPHome project, you can still override it in YAML using an **absolute path**:
-
-```yaml
-esphome:
-  name: my-device
-  platformio_options:
-    board_build.partitions: /path/to/partitions_custom.csv
-```
-
-Then create the `partitions_custom.csv` file at that location.
-
-**Example for 4MB flash** (no OTA, ~3.9MB for app):
-
-```
-# Name,   Type, SubType, Offset,  Size
-nvs,      data, nvs,     0x9000,  0x5000,
-phy_init, data, phy,     0xe000,  0x1000,
-app0,     app,  factory, 0x10000, 0x3E0000,
-```
-
-**Example for 8MB flash** (no OTA, ~7.9MB for app):
-
-```
-# Name,   Type, SubType, Offset,   Size
-nvs,      data, nvs,     0x9000,   0x5000,
-phy_init, data, phy,     0xe000,   0x1000,
-app0,     app,  factory, 0x10000,  0x7E0000,
-```
-
-**Notes**:
-- The ESPHome frontend does not require a custom partition table.
-- BLE, Matter, and streamer builds in this repository still use frontend-specific custom partition tables.
-- If you remove OTA partitions, you must also remove the `ota:` section from your YAML (OTA updates won't work without the partitions).
-
----
-
-## BLE Frontend (Experimental)
-
-The custom BLE telemetry/control channel is no longer part of the ESPHome YAML/component surface.
-It now lives in the standalone BLE frontend.
-
-For the complete protocol reference (UUIDs, payloads, sysinfo keys, commands, compatibility notes, and possible evolutions), see [`src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md).
-
-Repository CLI commands:
-
-```bash
-./espectre ble build --chip c3
-./espectre ble flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre ble monitor --chip c3 --port /dev/cu.usbmodemXXXX
-```
-
-Current published BLE targets:
-
-- `ESP32`
-- `ESP32-S3`
-- `ESP32-C3`
-- `ESP32-C5`
-- `ESP32-C6`
-
-The standalone BLE frontend currently expects Wi-Fi credentials in `sdkconfig`, so treat it as an advanced/example integration path rather than a drop-in ESPHome replacement.
-
----
-
-## Troubleshooting
-
-### WiFi protocol/bandwidth shows "unavailable"
-
-On some targets or band modes, the WiFi driver may not expose protocol/bandwidth values through all read APIs. In this case, ESPectre logs:
-
-```
+```text
 WiFi Protocol: unavailable (...)
 WiFi Bandwidth: unavailable (...)
 ```
 
-This is expected for unsupported read paths and does not necessarily indicate a WiFi connection failure.
-
 ### CSI packet length warnings (`wrong SC count`)
 
-ESPectre expects HT20 CSI payloads mapped to `128 bytes` (64 subcarriers). Runtime normalization already handles common alternate lengths:
+ESPectre expects HT20 CSI payloads normalized to `128 bytes` (64 subcarriers).
+The runtime already remaps several common alternate lengths. If warnings remain
+frequent, collect the logged metadata and target details before opening an
+issue.
 
-- `256 -> 128` (double HT-LTF / STBC-like packet)
-- `228 -> 114 -> 128` (double short HT estimate, then remap)
-- `114 -> 128` (57-subcarrier short HT estimate remapped to 64)
+### Detection does not behave as expected
 
-If you still see repeated `Filtered ... wrong SC count` warnings, packets are likely arriving in another unsupported format. In that case, keep an eye on the logged metadata (`ch`, `bb`/`sig_mode`, `est_len`) and open an issue with logs and target chip/AP details.
+Before checking frontend-specific settings:
 
-### No motion detection
+1. confirm the device is connected to 2.4 GHz Wi-Fi
+2. confirm startup calibration had a quiet room in `MVS` mode
+3. check sensor placement and interference sources
+4. continue in [TUNING.md](TUNING.md) and the README of your frontend
 
-1. **Verify traffic generator is enabled** (`traffic_generator_rate > 0`)
-2. Check WiFi is connected (look for IP address in logs)
-3. Wait for startup calibration to complete (~13 seconds after boot for MVS, ~3 seconds for ML)
-4. Adjust `segmentation_threshold` (try 0.5-2.0 for more sensitivity)
+## Frontend-Specific Workflows
 
-### False positives
-
-1. Increase `segmentation_threshold` (try 2.0-5.0)
-2. Check for interference sources (fans, AC, moving curtains)
-3. Increase `segmentation_window_size` for more stable detection
-
-### Calibration fails (MVS only)
-
-Applies only when `detection_algorithm: mvs` (default). The `ml` detector skips threshold bootstrap and uses its fixed threshold.
-
-1. Ensure room is quiet during calibration (first ~13 seconds after boot)
-2. Check traffic generator is running
-3. Verify WiFi connection is stable
-
-### Unstable detection with mesh networks
-
-If you have a mesh WiFi network, the sensor may roam between access points causing CSI inconsistencies. Lock it to a specific AP using the BSSID.
-
-**For development files** (`espectre-*-dev.yaml`):
-1. Add `wifi_bssid` to your `secrets.yaml`:
-   ```yaml
-   wifi_bssid: "AA:BB:CC:DD:EE:FF"
-   ```
-2. Uncomment the `bssid` line in your config file:
-   ```yaml
-   wifi:
-     networks:
-       - ssid: !secret wifi_ssid
-         password: !secret wifi_password
-         bssid: !secret wifi_bssid
-   ```
-
-**For production files** (`espectre-*.yaml` with provisioning):
-Add the BSSID directly after configuring WiFi, or use the ESPHome dashboard to edit the configuration.
-
-To find your AP's BSSID:
-- Check your router's admin page
-- Use a WiFi analyzer app on your phone
-- Look in ESPectre logs after connection (shows connected BSSID)
-
-### ESP32-C3 Super Mini issues
-
-If you're using an ESP32-C3 Super Mini (popular budget boards from AliExpress/Temu):
-
-1. **No logs visible via USB**: ESPHome defaults to native USB Serial/JTAG on C3, but boards with external USB-UART bridges (like CH343, CP2102) need explicit UART0 configuration. Add this to your YAML:
-   ```yaml
-   logger:
-     hardware_uart: UART0
-   ```
-
-2. **Calibration takes very long or fails**: Set `traffic_generator_rate: 94` or lower. Values of 95+ cause calibration to hang for 90+ minutes.
-
-3. **Flash fails or board doesn't respond**: Some cheap clones don't support QIO flash mode. Add this to your YAML:
-   ```yaml
-   esphome:
-     platformio_options:
-       board_build.flash_mode: dio
-   ```
-
-### Flash failed
-
-1. Hold BOOT button on ESP32
-2. Press RESET button
-3. Release BOOT button
-4. Run flash command again
-
-### View logs
-
-```bash
-# Via USB
-esphome logs <your-config>.yaml
-
-# Via network (after first flash)
-esphome logs <your-config>.yaml --device espectre.local
-```
-
----
-
-## Option C: ESP-IDF Frontends (experimental)
-
-### Matter firmware
-
-The Matter frontend is a separate ESP-IDF + esp-matter build. It reuses the same `core` and `runtime` layers as the ESPHome firmware, but exposes motion and runtime controls through Matter clusters instead of Home Assistant entities.
-
-Pre-built Matter firmware is now published through the same release flow used by the web flasher:
-
-- **Stable**: latest official release assets
-- **Main**: rolling snapshot assets from the `main` branch
-
-Current published Matter targets:
-
-- **ESP32**
-- **ESP32-S3**
-- **ESP32-C3**
-- **ESP32-C5**
-- **ESP32-C6**
-
-### Matter hardware validation matrix
-
-Use this table to distinguish what is already published in CI from what has been
-confirmed on real hardware.
-
-| Target | Published build | CI QEMU smoke | Documented local build/flash path | Recorded hardware smoke test | Validation notes |
-|--------|-----------------|---------------|-----------------------------------|------------------------------|------------------|
-| `ESP32` | Yes | Yes | Generic Matter workflow | Pending | QEMU smoke is enabled in CI via a QEMU-only no-BLE sdkconfig overlay and requires a pre-WiFi Matter stack marker from the app; hardware validation not yet recorded |
-| `ESP32-S3` | Yes | Yes | Generic Matter workflow | Pending | QEMU smoke is enabled in CI via a QEMU-only no-BLE sdkconfig overlay and requires a pre-WiFi Matter stack marker from the app; hardware validation not yet recorded |
-| `ESP32-C3` | Yes | Yes | Dedicated example below | Yes | Current bring-up target with recorded real-hardware smoke test; CI QEMU smoke uses the same QEMU-only no-BLE overlay and requires the same pre-WiFi app marker |
-| `ESP32-C5` | Yes | No | Generic Matter workflow | Pending | Published build coverage exists; `idf.py set-target esp32c5` no longer needs `--preview` on ESP-IDF 5.5 |
-| `ESP32-C6` | Yes | No | Generic Matter workflow | Pending | Published build coverage exists; QEMU coverage is not currently available for this target |
-
-### Matter hardware validation checklist
-
-When you test a new board, use the same minimum checklist before promoting it
-from `Pending` to a recorded hardware smoke test:
-
-1. Build succeeds with `./espectre matter build --chip <chip>` or the equivalent `idf.py` flow.
-2. Flash succeeds on the target board without manual project changes.
-3. Boot completes without panic/reboot loops and the runtime reaches an operational state.
-4. Matter commissioning succeeds with a standard controller.
-5. Wi-Fi and CSI runtime behavior look healthy after commissioning.
-6. The exposed Matter surface responds as expected:
-   - `OccupancySensing`
-   - vendor cluster diagnostics reads
-   - threshold write
-   - recalibration trigger
-7. Record the exact board, flash size, serial path, controller used, and any chip-specific notes when updating this table.
-
-The CI QEMU smoke path is intentionally narrower than real-device validation: it
-uses a QEMU-only sdkconfig overlay that disables CHIPoBLE so the firmware can
-exercise the non-BLE bring-up path under emulation. Because QEMU still stops at
-the known Wi-Fi PHY limitation, the smoke test now requires the earlier runtime
-log `ESPectre Matter smoke marker: endpoint ... configured, starting Matter stack`
-before it is considered successful. Published firmware and hardware smoke tests
-still use the normal BLE-enabled configuration.
-
-### Prerequisites
-
-- ESP-IDF **5.4+** (see [espressif/esp_matter](https://components.espressif.com/components/espressif/esp_matter) component requirements)
-- An ESP32-family board with CSI support
-
-Current recorded hardware smoke test:
-
-- **ESP32-C3** with native USB Serial/JTAG and 4 MB flash
-
-No manual clone of the esp-matter repository is required. The firmware app declares `espressif/esp_matter` in `main/idf_component.yml` and the IDF Component Manager downloads it into `managed_components/` during the first build.
-
-If you are using the repository `.venv` for Python tooling, deactivate it before running `install.sh` from ESP-IDF. The ESP-IDF installer creates and manages its own Python environment and refuses to run from inside another virtualenv.
-
-### Build
-
-```bash
-./espectre matter build --chip esp32
-
-# Equivalent raw ESP-IDF commands:
-cd src/cpp/frontend/matter/app
-idf.py set-target esp32
-idf.py build
-```
-
-The same `idf.py set-target <target>` flow now applies to all published Matter targets, including `ESP32-C5`. With the current ESP-IDF 5.5 toolchain used by this repository and CI, no extra `--preview` flag is required for `esp32c5`.
-
-For ESP32-C3:
-
-```bash
-deactivate  # only if you are inside the project .venv
-export IDF_PATH="$HOME/.platformio/packages/framework-espidf"
-cd "$IDF_PATH"
-./install.sh esp32c3
-. ./export.sh
-
-cd /path/to/espectre/src/cpp/frontend/matter/app
-idf.py set-target esp32c3
-idf.py build
-```
-
-Flash and monitor:
-
-```bash
-./espectre matter flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre matter monitor --chip c3 --port /dev/cu.usbmodemXXXX
-```
-
-For the standalone BLE frontend and the CSI streamer firmware, the same wrapper pattern applies:
-
-```bash
-./espectre ble build --chip c3
-./espectre ble flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre ble monitor --chip c3 --port /dev/cu.usbmodemXXXX
-
-./espectre streamer build --chip c3
-./espectre streamer flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX
-```
-
-The streamer frontend is the supported live CSI producer for host-side collection.
-It uses the internal traffic generator by default and can also consume external
-traffic when the internal generator is disabled.
-
-### Exposed Matter surface
-
-| Feature | Matter mapping |
-|---------|----------------|
-| Motion detected | `OccupancySensing` occupancy |
-| Movement metric / diagnostics | Vendor cluster `0xFFF1FC01` read-only attributes |
-| Threshold | Vendor cluster writable threshold attribute |
-| Recalibration | Vendor cluster writable `request_recalibrate` trigger |
-
-Notes:
-
-- The custom game BLE protocol lives in the standalone BLE frontend, not in Matter or ESPHome.
-- `ESP32-S2` is not currently supported by the Matter frontend because the current implementation relies on BLE commissioning and ESP32-S2 does not provide Bluetooth LE.
-- On ESP32-C3, ESPectre currently falls back from `11n-only` to `11b/g/n` if the Wi-Fi driver rejects the stricter CSI protocol setup.
-- The published build matrix covers `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, and `ESP32-C6`; CI QEMU boot smoke now also covers `ESP32`, `ESP32-S3`, and `ESP32-C3`, while the current recorded hardware smoke test is `ESP32-C3`.
-- Commission the device with a standard Matter controller after flashing.
-- See [ARCHITECTURE.md](ARCHITECTURE.md) for the frontend/runtime boundary and current parity limits.
-
----
+This guide is intentionally a shared entry point only. For build commands,
+commissioning steps, protocol details, integration behavior, and frontend-level
+configuration, continue in the local README of the frontend you selected.
 
 ## Next Steps
 
-- **Tuning Guide**: [TUNING.md](TUNING.md) - Optimize for your environment
-- **Main Documentation**: [README.md](../README.md) - Full project overview
-
----
+- [README.md](../README.md) for the project overview and documentation map
+- [TUNING.md](TUNING.md) for parameter tradeoffs and environment tuning
+- [ALGORITHMS.md](ALGORITHMS.md) for signal-processing and detector theory
+- [ARCHITECTURE.md](ARCHITECTURE.md) for `core` / `runtime` / `frontend`
+  boundaries
 
 ## License
 

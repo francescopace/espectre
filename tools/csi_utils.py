@@ -1258,12 +1258,12 @@ def find_dataset(chip: str = None, num_sc: int = 64) -> Tuple[Path, Path, str]:
     if not baseline_files:
         raise FileNotFoundError(
             f"No baseline file found for {chip_desc} in {baseline_dir}\n"
-            f"Collect data using: ./me collect --label baseline --duration 10"
+            f"Collect data using: ./espectre collect --label baseline --duration 10"
         )
     if not movement_files:
         raise FileNotFoundError(
             f"No movement file found for {chip_desc} in {movement_dir}\n"
-            f"Collect data using: ./me collect --label movement --duration 10"
+            f"Collect data using: ./espectre collect --label movement --duration 10"
         )
     
     # Prefer nearest baseline/movement pair from dataset_info metadata, so
@@ -1367,12 +1367,12 @@ def load_baseline_and_movement(
     if not baseline_path.exists():
         raise FileNotFoundError(
             f"{baseline_path} not found.\n"
-            f"Collect data using: ./me collect --label baseline --duration 10"
+            f"Collect data using: ./espectre collect --label baseline --duration 10"
         )
     if not movement_path.exists():
         raise FileNotFoundError(
             f"{movement_path} not found.\n"
-            f"Collect data using: ./me collect --label movement --duration 10"
+            f"Collect data using: ./mespectree collect --label movement --duration 10"
         )
     
     baseline_packets = load_npz_as_packets(baseline_path)

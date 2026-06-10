@@ -6,10 +6,10 @@
 
 # 🛜 ESPectre 👻
 
-**Privacy-first Wi-Fi sensing platform based on CSI, with native Home Assistant integration via ESPHome, an emerging Matter frontend, and a path toward multi-device home orchestration.**
+**Privacy-first Wi-Fi sensing platform based on CSI, with native Home Assistant and Matter integration.**
 
 > [!TIP]
-> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or use the browser-based [web flasher](https://espectre.dev/flash/) / [Setup guide](docs/SETUP.md#choosing-detection-algorithm) for custom configuration.
+> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or use the browser-based [web flasher](https://espectre.dev/flash/).
 
 ---
 
@@ -50,34 +50,16 @@
 ### Hardware
 
 - **2.4GHz Wi-Fi Router** - the one you already have at home works fine
-- **ESP32 with CSI support** - ESP32-C6, ESP32-S3, ESP32-C3, ESP32 (original) or other variants. See [SETUP.md](docs/SETUP.md) for the complete platform comparison table.
+- **ESP32 with CSI support** - ESP32-C3, ESP32-C5, ESP32-C6, ESP32-S3 or ESP32. See [SETUP.md](docs/SETUP.md) for the shared setup hub and frontend entry points.
 
 ![3 x ESP32-S3 DevKit bundle with external antennas](docs/images/home_lab.jpg)
 *ESP32-S3 DevKit with external antennas*
-
-### Software (All Free)
-
-- **Home Assistant** (on Raspberry Pi, PC, NAS, or cloud)
-- **ESPHome** (integrated in Home Assistant or standalone)
-- **Matter tooling** (optional, experimental, now also available as pre-built firmware for ESP32, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6)
-
-### Required Skills
-
-- **Basic YAML knowledge** for configuration
-- **Home Assistant familiarity** (optional but recommended)
-- **NO** programming required
-- **NO** router configuration needed
-
 ---
 
 ## Quick Start
 
-**Setup time**: ~10-15 minutes  
-**Difficulty**: Easy (YAML configuration only)
-
-1. **Setup & Installation**: Follow the complete guide in [SETUP.md](docs/SETUP.md) or go directly to the [web flasher](https://espectre.dev/flash/)
+1. **Setup & Installation**: Start from [SETUP.md](docs/SETUP.md) to choose the right frontend path, or go directly to the [web flasher](https://espectre.dev/flash/)
 2. **Tuning**: Optimize for your environment with [TUNING.md](docs/TUNING.md)
-3. **Local repo workflows**: use `./espectre esphome ...`, `./espectre ble ...`, `./espectre matter ...`, `./espectre streamer ...`, and `./espectre micro ...` when building or testing directly from this repository (`./me` remains a temporary legacy shim for the micro workflow)
 
 Repository CLI namespaces:
 - `./espectre micro ...` for MicroPython flashing, deploy, streaming, dataset collection, and MQTT control
@@ -232,13 +214,13 @@ Each sensor is automatically discovered by Home Assistant with:
 - Adjustable threshold (number entity)
 
 Today, the main user-facing integration is still ESPHome + Home Assistant. The
-same internal architecture now also supports an emerging Matter frontend and
+same internal architecture now also supports Matter and BLE frontends, plus
 future local orchestration layers that can combine events from multiple sensors
 across the home.
 
 ### Calibration
 
-> ⚠️ **IMPORTANT** (MVS mode): Keep the room **quiet and still** for about 10 seconds after device boot. The startup calibration runs during this time and movement will affect detection accuracy. ML skips this threshold bootstrap.
+> ⚠️ **IMPORTANT** (MVS mode): Keep the room **quiet and still** for about 10 seconds after device boot. The startup calibration runs during this time and movement will affect detection accuracy. ML Detector skips this threshold bootstrap.
 
 For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md).
 
@@ -253,38 +235,43 @@ The runtime processing pipeline above is implemented with a separate internal co
 - `src/cpp/frontend/esphome/espectre/` for the ESPHome adapter and packaging entrypoint
 - `src/cpp/frontend/ble/espectre/` for the standalone BLE adapter and firmware app
 - `src/cpp/frontend/matter/espectre/` for the Matter adapter and esp-matter firmware app
+- `src/cpp/frontend/streamer/espectre/` for the standalone CSI streamer frontend and UDP transport
 
 ```text
-┌──────────────────────────────┐
-│ Frontend                     │
-│ ESPHome + BLE + Matter       │
-└──────────────┬───────────────┘
+┌──────────────────────────────────┐
+│ Frontend                         │
+│ (ESPHome, BLE, Matter, streamer) │
+└──────────────┬───────────────────┘
                │ uses
                ▼
-┌──────────────────────────────┐
-│ Runtime                      │
-│ CSI / Wi-Fi / calibration    │
-│ orchestration + facade       │
-└──────────────┬───────────────┘
+┌──────────────────────────────────┐
+│ Runtime                          │
+│ (Wi-Fi, CSI, orchestration)      │
+└──────────────┬───────────────────┘
                │ drives
                ▼
-┌──────────────────────────────┐
-│ Core                         │
-│ detectors, filters, math,    │
-│ thresholds, shared types     │
-└──────────────────────────────┘
+┌──────────────────────────────────┐
+│ Core                             │
+│ (detectors, filters, math, types)│
+└──────────────┬───────────────────┘
 ```
 
-This split keeps the current ESPHome behavior intact while enabling:
+This split keeps decoupled core logic from runtimes and frontends:
 
 - the standalone BLE frontend under `src/cpp/frontend/ble/`
 - the Matter frontend under `src/cpp/frontend/matter/`
+- the streamer frontend under `src/cpp/frontend/streamer/`
 - alternate runtimes
 - standalone reuse of the shared motion-detection core
 - custom firmware targets built from the same reusable platform layers
 - future local services that aggregate normalized signals from multiple devices
 
-The experimental Matter firmware under `src/cpp/frontend/matter/` now builds through managed `espressif/esp_matter` dependencies. The current recorded hardware smoke test is on real `ESP32-C3` hardware, while the broader published-target validation matrix is tracked in [SETUP.md](docs/SETUP.md#matter-hardware-validation-matrix).
+Frontend-local source of truth documents:
+
+- [ESPHome Frontend](src/cpp/frontend/esphome/README.md)
+- [BLE Frontend](src/cpp/frontend/ble/README.md)
+- [Matter Frontend](src/cpp/frontend/matter/README.md)
+- [Streamer Frontend](src/cpp/frontend/streamer/README.md)
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the detailed rationale, folder structure, and reuse model.
 
@@ -393,7 +380,7 @@ This project follows a **dual-platform approach** to balance innovation speed wi
 **Target**: End users, smart home enthusiasts, integrators, and future multi-frontend deployments
 
 - **ESPHome-first product path** with native Home Assistant integration
-- **Matter frontend in progress** for compatibility with broader ecosystems
+- **BLE and Matter frontends available** for alternate integration surfaces
 - **Shared core/runtime/frontend architecture** for reusable firmware builds
 - **YAML configuration** - no programming required
 - **Auto-discovery** - devices appear automatically in Home Assistant
@@ -423,10 +410,10 @@ Micro-ESPectre gives you the fundamentals for:
 │   Micro-ESPectre    │ ─────────────────► │      ESPectre        │
 │   (R&D Platform)    │    algorithms      │ (Production Platform)│
 │                     │                    │                      │
-│ • Fast prototyping  │                    │ • ESPHome component  │
+│ • Fast prototyping  │                    │ • Multiple frontends │
 │ • Algorithm testing │                    │ • Home Assistant     │
 │ • Data analysis     │                    │ • End-user ready     │
-│ • MQTT flexibility  │                    │ • Native API         │
+│ • MQTT flexibility  │                    │ • Reusable platform  │
 └─────────────────────┘                    └──────────────────────┘
 ```
 
@@ -446,7 +433,7 @@ While ESPectre v2.x focuses on **motion detection** (MVS + adaptive threshold bo
 | Capability | Status | Description |
 |------------|--------|-------------|
 | **Core / Runtime / Frontend platform split** | In Progress | Reusable architecture for multiple frontends and custom firmware |
-| **Matter Frontend** | In Progress | Compatibility path for Apple / Google / Alexa ecosystems via Matter |
+| **Matter Frontend** | Available (experimental) | Compatibility path for Apple / Google / Alexa ecosystems via Matter |
 | **Presence / Occupancy Inference** | In Progress | Practical amplitude-first sensing beyond binary motion |
 | **Home Orchestration Service** | Planned | Local web/service layer for multi-room state, device visibility, and event fusion |
 | **Gesture Recognition** | Deferred | Future research/product phase after the current platform and orchestration work |
@@ -467,12 +454,16 @@ The ML data collection and training infrastructure is documented in [ML_DATA_COL
 | Document | Description |
 |----------|-------------|
 | [Intro](README.md) | (This file) Project overview, quick start, FAQ |
-| [Setup Guide](docs/SETUP.md) | Installation and configuration with ESPHome, BLE, or Matter |
+| [Setup Guide](docs/SETUP.md) | Shared setup hub and frontend chooser for ESPHome, BLE, Matter, and streamer workflows |
 | [Tuning Guide](docs/TUNING.md) | Parameter tuning for optimal detection |
 | [Performance](docs/PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
-| [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, runtime/frontend split, Matter path, and orchestration alignment |
+| [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, `core` / `runtime` / `frontend` split, and orchestration alignment |
 | [The Game](docs/web/game/README.md) | Browser game example built on the generic BLE frontend protocol, with interactive threshold tuning |
 | [Test Suite](test/cpp/README.md) | Layered CMake/CTest suite, coverage flow, and support layout |
+| [ESPHome Frontend](src/cpp/frontend/esphome/README.md) | Local source of truth for the ESPHome integration surface |
+| [BLE Frontend](src/cpp/frontend/ble/README.md) | Local source of truth for the BLE protocol and firmware surface |
+| [Matter Frontend](src/cpp/frontend/matter/README.md) | Local source of truth for the Matter surface and firmware workflow |
+| [Streamer Frontend](src/cpp/frontend/streamer/README.md) | Local source of truth for the CSI UDP streamer surface |
 
 ### Micro-ESPectre (R&D)
 

@@ -4,7 +4,9 @@ Quick guide to tune ESPectre for reliable movement detection in your environment
 
 > **Note on Detection Algorithms**: This guide focuses on **MVS** (the default detection algorithm). Filters (low-pass, Hampel) apply to both MVS and ML detectors.
 >
-> **Frontend scope**: This tuning guide is primarily for the `ESPHome` frontend. The current `Matter` frontend exposes threshold and recalibration through its Matter surface, but it does not mirror the full Home Assistant-oriented workflow described here.
+> **Frontend scope**: This guide is written as a shared tuning reference first. When a workflow differs by frontend, the text calls that out explicitly instead of treating one frontend as the universal path.
+>
+> **Syntax note**: YAML snippets in this guide are `ESPHome` examples only. For frontend-specific configuration syntax, provisioning, runtime controls, or workflow details, use the README of the frontend you are actually deploying.
 
 ---
 
@@ -14,12 +16,14 @@ Quick guide to tune ESPectre for reliable movement detection in your environment
 
 ### 1. Flash and Boot
 
-After flashing your device with ESPHome:
+Flash the frontend you want to deploy, boot the device, and open whatever
+runtime visibility surface that frontend provides:
 
-```bash
-# View logs to monitor calibration
-esphome logs <your-config>.yaml
-```
+- logs or serial monitor
+- frontend-specific runtime telemetry
+- controller-side device state, when available
+
+For frontend-owned setup details, continue in the relevant README.
 
 ### 2. Wait for Startup Calibration
 
@@ -39,11 +43,8 @@ NOTE: In ML mode, only gain lock runs and the threshold remains fixed.
 
 ### 3. Test Movement
 
-Walk around the room while monitoring logs:
-
-```bash
-esphome logs <your-config>.yaml
-```
+Walk around the room while monitoring the runtime surface exposed by your
+frontend.
 
 Look for state changes:
 - `state=MOTION` when moving
@@ -76,10 +77,12 @@ espectre:
 - Too many false positives → use `auto` or increase threshold (try 2.0-5.0)
 - Missing movements → use `min` or decrease threshold (try 0.5-0.8)
 
-After changing, re-flash:
-```bash
-esphome run <your-config>.yaml
-```
+Apply the change through the configuration or control surface of your frontend.
+For example:
+
+- `ESPHome`: edit YAML and re-flash or update the runtime threshold entity
+- `Matter`: use the writable threshold attribute exposed by the Matter surface
+- `BLE`: use `SET_THRESHOLD:X.XX` for runtime-only experiments
 
 **Interactive tuning:** You can also adjust the threshold in real-time using a BLE client built on the frontend protocol, including [ESPectre - The Game](https://espectre.dev/game) as one example. Connect, drag the threshold slider, and see immediate visual feedback. Note that runtime adjustments are temporary (session-only) - the adaptive threshold is recalculated on every boot.
 
@@ -102,7 +105,7 @@ esphome run <your-config>.yaml
 | 3.0-5.0 | Low | Noisy environments, reduce false positives |
 | 5.0-10.0 | Very Low | Only detect significant movements |
 
-**Configuration:**
+**Example ESPHome syntax:**
 ```yaml
 espectre:
   segmentation_threshold: auto  # or "min" or a number (0.0-10.0)
@@ -114,7 +117,8 @@ espectre:
 | `min` | Maximum sensitivity | Catches faint motion |
 | number | Fixed | Manual override |
 
-**Note:** Runtime adjustments via Home Assistant slider are temporary (session-only). The adaptive threshold is recalculated on every boot.
+**Runtime note:** Runtime adjustments are temporary unless your frontend also
+persists the value. The adaptive threshold is recalculated on every boot.
 
 ### Detection Algorithm (mvs/ml)
 
@@ -144,7 +148,7 @@ espectre:
 | 50-100 | Balanced | Good | **Recommended** |
 | 100-200 | Slow | Very stable | Reduce flickering |
 
-**Configuration:**
+**Example ESPHome syntax:**
 ```yaml
 espectre:
   segmentation_window_size: 100  # default
@@ -184,9 +188,9 @@ For general movement detection, a window is recommended that captures transient 
 | 50 pps | Basic presence detection, minimal overhead |
 | 100 pps | **Recommended** - Activity recognition |
 | 600-1000 pps | Fast motion detection, precision localization |
-| 0 pps | Disabled - use external WiFi traffic (see [External Traffic Mode](SETUP.md#external-traffic-mode)) |
+| 0 pps | Disabled - use external Wi-Fi traffic through the workflow owned by your frontend |
 
-**Configuration:**
+**Example ESPHome syntax:**
 ```yaml
 espectre:
   traffic_generator_rate: 100
@@ -206,14 +210,14 @@ immediately on `IDLE <-> MOTION` state changes.
 | Faster updates | `publish_interval: 50` | ~2 updates/sec |
 | External traffic | `traffic_generator_rate: 0`, `publish_interval: 100` | Depends on traffic |
 
-**Configuration:**
+**Example ESPHome syntax:**
 ```yaml
 espectre:
   traffic_generator_rate: 100
   publish_interval: 50  # Optional: override publish rate
 ```
 
-> **Note:** Lower `publish_interval` values increase Home Assistant traffic and
+> **Note:** Lower `publish_interval` values increase frontend-side telemetry or
 > dashboard refresh frequency, but the internal motion detection cadence is
 > controlled separately by `evaluation_interval`.
 
@@ -225,7 +229,7 @@ internally. This cadence feeds the binary sensor edge detection and the
 
 **Default:** `25`
 
-**Configuration:**
+**Example ESPHome syntax:**
 ```yaml
 espectre:
   evaluation_interval: 25
@@ -286,7 +290,7 @@ In Wi-Fi sensing, Fmax is the highest Doppler frequency generated by human movem
 
 **Note:** The subcarrier set is fixed. Only the threshold calculation varies.
 
-**Configuration:**
+**Example ESPHome syntax:**
 ```yaml
 espectre:
   segmentation_threshold: auto  # or "min" or a number
@@ -317,7 +321,7 @@ espectre:
 
 > The Hampel filter removes outlier spikes in turbulence values. With threshold 5.0 it only replaces extreme outliers (>5 MAD from median), preserving motion sensitivity while eliminating false positives caused by transient interference.
 
-**Configuration:**
+**Example ESPHome syntax:**
 ```yaml
 espectre:
   hampel_enabled: true     # default
@@ -325,7 +329,9 @@ espectre:
   hampel_threshold: 5.0    # MAD multiplier, higher = less aggressive
 ```
 
-See [SETUP.md](SETUP.md#configuration-parameters) for parameter details.
+See the README of your frontend for the concrete configuration surface. The
+ESPHome YAML mapping lives in
+[`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md).
 
 **When to disable:**
 - If you observe reduced sensitivity in very low-SNR environments
@@ -341,7 +347,7 @@ See [SETUP.md](SETUP.md#configuration-parameters) for parameter details.
 
 **Default:** auto
 
-**Configuration:**
+**Example ESPHome syntax:**
 ```yaml
 espectre:
   gain_lock: auto  # auto (default), enabled, disabled
@@ -392,14 +398,16 @@ espectre:
 
 > ℹ️ **Note:** The low-pass filter is disabled by default for maximum simplicity. Enable it if you experience false positives in noisy RF environments.
 
-**Configuration:**
+**Example ESPHome syntax:**
 ```yaml
 espectre:
   lowpass_enabled: true
   lowpass_cutoff: 11.0
 ```
 
-See [SETUP.md](SETUP.md#configuration-parameters) for parameter details.
+See the README of your frontend for the concrete configuration surface. The
+ESPHome YAML mapping lives in
+[`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md).
 
 **Cutoff frequency guide:**
 - **Lower (5-8 Hz)**: More aggressive filtering, reduces FP more but may miss fast movements
@@ -456,6 +464,10 @@ Look at the gain lock log after WiFi connection:
 ---
 
 ## Troubleshooting
+
+The troubleshooting logic below is frontend-neutral. Inline parameter examples
+use `ESPHome` YAML only as a concrete surface example; apply the equivalent
+control surface in your frontend.
 
 ### Too Many False Positives
 
@@ -527,11 +539,13 @@ Look at the gain lock log after WiFi connection:
 
 ### No CSI Packets
 
-**Symptoms:** Logs show no CSI data or "CSI disabled".
+**Symptoms:** Runtime telemetry or logs show no CSI data, stalled packet flow,
+or an explicit "CSI disabled" warning.
 
 **Solutions:**
 
-1. **Verify WiFi connection:** Check logs for successful connection to AP
+1. **Verify WiFi connection:** Check the connection state exposed by your
+   frontend, logs, or serial monitor
 
 2. **Check traffic generator:**
    ```yaml
@@ -630,16 +644,17 @@ vs.
 
 **When needed:** Recompute the adaptive threshold without reflashing (e.g., after moving furniture or changing room layout). This applies only to MVS mode; ML keeps its fixed threshold.
 
-**How to recalibrate from Home Assistant:**
+Use the recalibration control exposed by your frontend, when available.
 
-1. Go to your ESPectre device in Home Assistant
-2. Find the **Calibrate** switch (`switch.espectre_calibrate`)
-3. Turn it ON to start startup calibration
-4. The switch will automatically turn OFF when calibration completes
+Examples:
+
+- `ESPHome`: trigger the `calibrate_switch` entity
+- `Matter`: use the writable recalibration attribute on the vendor cluster
+- other frontends: use the runtime control surface they expose, if supported
 
 **Important:**
 - Keep the room quiet and empty during calibration (~13 seconds)
-- The switch is disabled during calibration to prevent interruption
+- The frontend control may be temporarily unavailable during calibration
 - You cannot cancel calibration once started
 
 **Logs during recalibration:**
@@ -655,13 +670,18 @@ vs.
 
 **How to reset:**
 
+This step is frontend-specific. In general, perform a clean reinstall or erase
+the persisted frontend state before booting again in a quiet room.
+
+`ESPHome` example:
+
 1. Erase flash completely:
    ```bash
    esphome run <your-config>.yaml --device /dev/ttyUSB0
    # Choose "Erase flash before uploading" if available
    ```
 
-2. Or use ESPHome dashboard: **Clean Build Files** then re-install
+2. Or use the ESPHome dashboard clean-build flow and then reinstall
 
 **After reset:**
 - Keep room quiet and empty for 10 seconds
@@ -672,7 +692,16 @@ vs.
 
 ## Monitoring
 
-### View Real-Time Logs
+### Observe the Runtime
+
+Whatever frontend you use, monitor at least:
+
+- motion state
+- movement score or equivalent live metric
+- current threshold
+- startup calibration progress, when exposed
+
+`ESPHome` example:
 
 ```bash
 # Via USB
@@ -682,23 +711,22 @@ esphome logs <your-config>.yaml
 esphome logs <your-config>.yaml --device espectre.local
 ```
 
-### Home Assistant
+One `ESPHome` example is the Home Assistant entity set:
 
-After integration, monitor sensors in Home Assistant:
-- **binary_sensor.espectre_motion_detected** - Motion state
-- **sensor.espectre_movement_score** - Movement intensity
-- **number.espectre_threshold** - Adjustable detection threshold
+- `binary_sensor.espectre_motion_detected`
+- `sensor.espectre_movement_score`
+- `number.espectre_threshold`
 
-Use **History** graphs to visualize detection patterns over time.
-
-**Tip:** You can adjust the threshold directly from Home Assistant without re-flashing. Changes are session-only - the adaptive threshold is recalculated on every boot.
+Other frontends expose the same concepts through a different transport or
+controller model. Use the runtime surface of your frontend even if the exact
+entity names, commands, or telemetry channel differ.
 
 ---
 
 ## Quick Tips
 
 1. **Start simple:** Tune only the segmentation threshold first
-2. **One change at a time:** Adjust one parameter, re-flash, test for 5-10 minutes
+2. **One change at a time:** Adjust one parameter, apply it through your frontend surface, then test for 5-10 minutes
 3. **Document your settings:** Note what works for your environment
 4. **Seasonal adjustments:** Retune when furniture changes or new interference sources appear
 5. **Distance matters:** Keep sensor 3-8m from router (RSSI between -40 and -70 dB for best results)
@@ -711,7 +739,8 @@ Use **History** graphs to visualize detection patterns over time.
 ## Additional Resources
 
 - **Main Documentation:** [README.md](../README.md)
-- **Setup Guide:** [SETUP.md](SETUP.md)
+- **Setup Guide:** [SETUP.md](SETUP.md) for the shared frontend chooser
+- **ESPHome Frontend:** [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) for YAML syntax, Home Assistant entities, and troubleshooting
 
 ---
 

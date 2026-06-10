@@ -63,6 +63,10 @@ point to your PC (default UDP port: `5001`):
 ./espectre streamer monitor --chip <chip> --port <serial_port>
 ```
 
+The streamer frontend README is the source of truth for the firmware surface,
+UDP packet format, and frontend-specific configuration:
+[`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md).
+
 **Features:**
 - Gain lock phase (~3s) for stable CSI acquisition
 - 64 subcarriers (HT20 mode)
@@ -473,40 +477,16 @@ receiver.run(timeout=60)  # Run for 60 seconds
 
 ### UDP Packet Format
 
-```
-Header (52 bytes):
-  - Magic: 0x4353 ("CS") - 2 bytes
-  - Version: 2 - 1 byte
-  - Header length: 52 - 1 byte
-  - Chip type: 1 byte (0=unknown, 1=ESP32, 2=S2, 3=S3, 4=C3, 5=C5, 6=C6)
-  - Flags: 1 byte
-    - bit 0 = gain_locked
-    - bit 1 = first_word_invalid
-    - bit 2 = wifi_rx_ts_us valid
-    - bit 3 = wifi_rx_start_ts_ns valid
-    - bit 4 = gain metadata valid
-    - bit 5 = stimulus_id valid
-    - bit 6 = reference frame
-  - Sequence number: 4 bytes (uint32, wrapping)
-  - Num subcarriers: 2 bytes (uint16, little-endian)
-  - CSI payload length: 2 bytes (uint16, little-endian)
-  - Device ID: 8 bytes
-  - Device ticks: 8 bytes (microseconds)
-  - Wi-Fi RX timestamp: 4 bytes (optional)
-  - Wi-Fi RX start estimate: 8 bytes (optional)
-  - Stimulus ID: 4 bytes (optional)
-  - Channel / RSSI / noise floor / AGC / FFT gain metadata
+The UDP stream format is now documented in the streamer frontend README:
+[`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md).
 
-Payload (N × 2 bytes):
-  - Q0, I0, Q1, I1, ... (int8 each, Espressif format)
+Collection-specific notes that matter here:
 
-Example (HT20, 64 SC):
-  - 52 + 128 = 180 bytes
-```
-
-The `gain_locked` flag indicates whether AGC gain lock was applied during data collection. MVS uses this flag to enable CV normalization when gain is not locked. ML ignores this flag and always uses raw std.
-
-Note: ESPectre uses HT20 mode (64 subcarriers) for consistent performance across all ESP32 variants. Chip type and gain lock status are automatically detected and included in each packet. `wifi_rx_start_ts_ns` is a hardware-derived estimate with nanosecond resolution, not a guaranteed nanosecond-accurate timestamp.
+- `gain_locked` is carried by the stream and saved into dataset metadata
+- ESPectre uses HT20 mode (64 subcarriers) for consistent cross-chip datasets
+- chip type is auto-detected from the stream
+- `wifi_rx_start_ts_ns` is a hardware-derived estimate, not a guaranteed
+  nanosecond-accurate timestamp
 
 ---
 

@@ -56,8 +56,7 @@ All notable changes to this project will be documented in this file.
 - **ESPHome is now HA-focused again**: the `ble_channel_*` options and the custom game transport were removed from the ESPHome frontend and examples.
 - **ESPHome local development path now uses `src/cpp/frontend/esphome`** as the external-components root.
 - **Native tests and CI build plumbing were updated** to follow the new `src/` layout.
-- **Repository CLI renamed to `./espectre`**: the repo now exposes explicit `micro`, `esphome`, `ble`, `matter`, and `streamer` namespaces instead of a single monolithic entrypoint.
-- **Legacy `./me` commands now forward to `./espectre micro ...`** with a deprecation warning so existing Micro-ESPectre workflows keep working during the transition.
+- **Repository CLI `./me` renamed to `./espectre`**: the repo now exposes explicit `micro`, `esphome`, `ble`, `matter`, and `streamer` namespaces instead of a single monolithic entrypoint.
 - **Host-side C++ tests now use a layered `CMake + CTest` suite under `test/`**: PlatformIO-specific scaffolding was removed, suites were regrouped by `core` / `runtime` / `integration` / `frontend`, shared support code was consolidated, and coverage reporting now includes per-layer breakdowns.
 - **Matter firmware startup ordering was hardened** so the shared runtime initializes after `esp_matter::start()`, allowing the Matter stack to bring up Wi-Fi before CSI-specific runtime configuration runs.
 - **Documentation was aligned** to the new structure, `.venv` activation flow, and the practical ESP32-C3 Matter build/flash workflow.
