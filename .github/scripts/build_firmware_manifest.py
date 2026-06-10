@@ -74,15 +74,29 @@ def parse_matter_asset(filename: str, version_prefix: str) -> dict | None:
     }
 
 
+def parse_ble_asset(filename: str, version_prefix: str) -> dict | None:
+    if not filename.startswith(version_prefix) or not filename.endswith(".bin"):
+        return None
+    chip = filename.removeprefix(version_prefix).removesuffix(".bin")
+    return {
+        "frontend": "ble",
+        "chip": chip,
+        "algorithm": None,
+        "build_type": "factory",
+    }
+
+
 def build_manifest(args: argparse.Namespace) -> dict:
     firmware_dir = Path(args.firmware_dir)
     output_path = Path(args.output)
 
     if args.channel == "stable":
         esphome_prefix = f"espectre-{args.version}-"
+        ble_prefix = f"espectre-ble-{args.version}-"
         matter_prefix = f"espectre-matter-{args.version}-"
     else:
         esphome_prefix = "espectre-snapshot-"
+        ble_prefix = "espectre-ble-snapshot-"
         matter_prefix = "espectre-matter-snapshot-"
 
     manifest = {
@@ -106,12 +120,22 @@ def build_manifest(args: argparse.Namespace) -> dict:
                 ],
                 "artifacts": [],
             },
+            "ble": {
+                "label": "BLE",
+                "post_flash": "This firmware is a standalone generic BLE frontend. Configure Wi-Fi credentials in sdkconfig before building or use a preconfigured binary, then connect from your custom BLE client or web integration.",
+                "notes": [
+                    "The BLE frontend preserves the current custom GATT protocol, but it is not limited to any single client implementation."
+                ],
+                "artifacts": [],
+            },
         },
     }
 
     for asset_path in sorted(firmware_dir.glob("*.bin")):
         filename = asset_path.name
         parsed = parse_matter_asset(filename, matter_prefix)
+        if parsed is None:
+            parsed = parse_ble_asset(filename, ble_prefix)
         if parsed is None:
             parsed = parse_esphome_asset(filename, esphome_prefix)
         if parsed is None:

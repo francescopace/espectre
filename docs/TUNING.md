@@ -81,7 +81,7 @@ After changing, re-flash:
 esphome run <your-config>.yaml
 ```
 
-**Interactive tuning:** You can also adjust the threshold in real-time using [ESPectre - The Game](https://espectre.dev/game). Connect via USB, drag the threshold slider, and see immediate visual feedback. Note that runtime adjustments are temporary (session-only) - the adaptive threshold is recalculated on every boot.
+**Interactive tuning:** You can also adjust the threshold in real-time using a BLE client built on the frontend protocol, including [ESPectre - The Game](https://espectre.dev/game) as one example. Connect, drag the threshold slider, and see immediate visual feedback. Note that runtime adjustments are temporary (session-only) - the adaptive threshold is recalculated on every boot.
 
 ---
 
@@ -704,7 +704,7 @@ Use **History** graphs to visualize detection patterns over time.
 5. **Distance matters:** Keep sensor 3-8m from router (RSSI between -40 and -70 dB for best results)
 6. **Check AGC value:** After boot, look for "Gain locked: AGC=XX" - values 30-60 are optimal
 7. **Quiet calibration:** Ensure no movement during first ~13 seconds after boot
-8. **Try the game:** Use [ESPectre - The Game](https://espectre.dev/game) for interactive threshold tuning with real-time visual feedback
+8. **Try a BLE client:** Use a client built on the BLE frontend protocol, such as [ESPectre - The Game](https://espectre.dev/game), for interactive threshold tuning with real-time visual feedback
 
 ---
 

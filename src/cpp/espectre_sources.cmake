@@ -32,6 +32,10 @@ set(ESPECTRE_FRONTEND_MATTER_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/matter/espectre/matter_surface.cpp"
 )
 
+set(ESPECTRE_FRONTEND_BLE_SOURCES
+    "${ESPECTRE_CPP_ROOT}/frontend/ble/espectre/ble_frontend.cpp"
+)
+
 set(ESPECTRE_FRONTEND_STREAMER_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/csi_udp_sender.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/stream_frontend.cpp"

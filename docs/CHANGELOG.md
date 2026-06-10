@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - **Foundation prepared for future frontends and runtimes**: the runtime contract is now explicit, making it possible to add a Matter frontend or alternate runtimes without cloning the motion pipeline.
 - **ESPHome packaging no longer depends on repository symlinks**: shared code is now wired from canonical `core` / `runtime` sources, making ESPHome builds more reliable on Windows and in checkout/archive workflows where symlinks may be lost.
 - **Matter firmware is now part of the published firmware surface**: CI, stable releases, snapshot releases, and the web flasher can all resolve Matter artifacts for all supported Matter targets except `ESP32-S2`.
+- **Custom BLE protocol moved into its own frontend**: the standalone GATT transport now lives in a dedicated BLE firmware instead of being embedded in the ESPHome adapter.
 
 ### Added
 
@@ -20,6 +21,7 @@ All notable changes to this project will be documented in this file.
   - `src/cpp/core/` for detectors, filters, thresholds, math, and shared domain logic
   - `src/cpp/runtime/` for CSI, Wi-Fi, calibration, gain lock, and traffic orchestration
   - `src/cpp/frontend/esphome/espectre/` for the ESPHome adapter and external component root
+  - `src/cpp/frontend/ble/espectre/` for the standalone BLE adapter and firmware app
   - `src/cpp/frontend/matter/espectre/` for the Matter adapter and esp-matter firmware app
 - **Matter frontend scaffold using managed `espressif/esp_matter`**:
   - `MatterFrontend` adapter over `IEspectreRuntime`
@@ -51,9 +53,10 @@ All notable changes to this project will be documented in this file.
 - **Matter QEMU smoke uses a CI-only no-BLE overlay**: the QEMU path now disables CHIPoBLE via a dedicated sdkconfig overlay instead of changing the production firmware path, allowing emulated boot smoke without relaxing the normal BLE-based commissioning configuration for real devices.
 - **Matter QEMU smoke now requires a pre-WiFi application marker**: the shared QEMU action can enforce an expected runtime log, and the Matter CI path now waits for `ESPectre Matter smoke marker: endpoint ... configured, starting Matter stack` while filtering the known QEMU Wi-Fi PHY assert, instead of treating a bootloader-only path as success.
 - **`ESpectreComponent` is now a thin frontend adapter**: setup/orchestration responsibilities were moved behind the runtime facade.
+- **ESPHome is now HA-focused again**: the `ble_channel_*` options and the custom game transport were removed from the ESPHome frontend and examples.
 - **ESPHome local development path now uses `src/cpp/frontend/esphome`** as the external-components root.
 - **Native tests and CI build plumbing were updated** to follow the new `src/` layout.
-- **Repository CLI renamed to `./espectre`**: the repo now exposes explicit `micro`, `esphome`, `matter`, and `streamer` namespaces instead of a single monolithic entrypoint.
+- **Repository CLI renamed to `./espectre`**: the repo now exposes explicit `micro`, `esphome`, `ble`, `matter`, and `streamer` namespaces instead of a single monolithic entrypoint.
 - **Legacy `./me` commands now forward to `./espectre micro ...`** with a deprecation warning so existing Micro-ESPectre workflows keep working during the transition.
 - **Host-side C++ tests now use a layered `CMake + CTest` suite under `test/`**: PlatformIO-specific scaffolding was removed, suites were regrouped by `core` / `runtime` / `integration` / `frontend`, shared support code was consolidated, and coverage reporting now includes per-layer breakdowns.
 - **Matter firmware startup ordering was hardened** so the shared runtime initializes after `esp_matter::start()`, allowing the Matter stack to bring up Wi-Fi before CSI-specific runtime configuration runs.

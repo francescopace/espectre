@@ -17,49 +17,14 @@
 #include "esphome/core/application.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
-#include <cstring>
-#include <cstdio>
-#include <cstdlib>
-#include <cerrno>
-#include <cmath>
-#include <vector>
-#include <string>
-#include <span>
 
 #include "sdkconfig.h"
-
-#ifdef USE_ESP32_BLE_SERVER
-#include "esphome/components/esp32_ble_server/ble_server.h"
-#include "esphome/components/esp32_ble_server/ble_characteristic.h"
-#endif
 
 namespace esphome {
 namespace espectre {
 
 void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
-
-#ifdef USE_ESP32_BLE_SERVER
-  if (this->ble_channel_enabled_) {
-    if (this->ble_server_ == nullptr || this->ble_telemetry_char_ == nullptr ||
-        this->ble_sysinfo_char_ == nullptr || this->ble_control_char_ == nullptr) {
-      ESP_LOGW(TAG, "BLE channel enabled but server/characteristics are not configured; disabling BLE channel");
-      this->ble_channel_enabled_ = false;
-    } else {
-      this->ble_server_->on_connect([this](uint16_t conn_id) { this->on_ble_client_connected_(conn_id); });
-      this->ble_server_->on_disconnect([this](uint16_t conn_id) { this->on_ble_client_disconnected_(conn_id); });
-      this->ble_control_char_->on_write([this](std::span<const uint8_t> value, uint16_t) {
-        std::string command(reinterpret_cast<const char *>(value.data()), value.size());
-        this->handle_ble_control_command_(command);
-      });
-    }
-  }
-#elif !defined(USE_ESP32_BLE_SERVER)
-  if (this->ble_channel_enabled_) {
-    ESP_LOGW(TAG, "BLE channel requested but esp32_ble_server is not available");
-    this->ble_channel_enabled_ = false;
-  }
-#endif
 
   this->runtime_.reset(new EspIdfRuntime(this->runtime_config_));
   this->runtime_->set_listener(this);
@@ -136,7 +101,6 @@ void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(snapshot.threshold);
   }
-  this->send_system_info_ble_();
 }
 
 void ESpectreComponent::on_calibration_started(const RuntimeSnapshot &snapshot) {
@@ -144,7 +108,6 @@ void ESpectreComponent::on_calibration_started(const RuntimeSnapshot &snapshot) 
   if (this->calibrate_switch_ != nullptr) {
     static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(true);
   }
-  this->send_system_info_ble_();
 }
 
 void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
@@ -156,130 +119,12 @@ void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot,
   if (!success) {
     ESP_LOGW(TAG, "Calibration finished without a valid update");
   }
-  this->send_system_info_ble_();
-}
-
-void ESpectreComponent::on_live_telemetry(float movement, float threshold) {
-  if (!this->ble_channel_enabled_ || !this->ble_client_connected_ || this->ble_telemetry_char_ == nullptr) {
-    return;
-  }
-  const uint32_t now = millis();
-  if (now - this->last_ble_telemetry_ms_ < this->ble_telemetry_interval_ms_) {
-    return;
-  }
-  this->last_ble_telemetry_ms_ = now;
-
-  std::vector<uint8_t> payload(sizeof(float) * 2);
-  memcpy(payload.data(), &movement, sizeof(float));
-  memcpy(payload.data() + sizeof(float), &threshold, sizeof(float));
-#ifdef USE_ESP32_BLE_SERVER
-  this->ble_telemetry_char_->set_value(std::move(payload));
-  this->ble_telemetry_char_->notify();
-#endif
 }
 
 void ESpectreComponent::on_runtime_fault(const char *message) {
   if (message != nullptr) {
     ESP_LOGW(TAG, "Runtime fault: %s", message);
   }
-}
-
-void ESpectreComponent::send_system_info_ble_() {
-#ifndef USE_ESP32_BLE_SERVER
-  return;
-#else
-  if (!this->ble_channel_enabled_ || this->ble_sysinfo_char_ == nullptr) {
-    return;
-  }
-  auto notify_sysinfo = [this](const std::string &line) {
-    this->ble_sysinfo_char_->set_value(line);
-    this->ble_sysinfo_char_->notify();
-  };
-  const char *thr_mode = (this->runtime_config_.threshold_mode == ThresholdMode::MANUAL)
-                             ? "manual"
-                             : (this->runtime_config_.threshold_mode == ThresholdMode::MIN) ? "min" : "auto";
-  const char *subcarrier_source = "fixed";
-  char line[96];
-  notify_sysinfo("proto_version=1");
-  snprintf(line, sizeof(line), "chip=%s", CONFIG_IDF_TARGET);
-  notify_sysinfo(line);
-  snprintf(line, sizeof(line), "threshold=%.2f (%s)", this->runtime_snapshot_.threshold, thr_mode);
-  notify_sysinfo(line);
-  snprintf(line, sizeof(line), "window=%d", this->runtime_config_.segmentation_window_size);
-  notify_sysinfo(line);
-  snprintf(line, sizeof(line), "detector=%s", this->runtime_snapshot_.detector_name);
-  notify_sysinfo(line);
-  snprintf(line, sizeof(line), "subcarriers=%s", subcarrier_source);
-  notify_sysinfo(line);
-  snprintf(line, sizeof(line), "lowpass=%s", this->runtime_config_.lowpass_enabled ? "on" : "off");
-  notify_sysinfo(line);
-  if (this->runtime_config_.lowpass_enabled) {
-    snprintf(line, sizeof(line), "lowpass_cutoff=%.1f", this->runtime_config_.lowpass_cutoff);
-    notify_sysinfo(line);
-  }
-  snprintf(line, sizeof(line), "hampel=%s", this->runtime_config_.hampel_enabled ? "on" : "off");
-  notify_sysinfo(line);
-  if (this->runtime_config_.hampel_enabled) {
-    snprintf(line, sizeof(line), "hampel_window=%d", this->runtime_config_.hampel_window);
-    notify_sysinfo(line);
-    snprintf(line, sizeof(line), "hampel_threshold=%.1f", this->runtime_config_.hampel_threshold);
-    notify_sysinfo(line);
-  }
-  snprintf(line, sizeof(line), "traffic_rate=%u", this->runtime_config_.traffic_generator_rate);
-  notify_sysinfo(line);
-  snprintf(line, sizeof(line), "publish_interval=%u", this->runtime_config_.publish_interval);
-  notify_sysinfo(line);
-  snprintf(line, sizeof(line), "evaluation_interval=%u", this->runtime_config_.evaluation_interval);
-  notify_sysinfo(line);
-  snprintf(line, sizeof(line), "motion_hits=%u/%u", this->runtime_config_.motion_on_hits,
-           this->runtime_config_.motion_off_hits);
-  notify_sysinfo(line);
-  snprintf(line, sizeof(line), "best_pxx=%.4f", this->runtime_snapshot_.best_pxx);
-  notify_sysinfo(line);
-  notify_sysinfo("END");
-#endif
-}
-
-void ESpectreComponent::on_ble_client_connected_(uint16_t conn_id) {
-  (void) conn_id;
-  this->ble_client_connected_ = true;
-  this->last_ble_telemetry_ms_ = 0;
-  this->send_system_info_ble_();
-}
-
-void ESpectreComponent::on_ble_client_disconnected_(uint16_t conn_id) {
-  (void) conn_id;
-#ifdef USE_ESP32_BLE_SERVER
-  this->ble_client_connected_ = this->ble_server_ != nullptr && this->ble_server_->get_client_count() > 0;
-#else
-  this->ble_client_connected_ = false;
-#endif
-}
-
-void ESpectreComponent::handle_ble_control_command_(const std::string &command) {
-  if (!this->ble_channel_enabled_) {
-    return;
-  }
-  if (command == "REQ_SYSINFO") {
-    this->send_system_info_ble_();
-    return;
-  }
-  if (command.rfind("SET_THRESHOLD:", 0) == 0) {
-    const char *value_str = command.c_str() + 14;
-    char *end_ptr = nullptr;
-    errno = 0;
-    float threshold = strtof(value_str, &end_ptr);
-    bool parse_ok = (end_ptr != value_str) && (end_ptr != nullptr) && (*end_ptr == '\0') &&
-                    (errno != ERANGE) && std::isfinite(threshold);
-    if (!parse_ok || threshold < 0.0f || threshold > 10.0f) {
-      ESP_LOGW(TAG, "Invalid BLE threshold command: %s", command.c_str());
-      return;
-    }
-    this->set_threshold_runtime(threshold);
-    this->send_system_info_ble_();
-    return;
-  }
-  ESP_LOGW(TAG, "Unknown BLE control command: %s", command.c_str());
 }
 
 void ESpectreComponent::dump_config() {

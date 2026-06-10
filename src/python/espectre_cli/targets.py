@@ -34,6 +34,16 @@ ESPHOME_CONFIGS = {
 }
 
 IDF_FRONTENDS = {
+    "ble": {
+        "app_dir": REPO_ROOT / "src" / "cpp" / "frontend" / "ble" / "app",
+        "targets": {
+            "esp32": "esp32",
+            "c3": "esp32c3",
+            "c5": "esp32c5",
+            "c6": "esp32c6",
+            "s3": "esp32s3",
+        },
+    },
     "matter": {
         "app_dir": REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app",
         "targets": {

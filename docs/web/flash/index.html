@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESPectre | Web Flash</title>
-    <meta name="description" content="Flash ESPectre firmware from the browser. Choose ESPHome or Matter, then pick stable or main builds.">
-    <meta name="keywords" content="ESPectre, firmware, flash, ESP32, ESPHome, Matter, Web Serial">
+    <meta name="description" content="Flash ESPectre firmware from the browser. Choose ESPHome, BLE, or Matter, then pick stable or main builds.">
+    <meta name="keywords" content="ESPectre, firmware, flash, ESP32, ESPHome, BLE, Matter, Web Serial">
     <meta name="author" content="Francesco Pace">
     <link rel="canonical" href="https://espectre.dev/flash/">
     <link rel="icon"
@@ -58,6 +58,7 @@
                         <span>Frontend</span>
                         <select id="frontend-select">
                             <option value="esphome">ESPHome</option>
+                            <option value="ble">BLE</option>
                             <option value="matter">Matter</option>
                         </select>
                     </label>
@@ -106,6 +107,7 @@
                     <h2>Frontend Notes</h2>
                     <ul class="flash-list">
                         <li><strong>ESPHome:</strong> after flashing, provision Wi-Fi via BLE, USB, or captive portal and then wait for Home Assistant discovery.</li>
+                        <li><strong>BLE:</strong> this is the standalone generic BLE frontend. `The Game` is one example of a web integration that uses it.</li>
                         <li><strong>Matter:</strong> after flashing, commission the device with a Matter controller.</li>
                         <li><strong>ESP32-S2:</strong> not available for the current Matter frontend because the implementation relies on BLE commissioning.</li>
                     </ul>

@@ -1,0 +1,15 @@
+menu "ESPectre BLE Frontend"
+
+    config ESPECTRE_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+
+    config ESPECTRE_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+
+    config ESPECTRE_WIFI_BSSID
+        string "Optional Wi-Fi BSSID lock (aa:bb:cc:dd:ee:ff)"
+        default ""
+
+endmenu

@@ -1,6 +1,6 @@
 # Setup Guide
 
-Complete guide to install and configure ESPectre with ESPHome or Matter.
+Complete guide to install and configure ESPectre with ESPHome, the BLE frontend, or Matter.
 
 Choose one of the installation methods below:
 
@@ -8,7 +8,7 @@ Choose one of the installation methods below:
 |--------|----------|-------|
 | **Option A** | End users, quick setup | Chromium browser + ESPectre Web Flash |
 | **Option B** | Developers, customization | Python + ESPHome CLI |
-| **Option C** | Matter development / custom workflows | ESP-IDF + repository CLI |
+| **Option C** | BLE/Matter development / custom workflows | ESP-IDF + repository CLI |
 
 ---
 ## Option A: Web Flash (no coding required)
@@ -18,6 +18,7 @@ Choose one of the installation methods below:
 **Hardware:**
 - **ESP32 board** with CSI support:
   - **ESPHome frontend**: ESP32-S3, ESP32-C6, ESP32-C5, ESP32-C3, ESP32 (original), ESP32-S2 (experimental)
+  - **BLE frontend**: ESP32, ESP32-S3, ESP32-C3, ESP32-C5, ESP32-C6
   - **Matter frontend**: ESP32, ESP32-S3, ESP32-C3, ESP32-C5, ESP32-C6
 - **USB cable** (USB-C or Micro-USB, depending on your board)
 - **Wi-Fi router** (2.4 GHz, 802.11b/g/n/ax)
@@ -29,7 +30,7 @@ Choose one of the installation methods below:
 
 Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 
-- the firmware **frontend**: `ESPHome` or `Matter`
+- the firmware **frontend**: `ESPHome`, `BLE`, or `Matter`
 - the firmware **channel**:
   - `stable` for the latest official release
   - `main` for the rolling snapshot build from the `main` branch
@@ -72,6 +73,16 @@ Notes:
 - `ESP32-S2` is not currently supported by the Matter frontend.
 - The current ESPectre Matter implementation relies on BLE commissioning, and `ESP32-S2` does not provide Bluetooth LE.
 - Matter firmware assets are currently published for `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, and `ESP32-C6`.
+
+#### BLE frontend
+
+`BLE` is the standalone generic frontend for custom BLE integrations.
+
+Notes:
+
+- It preserves the same custom BLE protocol currently used by [web/game](web/game/README.md) as one example integration (`REQ_SYSINFO`, `SET_THRESHOLD`, telemetry notify, sysinfo notify).
+- Unlike ESPHome, this frontend does not expose Home Assistant entities or ESPHome provisioning flows.
+- The current standalone firmware is intended as an example integration and expects Wi-Fi credentials to be configured at build time through `sdkconfig`.
 
 ---
 ## Option B: ESPHome CLI (for developers)
@@ -275,8 +286,6 @@ All parameters can be adjusted in the YAML file under the `espectre:` section:
 | `hampel_window` | int | 7 | Hampel filter window size (3-11) |
 | `hampel_threshold` | float | 5.0 | Hampel filter sensitivity (MAD multiplier) (1.0-10.0) |
 | `gain_lock` | string | auto | AGC/FFT gain lock: `auto`, `enabled`, `disabled` |
-| `ble_channel_enabled` | bool/string | auto | Enable BLE telemetry/control channel: `auto`, `true`, `false` |
-| `ble_telemetry_interval_ms` | int | 40 | BLE telemetry notify interval in ms (20-500) |
 
 For detailed parameter tuning (ranges, recommended values, troubleshooting), see [TUNING.md](TUNING.md).
 
@@ -764,49 +773,35 @@ app0,     app,  factory, 0x10000,  0x7E0000,
 
 **Notes**:
 - The ESPHome frontend does not require a custom partition table.
-- Matter and streamer builds in this repository still use frontend-specific custom partition tables.
+- BLE, Matter, and streamer builds in this repository still use frontend-specific custom partition tables.
 - If you remove OTA partitions, you must also remove the `ota:` section from your YAML (OTA updates won't work without the partitions).
 
 ---
 
-## BLE Control API (Optional)
+## BLE Frontend (Experimental)
 
-ESPectre can expose a BLE telemetry/control channel for custom integrations, even without Home Assistant.
+The custom BLE telemetry/control channel is no longer part of the ESPHome YAML/component surface.
+It now lives in the standalone BLE frontend.
 
-For the complete protocol reference (UUIDs, commands, limits, and frame examples), see [web/game/README.md#communication-protocol](web/game/README.md#communication-protocol).
+For the complete protocol reference (UUIDs, payloads, sysinfo keys, commands, compatibility notes, and possible evolutions), see [`src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md).
 
-Minimal setup:
+Repository CLI commands:
 
-```yaml
-espectre:
-  ble_channel_enabled: auto
-  ble_telemetry_interval_ms: 40
-
-esp32_ble_server:
-  id: espectre_ble_server
-  services:
-    - uuid: "d33ff46b-2203-4775-bc6f-b3a2c36af8f0"
-      advertise: true
-      characteristics:
-        - id: espectre_ble_telemetry
-          uuid: "119d5cac-48da-4bd9-bfc3-169805868258"
-          notify: true
-        - id: espectre_ble_sysinfo
-          uuid: "c8c89ffa-c401-461f-9ffc-942fa04adfe3"
-          read: true
-          notify: true
-          value: ""
-        - id: espectre_ble_control
-          uuid: "33ed9214-a8d7-40e8-82d1-c82747dcdc71"
-          write: true
-          write_no_response: true
+```bash
+./espectre ble build --chip c3
+./espectre ble flash --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre ble monitor --chip c3 --port /dev/cu.usbmodemXXXX
 ```
 
-Use this channel with any standard BLE client by implementing the same UUID/profile contract.
+Current published BLE targets:
 
-If you do not use BLE integrations, you can remove the `esp32_ble_server:` section entirely. With `ble_channel_enabled: auto` (default), ESPectre will keep the BLE channel disabled when no BLE server is configured.
+- `ESP32`
+- `ESP32-S3`
+- `ESP32-C3`
+- `ESP32-C5`
+- `ESP32-C6`
 
-This can slightly reduce runtime overhead (RAM/CPU usage and BLE radio activity), which may be useful on constrained boards or when you only use Home Assistant entities.
+The standalone BLE frontend currently expects Wi-Fi credentials in `sdkconfig`, so treat it as an advanced/example integration path rather than a drop-in ESPHome replacement.
 
 ---
 
@@ -918,7 +913,9 @@ esphome logs <your-config>.yaml --device espectre.local
 
 ---
 
-## Option C: Matter Firmware (experimental)
+## Option C: ESP-IDF Frontends (experimental)
+
+### Matter firmware
 
 The Matter frontend is a separate ESP-IDF + esp-matter build. It reuses the same `core` and `runtime` layers as the ESPHome firmware, but exposes motion and runtime controls through Matter clusters instead of Home Assistant entities.
 
@@ -1020,9 +1017,13 @@ Flash and monitor:
 ./espectre matter monitor --chip c3 --port /dev/cu.usbmodemXXXX
 ```
 
-For the CSI streamer firmware, the same wrapper pattern applies:
+For the standalone BLE frontend and the CSI streamer firmware, the same wrapper pattern applies:
 
 ```bash
+./espectre ble build --chip c3
+./espectre ble flash --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre ble monitor --chip c3 --port /dev/cu.usbmodemXXXX
+
 ./espectre streamer build --chip c3
 ./espectre streamer flash --chip c3 --port /dev/cu.usbmodemXXXX
 ./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX
@@ -1043,7 +1044,7 @@ traffic when the internal generator is disabled.
 
 Notes:
 
-- BLE telemetry/control from the ESPHome frontend is not available in the Matter build.
+- The custom game BLE protocol lives in the standalone BLE frontend, not in Matter or ESPHome.
 - `ESP32-S2` is not currently supported by the Matter frontend because the current implementation relies on BLE commissioning and ESP32-S2 does not provide Bluetooth LE.
 - On ESP32-C3, ESPectre currently falls back from `11n-only` to `11b/g/n` if the Wi-Fi driver rejects the stricter CSI protocol setup.
 - The published build matrix covers `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, and `ESP32-C6`; CI QEMU boot smoke now also covers `ESP32`, `ESP32-S3`, and `ESP32-C3`, while the current recorded hardware smoke test is `ESP32-C3`.

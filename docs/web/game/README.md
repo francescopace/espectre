@@ -13,7 +13,7 @@
 
 **ESPectre - The Game** is a browser-based reaction game that demonstrates the capabilities of [ESPectre](https://espectre.dev) - a WiFi-based motion detection system.
 
-Instead of using a controller, keyboard, or camera, **your physical movement is detected through WiFi signal interference** analyzed by an ESP32 running ESPectre firmware.
+Instead of using a controller, keyboard, or camera, **your physical movement is detected through WiFi signal interference** analyzed by an ESP32 running the standalone ESPectre BLE frontend firmware.
 
 ### The Concept
 
@@ -107,102 +107,23 @@ For testing without hardware or in unsupported browsers.
 
 ## Communication Protocol
 
-The game uses a BLE protocol with telemetry notifications and control writes.
+The game is one example client built on the standalone ESPectre BLE frontend.
 
-### UUIDs (Reference Profile)
+The protocol source of truth now lives in [`src/cpp/frontend/ble/README.md`](../../../src/cpp/frontend/ble/README.md), including:
 
-| Item | UUID | Direction | Notes |
-|------|------|-----------|-------|
-| Service | `d33ff46b-2203-4775-bc6f-b3a2c36af8f0` | - | ESPectre BLE service |
-| Telemetry characteristic | `119d5cac-48da-4bd9-bfc3-169805868258` | ESP32 -> Browser (`notify`) | Binary payload |
-| Sysinfo characteristic | `c8c89ffa-c401-461f-9ffc-942fa04adfe3` | ESP32 -> Browser (`notify`) | Text `key=value` lines |
-| Control characteristic | `33ed9214-a8d7-40e8-82d1-c82747dcdc71` | Browser -> ESP32 (`write`) | ASCII commands |
+- UUIDs
+- telemetry payload format
+- sysinfo keys
+- control commands
+- compatibility guidance
+- possible protocol evolutions
 
-### System Info (ESP32 → Browser)
+This game currently uses the protocol in a straightforward way:
 
-Sent over BLE notify when requested and at client connect.
-
-```
-proto_version=1
-chip=esp32c6
-threshold=1.20 (auto)
-window=100
-END
-```
-
-| Key | Description |
-|-----|-------------|
-| `chip` | ESP32 chip model (e.g., `esp32c6`) |
-| `threshold` | Current motion detection threshold |
-| `window` | Segmentation window size (packets) |
-| `detector` | Active detector (`MVS` or `ML`) |
-| `subcarriers` | Fixed production subcarrier set |
-| `lowpass` | Low-pass filter status (`on`/`off`) |
-| `lowpass_cutoff` | Low-pass cutoff frequency (Hz) |
-| `hampel` | Hampel filter status (`on`/`off`) |
-| `hampel_window` | Hampel window size |
-| `hampel_threshold` | Hampel threshold |
-| `traffic_rate` | Traffic generator rate (packets/sec) |
-| `publish_interval` | ESPectre publish interval (packets) |
-| `evaluation_interval` | Detector evaluation interval (packets) |
-| `motion_hits` | Motion enter/exit hit counters (`on/off`) |
-| `best_pxx` | Calibration baseline metric used for adaptive thresholding |
-| `proto_version` | Game BLE protocol version |
-| `END` | Marks end of system info block |
-
-### Data (ESP32 → Browser)
-
-Sent via BLE `telemetry` characteristic notifications.
-
-```
-[float32 movement][float32 threshold]
-```
-
-### Data Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `movement` | float | Current movement intensity (moving variance, same as Home Assistant sensor) |
-| `threshold` | float | Motion detection threshold (from ESPectre config) |
-
-Telemetry uses little-endian `float32` values.
-
-### Control Commands (Browser/Client -> ESP32)
-
-| Command | Description | Limits |
-|---------|-------------|--------|
-| `REQ_SYSINFO` | Requests a fresh sysinfo block | Exact command string |
-| `SET_THRESHOLD:X.XX` | Updates runtime threshold | `X` must be finite and in range `0.0-10.0` |
-
-Notes:
-- Threshold updates are runtime/session-only and are recalculated at boot.
-- Unknown or invalid commands are ignored by firmware (warning logged on device).
-- The BLE protocol is reusable by any standard BLE client, not only this game.
-
-### Frame Examples
-
-Telemetry notification (`movement=0.75`, `threshold=1.20`):
-
-```text
-00 00 40 3F  9A 99 99 3F
-```
-
-Sysinfo notification sequence:
-
-```text
-proto_version=1
-chip=esp32c6
-threshold=1.20 (auto)
-window=100
-END
-```
-
-Control write examples:
-
-```text
-REQ_SYSINFO
-SET_THRESHOLD:1.80
-```
+- subscribe to telemetry notifications
+- subscribe to sysinfo notifications
+- request sysinfo with `REQ_SYSINFO`
+- adjust runtime threshold with `SET_THRESHOLD:X.XX`
 
 ### Movement Detection
 
@@ -317,7 +238,7 @@ After connecting via BLE, the game displays a **System Info** panel showing the 
 | Hampel | Filter status |
 | Traffic | Traffic generator rate |
 
-This provides immediate visibility into how the device is configured without needing to check ESPHome logs.
+This provides immediate visibility into how the device is configured without needing Home Assistant or ESPHome entities.
 
 ---
 
@@ -350,6 +271,11 @@ This provides immediate visual feedback:
 | Document | Description |
 |----------|-------------|
 | [Web Bluetooth API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API) | Browser Web Bluetooth API (MDN) |
+
+## Firmware Requirement
+
+Use the dedicated `BLE` frontend firmware from the web flasher or build it locally with `./espectre ble ...`.
+The ESPHome frontend no longer embeds this custom BLE protocol.
 
 ---
 

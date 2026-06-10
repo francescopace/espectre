@@ -1,9 +1,6 @@
 #include "test_harness.h"
 
 #include <memory>
-#include <string>
-#include <vector>
-
 #define private public
 #define protected public
 #include "calibrate_switch.h"
@@ -15,30 +12,18 @@
 #include "esphome/core/hal.h"
 #include "frontend_runtime_shim.h"
 
-namespace esphome {
-namespace esp32_ble_server {
-class BLEServer {};
-class BLECharacteristic {};
-}  // namespace esp32_ble_server
-}  // namespace esphome
-
 using namespace esphome::espectre;
 
 namespace {
 
 class ESpectreComponentProbe : public ESpectreComponent {
  public:
-  using ESpectreComponent::handle_ble_control_command_;
-  using ESpectreComponent::on_ble_client_connected_;
-  using ESpectreComponent::on_ble_client_disconnected_;
   using ESpectreComponent::on_calibration_finished;
   using ESpectreComponent::on_calibration_started;
-  using ESpectreComponent::on_live_telemetry;
   using ESpectreComponent::on_motion_state_changed;
   using ESpectreComponent::on_periodic_update;
   using ESpectreComponent::on_runtime_fault;
   using ESpectreComponent::on_threshold_changed;
-  using ESpectreComponent::send_system_info_ble_;
 };
 
 class ThresholdNumberProbe : public ESpectreThresholdNumber {
@@ -97,10 +82,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   esphome::binary_sensor::BinarySensor binary_sensor;
   ThresholdNumberProbe threshold_number;
   CalibrateSwitchProbe calibrate_switch;
-  esphome::esp32_ble_server::BLEServer ble_server;
-  esphome::esp32_ble_server::BLECharacteristic telemetry_char;
-  esphome::esp32_ble_server::BLECharacteristic sysinfo_char;
-  esphome::esp32_ble_server::BLECharacteristic control_char;
 
   component.set_segmentation_threshold(2.5f);
   component.set_threshold_mode("min");
@@ -132,12 +113,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_hampel_enabled(false);
   component.set_hampel_window(9);
   component.set_hampel_threshold(4.5f);
-  component.set_ble_channel_enabled(true);
-  component.set_ble_telemetry_interval_ms(90);
-  component.set_ble_server(&ble_server);
-  component.set_ble_telemetry_characteristic(&telemetry_char);
-  component.set_ble_sysinfo_characteristic(&sysinfo_char);
-  component.set_ble_control_characteristic(&control_char);
   component.set_movement_sensor(&movement_sensor);
   component.set_motion_binary_sensor(&binary_sensor);
   component.set_threshold_number(&threshold_number);
@@ -164,8 +139,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_FALSE(component.runtime_config_.hampel_enabled);
   TEST_ASSERT_EQUAL(9, component.runtime_config_.hampel_window);
   TEST_ASSERT_EQUAL_FLOAT(4.5f, component.runtime_config_.hampel_threshold);
-  TEST_ASSERT_TRUE(component.ble_channel_enabled_);
-  TEST_ASSERT_EQUAL(90, component.ble_telemetry_interval_ms_);
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_movement_sensor());
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_motion_binary_sensor());
   TEST_ASSERT_EQUAL(0.0f, component.get_setup_priority() - esphome::setup_priority::AFTER_WIFI);
@@ -278,42 +251,14 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_EQUAL(0, component.sensor_publisher_.last_log_time_ms_);
 }
 
-void test_runtime_fault_ble_commands_and_telemetry_paths(void) {
+void test_runtime_fault_callback_handles_null_and_message_paths(void) {
   ESpectreComponentProbe component;
   component.setup();
 
   component.on_runtime_fault(nullptr);
   component.on_runtime_fault("fault");
-  component.send_system_info_ble_();
 
-  component.handle_ble_control_command_("REQ_SYSINFO");
-  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_threshold_calls);
-
-  component.ble_channel_enabled_ = true;
-  component.handle_ble_control_command_("SET_THRESHOLD:invalid");
-  component.handle_ble_control_command_("SET_THRESHOLD:42");
-  component.handle_ble_control_command_("UNKNOWN");
-  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_threshold_calls);
-
-  component.handle_ble_control_command_("SET_THRESHOLD:4.25");
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
-  TEST_ASSERT_EQUAL_FLOAT(4.25f, frontend_runtime_shim::state.last_threshold);
-
-  esphome::esp32_ble_server::BLECharacteristic telemetry_char;
-  component.ble_telemetry_char_ = &telemetry_char;
-  component.ble_client_connected_ = true;
-  esphome::set_mock_millis(100);
-  component.on_live_telemetry(2.5f, 1.5f);
-  TEST_ASSERT_EQUAL(100, component.last_ble_telemetry_ms_);
-
-  esphome::set_mock_millis(120);
-  component.on_live_telemetry(3.0f, 2.0f);
-  TEST_ASSERT_EQUAL(100, component.last_ble_telemetry_ms_);
-
-  component.on_ble_client_connected_(7);
-  TEST_ASSERT_TRUE(component.ble_client_connected_);
-  component.on_ble_client_disconnected_(7);
-  TEST_ASSERT_FALSE(component.ble_client_connected_);
+  TEST_ASSERT_TRUE(true);
 }
 
 void test_dump_config_covers_configuration_branches(void) {
@@ -359,7 +304,7 @@ int process(void) {
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);
   RUN_TEST(test_calibrate_switch_behaviors_cover_all_user_paths);
   RUN_TEST(test_motion_threshold_and_calibration_callbacks_publish_expected_state);
-  RUN_TEST(test_runtime_fault_ble_commands_and_telemetry_paths);
+  RUN_TEST(test_runtime_fault_callback_handles_null_and_message_paths);
   RUN_TEST(test_dump_config_covers_configuration_branches);
   return UNITY_END();
 }

@@ -1,0 +1,20 @@
+idf_component_register(
+    SRCS
+        "app_main.cpp"
+        "ble_bindings_nimble.cpp"
+    INCLUDE_DIRS
+        "."
+        "../../espectre"
+        "../../../../core"
+        "../../../../runtime"
+        "../../../../runtime/esp_idf"
+    REQUIRES
+        espectre
+        bt
+        esp_event
+        esp_netif
+        esp_wifi
+        freertos
+        lwip
+        nvs_flash
+)

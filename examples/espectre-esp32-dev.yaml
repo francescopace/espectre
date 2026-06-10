@@ -44,8 +44,6 @@ espectre:
   hampel_threshold: 5.0         # Outlier detection threshold (1.0-10.0)
   lowpass_enabled: false        # Noise reduction (default: false)
   lowpass_cutoff: 11.0          # Cutoff frequency in Hz (5.0-20.0)
-  # Web Bluetooth telemetry/control channel
-  ble_channel_enabled: auto     # auto (default), true, false
 
 # WiFi for development
 wifi:

@@ -35,7 +35,13 @@ src/
 └── frontend/
     ├── esphome/
     │   └── espectre/
-    └── matter/
+    ├── ble/
+    │   ├── app/
+    │   └── espectre/
+    ├── matter/
+    │   └── espectre/
+    └── streamer/
+        ├── app/
         └── espectre/
 ```
 
@@ -45,8 +51,8 @@ Dependency shape:
 ┌────────────────────────────────────────────────────────────┐
 │ FRONTEND                                                   │
 │                                                            │
-│  ESPHome frontend                Matter frontend          │
-│  src/cpp/frontend/esphome/espectre   src/cpp/frontend/matter/...   │
+│  ESPHome frontend  BLE frontend  Matter frontend  Streamer frontend │
+│  src/cpp/frontend/esphome/espectre  .../ble/...  .../matter/...     │
 └───────────────────────────┬────────────────────────────────┘
                             │ uses
                             ▼
@@ -119,6 +125,32 @@ This is the ESPHome adapter layer and external component root:
 For ESPHome, `src/cpp/frontend/esphome` is the external-components search root and `espectre/` remains the component directory inside it.
 The packaging metadata now points directly at the canonical sources under `src/cpp/core/` and `src/cpp/runtime/esp_idf/`, so ESPHome no longer depends on repository symlinks to assemble the shared code.
 
+This frontend is now intentionally focused on Home Assistant integration only.
+The custom BLE protocol is no longer embedded in `ESpectreComponent`.
+
+### `src/cpp/frontend/ble/espectre/`
+
+This is the standalone BLE adapter used by generic BLE clients, including a web
+client as one example integration.
+
+It reuses the same runtime contract as the other frontends, but maps runtime
+events and controls to a custom GATT surface instead of Home Assistant entities
+or Matter clusters.
+
+Current mapping:
+
+| Runtime event / state | BLE surface |
+|-----------------------|-------------|
+| Live telemetry | notify characteristic with `[float32 movement][float32 threshold]` |
+| Threshold changes / calibration updates | sysinfo notify lines |
+| Runtime threshold write | `SET_THRESHOLD:X.XX` control command |
+| Sysinfo refresh | `REQ_SYSINFO` control command |
+
+The host-side adapter lives under `src/cpp/frontend/ble/espectre/`. The
+standalone ESP-IDF firmware app lives under `src/cpp/frontend/ble/app/`.
+The BLE protocol itself is documented in
+`src/cpp/frontend/ble/README.md`.
+
 ### `src/cpp/frontend/matter/espectre/`
 
 This is the Matter adapter and firmware entrypoint.
@@ -142,8 +174,6 @@ Current mapping:
 The host-side adapter lives under `src/cpp/frontend/matter/espectre/`. The ESP-IDF firmware app lives under `src/cpp/frontend/matter/app/` and pulls **`espressif/esp_matter`** from the ESP Component Registry via `main/idf_component.yml` (no manual esp-matter clone required).
 
 The current experimental firmware's recorded hardware smoke test is on `ESP32-C3`. In that startup path, the Matter stack is started before the shared runtime setup so Wi-Fi ownership remains with `esp-matter` and the reused runtime can layer CSI configuration on top of an initialized station stack. The broader published-target validation matrix lives in `SETUP.md`.
-
-ESPHome-specific features such as YAML/codegen, Home Assistant entities, and the BLE telemetry channel remain in the ESPHome frontend only.
 
 ---
 
@@ -345,6 +375,7 @@ Current implemented paths:
 - `core`: shared detectors and math
 - `runtime`: ESP-IDF runtime
 - `frontend/esphome`: ESPHome adapter
+- `frontend/ble`: standalone BLE adapter + ESP-IDF firmware app
 - `frontend/matter`: Matter adapter + esp-matter firmware app (experimental)
 
 ---
