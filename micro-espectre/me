@@ -1412,7 +1412,7 @@ class EspectreCLI_MQTT:
             self.show_about()
             return
         elif cmd in ["clear", "cls"]:
-            os.system('cls' if os.name == 'nt' else 'clear')
+            subprocess.run(['cmd', '/c', 'cls'] if os.name == 'nt' else ['/usr/bin/clear'])
             return
         elif cmd in ["webui", "web", "ui"]:
             open_web_ui()
