@@ -11,18 +11,27 @@ BUILD_DIR="build-${MATTER_TARGET}"
 DOCKER_IMAGE="${MATTER_DOCKER_IMAGE:-espressif/idf:release-v5.5}"
 MATTER_HOME="${REPO_ROOT}/.github/.cache/matter-home"
 OUTPUT_DIR="$(dirname "${MATTER_OUTPUT}")"
+MATTER_SDKCONFIG_DEFAULTS="${MATTER_SDKCONFIG_DEFAULTS:-}"
 
 mkdir -p "${MATTER_HOME}" "${OUTPUT_DIR}"
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e HOME="/work/.github/.cache/matter-home" \
+  -e SDKCONFIG_DEFAULTS="${MATTER_SDKCONFIG_DEFAULTS}" \
   -v "${REPO_ROOT}:/work" \
   -w "/work/src/cpp/frontend/matter/app" \
   "${DOCKER_IMAGE}" \
   bash -lc "
     set -euo pipefail
+    if [ -n \"\${SDKCONFIG_DEFAULTS:-}\" ]; then
+      export SDKCONFIG_DEFAULTS
+    fi
     idf.py -B ${BUILD_DIR} set-target ${MATTER_TARGET}
     idf.py -B ${BUILD_DIR} build
-    python -m esptool --chip ${MATTER_TARGET} merge_bin --pad-to-size 4MB -o /work/${MATTER_OUTPUT#${REPO_ROOT}/} @${BUILD_DIR}/flash_args
+    if python -m esptool merge-bin -h >/dev/null 2>&1; then
+      python -m esptool --chip ${MATTER_TARGET} merge-bin --pad-to-size 4MB -o /work/${MATTER_OUTPUT#${REPO_ROOT}/} @${BUILD_DIR}/flash_args
+    else
+      python -m esptool --chip ${MATTER_TARGET} merge_bin --fill-flash-size 4MB -o /work/${MATTER_OUTPUT#${REPO_ROOT}/} @${BUILD_DIR}/flash_args
+    fi
   "

@@ -942,9 +942,9 @@ confirmed on real hardware.
 
 | Target | Published build | CI QEMU smoke | Documented local build/flash path | Recorded hardware smoke test | Validation notes |
 |--------|-----------------|---------------|-----------------------------------|------------------------------|------------------|
-| `ESP32` | Yes | Yes | Generic Matter workflow | Pending | QEMU boot smoke is enabled in CI plus published build coverage; hardware validation not yet recorded |
-| `ESP32-S3` | Yes | Yes | Generic Matter workflow | Pending | QEMU boot smoke is enabled in CI plus published build coverage; hardware validation not yet recorded |
-| `ESP32-C3` | Yes | Yes | Dedicated example below | Yes | Current bring-up target with recorded real-hardware smoke test |
+| `ESP32` | Yes | Yes | Generic Matter workflow | Pending | QEMU smoke is enabled in CI via a QEMU-only no-BLE sdkconfig overlay and requires a pre-WiFi Matter stack marker from the app; hardware validation not yet recorded |
+| `ESP32-S3` | Yes | Yes | Generic Matter workflow | Pending | QEMU smoke is enabled in CI via a QEMU-only no-BLE sdkconfig overlay and requires a pre-WiFi Matter stack marker from the app; hardware validation not yet recorded |
+| `ESP32-C3` | Yes | Yes | Dedicated example below | Yes | Current bring-up target with recorded real-hardware smoke test; CI QEMU smoke uses the same QEMU-only no-BLE overlay and requires the same pre-WiFi app marker |
 | `ESP32-C5` | Yes | No | Generic Matter workflow | Pending | Published build coverage exists; `idf.py set-target esp32c5` no longer needs `--preview` on ESP-IDF 5.5 |
 | `ESP32-C6` | Yes | No | Generic Matter workflow | Pending | Published build coverage exists; QEMU coverage is not currently available for this target |
 
@@ -964,6 +964,14 @@ from `Pending` to a recorded hardware smoke test:
    - threshold write
    - recalibration trigger
 7. Record the exact board, flash size, serial path, controller used, and any chip-specific notes when updating this table.
+
+The CI QEMU smoke path is intentionally narrower than real-device validation: it
+uses a QEMU-only sdkconfig overlay that disables CHIPoBLE so the firmware can
+exercise the non-BLE bring-up path under emulation. Because QEMU still stops at
+the known Wi-Fi PHY limitation, the smoke test now requires the earlier runtime
+log `ESPectre Matter smoke marker: endpoint ... configured, starting Matter stack`
+before it is considered successful. Published firmware and hardware smoke tests
+still use the normal BLE-enabled configuration.
 
 ### Prerequisites
 

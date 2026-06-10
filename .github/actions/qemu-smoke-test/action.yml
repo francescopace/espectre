@@ -20,6 +20,9 @@ inputs:
   machine:
     description: 'QEMU machine type (esp32, esp32s3, esp32c3, esp32c6)'
     required: true
+  expected_log:
+    description: 'Optional regex that must appear in QEMU output for the smoke test to pass'
+    required: false
 
 runs:
   using: "composite"
@@ -72,7 +75,11 @@ runs:
           cp "${{ steps.firmware.outputs.path }}" /tmp/flash_qemu.bin
         else
           pip install esptool
-          python -m esptool --chip ${{ inputs.chip }} merge_bin --pad-to-size 4MB -o /tmp/flash_qemu.bin 0x0 "${{ steps.firmware.outputs.path }}"
+          if python -m esptool merge-bin -h >/dev/null 2>&1; then
+            python -m esptool --chip ${{ inputs.chip }} merge-bin --pad-to-size 4MB -o /tmp/flash_qemu.bin 0x0 "${{ steps.firmware.outputs.path }}"
+          else
+            python -m esptool --chip ${{ inputs.chip }} merge_bin --fill-flash-size 4MB -o /tmp/flash_qemu.bin 0x0 "${{ steps.firmware.outputs.path }}"
+          fi
         fi
         ls -lh /tmp/flash_qemu.bin
 
@@ -113,7 +120,7 @@ runs:
         # the modem clock registers (PHY_INIT_MODEM_CLOCK_REQUIRED_BITS). This is
         # a known, expected limitation - not a firmware bug. IDF 5.5.3 made this
         # assert explicit; older versions would silently stall instead.
-        grep -viE "phy_module_has_clock_bits|PHY_INIT_MODEM_CLOCK_REQUIRED_BITS" qemu_output.log > qemu_output_filtered.log || true
+        grep -viE "assert failed: esp_phy_enable|phy_module_has_clock_bits|PHY_INIT_MODEM_CLOCK_REQUIRED_BITS" qemu_output.log > qemu_output_filtered.log || true
 
         # Check for crashes
         if grep -qiE "panic|abort|Guru Meditation|assert failed|stack smashing" qemu_output_filtered.log; then
@@ -183,8 +190,18 @@ runs:
         
         echo ""
         echo "Checks passed: $CHECKS_PASSED/4"
-        
-        if [ $CHECKS_PASSED -ge 3 ]; then
+
+        if [ -n "${{ inputs.expected_log }}" ]; then
+          echo ""
+          echo "=== Expected Log Check ==="
+          if grep -qE "${{ inputs.expected_log }}" qemu_output.log; then
+            echo "[OK] Expected log matched: ${{ inputs.expected_log }}"
+            echo "SMOKE TEST PASSED - Expected runtime marker observed"
+          else
+            echo "SMOKE TEST FAILED - Expected log not found: ${{ inputs.expected_log }}"
+            exit 1
+          fi
+        elif [ $CHECKS_PASSED -ge 3 ]; then
           echo "SMOKE TEST PASSED - Firmware boots without crashes"
         else
           echo "WARNING: Boot may have stalled - only $CHECKS_PASSED/4 checks passed"

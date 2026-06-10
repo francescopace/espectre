@@ -367,10 +367,14 @@ jobs:
             target: esp32
             qemu_arch: xtensa
             qemu_machine: esp32
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
+            qemu_expected_log: "ESPectre Matter smoke marker: endpoint .* configured, starting Matter stack"
           - chip: ESP32-C3
             target: esp32c3
             qemu_arch: riscv32
             qemu_machine: esp32c3
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
+            qemu_expected_log: "ESPectre Matter smoke marker: endpoint .* configured, starting Matter stack"
           - chip: ESP32-C5
             target: esp32c5
           - chip: ESP32-C6
@@ -379,6 +383,8 @@ jobs:
             target: esp32s3
             qemu_arch: xtensa
             qemu_machine: esp32s3
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
+            qemu_expected_log: "ESPectre Matter smoke marker: endpoint .* configured, starting Matter stack"
 
     steps:
       - uses: actions/checkout@v6
@@ -400,6 +406,7 @@ jobs:
         env:
           MATTER_TARGET: ${{ matrix.target }}
           MATTER_OUTPUT: ${{ github.workspace }}/output/espectre-matter-ci-${{ matrix.target }}.bin
+          MATTER_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
 
       - name: Run Matter QEMU smoke test
         if: matrix.qemu_machine
@@ -410,6 +417,7 @@ jobs:
           chip: ${{ matrix.target }}
           arch: ${{ matrix.qemu_arch }}
           machine: ${{ matrix.qemu_machine }}
+          expected_log: ${{ matrix.qemu_expected_log || '' }}
 
       - name: Upload Matter QEMU logs
         if: matrix.qemu_machine && always()
