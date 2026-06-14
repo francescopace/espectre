@@ -63,7 +63,7 @@
 
 Repository CLI namespaces:
 - `./espectre micro ...` for MicroPython flashing, deploy, streaming, dataset collection, and MQTT control
-- `./espectre esphome ...` for local ESPHome example builds
+- `./espectre esphome ...` for local ESPHome build/flash/config/logs workflows
 - `./espectre ble ...` for the standalone BLE firmware `idf.py` workflow
 - `./espectre matter ...` for Matter `idf.py` build/flash/monitor
 - `./espectre streamer ...` for streamer firmware `idf.py` build/flash/monitor
@@ -421,7 +421,7 @@ Micro-ESPectre gives you the fundamentals for:
 
 For local development, the repository CLI is rooted at `./espectre`:
 - `./espectre micro ...` for MicroPython tooling, data collection, and MQTT control
-- `./espectre esphome ...` for local ESPHome example builds
+- `./espectre esphome ...` for local ESPHome build/flash/config/logs workflows
 - `./espectre ble ...`, `./espectre matter ...`, and `./espectre streamer ...` as thin `idf.py` wrappers
 
 ---
@@ -497,14 +497,12 @@ The ML data collection and training infrastructure is documented in [ML_DATA_COL
 | Hackaday | [Make Your Own ESP32-Based Person Sensor, No Special Hardware Needed](https://hackaday.com/2026/01/28/make-your-own-esp32-based-person-sensor-no-special-hardware-needed/) |
 | Adafruit Learn | [ESPectre Human Detector for Feather](https://learn.adafruit.com/espectre-human-detector-for-feather) |
 | Seeed Studio Wiki | [Deploying Espectre on Seeed Studio XIAO ESP32 Series with ESPHome](https://wiki.seeedstudio.com/xiao-esp32--series-espresense/) |
+| Gigazine | [ESPectre turns your home Wi-Fi into a motion sensor without machine learning and integrates it with Home Assistant](https://gigazine.net/gsc_news/en/20251118-turned-wi-fi-motion-sensor/) |
 
 | Blog | Discussion |
 |----------|------------|
 | Home Assistant | [ESPectre - Wi-Fi Motion Detection for Home Assistant](https://community.home-assistant.io/t/espectre-wi-fi-motion-detection-for-home-assistant/961251) |
-
-| Videos | Video |
-|---------|-------|
-| @GithubAwesome | [ESPectre](https://www.youtube.com/shorts/iQ_DPHLn8ms) |
+| Hacker News | [Show HN: ESPectre - Motion detection based on Wi-Fi spectre analysis](https://news.ycombinator.com/item?id=45953977) |
 
 | Podcasts | Episode |
 |-------------|---------|
@@ -522,6 +520,8 @@ The ML data collection and training infrastructure is documented in [ML_DATA_COL
 ## Acknowledgments
 
 ESPectre leverages the native Wi-Fi CSI capabilities of ESP32 chips. Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in the ESP-IDF framework and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in their [esp-csi](https://github.com/espressif/esp-csi) repository.
+
+Thanks also to the TOMMY team for the constructive and supportive public discussion around Wi-Fi sensing approaches, including their [TOMMY vs ESPectre](https://www.tommysense.com/docs/comparisons/espectre-comparison) comparison page.
 
 ---
 

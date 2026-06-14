@@ -1,7 +1,7 @@
 {
-  "name": "espectre",
-  "version": "1.0.0",
-  "description": "ESPectre CSI Motion Detection",
+  "name": "espectre-shared",
+  "version": "3.0.0",
+  "description": "ESPectre shared core and ESP-IDF runtime",
   "keywords": ["csi", "motion", "detection", "esp32"],
   "authors": [
     {
@@ -14,27 +14,27 @@
   "platforms": "*",
   "build": {
     "flags": [
-      "-I../../../core",
-      "-I../../../runtime",
-      "-I../../../runtime/esp_idf",
-      "-I."
+      "-Icore",
+      "-Iruntime",
+      "-Iruntime/esp_idf"
     ],
-    "srcDir": "../../../",
+    "srcDir": ".",
     "srcFilter": [
       "+<core/base_detector.cpp>",
       "+<core/csi_filters.cpp>",
       "+<core/ml_detector.cpp>",
       "+<core/mvs_detector.cpp>",
+      "+<runtime/esp_idf/csi_capture_service.cpp>",
       "+<runtime/esp_idf/csi_manager.cpp>",
       "+<runtime/esp_idf/csi_payload_normalizer.cpp>",
       "+<runtime/esp_idf/csi_platform_config.cpp>",
       "+<runtime/esp_idf/esp_idf_runtime.cpp>",
       "+<runtime/esp_idf/gain_controller.cpp>",
+      "+<runtime/esp_idf/stimulus_protocol.cpp>",
+      "+<runtime/esp_idf/stimulus_service.cpp>",
       "+<runtime/esp_idf/traffic_generator_manager.cpp>",
       "+<runtime/esp_idf/udp_listener.cpp>",
       "+<runtime/esp_idf/wifi_lifecycle.cpp>"
     ]
   }
 }
-
-

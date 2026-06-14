@@ -1,0 +1,164 @@
+#include "csi_capture_service.h"
+
+#include "csi_platform_config.h"
+#include "espectre_log.h"
+
+namespace esphome {
+namespace espectre {
+
+namespace {
+
+static const char *const TAG = "CsiCapture";
+
+}  // namespace
+
+void CsiCaptureService::init(GainLockMode gain_lock_mode, IWiFiCSI *wifi_csi) {
+  gain_lock_mode_ = gain_lock_mode;
+  wifi_csi_ = wifi_csi ? wifi_csi : &default_wifi_csi_;
+  reset_session();
+}
+
+void CsiCaptureService::reset_session() {
+  gain_controller_.init(gain_lock_mode_);
+  gain_controller_.set_lock_complete_callback(gain_lock_callback_);
+  filtered_packets_ = 0U;
+  collapse_logged_ = false;
+  remap_logged_ = false;
+}
+
+esp_err_t CsiCaptureService::enable() {
+  if (enabled_) {
+    ESP_LOGW(TAG, "CSI already enabled");
+    return ESP_OK;
+  }
+
+  esp_err_t err = configure_platform_specific_();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to configure CSI: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  err = wifi_csi_->set_csi_rx_cb(&CsiCaptureService::csi_rx_callback_wrapper_, this);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to set CSI callback: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  err = wifi_csi_->set_csi(true);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to enable CSI: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  enabled_ = true;
+  ESP_LOGD(TAG, "CSI enabled successfully");
+  return ESP_OK;
+}
+
+esp_err_t CsiCaptureService::disable() {
+  if (!enabled_) {
+    return ESP_OK;
+  }
+
+  esp_err_t err = wifi_csi_->set_csi(false);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to disable CSI: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to unregister CSI callback: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  enabled_ = false;
+  ESP_LOGI(TAG, "CSI disabled and callback unregistered");
+  return ESP_OK;
+}
+
+void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
+  if (data == nullptr || data->buf == nullptr || data->len == 0U) {
+    return;
+  }
+
+  if (!gain_controller_.is_locked()) {
+    gain_controller_.process_packet(data);
+    if (gain_packet_callback_) {
+      gain_packet_callback_(data);
+    }
+    return;
+  }
+
+  int8_t csi_remapped[HT20_CSI_LEN];
+  const NormalizedCSIPayload normalized =
+      normalize_ht20_csi_payload(data->buf, data->len, csi_remapped, sizeof(csi_remapped));
+
+  if (!collapse_logged_ &&
+      (normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT20 ||
+       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
+    ESP_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
+    collapse_logged_ = true;
+  }
+
+  if (!remap_logged_ &&
+      (normalized.tag == NormalizedCSIPayloadTag::HT57_TO_64 ||
+       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
+    ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
+    remap_logged_ = true;
+  }
+
+  if (!normalized.valid() || normalized.len != HT20_CSI_LEN) {
+    filtered_packets_++;
+    if (filtered_packets_ % 100 == 1) {
+      log_wrong_sc_packet_(data, normalized.len);
+    }
+    return;
+  }
+
+  if (packet_callback_) {
+    packet_callback_(data, normalized);
+  }
+}
+
+void IRAM_ATTR CsiCaptureService::csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *data) {
+  auto *service = static_cast<CsiCaptureService *>(ctx);
+  if (service != nullptr && data != nullptr) {
+    service->process_packet(data);
+  }
+}
+
+esp_err_t CsiCaptureService::configure_platform_specific_() {
+  ESP_LOGI(TAG, "Using %s CSI configuration", CONFIG_IDF_TARGET);
+  return configure_ht20_csi(wifi_csi_);
+}
+
+void CsiCaptureService::log_wrong_sc_packet_(const wifi_csi_info_t *data, size_t csi_len) const {
+  const auto &rx = data->rx_ctrl;
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+  ESP_LOGW(TAG,
+           "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
+           "[ch=%u bb=%u est_len=%u est_vld=%u]",
+           static_cast<unsigned long>(filtered_packets_),
+           csi_len,
+           HT20_CSI_LEN,
+           static_cast<unsigned>(rx.channel),
+           static_cast<unsigned>(rx.cur_bb_format),
+           static_cast<unsigned>(rx.rx_channel_estimate_len),
+           static_cast<unsigned>(rx.rx_channel_estimate_info_vld));
+#else
+  ESP_LOGW(TAG,
+           "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
+           "[ch=%u sig_mode=%u cwb=%u mcs=%u]",
+           static_cast<unsigned long>(filtered_packets_),
+           csi_len,
+           HT20_CSI_LEN,
+           static_cast<unsigned>(rx.channel),
+           static_cast<unsigned>(rx.sig_mode),
+           static_cast<unsigned>(rx.cwb),
+           static_cast<unsigned>(rx.mcs));
+#endif
+}
+
+}  // namespace espectre
+}  // namespace esphome

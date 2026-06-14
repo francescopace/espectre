@@ -16,10 +16,6 @@ menu "ESPectre CSI Streamer"
         bool "Enable UDP stream output"
         default y
 
-    config ESPECTRE_COLLECTOR_IP
-        string "Collector IPv4 address"
-        default ""
-
     config ESPECTRE_COLLECTOR_PORT
         int "Collector UDP port"
         range 1 65535
@@ -52,26 +48,20 @@ menu "ESPectre CSI Streamer"
             bool "DISABLED"
     endchoice
 
-    config ESPECTRE_TRAFFIC_GENERATOR_RATE
-        int "Traffic generator rate (pps, 0 = external traffic)"
-        range 0 10000
-        default 0
-
-    choice ESPECTRE_TRAFFIC_GENERATOR_MODE
-        prompt "Traffic generator mode"
-        default ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
-
-        config ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
-            bool "PING"
-
-        config ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
-            bool "DNS"
-    endchoice
-
     config ESPECTRE_STREAM_QUEUE_SLOTS
         int "Preallocated stream queue slots"
         range 2 32
         default 8
+
+    config ESPECTRE_STREAM_BATCH_MAX_RECORDS
+        int "Maximum CSI records per UDP datagram"
+        range 1 8
+        default 4
+
+    config ESPECTRE_STREAM_BATCH_MAX_BYTES
+        int "Maximum UDP payload bytes per streamed datagram"
+        range 256 1472
+        default 1200
 
     config ESPECTRE_STREAM_LOG_INTERVAL_MS
         int "Telemetry log interval (ms)"

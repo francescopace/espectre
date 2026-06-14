@@ -41,6 +41,7 @@ src/cpp/frontend/*/app/build*
 src/cpp/frontend/*/app/managed_components/
 src/cpp/frontend/*/app/sdkconfig
 src/cpp/frontend/*/app/sdkconfig.old
+src/cpp/frontend/*/app/sdkconfig.wifi
 src/cpp/frontend/*/app/dependencies.lock
 
 # Editor

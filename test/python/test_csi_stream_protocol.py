@@ -2,6 +2,8 @@
 Unit tests for the unified CSI stream protocol parser and dataset writer.
 """
 
+import socket
+
 import numpy as np
 
 import csi_utils
@@ -10,6 +12,11 @@ from csi_utils import (
     CSIReceiver,
     CSI_HEADER_STRUCT,
     MAGIC_STREAM,
+    STIMULUS_HEADER_STRUCT,
+    STIMULUS_MAGIC,
+    STIMULUS_ROLE_MEASUREMENT,
+    STIMULUS_ROLE_REFERENCE,
+    STIMULUS_VERSION,
     STREAM_FLAG_GAIN_INFO_VALID,
     STREAM_FLAG_GAIN_LOCKED,
     STREAM_FLAG_REFERENCE_FRAME,
@@ -17,6 +24,8 @@ from csi_utils import (
     STREAM_FLAG_WIFI_RX_START_TS_NS_VALID,
     STREAM_FLAG_WIFI_RX_TS_VALID,
     STREAM_VERSION,
+    StimulusSender,
+    build_stimulus_datagram,
 )
 
 
@@ -89,6 +98,78 @@ def test_parse_packet_accepts_unified_stream_header():
     np.testing.assert_allclose(packet.iq_complex, np.array([20 + 10j, 40 - 30j], dtype=np.complex64))
 
 
+def test_build_stimulus_datagram_uses_estm_wire_format():
+    datagram = build_stimulus_datagram(0x01020304)
+    magic, version, role, stimulus_id = STIMULUS_HEADER_STRUCT.unpack(datagram)
+
+    assert magic == STIMULUS_MAGIC
+    assert version == STIMULUS_VERSION
+    assert role == STIMULUS_ROLE_MEASUREMENT
+    assert stimulus_id == 0x01020304
+
+
+def test_build_stimulus_datagram_marks_reference_role():
+    datagram = build_stimulus_datagram(77, is_reference=True)
+    _magic, _version, role, stimulus_id = STIMULUS_HEADER_STRUCT.unpack(datagram)
+
+    assert role == STIMULUS_ROLE_REFERENCE
+    assert stimulus_id == 77
+
+
+def test_stimulus_sender_emits_incrementing_estm_packets():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(1.0)
+
+    sender = StimulusSender(
+        target_host="127.0.0.1",
+        target_port=sock.getsockname()[1],
+        rate_pps=200,
+        reference_every=2,
+        stimulus_id_start=10,
+    )
+    try:
+        sender.start()
+        first, _addr = sock.recvfrom(64)
+        second, _addr = sock.recvfrom(64)
+    finally:
+        sender.stop()
+        sock.close()
+
+    first_magic, first_version, first_role, first_id = STIMULUS_HEADER_STRUCT.unpack(first)
+    second_magic, second_version, second_role, second_id = STIMULUS_HEADER_STRUCT.unpack(second)
+
+    assert first_magic == STIMULUS_MAGIC
+    assert second_magic == STIMULUS_MAGIC
+    assert first_version == STIMULUS_VERSION
+    assert second_version == STIMULUS_VERSION
+    assert first_role == STIMULUS_ROLE_MEASUREMENT
+    assert second_role == STIMULUS_ROLE_REFERENCE
+    assert first_id == 10
+    assert second_id == 11
+
+
+def test_stimulus_sender_binds_to_requested_source_host():
+    rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    rx_sock.bind(("127.0.0.1", 0))
+    rx_sock.settimeout(1.0)
+
+    sender = StimulusSender(
+        target_host="127.0.0.1",
+        target_port=rx_sock.getsockname()[1],
+        rate_pps=50,
+        source_host="127.0.0.1",
+    )
+    try:
+        sender.start()
+        _payload, addr = rx_sock.recvfrom(64)
+    finally:
+        sender.stop()
+        rx_sock.close()
+
+    assert addr[0] == "127.0.0.1"
+
+
 def test_parse_packet_reads_optional_metadata():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     flags = (
@@ -118,6 +199,26 @@ def test_parse_packet_reads_optional_metadata():
     assert packet.is_reference is True
     assert packet.agc_gain == 77
     assert packet.fft_gain == -8
+
+
+def test_parse_packets_accepts_multiple_records_in_one_datagram():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    datagram = build_packet(seq_num=10, payload=[1, 2, 3, 4]) + build_packet(seq_num=11, payload=[5, 6, 7, 8])
+
+    packets = receiver._parse_packets(datagram)
+
+    assert len(packets) == 2
+    assert packets[0].seq_num == 10
+    assert packets[1].seq_num == 11
+    np.testing.assert_array_equal(packets[0].iq_raw, np.array([1, 2, 3, 4], dtype=np.int8))
+    np.testing.assert_array_equal(packets[1].iq_raw, np.array([5, 6, 7, 8], dtype=np.int8))
+
+
+def test_parse_packet_rejects_multi_record_datagram():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    datagram = build_packet(seq_num=1) + build_packet(seq_num=2)
+
+    assert receiver._parse_packet(datagram) is None
 
 
 def test_parse_packet_rejects_legacy_python_header():

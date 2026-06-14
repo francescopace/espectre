@@ -12,11 +12,9 @@
 #include <atomic>
 #include <cstdint>
 
+#include "csi_capture_service.h"
 #include "csi_udp_sender.h"
-#include "gain_controller.h"
-#include "traffic_generator_manager.h"
-#include "udp_listener.h"
-#include "wifi_csi_interface.h"
+#include "stimulus_service.h"
 #include "wifi_lifecycle.h"
 
 namespace esphome {
@@ -38,43 +36,45 @@ class StreamFrontend {
   ~StreamFrontend();
 
  private:
-  static void csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *info);
   static void wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
   bool init_nvs_();
   bool init_wifi_station_();
-  bool start_csi_();
-  void stop_csi_();
+  bool start_capture_();
+  void stop_capture_();
   void on_wifi_connected_();
   void on_wifi_disconnected_();
-  void handle_csi_packet_(wifi_csi_info_t *info);
+  void handle_gain_lock_packet_(const wifi_csi_info_t *info);
+  void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
   void transition_to_(WorkflowState next, const char *reason);
   void log_runtime_telemetry_();
 
   WiFiLifecycleManager wifi_lifecycle_;
-  WiFiCSIReal wifi_csi_;
-  GainController gain_controller_;
-  TrafficGeneratorManager traffic_generator_;
-  UDPListener udp_listener_;
+  CsiCaptureService capture_service_;
+  StimulusService stimulus_service_;
   CsiUdpSender udp_sender_;
   esp_event_handler_instance_t wifi_event_instance_{nullptr};
   bool setup_complete_{false};
   std::atomic<bool> wifi_connected_{false};
-  std::atomic<bool> csi_enabled_{false};
   std::atomic<bool> gain_lock_complete_{false};
   std::atomic<WorkflowState> state_{WorkflowState::WAIT_WIFI};
   uint64_t device_id_{0U};
   uint32_t stream_seq_{0U};
   uint32_t last_csi_ms_{0U};
   uint8_t last_csi_channel_{0U};
-  bool collapse_logged_{false};
-  bool remap_logged_{false};
   uint64_t csi_rx_total_{0U};
+  uint64_t csi_callback_total_{0U};
+  uint64_t csi_nonempty_total_{0U};
+  uint64_t csi_payload_present_total_{0U};
   uint64_t stimulus_valid_total_{0U};
   uint64_t reference_frame_total_{0U};
+  uint64_t stimulus_parse_fail_total_{0U};
   uint64_t filtered_total_{0U};
   uint64_t last_log_ms_{0U};
   int wifi_retry_count_{0};
+  uint32_t collector_ip_addr_{0U};
+  uint16_t last_csi_len_{0U};
+  uint16_t last_csi_payload_len_{0U};
 };
 
 }  // namespace espectre

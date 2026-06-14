@@ -1,12 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "threshold.h"
 #include "utils.h"
 #include "runtime_capabilities.h"
 #include "runtime_events.h"
 #include "runtime_snapshot.h"
+#include "stimulus_service.h"
 
 namespace esphome {
 namespace espectre {
@@ -34,6 +36,9 @@ struct RuntimeConfig {
   uint16_t segmentation_window_size{DETECTOR_DEFAULT_WINDOW_SIZE};
   uint32_t traffic_generator_rate{100};
   RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};
+  StimulusMode stimulus_mode{StimulusMode::INTERNAL};
+  uint16_t stimulus_udp_port{5555};
+  std::string stimulus_multicast_group;
   RuntimeGainLockMode gain_lock_mode{RuntimeGainLockMode::AUTO};
   uint32_t publish_interval{100};
   uint32_t evaluation_interval{25};
@@ -53,6 +58,7 @@ class IEspectreRuntime {
   virtual bool setup() = 0;
   virtual void shutdown() = 0;
   virtual void loop() = 0;
+  virtual void set_services_armed(bool armed) = 0;
 
   virtual bool set_threshold_runtime(float threshold) = 0;
   virtual bool trigger_recalibration() = 0;

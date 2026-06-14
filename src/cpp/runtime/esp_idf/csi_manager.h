@@ -10,14 +10,15 @@
 
 #pragma once
 
-#include "esp_wifi.h"
-#include "esp_err.h"
-#include "esp_attr.h"
-#include "utils.h"
-#include "base_detector.h"
-#include "wifi_csi_interface.h"
-#include "gain_controller.h"
 #include <functional>
+
+#include "base_detector.h"
+#include "csi_capture_service.h"
+#include "esp_attr.h"
+#include "esp_err.h"
+#include "esp_wifi.h"
+#include "utils.h"
+#include "wifi_csi_interface.h"
 
 namespace esphome {
 namespace espectre {
@@ -108,23 +109,23 @@ class CSIManager {
   /**
    * Check if gain is locked
    */
-  bool is_gain_locked() const { return gain_controller_.is_locked(); }
+  bool is_gain_locked() const { return capture_service_.is_gain_locked(); }
   
   /**
    * Get the number of packets used for gain lock calibration
    */
-  uint16_t get_gain_lock_packets() const { return gain_controller_.get_calibration_packets(); }
+  uint16_t get_gain_lock_packets() const { return GainController::get_calibration_packets(); }
   
   /**
    * Get the gain controller (for status reporting)
    */
-  const GainController& get_gain_controller() const { return gain_controller_; }
+  const GainController& get_gain_controller() const { return capture_service_.get_gain_controller(); }
   
   /**
    * Set callback for when gain lock completes
    */
   void set_gain_lock_callback(GainController::lock_complete_callback_t callback) {
-    gain_controller_.set_lock_complete_callback(callback);
+    capture_service_.set_gain_lock_callback(std::move(callback));
   }
   
   /**
@@ -152,7 +153,7 @@ class CSIManager {
   void clear_detector_buffer();
   
  private:
-  static void IRAM_ATTR csi_rx_callback_wrapper_(void* ctx, wifi_csi_info_t* data);
+  void process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized);
   MotionState update_effective_motion_state_(MotionState detector_state);
   void reset_motion_state_filter_(MotionState state = MotionState::IDLE);
   
@@ -174,14 +175,10 @@ class CSIManager {
   uint8_t pending_state_hits_{0};
   MotionState effective_motion_state_{MotionState::IDLE};
   MotionState pending_motion_state_{MotionState::IDLE};
-  
-  IWiFiCSI* wifi_csi_{nullptr};
-  WiFiCSIReal default_wifi_csi_;
-  GainController gain_controller_;
-  
+
+  CsiCaptureService capture_service_;
+
   static constexpr uint8_t NUM_SUBCARRIERS = HT20_SELECTED_BAND_SIZE;
-  
-  esp_err_t configure_platform_specific_();
 };
 
 }  // namespace espectre

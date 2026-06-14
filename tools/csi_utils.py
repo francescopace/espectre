@@ -16,6 +16,7 @@ import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
 import ipaddress
 import json
@@ -77,6 +78,14 @@ STREAM_FLAG_STIMULUS_ID_VALID = 1 << 5
 STREAM_FLAG_REFERENCE_FRAME = 1 << 6
 CSI_HEADER_FORMAT = '<HBBBBIHHQQIQIBbbBbB'
 CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
+MAX_STREAM_DATAGRAM_BYTES = 2048
+STIMULUS_MAGIC = b'ESTM'
+STIMULUS_VERSION = 1
+STIMULUS_ROLE_MEASUREMENT = 0
+STIMULUS_ROLE_REFERENCE = 1
+DEFAULT_STIMULUS_PORT = 9999
+DEFAULT_STIMULUS_RATE_PPS = 100
+STIMULUS_HEADER_STRUCT = struct.Struct('>4sBBI')
 
 
 def get_default_bind_host() -> str:
@@ -148,6 +157,101 @@ CHIP_CODES = {
     5: 'C5',
     6: 'C6',
 }
+
+
+# ============================================================================
+# Stimulus Generation
+# ============================================================================
+
+
+def build_stimulus_datagram(stimulus_id: int, *, is_reference: bool = False) -> bytes:
+    """Build one ESTM datagram consumed by the streamer firmware."""
+    if stimulus_id < 0 or stimulus_id > 0xFFFFFFFF:
+        raise ValueError(f'stimulus_id out of range: {stimulus_id}')
+    role = STIMULUS_ROLE_REFERENCE if is_reference else STIMULUS_ROLE_MEASUREMENT
+    return STIMULUS_HEADER_STRUCT.pack(STIMULUS_MAGIC, STIMULUS_VERSION, role, stimulus_id)
+
+
+class StimulusSender:
+    """Background UDP sender that drives streamer-side CSI stimulus."""
+
+    def __init__(
+        self,
+        target_host: str,
+        target_port: int = DEFAULT_STIMULUS_PORT,
+        rate_pps: int = DEFAULT_STIMULUS_RATE_PPS,
+        reference_every: int = 0,
+        stimulus_id_start: int = 1,
+        source_host: Optional[str] = None,
+    ):
+        if not target_host or not str(target_host).strip():
+            raise ValueError('target_host cannot be empty')
+        if target_port <= 0 or target_port > 65535:
+            raise ValueError(f'invalid target_port: {target_port}')
+        if rate_pps <= 0:
+            raise ValueError(f'rate_pps must be > 0, got {rate_pps}')
+        if reference_every < 0:
+            raise ValueError(f'reference_every must be >= 0, got {reference_every}')
+        if stimulus_id_start < 0 or stimulus_id_start > 0xFFFFFFFF:
+            raise ValueError(f'invalid stimulus_id_start: {stimulus_id_start}')
+
+        self.target_host = str(target_host).strip()
+        self.target_port = int(target_port)
+        self.rate_pps = int(rate_pps)
+        self.reference_every = int(reference_every)
+        self.next_stimulus_id = int(stimulus_id_start)
+        self.source_host = str(source_host).strip() if source_host is not None else ''
+        if self.source_host:
+            try:
+                ipaddress.ip_address(self.source_host)
+            except ValueError as exc:
+                raise ValueError(f'invalid source_host: {self.source_host}') from exc
+        self.sent_packets = 0
+        self.sock: Optional[socket.socket] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+
+    def start(self) -> None:
+        """Start sending ESTM packets in the background."""
+        if self._thread is not None:
+            return
+
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        if self.source_host:
+            self.sock.bind((self.source_host, 0))
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run, name='espectre-stimulus', daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stop the background stimulus sender."""
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+        if self.sock is not None:
+            self.sock.close()
+            self.sock = None
+
+    def _run(self) -> None:
+        interval_s = 1.0 / float(self.rate_pps)
+        next_deadline = time.monotonic()
+        while not self._stop_event.is_set():
+            packet_index = self.sent_packets + 1
+            is_reference = self.reference_every > 0 and (packet_index % self.reference_every) == 0
+            payload = build_stimulus_datagram(self.next_stimulus_id, is_reference=is_reference)
+            try:
+                if self.sock is not None:
+                    self.sock.sendto(payload, (self.target_host, self.target_port))
+            except OSError:
+                pass
+
+            self.sent_packets += 1
+            self.next_stimulus_id = (self.next_stimulus_id + 1) & 0xFFFFFFFF
+            next_deadline += interval_s
+            sleep_s = max(0.0, next_deadline - time.monotonic())
+            self._stop_event.wait(sleep_s)
 
 
 # ============================================================================
@@ -230,8 +334,8 @@ class CSIReceiver:
         """
         self._buffer_callbacks.append((callback, interval))
     
-    def _parse_packet(self, data: bytes) -> Optional[CSIPacket]:
-        """Parse raw UDP data into CSIPacket
+    def _parse_record(self, data: bytes, offset: int = 0) -> Tuple[Optional[CSIPacket], int]:
+        """Parse one CSI record from a datagram starting at offset.
         
         Packet format (version 2):
             <magic:2><version:1><header_len:1><chip:1><flags:1>
@@ -240,8 +344,8 @@ class CSIReceiver:
             <channel:1><rssi_dbm:1><noise_floor_dbm:1><agc_gain:1><fft_gain:1><reserved0:1>
             <payload>
         """
-        if len(data) < CSI_HEADER_STRUCT.size:
-            return None
+        if offset < 0 or len(data) - offset < CSI_HEADER_STRUCT.size:
+            return None, offset
 
         (
             magic,
@@ -263,23 +367,28 @@ class CSIReceiver:
             agc_gain,
             fft_gain,
             _reserved0,
-        ) = CSI_HEADER_STRUCT.unpack_from(data)
+        ) = CSI_HEADER_STRUCT.unpack_from(data, offset)
 
         if magic != MAGIC_STREAM or version != STREAM_VERSION:
-            return None
+            return None, offset
 
         if header_len < CSI_HEADER_STRUCT.size:
-            return None
+            return None, offset
         if csi_len_bytes == 0 or csi_len_bytes != num_sc * 2:
-            return None
-        if len(data) != header_len + csi_len_bytes:
-            return None
+            return None, offset
+
+        record_len = header_len + csi_len_bytes
+        if len(data) - offset < record_len:
+            return None, offset
 
         gain_locked = bool(flags & STREAM_FLAG_GAIN_LOCKED)
         chip = CHIP_CODES.get(chip_code, 'unknown')
 
         iq_raw = np.array(
-            struct.unpack(f'<{csi_len_bytes}b', data[header_len:header_len + csi_len_bytes]),
+            struct.unpack(
+                f'<{csi_len_bytes}b',
+                data[offset + header_len:offset + header_len + csi_len_bytes]
+            ),
             dtype=np.int8
         )
 
@@ -292,7 +401,7 @@ class CSIReceiver:
         amplitudes = np.abs(iq_complex)
         phases = np.angle(iq_complex)
         
-        return CSIPacket(
+        packet = CSIPacket(
             timestamp=time.time(),
             seq_num=seq_num,
             num_subcarriers=num_sc,
@@ -314,6 +423,26 @@ class CSIReceiver:
             agc_gain=int(agc_gain) if (flags & STREAM_FLAG_GAIN_INFO_VALID) else None,
             fft_gain=int(fft_gain) if (flags & STREAM_FLAG_GAIN_INFO_VALID) else None,
         )
+        return packet, offset + record_len
+
+    def _parse_packets(self, data: bytes) -> List[CSIPacket]:
+        """Parse one or more concatenated CSI stream records from a UDP datagram."""
+        packets: List[CSIPacket] = []
+        offset = 0
+        while offset < len(data):
+            packet, next_offset = self._parse_record(data, offset)
+            if packet is None or next_offset <= offset:
+                return []
+            packets.append(packet)
+            offset = next_offset
+        return packets
+
+    def _parse_packet(self, data: bytes) -> Optional[CSIPacket]:
+        """Parse a datagram that contains exactly one CSI stream record."""
+        packets = self._parse_packets(data)
+        if len(packets) != 1:
+            return None
+        return packets[0]
     
     def _check_sequence(self, seq_num: int):
         """Track sequence numbers and detect drops"""
@@ -423,41 +552,34 @@ class CSIReceiver:
                         break
                 
                 try:
-                    data, addr = self.sock.recvfrom(1024)  # Stream packets fit well below this cap
+                    data, addr = self.sock.recvfrom(MAX_STREAM_DATAGRAM_BYTES)
                 except socket.timeout:
                     self._update_pps()
                     continue
                 
-                # Parse packet
-                packet = self._parse_packet(data)
-                if packet is None:
+                packets = self._parse_packets(data)
+                if not packets:
                     continue
-                
-                # Track sequence
-                self._check_sequence(packet.seq_num)
-                
-                # Add to buffer
-                self.buffer.append(packet)
-                self.packet_count += 1
-                self._pps_counter += 1
-                
-                # Update PPS
-                self._update_pps()
-                
-                # Call packet callbacks
-                for callback in self._callbacks:
-                    try:
-                        callback(packet)
-                    except Exception as e:
-                        print(f'Callback error: {e}')
-                
-                # Call buffer callbacks
-                for callback, interval in self._buffer_callbacks:
-                    if self.packet_count % interval == 0:
+
+                for packet in packets:
+                    self._check_sequence(packet.seq_num)
+                    self.buffer.append(packet)
+                    self.packet_count += 1
+                    self._pps_counter += 1
+                    self._update_pps()
+
+                    for callback in self._callbacks:
                         try:
-                            callback(self.buffer)
+                            callback(packet)
                         except Exception as e:
-                            print(f'Buffer callback error: {e}')
+                            print(f'Callback error: {e}')
+
+                    for callback, interval in self._buffer_callbacks:
+                        if self.packet_count % interval == 0:
+                            try:
+                                callback(self.buffer)
+                            except Exception as e:
+                                print(f'Buffer callback error: {e}')
         
         except KeyboardInterrupt:
             if not quiet:
@@ -746,7 +868,7 @@ class CSICollector:
         try:
             while drained < max_packets:
                 try:
-                    self.receiver.sock.recvfrom(1024)
+                    self.receiver.sock.recvfrom(MAX_STREAM_DATAGRAM_BYTES)
                     drained += 1
                 except (BlockingIOError, socket.timeout):
                     break
@@ -808,20 +930,21 @@ class CSICollector:
 
         while True:
             try:
-                data, addr = self.receiver.sock.recvfrom(1024)
-                packet = self.receiver._parse_packet(data)
-                if packet is None:
+                data, addr = self.receiver.sock.recvfrom(MAX_STREAM_DATAGRAM_BYTES)
+                packets = self.receiver._parse_packets(data)
+                if not packets:
                     continue
 
-                processed_packets += 1
-                self.receiver.packet_count += 1
-                self.receiver._check_sequence(packet.seq_num)
+                for packet in packets:
+                    processed_packets += 1
+                    self.receiver.packet_count += 1
+                    self.receiver._check_sequence(packet.seq_num)
 
-                packet_dict = {
-                    'csi_data': packet.iq_raw,
-                    'gain_locked': packet.gain_locked
-                }
-                self._ready_detector.process_packet(packet_dict)
+                    packet_dict = {
+                        'csi_data': packet.iq_raw,
+                        'gain_locked': packet.gain_locked
+                    }
+                    self._ready_detector.process_packet(packet_dict)
 
                 if processed_packets >= warmup_target:
                     current_mv = self._ready_detector._context.current_moving_variance
@@ -940,9 +1063,8 @@ class CSICollector:
 
                 while time.monotonic() < deadline:
                     try:
-                        data, addr = self.receiver.sock.recvfrom(1024)  # Stream packets fit well below this cap
-                        packet = self.receiver._parse_packet(data)
-                        if packet:
+                        data, addr = self.receiver.sock.recvfrom(MAX_STREAM_DATAGRAM_BYTES)
+                        for packet in self.receiver._parse_packets(data):
                             packets.append(packet)
                             self.receiver._check_sequence(packet.seq_num)
                     except socket.timeout:
@@ -1024,9 +1146,8 @@ class CSICollector:
 
                     while time.monotonic() < deadline:
                         try:
-                            data, addr = self.receiver.sock.recvfrom(1024)  # Stream packets fit well below this cap
-                            packet = self.receiver._parse_packet(data)
-                            if packet:
+                            data, addr = self.receiver.sock.recvfrom(MAX_STREAM_DATAGRAM_BYTES)
+                            for packet in self.receiver._parse_packets(data):
                                 packets.append(packet)
                                 self.receiver._check_sequence(packet.seq_num)
                         except socket.timeout:

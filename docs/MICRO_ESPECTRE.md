@@ -124,6 +124,7 @@ Micro-ESPectre now uses the repository CLI root **`espectre`**. The micro workfl
 The repository CLI is now split by workflow:
 - `./espectre micro ...` for the MicroPython and host-side research loop documented here
 - `./espectre esphome ...` for local ESPHome firmware builds from the repo examples
+- `./espectre ble ...` for the standalone BLE ESP-IDF frontend
 - `./espectre matter ...` for the Matter ESP-IDF frontend
 - `./espectre streamer ...` for the CSI streamer ESP-IDF frontend
 

@@ -96,6 +96,13 @@ class TrafficGeneratorManager {
    * @return true if started successfully
    */
   bool start();
+
+  /**
+   * Poll health and recover stalled generators.
+   *
+   * Call from the main runtime loop.
+   */
+  void loop();
   
   /**
    * Stop traffic generator
@@ -147,12 +154,23 @@ class TrafficGeneratorManager {
   TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
   std::atomic<bool> running_{false};  // atomic: accessed from main task and FreeRTOS task
   std::atomic<bool> paused_{false};   // atomic: accessed from main task and FreeRTOS task
+  std::atomic<uint32_t> dns_send_success_count_{0};
+  std::atomic<uint32_t> dns_send_error_count_{0};
+  uint32_t last_ping_request_count_{0};
+  int64_t last_ping_progress_us_{0};
+  int64_t last_health_check_us_{0};
+
+  static constexpr int64_t HEALTH_CHECK_INTERVAL_US = 1000000;
+  static constexpr int64_t PING_STALL_TIMEOUT_US = 5000000;
+  static constexpr uint32_t DNS_CONSECUTIVE_ERROR_RESTART_THRESHOLD = 32;
   
   // Mode-specific start/stop
   bool start_dns_();
   bool start_ping_();
   void stop_dns_();
   void stop_ping_();
+  bool restart_ping_session_();
+  void reset_health_state_();
 };
 
 }  // namespace espectre

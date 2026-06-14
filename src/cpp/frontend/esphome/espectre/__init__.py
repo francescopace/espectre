@@ -8,6 +8,8 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
+from pathlib import Path
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor, binary_sensor, number, switch
@@ -72,6 +74,14 @@ espectre_ns = cg.esphome_ns.namespace("espectre")
 ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
 ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.Number, cg.Component)
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
+
+_LIBRARY_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _library_uri(path: Path) -> str:
+    """Return a PlatformIO-compatible file URI for local libraries."""
+    return path.resolve().as_uri()
+
 
 def validate_segmentation_threshold(value):
     """Validate segmentation_threshold: accepts 'auto', 'min', or a float."""
@@ -176,6 +186,8 @@ FINAL_VALIDATE_SCHEMA = cv.All(
 
 
 async def to_code(config):
+    cg.add_library("espectre-shared", None, _library_uri(_LIBRARY_ROOT))
+
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 

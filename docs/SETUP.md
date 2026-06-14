@@ -43,6 +43,27 @@ Current entry-point support by frontend:
 - For local workflows, use the repository CLI namespaces documented in each
   frontend README
 
+## Local CLI Workflows
+
+Use `./espectre` from the repository root for local build, flash, and monitor
+tasks:
+
+| Frontend | Commands | Example |
+|----------|----------|---------|
+| `ESPHome` | `build`, `flash`, `config`, `logs` | `./espectre esphome logs --chip c6 --device /dev/cu.usbmodemXXXX` |
+| `BLE` | `build`, `flash`, `monitor` | `./espectre ble flash --chip c3 --port /dev/cu.usbmodemXXXX` |
+| `Matter` | `build`, `flash`, `monitor` | `./espectre matter build --chip c3` |
+| `Streamer` | `build`, `flash`, `monitor` | `./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX` |
+| `Micro-ESPectre` | `flash`, `deploy`, `run`, `verify`, `detect`, `collect`, `ui` | `./espectre micro deploy` |
+
+Use the frontend READMEs for complete prerequisites and chip-specific notes:
+
+- [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md)
+- [`../src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md)
+- [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md)
+- [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md)
+- [`MICRO_ESPECTRE.md`](MICRO_ESPECTRE.md)
+
 ## Web Flash (no coding required)
 
 Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
@@ -108,9 +129,13 @@ For practical tuning guidance, sensor placement, and parameter tradeoffs, see
 
 ### Traffic Generation
 
-Motion detection depends on CSI packets. By default, the shared runtime
-generates traffic internally, but the way that traffic is configured or exposed
-belongs to each frontend surface.
+Motion detection frontends depend on CSI packets. For the shared detection
+runtime, traffic is generated internally by default, but the way that traffic is
+configured or exposed belongs to each frontend surface.
+
+The standalone `streamer` frontend is different: it does not own an internal
+traffic generator and instead expects collector-driven external UDP stimulus.
+Use the streamer frontend README as the source of truth for that workflow.
 
 If you are tuning `traffic_generator_rate`, thresholds, or filters, use
 [TUNING.md](TUNING.md) for the rationale and the frontend README for the

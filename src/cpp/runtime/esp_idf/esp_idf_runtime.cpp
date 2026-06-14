@@ -7,6 +7,7 @@
 #include "espectre_log.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
+#include "esp_netif.h"
 
 namespace esphome {
 namespace espectre {
@@ -17,6 +18,19 @@ static const char *const RUNTIME_TAG = "espectre.runtime";
 
 TrafficGeneratorMode to_traffic_mode(RuntimeTrafficMode mode) {
   return mode == RuntimeTrafficMode::PING ? TrafficGeneratorMode::PING : TrafficGeneratorMode::DNS;
+}
+
+StimulusServiceConfig to_stimulus_config(const RuntimeConfig &config) {
+  StimulusServiceConfig stimulus_config;
+  stimulus_config.mode =
+      (config.stimulus_mode == StimulusMode::INTERNAL && config.traffic_generator_rate == 0U)
+          ? StimulusMode::EXTERNAL
+          : config.stimulus_mode;
+  stimulus_config.rate_pps = config.traffic_generator_rate;
+  stimulus_config.traffic_mode = to_traffic_mode(config.traffic_generator_mode);
+  stimulus_config.udp_port = config.stimulus_udp_port;
+  stimulus_config.multicast_group = config.stimulus_multicast_group;
+  return stimulus_config;
 }
 
 GainLockMode to_gain_lock_mode(RuntimeGainLockMode mode) {
@@ -54,8 +68,7 @@ bool EspIdfRuntime::setup() {
     return false;
   }
 
-  traffic_generator_.init(config_.traffic_generator_rate, to_traffic_mode(config_.traffic_generator_mode));
-  udp_listener_.init(5555);
+  stimulus_service_.init(to_stimulus_config(config_));
 
   csi_manager_.init(detector_, config_.publish_interval, to_gain_lock_mode(config_.gain_lock_mode));
   csi_manager_.set_evaluation_interval(config_.evaluation_interval);
@@ -73,7 +86,15 @@ bool EspIdfRuntime::setup() {
     return false;
   }
 
+  wifi_ready_ = has_wifi_ip_();
   setup_complete_ = true;
+  if (wifi_ready_) {
+    if (services_armed_) {
+      on_wifi_connected_();
+    } else {
+      ESP_LOGI(RUNTIME_TAG, "WiFi is ready, deferring CSI services until commissioning completes");
+    }
+  }
   ESP_LOGD(RUNTIME_TAG, "[resources] Free heap: %lu bytes, largest block: %lu bytes",
            static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DEFAULT)),
            static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)));
@@ -91,8 +112,31 @@ void EspIdfRuntime::shutdown() {
 }
 
 void EspIdfRuntime::loop() {
-  if (udp_listener_.is_running()) {
-    udp_listener_.loop();
+  stimulus_service_.loop();
+}
+
+void EspIdfRuntime::set_services_armed(bool armed) {
+  if (services_armed_ == armed) {
+    return;
+  }
+
+  services_armed_ = armed;
+  if (!setup_complete_) {
+    return;
+  }
+
+  if (!services_armed_) {
+    ESP_LOGI(RUNTIME_TAG, "CSI services disarmed until Matter commissioning is complete");
+    on_wifi_disconnected_();
+    return;
+  }
+
+  wifi_ready_ = has_wifi_ip_();
+  if (wifi_ready_) {
+    ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, starting CSI services");
+    on_wifi_connected_();
+  } else {
+    ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, waiting for WiFi IP");
   }
 }
 
@@ -157,6 +201,12 @@ bool EspIdfRuntime::configure_detector_() {
 }
 
 void EspIdfRuntime::on_wifi_connected_() {
+  wifi_ready_ = true;
+  if (!services_armed_) {
+    ESP_LOGI(RUNTIME_TAG, "WiFi connected, waiting for Matter commissioning before starting CSI services");
+    return;
+  }
+
   snapshot_.motion_state = MotionState::IDLE;
   snapshot_.ready_to_publish = false;
 
@@ -184,13 +234,8 @@ void EspIdfRuntime::on_wifi_connected_() {
     }
   }
 
-  if (config_.traffic_generator_rate > 0) {
-    if (!traffic_generator_.is_running() && !traffic_generator_.start()) {
-      notify_fault_("Failed to start traffic generator");
-      return;
-    }
-  } else if (!udp_listener_.is_running() && !udp_listener_.start()) {
-    notify_fault_("Failed to start UDP listener");
+  if (!stimulus_service_.is_running() && !stimulus_service_.start()) {
+    notify_fault_("Failed to start stimulus service");
     return;
   }
 
@@ -208,15 +253,11 @@ void EspIdfRuntime::on_wifi_connected_() {
 }
 
 void EspIdfRuntime::on_wifi_disconnected_() {
+  wifi_ready_ = false;
   threshold_calibration_active_ = false;
   csi_manager_.set_packet_interceptor({});
   csi_manager_.disable();
-  if (traffic_generator_.is_running()) {
-    traffic_generator_.stop();
-  }
-  if (udp_listener_.is_running()) {
-    udp_listener_.stop();
-  }
+  stimulus_service_.stop();
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
   if (listener_ != nullptr) {
@@ -309,6 +350,20 @@ void EspIdfRuntime::notify_fault_(const char *message) {
   if (listener_ != nullptr) {
     listener_->on_runtime_fault(last_fault_.c_str());
   }
+}
+
+bool EspIdfRuntime::has_wifi_ip_() const {
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  if (netif == nullptr) {
+    return false;
+  }
+
+  esp_netif_ip_info_t ip_info{};
+  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
+    return false;
+  }
+
+  return ip_info.ip.addr != 0;
 }
 
 }  // namespace espectre

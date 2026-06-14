@@ -8,6 +8,7 @@
 #include <esp_err.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
+#include <sdkconfig.h>
 
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
@@ -15,6 +16,7 @@
 #include <esp_matter_attribute.h>
 #include <esp_matter_cluster.h>
 #include <esp_matter_endpoint.h>
+#include <setup_payload/OnboardingCodesUtil.h>
 
 #include "matter_bindings_esp_matter.h"
 #include "matter_frontend.h"
@@ -33,6 +35,22 @@ namespace {
 esphome::espectre::MatterEspBindings g_bindings;
 esphome::espectre::MatterFrontend *g_frontend = nullptr;
 uint16_t g_motion_endpoint_id = 0;
+
+esphome::espectre::RuntimeConfig build_runtime_config() {
+  esphome::espectre::RuntimeConfig config;
+#if CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_ML
+  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::ML;
+#else
+  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::MVS;
+#endif
+  return config;
+}
+
+const char *detector_name(const esphome::espectre::RuntimeConfig &config) {
+  return config.detection_algorithm == esphome::espectre::DetectionAlgorithm::ML ? "ML" : "MVS";
+}
+
+bool has_commissioned_fabric() { return chip::Server::GetInstance().GetFabricTable().FabricCount() != 0; }
 
 cluster_t *create_espectre_vendor_cluster(endpoint_t *endpoint) {
   cluster_t *vendor_cluster = cluster::create(endpoint, esphome::espectre::ESPECTRE_MATTER_VENDOR_CLUSTER_ID,
@@ -79,12 +97,18 @@ void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
   switch (event->Type) {
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
       ESP_LOGI(TAG, "Commissioning complete");
+      if (g_frontend != nullptr) {
+        g_frontend->set_runtime_services_armed(true);
+      }
       break;
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
       ESP_LOGW(TAG, "Commissioning failed, fail safe timer expired");
       break;
     case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
       ESP_LOGI(TAG, "Fabric removed");
+      if (g_frontend != nullptr && !has_commissioned_fabric()) {
+        g_frontend->set_runtime_services_armed(false);
+      }
       open_commissioning_window_if_necessary();
       break;
     default:
@@ -171,6 +195,7 @@ extern "C" void app_main() {
   g_motion_endpoint_id = endpoint::get_id(motion_endpoint);
 
   static esphome::espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id);
+  frontend.set_runtime_config(build_runtime_config());
   g_frontend = &frontend;
   ESP_LOGI(TAG, "ESPectre Matter smoke marker: endpoint %u configured, starting Matter stack",
            g_motion_endpoint_id);
@@ -180,10 +205,16 @@ extern "C" void app_main() {
     return;
   }
 
+  frontend.set_runtime_services_armed(has_commissioned_fabric());
+  PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
+
   if (!frontend.setup()) {
     ESP_LOGE(TAG, "Failed to initialize ESPectre Matter frontend");
     return;
   }
+
+  ESP_LOGI(TAG, "ESPectre Matter detector: %s", detector_name(frontend.runtime_config()));
+  ESP_LOGI(TAG, "ESPectre Matter CSI services: %s", frontend.runtime_services_armed() ? "armed" : "waiting for commissioning");
 
   xTaskCreate(espectre_loop_task, "espectre_loop", 8192, nullptr, 5, nullptr);
 

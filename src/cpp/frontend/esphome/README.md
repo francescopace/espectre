@@ -43,8 +43,8 @@ For those topics, use:
   runtime threshold control
 - [`espectre/calibrate_switch.cpp`](espectre/calibrate_switch.cpp):
   runtime recalibration trigger
-- [`espectre/library.json`](espectre/library.json):
-  PlatformIO/ESPHome packaging metadata
+- [`espectre/__init__.py`](espectre/__init__.py):
+  registers the shared local PlatformIO library and ESPHome build flags
 
 ## Getting Started
 
@@ -428,10 +428,11 @@ esphome logs <your-config>.yaml --device espectre.local
 
 ## Packaging Notes
 
-[`espectre/library.json`](espectre/library.json) points directly at the
-canonical shared sources under `src/cpp/core/` and `src/cpp/runtime/esp_idf/`.
-This avoids symlink-based assembly and keeps ESPHome packaging aligned with the
-main repository layout.
+[`espectre/__init__.py`](espectre/__init__.py) registers the local
+[`../../library.json`](../../library.json) package so PlatformIO builds the
+canonical shared sources directly from `src/cpp/core/` and
+`src/cpp/runtime/esp_idf/`. This keeps ESPHome packaging aligned with the main
+repository layout across platforms.
 
 ## Boundaries
 

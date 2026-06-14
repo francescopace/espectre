@@ -55,8 +55,9 @@ If you haven't already flashed the firmware:
 
 ### 3. Start the Streamer Firmware
 
-Start the standalone streamer firmware and configure its collector IP/port to
-point to your PC (default UDP port: `5001`):
+Start the standalone streamer firmware on the device. The host collector now
+drives the UDP stimulus and the streamer learns the collector IP from incoming
+stimulus packets (default CSI UDP port: `5001`):
 
 ```bash
 ./espectre streamer flash --chip <chip> --port <serial_port>
@@ -67,11 +68,17 @@ The streamer frontend README is the source of truth for the firmware surface,
 UDP packet format, and frontend-specific configuration:
 [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md).
 
+Use that README as the source of truth for:
+
+- local streamer Wi-Fi configuration via `sdkconfig.wifi`
+- transport tuning knobs such as queue depth and batching
+- observed standalone streamer throughput on `ESP32-C3`
+
 **Features:**
 - Gain lock phase (~3s) for stable CSI acquisition
 - 64 subcarriers (HT20 mode)
 - 32-bit sequence numbers for packet loss detection
-- ~100 packets/second
+- collector-driven stimulus rate (see streamer README for practical transport profiles and benchmarks)
 
 ### 4. Optional: Inspect Live ML Motion Detection
 
@@ -79,13 +86,14 @@ If you want to validate runtime ML behavior before recording data, run live
 host-side inference from the UDP CSI stream:
 
 ```bash
-./espectre micro detect --log-turbulence
+./espectre micro detect --streamer-ip 192.168.1.50 --log-turbulence
 ```
 
 `espectre micro detect` reads threshold, the fixed production subcarrier set,
 Hampel, low-pass, and hit filtering from `src/python/config.py` and
 `src/python/config_local.py`, just like the rest of micro-ESPectre. Use
-`--bind-ip <local_ip>` only when auto-detection picks the wrong interface.
+`--streamer-ip <device_ip>` to point at the firmware device and `--bind-ip
+<local_ip>` only when auto-detection picks the wrong host interface.
 
 ---
 
@@ -97,8 +105,9 @@ The `espectre micro collect` subcommand provides a streamlined workflow for reco
 
 | Command | Description |
 |---------|-------------|
-| `./espectre micro collect --label <name> --duration <sec>` | Record for specified duration |
-| `./espectre micro collect --label <name> --samples <n>` | Record n samples interactively |
+| `./espectre micro collect --label <name> --duration <sec> --streamer-ip <device_ip>` | Record for specified duration |
+| `./espectre micro collect --label <name> --samples <n> --streamer-ip <device_ip>` | Record n samples interactively |
+| `./espectre micro collect --label <name> --streamer-ip <device_ip> --reference-every <N>` | Mark every `N`th stimulus packet as a reference frame |
 | `./espectre micro collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
 | `./espectre micro collect --label <name> --description "text"` | Add description to sample |
 | `./espectre micro collect --info` | Show dataset statistics |
@@ -109,18 +118,49 @@ Gain lock status is **automatically detected** from the CSI stream and saved in 
 
 ```bash
 # Record 60 seconds of baseline (contributor auto-detected from git config)
-./espectre micro collect --label baseline --duration 60
+./espectre micro collect --label baseline --duration 60 --streamer-ip 192.168.1.50
 
 # Record 30 seconds of movement
-./espectre micro collect --label movement --duration 30
+./espectre micro collect --label movement --duration 30 --streamer-ip 192.168.1.50
 
 # Record with explicit contributor override
-./espectre micro collect --label gesture --samples 10 --interactive --contributor otheruser
+./espectre micro collect --label gesture --samples 10 --interactive --streamer-ip 192.168.1.50 --contributor otheruser
+
+# Mark every 20th stimulus packet as a reference frame
+./espectre micro collect --label baseline --duration 30 --streamer-ip 192.168.1.50 --reference-every 20
 
 # Gain lock status is auto-detected from the CSI stream
 # No need to specify --no-gain-lock, it's automatic!
-./espectre micro collect --label baseline --duration 10
+./espectre micro collect --label baseline --duration 10 --streamer-ip 192.168.1.50
 ```
+
+### Reference Frames
+
+The host collector can optionally mark some stimulus packets as reference
+frames with:
+
+```bash
+./espectre micro collect --label baseline --streamer-ip 192.168.1.50 --reference-every 20
+```
+
+Semantics:
+
+- `--reference-every 0` means measurement-only stimulus (default)
+- `--reference-every N` means every `N`th stimulus packet is sent with the
+  `reference` role in the `ESTM` header
+- the streamer copies that role into the outgoing CSI UDP packet through
+  `STREAM_FLAG_REFERENCE_FRAME`
+
+This is collector-driven metadata. It does not change how the streamer captures
+CSI; it only tags frames so downstream tooling can distinguish:
+
+- measurement frames: ordinary collection samples
+- reference frames: collector-selected anchor samples for later alignment,
+  normalization, or analysis policies
+
+Use reference frames only when your host-side processing pipeline has a clear
+reason to distinguish them. For ordinary dataset collection, leaving
+`--reference-every` at `0` is usually the simplest choice.
 
 ### Viewing Dataset
 
@@ -330,7 +370,7 @@ This shows which files use CV normalization.
 
 | Aspect | Recommendation |
 |--------|----------------|
-| **Duration** | 30-60 seconds per sample (1500-3000 packets @ 50 pps) |
+| **Duration** | 30-60 seconds per sample (packet count depends on the chosen stimulus rate) |
 | **Repetitions** | 10+ samples per label for variability |
 | **Environment** | Same environment for all samples in a session |
 | **Position** | Vary position/distance between samples for robustness |
@@ -358,8 +398,8 @@ gesture1      # non-descriptive
 ### Session Workflow
 
 1. **Prepare environment**: Ensure room is quiet for baseline
-2. **Record baseline first**: `./espectre micro collect --label baseline --duration 60`
-3. **Record movement**: `./espectre micro collect --label movement --duration 60`
+2. **Record baseline first**: `./espectre micro collect --label baseline --duration 60 --streamer-ip <device_ip>`
+3. **Record movement**: `./espectre micro collect --label movement --duration 60 --streamer-ip <device_ip>`
 4. **Verify dataset**: `./espectre micro collect --info`
 5. **Backup data**: Copy `data/` to safe location
 
