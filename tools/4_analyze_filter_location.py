@@ -2,7 +2,7 @@
 """
 ESPectre - Filter Location Comparison
 Compares filtering at different stages:
-1. No filtering (baseline)
+1. No filtering (static presence reference)
 2. Filter turbulence values AFTER calculation  
 3. Filter I/Q raw data BEFORE calculating turbulence
 4. Filter amplitudes BEFORE calculating turbulence (paper-style)
@@ -21,8 +21,8 @@ import argparse
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
-    load_baseline_and_movement, HampelFilter,
-    calculate_spatial_turbulence, find_dataset
+    load_static_presence_and_motion, HampelFilter,
+    calculate_spatial_turbulence, find_static_presence_motion_dataset
 )
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     HAMPEL_WINDOW, HAMPEL_THRESHOLD, DEFAULT_SUBCARRIERS)
@@ -121,25 +121,25 @@ def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarrier
     return std_amp / mean_amp if mean_amp > 0 else 0.0
 
 
-def run_comparison(baseline_packets, movement_packets, track_data=False):
+def run_comparison(static_presence_packets, motion_packets, track_data=False):
     """Compare 4 filtering approaches"""
     results = {}
     num_sc = len(DEFAULT_SUBCARRIERS)
     
     # 1. No Filter
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
-    for pkt in baseline_packets:
+    for pkt in static_presence_packets:
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
-    baseline_fp = seg.motion_packets
-    baseline_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+    static_presence_fp = seg.motion_packets
+    static_presence_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     
     seg.reset()
-    for pkt in movement_packets:
+    for pkt in motion_packets:
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
@@ -147,25 +147,25 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
             )
         )
     results['No Filter'] = {
-        'fp': baseline_fp, 'tp': seg.motion_packets,
-        'baseline_data': baseline_data,
-        'movement_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+        'fp': static_presence_fp, 'tp': seg.motion_packets,
+        'static_presence_data': static_presence_data,
+        'motion_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     }
     
     # 2. Filter Turbulence (current ESPectre implementation)
     seg = FilteredTurbulenceSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
-    for pkt in baseline_packets:
+    for pkt in static_presence_packets:
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
-    baseline_fp = seg.motion_packets
-    baseline_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+    static_presence_fp = seg.motion_packets
+    static_presence_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     
     seg.reset()
-    for pkt in movement_packets:
+    for pkt in motion_packets:
         seg.add_turbulence(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
@@ -173,9 +173,9 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
             )
         )
     results['Filter Turbulence'] = {
-        'fp': baseline_fp, 'tp': seg.motion_packets,
-        'baseline_data': baseline_data,
-        'movement_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+        'fp': static_presence_fp, 'tp': seg.motion_packets,
+        'static_presence_data': static_presence_data,
+        'motion_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     }
     
     # 3. Filter I/Q Raw (separate I and Q filtering)
@@ -183,7 +183,7 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
     hampel_Q = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
     
-    for pkt in baseline_packets:
+    for pkt in static_presence_packets:
         turb = calculate_turbulence_filtered_iq(
             pkt['csi_data'],
             hampel_I,
@@ -192,13 +192,13 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
             gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)
-    baseline_fp = seg.motion_packets
-    baseline_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+    static_presence_fp = seg.motion_packets
+    static_presence_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     
     hampel_I = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
     hampel_Q = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
     seg.reset()
-    for pkt in movement_packets:
+    for pkt in motion_packets:
         turb = calculate_turbulence_filtered_iq(
             pkt['csi_data'],
             hampel_I,
@@ -208,16 +208,16 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         )
         seg.add_turbulence(turb)
     results['Filter I/Q Raw'] = {
-        'fp': baseline_fp, 'tp': seg.motion_packets,
-        'baseline_data': baseline_data,
-        'movement_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+        'fp': static_presence_fp, 'tp': seg.motion_packets,
+        'static_presence_data': static_presence_data,
+        'motion_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     }
     
     # 4. Filter Amplitudes (paper-style: Hampel on amplitude time series per subcarrier)
     hampel_amps = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
     
-    for pkt in baseline_packets:
+    for pkt in static_presence_packets:
         turb = calculate_turbulence_filtered_amplitudes(
             pkt['csi_data'],
             hampel_amps,
@@ -225,12 +225,12 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
             gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)
-    baseline_fp = seg.motion_packets
-    baseline_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+    static_presence_fp = seg.motion_packets
+    static_presence_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     
     hampel_amps = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
     seg.reset()
-    for pkt in movement_packets:
+    for pkt in motion_packets:
         turb = calculate_turbulence_filtered_amplitudes(
             pkt['csi_data'],
             hampel_amps,
@@ -239,9 +239,9 @@ def run_comparison(baseline_packets, movement_packets, track_data=False):
         )
         seg.add_turbulence(turb)
     results['Filter Amplitudes'] = {
-        'fp': baseline_fp, 'tp': seg.motion_packets,
-        'baseline_data': baseline_data,
-        'movement_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
+        'fp': static_presence_fp, 'tp': seg.motion_packets,
+        'static_presence_data': static_presence_data,
+        'motion_data': {'moving_var': np.array(seg.moving_var_history)} if track_data else None
     }
     
     return results
@@ -269,16 +269,16 @@ def plot_comparison(results, threshold):
         pass
     
     for i, (name, result) in enumerate(results.items()):
-        if result['baseline_data'] is None:
+        if result['static_presence_data'] is None:
             continue
         
-        # Separate time axes for baseline and movement
-        time_baseline = np.arange(len(result['baseline_data']['moving_var'])) / 100.0
-        time_movement = np.arange(len(result['movement_data']['moving_var'])) / 100.0
+        # Separate time axes for static presence and motion
+        time_baseline = np.arange(len(result['static_presence_data']['moving_var'])) / 100.0
+        time_movement = np.arange(len(result['motion_data']['moving_var'])) / 100.0
         
         # Baseline
         ax = axes[i, 0]
-        ax.plot(time_baseline, result['baseline_data']['moving_var'], 'g-', alpha=0.7)
+        ax.plot(time_baseline, result['static_presence_data']['moving_var'], 'g-', alpha=0.7)
         ax.axhline(y=threshold, color='r', linestyle='--', linewidth=2)
         ax.set_title(f'{name} - Baseline (FP: {result["fp"]})')
         ax.set_ylabel('Moving Variance')
@@ -286,7 +286,7 @@ def plot_comparison(results, threshold):
         
         # Movement
         ax = axes[i, 1]
-        ax.plot(time_movement, result['movement_data']['moving_var'], 'b-', alpha=0.7)
+        ax.plot(time_movement, result['motion_data']['moving_var'], 'b-', alpha=0.7)
         ax.axhline(y=threshold, color='r', linestyle='--', linewidth=2)
         ax.set_title(f'{name} - Movement (TP: {result["tp"]})')
         ax.set_ylabel('Moving Variance')
@@ -313,19 +313,19 @@ def main():
     
     chip = args.chip.upper()
     try:
-        baseline_path, movement_path, chip_name = find_dataset(chip=chip)
-        baseline_data, movement_data = load_baseline_and_movement(chip=chip)
+        static_presence_path, motion_path, chip_name = find_static_presence_motion_dataset(chip=chip)
+        static_presence_data, motion_data = load_static_presence_and_motion(chip=chip)
     except FileNotFoundError as e:
         print(f"❌ Error: {e}")
         return
     
-    baseline_packets = baseline_data
-    movement_packets = movement_data
+    static_presence_packets = static_presence_data
+    motion_packets = motion_data
     
     print(f"Chip: {chip_name}")
-    print(f"Loaded {len(baseline_packets)} baseline, {len(movement_packets)} movement packets\n")
+    print(f"Loaded {len(static_presence_packets)} static-presence packets, {len(motion_packets)} motion packets\n")
     
-    results = run_comparison(baseline_packets, movement_packets, track_data=args.plot)
+    results = run_comparison(static_presence_packets, motion_packets, track_data=args.plot)
     
     # Print results
     print(f"{'Approach':<20} {'FP':<6} {'TP':<6} {'Score':<8}")

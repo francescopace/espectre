@@ -122,7 +122,7 @@ def _load_dataset_info():
 
 def _lookup_file_info(dataset_info, filename):
     files = dataset_info.get("files", {})
-    for label in ("baseline", "movement"):
+    for label in ("static_presence", "motion"):
         for entry in files.get(label, []):
             if entry.get("filename") == filename:
                 return label, entry
@@ -130,12 +130,12 @@ def _lookup_file_info(dataset_info, filename):
 
 
 def _pair_is_temporally_valid(dataset_info, label, entry):
-    if label == "baseline":
-        pair_name = entry.get("optimal_pair_movement_file")
-        pair_label = "movement"
+    if label == "static_presence":
+        pair_name = entry.get("optimal_pair_motion_file")
+        pair_label = "motion"
     else:
-        pair_name = entry.get("optimal_pair_baseline_file")
-        pair_label = "baseline"
+        pair_name = entry.get("optimal_pair_static_presence_file")
+        pair_label = "static_presence"
     if not pair_name:
         return False
 
@@ -172,7 +172,7 @@ def get_available_long_test_datasets(chips=None):
     Return available long test recordings with validated split metadata.
 
     Each item is a tuple:
-        (test_path, baseline_packets, movement_packets, motion_start_packet, chip, entry)
+        (test_path, static_presence_packets, motion_packets, motion_start_packet, chip, entry)
     """
     from csi_utils import load_npz_as_packets
 
@@ -208,13 +208,13 @@ def get_available_long_test_datasets(chips=None):
         if motion_start_packet <= 0 or motion_start_packet >= len(packets):
             continue
 
-        baseline_packets = packets[:motion_start_packet]
-        movement_packets = packets[motion_start_packet:]
+        static_presence_packets = packets[:motion_start_packet]
+        motion_packets = packets[motion_start_packet:]
         datasets.append(
             (
                 test_path,
-                baseline_packets,
-                movement_packets,
+                static_presence_packets,
+                motion_packets,
                 motion_start_packet,
                 chip,
                 entry,
@@ -229,13 +229,13 @@ def build_long_test_params(chips=None):
     """Build stable pytest params for available long test recordings."""
     params = []
     for dataset in get_available_long_test_datasets(chips=chips):
-        _, baseline_packets, movement_packets, motion_start_packet, chip, _ = dataset
+        _, static_presence_packets, motion_packets, motion_start_packet, chip, _ = dataset
         params.append(
             pytest.param(
                 dataset,
                 id=(
                     f"{chip.lower()}_long_"
-                    f"{len(baseline_packets)}b_{len(movement_packets)}m_"
+                    f"{len(static_presence_packets)}b_{len(motion_packets)}m_"
                     f"start{motion_start_packet}"
                 ),
             )
@@ -391,7 +391,7 @@ def synthetic_csi_packet():
 
 
 @pytest.fixture
-def synthetic_csi_baseline_packets():
+def synthetic_csi_static_presence_packets():
     """Generate synthetic baseline CSI packets (stable signal)"""
     np.random.seed(42)
     packets = []
@@ -405,12 +405,18 @@ def synthetic_csi_baseline_packets():
             # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
             iq_data[sc * 2] = np.clip(Q, -127, 127)      # Imaginary first
             iq_data[sc * 2 + 1] = np.clip(I, -127, 127)  # Real second
-        packets.append({'csi_data': iq_data, 'label': 'baseline'})
+        packets.append({'csi_data': iq_data, 'label': 'static_presence'})
     return packets
 
 
 @pytest.fixture
-def synthetic_csi_movement_packets():
+def synthetic_csi_baseline_packets(synthetic_csi_static_presence_packets):
+    """Backward-compatible alias for static-presence synthetic packets."""
+    return synthetic_csi_static_presence_packets
+
+
+@pytest.fixture
+def synthetic_csi_motion_packets():
     """Generate synthetic movement CSI packets (variable signal)"""
     np.random.seed(43)
     packets = []
@@ -424,8 +430,14 @@ def synthetic_csi_movement_packets():
             # Espressif CSI format: [Imaginary, Real, ...] per subcarrier
             iq_data[sc * 2] = np.clip(Q, -127, 127)      # Imaginary first
             iq_data[sc * 2 + 1] = np.clip(I, -127, 127)  # Real second
-        packets.append({'csi_data': iq_data, 'label': 'movement'})
+        packets.append({'csi_data': iq_data, 'label': 'motion'})
     return packets
+
+
+@pytest.fixture
+def synthetic_csi_movement_packets(synthetic_csi_motion_packets):
+    """Backward-compatible alias for motion synthetic packets."""
+    return synthetic_csi_motion_packets
 
 
 # ============================================================================
@@ -435,34 +447,46 @@ def synthetic_csi_movement_packets():
 @pytest.fixture
 def real_csi_data_available():
     """Check if real CSI data files are available"""
-    from csi_utils import find_dataset
+    from csi_utils import find_static_presence_motion_dataset
     try:
-        find_dataset(chip='C6')
+        find_static_presence_motion_dataset(chip='C6')
         return True
     except FileNotFoundError:
         return False
 
 
 @pytest.fixture
-def real_baseline_packets(real_csi_data_available):
+def real_static_presence_packets(real_csi_data_available):
     """Load real baseline CSI packets (skip if not available)"""
     if not real_csi_data_available:
         pytest.skip("Real CSI data not available")
     
-    from csi_utils import load_baseline_and_movement
-    baseline, _ = load_baseline_and_movement()
+    from csi_utils import load_static_presence_and_motion
+    baseline, _ = load_static_presence_and_motion()
     return baseline
 
 
 @pytest.fixture
-def real_movement_packets(real_csi_data_available):
+def real_baseline_packets(real_static_presence_packets):
+    """Backward-compatible alias for static-presence real packets."""
+    return real_static_presence_packets
+
+
+@pytest.fixture
+def real_motion_packets(real_csi_data_available):
     """Load real movement CSI packets (skip if not available)"""
     if not real_csi_data_available:
         pytest.skip("Real CSI data not available")
     
-    from csi_utils import load_baseline_and_movement
-    _, movement = load_baseline_and_movement()
+    from csi_utils import load_static_presence_and_motion
+    _, movement = load_static_presence_and_motion()
     return movement
+
+
+@pytest.fixture
+def real_movement_packets(real_motion_packets):
+    """Backward-compatible alias for motion real packets."""
+    return real_motion_packets
 
 
 @pytest.fixture
@@ -471,9 +495,9 @@ def real_turbulence_values(real_csi_data_available, default_subcarriers):
     if not real_csi_data_available:
         pytest.skip("Real CSI data not available")
     
-    from csi_utils import load_baseline_and_movement, calculate_spatial_turbulence
+    from csi_utils import load_static_presence_and_motion, calculate_spatial_turbulence
     
-    baseline, movement = load_baseline_and_movement()
+    baseline, movement = load_static_presence_and_motion()
     turbulence_values = []
     
     for packet in baseline:

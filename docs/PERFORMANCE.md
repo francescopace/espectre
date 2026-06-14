@@ -32,16 +32,20 @@ CV normalization is applied per-file for MVS based on whether data was collected
 
 ## Training Dataset
 
-`data/dataset_info.json` contains multiple baseline/movement captures per chip across different collection sessions and environments. The counts below are aggregated packet totals across all available training captures.
+`data/dataset_info.json` contains canonical `empty` / `static_presence` /
+`motion` labels across multiple collection sessions and environments. The
+counts below are aggregated packet totals across all available training
+captures. `empty` is already part of the schema, but no dedicated empty-room
+captures have been collected yet.
 
-| Chip | Baseline | Movement | Total | Gain Lock |
-|------|----------|----------|-------|-----------|
-| ESP32-C3 | 4094 | 4076 | 8170 | Yes |
-| ESP32-C5 | 4350 | 4336 | 8686 | Yes |
-| ESP32-C6 | 4755 | 4890 | 9645 | Yes |
-| ESP32-S3 | 4360 | 4375 | 8735 | Yes |
-| ESP32 | 4159 | 4083 | 8242 | No |
-| Total | 21718 | 21760 | 43478 | Mixed |
+| Chip | Empty | Static Presence | Motion | Total | Gain Lock |
+|------|-------|-----------------|--------|-------|-----------|
+| ESP32-C3 | 0 | 4094 | 4076 | 8170 | Yes |
+| ESP32-C5 | 0 | 4350 | 4336 | 8686 | Yes |
+| ESP32-C6 | 0 | 4755 | 4890 | 9645 | Yes |
+| ESP32-S3 | 0 | 4360 | 4375 | 8735 | Yes |
+| ESP32 | 0 | 4159 | 4083 | 8242 | No |
+| Total | 0 | 21718 | 21760 | 43478 | Mixed |
 
 Data location: `data/`
 

@@ -18,10 +18,10 @@
 // Include CSI data loader
 #include "csi_test_data.h"
 
-#define baseline_packets csi_test_data::baseline_packets()
-#define movement_packets csi_test_data::movement_packets()
-#define num_baseline csi_test_data::num_baseline()
-#define num_movement csi_test_data::num_movement()
+#define static_presence_packets csi_test_data::static_presence_packets()
+#define motion_packets csi_test_data::motion_packets()
+#define num_static_presence csi_test_data::num_static_presence()
+#define num_motion csi_test_data::num_motion()
 
 using namespace esphome::espectre;
 
@@ -203,8 +203,8 @@ void test_magnitude_from_real_csi(void) {
         return;
     }
     
-    // Get first baseline packet
-    const int8_t* csi = baseline_packets[0];
+    // Get first static-presence packet
+    const int8_t* csi = static_presence_packets[0];
     
     // Extract magnitudes from first few subcarriers
     float mag0 = calculate_magnitude(csi[0], csi[1]);
@@ -219,35 +219,35 @@ void test_magnitude_from_real_csi(void) {
     ESP_LOGI(TAG, "Real CSI magnitudes: %.2f, %.2f, %.2f", mag0, mag1, mag2);
 }
 
-void test_variance_baseline_vs_movement(void) {
+void test_variance_static_presence_vs_motion(void) {
     if (!csi_test_data::load()) {
         TEST_IGNORE_MESSAGE("Failed to load test data");
         return;
     }
     
     // Calculate variance of first subcarrier magnitude across packets
-    float baseline_mags[100];
-    float movement_mags[100];
+    float static_presence_mags[100];
+    float motion_mags[100];
     
-    for (int i = 0; i < 100 && i < num_baseline; i++) {
-        baseline_mags[i] = calculate_magnitude(baseline_packets[i][0], baseline_packets[i][1]);
+    for (int i = 0; i < 100 && i < num_static_presence; i++) {
+        static_presence_mags[i] = calculate_magnitude(static_presence_packets[i][0], static_presence_packets[i][1]);
     }
     
-    for (int i = 0; i < 100 && i < num_movement; i++) {
-        movement_mags[i] = calculate_magnitude(movement_packets[i][0], movement_packets[i][1]);
+    for (int i = 0; i < 100 && i < num_motion; i++) {
+        motion_mags[i] = calculate_magnitude(motion_packets[i][0], motion_packets[i][1]);
     }
     
-    float baseline_var = calculate_variance_two_pass(baseline_mags, 100);
-    float movement_var = calculate_variance_two_pass(movement_mags, 100);
+    float static_presence_var = calculate_variance_two_pass(static_presence_mags, 100);
+    float motion_var = calculate_variance_two_pass(motion_mags, 100);
     
-    ESP_LOGI(TAG, "Baseline variance: %.4f, Movement variance: %.4f", baseline_var, movement_var);
+    ESP_LOGI(TAG, "Static presence variance: %.4f, Motion variance: %.4f", static_presence_var, motion_var);
     
-    // Movement should generally have higher variance, but not always guaranteed
-    TEST_ASSERT_TRUE(baseline_var >= 0.0f);
-    TEST_ASSERT_TRUE(movement_var >= 0.0f);
+    // Motion should generally have higher variance, but not always guaranteed
+    TEST_ASSERT_TRUE(static_presence_var >= 0.0f);
+    TEST_ASSERT_TRUE(motion_var >= 0.0f);
 }
 
-void test_turbulence_baseline_vs_movement(void) {
+void test_turbulence_static_presence_vs_motion(void) {
     if (!csi_test_data::load()) {
         TEST_IGNORE_MESSAGE("Failed to load test data");
         return;
@@ -255,18 +255,18 @@ void test_turbulence_baseline_vs_movement(void) {
     
     const uint8_t* subcarriers = DEFAULT_SUBCARRIERS;
     
-    float baseline_turb = calculate_spatial_turbulence_from_csi(
-        baseline_packets[50], 128, subcarriers, 12);
+    float static_presence_turb = calculate_spatial_turbulence_from_csi(
+        static_presence_packets[50], 128, subcarriers, 12);
     
-    float movement_turb = calculate_spatial_turbulence_from_csi(
-        movement_packets[50], 128, subcarriers, 12);
+    float motion_turb = calculate_spatial_turbulence_from_csi(
+        motion_packets[50], 128, subcarriers, 12);
     
-    ESP_LOGI(TAG, "Baseline turbulence: %.4f, Movement turbulence: %.4f", 
-             baseline_turb, movement_turb);
+    ESP_LOGI(TAG, "Static presence turbulence: %.4f, Motion turbulence: %.4f", 
+             static_presence_turb, motion_turb);
     
     // Both should be valid non-negative values
-    TEST_ASSERT_TRUE(baseline_turb >= 0.0f);
-    TEST_ASSERT_TRUE(movement_turb >= 0.0f);
+    TEST_ASSERT_TRUE(static_presence_turb >= 0.0f);
+    TEST_ASSERT_TRUE(motion_turb >= 0.0f);
 }
 
 void test_turbulence_from_csi_nonzero_real_data(void) {
@@ -278,9 +278,9 @@ void test_turbulence_from_csi_nonzero_real_data(void) {
     const uint8_t* subcarriers = DEFAULT_SUBCARRIERS;
     
     int nonzero_count = 0;
-    for (int i = 0; i < 50 && i < num_baseline; i++) {
+    for (int i = 0; i < 50 && i < num_static_presence; i++) {
         float turb = calculate_spatial_turbulence_from_csi(
-            baseline_packets[i], 128, subcarriers, 12);
+            static_presence_packets[i], 128, subcarriers, 12);
         if (turb > 0.0f) nonzero_count++;
     }
     
@@ -298,7 +298,7 @@ void test_turbulence_from_csi_different_csi_lengths(void) {
     
     // Test with HT20 (128 bytes)
     float turb_128 = calculate_spatial_turbulence_from_csi(
-        baseline_packets[0], 128, subcarriers, 12);
+        static_presence_packets[0], 128, subcarriers, 12);
     
     // Should work with full 128 bytes
     TEST_ASSERT_TRUE(turb_128 >= 0.0f);
@@ -339,8 +339,8 @@ int process(void) {
     
     // Real data tests
     RUN_TEST(test_magnitude_from_real_csi);
-    RUN_TEST(test_variance_baseline_vs_movement);
-    RUN_TEST(test_turbulence_baseline_vs_movement);
+    RUN_TEST(test_variance_static_presence_vs_motion);
+    RUN_TEST(test_turbulence_static_presence_vs_motion);
     RUN_TEST(test_turbulence_from_csi_nonzero_real_data);
     RUN_TEST(test_turbulence_from_csi_different_csi_lengths);
     

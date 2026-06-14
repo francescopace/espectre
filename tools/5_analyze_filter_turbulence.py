@@ -32,7 +32,7 @@ import pywt
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
     calculate_spatial_turbulence, HampelFilter,
-    find_dataset, load_baseline_and_movement
+    find_static_presence_motion_dataset, load_static_presence_and_motion
 )
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     HAMPEL_WINDOW, HAMPEL_THRESHOLD, LOWPASS_CUTOFF,
@@ -528,13 +528,13 @@ class FilteredStreamingSegmentation:
 # COMPARISON TEST
 # ============================================================================
 
-def run_comparison_test(baseline_packets, movement_packets, num_packets=None, track_data=False):
+def run_comparison_test(static_presence_packets, motion_packets, num_packets=None, track_data=False):
     """
     Run comparison test with different filter configurations.
     
     Args:
-        baseline_packets: List of baseline CSI packets
-        movement_packets: List of movement CSI packets
+        static_presence_packets: List of static-presence CSI packets
+        motion_packets: List of motion CSI packets
         num_packets: Max packets to process (None = all packets)
         track_data: Whether to track data for visualization
     
@@ -543,7 +543,7 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=None, tr
     """
     # Use all packets if not specified
     if num_packets is None:
-        num_packets = max(len(baseline_packets), len(movement_packets))
+        num_packets = max(len(static_presence_packets), len(motion_packets))
     configs = {
         # Baseline
         'No Filter': {},
@@ -584,10 +584,10 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=None, tr
             track_data=track_data
         )
         
-        # Test baseline
+        # Test static presence
         seg.reset()
-        baseline_to_process = baseline_packets[:num_packets]
-        for packet in baseline_to_process:
+        static_presence_to_process = static_presence_packets[:num_packets]
+        for packet in static_presence_to_process:
             csi_data, gain_locked = extract_csi_and_gain_locked(packet)
             turbulence = calculate_spatial_turbulence(
                 csi_data,
@@ -595,14 +595,14 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=None, tr
             )
             seg.add_turbulence(turbulence)
         
-        baseline_fp = seg.motion_packets
-        baseline_motion = seg.motion_packets
-        baseline_count = len(baseline_to_process)
+        static_presence_fp = seg.motion_packets
+        static_presence_motion = seg.motion_packets
+        static_presence_count = len(static_presence_to_process)
         
-        # Save baseline data for visualization
-        baseline_data = None
+        # Save static-presence data for visualization
+        static_presence_data = None
         if track_data:
-            baseline_data = {
+            static_presence_data = {
                 'raw_turbulence': np.array(seg.raw_turbulence_history),
                 'filtered_turbulence': np.array(seg.filtered_turbulence_history),
                 'moving_var': np.array(seg.moving_var_history),
@@ -610,10 +610,10 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=None, tr
                 'segments': seg.segments_detected
             }
         
-        # Test movement
+        # Test motion
         seg.reset()
-        movement_to_process = movement_packets[:num_packets]
-        for packet in movement_to_process:
+        motion_to_process = motion_packets[:num_packets]
+        for packet in motion_to_process:
             csi_data, gain_locked = extract_csi_and_gain_locked(packet)
             turbulence = calculate_spatial_turbulence(
                 csi_data,
@@ -621,14 +621,14 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=None, tr
             )
             seg.add_turbulence(turbulence)
         
-        movement_tp = seg.motion_packets
-        movement_motion = seg.motion_packets
-        movement_count = len(movement_to_process)
+        motion_tp = seg.motion_packets
+        motion_motion = seg.motion_packets
+        motion_count = len(motion_to_process)
         
-        # Save movement data for visualization
-        movement_data = None
+        # Save motion data for visualization
+        motion_data = None
         if track_data:
-            movement_data = {
+            motion_data = {
                 'raw_turbulence': np.array(seg.raw_turbulence_history),
                 'filtered_turbulence': np.array(seg.filtered_turbulence_history),
                 'moving_var': np.array(seg.moving_var_history),
@@ -637,21 +637,21 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=None, tr
             }
         
         # Calculate metrics using actual packet counts
-        fp_rate = baseline_fp / baseline_count * 100 if baseline_count > 0 else 0
-        recall = movement_motion / movement_count * 100 if movement_count > 0 else 0
-        score = movement_tp - baseline_fp * 10
+        fp_rate = static_presence_fp / static_presence_count * 100 if static_presence_count > 0 else 0
+        recall = motion_motion / motion_count * 100 if motion_count > 0 else 0
+        score = motion_tp - static_presence_fp * 10
         
         results[name] = {
             'config': config,
-            'baseline_fp': baseline_fp,
-            'baseline_motion': baseline_motion,
-            'movement_tp': movement_tp,
-            'movement_motion': movement_motion,
+            'static_presence_fp': static_presence_fp,
+            'static_presence_motion': static_presence_motion,
+            'motion_tp': motion_tp,
+            'motion_motion': motion_motion,
             'fp_rate': fp_rate,
             'recall': recall,
             'score': score,
-            'baseline_data': baseline_data,
-            'movement_data': movement_data
+            'static_presence_data': static_presence_data,
+            'motion_data': motion_data
         }
     
     return results
@@ -660,7 +660,7 @@ def run_comparison_test(baseline_packets, movement_packets, num_packets=None, tr
 # VISUALIZATION
 # ============================================================================
 
-def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
+def plot_filter_effect(static_presence_packets, motion_packets, num_packets=500):
     """
     Visualize the effect of different filters on moving variance.
     
@@ -677,8 +677,8 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
     Uses production SegmentationContext for consistent results.
     
     Args:
-        baseline_packets: List of CSI packets or packet dicts
-        movement_packets: List of CSI packets or packet dicts
+        static_presence_packets: List of CSI packets or packet dicts
+        motion_packets: List of CSI packets or packet dicts
         num_packets: Number of packets to process
     """
     # Configuration for the 4 filter setups (using production SegmentationContext options)
@@ -689,7 +689,7 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
         ('Hampel + Lowpass', {'hampel': True, 'lowpass': True}),
     ]
     
-    # Process both baseline and movement data with each filter configuration
+    # Process both static-presence and motion data with each filter configuration
     results = {}
     
     for name, config in filter_configs:
@@ -702,9 +702,9 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
         )
         
         # Process BASELINE
-        baseline_mv = []
-        for i in range(min(num_packets, len(baseline_packets))):
-            csi_data, gain_locked = extract_csi_and_gain_locked(baseline_packets[i])
+        static_presence_mv = []
+        for i in range(min(num_packets, len(static_presence_packets))):
+            csi_data, gain_locked = extract_csi_and_gain_locked(static_presence_packets[i])
             turb = calculate_spatial_turbulence(
                 csi_data,
                 DEFAULT_SUBCARRIERS,
@@ -712,11 +712,11 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
             )
             ctx_baseline.add_turbulence(turb)
             ctx_baseline.update_state()
-            baseline_mv.append(ctx_baseline.current_moving_variance)
+            static_presence_mv.append(ctx_baseline.current_moving_variance)
         
-        baseline_fp = sum(1 for v in baseline_mv if v > THRESHOLD)
+        static_presence_fp = sum(1 for v in static_presence_mv if v > THRESHOLD)
         
-        # Create new context for movement (fresh state)
+        # Create new context for motion (fresh state)
         ctx_movement = SegmentationContext(
             window_size=WINDOW_SIZE,
             threshold=THRESHOLD,
@@ -725,9 +725,9 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
         )
         
         # Process MOVEMENT
-        movement_mv = []
-        for i in range(min(num_packets, len(movement_packets))):
-            csi_data, gain_locked = extract_csi_and_gain_locked(movement_packets[i])
+        motion_mv = []
+        for i in range(min(num_packets, len(motion_packets))):
+            csi_data, gain_locked = extract_csi_and_gain_locked(motion_packets[i])
             turb = calculate_spatial_turbulence(
                 csi_data,
                 DEFAULT_SUBCARRIERS,
@@ -735,15 +735,15 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
             )
             ctx_movement.add_turbulence(turb)
             ctx_movement.update_state()
-            movement_mv.append(ctx_movement.current_moving_variance)
+            motion_mv.append(ctx_movement.current_moving_variance)
         
-        movement_tp = sum(1 for v in movement_mv if v > THRESHOLD)
+        motion_tp = sum(1 for v in motion_mv if v > THRESHOLD)
         
         results[name] = {
-            'baseline_mv': np.array(baseline_mv),
-            'movement_mv': np.array(movement_mv),
-            'baseline_fp': baseline_fp,
-            'movement_tp': movement_tp,
+            'static_presence_mv': np.array(static_presence_mv),
+            'motion_mv': np.array(motion_mv),
+            'static_presence_fp': static_presence_fp,
+            'motion_tp': motion_tp,
             'config': config
         }
     
@@ -776,25 +776,25 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
     
     for i, (name, data) in enumerate(results.items()):
         # Time axes
-        time_baseline = np.arange(len(data['baseline_mv'])) / SAMPLING_RATE
-        time_movement = np.arange(len(data['movement_mv'])) / SAMPLING_RATE
+        time_baseline = np.arange(len(data['static_presence_mv'])) / SAMPLING_RATE
+        time_movement = np.arange(len(data['motion_mv'])) / SAMPLING_RATE
         
         # Left plot: Baseline Moving Variance
         ax1 = fig.add_subplot(4, 2, i*2 + 1)
-        ax1.plot(time_baseline, data['baseline_mv'], color=colors[name], 
+        ax1.plot(time_baseline, data['static_presence_mv'], color=colors[name], 
                 linewidth=1.0, alpha=0.8)
         ax1.axhline(y=THRESHOLD, color='red', linestyle='--', linewidth=2, 
                    label=f'Threshold ({THRESHOLD})')
         
         # Highlight false positives
-        for j, var in enumerate(data['baseline_mv']):
+        for j, var in enumerate(data['static_presence_mv']):
             if var > THRESHOLD:
                 ax1.axvspan(j/SAMPLING_RATE, (j+1)/SAMPLING_RATE, 
                            alpha=0.3, color='red')
         
         ax1.set_ylabel('Moving Variance', fontsize=9)
-        fp_pct = data['baseline_fp'] / len(data['baseline_mv']) * 100 if len(data['baseline_mv']) > 0 else 0
-        ax1.set_title(f'{name}\nBaseline (FP: {data["baseline_fp"]}, {fp_pct:.1f}%)', 
+        fp_pct = data['static_presence_fp'] / len(data['static_presence_mv']) * 100 if len(data['static_presence_mv']) > 0 else 0
+        ax1.set_title(f'{name}\nBaseline (FP: {data["static_presence_fp"]}, {fp_pct:.1f}%)', 
                      fontsize=10, fontweight='bold', color=colors[name])
         ax1.legend(loc='upper right', fontsize=8)
         ax1.grid(True, alpha=0.3)
@@ -804,20 +804,20 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
         
         # Right plot: Movement Moving Variance
         ax2 = fig.add_subplot(4, 2, i*2 + 2)
-        ax2.plot(time_movement, data['movement_mv'], color=colors[name], 
+        ax2.plot(time_movement, data['motion_mv'], color=colors[name], 
                 linewidth=1.0, alpha=0.8)
         ax2.axhline(y=THRESHOLD, color='red', linestyle='--', linewidth=2, 
                    label=f'Threshold ({THRESHOLD})')
         
         # Highlight true positives
-        for j, var in enumerate(data['movement_mv']):
+        for j, var in enumerate(data['motion_mv']):
             if var > THRESHOLD:
                 ax2.axvspan(j/SAMPLING_RATE, (j+1)/SAMPLING_RATE, 
                            alpha=0.2, color='green')
         
         ax2.set_ylabel('Moving Variance', fontsize=9)
-        tp_pct = data['movement_tp'] / len(data['movement_mv']) * 100 if len(data['movement_mv']) > 0 else 0
-        ax2.set_title(f'{name}\nMovement (TP: {data["movement_tp"]}, {tp_pct:.1f}%)', 
+        tp_pct = data['motion_tp'] / len(data['motion_mv']) * 100 if len(data['motion_mv']) > 0 else 0
+        ax2.set_title(f'{name}\nMovement (TP: {data["motion_tp"]}, {tp_pct:.1f}%)', 
                      fontsize=10, fontweight='bold', color=colors[name])
         ax2.legend(loc='upper right', fontsize=8)
         ax2.grid(True, alpha=0.3)
@@ -842,9 +842,9 @@ def plot_filter_effect(baseline_packets, movement_packets, num_packets=500):
 
 def plot_comparison(results, threshold):
     """
-    Visualize comparison: No Filter baseline + top 3 filter configurations.
+    Visualize comparison: No Filter static presence + top 3 filter configurations.
     """
-    # Always include "No Filter" as baseline
+    # Always include "No Filter" as the static-presence reference
     no_filter = ('No Filter', results['No Filter'])
     
     # Sort other configurations by score (descending) and select top 3
@@ -876,52 +876,52 @@ def plot_comparison(results, threshold):
     
     for i, (config_name, result) in enumerate(configs_to_plot):
         # Skip if no data
-        if result['baseline_data'] is None:
+        if result['static_presence_data'] is None:
             continue
         
-        baseline_data = result['baseline_data']
-        movement_data = result['movement_data']
+        static_presence_data = result['static_presence_data']
+        motion_data = result['motion_data']
         
         # Time axis (in seconds @ 20Hz)
-        time = np.arange(len(baseline_data['moving_var'])) / 20.0
+        time = np.arange(len(static_presence_data['moving_var'])) / 20.0
         
-        # Plot baseline
+        # Plot static presence
         ax1 = fig.add_subplot(gs[i, 0])
-        ax1.plot(time, baseline_data['moving_var'], 'g-', alpha=0.7, linewidth=0.8)
+        ax1.plot(time, static_presence_data['moving_var'], 'g-', alpha=0.7, linewidth=0.8)
         ax1.axhline(y=threshold, color='r', linestyle='--', linewidth=2)
         
         # Highlight motion state
-        for j, state in enumerate(baseline_data['motion_state']):
+        for j, state in enumerate(static_presence_data['motion_state']):
             if state == 'MOTION':
                 ax1.axvspan(j/20.0, (j+1)/20.0, alpha=0.2, color='red')
         
         ax1.set_ylabel('Moving Variance', fontsize=9)
-        # Special title for No Filter (baseline)
+        # Special title for No Filter (static presence reference)
         if i == 0:
-            ax1.set_title(f'Baseline: {config_name}\nBaseline (FP: {result["baseline_fp"]}, Score: {result["score"]:.0f})', 
+            ax1.set_title(f'Static Presence: {config_name}\nStatic Presence (FP: {result["static_presence_fp"]}, Score: {result["score"]:.0f})', 
                          fontsize=10, fontweight='bold')
         else:
-            ax1.set_title(f'#{i}: {config_name}\nBaseline (FP: {result["baseline_fp"]}, Score: {result["score"]:.0f})', 
+            ax1.set_title(f'#{i}: {config_name}\nStatic Presence (FP: {result["static_presence_fp"]}, Score: {result["score"]:.0f})', 
                          fontsize=10, fontweight='bold')
         ax1.grid(True, alpha=0.3)
         
-        # Plot movement
+        # Plot motion
         ax2 = fig.add_subplot(gs[i, 1])
-        ax2.plot(time, movement_data['moving_var'], 'g-', alpha=0.7, linewidth=0.8)
+        ax2.plot(time, motion_data['moving_var'], 'g-', alpha=0.7, linewidth=0.8)
         ax2.axhline(y=threshold, color='r', linestyle='--', linewidth=2)
         
         # Highlight motion state
-        for j, state in enumerate(movement_data['motion_state']):
+        for j, state in enumerate(motion_data['motion_state']):
             if state == 'MOTION':
                 ax2.axvspan(j/20.0, (j+1)/20.0, alpha=0.2, color='green')
         
         ax2.set_ylabel('Moving Variance', fontsize=9)
-        # Special title for No Filter (baseline)
+        # Special title for No Filter (static presence reference)
         if i == 0:
-            ax2.set_title(f'Baseline: {config_name}\nMovement (TP: {result["movement_tp"]}, Recall: {result["recall"]:.1f}%)', 
+            ax2.set_title(f'Static Presence: {config_name}\nMotion (TP: {result["motion_tp"]}, Recall: {result["recall"]:.1f}%)', 
                          fontsize=10, fontweight='bold')
         else:
-            ax2.set_title(f'#{i}: {config_name}\nMovement (TP: {result["movement_tp"]}, Recall: {result["recall"]:.1f}%)', 
+            ax2.set_title(f'#{i}: {config_name}\nMotion (TP: {result["motion_tp"]}, Recall: {result["recall"]:.1f}%)', 
                          fontsize=10, fontweight='bold')
         ax2.grid(True, alpha=0.3)
         
@@ -937,7 +937,7 @@ def plot_comparison(results, threshold):
 # FILTER PARAMETER OPTIMIZATION
 # ============================================================================
 
-def optimize_filter_parameters(baseline_packets, movement_packets):
+def optimize_filter_parameters(static_presence_packets, motion_packets):
     """
     Optimize filter parameters using grid search.
     """
@@ -973,9 +973,9 @@ def optimize_filter_parameters(baseline_packets, movement_packets):
             filter_config={'butterworth': True, 'hampel': False, 'savgol': False}
         )
         
-        # Test baseline
+        # Test static presence
         seg.reset()
-        for packet in baseline_packets[:500]:
+        for packet in static_presence_packets[:500]:
             csi_data, gain_locked = extract_csi_and_gain_locked(packet)
             seg.add_turbulence(
                 calculate_spatial_turbulence(
@@ -985,9 +985,9 @@ def optimize_filter_parameters(baseline_packets, movement_packets):
             )
         fp = seg.motion_packets
         
-        # Test movement
+        # Test motion
         seg.reset()
-        for packet in movement_packets[:500]:
+        for packet in motion_packets[:500]:
             csi_data, gain_locked = extract_csi_and_gain_locked(packet)
             seg.add_turbulence(
                 calculate_spatial_turbulence(
@@ -1051,25 +1051,25 @@ def main():
     chip = args.chip.upper()
     print(f"Loading CSI data for {chip}...")
     try:
-        baseline_path, movement_path, chip_name = find_dataset(chip=chip)
-        baseline_data, movement_data = load_baseline_and_movement(chip=chip)
+        static_presence_path, motion_path, chip_name = find_static_presence_motion_dataset(chip=chip)
+        static_presence_data, motion_data = load_static_presence_and_motion(chip=chip)
     except FileNotFoundError as e:
         print(f"ERROR: {e}")
         return
     
-    baseline_packets = baseline_data
-    movement_packets = movement_data
+    static_presence_packets = static_presence_data
+    motion_packets = motion_data
     
     print(f"  Chip: {chip_name}")
-    print(f"  Loaded {len(baseline_packets)} baseline packets")
-    print(f"  Loaded {len(movement_packets)} movement packets\n")
+    print(f"  Loaded {len(static_presence_packets)} static-presence packets")
+    print(f"  Loaded {len(motion_packets)} motion packets\n")
     
     # ========================================================================
     # FILTER OPTIMIZATION MODE
     # ========================================================================
     
     if args.optimize_filters:
-        optimize_filter_parameters(baseline_packets, movement_packets)
+        optimize_filter_parameters(static_presence_packets, motion_packets)
         return
     
     # ========================================================================
@@ -1080,7 +1080,7 @@ def main():
     print("  RUNNING COMPARISON TEST")
     print("="*60 + "\n")
     
-    results = run_comparison_test(baseline_packets, movement_packets, 
+    results = run_comparison_test(static_presence_packets, motion_packets, 
                                   num_packets=None, track_data=args.plot)
     
     # Print results table
@@ -1115,8 +1115,8 @@ def main():
     for name in config_order:
         if name in results:
             result = results[name]
-            print(f"{name:<20} {result['baseline_fp']:<5} {result['fp_rate']:<8.1f} "
-                  f"{result['movement_tp']:<5} {result['recall']:<10.1f} {result['score']:<8.2f}")
+            print(f"{name:<20} {result['static_presence_fp']:<5} {result['fp_rate']:<8.1f} "
+                  f"{result['motion_tp']:<5} {result['recall']:<10.1f} {result['score']:<8.2f}")
     
     print("-" * 90)
     print()
@@ -1137,8 +1137,8 @@ def main():
     for name in lowpass_filters:
         if name in results:
             r = results[name]
-            if no_filter['baseline_fp'] > 0:
-                fp_reduction = (1 - r['baseline_fp'] / no_filter['baseline_fp']) * 100
+            if no_filter['static_presence_fp'] > 0:
+                fp_reduction = (1 - r['static_presence_fp'] / no_filter['static_presence_fp']) * 100
             else:
                 fp_reduction = 0
             recall_diff = r['recall'] - no_filter['recall']
@@ -1149,7 +1149,7 @@ def main():
     best_config = max(results.items(), key=lambda x: x[1]['score'])
     print(f"✅ Best Configuration: {best_config[0]}")
     print(f"   Score: {best_config[1]['score']:.2f}")
-    print(f"   FP: {best_config[1]['baseline_fp']}, TP: {best_config[1]['movement_tp']}")
+    print(f"   FP: {best_config[1]['static_presence_fp']}, TP: {best_config[1]['motion_tp']}")
     print(f"   Recall: {best_config[1]['recall']:.1f}%, FP Rate: {best_config[1]['fp_rate']:.1f}%")
     print()
     
@@ -1166,7 +1166,7 @@ def main():
     
     if args.plot:
         print("Generating filter comparison visualization...\n")
-        plot_filter_effect(baseline_packets, movement_packets, num_packets=500)
+        plot_filter_effect(static_presence_packets, motion_packets, num_packets=500)
 
 if __name__ == "__main__":
     main()

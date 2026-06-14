@@ -40,7 +40,7 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 
 
 ### Target Metrics (Motion Detection)
-- **Recall**: >95% for all chips (detect real movements)
+- **Recall**: >95% for all chips (detect motion in motion datasets)
 - **FP Rate**: <5% for all chips (avoid false alarms)
 
 See [PERFORMANCE.md](../../docs/PERFORMANCE.md) for detailed targets per chip and algorithm.
@@ -53,12 +53,12 @@ Tests load real CSI data from NPZ files in `data/` using the [cnpy](https://gith
 
 ### Datasets
 
-| Chip | Baseline | Movement |
-|------|----------|----------|
-| ESP32-C3 | `baseline_c3_64sc_*.npz` | `movement_c3_64sc_*.npz` |
-| ESP32-C6 | `baseline_c6_64sc_*.npz` | `movement_c6_64sc_*.npz` |
-| ESP32-S3 | `baseline_s3_64sc_*.npz` | `movement_s3_64sc_*.npz` |
-| ESP32 | `baseline_esp32_64sc_*.npz` | `movement_esp32_64sc_*.npz` |
+| Chip | Static Presence | Motion |
+|------|-----------------|--------|
+| ESP32-C3 | `static_presence_c3_64sc_*.npz` | `motion_c3_64sc_*.npz` |
+| ESP32-C6 | `static_presence_c6_64sc_*.npz` | `motion_c6_64sc_*.npz` |
+| ESP32-S3 | `static_presence_s3_64sc_*.npz` | `motion_s3_64sc_*.npz` |
+| ESP32 | `static_presence_esp32_64sc_*.npz` | `motion_esp32_64sc_*.npz` |
 
 Tests run with **multiple chip datasets** (C3, C6, S3, ESP32) using 64 SC (HT20 mode).
 

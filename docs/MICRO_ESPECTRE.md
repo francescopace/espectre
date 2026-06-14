@@ -138,7 +138,7 @@ The `espectre micro` namespace provides these essential commands:
 | `deploy` | Deploy Python code to device | `./espectre micro deploy` |
 | `run` | Run the application | `./espectre micro run` |
 | `detect` | Run live ML motion detection on the PC | `./espectre micro detect --log-turbulence` |
-| `collect` | Collect labeled CSI data for ML training | `./espectre micro collect --label baseline --duration 10` |
+| `collect` | Collect labeled CSI data for ML training | `./espectre micro collect --label static_presence --duration 10` |
 | `verify` | Verify firmware installation | `./espectre micro verify` |
 | `ui` | Open web monitoring interface in browser | `./espectre micro ui` |
 | *(interactive)* | Interactive MQTT control | `./espectre micro` |

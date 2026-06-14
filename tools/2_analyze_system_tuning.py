@@ -16,7 +16,12 @@ License: GPLv3
 import argparse
 
 # Import csi_utils first - it sets up paths automatically
-from csi_utils import load_npz_as_packets, test_mvs_configuration, MVSDetector, find_dataset
+from csi_utils import (
+    load_npz_as_packets,
+    test_mvs_configuration,
+    MVSDetector,
+    find_static_presence_motion_dataset,
+)
 from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE, SEG_THRESHOLD
 
 WINDOW_SIZE = SEG_WINDOW_SIZE
@@ -26,12 +31,12 @@ RECALL_TARGET_PCT = 95.0
 FP_RATE_TARGET_PCT = 10.0
 
 
-def _build_result_entry(base_fields, fp, tp, score, baseline_count, movement_count):
+def _build_result_entry(base_fields, fp, tp, score, static_presence_count, motion_count):
     """Create a result row with confusion-derived metrics."""
-    fn = max(0, movement_count - tp)
-    recall = (tp / movement_count * 100.0) if movement_count > 0 else 0.0
+    fn = max(0, motion_count - tp)
+    recall = (tp / motion_count * 100.0) if motion_count > 0 else 0.0
     precision = (tp / (tp + fp) * 100.0) if (tp + fp) > 0 else 0.0
-    fp_rate = (fp / baseline_count * 100.0) if baseline_count > 0 else 100.0
+    fp_rate = (fp / static_presence_count * 100.0) if static_presence_count > 0 else 100.0
     f1_score = 0.0
     if (precision + recall) > 0.0:
         f1_score = 2.0 * precision * recall / (precision + recall)
@@ -52,26 +57,26 @@ def _build_result_entry(base_fields, fp, tp, score, baseline_count, movement_cou
 
 def load_dataset(chip="C6"):
     """
-    Load baseline and movement datasets for the specified chip.
+    Load static-presence and motion datasets for the specified chip.
 
     Returns:
-        tuple: (baseline_packets, movement_packets, num_subcarriers, chip_name)
+        tuple: (static_presence_packets, motion_packets, num_subcarriers, chip_name)
     """
-    baseline_file, movement_file, chip_name = find_dataset(chip=chip)
-    baseline_packets = load_npz_as_packets(baseline_file)
-    movement_packets = load_npz_as_packets(movement_file)
-    num_sc = len(baseline_packets[0]["csi_data"]) // 2
-    return baseline_packets, movement_packets, num_sc, chip_name
+    static_presence_file, motion_file, chip_name = find_static_presence_motion_dataset(chip=chip)
+    static_presence_packets = load_npz_as_packets(static_presence_file)
+    motion_packets = load_npz_as_packets(motion_file)
+    num_sc = len(static_presence_packets[0]["csi_data"]) // 2
+    return static_presence_packets, motion_packets, num_sc, chip_name
 
 
-def test_parameter_grid(baseline_packets, movement_packets, quick=False):
+def test_parameter_grid(static_presence_packets, motion_packets, quick=False):
     """Test threshold/window-size combinations with fixed production subcarriers."""
     thresholds = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0] if not quick else [1.0, 1.5, 2.0]
     window_sizes = [30, 50, 75, 100] if not quick else [SEG_WINDOW_SIZE]
 
     results = []
-    baseline_count = len(baseline_packets)
-    movement_count = len(movement_packets)
+    static_presence_count = len(static_presence_packets)
+    motion_count = len(motion_packets)
     total_tests = len(thresholds) * len(window_sizes)
     test_count = 0
 
@@ -81,8 +86,8 @@ def test_parameter_grid(baseline_packets, movement_packets, quick=False):
     for window_size in window_sizes:
         for threshold in thresholds:
             fp, tp, score = test_mvs_configuration(
-                baseline_packets,
-                movement_packets,
+                static_presence_packets,
+                motion_packets,
                 threshold,
                 window_size,
             )
@@ -91,7 +96,7 @@ def test_parameter_grid(baseline_packets, movement_packets, quick=False):
                 "threshold": threshold,
                 "subcarriers": list(DEFAULT_SUBCARRIERS),
                 "subcarrier_count": len(DEFAULT_SUBCARRIERS),
-            }, fp, tp, score, baseline_count, movement_count)
+            }, fp, tp, score, static_presence_count, motion_count)
             results.append(result)
 
             test_count += 1
@@ -103,27 +108,27 @@ def test_parameter_grid(baseline_packets, movement_packets, quick=False):
     return results
 
 
-def print_confusion_matrix(baseline_packets, movement_packets, threshold, window_size, show_plot=False):
+def print_confusion_matrix(static_presence_packets, motion_packets, threshold, window_size, show_plot=False):
     """
     Print confusion matrix and segmentation metrics for a specific configuration.
 
-    IMPORTANT: Like the C test, we do NOT reset the detector between baseline and
-    movement. This keeps the turbulence buffer warm when transitioning to
-    movement data, allowing proper evaluation of the first packets.
+    IMPORTANT: Like the C test, we do NOT reset the detector between
+    static presence and motion. This keeps the turbulence buffer warm when
+    transitioning to motion data, allowing proper evaluation of the first packets.
     """
     del show_plot  # Reserved for possible future visualization.
 
-    num_baseline = len(baseline_packets)
-    num_movement = len(movement_packets)
+    num_baseline = len(static_presence_packets)
+    num_movement = len(motion_packets)
     detector = MVSDetector(window_size, threshold)
 
-    for pkt in baseline_packets:
+    for pkt in static_presence_packets:
         detector.process_packet(pkt)
     fp = detector.get_motion_count()
     tn = num_baseline - fp
 
     detector.motion_packet_count = 0
-    for pkt in movement_packets:
+    for pkt in motion_packets:
         detector.process_packet(pkt)
     tp = detector.get_motion_count()
     fn = num_movement - tp
@@ -138,7 +143,7 @@ def print_confusion_matrix(baseline_packets, movement_packets, threshold, window
     print("                         PERFORMANCE SUMMARY")
     print("=" * 75)
     print()
-    print(f"CONFUSION MATRIX ({num_baseline} baseline + {num_movement} movement packets):")
+    print(f"CONFUSION MATRIX ({num_baseline} static-presence + {num_movement} motion packets):")
     print("                    Predicted")
     print("                IDLE      MOTION")
     print(f"Actual IDLE     {tn:4d} (TN)  {fp:4d} (FP)")
@@ -239,7 +244,7 @@ def main():
     chip = args.chip.upper()
     print(f"\nLoading data for {chip}...")
     try:
-        baseline_packets, movement_packets, num_sc, chip_name = load_dataset(chip)
+        static_presence_packets, motion_packets, num_sc, chip_name = load_dataset(chip)
     except FileNotFoundError as e:
         print(f"Error: {e}")
         return
@@ -247,10 +252,10 @@ def main():
     print(f"   Chip: {chip_name}")
     print(f"   Dataset: {num_sc} subcarriers")
     print(f"   Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
-    print(f"   Baseline: {len(baseline_packets)} packets")
-    print(f"   Movement: {len(movement_packets)} packets")
+    print(f"   Static presence: {len(static_presence_packets)} packets")
+    print(f"   Motion:          {len(motion_packets)} packets")
 
-    all_results = test_parameter_grid(baseline_packets, movement_packets, args.quick)
+    all_results = test_parameter_grid(static_presence_packets, motion_packets, args.quick)
     best = print_top_results(all_results, num_sc, top_n=20)
 
     print("\nGrid search complete!")
@@ -259,8 +264,8 @@ def main():
 
     if all_results:
         print_confusion_matrix(
-            baseline_packets,
-            movement_packets,
+            static_presence_packets,
+            motion_packets,
             best["threshold"],
             best["window_size"],
         )

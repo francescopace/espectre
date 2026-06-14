@@ -269,14 +269,14 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
         ),
     ]
 
-    collector = CSICollector(label='baseline', contributor='tester', bind_host='127.0.0.1')
+    collector = CSICollector(label='static_presence', contributor='tester', bind_host='127.0.0.1')
     filepath = collector.save_sample(packets)
 
     assert filepath is not None
     assert filepath.exists()
 
     data = np.load(filepath, allow_pickle=True)
-    assert str(data['label']) == 'baseline'
+    assert str(data['label']) == 'static_presence'
     assert str(data['chip']) == 'c6'
     assert int(data['num_subcarriers']) == 2
     assert bool(data['gain_locked']) is True
@@ -289,5 +289,5 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
 
     info = csi_utils.load_dataset_info()
     assert info['format_version'] == '1.1'
-    assert info['files']['baseline'][0]['gain_locked'] is True
-    assert info['files']['baseline'][0]['filename'] == filepath.name
+    assert info['files']['static_presence'][0]['gain_locked'] is True
+    assert info['files']['static_presence'][0]['filename'] == filepath.name

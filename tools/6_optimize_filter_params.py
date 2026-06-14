@@ -3,7 +3,7 @@
 Micro-ESPectre - Filter Parameters Optimization
 
 Optimizes filter parameters (low-pass and/or Hampel) and normalization target
-for best recall/FP trade-off on noisy baseline data.
+for best recall/FP trade-off on noisy static-presence data.
 
 Usage:
     python tools/6_optimize_filter_params.py [chip] [--hampel] [--all]
@@ -21,8 +21,8 @@ Examples:
     python tools/6_optimize_filter_params.py --all    # Combined optimization
 
 Requires:
-    - data/baseline/*.npz (noisy baseline preferred when available)
-    - data/movement/*.npz (movement data)
+    - data/static_presence/*.npz (noisy static-presence data preferred when available)
+    - data/motion/*.npz (motion data)
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -61,12 +61,12 @@ def calc_avg_magnitude(iq_data, num_packets=500):
     return np.mean(mags)
 
 
-def test_config(baseline_iq, movement_iq, target, cutoff,
+def test_config(static_presence_iq, motion_iq, target, cutoff,
                 threshold=1.0, avg_mag=None,
-                baseline_gain_locked=True, movement_gain_locked=True):
+                static_presence_gain_locked=True, motion_gain_locked=True):
     """Test a configuration and return metrics"""
     if avg_mag is None:
-        avg_mag = calc_avg_magnitude(baseline_iq)
+        avg_mag = calc_avg_magnitude(static_presence_iq)
     
     norm_scale = target / avg_mag
     
@@ -78,29 +78,29 @@ def test_config(baseline_iq, movement_iq, target, cutoff,
         enable_hampel=False
     )
     
-    # Process baseline
+    # Process static presence
     fp = 0
-    seg.use_cv_normalization = not bool(baseline_gain_locked)
-    for i in range(len(baseline_iq)):
-        turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
+    seg.use_cv_normalization = not bool(static_presence_gain_locked)
+    for i in range(len(static_presence_iq)):
+        turb = seg.calculate_spatial_turbulence(static_presence_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
         seg.update_state()  # Must call to calculate variance and update state
         if i >= 50 and seg.get_state() == seg.STATE_MOTION:
             fp += 1
     
-    # Reset and process movement
+    # Reset and process motion
     seg.reset(full=True)
     tp = 0
-    seg.use_cv_normalization = not bool(movement_gain_locked)
-    for i in range(len(movement_iq)):
-        turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
+    seg.use_cv_normalization = not bool(motion_gain_locked)
+    for i in range(len(motion_iq)):
+        turb = seg.calculate_spatial_turbulence(motion_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
         seg.update_state()  # Must call to calculate variance and update state
         if i >= 50 and seg.get_state() == seg.STATE_MOTION:
             tp += 1
     
-    total_base = len(baseline_iq) - 50
-    total_move = len(movement_iq) - 50
+    total_base = len(static_presence_iq) - 50
+    total_move = len(motion_iq) - 50
     recall = 100 * tp / total_move if total_move > 0 else 0
     fp_rate = 100 * fp / total_base if total_base > 0 else 0
     precision = 100 * tp / (tp + fp) if (tp + fp) > 0 else 0
@@ -117,8 +117,8 @@ def test_config(baseline_iq, movement_iq, target, cutoff,
     }
 
 
-def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11,
-                    baseline_gain_locked=True, movement_gain_locked=True):
+def optimize_hampel(static_presence_iq, motion_iq, avg_mag, target=28, cutoff=11,
+                    static_presence_gain_locked=True, motion_gain_locked=True):
     """Optimize Hampel filter parameters"""
     print('=' * 70)
     print('  HAMPEL FILTER OPTIMIZATION')
@@ -149,29 +149,29 @@ def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11,
                 hampel_threshold=threshold
             )
             
-            # Process baseline
+            # Process static presence
             fp = 0
-            seg.use_cv_normalization = not bool(baseline_gain_locked)
-            for i in range(len(baseline_iq)):
-                turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
+            seg.use_cv_normalization = not bool(static_presence_gain_locked)
+            for i in range(len(static_presence_iq)):
+                turb = seg.calculate_spatial_turbulence(static_presence_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)
                 seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
                     fp += 1
             
-            # Reset and process movement
+            # Reset and process motion
             seg.reset(full=True)
             tp = 0
-            seg.use_cv_normalization = not bool(movement_gain_locked)
-            for i in range(len(movement_iq)):
-                turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
+            seg.use_cv_normalization = not bool(motion_gain_locked)
+            for i in range(len(motion_iq)):
+                turb = seg.calculate_spatial_turbulence(motion_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)
                 seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
                     tp += 1
             
-            total_base = len(baseline_iq) - 50
-            total_move = len(movement_iq) - 50
+            total_base = len(static_presence_iq) - 50
+            total_move = len(motion_iq) - 50
             recall = 100 * tp / total_move if total_move > 0 else 0
             fp_rate = 100 * fp / total_base if total_base > 0 else 0
             precision = 100 * tp / (tp + fp) if (tp + fp) > 0 else 0
@@ -220,31 +220,31 @@ def main():
     from repo_paths import data_dir
 
     dataset_root = data_dir()
-    baseline_file = find_latest_file(dataset_root / 'baseline', 'baseline', chip_filter)
+    baseline_file = find_latest_file(dataset_root / 'static_presence', 'static_presence', chip_filter)
     
-    # Extract chip from baseline file metadata to ensure matching movement data
+    # Extract chip from static-presence metadata to ensure matching motion data
     if baseline_file and chip_filter is None:
         try:
             baseline_meta = np.load(baseline_file, allow_pickle=True)
             if 'chip' in baseline_meta:
                 chip_filter = str(baseline_meta['chip'].item() if hasattr(baseline_meta['chip'], 'item') else baseline_meta['chip'])
-                print(f"Auto-detected chip from baseline metadata: {chip_filter}")
+                print(f"Auto-detected chip from static-presence metadata: {chip_filter}")
         except Exception:
             pass  # Fall back to no chip filter
     
-    movement_file = find_latest_file(dataset_root / 'movement', 'movement', chip_filter)
+    movement_file = find_latest_file(dataset_root / 'motion', 'motion', chip_filter)
     
     if baseline_file is None:
-        print("ERROR: No baseline data found in data/baseline/")
-        print("Run: ./espectre collect --label baseline --duration 60")
+        print("ERROR: No static-presence data found in data/static_presence/")
+        print("Run: ./espectre collect --label static_presence --duration 60")
         return
     
     if movement_file is None:
-        print("ERROR: No movement data found in data/movement/")
+        print("ERROR: No motion data found in data/motion/")
         return
     
-    print(f"Using baseline: {baseline_file.name}")
-    print(f"Using movement: {movement_file.name}")
+    print(f"Using static presence: {baseline_file.name}")
+    print(f"Using motion:          {movement_file.name}")
     print()
     
     # Load data
@@ -261,10 +261,10 @@ def main():
     
     movement_iq = movement_data['csi_data']
     
-    print(f"Baseline: {len(baseline_iq)} packets")
-    print(f"Movement: {len(movement_iq)} packets")
-    print(f"Baseline gain lock: {'yes' if baseline_gain_locked else 'no'}")
-    print(f"Movement gain lock: {'yes' if movement_gain_locked else 'no'}")
+    print(f"Static presence: {len(baseline_iq)} packets")
+    print(f"Motion:          {len(movement_iq)} packets")
+    print(f"Static presence gain lock: {'yes' if baseline_gain_locked else 'no'}")
+    print(f"Motion gain lock:          {'yes' if movement_gain_locked else 'no'}")
     print()
     
     # Determine optimal band (64 SC HT20 mode)
@@ -337,7 +337,7 @@ def main():
     
     for cutoff in [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]:
         m = test_config(
-            baseline_iq, movement_iq, selected_band, best_target, cutoff,
+            baseline_iq, movement_iq, best_target, cutoff,
             avg_mag=avg_mag,
             baseline_gain_locked=baseline_gain_locked,
             movement_gain_locked=movement_gain_locked
@@ -373,7 +373,7 @@ def main():
             if cutoff < 5:
                 continue
             m = test_config(
-                baseline_iq, movement_iq, selected_band, target, cutoff,
+                baseline_iq, movement_iq, target, cutoff,
                 avg_mag=avg_mag,
                 baseline_gain_locked=baseline_gain_locked,
                 movement_gain_locked=movement_gain_locked
@@ -413,7 +413,7 @@ def main():
         print('Option A: Increase Cutoff')
         for c in range(cutoff, cutoff + 5):
             m2 = test_config(
-                baseline_iq, movement_iq, selected_band, target, c,
+                baseline_iq, movement_iq, target, c,
                 avg_mag=avg_mag,
                 baseline_gain_locked=baseline_gain_locked,
                 movement_gain_locked=movement_gain_locked
@@ -429,7 +429,7 @@ def main():
         print('Option B: Increase Target')
         for t in range(target, target + 5):
             m2 = test_config(
-                baseline_iq, movement_iq, selected_band, t, cutoff,
+                baseline_iq, movement_iq, t, cutoff,
                 avg_mag=avg_mag,
                 baseline_gain_locked=baseline_gain_locked,
                 movement_gain_locked=movement_gain_locked

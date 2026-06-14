@@ -117,21 +117,21 @@ Gain lock status is **automatically detected** from the CSI stream and saved in 
 ### Recording Samples
 
 ```bash
-# Record 60 seconds of baseline (contributor auto-detected from git config)
-./espectre micro collect --label baseline --duration 60 --streamer-ip 192.168.1.50
+# Record 60 seconds of static presence (contributor auto-detected from git config)
+./espectre micro collect --label static_presence --duration 60 --streamer-ip 192.168.1.50
 
-# Record 30 seconds of movement
-./espectre micro collect --label movement --duration 30 --streamer-ip 192.168.1.50
+# Record 30 seconds of motion
+./espectre micro collect --label motion --duration 30 --streamer-ip 192.168.1.50
 
 # Record with explicit contributor override
 ./espectre micro collect --label gesture --samples 10 --interactive --streamer-ip 192.168.1.50 --contributor otheruser
 
 # Mark every 20th stimulus packet as a reference frame
-./espectre micro collect --label baseline --duration 30 --streamer-ip 192.168.1.50 --reference-every 20
+./espectre micro collect --label static_presence --duration 30 --streamer-ip 192.168.1.50 --reference-every 20
 
 # Gain lock status is auto-detected from the CSI stream
 # No need to specify --no-gain-lock, it's automatic!
-./espectre micro collect --label baseline --duration 10 --streamer-ip 192.168.1.50
+./espectre micro collect --label static_presence --duration 10 --streamer-ip 192.168.1.50
 ```
 
 ### Reference Frames
@@ -140,7 +140,7 @@ The host collector can optionally mark some stimulus packets as reference
 frames with:
 
 ```bash
-./espectre micro collect --label baseline --streamer-ip 192.168.1.50 --reference-every 20
+./espectre micro collect --label static_presence --streamer-ip 192.168.1.50 --reference-every 20
 ```
 
 Semantics:
@@ -161,6 +161,16 @@ CSI; it only tags frames so downstream tooling can distinguish:
 Use reference frames only when your host-side processing pipeline has a clear
 reason to distinguish them. For ordinary dataset collection, leaving
 `--reference-every` at `0` is usually the simplest choice.
+
+For room-state datasets, this means:
+
+- `static_presence` and `motion` are normally collected as measurement-only
+  samples
+- some imported `empty` datasets may include both measurement and reference
+  frames when they come from a multi-device streamer session
+- quality checks that compare `empty` against `static_presence` should drop
+  reference frames from `empty` first, so the comparison stays aligned with the
+  ordinary ESPectre collection format
 
 ### Viewing Dataset
 
@@ -189,11 +199,13 @@ Output:
 ```
 data/
 ├── dataset_info.json          # Global metadata
-├── baseline/
-│   ├── baseline_c6_64sc_20251212_142443.npz
+├── empty/
 │   └── ...
-├── movement/
-│   ├── movement_c6_64sc_20251212_142443.npz
+├── static_presence/
+│   ├── static_presence_c6_64sc_20251212_142443.npz
+│   └── ...
+├── motion/
+│   ├── motion_c6_64sc_20251212_142443.npz
 │   └── ...
 └── ...
 ```
@@ -210,23 +222,24 @@ Central metadata file for the dataset:
 {
   "format_version": "1.1",
   "labels": {
-    "baseline": { "description": "Quiet room, no motion" },
-    "movement": { "description": "Human movement in room" }
+    "empty": { "description": "Quiet room, no human present" },
+    "static_presence": { "description": "Human present in room, remaining still" },
+    "motion": { "description": "Human movement in room" }
   },
   "files": {
-    "baseline": [
+    "static_presence": [
       {
-        "filename": "baseline_c6_64sc_20251212_142443.npz",
+        "filename": "static_presence_c6_64sc_20251212_142443.npz",
         "chip": "C6",
         "subcarriers": 64,
         "contributor": "francescopace",
         "collected_at": "2025-12-12T14:24:43.381306",
         "duration_ms": 10000,
         "num_packets": 1000,
-        "description": "HT20 baseline sample"
+        "description": "HT20 static presence sample"
       },
       {
-        "filename": "baseline_esp32_64sc_20260214_183059.npz",
+        "filename": "static_presence_esp32_64sc_20260214_183059.npz",
         "chip": "ESP32",
         "subcarriers": 64,
         "contributor": "francescopace",
@@ -234,7 +247,7 @@ Central metadata file for the dataset:
         "collected_at": "2026-02-14T18:30:59.355439",
         "duration_ms": 9998,
         "num_packets": 961,
-        "description": "HT20 baseline, no gain lock (ESP32 lacks AGC lock support)"
+        "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)"
       }
     ]
   },
@@ -262,7 +275,7 @@ Each `.npz` file contains a minimal, compact format optimized for ML training:
 |-------|------|-------------|
 | `csi_data` | `int8[N, SC*2]` | Raw I/Q data (N packets × SC subcarriers × 2) |
 | `num_subcarriers` | `int` | Number of subcarriers (64 for HT20) |
-| `label` | `str` | Sample label (e.g., "baseline", "movement") |
+| `label` | `str` | Sample label (e.g., "static_presence", "motion") |
 | `chip` | `str` | ESP32 chip type (e.g., "c6", "s3") |
 | `gain_locked` | `bool` | Whether AGC gain lock was active during collection |
 | `collected_at` | `str` | ISO timestamp of collection |
@@ -293,9 +306,9 @@ phases = np.arctan2(Q, I)
 import numpy as np
 
 # Load single sample
-data = np.load('data/baseline/baseline_c6_64sc_20251212_142443.npz')
+data = np.load('data/static_presence/static_presence_c6_64sc_20251212_142443.npz')
 csi_data = data['csi_data']        # Shape: (N, 128) for 64 subcarriers
-label = str(data['label'])         # 'baseline'
+label = str(data['label'])         # 'static_presence'
 num_sc = int(data['num_subcarriers'])  # 64
 
 # Compute amplitudes from raw I/Q data
@@ -314,7 +327,7 @@ from pathlib import Path
 import numpy as np
 
 # Load a sample file (run from the repo root)
-packets = load_npz_as_packets(Path('data/baseline/baseline_c6_64sc_20251212_142443.npz'))
+packets = load_npz_as_packets(Path('data/static_presence/static_presence_c6_64sc_20251212_142443.npz'))
 
 for pkt in packets:
     csi_data = pkt['csi_data']           # Shape: (128,) - raw I/Q data
@@ -332,6 +345,23 @@ for pkt in packets:
 ## Data Without Gain Lock
 
 Some ESP32 chips (original ESP32) or data collection sessions may not have AGC gain lock enabled. This causes CSI amplitudes to vary with signal strength rather than just motion.
+
+### Canonical Labels
+
+The dataset now uses three canonical room-state labels:
+
+- `empty`: quiet room, no human present
+- `static_presence`: human present in room, remaining still
+- `motion`: human movement in room
+
+Older `baseline` captures were migrated to `static_presence`. The old
+`baseline` / `movement` naming is no longer used for dataset files,
+directories, or `dataset_info.json` metadata.
+
+Imported streamer sessions can also populate the `empty` label. When those
+captures come from a multi-device workflow, the stored NPZ may preserve
+reference-frame markers in `is_reference` while still using the normal ESPectre
+dataset schema.
 
 ### How It Works
 
@@ -398,8 +428,8 @@ gesture1      # non-descriptive
 ### Session Workflow
 
 1. **Prepare environment**: Ensure room is quiet for baseline
-2. **Record baseline first**: `./espectre micro collect --label baseline --duration 60 --streamer-ip <device_ip>`
-3. **Record movement**: `./espectre micro collect --label movement --duration 60 --streamer-ip <device_ip>`
+2. **Record baseline first**: `./espectre micro collect --label static_presence --duration 60 --streamer-ip <device_ip>`
+3. **Record movement**: `./espectre micro collect --label motion --duration 60 --streamer-ip <device_ip>`
 4. **Verify dataset**: `./espectre micro collect --info`
 5. **Backup data**: Copy `data/` to safe location
 

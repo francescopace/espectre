@@ -25,7 +25,7 @@ import numpy as np
 import math
 
 # Import csi_utils first - it sets up paths automatically
-from csi_utils import load_baseline_and_movement, DATA_DIR
+from csi_utils import load_static_presence_and_motion, DATA_DIR
 from config import SEG_WINDOW_SIZE, SEG_THRESHOLD, DEFAULT_SUBCARRIERS
 from segmentation import SegmentationContext
 
@@ -188,25 +188,25 @@ def main():
     
     # S3: 64 SC (HT20)
     try:
-        s3_baseline, s3_movement = load_baseline_and_movement(chip='S3')
-        chips_data['S3'] = {'baseline': s3_baseline, 'movement': s3_movement, 'num_sc': 64}
-        print(f"  S3: {len(s3_baseline)} baseline, {len(s3_movement)} movement packets (64 SC)")
+        s3_baseline, s3_movement = load_static_presence_and_motion(chip='S3')
+        chips_data['S3'] = {'static_presence': s3_baseline, 'motion': s3_movement, 'num_sc': 64}
+        print(f"  S3: {len(s3_baseline)} static-presence, {len(s3_movement)} motion packets (64 SC)")
     except FileNotFoundError as e:
         print(f"  S3 data not found: {e}")
     
     # C3: 64 SC (HT20)
     try:
-        c3_baseline, c3_movement = load_baseline_and_movement(chip='C3')
-        chips_data['C3'] = {'baseline': c3_baseline, 'movement': c3_movement, 'num_sc': 64}
-        print(f"  C3: {len(c3_baseline)} baseline, {len(c3_movement)} movement packets (64 SC)")
+        c3_baseline, c3_movement = load_static_presence_and_motion(chip='C3')
+        chips_data['C3'] = {'static_presence': c3_baseline, 'motion': c3_movement, 'num_sc': 64}
+        print(f"  C3: {len(c3_baseline)} static-presence, {len(c3_movement)} motion packets (64 SC)")
     except FileNotFoundError as e:
         print(f"  C3 data not found: {e}")
     
     # C6: 64 SC (HT20)
     try:
-        c6_baseline, c6_movement = load_baseline_and_movement(chip='C6')
-        chips_data['C6'] = {'baseline': c6_baseline, 'movement': c6_movement, 'num_sc': 64}
-        print(f"  C6: {len(c6_baseline)} baseline, {len(c6_movement)} movement packets (64 SC)")
+        c6_baseline, c6_movement = load_static_presence_and_motion(chip='C6')
+        chips_data['C6'] = {'static_presence': c6_baseline, 'motion': c6_movement, 'num_sc': 64}
+        print(f"  C6: {len(c6_baseline)} static-presence, {len(c6_movement)} motion packets (64 SC)")
     except FileNotFoundError as e:
         print(f"  C6 data not found: {e}")
     
@@ -215,16 +215,16 @@ def main():
         return
     
     # For backward compatibility, extract individual variables
-    s3_baseline = chips_data.get('S3', {}).get('baseline', [])
-    s3_movement = chips_data.get('S3', {}).get('movement', [])
+    s3_baseline = chips_data.get('S3', {}).get('static_presence', [])
+    s3_movement = chips_data.get('S3', {}).get('motion', [])
     s3_num_sc = chips_data.get('S3', {}).get('num_sc', 0)
     
-    c3_baseline = chips_data.get('C3', {}).get('baseline', [])
-    c3_movement = chips_data.get('C3', {}).get('movement', [])
+    c3_baseline = chips_data.get('C3', {}).get('static_presence', [])
+    c3_movement = chips_data.get('C3', {}).get('motion', [])
     c3_num_sc = chips_data.get('C3', {}).get('num_sc', 0)
     
-    c6_baseline = chips_data.get('C6', {}).get('baseline', [])
-    c6_movement = chips_data.get('C6', {}).get('movement', [])
+    c6_baseline = chips_data.get('C6', {}).get('static_presence', [])
+    c6_movement = chips_data.get('C6', {}).get('motion', [])
     c6_num_sc = chips_data.get('C6', {}).get('num_sc', 0)
     
     # =========================================================================
@@ -237,7 +237,7 @@ def main():
     iq_stats = {}
     for chip in chips_data:
         data = chips_data[chip]
-        iq_stats[chip] = analyze_iq_values(data['baseline'] + data['movement'], chip)
+        iq_stats[chip] = analyze_iq_values(data['static_presence'] + data['motion'], chip)
     
     # Build header dynamically
     header = f"{'Metric':<20}"
@@ -276,7 +276,7 @@ def main():
     for chip in chips_data:
         data = chips_data[chip]
         amp_stats[chip] = analyze_amplitudes_per_subcarrier(
-            data['baseline'] + data['movement'], chip, data['num_sc']
+            data['static_presence'] + data['motion'], chip, data['num_sc']
         )
         # Use proportional subcarrier selection for each chip
         selected_scs[chip] = [int(sc * data['num_sc'] / 64) for sc in DEFAULT_SUBCARRIERS]
@@ -305,10 +305,10 @@ def main():
     for chip in chips_data:
         data = chips_data[chip]
         turb_stats[f"{chip}_baseline"] = analyze_turbulence_and_mvs(
-            data['baseline'], f"{chip} Baseline", WINDOW_SIZE
+            data['static_presence'], f"{chip} Baseline", WINDOW_SIZE
         )
         turb_stats[f"{chip}_movement"] = analyze_turbulence_and_mvs(
-            data['movement'], f"{chip} Movement", WINDOW_SIZE
+            data['motion'], f"{chip} Movement", WINDOW_SIZE
         )
     
     print(f"\nTurbulence (Spatial Std Dev):")
@@ -340,22 +340,22 @@ def main():
     print(f"  {'-'*56}")
     
     for chip in chips_data:
-        baseline_key = f"{chip}_baseline"
-        movement_key = f"{chip}_movement"
+        static_presence_key = f"{chip}_baseline"
+        motion_key = f"{chip}_movement"
         
-        if baseline_key in turb_stats:
-            baseline_mvs = turb_stats[baseline_key]['mvs_values']
-            baseline_det = sum(1 for mv in baseline_mvs if mv > THRESHOLD)
-            baseline_total = len(baseline_mvs)
-            baseline_rate = baseline_det / baseline_total * 100 if baseline_total > 0 else 0
-            print(f"  {f'{chip} Baseline (FP)':<20} {baseline_det:>12} {baseline_total:>12} {baseline_rate:>11.1f}%")
+        if static_presence_key in turb_stats:
+            static_presence_mvs = turb_stats[static_presence_key]['mvs_values']
+            static_presence_det = sum(1 for mv in static_presence_mvs if mv > THRESHOLD)
+            static_presence_total = len(static_presence_mvs)
+            static_presence_rate = static_presence_det / static_presence_total * 100 if static_presence_total > 0 else 0
+            print(f"  {f'{chip} Baseline (FP)':<20} {static_presence_det:>12} {static_presence_total:>12} {static_presence_rate:>11.1f}%")
         
-        if movement_key in turb_stats:
-            movement_mvs = turb_stats[movement_key]['mvs_values']
-            movement_det = sum(1 for mv in movement_mvs if mv > THRESHOLD)
-            movement_total = len(movement_mvs)
-            movement_rate = movement_det / movement_total * 100 if movement_total > 0 else 0
-            print(f"  {f'{chip} Movement (TP)':<20} {movement_det:>12} {movement_total:>12} {movement_rate:>11.1f}%")
+        if motion_key in turb_stats:
+            motion_mvs = turb_stats[motion_key]['mvs_values']
+            motion_det = sum(1 for mv in motion_mvs if mv > THRESHOLD)
+            motion_total = len(motion_mvs)
+            motion_rate = motion_det / motion_total * 100 if motion_total > 0 else 0
+            print(f"  {f'{chip} Movement (TP)':<20} {motion_det:>12} {motion_total:>12} {motion_rate:>11.1f}%")
     
     # =========================================================================
     # 5. AMPLITUDE SUMMARY
@@ -460,11 +460,11 @@ def main():
             data_to_plot = []
             labels = []
             for chip in chip_list:
-                for phase in ['baseline', 'movement']:
+                for phase in ['static_presence', 'motion']:
                     key = f"{chip}_{phase}"
                     if key in turb_stats:
                         data_to_plot.append(turb_stats[key]['mvs_values'])
-                        labels.append(f"{chip} {'Base' if phase == 'baseline' else 'Move'}")
+                        labels.append(f"{chip} {'Base' if phase == 'static_presence' else 'Move'}")
             ax.boxplot(data_to_plot, tick_labels=labels)
             ax.axhline(y=THRESHOLD, color='r', linestyle='--', label=f'Threshold={THRESHOLD}')
             ax.set_ylabel('Moving Variance')

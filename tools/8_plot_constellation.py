@@ -2,8 +2,8 @@
 """
 Plot I/Q Constellation Diagrams for CSI Subcarriers
 
-Visualizes the constellation diagrams (I/Q plots) for the fixed production subcarriers,
-comparing baseline (stable) vs movement (dispersed) patterns.
+Visualizes the constellation diagrams (I/Q plots) for the fixed production
+subcarriers, comparing static presence (stable) vs motion (dispersed) patterns.
 Uses a limited number of contiguous packets to avoid overcrowding.
 
 Usage:
@@ -19,7 +19,7 @@ import argparse
 import matplotlib.pyplot as plt
 
 # Import csi_utils first - it sets up paths automatically
-from csi_utils import load_baseline_and_movement, find_dataset
+from csi_utils import load_static_presence_and_motion, find_static_presence_motion_dataset
 from config import DEFAULT_SUBCARRIERS
 
 def extract_iq_data(packets, subcarriers, num_packets=500, offset=100):
@@ -54,19 +54,19 @@ def extract_iq_data(packets, subcarriers, num_packets=500, offset=100):
     
     return iq_data
 
-def plot_constellation_comparison(baseline_packets, movement_packets, 
+def plot_constellation_comparison(static_presence_packets, motion_packets, 
                                  subcarriers, num_packets=500, offset=100,
                                  total_subcarriers=64):
     """
-    Plot I/Q constellation diagrams comparing baseline and movement
+    Plot I/Q constellation diagrams comparing static presence and motion.
     
     Creates a 2x2 grid:
-    - Top row: All subcarriers (baseline vs movement)
-    - Bottom row: Only the fixed production subcarriers (baseline vs movement)
+    - Top row: All subcarriers (static presence vs motion)
+    - Bottom row: Only the fixed production subcarriers (static presence vs motion)
     
     Args:
-        baseline_packets: List of baseline packets
-        movement_packets: List of movement packets
+        static_presence_packets: List of static-presence packets
+        motion_packets: List of motion packets
         subcarriers: Subcarrier indices to plot
         num_packets: Number of contiguous packets to use
         offset: Starting packet index
@@ -75,12 +75,12 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     # Extract I/Q data for all subcarriers (top row)
     print(f"Extracting I/Q data for {num_packets} packets (offset={offset})...")
     all_subcarriers = list(range(total_subcarriers))
-    baseline_iq_all = extract_iq_data(baseline_packets, all_subcarriers, num_packets, offset)
-    movement_iq_all = extract_iq_data(movement_packets, all_subcarriers, num_packets, offset)
+    static_presence_iq_all = extract_iq_data(static_presence_packets, all_subcarriers, num_packets, offset)
+    motion_iq_all = extract_iq_data(motion_packets, all_subcarriers, num_packets, offset)
     
     # Extract I/Q data for the fixed production subcarriers (bottom row)
-    baseline_iq = extract_iq_data(baseline_packets, subcarriers, num_packets, offset)
-    movement_iq = extract_iq_data(movement_packets, subcarriers, num_packets, offset)
+    static_presence_iq = extract_iq_data(static_presence_packets, subcarriers, num_packets, offset)
+    motion_iq = extract_iq_data(motion_packets, subcarriers, num_packets, offset)
     
     # Create color map for subcarriers
     colors = plt.cm.tab20(np.linspace(0, 1, len(subcarriers)))
@@ -111,8 +111,8 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     # ========================================================================
     ax1 = plt.subplot(2, 2, 1)
     for sc_idx in all_subcarriers:
-        I_vals = baseline_iq_all[sc_idx]['I']
-        Q_vals = baseline_iq_all[sc_idx]['Q']
+        I_vals = static_presence_iq_all[sc_idx]['I']
+        Q_vals = static_presence_iq_all[sc_idx]['Q']
         ax1.scatter(I_vals, Q_vals, color='gray', alpha=0.3, s=10)
     
     ax1.axhline(y=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
@@ -128,8 +128,8 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     # ========================================================================
     ax2 = plt.subplot(2, 2, 2)
     for sc_idx in all_subcarriers:
-        I_vals = movement_iq_all[sc_idx]['I']
-        Q_vals = movement_iq_all[sc_idx]['Q']
+        I_vals = motion_iq_all[sc_idx]['I']
+        Q_vals = motion_iq_all[sc_idx]['Q']
         ax2.scatter(I_vals, Q_vals, color='gray', alpha=0.3, s=10)
     
     ax2.axhline(y=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
@@ -145,8 +145,8 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     # ========================================================================
     ax3 = plt.subplot(2, 2, 3)
     for i, sc_idx in enumerate(subcarriers):
-        I_vals = baseline_iq[sc_idx]['I']
-        Q_vals = baseline_iq[sc_idx]['Q']
+        I_vals = static_presence_iq[sc_idx]['I']
+        Q_vals = static_presence_iq[sc_idx]['Q']
         ax3.scatter(I_vals, Q_vals, color=colors[i], alpha=0.7, s=30, 
                    label=f'SC {sc_idx}', edgecolors='black', linewidth=0.5)
     
@@ -164,8 +164,8 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     # ========================================================================
     ax4 = plt.subplot(2, 2, 4)
     for i, sc_idx in enumerate(subcarriers):
-        I_vals = movement_iq[sc_idx]['I']
-        Q_vals = movement_iq[sc_idx]['Q']
+        I_vals = motion_iq[sc_idx]['I']
+        Q_vals = motion_iq[sc_idx]['Q']
         ax4.scatter(I_vals, Q_vals, color=colors[i], alpha=0.7, s=30, 
                    label=f'SC {sc_idx}', edgecolors='black', linewidth=0.5)
     
@@ -186,8 +186,8 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     print("="*80)
     print(f"\nBaseline (packets {offset} to {offset + num_packets}):")
     for sc_idx in subcarriers[:min(4, len(subcarriers))]:  # Show stats for first 4
-        I_vals = np.array(baseline_iq[sc_idx]['I'])
-        Q_vals = np.array(baseline_iq[sc_idx]['Q'])
+        I_vals = np.array(static_presence_iq[sc_idx]['I'])
+        Q_vals = np.array(static_presence_iq[sc_idx]['Q'])
         I_std = np.std(I_vals)
         Q_std = np.std(Q_vals)
         print(f"  SC {sc_idx:2d}: I_std={I_std:6.2f}, Q_std={Q_std:6.2f}, "
@@ -196,8 +196,8 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     
     print(f"\nMovement (packets {offset} to {offset + num_packets}):")
     for sc_idx in subcarriers[:min(4, len(subcarriers))]:
-        I_vals = np.array(movement_iq[sc_idx]['I'])
-        Q_vals = np.array(movement_iq[sc_idx]['Q'])
+        I_vals = np.array(motion_iq[sc_idx]['I'])
+        Q_vals = np.array(motion_iq[sc_idx]['Q'])
         I_std = np.std(I_vals)
         Q_std = np.std(Q_vals)
         print(f"  SC {sc_idx:2d}: I_std={I_std:6.2f}, Q_std={Q_std:6.2f}, "
@@ -208,18 +208,18 @@ def plot_constellation_comparison(baseline_packets, movement_packets,
     
     plt.show()
 
-def plot_single_subcarrier_grid(baseline_packets, movement_packets, 
+def plot_single_subcarrier_grid(static_presence_packets, motion_packets, 
                                 subcarriers, num_packets=500, offset=100,
                                 total_subcarriers=64):
     """
     Plot individual constellation diagrams for each subcarrier in a grid
     
-    Creates a grid of subplots, one for each subcarrier, showing baseline
-    and movement overlaid with different colors.
+    Creates a grid of subplots, one for each subcarrier, showing static
+    presence and motion overlaid with different colors.
     
     Args:
-        baseline_packets: List of baseline packets
-        movement_packets: List of movement packets
+        static_presence_packets: List of static-presence packets
+        motion_packets: List of motion packets
         subcarriers: Subcarrier indices to plot
         num_packets: Number of contiguous packets to use
         offset: Starting packet index
@@ -227,8 +227,8 @@ def plot_single_subcarrier_grid(baseline_packets, movement_packets,
     """
     # Extract I/Q data
     print(f"Extracting I/Q data for {num_packets} packets (offset={offset})...")
-    baseline_iq = extract_iq_data(baseline_packets, subcarriers, num_packets, offset)
-    movement_iq = extract_iq_data(movement_packets, subcarriers, num_packets, offset)
+    static_presence_iq = extract_iq_data(static_presence_packets, subcarriers, num_packets, offset)
+    motion_iq = extract_iq_data(motion_packets, subcarriers, num_packets, offset)
     
     # Determine grid size
     n_subcarriers = len(subcarriers)
@@ -264,13 +264,13 @@ def plot_single_subcarrier_grid(baseline_packets, movement_packets,
         ax = axes[idx]
         
         # Plot baseline (blue)
-        I_base = baseline_iq[sc_idx]['I']
-        Q_base = baseline_iq[sc_idx]['Q']
+        I_base = static_presence_iq[sc_idx]['I']
+        Q_base = static_presence_iq[sc_idx]['Q']
         ax.scatter(I_base, Q_base, color='blue', alpha=0.5, s=20, label='Baseline')
         
         # Plot movement (red)
-        I_move = movement_iq[sc_idx]['I']
-        Q_move = movement_iq[sc_idx]['Q']
+        I_move = motion_iq[sc_idx]['I']
+        Q_move = motion_iq[sc_idx]['Q']
         ax.scatter(I_move, Q_move, color='red', alpha=0.5, s=20, label='Movement')
         
         # Formatting
@@ -324,10 +324,10 @@ Examples:
     # Find dataset files dynamically
     chip = args.chip.upper()
     try:
-        baseline_file, movement_file, chip_name = find_dataset(chip=chip)
+        static_presence_file, motion_file, chip_name = find_static_presence_motion_dataset(chip=chip)
     except FileNotFoundError as e:
         print(f"\nError: {e}")
-        print(f"\nCollect data using: ./espectre collect --label baseline --duration 10")
+        print(f"\nCollect data using: ./espectre collect --label static_presence --duration 10")
         return
     
     # Always use the fixed production subcarriers.
@@ -346,19 +346,19 @@ Examples:
     
     # Load data
     print(f"\nLoading data...")
-    print(f"  Baseline: {baseline_file.name}")
-    print(f"  Movement: {movement_file.name}")
+    print(f"  Static presence: {static_presence_file.name}")
+    print(f"  Motion:          {motion_file.name}")
     try:
-        baseline_packets, movement_packets = load_baseline_and_movement(
-            baseline_file=baseline_file,
-            movement_file=movement_file
+        static_presence_packets, motion_packets = load_static_presence_and_motion(
+            static_presence_file=static_presence_file,
+            motion_file=motion_file
         )
     except FileNotFoundError as e:
         print(f"Error: {e}")
         return
     
-    print(f"   Baseline: {len(baseline_packets)} packets")
-    print(f"   Movement: {len(movement_packets)} packets")
+    print(f"   Static presence: {len(static_presence_packets)} packets")
+    print(f"   Motion:          {len(motion_packets)} packets")
     
     # Validate subcarrier indices (HT20 mode = 64 subcarriers)
     num_subcarriers = 64
@@ -369,7 +369,7 @@ Examples:
         return
     
     # Validate offset and packet count
-    max_packets = min(len(baseline_packets), len(movement_packets))
+    max_packets = min(len(static_presence_packets), len(motion_packets))
     if args.offset >= max_packets:
         print(f"\nError: Offset {args.offset} exceeds available packets ({max_packets})")
         return
@@ -384,11 +384,11 @@ Examples:
     print(f"\nGenerating constellation plots...")
     
     if args.grid:
-        plot_single_subcarrier_grid(baseline_packets, movement_packets, 
+        plot_single_subcarrier_grid(static_presence_packets, motion_packets, 
                                     subcarriers, args.packets, args.offset,
                                     total_subcarriers=num_subcarriers)
     else:
-        plot_constellation_comparison(baseline_packets, movement_packets, 
+        plot_constellation_comparison(static_presence_packets, motion_packets, 
                                      subcarriers, args.packets, args.offset,
                                      total_subcarriers=num_subcarriers)
     

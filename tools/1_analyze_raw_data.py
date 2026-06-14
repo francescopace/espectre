@@ -19,8 +19,8 @@ import numpy as np
 
 # Import csi_utils first - it sets up paths automatically
 from csi_utils import (
-    calculate_spatial_turbulence, load_baseline_and_movement,
-    find_dataset, DATA_DIR, load_dataset_info,
+    calculate_spatial_turbulence, load_static_presence_and_motion,
+    find_static_presence_motion_dataset, DATA_DIR, load_dataset_info,
     load_npz_as_packets
 )
 from config import DEFAULT_SUBCARRIERS
@@ -43,34 +43,34 @@ def format_variance(value: float, width: int = 12) -> str:
 
 def discover_available_chips() -> list:
     """
-    Discover all chip types that have both baseline and movement data.
+    Discover all chip types that have both static-presence and motion data.
     
     Returns:
         list: Sorted list of chip names (e.g., ['C6', 'S3'])
     """
-    baseline_dir = DATA_DIR / 'baseline'
-    movement_dir = DATA_DIR / 'movement'
+    static_presence_dir = DATA_DIR / 'static_presence'
+    motion_dir = DATA_DIR / 'motion'
     
-    if not baseline_dir.exists() or not movement_dir.exists():
+    if not static_presence_dir.exists() or not motion_dir.exists():
         return []
     
-    # Find all chips with baseline data
-    baseline_chips = set()
-    for f in baseline_dir.glob('baseline_*_64sc_*.npz'):
-        # Extract chip name from filename: baseline_{chip}_64sc_*.npz
-        match = re.match(r'baseline_(\w+)_64sc_', f.name)
+    # Find all chips with static-presence data
+    static_presence_chips = set()
+    for f in static_presence_dir.glob('static_presence_*_64sc_*.npz'):
+        # Extract chip name from filename: static_presence_{chip}_64sc_*.npz
+        match = re.match(r'static_presence_(\w+)_64sc_', f.name)
         if match:
-            baseline_chips.add(match.group(1).upper())
+            static_presence_chips.add(match.group(1).upper())
     
-    # Find all chips with movement data
-    movement_chips = set()
-    for f in movement_dir.glob('movement_*_64sc_*.npz'):
-        match = re.match(r'movement_(\w+)_64sc_', f.name)
+    # Find all chips with motion data
+    motion_chips = set()
+    for f in motion_dir.glob('motion_*_64sc_*.npz'):
+        match = re.match(r'motion_(\w+)_64sc_', f.name)
         if match:
-            movement_chips.add(match.group(1).upper())
+            motion_chips.add(match.group(1).upper())
     
-    # Return chips that have both baseline and movement
-    available = baseline_chips & movement_chips
+    # Return chips that have both static-presence and motion data
+    available = static_presence_chips & motion_chips
     return sorted(available)
 
 
@@ -156,61 +156,61 @@ def compute_packet_stats(packets):
 
 def analyze_all_pairs_from_dataset_info() -> list:
     """
-    Analyze all explicit baseline/movement pairs from dataset_info.json.
+    Analyze all explicit static-presence/motion pairs from dataset_info.json.
 
     Returns:
         list: table rows sorted by chip asc and ratio desc
     """
     info = load_dataset_info()
     files = info.get('files', {})
-    baseline_entries = files.get('baseline', [])
-    movement_entries = files.get('movement', [])
-    movement_by_name = {m.get('filename'): m for m in movement_entries}
+    static_presence_entries = files.get('static_presence', [])
+    motion_entries = files.get('motion', [])
+    motion_by_name = {m.get('filename'): m for m in motion_entries}
 
     rows = []
-    for baseline in baseline_entries:
-        baseline_name = baseline.get('filename')
-        movement_name = baseline.get('optimal_pair_movement_file')
+    for baseline in static_presence_entries:
+        static_presence_name = baseline.get('filename')
+        motion_name = baseline.get('optimal_pair_motion_file')
 
-        if not baseline_name or not movement_name:
+        if not static_presence_name or not motion_name:
             continue
-        if movement_name not in movement_by_name:
-            continue
-
-        baseline_path = DATA_DIR / 'baseline' / baseline_name
-        movement_path = DATA_DIR / 'movement' / movement_name
-        if not baseline_path.exists() or not movement_path.exists():
+        if motion_name not in motion_by_name:
             continue
 
-        baseline_packets = load_npz_as_packets(baseline_path)
-        movement_packets = load_npz_as_packets(movement_path)
-        baseline_stats = compute_packet_stats(baseline_packets)
-        movement_stats = compute_packet_stats(movement_packets)
-        if baseline_stats is None or movement_stats is None:
+        static_presence_path = DATA_DIR / 'static_presence' / static_presence_name
+        motion_path = DATA_DIR / 'motion' / motion_name
+        if not static_presence_path.exists() or not motion_path.exists():
             continue
 
-        baseline_ok = baseline_stats['label_name'].lower() == 'baseline'
-        movement_ok = movement_stats['label_name'].lower() == 'movement'
-        variance_ok = baseline_stats['turb_variance'] < movement_stats['turb_variance']
+        static_presence_packets = load_npz_as_packets(static_presence_path)
+        motion_packets = load_npz_as_packets(motion_path)
+        static_presence_stats = compute_packet_stats(static_presence_packets)
+        motion_stats = compute_packet_stats(motion_packets)
+        if static_presence_stats is None or motion_stats is None:
+            continue
 
-        baseline_var = baseline_stats['turb_variance']
-        movement_var = movement_stats['turb_variance']
-        ratio = movement_var / baseline_var if baseline_var > 0 else 0.0
+        static_presence_ok = static_presence_stats['label_name'].lower() == 'static_presence'
+        motion_ok = motion_stats['label_name'].lower() == 'motion'
+        variance_ok = static_presence_stats['turb_variance'] < motion_stats['turb_variance']
 
-        # Temporal gap between baseline end and movement start
-        baseline_start = datetime.fromisoformat(baseline['collected_at'])
-        movement_start = datetime.fromisoformat(
-            movement_by_name[movement_name]['collected_at']
+        static_presence_var = static_presence_stats['turb_variance']
+        motion_var = motion_stats['turb_variance']
+        ratio = motion_var / static_presence_var if static_presence_var > 0 else 0.0
+
+        # Temporal gap between static-presence end and motion start
+        static_presence_start = datetime.fromisoformat(baseline['collected_at'])
+        motion_start = datetime.fromisoformat(
+            motion_by_name[motion_name]['collected_at']
         )
-        baseline_end = baseline_start + timedelta(milliseconds=int(baseline.get('duration_ms', 0)))
-        gap_seconds = (movement_start - baseline_end).total_seconds()
+        static_presence_end = static_presence_start + timedelta(milliseconds=int(baseline.get('duration_ms', 0)))
+        gap_seconds = (motion_start - static_presence_end).total_seconds()
 
-        status = "PASS" if (baseline_ok and movement_ok and variance_ok) else "FAIL"
+        status = "PASS" if (static_presence_ok and motion_ok and variance_ok) else "FAIL"
         rows.append({
             'chip': str(baseline.get('chip', '?')).upper(),
-            'pair': f"{baseline_name} / {movement_name}",
-            'baseline_var': baseline_var,
-            'movement_var': movement_var,
+            'pair': f"{static_presence_name} / {motion_name}",
+            'static_presence_var': static_presence_var,
+            'motion_var': motion_var,
             'ratio': ratio,
             'gap_seconds': gap_seconds,
             'status': status,
@@ -225,7 +225,7 @@ def print_pairs_table(rows: list):
     print("  HISTORICAL PAIRS TABLE (dataset_info.json)")
     print(f"{'='*70}")
     print(
-        f"\n{'Chip':<6} {'Baseline Var':>12} {'Movement Var':>12} "
+        f"\n{'Chip':<6} {'Static Var':>12} {'Motion Var':>12} "
         f"{'Ratio':>8} {'Gap end->start':>15} {'Status':<8} File pair"
     )
     print(f"{'-'*6} {'-'*12} {'-'*12} {'-'*8} {'-'*15} {'-'*8} {'-'*50}")
@@ -235,7 +235,7 @@ def print_pairs_table(rows: list):
         if row['status'] == "PASS":
             pass_count += 1
         print(
-            f"{row['chip']:<6} {format_variance(row['baseline_var'])} {format_variance(row['movement_var'])} "
+            f"{row['chip']:<6} {format_variance(row['static_presence_var'])} {format_variance(row['motion_var'])} "
             f"{row['ratio']:>7.2f}x {row['gap_seconds']:>14.2f}s {row['status']:<8} {row['pair']}"
         )
 
@@ -264,34 +264,34 @@ def analyze_chip(chip: str) -> dict:
     print(f"{'#'*70}")
     
     try:
-        baseline_path, movement_path, _ = find_dataset(chip=chip)
+        static_presence_path, motion_path, _ = find_static_presence_motion_dataset(chip=chip)
         print(f"\nDataset files:")
-        print(f"  Baseline: {baseline_path.name}")
-        print(f"  Movement: {movement_path.name}")
+        print(f"  Static presence: {static_presence_path.name}")
+        print(f"  Motion:          {motion_path.name}")
         
-        baseline_packets, movement_packets = load_baseline_and_movement(chip=chip)
+        static_presence_packets, motion_packets = load_static_presence_and_motion(chip=chip)
     except FileNotFoundError as e:
         print(f"\nError: {e}")
         return None
     
-    baseline_stats = analyze_packets(baseline_packets, f"{chip} baseline")
-    movement_stats = analyze_packets(movement_packets, f"{chip} movement")
+    static_presence_stats = analyze_packets(static_presence_packets, f"{chip} static presence")
+    motion_stats = analyze_packets(motion_packets, f"{chip} motion")
     
-    if baseline_stats is None or movement_stats is None:
+    if static_presence_stats is None or motion_stats is None:
         return None
     
     # Validation
-    baseline_ok = baseline_stats['label_name'].lower() == 'baseline'
-    movement_ok = movement_stats['label_name'].lower() == 'movement'
-    variance_ok = baseline_stats['turb_variance'] < movement_stats['turb_variance']
+    static_presence_ok = static_presence_stats['label_name'].lower() == 'static_presence'
+    motion_ok = motion_stats['label_name'].lower() == 'motion'
+    variance_ok = static_presence_stats['turb_variance'] < motion_stats['turb_variance']
     
     result = {
         'chip': chip,
-        'baseline': baseline_stats,
-        'movement': movement_stats,
-        'labels_ok': baseline_ok and movement_ok,
+        'static_presence': static_presence_stats,
+        'motion': motion_stats,
+        'labels_ok': static_presence_ok and motion_ok,
         'variance_ok': variance_ok,
-        'valid': baseline_ok and movement_ok and variance_ok
+        'valid': static_presence_ok and motion_ok and variance_ok
     }
     
     return result
@@ -304,7 +304,7 @@ def print_summary(results: list):
     print(f"{'='*70}")
     
     # Header
-    print(f"\n{'Chip':<6} {'Baseline Var':>12} {'Movement Var':>12} {'Ratio':>8} {'Status':<10}")
+    print(f"\n{'Chip':<6} {'Static Var':>12} {'Motion Var':>12} {'Ratio':>8} {'Status':<10}")
     print(f"{'-'*6} {'-'*12} {'-'*12} {'-'*8} {'-'*10}")
     
     all_valid = True
@@ -312,9 +312,9 @@ def print_summary(results: list):
         if r is None:
             continue
         
-        baseline_var = r['baseline']['turb_variance']
-        movement_var = r['movement']['turb_variance']
-        ratio = movement_var / baseline_var if baseline_var > 0 else 0
+        static_presence_var = r['static_presence']['turb_variance']
+        motion_var = r['motion']['turb_variance']
+        ratio = motion_var / static_presence_var if static_presence_var > 0 else 0
         
         if r['valid']:
             status = "OK"
@@ -325,7 +325,7 @@ def print_summary(results: list):
             status = "SWAPPED?"
             all_valid = False
         
-        print(f"{r['chip']:<6} {format_variance(baseline_var)} {format_variance(movement_var)} {ratio:>8.1f}x {status:<10}")
+        print(f"{r['chip']:<6} {format_variance(static_presence_var)} {format_variance(motion_var)} {ratio:>8.1f}x {status:<10}")
     
     print()
     
@@ -361,7 +361,7 @@ def main():
     # Default mode: export historical table from dataset_info pairs
     rows = analyze_all_pairs_from_dataset_info()
     if not rows:
-        print("\nError: No valid baseline/movement pairs found in dataset_info.json")
+        print("\nError: No valid static-presence/motion pairs found in dataset_info.json")
         return
     print_pairs_table(rows)
 
