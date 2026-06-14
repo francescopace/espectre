@@ -129,9 +129,13 @@ For practical tuning guidance, sensor placement, and parameter tradeoffs, see
 
 ### Traffic Generation
 
-Motion detection depends on CSI packets. By default, the shared runtime
-generates traffic internally, but the way that traffic is configured or exposed
-belongs to each frontend surface.
+Motion detection frontends depend on CSI packets. For the shared detection
+runtime, traffic is generated internally by default, but the way that traffic is
+configured or exposed belongs to each frontend surface.
+
+The standalone `streamer` frontend is different: it does not own an internal
+traffic generator and instead expects collector-driven external UDP stimulus.
+Use the streamer frontend README as the source of truth for that workflow.
 
 If you are tuning `traffic_generator_rate`, thresholds, or filters, use
 [TUNING.md](TUNING.md) for the rationale and the frontend README for the

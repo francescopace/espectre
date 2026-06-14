@@ -631,12 +631,18 @@ void StreamFrontend::log_runtime_telemetry_() {
       static_cast<float>(stimulus_parse_fail_total_ - prev_parse_fail) * 1000.0F / static_cast<float>(dt_ms);
   const uint32_t csi_age_ms = (last_csi_ms_ > 0U && now_ms >= last_csi_ms_) ? static_cast<uint32_t>(now_ms - last_csi_ms_)
                                                                               : 0U;
+  const unsigned queue_ready = udp_sender_.ready_queue_depth();
+  const unsigned queue_peak = udp_sender_.take_ready_queue_high_watermark();
+  const unsigned queue_capacity = CsiUdpSender::QUEUE_CAPACITY;
 
   if (state == WorkflowState::GAIN_LOCK) {
     ESP_LOGI(TAG,
-             "state=GAIN_LOCK csi=%.2f traffic=%.2f age_ms=%" PRIu32 " channel=%u",
+             "state=GAIN_LOCK csi=%.2f traffic=%.2f queue=%u peak=%u/%u age_ms=%" PRIu32 " channel=%u",
              csi_callback_pps,
              traffic_rx_pps,
+             queue_ready,
+             queue_peak,
+             queue_capacity,
              csi_age_ms,
              static_cast<unsigned>(last_csi_channel_));
   } else if (state == WorkflowState::STREAMING) {
@@ -644,19 +650,25 @@ void StreamFrontend::log_runtime_telemetry_() {
         csi_callback_pps > 1.0F || stimulus_pps > 1.0F || tx_pps > 1.0F || traffic_rx_pps > 1.0F;
     if (stream_active) {
       ESP_LOGI(TAG,
-               "state=STREAMING csi=%.2f stim=%.2f traffic=%.2f tx=%.2f channel=%u age_ms=%" PRIu32,
+               "state=STREAMING csi=%.2f stim=%.2f traffic=%.2f tx=%.2f queue=%u peak=%u/%u channel=%u age_ms=%" PRIu32,
                csi_callback_pps,
                stimulus_pps,
                traffic_rx_pps,
                tx_pps,
+               queue_ready,
+               queue_peak,
+               queue_capacity,
                static_cast<unsigned>(last_csi_channel_),
                csi_age_ms);
       if (parse_fail_pps > 0.0F || drop_pps > 0.0F || fail_pps > 0.0F) {
         ESP_LOGW(TAG,
-                 "stream anomalies: parse_fail=%.2f drop=%.2f fail=%.2f payload_len=%u",
+                 "stream anomalies: parse_fail=%.2f drop=%.2f fail=%.2f queue=%u peak=%u/%u payload_len=%u",
                  parse_fail_pps,
                  drop_pps,
                  fail_pps,
+                 queue_ready,
+                 queue_peak,
+                 queue_capacity,
                  static_cast<unsigned>(last_csi_payload_len_));
       }
     } else if (stream_active_last_tick) {

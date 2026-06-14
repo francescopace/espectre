@@ -117,6 +117,8 @@ Payload:
 
 - raw I/Q values in Espressif ordering
 - typical HT20 packet: `52 + 128 = 180 bytes`
+- the sender may concatenate multiple complete stream records into one UDP
+  datagram; the host collector parses them sequentially from the datagram body
 
 ## Frontend Configuration
 
@@ -133,6 +135,38 @@ CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
 # CONFIG_ESPECTRE_WIFI_BSSID is not set
 ```
 
+Recommended workflow for local Wi-Fi configuration:
+
+1. create `src/cpp/frontend/streamer/app/sdkconfig.wifi`
+2. set `CONFIG_ESPECTRE_WIFI_SSID` and `CONFIG_ESPECTRE_WIFI_PASSWORD`
+3. leave `CONFIG_ESPECTRE_WIFI_BSSID` unset unless you intentionally want to
+   pin the streamer to a specific AP radio
+4. build via `./espectre streamer build --chip c3`, which automatically passes
+   `sdkconfig.defaults;sdkconfig.wifi` to `idf.py`
+
+Example local file:
+
+```ini
+CONFIG_ESPECTRE_WIFI_SSID="YourSSID"
+CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
+# CONFIG_ESPECTRE_WIFI_BSSID is not set
+```
+
+Notes:
+
+- `sdkconfig.wifi` is the recommended place for machine-local credentials
+  because it is ignored by git
+- keep `CONFIG_ESPECTRE_WIFI_BSSID` unset for normal use; the streamer will
+  scan all channels and connect to the strongest matching AP
+- set `CONFIG_ESPECTRE_WIFI_BSSID="aa:bb:cc:dd:ee:ff"` only when you need to
+  force a specific AP radio for repeatable RF tests
+- if you change `sdkconfig.defaults`, `sdkconfig.wifi`, or the frontend Kconfig
+  surface and the generated `sdkconfig` appears stale, remove
+  `src/cpp/frontend/streamer/app/sdkconfig` and `sdkconfig.old` before
+  rebuilding so ESP-IDF regenerates the active config from the defaults
+- the active generated files `sdkconfig`, `sdkconfig.old`, and
+  `dependencies.lock` are build artifacts and should remain untracked
+
 Key knobs in the frontend surface:
 
 - `ESPECTRE_WIFI_SSID`
@@ -145,6 +179,8 @@ Key knobs in the frontend surface:
 - `ESPECTRE_GAIN_LOCK_ENABLED`
 - `ESPECTRE_GAIN_LOCK_MODE_*`
 - `ESPECTRE_STREAM_QUEUE_SLOTS`
+- `ESPECTRE_STREAM_BATCH_MAX_RECORDS`
+- `ESPECTRE_STREAM_BATCH_MAX_BYTES`
 - `ESPECTRE_STREAM_LOG_INTERVAL_MS`
 
 Runtime behavior notes:
@@ -154,6 +190,8 @@ Runtime behavior notes:
 - the UDP stimulus payload may carry the `ESTM` metadata header
   (`magic + version + role + stimulus_id`), which is propagated into the CSI
   stream when present
+- the UDP sender uses a bounded queue plus datagram batching, so queue depth and
+  queue peak are useful indicators when tuning packet rate
 
 ## Collector-Driven Stimulus
 
@@ -210,6 +248,52 @@ idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
 
 Current repository CLI target coverage for the streamer frontend is intentionally
 minimal and currently centered on `ESP32-C3`.
+
+## Observed ESP32-C3 Throughput
+
+The table below summarizes the latest standalone streamer transport benchmark on
+`ESP32-C3`, measured with collector-driven UDP stimulus and host-side receive
+stats over `4 s` windows.
+
+Benchmark firmware profile:
+
+- `WIFI_PS_MIN_MODEM`
+- `CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=128`
+- `CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=128`
+- `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=16`
+- `CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=64`
+- `CONFIG_LWIP_UDP_RECVMBOX_SIZE=32`
+- `CONFIG_LWIP_IRAM_OPTIMIZATION=y`
+- `CONFIG_ESPECTRE_STREAM_QUEUE_SLOTS=32`
+- `CONFIG_ESPECTRE_STREAM_BATCH_MAX_RECORDS=4`
+- `CONFIG_ESPECTRE_STREAM_BATCH_MAX_BYTES=1200`
+
+Observed results:
+
+| Requested Stimulus Rate | Observed Host Receive Rate | Host Drop Rate |
+|-------------------------|----------------------------|----------------|
+| `500 pps` | `~473 pps` | `~1.2%` |
+| `650 pps` | `~618 pps` | `~0.0%` |
+| `750 pps` | `~707 pps` | `~0.8%` |
+| `850 pps` | `~806 pps` | `~0.2%` |
+| `1000 pps` | `~935 pps` | `~1.1%` |
+| `1200 pps` | `~1136 pps` | `~0.3%` |
+
+Notes:
+
+- host-side `requested pps` is the control target; the Python sender may
+  slightly under-run or over-run during short windows
+- the transport path is mostly packet-rate bound rather than byte-rate bound
+- `queue=0` in the periodic log does not mean the queue never saturated; use
+  `peak=<n>/<slots>` to inspect burst pressure between log ticks
+- `batch=4` is the recommended default on ESP32-C3; `batch=8` slightly helped
+  some `1000 pps` runs but was less robust at `1200 pps`
+
+Practical guidance:
+
+- use `1000 pps` as the recommended high-rate profile for ESP32-C3
+- use `1200 pps` as an aggressive profile when a small amount of burst pressure
+  is acceptable
 
 ## Relationship to ML Data Collection
 

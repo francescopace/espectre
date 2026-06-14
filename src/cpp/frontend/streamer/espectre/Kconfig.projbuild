@@ -53,6 +53,16 @@ menu "ESPectre CSI Streamer"
         range 2 32
         default 8
 
+    config ESPECTRE_STREAM_BATCH_MAX_RECORDS
+        int "Maximum CSI records per UDP datagram"
+        range 1 8
+        default 4
+
+    config ESPECTRE_STREAM_BATCH_MAX_BYTES
+        int "Maximum UDP payload bytes per streamed datagram"
+        range 256 1472
+        default 1200
+
     config ESPECTRE_STREAM_LOG_INTERVAL_MS
         int "Telemetry log interval (ms)"
         range 100 10000

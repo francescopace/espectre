@@ -68,11 +68,17 @@ The streamer frontend README is the source of truth for the firmware surface,
 UDP packet format, and frontend-specific configuration:
 [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md).
 
+Use that README as the source of truth for:
+
+- local streamer Wi-Fi configuration via `sdkconfig.wifi`
+- transport tuning knobs such as queue depth and batching
+- observed standalone streamer throughput on `ESP32-C3`
+
 **Features:**
 - Gain lock phase (~3s) for stable CSI acquisition
 - 64 subcarriers (HT20 mode)
 - 32-bit sequence numbers for packet loss detection
-- ~100 packets/second
+- collector-driven stimulus rate (see streamer README for practical transport profiles and benchmarks)
 
 ### 4. Optional: Inspect Live ML Motion Detection
 
@@ -364,7 +370,7 @@ This shows which files use CV normalization.
 
 | Aspect | Recommendation |
 |--------|----------------|
-| **Duration** | 30-60 seconds per sample (1500-3000 packets @ 50 pps) |
+| **Duration** | 30-60 seconds per sample (packet count depends on the chosen stimulus rate) |
 | **Repetitions** | 10+ samples per label for variability |
 | **Environment** | Same environment for all samples in a session |
 | **Position** | Vary position/distance between samples for robustness |

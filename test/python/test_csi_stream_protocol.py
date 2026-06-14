@@ -201,6 +201,26 @@ def test_parse_packet_reads_optional_metadata():
     assert packet.fft_gain == -8
 
 
+def test_parse_packets_accepts_multiple_records_in_one_datagram():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    datagram = build_packet(seq_num=10, payload=[1, 2, 3, 4]) + build_packet(seq_num=11, payload=[5, 6, 7, 8])
+
+    packets = receiver._parse_packets(datagram)
+
+    assert len(packets) == 2
+    assert packets[0].seq_num == 10
+    assert packets[1].seq_num == 11
+    np.testing.assert_array_equal(packets[0].iq_raw, np.array([1, 2, 3, 4], dtype=np.int8))
+    np.testing.assert_array_equal(packets[1].iq_raw, np.array([5, 6, 7, 8], dtype=np.int8))
+
+
+def test_parse_packet_rejects_multi_record_datagram():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    datagram = build_packet(seq_num=1) + build_packet(seq_num=2)
+
+    assert receiver._parse_packet(datagram) is None
+
+
 def test_parse_packet_rejects_legacy_python_header():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     legacy = bytes([0x53, 0x43, 0x04, 0x01, 0x07, 0x40, 0x00]) + bytes(128)
