@@ -71,7 +71,7 @@ One-time repository setup:
 
 ```bash
 python3 -m venv .venv
-./.venv/bin/python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 Per-shell environment setup:

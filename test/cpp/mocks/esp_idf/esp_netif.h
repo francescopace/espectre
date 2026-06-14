@@ -41,6 +41,11 @@ static inline esp_err_t esp_netif_get_ip_info(esp_netif_t *netif, esp_netif_ip_i
   return ESP_OK;
 }
 
+static inline int esp_netif_get_netif_impl_index(esp_netif_t *netif) {
+  (void)netif;
+  return 0;
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -53,7 +53,8 @@ class CsiUdpSender {
   QueueHandle_t free_slots_{nullptr};
   QueueHandle_t ready_slots_{nullptr};
   TaskHandle_t sender_task_handle_{nullptr};
-  sockaddr_in collector_addr_{};
+  std::atomic<uint32_t> collector_ip_addr_{0U};
+  std::atomic<uint16_t> collector_port_{0U};
   std::atomic<bool> collector_enabled_{false};
   std::atomic<bool> running_{false};
   std::atomic<uint64_t> queued_total_{0U};

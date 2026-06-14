@@ -10,8 +10,7 @@
 #include "ml_detector.h"
 #include "mvs_detector.h"
 #include "runtime_interface.h"
-#include "traffic_generator_manager.h"
-#include "udp_listener.h"
+#include "stimulus_service.h"
 #include "wifi_lifecycle.h"
 
 namespace esphome {
@@ -57,8 +56,7 @@ class EspIdfRuntime : public IEspectreRuntime {
 
   CSIManager csi_manager_;
   WiFiLifecycleManager wifi_lifecycle_;
-  TrafficGeneratorManager traffic_generator_;
-  UDPListener udp_listener_;
+  StimulusService stimulus_service_;
 
   std::vector<float> threshold_calibration_values_;
   uint16_t threshold_calibration_packets_{0};

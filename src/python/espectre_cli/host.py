@@ -29,7 +29,7 @@ def open_web_ui() -> None:
 def collect_csi_data(args) -> None:
     """Collect labeled CSI data for training on the host."""
     try:
-        from tools.csi_utils import CSICollector, get_dataset_stats, get_default_bind_host
+        from tools.csi_utils import CSICollector, StimulusSender, get_dataset_stats, get_default_bind_host
     except ImportError as e:
         print(f"{Fore.RED}❌ Failed to import csi_utils: {e}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Make sure tools/csi_utils.py exists{Style.RESET_ALL}")
@@ -45,8 +45,8 @@ def collect_csi_data(args) -> None:
             print(f"  {Fore.YELLOW}No samples collected yet.{Style.RESET_ALL}")
             print()
             print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
-            print("    1. Run the streamer firmware with collector IP/port configured to this host")
-            print("    2. Collect samples: ./espectre micro collect --label wave --samples 10")
+            print("    1. Run the streamer firmware on the device")
+            print("    2. Collect samples: ./espectre micro collect --label wave --samples 10 --streamer-ip 192.168.1.50")
         else:
             print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10}{Style.RESET_ALL}")
             print(f"  {'-' * 32}")
@@ -60,9 +60,13 @@ def collect_csi_data(args) -> None:
     if not args.label:
         print(f"{Fore.RED}❌ Label required. Use --label <name>{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Examples:{Style.RESET_ALL}")
-        print("  ./espectre micro collect --label wave --samples 10")
-        print("  ./espectre micro collect --label baseline --duration 10")
+        print("  ./espectre micro collect --label wave --samples 10 --streamer-ip 192.168.1.50")
+        print("  ./espectre micro collect --label baseline --duration 10 --streamer-ip 192.168.1.50")
         print("  ./espectre micro collect --info")
+        raise SystemExit(1)
+
+    if not args.streamer_ip:
+        print(f"{Fore.RED}❌ Streamer IP required. Use --streamer-ip <device_ip>{Style.RESET_ALL}")
         raise SystemExit(1)
 
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
@@ -75,11 +79,15 @@ def collect_csi_data(args) -> None:
     print(f"  {Fore.CYAN}Duration:{Style.RESET_ALL}  {args.duration}s per sample")
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
+    print(f"  {Fore.CYAN}Streamer IP:{Style.RESET_ALL} {args.streamer_ip}")
+    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {args.streamer_ip}:{args.stimulus_port}")
+    if args.reference_every > 0:
+        print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
     if args.description:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
     print(f"  {Fore.YELLOW}Chip type and gain lock status auto-detected from CSI stream{Style.RESET_ALL}")
-    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is running and targeting this host{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is running and reachable at the configured IP{Style.RESET_ALL}")
     print()
 
     collector = CSICollector(
@@ -89,7 +97,15 @@ def collect_csi_data(args) -> None:
         description=args.description,
         bind_host=resolved_bind_ip,
     )
+    stimulus_sender = StimulusSender(
+        target_host=args.streamer_ip,
+        target_port=args.stimulus_port,
+        rate_pps=args.stimulus_rate,
+        reference_every=args.reference_every,
+        source_host=resolved_bind_ip,
+    )
     try:
+        stimulus_sender.start()
         if args.interactive:
             saved = collector.collect_interactive(num_samples=args.samples, duration=args.duration)
         else:
@@ -103,18 +119,20 @@ def collect_csi_data(args) -> None:
     except Exception as e:
         print(f"\n{Fore.RED}❌ Error during collection: {e}{Style.RESET_ALL}")
         raise SystemExit(1)
+    finally:
+        stimulus_sender.stop()
 
 
 def detect_live_motion(args) -> None:
     """Run live ML motion detection on the host from the UDP CSI stream."""
     try:
-        from tools.csi_utils import CSIReceiver, get_default_bind_host
+        from tools.csi_utils import CSIReceiver, StimulusSender, get_default_bind_host
         import config
         from ml_detector import FEATURE_NAMES, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE, MLDetector
         from runtime_policy import RuntimeMotionPolicy
     except ImportError:
         try:
-            from tools.csi_utils import CSIReceiver, get_default_bind_host
+            from tools.csi_utils import CSIReceiver, StimulusSender, get_default_bind_host
             import src.config as config
             from src.ml_detector import FEATURE_NAMES, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE, MLDetector
             from src.runtime_policy import RuntimeMotionPolicy
@@ -180,6 +198,13 @@ def detect_live_motion(args) -> None:
     )
     publish_rate = getattr(config, "PUBLISH_INTERVAL", 100) or 100
     receiver = CSIReceiver(port=args.udp_port, buffer_size=4000, bind_host=resolved_bind_ip)
+    stimulus_sender = StimulusSender(
+        target_host=args.streamer_ip,
+        target_port=args.stimulus_port,
+        rate_pps=args.stimulus_rate,
+        reference_every=args.reference_every,
+        source_host=resolved_bind_ip,
+    )
 
     state = {"running": True, "packet_count": 0, "publish_counter": 0}
 
@@ -246,6 +271,10 @@ def detect_live_motion(args) -> None:
     print()
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
+    print(f"  {Fore.CYAN}Streamer IP:{Style.RESET_ALL} {args.streamer_ip}")
+    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {args.streamer_ip}:{args.stimulus_port}")
+    if args.reference_every > 0:
+        print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
     print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {threshold:.1f}")
     print(f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {config.SEG_WINDOW_SIZE} pkts")
     print(f"  {Fore.CYAN}Subcarriers:{Style.RESET_ALL} {subcarriers}")
@@ -253,11 +282,12 @@ def detect_live_motion(args) -> None:
     print(f"  {Fore.CYAN}Low-pass:{Style.RESET_ALL}  {'ON' if config.ENABLE_LOWPASS_FILTER else 'OFF'}")
     print(f"  {Fore.CYAN}Hampel:{Style.RESET_ALL}    {'ON' if config.ENABLE_HAMPEL_FILTER else 'OFF'}")
     print()
-    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is running and targeting this host{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is running and reachable at the configured IP{Style.RESET_ALL}")
     print(f"  {Fore.YELLOW}Press Ctrl+C to stop{Style.RESET_ALL}")
     print()
 
     try:
+        stimulus_sender.start()
         while state["running"]:
             receiver.run(timeout=1.0, quiet=True)
     except KeyboardInterrupt:
@@ -266,5 +296,6 @@ def detect_live_motion(args) -> None:
         print(f"\n{Fore.RED}❌ Error during live detection: {e}{Style.RESET_ALL}")
         raise SystemExit(1)
     finally:
+        stimulus_sender.stop()
         receiver.stop()
         print(f"\n{Fore.GREEN}Done.{Style.RESET_ALL}\n")

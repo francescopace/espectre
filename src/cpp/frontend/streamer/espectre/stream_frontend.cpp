@@ -14,10 +14,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include "csi_payload_normalizer.h"
-#include "csi_platform_config.h"
 #include "csi_stream_protocol.h"
 #include "espectre_log.h"
+#include "stimulus_protocol.h"
 #include "utils.h"
 #include "esp_attr.h"
 #include "esp_event.h"
@@ -59,22 +58,6 @@ constexpr GainLockMode kGainLockMode =
 #else
     GainLockMode::AUTO;
 #endif
-
-constexpr TrafficGeneratorMode kTrafficGeneratorMode =
-#if CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
-    TrafficGeneratorMode::DNS;
-#else
-    TrafficGeneratorMode::PING;
-#endif
-
-constexpr uint8_t kStimulusMagic[4] = {'E', 'S', 'T', 'M'};
-constexpr uint8_t kStimulusVersion = 1U;
-constexpr uint8_t kStimulusRoleMeasurement = 0U;
-constexpr uint8_t kStimulusRoleReference = 1U;
-constexpr size_t kStimulusHeaderBytes = 10U;
-constexpr size_t kLlcSnapHeaderBytes = 8U;
-constexpr uint16_t kEtherTypeIpv4 = 0x0800U;
-constexpr uint8_t kIpProtoUdp = 17U;
 
 const char *workflow_state_name(StreamFrontend::WorkflowState state) {
   switch (state) {
@@ -118,98 +101,6 @@ bool parse_bssid(const char *text, uint8_t out[6]) {
   return true;
 }
 
-uint16_t read_be16(const uint8_t *data) {
-  return static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8U) | static_cast<uint16_t>(data[1]));
-}
-
-uint32_t read_be32(const uint8_t *data) {
-  return (static_cast<uint32_t>(data[0]) << 24U) | (static_cast<uint32_t>(data[1]) << 16U) |
-         (static_cast<uint32_t>(data[2]) << 8U) | static_cast<uint32_t>(data[3]);
-}
-
-bool parse_stimulus_datagram(const uint8_t *payload, size_t payload_len, uint32_t *stimulus_id, bool *is_reference) {
-  if (payload == nullptr || stimulus_id == nullptr || is_reference == nullptr || payload_len < kStimulusHeaderBytes) {
-    return false;
-  }
-  if (std::memcmp(payload, kStimulusMagic, sizeof(kStimulusMagic)) != 0 || payload[4] != kStimulusVersion) {
-    return false;
-  }
-  if (payload[5] != kStimulusRoleMeasurement && payload[5] != kStimulusRoleReference) {
-    return false;
-  }
-
-  *stimulus_id = read_be32(payload + 6U);
-  *is_reference = (payload[5] == kStimulusRoleReference);
-  return true;
-}
-
-bool parse_stimulus_from_llc_snap(const uint8_t *payload,
-                                  size_t payload_len,
-                                  uint32_t *stimulus_id,
-                                  bool *is_reference) {
-  if (payload == nullptr || stimulus_id == nullptr || is_reference == nullptr ||
-      payload_len < kLlcSnapHeaderBytes + 20U + 8U + kStimulusHeaderBytes) {
-    return false;
-  }
-  if (payload[0] != 0xAAU || payload[1] != 0xAAU || payload[2] != 0x03U || payload[3] != 0x00U ||
-      payload[4] != 0x00U || payload[5] != 0x00U || read_be16(payload + 6U) != kEtherTypeIpv4) {
-    return false;
-  }
-
-  const uint8_t *ip = payload + kLlcSnapHeaderBytes;
-  const size_t ip_len = payload_len - kLlcSnapHeaderBytes;
-  if (ip_len < 20U || (ip[0] >> 4U) != 4U || ip[9] != kIpProtoUdp) {
-    return false;
-  }
-
-  const size_t ip_header_len = static_cast<size_t>(ip[0] & 0x0FU) * 4U;
-  if (ip_header_len < 20U || ip_len < ip_header_len + 8U + kStimulusHeaderBytes) {
-    return false;
-  }
-
-  const uint16_t fragment_field = read_be16(ip + 6U);
-  if ((fragment_field & 0x3FFFU) != 0U) {
-    return false;
-  }
-
-  const uint8_t *udp = ip + ip_header_len;
-  const uint16_t dst_port = read_be16(udp + 2U);
-  if (dst_port != static_cast<uint16_t>(CONFIG_ESPECTRE_TRAFFIC_RX_PORT)) {
-    return false;
-  }
-
-  return parse_stimulus_datagram(udp + 8U, ip_len - ip_header_len - 8U, stimulus_id, is_reference);
-}
-
-bool extract_stimulus_metadata(const wifi_csi_info_t *info, uint32_t *stimulus_id, bool *is_reference) {
-  if (info == nullptr || stimulus_id == nullptr || is_reference == nullptr || info->payload == nullptr ||
-      info->payload_len == 0U) {
-    return false;
-  }
-
-  const auto *payload = reinterpret_cast<const uint8_t *>(info->payload);
-  const size_t payload_len = info->payload_len;
-  if (parse_stimulus_datagram(payload, payload_len, stimulus_id, is_reference)) {
-    return true;
-  }
-  if (parse_stimulus_from_llc_snap(payload, payload_len, stimulus_id, is_reference)) {
-    return true;
-  }
-
-  constexpr uint8_t kLlcSnapPrefix[6] = {0xAAU, 0xAAU, 0x03U, 0x00U, 0x00U, 0x00U};
-  const size_t scan_limit = std::min<size_t>(payload_len, 32U);
-  for (size_t offset = 1U; offset + sizeof(kLlcSnapPrefix) <= scan_limit; offset++) {
-    if (std::memcmp(payload + offset, kLlcSnapPrefix, sizeof(kLlcSnapPrefix)) != 0) {
-      continue;
-    }
-    if (parse_stimulus_from_llc_snap(payload + offset, payload_len - offset, stimulus_id, is_reference)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 StreamChipType detect_chip_code() {
 #if CONFIG_IDF_TARGET_ESP32C6
   return StreamChipType::C6;
@@ -241,20 +132,23 @@ uint64_t derive_device_id() {
   return device_id;
 }
 
-bool parse_collector_addr(sockaddr_in *out_addr) {
-  if (out_addr == nullptr) {
-    return false;
+void format_ipv4_addr(uint32_t network_addr, char *buffer, size_t buffer_len) {
+  if (buffer == nullptr || buffer_len == 0U) {
+    return;
+  }
+  if (network_addr == 0U) {
+    std::snprintf(buffer, buffer_len, "0.0.0.0");
+    return;
   }
 
-  sockaddr_in addr{};
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
-  if (inet_aton(CONFIG_ESPECTRE_COLLECTOR_IP, &addr.sin_addr) == 0) {
-    return false;
-  }
-
-  *out_addr = addr;
-  return true;
+  const uint32_t host_addr = ntohl(network_addr);
+  std::snprintf(buffer,
+                buffer_len,
+                "%u.%u.%u.%u",
+                static_cast<unsigned>((host_addr >> 24U) & 0xFFU),
+                static_cast<unsigned>((host_addr >> 16U) & 0xFFU),
+                static_cast<unsigned>((host_addr >> 8U) & 0xFFU),
+                static_cast<unsigned>(host_addr & 0xFFU));
 }
 
 bool fill_gain_metadata(const wifi_csi_info_t *info, CsiStreamHeaderV2 *header) {
@@ -365,23 +259,19 @@ bool StreamFrontend::setup() {
   }
 
   sockaddr_in collector_addr{};
-  if (kStreamOutputEnabled) {
-    if (!parse_collector_addr(&collector_addr)) {
-      ESP_LOGE(TAG, "Invalid collector address: %s", CONFIG_ESPECTRE_COLLECTOR_IP);
-      return false;
-    }
-    udp_sender_.set_collector(collector_addr, true);
-  } else {
-    udp_sender_.set_collector(collector_addr, false);
-  }
-
-  traffic_generator_.init(CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE, kTrafficGeneratorMode);
-  udp_listener_.init(static_cast<uint16_t>(CONFIG_ESPECTRE_TRAFFIC_RX_PORT));
-  if (CONFIG_ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP[0] != '\0') {
-    udp_listener_.set_multicast_group(CONFIG_ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP);
-  }
-  gain_controller_.init(kGainLockMode);
-  gain_controller_.set_lock_complete_callback([this]() { gain_lock_complete_.store(true, std::memory_order_relaxed); });
+  collector_addr.sin_family = AF_INET;
+  collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
+  udp_sender_.set_collector(collector_addr, false);
+  StimulusServiceConfig stimulus_config;
+  stimulus_config.mode = StimulusMode::EXTERNAL;
+  stimulus_config.udp_port = static_cast<uint16_t>(CONFIG_ESPECTRE_TRAFFIC_RX_PORT);
+  stimulus_config.multicast_group = CONFIG_ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP;
+  stimulus_service_.init(stimulus_config);
+  capture_service_.init(kGainLockMode);
+  capture_service_.set_gain_lock_callback([this]() { gain_lock_complete_.store(true, std::memory_order_relaxed); });
+  capture_service_.set_gain_packet_callback([this](const wifi_csi_info_t *info) { this->handle_gain_lock_packet_(info); });
+  capture_service_.set_packet_callback(
+      [this](const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) { this->handle_csi_packet_(info, normalized); });
 
   if (!init_wifi_station_()) {
     return false;
@@ -389,8 +279,7 @@ bool StreamFrontend::setup() {
 
   setup_complete_ = true;
   ESP_LOGI(TAG,
-           "Streamer frontend ready: collector=%s:%u gain_lock=%s traffic_rx_port=%u device_id=0x%016" PRIx64,
-           kStreamOutputEnabled ? CONFIG_ESPECTRE_COLLECTOR_IP : "(disabled)",
+           "Streamer frontend ready: collector=learned:%u gain_lock=%s traffic_rx_port=%u device_id=0x%016" PRIx64,
            static_cast<unsigned>(CONFIG_ESPECTRE_COLLECTOR_PORT),
            kGainLockEnabled ? "on" : "off",
            static_cast<unsigned>(CONFIG_ESPECTRE_TRAFFIC_RX_PORT),
@@ -403,8 +292,22 @@ void StreamFrontend::loop() {
     return;
   }
 
-  if (udp_listener_.is_running()) {
-    udp_listener_.loop();
+  if (stimulus_service_.is_running()) {
+    stimulus_service_.loop();
+    if (kStreamOutputEnabled) {
+      sockaddr_in sender_addr{};
+      if (stimulus_service_.get_last_sender(&sender_addr) && sender_addr.sin_addr.s_addr != collector_ip_addr_) {
+        collector_ip_addr_ = sender_addr.sin_addr.s_addr;
+        sender_addr.sin_family = AF_INET;
+        sender_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
+        udp_sender_.set_collector(sender_addr, true);
+
+        char addr_text[16];
+        format_ipv4_addr(collector_ip_addr_, addr_text, sizeof(addr_text));
+        ESP_LOGI(TAG, "Learned collector address from stimulus sender: %s:%u", addr_text,
+                 static_cast<unsigned>(CONFIG_ESPECTRE_COLLECTOR_PORT));
+      }
+    }
   }
 
   if (!wifi_connected_.load(std::memory_order_relaxed)) {
@@ -416,11 +319,14 @@ void StreamFrontend::loop() {
   if (state == WorkflowState::WAIT_WIFI) {
     transition_to_(WorkflowState::WIFI_READY, "wifi connected");
   } else if (state == WorkflowState::WIFI_READY) {
-    if (start_csi_()) {
+    if (start_capture_()) {
+      if (!stimulus_service_.is_running() && !stimulus_service_.start()) {
+        ESP_LOGW(TAG, "Failed to start stimulus service");
+      }
       transition_to_(WorkflowState::CSI_READY, "csi enabled");
     }
   } else if (state == WorkflowState::CSI_READY) {
-    if (!kGainLockEnabled || gain_controller_.is_locked()) {
+    if (!kGainLockEnabled || capture_service_.is_gain_locked()) {
       transition_to_(WorkflowState::STREAMING, "gain lock skipped");
     } else {
       transition_to_(WorkflowState::GAIN_LOCK, "collecting gain baseline");
@@ -428,9 +334,9 @@ void StreamFrontend::loop() {
   } else if (state == WorkflowState::GAIN_LOCK && gain_lock_complete_.exchange(false, std::memory_order_relaxed)) {
     ESP_LOGI(TAG,
              "Gain lock completed: agc=%u fft=%d needs_cv=%s",
-             static_cast<unsigned>(gain_controller_.get_agc_gain()),
-             static_cast<int>(gain_controller_.get_fft_gain()),
-             gain_controller_.needs_cv_normalization() ? "yes" : "no");
+             static_cast<unsigned>(capture_service_.get_gain_controller().get_agc_gain()),
+             static_cast<int>(capture_service_.get_gain_controller().get_fft_gain()),
+             capture_service_.get_gain_controller().needs_cv_normalization() ? "yes" : "no");
     transition_to_(WorkflowState::STREAMING, "gain lock complete");
   }
 
@@ -442,13 +348,8 @@ void StreamFrontend::shutdown() {
     return;
   }
 
-  stop_csi_();
-  if (traffic_generator_.is_running()) {
-    traffic_generator_.stop();
-  }
-  if (udp_listener_.is_running()) {
-    udp_listener_.stop();
-  }
+  stop_capture_();
+  stimulus_service_.stop();
   wifi_lifecycle_.unregister_handlers();
   if (wifi_event_instance_ != nullptr) {
     esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_instance_);
@@ -488,7 +389,7 @@ bool StreamFrontend::init_wifi_station_() {
   if (!check_esp(esp_wifi_init(&wifi_cfg), "esp_wifi_init") ||
       !check_esp(esp_wifi_set_storage(WIFI_STORAGE_RAM), "esp_wifi_set_storage") ||
       !check_esp(esp_wifi_set_mode(WIFI_MODE_STA), "esp_wifi_set_mode") ||
-      !check_esp(esp_wifi_set_ps(WIFI_PS_NONE), "esp_wifi_set_ps")) {
+      !check_esp(esp_wifi_set_ps(WIFI_PS_MIN_MODEM), "esp_wifi_set_ps")) {
     return false;
   }
 
@@ -511,7 +412,9 @@ bool StreamFrontend::init_wifi_station_() {
   std::snprintf(reinterpret_cast<char *>(sta_cfg.sta.ssid), sizeof(sta_cfg.sta.ssid), "%s", CONFIG_ESPECTRE_WIFI_SSID);
   std::snprintf(reinterpret_cast<char *>(sta_cfg.sta.password), sizeof(sta_cfg.sta.password), "%s",
                 CONFIG_ESPECTRE_WIFI_PASSWORD);
-  sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+  sta_cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+  sta_cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+  sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
   sta_cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
   sta_cfg.sta.pmf_cfg.capable = true;
   sta_cfg.sta.pmf_cfg.required = false;
@@ -530,105 +433,98 @@ bool StreamFrontend::init_wifi_station_() {
   return check_esp(esp_wifi_start(), "esp_wifi_start");
 }
 
-bool StreamFrontend::start_csi_() {
-  if (csi_enabled_.load(std::memory_order_relaxed)) {
+bool StreamFrontend::start_capture_() {
+  if (capture_service_.is_enabled()) {
     return true;
   }
 
-  if (!check_esp(configure_ht20_csi(&wifi_csi_), "configure_ht20_csi") ||
-      !check_esp(wifi_csi_.set_csi_rx_cb(&StreamFrontend::csi_rx_callback_wrapper_, this), "esp_wifi_set_csi_rx_cb") ||
-      !check_esp(wifi_csi_.set_csi(true), "esp_wifi_set_csi")) {
-    return false;
-  }
-
-  csi_enabled_.store(true, std::memory_order_relaxed);
-  return true;
+  return check_esp(capture_service_.enable(), "capture_service_.enable");
 }
 
-void StreamFrontend::stop_csi_() {
-  if (!csi_enabled_.load(std::memory_order_relaxed)) {
+void StreamFrontend::stop_capture_() {
+  if (!capture_service_.is_enabled()) {
     return;
   }
 
-  (void)wifi_csi_.set_csi(false);
-  (void)wifi_csi_.set_csi_rx_cb(nullptr, nullptr);
-  csi_enabled_.store(false, std::memory_order_relaxed);
+  (void)capture_service_.disable();
 }
 
 void StreamFrontend::on_wifi_connected_() {
   wifi_connected_.store(true, std::memory_order_relaxed);
   wifi_retry_count_ = 0;
-  gain_controller_.init(kGainLockMode);
-  gain_controller_.set_lock_complete_callback([this]() { gain_lock_complete_.store(true, std::memory_order_relaxed); });
+  collector_ip_addr_ = 0U;
   gain_lock_complete_.store(false, std::memory_order_relaxed);
-
-  if (CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE > 0) {
-    if (!traffic_generator_.is_running() && !traffic_generator_.start()) {
-      ESP_LOGW(TAG, "Failed to start traffic generator");
-    }
-  } else if (!udp_listener_.is_running() && !udp_listener_.start()) {
-    ESP_LOGW(TAG, "Failed to start UDP listener");
-  }
+  sockaddr_in collector_addr{};
+  collector_addr.sin_family = AF_INET;
+  collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
+  udp_sender_.set_collector(collector_addr, false);
+  capture_service_.reset_session();
 }
 
 void StreamFrontend::on_wifi_disconnected_() {
   wifi_connected_.store(false, std::memory_order_relaxed);
-  stop_csi_();
-  if (traffic_generator_.is_running()) {
-    traffic_generator_.stop();
-  }
-  if (udp_listener_.is_running()) {
-    udp_listener_.stop();
-  }
+  stop_capture_();
+  stimulus_service_.stop();
+  collector_ip_addr_ = 0U;
+  sockaddr_in collector_addr{};
+  collector_addr.sin_family = AF_INET;
+  collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
+  udp_sender_.set_collector(collector_addr, false);
   transition_to_(WorkflowState::WAIT_WIFI, "wifi disconnected");
 }
 
-void StreamFrontend::handle_csi_packet_(wifi_csi_info_t *info) {
-  if (info == nullptr || info->buf == nullptr || info->len == 0U) {
+void StreamFrontend::handle_gain_lock_packet_(const wifi_csi_info_t *info) {
+  csi_callback_total_++;
+  if (info == nullptr) {
+    return;
+  }
+  last_csi_len_ = info->len;
+  last_csi_payload_len_ = info->payload_len;
+  if (info->buf == nullptr || info->len == 0U) {
+    return;
+  }
+  csi_nonempty_total_++;
+  if (info->payload != nullptr && info->payload_len > 0U) {
+    csi_payload_present_total_++;
+  }
+
+  const WorkflowState state = state_.load(std::memory_order_relaxed);
+  if (state != WorkflowState::GAIN_LOCK) {
     return;
   }
 
   csi_rx_total_++;
   last_csi_ms_ = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
   last_csi_channel_ = info->rx_ctrl.channel;
+}
 
-  const WorkflowState state = state_.load(std::memory_order_relaxed);
-  if (state == WorkflowState::GAIN_LOCK) {
-    gain_controller_.process_packet(info);
+void StreamFrontend::handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) {
+  csi_callback_total_++;
+  if (info == nullptr || !normalized.valid()) {
     return;
   }
-  if (state != WorkflowState::STREAMING) {
-    return;
+  last_csi_len_ = info->len;
+  last_csi_payload_len_ = info->payload_len;
+  csi_nonempty_total_++;
+  if (info->payload != nullptr && info->payload_len > 0U) {
+    csi_payload_present_total_++;
   }
 
-  int8_t remap_buffer[HT20_CSI_LEN];
-  const NormalizedCSIPayload normalized =
-      normalize_ht20_csi_payload(info->buf, info->len, remap_buffer, sizeof(remap_buffer));
-  if (!normalized.valid()) {
+  StimulusMetadata stimulus{};
+  const bool has_stimulus = extract_stimulus_metadata_from_csi(info, collector_ip_addr_, &stimulus);
+  if (!has_stimulus) {
+    stimulus_parse_fail_total_++;
     filtered_total_++;
-    if (filtered_total_ % 100 == 1) {
-      ESP_LOGW(TAG, "Filtered %llu packets with unsupported CSI length %u",
-               static_cast<unsigned long long>(filtered_total_), static_cast<unsigned>(info->len));
-    }
     return;
   }
 
-  if (!collapse_logged_ &&
-      (normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT20 ||
-       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
-    ESP_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
-    collapse_logged_ = true;
-  }
-  if (!remap_logged_ &&
-      (normalized.tag == NormalizedCSIPayloadTag::HT57_TO_64 ||
-       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
-    ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
-    remap_logged_ = true;
+  if (state_.load(std::memory_order_relaxed) != WorkflowState::STREAMING) {
+    return;
   }
 
-  uint32_t stimulus_id = 0U;
-  bool is_reference = false;
-  const bool has_stimulus = extract_stimulus_metadata(info, &stimulus_id, &is_reference);
+  csi_rx_total_++;
+  last_csi_ms_ = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+  last_csi_channel_ = info->rx_ctrl.channel;
 
   std::array<uint8_t, CsiUdpSender::MAX_PACKET_BYTES> packet{};
   auto *header = reinterpret_cast<CsiStreamHeaderV2 *>(packet.data());
@@ -657,7 +553,7 @@ void StreamFrontend::handle_csi_packet_(wifi_csi_info_t *info) {
   header->fft_gain = 0;
   header->reserved0 = 0U;
 
-  if (!gain_controller_.needs_cv_normalization()) {
+  if (!capture_service_.get_gain_controller().needs_cv_normalization()) {
     header->flags |= STREAM_FLAG_GAIN_LOCKED;
   }
   if (info->first_word_invalid) {
@@ -673,10 +569,10 @@ void StreamFrontend::handle_csi_packet_(wifi_csi_info_t *info) {
     header->flags |= STREAM_FLAG_WIFI_RX_START_TS_NS_VALID;
   }
   if (has_stimulus) {
-    stream_set_stimulus_id(header, stimulus_id);
+    stream_set_stimulus_id(header, stimulus.stimulus_id);
     stimulus_valid_total_++;
     header->flags |= STREAM_FLAG_STIMULUS_ID_VALID;
-    if (is_reference) {
+    if (stimulus.is_reference) {
       reference_frame_total_++;
       header->flags |= STREAM_FLAG_REFERENCE_FRAME;
     }
@@ -701,65 +597,87 @@ void StreamFrontend::log_runtime_telemetry_() {
     return;
   }
 
+  const WorkflowState state = state_.load(std::memory_order_relaxed);
+  if (state == WorkflowState::WAIT_WIFI || state == WorkflowState::WIFI_READY || state == WorkflowState::CSI_READY) {
+    last_log_ms_ = now_ms;
+    return;
+  }
+
   static uint64_t prev_csi_rx = 0U;
+  static uint64_t prev_csi_callback = 0U;
   static uint64_t prev_stimulus_valid = 0U;
-  static uint64_t prev_reference = 0U;
   static uint64_t prev_traffic_rx = 0U;
-  static uint64_t prev_queued = 0U;
   static uint64_t prev_tx = 0U;
   static uint64_t prev_drop = 0U;
   static uint64_t prev_fail = 0U;
+  static uint64_t prev_parse_fail = 0U;
   static uint64_t prev_ms = now_ms;
+  static bool stream_active_last_tick = true;
 
   const uint64_t dt_ms = std::max<uint64_t>(1U, now_ms - prev_ms);
-  const float csi_rx_pps = static_cast<float>(csi_rx_total_ - prev_csi_rx) * 1000.0F / static_cast<float>(dt_ms);
+  const float csi_callback_pps =
+      static_cast<float>(csi_callback_total_ - prev_csi_callback) * 1000.0F / static_cast<float>(dt_ms);
   const float stimulus_pps =
       static_cast<float>(stimulus_valid_total_ - prev_stimulus_valid) * 1000.0F / static_cast<float>(dt_ms);
-  const float reference_pps =
-      static_cast<float>(reference_frame_total_ - prev_reference) * 1000.0F / static_cast<float>(dt_ms);
-  const float queued_pps =
-      static_cast<float>(udp_sender_.queued_total() - prev_queued) * 1000.0F / static_cast<float>(dt_ms);
   const float traffic_rx_pps =
-      static_cast<float>(udp_listener_.get_packets_received() - prev_traffic_rx) * 1000.0F / static_cast<float>(dt_ms);
+      static_cast<float>(stimulus_service_.get_packets_received() - prev_traffic_rx) * 1000.0F /
+      static_cast<float>(dt_ms);
   const float tx_pps = static_cast<float>(udp_sender_.tx_total() - prev_tx) * 1000.0F / static_cast<float>(dt_ms);
   const float drop_pps =
       static_cast<float>(udp_sender_.drop_total() - prev_drop) * 1000.0F / static_cast<float>(dt_ms);
   const float fail_pps =
       static_cast<float>(udp_sender_.send_fail_total() - prev_fail) * 1000.0F / static_cast<float>(dt_ms);
+  const float parse_fail_pps =
+      static_cast<float>(stimulus_parse_fail_total_ - prev_parse_fail) * 1000.0F / static_cast<float>(dt_ms);
   const uint32_t csi_age_ms = (last_csi_ms_ > 0U && now_ms >= last_csi_ms_) ? static_cast<uint32_t>(now_ms - last_csi_ms_)
                                                                               : 0U;
 
-  ESP_LOGI(TAG,
-           "state=%s pps[csi=%.2f stim=%.2f ref=%.2f traffic_rx=%.2f queued=%.2f tx=%.2f] drop=%.2f fail=%.2f channel=%u age_ms=%" PRIu32,
-           workflow_state_name(state_.load(std::memory_order_relaxed)),
-           csi_rx_pps,
-           stimulus_pps,
-           reference_pps,
-           traffic_rx_pps,
-           queued_pps,
-           tx_pps,
-           drop_pps,
-           fail_pps,
-           static_cast<unsigned>(last_csi_channel_),
-           csi_age_ms);
+  if (state == WorkflowState::GAIN_LOCK) {
+    ESP_LOGI(TAG,
+             "state=GAIN_LOCK csi=%.2f traffic=%.2f age_ms=%" PRIu32 " channel=%u",
+             csi_callback_pps,
+             traffic_rx_pps,
+             csi_age_ms,
+             static_cast<unsigned>(last_csi_channel_));
+  } else if (state == WorkflowState::STREAMING) {
+    const bool stream_active =
+        csi_callback_pps > 1.0F || stimulus_pps > 1.0F || tx_pps > 1.0F || traffic_rx_pps > 1.0F;
+    if (stream_active) {
+      ESP_LOGI(TAG,
+               "state=STREAMING csi=%.2f stim=%.2f traffic=%.2f tx=%.2f channel=%u age_ms=%" PRIu32,
+               csi_callback_pps,
+               stimulus_pps,
+               traffic_rx_pps,
+               tx_pps,
+               static_cast<unsigned>(last_csi_channel_),
+               csi_age_ms);
+      if (parse_fail_pps > 0.0F || drop_pps > 0.0F || fail_pps > 0.0F) {
+        ESP_LOGW(TAG,
+                 "stream anomalies: parse_fail=%.2f drop=%.2f fail=%.2f payload_len=%u",
+                 parse_fail_pps,
+                 drop_pps,
+                 fail_pps,
+                 static_cast<unsigned>(last_csi_payload_len_));
+      }
+    } else if (stream_active_last_tick) {
+      ESP_LOGW(TAG,
+               "stream idle: no stimulus/csi activity for %" PRIu32 " ms",
+               csi_age_ms);
+    }
+    stream_active_last_tick = stream_active;
+  } else {
+    stream_active_last_tick = true;
+  }
 
-  prev_csi_rx = csi_rx_total_;
+  prev_csi_callback = csi_callback_total_;
   prev_stimulus_valid = stimulus_valid_total_;
-  prev_reference = reference_frame_total_;
-  prev_traffic_rx = udp_listener_.get_packets_received();
-  prev_queued = udp_sender_.queued_total();
+  prev_traffic_rx = stimulus_service_.get_packets_received();
   prev_tx = udp_sender_.tx_total();
   prev_drop = udp_sender_.drop_total();
   prev_fail = udp_sender_.send_fail_total();
+  prev_parse_fail = stimulus_parse_fail_total_;
   prev_ms = now_ms;
   last_log_ms_ = now_ms;
-}
-
-void IRAM_ATTR StreamFrontend::csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *info) {
-  StreamFrontend *frontend = static_cast<StreamFrontend *>(ctx);
-  if (frontend != nullptr) {
-    frontend->handle_csi_packet_(info);
-  }
 }
 
 void StreamFrontend::wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {

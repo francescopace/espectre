@@ -43,6 +43,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Streamer collection flow is now collector-driven**: the standalone streamer no longer depends on a built-in traffic generator or a static `COLLECTOR_IP`; it learns the collector from external UDP stimulus, while the host collector now emits `ESTM` packets with collector-controlled `stimulus_id` / `reference` policy for ML dataset capture.
 - **CSI live streaming unified around the C++ streamer frontend**: the host collector now targets the versioned ESP-IDF streamer protocol, the legacy MicroPython UDP producer has been removed, and existing `.npz` datasets remain readable while newly collected samples gain optional device/stream metadata for realtime fusion workflows.
 - **Streamer protocol simplified for ML and realtime fusion**: FTM telemetry was removed, `stimulus_id` is now optional instead of gating packet emission, and the packet header now carries a stable `gain_locked` flag plus device-side timing metadata without changing the compact HT20 CSI payload layout.
 - **NBVI removed from the active runtime path**: MVS now uses the same fixed 12-subcarrier set as ML, startup calibration computes only the adaptive threshold in RAM, and no disk-backed calibration buffer is required anymore.

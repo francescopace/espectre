@@ -75,23 +75,13 @@ ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
 ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.Number, cg.Component)
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
 
-_CPP_ROOT = Path(__file__).resolve().parents[3]
-_LIBRARY_ROOT = _CPP_ROOT
-_INCLUDE_DIRS = (
-    _CPP_ROOT / "core",
-    _CPP_ROOT / "runtime",
-    _CPP_ROOT / "runtime" / "esp_idf",
-)
+_LIBRARY_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _library_uri(path: Path) -> str:
     """Return a PlatformIO-compatible file URI for local libraries."""
     return path.resolve().as_uri()
 
-
-def _include_flag(path: Path) -> str:
-    """Return a stable include flag across POSIX/Windows toolchains."""
-    return f'-I"{path.resolve().as_posix()}"'
 
 def validate_segmentation_threshold(value):
     """Validate segmentation_threshold: accepts 'auto', 'min', or a float."""
@@ -197,8 +187,6 @@ FINAL_VALIDATE_SCHEMA = cv.All(
 
 async def to_code(config):
     cg.add_library("espectre-shared", None, _library_uri(_LIBRARY_ROOT))
-    for include_dir in _INCLUDE_DIRS:
-        cg.add_build_flag(_include_flag(include_dir))
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)

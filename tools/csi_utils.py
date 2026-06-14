@@ -16,6 +16,7 @@ import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
 import ipaddress
 import json
@@ -77,6 +78,13 @@ STREAM_FLAG_STIMULUS_ID_VALID = 1 << 5
 STREAM_FLAG_REFERENCE_FRAME = 1 << 6
 CSI_HEADER_FORMAT = '<HBBBBIHHQQIQIBbbBbB'
 CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
+STIMULUS_MAGIC = b'ESTM'
+STIMULUS_VERSION = 1
+STIMULUS_ROLE_MEASUREMENT = 0
+STIMULUS_ROLE_REFERENCE = 1
+DEFAULT_STIMULUS_PORT = 9999
+DEFAULT_STIMULUS_RATE_PPS = 100
+STIMULUS_HEADER_STRUCT = struct.Struct('>4sBBI')
 
 
 def get_default_bind_host() -> str:
@@ -148,6 +156,101 @@ CHIP_CODES = {
     5: 'C5',
     6: 'C6',
 }
+
+
+# ============================================================================
+# Stimulus Generation
+# ============================================================================
+
+
+def build_stimulus_datagram(stimulus_id: int, *, is_reference: bool = False) -> bytes:
+    """Build one ESTM datagram consumed by the streamer firmware."""
+    if stimulus_id < 0 or stimulus_id > 0xFFFFFFFF:
+        raise ValueError(f'stimulus_id out of range: {stimulus_id}')
+    role = STIMULUS_ROLE_REFERENCE if is_reference else STIMULUS_ROLE_MEASUREMENT
+    return STIMULUS_HEADER_STRUCT.pack(STIMULUS_MAGIC, STIMULUS_VERSION, role, stimulus_id)
+
+
+class StimulusSender:
+    """Background UDP sender that drives streamer-side CSI stimulus."""
+
+    def __init__(
+        self,
+        target_host: str,
+        target_port: int = DEFAULT_STIMULUS_PORT,
+        rate_pps: int = DEFAULT_STIMULUS_RATE_PPS,
+        reference_every: int = 0,
+        stimulus_id_start: int = 1,
+        source_host: Optional[str] = None,
+    ):
+        if not target_host or not str(target_host).strip():
+            raise ValueError('target_host cannot be empty')
+        if target_port <= 0 or target_port > 65535:
+            raise ValueError(f'invalid target_port: {target_port}')
+        if rate_pps <= 0:
+            raise ValueError(f'rate_pps must be > 0, got {rate_pps}')
+        if reference_every < 0:
+            raise ValueError(f'reference_every must be >= 0, got {reference_every}')
+        if stimulus_id_start < 0 or stimulus_id_start > 0xFFFFFFFF:
+            raise ValueError(f'invalid stimulus_id_start: {stimulus_id_start}')
+
+        self.target_host = str(target_host).strip()
+        self.target_port = int(target_port)
+        self.rate_pps = int(rate_pps)
+        self.reference_every = int(reference_every)
+        self.next_stimulus_id = int(stimulus_id_start)
+        self.source_host = str(source_host).strip() if source_host is not None else ''
+        if self.source_host:
+            try:
+                ipaddress.ip_address(self.source_host)
+            except ValueError as exc:
+                raise ValueError(f'invalid source_host: {self.source_host}') from exc
+        self.sent_packets = 0
+        self.sock: Optional[socket.socket] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+
+    def start(self) -> None:
+        """Start sending ESTM packets in the background."""
+        if self._thread is not None:
+            return
+
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        if self.source_host:
+            self.sock.bind((self.source_host, 0))
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run, name='espectre-stimulus', daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stop the background stimulus sender."""
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+        if self.sock is not None:
+            self.sock.close()
+            self.sock = None
+
+    def _run(self) -> None:
+        interval_s = 1.0 / float(self.rate_pps)
+        next_deadline = time.monotonic()
+        while not self._stop_event.is_set():
+            packet_index = self.sent_packets + 1
+            is_reference = self.reference_every > 0 and (packet_index % self.reference_every) == 0
+            payload = build_stimulus_datagram(self.next_stimulus_id, is_reference=is_reference)
+            try:
+                if self.sock is not None:
+                    self.sock.sendto(payload, (self.target_host, self.target_port))
+            except OSError:
+                pass
+
+            self.sent_packets += 1
+            self.next_stimulus_id = (self.next_stimulus_id + 1) & 0xFFFFFFFF
+            next_deadline += interval_s
+            sleep_s = max(0.0, next_deadline - time.monotonic())
+            self._stop_event.wait(sleep_s)
 
 
 # ============================================================================

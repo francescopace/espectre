@@ -69,7 +69,8 @@ void CsiUdpSender::shutdown() {
 }
 
 void CsiUdpSender::set_collector(const sockaddr_in &collector_addr, bool enabled) {
-  collector_addr_ = collector_addr;
+  collector_ip_addr_.store(collector_addr.sin_addr.s_addr, std::memory_order_relaxed);
+  collector_port_.store(collector_addr.sin_port, std::memory_order_relaxed);
   collector_enabled_.store(enabled, std::memory_order_relaxed);
 }
 
@@ -116,7 +117,9 @@ void CsiUdpSender::run_sender_task_() {
     }
 
     PacketSlot &slot = slots_[slot_idx];
-    if (!collector_enabled_.load(std::memory_order_relaxed)) {
+    const uint32_t collector_ip_addr = collector_ip_addr_.load(std::memory_order_relaxed);
+    const uint16_t collector_port = collector_port_.load(std::memory_order_relaxed);
+    if (!collector_enabled_.load(std::memory_order_relaxed) || collector_ip_addr == 0U || collector_port == 0U) {
       send_fail_total_.fetch_add(1U, std::memory_order_relaxed);
       recycle_slot_(slot_idx);
       continue;
@@ -127,12 +130,16 @@ void CsiUdpSender::run_sender_task_() {
     }
 
     if (sock >= 0) {
+      sockaddr_in collector_addr{};
+      collector_addr.sin_family = AF_INET;
+      collector_addr.sin_addr.s_addr = collector_ip_addr;
+      collector_addr.sin_port = collector_port;
       const int rc = sendto(sock,
                             slot.packet.data(),
                             slot.packet_len,
                             0,
-                            reinterpret_cast<const sockaddr *>(&collector_addr_),
-                            sizeof(collector_addr_));
+                            reinterpret_cast<const sockaddr *>(&collector_addr),
+                            sizeof(collector_addr));
       if (rc == static_cast<int>(slot.packet_len)) {
         tx_total_.fetch_add(1U, std::memory_order_relaxed);
       } else {

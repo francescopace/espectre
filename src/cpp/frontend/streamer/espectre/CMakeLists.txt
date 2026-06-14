@@ -3,9 +3,12 @@ include("${CMAKE_CURRENT_LIST_DIR}/../../../espectre_sources.cmake")
 idf_component_register(
     SRCS
         ${ESPECTRE_FRONTEND_STREAMER_SOURCES}
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/gain_controller.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_protocol.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_service.cpp"
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"

@@ -1,6 +1,6 @@
 #include "frontend_runtime_shim.h"
 
-#include "../../../src/cpp/runtime/esp_idf/esp_idf_runtime.h"
+#include "esp_idf_runtime.h"
 
 namespace esphome {
 namespace espectre {
@@ -31,6 +31,8 @@ bool EspIdfRuntime::setup() { return frontend_runtime_shim::state.setup_result; 
 void EspIdfRuntime::shutdown() { frontend_runtime_shim::state.shutdown_called = true; }
 
 void EspIdfRuntime::loop() { frontend_runtime_shim::state.loop_calls++; }
+
+void EspIdfRuntime::set_services_armed(bool armed) { frontend_runtime_shim::state.services_armed = armed; }
 
 bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   frontend_runtime_shim::state.set_threshold_calls++;

@@ -14,10 +14,10 @@ protocol.
 The streamer frontend is responsible for:
 
 - capturing CSI on-device
-- optionally generating or receiving traffic stimulus
+- receiving external UDP stimulus
 - gain lock before streaming
 - packaging CSI into the UDP stream format
-- sending packets to a collector host
+- sending packets to the most recent stimulus sender host
 
 It is not the source of truth for:
 
@@ -122,22 +122,70 @@ Payload:
 
 Frontend-specific options are declared in [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild).
 
-Key knobs:
+Versioned defaults live in [`app/sdkconfig.defaults`](app/sdkconfig.defaults).
+Local Wi-Fi credentials should live in `app/sdkconfig.wifi`, which is gitignored.
+
+Typical local override file:
+
+```ini
+CONFIG_ESPECTRE_WIFI_SSID="YourSSID"
+CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
+# CONFIG_ESPECTRE_WIFI_BSSID is not set
+```
+
+Key knobs in the frontend surface:
 
 - `ESPECTRE_WIFI_SSID`
 - `ESPECTRE_WIFI_PASSWORD`
 - `ESPECTRE_WIFI_BSSID`
 - `ESPECTRE_STREAM_OUTPUT_ENABLED`
-- `ESPECTRE_COLLECTOR_IP`
 - `ESPECTRE_COLLECTOR_PORT`
 - `ESPECTRE_TRAFFIC_RX_PORT`
 - `ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP`
 - `ESPECTRE_GAIN_LOCK_ENABLED`
 - `ESPECTRE_GAIN_LOCK_MODE_*`
-- `ESPECTRE_TRAFFIC_GENERATOR_RATE`
-- `ESPECTRE_TRAFFIC_GENERATOR_MODE_*`
 - `ESPECTRE_STREAM_QUEUE_SLOTS`
 - `ESPECTRE_STREAM_LOG_INTERVAL_MS`
+
+Runtime behavior notes:
+
+- the streamer no longer owns an internal traffic generator
+- the collector address is learned from the source IP of the latest UDP stimulus packet
+- the UDP stimulus payload may carry the `ESTM` metadata header
+  (`magic + version + role + stimulus_id`), which is propagated into the CSI
+  stream when present
+
+## Collector-Driven Stimulus
+
+The streamer expects external UDP stimulus from the host collector.
+
+The collector is responsible for:
+
+- sending UDP packets to the streamer stimulus port
+- choosing the stimulus rate (`pps`)
+- assigning `stimulus_id`
+- optionally marking packets as reference frames
+
+The streamer is responsible for:
+
+- learning the collector IP from the source address of valid incoming stimulus
+- extracting `ESTM` metadata from the packet payload seen in CSI
+- copying `stimulus_id` / `reference` markers into the UDP CSI stream
+
+`ESTM` carries:
+
+- `magic`
+- `version`
+- `role`
+- `stimulus_id`
+
+Current roles:
+
+- measurement frame: normal sample used for the session stream
+- reference frame: sample marked with `STREAM_FLAG_REFERENCE_FRAME`
+
+Reference frames are controlled entirely by the collector. The streamer does
+not generate them on its own and does not reinterpret their meaning.
 
 ## Build and Tooling
 
@@ -149,12 +197,15 @@ Repository CLI:
 ./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX
 ```
 
+When `app/sdkconfig.wifi` exists, the repository CLI automatically passes
+`sdkconfig.defaults;sdkconfig.wifi` to `idf.py` for `build`.
+
 Raw ESP-IDF flow:
 
 ```bash
 cd src/cpp/frontend/streamer/app
-idf.py set-target esp32c3
-idf.py build
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" set-target esp32c3
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
 ```
 
 Current repository CLI target coverage for the streamer frontend is intentionally

@@ -20,6 +20,19 @@ TrafficGeneratorMode to_traffic_mode(RuntimeTrafficMode mode) {
   return mode == RuntimeTrafficMode::PING ? TrafficGeneratorMode::PING : TrafficGeneratorMode::DNS;
 }
 
+StimulusServiceConfig to_stimulus_config(const RuntimeConfig &config) {
+  StimulusServiceConfig stimulus_config;
+  stimulus_config.mode =
+      (config.stimulus_mode == StimulusMode::INTERNAL && config.traffic_generator_rate == 0U)
+          ? StimulusMode::EXTERNAL
+          : config.stimulus_mode;
+  stimulus_config.rate_pps = config.traffic_generator_rate;
+  stimulus_config.traffic_mode = to_traffic_mode(config.traffic_generator_mode);
+  stimulus_config.udp_port = config.stimulus_udp_port;
+  stimulus_config.multicast_group = config.stimulus_multicast_group;
+  return stimulus_config;
+}
+
 GainLockMode to_gain_lock_mode(RuntimeGainLockMode mode) {
   switch (mode) {
     case RuntimeGainLockMode::ENABLED:
@@ -55,8 +68,7 @@ bool EspIdfRuntime::setup() {
     return false;
   }
 
-  traffic_generator_.init(config_.traffic_generator_rate, to_traffic_mode(config_.traffic_generator_mode));
-  udp_listener_.init(5555);
+  stimulus_service_.init(to_stimulus_config(config_));
 
   csi_manager_.init(detector_, config_.publish_interval, to_gain_lock_mode(config_.gain_lock_mode));
   csi_manager_.set_evaluation_interval(config_.evaluation_interval);
@@ -100,12 +112,7 @@ void EspIdfRuntime::shutdown() {
 }
 
 void EspIdfRuntime::loop() {
-  if (traffic_generator_.is_running()) {
-    traffic_generator_.loop();
-  }
-  if (udp_listener_.is_running()) {
-    udp_listener_.loop();
-  }
+  stimulus_service_.loop();
 }
 
 void EspIdfRuntime::set_services_armed(bool armed) {
@@ -227,13 +234,8 @@ void EspIdfRuntime::on_wifi_connected_() {
     }
   }
 
-  if (config_.traffic_generator_rate > 0) {
-    if (!traffic_generator_.is_running() && !traffic_generator_.start()) {
-      notify_fault_("Failed to start traffic generator");
-      return;
-    }
-  } else if (!udp_listener_.is_running() && !udp_listener_.start()) {
-    notify_fault_("Failed to start UDP listener");
+  if (!stimulus_service_.is_running() && !stimulus_service_.start()) {
+    notify_fault_("Failed to start stimulus service");
     return;
   }
 
@@ -255,12 +257,7 @@ void EspIdfRuntime::on_wifi_disconnected_() {
   threshold_calibration_active_ = false;
   csi_manager_.set_packet_interceptor({});
   csi_manager_.disable();
-  if (traffic_generator_.is_running()) {
-    traffic_generator_.stop();
-  }
-  if (udp_listener_.is_running()) {
-    udp_listener_.stop();
-  }
+  stimulus_service_.stop();
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
   if (listener_ != nullptr) {

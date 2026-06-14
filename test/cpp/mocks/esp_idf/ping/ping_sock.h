@@ -28,6 +28,7 @@ typedef struct {
     uint32_t data_size;
     uint32_t task_stack_size;
     uint32_t task_prio;
+    uint32_t interface;
 } esp_ping_config_t;
 
 // Default config macro
@@ -39,7 +40,12 @@ typedef struct {
     .data_size = 64, \
     .task_stack_size = 2048, \
     .task_prio = 2, \
+    .interface = 0, \
 }
+
+typedef enum {
+    ESP_PING_PROF_REQUEST = 0,
+} esp_ping_profile_t;
 
 // Ping callbacks
 typedef struct {
@@ -71,6 +77,18 @@ static inline esp_err_t esp_ping_stop(esp_ping_handle_t hdl) {
 
 static inline esp_err_t esp_ping_delete_session(esp_ping_handle_t hdl) {
     (void)hdl;
+    return ESP_OK;
+}
+
+static inline esp_err_t esp_ping_get_profile(esp_ping_handle_t hdl,
+                                             esp_ping_profile_t profile,
+                                             void *data,
+                                             uint32_t size) {
+    (void)hdl;
+    (void)profile;
+    if (data != nullptr && size >= sizeof(uint32_t)) {
+        *(uint32_t *)data = 1U;
+    }
     return ESP_OK;
 }
 

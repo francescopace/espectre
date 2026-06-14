@@ -7,7 +7,21 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent
 REPO_VENV_DIR = REPO_ROOT / ".venv"
-REPO_VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
+
+
+def _repo_venv_python() -> Path:
+    candidates = (
+        REPO_VENV_DIR / "bin" / "python",
+        REPO_VENV_DIR / "Scripts" / "python.exe",
+        REPO_VENV_DIR / "Scripts" / "python",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+REPO_VENV_PYTHON = _repo_venv_python()
 
 if (
     os.environ.get("ESPECTRE_SKIP_VENV_REEXEC") != "1"

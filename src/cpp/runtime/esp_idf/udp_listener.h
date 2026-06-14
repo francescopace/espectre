@@ -11,8 +11,11 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
+
+#include "lwip/sockets.h"
 
 namespace esphome {
 namespace espectre {
@@ -57,7 +60,9 @@ class UDPListener {
    * Get the listening port
    */
   uint16_t get_port() const { return port_; }
+  uint64_t get_raw_packets_received() const { return raw_packets_received_; }
   uint64_t get_packets_received() const { return packets_received_; }
+  bool get_last_sender(sockaddr_in *out_addr) const;
   
   /**
    * Process incoming packets (call from loop)
@@ -71,8 +76,11 @@ class UDPListener {
   int sock_{-1};
   uint16_t port_{5555};
   bool running_{false};
+  uint64_t raw_packets_received_{0U};
   uint64_t packets_received_{0U};
   char multicast_group_[16]{};
+  std::atomic<uint32_t> last_sender_ipv4_{0U};
+  std::atomic<uint16_t> last_sender_port_{0U};
 };
 
 }  // namespace espectre

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 from .common import Fore, Style, get_serial_port
 from .targets import resolve_idf_target
@@ -20,9 +21,15 @@ def run_idf_command(frontend: str, args) -> None:
     print(f"{Fore.CYAN}Frontend: {frontend}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}App dir:   {app_dir}{Style.RESET_ALL}")
 
+    app_path = Path(app_dir)
+    sdkconfig_defaults = ["sdkconfig.defaults"]
+    if (app_path / "sdkconfig.wifi").exists():
+        sdkconfig_defaults.append("sdkconfig.wifi")
+    defaults_arg = f'-DSDKCONFIG_DEFAULTS={";".join(sdkconfig_defaults)}'
+
     commands = []
     if args.idf_command == "build":
-        commands = [["idf.py", "set-target", idf_target], ["idf.py", "build"]]
+        commands = [["idf.py", defaults_arg, "set-target", idf_target], ["idf.py", defaults_arg, "build"]]
     elif args.idf_command == "flash":
         port = get_serial_port(args.port)
         commands = [["idf.py", "-p", port, "flash"]]

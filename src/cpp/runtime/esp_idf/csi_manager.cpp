@@ -6,13 +6,8 @@
  */
 
 #include "csi_manager.h"
-#include "csi_payload_normalizer.h"
-#include "csi_platform_config.h"
-#include "gain_controller.h"
 #include "espectre_log.h"
 #include "esp_timer.h"
-#include "esp_attr.h"
-#include <cstring>
 
 namespace esphome {
 namespace espectre {
@@ -27,42 +22,17 @@ static void publish_motion_state_if_changed_(MotionState previous_state,
   }
 }
 
-static void log_wrong_sc_packet_(const wifi_csi_info_t* data, size_t csi_len,
-                                 uint32_t packets_filtered) {
-  const auto &rx = data->rx_ctrl;
-#if CONFIG_SOC_WIFI_HE_SUPPORT
-  ESP_LOGW(TAG,
-           "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
-           "[ch=%u bb=%u est_len=%u est_vld=%u]",
-           static_cast<unsigned long>(packets_filtered), csi_len, HT20_CSI_LEN,
-           static_cast<unsigned>(rx.channel),
-           static_cast<unsigned>(rx.cur_bb_format),
-           static_cast<unsigned>(rx.rx_channel_estimate_len),
-           static_cast<unsigned>(rx.rx_channel_estimate_info_vld));
-#else
-  ESP_LOGW(TAG,
-           "Filtered %lu packets with wrong SC count (got %zu bytes, expected %d) "
-           "[ch=%u sig_mode=%u cwb=%u mcs=%u]",
-           static_cast<unsigned long>(packets_filtered), csi_len, HT20_CSI_LEN,
-           static_cast<unsigned>(rx.channel),
-           static_cast<unsigned>(rx.sig_mode),
-           static_cast<unsigned>(rx.cwb),
-           static_cast<unsigned>(rx.mcs));
-#endif
-}
-
 void CSIManager::init(BaseDetector* detector,
                      uint32_t publish_rate,
                      GainLockMode gain_lock_mode,
                      IWiFiCSI* wifi_csi) {
   detector_ = detector;
   publish_rate_ = publish_rate;
-  
-  // Use injected WiFi CSI interface or default real implementation
-  wifi_csi_ = wifi_csi ? wifi_csi : &default_wifi_csi_;
-  
-  // Initialize gain controller for AGC/FFT locking (uses median for robustness)
-  gain_controller_.init(gain_lock_mode);
+  capture_service_.init(gain_lock_mode, wifi_csi);
+  capture_service_.set_packet_callback(
+      [this](const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
+        this->process_normalized_packet_(data, normalized);
+      });
   reset_motion_state_filter_();
   
   ESP_LOGD(TAG, "CSI Manager initialized with %s detector", 
@@ -121,57 +91,22 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
   if (!data || !detector_) {
     return;
   }
-  
-  int8_t *csi_data = data->buf;
-  size_t csi_len = data->len;
-  
-  if (csi_len < 10) {
-    ESP_LOGW(TAG, "CSI data too short: %zu bytes", csi_len);
+  capture_service_.process_packet(data);
+}
+
+void CSIManager::process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
+  if (data == nullptr || detector_ == nullptr || !normalized.valid()) {
     return;
   }
-  
-  // Process gain calibration
-  if (!gain_controller_.is_locked()) {
-    gain_controller_.process_packet(data);
-    return;
-  }
-  
-  int8_t csi_remapped[HT20_CSI_LEN];
-  const NormalizedCSIPayload normalized =
-      normalize_ht20_csi_payload(csi_data, csi_len, csi_remapped, sizeof(csi_remapped));
 
-  static bool double_len_collapse_logged = false;
-  if (!double_len_collapse_logged &&
-      (normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT20 ||
-       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
-    ESP_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
-    double_len_collapse_logged = true;
-  }
+  packets_filtered_ = capture_service_.filtered_packets();
+  int8_t *csi_data = const_cast<int8_t *>(normalized.data);
+  size_t csi_len = normalized.len;
 
-  static bool remap_logged = false;
-  if (!remap_logged &&
-      (normalized.tag == NormalizedCSIPayloadTag::HT57_TO_64 ||
-       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64)) {
-    ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
-    remap_logged = true;
-  }
-
-  csi_data = const_cast<int8_t *>(normalized.data);
-  csi_len = normalized.len;
-  
-  // At this point we expect 128 bytes (64 SC) for HT20. Filter packets with unexpected SC count.
-  if (csi_len != HT20_CSI_LEN) {
-    if (++packets_filtered_ % 100 == 1) {
-      log_wrong_sc_packet_(data, csi_len, packets_filtered_);
-    }
-    return;
-  }
-  
   if (packet_interceptor_ && packet_interceptor_(csi_data, csi_len)) {
     return;
   }
-  
-  // Process CSI packet through detector
+
   const bool should_measure = (packets_total_++ % 1000 == 0);
   int64_t start_us = should_measure ? esp_timer_get_time() : 0;
   
@@ -224,13 +159,6 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
   }
 }
 
-void IRAM_ATTR CSIManager::csi_rx_callback_wrapper_(void* ctx, wifi_csi_info_t* data) {
-  CSIManager* manager = static_cast<CSIManager*>(ctx);
-  if (manager && data) {
-    manager->process_packet(data);
-  }
-}
-
 esp_err_t CSIManager::enable(csi_processed_callback_t packet_callback) {
   if (enabled_) {
     ESP_LOGW(TAG, "CSI already enabled");
@@ -238,29 +166,16 @@ esp_err_t CSIManager::enable(csi_processed_callback_t packet_callback) {
   }
   
   packet_callback_ = packet_callback;
-    
-  esp_err_t err = configure_platform_specific_();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to configure CSI: %s", esp_err_to_name(err));
-    return err;
+  capture_service_.set_packet_callback(
+      [this](const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
+        this->process_normalized_packet_(data, normalized);
+      });
+
+  esp_err_t err = capture_service_.enable();
+  if (err == ESP_OK) {
+    enabled_ = true;
   }
-  
-  err = wifi_csi_->set_csi_rx_cb(&CSIManager::csi_rx_callback_wrapper_, this);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to set CSI callback: %s", esp_err_to_name(err));
-    return err;
-  }
-  
-  err = wifi_csi_->set_csi(true);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to enable CSI: %s", esp_err_to_name(err));
-    return err;
-  }
-  
-  enabled_ = true;
-  ESP_LOGD(TAG, "CSI enabled successfully");
-  
-  return ESP_OK;
+  return err;
 }
 
 esp_err_t CSIManager::disable() {
@@ -268,31 +183,20 @@ esp_err_t CSIManager::disable() {
     return ESP_OK;
   }
   
-  esp_err_t err = wifi_csi_->set_csi(false);
+  esp_err_t err = capture_service_.disable();
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to disable CSI: %s", esp_err_to_name(err));
-    return err;
-  }
-  
-  err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to unregister CSI callback: %s", esp_err_to_name(err));
     return err;
   }
   
   enabled_ = false;
   packet_callback_ = nullptr;
   motion_state_callback_ = nullptr;
+  game_mode_callback_ = nullptr;
+  capture_service_.set_packet_callback({});
+  capture_service_.set_gain_packet_callback({});
   packets_since_evaluation_ = 0;
   reset_motion_state_filter_();
-  ESP_LOGI(TAG, "CSI disabled and callback unregistered");
-  
   return ESP_OK;
-}
-
-esp_err_t CSIManager::configure_platform_specific_() {
-  ESP_LOGI(TAG, "Using %s CSI configuration", CONFIG_IDF_TARGET);
-  return configure_ht20_csi(wifi_csi_);
 }
 
 }  // namespace espectre

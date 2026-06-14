@@ -43,6 +43,27 @@ Current entry-point support by frontend:
 - For local workflows, use the repository CLI namespaces documented in each
   frontend README
 
+## Local CLI Workflows
+
+Use `./espectre` from the repository root for local build, flash, and monitor
+tasks:
+
+| Frontend | Commands | Example |
+|----------|----------|---------|
+| `ESPHome` | `build`, `flash`, `config`, `logs` | `./espectre esphome logs --chip c6 --device /dev/cu.usbmodemXXXX` |
+| `BLE` | `build`, `flash`, `monitor` | `./espectre ble flash --chip c3 --port /dev/cu.usbmodemXXXX` |
+| `Matter` | `build`, `flash`, `monitor` | `./espectre matter build --chip c3` |
+| `Streamer` | `build`, `flash`, `monitor` | `./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX` |
+| `Micro-ESPectre` | `flash`, `deploy`, `run`, `verify`, `detect`, `collect`, `ui` | `./espectre micro deploy` |
+
+Use the frontend READMEs for complete prerequisites and chip-specific notes:
+
+- [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md)
+- [`../src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md)
+- [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md)
+- [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md)
+- [`MICRO_ESPECTRE.md`](MICRO_ESPECTRE.md)
+
 ## Web Flash (no coding required)
 
 Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:

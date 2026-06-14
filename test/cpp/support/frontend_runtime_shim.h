@@ -22,6 +22,7 @@ struct State {
   float last_threshold{0.0f};
   int trigger_recalibration_calls{0};
   bool calibrating{false};
+  bool services_armed{true};
   IRuntimeListener *last_listener{nullptr};
   EspIdfRuntime *last_instance{nullptr};
 };

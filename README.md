@@ -63,7 +63,7 @@
 
 Repository CLI namespaces:
 - `./espectre micro ...` for MicroPython flashing, deploy, streaming, dataset collection, and MQTT control
-- `./espectre esphome ...` for local ESPHome example builds
+- `./espectre esphome ...` for local ESPHome build/flash/config/logs workflows
 - `./espectre ble ...` for the standalone BLE firmware `idf.py` workflow
 - `./espectre matter ...` for Matter `idf.py` build/flash/monitor
 - `./espectre streamer ...` for streamer firmware `idf.py` build/flash/monitor
@@ -421,7 +421,7 @@ Micro-ESPectre gives you the fundamentals for:
 
 For local development, the repository CLI is rooted at `./espectre`:
 - `./espectre micro ...` for MicroPython tooling, data collection, and MQTT control
-- `./espectre esphome ...` for local ESPHome example builds
+- `./espectre esphome ...` for local ESPHome build/flash/config/logs workflows
 - `./espectre ble ...`, `./espectre matter ...`, and `./espectre streamer ...` as thin `idf.py` wrappers
 
 ---
