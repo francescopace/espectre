@@ -11,10 +11,10 @@
  *   csi_test_data::load();
  *   
  *   // Access data (same interface as before):
- *   const int8_t** baseline_packets = csi_test_data::baseline_packets();
- *   const int8_t** movement_packets = csi_test_data::movement_packets();
- *   int num_baseline = csi_test_data::num_baseline();
- *   int num_movement = csi_test_data::num_movement();
+ *   const int8_t** static_presence_packets = csi_test_data::static_presence_packets();
+ *   const int8_t** motion_packets = csi_test_data::motion_packets();
+ *   int num_static_presence = csi_test_data::num_static_presence();
+ *   int num_motion = csi_test_data::num_motion();
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -195,8 +195,8 @@ inline const char* chip_name(ChipType chip) {
 }
 
 inline bool load_tuning_cache();
-inline const char* baseline_file_for_chip(ChipType chip);
-inline const char* movement_file_for_chip(ChipType chip);
+inline const char* static_presence_file_for_chip(ChipType chip);
+inline const char* motion_file_for_chip(ChipType chip);
 inline std::vector<ChipType> get_available_chips();
 inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm);
 inline bool parse_iso8601_epoch_seconds(const std::string& text, double& out_epoch_seconds);
@@ -218,7 +218,7 @@ inline const char* chip_skip_reason(ChipType chip) {
 // Global Data Storage
 // ============================================================================
 
-// Skip first N packets from baseline to remove gain lock stabilization noise.
+// Skip first N packets from static presence to remove gain lock stabilization noise.
 // These packets are recorded during radio warm-up and inflate calibration thresholds.
 static constexpr int GAIN_LOCK_SKIP = 300;
 
@@ -227,22 +227,22 @@ enum class DatasetMode {
     LongRecording
 };
 
-static CsiData g_baseline_data;
-static CsiData g_movement_data;
-static std::vector<const int8_t*> g_baseline_ptrs;
-static std::vector<const int8_t*> g_movement_ptrs;
+static CsiData g_static_presence_data;
+static CsiData g_motion_data;
+static std::vector<const int8_t*> g_static_presence_ptrs;
+static std::vector<const int8_t*> g_motion_ptrs;
 static bool g_loaded = false;
 static ChipType g_current_chip = ChipType::C6;
 static DatasetMode g_dataset_mode = DatasetMode::StandardPair;
 static bool g_tuning_cache_loaded = false;
 static bool g_long_recording_cache_loaded = false;
 struct ChipDatasetSelection {
-    std::string baseline_filename;
-    std::string movement_filename;
-    std::string baseline_path;
-    std::string movement_path;
-    std::string baseline_collected_at;
-    std::string movement_collected_at;
+    std::string static_presence_filename;
+    std::string motion_filename;
+    std::string static_presence_path;
+    std::string motion_path;
+    std::string static_presence_collected_at;
+    std::string motion_collected_at;
     bool valid = false;
 };
 static std::array<ChipDatasetSelection, CHIP_COUNT> g_selected_by_chip;
@@ -311,19 +311,19 @@ inline bool load_tuning_cache() {
         return false;
     }
 
-    JsonArray baseline_entries = doc["files"]["baseline"].as<JsonArray>();
+    JsonArray static_presence_entries = doc["files"]["static_presence"].as<JsonArray>();
     struct LatestFile {
         std::string filename;
         std::string path;
         std::string collected_at;
         bool valid = false;
     };
-    std::array<LatestFile, CHIP_COUNT> latest_baseline{};
-    std::array<LatestFile, CHIP_COUNT> latest_movement{};
-    std::array<std::vector<LatestFile>, CHIP_COUNT> baseline_candidates{};
-    std::array<std::vector<LatestFile>, CHIP_COUNT> movement_candidates{};
+    std::array<LatestFile, CHIP_COUNT> latest_static_presence{};
+    std::array<LatestFile, CHIP_COUNT> latest_motion{};
+    std::array<std::vector<LatestFile>, CHIP_COUNT> static_presence_candidates{};
+    std::array<std::vector<LatestFile>, CHIP_COUNT> motion_candidates{};
 
-    for (JsonObject entry : baseline_entries) {
+    for (JsonObject entry : static_presence_entries) {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
         int subcarriers = entry["subcarriers"] | 0;
@@ -341,20 +341,20 @@ inline bool load_tuning_cache() {
             continue;
         }
 
-        // Keep the latest baseline per chip for robust fallback pairing.
+        // Keep the latest static-presence file per chip for robust fallback pairing.
         if (subcarriers == 64) {
             LatestFile candidate{};
             candidate.filename = filename;
-            candidate.path = std::string("../../data/baseline/") + filename;
+            candidate.path = std::string("../../data/static_presence/") + filename;
             candidate.collected_at = collected_at;
             candidate.valid = true;
-            baseline_candidates[idx].push_back(candidate);
+            static_presence_candidates[idx].push_back(candidate);
 
-            LatestFile& latest = latest_baseline[idx];
+            LatestFile& latest = latest_static_presence[idx];
             const std::string ts(collected_at);
             if (!latest.valid || ts > latest.collected_at) {
                 latest.filename = filename;
-                latest.path = std::string("../../data/baseline/") + filename;
+                latest.path = std::string("../../data/static_presence/") + filename;
                 latest.collected_at = ts;
                 latest.valid = true;
             }
@@ -362,8 +362,8 @@ inline bool load_tuning_cache() {
 
     }
 
-    JsonArray movement_entries = doc["files"]["movement"].as<JsonArray>();
-    for (JsonObject entry : movement_entries) {
+    JsonArray motion_entries = doc["files"]["motion"].as<JsonArray>();
+    for (JsonObject entry : motion_entries) {
         const char* filename = entry["filename"];
         const char* collected_at = entry["collected_at"];
         const char* chip_text = entry["chip"];
@@ -373,18 +373,18 @@ inline bool load_tuning_cache() {
             if (subcarriers == 64 && collected_at != nullptr) {
                 const int idx = chip_index(chip);
                 if (idx >= 0) {
-                    LatestFile& latest = latest_movement[idx];
+                    LatestFile& latest = latest_motion[idx];
                     const std::string ts(collected_at);
                     LatestFile candidate{};
                     candidate.filename = filename;
-                    candidate.path = std::string("../../data/movement/") + filename;
+                    candidate.path = std::string("../../data/motion/") + filename;
                     candidate.collected_at = ts;
                     candidate.valid = true;
-                    movement_candidates[idx].push_back(candidate);
+                    motion_candidates[idx].push_back(candidate);
 
                     if (!latest.valid || ts > latest.collected_at) {
                         latest.filename = filename;
-                        latest.path = std::string("../../data/movement/") + filename;
+                        latest.path = std::string("../../data/motion/") + filename;
                         latest.collected_at = ts;
                         latest.valid = true;
                     }
@@ -397,7 +397,7 @@ inline bool load_tuning_cache() {
         selected = ChipDatasetSelection{};
     }
 
-    // Select one 64SC baseline/movement pair per chip using nearest timestamps.
+    // Select one 64SC static-presence/motion pair per chip using nearest timestamps.
     auto parse_epoch = [](const std::string& ts, double& out_epoch_seconds) -> bool {
         return parse_iso8601_epoch_seconds(ts, out_epoch_seconds);
     };
@@ -408,20 +408,20 @@ inline bool load_tuning_cache() {
             continue;
         }
 
-        if (baseline_candidates[idx].empty() || movement_candidates[idx].empty()) {
+        if (static_presence_candidates[idx].empty() || motion_candidates[idx].empty()) {
             continue;
         }
 
-        LatestFile best_baseline{};
-        LatestFile best_movement{};
+        LatestFile best_static_presence{};
+        LatestFile best_motion{};
         bool found_nearest_pair = false;
         double best_delta = 1e100;
-        for (const auto& b : baseline_candidates[idx]) {
+        for (const auto& b : static_presence_candidates[idx]) {
             double b_epoch = 0.0;
             if (!parse_epoch(b.collected_at, b_epoch)) {
                 continue;
             }
-            for (const auto& m : movement_candidates[idx]) {
+            for (const auto& m : motion_candidates[idx]) {
                 double m_epoch = 0.0;
                 if (!parse_epoch(m.collected_at, m_epoch)) {
                     continue;
@@ -429,8 +429,8 @@ inline bool load_tuning_cache() {
                 const double delta = std::fabs(m_epoch - b_epoch);
                 if (!found_nearest_pair || delta < best_delta) {
                     best_delta = delta;
-                    best_baseline = b;
-                    best_movement = m;
+                    best_static_presence = b;
+                    best_motion = m;
                     found_nearest_pair = true;
                 }
             }
@@ -438,22 +438,22 @@ inline bool load_tuning_cache() {
 
         ChipDatasetSelection& selected = g_selected_by_chip[idx];
         if (found_nearest_pair) {
-            selected.baseline_filename = best_baseline.filename;
-            selected.movement_filename = best_movement.filename;
-            selected.baseline_path = best_baseline.path;
-            selected.movement_path = best_movement.path;
-            selected.baseline_collected_at = best_baseline.collected_at;
-            selected.movement_collected_at = best_movement.collected_at;
+            selected.static_presence_filename = best_static_presence.filename;
+            selected.motion_filename = best_motion.filename;
+            selected.static_presence_path = best_static_presence.path;
+            selected.motion_path = best_motion.path;
+            selected.static_presence_collected_at = best_static_presence.collected_at;
+            selected.motion_collected_at = best_motion.collected_at;
         } else {
-            if (!latest_baseline[idx].valid || !latest_movement[idx].valid) {
+            if (!latest_static_presence[idx].valid || !latest_motion[idx].valid) {
                 continue;
             }
-            selected.baseline_filename = latest_baseline[idx].filename;
-            selected.movement_filename = latest_movement[idx].filename;
-            selected.baseline_path = latest_baseline[idx].path;
-            selected.movement_path = latest_movement[idx].path;
-            selected.baseline_collected_at = latest_baseline[idx].collected_at;
-            selected.movement_collected_at = latest_movement[idx].collected_at;
+            selected.static_presence_filename = latest_static_presence[idx].filename;
+            selected.motion_filename = latest_motion[idx].filename;
+            selected.static_presence_path = latest_static_presence[idx].path;
+            selected.motion_path = latest_motion[idx].path;
+            selected.static_presence_collected_at = latest_static_presence[idx].collected_at;
+            selected.motion_collected_at = latest_motion[idx].collected_at;
         }
         selected.valid = true;
     }
@@ -462,7 +462,7 @@ inline bool load_tuning_cache() {
         const int idx = chip_index(chip);
         if (idx < 0 || !g_selected_by_chip[idx].valid) {
             std::fprintf(stderr,
-                "[CSI Test Data] ERROR: Missing 64SC baseline/movement datasets for chip %s\n",
+                "[CSI Test Data] ERROR: Missing 64SC static-presence/motion datasets for chip %s\n",
                 chip_name(chip));
             return false;
         }
@@ -555,7 +555,7 @@ inline bool load_long_recording_cache() {
     return true;
 }
 
-inline const char* baseline_file_for_chip(ChipType chip) {
+inline const char* static_presence_file_for_chip(ChipType chip) {
     if (!load_tuning_cache()) {
         return nullptr;
     }
@@ -563,10 +563,10 @@ inline const char* baseline_file_for_chip(ChipType chip) {
     if (idx < 0 || !g_selected_by_chip[idx].valid) {
         return nullptr;
     }
-    return g_selected_by_chip[idx].baseline_path.c_str();
+    return g_selected_by_chip[idx].static_presence_path.c_str();
 }
 
-inline const char* movement_file_for_chip(ChipType chip) {
+inline const char* motion_file_for_chip(ChipType chip) {
     if (!load_tuning_cache()) {
         return nullptr;
     }
@@ -574,7 +574,7 @@ inline const char* movement_file_for_chip(ChipType chip) {
     if (idx < 0 || !g_selected_by_chip[idx].valid) {
         return nullptr;
     }
-    return g_selected_by_chip[idx].movement_path.c_str();
+    return g_selected_by_chip[idx].motion_path.c_str();
 }
 
 inline const char* long_recording_file_for_chip(ChipType chip) {
@@ -621,35 +621,35 @@ inline void skip_packets(CsiData& data, int skip) {
 
 /**
  * Load CSI test data from NPZ files for a specific chip.
- * Baseline data has the first GAIN_LOCK_SKIP packets removed (radio warm-up noise).
+ * Static-presence data has the first GAIN_LOCK_SKIP packets removed (radio warm-up noise).
  * @param chip Chip type (C3, C6, ESP32, or S3)
  */
 inline bool load(ChipType chip = ChipType::C6) {
     // If already loaded with same chip, skip
     if (g_loaded && chip == g_current_chip && g_dataset_mode == DatasetMode::StandardPair) return true;
     
-    const char* baseline_file = baseline_file_for_chip(chip);
-    const char* movement_file = movement_file_for_chip(chip);
-    if (baseline_file == nullptr || movement_file == nullptr) {
+    const char* static_presence_file = static_presence_file_for_chip(chip);
+    const char* motion_file = motion_file_for_chip(chip);
+    if (static_presence_file == nullptr || motion_file == nullptr) {
         std::fprintf(stderr, "[CSI Test Data] ERROR: Unknown chip type in load()\n");
         return false;
     }
     
     try {
         printf("\n[CSI Test Data] Loading %s 64 SC dataset (HT20)...\n", chip_name(chip));
-        printf("[CSI Test Data] Baseline: %s\n", baseline_file);
-        g_baseline_data = load_npz(baseline_file);
-        int raw_count = g_baseline_data.num_packets;
-        skip_packets(g_baseline_data, GAIN_LOCK_SKIP);
-        g_baseline_ptrs = get_packet_pointers(g_baseline_data);
-        printf("[CSI Test Data] Loaded %d baseline packets (%d bytes each, skipped first %d)\n", 
-               g_baseline_data.num_packets, g_baseline_data.packet_size, raw_count - g_baseline_data.num_packets);
+        printf("[CSI Test Data] Static presence: %s\n", static_presence_file);
+        g_static_presence_data = load_npz(static_presence_file);
+        int raw_count = g_static_presence_data.num_packets;
+        skip_packets(g_static_presence_data, GAIN_LOCK_SKIP);
+        g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
+        printf("[CSI Test Data] Loaded %d static-presence packets (%d bytes each, skipped first %d)\n", 
+               g_static_presence_data.num_packets, g_static_presence_data.packet_size, raw_count - g_static_presence_data.num_packets);
         
-        printf("[CSI Test Data] Movement: %s\n", movement_file);
-        g_movement_data = load_npz(movement_file);
-        g_movement_ptrs = get_packet_pointers(g_movement_data);
-        printf("[CSI Test Data] Loaded %d movement packets (%d bytes each)\n", 
-               g_movement_data.num_packets, g_movement_data.packet_size);
+        printf("[CSI Test Data] Motion: %s\n", motion_file);
+        g_motion_data = load_npz(motion_file);
+        g_motion_ptrs = get_packet_pointers(g_motion_data);
+        printf("[CSI Test Data] Loaded %d motion packets (%d bytes each)\n", 
+               g_motion_data.num_packets, g_motion_data.packet_size);
         
         g_loaded = true;
         g_current_chip = chip;
@@ -683,14 +683,14 @@ inline bool load_long_recording(ChipType chip = ChipType::C6) {
             return false;
         }
 
-        g_baseline_data = slice_packets(full_data, 0, motion_start_packet);
-        g_movement_data = slice_packets(full_data, motion_start_packet, full_data.num_packets);
-        g_baseline_ptrs = get_packet_pointers(g_baseline_data);
-        g_movement_ptrs = get_packet_pointers(g_movement_data);
+        g_static_presence_data = slice_packets(full_data, 0, motion_start_packet);
+        g_motion_data = slice_packets(full_data, motion_start_packet, full_data.num_packets);
+        g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
+        g_motion_ptrs = get_packet_pointers(g_motion_data);
 
-        printf("[CSI Test Data] Split at packet %d -> baseline=%d, movement=%d (%d bytes each)\n",
-               motion_start_packet, g_baseline_data.num_packets, g_movement_data.num_packets,
-               g_baseline_data.packet_size);
+        printf("[CSI Test Data] Split at packet %d -> static_presence=%d, motion=%d (%d bytes each)\n",
+               motion_start_packet, g_static_presence_data.num_packets, g_motion_data.num_packets,
+               g_static_presence_data.packet_size);
 
         g_loaded = true;
         g_current_chip = chip;
@@ -744,12 +744,12 @@ inline std::vector<ChipType> get_available_chips() {
 // ============================================================================
 
 inline bool is_loaded() { return g_loaded; }
-inline const int8_t** baseline_packets() { return g_baseline_ptrs.data(); }
-inline const int8_t** movement_packets() { return g_movement_ptrs.data(); }
-inline int num_baseline() { return g_baseline_data.num_packets; }
-inline int num_movement() { return g_movement_data.num_packets; }
-inline int num_subcarriers() { return g_baseline_data.num_subcarriers; }
-inline int packet_size() { return g_baseline_data.packet_size; }
+inline const int8_t** static_presence_packets() { return g_static_presence_ptrs.data(); }
+inline const int8_t** motion_packets() { return g_motion_ptrs.data(); }
+inline int num_static_presence() { return g_static_presence_data.num_packets; }
+inline int num_motion() { return g_motion_data.num_packets; }
+inline int num_subcarriers() { return g_static_presence_data.num_subcarriers; }
+inline int packet_size() { return g_static_presence_data.packet_size; }
 inline ChipType current_chip() { return g_current_chip; }
 inline bool is_long_recording_mode() { return g_dataset_mode == DatasetMode::LongRecording; }
 inline const char* current_long_recording_name() {
@@ -760,16 +760,16 @@ inline int current_motion_start_packet() {
 }
 
 /**
- * Whether the baseline dataset was collected with gain lock enabled.
+ * Whether the static-presence dataset was collected with gain lock enabled.
  * Returns false (use CV normalization) when 'gain_locked' field is absent from NPZ.
  */
-inline bool baseline_gain_locked() { return g_baseline_data.gain_locked; }
+inline bool static_presence_gain_locked() { return g_static_presence_data.gain_locked; }
 
 /**
- * Whether 'gain_locked' metadata was found in the baseline NPZ file.
+ * Whether 'gain_locked' metadata was found in the static-presence NPZ file.
  * If false, callers should fall back to chip-based heuristics.
  */
-inline bool baseline_gain_locked_known() { return g_baseline_data.has_gain_locked; }
+inline bool static_presence_gain_locked_known() { return g_static_presence_data.has_gain_locked; }
 
 inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm) {
     // Expected examples:
@@ -832,14 +832,14 @@ inline bool current_pair_delta_seconds(double& out_delta_sec) {
         return false;
     }
     const ChipDatasetSelection& selected = g_selected_by_chip[idx];
-    if (selected.baseline_collected_at.empty() || selected.movement_collected_at.empty()) {
+    if (selected.static_presence_collected_at.empty() || selected.motion_collected_at.empty()) {
         return false;
     }
 
     double bt = 0.0;
     double mt = 0.0;
-    if (!parse_iso8601_epoch_seconds(selected.baseline_collected_at, bt) ||
-        !parse_iso8601_epoch_seconds(selected.movement_collected_at, mt)) {
+    if (!parse_iso8601_epoch_seconds(selected.static_presence_collected_at, bt) ||
+        !parse_iso8601_epoch_seconds(selected.motion_collected_at, mt)) {
         return false;
     }
 

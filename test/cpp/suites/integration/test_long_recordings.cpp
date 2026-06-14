@@ -21,8 +21,8 @@ using namespace esphome::espectre;
 #include "csi_test_data.h"
 
 struct LongRunMetrics {
-  int baseline_eval_count{0};
-  int movement_eval_count{0};
+  int static_presence_eval_count{0};
+  int motion_eval_count{0};
   int tp{0};
   int fn{0};
   int fp{0};
@@ -55,8 +55,8 @@ static void compute_derived_metrics(LongRunMetrics &metrics) {
   metrics.precision = (metrics.tp + metrics.fp) > 0
                           ? static_cast<float>(metrics.tp) / static_cast<float>(metrics.tp + metrics.fp) * 100.0f
                           : 0.0f;
-  metrics.fp_rate = metrics.baseline_eval_count > 0
-                        ? static_cast<float>(metrics.fp) / static_cast<float>(metrics.baseline_eval_count) * 100.0f
+  metrics.fp_rate = metrics.static_presence_eval_count > 0
+                        ? static_cast<float>(metrics.fp) / static_cast<float>(metrics.static_presence_eval_count) * 100.0f
                         : 0.0f;
   metrics.f1 = (metrics.precision + metrics.recall) > 0.0f
                    ? 2.0f * (metrics.precision / 100.0f) * (metrics.recall / 100.0f) /
@@ -65,8 +65,8 @@ static void compute_derived_metrics(LongRunMetrics &metrics) {
 }
 
 static bool needs_cv_normalization() {
-  if (csi_test_data::baseline_gain_locked_known()) {
-    return !csi_test_data::baseline_gain_locked();
+  if (csi_test_data::static_presence_gain_locked_known()) {
+    return !csi_test_data::static_presence_gain_locked();
   }
   return csi_test_data::current_chip() == csi_test_data::ChipType::ESP32;
 }
@@ -110,15 +110,15 @@ static void print_metrics(const char *label, const LongRunMetrics &metrics) {
 static void assert_dataset_metadata_is_valid() {
   TEST_ASSERT_NOT_NULL_MESSAGE(csi_test_data::current_long_recording_name(), "Missing long-recording filename");
   TEST_ASSERT_TRUE_MESSAGE(csi_test_data::current_motion_start_packet() > 0, "Invalid motion_start_packet");
-  TEST_ASSERT_EQUAL_INT(csi_test_data::current_motion_start_packet(), csi_test_data::num_baseline());
-  TEST_ASSERT_TRUE_MESSAGE(csi_test_data::num_movement() > 0, "Movement split must not be empty");
+  TEST_ASSERT_EQUAL_INT(csi_test_data::current_motion_start_packet(), csi_test_data::num_static_presence());
+  TEST_ASSERT_TRUE_MESSAGE(csi_test_data::num_motion() > 0, "Movement split must not be empty");
 }
 
 static void assert_metrics_are_valid(const LongRunMetrics &metrics) {
-  TEST_ASSERT_TRUE(metrics.baseline_eval_count >= 0);
-  TEST_ASSERT_TRUE(metrics.movement_eval_count >= 0);
-  TEST_ASSERT_EQUAL_INT(metrics.baseline_eval_count, metrics.fp + metrics.tn);
-  TEST_ASSERT_EQUAL_INT(metrics.movement_eval_count, metrics.tp + metrics.fn);
+  TEST_ASSERT_TRUE(metrics.static_presence_eval_count >= 0);
+  TEST_ASSERT_TRUE(metrics.motion_eval_count >= 0);
+  TEST_ASSERT_EQUAL_INT(metrics.static_presence_eval_count, metrics.fp + metrics.tn);
+  TEST_ASSERT_EQUAL_INT(metrics.motion_eval_count, metrics.tp + metrics.fn);
   TEST_ASSERT_TRUE(metrics.recall >= 0.0f && metrics.recall <= 100.0f);
   TEST_ASSERT_TRUE(metrics.precision >= 0.0f && metrics.precision <= 100.0f);
   TEST_ASSERT_TRUE(metrics.fp_rate >= 0.0f && metrics.fp_rate <= 100.0f);
@@ -169,19 +169,19 @@ static LongRunMetrics evaluate_ml_long_recording() {
   MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
   detector.configure_hampel(true);
 
-  metrics.baseline_eval_count = std::max(csi_test_data::num_baseline() - warmup, 0);
-  metrics.movement_eval_count = std::max(csi_test_data::num_movement() - warmup, 0);
+  metrics.static_presence_eval_count = std::max(csi_test_data::num_static_presence() - warmup, 0);
+  metrics.motion_eval_count = std::max(csi_test_data::num_motion() - warmup, 0);
 
-  for (int i = 0; i < csi_test_data::num_baseline(); i++) {
-    detector.process_packet(csi_test_data::baseline_packets()[i], pkt_size, DEFAULT_SUBCARRIERS, 12);
+  for (int i = 0; i < csi_test_data::num_static_presence(); i++) {
+    detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS, 12);
     detector.update_state();
     if (i >= warmup && detector.get_state() == MotionState::MOTION) {
       metrics.fp++;
     }
   }
 
-  for (int i = 0; i < csi_test_data::num_movement(); i++) {
-    detector.process_packet(csi_test_data::movement_packets()[i], pkt_size, DEFAULT_SUBCARRIERS, 12);
+  for (int i = 0; i < csi_test_data::num_motion(); i++) {
+    detector.process_packet(csi_test_data::motion_packets()[i], pkt_size, DEFAULT_SUBCARRIERS, 12);
     detector.update_state();
     if (i >= warmup) {
       if (detector.get_state() == MotionState::MOTION) {
@@ -192,7 +192,7 @@ static LongRunMetrics evaluate_ml_long_recording() {
     }
   }
 
-  metrics.tn = std::max(metrics.baseline_eval_count - metrics.fp, 0);
+  metrics.tn = std::max(metrics.static_presence_eval_count - metrics.fp, 0);
   compute_derived_metrics(metrics);
   return metrics;
 }
@@ -210,10 +210,10 @@ static LongRunMetrics evaluate_mvs_long_recording() {
   calibration_detector.set_cv_normalization(metrics.use_cv_normalization);
 
   std::vector<float> mv_values;
-  const int calibration_packets = std::min(csi_test_data::num_baseline(),
+  const int calibration_packets = std::min(csi_test_data::num_static_presence(),
                                            static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
   for (int i = 0; i < calibration_packets; i++) {
-    calibration_detector.process_packet(csi_test_data::baseline_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
+    calibration_detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
                                         HT20_SELECTED_BAND_SIZE);
     calibration_detector.update_state();
     if (calibration_detector.is_ready()) {
@@ -233,11 +233,11 @@ static LongRunMetrics evaluate_mvs_long_recording() {
   metrics.selected_band_size = HT20_SELECTED_BAND_SIZE;
   std::copy(DEFAULT_SUBCARRIERS, DEFAULT_SUBCARRIERS + HT20_SELECTED_BAND_SIZE, metrics.selected_band.begin());
   metrics.adaptive_threshold = calibrated_threshold;
-  metrics.baseline_eval_count = std::max(csi_test_data::num_baseline() - warmup, 0);
-  metrics.movement_eval_count = std::max(csi_test_data::num_movement() - warmup, 0);
+  metrics.static_presence_eval_count = std::max(csi_test_data::num_static_presence() - warmup, 0);
+  metrics.motion_eval_count = std::max(csi_test_data::num_motion() - warmup, 0);
 
-  for (int i = 0; i < csi_test_data::num_baseline(); i++) {
-    detector.process_packet(csi_test_data::baseline_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
+  for (int i = 0; i < csi_test_data::num_static_presence(); i++) {
+    detector.process_packet(csi_test_data::static_presence_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
                             HT20_SELECTED_BAND_SIZE);
     detector.update_state();
     if (i >= warmup && detector.get_state() == MotionState::MOTION) {
@@ -245,8 +245,8 @@ static LongRunMetrics evaluate_mvs_long_recording() {
     }
   }
 
-  for (int i = 0; i < csi_test_data::num_movement(); i++) {
-    detector.process_packet(csi_test_data::movement_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
+  for (int i = 0; i < csi_test_data::num_motion(); i++) {
+    detector.process_packet(csi_test_data::motion_packets()[i], pkt_size, DEFAULT_SUBCARRIERS,
                             HT20_SELECTED_BAND_SIZE);
     detector.update_state();
     if (i >= warmup) {
@@ -258,7 +258,7 @@ static LongRunMetrics evaluate_mvs_long_recording() {
     }
   }
 
-  metrics.tn = std::max(metrics.baseline_eval_count - metrics.fp, 0);
+  metrics.tn = std::max(metrics.static_presence_eval_count - metrics.fp, 0);
   compute_derived_metrics(metrics);
   return metrics;
 }

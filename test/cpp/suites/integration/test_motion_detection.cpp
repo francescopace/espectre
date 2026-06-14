@@ -33,10 +33,10 @@ using namespace esphome::espectre;
 #include "csi_test_data.h"
 
 // Compatibility macros for existing test code
-#define baseline_packets csi_test_data::baseline_packets()
-#define movement_packets csi_test_data::movement_packets()
-#define num_baseline csi_test_data::num_baseline()
-#define num_movement csi_test_data::num_movement()
+#define static_presence_packets csi_test_data::static_presence_packets()
+#define motion_packets csi_test_data::motion_packets()
+#define num_static_presence csi_test_data::num_static_presence()
+#define num_motion csi_test_data::num_motion()
 
 static const char *TAG = "test_motion_detection";
 
@@ -157,8 +157,8 @@ inline bool is_esp32_chip() {
 // Uses 'gain_locked' metadata from the NPZ file when available; falls back to
 // chip-based heuristics for older files that predate the field.
 inline bool needs_cv_normalization() {
-    if (csi_test_data::baseline_gain_locked_known()) {
-        return !csi_test_data::baseline_gain_locked();
+    if (csi_test_data::static_presence_gain_locked_known()) {
+        return !csi_test_data::static_presence_gain_locked();
     }
     // Fallback: ESP32 has no hardware gain lock;
     return is_esp32_chip();
@@ -186,7 +186,7 @@ void tearDown(void) {}
 // ============================================================================
 // Test 1: MVS with Fixed Subcarriers (Production Runtime)
 // ============================================================================
-// Uses the shared fixed subcarriers and baseline-derived adaptive threshold.
+// Uses the shared fixed subcarriers and a static-presence-derived adaptive threshold.
 
 void test_mvs_default_subcarriers(void) {
     float fp_target = get_default_fp_rate_target();
@@ -220,16 +220,16 @@ void test_mvs_default_subcarriers(void) {
     }
     printf("]\n\n");
     
-    // Calculate adaptive threshold from baseline using selected band.
+    // Calculate adaptive threshold from static presence using the selected band.
     MVSDetector cal_detector(window_size, SEGMENTATION_DEFAULT_THRESHOLD);
     cal_detector.configure_lowpass(false);
     cal_detector.configure_hampel(enable_hampel);
     cal_detector.set_cv_normalization(cv_norm);
 
     std::vector<float> mv_values;
-    int calibration_packets = std::min(num_baseline, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
+    int calibration_packets = std::min(num_static_presence, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
     for (int i = 0; i < calibration_packets; i++) {
-        cal_detector.process_packet((const int8_t*)baseline_packets[i], pkt_size,
+        cal_detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
                           default_band, default_size);
         cal_detector.update_state();
         if (cal_detector.is_ready()) {
@@ -249,33 +249,33 @@ void test_mvs_default_subcarriers(void) {
     detector.configure_hampel(enable_hampel);
     detector.set_cv_normalization(cv_norm);
     
-    // Process baseline
-    int baseline_motion = 0;
-    for (int p = 0; p < num_baseline; p++) {
-        detector.process_packet((const int8_t*)baseline_packets[p], pkt_size,
+    // Process static presence
+    int static_presence_motion = 0;
+    for (int p = 0; p < num_static_presence; p++) {
+        detector.process_packet((const int8_t*)static_presence_packets[p], pkt_size,
                           default_band, default_size);
         detector.update_state();
         if (detector.get_state() == MotionState::MOTION) {
-            baseline_motion++;
+            static_presence_motion++;
         }
     }
     
-    // Process movement
-    int movement_motion = 0;
-    for (int p = 0; p < num_movement; p++) {
-        detector.process_packet((const int8_t*)movement_packets[p], pkt_size,
+    // Process motion
+    int motion_detected = 0;
+    for (int p = 0; p < num_motion; p++) {
+        detector.process_packet((const int8_t*)motion_packets[p], pkt_size,
                           default_band, default_size);
         detector.update_state();
         if (detector.get_state() == MotionState::MOTION) {
-            movement_motion++;
+            motion_detected++;
         }
     }
     
     // Calculate metrics
-    float recall = (float)movement_motion / num_movement * 100.0f;
-    float fp_rate = (float)baseline_motion / num_baseline * 100.0f;
-    float precision = (movement_motion + baseline_motion > 0) ?
-        (float)movement_motion / (movement_motion + baseline_motion) * 100.0f : 0.0f;
+    float recall = (float)motion_detected / num_motion * 100.0f;
+    float fp_rate = (float)static_presence_motion / num_static_presence * 100.0f;
+    float precision = (motion_detected + static_presence_motion > 0) ?
+        (float)motion_detected / (motion_detected + static_presence_motion) * 100.0f : 0.0f;
     float f1 = (precision + recall > 0) ?
         2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
     
@@ -321,41 +321,41 @@ void test_ml_detection(void) {
     // Warmup = window_size: detector needs full buffer before producing valid predictions
     const int warmup = DETECTOR_DEFAULT_WINDOW_SIZE;
     
-    // Process baseline (skip first warmup packets - buffer not ready)
-    int baseline_motion = 0;
-    for (int i = 0; i < num_baseline; i++) {
-        detector.process_packet((const int8_t*)baseline_packets[i], pkt_size,
+    // Process static presence (skip first warmup packets - buffer not ready)
+    int static_presence_motion = 0;
+    for (int i = 0; i < num_static_presence; i++) {
+        detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
                                DEFAULT_SUBCARRIERS, 12);
         detector.update_state();
         // Only count after warmup (when buffer is full)
         if (i >= warmup && detector.get_state() == MotionState::MOTION) {
-            baseline_motion++;
+            static_presence_motion++;
         }
     }
     
-    // Process movement (skip first warmup packets - transition period)
-    int movement_motion = 0;
-    int movement_idle = 0;
+    // Process motion (skip first warmup packets - transition period)
+    int motion_detected = 0;
+    int motion_idle = 0;
     
-    for (int i = 0; i < num_movement; i++) {
-        detector.process_packet((const int8_t*)movement_packets[i], pkt_size,
+    for (int i = 0; i < num_motion; i++) {
+        detector.process_packet((const int8_t*)motion_packets[i], pkt_size,
                                DEFAULT_SUBCARRIERS, 12);
         detector.update_state();
         if (i >= warmup) {
             if (detector.get_state() == MotionState::MOTION) {
-                movement_motion++;
+                motion_detected++;
             } else {
-                movement_idle++;
+                motion_idle++;
             }
         }
     }
     
-    int baseline_eval = num_baseline - warmup;
-    int movement_eval = num_movement - warmup;
-    float recall = (float)movement_motion / movement_eval * 100.0f;
-    float fp_rate = (float)baseline_motion / baseline_eval * 100.0f;
-    float precision = (movement_motion + baseline_motion > 0) ?
-        (float)movement_motion / (movement_motion + baseline_motion) * 100.0f : 0.0f;
+    int static_presence_eval = num_static_presence - warmup;
+    int motion_eval = num_motion - warmup;
+    float recall = (float)motion_detected / motion_eval * 100.0f;
+    float fp_rate = (float)static_presence_motion / static_presence_eval * 100.0f;
+    float precision = (motion_detected + static_presence_motion > 0) ?
+        (float)motion_detected / (motion_detected + static_presence_motion) * 100.0f : 0.0f;
     float f1 = (precision + recall > 0) ?
         2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
     

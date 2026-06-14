@@ -18,10 +18,10 @@
 // Include CSI data loader
 #include "csi_test_data.h"
 
-#define baseline_packets csi_test_data::baseline_packets()
-#define movement_packets csi_test_data::movement_packets()
-#define num_baseline csi_test_data::num_baseline()
-#define num_movement csi_test_data::num_movement()
+#define static_presence_packets csi_test_data::static_presence_packets()
+#define motion_packets csi_test_data::motion_packets()
+#define num_static_presence csi_test_data::num_static_presence()
+#define num_motion csi_test_data::num_motion()
 
 using namespace esphome::espectre;
 
@@ -309,7 +309,7 @@ void test_mvs_detector_last_turbulence_after_packet(void) {
 // REAL DATA TESTS
 // ============================================================================
 
-void test_mvs_detector_baseline_stays_idle(void) {
+void test_mvs_detector_static_presence_stays_idle(void) {
     if (!csi_test_data::load()) {
         TEST_IGNORE_MESSAGE("Failed to load test data");
         return;
@@ -320,21 +320,21 @@ void test_mvs_detector_baseline_stays_idle(void) {
     
     int motion_count = 0;
     
-    for (int i = 0; i < 100 && i < num_baseline; i++) {
-        detector.process_packet(baseline_packets[i], 128, TEST_SUBCARRIERS, 12);
+    for (int i = 0; i < 100 && i < num_static_presence; i++) {
+        detector.process_packet(static_presence_packets[i], 128, TEST_SUBCARRIERS, 12);
         detector.update_state();
         if (detector.get_state() == MotionState::MOTION) {
             motion_count++;
         }
     }
     
-    // Most baseline packets should be IDLE
+    // Most static-presence packets should be IDLE
     float motion_rate = (float)motion_count / 100.0f;
-    ESP_LOGI(TAG, "Baseline motion rate: %.1f%%", motion_rate * 100);
+    ESP_LOGI(TAG, "Static-presence motion rate: %.1f%%", motion_rate * 100);
     TEST_ASSERT_TRUE(motion_rate < 0.2f);  // Less than 20% false positives
 }
 
-void test_mvs_detector_movement_detects_motion(void) {
+void test_mvs_detector_motion_detects_motion(void) {
     if (!csi_test_data::load()) {
         TEST_IGNORE_MESSAGE("Failed to load test data");
         return;
@@ -343,25 +343,25 @@ void test_mvs_detector_movement_detects_motion(void) {
     MVSDetector detector(50, 0.0001f);  // Low threshold for CV-normalized detection
     detector.configure_lowpass(false);
     
-    // First process baseline to fill buffer
-    for (int i = 0; i < 60 && i < num_baseline; i++) {
-        detector.process_packet(baseline_packets[i], 128, TEST_SUBCARRIERS, 12);
+    // First process static presence to fill buffer
+    for (int i = 0; i < 60 && i < num_static_presence; i++) {
+        detector.process_packet(static_presence_packets[i], 128, TEST_SUBCARRIERS, 12);
     }
     
     int motion_count = 0;
     
-    // Now process movement
-    for (int i = 0; i < 100 && i < num_movement; i++) {
-        detector.process_packet(movement_packets[i], 128, TEST_SUBCARRIERS, 12);
+    // Now process motion
+    for (int i = 0; i < 100 && i < num_motion; i++) {
+        detector.process_packet(motion_packets[i], 128, TEST_SUBCARRIERS, 12);
         detector.update_state();
         if (detector.get_state() == MotionState::MOTION) {
             motion_count++;
         }
     }
     
-    // Most movement packets should detect motion
+    // Most motion packets should detect motion
     float detection_rate = (float)motion_count / 100.0f;
-    ESP_LOGI(TAG, "Movement detection rate: %.1f%%", detection_rate * 100);
+    ESP_LOGI(TAG, "Motion detection rate: %.1f%%", detection_rate * 100);
     TEST_ASSERT_TRUE(detection_rate > 0.5f);  // At least 50% detection
 }
 
@@ -590,8 +590,8 @@ int process(void) {
     RUN_TEST(test_mvs_detector_last_turbulence_after_packet);
     
     // Real data tests
-    RUN_TEST(test_mvs_detector_baseline_stays_idle);
-    RUN_TEST(test_mvs_detector_movement_detects_motion);
+    RUN_TEST(test_mvs_detector_static_presence_stays_idle);
+    RUN_TEST(test_mvs_detector_motion_detects_motion);
     
     // Lowpass filter tests
     RUN_TEST(test_mvs_detector_lowpass_disabled_by_default);

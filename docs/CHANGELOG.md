@@ -46,6 +46,8 @@ All notable changes to this project will be documented in this file.
 - **Streamer collection flow is now collector-driven**: the standalone streamer no longer depends on a built-in traffic generator or a static `COLLECTOR_IP`; it learns the collector from external UDP stimulus, while the host collector now emits `ESTM` packets with collector-controlled `stimulus_id` / `reference` policy for ML dataset capture.
 - **CSI live streaming unified around the C++ streamer frontend**: the host collector now targets the versioned ESP-IDF streamer protocol, the legacy MicroPython UDP producer has been removed, and existing `.npz` datasets remain readable while newly collected samples gain optional device/stream metadata for realtime fusion workflows.
 - **Streamer protocol simplified for ML and realtime fusion**: FTM telemetry was removed, `stimulus_id` is now optional instead of gating packet emission, and the packet header now carries a stable `gain_locked` flag plus device-side timing metadata without changing the compact HT20 CSI payload layout.
+- **Dataset labels were canonicalized for room-state sensing**: training and analysis datasets now use `empty`, `static_presence`, and `motion`; historical `baseline` captures were migrated to `static_presence`, dataset files were renamed on disk, and the tooling/tests/docs were updated to consume the new metadata and paths consistently.
+- **Empty-room datasets are now part of the validated room-state workflow**: imported `empty` captures were added to the canonical dataset metadata, `11_validate_dataset_quality.py` now checks `empty` files during integrity/quality validation, and a dedicated `EMPTY SANITY` phase reports whether `empty` separates cleanly from overlapping `static_presence` groups.
 - **ESP32-C3 streamer transport was tuned for high-rate collection**: the standalone streamer now uses a larger queued UDP sender, bounded datagram batching, and more aggressive Wi-Fi/lwIP buffer defaults on C3-oriented builds, with the streamer README documenting the practical Wi-Fi setup flow and observed collector-driven transport benchmarks.
 - **NBVI removed from the active runtime path**: MVS now uses the same fixed 12-subcarrier set as ML, startup calibration computes only the adaptive threshold in RAM, and no disk-backed calibration buffer is required anymore.
 - **Subcarrier selection fully centralized and fixed across the repo**: C++ runtime, Micro-ESPectre, tests, and analysis/training tools now all use the same shared default set `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`; runtime/config override paths were removed and related docs/tooling were simplified accordingly.
@@ -432,7 +434,7 @@ Full control over exposed sensor entities with standard ESPHome options: `intern
 
 ```yaml
 espectre:
-  movement_sensor:
+  motion_sensor:
     name: "Movement"
     internal: true
     filters:
@@ -525,7 +527,7 @@ Automatic attenuation for consistent thresholds across devices and environments.
 
 - **Always enabled** - no configuration needed
 - During calibration, calculates baseline variance using selected subcarriers
-- If baseline > 0.25: attenuate with `scale = 0.25 / baseline_variance`
+- If baseline > 0.25: attenuate with `scale = 0.25 / static_presence_variance`
 - If baseline ≤ 0.25: no scaling needed (scale = 1.0)
 - Prevents over-amplification of weak signals while taming strong ones
 - Removed `normalization_enabled` and `normalization_target` parameters

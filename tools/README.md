@@ -37,9 +37,9 @@ For data collection and ML datasets, see [ML_DATA_COLLECTION.md](../docs/ML_DATA
 **Purpose**: Analyze data quality and verify dataset integrity
 
 - Default mode reads `dataset_info.json` and analyzes all explicit historical pairs
-- Verifies labels are correct (baseline vs movement)
+- Verifies labels are correct (`static_presence` vs `motion`)
 - Compares turbulence variance between states
-- Prints a compact table with per-pair metrics (`Baseline Var`, `Movement Var`, `Ratio`, `Gap end->start`, status)
+- Prints a compact table with per-pair metrics (`Static Presence Var`, `Motion Var`, `Ratio`, `Gap end->start`, status)
 - Supports per-chip detailed mode on the most recent dataset for that chip
 
 ```bash
@@ -110,7 +110,7 @@ python 5_analyze_filter_turbulence.py --optimize-filters  # Optimize parameters
 
 - Optimizes low-pass cutoff frequency and threshold parameters
 - Grid search for Hampel filter parameters (window, threshold)
-- Auto-detects chip from baseline file metadata (ensures matching movement data)
+- Auto-detects chip from static-presence file metadata (ensures matching motion data)
 - Uses the fixed production subcarrier set
 - Finds optimal configuration for noisy environments
 
@@ -130,7 +130,7 @@ python 6_optimize_filter_params.py --all        # Combined optimization (low-pas
 
 - Compares RSSI, Mean Amplitude, Turbulence, and MVS detection methods
 - Demonstrates MVS superiority with simpler approach and lower CPU
-- Shows separation between baseline and movement
+- Shows separation between static presence and motion
 
 ```bash
 python 7_compare_detection_methods.py              # Use C6 dataset
@@ -146,7 +146,7 @@ python 7_compare_detection_methods.py --plot       # Show 5×2 comparison
 
 **Purpose**: Visualize I/Q constellation diagrams
 
-- Compares baseline (stable) vs movement (dispersed) patterns
+- Compares static presence (stable) vs motion (dispersed) patterns
 - Shows all 64 subcarriers (HT20) plus the fixed production subcarriers
 - Reveals geometric signal characteristics
 
@@ -210,12 +210,12 @@ For full training workflow and dataset preparation, see [ML_DATA_COLLECTION.md](
 
 ### 11. Dataset Quality Validation (`11_validate_dataset_quality.py`)
 
-Validates CSI datasets for integrity, signal quality, and ML readiness. Runs automated checks on all baseline/movement pairs and optionally generates a structured markdown report.
+Validates CSI datasets for integrity, signal quality, and ML readiness. It now checks per-file integrity for `empty`, `static_presence`, and `motion`, keeps pair validation focused on `static_presence`/`motion`, and includes an `EMPTY SANITY` phase that measures how well `empty` separates from overlapping `static_presence` groups.
 
 **Checks performed:**
 - File integrity — NPZ loads, expected keys exist, shapes are valid
 - Signal quality — amplitude range, zero-packet detection
-- Pair validation — baseline vs movement variance ratio, temporal gap
+- Pair validation — static-presence vs motion variance ratio, temporal gap
 - ML readiness — label balance, minimum samples, chip diversity
 
 Turbulence mode follows MVS conventions: raw std for gain-locked files, CV normalization for files without gain lock. ML always uses raw std regardless.
@@ -239,8 +239,8 @@ cd tools
 # 0. Collect data (files saved in data/)
 # Requires two terminals:
 #   Terminal 1: ESPectre streamer firmware running with collector IP/port set to this host
-#   Terminal 2: ./espectre micro collect --label baseline --duration 60
-#               ./espectre micro collect --label movement --duration 30
+#   Terminal 2: ./espectre micro collect --label static_presence --duration 60
+#               ./espectre micro collect --label motion --duration 30
 # Optional debug terminal:
 #               ./espectre micro detect --log-turbulence
 # see ../docs/ML_DATA_COLLECTION.md for details
@@ -278,7 +278,7 @@ python 9_compare_chips.py --plot
 
 ### Filter Optimization (Noisy Environment)
 
-Tested on 60-second noisy baseline with C6 chip:
+Tested on 60-second noisy static-presence capture with C6 chip:
 
 | Configuration | Recall | FP Rate | F1 Score |
 |---------------|--------|---------|----------|

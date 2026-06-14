@@ -143,7 +143,7 @@ if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
 from csi_utils import (
-    find_dataset,
+    find_static_presence_motion_dataset,
     load_npz_as_packets,
     DATA_DIR,
 )
@@ -441,15 +441,15 @@ def _parse_iso_timestamp(value):
 def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 * 60):
     """Resolve the paired baseline/movement file from metadata or nearest timestamp."""
     counterpart_field = (
-        'optimal_pair_movement_file'
-        if label == 'baseline'
-        else 'optimal_pair_baseline_file'
+        'optimal_pair_motion_file'
+        if label == 'static_presence'
+        else 'optimal_pair_static_presence_file'
     )
     explicit = entry.get(counterpart_field)
     if explicit:
         return str(explicit)
 
-    target_label = 'movement' if label == 'baseline' else 'baseline'
+    target_label = 'motion' if label == 'static_presence' else 'static_presence'
     timestamp = _parse_iso_timestamp(entry.get('collected_at'))
     if timestamp is None:
         return None
@@ -485,9 +485,9 @@ def _build_pair_id(label, entry, dataset_info=None):
         counterpart = _resolve_counterpart_name(label, entry, dataset_info)
     if counterpart is None:
         counterpart_field = (
-            'optimal_pair_movement_file'
-            if label == 'baseline'
-            else 'optimal_pair_baseline_file'
+            'optimal_pair_motion_file'
+            if label == 'static_presence'
+            else 'optimal_pair_static_presence_file'
         )
         counterpart = entry.get(counterpart_field)
     if not counterpart:
@@ -550,12 +550,12 @@ def _fallback_file_context(filename, label, packet):
 
 def _is_temporally_paired(dataset_info, label, entry, max_delta_seconds=30 * 60):
     """Check if entry has a valid counterpart within max delta."""
-    if label == 'baseline':
-        counterpart_label = 'movement'
-        counterpart_name = entry.get('optimal_pair_movement_file')
+    if label == 'static_presence':
+        counterpart_label = 'motion'
+        counterpart_name = entry.get('optimal_pair_motion_file')
     else:
-        counterpart_label = 'baseline'
-        counterpart_name = entry.get('optimal_pair_baseline_file')
+        counterpart_label = 'static_presence'
+        counterpart_name = entry.get('optimal_pair_static_presence_file')
     if not counterpart_name:
         return False
 
@@ -622,9 +622,9 @@ def is_motion_label(label_name, dataset_info):
     """
     labels = dataset_info.get('labels', {})
     if label_name in labels:
-        return label_name == 'movement'
-    # Default: only 'movement' is motion
-    return label_name == 'movement'
+        return label_name == 'motion'
+    # Default: only 'motion' is motion
+    return label_name == 'motion'
 
 
 def get_file_metadata(dataset_info):
@@ -705,7 +705,7 @@ def load_all_data(environment_filter=None, excluded_chips=None):
                 # Keep training strictly on baseline/movement labels.
                 # Test/control datasets must never be part of model training.
                 label_lc = str(label).lower()
-                if label_lc not in ('baseline', 'movement'):
+                if label_lc not in ('static_presence', 'motion'):
                     stats['excluded_labels'].add(label_lc)
                     continue
 
@@ -2141,7 +2141,7 @@ def run_ablation_study(X, y, feature_names, sample_context=None, sample_weight=N
     # Baseline (all features)
     print(f"[1/{len(feature_names)+1}] Baseline (all {len(feature_names)} features)...")
     with suppress_stderr():
-        baseline_cv = cross_validate(
+        static_presence_cv = cross_validate(
             X, y,
             hidden_layers=hidden_layers,
             n_folds=DEFAULT_CV_FOLDS,
@@ -2154,20 +2154,20 @@ def run_ablation_study(X, y, feature_names, sample_context=None, sample_weight=N
             batch_size=batch_size,
             block_stride=SEG_WINDOW_SIZE,
         )
-    baseline_f1 = baseline_cv['f1_mean']
+    static_presence_f1 = static_presence_cv['f1_mean']
     results.append({
         'removed': 'None (baseline)',
         'n_features': len(feature_names),
-        'f1_mean': baseline_f1,
-        'f1_std': baseline_cv['f1_std'],
-        'oof_f1': baseline_cv['oof_f1'],
-        'recall_mean': baseline_cv['recall_mean'],
-        'fp_rate_mean': baseline_cv['fp_rate_mean'],
+        'f1_mean': static_presence_f1,
+        'f1_std': static_presence_cv['f1_std'],
+        'oof_f1': static_presence_cv['oof_f1'],
+        'recall_mean': static_presence_cv['recall_mean'],
+        'fp_rate_mean': static_presence_cv['fp_rate_mean'],
         'delta_f1': 0.0,
     })
     print(
-        f"    F1: {baseline_f1:.2f}% (+/- {baseline_cv['f1_std']:.2f}%), "
-        f"blocked OOF={baseline_cv['oof_f1']:.2f}%\n"
+        f"    F1: {static_presence_f1:.2f}% (+/- {static_presence_cv['f1_std']:.2f}%), "
+        f"blocked OOF={static_presence_cv['oof_f1']:.2f}%\n"
     )
 
     # Remove each feature one at a time
@@ -2193,7 +2193,7 @@ def run_ablation_study(X, y, feature_names, sample_context=None, sample_weight=N
             )
 
         f1 = cv['f1_mean']
-        delta = f1 - baseline_f1
+        delta = f1 - static_presence_f1
 
         results.append({
             'removed': feature_name,
@@ -2349,7 +2349,7 @@ def show_info():
     
     print("Labels defined in dataset_info.json:")
     for label, info in dataset_info.get('labels', {}).items():
-        label_type = "MOTION" if label == 'movement' else "IDLE"
+        label_type = "MOTION" if label == 'motion' else "IDLE"
         print(f"  {label} -> {label_type}")
         if info.get('description'):
             print(f"    {info['description']}")
@@ -2492,7 +2492,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     
     if not stats['chips']:
         print("Error: No datasets found in data/")
-        print("Collect data using: ./espectre collect --label baseline --duration 60")
+        print("Collect data using: ./espectre collect --label static_presence --duration 60")
         return 1, seed, None
     
     print(f"  Chips: {', '.join(stats['chips'])}")
@@ -2814,37 +2814,37 @@ class StreamingEvaluator:
         return float(self._predict_probability(features))
 
 
-def evaluate_split(model, scaler, feature_names, baseline_packets, movement_packets, threshold=0.5):
+def evaluate_split(model, scaler, feature_names, static_presence_packets, motion_packets, threshold=0.5):
     """Evaluate a split with the same windowing path used at runtime."""
     evaluator = StreamingEvaluator(model, scaler, feature_names)
 
     warmup = SEG_WINDOW_SIZE
-    baseline_eval_count = max(len(baseline_packets) - warmup, 0)
-    movement_eval_count = max(len(movement_packets) - warmup, 0)
-    baseline_motion_packets = 0
-    movement_with_motion = 0
-    movement_without_motion = 0
+    static_presence_eval_count = max(len(static_presence_packets) - warmup, 0)
+    motion_eval_count = max(len(motion_packets) - warmup, 0)
+    static_presence_motion_packets = 0
+    motion_with_motion = 0
+    motion_without_motion = 0
 
-    for i, pkt in enumerate(baseline_packets):
+    for i, pkt in enumerate(static_presence_packets):
         prob = evaluator.process_packet(pkt['csi_data'])
         if i >= warmup and prob is not None and prob > threshold:
-            baseline_motion_packets += 1
+            static_presence_motion_packets += 1
 
-    for i, pkt in enumerate(movement_packets):
+    for i, pkt in enumerate(motion_packets):
         prob = evaluator.process_packet(pkt['csi_data'])
         if i >= warmup and prob is not None:
             if prob > threshold:
-                movement_with_motion += 1
+                motion_with_motion += 1
             else:
-                movement_without_motion += 1
+                motion_without_motion += 1
 
-    tp = movement_with_motion
-    fn = movement_without_motion
-    fp = baseline_motion_packets
-    tn = max(baseline_eval_count - baseline_motion_packets, 0)
+    tp = motion_with_motion
+    fn = motion_without_motion
+    fp = static_presence_motion_packets
+    tn = max(static_presence_eval_count - static_presence_motion_packets, 0)
     recall = tp / (tp + fn) * 100.0 if (tp + fn) else 0.0
     precision = tp / (tp + fp) * 100.0 if (tp + fp) else 0.0
-    fp_rate = fp / baseline_eval_count * 100.0 if baseline_eval_count else 0.0
+    fp_rate = fp / static_presence_eval_count * 100.0 if static_presence_eval_count else 0.0
     f1 = (
         2 * (precision / 100.0) * (recall / 100.0) / ((precision + recall) / 100.0) * 100.0
         if (precision + recall)
@@ -2859,8 +2859,8 @@ def evaluate_split(model, scaler, feature_names, baseline_packets, movement_pack
         'fp': int(fp),
         'tn': int(tn),
         'fn': int(fn),
-        'baseline_eval_count': int(baseline_eval_count),
-        'movement_eval_count': int(movement_eval_count),
+        'static_presence_eval_count': int(static_presence_eval_count),
+        'motion_eval_count': int(motion_eval_count),
     }
 
 
@@ -2870,17 +2870,17 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
     by_chip = {}
     for chip in chips:
         try:
-            baseline_path, movement_path, _ = find_dataset(chip=chip, num_sc=64)
+            static_presence_path, motion_path, _ = find_static_presence_motion_dataset(chip=chip, num_sc=64)
         except FileNotFoundError:
             continue
-        baseline_packets = load_npz_as_packets(baseline_path)[300:]
-        movement_packets = load_npz_as_packets(movement_path)
+        static_presence_packets = load_npz_as_packets(static_presence_path)[300:]
+        motion_packets = load_npz_as_packets(motion_path)
         by_chip[chip] = evaluate_split(
             model,
             scaler,
             feature_names,
-            baseline_packets,
-            movement_packets,
+            static_presence_packets,
+            motion_packets,
             threshold=threshold,
         )
     return summarize_gate(by_chip)
@@ -2892,15 +2892,15 @@ def evaluate_long_gate(model, scaler, feature_names, threshold=0.5, chips=None):
 
     chips = tuple(chips or DEFAULT_LONG_GATE_CHIPS)
     by_chip = {}
-    for _, baseline_packets, movement_packets, _, chip, _ in get_available_long_test_datasets(
+    for _, static_presence_packets, motion_packets, _, chip, _ in get_available_long_test_datasets(
         chips=chips
     ):
         by_chip[chip] = evaluate_split(
             model,
             scaler,
             feature_names,
-            baseline_packets,
-            movement_packets,
+            static_presence_packets,
+            motion_packets,
             threshold=threshold,
         )
     return summarize_gate(by_chip)
@@ -3034,13 +3034,13 @@ def _format_real_ml_summary(real_metrics):
     )
 
 
-def _candidate_beats_baseline(candidate_cv, candidate_real, baseline_cv, baseline_real):
+def _candidate_beats_baseline(candidate_cv, candidate_real, static_presence_cv, static_presence_real):
     """Compare candidate vs baseline with a safe fallback to CV-only ranking."""
-    if candidate_real is None or baseline_real is None:
-        return build_candidate_key(candidate_cv) > build_candidate_key(baseline_cv)
+    if candidate_real is None or static_presence_real is None:
+        return build_candidate_key(candidate_cv) > build_candidate_key(static_presence_cv)
     return _combined_candidate_key(candidate_cv, candidate_real) > _combined_candidate_key(
-        baseline_cv,
-        baseline_real,
+        static_presence_cv,
+        static_presence_real,
     )
 
 
@@ -3115,15 +3115,15 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             + ', '.join(f"{chip}={factor:.2f}" for chip, factor in sorted(positive_chip_boost.items()))
         )
 
-    baseline_seed = read_exported_seed()
-    if baseline_seed is None:
-        baseline_seed = 42
+    static_presence_seed = read_exported_seed()
+    if static_presence_seed is None:
+        static_presence_seed = 42
         print("\nWarning: current exported seed not found, using 42 as baseline seed")
 
-    print(f"\nEvaluating current model baseline with seed {baseline_seed}...")
-    baseline_rc, _, baseline_metrics = train_all(
+    print(f"\nEvaluating current model baseline with seed {static_presence_seed}...")
+    static_presence_rc, _, static_presence_metrics = train_all(
         fp_weight=fp_weight,
-        seed=baseline_seed,
+        seed=static_presence_seed,
         feature_names=feature_names,
         feature_importance=False,
         ablation=False,
@@ -3136,24 +3136,24 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         excluded_chips=excluded_chips,
         positive_chip_boost=positive_chip_boost,
     )
-    if baseline_rc != 0 or baseline_metrics is None:
+    if static_presence_rc != 0 or static_presence_metrics is None:
         print("Error: unable to evaluate current model baseline")
         return 1
 
-    baseline_session = baseline_metrics.get('group_reports', {}).get('session_group', {}).get('worst_recall', {})
-    baseline_chip = baseline_metrics.get('group_reports', {}).get('chip', {}).get('worst_recall', {})
+    static_presence_session = static_presence_metrics.get('group_reports', {}).get('session_group', {}).get('worst_recall', {})
+    static_presence_chip = static_presence_metrics.get('group_reports', {}).get('chip', {}).get('worst_recall', {})
     print(
-        f"Baseline: session_min_recall={baseline_session.get('recall', 0.0):.1f}% "
-        f"chip_min_recall={baseline_chip.get('recall', 0.0):.1f}% "
-        f"blocked_oof_f1={baseline_metrics['oof_f1']:.1f}%"
+        f"Baseline: session_min_recall={static_presence_session.get('recall', 0.0):.1f}% "
+        f"chip_min_recall={static_presence_chip.get('recall', 0.0):.1f}% "
+        f"blocked_oof_f1={static_presence_metrics['oof_f1']:.1f}%"
     )
-    baseline_real_metrics, baseline_real_output = _run_ml_performance_tests()
-    if baseline_real_metrics is None:
+    static_presence_real_metrics, static_presence_real_output = _run_ml_performance_tests()
+    if static_presence_real_metrics is None:
         print("Baseline real-data ML gate: unavailable")
-        if baseline_real_output.strip():
-            print(baseline_real_output.strip())
+        if static_presence_real_output.strip():
+            print(static_presence_real_output.strip())
     else:
-        print(f"Baseline real-data ML gate: {_format_real_ml_summary(baseline_real_metrics)}")
+        print(f"Baseline real-data ML gate: {_format_real_ml_summary(static_presence_real_metrics)}")
 
     backup_dir, saved_files = _backup_artifacts()
     print(f"Artifacts backup: {backup_dir}")
@@ -3193,7 +3193,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             f"blocked_oof_f1={metrics['oof_f1']:.1f}%"
         )
 
-        if build_candidate_key(metrics) <= build_candidate_key(baseline_metrics):
+        if build_candidate_key(metrics) <= build_candidate_key(static_presence_metrics):
             trial_summaries.append((used_seed, metrics, None, 'cv_rejected'))
             print("  CV filter: rejected before real-data ML gate")
             continue
@@ -3226,7 +3226,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             print(real_output.strip())
 
         trial_summaries.append((used_seed, final_metrics, real_metrics, 'real_gate'))
-        if _candidate_beats_baseline(final_metrics, real_metrics, baseline_metrics, baseline_real_metrics):
+        if _candidate_beats_baseline(final_metrics, real_metrics, static_presence_metrics, static_presence_real_metrics):
             improved = True
             improved_seed = used_seed
             improved_metrics = final_metrics
@@ -3381,14 +3381,14 @@ def architecture_candidate_beats_baseline(candidate, baseline):
         -candidate['median_long_worst_chip_f1'],
         candidate['worst_long_max_fp_rate'],
     )
-    baseline_long = (
+    static_presence_long = (
         baseline['median_long_max_fp_rate'],
         baseline['median_long_total_fp'],
         -baseline['median_long_pass_count'],
         -baseline['median_long_worst_chip_f1'],
         baseline['worst_long_max_fp_rate'],
     )
-    if candidate_long >= baseline_long:
+    if candidate_long >= static_presence_long:
         return False
     return aggregate_architecture_rank_key(candidate) < aggregate_architecture_rank_key(baseline)
 
@@ -3484,8 +3484,8 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
     architectures = normalize_architecture_specs(architectures or DEFAULT_ARCHITECTURE_SWEEP)
 
-    baseline_layers = tuple(DEFAULT_HIDDEN_LAYERS)
-    if baseline_layers not in {tuple(spec['layers']) for spec in architectures}:
+    static_presence_layers = tuple(DEFAULT_HIDDEN_LAYERS)
+    if static_presence_layers not in {tuple(spec['layers']) for spec in architectures}:
         architectures.insert(0, {
             'name': f"Current default ({format_hidden_layers(DEFAULT_HIDDEN_LAYERS)})",
             'layers': list(DEFAULT_HIDDEN_LAYERS),
@@ -3493,10 +3493,10 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     else:
         architectures = sorted(
             architectures,
-            key=lambda spec: tuple(spec['layers']) != baseline_layers,
+            key=lambda spec: tuple(spec['layers']) != static_presence_layers,
         )
-    baseline_name = next(
-        spec['name'] for spec in architectures if tuple(spec['layers']) == baseline_layers
+    static_presence_name = next(
+        spec['name'] for spec in architectures if tuple(spec['layers']) == static_presence_layers
     )
     screening_seed = read_exported_seed() or DEFAULT_EXPERIMENT_SCREENING_SEED
 
@@ -3621,9 +3621,9 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
 
     challengers = [
         item for item in sorted(screening_results, key=architecture_campaign_rank_key)
-        if item['name'] != baseline_name
+        if item['name'] != static_presence_name
     ][:2]
-    finalists = [baseline_name] + [item['name'] for item in challengers]
+    finalists = [static_presence_name] + [item['name'] for item in challengers]
     print(f"\nFinalists for 3-seed filter: {', '.join(finalists)}")
 
     specs_by_name = {spec['name']: spec for spec in architectures}
@@ -3655,12 +3655,12 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
             f"median paired pass={summary['median_paired_pass_count']:.1f}"
         )
 
-    baseline_filter = next(item for item in seed_filter if item['name'] == baseline_name)
+    static_presence_filter = next(item for item in seed_filter if item['name'] == static_presence_name)
     challenger_summaries = [
         item for item in sorted(seed_filter, key=aggregate_architecture_rank_key)
-        if item['name'] != baseline_name
+        if item['name'] != static_presence_name
     ]
-    head_to_head = [baseline_name]
+    head_to_head = [static_presence_name]
     if challenger_summaries:
         head_to_head.append(challenger_summaries[0]['name'])
     print(f"\n5-seed head-to-head: {', '.join(head_to_head)}")
@@ -3693,28 +3693,28 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         )
 
     seed_finalists = sorted(seed_finalists, key=aggregate_architecture_rank_key)
-    baseline_final = next(item for item in seed_finalists if item['name'] == baseline_name)
+    static_presence_final = next(item for item in seed_finalists if item['name'] == static_presence_name)
     winner = seed_finalists[0]
     promote_candidate = (
-        winner['name'] != baseline_name
-        and architecture_candidate_beats_baseline(winner, baseline_final)
+        winner['name'] != static_presence_name
+        and architecture_candidate_beats_baseline(winner, static_presence_final)
     )
     results['promotion'] = {
         'winner': winner['name'],
-        'baseline': baseline_final['name'],
-        'decision': f"promote {winner['name']}" if promote_candidate else f"keep {baseline_name}",
+        'static_presence': static_presence_final['name'],
+        'decision': f"promote {winner['name']}" if promote_candidate else f"keep {static_presence_name}",
         'clear_winner': bool(promote_candidate),
         'summary': winner,
-        'baseline_summary': baseline_final,
+        'static_presence_summary': static_presence_final,
         'output_path': str(output_path),
     }
     write_json_results(output_path, results)
 
     if not promote_candidate:
-        print(f"\nDecision: keep {baseline_name}")
+        print(f"\nDecision: keep {static_presence_name}")
         return 0
 
-    print(f"\nDecision: {winner['name']} beats {baseline_name} on FP-first ranking")
+    print(f"\nDecision: {winner['name']} beats {static_presence_name} on FP-first ranking")
     if not promote_winner:
         print("Promotion disabled (--experiment-promote not set), leaving current artifacts unchanged")
         return 0

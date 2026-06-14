@@ -61,7 +61,7 @@ def collect_csi_data(args) -> None:
         print(f"{Fore.RED}❌ Label required. Use --label <name>{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Examples:{Style.RESET_ALL}")
         print("  ./espectre micro collect --label wave --samples 10 --streamer-ip 192.168.1.50")
-        print("  ./espectre micro collect --label baseline --duration 10 --streamer-ip 192.168.1.50")
+        print("  ./espectre micro collect --label static_presence --duration 10 --streamer-ip 192.168.1.50")
         print("  ./espectre micro collect --info")
         raise SystemExit(1)
 

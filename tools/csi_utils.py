@@ -655,7 +655,7 @@ class CSICollector:
         Initialize collector.
         
         Args:
-            label: Label for collected samples (e.g., 'wave', 'baseline')
+            label: Label for collected samples (e.g., 'wave', 'static_presence')
             port: UDP port for CSI receiver
             contributor: GitHub username of the contributor (auto-detected from git if not provided)
             description: Optional description for the collected samples
@@ -1345,57 +1345,57 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     return packets
 
 
-def find_dataset(chip: str = None, num_sc: int = 64) -> Tuple[Path, Path, str]:
+def find_static_presence_motion_dataset(chip: str = None, num_sc: int = 64) -> Tuple[Path, Path, str]:
     """
-    Find baseline and movement dataset files with nearest timestamps.
+    Find static-presence and motion dataset files with nearest timestamps.
     
     Args:
         chip: Chip type (C6, S3, etc.) or None to find any chip
         num_sc: Number of subcarriers (default: 64 for HT20)
     
     Returns:
-        tuple: (baseline_path, movement_path, chip_name)
+        tuple: (static_presence_path, motion_path, chip_name)
     
     Raises:
         FileNotFoundError: If no matching files found
     """
-    baseline_dir = DATA_DIR / 'baseline'
-    movement_dir = DATA_DIR / 'movement'
+    static_presence_dir = DATA_DIR / 'static_presence'
+    motion_dir = DATA_DIR / 'motion'
     
     # Build search pattern
     if chip:
         chip_lower = chip.lower()
-        baseline_pattern = f'baseline_{chip_lower}_{num_sc}sc_*.npz'
-        movement_pattern = f'movement_{chip_lower}_{num_sc}sc_*.npz'
+        static_presence_pattern = f'static_presence_{chip_lower}_{num_sc}sc_*.npz'
+        motion_pattern = f'motion_{chip_lower}_{num_sc}sc_*.npz'
     else:
-        baseline_pattern = f'*_{num_sc}sc_*.npz'
-        movement_pattern = f'*_{num_sc}sc_*.npz'
+        static_presence_pattern = f'*_{num_sc}sc_*.npz'
+        motion_pattern = f'*_{num_sc}sc_*.npz'
     
-    baseline_files = list(baseline_dir.glob(baseline_pattern))
-    movement_files = list(movement_dir.glob(movement_pattern))
+    static_presence_files = list(static_presence_dir.glob(static_presence_pattern))
+    motion_files = list(motion_dir.glob(motion_pattern))
     
     chip_desc = f"{chip} ({num_sc} SC)" if chip else f"{num_sc} SC"
     
-    if not baseline_files:
+    if not static_presence_files:
         raise FileNotFoundError(
-            f"No baseline file found for {chip_desc} in {baseline_dir}\n"
-            f"Collect data using: ./espectre collect --label baseline --duration 10"
+            f"No static-presence file found for {chip_desc} in {static_presence_dir}\n"
+            f"Collect data using: ./espectre collect --label static_presence --duration 10"
         )
-    if not movement_files:
+    if not motion_files:
         raise FileNotFoundError(
-            f"No movement file found for {chip_desc} in {movement_dir}\n"
-            f"Collect data using: ./espectre collect --label movement --duration 10"
+            f"No motion file found for {chip_desc} in {motion_dir}\n"
+            f"Collect data using: ./espectre collect --label motion --duration 10"
         )
     
-    # Prefer nearest baseline/movement pair from dataset_info metadata, so
+    # Prefer nearest static-presence/motion pair from dataset_info metadata, so
     # Python tests match C++ csi_test_data.h pairing policy.
-    baseline_file = None
-    movement_file = None
+    static_presence_file = None
+    motion_file = None
     try:
         info = load_dataset_info()
         files_section = info.get('files', {})
-        baseline_meta = files_section.get('baseline', [])
-        movement_meta = files_section.get('movement', [])
+        static_presence_meta = files_section.get('static_presence', [])
+        motion_meta = files_section.get('motion', [])
 
         def _meta_matches(entry: Dict[str, Any], label_chip: Optional[str]) -> bool:
             if int(entry.get('subcarriers', 0)) != int(num_sc):
@@ -1414,92 +1414,93 @@ def find_dataset(chip: str = None, num_sc: int = 64) -> Tuple[Path, Path, str]:
                 return None
 
         selected_chip = chip.upper() if chip else None
-        baseline_candidates = []
-        movement_candidates = []
-        for entry in baseline_meta:
+        static_presence_candidates = []
+        motion_candidates = []
+        for entry in static_presence_meta:
             if _meta_matches(entry, selected_chip):
                 ts = _parse_ts(entry.get('collected_at'))
                 filename = entry.get('filename')
                 if ts and filename:
-                    candidate = baseline_dir / str(filename)
+                    candidate = static_presence_dir / str(filename)
                     if candidate.exists():
-                        baseline_candidates.append((ts, candidate))
-        for entry in movement_meta:
+                        static_presence_candidates.append((ts, candidate))
+        for entry in motion_meta:
             if _meta_matches(entry, selected_chip):
                 ts = _parse_ts(entry.get('collected_at'))
                 filename = entry.get('filename')
                 if ts and filename:
-                    candidate = movement_dir / str(filename)
+                    candidate = motion_dir / str(filename)
                     if candidate.exists():
-                        movement_candidates.append((ts, candidate))
+                        motion_candidates.append((ts, candidate))
 
         best_delta = None
-        for b_ts, b_path in baseline_candidates:
-            for m_ts, m_path in movement_candidates:
+        for b_ts, b_path in static_presence_candidates:
+            for m_ts, m_path in motion_candidates:
                 delta = abs((m_ts - b_ts).total_seconds())
                 if best_delta is None or delta < best_delta:
                     best_delta = delta
-                    baseline_file = b_path
-                    movement_file = m_path
+                    static_presence_file = b_path
+                    motion_file = m_path
     except Exception:
         # Keep backward-compatible fallback below.
-        baseline_file = None
-        movement_file = None
+        static_presence_file = None
+        motion_file = None
 
     # Fallback: use the most recent files by filename timestamp.
-    if baseline_file is None or movement_file is None:
-        baseline_file = sorted(baseline_files)[-1]
-        movement_file = sorted(movement_files)[-1]
+    if static_presence_file is None or motion_file is None:
+        static_presence_file = sorted(static_presence_files)[-1]
+        motion_file = sorted(motion_files)[-1]
     
-    # Extract chip name from filename (e.g., baseline_c6_64sc_... -> C6)
-    chip_name = baseline_file.stem.split('_')[1].upper()
+    # Extract chip name from filename (e.g., static_presence_c6_64sc_... -> C6).
+    parts = static_presence_file.stem.split('_')
+    chip_name = parts[2].upper() if len(parts) >= 3 else 'UNKNOWN'
     
-    return baseline_file, movement_file, chip_name
+    return static_presence_file, motion_file, chip_name
 
 
-def load_baseline_and_movement(
-    baseline_file: str = None,
-    movement_file: str = None,
+def load_static_presence_and_motion(
+    static_presence_file: str = None,
+    motion_file: str = None,
     chip: str = 'C6'
 ) -> Tuple[List[Dict], List[Dict]]:
     """
-    Load baseline and movement data from .npz files
+    Load static-presence and motion data from .npz files.
     
     Args:
-        baseline_file: Path to baseline data file (optional, auto-finds if not specified)
-        movement_file: Path to movement data file (optional, auto-finds if not specified)
+        static_presence_file: Path to static-presence data file (optional, auto-finds if not specified)
+        motion_file: Path to motion data file (optional, auto-finds if not specified)
         chip: Chip type for auto-discovery (default: C6)
     
     Returns:
-        tuple: (baseline_packets, movement_packets)
+        tuple: (static_presence_packets, motion_packets)
     """
     # Auto-find files if not specified
-    if baseline_file is None or movement_file is None:
-        found_baseline, found_movement, _ = find_dataset(chip=chip)
-        if baseline_file is None:
-            baseline_file = found_baseline
-        if movement_file is None:
-            movement_file = found_movement
+    if static_presence_file is None or motion_file is None:
+        found_static_presence, found_motion, _ = find_static_presence_motion_dataset(chip=chip)
+        if static_presence_file is None:
+            static_presence_file = found_static_presence
+        if motion_file is None:
+            motion_file = found_motion
     
     # Convert to Path if string
-    baseline_path = Path(baseline_file) if isinstance(baseline_file, str) else baseline_file
-    movement_path = Path(movement_file) if isinstance(movement_file, str) else movement_file
+    static_presence_path = Path(static_presence_file) if isinstance(static_presence_file, str) else static_presence_file
+    motion_path = Path(motion_file) if isinstance(motion_file, str) else motion_file
     
-    if not baseline_path.exists():
+    if not static_presence_path.exists():
         raise FileNotFoundError(
-            f"{baseline_path} not found.\n"
-            f"Collect data using: ./espectre collect --label baseline --duration 10"
+            f"{static_presence_path} not found.\n"
+            f"Collect data using: ./espectre collect --label static_presence --duration 10"
         )
-    if not movement_path.exists():
+    if not motion_path.exists():
         raise FileNotFoundError(
-            f"{movement_path} not found.\n"
-            f"Collect data using: ./mespectree collect --label movement --duration 10"
+            f"{motion_path} not found.\n"
+            f"Collect data using: ./espectre collect --label motion --duration 10"
         )
     
-    baseline_packets = load_npz_as_packets(baseline_path)
-    movement_packets = load_npz_as_packets(movement_path)
+    static_presence_packets = load_npz_as_packets(static_presence_path)
+    motion_packets = load_npz_as_packets(motion_path)
     
-    return baseline_packets, movement_packets
+    return static_presence_packets, motion_packets
 
 
 # ============================================================================
@@ -1692,42 +1693,42 @@ class MVSDetector:
         return self.motion_packet_count
 
 
-def test_mvs_configuration(baseline_packets, movement_packets,
+def test_mvs_configuration(static_presence_packets, motion_packets,
                           threshold, window_size) -> Tuple[int, int, float]:
     """
     Test MVS configuration and return FP, TP counts
     
     Args:
-        baseline_packets: List of baseline packets
-        movement_packets: List of movement packets
+        static_presence_packets: List of static-presence packets
+        motion_packets: List of motion packets
         threshold: Motion detection threshold
         window_size: Sliding window size
     
     Returns:
         tuple: (fp, tp, score)
     """
-    num_baseline = len(baseline_packets)
-    num_movement = len(movement_packets)
+    num_static_presence = len(static_presence_packets)
+    num_motion = len(motion_packets)
 
-    # Test on baseline (FP)
+    # Test on static presence (FP)
     detector = MVSDetector(window_size, threshold)
-    for pkt in baseline_packets:
+    for pkt in static_presence_packets:
         detector.process_packet(pkt)
     fp = detector.get_motion_count()
 
-    # Keep the turbulence buffer warm across baseline -> movement to match
-    # real performance tests and runtime behavior. Reset only motion counter.
+    # Keep the turbulence buffer warm across static_presence -> motion to
+    # match real performance tests and runtime behavior. Reset only motion counter.
     detector.motion_packet_count = 0
 
-    # Test on movement (TP)
-    for pkt in movement_packets:
+    # Test on motion (TP)
+    for pkt in motion_packets:
         detector.process_packet(pkt)
     tp = detector.get_motion_count()
 
-    fn = max(0, num_movement - tp)
-    recall = (tp / num_movement * 100.0) if num_movement > 0 else 0.0
+    fn = max(0, num_motion - tp)
+    recall = (tp / num_motion * 100.0) if num_motion > 0 else 0.0
     precision = (tp / (tp + fp) * 100.0) if (tp + fp) > 0 else 0.0
-    fp_rate = (fp / num_baseline * 100.0) if num_baseline > 0 else 100.0
+    fp_rate = (fp / num_static_presence * 100.0) if num_static_presence > 0 else 100.0
     f1_score = 0.0
     if (precision + recall) > 0.0:
         f1_score = 2.0 * precision * recall / (precision + recall)
@@ -1737,7 +1738,7 @@ def test_mvs_configuration(baseline_packets, movement_packets,
     # - secondary: maximize F1 among valid candidates
     recall_target = 95.0
     fp_target = 10.0
-    fn_rate = (fn / num_movement * 100.0) if num_movement > 0 else 100.0
+    fn_rate = (fn / num_motion * 100.0) if num_motion > 0 else 100.0
 
     if recall >= recall_target and fp_rate <= fp_target:
         score = 1_000_000.0 + f1_score * 100.0 - fp_rate

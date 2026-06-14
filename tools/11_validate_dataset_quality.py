@@ -8,8 +8,12 @@ Generates a structured report with per-file and per-pair analysis.
 Checks performed:
   1. File integrity   - NPZ loads, expected keys exist, shapes are valid
   2. Signal quality   - Amplitude range, zero-packet detection
-  3. Pair validation  - Baseline vs movement variance ratio, temporal gap
+  3. Pair validation  - Static-presence vs motion variance ratio, temporal gap
   4. ML readiness     - Label balance, minimum samples, chip diversity
+
+Per-file integrity and signal-quality checks cover `empty`, `static_presence`,
+and `motion`. Pair validation and ML readiness intentionally focus on
+`static_presence` / `motion`.
 
 SOURCE CODE ALIGNMENT:
   This script imports core functions directly from src/python/ to ensure correctness:
@@ -63,6 +67,8 @@ MAX_ZERO_PACKET_RATIO = 0.01
 MIN_VARIANCE_RATIO = 3.5
 MAX_TEMPORAL_GAP_S = 60
 MIN_AMPLITUDE_MEAN = 10.0
+MIN_EMPTY_SEPARABILITY_AUC = 0.80
+MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.80
 
 
 # ------------------------------------------------------------------
@@ -209,13 +215,13 @@ def validate_signal_quality(csi_data):
 
 
 def validate_pair(bl_csi, mv_csi, bl_data, mv_data, gain_locked=True):
-    """Validate a baseline/movement pair.
+    """Validate a static-presence/motion pair.
 
     Args:
-        bl_csi: baseline CSI array (num_packets, 128)
-        mv_csi: movement CSI array (num_packets, 128)
-        bl_data: full baseline NpzFile (for metadata)
-        mv_data: full movement NpzFile (for metadata)
+        bl_csi: static-presence CSI array (num_packets, 128)
+        mv_csi: motion CSI array (num_packets, 128)
+        bl_data: full static-presence NpzFile (for metadata)
+        mv_data: full motion NpzFile (for metadata)
         gain_locked: True → raw_std, False → CV normalization (MVS behavior)
 
     Returns:
@@ -250,12 +256,12 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data, gain_locked=True):
 
     if ratio_for_check < MIN_VARIANCE_RATIO:
         results.append(ValidationResult("variance_ratio", "FAIL",
-            f"Ratio {ratio_for_check}x < {MIN_VARIANCE_RATIO}x (bl={bl_var:.4f}, mv={mv_var:.4f})", ratio_for_check))
+            f"Ratio {ratio_for_check}x < {MIN_VARIANCE_RATIO}x (static={bl_var:.4f}, motion={mv_var:.4f})", ratio_for_check))
     else:
         results.append(ValidationResult("variance_ratio", "PASS",
-            f"Ratio {ratio_for_check}x (bl={bl_var:.6f}, mv={mv_var:.6f})", ratio_for_check))
+            f"Ratio {ratio_for_check}x (static={bl_var:.6f}, motion={mv_var:.6f})", ratio_for_check))
 
-    # Temporal gap: baseline end → movement start
+    # Temporal gap: static-presence end -> motion start
     gap_s = None
     try:
         bl_collected = bl_data.get('collected_at', None)
@@ -294,21 +300,21 @@ def validate_ml_readiness(dataset_info):
     """Check if dataset is ready for ML training."""
     results = []
 
-    baseline_files = dataset_info.get('files', {}).get('baseline', [])
-    movement_files = dataset_info.get('files', {}).get('movement', [])
+    static_presence_files = dataset_info.get('files', {}).get('static_presence', [])
+    motion_files = dataset_info.get('files', {}).get('motion', [])
 
-    bl_packets = sum(f.get('num_packets', 0) for f in baseline_files)
-    mv_packets = sum(f.get('num_packets', 0) for f in movement_files)
+    bl_packets = sum(f.get('num_packets', 0) for f in static_presence_files)
+    mv_packets = sum(f.get('num_packets', 0) for f in motion_files)
     total = bl_packets + mv_packets
 
     if total > 0:
         bl_ratio = bl_packets / total
         if 0.3 <= bl_ratio <= 0.7:
             results.append(ValidationResult("label_balance", "PASS",
-                f"Balance: {bl_ratio:.1%} baseline, {1-bl_ratio:.1%} movement", bl_ratio))
+                f"Balance: {bl_ratio:.1%} static presence, {1-bl_ratio:.1%} motion", bl_ratio))
         else:
             results.append(ValidationResult("label_balance", "WARN",
-                f"Imbalanced: {bl_ratio:.1%} baseline, {1-bl_ratio:.1%} movement", bl_ratio))
+                f"Imbalanced: {bl_ratio:.1%} static presence, {1-bl_ratio:.1%} motion", bl_ratio))
 
     min_windows = 1000
     estimated_windows = max(0, bl_packets - 100) + max(0, mv_packets - 100)
@@ -319,13 +325,235 @@ def validate_ml_readiness(dataset_info):
         results.append(ValidationResult("sample_count", "PASS",
             f"~{estimated_windows} feature windows available", estimated_windows))
 
-    chips = {f.get('chip', 'unknown') for f in baseline_files + movement_files}
+    chips = {f.get('chip', 'unknown') for f in static_presence_files + motion_files}
     if len(chips) >= 3:
         results.append(ValidationResult("chip_diversity", "PASS",
             f"{len(chips)} chip types: {sorted(chips)}", len(chips)))
     else:
         results.append(ValidationResult("chip_diversity", "WARN",
             f"Only {len(chips)} chip type(s): {sorted(chips)}", len(chips)))
+
+    return results
+
+
+def _load_cached_or_npz(filepath, npz_cache):
+    """Return cached NPZ data and CSI key, loading from disk only if needed."""
+    if filepath in npz_cache:
+        return npz_cache[filepath]
+
+    data = np.load(filepath, allow_pickle=True)
+    csi_key = _get_csi_key(data)
+    npz_cache[filepath] = (data, csi_key)
+    return data, csi_key
+
+
+def _filter_measurement_frames(csi_data, data):
+    """Drop reference frames when the NPZ explicitly tracks them."""
+    if 'is_reference' not in data.files:
+        return csi_data
+
+    is_reference = np.asarray(data['is_reference']).astype(bool)
+    if is_reference.shape[0] != csi_data.shape[0]:
+        return csi_data
+
+    measurement_mask = ~is_reference
+    if measurement_mask.any():
+        return csi_data[measurement_mask]
+    return csi_data
+
+
+def _compute_moving_variance_series(csi_data, gain_locked=True):
+    """Compute moving-variance series for one CSI array."""
+    use_cv = not gain_locked
+    amps = _extract_amplitudes_matrix(csi_data)
+    turbulence = [
+        _spatial_turbulence_from_amps(amps[i].tolist(), DEFAULT_SUBCARRIERS, use_cv)
+        for i in range(amps.shape[0])
+    ]
+    return np.asarray(_moving_variance(turbulence), dtype=np.float64)
+
+
+def _evaluate_threshold_direction(neg_values, pos_values, expect_pos_higher=True):
+    """Return best balanced-accuracy threshold for one score direction."""
+    if len(neg_values) == 0 or len(pos_values) == 0:
+        return None
+
+    values = np.unique(np.concatenate([neg_values, pos_values]))
+    step = max(1, len(values) // 2000)
+    candidates = values[::step]
+    if candidates[-1] != values[-1]:
+        candidates = np.append(candidates, values[-1])
+
+    best = None
+    for threshold in candidates:
+        if expect_pos_higher:
+            neg_correct = float((neg_values < threshold).mean())
+            pos_correct = float((pos_values >= threshold).mean())
+            direction = "higher => empty"
+        else:
+            neg_correct = float((neg_values > threshold).mean())
+            pos_correct = float((pos_values <= threshold).mean())
+            direction = "lower => empty"
+
+        balanced_acc = (neg_correct + pos_correct) / 2.0
+        accuracy = (
+            ((neg_values < threshold).sum() if expect_pos_higher else (neg_values > threshold).sum())
+            + ((pos_values >= threshold).sum() if expect_pos_higher else (pos_values <= threshold).sum())
+        ) / (len(neg_values) + len(pos_values))
+
+        candidate = (balanced_acc, accuracy, float(threshold), direction)
+        if best is None or candidate[:2] > best[:2]:
+            best = candidate
+
+    return best
+
+
+def _rank_auc(neg_values, pos_values):
+    """Compute ROC AUC using rank statistics."""
+    if len(neg_values) == 0 or len(pos_values) == 0:
+        return None
+
+    scores = np.concatenate([neg_values, pos_values])
+    labels = np.concatenate([
+        np.zeros(len(neg_values), dtype=np.int8),
+        np.ones(len(pos_values), dtype=np.int8),
+    ])
+    order = np.argsort(scores)
+    ranks = np.empty_like(order, dtype=np.float64)
+    ranks[order] = np.arange(1, len(scores) + 1, dtype=np.float64)
+
+    sorted_scores = scores[order]
+    i = 0
+    while i < len(sorted_scores):
+        j = i + 1
+        while j < len(sorted_scores) and sorted_scores[j] == sorted_scores[i]:
+            j += 1
+        if j - i > 1:
+            average_rank = (i + 1 + j) / 2.0
+            ranks[order[i:j]] = average_rank
+        i = j
+
+    n_pos = int(labels.sum())
+    n_neg = int(len(labels) - n_pos)
+    rank_sum_pos = float(ranks[labels == 1].sum())
+    return (rank_sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_neg * n_pos)
+
+
+def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
+    """Validate whether empty datasets are internally usable and separable."""
+    results = []
+
+    empty_files = dataset_info.get('files', {}).get('empty', [])
+    static_presence_files = dataset_info.get('files', {}).get('static_presence', [])
+
+    if chip_filter:
+        chip_upper = chip_filter.upper()
+        empty_files = [f for f in empty_files if str(f.get('chip', '')).upper() == chip_upper]
+        static_presence_files = [f for f in static_presence_files if str(f.get('chip', '')).upper() == chip_upper]
+
+    if not empty_files:
+        results.append(ValidationResult(
+            "empty_dataset_presence", "WARN",
+            "No empty datasets available for validation"
+        ))
+        return results
+
+    results.append(ValidationResult(
+        "empty_dataset_presence", "PASS",
+        f"{len(empty_files)} empty file(s) available", len(empty_files)
+    ))
+
+    overlap_groups = []
+    empty_group_map = {}
+    for entry in empty_files:
+        group = (
+            str(entry.get('chip', 'unknown')).upper(),
+            str(entry.get('environment', 'unknown')),
+        )
+        empty_group_map.setdefault(group, []).append(entry)
+
+    static_group_map = {}
+    for entry in static_presence_files:
+        group = (
+            str(entry.get('chip', 'unknown')).upper(),
+            str(entry.get('environment', 'unknown')),
+        )
+        static_group_map.setdefault(group, []).append(entry)
+
+    for group in sorted(set(empty_group_map) & set(static_group_map)):
+        overlap_groups.append(group)
+
+    if not overlap_groups:
+        results.append(ValidationResult(
+            "empty_overlap_groups", "WARN",
+            "No overlapping chip/environment groups with static presence"
+        ))
+        return results
+
+    results.append(ValidationResult(
+        "empty_overlap_groups", "PASS",
+        f"{len(overlap_groups)} overlapping chip/environment group(s): {overlap_groups}",
+        len(overlap_groups)
+    ))
+
+    for chip, environment in overlap_groups:
+        empty_mv_series = []
+        static_mv_series = []
+
+        for entry in empty_group_map[(chip, environment)]:
+            filepath = DATA_DIR / entry['relative_path']
+            data, csi_key = _load_cached_or_npz(filepath, npz_cache)
+            csi_data = _filter_measurement_frames(data[csi_key], data)
+            mv = _compute_moving_variance_series(csi_data, gain_locked=bool(entry.get('gain_locked', True)))
+            if len(mv):
+                empty_mv_series.append(mv)
+
+        for entry in static_group_map[(chip, environment)]:
+            filepath = DATA_DIR / entry['relative_path']
+            data, csi_key = _load_cached_or_npz(filepath, npz_cache)
+            mv = _compute_moving_variance_series(data[csi_key], gain_locked=bool(entry.get('gain_locked', True)))
+            if len(mv):
+                static_mv_series.append(mv)
+
+        if not empty_mv_series or not static_mv_series:
+            results.append(ValidationResult(
+                f"empty_separation_{chip}_{environment}", "WARN",
+                f"Insufficient moving-variance data for group {(chip, environment)}"
+            ))
+            continue
+
+        empty_mv = np.concatenate(empty_mv_series)
+        static_mv = np.concatenate(static_mv_series)
+        auc = _rank_auc(static_mv, empty_mv)
+        if auc is None:
+            results.append(ValidationResult(
+                f"empty_separation_{chip}_{environment}", "WARN",
+                f"Could not compute separability for group {(chip, environment)}"
+            ))
+            continue
+
+        forward = _evaluate_threshold_direction(static_mv, empty_mv, expect_pos_higher=True)
+        reverse = _evaluate_threshold_direction(static_mv, empty_mv, expect_pos_higher=False)
+        best = forward if reverse is None or (forward and forward[:2] >= reverse[:2]) else reverse
+        balanced_acc, accuracy, threshold, direction = best
+        separability_auc = max(float(auc), 1.0 - float(auc))
+        status = (
+            "PASS"
+            if separability_auc >= MIN_EMPTY_SEPARABILITY_AUC
+            and balanced_acc >= MIN_EMPTY_SEPARABILITY_BALANCED_ACC
+            else "WARN"
+        )
+
+        results.append(ValidationResult(
+            f"empty_separation_{chip}_{environment}",
+            status,
+            (
+                f"Moving variance separates empty vs static presence for {(chip, environment)}: "
+                f"AUC={separability_auc:.3f}, balanced_acc={balanced_acc:.3f}, "
+                f"threshold={threshold:.4f}, direction={direction}"
+            ),
+            round(separability_auc, 3)
+        ))
 
     return results
 
@@ -353,7 +581,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
         print(f"📋 Loaded dataset_info.json (updated: {dataset_info.get('updated_at', 'unknown')})")
     else:
         print("⚠️  dataset_info.json not found, scanning files directly")
-        dataset_info = {'files': {'baseline': [], 'movement': []}}
+        dataset_info = {'files': {'empty': [], 'static_presence': [], 'motion': []}}
 
     all_results = []
     pair_results = []
@@ -368,7 +596,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
     # Cache: path -> (NpzFile, csi_key) — avoids reloading in pair validation
     npz_cache = {}
 
-    for label in ['baseline', 'movement']:
+    for label in ['empty', 'static_presence', 'motion']:
         label_dir = DATA_DIR / label
         if not label_dir.exists():
             print(f"\n⚠️  Directory not found: {label_dir}")
@@ -397,18 +625,18 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                 all_results.append(r)
 
     # ------------------------------------------------------------------
-    # Phase 2: Pair validation (baseline ↔ movement)
+    # Phase 2: Pair validation (static presence <-> motion)
     # ------------------------------------------------------------------
     print("\n" + "-" * 70)
-    print("  PAIR VALIDATION (baseline vs movement)")
+    print("  PAIR VALIDATION (static presence vs motion)")
     print("-" * 70)
 
-    baseline_dir = DATA_DIR / "baseline"
-    movement_dir = DATA_DIR / "movement"
+    static_presence_dir = DATA_DIR / "static_presence"
+    motion_dir = DATA_DIR / "motion"
 
-    if baseline_dir.exists() and movement_dir.exists():
-        baseline_files = sorted(baseline_dir.glob("*.npz"))
-        movement_files = sorted(movement_dir.glob("*.npz"))
+    if static_presence_dir.exists() and motion_dir.exists():
+        static_presence_files = sorted(static_presence_dir.glob("*.npz"))
+        motion_files = sorted(motion_dir.glob("*.npz"))
 
         def _parse_file_meta(filepath):
             """Extract (chip, datetime) from filename.
@@ -416,10 +644,17 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
             Filenames follow: label_chip_64sc_YYYYMMDD_HHMMSS.npz
             """
             parts = filepath.stem.split('_')
-            chip = parts[1] if len(parts) > 1 else 'unknown'
+            if filepath.stem.startswith('static_presence_'):
+                chip = parts[2] if len(parts) > 2 else 'unknown'
+                date_idx = 4
+                time_idx = 5
+            else:
+                chip = parts[1] if len(parts) > 1 else 'unknown'
+                date_idx = 3
+                time_idx = 4
             try:
                 dt = datetime.datetime.strptime(
-                    f"{parts[3]}_{parts[4]}", "%Y%m%d_%H%M%S"
+                    f"{parts[date_idx]}_{parts[time_idx]}", "%Y%m%d_%H%M%S"
                 )
             except (IndexError, ValueError):
                 dt = None
@@ -427,17 +662,17 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
 
         # Build gain-lock lookup from dataset_info.json
         gain_locked_map = {}
-        for label in ('baseline', 'movement'):
+        for label in ('static_presence', 'motion'):
             for entry in dataset_info.get('files', {}).get(label, []):
                 fname = entry['filename']
                 if 'gain_locked' in entry:
                     gain_locked_map[fname] = entry['gain_locked']
 
-        # Match each baseline to its closest same-chip movement file,
+        # Match each static-presence file to its closest same-chip motion file,
         # producing 1:1 pairs.
         mv_used = set()
 
-        for bl_file in baseline_files:
+        for bl_file in static_presence_files:
             if chip_filter and chip_filter.lower() not in bl_file.name.lower():
                 continue
 
@@ -446,7 +681,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
             best_mv = None
             best_gap = None
 
-            for mf in movement_files:
+            for mf in motion_files:
                 if mf in mv_used:
                     continue
                 mv_chip, mv_dt = _parse_file_meta(mf)
@@ -460,7 +695,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                     best_gap = gap
 
             if best_mv is None:
-                print(f"\n⚠️  No movement pair for: {bl_file.name}")
+                print(f"\n⚠️  No motion pair for: {bl_file.name}")
                 continue
 
             mv_used.add(best_mv)
@@ -501,8 +736,8 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                 all_results.append(r)
 
             pair_results.append({
-                'baseline': bl_file.name,
-                'movement': mv_file.name,
+                'static_presence': bl_file.name,
+                'motion': mv_file.name,
                 'chip': chip.upper(),
                 'bl_var': bl_var,
                 'mv_var': mv_var,
@@ -514,7 +749,23 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
             })
 
     # ------------------------------------------------------------------
-    # Phase 3: ML readiness
+    # Phase 3: Empty sanity
+    # ------------------------------------------------------------------
+    print("\n" + "-" * 70)
+    print("  EMPTY SANITY")
+    print("-" * 70)
+
+    empty_results = validate_empty_sanity(
+        dataset_info,
+        npz_cache,
+        chip_filter=chip_filter,
+    )
+    for r in empty_results:
+        print(f"   {r}")
+        all_results.append(r)
+
+    # ------------------------------------------------------------------
+    # Phase 4: ML readiness
     # ------------------------------------------------------------------
     print("\n" + "-" * 70)
     print("  ML READINESS")
@@ -568,20 +819,24 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append(f"Generated by: `tools/11_validate_dataset_quality.py`\n")
 
     lines.append("## Validation rule\n")
+    lines.append("Per-file integrity and signal-quality checks cover `empty`, `static_presence`, and `motion`.\n")
     lines.append("A pair is considered valid when:\n")
-    lines.append("- labels are coherent (`baseline` vs `movement`)")
-    lines.append(f"- `movement_variance > baseline_variance` (ratio >= {MIN_VARIANCE_RATIO}x)\n")
+    lines.append("- labels are coherent (`static_presence` vs `motion`)")
+    lines.append(f"- `motion_variance > static_presence_variance` (ratio >= {MIN_VARIANCE_RATIO}x)\n")
+    lines.append("Empty sanity uses moving-variance separability against overlapping ")
+    lines.append("`static_presence` groups with the same chip/environment, after dropping ")
+    lines.append("reference frames from `empty` files when present.\n")
     lines.append("Computed metrics:\n")
-    lines.append("- `Baseline Var`: variance of spatial turbulence on baseline file")
-    lines.append("- `Movement Var`: variance of spatial turbulence on movement file")
-    lines.append("- `Ratio`: `Movement Var / Baseline Var`")
-    lines.append("- `Gap end->start`: time between baseline end and movement start (negative means overlap)")
+    lines.append("- `Static Presence Var`: variance of spatial turbulence on the static-presence file")
+    lines.append("- `Motion Var`: variance of spatial turbulence on the motion file")
+    lines.append("- `Ratio`: `Motion Var / Static Presence Var`")
+    lines.append("- `Gap end->start`: time between static-presence end and motion start (negative means overlap)")
     lines.append("- `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set")
     lines.append("- `Turbulence`: `raw_std` = gain locked (raw standard deviation), "
                  "`CV` = gain not locked (coefficient of variation, MVS only — ML always uses raw_std)\n")
 
     lines.append("## Results (sorted by chip, then ratio desc)\n")
-    lines.append("| Chip | File pair (baseline / movement) | Baseline Var | Movement Var "
+    lines.append("| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var "
                  "| Ratio | Gap | Subcarriers | Turbulence | Status |")
     lines.append("|---|---|---:|---:|---:|---:|---|---|---|")
 
@@ -592,7 +847,7 @@ def _generate_report(pair_results, all_results, dataset_info):
         gap = p.get('gap_s')
         gap_str = f"{gap:.1f}s" if gap is not None else "N/A"
         lines.append(
-            f"| {p['chip']} | `{p['baseline']}` / `{p['movement']}` | "
+            f"| {p['chip']} | `{p['static_presence']}` / `{p['motion']}` | "
             f"{bl_var_str} | {mv_var_str} | {p['ratio']:.2f}x | {gap_str} | "
             f"{p.get('sc_source', '?')} | {p.get('cv_mode', '?')} | {p['status']} |"
         )

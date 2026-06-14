@@ -46,7 +46,7 @@ from features import (
 )
 from filters import HampelFilter
 from csi_utils import (
-    load_baseline_and_movement, calculate_spatial_turbulence,
+    load_static_presence_and_motion, calculate_spatial_turbulence,
     calculate_variance_two_pass, MVSDetector, read_gain_locked
 )
 from config import (
@@ -70,14 +70,14 @@ DATA_DIR = data_dir()
 
 def get_available_datasets():
     """Get list of available datasets (HT20: 64 SC only)"""
-    from csi_utils import find_dataset
+    from csi_utils import find_static_presence_motion_dataset
     datasets = []
     
     # C3 64 SC dataset (HT20) - uses high-sensitivity band [18-29]
     try:
-        baseline_c3, movement_c3, _ = find_dataset(chip='C3', num_sc=64)
+        static_presence_c3, motion_c3, _ = find_static_presence_motion_dataset(chip='C3', num_sc=64)
         datasets.append(pytest.param(
-            (baseline_c3, movement_c3, 64, 'C3'),
+            (static_presence_c3, motion_c3, 64, 'C3'),
             id="c3_64sc"
         ))
     except FileNotFoundError:
@@ -85,9 +85,9 @@ def get_available_datasets():
     
     # C5 64 SC dataset (HT20)
     try:
-        baseline_c5, movement_c5, _ = find_dataset(chip='C5', num_sc=64)
+        static_presence_c5, motion_c5, _ = find_static_presence_motion_dataset(chip='C5', num_sc=64)
         datasets.append(pytest.param(
-            (baseline_c5, movement_c5, 64, 'C5'),
+            (static_presence_c5, motion_c5, 64, 'C5'),
             id="c5_64sc"
         ))
     except FileNotFoundError:
@@ -95,9 +95,9 @@ def get_available_datasets():
     
     # C6 64 SC dataset (HT20)
     try:
-        baseline_c6, movement_c6, _ = find_dataset(chip='C6', num_sc=64)
+        static_presence_c6, motion_c6, _ = find_static_presence_motion_dataset(chip='C6', num_sc=64)
         datasets.append(pytest.param(
-            (baseline_c6, movement_c6, 64, 'C6'),
+            (static_presence_c6, motion_c6, 64, 'C6'),
             id="c6_64sc"
         ))
     except FileNotFoundError:
@@ -105,9 +105,9 @@ def get_available_datasets():
     
     # ESP32 64 SC dataset (HT20)
     try:
-        baseline_esp32, movement_esp32, _ = find_dataset(chip='ESP32', num_sc=64)
+        static_presence_esp32, motion_esp32, _ = find_static_presence_motion_dataset(chip='ESP32', num_sc=64)
         datasets.append(pytest.param(
-            (baseline_esp32, movement_esp32, 64, 'ESP32'),
+            (static_presence_esp32, motion_esp32, 64, 'ESP32'),
             id="esp32_64sc"
         ))
     except FileNotFoundError:
@@ -115,9 +115,9 @@ def get_available_datasets():
     
     # S3 64 SC dataset (HT20)
     try:
-        baseline_s3, movement_s3, _ = find_dataset(chip='S3', num_sc=64)
+        static_presence_s3, motion_s3, _ = find_static_presence_motion_dataset(chip='S3', num_sc=64)
         datasets.append(pytest.param(
-            (baseline_s3, movement_s3, 64, 'S3'),
+            (static_presence_s3, motion_s3, 64, 'S3'),
             id="s3_64sc"
         ))
     except FileNotFoundError:
@@ -137,7 +137,7 @@ def dataset_config(request):
     Tests using this fixture will run once per available dataset.
     
     Returns:
-        tuple: (baseline_path, movement_path, num_subcarriers, chip)
+        tuple: (static_presence_path, motion_path, num_subcarriers, chip)
     """
     return request.param
 
@@ -151,18 +151,18 @@ def real_data(dataset_config):
     - Movement: all packets loaded
     """
     from csi_utils import load_npz_as_packets
-    baseline_path, movement_path, num_sc, chip = dataset_config
+    static_presence_path, motion_path, num_sc, chip = dataset_config
     
     # Match C++ GAIN_LOCK_SKIP = 300 (skip radio warm-up noise in baseline)
     GAIN_LOCK_SKIP = 300
     
-    baseline_packets = load_npz_as_packets(baseline_path)
-    movement_packets = load_npz_as_packets(movement_path)
+    static_presence_packets = load_npz_as_packets(static_presence_path)
+    motion_packets = load_npz_as_packets(motion_path)
     
     # Skip first GAIN_LOCK_SKIP baseline packets (matches C++ behavior)
-    baseline_packets = baseline_packets[GAIN_LOCK_SKIP:]
+    static_presence_packets = static_presence_packets[GAIN_LOCK_SKIP:]
     
-    return baseline_packets, movement_packets
+    return static_presence_packets, motion_packets
 
 
 @pytest.fixture
@@ -207,8 +207,8 @@ def use_cv_normalization(dataset_config):
     files that predate the field:
     - ESP32: hardware has no gain lock
     """
-    baseline_path, _, _, chip = dataset_config
-    gain_locked = read_gain_locked(baseline_path)
+    static_presence_path, _, _, chip = dataset_config
+    gain_locked = read_gain_locked(static_presence_path)
     if gain_locked is not None:
         return not gain_locked
     return chip == 'ESP32'
@@ -224,12 +224,12 @@ def enable_hampel(chip_type):
 
 
 @pytest.fixture
-def baseline_amplitudes(real_data, default_subcarriers):
+def static_presence_amplitudes(real_data, default_subcarriers):
     """Extract amplitudes from baseline packets"""
-    baseline_packets, _ = real_data
+    static_presence_packets, _ = real_data
     
     all_amplitudes = []
-    for pkt in baseline_packets:
+    for pkt in static_presence_packets:
         csi_data = pkt['csi_data']
         amps = []
         for sc_idx in default_subcarriers:
@@ -246,12 +246,12 @@ def baseline_amplitudes(real_data, default_subcarriers):
 
 
 @pytest.fixture
-def movement_amplitudes(real_data, default_subcarriers):
+def motion_amplitudes(real_data, default_subcarriers):
     """Extract amplitudes from movement packets"""
-    _, movement_packets = real_data
+    _, motion_packets = real_data
     
     all_amplitudes = []
-    for pkt in movement_packets:
+    for pkt in motion_packets:
         csi_data = pkt['csi_data']
         amps = []
         for sc_idx in default_subcarriers:
@@ -271,16 +271,16 @@ def movement_amplitudes(real_data, default_subcarriers):
 # MVS Detection Tests
 # ============================================================================
 
-def run_fixed_subcarrier_calibration(baseline_packets, num_subcarriers, hint_band=None, mvs_window_size=None,
+def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, hint_band=None, mvs_window_size=None,
                                      use_cv_normalization=False):
     """
     Run fixed-subcarrier threshold bootstrap exactly as in production.
     
-    Note: baseline_packets is assumed to already have GAIN_LOCK_SKIP packets
+    Note: static_presence_packets is assumed to already have GAIN_LOCK_SKIP packets
     removed (done in real_data fixture to match C++ csi_test_data.h behavior).
     
     Args:
-        baseline_packets: List of baseline CSI packets (already gain-lock skipped)
+        static_presence_packets: List of baseline CSI packets (already gain-lock skipped)
         num_subcarriers: Number of subcarriers
         hint_band: Optional subcarrier band override (defaults to fixed defaults).
         mvs_window_size: MVS window size for validation
@@ -297,8 +297,8 @@ def run_fixed_subcarrier_calibration(baseline_packets, num_subcarriers, hint_ban
     cal_ctx = SegmentationContext(window_size=window_size, threshold=1.0, enable_hampel=True)
     cal_ctx.use_cv_normalization = use_cv_normalization
 
-    buffer_size = min(CALIBRATION_BUFFER_SIZE, len(baseline_packets))
-    for pkt in baseline_packets[:buffer_size]:
+    buffer_size = min(CALIBRATION_BUFFER_SIZE, len(static_presence_packets))
+    for pkt in static_presence_packets[:buffer_size]:
         turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
         cal_ctx.add_turbulence(turb)
         cal_ctx.update_state()
@@ -312,13 +312,13 @@ def run_fixed_subcarrier_calibration(baseline_packets, num_subcarriers, hint_ban
     return selected_band, adaptive_threshold
 
 
-def run_calibration(baseline_packets, num_subcarriers, algorithm="fixed_default", hint_band=None,
+def run_calibration(static_presence_packets, num_subcarriers, algorithm="fixed_default", hint_band=None,
                     mvs_window_size=None, use_cv_normalization=False):
     """
     Run startup calibration using fixed subcarriers.
     
     Args:
-        baseline_packets: List of baseline CSI packets
+        static_presence_packets: List of baseline CSI packets
         num_subcarriers: Number of subcarriers
         algorithm: Calibration variant name (only "fixed_default" supported)
         hint_band: Optional fixed subcarrier band to use
@@ -329,7 +329,7 @@ def run_calibration(baseline_packets, num_subcarriers, algorithm="fixed_default"
         tuple: (selected_band, adaptive_threshold)
     """
     return run_fixed_subcarrier_calibration(
-        baseline_packets,
+        static_presence_packets,
         num_subcarriers,
         hint_band=hint_band,
         mvs_window_size=mvs_window_size,
@@ -340,13 +340,13 @@ def run_calibration(baseline_packets, num_subcarriers, algorithm="fixed_default"
 class TestMVSDetectionRealData:
     """Test MVS motion detection with real CSI data using fixed subcarriers."""
     
-    def test_baseline_low_motion_rate(self, real_data, num_subcarriers, window_size, fp_rate_target, enable_hampel, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
+    def test_static_presence_low_motion_rate(self, real_data, num_subcarriers, window_size, fp_rate_target, enable_hampel, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
         """Test that baseline data produces low motion detection rate"""
         
-        baseline_packets, _ = real_data
+        static_presence_packets, _ = real_data
         
         selected_band, adaptive_threshold = run_calibration(
-            baseline_packets,
+            static_presence_packets,
             num_subcarriers,
             calibration_algorithm,
             hint_band=default_subcarriers,
@@ -358,7 +358,7 @@ class TestMVSDetectionRealData:
         ctx.use_cv_normalization = use_cv_normalization
         
         motion_count = 0
-        for pkt in baseline_packets:
+        for pkt in static_presence_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
             ctx.update_state()  # Lazy evaluation: must call to update state
@@ -366,20 +366,20 @@ class TestMVSDetectionRealData:
                 motion_count += 1
         
         # Skip warmup period
-        effective_packets = len(baseline_packets) - DETECTOR_DEFAULT_WINDOW_SIZE
+        effective_packets = len(static_presence_packets) - DETECTOR_DEFAULT_WINDOW_SIZE
         motion_rate = motion_count / effective_packets if effective_packets > 0 else 0
         
         # Target: < fp_rate_target% FP rate (chip-specific)
         target_rate = fp_rate_target / 100.0
         assert motion_rate < target_rate, f"[{calibration_algorithm}] Baseline motion rate too high: {motion_rate:.1%} (target: <{fp_rate_target}%)"
     
-    def test_movement_high_motion_rate(self, real_data, num_subcarriers, window_size, recall_target, enable_hampel, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
+    def test_motion_high_motion_rate(self, real_data, num_subcarriers, window_size, recall_target, enable_hampel, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
         """Test that movement data produces high motion detection rate"""
         
-        baseline_packets, movement_packets = real_data
+        static_presence_packets, motion_packets = real_data
         
         selected_band, adaptive_threshold = run_calibration(
-            baseline_packets,
+            static_presence_packets,
             num_subcarriers,
             calibration_algorithm,
             hint_band=default_subcarriers,
@@ -391,7 +391,7 @@ class TestMVSDetectionRealData:
         ctx.use_cv_normalization = use_cv_normalization
         
         motion_count = 0
-        for pkt in movement_packets:
+        for pkt in motion_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
             ctx.update_state()  # Lazy evaluation: must call to update state
@@ -399,7 +399,7 @@ class TestMVSDetectionRealData:
                 motion_count += 1
         
         # Skip warmup period
-        effective_packets = len(movement_packets) - DETECTOR_DEFAULT_WINDOW_SIZE
+        effective_packets = len(motion_packets) - DETECTOR_DEFAULT_WINDOW_SIZE
         motion_rate = motion_count / effective_packets if effective_packets > 0 else 0
         
         # Target from recall_target fixture (matches C++ get_recall_target()).
@@ -412,10 +412,10 @@ class TestMVSDetectionRealData:
     def test_mvs_detector_wrapper(self, real_data, num_subcarriers, window_size, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
         """Test MVSDetector wrapper class with calibration"""
         
-        baseline_packets, movement_packets = real_data
+        static_presence_packets, motion_packets = real_data
         
         selected_band, adaptive_threshold = run_calibration(
-            baseline_packets,
+            static_presence_packets,
             num_subcarriers,
             calibration_algorithm,
             hint_band=default_subcarriers,
@@ -434,21 +434,21 @@ class TestMVSDetectionRealData:
         # csi_utils.MVSDetector internally uses SegmentationContext
         detector._context.use_cv_normalization = use_cv_normalization
         
-        for pkt in baseline_packets:
+        for pkt in static_presence_packets:
             detector.process_packet(pkt)
         
-        baseline_motion = detector.get_motion_count()
+        static_presence_motion = detector.get_motion_count()
         
         # Reset and test on movement
         detector.reset()
         
-        for pkt in movement_packets:
+        for pkt in motion_packets:
             detector.process_packet(pkt)
         
-        movement_motion = detector.get_motion_count()
+        motion_motion = detector.get_motion_count()
         
         # Movement should have significantly more motion packets
-        assert movement_motion > baseline_motion * 2
+        assert motion_motion > static_presence_motion * 2
 
 
 # ============================================================================
@@ -480,12 +480,12 @@ def fishers_criterion(values_class1, values_class2):
 class TestFeatureSeparationRealData:
     """Test feature separation between baseline and movement"""
     
-    def test_skewness_separation(self, baseline_amplitudes, movement_amplitudes):
+    def test_skewness_separation(self, static_presence_amplitudes, motion_amplitudes):
         """Test that skewness shows separation between baseline and movement"""
-        baseline_skew = [calc_skewness(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in baseline_amplitudes]
-        movement_skew = [calc_skewness(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in movement_amplitudes]
+        static_presence_skew = [calc_skewness(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in static_presence_amplitudes]
+        motion_skew = [calc_skewness(list(r), len(r), float(np.mean(r)), float(np.std(r))) for r in motion_amplitudes]
         
-        J = fishers_criterion(baseline_skew, movement_skew)
+        J = fishers_criterion(static_presence_skew, motion_skew)
         
         # Should have some separation
         # Note: Skewness is not the primary detection method (MVS is)
@@ -498,22 +498,22 @@ class TestFeatureSeparationRealData:
         Uses CV normalization for chips that need it (ESP32),
         matching C++ needs_cv_normalization() behavior.
         """
-        baseline_packets, movement_packets = real_data
+        static_presence_packets, motion_packets = real_data
         
         # Calculate turbulence for each packet using CV normalization where needed
-        baseline_turb = []
-        for pkt in baseline_packets:
+        static_presence_turb = []
+        for pkt in static_presence_packets:
             turb, _ = SegmentationContext.compute_spatial_turbulence(
                 pkt['csi_data'], default_subcarriers, use_cv_normalization=use_cv_normalization
             )
-            baseline_turb.append(turb)
+            static_presence_turb.append(turb)
         
-        movement_turb = []
-        for pkt in movement_packets:
+        motion_turb = []
+        for pkt in motion_packets:
             turb, _ = SegmentationContext.compute_spatial_turbulence(
                 pkt['csi_data'], default_subcarriers, use_cv_normalization=use_cv_normalization
             )
-            movement_turb.append(turb)
+            motion_turb.append(turb)
         
         # Calculate variance of turbulence over windows (use window_size from C++ config)
         analysis_window = window_size
@@ -525,11 +525,11 @@ class TestFeatureSeparationRealData:
                 variances.append(calculate_variance_two_pass(window))
             return variances
         
-        baseline_vars = window_variances(baseline_turb, analysis_window)
-        movement_vars = window_variances(movement_turb, analysis_window)
+        static_presence_vars = window_variances(static_presence_turb, analysis_window)
+        motion_vars = window_variances(motion_turb, analysis_window)
         
-        if len(baseline_vars) > 0 and len(movement_vars) > 0:
-            J = fishers_criterion(baseline_vars, movement_vars)
+        if len(static_presence_vars) > 0 and len(motion_vars) > 0:
+            J = fishers_criterion(static_presence_vars, motion_vars)
             
             # Variance should show good separation (this is the core of MVS)
             assert J > 0.5, f"Turbulence variance Fisher's J too low: {J:.3f}"
@@ -545,7 +545,7 @@ class TestPublishTimeFeaturesRealData:
     def test_mad_turb_separation(self, real_data, default_subcarriers, window_size, chip_type, use_cv_normalization):
         """Test MAD of turbulence buffer separates baseline from movement"""
         
-        baseline_packets, movement_packets = real_data
+        static_presence_packets, motion_packets = real_data
         ws = window_size
         
         def calculate_mad_values(packets):
@@ -563,11 +563,11 @@ class TestPublishTimeFeaturesRealData:
             
             return mad_values
         
-        baseline_mad = calculate_mad_values(baseline_packets)
-        movement_mad = calculate_mad_values(movement_packets)
+        static_presence_mad = calculate_mad_values(static_presence_packets)
+        motion_mad = calculate_mad_values(motion_packets)
         
-        if len(baseline_mad) > 0 and len(movement_mad) > 0:
-            J = fishers_criterion(baseline_mad, movement_mad)
+        if len(static_presence_mad) > 0 and len(motion_mad) > 0:
+            J = fishers_criterion(static_presence_mad, motion_mad)
             
             # MAD should show good separation (S3 has lower separation due to noisier baseline)
             min_j = 0.3 if chip_type == 'S3' else 0.5
@@ -582,8 +582,8 @@ class TestHampelFilterRealData:
     
     def test_hampel_reduces_spikes(self, real_data, default_subcarriers):
         """Test that Hampel filter reduces turbulence spikes"""
-        baseline_packets, movement_packets = real_data
-        all_packets = baseline_packets + movement_packets
+        static_presence_packets, motion_packets = real_data
+        all_packets = static_presence_packets + motion_packets
         
         # Calculate raw turbulence
         raw_turbulence = []
@@ -609,38 +609,38 @@ class TestHampelFilterRealData:
     
     def test_hampel_preserves_variance_separation(self, real_data, default_subcarriers):
         """Test that Hampel filter preserves baseline/movement separation"""
-        baseline_packets, movement_packets = real_data
+        static_presence_packets, motion_packets = real_data
         
         # Calculate filtered turbulence for baseline
         hf_baseline = HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD)
-        baseline_turb = []
-        for pkt in baseline_packets:
+        static_presence_turb = []
+        for pkt in static_presence_packets:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
                 gain_locked=pkt.get('gain_locked', True)
             )
             filtered = hf_baseline.filter(turb)
-            baseline_turb.append(filtered)
+            static_presence_turb.append(filtered)
         
         # Calculate filtered turbulence for movement
         hf_movement = HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD)
-        movement_turb = []
-        for pkt in movement_packets:
+        motion_turb = []
+        for pkt in motion_packets:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
                 gain_locked=pkt.get('gain_locked', True)
             )
             filtered = hf_movement.filter(turb)
-            movement_turb.append(filtered)
+            motion_turb.append(filtered)
         
         # Movement should still have higher variance
-        baseline_var = np.var(baseline_turb)
-        movement_var = np.var(movement_turb)
+        static_presence_var = np.var(static_presence_turb)
+        motion_var = np.var(motion_turb)
         
-        assert movement_var > baseline_var, \
-            f"Movement variance ({movement_var:.3f}) should be > baseline ({baseline_var:.3f})"
+        assert motion_var > static_presence_var, \
+            f"Movement variance ({motion_var:.3f}) should be > baseline ({static_presence_var:.3f})"
 
 
 # ============================================================================
@@ -664,7 +664,7 @@ class TestPerformanceMetrics:
         """
         import numpy as np
         from threshold import calculate_adaptive_threshold
-        baseline_packets, movement_packets = real_data
+        static_presence_packets, motion_packets = real_data
         
         # Context-aware subcarriers from dataset_info metadata.
         selected_band = default_subcarriers
@@ -675,8 +675,8 @@ class TestPerformanceMetrics:
         )
         cal_ctx.use_cv_normalization = use_cv_normalization
         mv_values = []
-        calibration_packets = min(len(baseline_packets), CALIBRATION_BUFFER_SIZE)
-        for pkt in baseline_packets[:calibration_packets]:
+        calibration_packets = min(len(static_presence_packets), CALIBRATION_BUFFER_SIZE)
+        for pkt in static_presence_packets[:calibration_packets]:
             turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             cal_ctx.add_turbulence(turb)
             cal_ctx.update_state()
@@ -690,35 +690,35 @@ class TestPerformanceMetrics:
         )
         ctx.use_cv_normalization = use_cv_normalization
         
-        num_baseline = len(baseline_packets)
-        num_movement = len(movement_packets)
+        num_baseline = len(static_presence_packets)
+        num_movement = len(motion_packets)
         
         # Process baseline (expecting IDLE)
-        baseline_motion_packets = 0
-        for pkt in baseline_packets:
+        static_presence_motion_packets = 0
+        for pkt in static_presence_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
             ctx.update_state()
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
-                baseline_motion_packets += 1
+                static_presence_motion_packets += 1
         
         # Process movement (expecting MOTION, continue in same context)
-        movement_with_motion = 0
-        movement_without_motion = 0
-        for pkt in movement_packets:
+        motion_with_motion = 0
+        motion_without_motion = 0
+        for pkt in motion_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
             ctx.update_state()
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
-                movement_with_motion += 1
+                motion_with_motion += 1
             else:
-                movement_without_motion += 1
+                motion_without_motion += 1
         
         # Calculate metrics
-        pkt_tp = movement_with_motion
-        pkt_fn = movement_without_motion
-        pkt_tn = num_baseline - baseline_motion_packets
-        pkt_fp = baseline_motion_packets
+        pkt_tp = motion_with_motion
+        pkt_fn = motion_without_motion
+        pkt_tn = num_baseline - static_presence_motion_packets
+        pkt_fp = static_presence_motion_packets
         
         pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0
         pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0
@@ -764,10 +764,10 @@ class TestPerformanceMetrics:
         
         Targets: >recall_target% Recall, <fp_rate_target% FP Rate.
         """
-        baseline_packets, movement_packets = real_data
+        static_presence_packets, motion_packets = real_data
 
         selected_band, adaptive_threshold = run_calibration(
-            baseline_packets,
+            static_presence_packets,
             num_subcarriers,
             calibration_algorithm,
             hint_band=default_subcarriers,
@@ -782,44 +782,44 @@ class TestPerformanceMetrics:
         # Set CV normalization based on chip
         ctx.use_cv_normalization = use_cv_normalization
         
-        num_baseline = len(baseline_packets)
-        num_movement = len(movement_packets)
+        num_baseline = len(static_presence_packets)
+        num_movement = len(motion_packets)
         
         # ========================================
         # Process baseline (expecting IDLE)
         # ========================================
-        baseline_motion_packets = 0
+        static_presence_motion_packets = 0
         
-        for pkt in baseline_packets:
+        for pkt in static_presence_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
             ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
-                baseline_motion_packets += 1
+                static_presence_motion_packets += 1
         
         # ========================================
         # Process movement (expecting MOTION)
         # Continue with same context (no reset)
         # ========================================
-        movement_with_motion = 0
-        movement_without_motion = 0
+        motion_with_motion = 0
+        motion_without_motion = 0
         
-        for pkt in movement_packets:
+        for pkt in motion_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
             ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
-                movement_with_motion += 1
+                motion_with_motion += 1
             else:
-                movement_without_motion += 1
+                motion_without_motion += 1
         
         # ========================================
         # Calculate metrics (same as C++)
         # ========================================
-        pkt_tp = movement_with_motion
-        pkt_fn = movement_without_motion
-        pkt_tn = num_baseline - baseline_motion_packets
-        pkt_fp = baseline_motion_packets
+        pkt_tp = motion_with_motion
+        pkt_fn = motion_without_motion
+        pkt_tn = num_baseline - static_presence_motion_packets
+        pkt_fp = static_presence_motion_packets
         
         pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0
         pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0
@@ -884,10 +884,10 @@ class TestPerformanceMetrics:
         from config import DEFAULT_SUBCARRIERS
         from detector_interface import MotionState
 
-        baseline_packets, movement_packets = real_data
+        static_presence_packets, motion_packets = real_data
         
-        num_baseline = len(baseline_packets)
-        num_movement = len(movement_packets)
+        num_baseline = len(static_presence_packets)
+        num_movement = len(motion_packets)
         
         # ML model uses fixed subcarriers (must match training)
         ml_subcarriers = DEFAULT_SUBCARRIERS
@@ -910,45 +910,45 @@ class TestPerformanceMetrics:
         # Process ALL baseline packets (first window_size packets are warmup)
         # ========================================
         warmup = DETECTOR_DEFAULT_WINDOW_SIZE
-        baseline_motion_packets = 0
-        baseline_eval_count = num_baseline - warmup
+        static_presence_motion_packets = 0
+        static_presence_eval_count = num_baseline - warmup
         
-        for i, pkt in enumerate(baseline_packets):
+        for i, pkt in enumerate(static_presence_packets):
             detector.process_packet(pkt['csi_data'], ml_subcarriers)
             detector.update_state()
             # Only count after warmup
             if i >= warmup and detector.get_state() == MotionState.MOTION:
-                baseline_motion_packets += 1
+                static_presence_motion_packets += 1
         
         # ========================================
         # Process movement packets (continue without reset, first window_size packets are warmup)
         # ========================================
-        movement_warmup = DETECTOR_DEFAULT_WINDOW_SIZE
-        movement_with_motion = 0
-        movement_without_motion = 0
-        movement_eval_count = num_movement - movement_warmup
+        motion_warmup = DETECTOR_DEFAULT_WINDOW_SIZE
+        motion_with_motion = 0
+        motion_without_motion = 0
+        motion_eval_count = num_movement - motion_warmup
         
-        for i, pkt in enumerate(movement_packets):
+        for i, pkt in enumerate(motion_packets):
             detector.process_packet(pkt['csi_data'], ml_subcarriers)
             detector.update_state()
             # Only count after warmup
-            if i >= movement_warmup:
+            if i >= motion_warmup:
                 if detector.get_state() == MotionState.MOTION:
-                    movement_with_motion += 1
+                    motion_with_motion += 1
                 else:
-                    movement_without_motion += 1
+                    motion_without_motion += 1
         
         # ========================================
         # Calculate metrics
         # ========================================
-        pkt_tp = movement_with_motion
-        pkt_fn = movement_without_motion
-        pkt_tn = baseline_eval_count - baseline_motion_packets if baseline_eval_count > 0 else 0
-        pkt_fp = baseline_motion_packets
+        pkt_tp = motion_with_motion
+        pkt_fn = motion_without_motion
+        pkt_tn = static_presence_eval_count - static_presence_motion_packets if static_presence_eval_count > 0 else 0
+        pkt_fp = static_presence_motion_packets
         
         pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0
         pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0
-        pkt_fp_rate = pkt_fp / baseline_eval_count * 100.0 if baseline_eval_count > 0 else 0
+        pkt_fp_rate = pkt_fp / static_presence_eval_count * 100.0 if static_presence_eval_count > 0 else 0
         pkt_f1 = 2 * (pkt_precision / 100) * (pkt_recall / 100) / ((pkt_precision + pkt_recall) / 100) * 100 if (pkt_precision + pkt_recall) > 0 else 0
         
         # ========================================
@@ -959,7 +959,7 @@ class TestPerformanceMetrics:
         print("                     ML DETECTION TEST SUMMARY")
         print("=" * 70)
         print()
-        print(f"CONFUSION MATRIX ({baseline_eval_count} baseline + {movement_eval_count} movement packets):")
+        print(f"CONFUSION MATRIX ({static_presence_eval_count} baseline + {motion_eval_count} movement packets):")
         print("                    Predicted")
         print("                IDLE      MOTION")
         print(f"Actual IDLE     {pkt_tn:4d} (TN)  {pkt_fp:4d} (FP)")
@@ -984,7 +984,7 @@ class TestPerformanceMetrics:
         # Assertions
         # ========================================
         assert pkt_recall > ml_recall_target, f"ML Recall too low: {pkt_recall:.1f}% (target: >{ml_recall_target}%)"
-        if baseline_eval_count > 0:
+        if static_presence_eval_count > 0:
             assert pkt_fp_rate < ml_fp_rate_target, f"ML FP Rate too high: {pkt_fp_rate:.1f}% (target: <{ml_fp_rate_target}%)"
 
 
@@ -1000,11 +1000,11 @@ class TestFloat32Stability:
     
     def test_turbulence_float32_accuracy(self, real_data, default_subcarriers):
         """Test that float32 turbulence calculation is accurate"""
-        baseline_packets, _ = real_data
+        static_presence_packets, _ = real_data
         
         max_rel_error = 0.0
         
-        for pkt in baseline_packets[:200]:
+        for pkt in static_presence_packets[:200]:
             csi_data = pkt['csi_data']
             
             # Float64 reference (Python default)
@@ -1039,11 +1039,11 @@ class TestFloat32Stability:
     
     def test_variance_two_pass_vs_single_pass_float32(self, real_data, default_subcarriers):
         """Test that two-pass variance is more stable than single-pass with float32"""
-        baseline_packets, _ = real_data
+        static_presence_packets, _ = real_data
         
         # Generate turbulence values
         turbulences = []
-        for pkt in baseline_packets[:100]:
+        for pkt in static_presence_packets[:100]:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
@@ -1133,14 +1133,14 @@ class TestEndToEndWithCalibration:
         from threshold import calculate_adaptive_threshold
         from config import GUARD_BAND_LOW, GUARD_BAND_HIGH, DC_SUBCARRIER
         
-        baseline_packets, _ = real_data
+        static_presence_packets, _ = real_data
         
         # HT20 fixed guard bands (64 SC)
         guard_low = GUARD_BAND_LOW
         guard_high = GUARD_BAND_HIGH
         
         # Run calibration with the fixed default subcarriers.
-        selected_band, adaptive_threshold = run_calibration(baseline_packets, num_subcarriers, calibration_algorithm, hint_band=default_subcarriers)
+        selected_band, adaptive_threshold = run_calibration(static_presence_packets, num_subcarriers, calibration_algorithm, hint_band=default_subcarriers)
         
         # Verify calibration results
         assert selected_band is not None, f"[{calibration_algorithm}] Band calibration failed"
@@ -1168,7 +1168,7 @@ class TestEndToEndWithCalibration:
         recall_target/fp_rate_target fixtures.
         when using the fixed default subcarrier set.
         """
-        baseline_packets, movement_packets = real_data
+        static_presence_packets, motion_packets = real_data
         
         # ========================================
         # Step 1: Startup Calibration
@@ -1179,7 +1179,7 @@ class TestEndToEndWithCalibration:
         
         print(f"\nStep 1: {calibration_algorithm.upper()} Startup Calibration...")
         selected_band, adaptive_threshold = run_calibration(
-            baseline_packets,
+            static_presence_packets,
             num_subcarriers,
             calibration_algorithm,
             hint_band=default_subcarriers,
@@ -1208,38 +1208,38 @@ class TestEndToEndWithCalibration:
         # Step 3: Process baseline (expecting IDLE)
         # ========================================
         print("\nStep 3: Process baseline packets (expecting IDLE)...")
-        baseline_motion = 0
+        static_presence_motion = 0
         
-        for pkt in baseline_packets:
+        for pkt in static_presence_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
             ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
-                baseline_motion += 1
+                static_presence_motion += 1
         
         # ========================================
         # Step 4: Process movement (expecting MOTION)
         # ========================================
         print("Step 4: Process movement packets (expecting MOTION)...")
-        movement_motion = 0
+        motion_motion = 0
         
-        for pkt in movement_packets:
+        for pkt in motion_packets:
             turb = ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             ctx.add_turbulence(turb)
             ctx.update_state()  # Lazy evaluation: must call to update state
             if ctx.get_state() == SegmentationContext.STATE_MOTION:
-                movement_motion += 1
+                motion_motion += 1
         
         # ========================================
         # Step 5: Calculate metrics
         # ========================================
-        num_baseline = len(baseline_packets)
-        num_movement = len(movement_packets)
+        num_baseline = len(static_presence_packets)
+        num_movement = len(motion_packets)
         
-        pkt_tp = movement_motion
-        pkt_fn = num_movement - movement_motion
-        pkt_tn = num_baseline - baseline_motion
-        pkt_fp = baseline_motion
+        pkt_tp = motion_motion
+        pkt_fn = num_movement - motion_motion
+        pkt_tn = num_baseline - static_presence_motion
+        pkt_fp = static_presence_motion
         
         recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0
         precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0

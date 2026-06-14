@@ -25,10 +25,10 @@ from pathlib import Path
 # Import csi_utils first - it sets up paths automatically
 from repo_paths import data_dir
 from csi_utils import (
-    load_baseline_and_movement, 
+    load_static_presence_and_motion, 
     MVSDetector, 
     calculate_spatial_turbulence, 
-    find_dataset, 
+    find_static_presence_motion_dataset, 
     load_npz_as_packets,
     DATA_DIR,
 )
@@ -78,7 +78,7 @@ def load_dataset_info():
 def lookup_file_info(dataset_info, filename):
     """Return (label, entry) for a dataset filename, or (None, None)."""
     files = dataset_info.get('files', {})
-    for label in ('baseline', 'movement'):
+    for label in ('static_presence', 'motion'):
         for entry in files.get(label, []):
             if entry.get('filename') == filename:
                 return label, entry
@@ -87,12 +87,12 @@ def lookup_file_info(dataset_info, filename):
 
 def pair_is_temporally_valid(dataset_info, label, entry):
     """Validate pair metadata and ensure temporal distance <= 30 minutes."""
-    if label == 'baseline':
-        pair_name = entry.get('optimal_pair_movement_file')
-        pair_label = 'movement'
+    if label == 'static_presence':
+        pair_name = entry.get('optimal_pair_motion_file')
+        pair_label = 'motion'
     else:
-        pair_name = entry.get('optimal_pair_baseline_file')
-        pair_label = 'baseline'
+        pair_name = entry.get('optimal_pair_static_presence_file')
+        pair_label = 'static_presence'
     if not pair_name:
         return False
 
@@ -125,7 +125,7 @@ def _extract_motion_start_from_description(description):
 
 def load_test_dataset(chip=None, motion_start_packet=None):
     """
-    Load latest test dataset for a chip and split it into baseline/movement.
+    Load the latest test dataset for a chip and split it into static presence and motion.
 
     Split logic:
     - Use --test-motion-start-packet when provided
@@ -175,10 +175,10 @@ def load_test_dataset(chip=None, motion_start_packet=None):
             f"for {len(packets)} packets"
         )
 
-    baseline_packets = packets[:motion_start_packet]
-    movement_packets = packets[motion_start_packet:]
+    static_presence_packets = packets[:motion_start_packet]
+    motion_packets = packets[motion_start_packet:]
 
-    return test_path, baseline_packets, movement_packets, motion_start_packet, selected_chip, selected
+    return test_path, static_presence_packets, motion_packets, motion_start_packet, selected_chip, selected
 
 
 def resolve_context_aware_config_for_test(test_entry):
@@ -192,7 +192,7 @@ def resolve_context_aware_config_for_test(test_entry):
     }
 
 
-def resolve_context_aware_config(baseline_path):
+def resolve_context_aware_config(static_presence_path):
     """
     Resolve context-aware threshold from dataset_info metadata.
 
@@ -201,7 +201,7 @@ def resolve_context_aware_config(baseline_path):
     - metadata present but no pairing -> still use gridsearch threshold
     """
     dataset_info = load_dataset_info()
-    label, entry = lookup_file_info(dataset_info, baseline_path.name)
+    label, entry = lookup_file_info(dataset_info, static_presence_path.name)
 
     if entry is None:
         return {
@@ -273,12 +273,12 @@ def compute_method_results(methods, method_thresholds):
     """Compute FP/TP/FN/Recall/Precision/F1 for every method."""
     results = []
     for method_name, method_data in methods.items():
-        baseline_data = method_data['baseline']
-        movement_data = method_data['movement']
+        static_presence_data = method_data['static_presence']
+        motion_data = method_data['motion']
         threshold = method_thresholds[method_name]
-        fp = int(np.sum(baseline_data > threshold))
-        tp = int(np.sum(movement_data > threshold))
-        fn = int(len(movement_data) - tp)
+        fp = int(np.sum(static_presence_data > threshold))
+        tp = int(np.sum(motion_data > threshold))
+        fn = int(len(motion_data) - tp)
         recall = (tp / (tp + fn) * 100) if (tp + fn) > 0 else 0.0
         precision = (tp / (tp + fp) * 100) if (tp + fp) > 0 else 0.0
         f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
@@ -328,41 +328,41 @@ class MLDetectorAdapter:
         self.state_history = self._detector.state_history
 
 
-def compare_detection_methods(baseline_packets, movement_packets, window_size, threshold):
+def compare_detection_methods(static_presence_packets, motion_packets, window_size, threshold):
     """
     Compare different detection methods on same data.
     Returns metrics for each method.
     """
     methods = {
-        'RSSI': {'baseline': [], 'movement': []},
-        'Mean Amplitude': {'baseline': [], 'movement': []},
-        'Turbulence': {'baseline': [], 'movement': []},
-        'MVS': {'baseline': [], 'movement': []},
+        'RSSI': {'static_presence': [], 'motion': []},
+        'Mean Amplitude': {'static_presence': [], 'motion': []},
+        'Turbulence': {'static_presence': [], 'motion': []},
+        'MVS': {'static_presence': [], 'motion': []},
     }
     
     if ML_AVAILABLE:
-        methods['ML'] = {'baseline': [], 'movement': []}
+        methods['ML'] = {'static_presence': [], 'motion': []}
     
     timing = {}
-    all_packets = list(baseline_packets) + list(movement_packets)
+    all_packets = list(static_presence_packets) + list(motion_packets)
     num_packets = len(all_packets)
     
-    # Process baseline - simple metrics
-    for pkt in baseline_packets:
-        methods['RSSI']['baseline'].append(calculate_rssi(pkt['csi_data']))
-        methods['Mean Amplitude']['baseline'].append(calculate_mean_amplitude(pkt['csi_data']))
-        methods['Turbulence']['baseline'].append(
+    # Process static presence - simple metrics
+    for pkt in static_presence_packets:
+        methods['RSSI']['static_presence'].append(calculate_rssi(pkt['csi_data']))
+        methods['Mean Amplitude']['static_presence'].append(calculate_mean_amplitude(pkt['csi_data']))
+        methods['Turbulence']['static_presence'].append(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
     
-    methods['RSSI']['baseline'] = np.array(methods['RSSI']['baseline'])
-    methods['Mean Amplitude']['baseline'] = np.array(methods['Mean Amplitude']['baseline'])
-    methods['Turbulence']['baseline'] = np.array(methods['Turbulence']['baseline'])
+    methods['RSSI']['static_presence'] = np.array(methods['RSSI']['static_presence'])
+    methods['Mean Amplitude']['static_presence'] = np.array(methods['Mean Amplitude']['static_presence'])
+    methods['Turbulence']['static_presence'] = np.array(methods['Turbulence']['static_presence'])
     
-    # MVS baseline
+    # MVS static presence
     start = time.perf_counter()
     mvs_baseline = MVSDetector(
         window_size, threshold, track_data=True,
@@ -372,26 +372,26 @@ def compare_detection_methods(baseline_packets, movement_packets, window_size, t
         enable_lowpass=ENABLE_LOWPASS_FILTER,
         lowpass_cutoff=LOWPASS_CUTOFF
     )
-    for pkt in baseline_packets:
+    for pkt in static_presence_packets:
         mvs_baseline.process_packet(pkt)
-    methods['MVS']['baseline'] = np.array(mvs_baseline.moving_var_history)
+    methods['MVS']['static_presence'] = np.array(mvs_baseline.moving_var_history)
     
-    # Process movement - simple metrics
-    for pkt in movement_packets:
-        methods['RSSI']['movement'].append(calculate_rssi(pkt['csi_data']))
-        methods['Mean Amplitude']['movement'].append(calculate_mean_amplitude(pkt['csi_data']))
-        methods['Turbulence']['movement'].append(
+    # Process motion - simple metrics
+    for pkt in motion_packets:
+        methods['RSSI']['motion'].append(calculate_rssi(pkt['csi_data']))
+        methods['Mean Amplitude']['motion'].append(calculate_mean_amplitude(pkt['csi_data']))
+        methods['Turbulence']['motion'].append(
             calculate_spatial_turbulence(
                 pkt['csi_data'],
                 gain_locked=pkt.get('gain_locked', True)
             )
         )
     
-    methods['RSSI']['movement'] = np.array(methods['RSSI']['movement'])
-    methods['Mean Amplitude']['movement'] = np.array(methods['Mean Amplitude']['movement'])
-    methods['Turbulence']['movement'] = np.array(methods['Turbulence']['movement'])
+    methods['RSSI']['motion'] = np.array(methods['RSSI']['motion'])
+    methods['Mean Amplitude']['motion'] = np.array(methods['Mean Amplitude']['motion'])
+    methods['Turbulence']['motion'] = np.array(methods['Turbulence']['motion'])
     
-    # MVS movement
+    # MVS motion
     mvs_movement = MVSDetector(
         window_size, threshold, track_data=True,
         enable_hampel=ENABLE_HAMPEL_FILTER,
@@ -400,16 +400,16 @@ def compare_detection_methods(baseline_packets, movement_packets, window_size, t
         enable_lowpass=ENABLE_LOWPASS_FILTER,
         lowpass_cutoff=LOWPASS_CUTOFF
     )
-    for pkt in movement_packets:
+    for pkt in motion_packets:
         mvs_movement.process_packet(pkt)
     mvs_time = time.perf_counter() - start
     timing['MVS'] = (mvs_time / num_packets) * 1e6
-    methods['MVS']['movement'] = np.array(mvs_movement.moving_var_history)
+    methods['MVS']['motion'] = np.array(mvs_movement.moving_var_history)
 
     # Apply runtime filter chain to simple methods for fair comparison.
     for method_name in ('RSSI', 'Mean Amplitude', 'Turbulence'):
-        methods[method_name]['baseline'] = apply_config_filters(methods[method_name]['baseline'])
-        methods[method_name]['movement'] = apply_config_filters(methods[method_name]['movement'])
+        methods[method_name]['static_presence'] = apply_config_filters(methods[method_name]['static_presence'])
+        methods[method_name]['motion'] = apply_config_filters(methods[method_name]['motion'])
     
     # Time simple methods
     start = time.perf_counter()
@@ -436,25 +436,25 @@ def compare_detection_methods(baseline_packets, movement_packets, window_size, t
     
     if ML_AVAILABLE:
         start = time.perf_counter()
-        use_cv_norm_ml = not baseline_packets[0].get('gain_locked', True) if baseline_packets else False
+        use_cv_norm_ml = not static_presence_packets[0].get('gain_locked', True) if static_presence_packets else False
         ml_baseline = MLDetectorAdapter(window_size, track_data=True, use_cv_normalization=use_cv_norm_ml)
-        for pkt in baseline_packets:
+        for pkt in static_presence_packets:
             ml_baseline.process_packet(pkt)
-        methods['ML']['baseline'] = np.array(ml_baseline.probability_history)
+        methods['ML']['static_presence'] = np.array(ml_baseline.probability_history)
         ml_movement = MLDetectorAdapter(window_size, track_data=True, use_cv_normalization=use_cv_norm_ml)
-        for pkt in movement_packets:
+        for pkt in motion_packets:
             ml_movement.process_packet(pkt)
-        methods['ML']['movement'] = np.array(ml_movement.probability_history)
+        methods['ML']['motion'] = np.array(ml_movement.probability_history)
         
         ml_time = time.perf_counter() - start
         timing['ML'] = (ml_time / num_packets) * 1e6
 
     # Method-specific thresholds (adaptive like tool #3, ML fixed threshold).
     method_thresholds = {
-        'RSSI': calculate_adaptive_threshold(methods['RSSI']['baseline']),
-        'Mean Amplitude': calculate_adaptive_threshold(methods['Mean Amplitude']['baseline']),
-        'Turbulence': calculate_adaptive_threshold(methods['Turbulence']['baseline']),
-        'MVS': calculate_adaptive_threshold(methods['MVS']['baseline']),
+        'RSSI': calculate_adaptive_threshold(methods['RSSI']['static_presence']),
+        'Mean Amplitude': calculate_adaptive_threshold(methods['Mean Amplitude']['static_presence']),
+        'Turbulence': calculate_adaptive_threshold(methods['Turbulence']['static_presence']),
+        'MVS': calculate_adaptive_threshold(methods['MVS']['static_presence']),
     }
     if ML_AVAILABLE and 'ML' in methods:
         method_thresholds['ML'] = ML_DEFAULT_THRESHOLD
@@ -495,27 +495,27 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         pass
     
     for row, method_name in enumerate(method_names):
-        baseline_data = methods[method_name]['baseline']
-        movement_data = methods[method_name]['movement']
+        static_presence_data = methods[method_name]['static_presence']
+        motion_data = methods[method_name]['motion']
         
         # For ML, pad warmup region with NaN so X-axis aligns with other methods.
         # Production ML emits probabilities only after the buffer is ready.
-        baseline_plot_data = baseline_data
-        movement_plot_data = movement_data
-        ml_baseline_offset = 0
-        ml_movement_offset = 0
+        static_presence_plot_data = static_presence_data
+        motion_plot_data = motion_data
+        ml_static_presence_offset = 0
+        ml_motion_offset = 0
         if method_name == 'ML' and ml_baseline is not None and ml_movement is not None:
-            full_baseline_len = len(methods['MVS']['baseline'])
-            full_movement_len = len(methods['MVS']['movement'])
-            ml_baseline_offset = max(0, full_baseline_len - len(baseline_data))
-            ml_movement_offset = max(0, full_movement_len - len(movement_data))
-            baseline_plot_data = np.concatenate([np.full(ml_baseline_offset, np.nan), baseline_data])
-            movement_plot_data = np.concatenate([np.full(ml_movement_offset, np.nan), movement_data])
+            full_static_presence_len = len(methods['MVS']['static_presence'])
+            full_motion_len = len(methods['MVS']['motion'])
+            ml_static_presence_offset = max(0, full_static_presence_len - len(static_presence_data))
+            ml_motion_offset = max(0, full_motion_len - len(motion_data))
+            static_presence_plot_data = np.concatenate([np.full(ml_static_presence_offset, np.nan), static_presence_data])
+            motion_plot_data = np.concatenate([np.full(ml_motion_offset, np.nan), motion_data])
         
         method_threshold = method_thresholds.get(method_name, threshold)
         
-        time_baseline = np.arange(len(baseline_plot_data)) / 100.0
-        time_movement = np.arange(len(movement_plot_data)) / 100.0
+        time_baseline = np.arange(len(static_presence_plot_data)) / 100.0
+        time_movement = np.arange(len(motion_plot_data)) / 100.0
         
         # Colors
         if method_name == 'MVS':
@@ -528,23 +528,23 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         
         # LEFT: Baseline
         ax_baseline = axes[row, 0]
-        ax_baseline.plot(time_baseline, baseline_plot_data, color=color, alpha=0.7, 
+        ax_baseline.plot(time_baseline, static_presence_plot_data, color=color, alpha=0.7, 
                         linewidth=linewidth, linestyle=linestyle, label=method_name)
         ax_baseline.axhline(y=method_threshold, color='r', linestyle='--',
                           linewidth=2, label=f'Threshold={method_threshold:.4f}')
         
         # Highlight false positives
         fp = result_by_name.get(method_name, {}).get('fp', 0)
-        for i, val in enumerate(baseline_data):
+        for i, val in enumerate(static_presence_data):
             if val > method_threshold:
-                start_t = (i + ml_baseline_offset) / 100.0 if method_name == 'ML' else i / 100.0
+                start_t = (i + ml_static_presence_offset) / 100.0 if method_name == 'ML' else i / 100.0
                 ax_baseline.axvspan(start_t, start_t + 1/100.0, alpha=0.3, color='red')
         
         # Title
         title_prefix = '[BEST] ' if method_name == best_method else ''
         time_us = timing.get(method_name, 0)
         time_info = f"{time_us:.0f}us/pkt" if time_us > 0 else ""
-        ax_baseline.set_title(f'{title_prefix}{method_name} - Baseline (FP={fp}) [{time_info}]', 
+        ax_baseline.set_title(f'{title_prefix}{method_name} - Static Presence (FP={fp}) [{time_info}]',
                             fontsize=11, fontweight='bold')
         ax_baseline.set_ylabel('Value', fontsize=10)
         ax_baseline.grid(True, alpha=0.3)
@@ -565,16 +565,16 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         
         # RIGHT: Movement
         ax_movement = axes[row, 1]
-        ax_movement.plot(time_movement, movement_plot_data, color=color, alpha=0.7, 
+        ax_movement.plot(time_movement, motion_plot_data, color=color, alpha=0.7, 
                         linewidth=linewidth, linestyle=linestyle, label=method_name)
         ax_movement.axhline(y=method_threshold, color='r', linestyle='--',
                           linewidth=2, label=f'Threshold={method_threshold:.4f}')
         
         # Highlight detections
         tp = result_by_name.get(method_name, {}).get('tp', 0)
-        fn = result_by_name.get(method_name, {}).get('fn', len(movement_data))
-        for i, val in enumerate(movement_data):
-            start_t = (i + ml_movement_offset) / 100.0 if method_name == 'ML' else i / 100.0
+        fn = result_by_name.get(method_name, {}).get('fn', len(motion_data))
+        for i, val in enumerate(motion_data):
+            start_t = (i + ml_motion_offset) / 100.0 if method_name == 'ML' else i / 100.0
             if val > method_threshold:
                 ax_movement.axvspan(start_t, start_t + 1/100.0, alpha=0.3, color='green')
             else:
@@ -583,7 +583,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         recall = (tp / (tp + fn) * 100) if (tp + fn) > 0 else 0.0
         precision = (tp / (tp + fp) * 100) if (tp + fp) > 0 else 0.0
         
-        ax_movement.set_title(f'{title_prefix}{method_name} - Movement (TP={tp}, R={recall:.0f}%, P={precision:.0f}%)', 
+        ax_movement.set_title(f'{title_prefix}{method_name} - Motion (TP={tp}, R={recall:.0f}%, P={precision:.0f}%)',
                             fontsize=11, fontweight='bold')
         ax_movement.set_ylabel('Value', fontsize=10)
         ax_movement.grid(True, alpha=0.3)
@@ -607,7 +607,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
 
 def print_comparison_summary(methods, mvs_baseline, mvs_movement,
                            threshold, timing,
-                           ml_baseline=None, ml_movement=None, ml_baseline_states=0,
+                           ml_baseline=None, ml_movement=None, ml_static_presence_states=0,
                            method_thresholds=None, results=None):
     """Print comparison summary"""
     print("\n" + "="*80)
@@ -691,13 +691,16 @@ def run_all_chips():
     
     # Find all available chips
     chips = set()
-    for subdir in ['baseline', 'movement']:
+    for subdir in ['static_presence', 'motion']:
         dir_path = DATA_DIR / subdir
         if dir_path.exists():
             for npz_file in dir_path.glob('*.npz'):
-                # Extract chip name from filename (e.g., baseline_c6_64sc_... -> C6)
+                # Extract chip name from filename (e.g., static_presence_c6_64sc_... -> C6)
                 parts = npz_file.stem.split('_')
-                if len(parts) >= 2:
+                if subdir == 'static_presence' and len(parts) >= 3:
+                    chip = parts[2].upper()
+                    chips.add(chip)
+                elif subdir == 'motion' and len(parts) >= 2:
                     chip = parts[1].upper()
                     chips.add(chip)
     
@@ -715,29 +718,29 @@ def run_all_chips():
     
     for chip in chips:
         try:
-            baseline_path, movement_path, _ = find_dataset(chip=chip)
-            baseline_packets, movement_packets = load_baseline_and_movement(
-                baseline_file=baseline_path,
-                movement_file=movement_path,
+            static_presence_path, motion_path, _ = find_static_presence_motion_dataset(chip=chip)
+            static_presence_packets, motion_packets = load_static_presence_and_motion(
+                static_presence_file=static_presence_path,
+                motion_file=motion_path,
                 chip=chip
             )
         except FileNotFoundError:
             continue
 
-        context_cfg = resolve_context_aware_config(baseline_path)
+        context_cfg = resolve_context_aware_config(static_presence_path)
         chip_threshold = context_cfg['threshold']
         
         print(f"Processing {chip}...", end=" ", flush=True)
         
         result = compare_detection_methods(
-            baseline_packets, movement_packets, WINDOW_SIZE, chip_threshold
+            static_presence_packets, motion_packets, WINDOW_SIZE, chip_threshold
         )
         methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
         result_by_name = {r['name']: r for r in results}
         
         # Calculate metrics for MVS, ML
-        num_baseline = len(baseline_packets)
-        num_movement = len(movement_packets)
+        num_baseline = len(static_presence_packets)
+        num_movement = len(motion_packets)
         
         # MVS metrics from adaptive-threshold evaluation path
         mvs_res = result_by_name.get('MVS', {'fp': 0, 'tp': 0})
@@ -825,7 +828,7 @@ def main():
     try:
         if args.use_test_dataset:
             try:
-                test_path, baseline_packets, movement_packets, motion_start_packet, chip_name, test_entry = load_test_dataset(
+                test_path, static_presence_packets, motion_packets, motion_start_packet, chip_name, test_entry = load_test_dataset(
                     chip=chip,
                     motion_start_packet=args.test_motion_start_packet
                 )
@@ -833,7 +836,7 @@ def main():
                 if chip_explicit:
                     raise
                 print(f"   No test dataset for default chip {chip}, using latest available test dataset")
-                test_path, baseline_packets, movement_packets, motion_start_packet, chip_name, test_entry = load_test_dataset(
+                test_path, static_presence_packets, motion_packets, motion_start_packet, chip_name, test_entry = load_test_dataset(
                     chip=None,
                     motion_start_packet=args.test_motion_start_packet
                 )
@@ -842,13 +845,13 @@ def main():
             pairing_mode = context_cfg['pairing_mode']
             confidence_factor = context_cfg['confidence_factor']
         else:
-            baseline_path, movement_path, chip_name = find_dataset(chip=chip)
-            baseline_packets, movement_packets = load_baseline_and_movement(
-                baseline_file=baseline_path,
-                movement_file=movement_path,
+            static_presence_path, motion_path, chip_name = find_static_presence_motion_dataset(chip=chip)
+            static_presence_packets, motion_packets = load_static_presence_and_motion(
+                static_presence_file=static_presence_path,
+                motion_file=motion_path,
                 chip=chip
             )
-            context_cfg = resolve_context_aware_config(baseline_path)
+            context_cfg = resolve_context_aware_config(static_presence_path)
             threshold = context_cfg['threshold']
             pairing_mode = context_cfg['pairing_mode']
             confidence_factor = context_cfg['confidence_factor']
@@ -865,14 +868,14 @@ def main():
         print(f"   Motion starts at packet: {motion_start_packet}")
     else:
         print(f"   Pairing mode: {pairing_mode}")
-    print(f"   Baseline: {len(baseline_packets)} packets")
-    print(f"   Movement: {len(movement_packets)} packets\n")
+    print(f"   Static presence: {len(static_presence_packets)} packets")
+    print(f"   Motion:          {len(motion_packets)} packets\n")
     print(f"   Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
     print(f"   Context-aware threshold: {threshold:.6f}")
     print(f"   Confidence factor: {confidence_factor:.1f}\n")
     
     result = compare_detection_methods(
-        baseline_packets, movement_packets, WINDOW_SIZE, threshold
+        static_presence_packets, motion_packets, WINDOW_SIZE, threshold
     )
     methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
     
