@@ -14,6 +14,10 @@
 #include "espectre_log.h"
 #include "esp_timer.h"
 #include "esp_netif.h"
+#include <cerrno>
+#include <fcntl.h>
+#include <inttypes.h>
+#include <net/if.h>
 #include "lwip/sockets.h"
 #include "lwip/inet.h"
 #include "lwip/ip_addr.h"
@@ -23,6 +27,8 @@ namespace esphome {
 namespace espectre {
 
 static const char *TRAFFIC_TAG = "TrafficGen";
+
+static esp_netif_t *get_sta_netif() { return esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"); }
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -35,7 +41,7 @@ static const char *TRAFFIC_TAG = "TrafficGen";
  * @return true if gateway IP was obtained successfully
  */
 static bool get_gateway_ip(esp_ip4_addr_t* out_gw) {
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_t *netif = get_sta_netif();
     if (!netif) {
         ESP_LOGE(TRAFFIC_TAG, "Failed to get network interface");
         return false;
@@ -54,6 +60,67 @@ static bool get_gateway_ip(esp_ip4_addr_t* out_gw) {
     
     *out_gw = ip_info.gw;
     return true;
+}
+
+static bool get_sta_netif_index(uint32_t *out_index) {
+    esp_netif_t *netif = get_sta_netif();
+    if (!netif) {
+        ESP_LOGE(TRAFFIC_TAG, "Failed to get network interface");
+        return false;
+    }
+
+    int if_index = esp_netif_get_netif_impl_index(netif);
+    if (if_index <= 0) {
+        ESP_LOGE(TRAFFIC_TAG, "Invalid STA netif index: %d", if_index);
+        return false;
+    }
+
+    *out_index = static_cast<uint32_t>(if_index);
+    return true;
+}
+
+static bool bind_socket_to_sta_interface(int sock) {
+    uint32_t if_index = 0;
+    if (!get_sta_netif_index(&if_index)) {
+        return false;
+    }
+
+    struct ifreq iface = {};
+    if (if_indextoname(if_index, iface.ifr_name) == nullptr) {
+        ESP_LOGW(TRAFFIC_TAG, "Failed to resolve STA interface name for index %" PRIu32, if_index);
+        return false;
+    }
+
+    if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, &iface, sizeof(iface)) != 0) {
+        ESP_LOGW(TRAFFIC_TAG, "Failed to bind socket to %s (errno=%d)", iface.ifr_name, errno);
+        return false;
+    }
+
+    ESP_LOGI(TRAFFIC_TAG, "Bound socket to %s (index=%" PRIu32 ")", iface.ifr_name, if_index);
+    return true;
+}
+
+static int create_dns_socket() {
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock < 0) {
+        ESP_LOGE(TRAFFIC_TAG, "Failed to create DNS socket (errno=%d)", errno);
+        return -1;
+    }
+
+    if (!bind_socket_to_sta_interface(sock)) {
+        ESP_LOGW(TRAFFIC_TAG, "Continuing without explicit DNS socket binding");
+    }
+
+    int flags = fcntl(sock, F_GETFL, 0);
+    if (flags >= 0) {
+        if (fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
+            ESP_LOGW(TRAFFIC_TAG, "Failed to set DNS socket non-blocking (errno=%d)", errno);
+        }
+    } else {
+        ESP_LOGW(TRAFFIC_TAG, "Failed to read DNS socket flags (errno=%d)", errno);
+    }
+
+    return sock;
 }
 
 // Minimal DNS query for root domain (type A)
@@ -81,6 +148,8 @@ void TrafficGeneratorManager::init(uint32_t rate_pps, TrafficGeneratorMode mode)
   rate_pps_ = rate_pps;
   mode_ = mode;
   running_.store(false);
+  paused_.store(false);
+  reset_health_state_();
   
   const char* mode_str = (mode == TrafficGeneratorMode::PING) ? "ping" : "dns";
   ESP_LOGD(TRAFFIC_TAG, "Traffic Generator Manager initialized (rate: %u pps, mode: %s)", rate_pps, mode_str);
@@ -103,6 +172,43 @@ bool TrafficGeneratorManager::start() {
     return start_ping_();
   } else {
     return start_dns_();
+  }
+}
+
+void TrafficGeneratorManager::loop() {
+  if (!running_.load() || paused_.load()) {
+    return;
+  }
+
+  if (mode_ != TrafficGeneratorMode::PING || ping_handle_ == nullptr) {
+    return;
+  }
+
+  const int64_t now = esp_timer_get_time();
+  if (last_health_check_us_ != 0 && (now - last_health_check_us_) < HEALTH_CHECK_INTERVAL_US) {
+    return;
+  }
+  last_health_check_us_ = now;
+
+  uint32_t requests = 0;
+  if (esp_ping_get_profile(ping_handle_, ESP_PING_PROF_REQUEST, &requests, sizeof(requests)) != ESP_OK) {
+    ESP_LOGW(TRAFFIC_TAG, "Failed to read ping profile");
+    return;
+  }
+
+  if (requests != last_ping_request_count_) {
+    last_ping_request_count_ = requests;
+    last_ping_progress_us_ = now;
+    return;
+  }
+
+  if (last_ping_progress_us_ != 0 && (now - last_ping_progress_us_) >= PING_STALL_TIMEOUT_US) {
+    ESP_LOGW(TRAFFIC_TAG, "Ping generator stalled for %.1f s, restarting session",
+             static_cast<double>(now - last_ping_progress_us_) / 1000000.0);
+    if (!restart_ping_session_()) {
+      ESP_LOGE(TRAFFIC_TAG, "Failed to restart stalled ping session");
+    }
+    last_ping_progress_us_ = now;
   }
 }
 
@@ -155,19 +261,13 @@ bool TrafficGeneratorManager::start_dns_() {
   ESP_LOGI(TRAFFIC_TAG, "Target gateway: %s", gw_str);
   
   // Create UDP socket
-  sock_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  sock_ = create_dns_socket();
   if (sock_ < 0) {
-    ESP_LOGE(TRAFFIC_TAG, "Failed to create socket");
     return false;
   }
-  
-  // Set socket to non-blocking mode for fire-and-forget operation
-  int flags = fcntl(sock_, F_GETFL, 0);
-  if (fcntl(sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ESP_LOGW(TRAFFIC_TAG, "Failed to set socket non-blocking (continuing anyway)");
-  }
-  
+
   // Reset counters
+  reset_health_state_();
   running_.store(true);
   
   // Create FreeRTOS task
@@ -254,6 +354,7 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
   
   // Error state for rate-limited logging
   SendErrorState error_state;
+  uint32_t consecutive_send_errors = 0;
   
   while (mgr->running_.load()) {
     // Check if paused (e.g., during calibration)
@@ -274,14 +375,42 @@ void TrafficGeneratorManager::dns_traffic_task_(void* arg) {
     );
     
     if (sent <= 0) {
+      mgr->dns_send_error_count_.fetch_add(1);
+      consecutive_send_errors++;
+
       // Handle error with rate-limited logging
-      bool needs_backoff = handle_send_error(error_state, sent, errno, esp_timer_get_time());
-      
+      const int current_errno = errno;
+      const int64_t now_us = esp_timer_get_time();
+      bool should_log = (now_us - error_state.last_log_time) > SendErrorState::LOG_INTERVAL_US;
+      bool needs_backoff = handle_send_error(error_state, sent, current_errno, now_us);
+      if (should_log) {
+        ESP_LOGW(TRAFFIC_TAG, "DNS send failed (sent=%d, errno=%d, consecutive=%" PRIu32 ")",
+                 static_cast<int>(sent), current_errno, consecutive_send_errors);
+      }
+
+      if (consecutive_send_errors >= DNS_CONSECUTIVE_ERROR_RESTART_THRESHOLD) {
+        ESP_LOGW(TRAFFIC_TAG, "Recreating DNS socket after %" PRIu32 " consecutive send failures",
+                 consecutive_send_errors);
+        if (mgr->sock_ >= 0) {
+          close(mgr->sock_);
+        }
+        mgr->sock_ = create_dns_socket();
+        consecutive_send_errors = 0;
+        next_send_time = esp_timer_get_time();
+        if (mgr->sock_ < 0) {
+          vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        continue;
+      }
+
       // Adaptive backoff on ENOMEM: give WiFi stack time to recover
       // during transient memory pressure in the WiFi/LwIP stack.
       if (needs_backoff) {
         vTaskDelay(pdMS_TO_TICKS(5));  // 5ms backoff on memory pressure
       }
+    } else {
+      mgr->dns_send_success_count_.fetch_add(1);
+      consecutive_send_errors = 0;
     }
     
     // Calculate next send time with fractional accumulator for precise rate
@@ -352,11 +481,18 @@ bool TrafficGeneratorManager::start_ping_() {
            ip4_addr3(&gw), 
            ip4_addr4(&gw));
   ping_config.target_addr = target_addr;
+
+  uint32_t if_index = 0;
+  if (get_sta_netif_index(&if_index)) {
+    ping_config.interface = if_index;
+  } else {
+    ESP_LOGW(TRAFFIC_TAG, "Continuing without explicit ping interface binding");
+  }
   
   // Configure timing
   ping_config.count = ESP_PING_COUNT_INFINITE;  // Run forever
   ping_config.interval_ms = 1000 / rate_pps_;   // Interval based on rate
-  ping_config.timeout_ms = 1000;                // 1 second timeout
+  ping_config.timeout_ms = std::min<uint32_t>(1000, std::max<uint32_t>(200, ping_config.interval_ms * 4));
   ping_config.data_size = 0;                    // No payload (header only, smallest possible)
   ping_config.task_stack_size = 2560;           // Stack size for ping task
   ping_config.task_prio = 5;                    // Same priority as DNS mode
@@ -385,11 +521,13 @@ bool TrafficGeneratorManager::start_ping_() {
     return false;
   }
   
+  reset_health_state_();
   running_.store(true);
   
   uint32_t interval_ms = 1000 / rate_pps_;
-  ESP_LOGI(TRAFFIC_TAG, "Traffic generator started (mode: ping, %u pps, interval: %u ms)",
-           rate_pps_, interval_ms);
+  ESP_LOGI(TRAFFIC_TAG,
+           "Traffic generator started (mode: ping, %u pps, interval: %u ms, timeout: %u ms, if_index: %" PRIu32 ")",
+           rate_pps_, interval_ms, ping_config.timeout_ms, ping_config.interface);
   
   return true;
 }
@@ -400,6 +538,20 @@ void TrafficGeneratorManager::stop_ping_() {
     esp_ping_delete_session(ping_handle_);
     ping_handle_ = nullptr;
   }
+}
+
+bool TrafficGeneratorManager::restart_ping_session_() {
+  stop_ping_();
+  running_.store(false);
+  return start_ping_();
+}
+
+void TrafficGeneratorManager::reset_health_state_() {
+  dns_send_success_count_.store(0);
+  dns_send_error_count_.store(0);
+  last_ping_request_count_ = 0;
+  last_ping_progress_us_ = esp_timer_get_time();
+  last_health_check_us_ = 0;
 }
 
 }  // namespace espectre

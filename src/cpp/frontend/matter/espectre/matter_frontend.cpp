@@ -20,7 +20,18 @@ MatterFrontend::MatterFrontend(IMatterBindings *bindings, uint16_t endpoint_id)
 
 void MatterFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_config_ = config; }
 
+void MatterFrontend::set_runtime_services_armed(bool armed) {
+  runtime_services_armed_ = armed;
+  if (runtime_) {
+    runtime_->set_services_armed(armed);
+  }
+}
+
 bool MatterFrontend::setup() {
+  if (setup_complete_) {
+    return true;
+  }
+
   if (bindings_ == nullptr) {
     ESP_LOGE(TAG, "Matter bindings are not configured");
     return false;
@@ -28,6 +39,7 @@ bool MatterFrontend::setup() {
 
   runtime_.reset(new EspIdfRuntime(runtime_config_));
   runtime_->set_listener(this);
+  runtime_->set_services_armed(runtime_services_armed_);
   if (!runtime_->setup()) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
     runtime_.reset();

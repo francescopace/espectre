@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent
+REPO_VENV_DIR = REPO_ROOT / ".venv"
+REPO_VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
+
+if (
+    os.environ.get("ESPECTRE_SKIP_VENV_REEXEC") != "1"
+    and REPO_VENV_PYTHON.exists()
+    and Path(sys.prefix).resolve() != REPO_VENV_DIR.resolve()
+):
+    reexec_env = os.environ.copy()
+    reexec_env["ESPECTRE_SKIP_VENV_REEXEC"] = "1"
+    os.execve(str(REPO_VENV_PYTHON), [str(REPO_VENV_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]], reexec_env)
+
 PYTHON_SRC_DIR = REPO_ROOT / "src" / "python"
 if str(PYTHON_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_SRC_DIR))

@@ -25,7 +25,9 @@ class MatterFrontend : public IRuntimeListener {
   MatterFrontend(IMatterBindings *bindings, uint16_t endpoint_id);
 
   void set_runtime_config(const RuntimeConfig &config);
+  void set_runtime_services_armed(bool armed);
   const RuntimeConfig &runtime_config() const { return runtime_config_; }
+  bool runtime_services_armed() const { return runtime_services_armed_; }
 
   bool setup();
   void loop();
@@ -57,6 +59,7 @@ class MatterFrontend : public IRuntimeListener {
   std::unique_ptr<IEspectreRuntime> runtime_;
   bool setup_complete_{false};
   bool threshold_republished_{false};
+  bool runtime_services_armed_{true};
 };
 
 }  // namespace espectre

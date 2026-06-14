@@ -7,6 +7,7 @@
 #include "espectre_log.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
+#include "esp_netif.h"
 
 namespace esphome {
 namespace espectre {
@@ -73,7 +74,15 @@ bool EspIdfRuntime::setup() {
     return false;
   }
 
+  wifi_ready_ = has_wifi_ip_();
   setup_complete_ = true;
+  if (wifi_ready_) {
+    if (services_armed_) {
+      on_wifi_connected_();
+    } else {
+      ESP_LOGI(RUNTIME_TAG, "WiFi is ready, deferring CSI services until commissioning completes");
+    }
+  }
   ESP_LOGD(RUNTIME_TAG, "[resources] Free heap: %lu bytes, largest block: %lu bytes",
            static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DEFAULT)),
            static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)));
@@ -91,8 +100,36 @@ void EspIdfRuntime::shutdown() {
 }
 
 void EspIdfRuntime::loop() {
+  if (traffic_generator_.is_running()) {
+    traffic_generator_.loop();
+  }
   if (udp_listener_.is_running()) {
     udp_listener_.loop();
+  }
+}
+
+void EspIdfRuntime::set_services_armed(bool armed) {
+  if (services_armed_ == armed) {
+    return;
+  }
+
+  services_armed_ = armed;
+  if (!setup_complete_) {
+    return;
+  }
+
+  if (!services_armed_) {
+    ESP_LOGI(RUNTIME_TAG, "CSI services disarmed until Matter commissioning is complete");
+    on_wifi_disconnected_();
+    return;
+  }
+
+  wifi_ready_ = has_wifi_ip_();
+  if (wifi_ready_) {
+    ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, starting CSI services");
+    on_wifi_connected_();
+  } else {
+    ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, waiting for WiFi IP");
   }
 }
 
@@ -157,6 +194,12 @@ bool EspIdfRuntime::configure_detector_() {
 }
 
 void EspIdfRuntime::on_wifi_connected_() {
+  wifi_ready_ = true;
+  if (!services_armed_) {
+    ESP_LOGI(RUNTIME_TAG, "WiFi connected, waiting for Matter commissioning before starting CSI services");
+    return;
+  }
+
   snapshot_.motion_state = MotionState::IDLE;
   snapshot_.ready_to_publish = false;
 
@@ -208,6 +251,7 @@ void EspIdfRuntime::on_wifi_connected_() {
 }
 
 void EspIdfRuntime::on_wifi_disconnected_() {
+  wifi_ready_ = false;
   threshold_calibration_active_ = false;
   csi_manager_.set_packet_interceptor({});
   csi_manager_.disable();
@@ -309,6 +353,20 @@ void EspIdfRuntime::notify_fault_(const char *message) {
   if (listener_ != nullptr) {
     listener_->on_runtime_fault(last_fault_.c_str());
   }
+}
+
+bool EspIdfRuntime::has_wifi_ip_() const {
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  if (netif == nullptr) {
+    return false;
+  }
+
+  esp_netif_ip_info_t ip_info{};
+  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
+    return false;
+  }
+
+  return ip_info.ip.addr != 0;
 }
 
 }  // namespace espectre

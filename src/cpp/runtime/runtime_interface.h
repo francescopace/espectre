@@ -53,6 +53,7 @@ class IEspectreRuntime {
   virtual bool setup() = 0;
   virtual void shutdown() = 0;
   virtual void loop() = 0;
+  virtual void set_services_armed(bool armed) = 0;
 
   virtual bool set_threshold_runtime(float threshold) = 0;
   virtual bool trigger_recalibration() = 0;

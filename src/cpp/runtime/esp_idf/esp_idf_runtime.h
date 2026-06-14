@@ -24,6 +24,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   bool setup() override;
   void shutdown() override;
   void loop() override;
+  void set_services_armed(bool armed) override;
 
   bool set_threshold_runtime(float threshold) override;
   bool trigger_recalibration() override;
@@ -42,6 +43,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len);
   void finish_threshold_calibration_(bool success);
   void notify_fault_(const char *message);
+  bool has_wifi_ip_() const;
 
   RuntimeConfig config_;
   RuntimeSnapshot snapshot_;
@@ -62,6 +64,8 @@ class EspIdfRuntime : public IEspectreRuntime {
   uint16_t threshold_calibration_packets_{0};
   uint16_t threshold_calibration_target_{0};
   bool threshold_calibration_active_{false};
+  bool services_armed_{true};
+  bool wifi_ready_{false};
   bool setup_complete_{false};
   std::string last_fault_;
 };

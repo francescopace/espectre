@@ -1,7 +1,7 @@
 {
-  "name": "espectre",
+  "name": "espectre-shared",
   "version": "1.0.0",
-  "description": "ESPectre CSI Motion Detection",
+  "description": "ESPectre shared core and ESP-IDF runtime",
   "keywords": ["csi", "motion", "detection", "esp32"],
   "authors": [
     {
@@ -14,12 +14,11 @@
   "platforms": "*",
   "build": {
     "flags": [
-      "-I../../../core",
-      "-I../../../runtime",
-      "-I../../../runtime/esp_idf",
-      "-I."
+      "-Icore",
+      "-Iruntime",
+      "-Iruntime/esp_idf"
     ],
-    "srcDir": "../../../",
+    "srcDir": ".",
     "srcFilter": [
       "+<core/base_detector.cpp>",
       "+<core/csi_filters.cpp>",
@@ -36,5 +35,3 @@
     ]
   }
 }
-
-

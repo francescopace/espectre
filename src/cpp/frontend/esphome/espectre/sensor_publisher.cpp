@@ -9,7 +9,7 @@
 #include "esphome/core/log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
-#include "../../../runtime/espectre_log.h"
+#include "espectre_log.h"
 
 namespace esphome {
 namespace espectre {

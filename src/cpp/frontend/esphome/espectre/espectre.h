@@ -24,10 +24,10 @@
 #include <vector>
 
 #include "sensor_publisher.h"
-#include "../../../runtime/runtime_capabilities.h"
-#include "../../../runtime/runtime_events.h"
-#include "../../../runtime/runtime_interface.h"
-#include "../../../runtime/runtime_snapshot.h"
+#include "runtime_capabilities.h"
+#include "runtime_events.h"
+#include "runtime_interface.h"
+#include "runtime_snapshot.h"
 
 namespace esphome {
 namespace espectre {

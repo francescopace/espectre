@@ -67,6 +67,26 @@ part of the supported target set.
 
 ### Local ESP-IDF Workflow
 
+One-time repository setup:
+
+```bash
+python3 -m venv .venv
+./.venv/bin/python -m pip install -r requirements.txt
+```
+
+Per-shell environment setup:
+
+```bash
+source .venv/bin/activate
+source <ESP_IDF_PATH>/export.sh
+```
+
+If ESP-IDF was installed through PlatformIO or ESPHome, a common export path is:
+
+```bash
+source ~/.platformio/packages/framework-espidf/export.sh
+```
+
 Repository CLI:
 
 ```bash
@@ -75,13 +95,30 @@ Repository CLI:
 ./espectre matter monitor --chip c3 --port /dev/cu.usbmodemXXXX
 ```
 
-Raw ESP-IDF flow:
+Notes:
+
+- `./espectre` still requires the repository Python dependencies from
+  `requirements.txt`
+- `idf.py` must already be available in the shell through the ESP-IDF export
+  script
+- the Matter frontend detector is selected through `sdkconfig`; the default is
+  `ML`
+- the first build downloads managed components and compiles `esp_matter`, so it
+  is significantly slower than incremental builds
+
+<details>
+<summary>Raw ESP-IDF flow</summary>
 
 ```bash
+source <ESP_IDF_PATH>/export.sh
 cd src/cpp/frontend/matter/app
 idf.py set-target esp32c3
 idf.py build
+idf.py -p /dev/cu.usbmodemXXXX flash
+idf.py -p /dev/cu.usbmodemXXXX monitor
 ```
+
+</details>
 
 ## Commissioning and Runtime Ownership
 
