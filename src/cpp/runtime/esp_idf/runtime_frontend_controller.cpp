@@ -55,10 +55,17 @@ void RuntimeFrontendController::set_services_armed(bool armed) {
 }
 
 bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
-  set_manual_threshold(config_, threshold);
-  if (runtime_) {
-    return runtime_->set_threshold_runtime(threshold);
+  if (!validate_runtime_threshold(threshold)) {
+    return false;
   }
+  if (runtime_) {
+    if (!runtime_->set_threshold_runtime(threshold)) {
+      return false;
+    }
+  } else {
+    snapshot_.threshold = threshold;
+  }
+  set_manual_threshold(config_, threshold);
   snapshot_.threshold = threshold;
   return true;
 }

@@ -389,6 +389,7 @@ void StreamFrontend::on_wifi_connected_() {
   wifi_connected_.store(true, std::memory_order_relaxed);
   collector_ip_addr_ = 0U;
   gain_lock_complete_.store(false, std::memory_order_relaxed);
+  reset_runtime_telemetry_baseline_();
   sockaddr_in collector_addr{};
   collector_addr.sin_family = AF_INET;
   collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
@@ -538,32 +539,26 @@ void StreamFrontend::log_runtime_telemetry_() {
     return;
   }
 
-  static uint64_t prev_csi_rx = 0U;
-  static uint64_t prev_csi_callback = 0U;
-  static uint64_t prev_stimulus_valid = 0U;
-  static uint64_t prev_traffic_rx = 0U;
-  static uint64_t prev_tx = 0U;
-  static uint64_t prev_drop = 0U;
-  static uint64_t prev_fail = 0U;
-  static uint64_t prev_parse_fail = 0U;
-  static uint64_t prev_ms = now_ms;
-  static bool stream_active_last_tick = true;
+  if (prev_log_sample_ms_ == 0U) {
+    reset_runtime_telemetry_baseline_();
+    prev_log_sample_ms_ = now_ms;
+  }
 
-  const uint64_t dt_ms = std::max<uint64_t>(1U, now_ms - prev_ms);
+  const uint64_t dt_ms = std::max<uint64_t>(1U, now_ms - prev_log_sample_ms_);
   const float csi_callback_pps =
-      static_cast<float>(csi_callback_total_ - prev_csi_callback) * 1000.0F / static_cast<float>(dt_ms);
+      static_cast<float>(csi_callback_total_ - prev_csi_callback_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float stimulus_pps =
-      static_cast<float>(stimulus_valid_total_ - prev_stimulus_valid) * 1000.0F / static_cast<float>(dt_ms);
+      static_cast<float>(stimulus_valid_total_ - prev_stimulus_valid_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float traffic_rx_pps =
-      static_cast<float>(stimulus_service_.get_packets_received() - prev_traffic_rx) * 1000.0F /
+      static_cast<float>(stimulus_service_.get_packets_received() - prev_traffic_rx_total_) * 1000.0F /
       static_cast<float>(dt_ms);
-  const float tx_pps = static_cast<float>(udp_sender_.tx_total() - prev_tx) * 1000.0F / static_cast<float>(dt_ms);
+  const float tx_pps = static_cast<float>(udp_sender_.tx_total() - prev_tx_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float drop_pps =
-      static_cast<float>(udp_sender_.drop_total() - prev_drop) * 1000.0F / static_cast<float>(dt_ms);
+      static_cast<float>(udp_sender_.drop_total() - prev_drop_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float fail_pps =
-      static_cast<float>(udp_sender_.send_fail_total() - prev_fail) * 1000.0F / static_cast<float>(dt_ms);
+      static_cast<float>(udp_sender_.send_fail_total() - prev_fail_total_) * 1000.0F / static_cast<float>(dt_ms);
   const float parse_fail_pps =
-      static_cast<float>(stimulus_parse_fail_total_ - prev_parse_fail) * 1000.0F / static_cast<float>(dt_ms);
+      static_cast<float>(stimulus_parse_fail_total_ - prev_parse_fail_total_) * 1000.0F / static_cast<float>(dt_ms);
   const uint32_t csi_age_ms = (last_csi_ms_ > 0U && now_ms >= last_csi_ms_) ? static_cast<uint32_t>(now_ms - last_csi_ms_)
                                                                               : 0U;
   const unsigned queue_ready = udp_sender_.ready_queue_depth();
@@ -606,25 +601,37 @@ void StreamFrontend::log_runtime_telemetry_() {
                  queue_capacity,
                  static_cast<unsigned>(last_csi_payload_len_));
       }
-    } else if (stream_active_last_tick) {
+    } else if (stream_active_last_tick_) {
       ESP_LOGW(TAG,
                "stream idle: no stimulus/csi activity for %" PRIu32 " ms",
                csi_age_ms);
     }
-    stream_active_last_tick = stream_active;
+    stream_active_last_tick_ = stream_active;
   } else {
-    stream_active_last_tick = true;
+    stream_active_last_tick_ = true;
   }
 
-  prev_csi_callback = csi_callback_total_;
-  prev_stimulus_valid = stimulus_valid_total_;
-  prev_traffic_rx = stimulus_service_.get_packets_received();
-  prev_tx = udp_sender_.tx_total();
-  prev_drop = udp_sender_.drop_total();
-  prev_fail = udp_sender_.send_fail_total();
-  prev_parse_fail = stimulus_parse_fail_total_;
-  prev_ms = now_ms;
+  prev_csi_callback_total_ = csi_callback_total_;
+  prev_stimulus_valid_total_ = stimulus_valid_total_;
+  prev_traffic_rx_total_ = stimulus_service_.get_packets_received();
+  prev_tx_total_ = udp_sender_.tx_total();
+  prev_drop_total_ = udp_sender_.drop_total();
+  prev_fail_total_ = udp_sender_.send_fail_total();
+  prev_parse_fail_total_ = stimulus_parse_fail_total_;
+  prev_log_sample_ms_ = now_ms;
   last_log_ms_ = now_ms;
+}
+
+void StreamFrontend::reset_runtime_telemetry_baseline_() {
+  prev_csi_callback_total_ = csi_callback_total_;
+  prev_stimulus_valid_total_ = stimulus_valid_total_;
+  prev_traffic_rx_total_ = stimulus_service_.get_packets_received();
+  prev_tx_total_ = udp_sender_.tx_total();
+  prev_drop_total_ = udp_sender_.drop_total();
+  prev_fail_total_ = udp_sender_.send_fail_total();
+  prev_parse_fail_total_ = stimulus_parse_fail_total_;
+  prev_log_sample_ms_ = static_cast<uint64_t>(esp_timer_get_time() / 1000ULL);
+  stream_active_last_tick_ = true;
 }
 
 }  // namespace espectre

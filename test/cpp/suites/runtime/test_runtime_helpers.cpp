@@ -97,6 +97,15 @@ void test_runtime_config_utils_validate_and_name_modes(void) {
     TEST_ASSERT_EQUAL_STRING("enabled", gain_lock_mode_name(RuntimeGainLockMode::ENABLED));
     TEST_ASSERT_EQUAL_STRING("ml", detection_algorithm_name(DetectionAlgorithm::ML));
     TEST_ASSERT_EQUAL_STRING("fixed", subcarrier_source_name(RuntimeSubcarrierSource::FIXED_DEFAULT));
+    TEST_ASSERT_TRUE(parse_threshold_mode("min") == ThresholdMode::MIN);
+    TEST_ASSERT_TRUE(parse_threshold_mode("auto") == ThresholdMode::AUTO);
+    TEST_ASSERT_TRUE(parse_traffic_mode("ping") == RuntimeTrafficMode::PING);
+    TEST_ASSERT_TRUE(parse_traffic_mode("dns") == RuntimeTrafficMode::DNS);
+    TEST_ASSERT_TRUE(parse_gain_lock_mode("enabled") == RuntimeGainLockMode::ENABLED);
+    TEST_ASSERT_TRUE(parse_gain_lock_mode("disabled") == RuntimeGainLockMode::DISABLED);
+    TEST_ASSERT_TRUE(parse_gain_lock_mode("auto") == RuntimeGainLockMode::AUTO);
+    TEST_ASSERT_TRUE(parse_detection_algorithm("ml") == DetectionAlgorithm::ML);
+    TEST_ASSERT_TRUE(parse_detection_algorithm("mvs") == DetectionAlgorithm::MVS);
 }
 
 void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {

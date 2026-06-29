@@ -8,6 +8,7 @@
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
+#include "runtime_config_utils.h"
 
 namespace esphome {
 namespace espectre {
@@ -136,9 +137,15 @@ void EspIdfRuntime::set_services_armed(bool armed) {
 }
 
 bool EspIdfRuntime::set_threshold_runtime(float threshold) {
+  if (!validate_runtime_threshold(threshold)) {
+    ESP_LOGW(RUNTIME_TAG, "Rejected invalid runtime threshold: %.3f", threshold);
+    return false;
+  }
+  if (!csi_manager_.set_threshold(threshold)) {
+    return false;
+  }
   config_.segmentation_threshold = threshold;
   snapshot_.threshold = threshold;
-  csi_manager_.set_threshold(threshold);
   if (listener_ != nullptr) {
     listener_->on_threshold_changed(snapshot_);
   }
@@ -170,6 +177,11 @@ RuntimeCapabilities EspIdfRuntime::get_capabilities() const { return capabilitie
 void EspIdfRuntime::set_listener(IRuntimeListener *listener) { listener_ = listener; }
 
 bool EspIdfRuntime::configure_detector_() {
+  if (config_.threshold_mode == ThresholdMode::MANUAL && !validate_runtime_threshold(config_.segmentation_threshold)) {
+    notify_fault_("Invalid manual threshold");
+    return false;
+  }
+
   if (config_.detection_algorithm == DetectionAlgorithm::ML) {
     const float ml_threshold = (config_.threshold_mode == ThresholdMode::MANUAL) ? config_.segmentation_threshold
                                                                                  : ML_DEFAULT_THRESHOLD;

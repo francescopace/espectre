@@ -49,6 +49,7 @@ class StandaloneWifiManager {
   bool setup_complete_{false};
   bool wifi_start_policy_applied_{false};
   bool wifi_connect_requested_{false};
+  bool wifi_started_{false};
   bool csi_wifi_lifecycle_ready_{false};
   int wifi_retry_count_{0};
 };

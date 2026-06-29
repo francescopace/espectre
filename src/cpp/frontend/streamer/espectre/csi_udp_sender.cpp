@@ -48,6 +48,7 @@ bool CsiUdpSender::setup() {
   }
 
   running_.store(true, std::memory_order_relaxed);
+  sender_task_running_.store(true, std::memory_order_relaxed);
   if (xTaskCreate(&CsiUdpSender::sender_task_entry_,
                   "espectre_udp_tx",
                   4096,
@@ -56,6 +57,7 @@ bool CsiUdpSender::setup() {
                   &sender_task_handle_) !=
       pdPASS) {
     ESP_LOGE(TAG, "Failed to create sender task");
+    sender_task_running_.store(false, std::memory_order_relaxed);
     shutdown();
     return false;
   }
@@ -68,7 +70,14 @@ void CsiUdpSender::shutdown() {
   collector_enabled_.store(false, std::memory_order_relaxed);
 
   if (sender_task_handle_ != nullptr) {
-    vTaskDelete(sender_task_handle_);
+    for (uint8_t attempt = 0U; attempt < 12U && sender_task_running_.load(std::memory_order_relaxed); attempt++) {
+      vTaskDelay(pdMS_TO_TICKS(25));
+    }
+    if (sender_task_running_.load(std::memory_order_relaxed)) {
+      ESP_LOGW(TAG, "UDP sender task did not stop cooperatively; forcing delete");
+      vTaskDelete(sender_task_handle_);
+      sender_task_running_.store(false, std::memory_order_relaxed);
+    }
     sender_task_handle_ = nullptr;
   }
   if (free_slots_ != nullptr) {
@@ -205,6 +214,7 @@ void CsiUdpSender::run_sender_task_() {
   if (sock >= 0) {
     close(sock);
   }
+  sender_task_running_.store(false, std::memory_order_relaxed);
 }
 
 void CsiUdpSender::recycle_slot_(uint8_t slot_idx) {

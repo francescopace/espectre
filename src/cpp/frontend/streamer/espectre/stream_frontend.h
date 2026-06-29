@@ -46,6 +46,7 @@ class StreamFrontend {
   void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
   void transition_to_(WorkflowState next, const char *reason);
   void log_runtime_telemetry_();
+  void reset_runtime_telemetry_baseline_();
 
   CsiCaptureService capture_service_;
   StimulusService stimulus_service_;
@@ -71,6 +72,15 @@ class StreamFrontend {
   uint32_t collector_ip_addr_{0U};
   uint16_t last_csi_len_{0U};
   uint16_t last_csi_payload_len_{0U};
+  uint64_t prev_csi_callback_total_{0U};
+  uint64_t prev_stimulus_valid_total_{0U};
+  uint64_t prev_traffic_rx_total_{0U};
+  uint64_t prev_tx_total_{0U};
+  uint64_t prev_drop_total_{0U};
+  uint64_t prev_fail_total_{0U};
+  uint64_t prev_parse_fail_total_{0U};
+  uint64_t prev_log_sample_ms_{0U};
+  bool stream_active_last_tick_{true};
 };
 
 }  // namespace espectre

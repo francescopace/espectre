@@ -45,33 +45,18 @@ class ESpectreComponent : public Component, public IRuntimeListener {
     set_manual_threshold(this->runtime_.config(), threshold);
   }
   void set_threshold_mode(const std::string &mode) {
-    if (mode == "min") {
-      this->runtime_.config().threshold_mode = ThresholdMode::MIN;
-    } else {
-      this->runtime_.config().threshold_mode = ThresholdMode::AUTO;
-    }
+    this->runtime_.config().threshold_mode = parse_threshold_mode(mode.c_str());
   }
   void set_segmentation_window_size(uint16_t size) { this->runtime_.config().segmentation_window_size = size; }
   void set_traffic_generator_rate(uint32_t rate) { this->runtime_.config().traffic_generator_rate = rate; }
   void set_traffic_generator_mode(const std::string &mode) { 
-    this->runtime_.config().traffic_generator_mode =
-        (mode == "ping") ? RuntimeTrafficMode::PING : RuntimeTrafficMode::DNS;
+    this->runtime_.config().traffic_generator_mode = parse_traffic_mode(mode.c_str());
   }
   void set_gain_lock_mode(const std::string &mode) {
-    if (mode == "enabled") {
-      this->runtime_.config().gain_lock_mode = RuntimeGainLockMode::ENABLED;
-    } else if (mode == "disabled") {
-      this->runtime_.config().gain_lock_mode = RuntimeGainLockMode::DISABLED;
-    } else {
-      this->runtime_.config().gain_lock_mode = RuntimeGainLockMode::AUTO;
-    }
+    this->runtime_.config().gain_lock_mode = parse_gain_lock_mode(mode.c_str());
   }
   void set_detection_algorithm(const std::string &algo) {
-    if (algo == "ml") {
-      this->runtime_.config().detection_algorithm = DetectionAlgorithm::ML;
-    } else {
-      this->runtime_.config().detection_algorithm = DetectionAlgorithm::MVS;
-    }
+    this->runtime_.config().detection_algorithm = parse_detection_algorithm(algo.c_str());
   }
   void set_publish_interval(uint32_t interval) { this->runtime_.config().publish_interval = interval; }
   void set_evaluation_interval(uint32_t interval) { this->runtime_.config().evaluation_interval = interval; }

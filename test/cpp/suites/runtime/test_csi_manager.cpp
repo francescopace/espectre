@@ -195,6 +195,39 @@ void test_csi_manager_disable(void) {
     TEST_ASSERT_FALSE(manager.is_enabled());
 }
 
+void test_csi_manager_disable_preserves_stable_callbacks_for_reenable(void) {
+    TransitionDetectorMock detector;
+    CSIManager manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+    manager.set_evaluation_interval(1);
+    manager.set_motion_on_hits(1);
+    manager.set_motion_off_hits(1);
+
+    int motion_callback_count = 0;
+    int game_callback_count = 0;
+    manager.set_motion_state_callback([&](MotionState) {
+        motion_callback_count++;
+    });
+    manager.set_game_mode_callback([&](float, float) {
+        game_callback_count++;
+    });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
+    manager.process_packet(&csi_info);
+    TEST_ASSERT_EQUAL(1, game_callback_count);
+
+    TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+    TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(2, game_callback_count);
+    TEST_ASSERT_TRUE(motion_callback_count >= 1);
+}
+
 void test_csi_manager_disable_when_not_enabled(void) {
     MVSDetector detector(50, 1.0f);
     CSIManager manager;
@@ -725,6 +758,7 @@ int process(void) {
     RUN_TEST(test_csi_manager_enable);
     RUN_TEST(test_csi_manager_enable_twice_returns_ok);
     RUN_TEST(test_csi_manager_disable);
+    RUN_TEST(test_csi_manager_disable_preserves_stable_callbacks_for_reenable);
     RUN_TEST(test_csi_manager_disable_when_not_enabled);
     
     // Threshold tests

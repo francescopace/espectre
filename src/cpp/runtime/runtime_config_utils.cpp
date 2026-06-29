@@ -1,6 +1,7 @@
 #include "runtime_config_utils.h"
 
 #include <cmath>
+#include <cstring>
 
 namespace esphome {
 namespace espectre {
@@ -59,6 +60,31 @@ const char *subcarrier_source_name(RuntimeSubcarrierSource source) {
     default:
       return "fixed";
   }
+}
+
+ThresholdMode parse_threshold_mode(const char *mode) {
+  if (mode != nullptr && std::strcmp(mode, "min") == 0) {
+    return ThresholdMode::MIN;
+  }
+  return ThresholdMode::AUTO;
+}
+
+RuntimeTrafficMode parse_traffic_mode(const char *mode) {
+  return (mode != nullptr && std::strcmp(mode, "ping") == 0) ? RuntimeTrafficMode::PING : RuntimeTrafficMode::DNS;
+}
+
+RuntimeGainLockMode parse_gain_lock_mode(const char *mode) {
+  if (mode != nullptr && std::strcmp(mode, "enabled") == 0) {
+    return RuntimeGainLockMode::ENABLED;
+  }
+  if (mode != nullptr && std::strcmp(mode, "disabled") == 0) {
+    return RuntimeGainLockMode::DISABLED;
+  }
+  return RuntimeGainLockMode::AUTO;
+}
+
+DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {
+  return (algorithm != nullptr && std::strcmp(algorithm, "ml") == 0) ? DetectionAlgorithm::ML : DetectionAlgorithm::MVS;
 }
 
 void set_manual_threshold(RuntimeConfig &config, float threshold) {

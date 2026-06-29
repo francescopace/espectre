@@ -173,10 +173,19 @@ esp_err_t StandaloneWifiManager::start() {
   wifi_connect_requested_ = false;
   csi_wifi_lifecycle_ready_ = false;
   wifi_retry_count_ = 0;
-  return esp_wifi_start();
+  const esp_err_t err = esp_wifi_start();
+  wifi_started_ = err == ESP_OK;
+  return err;
 }
 
 void StandaloneWifiManager::shutdown() {
+  if (wifi_started_) {
+    const esp_err_t err = esp_wifi_stop();
+    if (err != ESP_OK) {
+      ESP_LOGW(TAG, "esp_wifi_stop failed during shutdown: %s", esp_err_to_name(err));
+    }
+    wifi_started_ = false;
+  }
   if (wifi_event_instance_ != nullptr) {
     esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_instance_);
     wifi_event_instance_ = nullptr;
