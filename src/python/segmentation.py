@@ -281,29 +281,22 @@ class SegmentationContext:
             float: Variance (0.0 if buffer not full)
         """
         n = self.buffer_count
-        if n < 2:
+        # Match the C++ runtime: MVS is not considered ready until the full
+        # sliding window has been populated, so partial-buffer variance must
+        # not trigger early MOTION during warmup.
+        if n < self.window_size:
             return 0.0
 
         total = 0.0
-        if n == self.window_size:
-            buf = self.turbulence_buffer
-            for i in range(n):
-                total += buf[i]
-        else:
-            for i in range(n):
-                total += self.turbulence_buffer[i]
+        buf = self.turbulence_buffer
+        for i in range(n):
+            total += buf[i]
         mean = total / n
 
         var_sum = 0.0
-        if n == self.window_size:
-            buf = self.turbulence_buffer
-            for i in range(n):
-                diff = buf[i] - mean
-                var_sum += diff * diff
-        else:
-            for i in range(n):
-                diff = self.turbulence_buffer[i] - mean
-                var_sum += diff * diff
+        for i in range(n):
+            diff = buf[i] - mean
+            var_sum += diff * diff
         return var_sum / n
     
     def set_adaptive_threshold(self, threshold):

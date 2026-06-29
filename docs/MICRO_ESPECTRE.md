@@ -376,7 +376,7 @@ pytest test/python/test_segmentation.py::TestStateMachine -v
 |-------|------|------|-------|
 | `test_config` | Unit | — | Configuration constants, guard bands |
 | `test_filters` | Unit | Synthetic | Hampel, low-pass filters |
-| `test_features` | Unit | Synthetic | Production ML feature extraction (9 inputs) |
+| `test_features` | Unit | Synthetic | Production ML feature extraction (8 inputs) |
 | `test_segmentation` | Unit | Synthetic | MVS state machine, variance calculation |
 | `test_segmentation_additional` | Unit | Synthetic | Additional segmentation edge cases |
 | `test_ml_detector` | Unit | **Real** | ML detector, features, inference |
@@ -425,7 +425,7 @@ DETECTION_ALGORITHM = "mvs"   # "mvs" (default) or "ml"
 | Algorithm | Method | Calibration | Boot Time |
 |-----------|--------|-------------|-----------|
 | **MVS** (default) | Moving Variance Segmentation of Turbulence | Subcarriers + Threshold | ~13s |
-| **ML** | Neural Network (9 features → MLP) | **None** (fixed subcarriers) | **~3s** |
+| **ML** | Neural Network (8 features → MLP) | **None** (fixed subcarriers) | **~3s** |
 
 ### 3. Calibration Algorithm (MVS only)
 
@@ -514,15 +514,15 @@ For complete algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md).
 
 Micro-ESPectre includes a **neural network-based motion detector** as an experimental feature.
 
-### ML Detector (Experimental)
+### ML Detector
 
-The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real CSI data. It extracts 9 turbulence-window features, including robust spread statistics such as `turb_iqr` and `turb_mad`, and outputs a motion probability.
+The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real CSI data. It extracts 8 relative turbulence-window features, including robust spread statistics such as `turb_iqr_over_mean` and `turb_mad_over_mean`, and outputs a motion probability.
 
 | Aspect | Details |
 |--------|---------|
-| Architecture | MLP (9 → 24 → 12 → 1) |
-| Input | 9 features from 100-packet window |
-| Output | Probability (0.0 - 1.0), threshold at 0.5 |
+| Architecture | MLP (8 → 32 → 16 → 1) |
+| Input | 8 features from 100-packet window |
+| Output | Motion Score (0.0 - 10.0), threshold at 5.0 |
 | Filters | Supports low-pass and Hampel filters (same as MVS) |
 | Performance | See [PERFORMANCE.md](PERFORMANCE.md) for per-chip results |
 

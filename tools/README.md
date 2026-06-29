@@ -180,11 +180,13 @@ python 9_compare_chips.py --plot
 **Purpose**: Train, evaluate, and export the production ML model
 
 - Trains the MLP detector with weighted binary cross-entropy
-- Default training uses `--fp-weight 1.0`, `--scaler standard`, `--batch-size 32`, grouped session-level CV, and context-aware MVS-guided sample weights
+- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 32`, grouped session-level CV, and context-aware MVS-guided sample weights
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
 - Uses the standard compiled Keras training/inference path on CPU-only TensorFlow
 - Supports FP-first architecture campaigns and feature-importance analysis
 - Supports optional chip exclusion experiments via `--exclude-chip CHIP[,CHIP...]`
+- Supports exported-artifact gain-shift diagnostics via `--gain-stress-gate`
+- Supports raw/relative/hybrid gain-robustness comparisons via `--gain-feature-experiment`
 - Exports weights for both platforms:
   - `src/python/ml_weights.py`
   - `src/cpp/core/ml_weights.h`
@@ -200,11 +202,26 @@ python 10_train_ml_model.py --scaler clipped_standard  # Robust clipping + z-sco
 python 10_train_ml_model.py --batch-size 128  # Faster exploratory sweeps
 python 10_train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python 10_train_ml_model.py --seed-search-until-improvement 20  # Stop at first better seed
+python 10_train_ml_model.py --gain-stress-gate  # Stress exported model with artificial feature gain shifts
+python 10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25  # Custom stress multipliers
+python 10_train_ml_model.py --gain-feature-experiment  # Compare raw/relative/hybrid gain robustness
 python 10_train_ml_model.py --shap         # SHAP importance (200 samples)
 python 10_train_ml_model.py --shap 500     # SHAP importance (500 samples)
 ```
 
 For production artifact promotion, prefer either `--seed-search-until-improvement` or the FP-first `--experiment --experiment-promote` campaign instead of a plain training run. The plain command always exports the requested seed, while the gated flows replace artifacts only after a stricter validation pass.
+
+`--gain-stress-gate` does not train or export. It loads the current exported
+`src/python/ml_weights.py`, scales only the amplitude-gain-sensitive input
+features, and reports recall/FP degradation overall plus worst chip,
+environment, session, and source-file groups. Use it to compare candidate
+feature sets or seeds for gain-shift robustness.
+
+The default binary ML detector currently exports an 8-feature relative input
+set (`std/mean`, `iqr/mean`, `mad/mean`, normalized waveform length, skewness,
+and autocorrelation) with topology `8 -> 32 -> 16 -> 1` to reduce sensitivity
+to absolute device/session gain while keeping long-recording false positives in
+check.
 
 For full training workflow and dataset preparation, see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md#5-train-model).
 
@@ -218,7 +235,7 @@ Validates CSI datasets for integrity, signal quality, and ML readiness. It now c
 - Pair validation — static-presence vs motion variance ratio, temporal gap
 - ML readiness — label balance, minimum samples, chip diversity
 
-Turbulence mode follows MVS conventions: raw std for gain-locked files, CV normalization for files without gain lock. ML always uses raw std regardless.
+Turbulence mode follows MVS conventions: raw std for gain-locked files, CV normalization for files without gain lock. ML uses raw turbulence as its base signal and exports relative neural-detector features.
 
 ```bash
 python 11_validate_dataset_quality.py              # Full validation

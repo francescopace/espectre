@@ -10,7 +10,7 @@ This document provides detailed performance metrics for ESPectre's motion detect
 |-------|--------|--------|-----------|
 | MVS | Recall | >95% | Minimize missed detections |
 | MVS | FP Rate | <5% | Avoid false alarms |
-| ML | Recall | >95% | All chips use raw std (CV normalization disabled for ML) |
+| ML | Recall | >95% | Maintain high sensitivity |
 | ML | FP Rate | <5% | Avoid false alarms |
 
 --
@@ -26,7 +26,7 @@ Configuration used for all test results (unified across chips):
 | Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
 | CV Normalization | MVS only | Based on `gain_locked` metadata (`false` => apply CV norm for MVS) |
 
-CV normalization is applied per-file for MVS based on whether data was collected with AGC gain lock enabled. ML always uses raw std regardless of gain lock status (the model is trained on raw std).
+CV normalization is applied per-file for MVS based on whether data was collected with AGC gain lock enabled. ML uses raw turbulence as its base signal, then exports relative neural-detector features such as `std/mean`, `iqr/mean`, `mad/mean`, and normalized waveform length.
 
 ---
 
@@ -34,18 +34,18 @@ CV normalization is applied per-file for MVS based on whether data was collected
 
 `data/dataset_info.json` contains canonical `empty` / `static_presence` /
 `motion` labels across multiple collection sessions and environments. The
-counts below are aggregated packet totals across all available training
-captures. `empty` is already part of the schema, but no dedicated empty-room
-captures have been collected yet.
+counts below are aggregated packet totals across all currently available
+training captures, including the dedicated empty-room recordings added on
+2026-06-29.
 
 | Chip | Empty | Static Presence | Motion | Total | Gain Lock |
 |------|-------|-----------------|--------|-------|-----------|
-| ESP32-C3 | 0 | 4094 | 4076 | 8170 | Yes |
-| ESP32-C5 | 0 | 4350 | 4336 | 8686 | Yes |
-| ESP32-C6 | 0 | 4755 | 4890 | 9645 | Yes |
-| ESP32-S3 | 0 | 4360 | 4375 | 8735 | Yes |
-| ESP32 | 0 | 4159 | 4083 | 8242 | No |
-| Total | 0 | 21718 | 21760 | 43478 | Mixed |
+| ESP32-C3 | 3020 | 5143 | 5084 | 13247 | Yes |
+| ESP32-C5 | 3030 | 5350 | 5339 | 13719 | Yes |
+| ESP32-C6 | 3003 | 5756 | 5890 | 14649 | Yes |
+| ESP32-S3 | 3003 | 5361 | 5375 | 13739 | Yes |
+| ESP32 | 2375 | 4159 | 4083 | 10617 | No |
+| Total | 14431 | 25769 | 25771 | 65971 | Mixed |
 
 Data location: `data/`
 
@@ -73,29 +73,31 @@ pytest test/python/test_validation_long_recordings.py -v -s
 
 ## Current Results
 
-**Last verified:** 2026-06-09 (fixed-subcarrier runtime, Python + C++)
+**Last verified:** 2026-06-30 (`test_motion_detection`, `test_long_recordings`, `TestPerformanceMetrics`, `test_validation_long_recordings.py`)
+
+### Python + C++ real-data validation
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
 | ESP32-C3 | MVS Default | 98.5% | 100.0% | 0.0% | 99.3% |
 | ESP32-C3 | MVS Runtime | 98.5% | 100.0% | 0.0% | 99.3% |
 | ESP32-C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-C5 | MVS Default | 99.4% | 99.4% | 0.9% | 99.4% |
-| ESP32-C5 | MVS Runtime | 99.4% | 99.4% | 0.9% | 99.4% |
+| ESP32-C5 | MVS Default | 99.4% | 100.0% | 0.0% | 99.7% |
+| ESP32-C5 | MVS Runtime | 99.4% | 100.0% | 0.0% | 99.7% |
 | ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32-C6 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-C6 | MVS Runtime | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-S3 | MVS Default | 99.7% | 99.5% | 0.7% | 99.6% |
-| ESP32-S3 | MVS Runtime | 99.7% | 99.5% | 0.7% | 99.6% |
+| ESP32-S3 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
+| ESP32-S3 | MVS Runtime | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32 | MVS Default | 99.4% | 100.0% | 0.0% | 99.7% |
 | ESP32 | MVS Runtime | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32 | ML | 99.1% | 100.0% | 0.0% | 99.5% |
+| ESP32 | ML | 99.9% | 100.0% | 0.0% | 99.9% |
 
 **MVS Default**: Uses fixed default subcarriers with adaptive threshold from baseline.
 **MVS Runtime**: Current production startup path; matches `MVS Default`.
-**ML**: Neural network with grouped session-level blocked CV for model selection, context-aware MVS-guided weights, and Hampel filtering. CV normalization is always disabled for ML (raw std only).
+**ML**: Neural network with grouped session-level blocked CV for model selection, context-aware MVS-guided weights, Hampel filtering, and exported relative turbulence-window features. MVS CV normalization is always disabled for ML.
 
 ---
 
@@ -161,7 +163,7 @@ The worst-case path is ML on ESP32-C3 (~3.5 ms peak, ~35% CPU), which still leav
 
 **MVS**: Extracts a single feature (spatial turbulence) and its moving variance.
 
-**ML**: Extracts 9 statistical features from sliding window, then runs MLP inference (9 → 32 → 16 → 1 = 816 MACs).
+**ML**: Extracts 8 relative statistical features from the sliding window, then runs MLP inference (8 -> 32 -> 16 -> 1 = 784 MACs).
 The MLP itself is lightweight; most time is spent on feature extraction. 
 For ML architecture details, see [ALGORITHMS.md](ALGORITHMS.md#architecture).
 
@@ -174,6 +176,8 @@ Continuous recordings (~30s idle + ~30s motion) provide a realistic production-s
 Test data: `data/test/`
 Source of truth: `test/python/test_validation_long_recordings.py`
 
+The Python and C++ long-recording suites currently produce matching packet-level metrics on all available long-test datasets (`C3`, `C5`, `C6`, `S3`).
+
 Methodology:
 - `MVS Fixed`: keep the shared fixed subcarrier set, run baseline threshold bootstrap on the idle segment, then evaluate the full recording with adaptive threshold and Hampel enabled
 - `ML`: use exported production weights with threshold `5.0` and Hampel enabled
@@ -182,13 +186,13 @@ Methodology:
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score | FP Count |
 |------|-----------|--------|-----------|---------|----------|----------|
 | C3 | MVS Fixed | 100.0% | 99.8% | 0.2% | 99.9% | 5 |
-| C3 | ML | 99.1% | 100.0% | 0.0% | 99.6% | 0 |
+| C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% | 0 |
 | C5 | MVS Fixed | 100.0% | 87.9% | 11.1% | 93.5% | 357 |
-| C5 | ML | 100.0% | 91.1% | 7.9% | 95.3% | 253 |
+| C5 | ML | 100.0% | 91.2% | 7.7% | 95.4% | 249 |
 | C6 | MVS Fixed | 100.0% | 70.4% | 40.2% | 82.6% | 1270 |
-| C6 | ML | 89.5% | 96.2% | 3.4% | 92.7% | 108 |
+| C6 | ML | 99.6% | 88.1% | 12.8% | 93.5% | 405 |
 | S3 | MVS Fixed | 100.0% | 94.8% | 4.9% | 97.3% | 151 |
-| S3 | ML | 96.4% | 99.1% | 0.8% | 97.7% | 25 |
+| S3 | ML | 98.3% | 100.0% | 0.0% | 99.1% | 0 |
 
 ---
 
@@ -196,8 +200,8 @@ Methodology:
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
-| 2026-06-09 | v3.0.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
-| 2026-06-09 | v3.0.0 | C6 |  -   | MVS + Hampel | 99.7% | 100.0% | 0.0% | 99.9% |
+| 2026-06-30 | v3.0.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
+| 2026-06-30 | v3.0.0 | C6 |  -   | MVS + Hampel | 99.7% | 100.0% | 0.0% | 99.9% |
 | 2026-05-21 | v2.8.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-05-21 | v2.8.0 | C6 | NBVI | MVS + Hampel| 99.6% | 100.0% | 0.0% | 99.8% |
 | 2026-03-11 | v2.6.1 | C6 |  -   | ML | 100.0% | 100.0% | 0.0% | 100.0% |

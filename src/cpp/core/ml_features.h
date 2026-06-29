@@ -1,12 +1,12 @@
 /*
  * ESPectre - ML Feature Extraction
  * 
- * Extracts 9 non-redundant features from CSI data for ML-based motion
- * detection. Port of src/python/features.py to C++.
+ * Extracts ML features from CSI data for ML-based motion detection.
+ * Port of src/python/features.py to C++.
  * 
- * All 9 features are computed from the turbulence buffer (100 samples).
+ * Features are computed from the turbulence buffer (100 samples).
  * 
- * Features (in order):
+ * Legacy raw features (9, when exported model input size is 9):
  *  0. turb_mean      - Mean of turbulence buffer
  *  1. turb_std       - Standard deviation
  *  2. turb_max       - Maximum value
@@ -16,6 +16,16 @@
  *  6. turb_autocorr  - Lag-1 autocorrelation
  *  7. turb_mad       - Median absolute deviation
  *  8. waveform_length - Sum of absolute first differences
+ *
+ * Production relative features (8, when exported model input size is 8):
+ *  0. turb_std_over_mean
+ *  1. turb_max_over_mean
+ *  2. turb_min_over_mean
+ *  3. turb_iqr_over_mean
+ *  4. turb_mad_over_mean
+ *  5. waveform_length_over_mean
+ *  6. turb_skewness
+ *  7. turb_autocorr
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -27,12 +37,15 @@
 #include <cmath>
 #include <algorithm>
 #include "utils.h"
+#include "ml_weights.h"
 
 namespace esphome {
 namespace espectre {
 
-// Number of features extracted
-constexpr uint8_t ML_NUM_FEATURES = 9;
+// Number of features extracted, driven by the exported model.
+constexpr uint8_t ML_NUM_FEATURES = ML_MODEL_INPUT_SIZE;
+static_assert(ML_MODEL_INPUT_SIZE == 8 || ML_MODEL_INPUT_SIZE == 9,
+              "ML feature extractor supports relative-8 or legacy raw-9 inputs");
 
 // Maximum buffer size for sorting (IQR / MAD)
 constexpr uint16_t ML_MAX_SORT_SIZE = 200;
@@ -186,13 +199,13 @@ inline float calc_waveform_length(const float* values, uint16_t count) {
 }
 
 /**
- * Extract all 9 ML features from the turbulence buffer.
+ * Extract ML features from the turbulence buffer.
  *
  * All features are computed from the turbulence window (typically 100 samples).
  *
  * @param turb_buffer Turbulence buffer (chronological order when wrapped)
  * @param turb_count Number of valid values in turbulence buffer
- * @param features_out Output array for 9 features (must be pre-allocated)
+ * @param features_out Output array for 8 features (must be pre-allocated)
  */
 inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
                                 float* features_out) {
@@ -242,17 +255,34 @@ inline void extract_ml_features(const float* turb_buffer, uint16_t turb_count,
     float turb_autocorr = calc_autocorrelation(turb_buffer, turb_count, turb_mean, turb_var, 1);
     float turb_mad = calc_mad(turb_buffer, turb_count, sorted_ptr);
     float waveform_length = calc_waveform_length(turb_buffer, turb_count);
-    
-    // Fill output array in correct order (matches Python DEFAULT_FEATURES)
-    features_out[0] = turb_mean;       // 0
-    features_out[1] = turb_std;        // 1
-    features_out[2] = turb_max;        // 2
-    features_out[3] = turb_min;        // 3
-    features_out[4] = turb_iqr;        // 4
-    features_out[5] = turb_skewness;   // 5
-    features_out[6] = turb_autocorr;   // 6
-    features_out[7] = turb_mad;        // 7
-    features_out[8] = waveform_length; // 8
+
+    const float mean_denom = std::max(std::fabs(turb_mean), 1e-6f);
+    const float waveform_denom =
+        mean_denom * static_cast<float>(std::max<uint16_t>(turb_count - 1, 1));
+
+    if (ML_MODEL_INPUT_SIZE == 8) {
+        // Fill output array in order matching Python RELATIVE_FEATURES.
+        features_out[0] = turb_std / mean_denom;
+        features_out[1] = turb_max / mean_denom;
+        features_out[2] = turb_min / mean_denom;
+        features_out[3] = turb_iqr / mean_denom;
+        features_out[4] = turb_mad / mean_denom;
+        features_out[5] = waveform_length / waveform_denom;
+        features_out[6] = turb_skewness;
+        features_out[7] = turb_autocorr;
+        return;
+    }
+
+    // Fill output array in order matching legacy Python RAW_FEATURES.
+    features_out[0] = turb_mean;
+    features_out[1] = turb_std;
+    features_out[2] = turb_max;
+    features_out[3] = turb_min;
+    features_out[4] = turb_iqr;
+    features_out[5] = turb_skewness;
+    features_out[6] = turb_autocorr;
+    features_out[7] = turb_mad;
+    features_out[8] = waveform_length;
 }
 
 }  // namespace espectre

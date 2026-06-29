@@ -17,6 +17,8 @@ from features import (
     calc_mad,
     extract_features_by_name,
     DEFAULT_FEATURES,
+    RAW_FEATURES,
+    RELATIVE_FEATURES,
     FEATURE_NAMES,
 )
 
@@ -246,6 +248,8 @@ class TestExtractAllFeatures:
     def test_feature_names_match(self):
         """Test that FEATURE_NAMES matches DEFAULT_FEATURES"""
         assert len(FEATURE_NAMES) == len(DEFAULT_FEATURES)
+        assert FEATURE_NAMES == DEFAULT_FEATURES
+        assert DEFAULT_FEATURES == RELATIVE_FEATURES
 
     def test_unknown_feature_raises(self):
         """Removed legacy features are no longer accepted."""
@@ -281,8 +285,24 @@ class TestExtractAllFeatures:
         idle_features = extract_features_by_name(idle_buffer, 50, feature_names=DEFAULT_FEATURES)
         motion_features = extract_features_by_name(motion_buffer, 50, feature_names=DEFAULT_FEATURES)
         
-        # Std should be higher for motion
-        assert motion_features[1] > idle_features[1]
-        # MAD should be higher for motion
-        mad_idx = FEATURE_NAMES.index('turb_mad')
+        std_idx = FEATURE_NAMES.index('turb_std_over_mean')
+        assert motion_features[std_idx] > idle_features[std_idx]
+        mad_idx = FEATURE_NAMES.index('turb_mad_over_mean')
         assert motion_features[mad_idx] > idle_features[mad_idx]
+
+    def test_raw_feature_set_is_available_for_experiments(self):
+        """Legacy raw features remain available for experiments."""
+        buffer = [float(i + 1) for i in range(50)]
+        features = extract_features_by_name(buffer, 50, feature_names=RAW_FEATURES)
+        assert len(features) == 9
+
+    def test_relative_features_are_gain_invariant(self):
+        """Default relative features are invariant to uniform positive gain."""
+        buffer = [3.0 + (i % 7) * 0.25 for i in range(50)]
+        scaled = [value * 1.7 for value in buffer]
+
+        features = extract_features_by_name(buffer, 50, feature_names=RELATIVE_FEATURES)
+        scaled_features = extract_features_by_name(scaled, 50, feature_names=RELATIVE_FEATURES)
+
+        for actual, expected in zip(scaled_features, features):
+            assert actual == pytest.approx(expected, rel=1e-6, abs=1e-6)

@@ -45,7 +45,7 @@ GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is
 
 # Detection Algorithm
 # "mvs" (default): Moving Variance Segmentation - fast, good accuracy
-# "ml": Neural Network (9 features -> MLP) - learned patterns, fixed threshold
+# "ml": Neural Network - learned patterns, fixed threshold
 DETECTION_ALGORITHM = "mvs"
 
 # Threshold bootstrap configuration (fixed subcarriers, no disk I/O)

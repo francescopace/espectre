@@ -181,7 +181,7 @@ class MLDetector(IDetector):
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold
         )
-        # ML model is trained on raw std only — CV normalization must stay off
+        # ML feature extraction owns gain handling; MVS CV normalization stays off.
         self._context.use_cv_normalization = False
         self._threshold = threshold
         self._packet_count = 0
@@ -301,9 +301,9 @@ class MLDetector(IDetector):
         """
         Ignore CV normalization requests.
 
-        The exported ML model is trained on raw standard deviation, so the
-        runtime must keep CV normalization disabled to stay aligned with the
-        C++ implementation and the training pipeline.
+        ML feature extraction is defined by the exported model, so the runtime
+        must keep MVS CV normalization disabled to stay aligned with the C++
+        implementation and the training pipeline.
         """
         del enabled
         self._context.use_cv_normalization = False

@@ -69,6 +69,8 @@ MAX_TEMPORAL_GAP_S = 300
 MIN_AMPLITUDE_MEAN = 10.0
 MIN_EMPTY_SEPARABILITY_AUC = 0.80
 MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.80
+MAX_EMPTY_TURBULENCE_RATIO = 1.0
+MAX_EMPTY_MOVING_VARIANCE_RATIO = 1.0
 
 
 # ------------------------------------------------------------------
@@ -376,13 +378,24 @@ def _filter_measurement_frames(csi_data, data):
 
 def _compute_moving_variance_series(csi_data, gain_locked=True):
     """Compute moving-variance series for one CSI array."""
+    turbulence, moving_variance = _compute_turbulence_and_moving_variance_series(
+        csi_data,
+        gain_locked=gain_locked,
+    )
+    _ = turbulence
+    return moving_variance
+
+
+def _compute_turbulence_and_moving_variance_series(csi_data, gain_locked=True):
+    """Compute turbulence and moving-variance series for one CSI array."""
     use_cv = not gain_locked
     amps = _extract_amplitudes_matrix(csi_data)
     turbulence = [
         _spatial_turbulence_from_amps(amps[i].tolist(), DEFAULT_SUBCARRIERS, use_cv)
         for i in range(amps.shape[0])
     ]
-    return np.asarray(_moving_variance(turbulence), dtype=np.float64)
+    moving_variance = np.asarray(_moving_variance(turbulence), dtype=np.float64)
+    return np.asarray(turbulence, dtype=np.float64), moving_variance
 
 
 def _evaluate_threshold_direction(neg_values, pos_values, expect_pos_higher=True):
@@ -509,33 +522,87 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
     ))
 
     for chip, environment in overlap_groups:
+        empty_turbulence_series = []
         empty_mv_series = []
+        static_turbulence_series = []
         static_mv_series = []
 
         for entry in empty_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'empty')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
             csi_data = _filter_measurement_frames(data[csi_key], data)
-            mv = _compute_moving_variance_series(csi_data, gain_locked=bool(entry.get('gain_locked', True)))
+            turbulence, mv = _compute_turbulence_and_moving_variance_series(
+                csi_data,
+                gain_locked=bool(entry.get('gain_locked', True)),
+            )
+            if len(turbulence):
+                empty_turbulence_series.append(turbulence)
             if len(mv):
                 empty_mv_series.append(mv)
 
         for entry in static_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'static_presence')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-            mv = _compute_moving_variance_series(data[csi_key], gain_locked=bool(entry.get('gain_locked', True)))
+            turbulence, mv = _compute_turbulence_and_moving_variance_series(
+                data[csi_key],
+                gain_locked=bool(entry.get('gain_locked', True)),
+            )
+            if len(turbulence):
+                static_turbulence_series.append(turbulence)
             if len(mv):
                 static_mv_series.append(mv)
 
-        if not empty_mv_series or not static_mv_series:
+        if (
+            not empty_turbulence_series
+            or not empty_mv_series
+            or not static_turbulence_series
+            or not static_mv_series
+        ):
+            results.append(ValidationResult(
+                f"empty_quietness_{chip}_{environment}", "WARN",
+                f"Insufficient turbulence/moving-variance data for group {(chip, environment)}"
+            ))
             results.append(ValidationResult(
                 f"empty_separation_{chip}_{environment}", "WARN",
                 f"Insufficient moving-variance data for group {(chip, environment)}"
             ))
             continue
 
+        empty_turbulence = np.concatenate(empty_turbulence_series)
         empty_mv = np.concatenate(empty_mv_series)
+        static_turbulence = np.concatenate(static_turbulence_series)
         static_mv = np.concatenate(static_mv_series)
+
+        empty_turbulence_mean = float(empty_turbulence.mean())
+        static_turbulence_mean = float(static_turbulence.mean())
+        empty_mv_mean = float(empty_mv.mean())
+        static_mv_mean = float(static_mv.mean())
+        turbulence_ratio = (
+            empty_turbulence_mean / static_turbulence_mean
+            if static_turbulence_mean > 1e-10 else float('inf')
+        )
+        moving_variance_ratio = (
+            empty_mv_mean / static_mv_mean
+            if static_mv_mean > 1e-10 else float('inf')
+        )
+        quietness_status = (
+            "PASS"
+            if turbulence_ratio <= MAX_EMPTY_TURBULENCE_RATIO
+            and moving_variance_ratio <= MAX_EMPTY_MOVING_VARIANCE_RATIO
+            else "WARN"
+        )
+        results.append(ValidationResult(
+            f"empty_quietness_{chip}_{environment}",
+            quietness_status,
+            (
+                f"Empty should stay quieter than static presence for {(chip, environment)}: "
+                f"turbulence={empty_turbulence_mean:.4f} vs {static_turbulence_mean:.4f} "
+                f"({turbulence_ratio:.2f}x), moving_variance={empty_mv_mean:.4f} "
+                f"vs {static_mv_mean:.4f} ({moving_variance_ratio:.2f}x)"
+            ),
+            round(moving_variance_ratio, 3) if np.isfinite(moving_variance_ratio) else moving_variance_ratio
+        ))
+
         auc = _rank_auc(static_mv, empty_mv)
         if auc is None:
             results.append(ValidationResult(
@@ -835,13 +902,15 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("A pair is considered valid when:\n")
     lines.append("- labels are coherent (`static_presence` vs `motion`)")
     lines.append(f"- `motion_variance > static_presence_variance` (ratio >= {MIN_VARIANCE_RATIO}x)\n")
-    lines.append("Empty sanity uses moving-variance separability against overlapping ")
-    lines.append("`static_presence` groups with the same chip/environment, after dropping ")
+    lines.append("Empty sanity uses overlapping `static_presence` groups with the same ")
+    lines.append("chip/environment to check both quietness and separability, after dropping ")
     lines.append("reference frames from `empty` files when present.\n")
     lines.append("Computed metrics:\n")
     lines.append("- `Static Presence Var`: variance of spatial turbulence on the static-presence file")
     lines.append("- `Motion Var`: variance of spatial turbulence on the motion file")
     lines.append("- `Ratio`: `Motion Var / Static Presence Var`")
+    lines.append("- `Empty quietness`: `empty` should stay below `static_presence` on average ")
+    lines.append("  for both turbulence and moving variance within the same chip/environment")
     lines.append("- `Gap end->start`: time between static-presence end and motion start (negative means overlap)")
     lines.append("- `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set")
     lines.append("- `Turbulence`: `raw_std` = gain locked (raw standard deviation), "

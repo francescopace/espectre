@@ -9,6 +9,122 @@ The goal is to preserve design history in one place without turning
 
 ---
 
+## Gain-Shift Robustness Diagnostic
+
+### Goal
+
+Check whether the production ML detector is structurally robust to
+device/session gain shifts, or whether it is only empirically robust on the
+current collected domains.
+
+### Background
+
+MVS has an explicit no-gain-lock path: when gain is not locked, turbulence can
+be computed as coefficient of variation (`std / mean`), which is invariant to a
+uniform amplitude scale factor. The ML detector intentionally uses raw
+turbulence std in both training and runtime inference. Its exported feature
+scaler is a global statistical standardization fitted on the training set; it
+does not compensate an unseen per-device/session gain shift.
+
+For the previous raw 9-feature production baseline:
+
+- scale-sensitive: `turb_mean`, `turb_std`, `turb_max`, `turb_min`,
+  `turb_iqr`, `turb_mad`, `waveform_length`
+- scale-invariant under positive uniform gain: `turb_skewness`,
+  `turb_autocorr`
+
+### Tooling Added
+
+`tools/10_train_ml_model.py --gain-stress-gate` evaluates the currently
+exported Python weights without retraining. It extracts the exported feature
+set from real `static_presence`/`motion` data, applies artificial gain
+multipliers only to the scale-sensitive features, and reports overall plus
+worst-group metrics.
+
+Example:
+
+```bash
+python tools/10_train_ml_model.py --gain-stress-gate
+python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
+python tools/10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25
+```
+
+### Raw-Feature Result
+
+Exported raw-feature seed: `721498330`.
+
+All environments:
+
+| Scale | Recall | Precision | FP rate | F1 | Worst chip FP |
+|---:|---:|---:|---:|---:|---:|
+| 0.50 | 93.8% | 97.2% | 2.7% | 95.4% | S3 8.7% |
+| 0.75 | 95.3% | 98.5% | 1.5% | 96.8% | S3 5.5% |
+| 1.00 | 99.9% | 99.2% | 0.8% | 99.6% | S3 3.5% |
+| 1.25 | 99.9% | 92.8% | 7.8% | 96.2% | ESP32 29.3% |
+| 1.50 | 99.4% | 86.3% | 15.8% | 92.4% | ESP32 45.6% |
+| 2.00 | 99.0% | 77.6% | 28.7% | 87.0% | S3 54.8% |
+
+Bedroom-only:
+
+- `1.00x`: recall `100.0%`, FP `1.3%`, F1 `99.4%`
+- `1.25x`: recall `100.0%`, FP `6.5%`, worst-chip FP `ESP32 20.2%`
+- `1.50x`: FP `14.2%`, worst-chip FP `ESP32 37.4%`
+- `2.00x`: FP `27.6%`, worst-chip FP `S3 61.1%`
+
+### Decision
+
+The raw-feature ML detector is strong at nominal gain, but it is not
+structurally gain-invariant. Global feature standardization is numeric
+normalization, not domain compensation. Seed search and long/paired gates can
+promote empirically better weights, but they do not by themselves solve
+cross-gain robustness.
+
+Follow-up experiments compared:
+
+1. current raw features
+2. relative/gain-invariant features such as `std/mean`, `iqr/mean`,
+   `mad/mean`, and normalized waveform length
+3. a small hybrid set that keeps useful raw features while adding relative
+   features
+
+The relative 8-feature set was promoted after a second architecture/training
+policy pass. The plain `24-12`, `fp_weight=1.0` relative model was gain-stable
+but increased long-recording false positives on C6/S3. A wider `32-16` model
+trained with `fp_weight=2.0` recovered the long-recording gate while preserving
+flat gain-stress behavior.
+
+Promoted export:
+
+- seed: `1890407301`
+- topology: `8 -> 32 -> 16 -> 1`
+- training policy: `fp_weight=2.0`, `scaler=standard`
+- gain-stress gate: flat at `1.00x`, `1.25x`, `1.50x` with `FP=1.1%`
+- long-recording ML gate: `total_fp=654`, worst chip `C6` with `F1=93.5%`
+
+Promoted feature set:
+
+- `turb_std_over_mean`
+- `turb_max_over_mean`
+- `turb_min_over_mean`
+- `turb_iqr_over_mean`
+- `turb_mad_over_mean`
+- `waveform_length_over_mean`
+- `turb_skewness`
+- `turb_autocorr`
+
+Rejected near-term additions:
+
+- `range_over_mean`
+- `peak_over_mad`
+
+Those extra relative features produced occasional local wins, but did not beat
+the simpler relative set on the combined long-recording and gain-stress
+comparison. The gain-stress gate remains the primary diagnostic for gain-shift
+robustness, with the long-recording gate acting as the false-positive
+non-regression check.
+
+---
+
 ## Feature-Set Reduction Sweep
 
 ### Goal
@@ -105,17 +221,17 @@ unchanged.
 
 ---
 
-## MLP Topology Sweep
+## Raw-9 MLP Topology Sweep
 
 ### Goal
 
-Check whether the current 9-feature MLP could reduce long-run false positives
+Check whether the then-current 9-feature MLP could reduce long-run false positives
 by changing only the hidden-layer topology, without reopening the feature set
 or training-policy axes.
 
 ### Candidates
 
-- `Current default (24-12)` -> `9 -> 24 -> 12 -> 1`
+- `Then-current default (24-12)` -> `9 -> 24 -> 12 -> 1`
 - `Legacy (16-8)` -> `9 -> 16 -> 8 -> 1`
 - `Shallow (24)` -> `9 -> 24 -> 1`
 - `Wider (32-16)` -> `9 -> 32 -> 16 -> 1`
@@ -140,18 +256,71 @@ head-to-head slot for the final 5-seed comparison.
 
 | Architecture | Seeds | Median Max FP Rate | Median Total FP | Median Paired Pass Count | Median Worst-Chip F1 |
 |--------------|-------|--------------------|-----------------|--------------------------|----------------------|
-| Current default (24-12) | 5 | 7.89% | 567.0 | 5.0 | 93.46 |
+| Then-current default (24-12) | 5 | 7.89% | 567.0 | 5.0 | 93.46 |
 | Wider (32-16) | 5 | 7.86% | 506.0 | 5.0 | 93.96 |
 
 ### Decision
 
-`Wider (32-16)` was promoted as the new production topology. The winning export
+`Wider (32-16)` was promoted for the raw-9 production line. The winning export
 used seed `20260521`, passed the final paired validation rerun, and kept the
 same 9-feature input set while improving the FP-first long-run ranking over the
-previous `24-12` baseline.
+previous raw `24-12` baseline.
 
 The full campaign payload is stored in
 `models/mlp_architecture_experiment.json`.
+
+---
+
+## Relative-8 Topology and FP-Weight Sweep
+
+### Goal
+
+Keep the gain-invariant relative feature set, then recover long-recording
+false-positive robustness by changing only the MLP topology and IDLE-class
+weighting.
+
+### Setup
+
+- Feature set fixed to the promoted relative 8-feature view:
+  `std/mean`, `max/mean`, `min/mean`, `iqr/mean`, `mad/mean`,
+  normalized waveform length, skewness, autocorrelation
+- Seed fixed to `1890407301` for the focused screen
+- Primary gate: curated 60-second long recordings
+- Non-regression checks: paired real-data validation and exported gain-stress
+  gate
+
+### Focused Screen
+
+| Candidate | Params | Long Total FP | Long Max FP Rate | Worst-Chip F1 | Mean Recall | Gain-Stress FP @ 1.5x |
+|-----------|-------:|--------------:|-----------------:|--------------:|------------:|----------------------:|
+| `24-12`, `fp_weight=1.0` | 529 | 1178 | 18.7% | 91.0% | 100.0% | 1.9% |
+| `32-16`, `fp_weight=1.0` | 833 | 829 | 15.1% | 92.5% | 99.9% | 1.4% |
+| `48-24`, `fp_weight=1.0` | 1633 | 828 | 12.6% | 93.7% | 99.8% | 0.9% |
+| `32-16-8`, `fp_weight=1.0` | 961 | 878 | 11.9% | 94.0% | 100.0% | 1.4% |
+| `24-12`, `fp_weight=1.5` | 529 | 1134 | 18.5% | 91.1% | 100.0% | 1.9% |
+| `32-16`, `fp_weight=1.5` | 833 | 822 | 13.3% | 93.3% | 99.9% | 1.4% |
+| `32-16`, `fp_weight=2.0` | 833 | 712 | 11.3% | 94.2% | 99.7% | 0.7% |
+
+### Promoted Export
+
+The focused screen selected `32-16` with `fp_weight=2.0`. A full train/export
+with seed `1890407301` produced:
+
+- topology: `8 -> 32 -> 16 -> 1`
+- grouped blocked OOF F1: `93.0%`
+- paired real-data gate: pass
+- exported gain-stress gate: flat at `1.00x`, `1.25x`, `1.50x` with
+  `FP=1.1%`
+- long-recording ML gate: `total_fp=654`; per-chip FP counts `C3=0`,
+  `C5=249`, `C6=405`, `S3=0`
+
+### Decision
+
+Promote `8 -> 32 -> 16 -> 1`, `fp_weight=2.0`, seed `1890407301` as the
+relative-feature production baseline. C6 remains the weakest long-recording
+case, but the candidate keeps the gain-shift invariance objective while
+substantially reducing long-run false positives versus the initial relative
+`24-12` export.
 
 ---
 

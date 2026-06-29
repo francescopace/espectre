@@ -56,8 +56,10 @@ import subprocess
 import re
 import shutil
 import tempfile
+import warnings
 from pathlib import Path
 from collections import deque
+from dataclasses import dataclass
 
 from repo_paths import cpp_core_dir, models_dir, python_src_dir, python_tests_dir, repo_root
 from contextlib import contextmanager
@@ -88,6 +90,19 @@ def suppress_stderr():
         # Restore the original stderr
         os.dup2(saved_stderr_fd, stderr_fd)
         os.close(saved_stderr_fd)
+
+
+@contextmanager
+def suppress_keras_numpy_copy_warning():
+    """Hide a Keras/NumPy 2.x compatibility warning emitted during fit()."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            'ignore',
+            message=r"__array__ implementation doesn't accept a copy keyword.*",
+            category=DeprecationWarning,
+            module=r'keras\.src\.backend\.tensorflow\.core',
+        )
+        yield
 
 
 def format_duration(seconds):
@@ -150,7 +165,7 @@ from csi_utils import (
 from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS, HAMPEL_WINDOW, HAMPEL_THRESHOLD
 from segmentation import SegmentationContext
 from features import (
-    extract_features_by_name, DEFAULT_FEATURES,
+    extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
     calc_iqr, calc_skewness, calc_autocorrelation, calc_mad, calc_waveform_length,
 )
 
@@ -158,7 +173,7 @@ from features import (
 # Feature Selection
 # ============================================================================
 #
-# Production MLP uses the nine features in src/features.DEFAULT_FEATURES.
+# Production MLP uses the feature set in src/features.DEFAULT_FEATURES.
 # See ALGORITHMS.md "Feature Importance" for SHAP/correlation rankings.
 # ============================================================================
 
@@ -188,13 +203,13 @@ MULTICLASS_SYNC_PHASE_FEATURES = [
     'phase_sync_waveform_length',
 ]
 MULTICLASS_FEATURE_SETS = {
-    'amplitude': list(DEFAULT_FEATURES),
-    'amplitude_phase': list(DEFAULT_FEATURES) + list(MULTICLASS_PHASE_FEATURES),
+    'amplitude': list(RAW_FEATURES),
+    'amplitude_phase': list(RAW_FEATURES) + list(MULTICLASS_PHASE_FEATURES),
     'amplitude_common_offset_phase': (
-        list(DEFAULT_FEATURES) + list(MULTICLASS_COMMON_OFFSET_PHASE_FEATURES)
+        list(RAW_FEATURES) + list(MULTICLASS_COMMON_OFFSET_PHASE_FEATURES)
     ),
     'amplitude_stimulus_phase': (
-        list(DEFAULT_FEATURES) + list(MULTICLASS_SYNC_PHASE_FEATURES)
+        list(RAW_FEATURES) + list(MULTICLASS_SYNC_PHASE_FEATURES)
     ),
 }
 
@@ -205,20 +220,19 @@ SRC_DIR = python_src_dir()
 CPP_DIR = cpp_core_dir()
 
 # Default training/evaluation configuration
-DEFAULT_HIDDEN_LAYERS = [24, 12]
-DEFAULT_FP_WEIGHT = 1.0
+DEFAULT_HIDDEN_LAYERS = [32, 16]
+DEFAULT_FP_WEIGHT = 2.0
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_ML_TEMPERATURE = 5.0
-# All chips included: MLDetector always uses raw std (CV normalization
-# is disabled in both training and inference), so ESP32 data is compatible
-# with gain-lock chips despite gain_locked=False.
+# All chips included: MLDetector keeps MVS CV normalization disabled, then
+# extracts the exported raw/relative feature set from the same turbulence base.
 DEFAULT_EXCLUDED_CHIPS = ()
 DEFAULT_ARCHITECTURE_SWEEP = (
     {'name': 'Legacy (16-8)', 'layers': [16, 8]},
-    {'name': 'Current default (24-12)', 'layers': [24, 12]},
+    {'name': 'Previous default (24-12)', 'layers': [24, 12]},
     {'name': 'Shallow (24)', 'layers': [24]},
-    {'name': 'Wider (32-16)', 'layers': [32, 16]},
+    {'name': 'Current default (32-16)', 'layers': [32, 16]},
     {'name': 'Deep (24-12-6)', 'layers': [24, 12, 6]},
 )
 DEFAULT_EXPERIMENT_OUTPUT = MODELS_DIR / 'mlp_architecture_experiment.json'
@@ -227,6 +241,33 @@ DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
 DEFAULT_EXPERIMENT_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
 DEFAULT_PAIRED_GATE_CHIPS = ('C3', 'C5', 'C6', 'ESP32', 'S3')
 DEFAULT_LONG_GATE_CHIPS = ('C3', 'C5', 'C6', 'S3')
+DEFAULT_GAIN_STRESS_SCALES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+GAIN_INVARIANT_FEATURES = ('turb_skewness', 'turb_autocorr')
+GAIN_SENSITIVE_FEATURES = tuple(
+    name for name in RAW_FEATURES if name not in GAIN_INVARIANT_FEATURES
+)
+GAIN_RELATIVE_FEATURES = tuple(
+    name for name in RELATIVE_FEATURES if name not in GAIN_INVARIANT_FEATURES
+)
+GAIN_EXTRA_RELATIVE_FEATURES = (
+    'turb_range_over_mean',
+    'turb_peak_over_mad',
+)
+GAIN_FEATURE_EXPERIMENT_SETS = (
+    'raw',
+    'relative',
+    'relative_plus_range',
+    'relative_plus_peak',
+    'hybrid',
+)
+PYTEST_PAIRED_ML_GATE = (
+    'test/python/test_validation_real_data.py::'
+    'TestPerformanceMetrics::test_ml_detection_accuracy'
+)
+PYTEST_LONG_ML_GATE = (
+    'test/python/test_validation_long_recordings.py::'
+    'TestLongRecordings::test_ml_vs_test_recordings'
+)
 DEFAULT_MAX_EPOCHS = 100
 DEFAULT_EARLY_STOP_PATIENCE = 8
 DEFAULT_LR_PATIENCE = 4
@@ -433,6 +474,34 @@ def parse_positive_chip_boost(value):
     return boosts or None
 
 
+def parse_gain_stress_scales(value):
+    """Parse comma-separated positive gain stress multipliers."""
+    if value is None:
+        return tuple(DEFAULT_GAIN_STRESS_SCALES)
+    if isinstance(value, (list, tuple)):
+        parts = value
+    else:
+        parts = str(value).split(',')
+
+    scales = []
+    for item in parts:
+        text = str(item).strip()
+        if not text:
+            continue
+        try:
+            scale = float(text)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                f"Invalid gain stress scale '{text}'"
+            ) from exc
+        if scale <= 0.0:
+            raise argparse.ArgumentTypeError("gain stress scales must be > 0")
+        scales.append(scale)
+    if not scales:
+        raise argparse.ArgumentTypeError("at least one gain stress scale is required")
+    return tuple(scales)
+
+
 def apply_positive_chip_boost(sample_weights, sample_context, y, chip_boosts):
     """
     Boost motion samples for specific chips, then renormalize overall mean to 1.0.
@@ -497,6 +566,9 @@ def _parse_iso_timestamp(value):
 
 def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 * 60):
     """Resolve the paired baseline/movement file from metadata or nearest timestamp."""
+    if label not in ('static_presence', 'motion'):
+        return None
+
     counterpart_field = (
         'optimal_pair_motion_file'
         if label == 'static_presence'
@@ -533,6 +605,9 @@ def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 *
 
 def _build_pair_id(label, entry, dataset_info=None):
     """Build a stable pair/session id shared by baseline and movement files."""
+    if label not in ('static_presence', 'motion'):
+        return None
+
     filename = entry.get('filename')
     if not filename:
         return None
@@ -1541,6 +1616,471 @@ def build_group_report(y_true, y_prob, group_values):
     }
 
 
+def load_exported_ml_weights():
+    """Load the currently exported MicroPython ML weights module."""
+    import importlib.util
+
+    weights_path = SRC_DIR / 'ml_weights.py'
+    if not weights_path.exists():
+        raise FileNotFoundError(f"Exported ML weights not found: {weights_path}")
+    spec = importlib.util.spec_from_file_location("exported_ml_weights", weights_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def predict_exported_probabilities_from_weights(weights_module, X_raw):
+    """Vectorized inference matching src/python/ml_detector.py for exported weights."""
+    X_raw = np.asarray(X_raw, dtype=np.float32)
+    center = np.asarray(weights_module.FEATURE_MEAN, dtype=np.float32)
+    scale = np.asarray(weights_module.FEATURE_SCALE, dtype=np.float32)
+    scale[scale < 1e-6] = 1.0
+
+    activations = (X_raw - center) / scale
+    weights = [np.asarray(w, dtype=np.float32) for w in weights_module.WEIGHTS]
+    biases = [np.asarray(b, dtype=np.float32) for b in weights_module.BIASES]
+    for layer_idx, (layer_weights, layer_biases) in enumerate(zip(weights, biases)):
+        activations = activations @ layer_weights + layer_biases
+        if layer_idx != len(weights) - 1:
+            activations = np.maximum(activations, 0.0)
+
+    logits = activations.reshape(-1) / float(DEFAULT_ML_TEMPERATURE)
+    logits = np.clip(logits, -20.0, 20.0)
+    return (1.0 / (1.0 + np.exp(-logits))).astype(np.float32)
+
+
+def apply_gain_stress_to_features(X, feature_names, scale):
+    """Scale only feature dimensions that move linearly with amplitude gain."""
+    X_scaled = np.asarray(X, dtype=np.float32).copy()
+    sensitive_indices = [
+        idx for idx, name in enumerate(feature_names)
+        if name in GAIN_SENSITIVE_FEATURES
+    ]
+    if sensitive_indices:
+        X_scaled[:, sensitive_indices] *= np.float32(scale)
+    return X_scaled, sensitive_indices
+
+
+def evaluate_gain_stress_gate(environment_filter=None, excluded_chips=None,
+                              scales=DEFAULT_GAIN_STRESS_SCALES):
+    """Evaluate current exported model under artificial gain scaling."""
+    environment_filter = parse_environment_filter(environment_filter)
+    excluded_chips = parse_chip_filter(excluded_chips)
+    scales = parse_gain_stress_scales(scales)
+
+    weights_module = load_exported_ml_weights()
+    feature_names = list(getattr(weights_module, 'FEATURE_NAMES', TRAINING_FEATURES))
+    all_packets, stats = load_all_data(
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        allowed_labels=('static_presence', 'motion'),
+    )
+    if not all_packets:
+        raise RuntimeError("No static_presence/motion packets found for gain stress gate")
+
+    X, y, actual_feature_names, sample_context = extract_features(
+        all_packets,
+        feature_names=feature_names,
+    )
+    if list(actual_feature_names) != feature_names:
+        raise RuntimeError(
+            "Extracted feature order does not match exported model: "
+            f"{actual_feature_names} != {feature_names}"
+        )
+
+    scaled_features = [
+        name for name in feature_names if name in GAIN_SENSITIVE_FEATURES
+    ]
+    results = {
+        'feature_names': feature_names,
+        'scaled_features': scaled_features,
+        'invariant_features': [
+            name for name in feature_names if name not in scaled_features
+        ],
+        'stats': stats,
+        'samples': int(len(X)),
+        'scales': {},
+    }
+
+    for gain_scale in scales:
+        X_stressed, sensitive_indices = apply_gain_stress_to_features(
+            X,
+            feature_names,
+            gain_scale,
+        )
+        y_prob = predict_exported_probabilities_from_weights(weights_module, X_stressed)
+        scale_result = {
+            'scale': float(gain_scale),
+            'sensitive_indices': [int(idx) for idx in sensitive_indices],
+            'overall': evaluate_probabilities(y, y_prob),
+            'group_reports': {},
+        }
+        for group_key in DEFAULT_REPORT_GROUP_KEYS:
+            report = build_group_report(y, y_prob, sample_context.get(group_key))
+            if report is not None:
+                scale_result['group_reports'][group_key] = report
+        results['scales'][float(gain_scale)] = scale_result
+    return results
+
+
+def print_gain_stress_summary(results):
+    """Print a compact gain stress report."""
+    stats = results.get('stats', {})
+    print("\n" + "=" * 70)
+    print("  EXPORTED ML GAIN-STRESS GATE")
+    print("=" * 70)
+    print(f"Samples: {results['samples']}")
+    print(f"Chips: {', '.join(stats.get('chips', []))}")
+    if stats.get('environment_groups'):
+        print(f"Environments: {', '.join(stats['environment_groups'])}")
+    print(f"Scaled features: {', '.join(results['scaled_features']) or 'none'}")
+    print(f"Invariant features: {', '.join(results['invariant_features']) or 'none'}")
+    print()
+    print(
+        "  scale | recall  precision  FP rate      F1 | "
+        "worst chip recall        worst chip FP"
+    )
+    print("  " + "-" * 86)
+    for scale in sorted(results['scales']):
+        row = results['scales'][scale]
+        overall = row['overall']
+        chip_report = row['group_reports'].get('chip', {})
+        worst_recall = chip_report.get('worst_recall', {})
+        worst_fp = chip_report.get('worst_fp_rate', {})
+        recall_label = (
+            f"{worst_recall.get('group', 'n/a')} {worst_recall.get('recall', 0.0):5.1f}%"
+        )
+        fp_label = (
+            f"{worst_fp.get('group', 'n/a')} {worst_fp.get('fp_rate', 0.0):5.1f}%"
+        )
+        print(
+            f"  {scale:5.2f} | "
+            f"{overall['recall']:6.1f}% "
+            f"{overall['precision']:9.1f}% "
+            f"{overall['fp_rate']:7.1f}% "
+            f"{overall['f1']:7.1f}% | "
+            f"{recall_label:24} {fp_label}"
+        )
+
+    for group_key in ('environment_group', 'session_group', 'source_file'):
+        print(f"\nWorst {group_key} by scale:")
+        for scale in sorted(results['scales']):
+            report = results['scales'][scale]['group_reports'].get(group_key)
+            if not report:
+                continue
+            worst_recall = report['worst_recall']
+            worst_fp = report['worst_fp_rate']
+            print(
+                f"  {scale:5.2f}: "
+                f"R {worst_recall['group']}={worst_recall['recall']:.1f}% | "
+                f"FP {worst_fp['group']}={worst_fp['fp_rate']:.1f}%"
+            )
+
+
+def build_gain_feature_matrix(X_raw, raw_feature_names, feature_set):
+    """Build raw, relative, or hybrid matrices from the production raw feature set."""
+    feature_set = str(feature_set).strip().lower()
+    if feature_set not in GAIN_FEATURE_EXPERIMENT_SETS:
+        raise ValueError(
+            f"Unsupported gain feature set {feature_set!r}; "
+            f"expected one of {GAIN_FEATURE_EXPERIMENT_SETS}"
+        )
+
+    X_raw = np.asarray(X_raw, dtype=np.float32)
+    raw_feature_names = list(raw_feature_names)
+    columns = {name: X_raw[:, idx] for idx, name in enumerate(raw_feature_names)}
+    mean = np.maximum(np.abs(columns['turb_mean']), np.float32(1e-6))
+    mad = np.maximum(columns['turb_mad'], np.float32(1e-6))
+    window_norm = mean * np.float32(max(SEG_WINDOW_SIZE - 1, 1))
+    relative_columns = {
+        'turb_std_over_mean': columns['turb_std'] / mean,
+        'turb_max_over_mean': columns['turb_max'] / mean,
+        'turb_min_over_mean': columns['turb_min'] / mean,
+        'turb_iqr_over_mean': columns['turb_iqr'] / mean,
+        'turb_mad_over_mean': columns['turb_mad'] / mean,
+        'waveform_length_over_mean': columns['waveform_length'] / window_norm,
+        'turb_range_over_mean': (columns['turb_max'] - columns['turb_min']) / mean,
+        'turb_peak_over_mad': (columns['turb_max'] - columns['turb_mean']) / mad,
+        'turb_skewness': columns['turb_skewness'],
+        'turb_autocorr': columns['turb_autocorr'],
+    }
+
+    if feature_set == 'raw':
+        return X_raw.copy(), list(raw_feature_names)
+
+    relative_names = list(GAIN_RELATIVE_FEATURES) + list(GAIN_INVARIANT_FEATURES)
+    relative_matrix = np.column_stack(
+        [relative_columns[name] for name in relative_names]
+    ).astype(np.float32)
+    if feature_set == 'relative':
+        return relative_matrix, relative_names
+    if feature_set == 'relative_plus_range':
+        names = relative_names + ['turb_range_over_mean']
+        matrix = np.column_stack(
+            [relative_columns[name] for name in names]
+        ).astype(np.float32)
+        return matrix, names
+    if feature_set == 'relative_plus_peak':
+        names = relative_names + ['turb_peak_over_mad']
+        matrix = np.column_stack(
+            [relative_columns[name] for name in names]
+        ).astype(np.float32)
+        return matrix, names
+
+    hybrid_names = list(raw_feature_names) + list(GAIN_RELATIVE_FEATURES)
+    hybrid_matrix = np.column_stack(
+        [X_raw] + [relative_columns[name] for name in GAIN_RELATIVE_FEATURES]
+    ).astype(np.float32)
+    return hybrid_matrix, hybrid_names
+
+
+def evaluate_model_gain_stress(model, scaler, X_raw, y, feature_names, sample_context,
+                               scales=DEFAULT_GAIN_STRESS_SCALES):
+    """Evaluate an in-memory trained model under artificial gain scaling."""
+    scales = parse_gain_stress_scales(scales)
+    results = {}
+    for gain_scale in scales:
+        X_stressed, sensitive_indices = apply_gain_stress_to_features(
+            X_raw,
+            feature_names,
+            gain_scale,
+        )
+        X_scaled = scaler.transform(X_stressed)
+        y_prob = predict_tempered_probabilities(model, X_scaled)
+        scale_result = {
+            'scale': float(gain_scale),
+            'sensitive_indices': [int(idx) for idx in sensitive_indices],
+            'overall': evaluate_probabilities(y, y_prob),
+            'group_reports': {},
+        }
+        for group_key in DEFAULT_REPORT_GROUP_KEYS:
+            report = build_group_report(y, y_prob, sample_context.get(group_key))
+            if report is not None:
+                scale_result['group_reports'][group_key] = report
+        results[float(gain_scale)] = scale_result
+    return results
+
+
+def gain_stress_rank_key(result):
+    """Rank feature experiments by stressed FP robustness, then nominal quality."""
+    stressed_scales = [scale for scale in result['gain_stress'] if abs(scale - 1.0) > 1e-9]
+    upper_scales = [scale for scale in stressed_scales if scale > 1.0]
+    primary_scales = upper_scales or stressed_scales or [1.0]
+    max_stressed_fp = max(
+        result['gain_stress'][scale]['overall']['fp_rate']
+        for scale in primary_scales
+    )
+    max_stressed_worst_chip_fp = max(
+        result['gain_stress'][scale]['group_reports'].get('chip', {}).get(
+            'worst_fp_rate',
+            {},
+        ).get('fp_rate', 0.0)
+        for scale in primary_scales
+    )
+    min_stressed_recall = min(
+        result['gain_stress'][scale]['overall']['recall']
+        for scale in primary_scales
+    )
+    nominal = result['gain_stress'].get(1.0)
+    nominal_f1 = nominal['overall']['f1'] if nominal else 0.0
+    return (
+        max_stressed_fp,
+        max_stressed_worst_chip_fp,
+        -min_stressed_recall,
+        -nominal_f1,
+        -result['cv']['oof_f1'],
+    )
+
+
+def print_gain_feature_experiment_summary(results, scales):
+    """Print raw/relative/hybrid comparison table."""
+    print("\n" + "=" * 78)
+    print("  GAIN-FEATURE SET EXPERIMENT")
+    print("=" * 78)
+    print(
+        "  set      feat  OOF_F1  nomFP  nomF1 | "
+        + " | ".join(f"{scale:g}x FP/worstFP" for scale in scales if abs(scale - 1.0) > 1e-9)
+    )
+    print("  " + "-" * 112)
+    for result in sorted(results, key=gain_stress_rank_key):
+        nominal = result['gain_stress'].get(1.0)
+        parts = []
+        for scale in scales:
+            if abs(scale - 1.0) <= 1e-9:
+                continue
+            row = result['gain_stress'][float(scale)]
+            chip_report = row['group_reports'].get('chip', {})
+            worst_fp = chip_report.get('worst_fp_rate', {}).get('fp_rate', 0.0)
+            parts.append(f"{row['overall']['fp_rate']:5.1f}/{worst_fp:5.1f}")
+        print(
+            f"  {result['name']:<8} "
+            f"{len(result['feature_names']):>4} "
+            f"{result['cv']['oof_f1']:>7.1f} "
+            f"{nominal['overall']['fp_rate']:>6.1f} "
+            f"{nominal['overall']['f1']:>6.1f} | "
+            + " | ".join(parts)
+        )
+
+    winner = min(results, key=gain_stress_rank_key)
+    print(
+        f"\nBest by gain-stress ranking: {winner['name']} "
+        f"({len(winner['feature_names'])} features)"
+    )
+
+
+def experiment_gain_feature_sets(seed=None, feature_sets=None,
+                                 scaler_mode=DEFAULT_SCALER_MODE,
+                                 batch_size=DEFAULT_BATCH_SIZE,
+                                 fp_weight=DEFAULT_FP_WEIGHT,
+                                 hidden_layers=None,
+                                 environment_filter=None,
+                                 excluded_chips=None,
+                                 scales=DEFAULT_GAIN_STRESS_SCALES):
+    """Compare raw, relative, and hybrid feature sets under gain stress."""
+    total_start = perf_counter()
+    if hidden_layers is None:
+        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+    if feature_sets is None:
+        feature_sets = list(GAIN_FEATURE_EXPERIMENT_SETS)
+    feature_sets = [str(item).strip().lower() for item in feature_sets if str(item).strip()]
+    scales = parse_gain_stress_scales(scales)
+    environment_filter = parse_environment_filter(environment_filter)
+    excluded_chips = parse_chip_filter(excluded_chips)
+
+    try:
+        with suppress_stderr():
+            import tensorflow as tf
+            if seed is None:
+                from numpy.random import SeedSequence
+                ss = SeedSequence()
+                seed = int(ss.entropy % (2**31))
+                print(f"Generated random seed: {seed}")
+            else:
+                print(f"Using provided seed: {seed}")
+            set_global_determinism(seed, tf_module=tf)
+            tf.get_logger().setLevel('ERROR')
+    except ImportError as exc:
+        print(f"Error: Missing dependency - {exc}")
+        return 1, seed, None
+
+    print("\n" + "=" * 78)
+    print("  GAIN-FEATURE EXPERIMENT")
+    print("=" * 78)
+    print(f"Feature sets: {', '.join(feature_sets)}")
+    print(f"Scales: {', '.join(f'{scale:g}' for scale in scales)}")
+    print(f"Scaler: {scaler_mode}")
+    print(f"Batch size: {batch_size}")
+    print(f"FP weight: {fp_weight}")
+    if environment_filter is not None:
+        print(f"Environment filter: {', '.join(sorted(environment_filter))}")
+    if excluded_chips is not None:
+        print(f"Excluded chips: {', '.join(sorted(excluded_chips))}")
+
+    print("\nLoading data...")
+    all_packets, stats = load_all_data(
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        allowed_labels=('static_presence', 'motion'),
+    )
+    if not all_packets:
+        print("Error: No static_presence/motion data found")
+        return 1, seed, None
+    print(f"  Chips: {', '.join(stats['chips'])}")
+    if stats.get('environment_groups'):
+        print(f"  Environments: {', '.join(stats['environment_groups'])}")
+    print(f"  Total packets: {stats['total']}")
+
+    print("\nExtracting raw base features...")
+    X_raw_base, y, raw_feature_names, sample_context = extract_features(
+        all_packets,
+        feature_names=RAW_FEATURES,
+    )
+    dataset_info = load_dataset_info()
+    tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
+    sample_weights = compute_mvs_guided_sample_weights(
+        all_packets,
+        tuning_map,
+        window_size=SEG_WINDOW_SIZE,
+    )
+    eval_groups = sample_context[DEFAULT_PRIMARY_GROUP_KEY]
+    print(f"  Samples: {len(X_raw_base)}")
+    print(f"  Raw features: {', '.join(raw_feature_names)}")
+    print(f"  Class balance: IDLE={np.sum(y == 0)}, MOTION={np.sum(y == 1)}")
+
+    results = []
+    for idx, feature_set in enumerate(feature_sets):
+        print(f"\n== {feature_set} ==")
+        X_candidate, candidate_names = build_gain_feature_matrix(
+            X_raw_base,
+            raw_feature_names,
+            feature_set,
+        )
+        print(f"  Features ({len(candidate_names)}): {', '.join(candidate_names)}")
+        with suppress_stderr():
+            cv = cross_validate(
+                X_candidate,
+                y,
+                hidden_layers=hidden_layers,
+                n_folds=DEFAULT_CV_FOLDS,
+                max_epochs=DEFAULT_MAX_EPOCHS,
+                fp_weight=fp_weight,
+                sample_weight=sample_weights,
+                groups=eval_groups,
+                sample_context=sample_context,
+                scaler_mode=scaler_mode,
+                batch_size=batch_size,
+                block_stride=SEG_WINDOW_SIZE,
+                block_group_key=DEFAULT_BLOCK_GROUP_KEY,
+                report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
+                seed=derive_seed(seed, idx),
+            )
+
+        scaler = build_preprocessor(scaler_mode)
+        X_scaled = scaler.fit_transform(X_candidate)
+        with suppress_stderr():
+            model = train_model(
+                X_scaled,
+                y,
+                hidden_layers=hidden_layers,
+                max_epochs=DEFAULT_MAX_EPOCHS,
+                fp_weight=fp_weight,
+                sample_weight=sample_weights,
+                batch_size=batch_size,
+                seed=derive_seed(seed, 10_000, idx),
+            )
+        stress = evaluate_model_gain_stress(
+            model,
+            scaler,
+            X_candidate,
+            y,
+            candidate_names,
+            sample_context,
+            scales=scales,
+        )
+        nominal = stress.get(1.0)
+        max_upper_fp = max(
+            stress[scale]['overall']['fp_rate']
+            for scale in stress
+            if scale > 1.0
+        ) if any(scale > 1.0 for scale in stress) else nominal['overall']['fp_rate']
+        print(
+            f"  CV OOF F1={cv['oof_f1']:.1f}% | "
+            f"nominal FP={nominal['overall']['fp_rate']:.1f}% "
+            f"F1={nominal['overall']['f1']:.1f}% | "
+            f"max upper-scale FP={max_upper_fp:.1f}%"
+        )
+        results.append({
+            'name': feature_set,
+            'feature_names': candidate_names,
+            'cv': slim_cv_result(cv),
+            'gain_stress': stress,
+        })
+
+    print_gain_feature_experiment_summary(results, scales)
+    print(f"\nTotal experiment time: {format_duration(perf_counter() - total_start)}")
+    return 0, seed, results
+
+
 def build_candidate_key(cv_results):
     """Ranking key for seeds/architectures under the robust evaluation protocol."""
     group_reports = cv_results.get('group_reports', {})
@@ -1713,17 +2253,18 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
         ),
     ]
 
-    model.fit(
-        X_t, y_t,
-        epochs=max_epochs,
-        batch_size=batch_size,
-        validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
-        class_weight=class_weight,
-        sample_weight=sw_t,
-        callbacks=callbacks,
-        verbose=verbose,
-        shuffle=False,
-    )
+    with suppress_keras_numpy_copy_warning():
+        model.fit(
+            X_t, y_t,
+            epochs=max_epochs,
+            batch_size=batch_size,
+            validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
+            class_weight=class_weight,
+            sample_weight=sw_t,
+            callbacks=callbacks,
+            verbose=verbose,
+            shuffle=False,
+        )
 
     return model
 
@@ -1890,17 +2431,18 @@ def train_multiclass_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOC
         ),
     ]
 
-    model.fit(
-        X_t, y_t,
-        epochs=max_epochs,
-        batch_size=batch_size,
-        validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
-        class_weight=class_weight,
-        sample_weight=sw_t,
-        callbacks=callbacks,
-        verbose=verbose,
-        shuffle=False,
-    )
+    with suppress_keras_numpy_copy_warning():
+        model.fit(
+            X_t, y_t,
+            epochs=max_epochs,
+            batch_size=batch_size,
+            validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
+            class_weight=class_weight,
+            sample_weight=sw_t,
+            callbacks=callbacks,
+            verbose=verbose,
+            shuffle=False,
+        )
     return model
 
 
@@ -1939,10 +2481,14 @@ def evaluate_multiclass_probabilities(y_true, y_prob, class_names=ROOM_STATE_CLA
         else accuracy
     )
 
+    macro_precision = precision[present_mask] if np.any(present_mask) else precision
+    macro_recall = recall[present_mask] if np.any(present_mask) else recall
+    macro_f1 = f1[present_mask] if np.any(present_mask) else f1
+
     metrics = {
-        'macro_precision': float(np.mean(precision) * 100.0),
-        'macro_recall': float(np.mean(recall) * 100.0),
-        'macro_f1': float(np.mean(f1) * 100.0),
+        'macro_precision': float(np.mean(macro_precision) * 100.0),
+        'macro_recall': float(np.mean(macro_recall) * 100.0),
+        'macro_f1': float(np.mean(macro_f1) * 100.0),
         'accuracy': accuracy,
         'balanced_accuracy': balanced_accuracy,
         'confusion_matrix': cm.astype(np.int32),
@@ -2115,10 +2661,19 @@ def cross_validate_multiclass(X, y, class_names=ROOM_STATE_CLASS_NAMES, hidden_l
     for key, value in oof_metrics.items():
         result[f'oof_{key}'] = value
 
+    dense_idx = np.flatnonzero(~np.isnan(oof_prob[:, 0]))
+    dense_oof_metrics = evaluate_multiclass_probabilities(
+        y[dense_idx],
+        oof_prob[dense_idx],
+        class_names=class_names,
+    )
+    for key, value in dense_oof_metrics.items():
+        result[f'dense_oof_{key}'] = value
+
     result['class_names'] = tuple(class_names)
     result['n_folds'] = len(fold_metrics)
     result['scored_samples'] = int(len(scored_idx))
-    result['dense_samples'] = int(np.sum(~np.isnan(oof_prob[:, 0])))
+    result['dense_samples'] = int(len(dense_idx))
     result['scaler_mode'] = scaler_mode
     result['timings'] = {
         'fold_seconds': fold_timings,
@@ -3116,6 +3671,9 @@ def print_multiclass_cv_summary(cv_results, title="Room-state grouped CV"):
     print(f"  Blocked OOF macro F1:  {cv_results['oof_macro_f1']:.1f}%")
     print(f"  Blocked OOF accuracy:  {cv_results['oof_accuracy']:.1f}%")
     print(f"  Blocked OOF bal. acc:  {cv_results['oof_balanced_accuracy']:.1f}%")
+    print(f"  Dense OOF macro F1:    {cv_results['dense_oof_macro_f1']:.1f}%")
+    print(f"  Dense OOF accuracy:    {cv_results['dense_oof_accuracy']:.1f}%")
+    print(f"  Dense OOF bal. acc:    {cv_results['dense_oof_balanced_accuracy']:.1f}%")
     print(f"  Scored windows:        {cv_results['scored_samples']} / {cv_results['dense_samples']}")
     for class_name in class_names:
         print(
@@ -3912,6 +4470,24 @@ def _parse_long_recording_metrics(output):
     }
 
 
+@dataclass
+class ExportedMLGateResult:
+    """Combined verification result for exported ML artifacts."""
+
+    paired_returncode: int
+    paired_output: str
+    long_metrics: dict | None
+    long_output: str
+
+    @property
+    def available(self):
+        return self.long_metrics is not None
+
+    @property
+    def passed(self):
+        return self.paired_returncode == 0 and self.available
+
+
 def _run_ml_performance_tests():
     """
     Run the long-recording ML gate and parse per-chip metrics.
@@ -3924,7 +4500,7 @@ def _run_ml_performance_tests():
         sys.executable,
         '-m',
         'pytest',
-        'tests/test_validation_long_recordings.py::TestLongRecordings::test_ml_vs_test_recordings',
+        PYTEST_LONG_ML_GATE,
         '-v',
         '-s',
     ]
@@ -3945,7 +4521,7 @@ def _run_ml_paired_tests():
         sys.executable,
         '-m',
         'pytest',
-        'tests/test_validation_real_data.py::TestPerformanceMetrics::test_ml_detection_accuracy',
+        PYTEST_PAIRED_ML_GATE,
         '-v',
         '-s',
     ]
@@ -3957,6 +4533,18 @@ def _run_ml_paired_tests():
     )
     output = (result.stdout or "") + "\n" + (result.stderr or "")
     return int(result.returncode), output
+
+
+def run_exported_ml_gates():
+    """Run all required gates for already-exported ML artifacts."""
+    paired_rc, paired_output = _run_ml_paired_tests()
+    long_metrics, long_output = _run_ml_performance_tests()
+    return ExportedMLGateResult(
+        paired_returncode=paired_rc,
+        paired_output=paired_output,
+        long_metrics=long_metrics,
+        long_output=long_output,
+    )
 
 
 def _real_ml_gate_key(real_metrics):
@@ -3987,10 +4575,10 @@ def _combined_candidate_key(cv_metrics, real_metrics=None):
     return real_key + cv_key
 
 
-def _format_real_ml_summary(real_metrics):
+def _format_long_ml_summary(real_metrics):
     """Build a short one-line summary for ML-only real-data gate metrics."""
     if real_metrics is None:
-        return "real_ml_gate=unavailable"
+        return "long_gate=unavailable"
     total = len(real_metrics.get('rows', []))
     return (
         f"long_gate={total} "
@@ -4001,13 +4589,23 @@ def _format_real_ml_summary(real_metrics):
     )
 
 
-def _candidate_beats_baseline(candidate_cv, candidate_real, static_presence_cv, static_presence_real):
-    """Compare candidate vs baseline with a safe fallback to CV-only ranking."""
-    if candidate_real is None or static_presence_real is None:
-        return build_candidate_key(candidate_cv) > build_candidate_key(static_presence_cv)
-    return _combined_candidate_key(candidate_cv, candidate_real) > _combined_candidate_key(
+def _format_exported_gate_summary(gate):
+    """Build a short one-line summary for exported-artifact verification."""
+    if gate is None:
+        return "exported_gates=not_run"
+    paired = "paired=pass" if gate.paired_returncode == 0 else f"paired=fail({gate.paired_returncode})"
+    return f"{paired} {_format_long_ml_summary(gate.long_metrics)}"
+
+
+def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, static_presence_gate):
+    """Compare candidate vs baseline only when exported gates are available."""
+    if candidate_gate is None or static_presence_gate is None:
+        return False
+    if not candidate_gate.passed or not static_presence_gate.passed:
+        return False
+    return _combined_candidate_key(candidate_cv, candidate_gate.long_metrics) > _combined_candidate_key(
         static_presence_cv,
-        static_presence_real,
+        static_presence_gate.long_metrics,
     )
 
 
@@ -4114,13 +4712,15 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         f"chip_min_recall={static_presence_chip.get('recall', 0.0):.1f}% "
         f"blocked_oof_f1={static_presence_metrics['oof_f1']:.1f}%"
     )
-    static_presence_real_metrics, static_presence_real_output = _run_ml_performance_tests()
-    if static_presence_real_metrics is None:
-        print("Baseline real-data ML gate: unavailable")
-        if static_presence_real_output.strip():
-            print(static_presence_real_output.strip())
-    else:
-        print(f"Baseline real-data ML gate: {_format_real_ml_summary(static_presence_real_metrics)}")
+    static_presence_gate = run_exported_ml_gates()
+    print(f"Baseline exported ML gates: {_format_exported_gate_summary(static_presence_gate)}")
+    if not static_presence_gate.passed:
+        print("Error: baseline exported ML gates are required for seed-search promotion")
+        if static_presence_gate.paired_returncode != 0 and static_presence_gate.paired_output.strip():
+            print(static_presence_gate.paired_output.strip())
+        if static_presence_gate.long_metrics is None and static_presence_gate.long_output.strip():
+            print(static_presence_gate.long_output.strip())
+        return 1
 
     backup_dir, saved_files = _backup_artifacts()
     print(f"Artifacts backup: {backup_dir}")
@@ -4129,7 +4729,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     improved = False
     improved_seed = None
     improved_metrics = None
-    improved_real_metrics = None
+    improved_gate = None
 
     for idx in range(1, max_trials + 1):
         print(f"\n[{idx}/{max_trials}] Training with auto-generated seed")
@@ -4187,17 +4787,20 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             trial_summaries.append((used_seed, metrics, None, 'export_failed'))
             continue
 
-        real_metrics, real_output = _run_ml_performance_tests()
-        print(f"  Real-data ML gate: {_format_real_ml_summary(real_metrics)}")
-        if real_metrics is None and real_output.strip():
-            print(real_output.strip())
+        candidate_gate = run_exported_ml_gates()
+        print(f"  Exported ML gates: {_format_exported_gate_summary(candidate_gate)}")
+        if not candidate_gate.passed:
+            if candidate_gate.paired_returncode != 0 and candidate_gate.paired_output.strip():
+                print(candidate_gate.paired_output.strip())
+            if candidate_gate.long_metrics is None and candidate_gate.long_output.strip():
+                print(candidate_gate.long_output.strip())
 
-        trial_summaries.append((used_seed, final_metrics, real_metrics, 'real_gate'))
-        if _candidate_beats_baseline(final_metrics, real_metrics, static_presence_metrics, static_presence_real_metrics):
+        trial_summaries.append((used_seed, final_metrics, candidate_gate, 'exported_gates'))
+        if _candidate_beats_baseline(final_metrics, candidate_gate, static_presence_metrics, static_presence_gate):
             improved = True
             improved_seed = used_seed
             improved_metrics = final_metrics
-            improved_real_metrics = real_metrics
+            improved_gate = candidate_gate
             print("  Improvement found after real-data ML gate: stopping search")
             break
 
@@ -4207,21 +4810,21 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     print("\n" + "=" * 70)
     print("  UNTIL-IMPROVEMENT SUMMARY")
     print("=" * 70)
-    for seed, metrics, real_metrics, status in trial_summaries:
+    for seed, metrics, gate, status in trial_summaries:
         session_summary = metrics.get('group_reports', {}).get('session_group', {}).get('worst_recall', {})
         fp_summary = metrics.get('group_reports', {}).get('session_group', {}).get('worst_fp_rate', {})
         print(
             f"  seed={seed} | sessionMinR={session_summary.get('recall', 0.0):.1f}% "
             f"sessionMaxFP={fp_summary.get('fp_rate', 0.0):.1f}% "
             f"blockedOOF={metrics['oof_f1']:.1f}% | {status} | "
-            f"{_format_real_ml_summary(real_metrics)}"
+            f"{_format_exported_gate_summary(gate)}"
         )
 
     if improved:
         print(
             f"\nSelected seed: {improved_seed} "
             f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
-            f"{_format_real_ml_summary(improved_real_metrics)})"
+            f"{_format_exported_gate_summary(improved_gate)})"
         )
         return 0
 
@@ -4714,33 +5317,32 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         print("Promotion export failed, restored previous artifacts")
         return 1
 
-    paired_rc, paired_output = _run_ml_paired_tests()
-    long_metrics, long_output = _run_ml_performance_tests()
-    if paired_rc != 0 or long_metrics is None:
+    final_gate = run_exported_ml_gates()
+    if not final_gate.passed:
         _restore_artifacts(saved_files)
         results['promotion']['final_export'] = {
             'status': 'verification_failed',
             'seed': int(used_seed),
-            'paired_returncode': int(paired_rc),
-            'long_metrics': long_metrics,
+            'paired_returncode': int(final_gate.paired_returncode),
+            'long_metrics': final_gate.long_metrics,
             'backup_dir': str(backup_dir),
         }
         write_json_results(output_path, results)
         print("Promotion verification failed, restored previous artifacts")
-        if paired_output.strip():
-            print(paired_output.strip())
-        if long_output.strip():
-            print(long_output.strip())
+        if final_gate.paired_output.strip():
+            print(final_gate.paired_output.strip())
+        if final_gate.long_output.strip():
+            print(final_gate.long_output.strip())
         return 1
 
     results['promotion']['final_export'] = {
         'status': 'promoted',
         'seed': int(used_seed),
-        'paired_returncode': int(paired_rc),
-        'long_metrics': long_metrics,
+        'paired_returncode': int(final_gate.paired_returncode),
+        'long_metrics': final_gate.long_metrics,
         'backup_dir': str(backup_dir),
-        'paired_output': paired_output,
-        'long_output': long_output,
+        'paired_output': final_gate.paired_output,
+        'long_output': final_gate.long_output,
     }
     write_json_results(output_path, results)
     print(f"Promoted architecture: {winner['name']} (seed {used_seed})")
@@ -4765,7 +5367,7 @@ Examples:
   python tools/10_train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"
                                            # Custom shortlist for the topology campaign
   python tools/10_train_ml_model.py --hidden-layers 24,12
-                                           # Train/export the 12 -> 24 -> 12 -> 1 candidate
+                                           # Train/export the previous 8 -> 24 -> 12 -> 1 candidate
   python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
   python tools/10_train_ml_model.py --scaler clipped_standard
                                            # Robust clipping + z-score
@@ -4775,6 +5377,10 @@ Examples:
                                            # Bias training slightly toward ESP32 motion recall
   python tools/10_train_ml_model.py --seed-search-until-improvement 20
                                            # Stop at first improvement (max 20 trials)
+  python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
+                                           # Diagnose exported model robustness to feature gain shifts
+  python tools/10_train_ml_model.py --gain-feature-experiment --seed 721498330
+                                           # Compare raw/relative/hybrid feature sets under gain stress
   python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
   python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
 
@@ -4814,6 +5420,20 @@ To compare ML with MVS, use:
                        help='Train with auto-generated seeds until first '
                             'improvement over current ML performance, with '
                             'at most MAX_TRIALS attempts')
+    parser.add_argument('--gain-stress-gate', action='store_true',
+                       help='Evaluate current exported ML artifacts under '
+                            'artificial gain scaling without training/exporting')
+    parser.add_argument('--gain-stress-scales', type=parse_gain_stress_scales,
+                       default=DEFAULT_GAIN_STRESS_SCALES,
+                       help='Comma-separated gain multipliers for --gain-stress-gate '
+                            f'(default: {",".join(map(str, DEFAULT_GAIN_STRESS_SCALES))})')
+    parser.add_argument('--gain-feature-experiment', action='store_true',
+                       help='Compare raw, relative, and hybrid feature sets '
+                            'with grouped CV and in-memory gain-stress evaluation')
+    parser.add_argument('--gain-feature-sets', type=str,
+                       default=','.join(GAIN_FEATURE_EXPERIMENT_SETS),
+                       help='Comma-separated feature sets for --gain-feature-experiment '
+                            f'(default: {",".join(GAIN_FEATURE_EXPERIMENT_SETS)})')
     parser.add_argument('--fp-weight', type=float, default=DEFAULT_FP_WEIGHT,
                        help='Multiplier for IDLE class weight to penalize false positives. '
                             f'Values >1.0 make the model more conservative (default: {DEFAULT_FP_WEIGHT:.1f})')
@@ -4848,6 +5468,53 @@ To compare ML with MVS, use:
     if args.info:
         show_info()
         return 0
+
+    if args.gain_stress_gate:
+        if args.multiclass_experiment or args.experiment or args.experiment_promote:
+            print("Error: --gain-stress-gate cannot be combined with experiment flows")
+            return 1
+        if args.seed_search_until_improvement > 0 or args.seed is not None:
+            print("Error: --gain-stress-gate evaluates exported artifacts and cannot use --seed or seed-search")
+            return 1
+        if args.shap is not None or args.ablation or args.correlation:
+            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation, or --correlation")
+            return 1
+        if args.positive_chip_boost is not None:
+            print("Error: --positive-chip-boost is a training option and cannot be used with --gain-stress-gate")
+            return 1
+        results = evaluate_gain_stress_gate(
+            environment_filter=args.environment,
+            excluded_chips=args.exclude_chip,
+            scales=args.gain_stress_scales,
+        )
+        print_gain_stress_summary(results)
+        return 0
+
+    if args.gain_feature_experiment:
+        if args.multiclass_experiment or args.experiment or args.experiment_promote:
+            print("Error: --gain-feature-experiment cannot be combined with experiment flows")
+            return 1
+        if args.seed_search_until_improvement > 0:
+            print("Error: --gain-feature-experiment cannot be combined with seed-search")
+            return 1
+        if args.shap is not None or args.ablation or args.correlation:
+            print("Error: --gain-feature-experiment cannot be combined with --shap, --ablation, or --correlation")
+            return 1
+        if args.positive_chip_boost is not None:
+            print("Error: --positive-chip-boost is not supported by --gain-feature-experiment")
+            return 1
+        rc, _, _ = experiment_gain_feature_sets(
+            seed=args.seed,
+            feature_sets=args.gain_feature_sets.split(','),
+            scaler_mode=args.scaler,
+            batch_size=args.batch_size,
+            fp_weight=args.fp_weight,
+            hidden_layers=args.hidden_layers,
+            environment_filter=args.environment,
+            excluded_chips=args.exclude_chip,
+            scales=args.gain_stress_scales,
+        )
+        return rc
 
     if args.multiclass_experiment:
         if args.experiment or args.experiment_promote or args.seed_search_until_improvement > 0:

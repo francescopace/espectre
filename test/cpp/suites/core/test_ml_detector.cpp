@@ -266,16 +266,29 @@ void test_feature_extraction_basic(void) {
     
     extract_ml_features(turb_buffer, 50, features);
     
-    // Verify features are reasonable
-    // Order: mean, std, max, min, iqr, skewness, autocorr, mad, waveform_length
-    TEST_ASSERT_TRUE(features[0] > 0);   // turb_mean > 0
-    TEST_ASSERT_TRUE(features[1] >= 0);  // turb_std >= 0
-    TEST_ASSERT_TRUE(features[2] >= features[3]); // turb_max >= turb_min
-    TEST_ASSERT_TRUE(features[4] >= 0);  // turb_iqr >= 0
-    // features[5] = skewness (can be any value)
-    TEST_ASSERT_TRUE(features[6] >= -1.0f && features[6] <= 1.0f);  // autocorr in [-1, 1]
-    TEST_ASSERT_TRUE(features[7] >= 0);  // turb_mad >= 0
-    TEST_ASSERT_TRUE(features[8] >= 0);  // waveform_length >= 0
+    // Verify features are reasonable. The runtime supports the current
+    // relative 8-feature export and the legacy raw 9-feature export.
+    if (ML_NUM_FEATURES == 8) {
+        // Order: std/mean, max/mean, min/mean, iqr/mean, mad/mean,
+        // waveform_length/mean/step, skewness, autocorr
+        TEST_ASSERT_TRUE(features[0] >= 0);  // turb_std_over_mean
+        TEST_ASSERT_TRUE(features[1] >= features[2]); // max_over_mean >= min_over_mean
+        TEST_ASSERT_TRUE(features[3] >= 0);  // turb_iqr_over_mean
+        TEST_ASSERT_TRUE(features[4] >= 0);  // turb_mad_over_mean
+        TEST_ASSERT_TRUE(features[5] >= 0);  // waveform_length_over_mean
+        // features[6] = skewness (can be any value)
+        TEST_ASSERT_TRUE(features[7] >= -1.0f && features[7] <= 1.0f);
+    } else {
+        // Order: mean, std, max, min, iqr, skewness, autocorr, mad, waveform_length
+        TEST_ASSERT_TRUE(features[0] > 0);   // turb_mean > 0
+        TEST_ASSERT_TRUE(features[1] >= 0);  // turb_std >= 0
+        TEST_ASSERT_TRUE(features[2] >= features[3]); // turb_max >= turb_min
+        TEST_ASSERT_TRUE(features[4] >= 0);  // turb_iqr >= 0
+        // features[5] = skewness (can be any value)
+        TEST_ASSERT_TRUE(features[6] >= -1.0f && features[6] <= 1.0f);
+        TEST_ASSERT_TRUE(features[7] >= 0);  // turb_mad >= 0
+        TEST_ASSERT_TRUE(features[8] >= 0);  // waveform_length >= 0
+    }
 }
 
 void test_feature_extraction_empty_buffer(void) {

@@ -9,7 +9,7 @@ This guide covers how to collect and label CSI data for training ML models. This
 | Feature | Status |
 |---------|--------|
 | Data collection infrastructure | ✅ Ready |
-| Feature extraction (9 features) | ✅ Ready |
+| Feature extraction (8 relative ML features) | ✅ Ready |
 | ML detector (MLP) | ✅ Ready |
 | Training script | ✅ Ready |
 | TFLite export | ✅ Ready |
@@ -27,9 +27,9 @@ This guide covers how to collect and label CSI data for training ML models. This
 - ESP32-C6
 
 **Also supported:**
-- ESP32 (original) - Does not support AGC gain lock, but data is usable for ML training (raw std is used for all chips)
+- ESP32 (original) - Does not support AGC gain lock, but data is usable for ML training (ML features are relative to local turbulence mean)
 
-> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. The ML training pipeline and MLDetector always use raw std (`σ`) for turbulence, regardless of gain lock status. CV normalization (`σ/μ`) is only used by MVS detection.
+> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. MVS still uses its explicit CV-normalized no-gain-lock path. The ML detector uses relative per-window features such as `std/mean`, `iqr/mean`, and `mad/mean` to reduce dependence on absolute device/session gain.
 
 ---
 
@@ -106,7 +106,9 @@ The `espectre micro collect` subcommand provides a streamlined workflow for reco
 | Command | Description |
 |---------|-------------|
 | `./espectre micro collect --label <name> --duration <sec> --streamer-ip <device_ip>` | Record for specified duration |
-| `./espectre micro collect --label <name> --samples <n> --streamer-ip <device_ip>` | Record n samples interactively |
+| `./espectre micro collect --label <name> --samples <n> --streamer-ip <device_ip>` | Record n samples or timed collections |
+| `./espectre micro collect --label <name> --count <n> --streamer-ip <device_ip>` | Alias for `--samples`, useful for repeated timed collections |
+| `./espectre micro collect --label <name> --start-delay <sec> --streamer-ip <device_ip>` | Wait before starting collection |
 | `./espectre micro collect --label <name> --streamer-ip <device_ip> --reference-every <N>` | Mark every `N`th stimulus packet as a reference frame |
 | `./espectre micro collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
 | `./espectre micro collect --label <name> --description "text"` | Add description to sample |
@@ -128,6 +130,9 @@ Gain lock status is **automatically detected** from the CSI stream and saved in 
 
 # Mark every 20th stimulus packet as a reference frame
 ./espectre micro collect --label static_presence --duration 30 --streamer-ip 192.168.1.50 --reference-every 20
+
+# Wait 15 seconds, then record 3 timed collections
+./espectre micro collect --label static_presence --duration 10 --count 3 --start-delay 15 --streamer-ip 192.168.1.50
 
 # Gain lock status is auto-detected from the CSI stream
 # No need to specify --no-gain-lock, it's automatic!
@@ -182,7 +187,7 @@ Output:
 ```
   Label                   Samples
   --------------------------------
-  idle                         12
+  static_presence               12
   wave                         10
   swipe                        10
   ...
@@ -365,7 +370,11 @@ dataset schema.
 
 ### How It Works
 
-The ML training script uses **raw std** for all chips, including those without gain lock. CV normalization is not applied during ML training or inference — it is only used by the MVS detector.
+The ML training script uses relative turbulence features for all chips,
+including those without gain lock. CV normalization is still only applied by
+the MVS detector; the ML path keeps raw turbulence as the base signal, then
+exports gain-reduced feature ratios such as `std/mean`, `iqr/mean`,
+`mad/mean`, and normalized waveform length.
 
 ### When CV Normalization Is Applied
 
@@ -410,7 +419,7 @@ This shows which files use CV normalization.
 
 ```
 # Good labels
-idle
+static_presence
 wave
 swipe_left
 swipe_right
@@ -427,9 +436,9 @@ gesture1      # non-descriptive
 
 ### Session Workflow
 
-1. **Prepare environment**: Ensure room is quiet for baseline
-2. **Record baseline first**: `./espectre micro collect --label static_presence --duration 60 --streamer-ip <device_ip>`
-3. **Record movement**: `./espectre micro collect --label motion --duration 60 --streamer-ip <device_ip>`
+1. **Prepare environment**: Ensure room is quiet for `static_presence`
+2. **Record static presence first**: `./espectre micro collect --label static_presence --duration 60 --streamer-ip <device_ip>`
+3. **Record motion**: `./espectre micro collect --label motion --duration 60 --streamer-ip <device_ip>`
 4. **Verify dataset**: `./espectre micro collect --info`
 5. **Backup data**: Copy `data/` to safe location
 
@@ -460,7 +469,7 @@ See [tools/README.md](../tools/README.md) for complete documentation of all anal
 Once you have collected labeled data, train the ML model:
 
 ```bash
-# Train model (default uses --fp-weight 1.0, --scaler standard, --batch-size 32)
+# Train model (default uses --fp-weight 2.0, --scaler standard, --batch-size 32)
 python tools/10_train_ml_model.py
 
 # Run the offline 3-class room-state experiment
@@ -474,9 +483,42 @@ python tools/10_train_ml_model.py --scaler clipped_standard
 
 # Optional chip-exclusion experiment
 python tools/10_train_ml_model.py --exclude-chip ESP32
+
+# Diagnose exported-model sensitivity to artificial gain shifts
+python tools/10_train_ml_model.py --gain-stress-gate
+python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
 ```
 
-The `--fp-weight` parameter multiplies the IDLE class weight during training. Values >1.0 reduce false positives at the cost of slightly lower recall. Current defaults: `--fp-weight 1.0`, `--scaler standard`, `--batch-size 32`.
+The `--fp-weight` parameter multiplies the IDLE class weight during training. Values >1.0 reduce false positives at the cost of slightly lower recall. Current defaults: `--fp-weight 2.0`, `--scaler standard`, `--batch-size 32`.
+
+### Gain-Shift Robustness Check
+
+The production ML path deliberately keeps Python/C++ runtime inference aligned
+by deriving all neural-detector inputs from the same raw turbulence signal. The
+exported default feature set is now relative to the local turbulence mean, so
+the model is structurally less sensitive to absolute amplitude gain changes.
+
+Use the exported-artifact gain-stress gate to quantify this risk without
+retraining or exporting a new model:
+
+```bash
+python tools/10_train_ml_model.py --gain-stress-gate
+python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
+python tools/10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25
+```
+
+The gate loads the current `src/python/ml_weights.py`, extracts the exported
+feature set, then applies artificial gain multipliers only to feature
+dimensions that scale with amplitude. With the promoted relative feature set,
+no exported input dimension is scaled by this diagnostic, so the expected
+result is a flat report across gain multipliers.
+
+Current finding for the relative `1890407301` export (`8 -> 32 -> 16 -> 1`,
+`fp_weight=2.0`): all-environment gain stress is flat at `1.00x`, `1.25x`,
+and `1.50x` with `recall=99.3%`, `FP=1.1%`, and `F1=99.1%`. The remaining
+worst-session weakness is nominal dataset difficulty, not gain-shift
+sensitivity. Treat this gate as the primary diagnostic for comparing future
+raw, relative, or hybrid feature sets.
 
 ### Offline Room-State Prototype
 
@@ -497,7 +539,8 @@ This prototype:
 
 1. loads `empty`, `static_presence`, and `motion`
 2. trains a `softmax` MLP offline
-3. reports a blocked out-of-fold confusion matrix plus per-class recall
+3. reports blocked and dense out-of-fold metrics, including a blocked
+   confusion matrix plus per-class recall
 4. reports worst-group behavior by `chip`, `environment_group`,
    `session_group`, and `source_file`
 
@@ -505,6 +548,8 @@ Important limitations:
 
 - it does **not** export runtime artifacts
 - it does **not** change the binary `MLDetector` production path
+- `empty` files are grouped as their own sources; paired session grouping is
+  reserved for `static_presence`/`motion`
 - current `empty` coverage is still narrow, so good aggregate metrics may still
   reflect domain bias rather than robust presence sensing
 - the current phase feature views remain experimental: on the present dataset,
@@ -518,9 +563,9 @@ Important limitations:
 
 This will:
 1. Load all `.npz` files from `data/`
-2. Use raw std for all files (CV normalization disabled for ML)
+2. Use raw turbulence as the base signal for all files (CV normalization disabled for ML)
 3. Apply context-aware MVS-guided sample weighting on the default subcarrier set
-4. Extract 9 features per sliding window
+4. Extract 8 relative ML features per sliding window
 5. Run grouped cross-validation by paired capture/session, with blocked scoring to reduce overlap optimism
 6. Report worst-group metrics (session, chip, source file) alongside mean fold metrics
 7. Train the selected MLP architecture with early stopping and dropout
@@ -533,7 +578,7 @@ This will:
 
 Use `--seed <number>` for reproducible training. The seed is saved in the generated weight files.
 
-> **Note**: The ML pipeline always uses raw std for turbulence, regardless of `gain_locked` status. CV normalization is only applied by the MVS detector at runtime.
+> **Note**: The ML pipeline uses raw turbulence as its base signal, then exports relative features for the neural detector. CV normalization is only applied by the MVS detector at runtime.
 >
 > **Note**: `--exclude-chip` is an experiment knob for ablations and domain-isolation studies. The default training path keeps all supported chips in the dataset unless you explicitly exclude them.
 >
@@ -630,7 +675,7 @@ Gestures useful for Home Assistant / smart home automation:
 | 🟡 Medium | `clap` | Hand clap | Toggle lights |
 | 🟡 Medium | `sit_down` / `stand_up` | Sitting/standing | TV mode, energy saving |
 | 🟡 Medium | `fall` | Person falling | Elderly safety alert |
-| 🟢 Low | `idle` | Empty room, no movement | Baseline (always needed) |
+| 🟢 Low | `empty` | Empty room, no movement | Empty-room baseline (recommended) |
 
 ### Data Privacy
 

@@ -68,7 +68,7 @@ public:
     float get_threshold() const override { return threshold_; }
     const char* get_name() const override { return "ML"; }
 
-    // ML model is trained on raw std only — CV normalization must stay off
+    // ML feature extraction owns gain handling; MVS CV normalization stays off.
     void set_cv_normalization(bool /*enabled*/) override {}
 
 private:

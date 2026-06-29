@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from .common import Path, REPO_ROOT, WEB_UI_FILE, Fore, Style, signal, webbrowser
+from .common import Path, REPO_ROOT, WEB_UI_FILE, Fore, Style, signal, time, webbrowser
 
 
 def open_web_ui() -> None:
@@ -24,6 +24,22 @@ def open_web_ui() -> None:
         print(f"{Fore.GREEN}✅ Web UI opened in browser{Style.RESET_ALL}")
     except Exception as e:
         print(f"{Fore.RED}❌ Error opening browser: {e}{Style.RESET_ALL}")
+
+
+def _wait_before_collection(delay_seconds: float) -> None:
+    """Wait before starting collection so the operator can leave the room."""
+    if delay_seconds <= 0:
+        return
+
+    print(f"  {Fore.YELLOW}Starting collection in {delay_seconds:.1f}s...{Style.RESET_ALL}")
+    remaining = delay_seconds
+    while remaining > 0:
+        sleep_for = min(1.0, remaining)
+        print(f"  {Fore.YELLOW}  {remaining:.1f}s remaining{Style.RESET_ALL}")
+        time.sleep(sleep_for)
+        remaining = max(0.0, remaining - sleep_for)
+    print(f"  {Fore.GREEN}  Starting now.{Style.RESET_ALL}")
+    print()
 
 
 def collect_csi_data(args) -> None:
@@ -69,6 +85,10 @@ def collect_csi_data(args) -> None:
         print(f"{Fore.RED}❌ Streamer IP required. Use --streamer-ip <device_ip>{Style.RESET_ALL}")
         raise SystemExit(1)
 
+    if args.start_delay < 0:
+        print(f"{Fore.RED}❌ Start delay must be >= 0 seconds{Style.RESET_ALL}")
+        raise SystemExit(1)
+
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
     print(f"\n{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
     print(f"{Fore.MAGENTA}║           μESPectre - CSI Data Collection                 ║{Style.RESET_ALL}")
@@ -77,6 +97,8 @@ def collect_csi_data(args) -> None:
     print(f"  {Fore.CYAN}Label:{Style.RESET_ALL}     {args.label}")
     print(f"  {Fore.CYAN}Samples:{Style.RESET_ALL}   {args.samples}")
     print(f"  {Fore.CYAN}Duration:{Style.RESET_ALL}  {args.duration}s per sample")
+    if args.start_delay > 0:
+        print(f"  {Fore.CYAN}Start delay:{Style.RESET_ALL} {args.start_delay}s")
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
     print(f"  {Fore.CYAN}Streamer IP:{Style.RESET_ALL} {args.streamer_ip}")
@@ -105,6 +127,7 @@ def collect_csi_data(args) -> None:
         source_host=resolved_bind_ip,
     )
     try:
+        _wait_before_collection(args.start_delay)
         stimulus_sender.start()
         if args.interactive:
             saved = collector.collect_interactive(num_samples=args.samples, duration=args.duration)
