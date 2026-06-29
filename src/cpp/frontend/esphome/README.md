@@ -36,7 +36,7 @@ For those topics, use:
   YAML schema, validation, and codegen
 - [`espectre/espectre.cpp`](espectre/espectre.cpp),
   [`espectre/espectre.h`](espectre/espectre.h):
-  main adapter between `IEspectreRuntime` and ESPHome
+  ESPHome adapter over the shared runtime frontend controller
 - [`espectre/sensor_publisher.cpp`](espectre/sensor_publisher.cpp):
   movement and motion publishing
 - [`espectre/threshold_number.cpp`](espectre/threshold_number.cpp):

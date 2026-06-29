@@ -1331,6 +1331,28 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     chip = str(data.get('chip', 'unknown'))
     gain_locked = bool(data['gain_locked']) if 'gain_locked' in data.files else True
     
+    stream_seq_nums = data['stream_seq_num'] if 'stream_seq_num' in data.files else None
+    device_ticks_us = data['device_ticks_us'] if 'device_ticks_us' in data.files else None
+    wifi_rx_ts_us = data['wifi_rx_ts_us'] if 'wifi_rx_ts_us' in data.files else None
+    wifi_rx_start_ts_ns = data['wifi_rx_start_ts_ns'] if 'wifi_rx_start_ts_ns' in data.files else None
+    stimulus_ids = data['stimulus_id'] if 'stimulus_id' in data.files else None
+    is_reference = data['is_reference'] if 'is_reference' in data.files else None
+    device_ids = data['device_id'] if 'device_id' in data.files else None
+    channels = data['channel'] if 'channel' in data.files else None
+    rssi_dbm = data['rssi_dbm'] if 'rssi_dbm' in data.files else None
+    noise_floor_dbm = data['noise_floor_dbm'] if 'noise_floor_dbm' in data.files else None
+    agc_gain = data['agc_gain'] if 'agc_gain' in data.files else None
+    fft_gain = data['fft_gain'] if 'fft_gain' in data.files else None
+
+    def optional_scalar(array, index, cast):
+        if array is None:
+            return None
+        if np.ndim(array) == 0:
+            return cast(np.asarray(array).item())
+        if index >= len(array):
+            return None
+        return cast(array[index])
+
     # Build packet list
     packets = []
     for i in range(len(csi_array)):
@@ -1339,7 +1361,19 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
             'label': label,
             'num_subcarriers': num_subcarriers,
             'chip': chip,
-            'gain_locked': gain_locked
+            'gain_locked': gain_locked,
+            'stream_seq_num': optional_scalar(stream_seq_nums, i, int),
+            'device_ticks_us': optional_scalar(device_ticks_us, i, int),
+            'wifi_rx_ts_us': optional_scalar(wifi_rx_ts_us, i, int),
+            'wifi_rx_start_ts_ns': optional_scalar(wifi_rx_start_ts_ns, i, int),
+            'stimulus_id': optional_scalar(stimulus_ids, i, int),
+            'is_reference': bool(optional_scalar(is_reference, i, int) or 0),
+            'device_id': optional_scalar(device_ids, i, int),
+            'channel': optional_scalar(channels, i, int),
+            'rssi_dbm': optional_scalar(rssi_dbm, i, int),
+            'noise_floor_dbm': optional_scalar(noise_floor_dbm, i, int),
+            'agc_gain': optional_scalar(agc_gain, i, int),
+            'fft_gain': optional_scalar(fft_gain, i, int),
         })
     
     return packets

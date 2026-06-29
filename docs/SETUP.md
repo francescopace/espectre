@@ -53,7 +53,7 @@ tasks:
 | `ESPHome` | `build`, `flash`, `config`, `logs` | `./espectre esphome logs --chip c6 --device /dev/cu.usbmodemXXXX` |
 | `BLE` | `build`, `flash`, `monitor` | `./espectre ble flash --chip c3 --port /dev/cu.usbmodemXXXX` |
 | `Matter` | `build`, `flash`, `monitor` | `./espectre matter build --chip c3` |
-| `Streamer` | `build`, `flash`, `monitor` | `./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX` |
+| `Streamer` | `build`, `flash`, `monitor` | `./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX` |
 | `Micro-ESPectre` | `flash`, `deploy`, `run`, `verify`, `detect`, `collect`, `ui` | `./espectre micro deploy` |
 
 Use the frontend READMEs for complete prerequisites and chip-specific notes:

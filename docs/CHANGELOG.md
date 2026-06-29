@@ -39,10 +39,19 @@ All notable changes to this project will be documented in this file.
   - `RuntimeSnapshot`
   - runtime events/listener callbacks
   - runtime capability reporting
+- **Shared frontend/runtime infrastructure** with:
+  - `RuntimeFrontendController` for common runtime setup, loop, shutdown, events, snapshots, and controls
+  - `runtime_config_utils.*` for shared threshold validation and stable mode names
+  - `runtime_diagnostics.*` for common frontend diagnostic fields
+  - `StandaloneWifiManager` for standalone ESP-IDF STA setup, CSI Wi-Fi policy, BSSID/channel fast scan, and retry handling
 - **`ARCHITECTURE.md`** documenting the new structure, rationale, and standalone core reuse model.
 
 ### Changed
 
+- **Added an offline 3-class room-state ML prototype**: `tools/10_train_ml_model.py` now has a dedicated `--multiclass-experiment` path that loads `empty`, `static_presence`, and `motion`, trains a `softmax` MLP offline, and reports blocked confusion-matrix plus per-class/group metrics without touching the production binary `MLDetector` artifacts.
+- **Offline room-state prototype now includes a common-offset-removed phase view**: the experimental multiclass path accepts `--multiclass-feature-set amplitude_common_offset_phase`, reusing the documented per-packet common phase-offset removal strategy for offline comparison against amplitude-only and temporal phase-turbulence features.
+- **Offline room-state prototype can now isolate sync-rich captures**: `load_npz_as_packets()` preserves optional `stimulus_id` and device timing metadata from newer `.npz` files, `--multiclass-experiment` accepts `--require-sync-metadata`, and the prototype can compare a new `amplitude_stimulus_phase` feature set against the existing amplitude and phase baselines on the sync-aware subset only.
+- **Streamer CLI now exposes the full multi-chip build matrix**: `./espectre streamer build|flash|monitor` accepts `esp32`, `c3`, `c5`, `c6`, and `s3`, matching the streamer frontend's runtime chip detection and making the repository CLI consistent with the supported ESP-IDF targets.
 - **Streamer collection flow is now collector-driven**: the standalone streamer no longer depends on a built-in traffic generator or a static `COLLECTOR_IP`; it learns the collector from external UDP stimulus, while the host collector now emits `ESTM` packets with collector-controlled `stimulus_id` / `reference` policy for ML dataset capture.
 - **CSI live streaming unified around the C++ streamer frontend**: the host collector now targets the versioned ESP-IDF streamer protocol, the legacy MicroPython UDP producer has been removed, and existing `.npz` datasets remain readable while newly collected samples gain optional device/stream metadata for realtime fusion workflows.
 - **Streamer protocol simplified for ML and realtime fusion**: FTM telemetry was removed, `stimulus_id` is now optional instead of gating packet emission, and the packet header now carries a stable `gain_locked` flag plus device-side timing metadata without changing the compact HT20 CSI payload layout.
@@ -63,6 +72,8 @@ All notable changes to this project will be documented in this file.
 - **Repository CLI `./me` renamed to `./espectre`**: the repo now exposes explicit `micro`, `esphome`, `ble`, `matter`, and `streamer` namespaces instead of a single monolithic entrypoint.
 - **Host-side C++ tests now use a layered `CMake + CTest` suite under `test/`**: PlatformIO-specific scaffolding was removed, suites were regrouped by `core` / `runtime` / `integration` / `frontend`, shared support code was consolidated, and coverage reporting now includes per-layer breakdowns.
 - **Matter firmware startup ordering was hardened** so the shared runtime initializes after `esp_matter::start()`, allowing the Matter stack to bring up Wi-Fi before CSI-specific runtime configuration runs.
+- **Frontend runtime orchestration was deduplicated**: ESPHome, BLE, and Matter now use the shared runtime frontend controller, while streamer and BLE standalone Wi-Fi setup use the shared standalone Wi-Fi manager. Matter keeps `esp-matter` Wi-Fi ownership and applies the same CSI policy from its app-level Wi-Fi hook.
+- **Standalone Wi-Fi CSI setup was aligned across ESP-IDF frontends**: the tested HT20/2.4 GHz CSI policy, BSSID/channel fast-scan options, retry behavior, and power-save mode now live in shared runtime code instead of being reimplemented per frontend.
 - **Documentation was aligned** to the new structure, `.venv` activation flow, and the practical ESP32-C3 Matter build/flash workflow.
 - **ESPHome build metadata now points directly at shared sources** instead of relying on symlinked files inside the component directory.
 - **Project narrative was realigned around the new platform direction**:

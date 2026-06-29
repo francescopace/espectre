@@ -41,15 +41,15 @@ for path in (str(REPO_ROOT), str(PYTHON_SRC_DIR), str(TOOLS_DIR)):
         sys.path.insert(0, path)
 
 FIRMWARE_RELEASE_URL = (
-    "https://github.com/francescopace/micropython-esp32-csi/releases/download/v1.0.0-rc9"
+    "https://github.com/francescopace/micropython-esp32-csi/releases/download/upstream-csi-merged-2026-06-26"
 )
 FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
 FIRMWARE_HASHES = {
-    "ESP32_CSI.bin": "64ea7db84656104edc8173efe8ed363eb02b02da8feaf5eb598a0b543763d995",
-    "ESP32_CSI_C3.bin": "3c00302e5c932ae4fd7e81ca8c527b03c178e5697d5bfd4bce788a7a2de3cecf",
-    "ESP32_CSI_C5.bin": "63f9d4bdada4a81024fb459af3c7407b1e862dff3735c815de61f5215a985412",
-    "ESP32_CSI_C6.bin": "f29c09168d781a4162e8408f77fd88c8380b03f4e085ee60b99b4f19d7546e9c",
-    "ESP32_CSI_S3.bin": "1751b0fd8ff8c319e87c0d3f424aa17c82d6cd3a15f9b6ec9b8710269089e590",
+    "ESP32_CSI.bin": "e24d42a3684733f6948b4ba37992db35a0c10fd90dcd122c48a18f1dafc4bc64",
+    "ESP32_CSI_C3.bin": "b822f2c34a0ba453154f2dc9cce77840e49ed24c44560e9dbb735eca4144d009",
+    "ESP32_CSI_C5.bin": "7fa46a8b18e42b919a7ea3e46290d7386bd1c51fcfe4dfe67bf47fd7fa4024fe",
+    "ESP32_CSI_C6.bin": "e904a0eb124f6925d32a80fa26b3f81f4af89937714c13735ae5f887db3044c0",
+    "ESP32_CSI_S3.bin": "0466fa4a6bbca941a91d978d44019c3a1cb3e7666a7bc44b46870827137ea0eb",
 }
 MICRO_CHIP_CHOICES = ["esp32", "c3", "s3", "c5", "c6"]
 

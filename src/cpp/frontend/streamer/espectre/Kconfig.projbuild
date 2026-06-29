@@ -12,6 +12,11 @@ menu "ESPectre CSI Streamer"
         string "Optional Wi-Fi BSSID lock (aa:bb:cc:dd:ee:ff)"
         default ""
 
+    config ESPECTRE_WIFI_CHANNEL
+        int "Optional Wi-Fi channel lock (0 = auto)"
+        range 0 14
+        default 0
+
     config ESPECTRE_STREAM_OUTPUT_ENABLED
         bool "Enable UDP stream output"
         default y

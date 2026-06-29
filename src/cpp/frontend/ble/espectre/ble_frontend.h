@@ -13,10 +13,8 @@
 #include <string>
 
 #include "ble_bindings.h"
-#include "runtime_capabilities.h"
 #include "runtime_events.h"
-#include "runtime_interface.h"
-#include "runtime_snapshot.h"
+#include "runtime_frontend_controller.h"
 
 namespace esphome {
 namespace espectre {
@@ -26,16 +24,16 @@ class BleFrontend : public IRuntimeListener {
   explicit BleFrontend(IBleBindings *bindings);
 
   void set_runtime_config(const RuntimeConfig &config);
-  const RuntimeConfig &runtime_config() const { return runtime_config_; }
+  const RuntimeConfig &runtime_config() const { return runtime_.config(); }
 
   bool setup();
   void loop();
   void shutdown();
   ~BleFrontend();
 
-  const RuntimeSnapshot &snapshot() const { return runtime_snapshot_; }
-  const RuntimeCapabilities &capabilities() const { return runtime_capabilities_; }
-  bool is_setup_complete() const { return setup_complete_; }
+  const RuntimeSnapshot &snapshot() const { return runtime_.snapshot(); }
+  const RuntimeCapabilities &capabilities() const { return runtime_.capabilities(); }
+  bool is_setup_complete() const { return runtime_.is_setup_complete(); }
   bool client_connected() const { return client_connected_; }
 
  protected:
@@ -55,11 +53,7 @@ class BleFrontend : public IRuntimeListener {
   uint32_t now_ms_() const;
 
   IBleBindings *bindings_;
-  RuntimeConfig runtime_config_{};
-  RuntimeSnapshot runtime_snapshot_{};
-  RuntimeCapabilities runtime_capabilities_{};
-  std::unique_ptr<IEspectreRuntime> runtime_;
-  bool setup_complete_{false};
+  RuntimeFrontendController runtime_;
   bool client_connected_{false};
   uint32_t telemetry_interval_ms_{40};
   uint32_t last_telemetry_ms_{0};

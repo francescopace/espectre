@@ -7,7 +7,7 @@
 
 #include "matter_surface.h"
 
-#include <cmath>
+#include "runtime_config_utils.h"
 
 namespace esphome {
 namespace espectre {
@@ -26,8 +26,7 @@ MatterPeriodicState snapshot_to_periodic_state(const RuntimeSnapshot &snapshot, 
 }
 
 bool validate_matter_threshold(float threshold) {
-  return std::isfinite(threshold) && threshold >= ESPECTRE_MATTER_THRESHOLD_MIN &&
-         threshold <= ESPECTRE_MATTER_THRESHOLD_MAX;
+  return validate_runtime_threshold(threshold);
 }
 
 }  // namespace espectre

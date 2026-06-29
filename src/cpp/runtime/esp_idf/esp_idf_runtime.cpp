@@ -59,11 +59,6 @@ bool EspIdfRuntime::setup() {
 
   ESP_LOGI(RUNTIME_TAG, "Initializing ESPectre runtime...");
 
-  if (wifi_lifecycle_.init() != ESP_OK) {
-    notify_fault_("WiFi lifecycle init failed");
-    return false;
-  }
-
   if (!configure_detector_()) {
     return false;
   }
@@ -207,6 +202,16 @@ void EspIdfRuntime::on_wifi_connected_() {
     return;
   }
 
+  if (!csi_wifi_lifecycle_ready_) {
+    const esp_err_t err = wifi_lifecycle_.init();
+    if (err != ESP_OK) {
+      notify_fault_("WiFi lifecycle init failed");
+      return;
+    }
+    csi_wifi_lifecycle_ready_ = true;
+    ESP_LOGI(RUNTIME_TAG, "WiFi CSI lifecycle initialized after connect");
+  }
+
   snapshot_.motion_state = MotionState::IDLE;
   snapshot_.ready_to_publish = false;
 
@@ -254,6 +259,7 @@ void EspIdfRuntime::on_wifi_connected_() {
 
 void EspIdfRuntime::on_wifi_disconnected_() {
   wifi_ready_ = false;
+  csi_wifi_lifecycle_ready_ = false;
   threshold_calibration_active_ = false;
   csi_manager_.set_packet_interceptor({});
   csi_manager_.disable();

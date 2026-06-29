@@ -2,6 +2,7 @@
 
 #include "esp_event.h"
 #include "esp_wifi.h"
+#include "standalone_wifi_manager.h"
 #include "wifi_lifecycle.h"
 
 using namespace esphome::espectre;
@@ -75,12 +76,80 @@ void test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fa
   TEST_ASSERT_EQUAL(1, g_esp_event_mock.unregister_call_count);
 }
 
+void test_standalone_wifi_manager_configures_fast_scan_bssid_and_channel(void) {
+  StandaloneWifiManager manager;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  config.password = "secret";
+  config.bssid = "aa:bb:cc:dd:ee:ff";
+  config.channel = 10;
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.setup(config));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.init_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_storage_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_mode_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
+  TEST_ASSERT_EQUAL(WIFI_PS_MIN_MODEM, g_esp_wifi_mock.last_set_ps_type);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(WIFI_FAST_SCAN, g_esp_wifi_mock.last_config.sta.scan_method);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.last_config.sta.bssid_set);
+  TEST_ASSERT_EQUAL_UINT8(10, g_esp_wifi_mock.last_config.sta.channel);
+  TEST_ASSERT_EQUAL_UINT8(0xaa, g_esp_wifi_mock.last_config.sta.bssid[0]);
+  TEST_ASSERT_EQUAL_UINT8(0xff, g_esp_wifi_mock.last_config.sta.bssid[5]);
+}
+
+void test_standalone_wifi_manager_applies_policy_and_connects_on_start(void) {
+  StandaloneWifiManager manager;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  config.password = "secret";
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.start());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.start_call_count);
+
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_ps_call_count);
+  TEST_ASSERT_EQUAL(WIFI_PS_MIN_MODEM, g_esp_wifi_mock.last_set_ps_type);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11N, g_esp_wifi_mock.last_protocol_bitmap);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_bandwidth_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+}
+
+void test_standalone_wifi_manager_managed_lifecycle_dispatches_after_csi_init(void) {
+  StandaloneWifiManager manager;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  config.manage_csi_lifecycle = true;
+  int connected_calls = 0;
+  int disconnected_calls = 0;
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.setup(config,
+                                         [&connected_calls]() { connected_calls++; },
+                                         [&disconnected_calls]() { disconnected_calls++; }));
+
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, nullptr);
+  TEST_ASSERT_EQUAL(1, connected_calls);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_promiscuous_call_count);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_promiscuous);
+
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, nullptr);
+  TEST_ASSERT_EQUAL(1, disconnected_calls);
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous);
   RUN_TEST(test_wifi_lifecycle_init_falls_back_when_11n_only_is_rejected);
   RUN_TEST(test_wifi_lifecycle_register_handlers_dispatches_and_unregisters);
   RUN_TEST(test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fails);
+  RUN_TEST(test_standalone_wifi_manager_configures_fast_scan_bssid_and_channel);
+  RUN_TEST(test_standalone_wifi_manager_applies_policy_and_connects_on_start);
+  RUN_TEST(test_standalone_wifi_manager_managed_lifecycle_dispatches_after_csi_init);
   return UNITY_END();
 }
 

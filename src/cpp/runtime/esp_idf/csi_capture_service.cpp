@@ -111,7 +111,7 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   if (!normalized.valid() || normalized.len != HT20_CSI_LEN) {
     filtered_packets_++;
     if (filtered_packets_ % 100 == 1) {
-      log_wrong_sc_packet_(data, normalized.len);
+      log_wrong_sc_packet_(data, data->len);
     }
     return;
   }

@@ -463,6 +463,9 @@ Once you have collected labeled data, train the ML model:
 # Train model (default uses --fp-weight 1.0, --scaler standard, --batch-size 32)
 python tools/10_train_ml_model.py
 
+# Run the offline 3-class room-state experiment
+python tools/10_train_ml_model.py --multiclass-experiment
+
 # Show dataset info (including excluded files)
 python tools/10_train_ml_model.py --info
 
@@ -474,6 +477,44 @@ python tools/10_train_ml_model.py --exclude-chip ESP32
 ```
 
 The `--fp-weight` parameter multiplies the IDLE class weight during training. Values >1.0 reduce false positives at the cost of slightly lower recall. Current defaults: `--fp-weight 1.0`, `--scaler standard`, `--batch-size 32`.
+
+### Offline Room-State Prototype
+
+An experimental offline-only path is available for three-class room-state
+classification:
+
+```bash
+python tools/10_train_ml_model.py --multiclass-experiment
+
+# Compare alternate room-state feature views
+python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude
+python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude_phase
+python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude_common_offset_phase
+python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude_stimulus_phase --require-sync-metadata
+```
+
+This prototype:
+
+1. loads `empty`, `static_presence`, and `motion`
+2. trains a `softmax` MLP offline
+3. reports a blocked out-of-fold confusion matrix plus per-class recall
+4. reports worst-group behavior by `chip`, `environment_group`,
+   `session_group`, and `source_file`
+
+Important limitations:
+
+- it does **not** export runtime artifacts
+- it does **not** change the binary `MLDetector` production path
+- current `empty` coverage is still narrow, so good aggregate metrics may still
+  reflect domain bias rather than robust presence sensing
+- the current phase feature views remain experimental: on the present dataset,
+  `amplitude_common_offset_phase` improved aggregate blocked OOF metrics versus
+  `amplitude`, but both tested phase variants were still less robust than
+  amplitude-only on the controlled `C3/bedroom` split for `static_presence`
+- sync-aware phase experiments require `--require-sync-metadata`; with the
+  current dataset this reduces the multiclass subset to the newer `C3`
+  captures, so the resulting scores are dominated by limited `static_presence`
+  and `motion` coverage rather than by the feature view alone
 
 This will:
 1. Load all `.npz` files from `data/`

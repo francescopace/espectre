@@ -19,15 +19,13 @@
 #include "esphome/components/switch/switch.h"
 
 #include <algorithm>
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "sensor_publisher.h"
-#include "runtime_capabilities.h"
+#include "runtime_config_utils.h"
 #include "runtime_events.h"
-#include "runtime_interface.h"
-#include "runtime_snapshot.h"
+#include "runtime_frontend_controller.h"
 
 namespace esphome {
 namespace espectre {
@@ -44,47 +42,46 @@ class ESpectreComponent : public Component, public IRuntimeListener {
 
   // Setters for YAML configuration
   void set_segmentation_threshold(float threshold) { 
-    this->runtime_config_.segmentation_threshold = threshold;
-    this->runtime_config_.threshold_mode = ThresholdMode::MANUAL;
+    set_manual_threshold(this->runtime_.config(), threshold);
   }
   void set_threshold_mode(const std::string &mode) {
     if (mode == "min") {
-      this->runtime_config_.threshold_mode = ThresholdMode::MIN;
+      this->runtime_.config().threshold_mode = ThresholdMode::MIN;
     } else {
-      this->runtime_config_.threshold_mode = ThresholdMode::AUTO;
+      this->runtime_.config().threshold_mode = ThresholdMode::AUTO;
     }
   }
-  void set_segmentation_window_size(uint16_t size) { this->runtime_config_.segmentation_window_size = size; }
-  void set_traffic_generator_rate(uint32_t rate) { this->runtime_config_.traffic_generator_rate = rate; }
+  void set_segmentation_window_size(uint16_t size) { this->runtime_.config().segmentation_window_size = size; }
+  void set_traffic_generator_rate(uint32_t rate) { this->runtime_.config().traffic_generator_rate = rate; }
   void set_traffic_generator_mode(const std::string &mode) { 
-    this->runtime_config_.traffic_generator_mode =
+    this->runtime_.config().traffic_generator_mode =
         (mode == "ping") ? RuntimeTrafficMode::PING : RuntimeTrafficMode::DNS;
   }
   void set_gain_lock_mode(const std::string &mode) {
     if (mode == "enabled") {
-      this->runtime_config_.gain_lock_mode = RuntimeGainLockMode::ENABLED;
+      this->runtime_.config().gain_lock_mode = RuntimeGainLockMode::ENABLED;
     } else if (mode == "disabled") {
-      this->runtime_config_.gain_lock_mode = RuntimeGainLockMode::DISABLED;
+      this->runtime_.config().gain_lock_mode = RuntimeGainLockMode::DISABLED;
     } else {
-      this->runtime_config_.gain_lock_mode = RuntimeGainLockMode::AUTO;
+      this->runtime_.config().gain_lock_mode = RuntimeGainLockMode::AUTO;
     }
   }
   void set_detection_algorithm(const std::string &algo) {
     if (algo == "ml") {
-      this->runtime_config_.detection_algorithm = DetectionAlgorithm::ML;
+      this->runtime_.config().detection_algorithm = DetectionAlgorithm::ML;
     } else {
-      this->runtime_config_.detection_algorithm = DetectionAlgorithm::MVS;
+      this->runtime_.config().detection_algorithm = DetectionAlgorithm::MVS;
     }
   }
-  void set_publish_interval(uint32_t interval) { this->runtime_config_.publish_interval = interval; }
-  void set_evaluation_interval(uint32_t interval) { this->runtime_config_.evaluation_interval = interval; }
-  void set_motion_on_hits(uint8_t hits) { this->runtime_config_.motion_on_hits = hits; }
-  void set_motion_off_hits(uint8_t hits) { this->runtime_config_.motion_off_hits = hits; }
-  void set_lowpass_enabled(bool enabled) { this->runtime_config_.lowpass_enabled = enabled; }
-  void set_lowpass_cutoff(float cutoff) { this->runtime_config_.lowpass_cutoff = cutoff; }
-  void set_hampel_enabled(bool enabled) { this->runtime_config_.hampel_enabled = enabled; }
-  void set_hampel_window(uint8_t window) { this->runtime_config_.hampel_window = window; }
-  void set_hampel_threshold(float threshold) { this->runtime_config_.hampel_threshold = threshold; }
+  void set_publish_interval(uint32_t interval) { this->runtime_.config().publish_interval = interval; }
+  void set_evaluation_interval(uint32_t interval) { this->runtime_.config().evaluation_interval = interval; }
+  void set_motion_on_hits(uint8_t hits) { this->runtime_.config().motion_on_hits = hits; }
+  void set_motion_off_hits(uint8_t hits) { this->runtime_.config().motion_off_hits = hits; }
+  void set_lowpass_enabled(bool enabled) { this->runtime_.config().lowpass_enabled = enabled; }
+  void set_lowpass_cutoff(float cutoff) { this->runtime_.config().lowpass_cutoff = cutoff; }
+  void set_hampel_enabled(bool enabled) { this->runtime_.config().hampel_enabled = enabled; }
+  void set_hampel_window(uint8_t window) { this->runtime_.config().hampel_window = window; }
+  void set_hampel_threshold(float threshold) { this->runtime_.config().hampel_threshold = threshold; }
   
   // Setters for ESPHome sensors (delegated to SensorPublisher)
   void set_movement_sensor(sensor::Sensor *sensor) { this->sensor_publisher_.set_movement_sensor(sensor); }
@@ -95,14 +92,13 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   
   // Runtime threshold adjustment (called from HA via number component)
   void set_threshold_runtime(float threshold);
-  float get_threshold() const { return this->runtime_ ? this->runtime_snapshot_.threshold
-                                                      : this->runtime_config_.segmentation_threshold; }
+  float get_threshold() const { return this->runtime_.snapshot().threshold; }
   
   // Runtime calibration trigger (called from HA via switch component)
   void trigger_recalibration();
   
   // Check if calibration is in progress
-  bool is_calibrating() const { return this->runtime_ && this->runtime_->is_calibrating(); }
+  bool is_calibrating() const { return this->runtime_.is_calibrating(); }
   
   // Setter for calibrate switch control
   void set_calibrate_switch(switch_::Switch *sw) { this->calibrate_switch_ = sw; }
@@ -115,10 +111,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override;
   void on_runtime_fault(const char *message) override;
 
-  RuntimeConfig runtime_config_{};
-  RuntimeSnapshot runtime_snapshot_{};
-  RuntimeCapabilities runtime_capabilities_{};
-  std::unique_ptr<IEspectreRuntime> runtime_;
+  RuntimeFrontendController runtime_;
 
   SensorPublisher sensor_publisher_;
 

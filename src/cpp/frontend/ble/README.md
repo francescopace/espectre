@@ -29,6 +29,11 @@ The current BLE frontend preserves the protocol already used by
 - `espectre/Kconfig.projbuild`:
   frontend-owned Wi-Fi configuration knobs
 
+The firmware app uses the shared standalone Wi-Fi manager for STA setup,
+BSSID/channel fast scan, CSI Wi-Fi policy, and retry behavior. The frontend
+adapter itself uses the shared runtime frontend controller and only owns the
+BLE protocol mapping.
+
 ## Getting Started
 
 If you arrived here from [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md),
@@ -64,6 +69,11 @@ Frontend-owned options in [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbu
 | `ESPECTRE_WIFI_SSID` | Wi-Fi SSID |
 | `ESPECTRE_WIFI_PASSWORD` | Wi-Fi password |
 | `ESPECTRE_WIFI_BSSID` | Optional BSSID lock |
+| `ESPECTRE_WIFI_CHANNEL` | Optional channel lock (`0` = auto) |
+
+When `ESPECTRE_WIFI_BSSID` is set, the firmware uses fast scan and pins the
+association to that AP radio. Leave `ESPECTRE_WIFI_CHANNEL=0` unless you need
+to force a known 2.4 GHz channel for repeatable CSI captures.
 
 This means the current standalone BLE firmware is best suited for:
 

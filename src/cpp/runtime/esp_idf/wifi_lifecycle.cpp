@@ -47,82 +47,6 @@ const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
   }
 }
 
-#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
-esp_err_t set_wifi_protocol_for_csi_() {
-  esp_err_t ret;
-
-  wifi_protocols_t protocols{};
-  protocols.ghz_2g = WIFI_PROTOCOL_CSI_2G_PREFERRED;
-#if CONFIG_SOC_WIFI_SUPPORT_5G
-  protocols.ghz_5g = WIFI_PROTOCOL_11N;
-#ifdef WIFI_PROTOCOL_11A
-  protocols.ghz_5g |= WIFI_PROTOCOL_11A;
-#endif
-#ifdef WIFI_PROTOCOL_11AX
-  protocols.ghz_5g |= WIFI_PROTOCOL_11AX;
-#endif
-#ifdef WIFI_PROTOCOL_11AC
-  protocols.ghz_5g |= WIFI_PROTOCOL_11AC;
-#endif
-#endif
-  ret = esp_wifi_set_protocols(WIFI_IF_STA, &protocols);
-  if (ret == ESP_OK) {
-    return ESP_OK;
-  }
-
-  protocols.ghz_2g = WIFI_PROTOCOL_CSI_2G_FALLBACK;
-  ret = esp_wifi_set_protocols(WIFI_IF_STA, &protocols);
-  if (ret == ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "11n-only protocol not accepted, using 11b/g/n fallback");
-  }
-  return ret;
-}
-
-esp_err_t get_wifi_protocol_for_log_(uint16_t *protocol) {
-  if (protocol == nullptr) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  wifi_protocols_t protocols{};
-  esp_err_t err = esp_wifi_get_protocols(WIFI_IF_STA, &protocols);
-  if (err != ESP_OK) {
-    return err;
-  }
-  uint8_t primary_channel = 0;
-  wifi_second_chan_t second_channel = WIFI_SECOND_CHAN_NONE;
-  const bool is_5g = (esp_wifi_get_channel(&primary_channel, &second_channel) == ESP_OK)
-                         ? (primary_channel > 14)
-                         : false;
-  *protocol = is_5g ? protocols.ghz_5g : protocols.ghz_2g;
-  return ESP_OK;
-}
-
-esp_err_t set_wifi_bandwidth_for_csi_() {
-  wifi_bandwidths_t bandwidths{};
-  bandwidths.ghz_2g = WIFI_BANDWIDTH_CSI;
-#if CONFIG_SOC_WIFI_SUPPORT_5G
-  bandwidths.ghz_5g = WIFI_BANDWIDTH_CSI;
-#endif
-  return esp_wifi_set_bandwidths(WIFI_IF_STA, &bandwidths);
-}
-
-esp_err_t get_wifi_bandwidth_for_log_(wifi_bandwidth_t *bw) {
-  if (bw == nullptr) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  wifi_bandwidths_t bandwidths{};
-  esp_err_t err = esp_wifi_get_bandwidths(WIFI_IF_STA, &bandwidths);
-  if (err != ESP_OK) {
-    return err;
-  }
-  uint8_t primary_channel = 0;
-  wifi_second_chan_t second_channel = WIFI_SECOND_CHAN_NONE;
-  const bool is_5g = (esp_wifi_get_channel(&primary_channel, &second_channel) == ESP_OK)
-                         ? (primary_channel > 14)
-                         : false;
-  *bw = is_5g ? bandwidths.ghz_5g : bandwidths.ghz_2g;
-  return ESP_OK;
-}
-#else
 esp_err_t set_wifi_protocol_for_csi_() {
   esp_err_t ret = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_CSI_2G_PREFERRED);
   if (ret == ESP_OK) {
@@ -156,17 +80,16 @@ esp_err_t set_wifi_bandwidth_for_csi_() {
 esp_err_t get_wifi_bandwidth_for_log_(wifi_bandwidth_t *bw) {
   return esp_wifi_get_bandwidth(WIFI_IF_STA, bw);
 }
-#endif
 
 }  // namespace
 
   
-// Configure WiFi for optimal CSI capture
-esp_err_t WiFiLifecycleManager::init() {
+esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy() {
   esp_err_t ret;
-  
-#if CONFIG_IDF_TARGET_ESP32C5
-  // ESP32-C5 is dual-band: force 2.4 GHz for stable CSI motion sensing.
+
+#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
+  // Force 2.4 GHz before setting the protocol bitmap. On HE-capable targets
+  // this lets esp_wifi_set_protocol() remove 802.11ax cleanly for HT20 CSI.
   ret = esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY);
   if (ret != ESP_OK) {
     ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to force 2.4 GHz band mode: 0x%x", ret);
@@ -184,11 +107,22 @@ esp_err_t WiFiLifecycleManager::init() {
     ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set WiFi protocol: 0x%x", ret);
     return ret;
   }
+  ESP_LOGI(WIFI_LIFECYCLE_TAG, "WiFi protocol: 802.11n HT20 target (802.11ax disabled)");
   // HT20 bandwidth for 64 subcarriers
   ret = set_wifi_bandwidth_for_csi_();
   if (ret != ESP_OK) {
     ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to set bandwidth: 0x%x", ret);
     // Non-fatal: continue anyway
+  }
+
+  return ESP_OK;
+}
+
+// Configure WiFi for optimal CSI capture
+esp_err_t WiFiLifecycleManager::init() {
+  esp_err_t ret = apply_csi_wifi_policy();
+  if (ret != ESP_OK) {
+    return ret;
   }
 
   // IMPORTANT: Promiscuous mode MUST be called BEFORE configuring CSI

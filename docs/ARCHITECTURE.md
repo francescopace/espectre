@@ -111,7 +111,13 @@ This is the part that can be embedded by other applications as a standalone libr
 - traffic generation / UDP listener
 - runtime facade and event contract
 
-The shared runtime contract stays in `src/cpp/runtime/`, while the current ESP-IDF-specific implementation lives in `src/cpp/runtime/esp_idf/` and is currently implemented by `EspIdfRuntime`. Frontends talk to the runtime through `IEspectreRuntime`, not through `CSIManager`, `WiFiLifecycleManager`, or other low-level managers directly.
+The shared runtime contract stays in `src/cpp/runtime/`, while the current ESP-IDF-specific implementation lives in `src/cpp/runtime/esp_idf/` and is currently implemented by `EspIdfRuntime`. Ecosystem-facing frontends share `RuntimeFrontendController`, which owns the common setup/loop/shutdown path, snapshot/capability cache, threshold updates, and runtime event bookkeeping. Frontends talk to that frontend-oriented runtime surface, not through `CSIManager`, `WiFiLifecycleManager`, or other low-level managers directly.
+
+Shared runtime helpers also live here:
+
+- `runtime_config_utils.*` for threshold validation and stable mode names
+- `runtime_diagnostics.*` for common runtime diagnostic key/value fields
+- `esp_idf/standalone_wifi_manager.*` for standalone ESP-IDF STA setup, CSI Wi-Fi policy, BSSID/channel fast scan, and retry behavior used by firmware targets that own their Wi-Fi stack
 
 ### `src/cpp/frontend/esphome/espectre/`
 
@@ -131,6 +137,9 @@ It reuses the same runtime contract as the other frontends, but maps runtime
 events and controls to a custom GATT surface instead of Home Assistant entities
 or Matter clusters.
 
+The BLE adapter uses the shared `RuntimeFrontendController` for runtime
+ownership and the shared standalone Wi-Fi manager for ESP-IDF STA setup.
+
 For the BLE protocol, stability model, and firmware-specific surface, see
 [`src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md).
 
@@ -139,6 +148,10 @@ For the BLE protocol, stability model, and firmware-specific surface, see
 This is the Matter adapter and firmware entrypoint.
 
 It maps the same runtime snapshot/events/capabilities into Matter endpoints without pulling Matter-specific concerns into `core` or the shared runtime contract.
+
+The Matter adapter uses the shared `RuntimeFrontendController`, while Wi-Fi
+ownership remains with `esp-matter`. Its app-level Wi-Fi hook only applies the
+shared CSI policy when the Matter stack starts STA mode.
 
 Architecturally, Matter is not a side experiment. It is the first explicit proof
 that the new split can support a second ecosystem-facing frontend without
@@ -155,6 +168,10 @@ Unlike the other frontends, it is not an ecosystem-facing adapter over
 `IEspectreRuntime`. It uses lower-level `runtime/esp_idf` modules directly to
 capture CSI and emit a compact UDP stream for host-side tools and data
 collection workflows.
+
+It still uses shared infrastructure where the behavior is identical, notably
+the standalone Wi-Fi manager and CSI Wi-Fi policy. Its CSI capture and UDP
+streaming state machine stay frontend-specific.
 
 For the UDP packet format, frontend state machine, and Kconfig surface, see
 [`src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md).

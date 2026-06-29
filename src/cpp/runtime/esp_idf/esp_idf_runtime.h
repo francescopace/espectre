@@ -64,6 +64,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   bool threshold_calibration_active_{false};
   bool services_armed_{true};
   bool wifi_ready_{false};
+  bool csi_wifi_lifecycle_ready_{false};
   bool setup_complete_{false};
   std::string last_fault_;
 };

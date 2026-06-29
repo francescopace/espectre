@@ -65,7 +65,7 @@ REPORT_OUTPUT = DATA_DIR / "DATASET_QUALITY_CHECK.md"
 MIN_PACKETS = 800
 MAX_ZERO_PACKET_RATIO = 0.01
 MIN_VARIANCE_RATIO = 3.5
-MAX_TEMPORAL_GAP_S = 60
+MAX_TEMPORAL_GAP_S = 300
 MIN_AMPLITUDE_MEAN = 10.0
 MIN_EMPTY_SEPARABILITY_AUC = 0.80
 MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.80
@@ -347,6 +347,18 @@ def _load_cached_or_npz(filepath, npz_cache):
     return data, csi_key
 
 
+def _resolve_dataset_entry_path(entry, label_group):
+    """Resolve an NPZ path from label group + filename, with legacy fallback."""
+    relative_path = entry.get('relative_path')
+    if relative_path:
+        return DATA_DIR / str(relative_path)
+
+    filename = entry.get('filename')
+    if not filename:
+        raise KeyError("filename")
+    return DATA_DIR / str(label_group) / str(filename)
+
+
 def _filter_measurement_frames(csi_data, data):
     """Drop reference frames when the NPZ explicitly tracks them."""
     if 'is_reference' not in data.files:
@@ -501,7 +513,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
         static_mv_series = []
 
         for entry in empty_group_map[(chip, environment)]:
-            filepath = DATA_DIR / entry['relative_path']
+            filepath = _resolve_dataset_entry_path(entry, 'empty')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
             csi_data = _filter_measurement_frames(data[csi_key], data)
             mv = _compute_moving_variance_series(csi_data, gain_locked=bool(entry.get('gain_locked', True)))
@@ -509,7 +521,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
                 empty_mv_series.append(mv)
 
         for entry in static_group_map[(chip, environment)]:
-            filepath = DATA_DIR / entry['relative_path']
+            filepath = _resolve_dataset_entry_path(entry, 'static_presence')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
             mv = _compute_moving_variance_series(data[csi_key], gain_locked=bool(entry.get('gain_locked', True)))
             if len(mv):

@@ -23,6 +23,8 @@ typedef void (*esp_event_handler_t)(void *event_handler_arg,
 // Event handler instance
 typedef void *esp_event_handler_instance_t;
 
+#define ESP_EVENT_ANY_ID -1
+
 // WiFi events
 #define WIFI_EVENT "WIFI_EVENT"
 
@@ -140,7 +142,7 @@ esp_event_handler_instance_unregister(esp_event_base_t event_base,
         (slot->event_base == event_base) ||
         (slot->event_base != NULL && event_base != NULL &&
          strcmp(slot->event_base, event_base) == 0);
-    if (same_base && slot->event_id == event_id) {
+    if (same_base && (slot->event_id == event_id || slot->event_id == ESP_EVENT_ANY_ID)) {
       slot->active = 0;
     }
   }

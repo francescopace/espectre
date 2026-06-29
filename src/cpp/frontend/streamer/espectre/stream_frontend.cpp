@@ -19,9 +19,7 @@
 #include "stimulus_protocol.h"
 #include "utils.h"
 #include "esp_attr.h"
-#include "esp_event.h"
 #include "esp_mac.h"
-#include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -80,23 +78,6 @@ bool check_esp(esp_err_t err, const char *what) {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "%s failed: %s", what, esp_err_to_name(err));
     return false;
-  }
-  return true;
-}
-
-bool parse_bssid(const char *text, uint8_t out[6]) {
-  if (text == nullptr || out == nullptr || text[0] == '\0') {
-    return false;
-  }
-
-  unsigned int bytes[6] = {0U, 0U, 0U, 0U, 0U, 0U};
-  if (std::sscanf(text, "%2x:%2x:%2x:%2x:%2x:%2x", &bytes[0], &bytes[1], &bytes[2], &bytes[3], &bytes[4],
-                  &bytes[5]) != 6) {
-    return false;
-  }
-
-  for (size_t i = 0; i < 6; i++) {
-    out[i] = static_cast<uint8_t>(bytes[i]);
   }
   return true;
 }
@@ -350,11 +331,7 @@ void StreamFrontend::shutdown() {
 
   stop_capture_();
   stimulus_service_.stop();
-  wifi_lifecycle_.unregister_handlers();
-  if (wifi_event_instance_ != nullptr) {
-    esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_instance_);
-    wifi_event_instance_ = nullptr;
-  }
+  wifi_manager_.shutdown();
   udp_sender_.shutdown();
   setup_complete_ = false;
 }
@@ -373,64 +350,23 @@ bool StreamFrontend::init_nvs_() {
 }
 
 bool StreamFrontend::init_wifi_station_() {
-  if (!check_esp(esp_netif_init(), "esp_netif_init")) {
+  constexpr int kConfiguredWifiChannel = CONFIG_ESPECTRE_WIFI_CHANNEL;
+  static_assert(kConfiguredWifiChannel >= 0 && kConfiguredWifiChannel <= 14, "invalid Wi-Fi channel");
+  StandaloneWifiConfig wifi_config;
+  wifi_config.ssid = CONFIG_ESPECTRE_WIFI_SSID;
+  wifi_config.password = CONFIG_ESPECTRE_WIFI_PASSWORD;
+  wifi_config.bssid = CONFIG_ESPECTRE_WIFI_BSSID;
+  wifi_config.channel = static_cast<uint8_t>(kConfiguredWifiChannel);
+  wifi_config.max_retry = kWifiConnectMaxRetry;
+  wifi_config.manage_csi_lifecycle = true;
+
+  if (!check_esp(wifi_manager_.setup(wifi_config,
+                                     [this]() { on_wifi_connected_(); },
+                                     [this]() { on_wifi_disconnected_(); }),
+                 "wifi_manager_.setup")) {
     return false;
   }
-  const esp_err_t loop_err = esp_event_loop_create_default();
-  if (loop_err != ESP_OK && loop_err != ESP_ERR_INVALID_STATE) {
-    return check_esp(loop_err, "esp_event_loop_create_default");
-  }
-  if (esp_netif_create_default_wifi_sta() == nullptr) {
-    ESP_LOGE(TAG, "esp_netif_create_default_wifi_sta failed");
-    return false;
-  }
-
-  wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT();
-  if (!check_esp(esp_wifi_init(&wifi_cfg), "esp_wifi_init") ||
-      !check_esp(esp_wifi_set_storage(WIFI_STORAGE_RAM), "esp_wifi_set_storage") ||
-      !check_esp(esp_wifi_set_mode(WIFI_MODE_STA), "esp_wifi_set_mode") ||
-      !check_esp(esp_wifi_set_ps(WIFI_PS_MIN_MODEM), "esp_wifi_set_ps")) {
-    return false;
-  }
-
-  if (wifi_lifecycle_.init() != ESP_OK ||
-      wifi_lifecycle_.register_handlers([this]() { on_wifi_connected_(); },
-                                        [this]() { on_wifi_disconnected_(); }) != ESP_OK) {
-    return false;
-  }
-
-  if (!check_esp(esp_event_handler_instance_register(WIFI_EVENT,
-                                                     ESP_EVENT_ANY_ID,
-                                                     &StreamFrontend::wifi_event_handler_,
-                                                     this,
-                                                     &wifi_event_instance_),
-                 "esp_event_handler_instance_register(WIFI_EVENT)")) {
-    return false;
-  }
-
-  wifi_config_t sta_cfg{};
-  std::snprintf(reinterpret_cast<char *>(sta_cfg.sta.ssid), sizeof(sta_cfg.sta.ssid), "%s", CONFIG_ESPECTRE_WIFI_SSID);
-  std::snprintf(reinterpret_cast<char *>(sta_cfg.sta.password), sizeof(sta_cfg.sta.password), "%s",
-                CONFIG_ESPECTRE_WIFI_PASSWORD);
-  sta_cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
-  sta_cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
-  sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
-  sta_cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
-  sta_cfg.sta.pmf_cfg.capable = true;
-  sta_cfg.sta.pmf_cfg.required = false;
-
-  if (CONFIG_ESPECTRE_WIFI_BSSID[0] != '\0') {
-    if (!parse_bssid(CONFIG_ESPECTRE_WIFI_BSSID, sta_cfg.sta.bssid)) {
-      ESP_LOGE(TAG, "Invalid BSSID format: %s", CONFIG_ESPECTRE_WIFI_BSSID);
-      return false;
-    }
-    sta_cfg.sta.bssid_set = true;
-  }
-
-  if (!check_esp(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg), "esp_wifi_set_config")) {
-    return false;
-  }
-  return check_esp(esp_wifi_start(), "esp_wifi_start");
+  return check_esp(wifi_manager_.start(), "wifi_manager_.start");
 }
 
 bool StreamFrontend::start_capture_() {
@@ -451,7 +387,6 @@ void StreamFrontend::stop_capture_() {
 
 void StreamFrontend::on_wifi_connected_() {
   wifi_connected_.store(true, std::memory_order_relaxed);
-  wifi_retry_count_ = 0;
   collector_ip_addr_ = 0U;
   gain_lock_complete_.store(false, std::memory_order_relaxed);
   sockaddr_in collector_addr{};
@@ -690,30 +625,6 @@ void StreamFrontend::log_runtime_telemetry_() {
   prev_parse_fail = stimulus_parse_fail_total_;
   prev_ms = now_ms;
   last_log_ms_ = now_ms;
-}
-
-void StreamFrontend::wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
-  StreamFrontend *frontend = static_cast<StreamFrontend *>(arg);
-  if (frontend == nullptr || event_base != WIFI_EVENT) {
-    return;
-  }
-
-  if (event_id == WIFI_EVENT_STA_START) {
-    (void)esp_wifi_connect();
-    return;
-  }
-
-  if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-    const auto *event = static_cast<const wifi_event_sta_disconnected_t *>(event_data);
-    ESP_LOGW(TAG, "Wi-Fi disconnected: reason=%u", event != nullptr ? static_cast<unsigned>(event->reason) : 0U);
-    if (frontend->wifi_retry_count_ < kWifiConnectMaxRetry) {
-      frontend->wifi_retry_count_++;
-      (void)esp_wifi_connect();
-    }
-    return;
-  }
-
-  (void)event_data;
 }
 
 }  // namespace espectre

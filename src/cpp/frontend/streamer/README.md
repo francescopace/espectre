@@ -42,6 +42,10 @@ That is intentional:
 - the firmware needs a compact packet-oriented streaming path
 - the state machine is streamer-specific (`WAIT_WIFI` -> `STREAMING`)
 
+The standalone Wi-Fi setup path is shared with the other ESP-IDF standalone
+firmware targets through `StandaloneWifiManager`; only the CSI capture and UDP
+streaming workflow is streamer-specific.
+
 ## Directory Layout
 
 - [`espectre/stream_frontend.cpp`](espectre/stream_frontend.cpp),
@@ -133,6 +137,7 @@ Typical local override file:
 CONFIG_ESPECTRE_WIFI_SSID="YourSSID"
 CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
 # CONFIG_ESPECTRE_WIFI_BSSID is not set
+# CONFIG_ESPECTRE_WIFI_CHANNEL is not set
 ```
 
 Recommended workflow for local Wi-Fi configuration:
@@ -141,7 +146,9 @@ Recommended workflow for local Wi-Fi configuration:
 2. set `CONFIG_ESPECTRE_WIFI_SSID` and `CONFIG_ESPECTRE_WIFI_PASSWORD`
 3. leave `CONFIG_ESPECTRE_WIFI_BSSID` unset unless you intentionally want to
    pin the streamer to a specific AP radio
-4. build via `./espectre streamer build --chip c3`, which automatically passes
+4. leave `CONFIG_ESPECTRE_WIFI_CHANNEL` unless you intentionally want to
+   pin the streamer to a specific AP channel
+5. build via `./espectre streamer build --chip <esp32|c3|c5|c6|s3>`, which automatically passes
    `sdkconfig.defaults;sdkconfig.wifi` to `idf.py`
 
 Example local file:
@@ -150,6 +157,7 @@ Example local file:
 CONFIG_ESPECTRE_WIFI_SSID="YourSSID"
 CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
 # CONFIG_ESPECTRE_WIFI_BSSID is not set
+CONFIG_ESPECTRE_WIFI_CHANNEL=0
 ```
 
 Notes:
@@ -159,7 +167,10 @@ Notes:
 - keep `CONFIG_ESPECTRE_WIFI_BSSID` unset for normal use; the streamer will
   scan all channels and connect to the strongest matching AP
 - set `CONFIG_ESPECTRE_WIFI_BSSID="aa:bb:cc:dd:ee:ff"` only when you need to
-  force a specific AP radio for repeatable RF tests
+  force a specific AP radio for repeatable RF tests; this also enables fast
+  scan instead of the default full scan
+- set `CONFIG_ESPECTRE_WIFI_CHANNEL=<1-14>` together with BSSID when you want
+  deterministic BSSID+channel association for CSI captures
 - if you change `sdkconfig.defaults`, `sdkconfig.wifi`, or the frontend Kconfig
   surface and the generated `sdkconfig` appears stale, remove
   `src/cpp/frontend/streamer/app/sdkconfig` and `sdkconfig.old` before
@@ -172,6 +183,7 @@ Key knobs in the frontend surface:
 - `ESPECTRE_WIFI_SSID`
 - `ESPECTRE_WIFI_PASSWORD`
 - `ESPECTRE_WIFI_BSSID`
+- `ESPECTRE_WIFI_CHANNEL`
 - `ESPECTRE_STREAM_OUTPUT_ENABLED`
 - `ESPECTRE_COLLECTOR_PORT`
 - `ESPECTRE_TRAFFIC_RX_PORT`
@@ -230,9 +242,9 @@ not generate them on its own and does not reinterpret their meaning.
 Repository CLI:
 
 ```bash
-./espectre streamer build --chip c3
-./espectre streamer flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre streamer build --chip s3
+./espectre streamer flash --chip s3 --port /dev/cu.usbmodemXXXX
+./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX
 ```
 
 When `app/sdkconfig.wifi` exists, the repository CLI automatically passes
@@ -246,8 +258,8 @@ idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" set-target esp32
 idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
 ```
 
-Current repository CLI target coverage for the streamer frontend is intentionally
-minimal and currently centered on `ESP32-C3`.
+Current repository CLI target coverage for the streamer frontend includes
+`ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, and `ESP32-S3`.
 
 ## Observed ESP32-C3 Throughput
 

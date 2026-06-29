@@ -34,9 +34,9 @@ Use these global docs for those topics:
 
 - [`espectre/matter_frontend.cpp`](espectre/matter_frontend.cpp),
   [`espectre/matter_frontend.h`](espectre/matter_frontend.h):
-  frontend adapter over `IEspectreRuntime`
+  frontend adapter over the shared runtime frontend controller
 - [`espectre/matter_surface.h`](espectre/matter_surface.h):
-  cluster and attribute IDs, threshold bounds, and mapping helpers
+  cluster and attribute IDs plus Matter mapping helpers
 - [`espectre/matter_bindings.h`](espectre/matter_bindings.h):
   boundary between the adapter and the Matter transport layer
 - [`app/`](app/):
@@ -127,6 +127,7 @@ The Matter frontend keeps ownership boundaries explicit:
 - the Matter stack starts first
 - the shared ESPectre runtime is initialized after `esp_matter::start()`
 - Wi-Fi ownership remains with `esp-matter`
+- the app-level Wi-Fi hook applies the shared CSI Wi-Fi policy when STA mode starts
 - the reused runtime layers CSI configuration on top of the initialized station
   stack
 

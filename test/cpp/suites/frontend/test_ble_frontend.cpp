@@ -115,7 +115,7 @@ void test_ble_frontend_control_commands_validate_and_update_runtime(void) {
   bindings.emit_control("SET_THRESHOLD:4.25");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL_FLOAT(4.25f, frontend_runtime_shim::state.last_threshold);
-  TEST_ASSERT_TRUE(frontend.runtime_config_.threshold_mode == ThresholdMode::MANUAL);
+  TEST_ASSERT_TRUE(frontend.runtime_.config().threshold_mode == ThresholdMode::MANUAL);
 }
 
 void test_ble_frontend_telemetry_is_throttled_and_encoded_as_two_floats(void) {
@@ -155,7 +155,7 @@ void test_ble_frontend_threshold_and_calibration_callbacks_publish_sysinfo(void)
   RuntimeSnapshot snapshot = make_ready_snapshot();
   snapshot.threshold = 4.5f;
   frontend.on_threshold_changed(snapshot);
-  TEST_ASSERT_EQUAL_FLOAT(4.5f, frontend.runtime_config_.segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(4.5f, frontend.runtime_.config().segmentation_threshold);
   TEST_ASSERT_TRUE(!ble_bindings_mock::state.sysinfo_lines.empty());
 
   ble_bindings_mock::state.sysinfo_lines.clear();
