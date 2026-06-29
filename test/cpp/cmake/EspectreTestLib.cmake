@@ -52,11 +52,15 @@ target_link_libraries(espectre_core_testlib
 )
 
 add_library(espectre_runtime_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/gain_controller.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"

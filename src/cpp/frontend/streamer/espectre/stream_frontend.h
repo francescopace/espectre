@@ -14,8 +14,8 @@
 
 #include "csi_capture_service.h"
 #include "csi_udp_sender.h"
+#include "standalone_wifi_manager.h"
 #include "stimulus_service.h"
-#include "wifi_lifecycle.h"
 
 namespace esphome {
 namespace espectre {
@@ -36,8 +36,6 @@ class StreamFrontend {
   ~StreamFrontend();
 
  private:
-  static void wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
-
   bool init_nvs_();
   bool init_wifi_station_();
   bool start_capture_();
@@ -48,12 +46,12 @@ class StreamFrontend {
   void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
   void transition_to_(WorkflowState next, const char *reason);
   void log_runtime_telemetry_();
+  void reset_runtime_telemetry_baseline_();
 
-  WiFiLifecycleManager wifi_lifecycle_;
   CsiCaptureService capture_service_;
   StimulusService stimulus_service_;
   CsiUdpSender udp_sender_;
-  esp_event_handler_instance_t wifi_event_instance_{nullptr};
+  StandaloneWifiManager wifi_manager_;
   bool setup_complete_{false};
   std::atomic<bool> wifi_connected_{false};
   std::atomic<bool> gain_lock_complete_{false};
@@ -71,10 +69,18 @@ class StreamFrontend {
   uint64_t stimulus_parse_fail_total_{0U};
   uint64_t filtered_total_{0U};
   uint64_t last_log_ms_{0U};
-  int wifi_retry_count_{0};
   uint32_t collector_ip_addr_{0U};
   uint16_t last_csi_len_{0U};
   uint16_t last_csi_payload_len_{0U};
+  uint64_t prev_csi_callback_total_{0U};
+  uint64_t prev_stimulus_valid_total_{0U};
+  uint64_t prev_traffic_rx_total_{0U};
+  uint64_t prev_tx_total_{0U};
+  uint64_t prev_drop_total_{0U};
+  uint64_t prev_fail_total_{0U};
+  uint64_t prev_parse_fail_total_{0U};
+  uint64_t prev_log_sample_ms_{0U};
+  bool stream_active_last_tick_{true};
 };
 
 }  // namespace espectre

@@ -128,7 +128,7 @@ void test_matter_frontend_handle_threshold_write_updates_runtime(void) {
   TEST_ASSERT_TRUE(frontend.handle_threshold_write(6.0f));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL_FLOAT(6.0f, frontend_runtime_shim::state.last_threshold);
-  TEST_ASSERT_TRUE(frontend.runtime_config_.threshold_mode == ThresholdMode::MANUAL);
+  TEST_ASSERT_TRUE(frontend.runtime_.config().threshold_mode == ThresholdMode::MANUAL);
   TEST_ASSERT_FALSE(frontend.handle_threshold_write(11.0f));
 }
 
@@ -140,8 +140,11 @@ void test_matter_frontend_handle_recalibrate_respects_capabilities(void) {
   TEST_ASSERT_TRUE(frontend.handle_recalibrate_request());
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.trigger_recalibration_calls);
 
-  frontend.runtime_capabilities_.supports_manual_recalibration = false;
-  TEST_ASSERT_FALSE(frontend.handle_recalibrate_request());
+  frontend_runtime_shim::reset();
+  frontend_runtime_shim::state.capabilities.supports_manual_recalibration = false;
+  MatterFrontend unsupported_frontend(&bindings, 6);
+  TEST_ASSERT_TRUE(unsupported_frontend.setup());
+  TEST_ASSERT_FALSE(unsupported_frontend.handle_recalibrate_request());
 }
 
 void test_matter_frontend_runtime_fault_is_reported(void) {

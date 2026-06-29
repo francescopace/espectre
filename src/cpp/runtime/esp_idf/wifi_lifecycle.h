@@ -41,6 +41,15 @@ class WiFiLifecycleManager {
    * @return ESP_OK on success
    */
   esp_err_t init();
+
+  /**
+   * Re-apply the CSI Wi-Fi policy once the STA interface is started.
+   *
+   * Some ESP-IDF targets reject band/protocol changes before esp_wifi_start().
+   * Calling this from WIFI_EVENT_STA_START ensures the first association uses
+   * the HT20/11n policy instead of the target's HE/11ax default.
+   */
+  static esp_err_t apply_csi_wifi_policy();
   
   /**
    * Register WiFi event handlers

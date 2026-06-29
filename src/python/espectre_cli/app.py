@@ -129,7 +129,7 @@ Examples:
   ./espectre esphome build --chip c3 --dev
   ./espectre ble build --chip c3
   ./espectre matter build --chip c3
-  ./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX
+  ./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX
 """,
     )
     subparsers = parser.add_subparsers(dest="namespace", help="Available namespaces")

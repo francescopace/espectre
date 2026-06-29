@@ -23,6 +23,13 @@ typedef struct {
 } esp_netif_ip_info_t;
 
 // Mock functions
+static inline esp_err_t esp_netif_init(void) { return ESP_OK; }
+
+static inline esp_netif_t *esp_netif_create_default_wifi_sta(void) {
+  static esp_netif_t dummy_netif = (esp_netif_t)0x2;
+  return &dummy_netif;
+}
+
 static inline esp_netif_t *esp_netif_get_handle_from_ifkey(const char *ifkey) {
   (void)ifkey;
   // Return a non-null pointer for testing
@@ -51,4 +58,3 @@ static inline int esp_netif_get_netif_impl_index(esp_netif_t *netif) {
 #endif
 
 #endif // ESP_NETIF_H
-

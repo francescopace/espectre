@@ -30,9 +30,6 @@ constexpr uint32_t ESPECTRE_MATTER_ATTR_BEST_PXX = 0x0004;
 constexpr uint32_t ESPECTRE_MATTER_ATTR_GAIN_LOCKED = 0x0005;
 constexpr uint32_t ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE = 0x0006;
 
-constexpr float ESPECTRE_MATTER_THRESHOLD_MIN = 0.0f;
-constexpr float ESPECTRE_MATTER_THRESHOLD_MAX = 10.0f;
-
 struct MatterPeriodicState {
   float movement_metric{0.0f};
   float threshold{SEGMENTATION_DEFAULT_THRESHOLD};

@@ -18,6 +18,7 @@ namespace esphome {
 namespace espectre {
 
 static const char *UDP_LISTENER_TAG = "UDPListener";
+static constexpr uint16_t UDP_LISTENER_MAX_PACKETS_PER_LOOP = 32;
 
 void UDPListener::init(uint16_t port) {
   port_ = port;
@@ -150,7 +151,7 @@ void UDPListener::loop() {
   struct sockaddr_in src_addr;
   
   // Drain all pending packets (non-blocking)
-  while (true) {
+  for (uint16_t drained = 0; drained < UDP_LISTENER_MAX_PACKETS_PER_LOOP; drained++) {
     socklen_t addr_len = sizeof(src_addr);
     ssize_t len = recvfrom(sock_, buf, sizeof(buf), 0, 
                            (struct sockaddr *)&src_addr, &addr_len);
@@ -177,4 +178,3 @@ void UDPListener::loop() {
 
 }  // namespace espectre
 }  // namespace esphome
-

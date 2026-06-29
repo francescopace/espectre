@@ -8,8 +8,8 @@
 
 **Privacy-first Wi-Fi sensing platform based on CSI, with native Home Assistant and Matter integration.**
 
-> [!TIP]
-> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or use the browser-based [web flasher](https://espectre.dev/flash/).
+> [!IMPORTANT]
+> **Upstream milestone**: the ESP32 Wi-Fi CSI support used by the Micro-ESPectre workflow was contributed upstream and merged into [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460) for the `1.29.0` release cycle. Announcement is available in [Discussion #142](https://github.com/francescopace/espectre/discussions/142).
 
 ---
 
@@ -520,6 +520,9 @@ The ML data collection and training infrastructure is documented in [ML_DATA_COL
 ## Acknowledgments
 
 ESPectre leverages the native Wi-Fi CSI capabilities of ESP32 chips. Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in the ESP-IDF framework and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in their [esp-csi](https://github.com/espressif/esp-csi) repository.
+
+Micro-ESPectre is built on MicroPython-based firmware.
+Thanks to the MicroPython maintainers for reviewing, testing, and merging the upstream ESP32 CSI support into `micropython/micropython` via [PR #18460](https://github.com/micropython/micropython/pull/18460).
 
 Thanks also to the TOMMY team for the constructive and supportive public discussion around Wi-Fi sensing approaches, including their [TOMMY vs ESPectre](https://www.tommysense.com/docs/comparisons/espectre-comparison) comparison page.
 

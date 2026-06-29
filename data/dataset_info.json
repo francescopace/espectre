@@ -1,7 +1,7 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-06-14T23:24:06.368794",
+  "updated_at": "2026-06-23T17:59:47.267398",
   "labels": {
     "empty": {
       "description": "Quiet room, no human present"
@@ -19,121 +19,52 @@
   "files": {
     "empty": [
       {
-        "filename": "empty_c3_64sc_20260607_160243_db64.npz",
+        "filename": "empty_c3_64sc_20260623_160825.npz",
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-06-07T16:02:43.187073",
-        "duration_ms": 59985,
-        "num_packets": 5975,
+        "collected_at": "2026-06-23T16:08:25.117935",
+        "duration_ms": 9999,
+        "num_packets": 1054,
         "gain_locked": true,
-        "description": "HT20 empty, AGC gain locked (converted from sdk multi-device session, includes measurement and reference frames)",
-        "relative_path": "empty/empty_c3_64sc_20260607_160243_db64.npz",
-        "environment": "bedroom"
+        "environment": "bedroom",
+        "description": "HT20 empty, AGC gain locked"
       },
       {
-        "filename": "empty_c3_64sc_20260607_160243_e708.npz",
+        "filename": "empty_c3_64sc_20260623_160839.npz",
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-06-07T16:02:43.189266",
-        "duration_ms": 59983,
-        "num_packets": 5967,
+        "collected_at": "2026-06-23T16:08:39.419854",
+        "duration_ms": 9990,
+        "num_packets": 1053,
         "gain_locked": true,
-        "description": "HT20 empty, AGC gain locked (converted from sdk multi-device session, includes measurement and reference frames)",
-        "relative_path": "empty/empty_c3_64sc_20260607_160243_e708.npz",
-        "environment": "bedroom"
+        "environment": "bedroom",
+        "description": "HT20 empty, AGC gain locked"
       },
       {
-        "filename": "empty_c3_64sc_20260607_160243_d194.npz",
-        "chip": "C3",
+        "filename": "empty_s3_64sc_20260623_175932.npz",
+        "chip": "S3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-06-07T16:02:43.200480",
-        "duration_ms": 59992,
-        "num_packets": 5970,
+        "collected_at": "2026-06-23T17:59:32.874918",
+        "duration_ms": 9996,
+        "num_packets": 1003,
         "gain_locked": true,
-        "description": "HT20 empty, AGC gain locked (converted from sdk multi-device session, includes measurement and reference frames)",
-        "relative_path": "empty/empty_c3_64sc_20260607_160243_d194.npz",
-        "environment": "bedroom"
+        "environment": "bedroom",
+        "description": "HT20 empty, AGC gain locked"
       },
       {
-        "filename": "empty_c3_64sc_20260607_160343_d194.npz",
-        "chip": "C3",
+        "filename": "empty_s3_64sc_20260623_175947.npz",
+        "chip": "S3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-06-07T16:03:43.302195",
-        "duration_ms": 59990,
-        "num_packets": 5943,
+        "collected_at": "2026-06-23T17:59:47.246117",
+        "duration_ms": 10009,
+        "num_packets": 1002,
         "gain_locked": true,
-        "description": "HT20 empty, AGC gain locked (converted from sdk multi-device session, includes measurement and reference frames)",
-        "relative_path": "empty/empty_c3_64sc_20260607_160343_d194.npz",
-        "environment": "bedroom"
-      },
-      {
-        "filename": "empty_c3_64sc_20260607_160343_db64.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-06-07T16:03:43.303417",
-        "duration_ms": 59996,
-        "num_packets": 5953,
-        "gain_locked": true,
-        "description": "HT20 empty, AGC gain locked (converted from sdk multi-device session, includes measurement and reference frames)",
-        "relative_path": "empty/empty_c3_64sc_20260607_160343_db64.npz",
-        "environment": "bedroom"
-      },
-      {
-        "filename": "empty_c3_64sc_20260607_160343_e708.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-06-07T16:03:43.306192",
-        "duration_ms": 59978,
-        "num_packets": 5934,
-        "gain_locked": true,
-        "description": "HT20 empty, AGC gain locked (converted from sdk multi-device session, includes measurement and reference frames)",
-        "relative_path": "empty/empty_c3_64sc_20260607_160343_e708.npz",
-        "environment": "bedroom"
-      },
-      {
-        "filename": "empty_c3_64sc_20260607_160443_e708.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-06-07T16:04:43.394205",
-        "duration_ms": 59993,
-        "num_packets": 5940,
-        "gain_locked": true,
-        "description": "HT20 empty, AGC gain locked (converted from sdk multi-device session, includes measurement and reference frames)",
-        "relative_path": "empty/empty_c3_64sc_20260607_160443_e708.npz",
-        "environment": "bedroom"
-      },
-      {
-        "filename": "empty_c3_64sc_20260607_160443_db64.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-06-07T16:04:43.406211",
-        "duration_ms": 59982,
-        "num_packets": 5953,
-        "gain_locked": true,
-        "description": "HT20 empty, AGC gain locked (converted from sdk multi-device session, includes measurement and reference frames)",
-        "relative_path": "empty/empty_c3_64sc_20260607_160443_db64.npz",
-        "environment": "bedroom"
-      },
-      {
-        "filename": "empty_c3_64sc_20260607_160443_d194.npz",
-        "chip": "C3",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-06-07T16:04:43.407652",
-        "duration_ms": 59974,
-        "num_packets": 5942,
-        "gain_locked": true,
-        "description": "HT20 empty, AGC gain locked (converted from sdk multi-device session, includes measurement and reference frames)",
-        "relative_path": "empty/empty_c3_64sc_20260607_160443_d194.npz",
-        "environment": "bedroom"
+        "environment": "bedroom",
+        "description": "HT20 empty, AGC gain locked"
       }
     ],
     "static_presence": [
@@ -147,7 +78,6 @@
         "num_packets": 1353,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_s3_64sc_20260117_222606.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_s3_64sc_20260117_222626.npz"
       },
@@ -161,7 +91,6 @@
         "num_packets": 961,
         "gain_locked": false,
         "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)",
-        "relative_path": "static_presence/static_presence_esp32_64sc_20260214_183059.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_esp32_64sc_20260214_183141.npz"
       },
@@ -175,7 +104,6 @@
         "num_packets": 1351,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c6_64sc_20260310_230414.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_c6_64sc_20260310_230434.npz"
       },
@@ -189,7 +117,6 @@
         "num_packets": 1120,
         "gain_locked": false,
         "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)",
-        "relative_path": "static_presence/static_presence_esp32_64sc_20260310_232100.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_esp32_64sc_20260310_232137.npz"
       },
@@ -203,7 +130,6 @@
         "num_packets": 1304,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c5_64sc_20260310_233856.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_c5_64sc_20260310_233928.npz"
       },
@@ -217,7 +143,6 @@
         "num_packets": 1346,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c6_64sc_20260310_234819.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_c6_64sc_20260310_234839.npz"
       },
@@ -231,7 +156,6 @@
         "num_packets": 1006,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c5_64sc_20260329_124440.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_c5_64sc_20260329_124504.npz"
       },
@@ -245,7 +169,6 @@
         "num_packets": 1005,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_s3_64sc_20260329_125557.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_s3_64sc_20260329_125616.npz"
       },
@@ -259,7 +182,6 @@
         "num_packets": 1017,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c3_64sc_20260329_130303.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_c3_64sc_20260329_130321.npz"
       },
@@ -273,7 +195,6 @@
         "num_packets": 1006,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c3_64sc_20260329_130411.npz",
         "environment": "bedroom",
         "optimal_pair_motion_file": "motion_c3_64sc_20260329_130429.npz"
       },
@@ -287,7 +208,6 @@
         "num_packets": 1046,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c3_64sc_20260503_120837.npz",
         "environment": "living_room",
         "optimal_pair_motion_file": "motion_c3_64sc_20260503_120856.npz"
       },
@@ -301,7 +221,6 @@
         "num_packets": 1029,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c6_64sc_20260503_121755.npz",
         "environment": "living_room",
         "optimal_pair_motion_file": "motion_c6_64sc_20260503_121812.npz"
       },
@@ -315,7 +234,6 @@
         "num_packets": 1001,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_s3_64sc_20260503_122221.npz",
         "environment": "living_room",
         "optimal_pair_motion_file": "motion_s3_64sc_20260503_122250.npz"
       },
@@ -329,7 +247,6 @@
         "num_packets": 1037,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c5_64sc_20260503_122543.npz",
         "environment": "living_room",
         "optimal_pair_motion_file": "motion_c5_64sc_20260503_122602.npz"
       },
@@ -343,7 +260,6 @@
         "num_packets": 1093,
         "gain_locked": false,
         "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)",
-        "relative_path": "static_presence/static_presence_esp32_64sc_20260503_123427.npz",
         "environment": "living_room",
         "optimal_pair_motion_file": "motion_esp32_64sc_20260503_123451.npz"
       },
@@ -357,7 +273,6 @@
         "num_packets": 1025,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c3_64sc_20260503_131521.npz",
         "environment": "hobby_room",
         "optimal_pair_motion_file": "motion_c3_64sc_20260503_131538.npz"
       },
@@ -371,7 +286,6 @@
         "num_packets": 1029,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c6_64sc_20260503_131805.npz",
         "environment": "hobby_room",
         "optimal_pair_motion_file": "motion_c6_64sc_20260503_131826.npz"
       },
@@ -385,7 +299,6 @@
         "num_packets": 1001,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_s3_64sc_20260503_132012.npz",
         "environment": "hobby_room",
         "optimal_pair_motion_file": "motion_s3_64sc_20260503_132053.npz"
       },
@@ -399,7 +312,6 @@
         "num_packets": 1003,
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c5_64sc_20260503_132216.npz",
         "environment": "hobby_room",
         "optimal_pair_motion_file": "motion_c5_64sc_20260503_132236.npz"
       },
@@ -413,22 +325,34 @@
         "num_packets": 985,
         "gain_locked": false,
         "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)",
-        "relative_path": "static_presence/static_presence_esp32_64sc_20260503_132351.npz",
         "environment": "hobby_room",
         "optimal_pair_motion_file": "motion_esp32_64sc_20260503_132411.npz"
       },
       {
-        "filename": "static_presence_c3_64sc_20260614_192738.npz",
+        "filename": "static_presence_c3_64sc_20260623_171556.npz",
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-06-14T19:27:38.990824",
-        "duration_ms": 9992,
-        "num_packets": 1023,
+        "collected_at": "2026-06-23T17:15:56.781685",
+        "duration_ms": 10002,
+        "num_packets": 1049,
         "gain_locked": true,
-        "description": "HT20 static presence, AGC gain locked",
-        "relative_path": "static_presence/static_presence_c3_64sc_20260614_192738.npz",
-        "optimal_pair_motion_file": "motion_c3_64sc_20260614_193220.npz"
+        "description": "HT20 static_presence, AGC gain locked",
+        "environment": "bedroom",
+        "optimal_pair_motion_file": "motion_c3_64sc_20260623_171629.npz"
+      },
+      {
+        "filename": "static_presence_s3_64sc_20260623_173036.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-06-23T17:30:36.199980",
+        "duration_ms": 10000,
+        "num_packets": 1001,
+        "gain_locked": true,
+        "environment": "bedroom",
+        "description": "HT20 static_presence, AGC gain locked",
+        "optimal_pair_motion_file": "motion_s3_64sc_20260623_173116.npz"
       }
     ],
     "motion": [
@@ -442,7 +366,6 @@
         "num_packets": 1366,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_s3_64sc_20260117_222626.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260117_222606.npz"
       },
@@ -456,7 +379,6 @@
         "num_packets": 1103,
         "gain_locked": false,
         "description": "HT20 motion, no gain lock (ESP32 lacks AGC lock support)",
-        "relative_path": "motion/motion_esp32_64sc_20260214_183141.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260214_183059.npz"
       },
@@ -470,7 +392,6 @@
         "num_packets": 1432,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c6_64sc_20260310_230434.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260310_230414.npz"
       },
@@ -484,7 +405,6 @@
         "num_packets": 1086,
         "gain_locked": false,
         "description": "HT20 motion, no gain lock (ESP32 lacks AGC lock support)",
-        "relative_path": "motion/motion_esp32_64sc_20260310_232137.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260310_232100.npz"
       },
@@ -498,7 +418,6 @@
         "num_packets": 1306,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c5_64sc_20260310_233928.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260310_233856.npz"
       },
@@ -512,7 +431,6 @@
         "num_packets": 1347,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c6_64sc_20260310_234839.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260310_234819.npz"
       },
@@ -526,7 +444,6 @@
         "num_packets": 1006,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c5_64sc_20260329_124504.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260329_124440.npz"
       },
@@ -540,7 +457,6 @@
         "num_packets": 1004,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_s3_64sc_20260329_125616.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260329_125557.npz"
       },
@@ -554,7 +470,6 @@
         "num_packets": 1020,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c3_64sc_20260329_130321.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260329_130303.npz"
       },
@@ -568,7 +483,6 @@
         "num_packets": 1006,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c3_64sc_20260329_130429.npz",
         "environment": "bedroom",
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260329_130411.npz"
       },
@@ -582,7 +496,6 @@
         "num_packets": 1039,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c3_64sc_20260503_120856.npz",
         "environment": "living_room",
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260503_120837.npz"
       },
@@ -596,7 +509,6 @@
         "num_packets": 1054,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c6_64sc_20260503_121812.npz",
         "environment": "living_room",
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260503_121755.npz"
       },
@@ -610,7 +522,6 @@
         "num_packets": 1005,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_s3_64sc_20260503_122250.npz",
         "environment": "living_room",
         "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260503_122221.npz"
       },
@@ -624,7 +535,6 @@
         "num_packets": 1022,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c5_64sc_20260503_122602.npz",
         "environment": "living_room",
         "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260503_122543.npz"
       },
@@ -638,7 +548,6 @@
         "num_packets": 1028,
         "gain_locked": false,
         "description": "HT20 motion, no gain lock (ESP32 lacks AGC lock support)",
-        "relative_path": "motion/motion_esp32_64sc_20260503_123451.npz",
         "environment": "living_room",
         "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260503_123427.npz"
       },
@@ -652,7 +561,6 @@
         "num_packets": 1011,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c3_64sc_20260503_131538.npz",
         "environment": "hobby_room",
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260503_131521.npz"
       },
@@ -666,7 +574,6 @@
         "num_packets": 1057,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c6_64sc_20260503_131826.npz",
         "environment": "hobby_room",
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260503_131805.npz"
       },
@@ -680,7 +587,6 @@
         "num_packets": 1000,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_s3_64sc_20260503_132053.npz",
         "environment": "hobby_room",
         "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260503_132012.npz"
       },
@@ -694,7 +600,6 @@
         "num_packets": 1002,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c5_64sc_20260503_132236.npz",
         "environment": "hobby_room",
         "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260503_132216.npz"
       },
@@ -708,22 +613,34 @@
         "num_packets": 866,
         "gain_locked": false,
         "description": "HT20 motion, no gain lock (ESP32 lacks AGC lock support)",
-        "relative_path": "motion/motion_esp32_64sc_20260503_132411.npz",
         "environment": "hobby_room",
         "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260503_132351.npz"
       },
       {
-        "filename": "motion_c3_64sc_20260614_193220.npz",
+        "filename": "motion_c3_64sc_20260623_171629.npz",
         "chip": "C3",
         "subcarriers": 64,
         "contributor": "francescopace",
-        "collected_at": "2026-06-14T19:32:20.788906",
-        "duration_ms": 10000,
-        "num_packets": 1014,
+        "collected_at": "2026-06-23T17:16:29.621428",
+        "duration_ms": 9989,
+        "num_packets": 1008,
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
-        "relative_path": "motion/motion_c3_64sc_20260614_193220.npz",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260614_192738.npz"
+        "environment": "bedroom",
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260623_171556.npz"
+      },
+      {
+        "filename": "motion_s3_64sc_20260623_173116.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-06-23T17:31:16.728943",
+        "duration_ms": 9988,
+        "num_packets": 1000,
+        "gain_locked": true,
+        "environment": "bedroom",
+        "description": "HT20 motion, AGC gain locked",
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260623_173036.npz"
       }
     ],
     "test": [
@@ -737,7 +654,6 @@
         "num_packets": 6068,
         "gain_locked": true,
         "description": "HT20 test, AGC gain locked. Motion starts at packet index 3087 (~30.5 s).",
-        "relative_path": "test/test_c3_64sc_20260329_130804.npz",
         "environment": "bedroom"
       },
       {
@@ -750,7 +666,6 @@
         "num_packets": 6379,
         "gain_locked": true,
         "description": "HT20 test, AGC gain locked. Motion starts at packet index 3263 (~30.7 s).",
-        "relative_path": "test/test_c6_64sc_20260517_171522.npz",
         "environment": "bedroom"
       },
       {
@@ -763,7 +678,6 @@
         "num_packets": 6008,
         "gain_locked": true,
         "description": "HT20 test, AGC gain locked. Motion starts at packet index 3320 (~33.2 s).",
-        "relative_path": "test/test_c5_64sc_20260517_183523.npz",
         "environment": "bedroom"
       },
       {
@@ -776,7 +690,6 @@
         "num_packets": 6006,
         "gain_locked": true,
         "description": "HT20 test, AGC gain locked. Motion starts at packet index 3180 (~31.8 s).",
-        "relative_path": "test/test_s3_64sc_20260518_180502.npz",
         "environment": "bedroom"
       }
     ]

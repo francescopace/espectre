@@ -151,6 +151,7 @@ from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS, HAMPEL_WINDOW, HAMPEL_T
 from segmentation import SegmentationContext
 from features import (
     extract_features_by_name, DEFAULT_FEATURES,
+    calc_iqr, calc_skewness, calc_autocorrelation, calc_mad, calc_waveform_length,
 )
 
 # ============================================================================
@@ -162,6 +163,40 @@ from features import (
 # ============================================================================
 
 TRAINING_FEATURES = DEFAULT_FEATURES
+MULTICLASS_PHASE_FEATURES = [
+    'phase_turb_mean',
+    'phase_turb_std',
+    'phase_turb_max',
+    'phase_turb_iqr',
+    'phase_turb_mad',
+    'phase_turb_waveform_length',
+]
+MULTICLASS_COMMON_OFFSET_PHASE_FEATURES = [
+    'phase_cor_spread_mean',
+    'phase_cor_spread_std',
+    'phase_cor_spread_max',
+    'phase_cor_spread_iqr',
+    'phase_cor_spread_mad',
+    'phase_cor_spread_waveform_length',
+]
+MULTICLASS_SYNC_PHASE_FEATURES = [
+    'phase_sync_mean',
+    'phase_sync_std',
+    'phase_sync_max',
+    'phase_sync_iqr',
+    'phase_sync_mad',
+    'phase_sync_waveform_length',
+]
+MULTICLASS_FEATURE_SETS = {
+    'amplitude': list(DEFAULT_FEATURES),
+    'amplitude_phase': list(DEFAULT_FEATURES) + list(MULTICLASS_PHASE_FEATURES),
+    'amplitude_common_offset_phase': (
+        list(DEFAULT_FEATURES) + list(MULTICLASS_COMMON_OFFSET_PHASE_FEATURES)
+    ),
+    'amplitude_stimulus_phase': (
+        list(DEFAULT_FEATURES) + list(MULTICLASS_SYNC_PHASE_FEATURES)
+    ),
+}
 
 
 # Directories
@@ -205,6 +240,10 @@ DEFAULT_REPORT_GROUP_KEYS = (
     'session_group',
     'source_file',
 )
+ROOM_STATE_CLASS_NAMES = ('empty', 'static_presence', 'motion')
+ROOM_STATE_CLASS_MAP = {
+    label: idx for idx, label in enumerate(ROOM_STATE_CLASS_NAMES)
+}
 
 
 # ============================================================================
@@ -243,6 +282,24 @@ def parse_chip_filter(value):
         items = str(value).split(',')
     normalized = {str(item).strip().upper() for item in items if str(item).strip()}
     return normalized or None
+
+
+def normalize_allowed_labels(labels):
+    """Normalize an iterable of labels to a lowercase set."""
+    if labels is None:
+        return None
+    return {str(label).strip().lower() for label in labels if str(label).strip()} or None
+
+
+def resolve_multiclass_feature_names(feature_set='amplitude'):
+    """Resolve the experimental multiclass feature set to a concrete list."""
+    feature_set = str(feature_set).strip().lower()
+    if feature_set not in MULTICLASS_FEATURE_SETS:
+        raise ValueError(
+            f"Unsupported multiclass feature set: {feature_set} "
+            f"(expected one of {sorted(MULTICLASS_FEATURE_SETS)})"
+        )
+    return list(MULTICLASS_FEATURE_SETS[feature_set])
 
 
 def parse_hidden_layers(value):
@@ -650,7 +707,9 @@ def get_file_metadata(dataset_info):
     return file_metadata
 
 
-def load_all_data(environment_filter=None, excluded_chips=None):
+def load_all_data(environment_filter=None, excluded_chips=None,
+                  allowed_labels=('static_presence', 'motion'),
+                  require_sync_metadata=False):
     """
     Load all available CSI data from the data/ directory.
 
@@ -662,12 +721,14 @@ def load_all_data(environment_filter=None, excluded_chips=None):
     Args:
         environment_filter: Optional set/string of environment names to keep.
         excluded_chips: Optional set/string of chip names to exclude.
+        allowed_labels: Iterable of lowercase labels to include.
 
     Returns:
         tuple: (all_packets, stats) where stats is a dict with dataset info
     """
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
+    allowed_labels = normalize_allowed_labels(allowed_labels)
     all_packets = []
     stats = {
         'chips': set(),
@@ -678,8 +739,10 @@ def load_all_data(environment_filter=None, excluded_chips=None):
         'excluded_labels': set(),
         'excluded_chips': set(),
         'excluded_environments': set(),
+        'excluded_missing_sync_metadata': set(),
         'session_groups': set(),
         'environment_groups': set(),
+        'sync_metadata_files': set(),
     }
     
     # Load dataset info for label mapping and file metadata
@@ -702,10 +765,8 @@ def load_all_data(environment_filter=None, excluded_chips=None):
                 # Get label from file metadata (already set by load_npz_as_packets)
                 label = packets[0].get('label', subdir.name)
                 
-                # Keep training strictly on baseline/movement labels.
-                # Test/control datasets must never be part of model training.
                 label_lc = str(label).lower()
-                if label_lc not in ('static_presence', 'motion'):
+                if allowed_labels is not None and label_lc not in allowed_labels:
                     stats['excluded_labels'].add(label_lc)
                     continue
 
@@ -725,14 +786,25 @@ def load_all_data(environment_filter=None, excluded_chips=None):
                     stats['excluded_environments'].add(environment_group)
                     continue
 
-                # Track stats after environment filtering
+                gain_locked = bool(meta.get('gain_locked', packets[0].get('gain_locked', True)))
+                has_sync_metadata = any(
+                    p.get('stimulus_id') is not None and (
+                        p.get('wifi_rx_start_ts_ns') is not None or p.get('device_ticks_us') is not None
+                    )
+                    for p in packets
+                )
+                if require_sync_metadata and not has_sync_metadata:
+                    stats['excluded_missing_sync_metadata'].add(npz_file.name)
+                    continue
+                if has_sync_metadata:
+                    stats['sync_metadata_files'].add(npz_file.name)
+
+                # Track stats after all active filters
                 if label not in stats['labels']:
                     stats['labels'][label] = 0
                 stats['labels'][label] += len(packets)
                 stats['total'] += len(packets)
                 stats['chips'].add(chip)
-
-                gain_locked = bool(meta.get('gain_locked', packets[0].get('gain_locked', True)))
                 if not gain_locked:
                     stats['cv_norm_files'].add(npz_file.name)
 
@@ -744,6 +816,8 @@ def load_all_data(environment_filter=None, excluded_chips=None):
                 is_motion = is_motion_label(label, dataset_info)
                 for idx, p in enumerate(packets):
                     p['is_motion'] = is_motion
+                    p['label_name'] = label_lc
+                    p['class_id'] = ROOM_STATE_CLASS_MAP.get(label_lc, -1)
                     p['gain_locked'] = gain_locked
                     p['source_file'] = npz_file.name
                     p['packet_index'] = idx
@@ -765,8 +839,10 @@ def load_all_data(environment_filter=None, excluded_chips=None):
     stats['excluded_labels'] = sorted(stats['excluded_labels'])
     stats['excluded_chips'] = sorted(stats['excluded_chips'])
     stats['excluded_environments'] = sorted(stats['excluded_environments'])
+    stats['excluded_missing_sync_metadata'] = sorted(stats['excluded_missing_sync_metadata'])
     stats['session_groups'] = sorted(stats['session_groups'])
     stats['environment_groups'] = sorted(stats['environment_groups'])
+    stats['sync_metadata_files'] = sorted(stats['sync_metadata_files'])
     return all_packets, stats
 
 
@@ -774,9 +850,288 @@ def load_all_data(environment_filter=None, excluded_chips=None):
 # Feature Extraction
 # ============================================================================
 
+_DEFAULT_SC_Q_IDX = np.array([sc * 2 for sc in DEFAULT_SUBCARRIERS], dtype=np.int32)
+_DEFAULT_SC_I_IDX = _DEFAULT_SC_Q_IDX + 1
+
+
+def compute_phase_turbulence(csi_data, previous_phase_rel=None):
+    """Compute one scalar packet-level temporal phase turbulence value."""
+    q = np.asarray(csi_data[_DEFAULT_SC_Q_IDX], dtype=np.float32)
+    i = np.asarray(csi_data[_DEFAULT_SC_I_IDX], dtype=np.float32)
+    phase = np.arctan2(q, i)
+    phase_unwrapped = np.unwrap(phase)
+    phase_rel = phase_unwrapped - phase_unwrapped[0]
+
+    if previous_phase_rel is None:
+        return 0.0, phase_rel
+
+    delta_rel = phase_rel - previous_phase_rel
+    delta_wrapped = np.angle(np.exp(1j * delta_rel))
+    phase_turbulence = float(np.mean(np.abs(delta_wrapped)))
+    return phase_turbulence, phase_rel
+
+
+def wrap_angle_rad(angle):
+    """Wrap an angle to [-pi, pi]."""
+    return float(np.arctan2(np.sin(angle), np.cos(angle)))
+
+
+def circular_mean_rad(angles_rad):
+    """Circular mean for a 1D iterable of angles in radians."""
+    if len(angles_rad) == 0:
+        return None
+    angles = np.asarray(angles_rad, dtype=np.float32)
+    return float(np.arctan2(np.mean(np.sin(angles)), np.mean(np.cos(angles))))
+
+
+def circular_stddev_rad(angles_rad):
+    """Circular standard deviation in radians."""
+    if len(angles_rad) == 0:
+        return 0.0
+    angles = np.asarray(angles_rad, dtype=np.float32)
+    r = float(np.hypot(np.mean(np.sin(angles)), np.mean(np.cos(angles))))
+    if r <= 0.0:
+        return float(np.pi)
+    return float(np.sqrt(max(0.0, -2.0 * np.log(min(1.0, r)))))
+
+
+def unwrap_sequence_rad(angles_rad):
+    """Unwrap a short 1D sequence of wrapped angles."""
+    if len(angles_rad) == 0:
+        return []
+    angles = [float(v) for v in angles_rad]
+    unwrapped = [angles[0]]
+    for angle in angles[1:]:
+        prev = unwrapped[-1]
+        delta = wrap_angle_rad(angle - prev)
+        unwrapped.append(prev + delta)
+    return unwrapped
+
+
+def remove_common_phase_offset(phases_rad):
+    """Remove the per-packet common phase offset."""
+    offset = circular_mean_rad(phases_rad)
+    if offset is None:
+        return []
+    return [wrap_angle_rad(float(angle) - offset) for angle in phases_rad]
+
+
+def compute_common_offset_phase_spread(csi_data):
+    """Compute one scalar packet-level spread after common phase-offset removal."""
+    q = np.asarray(csi_data[_DEFAULT_SC_Q_IDX], dtype=np.float32)
+    i = np.asarray(csi_data[_DEFAULT_SC_I_IDX], dtype=np.float32)
+    phase = np.arctan2(q, i)
+    phase_cor = remove_common_phase_offset(phase)
+    return circular_stddev_rad(phase_cor)
+
+
+def get_sync_time_us(packet):
+    """Return the best available device-side timestamp in microseconds."""
+    wifi_rx_start_ts_ns = packet.get('wifi_rx_start_ts_ns')
+    if wifi_rx_start_ts_ns is not None:
+        return float(wifi_rx_start_ts_ns) / 1000.0
+    device_ticks_us = packet.get('device_ticks_us')
+    if device_ticks_us is not None:
+        return float(device_ticks_us)
+    wifi_rx_ts_us = packet.get('wifi_rx_ts_us')
+    if wifi_rx_ts_us is not None:
+        return float(wifi_rx_ts_us)
+    return None
+
+
+def compute_stimulus_aligned_phase_delta(csi_data, packet, previous_sync_state=None):
+    """Compute a sync-aware phase delta between adjacent valid stimulus packets."""
+    q = np.asarray(csi_data[_DEFAULT_SC_Q_IDX], dtype=np.float32)
+    i = np.asarray(csi_data[_DEFAULT_SC_I_IDX], dtype=np.float32)
+    phase = np.arctan2(q, i)
+    phase_cor = np.asarray(remove_common_phase_offset(phase), dtype=np.float32)
+    current_state = {
+        'phase_cor': phase_cor,
+        'stimulus_id': packet.get('stimulus_id'),
+        'sync_time_us': get_sync_time_us(packet),
+    }
+
+    if previous_sync_state is None:
+        return 0.0, current_state
+
+    prev_phase_cor = previous_sync_state.get('phase_cor')
+    prev_stimulus_id = previous_sync_state.get('stimulus_id')
+    prev_sync_time_us = previous_sync_state.get('sync_time_us')
+    stimulus_id = current_state['stimulus_id']
+    sync_time_us = current_state['sync_time_us']
+
+    if (
+        prev_phase_cor is None
+        or prev_stimulus_id is None
+        or stimulus_id is None
+        or prev_sync_time_us is None
+        or sync_time_us is None
+    ):
+        return 0.0, current_state
+
+    stimulus_gap = int(stimulus_id) - int(prev_stimulus_id)
+    sync_gap_us = float(sync_time_us) - float(prev_sync_time_us)
+    if stimulus_gap <= 0 or stimulus_gap > 4 or sync_gap_us <= 0.0:
+        return 0.0, current_state
+
+    phase_delta = np.angle(np.exp(1j * (phase_cor - prev_phase_cor)))
+    mean_abs_delta = float(np.mean(np.abs(phase_delta)))
+    return mean_abs_delta / float(stimulus_gap), current_state
+
+
+def extract_experiment_features_by_name(
+    turbulence_buffer,
+    phase_turbulence_buffer,
+    common_offset_phase_spread_buffer,
+    sync_phase_delta_buffer,
+    feature_names,
+):
+    """Extract mixed amplitude/phase features for the offline multiclass experiment."""
+    if feature_names is None:
+        feature_names = DEFAULT_FEATURES
+
+    turb_features = [name for name in feature_names if not name.startswith('phase_turb_')]
+    phase_features = [name for name in feature_names if name.startswith('phase_turb_')]
+    common_offset_features = [
+        name for name in turb_features if name.startswith('phase_cor_spread_')
+    ]
+    sync_phase_features = [
+        name for name in turb_features if name.startswith('phase_sync_')
+    ]
+    turb_features = [
+        name
+        for name in turb_features
+        if not name.startswith('phase_cor_spread_') and not name.startswith('phase_sync_')
+    ]
+    features = []
+
+    if turb_features:
+        features.extend(
+            extract_features_by_name(
+                turbulence_buffer,
+                len(turbulence_buffer),
+                feature_names=turb_features,
+            )
+        )
+
+    if phase_features:
+        phase_list = list(phase_turbulence_buffer)
+        n = len(phase_list)
+        if n < 2:
+            features.extend([0.0] * len(phase_features))
+        else:
+            phase_mean = sum(phase_list) / n
+            phase_min = min(phase_list)
+            phase_max = max(phase_list)
+            var_sum = 0.0
+            for value in phase_list:
+                diff = value - phase_mean
+                var_sum += diff * diff
+            phase_var = var_sum / n
+            phase_std = np.sqrt(phase_var) if phase_var > 0 else 0.0
+
+            sorted_phase = None
+            for name in phase_features:
+                if name in ('phase_turb_iqr', 'phase_turb_mad'):
+                    sorted_phase = sorted(phase_list)
+                    break
+
+            for name in phase_features:
+                if name == 'phase_turb_mean':
+                    features.append(phase_mean)
+                elif name == 'phase_turb_std':
+                    features.append(phase_std)
+                elif name == 'phase_turb_max':
+                    features.append(phase_max)
+                elif name == 'phase_turb_iqr':
+                    features.append(calc_iqr(phase_list, n, sorted_values=sorted_phase))
+                elif name == 'phase_turb_mad':
+                    features.append(calc_mad(phase_list, n, sorted_values=sorted_phase))
+                elif name == 'phase_turb_waveform_length':
+                    features.append(calc_waveform_length(phase_list, n))
+                else:
+                    raise ValueError(f"Unknown experimental phase feature: {name}")
+
+    if common_offset_features:
+        phase_spread_list = list(common_offset_phase_spread_buffer)
+        n = len(phase_spread_list)
+        if n < 2:
+            features.extend([0.0] * len(common_offset_features))
+        else:
+            spread_mean = sum(phase_spread_list) / n
+            spread_max = max(phase_spread_list)
+            var_sum = 0.0
+            for value in phase_spread_list:
+                diff = value - spread_mean
+                var_sum += diff * diff
+            spread_var = var_sum / n
+            spread_std = np.sqrt(spread_var) if spread_var > 0 else 0.0
+
+            sorted_spread = None
+            for name in common_offset_features:
+                if name in ('phase_cor_spread_iqr', 'phase_cor_spread_mad'):
+                    sorted_spread = sorted(phase_spread_list)
+                    break
+
+            for name in common_offset_features:
+                if name == 'phase_cor_spread_mean':
+                    features.append(spread_mean)
+                elif name == 'phase_cor_spread_std':
+                    features.append(spread_std)
+                elif name == 'phase_cor_spread_max':
+                    features.append(spread_max)
+                elif name == 'phase_cor_spread_iqr':
+                    features.append(calc_iqr(phase_spread_list, n, sorted_values=sorted_spread))
+                elif name == 'phase_cor_spread_mad':
+                    features.append(calc_mad(phase_spread_list, n, sorted_values=sorted_spread))
+                elif name == 'phase_cor_spread_waveform_length':
+                    features.append(calc_waveform_length(phase_spread_list, n))
+                else:
+                    raise ValueError(f"Unknown common-offset phase feature: {name}")
+
+    if sync_phase_features:
+        sync_phase_list = list(sync_phase_delta_buffer)
+        n = len(sync_phase_list)
+        if n < 2:
+            features.extend([0.0] * len(sync_phase_features))
+        else:
+            sync_mean = sum(sync_phase_list) / n
+            sync_max = max(sync_phase_list)
+            var_sum = 0.0
+            for value in sync_phase_list:
+                diff = value - sync_mean
+                var_sum += diff * diff
+            sync_var = var_sum / n
+            sync_std = np.sqrt(sync_var) if sync_var > 0 else 0.0
+
+            sorted_sync = None
+            for name in sync_phase_features:
+                if name in ('phase_sync_iqr', 'phase_sync_mad'):
+                    sorted_sync = sorted(sync_phase_list)
+                    break
+
+            for name in sync_phase_features:
+                if name == 'phase_sync_mean':
+                    features.append(sync_mean)
+                elif name == 'phase_sync_std':
+                    features.append(sync_std)
+                elif name == 'phase_sync_max':
+                    features.append(sync_max)
+                elif name == 'phase_sync_iqr':
+                    features.append(calc_iqr(sync_phase_list, n, sorted_values=sorted_sync))
+                elif name == 'phase_sync_mad':
+                    features.append(calc_mad(sync_phase_list, n, sorted_values=sorted_sync))
+                elif name == 'phase_sync_waveform_length':
+                    features.append(calc_waveform_length(sync_phase_list, n))
+                else:
+                    raise ValueError(f"Unknown sync-aware phase feature: {name}")
+
+    return features
+
 def extract_features(packets, window_size=SEG_WINDOW_SIZE,
                      feature_names=None, return_metadata=False,
-                     enable_hampel=True, hampel_window=HAMPEL_WINDOW, hampel_threshold=HAMPEL_THRESHOLD):
+                     enable_hampel=True, hampel_window=HAMPEL_WINDOW, hampel_threshold=HAMPEL_THRESHOLD,
+                     target_mode='binary'):
     """
     Extract features from CSI packets using sliding window.
     
@@ -801,6 +1156,12 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
     """
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
+    feature_names = list(feature_names)
+    use_phase_features = any(name.startswith('phase_turb_') for name in feature_names)
+    use_common_offset_phase_features = any(
+        name.startswith('phase_cor_spread_') for name in feature_names
+    )
+    use_sync_phase_features = any(name.startswith('phase_sync_') for name in feature_names)
     
     X, y = [], []
     sample_context = {
@@ -810,6 +1171,7 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         'environment_group': [],
         'pair_id': [],
         'day_group': [],
+        'label_name': [],
         'packet_index': [],
         'window_index': [],
     }
@@ -838,6 +1200,11 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             hampel_threshold=hampel_threshold,
         )
         last_amplitudes = None
+        previous_phase_rel = None
+        previous_sync_state = None
+        phase_turbulence_history = []
+        common_offset_phase_spread_history = []
+        sync_phase_delta_history = []
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
@@ -847,6 +1214,23 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             )
             ctx.add_turbulence(turb)
             last_amplitudes = amps
+            if use_phase_features:
+                phase_turbulence, previous_phase_rel = compute_phase_turbulence(
+                    csi_data,
+                    previous_phase_rel=previous_phase_rel,
+                )
+                phase_turbulence_history.append(phase_turbulence)
+            if use_common_offset_phase_features:
+                common_offset_phase_spread_history.append(
+                    compute_common_offset_phase_spread(csi_data)
+                )
+            if use_sync_phase_features:
+                sync_phase_delta, previous_sync_state = compute_stimulus_aligned_phase_delta(
+                    csi_data,
+                    pkt,
+                    previous_sync_state=previous_sync_state,
+                )
+                sync_phase_delta_history.append(sync_phase_delta)
 
             if ctx.buffer_count < window_size:
                 continue
@@ -856,16 +1240,55 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
             n = len(turb_list)
 
-            features = extract_features_by_name(
-                turb_list, n,
-                amplitudes=last_amplitudes,
-                feature_names=feature_names
-            )
+            if use_phase_features:
+                phase_turb_list = phase_turbulence_history[-window_size:]
+                common_offset_phase_spread_list = (
+                    common_offset_phase_spread_history[-window_size:]
+                    if use_common_offset_phase_features
+                    else []
+                )
+                sync_phase_delta_list = (
+                    sync_phase_delta_history[-window_size:]
+                    if use_sync_phase_features
+                    else []
+                )
+                features = extract_experiment_features_by_name(
+                    turb_list,
+                    phase_turb_list,
+                    common_offset_phase_spread_list,
+                    sync_phase_delta_list,
+                    feature_names=feature_names,
+                )
+            elif use_common_offset_phase_features or use_sync_phase_features:
+                common_offset_phase_spread_list = common_offset_phase_spread_history[-window_size:]
+                sync_phase_delta_list = sync_phase_delta_history[-window_size:]
+                features = extract_experiment_features_by_name(
+                    turb_list,
+                    [],
+                    common_offset_phase_spread_list,
+                    sync_phase_delta_list,
+                    feature_names=feature_names,
+                )
+            else:
+                features = extract_features_by_name(
+                    turb_list, n,
+                    amplitudes=last_amplitudes,
+                    feature_names=feature_names
+                )
 
             X.append(features)
-            y.append(1 if pkt.get('is_motion', False) else 0)
+            if target_mode == 'multiclass':
+                class_id = int(pkt.get('class_id', -1))
+                if class_id < 0:
+                    raise ValueError(
+                        f"Missing multiclass target for label={pkt.get('label_name', 'unknown')}"
+                    )
+                y.append(class_id)
+            else:
+                y.append(1 if pkt.get('is_motion', False) else 0)
             for key, value in file_context.items():
                 sample_context[key].append(value)
+            sample_context['label_name'].append(str(pkt.get('label_name', 'unknown')))
             sample_context['packet_index'].append(int(pkt.get('packet_index', window_index)))
             sample_context['window_index'].append(window_index)
             window_index += 1
@@ -1354,6 +1777,369 @@ def evaluate_model(model, X_test, y_test):
     """
     probabilities = predict_probabilities(model, X_test)
     return evaluate_probabilities(y_test, probabilities)
+
+
+def build_multiclass_model(hidden_layers=None, num_features=12, num_classes=3,
+                           use_dropout=True, dropout_rate=0.2, seed=None):
+    """Build a Keras MLP model for sparse multiclass classification."""
+    import tensorflow as tf
+
+    if hidden_layers is None:
+        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+    if num_classes < 3:
+        raise ValueError(f"Expected num_classes >= 3, got {num_classes}")
+
+    model = tf.keras.Sequential()
+    model.add(tf.keras.layers.Input(shape=(num_features,)))
+
+    for layer_idx, units in enumerate(hidden_layers):
+        dense_seed = derive_seed(seed, layer_idx, 0)
+        model.add(tf.keras.layers.Dense(
+            units,
+            activation='relu',
+            kernel_initializer=tf.keras.initializers.GlorotUniform(seed=dense_seed),
+            bias_initializer='zeros',
+        ))
+        if use_dropout and dropout_rate > 0:
+            model.add(
+                tf.keras.layers.Dropout(
+                    dropout_rate,
+                    seed=derive_seed(seed, layer_idx, 1),
+                )
+            )
+
+    model.add(tf.keras.layers.Dense(
+        num_classes,
+        activation='softmax',
+        kernel_initializer=tf.keras.initializers.GlorotUniform(
+            seed=derive_seed(seed, len(hidden_layers), 0)
+        ),
+        bias_initializer='zeros',
+    ))
+
+    model.compile(
+        optimizer='adam',
+        loss='sparse_categorical_crossentropy',
+        metrics=['accuracy']
+    )
+    return model
+
+
+def train_multiclass_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS,
+                           use_dropout=True, class_weight=None, sample_weight=None,
+                           batch_size=DEFAULT_BATCH_SIZE, verbose=0, seed=None,
+                           num_classes=3):
+    """Train a multiclass neural network with balanced class weighting."""
+    import tensorflow as tf
+
+    if hidden_layers is None:
+        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+
+    y = np.asarray(y, dtype=np.int32)
+    if class_weight is None:
+        n_total = len(y)
+        classes, counts = np.unique(y, return_counts=True)
+        if len(classes) >= 2:
+            class_weight = {
+                int(cls): n_total / (len(classes) * int(count))
+                for cls, count in zip(classes, counts)
+                if int(count) > 0
+            }
+
+    if sample_weight is not None and class_weight is not None:
+        sample_weight = np.asarray(sample_weight, dtype=np.float32).copy()
+        class_multiplier = np.asarray(
+            [class_weight.get(int(label), 1.0) for label in y],
+            dtype=np.float32,
+        )
+        sample_weight *= class_multiplier
+        class_weight = None
+
+    num_features = X.shape[1] if hasattr(X, 'shape') else len(X[0])
+    set_global_determinism(seed, tf_module=tf)
+    model = build_multiclass_model(
+        hidden_layers=hidden_layers,
+        num_features=num_features,
+        num_classes=num_classes,
+        use_dropout=use_dropout,
+        seed=seed,
+    )
+
+    from sklearn.model_selection import train_test_split as _val_split
+    split_kwargs = dict(test_size=0.1, random_state=42, stratify=y)
+    if sample_weight is not None:
+        X_t, X_v, y_t, y_v, sw_t, sw_v = _val_split(
+            X, y, sample_weight, **split_kwargs
+        )
+    else:
+        X_t, X_v, y_t, y_v = _val_split(X, y, **split_kwargs)
+        sw_t, sw_v = None, None
+
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=DEFAULT_EARLY_STOP_PATIENCE,
+            restore_best_weights=True,
+            min_delta=1e-4
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=DEFAULT_LR_PATIENCE,
+            min_lr=1e-6
+        ),
+    ]
+
+    model.fit(
+        X_t, y_t,
+        epochs=max_epochs,
+        batch_size=batch_size,
+        validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
+        class_weight=class_weight,
+        sample_weight=sw_t,
+        callbacks=callbacks,
+        verbose=verbose,
+        shuffle=False,
+    )
+    return model
+
+
+def predict_multiclass_probabilities(model, X):
+    """Return a dense class-probability matrix for multiclass classification."""
+    X = np.asarray(X, dtype=np.float32)
+    probs = np.asarray(model.predict(X, verbose=0), dtype=np.float32)
+    if probs.ndim != 2:
+        raise ValueError(f"Expected a 2D probability matrix, got shape {probs.shape}")
+    return probs
+
+
+def evaluate_multiclass_probabilities(y_true, y_prob, class_names=ROOM_STATE_CLASS_NAMES):
+    """Evaluate multiclass probabilities with macro metrics and confusion matrix."""
+    from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
+
+    y_true = np.asarray(y_true, dtype=np.int32)
+    y_prob = np.asarray(y_prob, dtype=np.float32)
+    if y_prob.ndim != 2:
+        raise ValueError(f"Expected multiclass probabilities, got shape {y_prob.shape}")
+
+    labels = np.arange(len(class_names), dtype=np.int32)
+    y_pred = np.argmax(y_prob, axis=1).astype(np.int32)
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    precision, recall, f1, support = precision_recall_fscore_support(
+        y_true,
+        y_pred,
+        labels=labels,
+        zero_division=0,
+    )
+    accuracy = float(np.mean(y_true == y_pred) * 100.0) if len(y_true) else 0.0
+    present_mask = support > 0
+    balanced_accuracy = (
+        float(np.mean(recall[present_mask]) * 100.0)
+        if np.any(present_mask)
+        else accuracy
+    )
+
+    metrics = {
+        'macro_precision': float(np.mean(precision) * 100.0),
+        'macro_recall': float(np.mean(recall) * 100.0),
+        'macro_f1': float(np.mean(f1) * 100.0),
+        'accuracy': accuracy,
+        'balanced_accuracy': balanced_accuracy,
+        'confusion_matrix': cm.astype(np.int32),
+    }
+    for idx, class_name in enumerate(class_names):
+        metrics[f'precision_{class_name}'] = float(precision[idx] * 100.0)
+        metrics[f'recall_{class_name}'] = float(recall[idx] * 100.0)
+        metrics[f'f1_{class_name}'] = float(f1[idx] * 100.0)
+        metrics[f'support_{class_name}'] = int(support[idx])
+    return metrics
+
+
+def build_multiclass_group_report(y_true, y_prob, group_values, class_names=ROOM_STATE_CLASS_NAMES):
+    """Compute per-group multiclass metrics and worst-case summaries."""
+    if group_values is None:
+        return None
+
+    group_values = np.asarray(group_values)
+    rows = []
+    for group_name in sorted({str(v) for v in group_values}):
+        if not group_name or group_name == 'unknown-environment':
+            continue
+        mask = (group_values == group_name)
+        if not np.any(mask):
+            continue
+        metrics = evaluate_multiclass_probabilities(
+            y_true[mask],
+            y_prob[mask],
+            class_names=class_names,
+        )
+        row = {
+            'group': group_name,
+            'samples': int(np.sum(mask)),
+            'macro_f1': metrics['macro_f1'],
+            'balanced_accuracy': metrics['balanced_accuracy'],
+        }
+        for class_name in class_names:
+            row[f'recall_{class_name}'] = metrics[f'recall_{class_name}']
+            row[f'support_{class_name}'] = metrics[f'support_{class_name}']
+        rows.append(row)
+
+    if not rows:
+        return None
+
+    worst_macro = sorted(rows, key=lambda r: (r['macro_f1'], r['balanced_accuracy'], -r['samples']))[0]
+    worst_balanced = sorted(rows, key=lambda r: (r['balanced_accuracy'], r['macro_f1'], -r['samples']))[0]
+    worst_per_class = {}
+    for class_name in class_names:
+        supported_rows = [row for row in rows if row[f'support_{class_name}'] > 0]
+        ranked_rows = sorted(
+            supported_rows or rows,
+            key=lambda r: (r[f'recall_{class_name}'], r['macro_f1'], -r['samples']),
+        )
+        worst_per_class[class_name] = ranked_rows[0]
+
+    return {
+        'rows': rows,
+        'worst_macro_f1': worst_macro,
+        'worst_balanced_accuracy': worst_balanced,
+        'worst_per_class_recall': worst_per_class,
+        'count': len(rows),
+    }
+
+
+def cross_validate_multiclass(X, y, class_names=ROOM_STATE_CLASS_NAMES, hidden_layers=None,
+                              n_folds=DEFAULT_CV_FOLDS, max_epochs=DEFAULT_MAX_EPOCHS,
+                              sample_weight=None, groups=None, sample_context=None,
+                              scaler_mode=DEFAULT_SCALER_MODE, batch_size=DEFAULT_BATCH_SIZE,
+                              block_stride=1, block_group_key=DEFAULT_BLOCK_GROUP_KEY,
+                              report_group_keys=DEFAULT_REPORT_GROUP_KEYS, seed=None):
+    """Perform grouped cross-validation for the offline room-state experiment."""
+    if hidden_layers is None:
+        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+
+    y = np.asarray(y, dtype=np.int32)
+    num_classes = len(class_names)
+    if groups is not None:
+        from sklearn.model_selection import StratifiedGroupKFold
+        unique_groups = len(set(groups))
+        effective_folds = min(n_folds, unique_groups)
+        splitter = StratifiedGroupKFold(n_splits=effective_folds, shuffle=True, random_state=42)
+        split_iter = splitter.split(X, y, groups)
+    else:
+        from sklearn.model_selection import StratifiedKFold
+        effective_folds = n_folds
+        splitter = StratifiedKFold(n_splits=effective_folds, shuffle=True, random_state=42)
+        split_iter = splitter.split(X, y)
+
+    fold_metrics = []
+    oof_prob = np.full((len(y), num_classes), np.nan, dtype=np.float32)
+    scored_mask = np.zeros(len(y), dtype=bool)
+    fold_timings = []
+    cv_start = perf_counter()
+
+    for fold, (train_idx, val_idx) in enumerate(split_iter):
+        fold_start = perf_counter()
+        X_train_fold, X_val_fold = X[train_idx], X[val_idx]
+        y_train_fold, y_val_fold = y[train_idx], y[val_idx]
+        sw_train_fold = sample_weight[train_idx] if sample_weight is not None else None
+
+        preprocess_start = perf_counter()
+        scaler = build_preprocessor(scaler_mode)
+        X_train_scaled = scaler.fit_transform(X_train_fold)
+        X_val_scaled = scaler.transform(X_val_fold)
+        preprocess_elapsed = perf_counter() - preprocess_start
+
+        train_predict_start = perf_counter()
+        fold_seed = derive_seed(seed, fold)
+        with suppress_stderr():
+            model = train_multiclass_model(
+                X_train_scaled,
+                y_train_fold,
+                hidden_layers=hidden_layers,
+                max_epochs=max_epochs,
+                sample_weight=sw_train_fold,
+                batch_size=batch_size,
+                seed=fold_seed,
+                num_classes=num_classes,
+            )
+            val_prob = predict_multiclass_probabilities(model, X_val_scaled)
+        train_predict_elapsed = perf_counter() - train_predict_start
+
+        oof_prob[val_idx] = val_prob
+        scoring_start = perf_counter()
+        val_context = slice_sample_context(sample_context, val_idx)
+        local_mask = build_block_mask(
+            val_context,
+            stride=block_stride,
+            group_key=block_group_key,
+        )
+        if local_mask is None:
+            local_mask = np.ones(len(val_idx), dtype=bool)
+
+        scored_idx = val_idx[local_mask]
+        scored_mask[scored_idx] = True
+        metrics = evaluate_multiclass_probabilities(
+            y_val_fold[local_mask],
+            val_prob[local_mask],
+            class_names=class_names,
+        )
+        fold_metrics.append(metrics)
+        scoring_elapsed = perf_counter() - scoring_start
+        fold_elapsed = perf_counter() - fold_start
+        fold_timings.append(fold_elapsed)
+        print(
+            f"  Fold {fold + 1}/{effective_folds} timing: "
+            f"preprocess={format_duration(preprocess_elapsed)}, "
+            f"train+predict={format_duration(train_predict_elapsed)}, "
+            f"score={format_duration(scoring_elapsed)}, "
+            f"total={format_duration(fold_elapsed)}"
+        )
+
+    result = {}
+    for key, first_value in fold_metrics[0].items():
+        values = [m[key] for m in fold_metrics]
+        if isinstance(first_value, np.ndarray):
+            stacked = np.stack(values, axis=0)
+            result[f'{key}_mean'] = np.mean(stacked, axis=0)
+            result[f'{key}_std'] = np.std(stacked, axis=0)
+        else:
+            result[f'{key}_mean'] = float(np.mean(values))
+            result[f'{key}_std'] = float(np.std(values))
+
+    scored_idx = np.flatnonzero(scored_mask)
+    oof_metrics = evaluate_multiclass_probabilities(
+        y[scored_idx],
+        oof_prob[scored_idx],
+        class_names=class_names,
+    )
+    for key, value in oof_metrics.items():
+        result[f'oof_{key}'] = value
+
+    result['class_names'] = tuple(class_names)
+    result['n_folds'] = len(fold_metrics)
+    result['scored_samples'] = int(len(scored_idx))
+    result['dense_samples'] = int(np.sum(~np.isnan(oof_prob[:, 0])))
+    result['scaler_mode'] = scaler_mode
+    result['timings'] = {
+        'fold_seconds': fold_timings,
+        'total_seconds': perf_counter() - cv_start,
+    }
+
+    if sample_context is not None and report_group_keys:
+        scored_context = slice_sample_context(sample_context, scored_idx)
+        group_reports = {}
+        for group_key in report_group_keys:
+            report = build_multiclass_group_report(
+                y[scored_idx],
+                oof_prob[scored_idx],
+                scored_context.get(group_key),
+                class_names=class_names,
+            )
+            if report is not None:
+                group_reports[group_key] = report
+        result['group_reports'] = group_reports
+
+    return result
 
 
 def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epochs=DEFAULT_MAX_EPOCHS,
@@ -2304,6 +3090,64 @@ def print_cv_summary(cv_results, title="Primary grouped CV"):
             )
 
 
+def _format_confusion_matrix_rows(confusion_matrix, class_names):
+    """Render a compact confusion matrix table."""
+    confusion_matrix = np.asarray(confusion_matrix, dtype=np.int32)
+    header = "pred -> " + " ".join(f"{name:>16}" for name in class_names)
+    rows = [header]
+    for idx, class_name in enumerate(class_names):
+        values = " ".join(f"{int(value):>16d}" for value in confusion_matrix[idx])
+        rows.append(f"actual {class_name:<8} {values}")
+    return rows
+
+
+def print_multiclass_cv_summary(cv_results, title="Room-state grouped CV"):
+    """Print the robust evaluation summary for the multiclass room-state experiment."""
+    class_names = tuple(cv_results.get('class_names', ROOM_STATE_CLASS_NAMES))
+    print(f"\n{title}:")
+    print(
+        f"  Fold macro F1:         {cv_results['macro_f1_mean']:.1f}% "
+        f"(+/- {cv_results['macro_f1_std']:.1f}%)"
+    )
+    print(
+        f"  Fold balanced acc:     {cv_results['balanced_accuracy_mean']:.1f}% "
+        f"(+/- {cv_results['balanced_accuracy_std']:.1f}%)"
+    )
+    print(f"  Blocked OOF macro F1:  {cv_results['oof_macro_f1']:.1f}%")
+    print(f"  Blocked OOF accuracy:  {cv_results['oof_accuracy']:.1f}%")
+    print(f"  Blocked OOF bal. acc:  {cv_results['oof_balanced_accuracy']:.1f}%")
+    print(f"  Scored windows:        {cv_results['scored_samples']} / {cv_results['dense_samples']}")
+    for class_name in class_names:
+        print(
+            f"  OOF recall {class_name:>14}: "
+            f"{cv_results[f'oof_recall_{class_name}']:.1f}% "
+            f"(support={cv_results[f'oof_support_{class_name}']})"
+        )
+
+    print("\n  Blocked OOF confusion matrix:")
+    for row in _format_confusion_matrix_rows(cv_results['oof_confusion_matrix'], class_names):
+        print(f"    {row}")
+
+    group_reports = cv_results.get('group_reports', {})
+    for group_key in DEFAULT_REPORT_GROUP_KEYS:
+        report = group_reports.get(group_key)
+        if not report:
+            continue
+        worst_macro = report['worst_macro_f1']
+        print(
+            f"  Worst {group_key} macro F1: "
+            f"{worst_macro['group']} -> macroF1={worst_macro['macro_f1']:.1f}% "
+            f"balAcc={worst_macro['balanced_accuracy']:.1f}% (n={worst_macro['samples']})"
+        )
+        for class_name in class_names:
+            worst_class = report['worst_per_class_recall'][class_name]
+            print(
+                f"    Worst {class_name} recall: "
+                f"{worst_class['group']} -> R={worst_class[f'recall_{class_name}']:.1f}% "
+                f"(support={worst_class[f'support_{class_name}']})"
+            )
+
+
 def select_regression_subset_indices(sample_context, max_samples=2048, block_stride=SEG_WINDOW_SIZE):
     """Pick a deterministic subset for inference-regression artifacts."""
     if sample_context is None:
@@ -2402,6 +3246,129 @@ def show_info():
                 if len(files) > 3:
                     print(f"    ... and {len(files) - 3} more")
     print()
+
+
+def train_multiclass_experiment(seed=None, feature_names=None, hidden_layers=None,
+                                scaler_mode=DEFAULT_SCALER_MODE, batch_size=DEFAULT_BATCH_SIZE,
+                                environment_filter=None, excluded_chips=None,
+                                max_epochs=DEFAULT_MAX_EPOCHS, n_folds=DEFAULT_CV_FOLDS,
+                                feature_set='amplitude', require_sync_metadata=False):
+    """Run the offline 3-class room-state experiment without exporting runtime artifacts."""
+    total_start = perf_counter()
+    environment_filter = parse_environment_filter(environment_filter)
+    excluded_chips = parse_chip_filter(excluded_chips)
+    if hidden_layers is None:
+        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+    if feature_names is None:
+        feature_names = resolve_multiclass_feature_names(feature_set)
+
+    print("\n" + "=" * 60)
+    print("      ROOM-STATE MULTICLASS EXPERIMENT")
+    print("=" * 60 + "\n")
+    print("Labels: empty, static_presence, motion")
+    print(f"Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
+    print(f"Feature set: {feature_set}")
+    print(f"Require sync metadata: {'yes' if require_sync_metadata else 'no'}")
+    print("Exports: disabled (offline experiment only)\n")
+
+    try:
+        with suppress_stderr():
+            import tensorflow as tf
+
+            if seed is None:
+                from numpy.random import SeedSequence
+                ss = SeedSequence()
+                seed = int(ss.entropy % (2**31))
+                print(f"Generated random seed: {seed}\n")
+            else:
+                print(f"Using provided seed: {seed}\n")
+            set_global_determinism(seed, tf_module=tf)
+            tf.get_logger().setLevel('ERROR')
+    except ImportError as e:
+        print(f"Error: Missing dependency - {e}")
+        print("Install with: pip install tensorflow scikit-learn")
+        return 1, seed, None
+
+    print("Loading data...")
+    load_start = perf_counter()
+    all_packets, stats = load_all_data(
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        allowed_labels=ROOM_STATE_CLASS_NAMES,
+        require_sync_metadata=require_sync_metadata,
+    )
+    print(f"  Load time: {format_duration(perf_counter() - load_start)}")
+
+    empty_packets = int(stats['labels'].get('empty', 0))
+    if empty_packets == 0:
+        print("Error: No empty datasets found for the multiclass experiment")
+        return 1, seed, None
+
+    print(f"  Chips: {', '.join(stats['chips'])}")
+    if environment_filter is not None:
+        print(f"  Environment filter: {', '.join(sorted(environment_filter))}")
+    if stats.get('excluded_chips'):
+        print(f"  Excluded chips: {', '.join(stats['excluded_chips'])}")
+    if stats.get('excluded_environments'):
+        print(f"  Excluded environments: {', '.join(stats['excluded_environments'])}")
+    if stats.get('excluded_missing_sync_metadata'):
+        print(f"  Excluded files without sync metadata: {len(stats['excluded_missing_sync_metadata'])}")
+    if stats.get('sync_metadata_files'):
+        print(f"  Files with sync metadata: {len(stats['sync_metadata_files'])}")
+    print(f"  Session groups: {len(stats.get('session_groups', []))}")
+    if stats.get('environment_groups'):
+        print(f"  Named environments: {len(stats['environment_groups'])}")
+    for label in ROOM_STATE_CLASS_NAMES:
+        print(f"  {label}: {stats['labels'].get(label, 0)} packets")
+    print(f"  Total: {stats['total']} packets\n")
+
+    print("Extracting features...")
+    features_start = perf_counter()
+    X, y, actual_feature_names, sample_context = extract_features(
+        all_packets,
+        feature_names=feature_names,
+        target_mode='multiclass',
+    )
+    print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
+    print(f"  Samples: {len(X)}")
+    print(f"  Features: {len(actual_feature_names)}")
+    print(f"  Feature set: {', '.join(actual_feature_names)}")
+    for class_id, class_name in enumerate(ROOM_STATE_CLASS_NAMES):
+        count = int(np.sum(y == class_id))
+        print(f"  Class {class_name:>14}: {count}")
+
+    eval_groups = sample_context[DEFAULT_PRIMARY_GROUP_KEY]
+    unique_eval_groups = len(set(eval_groups))
+    print(f"  Primary eval groups ({DEFAULT_PRIMARY_GROUP_KEY}): {unique_eval_groups}")
+    print(f"  Evaluation block stride: {SEG_WINDOW_SIZE} windows per source file")
+
+    print(
+        f"\n{min(n_folds, unique_eval_groups)}-fold grouped CV by "
+        f"{DEFAULT_PRIMARY_GROUP_KEY}..."
+    )
+    cv_start = perf_counter()
+    with suppress_stderr():
+        cv_results = cross_validate_multiclass(
+            X,
+            y,
+            class_names=ROOM_STATE_CLASS_NAMES,
+            hidden_layers=hidden_layers,
+            n_folds=n_folds,
+            max_epochs=max_epochs,
+            groups=eval_groups,
+            sample_context=sample_context,
+            scaler_mode=scaler_mode,
+            batch_size=batch_size,
+            block_stride=SEG_WINDOW_SIZE,
+            block_group_key=DEFAULT_BLOCK_GROUP_KEY,
+            report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
+            seed=seed,
+        )
+    print(f"\nCV total time: {format_duration(perf_counter() - cv_start)}")
+    print_multiclass_cv_summary(cv_results)
+    print(f"\nTotal experiment time: {format_duration(perf_counter() - total_start)}")
+    return 0, seed, cv_results
+
 
 def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
               feature_importance=False, ablation=False, shap_samples=200,
@@ -3788,6 +4755,10 @@ def main():
 Examples:
   python tools/10_train_ml_model.py                    # Train with current production defaults
   python tools/10_train_ml_model.py --info             # Show dataset info
+  python tools/10_train_ml_model.py --multiclass-experiment
+                                           # Run the offline empty/static_presence/motion experiment
+  python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude_phase
+                                           # Add temporal phase-turbulence features to the offline experiment
   python tools/10_train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
   python tools/10_train_ml_model.py --experiment --experiment-promote
                                            # Promote the winner if it beats the baseline
@@ -3816,6 +4787,17 @@ To compare ML with MVS, use:
     )
     parser.add_argument('--info', action='store_true', 
                        help='Show dataset information')
+    parser.add_argument('--multiclass-experiment', action='store_true',
+                       help='Run the offline 3-class room-state experiment '
+                            '(empty/static_presence/motion) without exporting runtime artifacts')
+    parser.add_argument('--multiclass-feature-set',
+                       choices=sorted(MULTICLASS_FEATURE_SETS),
+                       default='amplitude',
+                       help='Feature set for --multiclass-experiment '
+                            '(default: amplitude)')
+    parser.add_argument('--require-sync-metadata', action='store_true',
+                       help='Restrict --multiclass-experiment to files carrying '
+                            'stimulus/timing metadata')
     parser.add_argument('--experiment', action='store_true',
                        help='Run the FP-first MLP topology campaign')
     parser.add_argument('--experiment-promote', action='store_true',
@@ -3866,6 +4848,30 @@ To compare ML with MVS, use:
     if args.info:
         show_info()
         return 0
+
+    if args.multiclass_experiment:
+        if args.experiment or args.experiment_promote or args.seed_search_until_improvement > 0:
+            print("Error: --multiclass-experiment cannot be combined with architecture or seed-search flows")
+            return 1
+        if args.shap is not None or args.ablation or args.correlation:
+            print("Error: --multiclass-experiment cannot be combined with --shap, --ablation, or --correlation")
+            return 1
+        if args.fp_weight != DEFAULT_FP_WEIGHT:
+            print("Note: --fp-weight is ignored by --multiclass-experiment")
+        if args.positive_chip_boost is not None:
+            print("Note: --positive-chip-boost is ignored by --multiclass-experiment")
+        train_rc, _, _ = train_multiclass_experiment(
+            seed=args.seed,
+            feature_names=None,
+            hidden_layers=args.hidden_layers,
+            scaler_mode=args.scaler,
+            batch_size=args.batch_size,
+            environment_filter=args.environment,
+            excluded_chips=args.exclude_chip,
+            feature_set=args.multiclass_feature_set,
+            require_sync_metadata=args.require_sync_metadata,
+        )
+        return train_rc
     
     if args.experiment:
         return experiment_architectures(

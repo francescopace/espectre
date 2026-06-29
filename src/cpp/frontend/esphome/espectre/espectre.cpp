@@ -11,7 +11,6 @@
 #include "espectre.h"
 #include "threshold_number.h"
 #include "calibrate_switch.h"
-#include "esp_idf_runtime.h"
 
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
@@ -26,61 +25,46 @@ namespace espectre {
 void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
 
-  this->runtime_.reset(new EspIdfRuntime(this->runtime_config_));
-  this->runtime_->set_listener(this);
-  if (!this->runtime_->setup()) {
+  if (!this->runtime_.setup(this)) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
     this->mark_failed();
     return;
   }
 
-  this->runtime_snapshot_ = this->runtime_->get_snapshot();
-  this->runtime_capabilities_ = this->runtime_->get_capabilities();
   ESP_LOGI(TAG, "ESPectre initialized successfully");
 }
 
 ESpectreComponent::~ESpectreComponent() {
-  if (this->runtime_) {
-    this->runtime_->shutdown();
-  }
+  this->runtime_.shutdown();
 }
 
 void ESpectreComponent::loop() {
-  if (this->runtime_) {
-    this->runtime_->loop();
-  }
+  this->runtime_.loop();
 }
 
 void ESpectreComponent::set_threshold_runtime(float threshold) {
-  this->runtime_config_.segmentation_threshold = threshold;
-  if (this->runtime_) {
-    this->runtime_->set_threshold_runtime(threshold);
-  } else {
-    this->runtime_snapshot_.threshold = threshold;
-  }
+  this->runtime_.set_threshold_runtime(threshold);
 }
 
 void ESpectreComponent::trigger_recalibration() {
-  if (this->runtime_ && this->runtime_capabilities_.supports_manual_recalibration) {
-    this->runtime_->trigger_recalibration();
-  }
+  this->runtime_.trigger_recalibration();
 }
 
 void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
   if (!snapshot.ready_to_publish) {
     this->threshold_republished_ = false;
   }
-  this->runtime_snapshot_ = snapshot;
+  this->runtime_.record_snapshot(snapshot);
   if (snapshot.ready_to_publish) {
     this->sensor_publisher_.publish_motion_binary(snapshot.motion_state);
   }
 }
 
 void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
-  if (!this->runtime_snapshot_.ready_to_publish && snapshot.ready_to_publish) {
+  if (!this->runtime_.snapshot().ready_to_publish && snapshot.ready_to_publish) {
     this->threshold_republished_ = false;
   }
-  this->runtime_snapshot_ = snapshot;
+  this->runtime_.record_snapshot(snapshot);
   if (!snapshot.ready_to_publish) {
     return;
   }
@@ -96,22 +80,22 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
 }
 
 void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  this->runtime_snapshot_ = snapshot;
-  this->runtime_config_.segmentation_threshold = snapshot.threshold;
+  this->runtime_.record_snapshot(snapshot);
+  this->runtime_.config().segmentation_threshold = snapshot.threshold;
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(snapshot.threshold);
   }
 }
 
 void ESpectreComponent::on_calibration_started(const RuntimeSnapshot &snapshot) {
-  this->runtime_snapshot_ = snapshot;
+  this->runtime_.record_snapshot(snapshot);
   if (this->calibrate_switch_ != nullptr) {
     static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(true);
   }
 }
 
 void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
-  this->runtime_snapshot_ = snapshot;
+  this->runtime_.record_snapshot(snapshot);
   if (this->calibrate_switch_ != nullptr) {
     static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
   }
@@ -137,65 +121,54 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, "      Wi-Fi CSI Motion Detection System");
   ESP_LOGCONFIG(TAG, "");
-  const char *thr_mode_str = (this->runtime_config_.threshold_mode == ThresholdMode::MANUAL)
-                                 ? "Manual"
-                                 : (this->runtime_config_.threshold_mode == ThresholdMode::MIN) ? "Min (P100)"
-                                                                                                 : "Auto (P95x1.1)";
-  const char *subcarrier_source = "FIXED";
+  const RuntimeConfig &config = this->runtime_.config();
+  const RuntimeSnapshot &snapshot = this->runtime_.snapshot();
   ESP_LOGCONFIG(TAG, " MOTION DETECTION");
-  ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", this->runtime_snapshot_.detector_name);
-  ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f (%s)", this->runtime_snapshot_.threshold, thr_mode_str);
-  ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", this->runtime_config_.segmentation_window_size);
-  ESP_LOGCONFIG(TAG, " └─ Baseline Pxx ....... %.4f", this->runtime_snapshot_.best_pxx);
+  ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", snapshot.detector_name);
+  ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.2f (%s)", snapshot.threshold, threshold_mode_display_name(config.threshold_mode));
+  ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", config.segmentation_window_size);
+  ESP_LOGCONFIG(TAG, " └─ Baseline Pxx ....... %.4f", snapshot.best_pxx);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
-                this->runtime_snapshot_.fixed_subcarriers[0], this->runtime_snapshot_.fixed_subcarriers[1],
-                this->runtime_snapshot_.fixed_subcarriers[2], this->runtime_snapshot_.fixed_subcarriers[3],
-                this->runtime_snapshot_.fixed_subcarriers[4], this->runtime_snapshot_.fixed_subcarriers[5],
-                this->runtime_snapshot_.fixed_subcarriers[6], this->runtime_snapshot_.fixed_subcarriers[7],
-                this->runtime_snapshot_.fixed_subcarriers[8], this->runtime_snapshot_.fixed_subcarriers[9],
-                this->runtime_snapshot_.fixed_subcarriers[10], this->runtime_snapshot_.fixed_subcarriers[11]);
-  ESP_LOGCONFIG(TAG, " └─ Source ............. %s", subcarrier_source);
+                snapshot.fixed_subcarriers[0], snapshot.fixed_subcarriers[1],
+                snapshot.fixed_subcarriers[2], snapshot.fixed_subcarriers[3],
+                snapshot.fixed_subcarriers[4], snapshot.fixed_subcarriers[5],
+                snapshot.fixed_subcarriers[6], snapshot.fixed_subcarriers[7],
+                snapshot.fixed_subcarriers[8], snapshot.fixed_subcarriers[9],
+                snapshot.fixed_subcarriers[10], snapshot.fixed_subcarriers[11]);
+  ESP_LOGCONFIG(TAG, " └─ Source ............. %s", subcarrier_source_name(snapshot.subcarrier_source));
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
-  if (this->runtime_config_.traffic_generator_rate > 0) {
-    const char *mode_str = (this->runtime_config_.traffic_generator_mode == RuntimeTrafficMode::PING) ? "ping" : "dns";
-    ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", mode_str);
-    ESP_LOGCONFIG(TAG, " ├─ Rate ............... %u pps", this->runtime_config_.traffic_generator_rate);
-    ESP_LOGCONFIG(TAG, " └─ Status ............. %s", this->runtime_snapshot_.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
+  if (config.traffic_generator_rate > 0) {
+    ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", traffic_mode_name(config.traffic_generator_mode));
+    ESP_LOGCONFIG(TAG, " ├─ Rate ............... %u pps", config.traffic_generator_rate);
+    ESP_LOGCONFIG(TAG, " └─ Status ............. %s", snapshot.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
   } else {
     ESP_LOGCONFIG(TAG, " └─ Mode ............... External Traffic");
   }
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");
-  ESP_LOGCONFIG(TAG, " └─ Packets ............ %u", this->runtime_config_.publish_interval);
+  ESP_LOGCONFIG(TAG, " └─ Packets ............ %u", config.publish_interval);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " EVALUATION");
-  ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u pkts", this->runtime_config_.evaluation_interval);
-  ESP_LOGCONFIG(TAG, " └─ Hits on/off ........ %u / %u", this->runtime_config_.motion_on_hits,
-                this->runtime_config_.motion_off_hits);
+  ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u pkts", config.evaluation_interval);
+  ESP_LOGCONFIG(TAG, " └─ Hits on/off ........ %u / %u", config.motion_on_hits, config.motion_off_hits);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " LOW-PASS FILTER");
-  ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", this->runtime_config_.lowpass_enabled ? "[ENABLED]" : "[DISABLED]");
-  if (this->runtime_config_.lowpass_enabled) {
-    ESP_LOGCONFIG(TAG, " └─ Cutoff ............. %.1f Hz", this->runtime_config_.lowpass_cutoff);
+  ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", config.lowpass_enabled ? "[ENABLED]" : "[DISABLED]");
+  if (config.lowpass_enabled) {
+    ESP_LOGCONFIG(TAG, " └─ Cutoff ............. %.1f Hz", config.lowpass_cutoff);
   }
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " HAMPEL FILTER");
-  ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", this->runtime_config_.hampel_enabled ? "[ENABLED]" : "[DISABLED]");
-  if (this->runtime_config_.hampel_enabled) {
-    ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", this->runtime_config_.hampel_window);
-    ESP_LOGCONFIG(TAG, " └─ Threshold .......... %.1f MAD", this->runtime_config_.hampel_threshold);
+  ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", config.hampel_enabled ? "[ENABLED]" : "[DISABLED]");
+  if (config.hampel_enabled) {
+    ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", config.hampel_window);
+    ESP_LOGCONFIG(TAG, " └─ Threshold .......... %.1f MAD", config.hampel_threshold);
   }
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " GAIN LOCK");
-  const char *gain_mode_str = "auto";
-  if (this->runtime_config_.gain_lock_mode == RuntimeGainLockMode::ENABLED) {
-    gain_mode_str = "enabled";
-  } else if (this->runtime_config_.gain_lock_mode == RuntimeGainLockMode::DISABLED) {
-    gain_mode_str = "disabled";
-  }
-  ESP_LOGCONFIG(TAG, " └─ Mode ............... %s", gain_mode_str);
+  ESP_LOGCONFIG(TAG, " └─ Mode ............... %s", gain_lock_mode_name(config.gain_lock_mode));
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SENSORS");
   ESP_LOGCONFIG(TAG, " ├─ Movement ........... %s", 

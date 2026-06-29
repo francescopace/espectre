@@ -4,6 +4,7 @@
 #include "esp_err.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,70 @@ typedef enum {
 
 // WiFi interface
 typedef enum { WIFI_IF_STA = 0, WIFI_IF_AP, WIFI_IF_MAX } wifi_interface_t;
+
+typedef enum { WIFI_STORAGE_FLASH = 0, WIFI_STORAGE_RAM } wifi_storage_t;
+
+typedef struct {
+  int dummy;
+} wifi_init_config_t;
+
+#define WIFI_INIT_CONFIG_DEFAULT() wifi_init_config_t{}
+
+typedef enum {
+  WIFI_ALL_CHANNEL_SCAN = 0,
+  WIFI_FAST_SCAN = 1,
+} wifi_scan_method_t;
+
+typedef enum {
+  WIFI_CONNECT_AP_BY_SIGNAL = 0,
+  WIFI_CONNECT_AP_BY_SECURITY = 1,
+} wifi_sort_method_t;
+
+typedef enum {
+  WIFI_AUTH_OPEN = 0,
+  WIFI_AUTH_WEP,
+  WIFI_AUTH_WPA_PSK,
+  WIFI_AUTH_WPA2_PSK,
+  WIFI_AUTH_WPA_WPA2_PSK,
+  WIFI_AUTH_WPA2_ENTERPRISE,
+  WIFI_AUTH_WPA3_PSK,
+  WIFI_AUTH_WPA2_WPA3_PSK,
+} wifi_auth_mode_t;
+
+typedef enum {
+  WPA3_SAE_PWE_UNSPECIFIED = 0,
+  WPA3_SAE_PWE_HUNT_AND_PECK,
+  WPA3_SAE_PWE_HASH_TO_ELEMENT,
+  WPA3_SAE_PWE_BOTH,
+} wifi_sae_pwe_method_t;
+
+typedef struct {
+  bool capable;
+  bool required;
+} wifi_pmf_config_t;
+
+typedef struct {
+  uint8_t ssid[32];
+  uint8_t password[64];
+  wifi_scan_method_t scan_method;
+  wifi_sort_method_t sort_method;
+  struct {
+    wifi_auth_mode_t authmode;
+  } threshold;
+  wifi_sae_pwe_method_t sae_pwe_h2e;
+  wifi_pmf_config_t pmf_cfg;
+  uint8_t channel;
+  uint8_t bssid[6];
+  bool bssid_set;
+} wifi_sta_config_t;
+
+typedef union {
+  wifi_sta_config_t sta;
+} wifi_config_t;
+
+typedef struct {
+  uint8_t reason;
+} wifi_event_sta_disconnected_t;
 
 // CSI configuration
 // Note: field order must match designated initializer order in csi_manager.cpp
@@ -175,6 +240,16 @@ typedef struct {
 
   esp_err_t get_ps_result;
   wifi_ps_type_t ps_type;
+  int set_ps_call_count;
+  wifi_ps_type_t last_set_ps_type;
+
+  int init_call_count;
+  int set_storage_call_count;
+  int set_mode_call_count;
+  int start_call_count;
+  int connect_call_count;
+  int set_config_call_count;
+  wifi_config_t last_config;
 
   esp_err_t get_channel_result;
   uint8_t primary_channel;
@@ -190,8 +265,21 @@ extern esp_wifi_mock_state_t g_esp_wifi_mock;
 void esp_wifi_mock_reset(void);
 
 // Mock WiFi functions
+static inline esp_err_t esp_wifi_init(const wifi_init_config_t *config) {
+  (void)config;
+  g_esp_wifi_mock.init_call_count++;
+  return ESP_OK;
+}
+
+static inline esp_err_t esp_wifi_set_storage(wifi_storage_t storage) {
+  (void)storage;
+  g_esp_wifi_mock.set_storage_call_count++;
+  return ESP_OK;
+}
+
 static inline esp_err_t esp_wifi_set_mode(wifi_mode_t mode) {
   (void)mode;
+  g_esp_wifi_mock.set_mode_call_count++;
   return ESP_OK;
 }
 
@@ -201,9 +289,28 @@ static inline esp_err_t esp_wifi_get_mode(wifi_mode_t *mode) {
   return ESP_OK;
 }
 
-static inline esp_err_t esp_wifi_start(void) { return ESP_OK; }
+static inline esp_err_t esp_wifi_start(void) {
+  g_esp_wifi_mock.start_call_count++;
+  return ESP_OK;
+}
 
 static inline esp_err_t esp_wifi_stop(void) { return ESP_OK; }
+
+static inline esp_err_t esp_wifi_connect(void) {
+  g_esp_wifi_mock.connect_call_count++;
+  return ESP_OK;
+}
+
+static inline esp_err_t esp_wifi_set_config(wifi_interface_t ifx, wifi_config_t *config) {
+  (void)ifx;
+  g_esp_wifi_mock.set_config_call_count++;
+  if (config != nullptr) {
+    g_esp_wifi_mock.last_config = *config;
+  } else {
+    memset(&g_esp_wifi_mock.last_config, 0, sizeof(g_esp_wifi_mock.last_config));
+  }
+  return ESP_OK;
+}
 
 static inline esp_err_t
 esp_wifi_set_csi_config(const wifi_csi_config_t *config) {
@@ -307,6 +414,13 @@ static inline esp_err_t esp_wifi_get_ps(wifi_ps_type_t *ps_type) {
     *ps_type = g_esp_wifi_mock.ps_type;
   }
   return g_esp_wifi_mock.get_ps_result;
+}
+
+static inline esp_err_t esp_wifi_set_ps(wifi_ps_type_t ps_type) {
+  g_esp_wifi_mock.set_ps_call_count++;
+  g_esp_wifi_mock.last_set_ps_type = ps_type;
+  g_esp_wifi_mock.ps_type = ps_type;
+  return ESP_OK;
 }
 
 static inline esp_err_t esp_wifi_set_bandwidths(wifi_interface_t ifx,

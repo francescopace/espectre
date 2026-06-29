@@ -39,11 +39,16 @@ void CSIManager::init(BaseDetector* detector,
            detector_ ? detector_->get_name() : "NULL");
 }
 
-void CSIManager::set_threshold(float threshold) {
-  if (detector_) {
-    detector_->set_threshold(threshold);
-    ESP_LOGD(TAG, "Threshold updated: %.2f", threshold);
+bool CSIManager::set_threshold(float threshold) {
+  if (detector_ == nullptr) {
+    return false;
   }
+  if (!detector_->set_threshold(threshold)) {
+    ESP_LOGW(TAG, "Rejected invalid threshold: %.3f", threshold);
+    return false;
+  }
+  ESP_LOGD(TAG, "Threshold updated: %.2f", threshold);
+  return true;
 }
 
 void CSIManager::clear_detector_buffer() {
@@ -190,10 +195,7 @@ esp_err_t CSIManager::disable() {
   
   enabled_ = false;
   packet_callback_ = nullptr;
-  motion_state_callback_ = nullptr;
-  game_mode_callback_ = nullptr;
   capture_service_.set_packet_callback({});
-  capture_service_.set_gain_packet_callback({});
   packets_since_evaluation_ = 0;
   reset_motion_state_filter_();
   return ESP_OK;

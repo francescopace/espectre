@@ -12,4 +12,9 @@ menu "ESPectre BLE Frontend"
         string "Optional Wi-Fi BSSID lock (aa:bb:cc:dd:ee:ff)"
         default ""
 
+    config ESPECTRE_WIFI_CHANNEL
+        int "Optional Wi-Fi channel lock (0 = auto)"
+        range 0 14
+        default 0
+
 endmenu

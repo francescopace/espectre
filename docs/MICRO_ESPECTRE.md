@@ -47,8 +47,22 @@ Micro-ESPectre uses MQTT for maximum flexibility - it's not tied to Home Assista
 
 ### What is micropython-esp32-csi?
 
-[micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) is a MicroPython fork that I wrote to expose ESP32's CSI (Channel State Information) capabilities to Python. 
-This fork makes CSI-based applications accessible to Python developers and enables rapid prototyping of WiFi sensing applications.
+[micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) is the firmware distribution repository used by the Micro-ESPectre workflow. It started as a MicroPython fork exposing ESP32 CSI (Channel State Information) capabilities to Python and made CSI-based applications accessible to Python developers for rapid Wi-Fi sensing prototyping.
+
+## Upstream MicroPython Status
+
+The firmware foundation behind Micro-ESPectre is no longer only project-local work.
+
+ESP32 Wi-Fi CSI support was contributed upstream and merged into mainline MicroPython in [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460) on Jun 26, 2026, for the `1.29.0` release cycle.
+
+Why this matters:
+
+- It validates the technical approach through upstream review and maintainer feedback.
+- It reduces long-term maintenance risk for the MicroPython-based workflow.
+- It shows that ESPectre contributes enabling sensing infrastructure back to the ecosystem, not only end-user applications.
+- It gives Micro-ESPectre a stronger and more credible foundation for research, prototyping, and firmware distribution.
+
+This is an important milestone for ESPectre: the project is not only built on open-source infrastructure, it has also contributed new Wi-Fi sensing capabilities back to that infrastructure.
 
 ## Comparison with the C++ Platform
 
@@ -158,8 +172,8 @@ The `espectre micro` namespace provides these essential commands:
 ./espectre micro                  # Interactive MQTT control
 
 # For real-time CSI streaming (gesture detection, research)
-./espectre streamer flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre streamer monitor --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre streamer flash --chip s3 --port /dev/cu.usbmodemXXXX
+./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX
 
 # On the PC, inspect live ML motion inference
 ./espectre micro detect --log-turbulence

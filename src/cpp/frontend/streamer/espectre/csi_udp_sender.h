@@ -81,6 +81,7 @@ class CsiUdpSender {
   std::atomic<uint16_t> collector_port_{0U};
   std::atomic<bool> collector_enabled_{false};
   std::atomic<bool> running_{false};
+  std::atomic<bool> sender_task_running_{false};
   std::atomic<uint64_t> queued_total_{0U};
   std::atomic<uint64_t> tx_total_{0U};
   std::atomic<uint64_t> drop_total_{0U};

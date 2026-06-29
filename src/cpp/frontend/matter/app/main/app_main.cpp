@@ -6,9 +6,12 @@
  */
 
 #include <esp_err.h>
+#include <esp_event.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
 #include <sdkconfig.h>
+
+#include <cstring>
 
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
@@ -21,6 +24,7 @@
 #include "matter_bindings_esp_matter.h"
 #include "matter_frontend.h"
 #include "matter_surface.h"
+#include "standalone_wifi_manager.h"
 
 static const char *TAG = "espectre.matter.app";
 
@@ -116,6 +120,19 @@ void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
   }
 }
 
+void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+  (void) arg;
+  (void) event_data;
+  if (event_base == nullptr || std::strcmp(event_base, WIFI_EVENT) != 0 || event_id != WIFI_EVENT_STA_START) {
+    return;
+  }
+
+  const esp_err_t policy_err = esphome::espectre::StandaloneWifiManager::apply_started_csi_policy();
+  if (policy_err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to apply started Wi-Fi CSI policy: %s", esp_err_to_name(policy_err));
+  }
+}
+
 esp_err_t app_identification_cb(identification::callback_type_t type, uint16_t endpoint_id, uint8_t effect_id,
                                 uint8_t effect_variant, void *priv_data) {
   ESP_LOGI(TAG, "Identify endpoint %u", endpoint_id);
@@ -199,6 +216,17 @@ extern "C" void app_main() {
   g_frontend = &frontend;
   ESP_LOGI(TAG, "ESPectre Matter smoke marker: endpoint %u configured, starting Matter stack",
            g_motion_endpoint_id);
+  err = esp_event_loop_create_default();
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "Failed to create default event loop (%d)", err);
+    return;
+  }
+  err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, nullptr);
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "Failed to register Wi-Fi policy handler (%d)", err);
+    return;
+  }
+
   err = esp_matter::start(app_event_cb);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start Matter (%d)", err);
