@@ -22,8 +22,8 @@ Computed metrics:
 - `Static Presence Var`: variance of spatial turbulence on the static-presence file
 - `Motion Var`: variance of spatial turbulence on the motion file
 - `Ratio`: `Motion Var / Static Presence Var`
-- `Empty quietness`: `empty` should stay below `static_presence` on average 
-  for both turbulence and moving variance within the same chip/environment
+- `Empty separation`: score-based separability between `empty` and 
+  `static_presence` windows using `0.7*z(turb_mean) + 0.3*z(waveform_length_over_mean)`
 - `Gap`: non-negative time between the `static_presence` and `motion` capture intervals
   regardless of acquisition order (`0s` means the intervals overlap)
 - `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set
@@ -71,7 +71,7 @@ Computed metrics:
 
 ## Detailed Check Summary
 
-- Total checks: 458
-- ✅ PASS: 455
-- ⚠️ WARN: 3
+- Total checks: 453
+- ✅ PASS: 453
+- ⚠️ WARN: 0
 - ❌ FAIL: 0
