@@ -148,7 +148,8 @@ class MLDetector(IDetector):
     motion based on turbulence features extracted from CSI data.
     
     Algorithm:
-    1. Calculate spatial turbulence (std of subcarrier amplitudes)
+    1. Calculate spatial turbulence (raw std when gain is locked, std/mean when
+       gain lock is unavailable)
     2. Store in circular buffer (window_size packets)
     3. Extract the configured ML feature vector from buffer
     4. Run neural network inference
@@ -158,6 +159,7 @@ class MLDetector(IDetector):
     def __init__(self, window_size=100, threshold=ML_DEFAULT_THRESHOLD,
                  enable_lowpass=False, lowpass_cutoff=11.0,
                  enable_hampel=True, hampel_window=7, hampel_threshold=5.0,
+                 use_cv_normalization=False,
                  **kwargs):
         """
         Initialize ML detector.
@@ -170,6 +172,7 @@ class MLDetector(IDetector):
             enable_hampel: Enable Hampel filter (default: True, model trained with Hampel)
             hampel_window: Hampel window size (default: 7)
             hampel_threshold: Hampel threshold in MAD (default: 5.0)
+            use_cv_normalization: Use std/mean turbulence for streams without gain lock
         """
         # Use SegmentationContext for turbulence calculation and filtering
         self._context = SegmentationContext(
@@ -181,8 +184,7 @@ class MLDetector(IDetector):
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold
         )
-        # ML model is trained on raw std only — CV normalization must stay off
-        self._context.use_cv_normalization = False
+        self._context.use_cv_normalization = bool(use_cv_normalization)
         self._threshold = threshold
         self._packet_count = 0
         self._motion_count = 0
@@ -299,14 +301,13 @@ class MLDetector(IDetector):
 
     def set_cv_normalization(self, enabled):
         """
-        Ignore CV normalization requests.
+        Select turbulence normalization for the incoming stream.
 
-        The exported ML model is trained on raw standard deviation, so the
-        runtime must keep CV normalization disabled to stay aligned with the
-        C++ implementation and the training pipeline.
+        Gain-locked devices use raw std; devices without gain lock should use
+        CV normalization (std/mean) to avoid level shifts dominating the ML
+        feature window.
         """
-        del enabled
-        self._context.use_cv_normalization = False
+        self._context.use_cv_normalization = bool(enabled)
     
     def is_ready(self):
         """Check if buffer is full."""

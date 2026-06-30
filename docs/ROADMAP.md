@@ -1,17 +1,23 @@
 # Roadmap
 
-`v2.x` remains the production baseline for motion detection. The roadmap below
-focuses on what each next version contains and how far it has progressed.
+## History
 
-- `v3.x`: modular sensing platform
-- `v4.x`: home orchestration layer
+| Version | Purpose |
+|---------|---------|
+| **v1.x** | First release demonstrating motion detection capabilities using turbulence analysis |
+| **v2.x** | Home Assistant integration using ESPHome plus the custom MicroPython `Micro-ESPectre` firmware |
 
-## Summary
+## Current Release
 
 | Version | Purpose | Status | Progress |
 |---------|---------|--------|----------|
-| **v3.x** | Turn ESPectre into a reusable platform across frontends and runtimes | In Progress | Core architecture is landed; frontend expansion and practical sensing work are still ongoing |
-| **v4.x** | Build a local orchestration layer across multiple ESPectre nodes | Planned | Direction is defined, but implementation has not started yet |
+| **v3.x** | Turn ESPectre into a reusable platform across frontends and runtimes | Near Release | Platform split, multi-frontend firmware paths, room-state baselines, and dataset/training workflows are landed; remaining work is mostly polish, validation depth, and broader productization |
+
+## Next Roadmap
+
+| Version | Purpose | Status | Progress |
+|---------|---------|--------|----------|
+| **v4.x** | Build an optional cloud orchestration layer across multiple ESPectre nodes | Planned | Product and technical direction are defined in [ESPECTRE_CLOUD.md](ESPECTRE_CLOUD.md); implementation has not started yet |
 
 ---
 
@@ -27,56 +33,63 @@ paths.
 |------|-------|
 | **Architecture** | Shared `core`, `runtime`, and `frontend` layers |
 | **Runtime contract** | Stable frontend-oriented APIs such as `IEspectreRuntime`, snapshots, events, and capabilities |
-| **ESPHome path** | Production frontend kept on top of the shared platform |
-| **Matter path** | Second frontend proving that the same runtime/core can target another ecosystem |
+| **ESPHome frontend** | Production Home Assistant path kept on top of the shared platform |
+| **BLE frontend** | Standalone custom GATT surface for generic BLE clients and web integrations |
+| **Matter frontend** | Matter occupancy and diagnostics surface proving a second ecosystem-facing frontend |
+| **Streamer frontend** | Standalone CSI UDP streamer for dataset collection, host tooling, and realtime fusion experiments |
 | **Custom firmware path** | Ability to assemble alternate firmware targets from shared platform layers |
 | **Practical sensing** | Presence and occupancy baselines, plus reusable inference/tooling foundations |
 | **Host-side tooling** | Analysis tools, notebooks, datasets, and training workflows that support the platform direction |
 
-### Implementation Checklist
-
-- [x] Core / runtime / frontend split
-- [x] Runtime contract and platform boundaries
-- [x] ESPHome frontend stabilized without symlink-dependent packaging
-- [ ] Matter frontend completed beyond the current experimental stage
-- [ ] Custom firmware assembly productized from shared platform layers
-- [ ] Presence / occupancy baselines validated for broader use
-- [x] Edge ML inference on ESP32
-- [ ] Training / dataset infrastructure completed for broader reproducibility
-- [x] Notebooks / exploration tooling available
-
 ---
 
-## v4.x - Home Orchestration Layer
+## v4.x - ESPectre Cloud Orchestration Layer
 
-**Goal**: make multiple ESPectre devices behave like one coherent home sensing
-system through a local-first service layer.
+**Goal**: make multiple ESPectre devices behave like one coherent home sensing system through an optional, privacy-first cloud service that adds managed realtime visibility, history, alerting, fleet management, and firmware updates without requiring raw CSI or other sensitive radio data to leave the user environment.
 
 ### Contains
 
 | Area | Scope |
 |------|-------|
-| **Local service** | Web or self-hosted service for orchestration across devices |
-| **Device visibility** | Sensor inventory, runtime status, and fleet inspection |
-| **Management** | Device lifecycle and firmware update workflows |
-| **Realtime state** | Unified live view of the home across multiple nodes |
-| **Multi-room fusion** | Room-to-room movement and multi-device event fusion |
-| **Cross-frontend view** | Unified view across `ESPHome`, `Matter`, and custom firmware nodes |
+| **Cloud service** | Optional managed service for multi-device orchestration, built so local/open-source usage remains viable |
+| **Identity and tenancy** | User login, homes/locations, roles, and device ownership |
+| **Secure device onboarding** | Physical-presence pairing, likely through Web Bluetooth, short-lived claim sessions, and per-device credentials |
+| **Device visibility** | Sensor inventory, online/offline state, firmware version, runtime status, and fleet inspection |
+| **Home map** | User-drawn home/office/location layout with devices placed in rooms or zones |
+| **Realtime state** | Near-realtime movement score, motion state, and device health across the location |
+| **Approximate room flow** | Best-effort room-to-room movement visualization from device transitions, without claiming precise localization |
+| **Management** | Remote threshold updates, runtime settings, and signed firmware update workflows |
+| **History** | Retained movement/status timeline with configurable privacy and retention policy |
+| **Alerting** | Motion-triggered notifications through email first, then Telegram and WhatsApp as integrations mature |
+| **Privacy boundary** | Derived telemetry only; no raw CSI, no unnecessary Wi-Fi identifiers, no sensitive device logs by default |
+| **Cross-frontend view** | Unified view across `ESPHome`, `Matter`, `BLE`, streamer-derived tooling, and custom firmware nodes where applicable |
 
 ### Implementation Checklist
 
-- [ ] Local service for orchestration across devices
-- [ ] Sensor inventory and runtime status view
-- [ ] Device and firmware management workflows
-- [ ] Realtime home state visualization
-- [ ] Multi-device event fusion
-- [ ] Unified view across `ESPHome`, `Matter`, and custom firmware nodes
+- [ ] Define cloud protocol and privacy boundary for device telemetry
+- [ ] Design tenant, home/location, room, and device ownership model
+- [ ] Implement social login and account management
+- [ ] Implement secure Web Bluetooth assisted device claim flow
+- [ ] Build cloud ingestion path for derived telemetry and device status
+- [ ] Build near-realtime dashboard with home map and device placement
+- [ ] Add movement score, motion state, online/offline status, and firmware version views
+- [ ] Add configurable threshold updates through the device control plane
+- [ ] Add signed firmware artifact storage and OTA update workflow
+- [ ] Add movement/status history with explicit retention controls
+- [ ] Add alerting rules for motion detection, starting with email
+- [ ] Add Telegram and WhatsApp notification integrations
+- [ ] Add approximate room-to-room movement visualization from multi-device events
+- [ ] Document open-source boundaries, self-hosting posture, and paid managed-service value
+- [ ] Validate security, abuse resistance, privacy posture, and operational resilience before public launch
+
+See [ESPECTRE_CLOUD.md](ESPECTRE_CLOUD.md) for the proposed architecture and
+technical design details.
 
 ---
 
 ## Roadmap Updates
 
-Last update: **June 2026**
+Last update: **July 2026**
 
 For discussion and proposed changes:
 
@@ -88,4 +101,3 @@ For discussion and proposed changes:
 ## License
 
 GPLv3 - See [LICENSE](../LICENSE) for details.
-

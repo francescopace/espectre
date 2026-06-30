@@ -4,7 +4,8 @@
  * Neural network-based motion detection algorithm.
  * 
  * Algorithm:
- * 1. Calculate spatial turbulence (std of subcarrier amplitudes) per packet
+ * 1. Calculate spatial turbulence per packet (raw std when gain is locked,
+ *    std/mean when gain lock is unavailable)
  * 2. Apply optional Hampel filter to remove outliers
  * 3. Apply optional low-pass filter for noise reduction
  * 4. Extract statistical features from turbulence buffer
@@ -67,9 +68,6 @@ public:
     bool set_threshold(float threshold) override;
     float get_threshold() const override { return threshold_; }
     const char* get_name() const override { return "ML"; }
-
-    // ML model is trained on raw std only — CV normalization must stay off
-    void set_cv_normalization(bool /*enabled*/) override {}
 
 private:
     /**

@@ -30,7 +30,8 @@ Usage:
 Configuration:
   - TRAINING_FEATURES: Edit at top of file to change feature set
 
-Note: CV normalization is always disabled (raw std) to match MLDetector inference.
+Note: turbulence normalization follows the gain mode: gain-locked streams use
+raw std, streams without gain lock use CV normalization (std/mean).
 
 To compare ML with MVS, use:
     python tools/7_compare_detection_methods.py
@@ -56,8 +57,10 @@ import subprocess
 import re
 import shutil
 import tempfile
+import warnings
 from pathlib import Path
 from collections import deque
+from dataclasses import dataclass
 
 from repo_paths import cpp_core_dir, models_dir, python_src_dir, python_tests_dir, repo_root
 from contextlib import contextmanager
@@ -88,6 +91,19 @@ def suppress_stderr():
         # Restore the original stderr
         os.dup2(saved_stderr_fd, stderr_fd)
         os.close(saved_stderr_fd)
+
+
+@contextmanager
+def suppress_keras_numpy_copy_warning():
+    """Hide a Keras/NumPy 2.x compatibility warning emitted during fit()."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            'ignore',
+            message=r"__array__ implementation doesn't accept a copy keyword.*",
+            category=DeprecationWarning,
+            module=r'keras\.src\.backend\.tensorflow\.core',
+        )
+        yield
 
 
 def format_duration(seconds):
@@ -150,75 +166,44 @@ from csi_utils import (
 from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS, HAMPEL_WINDOW, HAMPEL_THRESHOLD
 from segmentation import SegmentationContext
 from features import (
-    extract_features_by_name, DEFAULT_FEATURES,
-    calc_iqr, calc_skewness, calc_autocorrelation, calc_mad, calc_waveform_length,
+    extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
+    ROBUST_RELATIVE_FEATURES,
 )
 
 # ============================================================================
 # Feature Selection
 # ============================================================================
 #
-# Production MLP uses the nine features in src/features.DEFAULT_FEATURES.
+# Production MLP uses the feature set in src/features.DEFAULT_FEATURES.
 # See ALGORITHMS.md "Feature Importance" for SHAP/correlation rankings.
 # ============================================================================
 
 TRAINING_FEATURES = DEFAULT_FEATURES
-MULTICLASS_PHASE_FEATURES = [
-    'phase_turb_mean',
-    'phase_turb_std',
-    'phase_turb_max',
-    'phase_turb_iqr',
-    'phase_turb_mad',
-    'phase_turb_waveform_length',
-]
-MULTICLASS_COMMON_OFFSET_PHASE_FEATURES = [
-    'phase_cor_spread_mean',
-    'phase_cor_spread_std',
-    'phase_cor_spread_max',
-    'phase_cor_spread_iqr',
-    'phase_cor_spread_mad',
-    'phase_cor_spread_waveform_length',
-]
-MULTICLASS_SYNC_PHASE_FEATURES = [
-    'phase_sync_mean',
-    'phase_sync_std',
-    'phase_sync_max',
-    'phase_sync_iqr',
-    'phase_sync_mad',
-    'phase_sync_waveform_length',
-]
-MULTICLASS_FEATURE_SETS = {
-    'amplitude': list(DEFAULT_FEATURES),
-    'amplitude_phase': list(DEFAULT_FEATURES) + list(MULTICLASS_PHASE_FEATURES),
-    'amplitude_common_offset_phase': (
-        list(DEFAULT_FEATURES) + list(MULTICLASS_COMMON_OFFSET_PHASE_FEATURES)
-    ),
-    'amplitude_stimulus_phase': (
-        list(DEFAULT_FEATURES) + list(MULTICLASS_SYNC_PHASE_FEATURES)
-    ),
+BINARY_TRAINING_LABELS = ('empty', 'static_presence', 'motion')
+FEATURE_SET_CHOICES = {
+    'production': DEFAULT_FEATURES,
+    'relative': RELATIVE_FEATURES,
+    'robust_relative': ROBUST_RELATIVE_FEATURES,
 }
-
-
 # Directories
 MODELS_DIR = models_dir()
 SRC_DIR = python_src_dir()
 CPP_DIR = cpp_core_dir()
 
 # Default training/evaluation configuration
-DEFAULT_HIDDEN_LAYERS = [24, 12]
-DEFAULT_FP_WEIGHT = 1.0
+DEFAULT_HIDDEN_LAYERS = [32, 16]
+DEFAULT_FP_WEIGHT = 2.0
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_ML_TEMPERATURE = 5.0
-# All chips included: MLDetector always uses raw std (CV normalization
-# is disabled in both training and inference), so ESP32 data is compatible
-# with gain-lock chips despite gain_locked=False.
+# All chips included: MLDetector keeps MVS CV normalization disabled, then
+# extracts the exported raw/relative feature set from the same turbulence base.
 DEFAULT_EXCLUDED_CHIPS = ()
 DEFAULT_ARCHITECTURE_SWEEP = (
     {'name': 'Legacy (16-8)', 'layers': [16, 8]},
-    {'name': 'Current default (24-12)', 'layers': [24, 12]},
+    {'name': 'Previous default (24-12)', 'layers': [24, 12]},
     {'name': 'Shallow (24)', 'layers': [24]},
-    {'name': 'Wider (32-16)', 'layers': [32, 16]},
+    {'name': 'Current default (32-16)', 'layers': [32, 16]},
     {'name': 'Deep (24-12-6)', 'layers': [24, 12, 6]},
 )
 DEFAULT_EXPERIMENT_OUTPUT = MODELS_DIR / 'mlp_architecture_experiment.json'
@@ -227,6 +212,33 @@ DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
 DEFAULT_EXPERIMENT_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
 DEFAULT_PAIRED_GATE_CHIPS = ('C3', 'C5', 'C6', 'ESP32', 'S3')
 DEFAULT_LONG_GATE_CHIPS = ('C3', 'C5', 'C6', 'S3')
+DEFAULT_GAIN_STRESS_SCALES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+GAIN_INVARIANT_FEATURES = ('turb_skewness', 'turb_autocorr')
+GAIN_SENSITIVE_FEATURES = tuple(
+    name for name in RAW_FEATURES if name not in GAIN_INVARIANT_FEATURES
+)
+GAIN_RELATIVE_FEATURES = tuple(
+    name for name in RELATIVE_FEATURES if name not in GAIN_INVARIANT_FEATURES
+)
+GAIN_EXTRA_RELATIVE_FEATURES = (
+    'turb_range_over_mean',
+    'turb_peak_over_mad',
+)
+GAIN_FEATURE_EXPERIMENT_SETS = (
+    'raw',
+    'relative',
+    'relative_plus_range',
+    'relative_plus_peak',
+    'hybrid',
+)
+PYTEST_PAIRED_ML_GATE = (
+    'test/python/test_validation_real_data.py::'
+    'TestPerformanceMetrics::test_ml_detection_accuracy'
+)
+PYTEST_LONG_ML_GATE = (
+    'test/python/test_validation_long_recordings.py::'
+    'TestLongRecordings::test_ml_vs_test_recordings'
+)
 DEFAULT_MAX_EPOCHS = 100
 DEFAULT_EARLY_STOP_PATIENCE = 8
 DEFAULT_LR_PATIENCE = 4
@@ -240,12 +252,6 @@ DEFAULT_REPORT_GROUP_KEYS = (
     'session_group',
     'source_file',
 )
-ROOM_STATE_CLASS_NAMES = ('empty', 'static_presence', 'motion')
-ROOM_STATE_CLASS_MAP = {
-    label: idx for idx, label in enumerate(ROOM_STATE_CLASS_NAMES)
-}
-
-
 # ============================================================================
 # Data Loading
 # ============================================================================
@@ -291,17 +297,6 @@ def normalize_allowed_labels(labels):
     return {str(label).strip().lower() for label in labels if str(label).strip()} or None
 
 
-def resolve_multiclass_feature_names(feature_set='amplitude'):
-    """Resolve the experimental multiclass feature set to a concrete list."""
-    feature_set = str(feature_set).strip().lower()
-    if feature_set not in MULTICLASS_FEATURE_SETS:
-        raise ValueError(
-            f"Unsupported multiclass feature set: {feature_set} "
-            f"(expected one of {sorted(MULTICLASS_FEATURE_SETS)})"
-        )
-    return list(MULTICLASS_FEATURE_SETS[feature_set])
-
-
 def parse_hidden_layers(value):
     """Parse comma-separated hidden layer widths into a positive integer list."""
     if value is None:
@@ -328,6 +323,16 @@ def parse_hidden_layers(value):
 def format_hidden_layers(layers):
     """Return hidden layers as a stable dash-separated string."""
     return '-'.join(str(int(layer)) for layer in layers)
+
+
+def resolve_training_feature_set(name):
+    """Resolve a named binary-training feature set."""
+    key = str(name or 'production').strip().lower()
+    if key not in FEATURE_SET_CHOICES:
+        raise argparse.ArgumentTypeError(
+            f"unsupported feature set {name!r}; expected one of {sorted(FEATURE_SET_CHOICES)}"
+        )
+    return list(FEATURE_SET_CHOICES[key])
 
 
 def normalize_architecture_specs(architectures):
@@ -433,6 +438,34 @@ def parse_positive_chip_boost(value):
     return boosts or None
 
 
+def parse_gain_stress_scales(value):
+    """Parse comma-separated positive gain stress multipliers."""
+    if value is None:
+        return tuple(DEFAULT_GAIN_STRESS_SCALES)
+    if isinstance(value, (list, tuple)):
+        parts = value
+    else:
+        parts = str(value).split(',')
+
+    scales = []
+    for item in parts:
+        text = str(item).strip()
+        if not text:
+            continue
+        try:
+            scale = float(text)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                f"Invalid gain stress scale '{text}'"
+            ) from exc
+        if scale <= 0.0:
+            raise argparse.ArgumentTypeError("gain stress scales must be > 0")
+        scales.append(scale)
+    if not scales:
+        raise argparse.ArgumentTypeError("at least one gain stress scale is required")
+    return tuple(scales)
+
+
 def apply_positive_chip_boost(sample_weights, sample_context, y, chip_boosts):
     """
     Boost motion samples for specific chips, then renormalize overall mean to 1.0.
@@ -497,6 +530,9 @@ def _parse_iso_timestamp(value):
 
 def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 * 60):
     """Resolve the paired baseline/movement file from metadata or nearest timestamp."""
+    if label not in ('static_presence', 'motion'):
+        return None
+
     counterpart_field = (
         'optimal_pair_motion_file'
         if label == 'static_presence'
@@ -533,6 +569,9 @@ def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 *
 
 def _build_pair_id(label, entry, dataset_info=None):
     """Build a stable pair/session id shared by baseline and movement files."""
+    if label not in ('static_presence', 'motion'):
+        return None
+
     filename = entry.get('filename')
     if not filename:
         return None
@@ -708,7 +747,7 @@ def get_file_metadata(dataset_info):
 
 
 def load_all_data(environment_filter=None, excluded_chips=None,
-                  allowed_labels=('static_presence', 'motion'),
+                  allowed_labels=BINARY_TRAINING_LABELS,
                   require_sync_metadata=False):
     """
     Load all available CSI data from the data/ directory.
@@ -817,7 +856,6 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                 for idx, p in enumerate(packets):
                     p['is_motion'] = is_motion
                     p['label_name'] = label_lc
-                    p['class_id'] = ROOM_STATE_CLASS_MAP.get(label_lc, -1)
                     p['gain_locked'] = gain_locked
                     p['source_file'] = npz_file.name
                     p['packet_index'] = idx
@@ -846,292 +884,10 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     return all_packets, stats
 
 
-# ============================================================================
-# Feature Extraction
-# ============================================================================
-
-_DEFAULT_SC_Q_IDX = np.array([sc * 2 for sc in DEFAULT_SUBCARRIERS], dtype=np.int32)
-_DEFAULT_SC_I_IDX = _DEFAULT_SC_Q_IDX + 1
-
-
-def compute_phase_turbulence(csi_data, previous_phase_rel=None):
-    """Compute one scalar packet-level temporal phase turbulence value."""
-    q = np.asarray(csi_data[_DEFAULT_SC_Q_IDX], dtype=np.float32)
-    i = np.asarray(csi_data[_DEFAULT_SC_I_IDX], dtype=np.float32)
-    phase = np.arctan2(q, i)
-    phase_unwrapped = np.unwrap(phase)
-    phase_rel = phase_unwrapped - phase_unwrapped[0]
-
-    if previous_phase_rel is None:
-        return 0.0, phase_rel
-
-    delta_rel = phase_rel - previous_phase_rel
-    delta_wrapped = np.angle(np.exp(1j * delta_rel))
-    phase_turbulence = float(np.mean(np.abs(delta_wrapped)))
-    return phase_turbulence, phase_rel
-
-
-def wrap_angle_rad(angle):
-    """Wrap an angle to [-pi, pi]."""
-    return float(np.arctan2(np.sin(angle), np.cos(angle)))
-
-
-def circular_mean_rad(angles_rad):
-    """Circular mean for a 1D iterable of angles in radians."""
-    if len(angles_rad) == 0:
-        return None
-    angles = np.asarray(angles_rad, dtype=np.float32)
-    return float(np.arctan2(np.mean(np.sin(angles)), np.mean(np.cos(angles))))
-
-
-def circular_stddev_rad(angles_rad):
-    """Circular standard deviation in radians."""
-    if len(angles_rad) == 0:
-        return 0.0
-    angles = np.asarray(angles_rad, dtype=np.float32)
-    r = float(np.hypot(np.mean(np.sin(angles)), np.mean(np.cos(angles))))
-    if r <= 0.0:
-        return float(np.pi)
-    return float(np.sqrt(max(0.0, -2.0 * np.log(min(1.0, r)))))
-
-
-def unwrap_sequence_rad(angles_rad):
-    """Unwrap a short 1D sequence of wrapped angles."""
-    if len(angles_rad) == 0:
-        return []
-    angles = [float(v) for v in angles_rad]
-    unwrapped = [angles[0]]
-    for angle in angles[1:]:
-        prev = unwrapped[-1]
-        delta = wrap_angle_rad(angle - prev)
-        unwrapped.append(prev + delta)
-    return unwrapped
-
-
-def remove_common_phase_offset(phases_rad):
-    """Remove the per-packet common phase offset."""
-    offset = circular_mean_rad(phases_rad)
-    if offset is None:
-        return []
-    return [wrap_angle_rad(float(angle) - offset) for angle in phases_rad]
-
-
-def compute_common_offset_phase_spread(csi_data):
-    """Compute one scalar packet-level spread after common phase-offset removal."""
-    q = np.asarray(csi_data[_DEFAULT_SC_Q_IDX], dtype=np.float32)
-    i = np.asarray(csi_data[_DEFAULT_SC_I_IDX], dtype=np.float32)
-    phase = np.arctan2(q, i)
-    phase_cor = remove_common_phase_offset(phase)
-    return circular_stddev_rad(phase_cor)
-
-
-def get_sync_time_us(packet):
-    """Return the best available device-side timestamp in microseconds."""
-    wifi_rx_start_ts_ns = packet.get('wifi_rx_start_ts_ns')
-    if wifi_rx_start_ts_ns is not None:
-        return float(wifi_rx_start_ts_ns) / 1000.0
-    device_ticks_us = packet.get('device_ticks_us')
-    if device_ticks_us is not None:
-        return float(device_ticks_us)
-    wifi_rx_ts_us = packet.get('wifi_rx_ts_us')
-    if wifi_rx_ts_us is not None:
-        return float(wifi_rx_ts_us)
-    return None
-
-
-def compute_stimulus_aligned_phase_delta(csi_data, packet, previous_sync_state=None):
-    """Compute a sync-aware phase delta between adjacent valid stimulus packets."""
-    q = np.asarray(csi_data[_DEFAULT_SC_Q_IDX], dtype=np.float32)
-    i = np.asarray(csi_data[_DEFAULT_SC_I_IDX], dtype=np.float32)
-    phase = np.arctan2(q, i)
-    phase_cor = np.asarray(remove_common_phase_offset(phase), dtype=np.float32)
-    current_state = {
-        'phase_cor': phase_cor,
-        'stimulus_id': packet.get('stimulus_id'),
-        'sync_time_us': get_sync_time_us(packet),
-    }
-
-    if previous_sync_state is None:
-        return 0.0, current_state
-
-    prev_phase_cor = previous_sync_state.get('phase_cor')
-    prev_stimulus_id = previous_sync_state.get('stimulus_id')
-    prev_sync_time_us = previous_sync_state.get('sync_time_us')
-    stimulus_id = current_state['stimulus_id']
-    sync_time_us = current_state['sync_time_us']
-
-    if (
-        prev_phase_cor is None
-        or prev_stimulus_id is None
-        or stimulus_id is None
-        or prev_sync_time_us is None
-        or sync_time_us is None
-    ):
-        return 0.0, current_state
-
-    stimulus_gap = int(stimulus_id) - int(prev_stimulus_id)
-    sync_gap_us = float(sync_time_us) - float(prev_sync_time_us)
-    if stimulus_gap <= 0 or stimulus_gap > 4 or sync_gap_us <= 0.0:
-        return 0.0, current_state
-
-    phase_delta = np.angle(np.exp(1j * (phase_cor - prev_phase_cor)))
-    mean_abs_delta = float(np.mean(np.abs(phase_delta)))
-    return mean_abs_delta / float(stimulus_gap), current_state
-
-
-def extract_experiment_features_by_name(
-    turbulence_buffer,
-    phase_turbulence_buffer,
-    common_offset_phase_spread_buffer,
-    sync_phase_delta_buffer,
-    feature_names,
-):
-    """Extract mixed amplitude/phase features for the offline multiclass experiment."""
-    if feature_names is None:
-        feature_names = DEFAULT_FEATURES
-
-    turb_features = [name for name in feature_names if not name.startswith('phase_turb_')]
-    phase_features = [name for name in feature_names if name.startswith('phase_turb_')]
-    common_offset_features = [
-        name for name in turb_features if name.startswith('phase_cor_spread_')
-    ]
-    sync_phase_features = [
-        name for name in turb_features if name.startswith('phase_sync_')
-    ]
-    turb_features = [
-        name
-        for name in turb_features
-        if not name.startswith('phase_cor_spread_') and not name.startswith('phase_sync_')
-    ]
-    features = []
-
-    if turb_features:
-        features.extend(
-            extract_features_by_name(
-                turbulence_buffer,
-                len(turbulence_buffer),
-                feature_names=turb_features,
-            )
-        )
-
-    if phase_features:
-        phase_list = list(phase_turbulence_buffer)
-        n = len(phase_list)
-        if n < 2:
-            features.extend([0.0] * len(phase_features))
-        else:
-            phase_mean = sum(phase_list) / n
-            phase_min = min(phase_list)
-            phase_max = max(phase_list)
-            var_sum = 0.0
-            for value in phase_list:
-                diff = value - phase_mean
-                var_sum += diff * diff
-            phase_var = var_sum / n
-            phase_std = np.sqrt(phase_var) if phase_var > 0 else 0.0
-
-            sorted_phase = None
-            for name in phase_features:
-                if name in ('phase_turb_iqr', 'phase_turb_mad'):
-                    sorted_phase = sorted(phase_list)
-                    break
-
-            for name in phase_features:
-                if name == 'phase_turb_mean':
-                    features.append(phase_mean)
-                elif name == 'phase_turb_std':
-                    features.append(phase_std)
-                elif name == 'phase_turb_max':
-                    features.append(phase_max)
-                elif name == 'phase_turb_iqr':
-                    features.append(calc_iqr(phase_list, n, sorted_values=sorted_phase))
-                elif name == 'phase_turb_mad':
-                    features.append(calc_mad(phase_list, n, sorted_values=sorted_phase))
-                elif name == 'phase_turb_waveform_length':
-                    features.append(calc_waveform_length(phase_list, n))
-                else:
-                    raise ValueError(f"Unknown experimental phase feature: {name}")
-
-    if common_offset_features:
-        phase_spread_list = list(common_offset_phase_spread_buffer)
-        n = len(phase_spread_list)
-        if n < 2:
-            features.extend([0.0] * len(common_offset_features))
-        else:
-            spread_mean = sum(phase_spread_list) / n
-            spread_max = max(phase_spread_list)
-            var_sum = 0.0
-            for value in phase_spread_list:
-                diff = value - spread_mean
-                var_sum += diff * diff
-            spread_var = var_sum / n
-            spread_std = np.sqrt(spread_var) if spread_var > 0 else 0.0
-
-            sorted_spread = None
-            for name in common_offset_features:
-                if name in ('phase_cor_spread_iqr', 'phase_cor_spread_mad'):
-                    sorted_spread = sorted(phase_spread_list)
-                    break
-
-            for name in common_offset_features:
-                if name == 'phase_cor_spread_mean':
-                    features.append(spread_mean)
-                elif name == 'phase_cor_spread_std':
-                    features.append(spread_std)
-                elif name == 'phase_cor_spread_max':
-                    features.append(spread_max)
-                elif name == 'phase_cor_spread_iqr':
-                    features.append(calc_iqr(phase_spread_list, n, sorted_values=sorted_spread))
-                elif name == 'phase_cor_spread_mad':
-                    features.append(calc_mad(phase_spread_list, n, sorted_values=sorted_spread))
-                elif name == 'phase_cor_spread_waveform_length':
-                    features.append(calc_waveform_length(phase_spread_list, n))
-                else:
-                    raise ValueError(f"Unknown common-offset phase feature: {name}")
-
-    if sync_phase_features:
-        sync_phase_list = list(sync_phase_delta_buffer)
-        n = len(sync_phase_list)
-        if n < 2:
-            features.extend([0.0] * len(sync_phase_features))
-        else:
-            sync_mean = sum(sync_phase_list) / n
-            sync_max = max(sync_phase_list)
-            var_sum = 0.0
-            for value in sync_phase_list:
-                diff = value - sync_mean
-                var_sum += diff * diff
-            sync_var = var_sum / n
-            sync_std = np.sqrt(sync_var) if sync_var > 0 else 0.0
-
-            sorted_sync = None
-            for name in sync_phase_features:
-                if name in ('phase_sync_iqr', 'phase_sync_mad'):
-                    sorted_sync = sorted(sync_phase_list)
-                    break
-
-            for name in sync_phase_features:
-                if name == 'phase_sync_mean':
-                    features.append(sync_mean)
-                elif name == 'phase_sync_std':
-                    features.append(sync_std)
-                elif name == 'phase_sync_max':
-                    features.append(sync_max)
-                elif name == 'phase_sync_iqr':
-                    features.append(calc_iqr(sync_phase_list, n, sorted_values=sorted_sync))
-                elif name == 'phase_sync_mad':
-                    features.append(calc_mad(sync_phase_list, n, sorted_values=sorted_sync))
-                elif name == 'phase_sync_waveform_length':
-                    features.append(calc_waveform_length(sync_phase_list, n))
-                else:
-                    raise ValueError(f"Unknown sync-aware phase feature: {name}")
-
-    return features
-
 def extract_features(packets, window_size=SEG_WINDOW_SIZE,
                      feature_names=None, return_metadata=False,
                      enable_hampel=True, hampel_window=HAMPEL_WINDOW, hampel_threshold=HAMPEL_THRESHOLD,
-                     target_mode='binary'):
+                     ):
     """
     Extract features from CSI packets using sliding window.
     
@@ -1157,11 +913,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
     feature_names = list(feature_names)
-    use_phase_features = any(name.startswith('phase_turb_') for name in feature_names)
-    use_common_offset_phase_features = any(
-        name.startswith('phase_cor_spread_') for name in feature_names
-    )
-    use_sync_phase_features = any(name.startswith('phase_sync_') for name in feature_names)
     
     X, y = [], []
     sample_context = {
@@ -1200,37 +951,17 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             hampel_threshold=hampel_threshold,
         )
         last_amplitudes = None
-        previous_phase_rel = None
-        previous_sync_state = None
-        phase_turbulence_history = []
-        common_offset_phase_spread_history = []
-        sync_phase_delta_history = []
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
+            use_cv_normalization = not bool(pkt.get('gain_locked', True))
 
             turb, amps = SegmentationContext.compute_spatial_turbulence(
-                csi_data, DEFAULT_SUBCARRIERS, use_cv_normalization=False
+                csi_data, DEFAULT_SUBCARRIERS,
+                use_cv_normalization=use_cv_normalization,
             )
             ctx.add_turbulence(turb)
             last_amplitudes = amps
-            if use_phase_features:
-                phase_turbulence, previous_phase_rel = compute_phase_turbulence(
-                    csi_data,
-                    previous_phase_rel=previous_phase_rel,
-                )
-                phase_turbulence_history.append(phase_turbulence)
-            if use_common_offset_phase_features:
-                common_offset_phase_spread_history.append(
-                    compute_common_offset_phase_spread(csi_data)
-                )
-            if use_sync_phase_features:
-                sync_phase_delta, previous_sync_state = compute_stimulus_aligned_phase_delta(
-                    csi_data,
-                    pkt,
-                    previous_sync_state=previous_sync_state,
-                )
-                sync_phase_delta_history.append(sync_phase_delta)
 
             if ctx.buffer_count < window_size:
                 continue
@@ -1240,52 +971,14 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
             n = len(turb_list)
 
-            if use_phase_features:
-                phase_turb_list = phase_turbulence_history[-window_size:]
-                common_offset_phase_spread_list = (
-                    common_offset_phase_spread_history[-window_size:]
-                    if use_common_offset_phase_features
-                    else []
-                )
-                sync_phase_delta_list = (
-                    sync_phase_delta_history[-window_size:]
-                    if use_sync_phase_features
-                    else []
-                )
-                features = extract_experiment_features_by_name(
-                    turb_list,
-                    phase_turb_list,
-                    common_offset_phase_spread_list,
-                    sync_phase_delta_list,
-                    feature_names=feature_names,
-                )
-            elif use_common_offset_phase_features or use_sync_phase_features:
-                common_offset_phase_spread_list = common_offset_phase_spread_history[-window_size:]
-                sync_phase_delta_list = sync_phase_delta_history[-window_size:]
-                features = extract_experiment_features_by_name(
-                    turb_list,
-                    [],
-                    common_offset_phase_spread_list,
-                    sync_phase_delta_list,
-                    feature_names=feature_names,
-                )
-            else:
-                features = extract_features_by_name(
-                    turb_list, n,
-                    amplitudes=last_amplitudes,
-                    feature_names=feature_names
-                )
+            features = extract_features_by_name(
+                turb_list, n,
+                amplitudes=last_amplitudes,
+                feature_names=feature_names
+            )
 
             X.append(features)
-            if target_mode == 'multiclass':
-                class_id = int(pkt.get('class_id', -1))
-                if class_id < 0:
-                    raise ValueError(
-                        f"Missing multiclass target for label={pkt.get('label_name', 'unknown')}"
-                    )
-                y.append(class_id)
-            else:
-                y.append(1 if pkt.get('is_motion', False) else 0)
+            y.append(1 if pkt.get('is_motion', False) else 0)
             for key, value in file_context.items():
                 sample_context[key].append(value)
             sample_context['label_name'].append(str(pkt.get('label_name', 'unknown')))
@@ -1337,8 +1030,10 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
         ctx = SegmentationContext(window_size=window_size, threshold=effective_threshold)
         file_weights = []
         for pkt in file_packets:
+            use_cv_normalization = not bool(pkt.get('gain_locked', True))
             turb, _ = SegmentationContext.compute_spatial_turbulence(
-                pkt['csi_data'], DEFAULT_SUBCARRIERS, use_cv_normalization=False
+                pkt['csi_data'], DEFAULT_SUBCARRIERS,
+                use_cv_normalization=use_cv_normalization,
             )
             ctx.add_turbulence(turb)
             ctx.update_state()
@@ -1541,6 +1236,471 @@ def build_group_report(y_true, y_prob, group_values):
     }
 
 
+def load_exported_ml_weights():
+    """Load the currently exported MicroPython ML weights module."""
+    import importlib.util
+
+    weights_path = SRC_DIR / 'ml_weights.py'
+    if not weights_path.exists():
+        raise FileNotFoundError(f"Exported ML weights not found: {weights_path}")
+    spec = importlib.util.spec_from_file_location("exported_ml_weights", weights_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def predict_exported_probabilities_from_weights(weights_module, X_raw):
+    """Vectorized inference matching src/python/ml_detector.py for exported weights."""
+    X_raw = np.asarray(X_raw, dtype=np.float32)
+    center = np.asarray(weights_module.FEATURE_MEAN, dtype=np.float32)
+    scale = np.asarray(weights_module.FEATURE_SCALE, dtype=np.float32)
+    scale[scale < 1e-6] = 1.0
+
+    activations = (X_raw - center) / scale
+    weights = [np.asarray(w, dtype=np.float32) for w in weights_module.WEIGHTS]
+    biases = [np.asarray(b, dtype=np.float32) for b in weights_module.BIASES]
+    for layer_idx, (layer_weights, layer_biases) in enumerate(zip(weights, biases)):
+        activations = activations @ layer_weights + layer_biases
+        if layer_idx != len(weights) - 1:
+            activations = np.maximum(activations, 0.0)
+
+    logits = activations.reshape(-1) / float(DEFAULT_ML_TEMPERATURE)
+    logits = np.clip(logits, -20.0, 20.0)
+    return (1.0 / (1.0 + np.exp(-logits))).astype(np.float32)
+
+
+def apply_gain_stress_to_features(X, feature_names, scale):
+    """Scale only feature dimensions that move linearly with amplitude gain."""
+    X_scaled = np.asarray(X, dtype=np.float32).copy()
+    sensitive_indices = [
+        idx for idx, name in enumerate(feature_names)
+        if name in GAIN_SENSITIVE_FEATURES
+    ]
+    if sensitive_indices:
+        X_scaled[:, sensitive_indices] *= np.float32(scale)
+    return X_scaled, sensitive_indices
+
+
+def evaluate_gain_stress_gate(environment_filter=None, excluded_chips=None,
+                              scales=DEFAULT_GAIN_STRESS_SCALES):
+    """Evaluate current exported model under artificial gain scaling."""
+    environment_filter = parse_environment_filter(environment_filter)
+    excluded_chips = parse_chip_filter(excluded_chips)
+    scales = parse_gain_stress_scales(scales)
+
+    weights_module = load_exported_ml_weights()
+    feature_names = list(getattr(weights_module, 'FEATURE_NAMES', TRAINING_FEATURES))
+    all_packets, stats = load_all_data(
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        allowed_labels=BINARY_TRAINING_LABELS,
+    )
+    if not all_packets:
+        raise RuntimeError("No empty/static_presence/motion packets found for gain stress gate")
+
+    X, y, actual_feature_names, sample_context = extract_features(
+        all_packets,
+        feature_names=feature_names,
+    )
+    if list(actual_feature_names) != feature_names:
+        raise RuntimeError(
+            "Extracted feature order does not match exported model: "
+            f"{actual_feature_names} != {feature_names}"
+        )
+
+    scaled_features = [
+        name for name in feature_names if name in GAIN_SENSITIVE_FEATURES
+    ]
+    results = {
+        'feature_names': feature_names,
+        'scaled_features': scaled_features,
+        'invariant_features': [
+            name for name in feature_names if name not in scaled_features
+        ],
+        'stats': stats,
+        'samples': int(len(X)),
+        'scales': {},
+    }
+
+    for gain_scale in scales:
+        X_stressed, sensitive_indices = apply_gain_stress_to_features(
+            X,
+            feature_names,
+            gain_scale,
+        )
+        y_prob = predict_exported_probabilities_from_weights(weights_module, X_stressed)
+        scale_result = {
+            'scale': float(gain_scale),
+            'sensitive_indices': [int(idx) for idx in sensitive_indices],
+            'overall': evaluate_probabilities(y, y_prob),
+            'group_reports': {},
+        }
+        for group_key in DEFAULT_REPORT_GROUP_KEYS:
+            report = build_group_report(y, y_prob, sample_context.get(group_key))
+            if report is not None:
+                scale_result['group_reports'][group_key] = report
+        results['scales'][float(gain_scale)] = scale_result
+    return results
+
+
+def print_gain_stress_summary(results):
+    """Print a compact gain stress report."""
+    stats = results.get('stats', {})
+    print("\n" + "=" * 70)
+    print("  EXPORTED ML GAIN-STRESS GATE")
+    print("=" * 70)
+    print(f"Samples: {results['samples']}")
+    print(f"Chips: {', '.join(stats.get('chips', []))}")
+    if stats.get('environment_groups'):
+        print(f"Environments: {', '.join(stats['environment_groups'])}")
+    print(f"Scaled features: {', '.join(results['scaled_features']) or 'none'}")
+    print(f"Invariant features: {', '.join(results['invariant_features']) or 'none'}")
+    print()
+    print(
+        "  scale | recall  precision  FP rate      F1 | "
+        "worst chip recall        worst chip FP"
+    )
+    print("  " + "-" * 86)
+    for scale in sorted(results['scales']):
+        row = results['scales'][scale]
+        overall = row['overall']
+        chip_report = row['group_reports'].get('chip', {})
+        worst_recall = chip_report.get('worst_recall', {})
+        worst_fp = chip_report.get('worst_fp_rate', {})
+        recall_label = (
+            f"{worst_recall.get('group', 'n/a')} {worst_recall.get('recall', 0.0):5.1f}%"
+        )
+        fp_label = (
+            f"{worst_fp.get('group', 'n/a')} {worst_fp.get('fp_rate', 0.0):5.1f}%"
+        )
+        print(
+            f"  {scale:5.2f} | "
+            f"{overall['recall']:6.1f}% "
+            f"{overall['precision']:9.1f}% "
+            f"{overall['fp_rate']:7.1f}% "
+            f"{overall['f1']:7.1f}% | "
+            f"{recall_label:24} {fp_label}"
+        )
+
+    for group_key in ('environment_group', 'session_group', 'source_file'):
+        print(f"\nWorst {group_key} by scale:")
+        for scale in sorted(results['scales']):
+            report = results['scales'][scale]['group_reports'].get(group_key)
+            if not report:
+                continue
+            worst_recall = report['worst_recall']
+            worst_fp = report['worst_fp_rate']
+            print(
+                f"  {scale:5.2f}: "
+                f"R {worst_recall['group']}={worst_recall['recall']:.1f}% | "
+                f"FP {worst_fp['group']}={worst_fp['fp_rate']:.1f}%"
+            )
+
+
+def build_gain_feature_matrix(X_raw, raw_feature_names, feature_set):
+    """Build raw, relative, or hybrid matrices from the production raw feature set."""
+    feature_set = str(feature_set).strip().lower()
+    if feature_set not in GAIN_FEATURE_EXPERIMENT_SETS:
+        raise ValueError(
+            f"Unsupported gain feature set {feature_set!r}; "
+            f"expected one of {GAIN_FEATURE_EXPERIMENT_SETS}"
+        )
+
+    X_raw = np.asarray(X_raw, dtype=np.float32)
+    raw_feature_names = list(raw_feature_names)
+    columns = {name: X_raw[:, idx] for idx, name in enumerate(raw_feature_names)}
+    mean = np.maximum(np.abs(columns['turb_mean']), np.float32(1e-6))
+    mad = np.maximum(columns['turb_mad'], np.float32(1e-6))
+    window_norm = mean * np.float32(max(SEG_WINDOW_SIZE - 1, 1))
+    relative_columns = {
+        'turb_std_over_mean': columns['turb_std'] / mean,
+        'turb_max_over_mean': columns['turb_max'] / mean,
+        'turb_min_over_mean': columns['turb_min'] / mean,
+        'turb_iqr_over_mean': columns['turb_iqr'] / mean,
+        'turb_mad_over_mean': columns['turb_mad'] / mean,
+        'waveform_length_over_mean': columns['waveform_length'] / window_norm,
+        'turb_range_over_mean': (columns['turb_max'] - columns['turb_min']) / mean,
+        'turb_peak_over_mad': (columns['turb_max'] - columns['turb_mean']) / mad,
+        'turb_skewness': columns['turb_skewness'],
+        'turb_autocorr': columns['turb_autocorr'],
+    }
+
+    if feature_set == 'raw':
+        return X_raw.copy(), list(raw_feature_names)
+
+    relative_names = list(GAIN_RELATIVE_FEATURES) + list(GAIN_INVARIANT_FEATURES)
+    relative_matrix = np.column_stack(
+        [relative_columns[name] for name in relative_names]
+    ).astype(np.float32)
+    if feature_set == 'relative':
+        return relative_matrix, relative_names
+    if feature_set == 'relative_plus_range':
+        names = relative_names + ['turb_range_over_mean']
+        matrix = np.column_stack(
+            [relative_columns[name] for name in names]
+        ).astype(np.float32)
+        return matrix, names
+    if feature_set == 'relative_plus_peak':
+        names = relative_names + ['turb_peak_over_mad']
+        matrix = np.column_stack(
+            [relative_columns[name] for name in names]
+        ).astype(np.float32)
+        return matrix, names
+
+    hybrid_names = list(raw_feature_names) + list(GAIN_RELATIVE_FEATURES)
+    hybrid_matrix = np.column_stack(
+        [X_raw] + [relative_columns[name] for name in GAIN_RELATIVE_FEATURES]
+    ).astype(np.float32)
+    return hybrid_matrix, hybrid_names
+
+
+def evaluate_model_gain_stress(model, scaler, X_raw, y, feature_names, sample_context,
+                               scales=DEFAULT_GAIN_STRESS_SCALES):
+    """Evaluate an in-memory trained model under artificial gain scaling."""
+    scales = parse_gain_stress_scales(scales)
+    results = {}
+    for gain_scale in scales:
+        X_stressed, sensitive_indices = apply_gain_stress_to_features(
+            X_raw,
+            feature_names,
+            gain_scale,
+        )
+        X_scaled = scaler.transform(X_stressed)
+        y_prob = predict_tempered_probabilities(model, X_scaled)
+        scale_result = {
+            'scale': float(gain_scale),
+            'sensitive_indices': [int(idx) for idx in sensitive_indices],
+            'overall': evaluate_probabilities(y, y_prob),
+            'group_reports': {},
+        }
+        for group_key in DEFAULT_REPORT_GROUP_KEYS:
+            report = build_group_report(y, y_prob, sample_context.get(group_key))
+            if report is not None:
+                scale_result['group_reports'][group_key] = report
+        results[float(gain_scale)] = scale_result
+    return results
+
+
+def gain_stress_rank_key(result):
+    """Rank feature experiments by stressed FP robustness, then nominal quality."""
+    stressed_scales = [scale for scale in result['gain_stress'] if abs(scale - 1.0) > 1e-9]
+    upper_scales = [scale for scale in stressed_scales if scale > 1.0]
+    primary_scales = upper_scales or stressed_scales or [1.0]
+    max_stressed_fp = max(
+        result['gain_stress'][scale]['overall']['fp_rate']
+        for scale in primary_scales
+    )
+    max_stressed_worst_chip_fp = max(
+        result['gain_stress'][scale]['group_reports'].get('chip', {}).get(
+            'worst_fp_rate',
+            {},
+        ).get('fp_rate', 0.0)
+        for scale in primary_scales
+    )
+    min_stressed_recall = min(
+        result['gain_stress'][scale]['overall']['recall']
+        for scale in primary_scales
+    )
+    nominal = result['gain_stress'].get(1.0)
+    nominal_f1 = nominal['overall']['f1'] if nominal else 0.0
+    return (
+        max_stressed_fp,
+        max_stressed_worst_chip_fp,
+        -min_stressed_recall,
+        -nominal_f1,
+        -result['cv']['oof_f1'],
+    )
+
+
+def print_gain_feature_experiment_summary(results, scales):
+    """Print raw/relative/hybrid comparison table."""
+    print("\n" + "=" * 78)
+    print("  GAIN-FEATURE SET EXPERIMENT")
+    print("=" * 78)
+    print(
+        "  set      feat  OOF_F1  nomFP  nomF1 | "
+        + " | ".join(f"{scale:g}x FP/worstFP" for scale in scales if abs(scale - 1.0) > 1e-9)
+    )
+    print("  " + "-" * 112)
+    for result in sorted(results, key=gain_stress_rank_key):
+        nominal = result['gain_stress'].get(1.0)
+        parts = []
+        for scale in scales:
+            if abs(scale - 1.0) <= 1e-9:
+                continue
+            row = result['gain_stress'][float(scale)]
+            chip_report = row['group_reports'].get('chip', {})
+            worst_fp = chip_report.get('worst_fp_rate', {}).get('fp_rate', 0.0)
+            parts.append(f"{row['overall']['fp_rate']:5.1f}/{worst_fp:5.1f}")
+        print(
+            f"  {result['name']:<8} "
+            f"{len(result['feature_names']):>4} "
+            f"{result['cv']['oof_f1']:>7.1f} "
+            f"{nominal['overall']['fp_rate']:>6.1f} "
+            f"{nominal['overall']['f1']:>6.1f} | "
+            + " | ".join(parts)
+        )
+
+    winner = min(results, key=gain_stress_rank_key)
+    print(
+        f"\nBest by gain-stress ranking: {winner['name']} "
+        f"({len(winner['feature_names'])} features)"
+    )
+
+
+def experiment_gain_feature_sets(seed=None, feature_sets=None,
+                                 scaler_mode=DEFAULT_SCALER_MODE,
+                                 batch_size=DEFAULT_BATCH_SIZE,
+                                 fp_weight=DEFAULT_FP_WEIGHT,
+                                 hidden_layers=None,
+                                 environment_filter=None,
+                                 excluded_chips=None,
+                                 scales=DEFAULT_GAIN_STRESS_SCALES):
+    """Compare raw, relative, and hybrid feature sets under gain stress."""
+    total_start = perf_counter()
+    if hidden_layers is None:
+        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+    if feature_sets is None:
+        feature_sets = list(GAIN_FEATURE_EXPERIMENT_SETS)
+    feature_sets = [str(item).strip().lower() for item in feature_sets if str(item).strip()]
+    scales = parse_gain_stress_scales(scales)
+    environment_filter = parse_environment_filter(environment_filter)
+    excluded_chips = parse_chip_filter(excluded_chips)
+
+    try:
+        with suppress_stderr():
+            import tensorflow as tf
+            if seed is None:
+                from numpy.random import SeedSequence
+                ss = SeedSequence()
+                seed = int(ss.entropy % (2**31))
+                print(f"Generated random seed: {seed}")
+            else:
+                print(f"Using provided seed: {seed}")
+            set_global_determinism(seed, tf_module=tf)
+            tf.get_logger().setLevel('ERROR')
+    except ImportError as exc:
+        print(f"Error: Missing dependency - {exc}")
+        return 1, seed, None
+
+    print("\n" + "=" * 78)
+    print("  GAIN-FEATURE EXPERIMENT")
+    print("=" * 78)
+    print(f"Feature sets: {', '.join(feature_sets)}")
+    print(f"Scales: {', '.join(f'{scale:g}' for scale in scales)}")
+    print(f"Scaler: {scaler_mode}")
+    print(f"Batch size: {batch_size}")
+    print(f"FP weight: {fp_weight}")
+    if environment_filter is not None:
+        print(f"Environment filter: {', '.join(sorted(environment_filter))}")
+    if excluded_chips is not None:
+        print(f"Excluded chips: {', '.join(sorted(excluded_chips))}")
+
+    print("\nLoading data...")
+    all_packets, stats = load_all_data(
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        allowed_labels=BINARY_TRAINING_LABELS,
+    )
+    if not all_packets:
+        print("Error: No empty/static_presence/motion data found")
+        return 1, seed, None
+    print(f"  Chips: {', '.join(stats['chips'])}")
+    if stats.get('environment_groups'):
+        print(f"  Environments: {', '.join(stats['environment_groups'])}")
+    print(f"  Total packets: {stats['total']}")
+
+    print("\nExtracting raw base features...")
+    X_raw_base, y, raw_feature_names, sample_context = extract_features(
+        all_packets,
+        feature_names=RAW_FEATURES,
+    )
+    dataset_info = load_dataset_info()
+    tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
+    sample_weights = compute_mvs_guided_sample_weights(
+        all_packets,
+        tuning_map,
+        window_size=SEG_WINDOW_SIZE,
+    )
+    eval_groups = sample_context[DEFAULT_PRIMARY_GROUP_KEY]
+    print(f"  Samples: {len(X_raw_base)}")
+    print(f"  Raw features: {', '.join(raw_feature_names)}")
+    print(f"  Class balance: IDLE={np.sum(y == 0)}, MOTION={np.sum(y == 1)}")
+
+    results = []
+    for idx, feature_set in enumerate(feature_sets):
+        print(f"\n== {feature_set} ==")
+        X_candidate, candidate_names = build_gain_feature_matrix(
+            X_raw_base,
+            raw_feature_names,
+            feature_set,
+        )
+        print(f"  Features ({len(candidate_names)}): {', '.join(candidate_names)}")
+        with suppress_stderr():
+            cv = cross_validate(
+                X_candidate,
+                y,
+                hidden_layers=hidden_layers,
+                n_folds=DEFAULT_CV_FOLDS,
+                max_epochs=DEFAULT_MAX_EPOCHS,
+                fp_weight=fp_weight,
+                sample_weight=sample_weights,
+                groups=eval_groups,
+                sample_context=sample_context,
+                scaler_mode=scaler_mode,
+                batch_size=batch_size,
+                block_stride=SEG_WINDOW_SIZE,
+                block_group_key=DEFAULT_BLOCK_GROUP_KEY,
+                report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
+                seed=derive_seed(seed, idx),
+            )
+
+        scaler = build_preprocessor(scaler_mode)
+        X_scaled = scaler.fit_transform(X_candidate)
+        with suppress_stderr():
+            model = train_model(
+                X_scaled,
+                y,
+                hidden_layers=hidden_layers,
+                max_epochs=DEFAULT_MAX_EPOCHS,
+                fp_weight=fp_weight,
+                sample_weight=sample_weights,
+                batch_size=batch_size,
+                seed=derive_seed(seed, 10_000, idx),
+            )
+        stress = evaluate_model_gain_stress(
+            model,
+            scaler,
+            X_candidate,
+            y,
+            candidate_names,
+            sample_context,
+            scales=scales,
+        )
+        nominal = stress.get(1.0)
+        max_upper_fp = max(
+            stress[scale]['overall']['fp_rate']
+            for scale in stress
+            if scale > 1.0
+        ) if any(scale > 1.0 for scale in stress) else nominal['overall']['fp_rate']
+        print(
+            f"  CV OOF F1={cv['oof_f1']:.1f}% | "
+            f"nominal FP={nominal['overall']['fp_rate']:.1f}% "
+            f"F1={nominal['overall']['f1']:.1f}% | "
+            f"max upper-scale FP={max_upper_fp:.1f}%"
+        )
+        results.append({
+            'name': feature_set,
+            'feature_names': candidate_names,
+            'cv': slim_cv_result(cv),
+            'gain_stress': stress,
+        })
+
+    print_gain_feature_experiment_summary(results, scales)
+    print(f"\nTotal experiment time: {format_duration(perf_counter() - total_start)}")
+    return 0, seed, results
+
+
 def build_candidate_key(cv_results):
     """Ranking key for seeds/architectures under the robust evaluation protocol."""
     group_reports = cv_results.get('group_reports', {})
@@ -1713,17 +1873,18 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
         ),
     ]
 
-    model.fit(
-        X_t, y_t,
-        epochs=max_epochs,
-        batch_size=batch_size,
-        validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
-        class_weight=class_weight,
-        sample_weight=sw_t,
-        callbacks=callbacks,
-        verbose=verbose,
-        shuffle=False,
-    )
+    with suppress_keras_numpy_copy_warning():
+        model.fit(
+            X_t, y_t,
+            epochs=max_epochs,
+            batch_size=batch_size,
+            validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
+            class_weight=class_weight,
+            sample_weight=sw_t,
+            callbacks=callbacks,
+            verbose=verbose,
+            shuffle=False,
+        )
 
     return model
 
@@ -1777,369 +1938,6 @@ def evaluate_model(model, X_test, y_test):
     """
     probabilities = predict_probabilities(model, X_test)
     return evaluate_probabilities(y_test, probabilities)
-
-
-def build_multiclass_model(hidden_layers=None, num_features=12, num_classes=3,
-                           use_dropout=True, dropout_rate=0.2, seed=None):
-    """Build a Keras MLP model for sparse multiclass classification."""
-    import tensorflow as tf
-
-    if hidden_layers is None:
-        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
-    if num_classes < 3:
-        raise ValueError(f"Expected num_classes >= 3, got {num_classes}")
-
-    model = tf.keras.Sequential()
-    model.add(tf.keras.layers.Input(shape=(num_features,)))
-
-    for layer_idx, units in enumerate(hidden_layers):
-        dense_seed = derive_seed(seed, layer_idx, 0)
-        model.add(tf.keras.layers.Dense(
-            units,
-            activation='relu',
-            kernel_initializer=tf.keras.initializers.GlorotUniform(seed=dense_seed),
-            bias_initializer='zeros',
-        ))
-        if use_dropout and dropout_rate > 0:
-            model.add(
-                tf.keras.layers.Dropout(
-                    dropout_rate,
-                    seed=derive_seed(seed, layer_idx, 1),
-                )
-            )
-
-    model.add(tf.keras.layers.Dense(
-        num_classes,
-        activation='softmax',
-        kernel_initializer=tf.keras.initializers.GlorotUniform(
-            seed=derive_seed(seed, len(hidden_layers), 0)
-        ),
-        bias_initializer='zeros',
-    ))
-
-    model.compile(
-        optimizer='adam',
-        loss='sparse_categorical_crossentropy',
-        metrics=['accuracy']
-    )
-    return model
-
-
-def train_multiclass_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS,
-                           use_dropout=True, class_weight=None, sample_weight=None,
-                           batch_size=DEFAULT_BATCH_SIZE, verbose=0, seed=None,
-                           num_classes=3):
-    """Train a multiclass neural network with balanced class weighting."""
-    import tensorflow as tf
-
-    if hidden_layers is None:
-        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
-
-    y = np.asarray(y, dtype=np.int32)
-    if class_weight is None:
-        n_total = len(y)
-        classes, counts = np.unique(y, return_counts=True)
-        if len(classes) >= 2:
-            class_weight = {
-                int(cls): n_total / (len(classes) * int(count))
-                for cls, count in zip(classes, counts)
-                if int(count) > 0
-            }
-
-    if sample_weight is not None and class_weight is not None:
-        sample_weight = np.asarray(sample_weight, dtype=np.float32).copy()
-        class_multiplier = np.asarray(
-            [class_weight.get(int(label), 1.0) for label in y],
-            dtype=np.float32,
-        )
-        sample_weight *= class_multiplier
-        class_weight = None
-
-    num_features = X.shape[1] if hasattr(X, 'shape') else len(X[0])
-    set_global_determinism(seed, tf_module=tf)
-    model = build_multiclass_model(
-        hidden_layers=hidden_layers,
-        num_features=num_features,
-        num_classes=num_classes,
-        use_dropout=use_dropout,
-        seed=seed,
-    )
-
-    from sklearn.model_selection import train_test_split as _val_split
-    split_kwargs = dict(test_size=0.1, random_state=42, stratify=y)
-    if sample_weight is not None:
-        X_t, X_v, y_t, y_v, sw_t, sw_v = _val_split(
-            X, y, sample_weight, **split_kwargs
-        )
-    else:
-        X_t, X_v, y_t, y_v = _val_split(X, y, **split_kwargs)
-        sw_t, sw_v = None, None
-
-    callbacks = [
-        tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss',
-            patience=DEFAULT_EARLY_STOP_PATIENCE,
-            restore_best_weights=True,
-            min_delta=1e-4
-        ),
-        tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_loss',
-            factor=0.5,
-            patience=DEFAULT_LR_PATIENCE,
-            min_lr=1e-6
-        ),
-    ]
-
-    model.fit(
-        X_t, y_t,
-        epochs=max_epochs,
-        batch_size=batch_size,
-        validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
-        class_weight=class_weight,
-        sample_weight=sw_t,
-        callbacks=callbacks,
-        verbose=verbose,
-        shuffle=False,
-    )
-    return model
-
-
-def predict_multiclass_probabilities(model, X):
-    """Return a dense class-probability matrix for multiclass classification."""
-    X = np.asarray(X, dtype=np.float32)
-    probs = np.asarray(model.predict(X, verbose=0), dtype=np.float32)
-    if probs.ndim != 2:
-        raise ValueError(f"Expected a 2D probability matrix, got shape {probs.shape}")
-    return probs
-
-
-def evaluate_multiclass_probabilities(y_true, y_prob, class_names=ROOM_STATE_CLASS_NAMES):
-    """Evaluate multiclass probabilities with macro metrics and confusion matrix."""
-    from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
-
-    y_true = np.asarray(y_true, dtype=np.int32)
-    y_prob = np.asarray(y_prob, dtype=np.float32)
-    if y_prob.ndim != 2:
-        raise ValueError(f"Expected multiclass probabilities, got shape {y_prob.shape}")
-
-    labels = np.arange(len(class_names), dtype=np.int32)
-    y_pred = np.argmax(y_prob, axis=1).astype(np.int32)
-    cm = confusion_matrix(y_true, y_pred, labels=labels)
-    precision, recall, f1, support = precision_recall_fscore_support(
-        y_true,
-        y_pred,
-        labels=labels,
-        zero_division=0,
-    )
-    accuracy = float(np.mean(y_true == y_pred) * 100.0) if len(y_true) else 0.0
-    present_mask = support > 0
-    balanced_accuracy = (
-        float(np.mean(recall[present_mask]) * 100.0)
-        if np.any(present_mask)
-        else accuracy
-    )
-
-    metrics = {
-        'macro_precision': float(np.mean(precision) * 100.0),
-        'macro_recall': float(np.mean(recall) * 100.0),
-        'macro_f1': float(np.mean(f1) * 100.0),
-        'accuracy': accuracy,
-        'balanced_accuracy': balanced_accuracy,
-        'confusion_matrix': cm.astype(np.int32),
-    }
-    for idx, class_name in enumerate(class_names):
-        metrics[f'precision_{class_name}'] = float(precision[idx] * 100.0)
-        metrics[f'recall_{class_name}'] = float(recall[idx] * 100.0)
-        metrics[f'f1_{class_name}'] = float(f1[idx] * 100.0)
-        metrics[f'support_{class_name}'] = int(support[idx])
-    return metrics
-
-
-def build_multiclass_group_report(y_true, y_prob, group_values, class_names=ROOM_STATE_CLASS_NAMES):
-    """Compute per-group multiclass metrics and worst-case summaries."""
-    if group_values is None:
-        return None
-
-    group_values = np.asarray(group_values)
-    rows = []
-    for group_name in sorted({str(v) for v in group_values}):
-        if not group_name or group_name == 'unknown-environment':
-            continue
-        mask = (group_values == group_name)
-        if not np.any(mask):
-            continue
-        metrics = evaluate_multiclass_probabilities(
-            y_true[mask],
-            y_prob[mask],
-            class_names=class_names,
-        )
-        row = {
-            'group': group_name,
-            'samples': int(np.sum(mask)),
-            'macro_f1': metrics['macro_f1'],
-            'balanced_accuracy': metrics['balanced_accuracy'],
-        }
-        for class_name in class_names:
-            row[f'recall_{class_name}'] = metrics[f'recall_{class_name}']
-            row[f'support_{class_name}'] = metrics[f'support_{class_name}']
-        rows.append(row)
-
-    if not rows:
-        return None
-
-    worst_macro = sorted(rows, key=lambda r: (r['macro_f1'], r['balanced_accuracy'], -r['samples']))[0]
-    worst_balanced = sorted(rows, key=lambda r: (r['balanced_accuracy'], r['macro_f1'], -r['samples']))[0]
-    worst_per_class = {}
-    for class_name in class_names:
-        supported_rows = [row for row in rows if row[f'support_{class_name}'] > 0]
-        ranked_rows = sorted(
-            supported_rows or rows,
-            key=lambda r: (r[f'recall_{class_name}'], r['macro_f1'], -r['samples']),
-        )
-        worst_per_class[class_name] = ranked_rows[0]
-
-    return {
-        'rows': rows,
-        'worst_macro_f1': worst_macro,
-        'worst_balanced_accuracy': worst_balanced,
-        'worst_per_class_recall': worst_per_class,
-        'count': len(rows),
-    }
-
-
-def cross_validate_multiclass(X, y, class_names=ROOM_STATE_CLASS_NAMES, hidden_layers=None,
-                              n_folds=DEFAULT_CV_FOLDS, max_epochs=DEFAULT_MAX_EPOCHS,
-                              sample_weight=None, groups=None, sample_context=None,
-                              scaler_mode=DEFAULT_SCALER_MODE, batch_size=DEFAULT_BATCH_SIZE,
-                              block_stride=1, block_group_key=DEFAULT_BLOCK_GROUP_KEY,
-                              report_group_keys=DEFAULT_REPORT_GROUP_KEYS, seed=None):
-    """Perform grouped cross-validation for the offline room-state experiment."""
-    if hidden_layers is None:
-        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
-
-    y = np.asarray(y, dtype=np.int32)
-    num_classes = len(class_names)
-    if groups is not None:
-        from sklearn.model_selection import StratifiedGroupKFold
-        unique_groups = len(set(groups))
-        effective_folds = min(n_folds, unique_groups)
-        splitter = StratifiedGroupKFold(n_splits=effective_folds, shuffle=True, random_state=42)
-        split_iter = splitter.split(X, y, groups)
-    else:
-        from sklearn.model_selection import StratifiedKFold
-        effective_folds = n_folds
-        splitter = StratifiedKFold(n_splits=effective_folds, shuffle=True, random_state=42)
-        split_iter = splitter.split(X, y)
-
-    fold_metrics = []
-    oof_prob = np.full((len(y), num_classes), np.nan, dtype=np.float32)
-    scored_mask = np.zeros(len(y), dtype=bool)
-    fold_timings = []
-    cv_start = perf_counter()
-
-    for fold, (train_idx, val_idx) in enumerate(split_iter):
-        fold_start = perf_counter()
-        X_train_fold, X_val_fold = X[train_idx], X[val_idx]
-        y_train_fold, y_val_fold = y[train_idx], y[val_idx]
-        sw_train_fold = sample_weight[train_idx] if sample_weight is not None else None
-
-        preprocess_start = perf_counter()
-        scaler = build_preprocessor(scaler_mode)
-        X_train_scaled = scaler.fit_transform(X_train_fold)
-        X_val_scaled = scaler.transform(X_val_fold)
-        preprocess_elapsed = perf_counter() - preprocess_start
-
-        train_predict_start = perf_counter()
-        fold_seed = derive_seed(seed, fold)
-        with suppress_stderr():
-            model = train_multiclass_model(
-                X_train_scaled,
-                y_train_fold,
-                hidden_layers=hidden_layers,
-                max_epochs=max_epochs,
-                sample_weight=sw_train_fold,
-                batch_size=batch_size,
-                seed=fold_seed,
-                num_classes=num_classes,
-            )
-            val_prob = predict_multiclass_probabilities(model, X_val_scaled)
-        train_predict_elapsed = perf_counter() - train_predict_start
-
-        oof_prob[val_idx] = val_prob
-        scoring_start = perf_counter()
-        val_context = slice_sample_context(sample_context, val_idx)
-        local_mask = build_block_mask(
-            val_context,
-            stride=block_stride,
-            group_key=block_group_key,
-        )
-        if local_mask is None:
-            local_mask = np.ones(len(val_idx), dtype=bool)
-
-        scored_idx = val_idx[local_mask]
-        scored_mask[scored_idx] = True
-        metrics = evaluate_multiclass_probabilities(
-            y_val_fold[local_mask],
-            val_prob[local_mask],
-            class_names=class_names,
-        )
-        fold_metrics.append(metrics)
-        scoring_elapsed = perf_counter() - scoring_start
-        fold_elapsed = perf_counter() - fold_start
-        fold_timings.append(fold_elapsed)
-        print(
-            f"  Fold {fold + 1}/{effective_folds} timing: "
-            f"preprocess={format_duration(preprocess_elapsed)}, "
-            f"train+predict={format_duration(train_predict_elapsed)}, "
-            f"score={format_duration(scoring_elapsed)}, "
-            f"total={format_duration(fold_elapsed)}"
-        )
-
-    result = {}
-    for key, first_value in fold_metrics[0].items():
-        values = [m[key] for m in fold_metrics]
-        if isinstance(first_value, np.ndarray):
-            stacked = np.stack(values, axis=0)
-            result[f'{key}_mean'] = np.mean(stacked, axis=0)
-            result[f'{key}_std'] = np.std(stacked, axis=0)
-        else:
-            result[f'{key}_mean'] = float(np.mean(values))
-            result[f'{key}_std'] = float(np.std(values))
-
-    scored_idx = np.flatnonzero(scored_mask)
-    oof_metrics = evaluate_multiclass_probabilities(
-        y[scored_idx],
-        oof_prob[scored_idx],
-        class_names=class_names,
-    )
-    for key, value in oof_metrics.items():
-        result[f'oof_{key}'] = value
-
-    result['class_names'] = tuple(class_names)
-    result['n_folds'] = len(fold_metrics)
-    result['scored_samples'] = int(len(scored_idx))
-    result['dense_samples'] = int(np.sum(~np.isnan(oof_prob[:, 0])))
-    result['scaler_mode'] = scaler_mode
-    result['timings'] = {
-        'fold_seconds': fold_timings,
-        'total_seconds': perf_counter() - cv_start,
-    }
-
-    if sample_context is not None and report_group_keys:
-        scored_context = slice_sample_context(sample_context, scored_idx)
-        group_reports = {}
-        for group_key in report_group_keys:
-            report = build_multiclass_group_report(
-                y[scored_idx],
-                oof_prob[scored_idx],
-                scored_context.get(group_key),
-                class_names=class_names,
-            )
-            if report is not None:
-                group_reports[group_key] = report
-        result['group_reports'] = group_reports
-
-    return result
 
 
 def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epochs=DEFAULT_MAX_EPOCHS,
@@ -3101,53 +2899,6 @@ def _format_confusion_matrix_rows(confusion_matrix, class_names):
     return rows
 
 
-def print_multiclass_cv_summary(cv_results, title="Room-state grouped CV"):
-    """Print the robust evaluation summary for the multiclass room-state experiment."""
-    class_names = tuple(cv_results.get('class_names', ROOM_STATE_CLASS_NAMES))
-    print(f"\n{title}:")
-    print(
-        f"  Fold macro F1:         {cv_results['macro_f1_mean']:.1f}% "
-        f"(+/- {cv_results['macro_f1_std']:.1f}%)"
-    )
-    print(
-        f"  Fold balanced acc:     {cv_results['balanced_accuracy_mean']:.1f}% "
-        f"(+/- {cv_results['balanced_accuracy_std']:.1f}%)"
-    )
-    print(f"  Blocked OOF macro F1:  {cv_results['oof_macro_f1']:.1f}%")
-    print(f"  Blocked OOF accuracy:  {cv_results['oof_accuracy']:.1f}%")
-    print(f"  Blocked OOF bal. acc:  {cv_results['oof_balanced_accuracy']:.1f}%")
-    print(f"  Scored windows:        {cv_results['scored_samples']} / {cv_results['dense_samples']}")
-    for class_name in class_names:
-        print(
-            f"  OOF recall {class_name:>14}: "
-            f"{cv_results[f'oof_recall_{class_name}']:.1f}% "
-            f"(support={cv_results[f'oof_support_{class_name}']})"
-        )
-
-    print("\n  Blocked OOF confusion matrix:")
-    for row in _format_confusion_matrix_rows(cv_results['oof_confusion_matrix'], class_names):
-        print(f"    {row}")
-
-    group_reports = cv_results.get('group_reports', {})
-    for group_key in DEFAULT_REPORT_GROUP_KEYS:
-        report = group_reports.get(group_key)
-        if not report:
-            continue
-        worst_macro = report['worst_macro_f1']
-        print(
-            f"  Worst {group_key} macro F1: "
-            f"{worst_macro['group']} -> macroF1={worst_macro['macro_f1']:.1f}% "
-            f"balAcc={worst_macro['balanced_accuracy']:.1f}% (n={worst_macro['samples']})"
-        )
-        for class_name in class_names:
-            worst_class = report['worst_per_class_recall'][class_name]
-            print(
-                f"    Worst {class_name} recall: "
-                f"{worst_class['group']} -> R={worst_class[f'recall_{class_name}']:.1f}% "
-                f"(support={worst_class[f'support_{class_name}']})"
-            )
-
-
 def select_regression_subset_indices(sample_context, max_samples=2048, block_stride=SEG_WINDOW_SIZE):
     """Pick a deterministic subset for inference-regression artifacts."""
     if sample_context is None:
@@ -3246,128 +2997,6 @@ def show_info():
                 if len(files) > 3:
                     print(f"    ... and {len(files) - 3} more")
     print()
-
-
-def train_multiclass_experiment(seed=None, feature_names=None, hidden_layers=None,
-                                scaler_mode=DEFAULT_SCALER_MODE, batch_size=DEFAULT_BATCH_SIZE,
-                                environment_filter=None, excluded_chips=None,
-                                max_epochs=DEFAULT_MAX_EPOCHS, n_folds=DEFAULT_CV_FOLDS,
-                                feature_set='amplitude', require_sync_metadata=False):
-    """Run the offline 3-class room-state experiment without exporting runtime artifacts."""
-    total_start = perf_counter()
-    environment_filter = parse_environment_filter(environment_filter)
-    excluded_chips = parse_chip_filter(excluded_chips)
-    if hidden_layers is None:
-        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
-    if feature_names is None:
-        feature_names = resolve_multiclass_feature_names(feature_set)
-
-    print("\n" + "=" * 60)
-    print("      ROOM-STATE MULTICLASS EXPERIMENT")
-    print("=" * 60 + "\n")
-    print("Labels: empty, static_presence, motion")
-    print(f"Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
-    print(f"Feature set: {feature_set}")
-    print(f"Require sync metadata: {'yes' if require_sync_metadata else 'no'}")
-    print("Exports: disabled (offline experiment only)\n")
-
-    try:
-        with suppress_stderr():
-            import tensorflow as tf
-
-            if seed is None:
-                from numpy.random import SeedSequence
-                ss = SeedSequence()
-                seed = int(ss.entropy % (2**31))
-                print(f"Generated random seed: {seed}\n")
-            else:
-                print(f"Using provided seed: {seed}\n")
-            set_global_determinism(seed, tf_module=tf)
-            tf.get_logger().setLevel('ERROR')
-    except ImportError as e:
-        print(f"Error: Missing dependency - {e}")
-        print("Install with: pip install tensorflow scikit-learn")
-        return 1, seed, None
-
-    print("Loading data...")
-    load_start = perf_counter()
-    all_packets, stats = load_all_data(
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        allowed_labels=ROOM_STATE_CLASS_NAMES,
-        require_sync_metadata=require_sync_metadata,
-    )
-    print(f"  Load time: {format_duration(perf_counter() - load_start)}")
-
-    empty_packets = int(stats['labels'].get('empty', 0))
-    if empty_packets == 0:
-        print("Error: No empty datasets found for the multiclass experiment")
-        return 1, seed, None
-
-    print(f"  Chips: {', '.join(stats['chips'])}")
-    if environment_filter is not None:
-        print(f"  Environment filter: {', '.join(sorted(environment_filter))}")
-    if stats.get('excluded_chips'):
-        print(f"  Excluded chips: {', '.join(stats['excluded_chips'])}")
-    if stats.get('excluded_environments'):
-        print(f"  Excluded environments: {', '.join(stats['excluded_environments'])}")
-    if stats.get('excluded_missing_sync_metadata'):
-        print(f"  Excluded files without sync metadata: {len(stats['excluded_missing_sync_metadata'])}")
-    if stats.get('sync_metadata_files'):
-        print(f"  Files with sync metadata: {len(stats['sync_metadata_files'])}")
-    print(f"  Session groups: {len(stats.get('session_groups', []))}")
-    if stats.get('environment_groups'):
-        print(f"  Named environments: {len(stats['environment_groups'])}")
-    for label in ROOM_STATE_CLASS_NAMES:
-        print(f"  {label}: {stats['labels'].get(label, 0)} packets")
-    print(f"  Total: {stats['total']} packets\n")
-
-    print("Extracting features...")
-    features_start = perf_counter()
-    X, y, actual_feature_names, sample_context = extract_features(
-        all_packets,
-        feature_names=feature_names,
-        target_mode='multiclass',
-    )
-    print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
-    print(f"  Samples: {len(X)}")
-    print(f"  Features: {len(actual_feature_names)}")
-    print(f"  Feature set: {', '.join(actual_feature_names)}")
-    for class_id, class_name in enumerate(ROOM_STATE_CLASS_NAMES):
-        count = int(np.sum(y == class_id))
-        print(f"  Class {class_name:>14}: {count}")
-
-    eval_groups = sample_context[DEFAULT_PRIMARY_GROUP_KEY]
-    unique_eval_groups = len(set(eval_groups))
-    print(f"  Primary eval groups ({DEFAULT_PRIMARY_GROUP_KEY}): {unique_eval_groups}")
-    print(f"  Evaluation block stride: {SEG_WINDOW_SIZE} windows per source file")
-
-    print(
-        f"\n{min(n_folds, unique_eval_groups)}-fold grouped CV by "
-        f"{DEFAULT_PRIMARY_GROUP_KEY}..."
-    )
-    cv_start = perf_counter()
-    with suppress_stderr():
-        cv_results = cross_validate_multiclass(
-            X,
-            y,
-            class_names=ROOM_STATE_CLASS_NAMES,
-            hidden_layers=hidden_layers,
-            n_folds=n_folds,
-            max_epochs=max_epochs,
-            groups=eval_groups,
-            sample_context=sample_context,
-            scaler_mode=scaler_mode,
-            batch_size=batch_size,
-            block_stride=SEG_WINDOW_SIZE,
-            block_group_key=DEFAULT_BLOCK_GROUP_KEY,
-            report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
-            seed=seed,
-        )
-    print(f"\nCV total time: {format_duration(perf_counter() - cv_start)}")
-    print_multiclass_cv_summary(cv_results)
-    print(f"\nTotal experiment time: {format_duration(perf_counter() - total_start)}")
-    return 0, seed, cv_results
 
 
 def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
@@ -3912,6 +3541,24 @@ def _parse_long_recording_metrics(output):
     }
 
 
+@dataclass
+class ExportedMLGateResult:
+    """Combined verification result for exported ML artifacts."""
+
+    paired_returncode: int
+    paired_output: str
+    long_metrics: dict | None
+    long_output: str
+
+    @property
+    def available(self):
+        return self.long_metrics is not None
+
+    @property
+    def passed(self):
+        return self.paired_returncode == 0 and self.available
+
+
 def _run_ml_performance_tests():
     """
     Run the long-recording ML gate and parse per-chip metrics.
@@ -3924,7 +3571,7 @@ def _run_ml_performance_tests():
         sys.executable,
         '-m',
         'pytest',
-        'tests/test_validation_long_recordings.py::TestLongRecordings::test_ml_vs_test_recordings',
+        PYTEST_LONG_ML_GATE,
         '-v',
         '-s',
     ]
@@ -3945,7 +3592,7 @@ def _run_ml_paired_tests():
         sys.executable,
         '-m',
         'pytest',
-        'tests/test_validation_real_data.py::TestPerformanceMetrics::test_ml_detection_accuracy',
+        PYTEST_PAIRED_ML_GATE,
         '-v',
         '-s',
     ]
@@ -3957,6 +3604,18 @@ def _run_ml_paired_tests():
     )
     output = (result.stdout or "") + "\n" + (result.stderr or "")
     return int(result.returncode), output
+
+
+def run_exported_ml_gates():
+    """Run all required gates for already-exported ML artifacts."""
+    paired_rc, paired_output = _run_ml_paired_tests()
+    long_metrics, long_output = _run_ml_performance_tests()
+    return ExportedMLGateResult(
+        paired_returncode=paired_rc,
+        paired_output=paired_output,
+        long_metrics=long_metrics,
+        long_output=long_output,
+    )
 
 
 def _real_ml_gate_key(real_metrics):
@@ -3987,10 +3646,10 @@ def _combined_candidate_key(cv_metrics, real_metrics=None):
     return real_key + cv_key
 
 
-def _format_real_ml_summary(real_metrics):
+def _format_long_ml_summary(real_metrics):
     """Build a short one-line summary for ML-only real-data gate metrics."""
     if real_metrics is None:
-        return "real_ml_gate=unavailable"
+        return "long_gate=unavailable"
     total = len(real_metrics.get('rows', []))
     return (
         f"long_gate={total} "
@@ -4001,13 +3660,23 @@ def _format_real_ml_summary(real_metrics):
     )
 
 
-def _candidate_beats_baseline(candidate_cv, candidate_real, static_presence_cv, static_presence_real):
-    """Compare candidate vs baseline with a safe fallback to CV-only ranking."""
-    if candidate_real is None or static_presence_real is None:
-        return build_candidate_key(candidate_cv) > build_candidate_key(static_presence_cv)
-    return _combined_candidate_key(candidate_cv, candidate_real) > _combined_candidate_key(
+def _format_exported_gate_summary(gate):
+    """Build a short one-line summary for exported-artifact verification."""
+    if gate is None:
+        return "exported_gates=not_run"
+    paired = "paired=pass" if gate.paired_returncode == 0 else f"paired=fail({gate.paired_returncode})"
+    return f"{paired} {_format_long_ml_summary(gate.long_metrics)}"
+
+
+def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, static_presence_gate):
+    """Compare candidate vs baseline only when exported gates are available."""
+    if candidate_gate is None or static_presence_gate is None:
+        return False
+    if not candidate_gate.passed or not static_presence_gate.passed:
+        return False
+    return _combined_candidate_key(candidate_cv, candidate_gate.long_metrics) > _combined_candidate_key(
         static_presence_cv,
-        static_presence_real,
+        static_presence_gate.long_metrics,
     )
 
 
@@ -4114,13 +3783,15 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         f"chip_min_recall={static_presence_chip.get('recall', 0.0):.1f}% "
         f"blocked_oof_f1={static_presence_metrics['oof_f1']:.1f}%"
     )
-    static_presence_real_metrics, static_presence_real_output = _run_ml_performance_tests()
-    if static_presence_real_metrics is None:
-        print("Baseline real-data ML gate: unavailable")
-        if static_presence_real_output.strip():
-            print(static_presence_real_output.strip())
-    else:
-        print(f"Baseline real-data ML gate: {_format_real_ml_summary(static_presence_real_metrics)}")
+    static_presence_gate = run_exported_ml_gates()
+    print(f"Baseline exported ML gates: {_format_exported_gate_summary(static_presence_gate)}")
+    if not static_presence_gate.passed:
+        print("Error: baseline exported ML gates are required for seed-search promotion")
+        if static_presence_gate.paired_returncode != 0 and static_presence_gate.paired_output.strip():
+            print(static_presence_gate.paired_output.strip())
+        if static_presence_gate.long_metrics is None and static_presence_gate.long_output.strip():
+            print(static_presence_gate.long_output.strip())
+        return 1
 
     backup_dir, saved_files = _backup_artifacts()
     print(f"Artifacts backup: {backup_dir}")
@@ -4129,7 +3800,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     improved = False
     improved_seed = None
     improved_metrics = None
-    improved_real_metrics = None
+    improved_gate = None
 
     for idx in range(1, max_trials + 1):
         print(f"\n[{idx}/{max_trials}] Training with auto-generated seed")
@@ -4187,17 +3858,20 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             trial_summaries.append((used_seed, metrics, None, 'export_failed'))
             continue
 
-        real_metrics, real_output = _run_ml_performance_tests()
-        print(f"  Real-data ML gate: {_format_real_ml_summary(real_metrics)}")
-        if real_metrics is None and real_output.strip():
-            print(real_output.strip())
+        candidate_gate = run_exported_ml_gates()
+        print(f"  Exported ML gates: {_format_exported_gate_summary(candidate_gate)}")
+        if not candidate_gate.passed:
+            if candidate_gate.paired_returncode != 0 and candidate_gate.paired_output.strip():
+                print(candidate_gate.paired_output.strip())
+            if candidate_gate.long_metrics is None and candidate_gate.long_output.strip():
+                print(candidate_gate.long_output.strip())
 
-        trial_summaries.append((used_seed, final_metrics, real_metrics, 'real_gate'))
-        if _candidate_beats_baseline(final_metrics, real_metrics, static_presence_metrics, static_presence_real_metrics):
+        trial_summaries.append((used_seed, final_metrics, candidate_gate, 'exported_gates'))
+        if _candidate_beats_baseline(final_metrics, candidate_gate, static_presence_metrics, static_presence_gate):
             improved = True
             improved_seed = used_seed
             improved_metrics = final_metrics
-            improved_real_metrics = real_metrics
+            improved_gate = candidate_gate
             print("  Improvement found after real-data ML gate: stopping search")
             break
 
@@ -4207,21 +3881,21 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     print("\n" + "=" * 70)
     print("  UNTIL-IMPROVEMENT SUMMARY")
     print("=" * 70)
-    for seed, metrics, real_metrics, status in trial_summaries:
+    for seed, metrics, gate, status in trial_summaries:
         session_summary = metrics.get('group_reports', {}).get('session_group', {}).get('worst_recall', {})
         fp_summary = metrics.get('group_reports', {}).get('session_group', {}).get('worst_fp_rate', {})
         print(
             f"  seed={seed} | sessionMinR={session_summary.get('recall', 0.0):.1f}% "
             f"sessionMaxFP={fp_summary.get('fp_rate', 0.0):.1f}% "
             f"blockedOOF={metrics['oof_f1']:.1f}% | {status} | "
-            f"{_format_real_ml_summary(real_metrics)}"
+            f"{_format_exported_gate_summary(gate)}"
         )
 
     if improved:
         print(
             f"\nSelected seed: {improved_seed} "
             f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
-            f"{_format_real_ml_summary(improved_real_metrics)})"
+            f"{_format_exported_gate_summary(improved_gate)})"
         )
         return 0
 
@@ -4714,33 +4388,32 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         print("Promotion export failed, restored previous artifacts")
         return 1
 
-    paired_rc, paired_output = _run_ml_paired_tests()
-    long_metrics, long_output = _run_ml_performance_tests()
-    if paired_rc != 0 or long_metrics is None:
+    final_gate = run_exported_ml_gates()
+    if not final_gate.passed:
         _restore_artifacts(saved_files)
         results['promotion']['final_export'] = {
             'status': 'verification_failed',
             'seed': int(used_seed),
-            'paired_returncode': int(paired_rc),
-            'long_metrics': long_metrics,
+            'paired_returncode': int(final_gate.paired_returncode),
+            'long_metrics': final_gate.long_metrics,
             'backup_dir': str(backup_dir),
         }
         write_json_results(output_path, results)
         print("Promotion verification failed, restored previous artifacts")
-        if paired_output.strip():
-            print(paired_output.strip())
-        if long_output.strip():
-            print(long_output.strip())
+        if final_gate.paired_output.strip():
+            print(final_gate.paired_output.strip())
+        if final_gate.long_output.strip():
+            print(final_gate.long_output.strip())
         return 1
 
     results['promotion']['final_export'] = {
         'status': 'promoted',
         'seed': int(used_seed),
-        'paired_returncode': int(paired_rc),
-        'long_metrics': long_metrics,
+        'paired_returncode': int(final_gate.paired_returncode),
+        'long_metrics': final_gate.long_metrics,
         'backup_dir': str(backup_dir),
-        'paired_output': paired_output,
-        'long_output': long_output,
+        'paired_output': final_gate.paired_output,
+        'long_output': final_gate.long_output,
     }
     write_json_results(output_path, results)
     print(f"Promoted architecture: {winner['name']} (seed {used_seed})")
@@ -4755,17 +4428,17 @@ def main():
 Examples:
   python tools/10_train_ml_model.py                    # Train with current production defaults
   python tools/10_train_ml_model.py --info             # Show dataset info
-  python tools/10_train_ml_model.py --multiclass-experiment
-                                           # Run the offline empty/static_presence/motion experiment
-  python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude_phase
-                                           # Add temporal phase-turbulence features to the offline experiment
   python tools/10_train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
   python tools/10_train_ml_model.py --experiment --experiment-promote
                                            # Promote the winner if it beats the baseline
   python tools/10_train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"
                                            # Custom shortlist for the topology campaign
   python tools/10_train_ml_model.py --hidden-layers 24,12
-                                           # Train/export the 12 -> 24 -> 12 -> 1 candidate
+                                           # Train/export the previous 8 -> 24 -> 12 -> 1 candidate
+  python tools/10_train_ml_model.py --feature-set robust_relative --ablation
+                                           # Evaluate spike-robust percentile features without export
+  python tools/10_train_ml_model.py --feature-set robust_relative --no-export
+                                           # Run grouped CV for an experimental feature set
   python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
   python tools/10_train_ml_model.py --scaler clipped_standard
                                            # Robust clipping + z-score
@@ -4775,6 +4448,10 @@ Examples:
                                            # Bias training slightly toward ESP32 motion recall
   python tools/10_train_ml_model.py --seed-search-until-improvement 20
                                            # Stop at first improvement (max 20 trials)
+  python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
+                                           # Diagnose exported model robustness to feature gain shifts
+  python tools/10_train_ml_model.py --gain-feature-experiment --seed 721498330
+                                           # Compare raw/relative/hybrid feature sets under gain stress
   python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
   python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
 
@@ -4787,17 +4464,6 @@ To compare ML with MVS, use:
     )
     parser.add_argument('--info', action='store_true', 
                        help='Show dataset information')
-    parser.add_argument('--multiclass-experiment', action='store_true',
-                       help='Run the offline 3-class room-state experiment '
-                            '(empty/static_presence/motion) without exporting runtime artifacts')
-    parser.add_argument('--multiclass-feature-set',
-                       choices=sorted(MULTICLASS_FEATURE_SETS),
-                       default='amplitude',
-                       help='Feature set for --multiclass-experiment '
-                            '(default: amplitude)')
-    parser.add_argument('--require-sync-metadata', action='store_true',
-                       help='Restrict --multiclass-experiment to files carrying '
-                            'stimulus/timing metadata')
     parser.add_argument('--experiment', action='store_true',
                        help='Run the FP-first MLP topology campaign')
     parser.add_argument('--experiment-promote', action='store_true',
@@ -4814,6 +4480,20 @@ To compare ML with MVS, use:
                        help='Train with auto-generated seeds until first '
                             'improvement over current ML performance, with '
                             'at most MAX_TRIALS attempts')
+    parser.add_argument('--gain-stress-gate', action='store_true',
+                       help='Evaluate current exported ML artifacts under '
+                            'artificial gain scaling without training/exporting')
+    parser.add_argument('--gain-stress-scales', type=parse_gain_stress_scales,
+                       default=DEFAULT_GAIN_STRESS_SCALES,
+                       help='Comma-separated gain multipliers for --gain-stress-gate '
+                            f'(default: {",".join(map(str, DEFAULT_GAIN_STRESS_SCALES))})')
+    parser.add_argument('--gain-feature-experiment', action='store_true',
+                       help='Compare raw, relative, and hybrid feature sets '
+                            'with grouped CV and in-memory gain-stress evaluation')
+    parser.add_argument('--gain-feature-sets', type=str,
+                       default=','.join(GAIN_FEATURE_EXPERIMENT_SETS),
+                       help='Comma-separated feature sets for --gain-feature-experiment '
+                            f'(default: {",".join(GAIN_FEATURE_EXPERIMENT_SETS)})')
     parser.add_argument('--fp-weight', type=float, default=DEFAULT_FP_WEIGHT,
                        help='Multiplier for IDLE class weight to penalize false positives. '
                             f'Values >1.0 make the model more conservative (default: {DEFAULT_FP_WEIGHT:.1f})')
@@ -4826,6 +4506,11 @@ To compare ML with MVS, use:
     parser.add_argument('--hidden-layers', type=parse_hidden_layers, default=None,
                        help='Comma-separated hidden layer widths for the MLP '
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
+    parser.add_argument('--feature-set', choices=sorted(FEATURE_SET_CHOICES), default='production',
+                       help='Named binary-training feature set. Only production is export-compatible '
+                            '(default: production)')
+    parser.add_argument('--no-export', action='store_true',
+                       help='Run training/CV analysis without exporting runtime artifacts')
     parser.add_argument('--environment', type=str, default=None,
                        help='Restrict training/evaluation to one or more named environments '
                             '(comma-separated, e.g. bedroom or bedroom,living_room)')
@@ -4844,36 +4529,64 @@ To compare ML with MVS, use:
     parser.add_argument('--ablation', action='store_true',
                        help='Run ablation study (test removing each feature)')
     args = parser.parse_args()
+    selected_training_features = resolve_training_feature_set(args.feature_set)
+    export_compatible_feature_set = args.feature_set == 'production'
     
     if args.info:
         show_info()
         return 0
 
-    if args.multiclass_experiment:
-        if args.experiment or args.experiment_promote or args.seed_search_until_improvement > 0:
-            print("Error: --multiclass-experiment cannot be combined with architecture or seed-search flows")
+    if args.gain_stress_gate:
+        if args.experiment or args.experiment_promote:
+            print("Error: --gain-stress-gate cannot be combined with experiment flows")
+            return 1
+        if args.seed_search_until_improvement > 0 or args.seed is not None:
+            print("Error: --gain-stress-gate evaluates exported artifacts and cannot use --seed or seed-search")
             return 1
         if args.shap is not None or args.ablation or args.correlation:
-            print("Error: --multiclass-experiment cannot be combined with --shap, --ablation, or --correlation")
+            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation, or --correlation")
             return 1
-        if args.fp_weight != DEFAULT_FP_WEIGHT:
-            print("Note: --fp-weight is ignored by --multiclass-experiment")
         if args.positive_chip_boost is not None:
-            print("Note: --positive-chip-boost is ignored by --multiclass-experiment")
-        train_rc, _, _ = train_multiclass_experiment(
-            seed=args.seed,
-            feature_names=None,
-            hidden_layers=args.hidden_layers,
-            scaler_mode=args.scaler,
-            batch_size=args.batch_size,
+            print("Error: --positive-chip-boost is a training option and cannot be used with --gain-stress-gate")
+            return 1
+        results = evaluate_gain_stress_gate(
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
-            feature_set=args.multiclass_feature_set,
-            require_sync_metadata=args.require_sync_metadata,
+            scales=args.gain_stress_scales,
         )
-        return train_rc
-    
+        print_gain_stress_summary(results)
+        return 0
+
+    if args.gain_feature_experiment:
+        if args.experiment or args.experiment_promote:
+            print("Error: --gain-feature-experiment cannot be combined with experiment flows")
+            return 1
+        if args.seed_search_until_improvement > 0:
+            print("Error: --gain-feature-experiment cannot be combined with seed-search")
+            return 1
+        if args.shap is not None or args.ablation or args.correlation:
+            print("Error: --gain-feature-experiment cannot be combined with --shap, --ablation, or --correlation")
+            return 1
+        if args.positive_chip_boost is not None:
+            print("Error: --positive-chip-boost is not supported by --gain-feature-experiment")
+            return 1
+        rc, _, _ = experiment_gain_feature_sets(
+            seed=args.seed,
+            feature_sets=args.gain_feature_sets.split(','),
+            scaler_mode=args.scaler,
+            batch_size=args.batch_size,
+            fp_weight=args.fp_weight,
+            hidden_layers=args.hidden_layers,
+            environment_filter=args.environment,
+            excluded_chips=args.exclude_chip,
+            scales=args.gain_stress_scales,
+        )
+        return rc
+
     if args.experiment:
+        if not export_compatible_feature_set:
+            print("Error: --experiment currently supports only --feature-set production")
+            return 1
         return experiment_architectures(
             scaler_mode=args.scaler,
             batch_size=args.batch_size,
@@ -4887,12 +4600,15 @@ To compare ML with MVS, use:
         )
     
     if args.correlation:
-        correlations = calculate_correlation_importance()
+        correlations = calculate_correlation_importance(feature_names=selected_training_features)
         if correlations:
-            print_correlation_table(correlations, TRAINING_FEATURES)
+            print_correlation_table(correlations, selected_training_features)
         return 0
 
     if args.seed_search_until_improvement > 0:
+        if not export_compatible_feature_set:
+            print("Error: seed search can export artifacts and currently supports only --feature-set production")
+            return 1
         if args.seed is not None:
             print("Error: --seed and --seed-search-until-improvement are mutually exclusive")
             return 1
@@ -4902,7 +4618,7 @@ To compare ML with MVS, use:
         return train_until_improvement(
             max_trials=args.seed_search_until_improvement,
             fp_weight=args.fp_weight,
-            feature_names=TRAINING_FEATURES,
+            feature_names=selected_training_features,
             hidden_layers=args.hidden_layers,
             scaler_mode=args.scaler,
             batch_size=args.batch_size,
@@ -4911,10 +4627,22 @@ To compare ML with MVS, use:
             positive_chip_boost=args.positive_chip_boost,
         )
     
+    if (
+        not export_compatible_feature_set
+        and not args.no_export
+        and not (args.ablation or args.correlation or args.shap is not None)
+    ):
+        print(
+            "Error: non-production feature sets are analysis-only until the C++ runtime "
+            "extractor is updated for export compatibility. Use --no-export, --ablation, "
+            "--shap, or --correlation."
+        )
+        return 1
+
     train_rc, _, _ = train_all(
         fp_weight=args.fp_weight, 
         seed=args.seed,
-        feature_names=TRAINING_FEATURES,
+        feature_names=selected_training_features,
         feature_importance=args.shap is not None,
         ablation=args.ablation,
         shap_samples=args.shap if args.shap is not None else 200,
@@ -4924,6 +4652,7 @@ To compare ML with MVS, use:
         environment_filter=args.environment,
         excluded_chips=args.exclude_chip,
         positive_chip_boost=args.positive_chip_boost,
+        export_artifacts=not args.no_export,
     )
     return train_rc
 

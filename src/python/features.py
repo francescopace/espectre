@@ -4,7 +4,8 @@ Micro-ESPectre - CSI Feature Extraction (Publish-Time)
 Pure Python implementation for MicroPython.
 Extracts statistical features from turbulence buffer for ML-based motion detection.
 
-This module exposes only the nine features used by the production MLP.
+This module exposes the feature names used by the production MLP plus the
+legacy raw feature set used by experiments.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -136,11 +137,35 @@ def calc_waveform_length(turbulence_buffer, buffer_count):
     return total
 
 
-# Production feature set (9 turbulence-window statistics/temporal patterns)
-DEFAULT_FEATURES = [
+RAW_FEATURES = [
     'turb_mean', 'turb_std', 'turb_max', 'turb_min', 'turb_iqr',
     'turb_skewness', 'turb_autocorr', 'turb_mad', 'waveform_length'
 ]
+
+RELATIVE_FEATURES = [
+    'turb_std_over_mean',
+    'turb_max_over_mean',
+    'turb_min_over_mean',
+    'turb_iqr_over_mean',
+    'turb_mad_over_mean',
+    'waveform_length_over_mean',
+    'turb_skewness',
+    'turb_autocorr',
+]
+
+ROBUST_RELATIVE_FEATURES = [
+    'turb_std_over_mean',
+    'turb_p95_over_mean',
+    'turb_p05_over_mean',
+    'turb_iqr_over_mean',
+    'turb_mad_over_mean',
+    'waveform_length_over_mean',
+    'turb_skewness',
+    'turb_autocorr',
+]
+
+# Production feature set: gain-invariant turbulence-window statistics.
+DEFAULT_FEATURES = RELATIVE_FEATURES
 
 
 def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, feature_names=None):
@@ -170,15 +195,23 @@ def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, f
         var_sum += diff * diff
     turb_var = var_sum / n
     turb_std = math.sqrt(turb_var) if turb_var > 0 else 0.0
+    abs_mean = abs(turb_mean)
+    mean_denom = abs_mean if abs_mean > 1e-6 else 1e-6
+    waveform_denom = mean_denom * (n - 1)
 
-    # Sort once if any sort-dependent feature is requested (IQR, MAD).
+    # Sort once if any sort-dependent feature is requested.
     _sorted = None
     for name in feature_names:
-        if name == 'turb_iqr' or name == 'turb_mad':
+        if name in ('turb_iqr', 'turb_mad', 'turb_p95_over_mean', 'turb_p05_over_mean'):
             _sorted = list(turb_list)
             _sorted.sort()
             break
 
+    turb_iqr = None
+    turb_mad = None
+    turb_p95 = None
+    turb_p05 = None
+    waveform_length = None
     features = []
     for name in feature_names:
         if name == 'turb_mean':
@@ -190,15 +223,47 @@ def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, f
         elif name == 'turb_min':
             features.append(turb_min)
         elif name == 'turb_iqr':
-            features.append(calc_iqr(turb_list, n, sorted_values=_sorted))
+            if turb_iqr is None:
+                turb_iqr = calc_iqr(turb_list, n, sorted_values=_sorted)
+            features.append(turb_iqr)
         elif name == 'turb_skewness':
             features.append(calc_skewness(turb_list, n, turb_mean, turb_std))
         elif name == 'turb_autocorr':
             features.append(calc_autocorrelation(turb_list, n, mean=turb_mean, variance=turb_var))
         elif name == 'turb_mad':
-            features.append(calc_mad(turb_list, n, sorted_values=_sorted))
+            if turb_mad is None:
+                turb_mad = calc_mad(turb_list, n, sorted_values=_sorted)
+            features.append(turb_mad)
         elif name == 'waveform_length':
-            features.append(calc_waveform_length(turb_list, n))
+            if waveform_length is None:
+                waveform_length = calc_waveform_length(turb_list, n)
+            features.append(waveform_length)
+        elif name == 'turb_std_over_mean':
+            features.append(turb_std / mean_denom)
+        elif name == 'turb_max_over_mean':
+            features.append(turb_max / mean_denom)
+        elif name == 'turb_min_over_mean':
+            features.append(turb_min / mean_denom)
+        elif name == 'turb_p95_over_mean':
+            if turb_p95 is None:
+                turb_p95 = _interpolate_sorted_percentile(_sorted, n, 95.0)
+            features.append(turb_p95 / mean_denom)
+        elif name == 'turb_p05_over_mean':
+            if turb_p05 is None:
+                turb_p05 = _interpolate_sorted_percentile(_sorted, n, 5.0)
+            features.append(turb_p05 / mean_denom)
+        elif name == 'turb_iqr_over_mean':
+            if turb_iqr is None:
+                turb_iqr = calc_iqr(turb_list, n, sorted_values=_sorted)
+            features.append(turb_iqr / mean_denom)
+        elif name == 'turb_mad_over_mean':
+            if turb_mad is None:
+                turb_mad = calc_mad(turb_list, n, sorted_values=_sorted)
+            features.append(turb_mad / mean_denom)
+        elif name == 'waveform_length_over_mean':
+            if waveform_length is None:
+                waveform_length = calc_waveform_length(turb_list, n)
+            features.append(waveform_length / waveform_denom)
         else:
             raise ValueError(f"Unknown feature: {name}")
     return features

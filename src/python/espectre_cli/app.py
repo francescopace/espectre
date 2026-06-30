@@ -51,9 +51,23 @@ def _add_micro_namespace(subparsers) -> None:
     ui_parser.set_defaults(handler=lambda args: open_web_ui())
 
     collect_parser = micro_subparsers.add_parser("collect", help="Collect labeled CSI data for training")
-    collect_parser.add_argument("--label", "-l", help="Label for collected data (e.g., wave, baseline, idle)")
-    collect_parser.add_argument("--samples", "-n", type=int, default=1, help="Number of samples to collect (default: 1)")
+    collect_parser.add_argument("--label", "-l", help="Label for collected data (e.g., static_presence, motion, empty, wave)")
+    collect_parser.add_argument(
+        "--samples",
+        "--count",
+        "-n",
+        dest="samples",
+        type=int,
+        default=1,
+        help="Number of timed collections/samples to record (default: 1)",
+    )
     collect_parser.add_argument("--duration", "-d", type=float, default=2.0, help="Duration per sample in seconds (default: 2.0)")
+    collect_parser.add_argument(
+        "--start-delay",
+        type=float,
+        default=0.0,
+        help="Delay before starting collection in seconds (default: 0.0)",
+    )
     collect_parser.add_argument("--info", "-i", action="store_true", help="Show dataset statistics")
     collect_parser.add_argument("--interactive", action="store_true", help="Interactive mode (press ENTER for each sample)")
     collect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
@@ -73,10 +87,14 @@ def _add_micro_namespace(subparsers) -> None:
     detect_parser.add_argument("--stimulus-port", type=int, default=9999, help="UDP port used by the streamer listener (default: 9999)")
     detect_parser.add_argument("--stimulus-rate", type=int, default=100, help="Stimulus packets per second sent to the streamer (default: 100)")
     detect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth stimulus packet as reference (default: 0 = measurement only)")
-    detect_parser.add_argument("--log-features", action="store_true", help="Print the 9 ML features after each published sample")
+    detect_parser.add_argument("--log-features", action="store_true", help="Print the 8 ML features after each published sample")
     detect_parser.add_argument("--log-turbulence", action="store_true", help="Print raw/filtered turbulence and recent buffer tail after each publish")
     detect_parser.add_argument("--log-only-motion", action="store_true", help="Only print publish lines when the effective state is MOTION")
     detect_parser.add_argument("--window-tail", type=int, default=16, help="Number of latest turbulence samples to print with --log-turbulence")
+    detect_parser.add_argument("--capture-label", help="Also save received raw CSI as this dataset label")
+    detect_parser.add_argument("--capture-duration", type=float, help="Stop and save capture after N seconds of received CSI")
+    detect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor for saved captures")
+    detect_parser.add_argument("--description", help="Description for the saved live-detect capture")
     detect_parser.set_defaults(handler=detect_live_motion)
 
     mqtt_parser = micro_subparsers.add_parser("mqtt", help="Start the interactive MQTT shell")

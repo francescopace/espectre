@@ -247,7 +247,7 @@ Help build a diverse CSI dataset for ML training! Your contributions will improv
 2. **Ensure quality**:
    - At least 10 samples per label
    - 30+ seconds per sample
-   - Quiet room for baseline recordings
+   - Quiet room for `static_presence` or `empty` recordings
 3. **Document your setup**:
    - ESP32 model (S3, C6, etc.)
    - Distance from router
@@ -269,7 +269,7 @@ We're particularly looking for these gestures useful for smart home automation:
 | 🟡 Medium | `clap` | Hand clap | Toggle lights |
 | 🟡 Medium | `sit_down` / `stand_up` | Sitting/standing | TV mode, energy saving |
 | 🟡 Medium | `fall` | Person falling | Elderly safety alert |
-| 🟢 Low | `idle` | No movement | Baseline (always needed) |
+| 🟢 Low | `empty` | No movement | Empty-room baseline (recommended) |
 
 ### Data Privacy
 

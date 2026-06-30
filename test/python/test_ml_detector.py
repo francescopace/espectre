@@ -237,11 +237,11 @@ class TestMLDetector:
         assert detector.set_threshold(-0.1) == False
         assert detector._threshold == original
 
-    def test_set_cv_normalization_is_ignored(self):
-        """ML detector always uses raw std, regardless of runtime requests."""
+    def test_set_cv_normalization_updates_context(self):
+        """ML detector follows runtime gain-mode normalization requests."""
         detector = MLDetector()
         detector.set_cv_normalization(True)
-        assert detector._context.use_cv_normalization is False
+        assert detector._context.use_cv_normalization is True
 
         detector.set_cv_normalization(False)
         assert detector._context.use_cv_normalization is False

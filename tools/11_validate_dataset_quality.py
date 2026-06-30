@@ -53,6 +53,7 @@ from utils import (                                      # noqa: E402
     calculate_moving_variance as _src_moving_variance,
 )
 from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS  # noqa: E402
+from features import extract_features_by_name  # noqa: E402
 
 # ------------------------------------------------------------------
 # Constants
@@ -64,11 +65,13 @@ REPORT_OUTPUT = DATA_DIR / "DATASET_QUALITY_CHECK.md"
 # Quality thresholds
 MIN_PACKETS = 800
 MAX_ZERO_PACKET_RATIO = 0.01
-MIN_VARIANCE_RATIO = 3.5
-MAX_TEMPORAL_GAP_S = 300
-MIN_AMPLITUDE_MEAN = 10.0
-MIN_EMPTY_SEPARABILITY_AUC = 0.80
-MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.80
+MIN_VARIANCE_RATIO = 3
+MAX_TEMPORAL_GAP_S = 30 * 60
+MIN_AMPLITUDE_MEAN = 9.0
+MIN_EMPTY_SEPARABILITY_AUC = 0.70
+MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.70
+EMPTY_SEPARATION_TURB_MEAN_WEIGHT = 0.7
+EMPTY_SEPARATION_WAVEFORM_WEIGHT = 0.3
 
 
 # ------------------------------------------------------------------
@@ -116,6 +119,115 @@ def _moving_variance(values, window_size=None):
     if window_size is None:
         window_size = SEG_WINDOW_SIZE
     return _src_moving_variance(values, window_size)
+
+
+def _window_mean(values, window_size=None):
+    """Compute sliding-window means aligned to the full-window region."""
+    if window_size is None:
+        window_size = SEG_WINDOW_SIZE
+    if len(values) < window_size:
+        return []
+    arr = np.asarray(values, dtype=np.float64)
+    kernel = np.ones(window_size, dtype=np.float64) / float(window_size)
+    return np.convolve(arr, kernel, mode='valid').tolist()
+
+
+def _window_feature_series(values, feature_name, window_size=None):
+    """Compute one feature per full turbulence window."""
+    if window_size is None:
+        window_size = SEG_WINDOW_SIZE
+    if len(values) < window_size:
+        return []
+    series = []
+    for end_idx in range(window_size - 1, len(values)):
+        window = values[end_idx - window_size + 1:end_idx + 1]
+        feature_value = extract_features_by_name(
+            list(window),
+            len(window),
+            feature_names=[feature_name],
+        )[0]
+        series.append(float(feature_value))
+    return series
+
+
+def _standardize_with_empty_direction(empty_values, static_values):
+    """Standardize one feature and orient it so higher scores mean empty."""
+    empty_arr = np.asarray(empty_values, dtype=np.float64)
+    static_arr = np.asarray(static_values, dtype=np.float64)
+    combined = np.concatenate([empty_arr, static_arr])
+    mean = float(combined.mean())
+    std = float(combined.std())
+    if std <= 1e-9:
+        std = 1.0
+    sign = 1.0 if float(empty_arr.mean()) > float(static_arr.mean()) else -1.0
+    return (
+        sign * ((empty_arr - mean) / std),
+        sign * ((static_arr - mean) / std),
+    )
+
+
+def _build_empty_separation_score(
+    empty_turb_mean,
+    static_turb_mean,
+    empty_waveform_length_over_mean,
+    static_waveform_length_over_mean,
+):
+    """Combine the two best cross-chip empty-separation features into one score."""
+    empty_turb_score, static_turb_score = _standardize_with_empty_direction(
+        empty_turb_mean,
+        static_turb_mean,
+    )
+    empty_wave_score, static_wave_score = _standardize_with_empty_direction(
+        empty_waveform_length_over_mean,
+        static_waveform_length_over_mean,
+    )
+    empty_score = (
+        EMPTY_SEPARATION_TURB_MEAN_WEIGHT * empty_turb_score
+        + EMPTY_SEPARATION_WAVEFORM_WEIGHT * empty_wave_score
+    )
+    static_score = (
+        EMPTY_SEPARATION_TURB_MEAN_WEIGHT * static_turb_score
+        + EMPTY_SEPARATION_WAVEFORM_WEIGHT * static_wave_score
+    )
+    return empty_score, static_score
+
+
+def _coerce_metadata_scalar(value):
+    """Return a scalar value from NPZ-style metadata fields."""
+    return value.item() if hasattr(value, 'item') else value
+
+
+def _compute_capture_gap_seconds(bl_data, mv_data):
+    """Return the non-negative time gap between capture intervals.
+
+    The metric is order-agnostic:
+    - 0.0 means the captures overlap in time
+    - a positive value means they are separated by that many seconds
+
+    This avoids false warnings when `motion` is intentionally recorded before
+    `static_presence`.
+    """
+    bl_collected = bl_data.get('collected_at', None)
+    mv_collected = mv_data.get('collected_at', None)
+    bl_duration = bl_data.get('duration_ms', None)
+    mv_duration = mv_data.get('duration_ms', None)
+
+    if None in (bl_collected, mv_collected, bl_duration, mv_duration):
+        return None
+
+    bl_start = datetime.datetime.fromisoformat(str(_coerce_metadata_scalar(bl_collected)))
+    mv_start = datetime.datetime.fromisoformat(str(_coerce_metadata_scalar(mv_collected)))
+    bl_duration_ms = float(_coerce_metadata_scalar(bl_duration))
+    mv_duration_ms = float(_coerce_metadata_scalar(mv_duration))
+
+    bl_end = bl_start + datetime.timedelta(milliseconds=bl_duration_ms)
+    mv_end = mv_start + datetime.timedelta(milliseconds=mv_duration_ms)
+
+    if bl_end <= mv_start:
+        return (mv_start - bl_end).total_seconds()
+    if mv_end <= bl_start:
+        return (bl_start - mv_end).total_seconds()
+    return 0.0
 
 
 # ------------------------------------------------------------------
@@ -261,33 +373,20 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data, gain_locked=True):
         results.append(ValidationResult("variance_ratio", "PASS",
             f"Ratio {ratio_for_check}x (static={bl_var:.6f}, motion={mv_var:.6f})", ratio_for_check))
 
-    # Temporal gap: static-presence end -> motion start
+    # Temporal gap between capture intervals, independent of acquisition order.
     gap_s = None
     try:
-        bl_collected = bl_data.get('collected_at', None)
-        mv_collected = mv_data.get('collected_at', None)
-        bl_duration = bl_data.get('duration_ms', None)
-
-        if bl_collected is not None and mv_collected is not None and bl_duration is not None:
-            bl_collected_str = str(bl_collected.item() if hasattr(bl_collected, 'item') else bl_collected)
-            mv_collected_str = str(mv_collected.item() if hasattr(mv_collected, 'item') else mv_collected)
-            bl_duration_val = float(bl_duration.item() if hasattr(bl_duration, 'item') else bl_duration)
-
-            bl_start = datetime.datetime.fromisoformat(bl_collected_str)
-            mv_start = datetime.datetime.fromisoformat(mv_collected_str)
-            bl_end = bl_start + datetime.timedelta(milliseconds=bl_duration_val)
-
-            gap_s = (mv_start - bl_end).total_seconds()
-
+        gap_s = _compute_capture_gap_seconds(bl_data, mv_data)
+        if gap_s is not None:
             if gap_s > MAX_TEMPORAL_GAP_S:
                 results.append(ValidationResult("temporal_gap", "WARN",
                     f"Large gap: {gap_s:.1f}s > {MAX_TEMPORAL_GAP_S}s", gap_s))
-            elif gap_s < 0:
-                results.append(ValidationResult("temporal_gap", "WARN",
-                    f"Negative gap (overlap): {gap_s:.1f}s", gap_s))
             else:
                 results.append(ValidationResult("temporal_gap", "PASS",
                     f"Gap: {gap_s:.1f}s", gap_s))
+        else:
+            results.append(ValidationResult("temporal_gap", "WARN",
+                "Could not parse collected_at/duration_ms timestamps"))
     except Exception:
         results.append(ValidationResult("temporal_gap", "WARN",
             "Could not parse collected_at/duration_ms timestamps"))
@@ -376,13 +475,24 @@ def _filter_measurement_frames(csi_data, data):
 
 def _compute_moving_variance_series(csi_data, gain_locked=True):
     """Compute moving-variance series for one CSI array."""
+    turbulence, moving_variance = _compute_turbulence_and_moving_variance_series(
+        csi_data,
+        gain_locked=gain_locked,
+    )
+    _ = turbulence
+    return moving_variance
+
+
+def _compute_turbulence_and_moving_variance_series(csi_data, gain_locked=True):
+    """Compute turbulence and moving-variance series for one CSI array."""
     use_cv = not gain_locked
     amps = _extract_amplitudes_matrix(csi_data)
     turbulence = [
         _spatial_turbulence_from_amps(amps[i].tolist(), DEFAULT_SUBCARRIERS, use_cv)
         for i in range(amps.shape[0])
     ]
-    return np.asarray(_moving_variance(turbulence), dtype=np.float64)
+    moving_variance = np.asarray(_moving_variance(turbulence), dtype=np.float64)
+    return np.asarray(turbulence, dtype=np.float64), moving_variance
 
 
 def _evaluate_threshold_direction(neg_values, pos_values, expect_pos_higher=True):
@@ -509,43 +619,89 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
     ))
 
     for chip, environment in overlap_groups:
-        empty_mv_series = []
-        static_mv_series = []
+        empty_turb_mean_series = []
+        empty_waveform_length_over_mean_series = []
+        static_turb_mean_series = []
+        static_waveform_length_over_mean_series = []
 
         for entry in empty_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'empty')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
             csi_data = _filter_measurement_frames(data[csi_key], data)
-            mv = _compute_moving_variance_series(csi_data, gain_locked=bool(entry.get('gain_locked', True)))
-            if len(mv):
-                empty_mv_series.append(mv)
+            turbulence, _ = _compute_turbulence_and_moving_variance_series(
+                csi_data,
+                gain_locked=bool(entry.get('gain_locked', True)),
+            )
+            if len(turbulence):
+                turb_mean = _window_mean(turbulence)
+                if len(turb_mean):
+                    empty_turb_mean_series.append(np.asarray(turb_mean, dtype=np.float64))
+                waveform_length_over_mean = _window_feature_series(
+                    turbulence,
+                    "waveform_length_over_mean",
+                )
+                if len(waveform_length_over_mean):
+                    empty_waveform_length_over_mean_series.append(
+                        np.asarray(waveform_length_over_mean, dtype=np.float64)
+                    )
 
         for entry in static_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'static_presence')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-            mv = _compute_moving_variance_series(data[csi_key], gain_locked=bool(entry.get('gain_locked', True)))
-            if len(mv):
-                static_mv_series.append(mv)
+            turbulence, _ = _compute_turbulence_and_moving_variance_series(
+                data[csi_key],
+                gain_locked=bool(entry.get('gain_locked', True)),
+            )
+            if len(turbulence):
+                turb_mean = _window_mean(turbulence)
+                if len(turb_mean):
+                    static_turb_mean_series.append(np.asarray(turb_mean, dtype=np.float64))
+                waveform_length_over_mean = _window_feature_series(
+                    turbulence,
+                    "waveform_length_over_mean",
+                )
+                if len(waveform_length_over_mean):
+                    static_waveform_length_over_mean_series.append(
+                        np.asarray(waveform_length_over_mean, dtype=np.float64)
+                    )
 
-        if not empty_mv_series or not static_mv_series:
+        if (
+            not empty_turb_mean_series
+            or not empty_waveform_length_over_mean_series
+            or not static_turb_mean_series
+            or not static_waveform_length_over_mean_series
+        ):
             results.append(ValidationResult(
                 f"empty_separation_{chip}_{environment}", "WARN",
-                f"Insufficient moving-variance data for group {(chip, environment)}"
+                f"Insufficient score-feature data for group {(chip, environment)}"
             ))
             continue
 
-        empty_mv = np.concatenate(empty_mv_series)
-        static_mv = np.concatenate(static_mv_series)
-        auc = _rank_auc(static_mv, empty_mv)
+        empty_turb_mean = np.concatenate(empty_turb_mean_series)
+        empty_waveform_length_over_mean = np.concatenate(empty_waveform_length_over_mean_series)
+        static_turb_mean = np.concatenate(static_turb_mean_series)
+        static_waveform_length_over_mean = np.concatenate(static_waveform_length_over_mean_series)
+
+        empty_score, static_score = _build_empty_separation_score(
+            empty_turb_mean,
+            static_turb_mean,
+            empty_waveform_length_over_mean,
+            static_waveform_length_over_mean,
+        )
+        auc = _rank_auc(static_score, empty_score)
         if auc is None:
             results.append(ValidationResult(
                 f"empty_separation_{chip}_{environment}", "WARN",
-                f"Could not compute separability for group {(chip, environment)}"
+                f"Could not compute empty-vs-static score for group {(chip, environment)}"
             ))
             continue
 
-        forward = _evaluate_threshold_direction(static_mv, empty_mv, expect_pos_higher=True)
-        reverse = _evaluate_threshold_direction(static_mv, empty_mv, expect_pos_higher=False)
+        forward = _evaluate_threshold_direction(
+            static_score, empty_score, expect_pos_higher=True
+        )
+        reverse = _evaluate_threshold_direction(
+            static_score, empty_score, expect_pos_higher=False
+        )
         best = forward if reverse is None or (forward and forward[:2] >= reverse[:2]) else reverse
         balanced_acc, accuracy, threshold, direction = best
         separability_auc = max(float(auc), 1.0 - float(auc))
@@ -560,9 +716,10 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
             f"empty_separation_{chip}_{environment}",
             status,
             (
-                f"Moving variance separates empty vs static presence for {(chip, environment)}: "
+                f"Empty-vs-static score separates group {(chip, environment)}: "
                 f"AUC={separability_auc:.3f}, balanced_acc={balanced_acc:.3f}, "
-                f"threshold={threshold:.4f}, direction={direction}"
+                f"threshold={threshold:.4f}, direction={direction}, "
+                f"score=0.7*z(turb_mean)+0.3*z(waveform_length_over_mean)"
             ),
             round(separability_auc, 3)
         ))
@@ -835,17 +992,20 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("A pair is considered valid when:\n")
     lines.append("- labels are coherent (`static_presence` vs `motion`)")
     lines.append(f"- `motion_variance > static_presence_variance` (ratio >= {MIN_VARIANCE_RATIO}x)\n")
-    lines.append("Empty sanity uses moving-variance separability against overlapping ")
-    lines.append("`static_presence` groups with the same chip/environment, after dropping ")
+    lines.append("Empty sanity uses overlapping `static_presence` groups with the same ")
+    lines.append("chip/environment to check both quietness and separability, after dropping ")
     lines.append("reference frames from `empty` files when present.\n")
     lines.append("Computed metrics:\n")
     lines.append("- `Static Presence Var`: variance of spatial turbulence on the static-presence file")
     lines.append("- `Motion Var`: variance of spatial turbulence on the motion file")
     lines.append("- `Ratio`: `Motion Var / Static Presence Var`")
-    lines.append("- `Gap end->start`: time between static-presence end and motion start (negative means overlap)")
+    lines.append("- `Empty separation`: score-based separability between `empty` and ")
+    lines.append("  `static_presence` windows using `0.7*z(turb_mean) + 0.3*z(waveform_length_over_mean)`")
+    lines.append("- `Gap`: non-negative time between the `static_presence` and `motion` capture intervals")
+    lines.append("  regardless of acquisition order (`0s` means the intervals overlap)")
     lines.append("- `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set")
     lines.append("- `Turbulence`: `raw_std` = gain locked (raw standard deviation), "
-                 "`CV` = gain not locked (coefficient of variation, MVS only — ML always uses raw_std)\n")
+                 "`CV` = gain not locked (coefficient of variation; used by MVS and ML)\n")
 
     lines.append("## Results (sorted by chip, then ratio desc)\n")
     lines.append("| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var "

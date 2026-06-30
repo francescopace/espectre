@@ -9,7 +9,7 @@ This guide covers how to collect and label CSI data for training ML models. This
 | Feature | Status |
 |---------|--------|
 | Data collection infrastructure | ✅ Ready |
-| Feature extraction (9 features) | ✅ Ready |
+| Feature extraction (8 relative ML features) | ✅ Ready |
 | ML detector (MLP) | ✅ Ready |
 | Training script | ✅ Ready |
 | TFLite export | ✅ Ready |
@@ -27,9 +27,9 @@ This guide covers how to collect and label CSI data for training ML models. This
 - ESP32-C6
 
 **Also supported:**
-- ESP32 (original) - Does not support AGC gain lock, but data is usable for ML training (raw std is used for all chips)
+- ESP32 (original) - Does not support AGC gain lock, but data is usable for ML training (ML features are relative to local turbulence mean)
 
-> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. The ML training pipeline and MLDetector always use raw std (`σ`) for turbulence, regardless of gain lock status. CV normalization (`σ/μ`) is only used by MVS detection.
+> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. Both MVS and ML use the no-gain-lock CV-normalized turbulence path for streams where `gain_locked=false`; ML then extracts relative per-window features such as `std/mean`, `iqr/mean`, and `mad/mean`.
 
 ---
 
@@ -95,6 +95,32 @@ Hampel, low-pass, and hit filtering from `src/python/config.py` and
 `--streamer-ip <device_ip>` to point at the firmware device and `--bind-ip
 <local_ip>` only when auto-detection picks the wrong host interface.
 
+Live detection can also save the raw CSI packets it is inspecting. This uses
+the same dataset format as `micro collect`; no derived ML scores, feature
+vectors, or states are stored because they can be reconstructed offline from
+the raw CSI and the exported model.
+
+```bash
+# Mixed idle/motion/idle smoke-test capture: store under data/test/
+./espectre micro detect \
+  --streamer-ip 192.168.1.50 \
+  --log-features \
+  --capture-label test \
+  --capture-duration 45 \
+  --description "live detect ML, idle-motion-idle"
+
+# Homogeneous hard-negative capture: store under data/empty/
+./espectre micro detect \
+  --streamer-ip 192.168.1.50 \
+  --capture-label empty \
+  --capture-duration 60 \
+  --description "live detect ML, empty room"
+```
+
+Use `test` for mixed sessions where the room state changes during the capture.
+Use training labels such as `empty`, `static_presence`, or `motion` only when
+the whole capture is label-homogeneous.
+
 ---
 
 ## Data Collection with `espectre micro collect`
@@ -106,13 +132,20 @@ The `espectre micro collect` subcommand provides a streamlined workflow for reco
 | Command | Description |
 |---------|-------------|
 | `./espectre micro collect --label <name> --duration <sec> --streamer-ip <device_ip>` | Record for specified duration |
-| `./espectre micro collect --label <name> --samples <n> --streamer-ip <device_ip>` | Record n samples interactively |
+| `./espectre micro collect --label <name> --samples <n> --streamer-ip <device_ip>` | Record n samples or timed collections |
+| `./espectre micro collect --label <name> --count <n> --streamer-ip <device_ip>` | Alias for `--samples`, useful for repeated timed collections |
+| `./espectre micro collect --label <name> --start-delay <sec> --streamer-ip <device_ip>` | Wait before starting collection |
 | `./espectre micro collect --label <name> --streamer-ip <device_ip> --reference-every <N>` | Mark every `N`th stimulus packet as a reference frame |
 | `./espectre micro collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
 | `./espectre micro collect --label <name> --description "text"` | Add description to sample |
 | `./espectre micro collect --info` | Show dataset statistics |
 
 Gain lock status is **automatically detected** from the CSI stream and saved in `dataset_info.json`.
+
+`micro detect --capture-label <name>` is a convenience path for live detector
+smoke tests: it records the same raw CSI schema while printing ML output.
+Prefer `micro collect` for ordinary scripted dataset collection and its
+pre-recording stable-scene gate.
 
 ### Recording Samples
 
@@ -128,6 +161,9 @@ Gain lock status is **automatically detected** from the CSI stream and saved in 
 
 # Mark every 20th stimulus packet as a reference frame
 ./espectre micro collect --label static_presence --duration 30 --streamer-ip 192.168.1.50 --reference-every 20
+
+# Wait 15 seconds, then record 3 timed collections
+./espectre micro collect --label static_presence --duration 10 --count 3 --start-delay 15 --streamer-ip 192.168.1.50
 
 # Gain lock status is auto-detected from the CSI stream
 # No need to specify --no-gain-lock, it's automatic!
@@ -182,7 +218,7 @@ Output:
 ```
   Label                   Samples
   --------------------------------
-  idle                         12
+  static_presence               12
   wave                         10
   swipe                        10
   ...
@@ -365,13 +401,17 @@ dataset schema.
 
 ### How It Works
 
-The ML training script uses **raw std** for all chips, including those without gain lock. CV normalization is not applied during ML training or inference — it is only used by the MVS detector.
+The ML training script uses gain-mode-aware turbulence for all chips:
+gain-locked streams use raw turbulence, while streams without gain lock use
+CV-normalized turbulence (`std/mean`) before the sliding-window features are
+computed. The exported ML features are still relative ratios such as
+`std/mean`, `iqr/mean`, `mad/mean`, and normalized waveform length.
 
 ### When CV Normalization Is Applied
 
-CV normalization is only used by the **MVS detector**, not by ML:
-- **ESP32 (original)**: MVS uses CV normalization since AGC gain lock is not supported
-- **Data collected before enabling gain lock**: MVS applies CV normalization for older captures
+CV normalization is used by both detectors when gain lock is unavailable:
+- **ESP32 (original)**: CV normalization is used since AGC gain lock is not supported
+- **Data collected before enabling gain lock**: CV normalization applies for older captures
 - **Future compatibility**: Any data where amplitudes are unreliable
 
 ### Automatic Detection
@@ -410,7 +450,7 @@ This shows which files use CV normalization.
 
 ```
 # Good labels
-idle
+static_presence
 wave
 swipe_left
 swipe_right
@@ -427,9 +467,9 @@ gesture1      # non-descriptive
 
 ### Session Workflow
 
-1. **Prepare environment**: Ensure room is quiet for baseline
-2. **Record baseline first**: `./espectre micro collect --label static_presence --duration 60 --streamer-ip <device_ip>`
-3. **Record movement**: `./espectre micro collect --label motion --duration 60 --streamer-ip <device_ip>`
+1. **Prepare environment**: Ensure room is quiet for `static_presence`
+2. **Record static presence first**: `./espectre micro collect --label static_presence --duration 60 --streamer-ip <device_ip>`
+3. **Record motion**: `./espectre micro collect --label motion --duration 60 --streamer-ip <device_ip>`
 4. **Verify dataset**: `./espectre micro collect --info`
 5. **Backup data**: Copy `data/` to safe location
 
@@ -460,11 +500,8 @@ See [tools/README.md](../tools/README.md) for complete documentation of all anal
 Once you have collected labeled data, train the ML model:
 
 ```bash
-# Train model (default uses --fp-weight 1.0, --scaler standard, --batch-size 32)
+# Train model (default uses --fp-weight 2.0, --scaler standard, --batch-size 32)
 python tools/10_train_ml_model.py
-
-# Run the offline 3-class room-state experiment
-python tools/10_train_ml_model.py --multiclass-experiment
 
 # Show dataset info (including excluded files)
 python tools/10_train_ml_model.py --info
@@ -472,55 +509,79 @@ python tools/10_train_ml_model.py --info
 # Compare alternate feature normalization modes
 python tools/10_train_ml_model.py --scaler clipped_standard
 
+# Compare alternate exported feature sets without replacing production artifacts
+python tools/10_train_ml_model.py --feature-set robust_relative --no-export
+
 # Optional chip-exclusion experiment
 python tools/10_train_ml_model.py --exclude-chip ESP32
+
+# Diagnose exported-model sensitivity to artificial gain shifts
+python tools/10_train_ml_model.py --gain-stress-gate
+python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
 ```
 
-The `--fp-weight` parameter multiplies the IDLE class weight during training. Values >1.0 reduce false positives at the cost of slightly lower recall. Current defaults: `--fp-weight 1.0`, `--scaler standard`, `--batch-size 32`.
+The binary production trainer loads `empty`, `static_presence`, and `motion`.
+`empty` and `static_presence` are both IDLE targets; `motion` is the MOTION
+target. The `--fp-weight` parameter multiplies the IDLE class weight during
+training. Values >1.0 reduce false positives at the cost of slightly lower
+recall. Current defaults: `--fp-weight 2.0`, `--scaler standard`,
+`--batch-size 32`, `--feature-set production`.
 
-### Offline Room-State Prototype
+### Gain-Shift Robustness Check
 
-An experimental offline-only path is available for three-class room-state
-classification:
+The production ML path deliberately keeps Python/C++ runtime inference aligned
+by deriving all neural-detector inputs from the same raw turbulence signal. The
+exported default feature set is now relative to the local turbulence mean, so
+the model is structurally less sensitive to absolute amplitude gain changes.
+
+Use the exported-artifact gain-stress gate to quantify this risk without
+retraining or exporting a new model:
 
 ```bash
-python tools/10_train_ml_model.py --multiclass-experiment
-
-# Compare alternate room-state feature views
-python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude
-python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude_phase
-python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude_common_offset_phase
-python tools/10_train_ml_model.py --multiclass-experiment --multiclass-feature-set amplitude_stimulus_phase --require-sync-metadata
+python tools/10_train_ml_model.py --gain-stress-gate
+python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
+python tools/10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25
 ```
 
-This prototype:
+The gate loads the current `src/python/ml_weights.py`, extracts the exported
+feature set, then applies artificial gain multipliers only to feature
+dimensions that scale with amplitude. With the promoted relative feature set,
+no exported input dimension is scaled by this diagnostic, so the expected
+result is a flat report across gain multipliers.
 
-1. loads `empty`, `static_presence`, and `motion`
-2. trains a `softmax` MLP offline
-3. reports a blocked out-of-fold confusion matrix plus per-class recall
-4. reports worst-group behavior by `chip`, `environment_group`,
-   `session_group`, and `source_file`
+Current finding for the relative `1890407301` export (`8 -> 32 -> 16 -> 1`,
+`fp_weight=2.0`): all-environment gain stress is flat at `1.00x`, `1.25x`,
+and `1.50x`. The remaining worst-session weakness is nominal dataset
+difficulty, not gain-shift sensitivity. Treat this gate as the primary
+diagnostic for comparing future raw, relative, or hybrid feature sets.
 
-Important limitations:
+### Empty-Room Regression Check
 
-- it does **not** export runtime artifacts
-- it does **not** change the binary `MLDetector` production path
-- current `empty` coverage is still narrow, so good aggregate metrics may still
-  reflect domain bias rather than robust presence sensing
-- the current phase feature views remain experimental: on the present dataset,
-  `amplitude_common_offset_phase` improved aggregate blocked OOF metrics versus
-  `amplitude`, but both tested phase variants were still less robust than
-  amplitude-only on the controlled `C3/bedroom` split for `static_presence`
-- sync-aware phase experiments require `--require-sync-metadata`; with the
-  current dataset this reduces the multiclass subset to the newer `C3`
-  captures, so the resulting scores are dominated by limited `static_presence`
-  and `motion` coverage rather than by the feature view alone
+The 2026-06-30 production retrain was motivated by a C3 ESPHome runtime log
+that produced noisy ML scores in a static room. Offline analysis showed that
+the new C3 `static_presence` capture was not the failing case; the new C3
+`empty` capture reproduced the problem. The fix was to include `empty` in the
+binary ML training labels instead of training only on `static_presence` versus
+`motion`. A later C6 bedroom `empty` capture exposed the same class of domain
+coverage issue, so the regression now covers all available empty-room files,
+not only C3.
+
+Use the dedicated regression for newly collected empty-room data:
+
+```bash
+pytest test/python/test_validation_real_data.py::TestPerformanceMetrics::test_ml_empty_false_positive_rate -v
+```
+
+The current target is below `5%` false positives for every
+`data/empty/empty_*_64sc_*.npz` file. The 2026-06-30 C6 empty-room capture
+failed at about `35%` FP before retraining and falls below the target after
+being included in the binary IDLE class.
 
 This will:
-1. Load all `.npz` files from `data/`
-2. Use raw std for all files (CV normalization disabled for ML)
+1. Load all `.npz` files from `data/` for `empty`, `static_presence`, and `motion`
+2. Use gain-mode-aware turbulence: raw std for gain-locked files, CV-normalized turbulence for files without gain lock
 3. Apply context-aware MVS-guided sample weighting on the default subcarrier set
-4. Extract 9 features per sliding window
+4. Extract 8 relative ML features per sliding window
 5. Run grouped cross-validation by paired capture/session, with blocked scoring to reduce overlap optimism
 6. Report worst-group metrics (session, chip, source file) alongside mean fold metrics
 7. Train the selected MLP architecture with early stopping and dropout
@@ -533,13 +594,13 @@ This will:
 
 Use `--seed <number>` for reproducible training. The seed is saved in the generated weight files.
 
-> **Note**: The ML pipeline always uses raw std for turbulence, regardless of `gain_locked` status. CV normalization is only applied by the MVS detector at runtime.
+> **Note**: The ML pipeline now matches runtime gain handling. `MLDetector::set_cv_normalization(true)` enables CV-normalized turbulence for no-gain-lock streams; gain-locked streams keep raw turbulence. The exported feature set remains the 8 relative features used by the neural detector.
 >
 > **Note**: `--exclude-chip` is an experiment knob for ablations and domain-isolation studies. The default training path keeps all supported chips in the dataset unless you explicitly exclude them.
 >
 > **Note**: `ml_test_data.npz` is an inference-regression artifact, not the primary model-selection metric. Architecture and scaler choices should follow the grouped blocked-CV report emitted by `10_train_ml_model.py`.
 >
-> **Tip**: `--scaler clipped_standard` and larger `--batch-size` values are available for exploratory sweeps, but should be validated against `test/python/test_validation_real_data.py::TestPerformanceMetrics::test_ml_detection_accuracy` before being promoted to production artifacts.
+> **Tip**: `--scaler clipped_standard`, `--feature-set robust_relative`, and larger `--batch-size` values are available for exploratory sweeps, but should be validated against `test/python/test_validation_real_data.py::TestPerformanceMetrics::test_ml_detection_accuracy`, the empty-room false-positive regression, and the long-recording gate before being promoted to production artifacts. Non-production feature sets should be run with `--no-export`.
 >
 > **Tip**: For production artifact promotion, prefer `python tools/10_train_ml_model.py --seed-search-until-improvement <N>` over a plain training run. A plain run always exports the current seed, while the seed-search flow only replaces artifacts after a strict grouped-CV improvement.
 
@@ -630,7 +691,7 @@ Gestures useful for Home Assistant / smart home automation:
 | 🟡 Medium | `clap` | Hand clap | Toggle lights |
 | 🟡 Medium | `sit_down` / `stand_up` | Sitting/standing | TV mode, energy saving |
 | 🟡 Medium | `fall` | Person falling | Elderly safety alert |
-| 🟢 Low | `idle` | Empty room, no movement | Baseline (always needed) |
+| 🟢 Low | `empty` | Empty room, no movement | Empty-room baseline (recommended) |
 
 ### Data Privacy
 

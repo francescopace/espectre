@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - **ESPHome packaging no longer depends on repository symlinks**: shared code is now wired from canonical `core` / `runtime` sources, making ESPHome builds more reliable on Windows and in checkout/archive workflows where symlinks may be lost.
 - **Matter firmware is now part of the published firmware surface**: CI, stable releases, snapshot releases, and the web flasher can all resolve Matter artifacts for all supported Matter targets except `ESP32-S2`.
 - **Custom BLE protocol moved into its own frontend**: the standalone GATT transport now lives in a dedicated BLE firmware instead of being embedded in the ESPHome adapter.
+- **ML detector moved to relative gain-robust features**: the production binary model now uses an 8-feature relative turbulence-window input set with a wider `8 -> 32 -> 16 -> 1` MLP and `fp_weight=2.0`, reducing device/session gain sensitivity while recovering long-recording false-positive robustness.
 
 ### Added
 
@@ -48,9 +49,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **Added an offline 3-class room-state ML prototype**: `tools/10_train_ml_model.py` now has a dedicated `--multiclass-experiment` path that loads `empty`, `static_presence`, and `motion`, trains a `softmax` MLP offline, and reports blocked confusion-matrix plus per-class/group metrics without touching the production binary `MLDetector` artifacts.
-- **Offline room-state prototype now includes a common-offset-removed phase view**: the experimental multiclass path accepts `--multiclass-feature-set amplitude_common_offset_phase`, reusing the documented per-packet common phase-offset removal strategy for offline comparison against amplitude-only and temporal phase-turbulence features.
-- **Offline room-state prototype can now isolate sync-rich captures**: `load_npz_as_packets()` preserves optional `stimulus_id` and device timing metadata from newer `.npz` files, `--multiclass-experiment` accepts `--require-sync-metadata`, and the prototype can compare a new `amplitude_stimulus_phase` feature set against the existing amplitude and phase baselines on the sync-aware subset only.
+- **Production ML detector now uses relative turbulence features**: the binary `MLDetector` export moved from raw 9-feature inputs to 8 relative features (`std/mean`, envelope/mean, robust spread/mean, normalized waveform length, skewness, autocorrelation). The promoted export uses seed `1890407301`, topology `8 -> 32 -> 16 -> 1`, and `fp_weight=2.0`; the C++ extractor follows the exported model input size and keeps a legacy raw-9 path for older generated weights.
+- **ML gain-shift diagnostics were added to the training workflow**: `tools/10_train_ml_model.py` can now run `--gain-stress-gate` against exported artifacts and `--gain-feature-experiment` to compare raw, relative, hybrid, and exploratory gain-robust feature sets before promotion.
 - **Streamer CLI now exposes the full multi-chip build matrix**: `./espectre streamer build|flash|monitor` accepts `esp32`, `c3`, `c5`, `c6`, and `s3`, matching the streamer frontend's runtime chip detection and making the repository CLI consistent with the supported ESP-IDF targets.
 - **Streamer collection flow is now collector-driven**: the standalone streamer no longer depends on a built-in traffic generator or a static `COLLECTOR_IP`; it learns the collector from external UDP stimulus, while the host collector now emits `ESTM` packets with collector-controlled `stimulus_id` / `reference` policy for ML dataset capture.
 - **CSI live streaming unified around the C++ streamer frontend**: the host collector now targets the versioned ESP-IDF streamer protocol, the legacy MicroPython UDP producer has been removed, and existing `.npz` datasets remain readable while newly collected samples gain optional device/stream metadata for realtime fusion workflows.
@@ -83,8 +83,8 @@ All notable changes to this project will be documented in this file.
 
 ### Notes
 
-- This is an architectural/frontend release, not an algorithm change.
-- The small `core` / `runtime` edits included for the Matter frontend are enabling changes only (mainly removing residual ESPHome-only logging dependencies), so the shared motion-detection behavior remains unchanged.
+- This release includes both the architectural/frontend split and an ML detector feature-set refresh. MVS behavior remains unchanged.
+- The small `core` / `runtime` edits included for the Matter frontend are enabling changes only (mainly removing residual ESPHome-only logging dependencies), while the intentional shared motion-detection behavior change is the promoted ML relative-feature export.
 - The `core` layer is now reusable as a clean standalone building block for future SDK-style embedding, even though no separately packaged public SDK exists yet.
 
 ---
