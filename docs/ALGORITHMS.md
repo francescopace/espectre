@@ -79,7 +79,7 @@ With default `window_size=100`, this means 1000 packets. If you change `segmenta
 1. **CSI Data**: Raw I/Q values for 64 subcarriers (HT20 mode)
    - Espressif format: `[Q₀, I₀, Q₁, I₁, ...]` (Imaginary first, Real second per subcarrier)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
-3. **Spatial Turbulence**: `σ(amplitudes)` (raw std, gain locked) or `σ/μ` (CV, gain not locked — MVS only)
+3. **Spatial Turbulence**: `σ(amplitudes)` (raw std, gain locked) or `σ/μ` (CV, gain not locked)
 4. **Hampel Filter** (optional): Remove outliers using MAD
 5. **Low-Pass Filter** (optional): Remove high-frequency noise (Butterworth 1st order)
 6. **Moving Variance**: `Var(turbulence)` over sliding window
@@ -387,7 +387,7 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 1. **Spatial Turbulence**
 
-   Computed per packet from the 12 selected subcarrier amplitudes. MVS uses raw std when gain is locked, or CV normalization otherwise (see [CV Normalization](#cv-normalization-gain-invariant-turbulence)). ML uses raw turbulence as its base signal, then extracts relative window features for the neural detector.
+   Computed per packet from the 12 selected subcarrier amplitudes. MVS and ML use raw std when gain is locked, or CV normalization otherwise (see [CV Normalization](#cv-normalization-gain-invariant-turbulence)). ML then extracts relative window features for the neural detector.
 
 2. **Moving Variance (Two-Pass Algorithm)**
    ```
@@ -420,7 +420,7 @@ Motion detection can be framed as a **binary classification problem**:
 - **Input**: Statistical features computed from a sliding window of turbulence values
 - **Output**: Probability of motion (0.0 to 1.0)
 
-A neural network can learn complex, non-linear patterns that may be missed by simple threshold-based methods. Unlike MVS, ML learns decision boundaries from labeled training data and generalizes across environments without per-environment calibration.
+A neural network can learn complex, non-linear patterns that may be missed by simple threshold-based methods. Unlike MVS, ML learns decision boundaries from labeled training data and generalizes across environments without per-environment calibration. The production binary model maps both `empty` and `static_presence` captures to IDLE, and maps `motion` captures to MOTION.
 
 ### Architecture
 
@@ -573,6 +573,7 @@ For the complete training workflow (data collection, training commands, export f
 
 The training pipeline includes:
 
+- **Binary room-state labels**: Loads `empty`, `static_presence`, and `motion`, treating `empty` and `static_presence` as IDLE examples.
 - **Session-grouped cross-validation**: Uses grouped folds by paired capture/session, with blocked scoring to reduce overlap optimism and worst-group reports for session, chip, environment, and source file.
 - **MVS-guided sample weighting**: Context-aware weights and hard-positive mining emphasize subtle movement samples near the MVS detection boundary while normalizing per-file influence.
 - **Stratified validation split**: The internal early-stopping validation set uses explicit stratified splitting rather than Keras's default sequential split, preventing chip imbalance in the validation data.

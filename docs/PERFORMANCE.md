@@ -24,9 +24,9 @@ Configuration used for all test results (unified across chips):
 | Calibration | Fixed subcarriers + threshold bootstrap | Shared 12-subcarrier set, adaptive threshold for MVS |
 | Hampel Filter | ON | Enabled for both MVS and ML (window=7, threshold=5.0 MAD) |
 | Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
-| CV Normalization | MVS only | Based on `gain_locked` metadata (`false` => apply CV norm for MVS) |
+| CV Normalization | Gain-mode aware | Based on `gain_locked` metadata (`false` => apply CV norm) |
 
-CV normalization is applied per-file for MVS based on whether data was collected with AGC gain lock enabled. ML uses raw turbulence as its base signal, then exports relative neural-detector features such as `std/mean`, `iqr/mean`, `mad/mean`, and normalized waveform length.
+CV normalization is applied per-file based on whether data was collected with AGC gain lock enabled. Gain-locked streams use raw turbulence; streams without gain lock use CV-normalized turbulence (`std/mean`). ML then exports relative neural-detector features such as `std/mean`, `iqr/mean`, `mad/mean`, and normalized waveform length.
 
 ---
 
@@ -35,17 +35,16 @@ CV normalization is applied per-file for MVS based on whether data was collected
 `data/dataset_info.json` contains canonical `empty` / `static_presence` /
 `motion` labels across multiple collection sessions and environments. The
 counts below are aggregated packet totals across all currently available
-training captures, including the dedicated empty-room recordings added on
-2026-06-29.
+training captures, including the dedicated empty-room recordings.
 
 | Chip | Empty | Static Presence | Motion | Total | Gain Lock |
 |------|-------|-----------------|--------|-------|-----------|
-| ESP32-C3 | 3020 | 5143 | 5084 | 13247 | Yes |
-| ESP32-C5 | 3030 | 5350 | 5339 | 13719 | Yes |
-| ESP32-C6 | 3003 | 5756 | 5890 | 14649 | Yes |
-| ESP32-S3 | 3003 | 5361 | 5375 | 13739 | Yes |
-| ESP32 | 2375 | 4159 | 4083 | 10617 | No |
-| Total | 14431 | 25769 | 25771 | 65971 | Mixed |
+| ESP32-C3 | 21113 | 23204 | 11100 | 55417 | Yes |
+| ESP32-C5 | 21144 | 23359 | 11380 | 55883 | Yes |
+| ESP32-C6 | 21003 | 23770 | 11891 | 56664 | Yes |
+| ESP32-S3 | 21007 | 23364 | 11376 | 55747 | Yes |
+| ESP32 | 18495 | 20535 | 9513 | 48543 | No |
+| Total | 102762 | 114232 | 55260 | 272254 | Mixed |
 
 Data location: `data/`
 
@@ -73,7 +72,7 @@ pytest test/python/test_validation_long_recordings.py -v -s
 
 ## Current Results
 
-**Last verified:** 2026-06-30 (`test_motion_detection`, `test_long_recordings`, `TestPerformanceMetrics`, `test_validation_long_recordings.py`)
+**Last verified:** 2026-06-30 (`test_motion_detection`, C++ `test_long_recordings`, Python `TestPerformanceMetrics`, Python `test_validation_long_recordings.py`)
 
 ### Python + C++ real-data validation
 
@@ -87,17 +86,17 @@ pytest test/python/test_validation_long_recordings.py -v -s
 | ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32-C6 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-C6 | MVS Runtime | 99.7% | 100.0% | 0.0% | 99.9% |
-| ESP32-C6 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| ESP32-C6 | ML | 99.2% | 100.0% | 0.0% | 99.6% |
 | ESP32-S3 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-S3 | MVS Runtime | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32 | MVS Default | 99.4% | 100.0% | 0.0% | 99.7% |
 | ESP32 | MVS Runtime | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32 | ML | 99.9% | 100.0% | 0.0% | 99.9% |
+| ESP32 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 
 **MVS Default**: Uses fixed default subcarriers with adaptive threshold from baseline.
 **MVS Runtime**: Current production startup path; matches `MVS Default`.
-**ML**: Neural network with grouped session-level blocked CV for model selection, context-aware MVS-guided weights, Hampel filtering, and exported relative turbulence-window features. MVS CV normalization is always disabled for ML.
+**ML**: Neural network with grouped session-level blocked CV for model selection, context-aware MVS-guided weights, Hampel filtering, gain-mode-aware turbulence normalization, and exported relative turbulence-window features. Binary training uses `empty`, `static_presence`, and `motion`; `empty` and `static_presence` are both IDLE targets.
 
 ---
 
@@ -188,11 +187,11 @@ Methodology:
 | C3 | MVS Fixed | 100.0% | 99.8% | 0.2% | 99.9% | 5 |
 | C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% | 0 |
 | C5 | MVS Fixed | 100.0% | 87.9% | 11.1% | 93.5% | 357 |
-| C5 | ML | 100.0% | 91.2% | 7.7% | 95.4% | 249 |
+| C5 | ML | 100.0% | 91.3% | 7.7% | 95.4% | 248 |
 | C6 | MVS Fixed | 100.0% | 70.4% | 40.2% | 82.6% | 1270 |
-| C6 | ML | 99.6% | 88.1% | 12.8% | 93.5% | 405 |
+| C6 | ML | 97.3% | 90.2% | 10.1% | 93.6% | 319 |
 | S3 | MVS Fixed | 100.0% | 94.8% | 4.9% | 97.3% | 151 |
-| S3 | ML | 98.3% | 100.0% | 0.0% | 99.1% | 0 |
+| S3 | ML | 99.5% | 100.0% | 0.0% | 99.7% | 1 |
 
 ---
 

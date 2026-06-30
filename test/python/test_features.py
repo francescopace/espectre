@@ -19,6 +19,7 @@ from features import (
     DEFAULT_FEATURES,
     RAW_FEATURES,
     RELATIVE_FEATURES,
+    ROBUST_RELATIVE_FEATURES,
     FEATURE_NAMES,
 )
 
@@ -306,3 +307,28 @@ class TestExtractAllFeatures:
 
         for actual, expected in zip(scaled_features, features):
             assert actual == pytest.approx(expected, rel=1e-6, abs=1e-6)
+
+    def test_robust_relative_features_are_gain_invariant(self):
+        """Percentile-based relative features remain invariant to uniform gain."""
+        buffer = [3.0 + (i % 7) * 0.25 for i in range(50)]
+        scaled = [value * 2.3 for value in buffer]
+
+        features = extract_features_by_name(buffer, 50, feature_names=ROBUST_RELATIVE_FEATURES)
+        scaled_features = extract_features_by_name(
+            scaled, 50, feature_names=ROBUST_RELATIVE_FEATURES
+        )
+
+        for actual, expected in zip(scaled_features, features):
+            assert actual == pytest.approx(expected, rel=1e-6, abs=1e-6)
+
+    def test_robust_percentile_features_reduce_single_spike_leverage(self):
+        """P95/P05 features are less sensitive to one isolated spike than max/min."""
+        buffer = [10.0] * 99 + [80.0]
+
+        relative = extract_features_by_name(buffer, 100, feature_names=RELATIVE_FEATURES)
+        robust = extract_features_by_name(buffer, 100, feature_names=ROBUST_RELATIVE_FEATURES)
+
+        max_idx = RELATIVE_FEATURES.index('turb_max_over_mean')
+        p95_idx = ROBUST_RELATIVE_FEATURES.index('turb_p95_over_mean')
+        assert robust[p95_idx] < relative[max_idx]
+        assert robust[p95_idx] == pytest.approx(10.0 / 10.7, rel=1e-6)

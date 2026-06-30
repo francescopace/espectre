@@ -126,6 +126,15 @@ def get_available_datasets():
     return datasets
 
 
+def get_available_empty_datasets():
+    """Get empty-room recordings for ML false-positive gates."""
+    empty_dir = DATA_DIR / "empty"
+    datasets = []
+    for path in sorted(empty_dir.glob("empty_*_64sc_*.npz")):
+        datasets.append(pytest.param(path, id=path.stem))
+    return datasets
+
+
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -876,7 +885,8 @@ class TestPerformanceMetrics:
         No calibration needed - uses pre-trained weights.
         
         Note: ML model uses fixed subcarriers from config.DEFAULT_SUBCARRIERS regardless of chip type.
-        CV normalization is always off — the model is trained on raw std.
+        ML uses raw std for gain-locked streams and CV-normalized turbulence
+        for streams without gain lock.
         
         Targets: >ml_recall_target% Recall, <ml_fp_rate_target% FP Rate.
         """
@@ -891,20 +901,25 @@ class TestPerformanceMetrics:
         
         # ML model uses fixed subcarriers (must match training)
         ml_subcarriers = DEFAULT_SUBCARRIERS
+        use_cv_norm = any(
+            bool(pkt.get("gain_locked", True)) is False
+            for pkt in list(static_presence_packets[:8]) + list(motion_packets[:8])
+        )
         
         # ========================================
         # Initialize ML Detector (no calibration needed)
-        # CV normalization always off (model trained on raw std)
         # ========================================
         detector = MLDetector(
             threshold=5.0,  # Default scaled threshold (0.1-10.0)
             window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            use_cv_normalization=use_cv_norm,
         )
         
         print(f"\nML Detector initialized")
         print(f"  Threshold: 5.0")
         print(f"  Window size: {DETECTOR_DEFAULT_WINDOW_SIZE} (DETECTOR_DEFAULT_WINDOW_SIZE)")
         print(f"  Subcarriers: {ml_subcarriers} (fixed for ML)")
+        print(f"  CV normalization: {'ON' if use_cv_norm else 'OFF'}")
         
         # ========================================
         # Process ALL baseline packets (first window_size packets are warmup)
@@ -986,6 +1001,40 @@ class TestPerformanceMetrics:
         assert pkt_recall > ml_recall_target, f"ML Recall too low: {pkt_recall:.1f}% (target: >{ml_recall_target}%)"
         if static_presence_eval_count > 0:
             assert pkt_fp_rate < ml_fp_rate_target, f"ML FP Rate too high: {pkt_fp_rate:.1f}% (target: <{ml_fp_rate_target}%)"
+
+    @pytest.mark.parametrize("empty_dataset_path", get_available_empty_datasets())
+    def test_ml_empty_false_positive_rate(self, empty_dataset_path):
+        """Validate that empty-room recordings stay below the ML FP target."""
+        from csi_utils import load_npz_as_packets
+        from ml_detector import MLDetector
+        from config import DEFAULT_SUBCARRIERS
+        from detector_interface import MotionState
+
+        packets = load_npz_as_packets(empty_dataset_path)
+        use_cv_norm = any(bool(pkt.get("gain_locked", True)) is False for pkt in packets[:8])
+        detector = MLDetector(
+            threshold=5.0,
+            window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
+            use_cv_normalization=use_cv_norm,
+        )
+
+        warmup = DETECTOR_DEFAULT_WINDOW_SIZE
+        eval_count = max(len(packets) - warmup, 0)
+        motion_packets = 0
+
+        for i, pkt in enumerate(packets):
+            detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+            detector.update_state()
+            if i >= warmup and detector.get_state() == MotionState.MOTION:
+                motion_packets += 1
+
+        fp_rate = motion_packets / eval_count * 100.0 if eval_count > 0 else 0.0
+        assert eval_count > 0
+        fp_rate_target = 5.0
+        assert fp_rate < fp_rate_target, (
+            f"ML empty-room FP Rate too high for {empty_dataset_path.name}: "
+            f"{fp_rate:.1f}% (target: <{fp_rate_target}%)"
+        )
 
 
 # ============================================================================
@@ -1272,4 +1321,3 @@ class TestEndToEndWithCalibration:
         # Startup calibration keeps the fixed default band and tunes only the threshold.
         assert recall > recall_target, f"End-to-end Recall too low ({num_subcarriers} SC): {recall:.1f}% (target: >{recall_target}%)"
         assert fp_rate < fp_rate_target, f"End-to-end FP Rate too high ({num_subcarriers} SC): {fp_rate:.1f}% (target: <{fp_rate_target}%)"
-

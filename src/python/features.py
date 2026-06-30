@@ -153,6 +153,17 @@ RELATIVE_FEATURES = [
     'turb_autocorr',
 ]
 
+ROBUST_RELATIVE_FEATURES = [
+    'turb_std_over_mean',
+    'turb_p95_over_mean',
+    'turb_p05_over_mean',
+    'turb_iqr_over_mean',
+    'turb_mad_over_mean',
+    'waveform_length_over_mean',
+    'turb_skewness',
+    'turb_autocorr',
+]
+
 # Production feature set: gain-invariant turbulence-window statistics.
 DEFAULT_FEATURES = RELATIVE_FEATURES
 
@@ -188,16 +199,18 @@ def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, f
     mean_denom = abs_mean if abs_mean > 1e-6 else 1e-6
     waveform_denom = mean_denom * (n - 1)
 
-    # Sort once if any sort-dependent feature is requested (IQR, MAD).
+    # Sort once if any sort-dependent feature is requested.
     _sorted = None
     for name in feature_names:
-        if name == 'turb_iqr' or name == 'turb_mad':
+        if name in ('turb_iqr', 'turb_mad', 'turb_p95_over_mean', 'turb_p05_over_mean'):
             _sorted = list(turb_list)
             _sorted.sort()
             break
 
     turb_iqr = None
     turb_mad = None
+    turb_p95 = None
+    turb_p05 = None
     waveform_length = None
     features = []
     for name in feature_names:
@@ -231,6 +244,14 @@ def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, f
             features.append(turb_max / mean_denom)
         elif name == 'turb_min_over_mean':
             features.append(turb_min / mean_denom)
+        elif name == 'turb_p95_over_mean':
+            if turb_p95 is None:
+                turb_p95 = _interpolate_sorted_percentile(_sorted, n, 95.0)
+            features.append(turb_p95 / mean_denom)
+        elif name == 'turb_p05_over_mean':
+            if turb_p05 is None:
+                turb_p05 = _interpolate_sorted_percentile(_sorted, n, 5.0)
+            features.append(turb_p05 / mean_denom)
         elif name == 'turb_iqr_over_mean':
             if turb_iqr is None:
                 turb_iqr = calc_iqr(turb_list, n, sorted_values=_sorted)

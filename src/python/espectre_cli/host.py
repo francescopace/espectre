@@ -149,13 +149,13 @@ def collect_csi_data(args) -> None:
 def detect_live_motion(args) -> None:
     """Run live ML motion detection on the host from the UDP CSI stream."""
     try:
-        from tools.csi_utils import CSIReceiver, StimulusSender, get_default_bind_host
+        from tools.csi_utils import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
         import config
         from ml_detector import FEATURE_NAMES, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE, MLDetector
         from runtime_policy import RuntimeMotionPolicy
     except ImportError:
         try:
-            from tools.csi_utils import CSIReceiver, StimulusSender, get_default_bind_host
+            from tools.csi_utils import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
             import src.config as config
             from src.ml_detector import FEATURE_NAMES, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE, MLDetector
             from src.runtime_policy import RuntimeMotionPolicy
@@ -202,6 +202,15 @@ def detect_live_motion(args) -> None:
             return float(threshold)
         return ML_DEFAULT_THRESHOLD
 
+    capture_enabled = bool(getattr(args, "capture_label", None))
+    capture_duration = getattr(args, "capture_duration", None)
+    if capture_duration is not None and capture_duration <= 0:
+        print(f"{Fore.RED}❌ Capture duration must be > 0 seconds{Style.RESET_ALL}")
+        raise SystemExit(1)
+    if capture_duration is not None and not capture_enabled:
+        print(f"{Fore.RED}❌ --capture-duration requires --capture-label{Style.RESET_ALL}")
+        raise SystemExit(1)
+
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
     subcarriers = list(config.DEFAULT_SUBCARRIERS)
     threshold = get_runtime_ml_threshold()
@@ -228,8 +237,23 @@ def detect_live_motion(args) -> None:
         reference_every=args.reference_every,
         source_host=resolved_bind_ip,
     )
+    capture_writer = None
+    if capture_enabled:
+        capture_writer = CSICollector(
+            label=args.capture_label,
+            port=args.udp_port,
+            contributor=getattr(args, "contributor", None),
+            description=getattr(args, "description", None),
+            bind_host=resolved_bind_ip,
+        )
 
-    state = {"running": True, "packet_count": 0, "publish_counter": 0}
+    state = {
+        "running": True,
+        "packet_count": 0,
+        "publish_counter": 0,
+        "capture_packets": [],
+        "capture_started_at": None,
+    }
 
     def should_log_publish(effective_state):
         if not args.log_only_motion:
@@ -246,6 +270,19 @@ def detect_live_motion(args) -> None:
 
         state["packet_count"] += 1
         state["publish_counter"] += 1
+
+        if capture_enabled:
+            now = time.monotonic()
+            if state["capture_started_at"] is None:
+                state["capture_started_at"] = now
+
+            elapsed = now - state["capture_started_at"]
+            if capture_duration is None or elapsed <= capture_duration:
+                state["capture_packets"].append(pkt)
+            else:
+                state["running"] = False
+                receiver.stop()
+                return
 
         raw_turbulence = None
         if args.log_turbulence:
@@ -304,6 +341,11 @@ def detect_live_motion(args) -> None:
     print(f"  {Fore.CYAN}Hits on/off:{Style.RESET_ALL} {getattr(config, 'MOTION_ON_HITS', 3)}/{getattr(config, 'MOTION_OFF_HITS', 3)}")
     print(f"  {Fore.CYAN}Low-pass:{Style.RESET_ALL}  {'ON' if config.ENABLE_LOWPASS_FILTER else 'OFF'}")
     print(f"  {Fore.CYAN}Hampel:{Style.RESET_ALL}    {'ON' if config.ENABLE_HAMPEL_FILTER else 'OFF'}")
+    if capture_enabled:
+        duration_text = "until Ctrl+C" if capture_duration is None else f"{capture_duration:g}s"
+        print(f"  {Fore.CYAN}Capture:{Style.RESET_ALL}   label={args.capture_label} duration={duration_text}")
+        if getattr(args, "description", None):
+            print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
     print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is running and reachable at the configured IP{Style.RESET_ALL}")
     print(f"  {Fore.YELLOW}Press Ctrl+C to stop{Style.RESET_ALL}")
@@ -321,4 +363,17 @@ def detect_live_motion(args) -> None:
     finally:
         stimulus_sender.stop()
         receiver.stop()
+        if capture_writer is not None:
+            captured_packets = state["capture_packets"]
+            if captured_packets:
+                saved_path = capture_writer.save_sample(captured_packets)
+                if saved_path:
+                    print(
+                        f"{Fore.GREEN}✅ Saved live capture: {saved_path.name} "
+                        f"({len(captured_packets)} packets){Style.RESET_ALL}"
+                    )
+                else:
+                    print(f"{Fore.RED}❌ Live capture had no packets to save{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.YELLOW}No live capture packets received; nothing saved{Style.RESET_ALL}")
         print(f"\n{Fore.GREEN}Done.{Style.RESET_ALL}\n")

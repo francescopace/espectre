@@ -91,6 +91,10 @@ def _add_micro_namespace(subparsers) -> None:
     detect_parser.add_argument("--log-turbulence", action="store_true", help="Print raw/filtered turbulence and recent buffer tail after each publish")
     detect_parser.add_argument("--log-only-motion", action="store_true", help="Only print publish lines when the effective state is MOTION")
     detect_parser.add_argument("--window-tail", type=int, default=16, help="Number of latest turbulence samples to print with --log-turbulence")
+    detect_parser.add_argument("--capture-label", help="Also save received raw CSI as this dataset label")
+    detect_parser.add_argument("--capture-duration", type=float, help="Stop and save capture after N seconds of received CSI")
+    detect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor for saved captures")
+    detect_parser.add_argument("--description", help="Description for the saved live-detect capture")
     detect_parser.set_defaults(handler=detect_live_motion)
 
     mqtt_parser = micro_subparsers.add_parser("mqtt", help="Start the interactive MQTT shell")

@@ -46,9 +46,13 @@ def _load_train_ml_model_module():
 
 def _evaluate_ml_long_recording(baseline_packets, movement_packets):
     """Run MLDetector across a long recording split and return packet metrics."""
+    use_cv_normalization = _long_recording_uses_cv_normalization(
+        baseline_packets, movement_packets
+    )
     detector = MLDetector(
         threshold=5.0,
         window_size=SEG_WINDOW_SIZE,
+        use_cv_normalization=use_cv_normalization,
     )
     warmup = SEG_WINDOW_SIZE
 

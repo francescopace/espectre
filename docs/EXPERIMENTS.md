@@ -21,10 +21,11 @@ current collected domains.
 
 MVS has an explicit no-gain-lock path: when gain is not locked, turbulence can
 be computed as coefficient of variation (`std / mean`), which is invariant to a
-uniform amplitude scale factor. The ML detector intentionally uses raw
-turbulence std in both training and runtime inference. Its exported feature
-scaler is a global statistical standardization fitted on the training set; it
-does not compensate an unseen per-device/session gain shift.
+uniform amplitude scale factor. At the time of the first gain-stress
+diagnostic, the ML detector intentionally used raw turbulence std in both
+training and runtime inference. Its exported feature scaler was a global
+statistical standardization fitted on the training set; it did not compensate
+an unseen per-device/session gain shift.
 
 For the previous raw 9-feature production baseline:
 
@@ -37,7 +38,7 @@ For the previous raw 9-feature production baseline:
 
 `tools/10_train_ml_model.py --gain-stress-gate` evaluates the currently
 exported Python weights without retraining. It extracts the exported feature
-set from real `static_presence`/`motion` data, applies artificial gain
+set from real `empty`/`static_presence`/`motion` data, applies artificial gain
 multipliers only to the scale-sensitive features, and reports overall plus
 worst-group metrics.
 
@@ -116,12 +117,110 @@ Rejected near-term additions:
 
 - `range_over_mean`
 - `peak_over_mad`
+- `robust_relative` p95/p05 replacement for max/min
 
 Those extra relative features produced occasional local wins, but did not beat
 the simpler relative set on the combined long-recording and gain-stress
-comparison. The gain-stress gate remains the primary diagnostic for gain-shift
-robustness, with the long-recording gate acting as the false-positive
-non-regression check.
+comparison. The later `robust_relative` p95/p05 variant reduced single-spike
+feature leverage in isolation, but its grouped-CV result was weaker than the
+production relative set (`F1=89.8%`, `recall=89.1%`, `FP=4.0%` versus the
+promoted retrain's `F1=91.5%`, `recall=91.6%`, `FP=3.5%`). It remains an
+analysis-only feature set. The gain-stress gate remains the primary diagnostic
+for gain-shift robustness, with the long-recording gate acting as the
+false-positive non-regression check.
+
+---
+
+## C3 Empty-Room Retrain Incident
+
+### Goal
+
+Diagnose why a C3 ESPHome deployment in a static room produced noisy ML scores
+despite good offline validation, then decide whether the failure was caused by
+the model, runtime inference, or dataset coverage.
+
+### Observation
+
+The failing runtime log was a C3 connected to the same AP/BSSID, at the same
+distance and packet rate used for collection. ESPHome generated ping traffic at
+about `100 pps`; the collector-generated datasets used UDP traffic. The
+important offline reproduction was not `static_presence`, but the newer C3
+`empty` capture: the previously exported model produced false positives on
+that empty-room data.
+
+The new C3 `static_presence` capture did not reproduce the high-score failure
+offline. The new C3 `empty` capture did:
+
+- old export on new C3 `empty`: about `4.1%` false positives, with scores up to
+  `9.98`
+- retrained export including `empty`: about `0.2%` false positives on the same
+  C3 `empty` file
+- global `empty` false-positive rate after retrain: about `0.3%`
+
+The problematic packets showed frame-scale amplitude jumps while channel, RSSI,
+and reported gain metadata stayed stable. Because the production ML pipeline
+uses raw per-packet turbulence as its base signal, those jumps entered the
+100-packet ML window as turbulence spikes. Relative window features reduce
+uniform window-level gain shifts, but they do not make the model structurally
+immune to arbitrary per-frame amplitude jumps.
+
+### Decision
+
+The production fix was to include `empty` in binary ML training, mapping both
+`empty` and `static_presence` to IDLE and `motion` to MOTION. This better
+matches the deployed task: the detector must suppress both quiet empty rooms
+and static-presence rooms, not only distinguish static presence from motion.
+
+At this point no C++ feature ABI change was required:
+
+- the production ML feature set remains the 8 relative features
+- `MLDetector::set_cv_normalization()` remained a no-op in that retrain, so
+  generic gain-lock fallback logic could not silently switch ML into a
+  different turbulence mode
+- the C++ runtime changed only through regenerated exported weights
+
+A live ESPHome C3 smoke test after the retrain produced 37 IDLE publications
+and 1 MOTION publication across 38 post-connect samples, with median score
+`0.10`, mean score `0.76`, and one score above the fixed threshold `5.0`.
+
+### Follow-Up
+
+Per-packet CV turbulence for ML (`std(amplitudes) / mean(amplitudes)`) was later
+promoted for no-gain-lock streams. The production rule is now gain-mode aware:
+gain-locked streams use raw turbulence, while streams without gain lock use
+CV-normalized turbulence before the same 8 relative ML features are extracted.
+`MLDetector::set_cv_normalization()` now follows the runtime request instead of
+ignoring it.
+
+Retraining with seed `1890407301` on the full clean dataset produced blocked
+grouped-CV `F1=92.2%` and passed the Python and C++ real-data gates. The C++
+ESP32 paired validation is the most direct regression check: ML with CV OFF
+had `90.2%` recall, while the gain-aware path reached `100.0%` recall with
+`0.0%` FP.
+
+The long-recording gate still exposes noisy C5/C6 idle segments (`C5` ML
+`7.7%` FP, `C6` ML `10.1%` FP). This appears separate from ESP32 gain-lock
+handling because the same long files are also difficult for MVS (`C5` `11.1%`
+FP, `C6` `40.2%` FP). Treat it as a dataset/environment coverage issue, not as
+evidence against the ESP32 gain-aware ML fix.
+
+### Second Empty-Domain Capture
+
+A later C6 bedroom `empty` capture (`empty_c6_64sc_20260630_120210.npz`) was a
+true empty-room recording but looked motion-like to the previous export:
+
+- old export on new C6 `empty`: about `35.2%` false positives
+- retrained export including the C6 `empty`: about `2.1%` false positives on
+  that file
+- real-data paired C6 validation after gain-aware retrain: `recall=99.2%`,
+  `FP=0.0%`
+
+However, grouped OOF validation still identified the held-out C6 `empty` file
+as the weakest source (`FP` around `37%`). Raising the global IDLE penalty from
+`fp_weight=2.0` to `3.0` did not improve that held-out failure. The full export
+therefore handles the known hard negative, but the broader lesson remains
+dataset/domain coverage: future empty-room captures should stay in the
+regression gate and be evaluated with long-recording holdouts before promotion.
 
 ---
 

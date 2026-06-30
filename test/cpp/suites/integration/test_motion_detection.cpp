@@ -301,16 +301,19 @@ void test_ml_detection(void) {
     float fp_target = get_ml_fp_rate_target();
     float recall_target = get_ml_recall_target();
     const int pkt_size = csi_test_data::packet_size();
+    const bool cv_norm = needs_cv_normalization();
     
     printf("\n");
     printf("═══════════════════════════════════════════════════════\n");
     printf("  TEST: ML Detection (Neural Network)\n");
-    printf("  Chip: %s, CV Norm: OFF\n", 
-           csi_test_data::chip_name(csi_test_data::current_chip()));
+    printf("  Chip: %s, CV Norm: %s\n",
+           csi_test_data::chip_name(csi_test_data::current_chip()),
+           cv_norm ? "ON" : "OFF");
     printf("═══════════════════════════════════════════════════════\n\n");
     
     MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
     detector.configure_hampel(get_enable_hampel());
+    detector.set_cv_normalization(cv_norm);
     
     printf("ML subcarriers: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d] (fixed)\n",
            DEFAULT_SUBCARRIERS[0], DEFAULT_SUBCARRIERS[1], DEFAULT_SUBCARRIERS[2], DEFAULT_SUBCARRIERS[3],

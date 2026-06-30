@@ -179,14 +179,14 @@ void test_mvs_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_EQUAL(1, assigned.get_buffer_count());
 }
 
-void test_ml_detector_move_semantics_and_cv_override(void) {
+void test_ml_detector_move_semantics_and_cv_state(void) {
     auto packet = make_constant_packet(3, 4);
 
     MLDetector source(6, 6.0f);
     source.process_packet(packet.data(), packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
-    source.set_cv_normalization(true);  // No-op in ML detector.
+    source.set_cv_normalization(true);
 
-    TEST_ASSERT_FALSE(source.is_cv_normalization_enabled());
+    TEST_ASSERT_TRUE(source.is_cv_normalization_enabled());
 
     MLDetector moved(std::move(source));
     TEST_ASSERT_NULL(source.get_turbulence_buffer());
@@ -207,7 +207,7 @@ int process(void) {
     RUN_TEST(test_threshold_helpers_cover_modes_and_ranges);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_mvs_detector_move_semantics_and_base_accessors);
-    RUN_TEST(test_ml_detector_move_semantics_and_cv_override);
+    RUN_TEST(test_ml_detector_move_semantics_and_cv_state);
     return UNITY_END();
 }
 

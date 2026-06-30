@@ -30,7 +30,8 @@ Usage:
 Configuration:
   - TRAINING_FEATURES: Edit at top of file to change feature set
 
-Note: CV normalization is always disabled (raw std) to match MLDetector inference.
+Note: turbulence normalization follows the gain mode: gain-locked streams use
+raw std, streams without gain lock use CV normalization (std/mean).
 
 To compare ML with MVS, use:
     python tools/7_compare_detection_methods.py
@@ -166,6 +167,7 @@ from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS, HAMPEL_WINDOW, HAMPEL_T
 from segmentation import SegmentationContext
 from features import (
     extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
+    ROBUST_RELATIVE_FEATURES,
     calc_iqr, calc_skewness, calc_autocorrelation, calc_mad, calc_waveform_length,
 )
 
@@ -178,6 +180,12 @@ from features import (
 # ============================================================================
 
 TRAINING_FEATURES = DEFAULT_FEATURES
+BINARY_TRAINING_LABELS = ('empty', 'static_presence', 'motion')
+FEATURE_SET_CHOICES = {
+    'production': DEFAULT_FEATURES,
+    'relative': RELATIVE_FEATURES,
+    'robust_relative': ROBUST_RELATIVE_FEATURES,
+}
 MULTICLASS_PHASE_FEATURES = [
     'phase_turb_mean',
     'phase_turb_std',
@@ -369,6 +377,16 @@ def parse_hidden_layers(value):
 def format_hidden_layers(layers):
     """Return hidden layers as a stable dash-separated string."""
     return '-'.join(str(int(layer)) for layer in layers)
+
+
+def resolve_training_feature_set(name):
+    """Resolve a named binary-training feature set."""
+    key = str(name or 'production').strip().lower()
+    if key not in FEATURE_SET_CHOICES:
+        raise argparse.ArgumentTypeError(
+            f"unsupported feature set {name!r}; expected one of {sorted(FEATURE_SET_CHOICES)}"
+        )
+    return list(FEATURE_SET_CHOICES[key])
 
 
 def normalize_architecture_specs(architectures):
@@ -783,7 +801,7 @@ def get_file_metadata(dataset_info):
 
 
 def load_all_data(environment_filter=None, excluded_chips=None,
-                  allowed_labels=('static_presence', 'motion'),
+                  allowed_labels=BINARY_TRAINING_LABELS,
                   require_sync_metadata=False):
     """
     Load all available CSI data from the data/ directory.
@@ -1283,9 +1301,11 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
+            use_cv_normalization = not bool(pkt.get('gain_locked', True))
 
             turb, amps = SegmentationContext.compute_spatial_turbulence(
-                csi_data, DEFAULT_SUBCARRIERS, use_cv_normalization=False
+                csi_data, DEFAULT_SUBCARRIERS,
+                use_cv_normalization=use_cv_normalization,
             )
             ctx.add_turbulence(turb)
             last_amplitudes = amps
@@ -1412,8 +1432,10 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
         ctx = SegmentationContext(window_size=window_size, threshold=effective_threshold)
         file_weights = []
         for pkt in file_packets:
+            use_cv_normalization = not bool(pkt.get('gain_locked', True))
             turb, _ = SegmentationContext.compute_spatial_turbulence(
-                pkt['csi_data'], DEFAULT_SUBCARRIERS, use_cv_normalization=False
+                pkt['csi_data'], DEFAULT_SUBCARRIERS,
+                use_cv_normalization=use_cv_normalization,
             )
             ctx.add_turbulence(turb)
             ctx.update_state()
@@ -1673,10 +1695,10 @@ def evaluate_gain_stress_gate(environment_filter=None, excluded_chips=None,
     all_packets, stats = load_all_data(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
-        allowed_labels=('static_presence', 'motion'),
+        allowed_labels=BINARY_TRAINING_LABELS,
     )
     if not all_packets:
-        raise RuntimeError("No static_presence/motion packets found for gain stress gate")
+        raise RuntimeError("No empty/static_presence/motion packets found for gain stress gate")
 
     X, y, actual_feature_names, sample_context = extract_features(
         all_packets,
@@ -1980,10 +2002,10 @@ def experiment_gain_feature_sets(seed=None, feature_sets=None,
     all_packets, stats = load_all_data(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
-        allowed_labels=('static_presence', 'motion'),
+        allowed_labels=BINARY_TRAINING_LABELS,
     )
     if not all_packets:
-        print("Error: No static_presence/motion data found")
+        print("Error: No empty/static_presence/motion data found")
         return 1, seed, None
     print(f"  Chips: {', '.join(stats['chips'])}")
     if stats.get('environment_groups'):
@@ -5368,6 +5390,10 @@ Examples:
                                            # Custom shortlist for the topology campaign
   python tools/10_train_ml_model.py --hidden-layers 24,12
                                            # Train/export the previous 8 -> 24 -> 12 -> 1 candidate
+  python tools/10_train_ml_model.py --feature-set robust_relative --ablation
+                                           # Evaluate spike-robust percentile features without export
+  python tools/10_train_ml_model.py --feature-set robust_relative --no-export
+                                           # Run grouped CV for an experimental feature set
   python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
   python tools/10_train_ml_model.py --scaler clipped_standard
                                            # Robust clipping + z-score
@@ -5446,6 +5472,11 @@ To compare ML with MVS, use:
     parser.add_argument('--hidden-layers', type=parse_hidden_layers, default=None,
                        help='Comma-separated hidden layer widths for the MLP '
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
+    parser.add_argument('--feature-set', choices=sorted(FEATURE_SET_CHOICES), default='production',
+                       help='Named binary-training feature set. Only production is export-compatible '
+                            '(default: production)')
+    parser.add_argument('--no-export', action='store_true',
+                       help='Run training/CV analysis without exporting runtime artifacts')
     parser.add_argument('--environment', type=str, default=None,
                        help='Restrict training/evaluation to one or more named environments '
                             '(comma-separated, e.g. bedroom or bedroom,living_room)')
@@ -5464,6 +5495,8 @@ To compare ML with MVS, use:
     parser.add_argument('--ablation', action='store_true',
                        help='Run ablation study (test removing each feature)')
     args = parser.parse_args()
+    selected_training_features = resolve_training_feature_set(args.feature_set)
+    export_compatible_feature_set = args.feature_set == 'production'
     
     if args.info:
         show_info()
@@ -5541,6 +5574,9 @@ To compare ML with MVS, use:
         return train_rc
     
     if args.experiment:
+        if not export_compatible_feature_set:
+            print("Error: --experiment currently supports only --feature-set production")
+            return 1
         return experiment_architectures(
             scaler_mode=args.scaler,
             batch_size=args.batch_size,
@@ -5554,12 +5590,15 @@ To compare ML with MVS, use:
         )
     
     if args.correlation:
-        correlations = calculate_correlation_importance()
+        correlations = calculate_correlation_importance(feature_names=selected_training_features)
         if correlations:
-            print_correlation_table(correlations, TRAINING_FEATURES)
+            print_correlation_table(correlations, selected_training_features)
         return 0
 
     if args.seed_search_until_improvement > 0:
+        if not export_compatible_feature_set:
+            print("Error: seed search can export artifacts and currently supports only --feature-set production")
+            return 1
         if args.seed is not None:
             print("Error: --seed and --seed-search-until-improvement are mutually exclusive")
             return 1
@@ -5569,7 +5608,7 @@ To compare ML with MVS, use:
         return train_until_improvement(
             max_trials=args.seed_search_until_improvement,
             fp_weight=args.fp_weight,
-            feature_names=TRAINING_FEATURES,
+            feature_names=selected_training_features,
             hidden_layers=args.hidden_layers,
             scaler_mode=args.scaler,
             batch_size=args.batch_size,
@@ -5578,10 +5617,22 @@ To compare ML with MVS, use:
             positive_chip_boost=args.positive_chip_boost,
         )
     
+    if (
+        not export_compatible_feature_set
+        and not args.no_export
+        and not (args.ablation or args.correlation or args.shap is not None)
+    ):
+        print(
+            "Error: non-production feature sets are analysis-only until the C++ runtime "
+            "extractor is updated for export compatibility. Use --no-export, --ablation, "
+            "--shap, or --correlation."
+        )
+        return 1
+
     train_rc, _, _ = train_all(
         fp_weight=args.fp_weight, 
         seed=args.seed,
-        feature_names=TRAINING_FEATURES,
+        feature_names=selected_training_features,
         feature_importance=args.shap is not None,
         ablation=args.ablation,
         shap_samples=args.shap if args.shap is not None else 200,
@@ -5591,6 +5642,7 @@ To compare ML with MVS, use:
         environment_filter=args.environment,
         excluded_chips=args.exclude_chip,
         positive_chip_boost=args.positive_chip_boost,
+        export_artifacts=not args.no_export,
     )
     return train_rc
 

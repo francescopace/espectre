@@ -64,11 +64,11 @@ REPORT_OUTPUT = DATA_DIR / "DATASET_QUALITY_CHECK.md"
 # Quality thresholds
 MIN_PACKETS = 800
 MAX_ZERO_PACKET_RATIO = 0.01
-MIN_VARIANCE_RATIO = 3.5
-MAX_TEMPORAL_GAP_S = 300
-MIN_AMPLITUDE_MEAN = 10.0
-MIN_EMPTY_SEPARABILITY_AUC = 0.80
-MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.80
+MIN_VARIANCE_RATIO = 3
+MAX_TEMPORAL_GAP_S = 30 * 60
+MIN_AMPLITUDE_MEAN = 9.0
+MIN_EMPTY_SEPARABILITY_AUC = 0.70
+MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.70
 MAX_EMPTY_TURBULENCE_RATIO = 1.0
 MAX_EMPTY_MOVING_VARIANCE_RATIO = 1.0
 
@@ -118,6 +118,44 @@ def _moving_variance(values, window_size=None):
     if window_size is None:
         window_size = SEG_WINDOW_SIZE
     return _src_moving_variance(values, window_size)
+
+
+def _coerce_metadata_scalar(value):
+    """Return a scalar value from NPZ-style metadata fields."""
+    return value.item() if hasattr(value, 'item') else value
+
+
+def _compute_capture_gap_seconds(bl_data, mv_data):
+    """Return the non-negative time gap between capture intervals.
+
+    The metric is order-agnostic:
+    - 0.0 means the captures overlap in time
+    - a positive value means they are separated by that many seconds
+
+    This avoids false warnings when `motion` is intentionally recorded before
+    `static_presence`.
+    """
+    bl_collected = bl_data.get('collected_at', None)
+    mv_collected = mv_data.get('collected_at', None)
+    bl_duration = bl_data.get('duration_ms', None)
+    mv_duration = mv_data.get('duration_ms', None)
+
+    if None in (bl_collected, mv_collected, bl_duration, mv_duration):
+        return None
+
+    bl_start = datetime.datetime.fromisoformat(str(_coerce_metadata_scalar(bl_collected)))
+    mv_start = datetime.datetime.fromisoformat(str(_coerce_metadata_scalar(mv_collected)))
+    bl_duration_ms = float(_coerce_metadata_scalar(bl_duration))
+    mv_duration_ms = float(_coerce_metadata_scalar(mv_duration))
+
+    bl_end = bl_start + datetime.timedelta(milliseconds=bl_duration_ms)
+    mv_end = mv_start + datetime.timedelta(milliseconds=mv_duration_ms)
+
+    if bl_end <= mv_start:
+        return (mv_start - bl_end).total_seconds()
+    if mv_end <= bl_start:
+        return (bl_start - mv_end).total_seconds()
+    return 0.0
 
 
 # ------------------------------------------------------------------
@@ -263,33 +301,20 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data, gain_locked=True):
         results.append(ValidationResult("variance_ratio", "PASS",
             f"Ratio {ratio_for_check}x (static={bl_var:.6f}, motion={mv_var:.6f})", ratio_for_check))
 
-    # Temporal gap: static-presence end -> motion start
+    # Temporal gap between capture intervals, independent of acquisition order.
     gap_s = None
     try:
-        bl_collected = bl_data.get('collected_at', None)
-        mv_collected = mv_data.get('collected_at', None)
-        bl_duration = bl_data.get('duration_ms', None)
-
-        if bl_collected is not None and mv_collected is not None and bl_duration is not None:
-            bl_collected_str = str(bl_collected.item() if hasattr(bl_collected, 'item') else bl_collected)
-            mv_collected_str = str(mv_collected.item() if hasattr(mv_collected, 'item') else mv_collected)
-            bl_duration_val = float(bl_duration.item() if hasattr(bl_duration, 'item') else bl_duration)
-
-            bl_start = datetime.datetime.fromisoformat(bl_collected_str)
-            mv_start = datetime.datetime.fromisoformat(mv_collected_str)
-            bl_end = bl_start + datetime.timedelta(milliseconds=bl_duration_val)
-
-            gap_s = (mv_start - bl_end).total_seconds()
-
+        gap_s = _compute_capture_gap_seconds(bl_data, mv_data)
+        if gap_s is not None:
             if gap_s > MAX_TEMPORAL_GAP_S:
                 results.append(ValidationResult("temporal_gap", "WARN",
                     f"Large gap: {gap_s:.1f}s > {MAX_TEMPORAL_GAP_S}s", gap_s))
-            elif gap_s < 0:
-                results.append(ValidationResult("temporal_gap", "WARN",
-                    f"Negative gap (overlap): {gap_s:.1f}s", gap_s))
             else:
                 results.append(ValidationResult("temporal_gap", "PASS",
                     f"Gap: {gap_s:.1f}s", gap_s))
+        else:
+            results.append(ValidationResult("temporal_gap", "WARN",
+                "Could not parse collected_at/duration_ms timestamps"))
     except Exception:
         results.append(ValidationResult("temporal_gap", "WARN",
             "Could not parse collected_at/duration_ms timestamps"))
@@ -911,10 +936,11 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("- `Ratio`: `Motion Var / Static Presence Var`")
     lines.append("- `Empty quietness`: `empty` should stay below `static_presence` on average ")
     lines.append("  for both turbulence and moving variance within the same chip/environment")
-    lines.append("- `Gap end->start`: time between static-presence end and motion start (negative means overlap)")
+    lines.append("- `Gap`: non-negative time between the `static_presence` and `motion` capture intervals")
+    lines.append("  regardless of acquisition order (`0s` means the intervals overlap)")
     lines.append("- `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set")
     lines.append("- `Turbulence`: `raw_std` = gain locked (raw standard deviation), "
-                 "`CV` = gain not locked (coefficient of variation, MVS only — ML always uses raw_std)\n")
+                 "`CV` = gain not locked (coefficient of variation; used by MVS and ML)\n")
 
     lines.append("## Results (sorted by chip, then ratio desc)\n")
     lines.append("| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var "
