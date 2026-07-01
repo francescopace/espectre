@@ -7,16 +7,19 @@
 
 #include "ble_frontend.h"
 
+#include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
+#include "ble_protocol.h"
 #include "espectre_log.h"
 #include "esp_timer.h"
 #include "runtime_config_utils.h"
 #include "runtime_diagnostics.h"
+#include "runtime_listener_utils.h"
 #include "sdkconfig.h"
 
 #if __has_include("esp_heap_caps.h")
@@ -32,6 +35,46 @@ namespace {
 static const char *const TAG = "espectre.ble";
 constexpr uint8_t kTelemetryMotionStateIdle = 0;
 constexpr uint8_t kTelemetryMotionStateMotion = 1;
+
+std::string ble_device_name_from_config(const EspectreDeviceConfig &config) {
+  constexpr size_t kMaxBleNameLen = 24;
+  const std::string source = espectre_effective_device_name(config);
+  std::string out;
+  out.reserve(kMaxBleNameLen);
+
+  bool last_was_space = false;
+  for (unsigned char ch : source) {
+    char normalized = '\0';
+    if (std::isalnum(ch)) {
+      normalized = static_cast<char>(ch);
+    } else if (ch == ' ' || ch == '-' || ch == '_') {
+      normalized = ' ';
+    } else if (std::isspace(ch)) {
+      normalized = ' ';
+    } else {
+      continue;
+    }
+
+    if (normalized == ' ') {
+      if (out.empty() || last_was_space) {
+        continue;
+      }
+      last_was_space = true;
+    } else {
+      last_was_space = false;
+    }
+
+    if (out.size() >= kMaxBleNameLen) {
+      break;
+    }
+    out.push_back(normalized);
+  }
+
+  while (!out.empty() && out.back() == ' ') {
+    out.pop_back();
+  }
+  return out.empty() ? ESPECTRE_BLE_DEVICE_NAME : out;
+}
 
 float current_free_memory_kb() {
 #ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
@@ -53,7 +96,7 @@ void BleFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set
 void BleFrontend::set_device_config(const EspectreDeviceConfig &config) {
   device_config_ = config;
   if (bindings_ != nullptr) {
-    const std::string ble_name = espectre_ble_device_name(device_config_);
+    const std::string ble_name = ble_device_name_from_config(device_config_);
     bindings_->set_device_name(ble_name.c_str());
   }
 }
@@ -80,7 +123,7 @@ bool BleFrontend::setup() {
   bindings_->set_control_write_callback([this](const std::string &command) { this->handle_control_command_(command); });
   bindings_->set_telemetry_subscription_callback(
       [this](bool subscribed) { this->handle_live_telemetry_subscription_(subscribed); });
-  bindings_->set_device_name(espectre_ble_device_name(device_config_).c_str());
+  bindings_->set_device_name(ble_device_name_from_config(device_config_).c_str());
   runtime_.set_live_telemetry_enabled(false);
   if (!bindings_->setup()) {
     ESP_LOGE(TAG, "BLE bindings setup failed");
@@ -146,10 +189,7 @@ void BleFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
 }
 
 void BleFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
-  runtime_.record_snapshot(snapshot);
-  if (!success) {
-    ESP_LOGW(TAG, "Calibration finished without a valid update");
-  }
+  finalize_frontend_calibration(runtime_, snapshot, [this]() { status_logger_.reset(); }, success, TAG);
   send_system_info_();
 }
 
@@ -395,8 +435,9 @@ void BleFrontend::publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint3
   if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
     return;
   }
+  const char *frontend = device_info_.frontend.empty() ? "ble" : device_info_.frontend.c_str();
   mqtt_transport_->publish(espectre_topic(device_config_, "telemetry"),
-                           espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U),
+                           espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, frontend),
                            false);
 }
 
@@ -454,13 +495,32 @@ void BleFrontend::send_system_info_() {
   }
 
   char line[96];
-  const std::string ble_device_name = espectre_ble_device_name(device_config_);
+  const std::string ble_device_name = ble_device_name_from_config(device_config_);
   pending_sysinfo_lines_.clear();
   next_sysinfo_line_index_ = 0;
   last_sysinfo_line_ms_ = 0;
 
   queue_system_info_line_("proto_version=1");
+  queue_system_info_line_("frontend=ble");
   std::snprintf(line, sizeof(line), "espectre_protocol_version=%s", ESPECTRE_PROTOCOL_VERSION);
+  queue_system_info_line_(line);
+  queue_system_info_line_("supports_wifi_provisioning=true");
+  queue_system_info_line_("supports_mqtt_config=true");
+  queue_system_info_line_("supports_device_config=true");
+  std::snprintf(line,
+                sizeof(line),
+                "supports_runtime_threshold=%s",
+                runtime_.capabilities().supports_runtime_threshold_updates ? "true" : "false");
+  queue_system_info_line_(line);
+  std::snprintf(line,
+                sizeof(line),
+                "supports_live_telemetry=%s",
+                runtime_.capabilities().supports_ble_telemetry ? "true" : "false");
+  queue_system_info_line_(line);
+  std::snprintf(line,
+                sizeof(line),
+                "supports_extended_diagnostics=%s",
+                runtime_.capabilities().supports_extended_diagnostics ? "true" : "false");
   queue_system_info_line_(line);
   std::snprintf(line, sizeof(line), "device_id=%s", espectre_effective_device_id(device_config_).c_str());
   queue_system_info_line_(line);

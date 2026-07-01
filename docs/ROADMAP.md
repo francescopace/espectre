@@ -11,7 +11,7 @@
 
 | Version | Purpose | Status | Progress |
 |---------|---------|--------|----------|
-| **v3.x** | Turn ESPectre into a reusable platform across frontends and runtimes | Near Release | Platform split, multi-frontend firmware paths, ESPectre Protocol (BLE+MQTT), room-state baselines, and dataset/training workflows are landed; remaining work is mostly polish, validation depth, and broader productization |
+| **v3.x** | Turn ESPectre into a reusable platform across frontends and runtimes | Near Release | Platform split, multi-frontend firmware paths, shared runtime protocol services, ESPectre Protocol (BLE+MQTT), room-state baselines, and dataset/training workflows are landed; remaining work is mostly polish, validation depth, and broader productization |
 
 ## Next Roadmap
 
@@ -35,7 +35,7 @@ paths.
 | **Runtime contract** | Stable frontend-oriented APIs such as `IEspectreRuntime`, snapshots, events, and capabilities |
 | **ESPHome frontend** | Production Home Assistant path kept on top of the shared platform |
 | **BLE frontend** | Standalone custom GATT surface for generic BLE clients and web integrations |
-| **ESPectre Protocol** | Shared BLE+MQTT Protocol baseline for provisioning, telemetry, status, info, commands, and monitor integration |
+| **ESPectre Protocol** | Shared BLE+MQTT Protocol baseline for provisioning, telemetry, status, info, commands, monitor integration, and reusable runtime protocol services |
 | **Matter frontend** | Matter occupancy and diagnostics surface proving a second ecosystem-facing frontend |
 | **Streamer frontend** | Standalone CSI UDP streamer for dataset collection, host tooling, and realtime fusion experiments |
 | **Custom firmware path** | Ability to assemble alternate firmware targets from shared platform layers |
@@ -70,6 +70,8 @@ paths.
 - [x] Define local-first shared protocol baseline for BLE and MQTT derived telemetry
 - [x] Implement BLE-assisted Wi-Fi and MQTT provisioning
 - [x] Persist Wi-Fi and ESPectre Protocol settings on the BLE firmware path
+- [x] Move ESPectre Protocol helpers and ESP-IDF protocol services into shared runtime layers
+- [x] Reuse BLE-assisted Wi-Fi provisioning on the streamer firmware path
 - [x] Publish MQTT telemetry, status, info, stats, and command results from BLE firmware
 - [x] Align `micro-espectre` MQTT payloads and commands with the ESPectre Protocol baseline
 - [x] Adapt the existing web monitor into a protocol validation and MQTT dashboard client

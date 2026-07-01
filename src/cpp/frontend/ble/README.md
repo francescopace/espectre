@@ -24,9 +24,13 @@ The current BLE frontend preserves the protocol already used by
 ## Directory Layout
 
 - `espectre/`:
-  frontend adapter, protocol constants, and bindings interface
+  frontend adapter and runtime-to-BLE mapping
 - `app/`:
-  standalone ESP-IDF firmware app and NimBLE transport implementation
+  standalone ESP-IDF firmware app
+- `../../runtime/` and `../../runtime/esp_idf/protocol/`:
+  shared ESPectre Protocol serializer, BLE binding interface, NimBLE transport,
+  NVS-backed device/Wi-Fi config store, MQTT transport boundary, and ESP-IDF
+  provisioning helpers
 - `espectre/Kconfig.projbuild`:
   frontend-owned Wi-Fi configuration knobs
 
@@ -180,10 +184,12 @@ Use that file as the source of truth for:
 
 Local implementation anchors:
 
-- [`espectre/ble_protocol.h`](espectre/ble_protocol.h):
+- [`../../runtime/ble_protocol.h`](../../runtime/ble_protocol.h):
   protocol constants such as UUIDs and default device name
 - [`espectre/ble_frontend.cpp`](espectre/ble_frontend.cpp):
   command handling, sysinfo emission, and telemetry serialization
+- [`../../runtime/espectre_protocol.cpp`](../../runtime/espectre_protocol.cpp):
+  shared MQTT topic, payload, and command serialization
 
 ## Firmware Limits and Expectations
 
@@ -231,11 +237,15 @@ not for Home Assistant-style provisioning or the Matter commissioning flow.
 
 ## Related Files
 
-- `espectre/ble_protocol.h`:
+- `../../runtime/ble_protocol.h`:
   UUIDs and default device name
+- `../../runtime/espectre_protocol.cpp`:
+  shared protocol payload and command helpers
+- `../../runtime/esp_idf/protocol/wifi_provisioning_service.cpp`:
+  shared ESP-IDF Wi-Fi provisioning command handling
 - `espectre/ble_frontend.cpp`:
   command parsing, sysinfo emission, telemetry serialization
-- `app/main/ble_bindings_nimble.cpp`:
+- `../../runtime/esp_idf/protocol/ble_bindings_nimble.cpp`:
   NimBLE transport implementation
 - `../../../../tools/web/espectre-ble.html`:
   local Web Bluetooth provisioning and protocol test client

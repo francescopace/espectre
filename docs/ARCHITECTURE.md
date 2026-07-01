@@ -119,6 +119,12 @@ Shared runtime helpers also live here:
 - `runtime_diagnostics.*` for common runtime diagnostic key/value fields
 - `periodic_sensing_status_logger.*` for the shared progress-bar sensing status log used by `ESPHome`, `BLE`, and `Matter`
 - `esp_idf/standalone_wifi_manager.*` for standalone ESP-IDF STA setup, CSI Wi-Fi policy, BSSID/channel fast scan, and retry behavior used by firmware targets that own their Wi-Fi stack
+- `espectre_protocol.*`, `ble_protocol.h`, and `mqtt_transport.h` for the
+  shared device protocol model, BLE GATT mapping constants, and transport
+  boundary reused by ESP-IDF firmware targets
+- `esp_idf/protocol/` for ESP-IDF protocol services such as NimBLE bindings,
+  NVS-backed provisioning storage, MQTT transport implementation, and shared
+  Wi-Fi provisioning command handling
 
 ### `src/cpp/frontend/esphome/espectre/`
 
@@ -139,7 +145,8 @@ events and controls to a custom GATT surface instead of Home Assistant entities
 or Matter clusters.
 
 The BLE adapter uses the shared `RuntimeFrontendController` for runtime
-ownership and the shared standalone Wi-Fi manager for ESP-IDF STA setup.
+ownership and shared ESP-IDF protocol services for BLE transport, NVS-backed
+Wi-Fi/device configuration, MQTT transport, and standalone Wi-Fi setup.
 
 For the BLE protocol, payload shape, field semantics, and transport mapping,
 see [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md). For BLE firmware workflow
@@ -173,8 +180,9 @@ capture CSI and emit a compact UDP stream for host-side tools and data
 collection workflows.
 
 It still uses shared infrastructure where the behavior is identical, notably
-the standalone Wi-Fi manager and CSI Wi-Fi policy. Its CSI capture and UDP
-streaming state machine stay frontend-specific.
+the standalone Wi-Fi manager, CSI Wi-Fi policy, and BLE-assisted Wi-Fi
+provisioning service. Its CSI capture and UDP streaming state machine stay
+frontend-specific.
 
 For the UDP packet format, frontend state machine, and Kconfig surface, see
 [`src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md).

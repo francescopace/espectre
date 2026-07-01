@@ -54,6 +54,10 @@
       padding: 12px 20px;
     }
 
+    .hidden {
+      display: none !important;
+    }
+
     .collapsible-header {
       display: flex;
       justify-content: space-between;
@@ -482,13 +486,13 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="configurationCard">
       <div class="collapsible-header" onclick="toggleSection('configuration')">
         <h2>⚙️ Device Configuration</h2>
         <span class="arrow" id="configurationArrow">▼</span>
       </div>
       <div class="collapsible-content" id="configurationContent">
-        <div class="subsection-card">
+        <div class="subsection-card" id="wifiProvisioningCard">
           <h3>🌐 Wi-Fi Provisioning</h3>
           <div class="config-section">
             <div class="input-group">
@@ -514,7 +518,7 @@
           </div>
         </div>
 
-        <div class="subsection-card">
+        <div class="subsection-card" id="mqttSettingsCard">
           <h3>📡 MQTT Settings</h3>
           <div class="config-section">
             <div class="input-group">
@@ -544,7 +548,7 @@
           </div>
         </div>
 
-        <div class="subsection-card">
+        <div class="subsection-card" id="deviceSettingsCard">
           <h3>🧩 Device Settings</h3>
           <div class="config-section ble-toolbar-grid">
             <div class="input-group">
@@ -561,6 +565,16 @@
               <input id="bleDeviceNameInput" type="text" readonly disabled placeholder="Derived from device name">
               <small>Derived and sanitized by firmware for the BLE pairing picker.</small>
             </div>
+          </div>
+          <div class="section-actions">
+            <button class="btn btn-secondary" id="deviceApplyBtn" disabled>Save Device</button>
+            <button class="btn btn-danger" id="deviceClearBtn" disabled>Clear Device</button>
+          </div>
+        </div>
+
+        <div class="subsection-card" id="runtimeControlsCard">
+          <h3>🎚️ Runtime Controls</h3>
+          <div class="config-section ble-toolbar-grid">
             <div class="input-group">
               <label class="range-label" for="thresholdInput">
                 <span>Motion Threshold</span>
@@ -569,10 +583,6 @@
               <input id="thresholdInput" type="range" min="0.5" max="10" step="0.1" value="4.5">
               <small>Updated from system info when available and sent automatically when you release the slider.</small>
             </div>
-          </div>
-          <div class="section-actions">
-            <button class="btn btn-secondary" id="deviceApplyBtn" disabled>Save Device</button>
-            <button class="btn btn-danger" id="deviceClearBtn" disabled>Clear Device</button>
           </div>
         </div>
 
@@ -587,51 +597,51 @@
               <div class="metric-label">Chip</div>
               <div class="metric-value" id="diagChip">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagDetectorItem">
               <div class="metric-label">Detector</div>
               <div class="metric-value" id="diagDetector">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagWindowItem">
               <div class="metric-label">Window</div>
               <div class="metric-value" id="diagWindow">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagLowpassItem">
               <div class="metric-label">Low-pass</div>
               <div class="metric-value" id="diagLowpass">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagHampelItem">
               <div class="metric-label">Hampel</div>
               <div class="metric-value" id="diagHampel">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagTrafficItem">
               <div class="metric-label">Traffic</div>
               <div class="metric-value" id="diagTraffic">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagGainLockItem">
               <div class="metric-label">Gain Lock</div>
               <div class="metric-value" id="diagGainLock">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagPublishItem">
               <div class="metric-label">Publish</div>
               <div class="metric-value" id="diagPublishInterval">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagEvaluationItem">
               <div class="metric-label">Evaluation</div>
               <div class="metric-value" id="diagEvaluationInterval">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagWifiItem">
               <div class="metric-label">Wi-Fi</div>
               <div class="metric-value" id="diagWifi">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagMqttItem">
               <div class="metric-label">MQTT</div>
               <div class="metric-value" id="diagMqtt">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagMotionHitsItem">
               <div class="metric-label">Motion Hits</div>
               <div class="metric-value" id="diagMotionHits">-</div>
             </div>
-            <div class="diag-item">
+            <div class="diag-item" id="diagBestPxxItem">
               <div class="metric-label">Best Pxx</div>
               <div class="metric-value" id="diagBestPxx">-</div>
             </div>
@@ -640,7 +650,7 @@
       </div>
     </div>
 
-    <div class="card compact">
+    <div class="card compact" id="telemetryCard">
       <div class="metrics-grid">
         <div class="metric-card">
           <div class="metric-label">State</div>
@@ -661,7 +671,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="logsCard">
       <div class="collapsible-header" onclick="toggleSection('logs')">
         <h2>🧾 Logs</h2>
         <span class="arrow" id="logsArrow">▼</span>
@@ -697,8 +707,37 @@
     let controlChar = null;
     let wifiPasswordStored = false;
     let liveTelemetryRequested = true;
+    let capabilityState = defaultCapabilities();
 
     const el = (id) => document.getElementById(id);
+
+    function defaultCapabilities() {
+      return {
+        supportsWifiProvisioning: true,
+        supportsMqttConfig: true,
+        supportsDeviceConfig: true,
+        supportsRuntimeThreshold: true,
+        supportsLiveTelemetry: true,
+        supportsExtendedDiagnostics: true
+      };
+    }
+
+    function knownFrontendCapabilities(frontend) {
+      if (frontend === 'streamer') {
+        return {
+          supportsWifiProvisioning: true,
+          supportsMqttConfig: false,
+          supportsDeviceConfig: true,
+          supportsRuntimeThreshold: false,
+          supportsLiveTelemetry: false,
+          supportsExtendedDiagnostics: false
+        };
+      }
+      if (frontend === 'ble') {
+        return defaultCapabilities();
+      }
+      return null;
+    }
 
     function log(message) {
       const line = `[${new Date().toLocaleTimeString()}] ${message}`;
@@ -742,12 +781,10 @@
       el('connectBtn').classList.toggle('btn-primary', !connected);
       el('connectBtn').classList.toggle('btn-danger', connected);
       el('sysinfoBtn').disabled = !connected;
-      el('deviceApplyBtn').disabled = !connected;
-      el('deviceClearBtn').disabled = !connected;
-      el('wifiApplyBtn').disabled = !connected;
-      el('wifiClearBtn').disabled = !connected;
-      el('mqttApplyBtn').disabled = !connected;
-      el('mqttClearBtn').disabled = !connected;
+      if (!connected) {
+        capabilityState = defaultCapabilities();
+      }
+      applyCapabilityState(connected);
       if (connected) {
         el('configContent').classList.add('collapsed');
         el('configArrow').classList.add('rotate');
@@ -791,8 +828,60 @@
       state.textContent = liveTelemetryEnabled() ? 'Enabled' : 'Disabled';
     }
 
+    function setCapability(name, supported) {
+      capabilityState[name] = supported;
+    }
+
+    function setCardVisible(cardId, visible) {
+      el(cardId).classList.toggle('hidden', !visible);
+    }
+
+    function applyFrontendCapabilities(frontend) {
+      const frontendCapabilities = knownFrontendCapabilities(frontend);
+      if (!frontendCapabilities) {
+        return;
+      }
+      capabilityState = {
+        ...capabilityState,
+        ...frontendCapabilities
+      };
+    }
+
+    function applyCapabilityState(connected) {
+      const isConnected = Boolean(connected);
+      setCardVisible('configurationCard', isConnected);
+      setCardVisible('logsCard', isConnected);
+      setCardVisible('wifiProvisioningCard', capabilityState.supportsWifiProvisioning);
+      setCardVisible('mqttSettingsCard', capabilityState.supportsMqttConfig);
+      setCardVisible('deviceSettingsCard', capabilityState.supportsDeviceConfig);
+      setCardVisible('runtimeControlsCard', capabilityState.supportsRuntimeThreshold);
+      setCardVisible('telemetryCard', isConnected && capabilityState.supportsLiveTelemetry);
+      setCardVisible('diagWifiItem', capabilityState.supportsWifiProvisioning);
+      setCardVisible('diagMqttItem', capabilityState.supportsMqttConfig);
+      setCardVisible('diagDetectorItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagWindowItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagLowpassItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagHampelItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagTrafficItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagGainLockItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagPublishItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagEvaluationItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagMotionHitsItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagBestPxxItem', capabilityState.supportsExtendedDiagnostics);
+
+      el('wifiApplyBtn').disabled = !isConnected || !capabilityState.supportsWifiProvisioning;
+      el('wifiClearBtn').disabled = !isConnected || !capabilityState.supportsWifiProvisioning;
+      el('mqttApplyBtn').disabled = !isConnected || !capabilityState.supportsMqttConfig;
+      el('mqttClearBtn').disabled = !isConnected || !capabilityState.supportsMqttConfig;
+      el('deviceApplyBtn').disabled = !isConnected || !capabilityState.supportsDeviceConfig;
+      el('deviceClearBtn').disabled = !isConnected || !capabilityState.supportsDeviceConfig;
+      el('thresholdInput').disabled = !isConnected || !capabilityState.supportsRuntimeThreshold;
+      el('liveTelemetryBtn').disabled = !capabilityState.supportsLiveTelemetry;
+      updateLiveTelemetryButton();
+    }
+
     async function applyLiveTelemetryPreference() {
-      if (!telemetryChar) {
+      if (!telemetryChar || !capabilityState.supportsLiveTelemetry) {
         return;
       }
       if (liveTelemetryEnabled()) {
@@ -813,7 +902,28 @@
       }
       const key = line.slice(0, idx);
       const value = line.slice(idx + 1);
-      if (key === 'chip') {
+      if (key === 'frontend') {
+        applyFrontendCapabilities(value);
+        applyCapabilityState(device && device.gatt && device.gatt.connected);
+      } else if (key === 'supports_wifi_provisioning') {
+        setCapability('supportsWifiProvisioning', value === 'true' || value === '1');
+        applyCapabilityState(device && device.gatt && device.gatt.connected);
+      } else if (key === 'supports_mqtt_config') {
+        setCapability('supportsMqttConfig', value === 'true' || value === '1');
+        applyCapabilityState(device && device.gatt && device.gatt.connected);
+      } else if (key === 'supports_device_config') {
+        setCapability('supportsDeviceConfig', value === 'true' || value === '1');
+        applyCapabilityState(device && device.gatt && device.gatt.connected);
+      } else if (key === 'supports_runtime_threshold') {
+        setCapability('supportsRuntimeThreshold', value === 'true' || value === '1');
+        applyCapabilityState(device && device.gatt && device.gatt.connected);
+      } else if (key === 'supports_live_telemetry') {
+        setCapability('supportsLiveTelemetry', value === 'true' || value === '1');
+        applyCapabilityState(device && device.gatt && device.gatt.connected);
+      } else if (key === 'supports_extended_diagnostics') {
+        setCapability('supportsExtendedDiagnostics', value === 'true' || value === '1');
+        applyCapabilityState(device && device.gatt && device.gatt.connected);
+      } else if (key === 'chip') {
         el('diagChip').textContent = value.toUpperCase();
       } else if (key === 'device_id') {
         el('deviceIdInput').value = value;
@@ -953,7 +1063,7 @@
         appendSysinfo(line);
       });
 
-      if (liveTelemetryEnabled()) {
+      if (liveTelemetryEnabled() && capabilityState.supportsLiveTelemetry) {
         await telemetryChar.startNotifications();
         log('Telemetry notifications enabled');
       } else {
@@ -1145,6 +1255,7 @@
       el('eventLog').textContent = '';
     });
 
+    applyCapabilityState(false);
     updateLiveTelemetryButton();
   </script>
 </body>

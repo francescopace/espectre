@@ -11,11 +11,15 @@
 
 #include <atomic>
 #include <cstdint>
+#include <string>
 
+#include "ble_bindings_nimble.h"
 #include "csi_capture_service.h"
 #include "csi_udp_sender.h"
+#include "espectre_protocol.h"
 #include "standalone_wifi_manager.h"
 #include "stimulus_service.h"
+#include "wifi_provisioning_service.h"
 
 namespace esphome {
 namespace espectre {
@@ -38,10 +42,14 @@ class StreamFrontend {
  private:
   bool init_nvs_();
   bool init_wifi_station_();
+  bool setup_ble_provisioning_();
   bool start_capture_();
   void stop_capture_();
   void on_wifi_connected_();
   void on_wifi_disconnected_();
+  void handle_ble_control_(const std::string &command);
+  void publish_ble_sysinfo_();
+  void publish_ble_line_(const char *line);
   void handle_gain_lock_packet_(const wifi_csi_info_t *info);
   void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
   void transition_to_(WorkflowState next, const char *reason);
@@ -52,7 +60,11 @@ class StreamFrontend {
   StimulusService stimulus_service_;
   CsiUdpSender udp_sender_;
   StandaloneWifiManager wifi_manager_;
+  WifiProvisioningService wifi_provisioning_{&wifi_manager_};
+  NimbleBleBindings ble_bindings_;
+  EspectreDeviceConfig device_config_{};
   bool setup_complete_{false};
+  bool ble_ready_{false};
   std::atomic<bool> wifi_connected_{false};
   std::atomic<bool> gain_lock_complete_{false};
   std::atomic<WorkflowState> state_{WorkflowState::WAIT_WIFI};

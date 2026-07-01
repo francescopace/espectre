@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - **ESPHome packaging no longer depends on repository symlinks**: shared code is now wired from canonical `core` / `runtime` sources, making ESPHome builds more reliable on Windows and in checkout/archive workflows where symlinks may be lost.
 - **Matter firmware is now part of the published firmware surface**: CI, stable releases, snapshot releases, and the web flasher can all resolve Matter artifacts for all supported Matter targets except `ESP32-S2`.
 - **Custom BLE protocol moved into its own frontend**: the standalone GATT transport now lives in a dedicated BLE firmware instead of being embedded in the ESPHome adapter.
+- **ESPectre Protocol is now a shared runtime service**: BLE and MQTT message helpers, ESP-IDF provisioning storage, NimBLE bindings, and Wi-Fi provisioning command handling were moved out of the BLE frontend so other ESP-IDF firmware targets can reuse them.
 - **ML detector moved to relative gain-robust features**: the production binary model now uses an 8-feature relative turbulence-window input set with a wider `8 -> 32 -> 16 -> 1` MLP and `fp_weight=2.0`, reducing device/session gain sensitivity while recovering long-recording false-positive robustness.
 
 ### Added
@@ -45,6 +46,16 @@ All notable changes to this project will be documented in this file.
   - `runtime_config_utils.*` for shared threshold validation and stable mode names
   - `runtime_diagnostics.*` for common frontend diagnostic fields
   - `StandaloneWifiManager` for standalone ESP-IDF STA setup, CSI Wi-Fi policy, BSSID/channel fast scan, and retry handling
+- **Shared ESP-IDF protocol services** with:
+  - `runtime/espectre_protocol.*` for protocol topic, payload, and command helpers
+  - `runtime/ble_protocol.h` and `runtime/ble_bindings.h` for the shared BLE GATT surface boundary
+  - `runtime/esp_idf/protocol/ble_bindings_nimble.*` for the reusable NimBLE transport
+  - `runtime/esp_idf/protocol/device_config_store.*` for NVS-backed Wi-Fi/device protocol settings
+  - `runtime/esp_idf/protocol/wifi_provisioning_service.*` for shared `SET_WIFI_*`, `APPLY_WIFI`, and `CLEAR_WIFI` handling
+- **BLE-assisted Wi-Fi provisioning for the streamer firmware**:
+  - streamer advertises as `ESPectre Streamer`
+  - `tools/web/espectre-ble.html` can provision streamer Wi-Fi credentials over Web Bluetooth
+  - streamer BLE support is intentionally limited to Wi-Fi provisioning and sysinfo, leaving CSI transport on UDP
 - **`ARCHITECTURE.md`** documenting the new structure, rationale, and standalone core reuse model.
 
 ### Changed
@@ -81,6 +92,8 @@ All notable changes to this project will be documented in this file.
 - **Micro-ESPectre and the MQTT monitor now follow the same protocol contract**: `micro-espectre` command results now use protocol-style `message` payloads with `device_id` and `accepted`, telemetry reports the effective `gain_locked` runtime state, `stats` now uses numeric `uptime`, and `tools/web/espectre-mqtt.html` distinguishes telemetry from stats while surfacing accepted vs rejected command responses correctly.
 - **BLE live telemetry is now subscription-driven end-to-end**: nearby clients must explicitly subscribe to the telemetry characteristic, and the standalone BLE frontend now deregisters its live telemetry callback when that subscription is removed instead of continuing to generate BLE-only live telemetry work in the background.
 - **BLE device identity is now centralized and documented consistently**: the standalone BLE frontend now treats `device_id` / `device_name` as device-level identity rather than MQTT-only fields, auto-generates a read-only `device_id`, derives `ble_device_name` from `device_name`, and separates `CLEAR_MQTT_CONFIG` from full `CLEAR_DEVICE_CONFIG` resets.
+- **ESPectre Protocol payloads are no longer BLE-hardcoded**: shared telemetry serialization now takes the frontend label from the caller, allowing the same protocol helpers to represent `ble`, `streamer`, `micro`, and future runtime/frontend surfaces without cloning the serializer.
+- **Standalone Wi-Fi lifecycle callback dispatch was tightened**: `StandaloneWifiManager` now avoids double-dispatching connect/disconnect callbacks when it owns CSI lifecycle setup through `WiFiLifecycleManager`.
 - **Periodic sensing status logs are now shared across frontends**: the progress-bar periodic sensing log now comes from a shared runtime helper used by `ESPHome`, `BLE`, and `Matter`, keeping the same `mvmt`, `thr`, state, `pkt/s`, channel, and RSSI format across those frontend surfaces.
 - **BLE standalone transport defaults were tuned for mixed BLE + Wi-Fi traffic**: the BLE firmware now mirrors the streamer-oriented Wi-Fi/lwIP buffer profile for heavier runtime traffic, including larger Wi-Fi RX/TX buffers plus lwIP mailbox and IRAM optimization defaults in `app/sdkconfig.defaults`.
 - **Documentation was aligned** to the new structure, `.venv` activation flow, and the practical ESP32-C3 Matter build/flash workflow.

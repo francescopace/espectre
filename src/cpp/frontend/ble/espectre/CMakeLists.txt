@@ -5,6 +5,8 @@ idf_component_register(
         ${ESPECTRE_FRONTEND_BLE_SOURCES}
         ${ESPECTRE_CORE_SOURCES}
         ${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}
+        ${ESPECTRE_RUNTIME_ESP_IDF_BLE_PROVISIONING_SOURCES}
+        ${ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES}
     INCLUDE_DIRS
         "."
         ${ESPECTRE_SHARED_INCLUDE_DIRS}
@@ -13,6 +15,8 @@ idf_component_register(
         esp_event
         esp_netif
         esp_timer
+        bt
+        mqtt
         nvs_flash
         lwip
         driver

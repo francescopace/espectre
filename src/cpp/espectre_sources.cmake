@@ -11,6 +11,7 @@ set(ESPECTRE_CORE_SOURCES
 
 set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
@@ -28,6 +29,16 @@ set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
 )
 
+set(ESPECTRE_RUNTIME_ESP_IDF_BLE_PROVISIONING_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/ble_bindings_nimble.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/device_config_store.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/wifi_provisioning_service.cpp"
+)
+
+set(ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/mqtt_transport_esp_idf.cpp"
+)
+
 set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/calibrate_switch.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/espectre/espectre.cpp"
@@ -42,7 +53,6 @@ set(ESPECTRE_FRONTEND_MATTER_SOURCES
 
 set(ESPECTRE_FRONTEND_BLE_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/ble/espectre/ble_frontend.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/ble/espectre/espectre_protocol.cpp"
 )
 
 set(ESPECTRE_FRONTEND_STREAMER_SOURCES
@@ -57,6 +67,7 @@ set(ESPECTRE_CORE_INCLUDE_DIRS
 set(ESPECTRE_RUNTIME_INCLUDE_DIRS
     "${ESPECTRE_CPP_ROOT}/runtime"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol"
 )
 
 set(ESPECTRE_SHARED_INCLUDE_DIRS

@@ -14,7 +14,6 @@
 #include <cstdlib>
 
 #include "base_detector.h"
-#include "ble_protocol.h"
 
 namespace esphome {
 namespace espectre {
@@ -209,46 +208,6 @@ std::string espectre_effective_device_name(const EspectreDeviceConfig &config) {
   return config.device_name.empty() ? ESPECTRE_DEFAULT_DEVICE_NAME : config.device_name;
 }
 
-std::string espectre_ble_device_name(const EspectreDeviceConfig &config) {
-  constexpr size_t kMaxBleNameLen = 24;
-  const std::string source = espectre_effective_device_name(config);
-  std::string out;
-  out.reserve(kMaxBleNameLen);
-
-  bool last_was_space = false;
-  for (unsigned char ch : source) {
-    char normalized = '\0';
-    if (std::isalnum(ch)) {
-      normalized = static_cast<char>(ch);
-    } else if (ch == ' ' || ch == '-' || ch == '_') {
-      normalized = ' ';
-    } else if (std::isspace(ch)) {
-      normalized = ' ';
-    } else {
-      continue;
-    }
-
-    if (normalized == ' ') {
-      if (out.empty() || last_was_space) {
-        continue;
-      }
-      last_was_space = true;
-    } else {
-      last_was_space = false;
-    }
-
-    if (out.size() >= kMaxBleNameLen) {
-      break;
-    }
-    out.push_back(normalized);
-  }
-
-  while (!out.empty() && out.back() == ' ') {
-    out.pop_back();
-  }
-  return out.empty() ? ESPECTRE_BLE_DEVICE_NAME : out;
-}
-
 void clear_espectre_mqtt_config(EspectreDeviceConfig *config) {
   if (config == nullptr) {
     return;
@@ -331,16 +290,18 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
 std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
                                     const RuntimeSnapshot &snapshot,
                                     uint32_t timestamp_ms,
-                                    uint32_t uptime_s) {
+                                    uint32_t uptime_s,
+                                    const char *frontend) {
   char line[320];
   const std::string device_id = espectre_effective_device_id(config);
   std::snprintf(line,
                 sizeof(line),
-                "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"frontend\":\"ble\","
+                "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"frontend\":\"%s\","
                 "\"timestamp_ms\":%u,\"motion_state\":\"%s\",\"movement_score\":%.6g,"
                 "\"threshold\":%.6g,\"detector\":\"%s\",\"health\":{\"uptime_s\":%u,\"gain_locked\":%s}}",
                 ESPECTRE_PROTOCOL_VERSION,
                 device_id.c_str(),
+                frontend != nullptr && frontend[0] != '\0' ? frontend : "unknown",
                 static_cast<unsigned>(timestamp_ms),
                 motion_state_name(snapshot.motion_state),
                 static_cast<double>(snapshot.movement_metric),

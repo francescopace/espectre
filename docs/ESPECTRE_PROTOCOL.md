@@ -305,6 +305,18 @@ Current BLE `sysinfo` identity/config keys include:
 | `wifi_bssid` | Current persisted Wi-Fi BSSID lock |
 | `wifi_channel` | Current persisted Wi-Fi channel lock |
 
+Capability-oriented `sysinfo` keys may include:
+
+| Key | Meaning |
+|-----|---------|
+| `frontend` | Firmware/frontend family currently exposing the BLE service |
+| `supports_wifi_provisioning` | Whether BLE clients can edit and apply Wi-Fi settings |
+| `supports_mqtt_config` | Whether BLE clients can edit MQTT broker settings |
+| `supports_device_config` | Whether BLE clients can edit device identity settings |
+| `supports_runtime_threshold` | Whether BLE clients can change the live motion threshold |
+| `supports_live_telemetry` | Whether BLE telemetry notifications are exposed |
+| `supports_extended_diagnostics` | Whether implementation-specific runtime diagnostics are exposed |
+
 Current BLE `sysinfo` diagnostic keys may include:
 
 | Key | Meaning |
@@ -330,10 +342,13 @@ identity/config keys above. Nearby tools may display them, but clients should
 not treat the full diagnostic set or its formatting as a hard compatibility
 contract.
 
-Wi-Fi provisioning values are persisted in NVS. `APPLY_WIFI` saves the current
-values, updates the station configuration, and reconnects Wi-Fi without
-restarting BLE. `CLEAR_WIFI` erases provisioned values and disconnects the
-station without rebooting.
+Wi-Fi provisioning values are persisted in NVS by ESP-IDF firmware targets that
+use the shared provisioning service. `APPLY_WIFI` saves the current values,
+updates the station configuration, and reconnects Wi-Fi without restarting the
+BLE transport. `CLEAR_WIFI` erases provisioned values and disconnects the
+station without rebooting. The standalone BLE firmware uses the same surface for
+its full runtime frontend, while the streamer firmware exposes Wi-Fi
+provisioning, device naming, and a reduced sysinfo subset.
 
 MQTT settings are also persisted in NVS after each
 `SET_DEVICE_CONFIG:key=value` command. `CLEAR_MQTT_CONFIG` erases only the saved

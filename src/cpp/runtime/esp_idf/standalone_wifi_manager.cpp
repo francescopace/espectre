@@ -394,7 +394,7 @@ void StandaloneWifiManager::wifi_event_handler_(void *arg, esp_event_base_t even
       manager->handle_wifi_started_();
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
       manager->handle_wifi_disconnected_(event_data);
-      if (manager->disconnected_cb_) {
+      if (!manager->config_.manage_csi_lifecycle && manager->disconnected_cb_) {
         manager->disconnected_cb_();
       }
     }
@@ -403,7 +403,7 @@ void StandaloneWifiManager::wifi_event_handler_(void *arg, esp_event_base_t even
 
   if (std::strcmp(event_base, IP_EVENT) == 0 && event_id == IP_EVENT_STA_GOT_IP) {
     manager->wifi_retry_count_ = 0;
-    if (manager->connected_cb_) {
+    if (!manager->config_.manage_csi_lifecycle && manager->connected_cb_) {
       manager->connected_cb_();
     }
   }

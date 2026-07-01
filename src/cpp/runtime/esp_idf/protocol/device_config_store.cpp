@@ -1,4 +1,4 @@
-#include "ble_device_config_store.h"
+#include "device_config_store.h"
 
 #include "nvs.h"
 

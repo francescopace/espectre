@@ -96,7 +96,7 @@ The next step depends on the frontend you chose:
 | `ESPHome` | [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
 | `BLE` | [`../src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md) | Build/flash workflow, Wi-Fi build-time configuration, firmware limits, and links to the shared protocol spec |
 | `Matter` | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter surface, writable attributes, local ESP-IDF workflow |
-| `Streamer` | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, frontend-specific configuration |
+| `Streamer` | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, Wi-Fi setup via `sdkconfig.wifi` or BLE provisioning, frontend-specific configuration |
 
 ## Shared Runtime Concepts
 
@@ -135,7 +135,9 @@ configured or exposed belongs to each frontend surface.
 
 The standalone `streamer` frontend is different: it does not own an internal
 traffic generator and instead expects collector-driven external UDP stimulus.
-Use the streamer frontend README as the source of truth for that workflow.
+Use the streamer frontend README as the source of truth for that workflow and
+for its Wi-Fi setup options, including BLE-assisted provisioning through the
+shared ESPectre BLE service.
 
 If you are tuning `traffic_generator_rate`, thresholds, or filters, use
 [TUNING.md](TUNING.md) for the rationale and the frontend README for the

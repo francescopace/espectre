@@ -71,6 +71,7 @@ UDP packet format, and frontend-specific configuration:
 Use that README as the source of truth for:
 
 - local streamer Wi-Fi configuration via `sdkconfig.wifi`
+- optional streamer Wi-Fi provisioning via Web Bluetooth
 - transport tuning knobs such as queue depth and batching
 - observed standalone streamer throughput on `ESP32-C3`
 

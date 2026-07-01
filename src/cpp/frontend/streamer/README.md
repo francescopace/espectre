@@ -46,6 +46,11 @@ The standalone Wi-Fi setup path is shared with the other ESP-IDF standalone
 firmware targets through `StandaloneWifiManager`; only the CSI capture and UDP
 streaming workflow is streamer-specific.
 
+The streamer also exposes the shared ESPectre BLE provisioning surface for
+Wi-Fi setup only. This lets a browser client save Wi-Fi credentials over Web
+Bluetooth without turning the streamer into a full runtime frontend or adding
+motion telemetry over BLE.
+
 ## Directory Layout
 
 - [`espectre/stream_frontend.cpp`](espectre/stream_frontend.cpp),
@@ -130,6 +135,8 @@ Frontend-specific options are declared in [`espectre/Kconfig.projbuild`](espectr
 
 Versioned defaults live in [`app/sdkconfig.defaults`](app/sdkconfig.defaults).
 Local Wi-Fi credentials should live in `app/sdkconfig.wifi`, which is gitignored.
+Wi-Fi credentials can also be provisioned live over BLE and persisted in NVS;
+stored BLE-provisioned values take precedence over build-time defaults.
 
 Typical local override file:
 
@@ -150,6 +157,16 @@ Recommended workflow for local Wi-Fi configuration:
    pin the streamer to a specific AP channel
 5. build via `./espectre streamer build --chip <esp32|c3|c5|c6|s3>`, which automatically passes
    `sdkconfig.defaults;sdkconfig.wifi` to `idf.py`
+
+Alternative BLE provisioning workflow:
+
+1. flash the streamer firmware once
+2. open [`tools/web/espectre-ble.html`](../../../../tools/web/espectre-ble.html)
+   from a secure browser context
+3. connect to `ESPectre Streamer`
+4. use `Save Wi-Fi` to send `SET_WIFI_SSID`, `SET_WIFI_PASSWORD`,
+   `SET_WIFI_BSSID`, `SET_WIFI_CHANNEL`, and `APPLY_WIFI`
+5. request sysinfo and verify `wifi_saved=true`
 
 Example local file:
 
@@ -198,6 +215,8 @@ Key knobs in the frontend surface:
 Runtime behavior notes:
 
 - the streamer no longer owns an internal traffic generator
+- BLE provisioning handles Wi-Fi setup plus device naming/sysinfo; it does not
+  expose streamer CSI data or runtime motion telemetry over BLE
 - the collector address is learned from the source IP of the latest UDP stimulus packet
 - the UDP stimulus payload may carry the `ESTM` metadata header
   (`magic + version + role + stimulus_id`), which is propagated into the CSI

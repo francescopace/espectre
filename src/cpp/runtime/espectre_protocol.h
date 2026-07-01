@@ -55,7 +55,6 @@ struct EspectreCommand {
 
 std::string espectre_effective_device_id(const EspectreDeviceConfig &config);
 std::string espectre_effective_device_name(const EspectreDeviceConfig &config);
-std::string espectre_ble_device_name(const EspectreDeviceConfig &config);
 void clear_espectre_mqtt_config(EspectreDeviceConfig *config);
 
 std::string espectre_topic(const EspectreDeviceConfig &config, const char *suffix);
@@ -64,7 +63,8 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
 std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
                                     const RuntimeSnapshot &snapshot,
                                     uint32_t timestamp_ms,
-                                    uint32_t uptime_s);
+                                    uint32_t uptime_s,
+                                    const char *frontend);
 std::string espectre_stats_payload(const EspectreDeviceConfig &config,
                                 const RuntimeSnapshot &snapshot,
                                 uint32_t timestamp_ms,
