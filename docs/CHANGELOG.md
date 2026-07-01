@@ -52,6 +52,9 @@ All notable changes to this project will be documented in this file.
   - `runtime/esp_idf/protocol/ble_bindings_nimble.*` for the reusable NimBLE transport
   - `runtime/esp_idf/protocol/device_config_store.*` for NVS-backed Wi-Fi/device protocol settings
   - `runtime/esp_idf/protocol/wifi_provisioning_service.*` for shared `SET_WIFI_*`, `APPLY_WIFI`, and `CLEAR_WIFI` handling
+- **Matter firmware configuration regression tests** now assert the commissioning
+  window, BLE rendezvous, occupancy device identity, and pre-commissioning Wi-Fi
+  behavior expected by the standalone Matter app.
 - **BLE-assisted Wi-Fi provisioning for the streamer firmware**:
   - streamer advertises as `ESPectre Streamer`
   - `tools/web/espectre-ble.html` can provision streamer Wi-Fi credentials over Web Bluetooth
@@ -85,7 +88,12 @@ All notable changes to this project will be documented in this file.
 - **Repository CLI web launcher now covers BLE and theremin tools**: `./espectre micro ui` still opens the MQTT monitor by default, while `./espectre micro ui ble` opens `tools/web/espectre-ble.html` for BLE provisioning/telemetry workflows and `./espectre micro ui theremin` opens `tools/web/espectre-theremin.html` for CSI sonification.
 - **Host-side C++ tests now use a layered `CMake + CTest` suite under `test/`**: PlatformIO-specific scaffolding was removed, suites were regrouped by `core` / `runtime` / `integration` / `frontend`, shared support code was consolidated, and coverage reporting now includes per-layer breakdowns.
 - **Matter firmware startup ordering was hardened** so the shared runtime initializes after `esp_matter::start()`, allowing the Matter stack to bring up Wi-Fi before CSI-specific runtime configuration runs.
-- **Frontend runtime orchestration was deduplicated**: ESPHome, BLE, and Matter now use the shared runtime frontend controller, while streamer and BLE standalone Wi-Fi setup use the shared standalone Wi-Fi manager. Matter keeps `esp-matter` Wi-Fi ownership and applies the same CSI policy from its app-level Wi-Fi hook.
+- **Matter commissioning behavior was hardened for stricter controllers**:
+  the app now advertises all supported commissioning transports including BLE,
+  declares occupancy sensor commissionable device identity, leaves normal Wi-Fi
+  aggregation enabled during commissioning, and defers CSI Wi-Fi policy until
+  commissioning completes.
+- **Frontend runtime orchestration was deduplicated**: ESPHome, BLE, and Matter now use the shared runtime frontend controller, while streamer and BLE standalone Wi-Fi setup use the shared standalone Wi-Fi manager. Matter keeps `esp-matter` Wi-Fi ownership and defers CSI services until commissioning is complete.
 - **Standalone Wi-Fi CSI setup was aligned across ESP-IDF frontends**: the tested HT20/2.4 GHz CSI policy, BSSID/channel fast-scan options, retry behavior, and power-save mode now live in shared runtime code instead of being reimplemented per frontend.
 - **BLE live telemetry now carries motion state directly**: the standalone BLE telemetry payload keeps the original `movement` + `threshold` first 8 bytes for legacy clients and appends an optional trailing `motion_state` byte (`0 = idle`, `1 = motion`), while `sysinfo` no longer mirrors motion state changes as a separate text field.
 - **BLE MQTT stats now expose only system diagnostics**: the standalone BLE frontend `stats` payload now stays focused on runtime diagnostics such as `uptime`, `free_memory_kb`, and `loop_time_ms`, while motion state, movement, threshold, detector choice, turbulence, and gain lock remain on telemetry/info surfaces. The MQTT web monitor popup was simplified accordingly.
