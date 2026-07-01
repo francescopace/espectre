@@ -135,6 +135,7 @@ class MockGlobalState:
     def __init__(self):
         self.loop_time_us = 5000  # 5ms
         self.chip_type = 'c6'
+        self.needs_cv_normalization = False
 
 
 @pytest.fixture
@@ -194,11 +195,11 @@ class TestMQTTHandler:
         assert handler.accepted_topic == "test/espectre/devices/test-device/commands/accepted"
         assert handler.rejected_topic == "test/espectre/devices/test-device/commands/rejected"
     
-    def test_publish_state_idle(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
+    def test_publish_state_idle(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance, mock_global_state):
         """Test publishing idle state"""
         from mqtt.handler import MQTTHandler
         
-        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
         handler.client = mock_mqtt_client_instance
         
         handler.publish_state(
@@ -219,15 +220,16 @@ class TestMQTTHandler:
         assert payload['motion_state'] == 'idle'
         assert payload['movement_score'] == 0.5
         assert payload['threshold'] == 1.0
+        assert payload['health']['gain_locked'] is True
         assert 'packets_processed' not in payload
         assert 'packets_dropped' not in payload
         assert 'pps' not in payload
     
-    def test_publish_state_motion(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
+    def test_publish_state_motion(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance, mock_global_state):
         """Test publishing motion state"""
         from mqtt.handler import MQTTHandler
         
-        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
         handler.client = mock_mqtt_client_instance
         
         handler.publish_state(
@@ -242,6 +244,26 @@ class TestMQTTHandler:
         assert payload['motion_state'] == 'motion'
         assert payload['movement_score'] == 5.0
         assert payload['threshold'] == 1.0
+
+    def test_publish_state_reports_gain_lock_status(self, mock_config, mock_segmentation, mock_wlan,
+                                                     mock_mqtt_client_instance, mock_global_state):
+        """Telemetry health reflects the effective gain-lock state."""
+        from mqtt.handler import MQTTHandler
+
+        mock_global_state.needs_cv_normalization = True
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
+        handler.client = mock_mqtt_client_instance
+
+        handler.publish_state(
+            current_variance=0.5,
+            current_state=0,
+            current_threshold=1.0
+        )
+
+        call_args = mock_mqtt_client_instance.publish.call_args
+        payload = json.loads(call_args[0][1])
+
+        assert payload['health']['gain_locked'] is False
     
     def test_publish_state_error_handling(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test error handling during publish"""
@@ -408,6 +430,8 @@ class TestMQTTCommands:
         assert call_args[0][0] == "test/espectre/devices/test-device/commands/accepted"
         payload = json.loads(call_args[0][1])
         assert payload['status'] == 'ok'
+        assert payload['device_id'] == 'test-device'
+        assert payload['accepted'] is True
     
     def test_send_response_string(self, commands_instance, mock_mqtt_client_instance):
         """Test sending string response"""
@@ -416,7 +440,9 @@ class TestMQTTCommands:
         mock_mqtt_client_instance.publish.assert_called_once()
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
-        assert payload['response'] == 'Success'
+        assert payload['message'] == 'Success'
+        assert payload['device_id'] == 'test-device'
+        assert payload['accepted'] is True
     
     def test_send_response_json_string(self, commands_instance, mock_mqtt_client_instance):
         """Test sending already-valid JSON string"""
@@ -426,6 +452,8 @@ class TestMQTTCommands:
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
         assert payload['already'] == 'json'
+        assert payload['device_id'] == 'test-device'
+        assert payload['accepted'] is True
     
     def test_send_response_error_handling(self, commands_instance, mock_mqtt_client_instance):
         """Test error handling when sending response"""
@@ -433,21 +461,6 @@ class TestMQTTCommands:
         
         # Should not raise exception
         commands_instance.send_response("test")
-    
-    def test_format_uptime_seconds(self, commands_instance):
-        """Test uptime formatting - seconds only"""
-        result = commands_instance.format_uptime(45)
-        assert result == "45s"
-    
-    def test_format_uptime_minutes(self, commands_instance):
-        """Test uptime formatting - minutes and seconds"""
-        result = commands_instance.format_uptime(125)
-        assert result == "2m 5s"
-    
-    def test_format_uptime_hours(self, commands_instance):
-        """Test uptime formatting - hours, minutes, seconds"""
-        result = commands_instance.format_uptime(3665)
-        assert result == "1h 1m 5s"
     
     def test_cmd_stats(self, commands_instance, mock_mqtt_client_instance):
         """Test stats command"""
@@ -463,6 +476,8 @@ class TestMQTTCommands:
         assert 'uptime' in payload
         assert 'free_memory_kb' in payload
         assert 'loop_time_ms' in payload
+        assert isinstance(payload['uptime'], int)
+        assert 'timestamp' not in payload
         assert 'state' not in payload
         assert 'movement' not in payload
         assert 'threshold' not in payload
@@ -480,8 +495,8 @@ class TestMQTTCommands:
         
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
-        assert 'ERROR' in payload['response']
-        assert "Missing 'threshold'" in payload['response']
+        assert 'ERROR' in payload['message']
+        assert "Missing 'threshold'" in payload['message']
     
     def test_cmd_set_threshold_out_of_range(self, commands_instance, mock_mqtt_client_instance):
         """Test threshold command with out-of-range value"""
@@ -489,7 +504,7 @@ class TestMQTTCommands:
         
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
-        assert 'ERROR' in payload['response']
+        assert 'ERROR' in payload['message']
 
     def test_cmd_set_threshold_below_min(self, commands_instance, mock_mqtt_client_instance):
         """Test threshold command with value below minimum range."""
@@ -497,7 +512,7 @@ class TestMQTTCommands:
 
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
-        assert 'ERROR' in payload['response']
+        assert 'ERROR' in payload['message']
     
     def test_cmd_set_threshold_invalid_value(self, commands_instance, mock_mqtt_client_instance):
         """Test threshold command with invalid value"""
@@ -505,7 +520,7 @@ class TestMQTTCommands:
         
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
-        assert 'ERROR' in payload['response']
+        assert 'ERROR' in payload['message']
     
     def test_process_command_info(self, commands_instance, mock_mqtt_client_instance):
         """Test processing info command"""
@@ -525,8 +540,8 @@ class TestMQTTCommands:
         
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
-        assert 'ERROR' in payload['response']
-        assert 'Unknown command' in payload['response']
+        assert 'ERROR' in payload['message']
+        assert 'Unknown command' in payload['message']
 
     def test_process_command_missing_cmd(self, commands_instance, mock_mqtt_client_instance):
         """Test processing command without cmd field"""
@@ -534,7 +549,7 @@ class TestMQTTCommands:
         
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
-        assert 'ERROR' in payload['response']
+        assert 'ERROR' in payload['message']
     
     def test_process_command_invalid_json(self, commands_instance, mock_mqtt_client_instance):
         """Test processing invalid JSON"""
@@ -542,7 +557,7 @@ class TestMQTTCommands:
         
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
-        assert 'ERROR' in payload['response']
+        assert 'ERROR' in payload['message']
     
     def test_process_command_string_data(self, commands_instance, mock_mqtt_client_instance):
         """Test processing string data (not bytes)"""

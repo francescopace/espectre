@@ -1081,7 +1081,10 @@
                 currentDeviceId = topic.split('/')[3];
             }
             if (data.accepted !== undefined && data.message) {
-                return { response: data.message };
+                return {
+                    response: data.message,
+                    responseType: data.accepted ? 'success' : 'error'
+                };
             }
             if (data.motion_state || data.movement_score !== undefined) {
                 return {
@@ -1128,7 +1131,7 @@
                 // Check if this is a simple response message (has "response" field)
                 if (data.response && typeof data.response === 'string') {
                     console.log('Detected command response');
-                    showNotification(data.response, 'info');
+                    showNotification(data.response, data.responseType || 'info');
                     return;
                 }
 

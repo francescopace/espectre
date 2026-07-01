@@ -74,17 +74,19 @@ class MQTTCommands:
                     payload = json.loads(message)
                     # Already valid JSON, send as-is
                 except (ValueError, TypeError):
-                    # Plain text message, wrap in {"response": "..."}
-                    payload = {"response": message}
+                    # Plain text message, wrap in protocol command-result form.
+                    payload = {"message": message}
 
-            if isinstance(payload, dict) and "protocol_version" not in payload:
+            if isinstance(payload, dict):
+                if "response" in payload and "message" not in payload:
+                    payload["message"] = payload.pop("response")
                 payload.setdefault("protocol_version", "1.0")
-            if isinstance(payload, dict) and command_id:
-                payload.setdefault("command_id", command_id)
-            if isinstance(payload, dict) and command:
-                payload.setdefault("command", command)
-            if isinstance(payload, dict) and "accepted" not in payload and (command_id or command):
-                payload["accepted"] = bool(accepted)
+                payload.setdefault("device_id", self.config.MQTT_CLIENT_ID)
+                if command_id:
+                    payload.setdefault("command_id", command_id)
+                if command:
+                    payload.setdefault("command", command)
+                payload.setdefault("accepted", bool(accepted))
             
             self.mqtt.publish(topic, json.dumps(payload))
         except Exception as e:
@@ -100,19 +102,6 @@ class MQTTCommands:
     def publish_stats_payload(self, payload):
         """Publish stats payload."""
         self.mqtt.publish(self.stats_topic, json.dumps(payload))
-    
-    def format_uptime(self, uptime_sec):
-        """Format uptime as human-readable string"""
-        hours = int(uptime_sec // 3600)
-        minutes = int((uptime_sec % 3600) // 60)
-        seconds = int(uptime_sec % 60)
-        
-        if hours > 0:
-            return f"{hours}h {minutes}m {seconds}s"
-        elif minutes > 0:
-            return f"{minutes}m {seconds}s"
-        else:
-            return f"{seconds}s"
     
     def cmd_info(self):
         """Get system information"""
@@ -171,9 +160,8 @@ class MQTTCommands:
         response = {
             "protocol_version": "1.0",
             "device_id": self.config.MQTT_CLIENT_ID,
-            "timestamp": int(current_time),
             "timestamp_ms": int(current_time * 1000),
-            "uptime": self.format_uptime(uptime_sec),
+            "uptime": int(uptime_sec),
             "free_memory_kb": free_mem_kb,
             "loop_time_ms": loop_time_ms,
         }

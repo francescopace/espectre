@@ -322,9 +322,8 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
         # Phase 1: Gain Lock only (~3 seconds)
         agc, fft, needs_cv = run_gain_lock(wlan)
         
-        # Save CV normalization state
-        if agc is not None and fft is not None:
-            g_state.needs_cv_normalization = needs_cv
+        # Save the effective runtime gain-lock state for diagnostics/telemetry.
+        g_state.needs_cv_normalization = needs_cv
         
         if needs_cv:
             print("Note: Proceeding without gain lock (CV normalization enabled)")
@@ -356,8 +355,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
 
     agc, fft, needs_cv = run_gain_lock(wlan)
 
-    if agc is not None and fft is not None:
-        g_state.needs_cv_normalization = needs_cv
+    g_state.needs_cv_normalization = needs_cv
 
     if needs_cv:
         print("Note: Proceeding with threshold bootstrap without gain lock (CV normalization enabled)")

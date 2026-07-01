@@ -122,6 +122,11 @@ class MQTTHandler:
         """
         state_str = 'motion' if current_state == 1 else 'idle'
         timestamp_ms = int(time.time() * 1000)
+        health = {
+            'uptime_s': int(time.time() - self.start_time),
+        }
+        if self.global_state is not None and hasattr(self.global_state, 'needs_cv_normalization'):
+            health['gain_locked'] = not bool(self.global_state.needs_cv_normalization)
         
         payload = {
             'protocol_version': '1.0',
@@ -132,10 +137,7 @@ class MQTTHandler:
             'movement_score': round(current_variance, 4),
             'threshold': round(current_threshold, 4),
             'detector': self.detector.get_name(),
-            'health': {
-                'uptime_s': int(time.time() - self.start_time),
-                'gain_locked': True
-            }
+            'health': health
         }
         
         try:
