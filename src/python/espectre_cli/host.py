@@ -7,13 +7,22 @@ import sys
 from .common import Path, REPO_ROOT, WEB_UI_FILE, Fore, Style, signal, time, webbrowser
 
 
-def open_web_ui() -> None:
-    """Open the web monitoring interface in the default browser."""
-    html_file = WEB_UI_FILE
+_WEB_UI_FILES = {
+    "mqtt": WEB_UI_FILE,
+    "ble": REPO_ROOT / "tools" / "web" / "espectre-ble.html",
+    "theremin": REPO_ROOT / "tools" / "web" / "espectre-theremin.html",
+}
+
+
+def open_web_ui(interface: str = "mqtt") -> None:
+    """Open the selected web interface in the default browser."""
+    html_file = _WEB_UI_FILES.get(interface.lower())
+    if html_file is None:
+        print(f"{Fore.RED}❌ Error: unknown web UI '{interface}'{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Available interfaces: {', '.join(sorted(_WEB_UI_FILES))}{Style.RESET_ALL}")
+        return
     if not html_file.exists():
-        html_file = REPO_ROOT / "tools" / "web" / "espectre-monitor.html"
-    if not html_file.exists():
-        print(f"{Fore.RED}❌ Error: espectre-monitor.html not found{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ Error: {html_file.name} not found{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Make sure you're running the command from the repo root{Style.RESET_ALL}")
         return
 

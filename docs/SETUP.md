@@ -16,7 +16,7 @@ want the newest development snapshot.
 | Frontend | Best starting point | Frontend source of truth |
 |----------|---------------------|--------------------------|
 | `ESPHome` | [Web Flash](#web-flash-no-coding-required) for the quickest start, then the frontend README for YAML, Home Assistant, and local development | [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) |
-| `BLE` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the frontend README for protocol and local ESP-IDF workflow | [`../src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md) |
+| `BLE` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the BLE frontend README for local ESP-IDF workflow and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) for the shared BLE protocol surface | [`../src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md) |
 | `Matter` | [Web Flash](#web-flash-no-coding-required) for published firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) |
 | `Streamer` | Frontend README for the dedicated CSI collection workflow | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) |
 
@@ -94,7 +94,7 @@ The next step depends on the frontend you chose:
 | Frontend | Continue here | What that README owns |
 |----------|---------------|-----------------------|
 | `ESPHome` | [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
-| `BLE` | [`../src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md) | BLE protocol, build/flash workflow, Wi-Fi build-time configuration, firmware limits |
+| `BLE` | [`../src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md) | Build/flash workflow, Wi-Fi build-time configuration, firmware limits, and links to the shared protocol spec |
 | `Matter` | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter surface, writable attributes, local ESP-IDF workflow |
 | `Streamer` | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, frontend-specific configuration |
 

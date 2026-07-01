@@ -33,7 +33,7 @@ except ImportError as e:
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHON_SRC_DIR = REPO_ROOT / "src" / "python"
 TOOLS_DIR = REPO_ROOT / "tools"
-WEB_UI_FILE = TOOLS_DIR / "web" / "espectre-monitor.html"
+WEB_UI_FILE = TOOLS_DIR / "web" / "espectre-mqtt.html"
 FIRMWARE_CACHE_DIR = REPO_ROOT / ".firmware"
 
 for path in (str(REPO_ROOT), str(PYTHON_SRC_DIR), str(TOOLS_DIR)):
@@ -217,9 +217,14 @@ def add_mqtt_connection_args(parser: argparse.ArgumentParser) -> None:
         help="MQTT broker port (default: 1883)",
     )
     parser.add_argument(
-        "--topic",
-        default=os.getenv("MQTT_TOPIC", "home/espectre/node1"),
-        help="Base MQTT topic (default: home/espectre/node1)",
+        "--topic-prefix",
+        default=os.getenv("MQTT_TOPIC_PREFIX", "espectre/v1/devices"),
+        help="MQTT topic prefix (default: espectre/v1/devices)",
+    )
+    parser.add_argument(
+        "--device-id",
+        default=os.getenv("MQTT_CLIENT_ID", "micro-espectre"),
+        help="MQTT device/client id (default: micro-espectre)",
     )
     parser.add_argument(
         "--username",
@@ -238,7 +243,8 @@ def build_mqtt_namespace(args: argparse.Namespace) -> argparse.Namespace:
     return argparse.Namespace(
         broker=args.broker,
         port=args.port_mqtt,
-        topic=args.topic,
+        topic_prefix=args.topic_prefix,
+        device_id=args.device_id,
         username=args.username,
         password=args.password,
     )

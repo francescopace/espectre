@@ -24,6 +24,8 @@ typedef int32_t esp_err_t;
 #define ESP_ERR_INVALID_VERSION 0x10A
 #define ESP_ERR_INVALID_MAC 0x10B
 #define ESP_ERR_WIFI_BASE 0x3000
+#define ESP_ERR_WIFI_CONN (ESP_ERR_WIFI_BASE + 6)
+#define ESP_ERR_WIFI_NOT_CONNECT (ESP_ERR_WIFI_BASE + 7)
 
 // Error checking macros
 #define ESP_ERROR_CHECK(x)                                                     \

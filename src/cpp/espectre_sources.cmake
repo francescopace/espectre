@@ -41,6 +41,7 @@ set(ESPECTRE_FRONTEND_MATTER_SOURCES
 
 set(ESPECTRE_FRONTEND_BLE_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/ble/espectre/ble_frontend.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/ble/espectre/espectre_protocol.cpp"
 )
 
 set(ESPECTRE_FRONTEND_STREAMER_SOURCES

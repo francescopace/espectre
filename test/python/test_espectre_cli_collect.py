@@ -124,6 +124,68 @@ def test_detect_parser_accepts_capture_options() -> None:
     assert args.description == "live detect ML, idle-motion-idle"
 
 
+def test_ui_parser_accepts_ble_interface() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["micro", "ui", "ble"])
+
+    assert args.namespace == "micro"
+    assert args.micro_command == "ui"
+    assert args.interface == "ble"
+
+
+def test_ui_parser_accepts_theremin_interface() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["micro", "ui", "theremin"])
+
+    assert args.namespace == "micro"
+    assert args.micro_command == "ui"
+    assert args.interface == "theremin"
+
+
+def test_open_web_ui_opens_ble_file(monkeypatch, tmp_path) -> None:
+    ble_file = tmp_path / "espectre-ble.html"
+    ble_file.write_text("<html></html>", encoding="utf-8")
+    opened_urls: list[str] = []
+
+    monkeypatch.setattr(
+        host,
+        "_WEB_UI_FILES",
+        {
+            "mqtt": tmp_path / "espectre-mqtt.html",
+            "ble": ble_file,
+            "theremin": tmp_path / "espectre-theremin.html",
+        },
+    )
+    monkeypatch.setattr(host.webbrowser, "open", lambda url: opened_urls.append(url))
+
+    host.open_web_ui("ble")
+
+    assert opened_urls == [ble_file.absolute().as_uri()]
+
+
+def test_open_web_ui_opens_theremin_file(monkeypatch, tmp_path) -> None:
+    theremin_file = tmp_path / "espectre-theremin.html"
+    theremin_file.write_text("<html></html>", encoding="utf-8")
+    opened_urls: list[str] = []
+
+    monkeypatch.setattr(
+        host,
+        "_WEB_UI_FILES",
+        {
+            "mqtt": tmp_path / "espectre-mqtt.html",
+            "ble": tmp_path / "espectre-ble.html",
+            "theremin": theremin_file,
+        },
+    )
+    monkeypatch.setattr(host.webbrowser, "open", lambda url: opened_urls.append(url))
+
+    host.open_web_ui("theremin")
+
+    assert opened_urls == [theremin_file.absolute().as_uri()]
+
+
 def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> None:
     events: list[object] = []
     fake_csi_utils = ModuleType("tools.csi_utils")

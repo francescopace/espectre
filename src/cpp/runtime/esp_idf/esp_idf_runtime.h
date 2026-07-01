@@ -24,6 +24,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   void shutdown() override;
   void loop() override;
   void set_services_armed(bool armed) override;
+  void set_live_telemetry_enabled(bool enabled) override;
 
   bool set_threshold_runtime(float threshold) override;
   bool trigger_recalibration() override;
@@ -35,6 +36,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   void set_listener(IRuntimeListener *listener) override;
 
  private:
+  void update_live_telemetry_callback_();
   bool configure_detector_();
   void on_wifi_connected_();
   void on_wifi_disconnected_();
@@ -63,6 +65,7 @@ class EspIdfRuntime : public IEspectreRuntime {
   uint16_t threshold_calibration_target_{0};
   bool threshold_calibration_active_{false};
   bool services_armed_{true};
+  bool live_telemetry_enabled_{true};
   bool wifi_ready_{false};
   bool csi_wifi_lifecycle_ready_{false};
   bool setup_complete_{false};

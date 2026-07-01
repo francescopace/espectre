@@ -82,7 +82,7 @@ For example:
 
 - `ESPHome`: edit YAML and re-flash or update the runtime threshold entity
 - `Matter`: use the writable threshold attribute exposed by the Matter surface
-- `BLE`: use `SET_THRESHOLD:X.XX` for runtime-only experiments
+- `BLE`: use a BLE client such as `tools/web/espectre-ble.html`, which sends `SET_THRESHOLD:X.XX` when you release the threshold slider
 
 **Interactive tuning:** You can also adjust the threshold in real-time using a BLE client built on the frontend protocol, including [ESPectre - The Game](https://espectre.dev/game) as one example. Connect, drag the threshold slider, and see immediate visual feedback. Note that runtime adjustments are temporary (session-only) - the adaptive threshold is recalculated on every boot.
 
@@ -222,9 +222,10 @@ espectre:
   publish_interval: 50  # Optional: override publish rate
 ```
 
-> **Note:** Lower `publish_interval` values increase frontend-side telemetry or
-> dashboard refresh frequency, but the internal motion detection cadence is
-> controlled separately by `evaluation_interval`.
+> **Note:** Lower `publish_interval` values increase periodic frontend-side
+> telemetry, MQTT publish frequency, and periodic logs, but the internal motion
+> detection cadence is controlled separately by `evaluation_interval`. BLE live
+> telemetry for nearby clients is a separate subscription-driven path.
 
 ### Evaluation Interval (1-1000 packets)
 
@@ -739,7 +740,7 @@ entity names, commands, or telemetry channel differ.
 5. **Distance matters:** Keep sensor 3-8m from router (RSSI between -40 and -70 dB for best results)
 6. **Check AGC value:** After boot, look for "Gain locked: AGC=XX" - values 30-60 are optimal
 7. **Quiet calibration:** Ensure no movement during first ~13 seconds after boot
-8. **Try a BLE client:** Use a client built on the BLE frontend protocol, such as [ESPectre - The Game](https://espectre.dev/game), for interactive threshold tuning with real-time visual feedback
+8. **Try a BLE client:** Use a client built on the BLE frontend protocol, such as [`tools/web/espectre-ble.html`](../tools/web/espectre-ble.html) or [ESPectre - The Game](https://espectre.dev/game), for interactive threshold tuning with real-time visual feedback
 
 ---
 

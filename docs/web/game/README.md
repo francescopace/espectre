@@ -109,21 +109,16 @@ For testing without hardware or in unsupported browsers.
 
 The game is one example client built on the standalone ESPectre BLE frontend.
 
-The protocol source of truth now lives in [`src/cpp/frontend/ble/README.md`](../../../src/cpp/frontend/ble/README.md), including:
+The protocol source of truth lives in [`docs/ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md).
+BLE frontend workflow and firmware-specific notes live in
+[`src/cpp/frontend/ble/README.md`](../../../src/cpp/frontend/ble/README.md).
 
-- UUIDs
-- telemetry payload format
-- sysinfo keys
-- control commands
-- compatibility guidance
-- possible protocol evolutions
-
-This game currently uses the protocol in a straightforward way:
+This game uses the BLE frontend in a straightforward way:
 
 - subscribe to telemetry notifications
 - subscribe to sysinfo notifications
-- request sysinfo with `REQ_SYSINFO`
-- adjust runtime threshold with `SET_THRESHOLD:X.XX`
+- request a fresh sysinfo block when needed
+- adjust the runtime threshold from the browser UI
 
 ### Movement Detection
 
@@ -227,18 +222,11 @@ Move faster for stronger hits - the velocity of your mouse maps to movement inte
 
 ## System Info Panel
 
-After connecting via BLE, the game displays a **System Info** panel showing the current ESPectre configuration:
+After connecting via BLE, the game displays a **System Info** panel showing the
+current ESPectre configuration and diagnostics exposed by the BLE frontend.
 
-| Field | Description |
-|-------|-------------|
-| Threshold | Motion detection threshold |
-| Window | Segmentation window size |
-| Subcarriers | Fixed shared production set |
-| Low-pass | Filter status and cutoff frequency |
-| Hampel | Filter status |
-| Traffic | Traffic generator rate |
-
-This provides immediate visibility into how the device is configured without needing Home Assistant or ESPHome entities.
+For the exact field set and current semantics, see
+[`docs/ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md).
 
 ---
 
@@ -251,12 +239,15 @@ The game doubles as a fun way to tune your ESPectre system. The movement bar at 
 - Drag **left** → lower ESPectre threshold on device (more sensitive)
 - Drag **right** → higher ESPectre threshold on device (less sensitive)
 
-Threshold drag sends a BLE control command (`SET_THRESHOLD:X.XX`) and updates ESPectre runtime threshold for the active session.
+Threshold drag sends the BLE runtime-threshold control defined in
+[`docs/ESPECTRE_PROTOCOL.md`](../../ESPECTRE_PROTOCOL.md) and updates the
+ESPectre threshold for the active session.
 
 ### Runtime Controls via BLE
 
-- `SET_THRESHOLD:X.XX` updates detection threshold at runtime (session-only)
-- `REQ_SYSINFO` requests a fresh sysinfo block
+- the browser can update the runtime threshold for the active session
+- the browser can request a fresh sysinfo block when it needs to refresh the
+  panel
 
 This provides immediate visual feedback:
 - See exactly how your movements register

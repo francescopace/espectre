@@ -26,6 +26,7 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.ble.bind";
+static const char *const kAdvertisingName = "ESPectre";
 
 static ble_uuid128_t g_service_uuid =
     BLE_UUID128_INIT(0xf0, 0xf8, 0x6a, 0xc3, 0xa2, 0xb3, 0x6f, 0xbc, 0x75, 0x47, 0x03, 0x22, 0x6b, 0xf4, 0x3f, 0xd3);
@@ -51,10 +52,17 @@ bool NimbleBleBindings::setup() {
     return true;
   }
 
+  // Hide verbose NimBLE procedure logs and keep only warnings/errors.
+  esp_log_level_set("NimBLE", ESP_LOG_WARN);
+
   instance_ = this;
+  if (device_name_.empty()) {
+    device_name_ = ESPECTRE_BLE_DEVICE_NAME;
+  }
   telemetry_value_.clear();
   sysinfo_value_.clear();
   conn_handle_ = BLE_HS_CONN_HANDLE_NONE;
+  telemetry_subscribed_ = false;
 
   const int init_rc = nimble_port_init();
   if (init_rc != 0) {
@@ -85,7 +93,7 @@ bool NimbleBleBindings::setup() {
 
   ble_svc_gap_init();
   ble_svc_gatt_init();
-  ble_svc_gap_device_name_set(ESPECTRE_BLE_DEVICE_NAME);
+  ble_svc_gap_device_name_set(device_name_.c_str());
 
   ble_hs_cfg.sync_cb = &NimbleBleBindings::on_sync_static_;
   ble_hs_cfg.reset_cb = &NimbleBleBindings::on_reset_static_;
@@ -129,6 +137,20 @@ void NimbleBleBindings::set_control_write_callback(ControlWriteCallback callback
   control_write_callback_ = std::move(callback);
 }
 
+void NimbleBleBindings::set_telemetry_subscription_callback(TelemetrySubscriptionCallback callback) {
+  telemetry_subscription_callback_ = std::move(callback);
+}
+
+void NimbleBleBindings::set_device_name(const char *name) {
+  device_name_ = (name != nullptr && name[0] != '\0') ? name : ESPECTRE_BLE_DEVICE_NAME;
+  if (setup_complete_) {
+    const int rc = ble_svc_gap_device_name_set(device_name_.c_str());
+    if (rc != 0) {
+      ESP_LOGW(TAG, "ble_svc_gap_device_name_set failed: %d", rc);
+    }
+  }
+}
+
 void NimbleBleBindings::publish_telemetry(const uint8_t *payload, size_t payload_len) {
   if (!setup_complete_ || conn_handle_ == BLE_HS_CONN_HANDLE_NONE || g_telemetry_val_handle == 0 || payload == nullptr) {
     return;
@@ -164,9 +186,9 @@ void NimbleBleBindings::report_fault(const char *message) {
 bool NimbleBleBindings::start_advertising_() {
   ble_hs_adv_fields fields{};
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-  fields.name = reinterpret_cast<const uint8_t *>(ESPECTRE_BLE_DEVICE_NAME);
-  fields.name_len = std::strlen(ESPECTRE_BLE_DEVICE_NAME);
-  fields.name_is_complete = 1;
+  fields.name = reinterpret_cast<const uint8_t *>(kAdvertisingName);
+  fields.name_len = std::strlen(kAdvertisingName);
+  fields.name_is_complete = 0;
   fields.uuids128 = &g_service_uuid;
   fields.num_uuids128 = 1;
   fields.uuids128_is_complete = 1;
@@ -213,10 +235,22 @@ int NimbleBleBindings::on_gap_event_(ble_gap_event *event) {
       return 0;
     case BLE_GAP_EVENT_DISCONNECT:
       conn_handle_ = BLE_HS_CONN_HANDLE_NONE;
+      telemetry_subscribed_ = false;
+      if (telemetry_subscription_callback_) {
+        telemetry_subscription_callback_(false);
+      }
       if (connection_state_callback_) {
         connection_state_callback_(false);
       }
       start_advertising_();
+      return 0;
+    case BLE_GAP_EVENT_SUBSCRIBE:
+      if (event->subscribe.attr_handle == g_telemetry_val_handle) {
+        telemetry_subscribed_ = event->subscribe.cur_notify != 0;
+        if (telemetry_subscription_callback_) {
+          telemetry_subscription_callback_(telemetry_subscribed_);
+        }
+      }
       return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
       start_advertising_();
@@ -241,7 +275,7 @@ int NimbleBleBindings::on_gatt_access_(uint16_t conn_handle, uint16_t attr_handl
   }
 
   if (attr_handle == g_control_val_handle && ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-    char buffer[96] = {0};
+    char buffer[192] = {0};
     uint16_t command_len = 0;
     const int rc = ble_hs_mbuf_to_flat(ctxt->om, buffer, sizeof(buffer) - 1, &command_len);
     if (rc != 0) {

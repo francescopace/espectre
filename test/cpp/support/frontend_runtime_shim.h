@@ -23,6 +23,8 @@ struct State {
   int trigger_recalibration_calls{0};
   bool calibrating{false};
   bool services_armed{true};
+  bool live_telemetry_enabled{true};
+  int set_live_telemetry_enabled_calls{0};
   IRuntimeListener *last_listener{nullptr};
   EspIdfRuntime *last_instance{nullptr};
 };

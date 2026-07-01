@@ -47,8 +47,15 @@ def _add_micro_namespace(subparsers) -> None:
     verify_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
     verify_parser.set_defaults(handler=verify_installation)
 
-    ui_parser = micro_subparsers.add_parser("ui", help="Open web monitoring interface in browser")
-    ui_parser.set_defaults(handler=lambda args: open_web_ui())
+    ui_parser = micro_subparsers.add_parser("ui", help="Open a web UI in the browser")
+    ui_parser.add_argument(
+        "interface",
+        nargs="?",
+        choices=["mqtt", "ble", "theremin"],
+        default="mqtt",
+        help="Web UI to open (default: mqtt)",
+    )
+    ui_parser.set_defaults(handler=lambda args: open_web_ui(args.interface))
 
     collect_parser = micro_subparsers.add_parser("collect", help="Collect labeled CSI data for training")
     collect_parser.add_argument("--label", "-l", help="Label for collected data (e.g., static_presence, motion, empty, wave)")

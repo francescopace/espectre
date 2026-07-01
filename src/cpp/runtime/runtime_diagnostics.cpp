@@ -21,12 +21,11 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.segmentation_window_size));
   visitor("window", value);
   visitor("detector", snapshot.detector_name);
+  visitor("gain_locked", snapshot.gain_locked ? "true" : "false");
   visitor("subcarriers", subcarrier_source_name(snapshot.subcarrier_source));
   visitor("lowpass", config.lowpass_enabled ? "on" : "off");
-  if (config.lowpass_enabled) {
-    std::snprintf(value, sizeof(value), "%.1f", config.lowpass_cutoff);
-    visitor("lowpass_cutoff", value);
-  }
+  std::snprintf(value, sizeof(value), "%.1f", config.lowpass_cutoff);
+  visitor("lowpass_cutoff", value);
   visitor("hampel", config.hampel_enabled ? "on" : "off");
   if (config.hampel_enabled) {
     std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.hampel_window));
@@ -34,6 +33,7 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
     std::snprintf(value, sizeof(value), "%.1f", config.hampel_threshold);
     visitor("hampel_threshold", value);
   }
+  visitor("traffic_mode", traffic_mode_name(config.traffic_generator_mode));
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.traffic_generator_rate));
   visitor("traffic_rate", value);
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.publish_interval));

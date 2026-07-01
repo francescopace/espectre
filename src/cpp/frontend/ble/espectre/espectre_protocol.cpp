@@ -1,0 +1,451 @@
+/*
+ * ESPectre - ESPectre Protocol
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * License: GPLv3
+ */
+
+#include "espectre_protocol.h"
+
+#include <cctype>
+#include <cerrno>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+
+#include "base_detector.h"
+#include "ble_protocol.h"
+
+namespace esphome {
+namespace espectre {
+
+namespace {
+
+const char *motion_state_name(MotionState state) {
+  return state == MotionState::MOTION ? "motion" : "idle";
+}
+
+void append_json_string(std::string *out, const char *value) {
+  out->push_back('"');
+  if (value != nullptr) {
+    for (const char *p = value; *p != '\0'; ++p) {
+      switch (*p) {
+        case '"':
+          out->append("\\\"");
+          break;
+        case '\\':
+          out->append("\\\\");
+          break;
+        case '\n':
+          out->append("\\n");
+          break;
+        case '\r':
+          out->append("\\r");
+          break;
+        case '\t':
+          out->append("\\t");
+          break;
+        default:
+          out->push_back(*p);
+          break;
+      }
+    }
+  }
+  out->push_back('"');
+}
+
+std::string json_pair_string(const char *key, const char *value, bool first = false) {
+  std::string out;
+  if (!first) {
+    out.append(",");
+  }
+  append_json_string(&out, key);
+  out.append(":");
+  append_json_string(&out, value);
+  return out;
+}
+
+bool parse_float_value(const std::string &value, float *out) {
+  if (out == nullptr || value.empty()) {
+    return false;
+  }
+  char *end_ptr = nullptr;
+  errno = 0;
+  const float parsed = std::strtof(value.c_str(), &end_ptr);
+  if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE ||
+      !std::isfinite(parsed)) {
+    return false;
+  }
+  *out = parsed;
+  return true;
+}
+
+bool parse_uint16_value(const std::string &value, uint16_t *out) {
+  if (out == nullptr || value.empty()) {
+    return false;
+  }
+  char *end_ptr = nullptr;
+  errno = 0;
+  const unsigned long parsed = std::strtoul(value.c_str(), &end_ptr, 10);
+  if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE || parsed > 65535UL) {
+    return false;
+  }
+  *out = static_cast<uint16_t>(parsed);
+  return true;
+}
+
+std::string extract_json_string(const std::string &payload, const char *key) {
+  const std::string needle = std::string("\"") + key + "\"";
+  const size_t key_pos = payload.find(needle);
+  if (key_pos == std::string::npos) {
+    return {};
+  }
+  const size_t colon = payload.find(':', key_pos + needle.size());
+  if (colon == std::string::npos) {
+    return {};
+  }
+  const size_t first_quote = payload.find('"', colon + 1);
+  if (first_quote == std::string::npos) {
+    return {};
+  }
+  std::string value;
+  bool escaped = false;
+  for (size_t i = first_quote + 1; i < payload.size(); ++i) {
+    const char ch = payload[i];
+    if (escaped) {
+      value.push_back(ch);
+      escaped = false;
+      continue;
+    }
+    if (ch == '\\') {
+      escaped = true;
+      continue;
+    }
+    if (ch == '"') {
+      return value;
+    }
+    value.push_back(ch);
+  }
+  return {};
+}
+
+std::string extract_json_number_token(const std::string &payload, const char *key) {
+  const std::string needle = std::string("\"") + key + "\"";
+  const size_t key_pos = payload.find(needle);
+  if (key_pos == std::string::npos) {
+    return {};
+  }
+  const size_t colon = payload.find(':', key_pos + needle.size());
+  if (colon == std::string::npos) {
+    return {};
+  }
+  size_t begin = payload.find_first_not_of(" \t\r\n", colon + 1);
+  if (begin == std::string::npos) {
+    return {};
+  }
+  size_t end = begin;
+  while (end < payload.size()) {
+    const char ch = payload[end];
+    if ((ch >= '0' && ch <= '9') || ch == '-' || ch == '+' || ch == '.' || ch == 'e' || ch == 'E') {
+      ++end;
+      continue;
+    }
+    break;
+  }
+  return payload.substr(begin, end - begin);
+}
+
+bool assign_config_field(const std::string &field, const std::string &value, EspectreDeviceConfig *config) {
+  if (field == "device_name") {
+    config->device_name = value;
+    return true;
+  }
+  if (field == "mqtt_host") {
+    config->mqtt_host = value;
+    config->mqtt_enabled = !config->mqtt_host.empty();
+    return true;
+  }
+  if (field == "mqtt_username") {
+    config->mqtt_username = value;
+    return true;
+  }
+  if (field == "mqtt_password") {
+    config->mqtt_password = value;
+    return true;
+  }
+  if (field == "topic_prefix") {
+    config->topic_prefix = value.empty() ? ESPECTRE_TOPIC_PREFIX : value;
+    return true;
+  }
+  if (field == "mqtt_port") {
+    uint16_t port = 0;
+    if (!parse_uint16_value(value, &port) || port == 0) {
+      return false;
+    }
+    config->mqtt_port = port;
+    return true;
+  }
+  if (field == "mqtt_enabled") {
+    if (value == "1" || value == "true") {
+      config->mqtt_enabled = true;
+      return true;
+    }
+    if (value == "0" || value == "false") {
+      config->mqtt_enabled = false;
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+
+}  // namespace
+
+std::string espectre_effective_device_id(const EspectreDeviceConfig &config) {
+  return config.device_id.empty() ? ESPECTRE_DEFAULT_DEVICE_ID : config.device_id;
+}
+
+std::string espectre_effective_device_name(const EspectreDeviceConfig &config) {
+  return config.device_name.empty() ? ESPECTRE_DEFAULT_DEVICE_NAME : config.device_name;
+}
+
+std::string espectre_ble_device_name(const EspectreDeviceConfig &config) {
+  constexpr size_t kMaxBleNameLen = 24;
+  const std::string source = espectre_effective_device_name(config);
+  std::string out;
+  out.reserve(kMaxBleNameLen);
+
+  bool last_was_space = false;
+  for (unsigned char ch : source) {
+    char normalized = '\0';
+    if (std::isalnum(ch)) {
+      normalized = static_cast<char>(ch);
+    } else if (ch == ' ' || ch == '-' || ch == '_') {
+      normalized = ' ';
+    } else if (std::isspace(ch)) {
+      normalized = ' ';
+    } else {
+      continue;
+    }
+
+    if (normalized == ' ') {
+      if (out.empty() || last_was_space) {
+        continue;
+      }
+      last_was_space = true;
+    } else {
+      last_was_space = false;
+    }
+
+    if (out.size() >= kMaxBleNameLen) {
+      break;
+    }
+    out.push_back(normalized);
+  }
+
+  while (!out.empty() && out.back() == ' ') {
+    out.pop_back();
+  }
+  return out.empty() ? ESPECTRE_BLE_DEVICE_NAME : out;
+}
+
+void clear_espectre_mqtt_config(EspectreDeviceConfig *config) {
+  if (config == nullptr) {
+    return;
+  }
+  config->mqtt_host.clear();
+  config->mqtt_port = 1883;
+  config->mqtt_username.clear();
+  config->mqtt_password.clear();
+  config->topic_prefix = ESPECTRE_TOPIC_PREFIX;
+  config->mqtt_enabled = false;
+}
+
+std::string espectre_topic(const EspectreDeviceConfig &config, const char *suffix) {
+  std::string topic = config.topic_prefix.empty() ? ESPECTRE_TOPIC_PREFIX : config.topic_prefix;
+  if (!topic.empty() && topic.back() == '/') {
+    topic.pop_back();
+  }
+  topic.append("/");
+  topic.append(espectre_effective_device_id(config));
+  topic.append("/");
+  topic.append(suffix != nullptr ? suffix : "");
+  return topic;
+}
+
+std::string espectre_status_payload(const EspectreDeviceConfig &config, bool online, uint32_t timestamp_ms) {
+  char line[160];
+  const std::string device_id = espectre_effective_device_id(config);
+  std::snprintf(line,
+                sizeof(line),
+                "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"online\":%s,\"timestamp_ms\":%u}",
+                ESPECTRE_PROTOCOL_VERSION,
+                device_id.c_str(),
+                online ? "true" : "false",
+                static_cast<unsigned>(timestamp_ms));
+  return line;
+}
+
+std::string espectre_info_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info) {
+  const std::string device_id = espectre_effective_device_id(config);
+  const std::string device_name = espectre_effective_device_name(config);
+  std::string out = "{";
+  out += json_pair_string("protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  out += json_pair_string("device_id", device_id.c_str());
+  out += json_pair_string("device_name", device_name.c_str());
+  out += json_pair_string("frontend", info.frontend.empty() ? "ble" : info.frontend.c_str());
+  out += json_pair_string("firmware_version", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
+  out += json_pair_string("chip", info.chip.empty() ? "unknown" : info.chip.c_str());
+
+  if (!info.network.ip_address.empty() || !info.network.mac_address.empty() || info.network.channel > 0U) {
+    out += ",\"network\":{";
+    bool first = true;
+    if (!info.network.ip_address.empty()) {
+      out += json_pair_string("ip_address", info.network.ip_address.c_str(), first);
+      first = false;
+    }
+    if (!info.network.mac_address.empty()) {
+      out += json_pair_string("mac_address", info.network.mac_address.c_str(), first);
+      first = false;
+    }
+    if (info.network.channel > 0U) {
+      if (!first) {
+        out += ",";
+      }
+      out += "\"channel\":{\"primary\":";
+      out += std::to_string(static_cast<unsigned>(info.network.channel));
+      out += "}";
+    }
+    out += "}";
+  }
+
+  if (!info.detector.empty()) {
+    out += ",\"detection\":{";
+    out += json_pair_string("algorithm", info.detector.c_str(), true);
+    out += "}";
+  }
+  out += "}";
+  return out;
+}
+
+std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
+                                    const RuntimeSnapshot &snapshot,
+                                    uint32_t timestamp_ms,
+                                    uint32_t uptime_s) {
+  char line[320];
+  const std::string device_id = espectre_effective_device_id(config);
+  std::snprintf(line,
+                sizeof(line),
+                "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"frontend\":\"ble\","
+                "\"timestamp_ms\":%u,\"motion_state\":\"%s\",\"movement_score\":%.6g,"
+                "\"threshold\":%.6g,\"detector\":\"%s\",\"health\":{\"uptime_s\":%u,\"gain_locked\":%s}}",
+                ESPECTRE_PROTOCOL_VERSION,
+                device_id.c_str(),
+                static_cast<unsigned>(timestamp_ms),
+                motion_state_name(snapshot.motion_state),
+                static_cast<double>(snapshot.movement_metric),
+                static_cast<double>(snapshot.threshold),
+                snapshot.detector_name != nullptr ? snapshot.detector_name : "unknown",
+                static_cast<unsigned>(uptime_s),
+                snapshot.gain_locked ? "true" : "false");
+  return line;
+}
+
+std::string espectre_stats_payload(const EspectreDeviceConfig &config,
+                                const RuntimeSnapshot &snapshot,
+                                uint32_t timestamp_ms,
+                                uint32_t uptime_s,
+                                float free_memory_kb,
+                                float loop_time_ms) {
+  (void) snapshot;
+  char line[384];
+  const std::string device_id = espectre_effective_device_id(config);
+  std::snprintf(line,
+                sizeof(line),
+                "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"timestamp_ms\":%u,"
+                "\"uptime\":%u,\"free_memory_kb\":%.6g,\"loop_time_ms\":%.6g}",
+                ESPECTRE_PROTOCOL_VERSION,
+                device_id.c_str(),
+                static_cast<unsigned>(timestamp_ms),
+                static_cast<unsigned>(uptime_s),
+                static_cast<double>(free_memory_kb),
+                static_cast<double>(loop_time_ms));
+  return line;
+}
+
+std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
+                                         const EspectreCommand &command,
+                                         bool accepted,
+                                         const char *message) {
+  const std::string device_id = espectre_effective_device_id(config);
+  std::string out = "{";
+  out += json_pair_string("protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  out += json_pair_string("device_id", device_id.c_str());
+  out += json_pair_string("command_id", command.command_id.c_str());
+  out += json_pair_string("command", command.command.c_str());
+  out += ",\"accepted\":";
+  out += accepted ? "true" : "false";
+  out += json_pair_string("message", message != nullptr ? message : "");
+  out += "}";
+  return out;
+}
+
+bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error) {
+  if (command == nullptr) {
+    return false;
+  }
+  EspectreCommand parsed;
+  parsed.command_id = extract_json_string(payload, "command_id");
+  parsed.command = extract_json_string(payload, "command");
+  if (parsed.command.empty()) {
+    if (error != nullptr) {
+      *error = "missing command";
+    }
+    return false;
+  }
+  if (parsed.command == "set_threshold") {
+    const std::string threshold_token = extract_json_number_token(payload, "threshold");
+    if (!parse_float_value(threshold_token, &parsed.threshold)) {
+      if (error != nullptr) {
+        *error = "invalid threshold";
+      }
+      return false;
+    }
+    parsed.has_threshold = true;
+  }
+  *command = parsed;
+  return true;
+}
+
+bool parse_espectre_config_command(const std::string &command, EspectreDeviceConfig *config, std::string *error) {
+  if (config == nullptr) {
+    return false;
+  }
+  constexpr const char *prefix = "SET_DEVICE_CONFIG:";
+  if (command.rfind(prefix, 0) != 0) {
+    if (error != nullptr) {
+      *error = "invalid prefix";
+    }
+    return false;
+  }
+  const std::string body = command.substr(std::string(prefix).size());
+  const size_t equal = body.find('=');
+  if (equal == std::string::npos) {
+    if (error != nullptr) {
+      *error = "expected key=value";
+    }
+    return false;
+  }
+  const std::string field = body.substr(0, equal);
+  const std::string value = body.substr(equal + 1);
+  if (!assign_config_field(field, value, config)) {
+    if (error != nullptr) {
+      *error = "invalid config field";
+    }
+    return false;
+  }
+  return true;
+}
+
+}  // namespace espectre
+}  // namespace esphome

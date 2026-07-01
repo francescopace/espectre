@@ -18,7 +18,7 @@ MQTT_ENABLED = True
 MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP
 MQTT_PORT = 1883
 MQTT_CLIENT_ID = "micro-espectre"
-MQTT_TOPIC = "home/espectre/node1"
+MQTT_TOPIC_PREFIX = "espectre/v1/devices"
 MQTT_USERNAME = "mqtt"
 MQTT_PASSWORD = "mqtt"
 

@@ -34,6 +34,11 @@ void EspIdfRuntime::loop() { frontend_runtime_shim::state.loop_calls++; }
 
 void EspIdfRuntime::set_services_armed(bool armed) { frontend_runtime_shim::state.services_armed = armed; }
 
+void EspIdfRuntime::set_live_telemetry_enabled(bool enabled) {
+  frontend_runtime_shim::state.live_telemetry_enabled = enabled;
+  frontend_runtime_shim::state.set_live_telemetry_enabled_calls++;
+}
+
 bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   frontend_runtime_shim::state.set_threshold_calls++;
   frontend_runtime_shim::state.last_threshold = threshold;

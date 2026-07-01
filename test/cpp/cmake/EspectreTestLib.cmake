@@ -97,6 +97,7 @@ target_link_libraries(espectre_frontend_matter_testlib
 add_library(espectre_frontend_ble_testlib STATIC
     ${ESPECTRE_FRONTEND_BLE_SOURCES}
     "${CMAKE_CURRENT_SOURCE_DIR}/support/ble_bindings_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/support/mqtt_transport_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
 )
 target_link_libraries(espectre_frontend_ble_testlib

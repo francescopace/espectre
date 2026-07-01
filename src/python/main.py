@@ -608,9 +608,9 @@ def main():
     mqtt_enabled = getattr(config, 'MQTT_ENABLED', True)
     mqtt_handler = None
     if mqtt_enabled:
-        # Initialize MQTT (pass calibration function for factory_reset and global state for metrics)
+        # Initialize MQTT ESPectre Protocol and runtime metrics.
         from src.mqtt.handler import MQTTHandler
-        mqtt_handler = MQTTHandler(config, detector, wlan, traffic_gen, run_startup_calibration, g_state)
+        mqtt_handler = MQTTHandler(config, detector, wlan, g_state)
         print_heap('after_mqtt_handler_init')
         mqtt_handler.connect()
         print_heap('after_mqtt_connect')
@@ -750,10 +750,7 @@ def main():
                             mqtt_handler.publish_state(
                                 motion_metric,
                                 effective_state,
-                                threshold,
-                                publish_counter,
-                                dropped_delta,
-                                pps
+                                threshold
                             )
                         publish_counter = 0
                         last_publish_time = current_time

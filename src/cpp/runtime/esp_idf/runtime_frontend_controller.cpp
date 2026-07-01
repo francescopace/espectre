@@ -22,6 +22,7 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
   runtime_.reset(new EspIdfRuntime(config_));
   runtime_->set_listener(listener);
   runtime_->set_services_armed(services_armed_);
+  runtime_->set_live_telemetry_enabled(live_telemetry_enabled_);
   if (!runtime_->setup()) {
     runtime_.reset();
     return false;
@@ -51,6 +52,13 @@ void RuntimeFrontendController::set_services_armed(bool armed) {
   services_armed_ = armed;
   if (runtime_) {
     runtime_->set_services_armed(armed);
+  }
+}
+
+void RuntimeFrontendController::set_live_telemetry_enabled(bool enabled) {
+  live_telemetry_enabled_ = enabled;
+  if (runtime_) {
+    runtime_->set_live_telemetry_enabled(enabled);
   }
 }
 

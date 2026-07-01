@@ -21,12 +21,21 @@ struct StandaloneWifiConfig {
   bool manage_csi_lifecycle{false};
 };
 
+struct StandaloneWifiInfo {
+  bool connected{false};
+  char ip_address[16]{};
+  char mac_address[18]{};
+  uint8_t channel{0U};
+};
+
 class StandaloneWifiManager {
  public:
   esp_err_t setup(const StandaloneWifiConfig &config,
                   standalone_wifi_callback_t connected_cb = {},
                   standalone_wifi_callback_t disconnected_cb = {});
   esp_err_t start();
+  esp_err_t update_station_config(const StandaloneWifiConfig &config);
+  bool get_info(StandaloneWifiInfo *info) const;
   void shutdown();
 
   static esp_err_t apply_started_csi_policy();
@@ -46,6 +55,7 @@ class StandaloneWifiManager {
   standalone_wifi_callback_t connected_cb_;
   standalone_wifi_callback_t disconnected_cb_;
   esp_event_handler_instance_t wifi_event_instance_{nullptr};
+  esp_event_handler_instance_t ip_event_instance_{nullptr};
   bool setup_complete_{false};
   bool wifi_start_policy_applied_{false};
   bool wifi_connect_requested_{false};

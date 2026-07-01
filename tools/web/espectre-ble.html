@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESPectre BLE Provisioning</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #1f2937;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .header {
+      text-align: center;
+      color: white;
+      margin-bottom: 20px;
+    }
+
+    .header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .header p {
+      font-size: 1.1em;
+      opacity: 0.9;
+    }
+
+    .card {
+      background: white;
+      border-radius: 15px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .card.compact {
+      padding: 12px 20px;
+    }
+
+    .collapsible-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 15px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .collapsible-header:hover {
+      opacity: 0.85;
+    }
+
+    .collapsible-header h2 {
+      margin: 0;
+      font-size: 1.2em;
+    }
+
+    .collapsible-content {
+      margin-top: 15px;
+    }
+
+    .collapsible-content.collapsed {
+      display: none;
+    }
+
+    .arrow {
+      transition: transform 0.3s;
+      font-size: 0.9em;
+      flex-shrink: 0;
+    }
+
+    .arrow.rotate {
+      transform: rotate(180deg);
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.95em;
+      color: #334155;
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    .status-indicator.connected {
+      background: #2ecc71;
+    }
+
+    .status-indicator.disconnected {
+      background: #e74c3c;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%,
+      100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    .config-section {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 15px;
+      margin-bottom: 18px;
+    }
+
+    .ble-toolbar-grid {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 320px));
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .input-group label {
+      font-weight: 600;
+      margin-bottom: 5px;
+      color: #333;
+      font-size: 0.9em;
+    }
+
+    .input-group label.range-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .range-value-badge {
+      min-width: 56px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #4338ca;
+      font-size: 0.85em;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .input-group small {
+      color: #64748b;
+      font-size: 0.8em;
+      line-height: 1.4;
+      margin-top: 6px;
+    }
+
+    .input-group input {
+      width: 100%;
+      min-width: 0;
+      padding: 8px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+      color: #1f2937;
+      background: white;
+    }
+
+    .input-group input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .input-group input[readonly],
+    .input-group input:disabled {
+      background: #f1f5f9;
+      color: #64748b;
+      border-color: #d5dce5;
+      cursor: not-allowed;
+    }
+
+    .input-group input[type="range"] {
+      padding: 0;
+      border: none;
+      background: transparent;
+      accent-color: #667eea;
+    }
+
+    .btn {
+      padding: 10px 25px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      min-height: 40px;
+    }
+
+    .btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-secondary {
+      background: #95a5a6;
+      color: white;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #7f8c8d;
+    }
+
+    .btn-danger {
+      background: #e74c3c;
+      color: white;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: #c0392b;
+    }
+
+    .button-row,
+    .section-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .toggle-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #334155;
+      font-size: 0.9em;
+      font-weight: 600;
+    }
+
+    .toggle-option input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      accent-color: #667eea;
+    }
+
+    .metric-toggle-button {
+      border: none;
+      width: 100%;
+      cursor: pointer;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .metric-toggle-button:hover {
+      box-shadow: 0 5px 15px rgba(41, 128, 185, 0.35);
+    }
+
+    .metric-toggle-button.enabled {
+      background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+    }
+
+    .metric-toggle-button.disabled {
+      background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+    }
+
+    .metric-toggle-state {
+      font-size: 1.2em;
+      font-weight: 700;
+    }
+
+    .logs-actions {
+      justify-content: center;
+      margin-top: 15px;
+      padding-top: 10px;
+      border-top: 2px solid #e0e0e0;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .metric-card {
+      padding: 15px;
+      border-radius: 10px;
+      text-align: center;
+      transition: transform 0.3s;
+      background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+      color: white;
+    }
+
+    .metric-card:hover {
+      transform: translateY(-3px);
+    }
+
+    .metric-label {
+      font-size: 0.85em;
+      opacity: 0.9;
+      margin-bottom: 5px;
+    }
+
+    .metric-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 1.8em;
+      font-weight: bold;
+      overflow-wrap: anywhere;
+    }
+
+    .subsection-card {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 15px;
+      margin-bottom: 15px;
+      border: 2px solid #e0e0e0;
+    }
+
+    .subsection-card:last-child {
+      margin-bottom: 0;
+    }
+
+    .subsection-card h3 {
+      margin-bottom: 15px;
+      color: #667eea;
+      font-size: 1.1em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .diag-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+    }
+
+    .diag-item {
+      min-height: 74px;
+      min-width: 0;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: #f8f9fa;
+      border: 1px solid #e0e0e0;
+    }
+
+    .diag-item .metric-label {
+      color: #667;
+      opacity: 1;
+      margin-bottom: 6px;
+    }
+
+    .diag-item .metric-value {
+      color: #1f2937;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .log-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 15px;
+    }
+
+    .log-panel h3 {
+      margin-bottom: 10px;
+      color: #333;
+      font-size: 1em;
+    }
+
+    pre {
+      margin: 0;
+      min-height: 180px;
+      max-height: 320px;
+      overflow: auto;
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px solid #e0e0e0;
+      background: #f8f9fa;
+      color: #1f2937;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 620px) {
+      body {
+        padding: 12px;
+      }
+
+      .header h1 {
+        font-size: 2em;
+      }
+
+      .collapsible-header {
+        align-items: flex-start;
+      }
+
+      .status-item {
+        margin-left: 0 !important;
+      }
+
+      .button-row,
+      .section-actions {
+        flex-direction: column;
+      }
+
+      .btn {
+        width: 100%;
+      }
+
+      .log-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🛜 ESPectre 👻</h1>
+      <p>BLE provisioning, telemetry inspection, and MQTT setup</p>
+    </div>
+
+    <div class="card compact">
+      <div class="collapsible-header" onclick="toggleConfig()">
+        <h2>🔵 BLE Connection</h2>
+        <div class="status-item" style="margin-left: auto;">
+          <div class="status-indicator disconnected" id="statusIndicator"></div>
+          <span id="statusText">Disconnected</span>
+        </div>
+        <span class="arrow" id="configArrow">▼</span>
+      </div>
+      <div class="collapsible-content" id="configContent">
+        <div class="button-row">
+          <button class="btn btn-primary" id="connectBtn">Connect</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="collapsible-header" onclick="toggleSection('configuration')">
+        <h2>⚙️ Device Configuration</h2>
+        <span class="arrow" id="configurationArrow">▼</span>
+      </div>
+      <div class="collapsible-content" id="configurationContent">
+        <div class="subsection-card">
+          <h3>🌐 Wi-Fi Provisioning</h3>
+          <div class="config-section">
+            <div class="input-group">
+              <label for="wifiSsidInput">SSID</label>
+              <input id="wifiSsidInput" type="text" autocomplete="off" maxlength="32" placeholder="Network name">
+            </div>
+            <div class="input-group">
+              <label for="wifiPasswordInput">Password</label>
+              <input id="wifiPasswordInput" type="password" autocomplete="off" maxlength="63" placeholder="Password">
+            </div>
+            <div class="input-group">
+              <label for="wifiBssidInput">BSSID</label>
+              <input id="wifiBssidInput" type="text" autocomplete="off" maxlength="17" placeholder="aa:bb:cc:dd:ee:ff">
+            </div>
+            <div class="input-group">
+              <label for="wifiChannelInput">Channel</label>
+              <input id="wifiChannelInput" type="number" min="0" max="14" step="1" value="0">
+            </div>
+          </div>
+          <div class="section-actions">
+            <button class="btn btn-secondary" id="wifiApplyBtn" disabled>Save Wi-Fi</button>
+            <button class="btn btn-danger" id="wifiClearBtn" disabled>Clear Wi-Fi</button>
+          </div>
+        </div>
+
+        <div class="subsection-card">
+          <h3>📡 MQTT Settings</h3>
+          <div class="config-section">
+            <div class="input-group">
+              <label for="mqttHostInput">Broker Host</label>
+              <input id="mqttHostInput" type="text" autocomplete="off" maxlength="64" placeholder="192.168.1.20">
+            </div>
+            <div class="input-group">
+              <label for="mqttPortInput">Broker Port</label>
+              <input id="mqttPortInput" type="number" min="1" max="65535" step="1" value="1883">
+            </div>
+            <div class="input-group">
+              <label for="mqttUsernameInput">Username</label>
+              <input id="mqttUsernameInput" type="text" autocomplete="off" maxlength="64" placeholder="mqtt">
+            </div>
+            <div class="input-group">
+              <label for="mqttPasswordInput">Password</label>
+              <input id="mqttPasswordInput" type="password" autocomplete="off" maxlength="96" placeholder="Password">
+            </div>
+            <div class="input-group">
+              <label for="topicPrefixInput">Topic Prefix</label>
+              <input id="topicPrefixInput" type="text" autocomplete="off" maxlength="72" placeholder="espectre/v1/devices">
+            </div>
+          </div>
+          <div class="section-actions">
+            <button class="btn btn-secondary" id="mqttApplyBtn" disabled>Save MQTT</button>
+            <button class="btn btn-danger" id="mqttClearBtn" disabled>Clear MQTT</button>
+          </div>
+        </div>
+
+        <div class="subsection-card">
+          <h3>🧩 Device Settings</h3>
+          <div class="config-section ble-toolbar-grid">
+            <div class="input-group">
+              <label for="deviceIdInput">Device ID</label>
+              <input id="deviceIdInput" type="text" readonly disabled placeholder="Auto-generated by firmware">
+              <small>Stable auto-generated protocol identity used by BLE and MQTT.</small>
+            </div>
+            <div class="input-group">
+              <label for="deviceNameInput">Device Name</label>
+              <input id="deviceNameInput" type="text" autocomplete="off" maxlength="64" placeholder="Living Room">
+            </div>
+            <div class="input-group">
+              <label for="bleDeviceNameInput">BLE Pairing Name</label>
+              <input id="bleDeviceNameInput" type="text" readonly disabled placeholder="Derived from device name">
+              <small>Derived and sanitized by firmware for the BLE pairing picker.</small>
+            </div>
+            <div class="input-group">
+              <label class="range-label" for="thresholdInput">
+                <span>Motion Threshold</span>
+                <span class="range-value-badge" id="thresholdInputValue">4.5</span>
+              </label>
+              <input id="thresholdInput" type="range" min="0.5" max="10" step="0.1" value="4.5">
+              <small>Updated from system info when available and sent automatically when you release the slider.</small>
+            </div>
+          </div>
+          <div class="section-actions">
+            <button class="btn btn-secondary" id="deviceApplyBtn" disabled>Save Device</button>
+            <button class="btn btn-danger" id="deviceClearBtn" disabled>Clear Device</button>
+          </div>
+        </div>
+
+        <div class="subsection-card">
+          <h3>🩺 Diagnostics</h3>
+          <div class="diag-grid">
+            <div class="diag-item">
+              <div class="metric-label">Protocol</div>
+              <div class="metric-value" id="diagProtocol">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Chip</div>
+              <div class="metric-value" id="diagChip">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Detector</div>
+              <div class="metric-value" id="diagDetector">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Window</div>
+              <div class="metric-value" id="diagWindow">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Low-pass</div>
+              <div class="metric-value" id="diagLowpass">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Hampel</div>
+              <div class="metric-value" id="diagHampel">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Traffic</div>
+              <div class="metric-value" id="diagTraffic">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Gain Lock</div>
+              <div class="metric-value" id="diagGainLock">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Publish</div>
+              <div class="metric-value" id="diagPublishInterval">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Evaluation</div>
+              <div class="metric-value" id="diagEvaluationInterval">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Wi-Fi</div>
+              <div class="metric-value" id="diagWifi">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">MQTT</div>
+              <div class="metric-value" id="diagMqtt">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Motion Hits</div>
+              <div class="metric-value" id="diagMotionHits">-</div>
+            </div>
+            <div class="diag-item">
+              <div class="metric-label">Best Pxx</div>
+              <div class="metric-value" id="diagBestPxx">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card compact">
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">State</div>
+          <div class="metric-value" id="stateValue">-</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Movement</div>
+          <div class="metric-value" id="movementValue">-</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Threshold</div>
+          <div class="metric-value" id="thresholdValue">-</div>
+        </div>
+        <button class="metric-card metric-toggle-button enabled" id="liveTelemetryBtn" type="button">
+          <div class="metric-label">Live Telemetry</div>
+          <div class="metric-toggle-state" id="liveTelemetryState">Enabled</div>
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="collapsible-header" onclick="toggleSection('logs')">
+        <h2>🧾 Logs</h2>
+        <span class="arrow" id="logsArrow">▼</span>
+      </div>
+      <div class="collapsible-content" id="logsContent">
+        <div class="log-grid">
+          <div class="log-panel">
+            <h3>System Info Stream</h3>
+            <pre id="sysinfoLog"></pre>
+          </div>
+          <div class="log-panel">
+            <h3>Event Log</h3>
+            <pre id="eventLog"></pre>
+          </div>
+        </div>
+        <div class="section-actions logs-actions">
+          <button class="btn btn-secondary" id="sysinfoBtn" disabled>Request Info</button>
+          <button class="btn btn-danger" id="clearBtn">Clear Logs</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SERVICE_UUID = 'd33ff46b-2203-4775-bc6f-b3a2c36af8f0';
+    const TELEMETRY_UUID = '119d5cac-48da-4bd9-bfc3-169805868258';
+    const SYSINFO_UUID = 'c8c89ffa-c401-461f-9ffc-942fa04adfe3';
+    const CONTROL_UUID = '33ed9214-a8d7-40e8-82d1-c82747dcdc71';
+
+    let device = null;
+    let telemetryChar = null;
+    let sysinfoChar = null;
+    let controlChar = null;
+    let wifiPasswordStored = false;
+    let liveTelemetryRequested = true;
+
+    const el = (id) => document.getElementById(id);
+
+    function log(message) {
+      const line = `[${new Date().toLocaleTimeString()}] ${message}`;
+      el('eventLog').textContent += `${line}\n`;
+      el('eventLog').scrollTop = el('eventLog').scrollHeight;
+    }
+
+    function toggleConfig() {
+      el('configContent').classList.toggle('collapsed');
+      el('configArrow').classList.toggle('rotate');
+    }
+
+    function toggleSection(sectionId) {
+      el(`${sectionId}Content`).classList.toggle('collapsed');
+      el(`${sectionId}Arrow`).classList.toggle('rotate');
+    }
+
+    function parseLeadingNumber(value) {
+      const match = String(value).trim().match(/-?\d+(?:[.,]\d+)?/);
+      if (!match) {
+        return null;
+      }
+      const parsed = Number(match[0].replace(',', '.'));
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function formatMotionState(value) {
+      if (value === 1 || value === '1' || value === 'motion') {
+        return 'Motion';
+      }
+      if (value === 0 || value === '0' || value === 'idle') {
+        return 'Idle';
+      }
+      return String(value);
+    }
+
+    function setConnected(connected) {
+      el('statusText').textContent = connected ? 'Connected' : 'Disconnected';
+      el('statusIndicator').className = `status-indicator ${connected ? 'connected' : 'disconnected'}`;
+      el('connectBtn').textContent = connected ? 'Disconnect' : 'Connect';
+      el('connectBtn').classList.toggle('btn-primary', !connected);
+      el('connectBtn').classList.toggle('btn-danger', connected);
+      el('sysinfoBtn').disabled = !connected;
+      el('deviceApplyBtn').disabled = !connected;
+      el('deviceClearBtn').disabled = !connected;
+      el('wifiApplyBtn').disabled = !connected;
+      el('wifiClearBtn').disabled = !connected;
+      el('mqttApplyBtn').disabled = !connected;
+      el('mqttClearBtn').disabled = !connected;
+      if (connected) {
+        el('configContent').classList.add('collapsed');
+        el('configArrow').classList.add('rotate');
+      }
+    }
+
+    function liveTelemetryEnabled() {
+      return liveTelemetryRequested;
+    }
+
+    function updateThresholdSlider(value) {
+      const threshold = parseDecimalInput(value);
+      if (threshold === null) {
+        return null;
+      }
+      el('thresholdInput').value = threshold.toFixed(1);
+      el('thresholdInputValue').textContent = threshold.toFixed(1);
+      el('thresholdValue').textContent = threshold.toFixed(3);
+      return threshold;
+    }
+
+    function updateTrafficDiagnostic() {
+      const mode = el('diagTraffic').dataset.mode || '';
+      const rate = el('diagTraffic').dataset.rate || '';
+      if (!mode && !rate) {
+        el('diagTraffic').textContent = '-';
+        return;
+      }
+      if (mode && rate) {
+        el('diagTraffic').textContent = `${mode} ${rate} pps`;
+        return;
+      }
+      el('diagTraffic').textContent = mode || `${rate} pps`;
+    }
+
+    function updateLiveTelemetryButton() {
+      const button = el('liveTelemetryBtn');
+      const state = el('liveTelemetryState');
+      button.classList.toggle('enabled', liveTelemetryEnabled());
+      button.classList.toggle('disabled', !liveTelemetryEnabled());
+      state.textContent = liveTelemetryEnabled() ? 'Enabled' : 'Disabled';
+    }
+
+    async function applyLiveTelemetryPreference() {
+      if (!telemetryChar) {
+        return;
+      }
+      if (liveTelemetryEnabled()) {
+        await telemetryChar.startNotifications();
+        log('Telemetry notifications enabled');
+      } else {
+        await telemetryChar.stopNotifications();
+        log('Telemetry notifications disabled');
+      }
+    }
+
+    function appendSysinfo(line) {
+      el('sysinfoLog').textContent += `${line}\n`;
+      el('sysinfoLog').scrollTop = el('sysinfoLog').scrollHeight;
+      const idx = line.indexOf('=');
+      if (idx <= 0) {
+        return;
+      }
+      const key = line.slice(0, idx);
+      const value = line.slice(idx + 1);
+      if (key === 'chip') {
+        el('diagChip').textContent = value.toUpperCase();
+      } else if (key === 'device_id') {
+        el('deviceIdInput').value = value;
+      } else if (key === 'device_name') {
+        el('deviceNameInput').value = value;
+      } else if (key === 'ble_device_name') {
+        el('bleDeviceNameInput').value = value;
+      } else if (key === 'mqtt_host') {
+        el('mqttHostInput').value = value;
+      } else if (key === 'mqtt_port') {
+        el('mqttPortInput').value = value;
+      } else if (key === 'mqtt_username') {
+        el('mqttUsernameInput').value = value;
+      } else if (key === 'topic_prefix') {
+        el('topicPrefixInput').value = value;
+      } else if (key === 'wifi_ssid') {
+        el('wifiSsidInput').value = value;
+      } else if (key === 'wifi_bssid') {
+        el('wifiBssidInput').value = value;
+      } else if (key === 'wifi_channel') {
+        el('wifiChannelInput').value = value || '0';
+      } else if (key === 'wifi_password_set') {
+        wifiPasswordStored = value === 'true' || value === '1';
+        el('wifiPasswordInput').value = '';
+        el('wifiPasswordInput').placeholder = wifiPasswordStored ? 'Saved password; leave blank to keep' : 'Password';
+      } else if (key === 'threshold') {
+        const threshold = parseLeadingNumber(value);
+        if (threshold !== null) {
+          updateThresholdSlider(threshold);
+        } else {
+          el('thresholdValue').textContent = value;
+        }
+      }
+
+      if (key === 'proto_version' || key === 'espectre_protocol_version') {
+        el('diagProtocol').textContent = key === 'espectre_protocol_version' ? value : value;
+      } else if (key === 'detector') {
+        el('diagDetector').textContent = value;
+      } else if (key === 'gain_locked') {
+        el('diagGainLock').textContent = value === 'true' || value === '1' ? 'locked' : 'unlocked';
+      } else if (key === 'window') {
+        el('diagWindow').textContent = value;
+      } else if (key === 'lowpass') {
+        el('diagLowpass').textContent = value;
+      } else if (key === 'lowpass_cutoff') {
+        el('diagLowpass').textContent = `${el('diagLowpass').textContent} ${value} Hz`.trim();
+      } else if (key === 'hampel') {
+        el('diagHampel').textContent = value;
+      } else if (key === 'hampel_window') {
+        el('diagHampel').textContent = `${el('diagHampel').textContent} w=${value}`.trim();
+      } else if (key === 'hampel_threshold') {
+        el('diagHampel').textContent = `${el('diagHampel').textContent} t=${value}`.trim();
+      } else if (key === 'traffic_mode') {
+        el('diagTraffic').dataset.mode = value;
+        updateTrafficDiagnostic();
+      } else if (key === 'traffic_rate') {
+        el('diagTraffic').dataset.rate = value;
+        updateTrafficDiagnostic();
+      } else if (key === 'publish_interval') {
+        el('diagPublishInterval').textContent = `every ${value} pkts`;
+      } else if (key === 'evaluation_interval') {
+        el('diagEvaluationInterval').textContent = `every ${value} pkts`;
+      } else if (key === 'wifi_saved') {
+        el('diagWifi').textContent = value === 'true' || value === '1' ? 'saved' : 'default';
+      } else if (key === 'mqtt_enabled') {
+        el('diagMqtt').textContent = value === 'true' || value === '1' ? 'enabled' : 'disabled';
+      } else if (key === 'motion_hits') {
+        el('diagMotionHits').textContent = value;
+      } else if (key === 'best_pxx') {
+        el('diagBestPxx').textContent = value;
+      }
+    }
+
+    async function writeControl(command) {
+      const payload = new TextEncoder().encode(command);
+      if (controlChar.writeValueWithResponse) {
+        await controlChar.writeValueWithResponse(payload);
+      } else {
+        await controlChar.writeValue(payload);
+      }
+      log(`control -> ${command}`);
+    }
+
+    function parseDecimalInput(value) {
+      const parsed = Number(String(value).trim().replace(',', '.'));
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function parsePortInput(value) {
+      const port = Number(String(value).trim());
+      return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+    }
+
+    async function connect() {
+      if (!navigator.bluetooth) {
+        log('Web Bluetooth is not available in this browser.');
+        return;
+      }
+
+      log('Opening BLE device picker...');
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUID] }],
+        optionalServices: [SERVICE_UUID]
+      });
+      device.addEventListener('gattserverdisconnected', () => {
+        log('BLE device disconnected');
+        setConnected(false);
+      });
+
+      log(`Connecting to ${device.name || device.id}...`);
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      telemetryChar = await service.getCharacteristic(TELEMETRY_UUID);
+      sysinfoChar = await service.getCharacteristic(SYSINFO_UUID);
+      controlChar = await service.getCharacteristic(CONTROL_UUID);
+
+      telemetryChar.addEventListener('characteristicvaluechanged', (event) => {
+        const dv = event.target.value;
+        if (!dv || dv.byteLength < 8) {
+          log(`telemetry ignored: ${dv ? dv.byteLength : 0} bytes`);
+          return;
+        }
+        const movement = dv.getFloat32(0, true);
+        const threshold = dv.getFloat32(4, true);
+        const motionState = dv.byteLength >= 9 ? dv.getUint8(8) : null;
+        el('movementValue').textContent = Number.isFinite(movement) ? movement.toFixed(3) : '-';
+        el('thresholdValue').textContent = Number.isFinite(threshold) ? threshold.toFixed(3) : '-';
+        if (motionState !== null) {
+          el('stateValue').textContent = formatMotionState(motionState);
+        }
+      });
+
+      sysinfoChar.addEventListener('characteristicvaluechanged', (event) => {
+        const value = event.target.value;
+        const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+        const line = new TextDecoder().decode(bytes).trim();
+        appendSysinfo(line);
+      });
+
+      if (liveTelemetryEnabled()) {
+        await telemetryChar.startNotifications();
+        log('Telemetry notifications enabled');
+      } else {
+        log('Telemetry notifications disabled from UI');
+      }
+      await sysinfoChar.startNotifications();
+      log('System info notifications enabled');
+      setConnected(true);
+      await writeControl('REQ_SYSINFO');
+    }
+
+    async function disconnect() {
+      if (device && device.gatt && device.gatt.connected) {
+        device.gatt.disconnect();
+      }
+      setConnected(false);
+    }
+
+    el('connectBtn').addEventListener('click', async () => {
+      try {
+        if (device && device.gatt && device.gatt.connected) {
+          await disconnect();
+        } else {
+          await connect();
+        }
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('sysinfoBtn').addEventListener('click', async () => {
+      try {
+        await writeControl('REQ_SYSINFO');
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('liveTelemetryBtn').addEventListener('click', async () => {
+      try {
+        liveTelemetryRequested = !liveTelemetryRequested;
+        updateLiveTelemetryButton();
+        if (device && device.gatt && device.gatt.connected) {
+          await applyLiveTelemetryPreference();
+        } else {
+          log(liveTelemetryEnabled() ? 'Live BLE telemetry will be enabled on connect' : 'Live BLE telemetry will stay disabled on connect');
+        }
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('deviceApplyBtn').addEventListener('click', async () => {
+      try {
+        const deviceName = el('deviceNameInput').value.trim();
+        if (!deviceName) {
+          log('error: device name is required');
+          return;
+        }
+        await writeControl(`SET_DEVICE_CONFIG:device_name=${deviceName}`);
+        await writeControl('REQ_SYSINFO');
+        log('Device settings saved');
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('deviceClearBtn').addEventListener('click', async () => {
+      try {
+        await writeControl('CLEAR_DEVICE_CONFIG');
+        await writeControl('REQ_SYSINFO');
+        log('Device settings cleared');
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('thresholdInput').addEventListener('input', () => {
+      updateThresholdSlider(el('thresholdInput').value);
+    });
+
+    el('thresholdInput').addEventListener('change', async () => {
+      try {
+        const threshold = updateThresholdSlider(el('thresholdInput').value);
+        if (threshold === null) {
+          log('error: invalid threshold value');
+          return;
+        }
+        await writeControl(`SET_THRESHOLD:${threshold.toFixed(2)}`);
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('wifiApplyBtn').addEventListener('click', async () => {
+      try {
+        const ssid = el('wifiSsidInput').value.trim();
+        const password = el('wifiPasswordInput').value;
+        const channel = Number(el('wifiChannelInput').value);
+        if (!ssid) {
+          log('error: SSID is required');
+          return;
+        }
+        if (!Number.isInteger(channel) || channel < 0 || channel > 14) {
+          log('error: channel must be 0..14');
+          return;
+        }
+        const bssid = el('wifiBssidInput').value.trim();
+        if (bssid && !/^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/.test(bssid)) {
+          log('error: BSSID must match aa:bb:cc:dd:ee:ff');
+          return;
+        }
+        await writeControl(`SET_WIFI_SSID:${ssid}`);
+        if (password || !wifiPasswordStored) {
+          await writeControl(`SET_WIFI_PASSWORD:${password}`);
+        }
+        await writeControl(`SET_WIFI_BSSID:${bssid}`);
+        await writeControl(`SET_WIFI_CHANNEL:${channel}`);
+        await writeControl('APPLY_WIFI');
+        await writeControl('REQ_SYSINFO');
+        log('Wi-Fi credentials saved; station reconnecting');
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('wifiClearBtn').addEventListener('click', async () => {
+      try {
+        await writeControl('CLEAR_WIFI');
+        wifiPasswordStored = false;
+        el('wifiSsidInput').value = '';
+        el('wifiPasswordInput').value = '';
+        el('wifiPasswordInput').placeholder = 'Password';
+        el('wifiBssidInput').value = '';
+        el('wifiChannelInput').value = '0';
+        await writeControl('REQ_SYSINFO');
+        log('Wi-Fi credentials cleared; station disconnected');
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('mqttApplyBtn').addEventListener('click', async () => {
+      try {
+        const mqttHost = el('mqttHostInput').value.trim();
+        const mqttPort = parsePortInput(el('mqttPortInput').value);
+        const mqttUsername = el('mqttUsernameInput').value.trim();
+        const mqttPassword = el('mqttPasswordInput').value;
+        const topicPrefix = el('topicPrefixInput').value.trim() || 'espectre/v1/devices';
+
+        if (mqttPort === null) {
+          log('error: MQTT port must be 1..65535');
+          return;
+        }
+        if (!mqttHost) {
+          log('error: MQTT host is required');
+          return;
+        }
+
+        await writeControl(`SET_DEVICE_CONFIG:mqtt_host=${mqttHost}`);
+        await writeControl(`SET_DEVICE_CONFIG:mqtt_port=${mqttPort}`);
+        await writeControl(`SET_DEVICE_CONFIG:mqtt_username=${mqttUsername}`);
+        await writeControl(`SET_DEVICE_CONFIG:mqtt_password=${mqttPassword}`);
+        await writeControl(`SET_DEVICE_CONFIG:topic_prefix=${topicPrefix}`);
+        await writeControl('SET_DEVICE_CONFIG:mqtt_enabled=true');
+        await writeControl('REQ_SYSINFO');
+        log('MQTT settings saved');
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('mqttClearBtn').addEventListener('click', async () => {
+      try {
+        await writeControl('CLEAR_MQTT_CONFIG');
+        el('mqttPasswordInput').value = '';
+        await writeControl('REQ_SYSINFO');
+        log('MQTT settings cleared');
+      } catch (error) {
+        log(`error: ${error.message}`);
+      }
+    });
+
+    el('clearBtn').addEventListener('click', () => {
+      el('stateValue').textContent = '-';
+      el('movementValue').textContent = '-';
+      el('thresholdValue').textContent = '-';
+      el('sysinfoLog').textContent = '';
+      el('eventLog').textContent = '';
+    });
+
+    updateLiveTelemetryButton();
+  </script>
+</body>
+
+</html>

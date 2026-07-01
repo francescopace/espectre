@@ -369,7 +369,7 @@
                     </div>
                     <div class="input-group">
                         <label for="topic">Topic</label>
-                        <input type="text" id="topic" placeholder="home/espectre/node1" value="home/espectre/node1">
+                        <input type="text" id="topic" placeholder="espectre/v1/devices/+/telemetry" value="espectre/v1/devices/+/telemetry">
                     </div>
                     <div class="input-group">
                         <label for="username">Username (optional)</label>
@@ -1354,6 +1354,13 @@
         }
 
         function handleMessage(data) {
+            if (data && data.protocol_version !== undefined) {
+                data = {
+                    ...data,
+                    movement: data.movement_score,
+                    state: data.motion_state
+                };
+            }
             // Check if this is a regular data message
             if (data.movement !== undefined || data.threshold !== undefined || data.state) {
                 messageCount++;

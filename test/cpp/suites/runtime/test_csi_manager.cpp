@@ -204,12 +204,12 @@ void test_csi_manager_disable_preserves_stable_callbacks_for_reenable(void) {
     manager.set_motion_off_hits(1);
 
     int motion_callback_count = 0;
-    int game_callback_count = 0;
+    int live_telemetry_callback_count = 0;
     manager.set_motion_state_callback([&](MotionState) {
         motion_callback_count++;
     });
-    manager.set_game_mode_callback([&](float, float) {
-        game_callback_count++;
+    manager.set_live_telemetry_callback([&](float, float) {
+        live_telemetry_callback_count++;
     });
 
     int8_t csi_buf[128];
@@ -218,13 +218,13 @@ void test_csi_manager_disable_preserves_stable_callbacks_for_reenable(void) {
 
     TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
     manager.process_packet(&csi_info);
-    TEST_ASSERT_EQUAL(1, game_callback_count);
+    TEST_ASSERT_EQUAL(1, live_telemetry_callback_count);
 
     TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
     TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
     manager.process_packet(&csi_info);
 
-    TEST_ASSERT_EQUAL(2, game_callback_count);
+    TEST_ASSERT_EQUAL(2, live_telemetry_callback_count);
     TEST_ASSERT_TRUE(motion_callback_count >= 1);
 }
 
@@ -313,7 +313,7 @@ void test_csi_manager_motion_state_callback_fires_before_periodic_publish(void) 
     int motion_callback_count = 0;
     MotionState last_motion_state = MotionState::IDLE;
     int periodic_callback_count = 0;
-    manager.set_game_mode_callback([](float, float) {});
+    manager.set_live_telemetry_callback([](float, float) {});
     manager.set_motion_state_callback([&](MotionState state) {
         motion_callback_count++;
         last_motion_state = state;
@@ -347,7 +347,7 @@ void test_csi_manager_motion_state_callback_does_not_repeat_without_new_edge(voi
     manager.init(&detector, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
 
     int motion_callback_count = 0;
-    manager.set_game_mode_callback([](float, float) {});
+    manager.set_live_telemetry_callback([](float, float) {});
     manager.set_motion_state_callback([&](MotionState) {
         motion_callback_count++;
     });
@@ -372,7 +372,7 @@ void test_csi_manager_clear_detector_buffer_publishes_idle_edge(void) {
 
     int motion_callback_count = 0;
     MotionState last_motion_state = MotionState::IDLE;
-    manager.set_game_mode_callback([](float, float) {});
+    manager.set_live_telemetry_callback([](float, float) {});
     manager.set_motion_state_callback([&](MotionState state) {
         motion_callback_count++;
         last_motion_state = state;
@@ -399,7 +399,7 @@ void test_csi_manager_motion_state_callback_honors_motion_on_hits(void) {
 
     int motion_callback_count = 0;
     MotionState last_motion_state = MotionState::IDLE;
-    manager.set_game_mode_callback([](float, float) {});
+    manager.set_live_telemetry_callback([](float, float) {});
     manager.set_motion_state_callback([&](MotionState state) {
         motion_callback_count++;
         last_motion_state = state;
@@ -431,7 +431,7 @@ void test_csi_manager_motion_state_callback_honors_motion_off_hits(void) {
 
     int motion_callback_count = 0;
     MotionState last_motion_state = MotionState::IDLE;
-    manager.set_game_mode_callback([](float, float) {});
+    manager.set_live_telemetry_callback([](float, float) {});
     manager.set_motion_state_callback([&](MotionState state) {
         motion_callback_count++;
         last_motion_state = state;
@@ -465,7 +465,7 @@ void test_csi_manager_periodic_callback_uses_filtered_motion_state(void) {
 
     int periodic_callback_count = 0;
     MotionState periodic_state = MotionState::MOTION;
-    manager.set_game_mode_callback([](float, float) {});
+    manager.set_live_telemetry_callback([](float, float) {});
     manager.enable([&](MotionState state, uint32_t) {
         periodic_callback_count++;
         periodic_state = state;
@@ -482,7 +482,7 @@ void test_csi_manager_periodic_callback_uses_filtered_motion_state(void) {
     TEST_ASSERT_EQUAL(MotionState::IDLE, periodic_state);
 }
 
-void test_csi_manager_game_mode_callback_does_not_force_every_packet_evaluation(void) {
+void test_csi_manager_live_telemetry_callback_does_not_force_every_packet_evaluation(void) {
     TransitionDetectorMock detector;
     CSIManager manager;
     manager.init(&detector, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
@@ -490,9 +490,9 @@ void test_csi_manager_game_mode_callback_does_not_force_every_packet_evaluation(
     manager.set_motion_off_hits(1);
 
     int motion_callback_count = 0;
-    int game_mode_callback_count = 0;
-    manager.set_game_mode_callback([&](float, float) {
-        game_mode_callback_count++;
+    int live_telemetry_callback_count = 0;
+    manager.set_live_telemetry_callback([&](float, float) {
+        live_telemetry_callback_count++;
     });
     manager.set_motion_state_callback([&](MotionState) {
         motion_callback_count++;
@@ -507,12 +507,12 @@ void test_csi_manager_game_mode_callback_does_not_force_every_packet_evaluation(
     }
 
     TEST_ASSERT_EQUAL(0, motion_callback_count);
-    TEST_ASSERT_EQUAL(0, game_mode_callback_count);
+    TEST_ASSERT_EQUAL(0, live_telemetry_callback_count);
 
     manager.process_packet(&csi_info);
 
     TEST_ASSERT_EQUAL(1, motion_callback_count);
-    TEST_ASSERT_EQUAL(1, game_mode_callback_count);
+    TEST_ASSERT_EQUAL(1, live_telemetry_callback_count);
 }
 
 // ============================================================================
@@ -774,7 +774,7 @@ int process(void) {
     RUN_TEST(test_csi_manager_motion_state_callback_honors_motion_on_hits);
     RUN_TEST(test_csi_manager_motion_state_callback_honors_motion_off_hits);
     RUN_TEST(test_csi_manager_periodic_callback_uses_filtered_motion_state);
-    RUN_TEST(test_csi_manager_game_mode_callback_does_not_force_every_packet_evaluation);
+    RUN_TEST(test_csi_manager_live_telemetry_callback_does_not_force_every_packet_evaluation);
     
     // STBC packet tests (issue #76)
     RUN_TEST(test_csi_manager_process_stbc_256_byte_packet);

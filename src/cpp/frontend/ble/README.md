@@ -6,8 +6,9 @@ Its role is to expose the shared ESPectre runtime through a lightweight custom
 GATT surface that can be used by generic BLE clients, including web clients,
 mobile apps, smart-device integrations, and other custom tooling.
 
-This file is the source of truth for the BLE frontend protocol and firmware
-workflow.
+This file is the source of truth for the BLE frontend firmware workflow and
+BLE-specific operational notes. The shared protocol surface is documented in
+[`docs/ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
 ## Scope
 
@@ -36,14 +37,18 @@ BLE protocol mapping.
 
 ## Getting Started
 
-If you arrived here from [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md),
+If you arrived here from [`docs/SETUP.md`](../../../../docs/SETUP.md),
 this README is the next step for the standalone BLE firmware path.
 
 ### Browser-Flashed Firmware
 
 The web flasher can install published `BLE` images for supported chips. After
-flashing, use a BLE client that understands this protocol, such as the example
-web client documented in [`../../../../docs/web/game/README.md`](../../../../docs/web/game/README.md).
+flashing, use a BLE client that understands this protocol, such as:
+
+- [`tools/web/espectre-ble.html`](../../../../tools/web/espectre-ble.html):
+  local Web Bluetooth provisioning and protocol test client
+- [`docs/web/game/README.md`](../../../../docs/web/game/README.md):
+  example interactive client built on the same BLE surface
 
 ### Local ESP-IDF Workflow
 
@@ -57,12 +62,76 @@ Repository CLI:
 
 The CLI is a thin wrapper over the ESP-IDF app in this directory.
 
+### Local Web Bluetooth Test Client
+
+[`tools/web/espectre-ble.html`](../../../../tools/web/espectre-ble.html)
+is the reference browser client for local BLE validation, provisioning, and
+live diagnostics.
+
+Current capabilities:
+
+- connect to the ESPectre BLE service from a desktop browser
+- subscribe to telemetry and sysinfo notifications
+- enable or disable the live telemetry subscription without disconnecting
+- request a fresh sysinfo block with `REQ_SYSINFO`
+- adjust the runtime threshold with `SET_THRESHOLD:X.XX`
+- show a firmware-generated read-only `device_id`
+- edit the human-facing `device_name`
+- clear the persisted device-facing configuration without disconnecting
+- derive the BLE pairing name from `device_name`
+- provision or clear Wi-Fi credentials over BLE
+- provision or clear MQTT configuration over BLE
+
+Requirements:
+
+- desktop Chrome, Edge, or another Chromium-based browser with Web Bluetooth
+- a secure context such as `http://localhost` or `https://`
+- a BLE-capable ESP32 target supported by this frontend
+
+Recommended local workflow from the repository root:
+
+```bash
+python3 -m http.server 8080 -d tools/web
+```
+
+Then open:
+
+```text
+http://localhost:8080/espectre-ble.html
+```
+
+Usage notes:
+
+1. click `Connect` and select the ESPectre device
+2. wait for the initial `REQ_SYSINFO` refresh after notifications start
+3. disable live BLE telemetry from the test client when you only need provisioning or sysinfo
+4. use `Save Wi-Fi` to write Wi-Fi values and `APPLY_WIFI` in one step
+5. use `Save Device` to persist the human-facing `device_name`
+6. use `Clear Device` when you want to reset the persisted device-facing config while keeping the generated `device_id`
+7. use the threshold slider to send `SET_THRESHOLD` automatically when you release it
+8. use `Save MQTT` to persist MQTT settings and enable MQTT transport
+9. leave the Wi-Fi password field blank to keep an already stored password
+
+When telemetry notifications are disabled by the client, the standalone BLE
+frontend keeps `sysinfo` and control commands active but deregisters the live
+telemetry callback so BLE-only live telemetry is no longer produced in the
+background. The shared protocol semantics remain documented in
+[`docs/ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
+
+The standalone BLE frontend also keeps the same periodic progress-bar status log shape used by the ESPHome frontend and appends the observed MQTT publish rate as an extra diagnostic field.
+
 ## Wi-Fi Configuration
 
-Unlike the ESPHome frontend, the standalone BLE firmware currently expects
-Wi-Fi credentials at build time through Kconfig.
+Unlike the ESPHome frontend, the standalone BLE firmware does not rely on YAML
+or Home Assistant for setup. In the current local-lab profile, Wi-Fi can be
+provisioned live over BLE and persisted in NVS.
 
-Frontend-owned options in [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild):
+Frontend-owned options in [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild)
+remain useful as firmware defaults for reproducible images or first boot.
+Versioned transport defaults in [`app/sdkconfig.defaults`](app/sdkconfig.defaults)
+also tune the standalone BLE firmware for mixed BLE + Wi-Fi traffic, including
+larger Wi-Fi RX/TX buffers plus lwIP mailbox and IRAM optimizations inherited
+from the standalone streamer profile.
 
 | Option | Purpose |
 |--------|---------|
@@ -75,192 +144,44 @@ When `ESPECTRE_WIFI_BSSID` is set, the firmware uses fast scan and pins the
 association to that AP radio. Leave `ESPECTRE_WIFI_CHANNEL=0` unless you need
 to force a known 2.4 GHz channel for repeatable CSI captures.
 
+Runtime provisioning behavior:
+
+- `SET_WIFI_SSID`, `SET_WIFI_PASSWORD`, `SET_WIFI_BSSID`, and
+  `SET_WIFI_CHANNEL` persist the working values in NVS
+- `APPLY_WIFI` reconnects the station immediately without restarting BLE
+- `CLEAR_WIFI` erases stored Wi-Fi values and disconnects the station
+- the web client shows whether a password is already stored and lets you keep
+  it by leaving the password field blank
+
 This means the current standalone BLE firmware is best suited for:
 
 - local integration experiments
 - custom client development
-- controlled firmware deployments where build-time credentials are acceptable
+- controlled deployments and recovery flows where BLE-assisted provisioning is acceptable
 
-It is not yet a provisioning-oriented end-user flow comparable to ESPHome.
+It is still a lab-oriented provisioning path, not a polished end-user flow
+comparable to ESPHome.
 
-## Current Protocol
+## Protocol Reference
 
-Current protocol version: `1`
+The shared BLE protocol surface is documented in:
 
-Transport model:
+- [`../../../../docs/ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md)
 
-- one primary BLE service
-- one notify characteristic for live telemetry
-- one notify and read characteristic for line-based system information
-- one write characteristic for control commands
-
-## Stability Model
-
-To help client implementations stay robust, treat the protocol in three layers:
-
-### 1. Stable Transport Surface
-
-These parts should be considered the most stable client contract:
+Use that file as the source of truth for:
 
 - service and characteristic UUIDs
-- telemetry payload shape
+- telemetry payload format
+- sysinfo framing and key semantics
 - control command syntax
-- `proto_version`
-- `END` terminator for sysinfo blocks
+- compatibility expectations for nearby BLE clients
 
-### 2. Current Operational and Diagnostic Surface
+Local implementation anchors:
 
-These fields are part of the current implementation and are useful for clients,
-but should be treated as more flexible than the transport primitives above:
-
-- the exact set of sysinfo keys
-- the order of sysinfo lines
-- human-readable formatting inside values such as `threshold=1.20 (auto)`
-- optional diagnostic values that may expand over time
-
-Clients should parse these conservatively and ignore unknown keys.
-
-### 3. Future Extensions
-
-These are not part of the current contract and should not be assumed by
-clients until they are explicitly added:
-
-- richer status and state fields
-- firmware and build metadata
-- extra health diagnostics
-- capability discovery
-- new control commands
-
-## UUIDs
-
-These values are defined in `espectre/ble_protocol.h`.
-
-| Item | UUID | Direction | Notes |
-|------|------|-----------|-------|
-| Service | `d33ff46b-2203-4775-bc6f-b3a2c36af8f0` | - | ESPectre BLE service |
-| Telemetry characteristic | `119d5cac-48da-4bd9-bfc3-169805868258` | device -> client (`notify`) | Binary payload |
-| Sysinfo characteristic | `c8c89ffa-c401-461f-9ffc-942fa04adfe3` | device -> client (`notify`, `read`) | Text `key=value` lines |
-| Control characteristic | `33ed9214-a8d7-40e8-82d1-c82747dcdc71` | client -> device (`write`) | ASCII commands |
-
-Default device name:
-
-- `ESPectre BLE`
-
-## Telemetry Characteristic
-
-Purpose:
-
-- low-latency runtime telemetry for interactive clients
-
-Encoding:
-
-```text
-[float32 movement][float32 threshold]
-```
-
-Field semantics:
-
-| Field | Type | Description |
-|------|------|-------------|
-| `movement` | `float32` | Current movement metric from the runtime |
-| `threshold` | `float32` | Current runtime threshold |
-
-Notes:
-
-- values are serialized as little-endian `float32`
-- notifications are throttled in the frontend
-- current default notify interval is `40 ms`
-
-Example:
-
-```text
-00 00 40 3F  9A 99 99 3F
-```
-
-This corresponds to:
-
-- `movement = 0.75`
-- `threshold = 1.20`
-
-## Sysinfo Characteristic
-
-Purpose:
-
-- expose textual runtime and configuration information
-- provide a simple transport that remains easy to inspect from generic BLE tools
-
-Framing:
-
-- the device sends one `key=value` line per notification
-- the block terminates with `END`
-
-Example:
-
-```text
-proto_version=1
-chip=esp32c6
-threshold=1.20 (auto)
-window=100
-END
-```
-
-Current keys emitted by the frontend:
-
-| Key | Class | Description |
-|-----|-------|-------------|
-| `proto_version` | stable | BLE protocol version |
-| `chip` | operational | Chip target, for example `esp32c6` |
-| `threshold` | operational | Current threshold plus mode suffix |
-| `window` | operational | Segmentation window size |
-| `detector` | operational | Active detector name |
-| `subcarriers` | diagnostic | Current subcarrier source label |
-| `lowpass` | operational | Low-pass filter state |
-| `lowpass_cutoff` | operational | Low-pass cutoff in Hz, when enabled |
-| `hampel` | operational | Hampel filter state |
-| `hampel_window` | operational | Hampel window size, when enabled |
-| `hampel_threshold` | operational | Hampel threshold, when enabled |
-| `traffic_rate` | operational | Configured traffic generator rate |
-| `publish_interval` | operational | Runtime publish interval |
-| `evaluation_interval` | operational | Runtime evaluation interval |
-| `motion_hits` | operational | Motion enter and exit hit counters |
-| `best_pxx` | diagnostic | Current adaptive-threshold baseline metric |
-| `END` | stable | End-of-block marker |
-
-Legend:
-
-- `stable`: clients can depend on it structurally
-- `operational`: useful current runtime and configuration information
-- `diagnostic`: primarily for visibility and debugging
-
-Emission behavior:
-
-- on client connect
-- on explicit `REQ_SYSINFO`
-- after threshold changes
-- when calibration starts or finishes
-
-## Control Characteristic
-
-Purpose:
-
-- allow lightweight runtime control from external clients
-
-Encoding:
-
-- ASCII command strings
-
-Current commands:
-
-| Command | Description | Notes |
-|---------|-------------|-------|
-| `REQ_SYSINFO` | Request a fresh sysinfo block | Exact string |
-| `SET_THRESHOLD:X.XX` | Update the runtime threshold | Value must be finite and in range `0.0-10.0` |
-
-Behavior notes:
-
-- threshold updates are runtime and session only
-- unknown commands are ignored and logged on the device
-- invalid threshold writes are rejected and logged on the device
+- [`espectre/ble_protocol.h`](espectre/ble_protocol.h):
+  protocol constants such as UUIDs and default device name
+- [`espectre/ble_frontend.cpp`](espectre/ble_frontend.cpp):
+  command handling, sysinfo emission, and telemetry serialization
 
 ## Firmware Limits and Expectations
 
@@ -268,51 +189,14 @@ The current standalone BLE frontend intentionally stays small.
 
 Important current limits:
 
-- Wi-Fi provisioning is build-time, not end-user interactive
-- threshold is the only runtime write command exposed today
+- provisioning is intentionally lab-oriented and low-ceremony
+- the BLE control surface is still ASCII commands rather than a structured schema
 - clients should not assume diagnostic sysinfo fields are stable forever
+- there is no capability discovery or negotiated feature set yet
 
-This keeps the transport simple while allowing external BLE clients to tune and
-observe the runtime in real time.
-
-## Compatibility Guidance
-
-The current protocol is intentionally simple, but clients should still treat it
-as versioned:
-
-- always read and cache `proto_version`
-- ignore unknown sysinfo keys
-- ignore additional commands or features you do not understand
-- do not assume the sysinfo key order is semantically important
-- treat new keys as additive unless a future protocol version states otherwise
-- avoid depending on diagnostic-only fields for core client behavior
-
-## Possible Evolutions
-
-The current protocol is intentionally minimal. The most likely future
-extensions are:
-
-- richer device status:
-  - `ready_to_publish`
-  - `calibrating`
-  - `gain_locked`
-  - `motion_state`
-- firmware and build metadata:
-  - firmware version
-  - git ref
-  - build id
-- health diagnostics:
-  - free heap
-  - largest free block
-  - uptime
-  - reset reason
-  - last runtime fault
-- feature and capability discovery:
-  - supported commands
-  - optional diagnostics availability
-
-These are intentionally ideas, not commitments.
-They should not be interpreted as part of protocol version `1`.
+This keeps the transport simple while allowing external BLE clients to provision
+Wi-Fi and MQTT, tune the runtime threshold, and observe the runtime in real
+time.
 
 ## BLE-Specific Troubleshooting
 
@@ -326,11 +210,17 @@ Check these first:
 
 ### The firmware starts but never joins Wi-Fi
 
-Verify the Kconfig values used at build time:
+Check the active Wi-Fi values first:
 
-- `ESPECTRE_WIFI_SSID`
-- `ESPECTRE_WIFI_PASSWORD`
-- optional `ESPECTRE_WIFI_BSSID`
+1. request fresh sysinfo and inspect `wifi_ssid`, `wifi_bssid`,
+   `wifi_channel`, and `wifi_saved`
+2. if using `tools/web/espectre-ble.html`, press `Save Wi-Fi` and wait for the
+   station reconnect after `APPLY_WIFI`
+3. if no provisioning has been stored yet, verify the Kconfig defaults used at
+   build time:
+   - `ESPECTRE_WIFI_SSID`
+   - `ESPECTRE_WIFI_PASSWORD`
+   - optional `ESPECTRE_WIFI_BSSID`
 
 ### The BLE firmware is not the right fit for the workflow
 
@@ -345,6 +235,8 @@ not for Home Assistant-style provisioning or the Matter commissioning flow.
   command parsing, sysinfo emission, telemetry serialization
 - `app/main/ble_bindings_nimble.cpp`:
   NimBLE transport implementation
+- `../../../../tools/web/espectre-ble.html`:
+  local Web Bluetooth provisioning and protocol test client
 - `docs/web/game/README.md`:
   example client built on this protocol
 

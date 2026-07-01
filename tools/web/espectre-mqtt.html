@@ -85,6 +85,10 @@
             display: none;
         }
 
+        .info-field[hidden] {
+            display: none !important;
+        }
+
         .config-section {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -413,27 +417,6 @@
             }
         }
 
-        .modal-close {
-            background: none;
-            border: none;
-            font-size: 1.5em;
-            cursor: pointer;
-            color: #999;
-            padding: 0;
-            width: 30px;
-            height: 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            transition: all 0.3s;
-        }
-
-        .modal-close:hover {
-            background: #f0f0f0;
-            color: #333;
-        }
-
         .modal-body {
             font-family: monospace;
             font-size: 0.95em;
@@ -441,24 +424,15 @@
             color: #333;
         }
 
-        .stat-section {
+        .stat-list {
             margin-bottom: 16px;
             padding-bottom: 16px;
             border-bottom: 1px solid #e8e8e8;
         }
 
-        .stat-section:last-child {
+        .stat-list:last-child {
             margin-bottom: 0;
             border-bottom: none;
-        }
-
-        .stat-section-title {
-            font-size: 0.85em;
-            font-weight: 600;
-            color: #999;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
 
         .stat-line {
@@ -528,7 +502,7 @@
     <div class="container">
         <div class="header">
             <h1>🛜 ESPectre 👻</h1>
-            <p>Real-Time Motion Detection Visualization</p>
+            <p>Real-Time Motion Detection Visualization via MQTT</p>
         </div>
 
         <!-- MQTT Configuration Card -->
@@ -553,7 +527,7 @@
                     </div>
                     <div class="input-group">
                         <label for="topic">Topic</label>
-                        <input type="text" id="topic" placeholder="home/espectre/node1" value="home/espectre/node1">
+                        <input type="text" id="topic" placeholder="espectre/v1/devices/+/telemetry" value="espectre/v1/devices/+/telemetry">
                     </div>
                     <div class="input-group">
                         <label for="username">Username (optional)</label>
@@ -580,46 +554,31 @@
             <div class="collapsible-content collapsed" id="configurationContent">
                 <!-- Device & Network Information -->
                 <div style="background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #667eea; border-radius: 8px; margin-bottom: 20px; padding: 15px;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; font-size: 0.95em;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; font-size: 0.95em;">
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
                             <span style="font-size: 1.1em;">🖥️</span>
                             <span style="font-weight: 600; color: #666;">Model:</span>
                             <span id="deviceType">-</span>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
                             <span style="font-size: 1.1em;">🌐</span>
                             <span style="font-weight: 600; color: #666;">IP:</span>
                             <span id="deviceIP">-</span>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
                             <span style="font-size: 1.1em;">🏷️</span>
                             <span style="font-weight: 600; color: #666;">MAC:</span>
                             <span id="deviceMAC">-</span>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 1.1em;">🛜</span>
-                            <span style="font-weight: 600; color: #666;">Protocol:</span>
-                            <span id="wifiProtocol">-</span>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 1.1em;">📶</span>
-                            <span style="font-weight: 600; color: #666;">Bandwidth:</span>
-                            <span id="wifiBandwidth">-</span>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
                             <span style="font-size: 1.1em;">📻</span>
                             <span style="font-weight: 600; color: #666;">Channel:</span>
                             <span id="wifiChannel">-</span>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
                             <span style="font-size: 1.1em;">🎯</span>
                             <span style="font-weight: 600; color: #666;">Detector:</span>
                             <span id="detectorAlgorithm">-</span>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 1.1em;">🔧</span>
-                            <span style="font-weight: 600; color: #666;">Calibrator:</span>
-                            <span id="calibratorAlgorithm">-</span>
                         </div>
                     </div>
                 </div>
@@ -639,16 +598,6 @@
                         <div id="mvsParamsSection"
                             style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 15px;">
                             <div class="input-group">
-                                <label for="windowSize" style="font-size: 0.85em;">⚡ Response Speed (10-200)</label>
-                                <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="windowSize" min="10" max="200" step="1" value="50"
-                                        style="flex: 1;">
-                                    <input type="number" id="windowSizeValue" min="10" max="200" step="1" value="50"
-                                        style="width: 70px; padding: 6px; font-size: 0.9em;">
-                                </div>
-                                <small style="color: #666; font-size: 0.8em;">How fast the system reacts to changes.<br>Low value = quick response, more sensitive to noise.<br>High value = stable, filters out small variations.<br><b>Recommended: 50 💡</b></small>
-                            </div>
-                            <div class="input-group">
                                 <label for="segThreshold" style="font-size: 0.85em;">🎯 Motion Threshold (0.5-10.0)</label>
                                 <div style="display: flex; gap: 8px; align-items: center;">
                                     <input type="range" id="segThreshold" min="0.5" max="10.0" step="0.1" value="1.0"
@@ -659,17 +608,6 @@
                                 <small style="color: #666; font-size: 0.8em;">Minimum threshold required to detect movement.<br>Low value = detects small movements.<br>High value = detects large movements.<br><b>Recommended: 1.0 for balanced detection 💡</b></small>
                             </div>
                         </div>
-                        <div
-                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
-                            <div id="subcarrierSelectionContent" style="grid-column: span 2;">
-                                <div class="input-group">
-                                    <label style="font-size: 0.85em;">📻 Active Subcarriers</label>
-                                    <div id="subcarrierIndices" 
-                                        style="padding: 8px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; font-family: monospace; width: 100%; background: #f5f5f5; color: #333;">-</div>
-                                    <small style="color: #666; font-size: 0.8em;">WiFi frequency channels used for motion detection</small>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -678,7 +616,6 @@
                     style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding-top: 10px; border-top: 2px solid #e0e0e0;">
                     <button class="btn btn-warning" onclick="requestInfo()">Reload Info</button>
                     <button class="btn btn-success btn-sm" onclick="requestStats()">Statistics</button>
-                    <button class="btn btn-danger" onclick="factoryReset()">Factory Reset</button>
                 </div>
             </div>
         </div>
@@ -720,13 +657,12 @@
         let maxDataPoints = 60;
         let isPaused = false;
         let pendingData = [];
+        let currentDeviceId = null;
 
         const chartData = {
             labels: [],
             movement: [],
-            threshold: [],
-            pps: [],
-            packets_dropped: []
+            threshold: []
         };
 
         // Initialize Chart
@@ -757,26 +693,6 @@
                             tension: 0,
                             fill: false,
                             yAxisID: 'y'
-                        },
-                        {
-                            label: 'Packets/sec',
-                            data: chartData.pps,
-                            borderColor: '#2ecc71',
-                            backgroundColor: 'rgba(46, 204, 113, 0.1)',
-                            borderWidth: 2,
-                            tension: 0.4,
-                            fill: false,
-                            yAxisID: 'y1'
-                        },
-                        {
-                            label: 'Dropped',
-                            data: chartData.packets_dropped,
-                            borderColor: '#f39c12',
-                            backgroundColor: 'rgba(243, 156, 18, 0.1)',
-                            borderWidth: 2,
-                            tension: 0.4,
-                            fill: false,
-                            yAxisID: 'y1'
                         }
                     ]
                 },
@@ -795,19 +711,6 @@
                             title: {
                                 display: true,
                                 text: 'Movement / Threshold'
-                            }
-                        },
-                        y1: {
-                            type: 'linear',
-                            display: true,
-                            position: 'right',
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: 'CSI Packets'
-                            },
-                            grid: {
-                                drawOnChartArea: false
                             }
                         },
                         x: {
@@ -902,18 +805,19 @@
                     document.getElementById('configContent').classList.add('collapsed');
                     document.getElementById('configArrow').classList.add('rotate');
 
+                    const protocolTopics = resolveProtocolTopics(topic);
+
                     // Subscribe to main topic
-                    client.subscribe(topic, (err) => {
+                    client.subscribe(protocolTopics.telemetry, (err) => {
                         if (err) {
                             console.error('Subscribe error:', err);
                             alert('Error subscribing to topic!');
                         } else {
-                            console.log('Subscribed to:', topic);
+                            console.log('Subscribed to:', protocolTopics.telemetry);
                         }
                     });
 
-                    // Also subscribe to response topic
-                    const responseTopic = topic + '/response';
+                    const responseTopic = protocolTopics.responses;
                     client.subscribe(responseTopic, (err) => {
                         if (err) {
                             console.error('Subscribe error for response topic:', err);
@@ -931,7 +835,7 @@
 
                 client.on('message', (topic, message) => {
                     // Text message - parse as JSON
-                    handleMessage(message.toString());
+                    handleMessage(message.toString(), topic);
                 });
 
                 client.on('error', (err) => {
@@ -988,22 +892,15 @@
         function addDataToChart(data) {
             const now = new Date();
             const timeLabel = now.toLocaleTimeString('en-US');
-            
-            // Use PPS calculated server-side (with ms precision)
-            const pps = data.pps || 0;
 
             chartData.labels.push(timeLabel);
             chartData.movement.push(data.movement || 0);
             chartData.threshold.push(data.threshold || 0);
-            chartData.pps.push(pps);
-            chartData.packets_dropped.push(data.packets_dropped || 0);
 
             if (chartData.labels.length > maxDataPoints) {
                 chartData.labels.shift();
                 chartData.movement.shift();
                 chartData.threshold.shift();
-                chartData.pps.shift();
-                chartData.packets_dropped.shift();
             }
 
             chart.update('none');
@@ -1023,20 +920,76 @@
             }
 
             document.getElementById('movementValue').textContent =
-                data.movement ? data.movement.toFixed(2) : '-';
+                data.movement !== undefined ? data.movement.toFixed(2) : '-';
+            if (data.detector) {
+                setInfoField('detectorAlgorithm', String(data.detector).toUpperCase());
+            }
+            if (data.threshold !== undefined) {
+                setThresholdControls(data.threshold);
+            }
+        }
+
+        function setInfoField(id, value) {
+            const target = document.getElementById(id);
+            if (!target) return;
+            const row = target.closest('.info-field');
+            const hasValue = value !== undefined && value !== null && String(value).trim() !== '' && value !== '-';
+            if (row) {
+                row.hidden = !hasValue;
+            }
+            target.textContent = hasValue ? value : '-';
+        }
+
+        function setThresholdControls(threshold, force = false) {
+            const parsed = Number(threshold);
+            if (!Number.isFinite(parsed)) return;
+            const slider = document.getElementById('segThreshold');
+            const input = document.getElementById('segThresholdValue');
+            const editingThreshold = document.activeElement === slider || document.activeElement === input;
+            if (editingThreshold && !force) return;
+            const value = parsed.toFixed(3);
+            slider.value = parsed;
+            input.value = value;
         }
 
         function clearData() {
             chartData.labels = [];
             chartData.movement = [];
             chartData.threshold = [];
-            chartData.pps = [];
-            chartData.packets_dropped = [];
             pendingData = [];
 
             document.getElementById('lastUpdate').textContent = '-';
 
             chart.update();
+        }
+
+        function trimTopic(topic) {
+            return (topic || '').trim().replace(/\/+$/, '');
+        }
+
+        function resolveProtocolTopics(inputTopic) {
+            const topic = trimTopic(inputTopic);
+            const telemetrySuffix = '/telemetry';
+            const wildcardTelemetrySuffix = '/+/telemetry';
+            let root = topic;
+
+            if (topic.endsWith(wildcardTelemetrySuffix)) {
+                root = topic.slice(0, -wildcardTelemetrySuffix.length);
+            } else if (topic.endsWith(telemetrySuffix)) {
+                root = topic.slice(0, -telemetrySuffix.length);
+            }
+
+            return {
+                root,
+                telemetry: `${root}/+/#`,
+                responses: `${root}/+/commands/+`
+            };
+        }
+
+        function commandTopicFor(inputTopic) {
+            const topics = resolveProtocolTopics(inputTopic);
+            const deviceId = currentDeviceId || 'espectre-node';
+            return `${topics.root}/${deviceId}/commands/request`;
         }
 
         // MQTT Command Functions
@@ -1047,8 +1000,13 @@
             }
 
             const topic = document.getElementById('topic').value;
-            const cmdTopic = topic + '/cmd';
-            const message = JSON.stringify({ cmd, ...params });
+            const cmdTopic = commandTopicFor(topic);
+            const message = JSON.stringify({
+                protocol_version: '1.0',
+                command_id: 'web-' + Date.now(),
+                command: cmd,
+                ...params
+            });
 
             client.publish(cmdTopic, message, (err) => {
                 if (err) {
@@ -1069,73 +1027,6 @@
             sendCommand('stats');
         }
 
-        function factoryReset() {
-            showFactoryResetModal();
-        }
-
-        function showFactoryResetModal() {
-            // Create modal overlay
-            const overlay = document.createElement('div');
-            overlay.className = 'modal-overlay';
-            overlay.onclick = (e) => {
-                if (e.target === overlay) closeModal();
-            };
-
-            // Create modal content
-            const modal = document.createElement('div');
-            modal.className = 'modal-content';
-
-            // Modal header
-            const header = document.createElement('div');
-            header.className = 'modal-header';
-            header.innerHTML = `
-                <h3 style="color: #e74c3c;">⚠️ Factory Reset</h3>
-            `;
-
-            // Modal body
-            const body = document.createElement('div');
-            body.className = 'modal-body';
-            body.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-
-            let html = '';
-            html += `<div style="margin-bottom: 20px;">`;
-            html += `<p style="font-size: 1em; color: #e74c3c; font-weight: 600; margin-bottom: 15px;">`;
-            html += `This will reset ALL settings to factory defaults!`;
-            html += `</p>`;
-            html += `<p style="font-size: 0.95em; color: #666; margin-bottom: 10px;">This includes:</p>`;
-            html += `<ul style="margin-left: 20px; color: #666; font-size: 0.9em; line-height: 1.8;">`;
-            html += `<li>Detection parameters</li>`;
-            html += `<li>Filter settings</li>`;
-            html += `<li>All saved configurations</li>`;
-            html += `</ul>`;
-            html += `</div>`;
-            html += `<p style="font-size: 0.95em; color: #333; font-weight: 600; margin-top: 20px;">`;
-            html += `Are you sure you want to continue?`;
-            html += `</p>`;
-
-            body.innerHTML = html;
-
-            // Modal footer with buttons
-            const footer = document.createElement('div');
-            footer.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px; padding-top: 20px; border-top: 2px solid #e0e0e0;';
-            footer.innerHTML = `
-                <button class="btn btn-secondary" onclick="closeModal()" style="padding: 10px 20px;">Cancel</button>
-                <button class="btn btn-danger" onclick="confirmFactoryReset()" style="padding: 10px 20px;">Reset to Factory Defaults</button>
-            `;
-
-            modal.appendChild(header);
-            modal.appendChild(body);
-            modal.appendChild(footer);
-            overlay.appendChild(modal);
-            document.body.appendChild(overlay);
-        }
-
-        function confirmFactoryReset() {
-            closeModal();
-            sendCommand('factory_reset');
-            showNotification('Factory reset command sent', 'info');
-        }
-
         // Section Toggle Function
         function toggleSection(sectionId) {
             const content = document.getElementById(sectionId + 'Content');
@@ -1151,20 +1042,6 @@
             content.classList.toggle('collapsed');
             arrow.classList.toggle('rotate');
         }
-
-        // Apply Detection Configuration Only
-        function applyDetectionConfiguration() {
-            const segThreshold = parseFloat(document.getElementById('segThresholdValue').value);
-            const windowSize = parseInt(document.getElementById('windowSizeValue').value);
-            // Send detection commands with delays
-            let delay = 0;
-            sendCommand('segmentation_threshold', { value: segThreshold });
-            delay += 100;
-            setTimeout(() => sendCommand('segmentation_window_size', { value: windowSize }), delay);
-
-            showNotification('Detection configuration applied', 'success');
-        }
-
 
         // Notification Function
         function showNotification(message, type = 'info') {
@@ -1194,24 +1071,57 @@
         }
 
         // Enhanced Message Handler for Info/Stats and regular data
-        function handleMessage(message) {
+        function normalizeEspectreProtocolMessage(data, topic) {
+            if (!data || data.protocol_version === undefined) {
+                return data;
+            }
+            if (data.device_id) {
+                currentDeviceId = data.device_id;
+            } else if (topic && topic.startsWith('espectre/v1/devices/')) {
+                currentDeviceId = topic.split('/')[3];
+            }
+            if (data.accepted !== undefined && data.message) {
+                return { response: data.message };
+            }
+            if (data.motion_state || data.movement_score !== undefined) {
+                return {
+                    ...data,
+                    state: data.motion_state,
+                    movement: data.movement_score,
+                    threshold: data.threshold
+                };
+            }
+            if (data.firmware_version || data.chip || data.frontend) {
+                populateUIFromConfig(data, { notify: false });
+                return { ...data, info_only: true };
+            }
+            return data;
+        }
+
+        // Enhanced Message Handler for Info/Stats and regular data
+        function handleMessage(message, topic = '') {
             try {
-                const data = JSON.parse(message);
+                let data = JSON.parse(message);
+                data = normalizeEspectreProtocolMessage(data, topic);
 
                 // Log all messages to console for debugging
                 console.log('Received message:', data);
 
-                // Check if this is an info response (has network, mqtt, segmentation, filters, options)
-                if (data.network || data.mqtt || (data.segmentation && data.filters && data.options)) {
+                // Check if this is an info response
+                if (data.info_only || data.network || data.mqtt || data.device || data.detection) {
                     console.log('Detected INFO response');
-                    populateUIFromConfig(data);
+                    if (!data.info_only) {
+                        populateUIFromConfig(data);
+                    }
                     return;
                 }
 
-                // Check if this is a stats response (has uptime, turbulence, packets_processed)
-                if (data.uptime || (data.turbulence !== undefined && data.packets_processed !== undefined)) {
+                // Check if this is a stats response
+                const isStatsTopic = typeof topic === 'string' && topic.endsWith('/stats');
+                if (isStatsTopic || data.uptime !== undefined ||
+                    data.free_memory_kb !== undefined || data.loop_time_ms !== undefined) {
                     console.log('Detected STATS response');
-                    displayStats(data);
+                    displayStats(normalizeStatsPayload(data));
                     return;
                 }
 
@@ -1219,7 +1129,6 @@
                 if (data.response && typeof data.response === 'string') {
                     console.log('Detected command response');
                     showNotification(data.response, 'info');
-                    // Info is automatically published by device after factory_reset
                     return;
                 }
 
@@ -1242,9 +1151,30 @@
             }
         }
 
+        function normalizeStatsPayload(stats) {
+            if (!stats || typeof stats !== 'object') {
+                return {};
+            }
+
+            return {
+                ...stats,
+                uptime: stats.uptime,
+                free_memory_kb: stats.free_memory_kb,
+                loop_time_ms: stats.loop_time_ms
+            };
+        }
+
+        function formatMetric(value, digits = 3, suffix = '') {
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed)) {
+                return 'N/A';
+            }
+            return `${parsed.toFixed(digits)}${suffix}`;
+        }
+
         // Format uptime to human readable format
         function formatUptime(uptime) {
-            if (!uptime) return 'N/A';
+            if (uptime === undefined || uptime === null || uptime === '') return 'N/A';
 
             // If uptime is already a formatted string, return it as is
             if (typeof uptime === 'string') {
@@ -1260,12 +1190,6 @@
             }
 
             return 'N/A';
-        }
-
-        // Format large numbers with thousands separator
-        function formatNumber(num) {
-            if (num === undefined || num === null) return 'N/A';
-            return num.toLocaleString();
         }
 
         // Refresh stats in modal
@@ -1290,6 +1214,8 @@
 
         // Display Stats in modal
         function displayStats(stats) {
+            stats = normalizeStatsPayload(stats);
+
             // Check if modal already exists
             let overlay = document.querySelector('.modal-overlay');
             let isUpdate = false;
@@ -1329,89 +1255,25 @@
             const body = document.createElement('div');
             body.className = 'modal-body';
 
-            // Determine state color
-            const stateClass = stats.state === 'motion' ? 'warning' : 'success';
-            const stateIcon = stats.state === 'motion' ? '🔴' : '🟢';
-
             let html = '';
 
-            // System Status Section
-            html += `<div class="stat-section">`;
-            html += `<div class="stat-section-title">📊 System Status</div>`;
+            html += `<div class="stat-list">`;
             html += `<div class="stat-line">`;
             html += `<span class="stat-label">⏱️ Uptime</span>`;
             html += `<span class="stat-value">${formatUptime(stats.uptime)}</span>`;
             html += `</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">🧠 Free Memory</span>`;
-            html += `<span class="stat-value highlight">${stats.free_memory_kb !== undefined ? stats.free_memory_kb.toFixed(1) + ' KB' : 'N/A'}</span>`;
-            html += `</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">⚡ Loop Time</span>`;
-            html += `<span class="stat-value highlight">${stats.loop_time_ms !== undefined ? stats.loop_time_ms.toFixed(2) + ' ms' : 'N/A'}</span>`;
-            html += `</div>`;
-            html += `</div>`;
-
-            // Traffic Generator Section (if available)
-            if (stats.traffic_generator) {
-                const tg = stats.traffic_generator;
-                const tgStatusClass = tg.running ? 'success' : 'warning';
-                const tgStatusIcon = tg.running ? '🟢' : '🔴';
-                const tgStatusText = tg.running ? 'Running' : 'Stopped';
-                
-                // Determine loop time health (target is ~10ms for 100pps)
-                const loopTimeClass = tg.avg_loop_ms <= 12 ? 'success' : (tg.avg_loop_ms <= 20 ? 'warning' : 'danger');
-                
-                html += `<div class="stat-section">`;
-                html += `<div class="stat-section-title">📡 Traffic Generator</div>`;
+            if (stats.free_memory_kb !== undefined) {
                 html += `<div class="stat-line">`;
-                html += `<span class="stat-label">${tgStatusIcon} Status</span>`;
-                html += `<span class="stat-value ${tgStatusClass}">${tgStatusText}</span>`;
-                html += `</div>`;
-                html += `<div class="stat-line">`;
-                html += `<span class="stat-label">🎯 Target Rate</span>`;
-                html += `<span class="stat-value">${tg.target_pps || 0} pps</span>`;
-                html += `</div>`;
-                html += `<div class="stat-line">`;
-                html += `<span class="stat-label">⚡ Actual Rate</span>`;
-                html += `<span class="stat-value highlight">${tg.actual_pps || 0} pps</span>`;
-                html += `</div>`;
-                html += `<div class="stat-line">`;
-                html += `<span class="stat-label">⏱️ Avg Loop Time</span>`;
-                html += `<span class="stat-value ${loopTimeClass}">${tg.avg_loop_ms !== undefined ? tg.avg_loop_ms.toFixed(2) + ' ms' : 'N/A'}</span>`;
-                html += `</div>`;
-                html += `<div class="stat-line">`;
-                html += `<span class="stat-label">📦 Packets Sent</span>`;
-                html += `<span class="stat-value">${(tg.packets_sent || 0).toLocaleString()}</span>`;
-                html += `</div>`;
-                if (tg.errors > 0) {
-                    html += `<div class="stat-line">`;
-                    html += `<span class="stat-label">⚠️ Errors</span>`;
-                    html += `<span class="stat-value warning">${tg.errors}</span>`;
-                    html += `</div>`;
-                }
+                html += `<span class="stat-label">🧠 Free Memory</span>`;
+                html += `<span class="stat-value highlight">${formatMetric(stats.free_memory_kb, 1, ' KB')}</span>`;
                 html += `</div>`;
             }
-
-            // Detection Metrics Section
-            html += `<div class="stat-section">`;
-            html += `<div class="stat-section-title">🎯 Detection Metrics</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">${stateIcon} State</span>`;
-            html += `<span class="stat-value ${stateClass}">${(stats.state || 'N/A').toUpperCase()}</span>`;
-            html += `</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">🌊 Turbulence</span>`;
-            html += `<span class="stat-value highlight">${stats.turbulence?.toFixed(3) || 'N/A'}</span>`;
-            html += `</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">📈 Movement</span>`;
-            html += `<span class="stat-value highlight">${stats.movement?.toFixed(3) || 'N/A'}</span>`;
-            html += `</div>`;
-            html += `<div class="stat-line">`;
-            html += `<span class="stat-label">🎚️ Threshold</span>`;
-            html += `<span class="stat-value">${stats.threshold?.toFixed(3) || 'N/A'}</span>`;
-            html += `</div>`;
+            if (stats.loop_time_ms !== undefined) {
+                html += `<div class="stat-line">`;
+                html += `<span class="stat-label">⚡ Loop Time</span>`;
+                html += `<span class="stat-value highlight">${formatMetric(stats.loop_time_ms, 2, ' ms')}</span>`;
+                html += `</div>`;
+            }
             html += `</div>`;
 
             body.innerHTML = html;
@@ -1435,32 +1297,29 @@
         }
 
         // Populate UI controls from config data
-        function populateUIFromConfig(config) {
+        function populateUIFromConfig(config, options = {}) {
             console.log('Populating UI from config:', config);
 
+            [
+                'deviceType',
+                'deviceIP',
+                'deviceMAC',
+                'wifiChannel',
+                'detectorAlgorithm'
+            ].forEach((id) => setInfoField(id, null));
+
             // Update Device & Network Information
-            if (config.device && config.device.type) {
-                document.getElementById('deviceType').textContent = config.device.type;
-            }
+            setInfoField('deviceType', config.chip || (config.device && config.device.type));
+            setInfoField('detectorAlgorithm', config.frontend);
             
             if (config.network) {
-                if (config.network.ip_address) {
-                    document.getElementById('deviceIP').textContent = config.network.ip_address;
-                }
-                if (config.network.mac_address) {
-                    document.getElementById('deviceMAC').textContent = config.network.mac_address;
-                }
+                setInfoField('deviceIP', config.network.ip_address);
+                setInfoField('deviceMAC', config.network.mac_address);
                 if (config.network.channel) {
                     const primary = config.network.channel.primary || '-';
                     const secondary = config.network.channel.secondary || 0;
                     const channelText = secondary > 0 ? `${primary} + ${secondary}` : `${primary}`;
-                    document.getElementById('wifiChannel').textContent = channelText;
-                }
-                if (config.network.bandwidth) {
-                    document.getElementById('wifiBandwidth').textContent = config.network.bandwidth;
-                }
-                if (config.network.protocol) {
-                    document.getElementById('wifiProtocol').textContent = config.network.protocol;
+                    setInfoField('wifiChannel', channelText);
                 }
             }
 
@@ -1468,7 +1327,7 @@
             if (config.detection) {
                 if (config.detection.algorithm) {
                     const algorithm = config.detection.algorithm.toLowerCase();
-                    document.getElementById('detectorAlgorithm').textContent = config.detection.algorithm.toUpperCase();
+                    setInfoField('detectorAlgorithm', config.detection.algorithm.toUpperCase());
                     
                     // Show MVS params section only for MVS detector
                     const mvsParamsSection = document.getElementById('mvsParamsSection');
@@ -1476,34 +1335,18 @@
                         mvsParamsSection.style.display = algorithm === 'mvs' ? 'grid' : 'none';
                     }
                 }
-                if (config.detection.calibrator) {
-                    document.getElementById('calibratorAlgorithm').textContent = config.detection.calibrator.toUpperCase();
-                }
-            }
-
-            // Subcarrier selection (read-only display)
-            if (config.subcarriers) {
-                if (config.subcarriers.indices && Array.isArray(config.subcarriers.indices)) {
-                    const indicesStr = config.subcarriers.indices.join(', ');
-                    document.getElementById('subcarrierIndices').textContent = indicesStr;
-                }
             }
 
             // Detection Parameters (from detection object)
             if (config.detection) {
                 if (config.detection.threshold !== undefined) {
-                    const threshold = config.detection.threshold;
-                    document.getElementById('segThreshold').value = threshold;
-                    document.getElementById('segThresholdValue').value = threshold;
-                }
-                if (config.detection.window_size !== undefined && config.detection.window_size !== "N/A") {
-                    const windowSize = config.detection.window_size;
-                    document.getElementById('windowSize').value = windowSize;
-                    document.getElementById('windowSizeValue').value = windowSize;
+                    setThresholdControls(config.detection.threshold, true);
                 }
             }
 
-            showNotification('Configuration loaded from device', 'success');
+            if (options.notify !== false) {
+                showNotification('Configuration loaded from device', 'success');
+            }
         }
 
         // Debounce helper function
@@ -1528,18 +1371,10 @@
         function setupDetectionListeners() {
             // Segmentation Threshold
             document.getElementById('segThreshold').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_threshold', { value: parseFloat(e.target.value) });
+                debouncedSendCommand('set_threshold', { threshold: parseFloat(e.target.value) });
             });
             document.getElementById('segThresholdValue').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_threshold', { value: parseFloat(e.target.value) });
-            });
-
-            // Window Size
-            document.getElementById('windowSize').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_window_size', { value: parseInt(e.target.value) });
-            });
-            document.getElementById('windowSizeValue').addEventListener('change', (e) => {
-                debouncedSendCommand('segmentation_window_size', { value: parseInt(e.target.value) });
+                debouncedSendCommand('set_threshold', { threshold: parseFloat(e.target.value) });
             });
 
         }
@@ -1550,7 +1385,6 @@
 
             // Sync all sliders with their value inputs
             syncSlider('segThreshold', 'segThresholdValue');
-            syncSlider('windowSize', 'windowSizeValue');
 
             // Setup real-time configuration listeners
             setupDetectionListeners();
@@ -1559,4 +1393,3 @@
 </body>
 
 </html>
-

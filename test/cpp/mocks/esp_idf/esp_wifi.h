@@ -248,8 +248,11 @@ typedef struct {
   int set_mode_call_count;
   int start_call_count;
   int connect_call_count;
+  int disconnect_call_count;
   int set_config_call_count;
   wifi_config_t last_config;
+  esp_err_t get_mac_result;
+  uint8_t mac[6];
 
   esp_err_t get_channel_result;
   uint8_t primary_channel;
@@ -301,6 +304,11 @@ static inline esp_err_t esp_wifi_connect(void) {
   return ESP_OK;
 }
 
+static inline esp_err_t esp_wifi_disconnect(void) {
+  g_esp_wifi_mock.disconnect_call_count++;
+  return ESP_OK;
+}
+
 static inline esp_err_t esp_wifi_set_config(wifi_interface_t ifx, wifi_config_t *config) {
   (void)ifx;
   g_esp_wifi_mock.set_config_call_count++;
@@ -310,6 +318,14 @@ static inline esp_err_t esp_wifi_set_config(wifi_interface_t ifx, wifi_config_t 
     memset(&g_esp_wifi_mock.last_config, 0, sizeof(g_esp_wifi_mock.last_config));
   }
   return ESP_OK;
+}
+
+static inline esp_err_t esp_wifi_get_mac(wifi_interface_t ifx, uint8_t mac[6]) {
+  (void)ifx;
+  if (mac != nullptr) {
+    memcpy(mac, g_esp_wifi_mock.mac, 6);
+  }
+  return g_esp_wifi_mock.get_mac_result;
 }
 
 static inline esp_err_t

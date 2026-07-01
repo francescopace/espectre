@@ -1,7 +1,9 @@
 idf_component_register(
     SRCS
         "app_main.cpp"
+        "ble_device_config_store.cpp"
         "ble_bindings_nimble.cpp"
+        "mqtt_transport_esp_idf.cpp"
     INCLUDE_DIRS
         "."
         "../../espectre"
@@ -16,5 +18,6 @@ idf_component_register(
         esp_wifi
         freertos
         lwip
+        mqtt
         nvs_flash
 )

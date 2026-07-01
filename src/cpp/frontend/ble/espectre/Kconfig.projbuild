@@ -17,4 +17,25 @@ menu "ESPectre BLE Frontend"
         range 0 14
         default 0
 
+    config ESPECTRE_MQTT_ENABLED
+        bool "Enable MQTT telemetry"
+        default n
+
+    config ESPECTRE_DEVICE_NAME
+        string "Device name"
+        default "ESPectre Node"
+
+    config ESPECTRE_MQTT_HOST
+        string "MQTT broker host"
+        default ""
+
+    config ESPECTRE_MQTT_PORT
+        int "MQTT broker port"
+        range 1 65535
+        default 1883
+
+    config ESPECTRE_TOPIC_PREFIX
+        string "MQTT topic prefix"
+        default "espectre/v1/devices"
+
 endmenu

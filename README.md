@@ -435,7 +435,7 @@ While ESPectre v2.x focuses on **motion detection** (MVS + adaptive threshold bo
 | **Core / Runtime / Frontend platform split** | In Progress | Reusable architecture for multiple frontends and custom firmware |
 | **Matter Frontend** | Available (experimental) | Compatibility path for Apple / Google / Alexa ecosystems via Matter |
 | **Presence / Occupancy Inference** | In Progress | Practical amplitude-first sensing beyond binary motion |
-| **ESPectre Cloud** | Planned | Optional privacy-first cloud layer for multi-room state, device visibility, alerting, history, and fleet management |
+| **Managed Cloud Profile** | Planned | Optional privacy-first cloud layer for multi-room state, device visibility, alerting, history, and fleet management |
 | **Gesture Recognition** | Deferred | Future research/product phase after the current platform and orchestration work |
 | **Human Activity Recognition** | Deferred | Future research/product phase after the current platform and orchestration work |
 | **People Counting** | Planned | Estimate number of people in a room |
@@ -443,7 +443,7 @@ While ESPectre v2.x focuses on **motion detection** (MVS + adaptive threshold bo
 
 The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md#ml-neural-network-detector) and `PERFORMANCE.md` for current metrics.
 
-The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md). The broader product direction and sequencing between platform work, frontends, cloud orchestration, and research tracks are described in [ROADMAP.md](docs/ROADMAP.md), with the proposed cloud architecture in [ESPECTRE_CLOUD.md](docs/ESPECTRE_CLOUD.md).
+The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md). The broader product direction and sequencing between platform work, frontends, cloud orchestration, and research tracks are described in [ROADMAP.md](docs/ROADMAP.md), with the device protocol in [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) and the local/cloud architecture profiles in [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -457,14 +457,14 @@ The ML data collection and training infrastructure is documented in [ML_DATA_COL
 | [Setup Guide](docs/SETUP.md) | Shared setup hub and frontend chooser for ESPHome, BLE, Matter, and streamer workflows |
 | [Tuning Guide](docs/TUNING.md) | Parameter tuning for optimal detection |
 | [Performance](docs/PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
-| [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, `core` / `runtime` / `frontend` split, and orchestration alignment |
+| [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, `core` / `runtime` / `frontend` split, local lab profile, managed cloud profile, and orchestration alignment |
 | [Test Suite](test/cpp/README.md) | Layered CMake/CTest suite, coverage flow, and support layout |
 | [ESPHome Frontend](src/cpp/frontend/esphome/README.md) | Local source of truth for the ESPHome integration surface |
-| [BLE Frontend](src/cpp/frontend/ble/README.md) | Local source of truth for the BLE protocol and firmware surface |
+| [BLE Frontend](src/cpp/frontend/ble/README.md) | BLE firmware workflow, provisioning notes, and frontend-specific troubleshooting |
 | [Matter Frontend](src/cpp/frontend/matter/README.md) | Local source of truth for the Matter surface and firmware workflow |
 | [Streamer Frontend](src/cpp/frontend/streamer/README.md) | Local source of truth for the CSI UDP streamer surface |
 | [The Game](docs/web/game/README.md) | Browser game example built on the generic BLE frontend protocol, with interactive threshold tuning |
-| [ESPectre Cloud](docs/ESPECTRE_CLOUD.md) | Proposed privacy-first cloud architecture, onboarding, telemetry, alerting, and OTA plan |
+| [ESPectre Protocol](docs/ESPECTRE_PROTOCOL.md) | Shared device protocol, payloads, topics, transport mapping, and privacy boundary |
 
 ### Micro-ESPectre (R&D)
 
