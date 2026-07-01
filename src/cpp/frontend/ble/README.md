@@ -118,7 +118,9 @@ telemetry callback so BLE-only live telemetry is no longer produced in the
 background. The shared protocol semantics remain documented in
 [`docs/ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
-The standalone BLE frontend also keeps the same periodic progress-bar status log shape used by the ESPHome frontend and appends the observed MQTT publish rate as an extra diagnostic field.
+The standalone BLE frontend uses the same shared periodic progress-bar sensing
+status log helper used by the ESPHome and Matter frontends, so the serial log
+shape stays aligned across those frontend surfaces.
 
 ## Wi-Fi Configuration
 

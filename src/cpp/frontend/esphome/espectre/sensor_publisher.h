@@ -13,6 +13,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "base_detector.h"
+#include "periodic_sensing_status_logger.h"
 #include "runtime_snapshot.h"
 
 namespace esphome {
@@ -65,12 +66,12 @@ class SensorPublisher {
   /**
    * Reset rate counter
    */
-  void reset_rate_counter() { last_log_time_ms_ = 0; }
+  void reset_rate_counter() { status_logger_.reset(); }
   
  private:
   sensor::Sensor *movement_sensor_{nullptr};
   binary_sensor::BinarySensor *motion_binary_sensor_{nullptr};
-  uint32_t last_log_time_ms_{0};
+  PeriodicSensingStatusLogger status_logger_{};
 };
 
 }  // namespace espectre

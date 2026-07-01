@@ -6,10 +6,6 @@
  */
 
 #include "sensor_publisher.h"
-#include "esphome/core/log.h"
-#include "esp_timer.h"
-#include "esp_wifi.h"
-#include "espectre_log.h"
 
 namespace esphome {
 namespace espectre {
@@ -30,44 +26,7 @@ void SensorPublisher::publish_movement_metric(float motion_metric) {
 void SensorPublisher::log_status(const char *tag,
                                  const RuntimeSnapshot &snapshot,
                                  uint32_t packets_per_publish) {
-  if (!tag) {
-    return;
-  }
-
-  float motion_metric = snapshot.movement_metric;
-  float threshold = snapshot.threshold;
-  bool is_motion = (snapshot.motion_state == MotionState::MOTION);
-  
-  // Calculate CSI rate (packets per second)
-  uint32_t now_ms = esp_timer_get_time() / 1000;
-  uint32_t rate_pps = 0;
-  if (last_log_time_ms_ > 0) {
-    uint32_t elapsed_ms = now_ms - last_log_time_ms_;
-    if (elapsed_ms > 0) {
-      rate_pps = (packets_per_publish * 1000) / elapsed_ms;
-    }
-  }
-  last_log_time_ms_ = now_ms;
-  
-  // Get WiFi info for diagnostics
-  wifi_ap_record_t ap_info;
-  int8_t rssi = -127;
-  uint8_t channel = 0;
-  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-    rssi = ap_info.rssi;
-    channel = ap_info.primary;
-  }
-  
-  // Calculate progress
-  float progress = (threshold > 0) ? (motion_metric / threshold) : 0.0f;
-  int percent = (int)(progress * 100);
-  
-  // Log with progress bar, rate, and WiFi diagnostics
-  log_progress_bar(tag, progress, 20, 15,
-                   "%d%% | mvmt:%.4f thr:%.4f | %s | %u pkt/s | ch:%d rssi:%d",
-                   percent, motion_metric, threshold,
-                   is_motion ? "MOTION" : "IDLE",
-                   rate_pps, channel, rssi);
+  status_logger_.log_status(tag, snapshot, packets_per_publish);
 }
 
 }  // namespace espectre

@@ -17,6 +17,7 @@
 
 #include "ble_bindings.h"
 #include "mqtt_transport.h"
+#include "periodic_sensing_status_logger.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
 
@@ -83,7 +84,6 @@ class BleFrontend : public IRuntimeListener {
   void send_system_info_();
   void queue_system_info_line_(const char *line);
   void flush_pending_system_info_(bool force = false);
-  void log_runtime_rates_(uint32_t now_ms, uint32_t packets_received);
   uint32_t now_ms_() const;
 
   IBleBindings *bindings_;
@@ -91,14 +91,12 @@ class BleFrontend : public IRuntimeListener {
   ProvisioningCommandCallback provisioning_command_callback_{};
   DeviceConfigChangeCallback device_config_change_callback_{};
   RuntimeFrontendController runtime_;
+  PeriodicSensingStatusLogger status_logger_{};
   EspectreDeviceConfig device_config_{};
   EspectreDeviceInfo device_info_{};
   WifiProvisioningInfo wifi_info_{};
   bool client_connected_{false};
   bool telemetry_subscribed_{false};
-  uint32_t last_rate_log_ms_{0};
-  uint32_t last_rate_mqtt_publish_count_{0};
-  uint32_t mqtt_publish_count_{0};
   float last_loop_time_ms_{0.0f};
   uint32_t sysinfo_line_interval_ms_{20};
   uint32_t last_sysinfo_line_ms_{0};

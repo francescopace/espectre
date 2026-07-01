@@ -133,6 +133,10 @@ The Matter frontend keeps ownership boundaries explicit:
 
 That ordering is visible in [`app/main/app_main.cpp`](app/main/app_main.cpp).
 
+The Matter frontend also uses the same shared periodic progress-bar sensing
+status log helper used by the ESPHome and standalone BLE frontends, so runtime
+serial diagnostics stay aligned across the ecosystem-facing firmware targets.
+
 ### Commissioning Window Behavior
 
 The firmware opens a basic commissioning window for uncommissioned devices and

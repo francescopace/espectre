@@ -117,6 +117,7 @@ Shared runtime helpers also live here:
 
 - `runtime_config_utils.*` for threshold validation and stable mode names
 - `runtime_diagnostics.*` for common runtime diagnostic key/value fields
+- `periodic_sensing_status_logger.*` for the shared progress-bar sensing status log used by `ESPHome`, `BLE`, and `Matter`
 - `esp_idf/standalone_wifi_manager.*` for standalone ESP-IDF STA setup, CSI Wi-Fi policy, BSSID/channel fast scan, and retry behavior used by firmware targets that own their Wi-Fi stack
 
 ### `src/cpp/frontend/esphome/espectre/`

@@ -99,6 +99,7 @@ void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
     threshold_republished_ = true;
   }
 
+  status_logger_.log_status(TAG, snapshot, packets_received);
   bindings_->publish_periodic_state(endpoint_id_, snapshot_to_periodic_state(snapshot, packets_received));
 }
 

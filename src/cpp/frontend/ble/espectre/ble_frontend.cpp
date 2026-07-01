@@ -19,11 +19,6 @@
 #include "runtime_diagnostics.h"
 #include "sdkconfig.h"
 
-#if __has_include("esp_wifi.h")
-#include "esp_wifi.h"
-#define ESPECTRE_HAVE_ESP_WIFI 1
-#endif
-
 #if __has_include("esp_heap_caps.h")
 #include "esp_heap_caps.h"
 #define ESPECTRE_HAVE_ESP_HEAP_CAPS 1
@@ -135,7 +130,7 @@ void BleFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t p
   runtime_.record_snapshot(snapshot);
   const uint32_t now = now_ms_();
   publish_mqtt_telemetry_(snapshot, now);
-  log_runtime_rates_(now, packets_received);
+  status_logger_.log_status(TAG, snapshot, packets_received);
 }
 
 void BleFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
@@ -400,11 +395,9 @@ void BleFrontend::publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint3
   if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
     return;
   }
-  if (mqtt_transport_->publish(espectre_topic(device_config_, "telemetry"),
-                               espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U),
-                               false)) {
-    mqtt_publish_count_ += 1;
-  }
+  mqtt_transport_->publish(espectre_topic(device_config_, "telemetry"),
+                           espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U),
+                           false);
 }
 
 void BleFrontend::publish_mqtt_stats_() {
@@ -453,42 +446,6 @@ void BleFrontend::flush_pending_system_info_(bool force) {
     pending_sysinfo_lines_.clear();
     next_sysinfo_line_index_ = 0;
   }
-}
-
-void BleFrontend::log_runtime_rates_(uint32_t now_ms, uint32_t packets_received) {
-  const RuntimeSnapshot &snapshot = runtime_.snapshot();
-  const uint32_t elapsed_ms = (last_rate_log_ms_ > 0 && now_ms > last_rate_log_ms_) ? (now_ms - last_rate_log_ms_) : 0U;
-  const uint32_t mqtt_delta = (last_rate_log_ms_ > 0) ? (mqtt_publish_count_ - last_rate_mqtt_publish_count_) : 0U;
-  const uint32_t csi_rate_pps =
-      elapsed_ms > 0 ? static_cast<uint32_t>((static_cast<uint64_t>(packets_received) * 1000U) / elapsed_ms) : 0U;
-  const float mqtt_rate_hz = elapsed_ms > 0 ? (static_cast<float>(mqtt_delta) * 1000.0F / static_cast<float>(elapsed_ms)) : 0.0F;
-  const float motion_metric = snapshot.movement_metric;
-  const float threshold = snapshot.threshold;
-  const bool is_motion = (snapshot.motion_state == MotionState::MOTION);
-  const float progress = (threshold > 0.0F) ? (motion_metric / threshold) : 0.0F;
-  const int percent = static_cast<int>(progress * 100.0F);
-
-  int8_t rssi = -127;
-  uint8_t channel = 0;
-#ifdef ESPECTRE_HAVE_ESP_WIFI
-  wifi_ap_record_t ap_info{};
-  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-    rssi = ap_info.rssi;
-    channel = ap_info.primary;
-  }
-#endif
-
-  log_progress_bar(TAG, progress, 20, 15,
-                   "%d%% | mvmt:%.4f thr:%.4f | %s | %u pkt/s | ch:%u rssi:%d | mqtt:%.2f msg/s",
-                   percent, motion_metric, threshold,
-                   is_motion ? "MOTION" : "IDLE",
-                   static_cast<unsigned>(csi_rate_pps),
-                   static_cast<unsigned>(channel),
-                   static_cast<int>(rssi),
-                   static_cast<double>(mqtt_rate_hz));
-
-  last_rate_log_ms_ = now_ms;
-  last_rate_mqtt_publish_count_ = mqtt_publish_count_;
 }
 
 void BleFrontend::send_system_info_() {
