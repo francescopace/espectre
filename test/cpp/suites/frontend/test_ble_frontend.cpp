@@ -106,8 +106,13 @@ void test_ble_frontend_connection_and_sysinfo_paths(void) {
   TEST_ASSERT_EQUAL_STRING("proto_version=1", ble_bindings_mock::state.sysinfo_lines.front().c_str());
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
+                             "frontend=ble") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
                              "ble_device_name=ESPectre Node") != ble_bindings_mock::state.sysinfo_lines.end());
-  TEST_ASSERT_EQUAL_STRING("espectre_protocol_version=1.0", ble_bindings_mock::state.sysinfo_lines[1].c_str());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
+                             "espectre_protocol_version=1.0") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_EQUAL_STRING("END", ble_bindings_mock::state.sysinfo_lines.back().c_str());
 
   bindings.emit_connection(false);
