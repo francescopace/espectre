@@ -248,7 +248,6 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_movement_sensor());
   component.on_calibration_finished(motion_snapshot, false);
   TEST_ASSERT_FALSE(calibrate_switch.state);
-  TEST_ASSERT_EQUAL(0, component.sensor_publisher_.last_log_time_ms_);
 }
 
 void test_runtime_fault_callback_handles_null_and_message_paths(void) {

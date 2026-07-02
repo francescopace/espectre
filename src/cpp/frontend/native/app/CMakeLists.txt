@@ -1,10 +1,10 @@
-# ESPectre BLE firmware build
+# ESPectre native firmware build
 #
 # Prerequisites:
 #   - ESP-IDF v5.5+
 #
 # Build:
-#   cd src/cpp/frontend/ble/app
+#   cd src/cpp/frontend/native/app
 #   idf.py set-target esp32c3
 #   idf.py build
 
@@ -16,4 +16,4 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/../espectre"
 )
 
-project(espectre-ble)
+project(espectre-native)

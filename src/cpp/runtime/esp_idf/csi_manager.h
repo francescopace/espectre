@@ -29,8 +29,8 @@ using csi_processed_callback_t = std::function<void(MotionState, uint32_t)>;
 // Callback type for immediate motion-state changes
 using motion_state_callback_t = std::function<void(MotionState)>;
 
-// Callback type for game mode (called every packet with movement and threshold)
-using game_mode_callback_t = std::function<void(float movement, float threshold)>;
+// Callback type for live telemetry updates emitted on evaluation ticks.
+using live_telemetry_callback_t = std::function<void(float movement, float threshold)>;
 
 // Callback type for intercepting normalized CSI packets after gain lock.
 using csi_packet_interceptor_t = std::function<bool(const int8_t *, size_t)>;
@@ -129,10 +129,10 @@ class CSIManager {
   }
   
   /**
-   * Set game mode callback
+   * Set callback for live telemetry updates.
    */
-  void set_game_mode_callback(game_mode_callback_t callback) {
-    game_mode_callback_ = callback;
+  void set_live_telemetry_callback(live_telemetry_callback_t callback) {
+    live_telemetry_callback_ = callback;
   }
   
   /**
@@ -162,7 +162,7 @@ class CSIManager {
   csi_packet_interceptor_t packet_interceptor_;
   csi_processed_callback_t packet_callback_;
   motion_state_callback_t motion_state_callback_;
-  game_mode_callback_t game_mode_callback_;
+  live_telemetry_callback_t live_telemetry_callback_;
   uint32_t publish_rate_{100};
   uint32_t evaluation_interval_{25};
   volatile uint32_t packets_processed_{0};

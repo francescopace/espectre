@@ -25,6 +25,8 @@ class NimbleBleBindings : public IBleBindings {
 
   void set_connection_state_callback(ConnectionStateCallback callback) override;
   void set_control_write_callback(ControlWriteCallback callback) override;
+  void set_telemetry_subscription_callback(TelemetrySubscriptionCallback callback) override;
+  void set_device_name(const char *name) override;
 
   void publish_telemetry(const uint8_t *payload, size_t payload_len) override;
   void publish_sysinfo_line(const char *line) override;
@@ -47,11 +49,14 @@ class NimbleBleBindings : public IBleBindings {
 
   ConnectionStateCallback connection_state_callback_;
   ControlWriteCallback control_write_callback_;
+  TelemetrySubscriptionCallback telemetry_subscription_callback_;
   std::vector<uint8_t> telemetry_value_;
   std::string sysinfo_value_;
+  std::string device_name_;
   uint8_t addr_type_{0};
   uint16_t conn_handle_{0xFFFF};
   bool setup_complete_{false};
+  bool telemetry_subscribed_{false};
 };
 
 }  // namespace espectre

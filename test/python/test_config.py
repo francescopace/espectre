@@ -47,7 +47,7 @@ class TestConfigConstants:
         assert hasattr(config, 'MQTT_BROKER')
         assert hasattr(config, 'MQTT_PORT')
         assert hasattr(config, 'MQTT_CLIENT_ID')
-        assert hasattr(config, 'MQTT_TOPIC')
+        assert hasattr(config, 'MQTT_TOPIC_PREFIX')
         assert hasattr(config, 'MQTT_USERNAME')
         assert hasattr(config, 'MQTT_PASSWORD')
         
@@ -155,4 +155,3 @@ class TestConfigDefaultValues:
         
         # Should be 1883 (standard) or 8883 (TLS)
         assert config.MQTT_PORT in [1883, 8883]
-

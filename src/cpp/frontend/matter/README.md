@@ -127,11 +127,16 @@ The Matter frontend keeps ownership boundaries explicit:
 - the Matter stack starts first
 - the shared ESPectre runtime is initialized after `esp_matter::start()`
 - Wi-Fi ownership remains with `esp-matter`
-- the app-level Wi-Fi hook applies the shared CSI Wi-Fi policy when STA mode starts
-- the reused runtime layers CSI configuration on top of the initialized station
-  stack
+- the firmware leaves normal Wi-Fi aggregation enabled for commissioning
+- CSI services remain disarmed until commissioning completes
+- after commissioning, the reused runtime layers CSI Wi-Fi policy and capture
+  setup on top of the initialized station stack
 
 That ordering is visible in [`app/main/app_main.cpp`](app/main/app_main.cpp).
+
+The Matter frontend also uses the same shared periodic progress-bar sensing
+status log helper used by the ESPHome and standalone native frontends, so runtime
+serial diagnostics stay aligned across the ecosystem-facing firmware targets.
 
 ### Commissioning Window Behavior
 
@@ -141,6 +146,9 @@ re-opens it when the last fabric is removed.
 Current behavior from the firmware app:
 
 - an uncommissioned device opens a `300` second commissioning window
+- the commissioning window advertises all supported discovery transports,
+  including BLE
+- DNS-SD includes the commissionable device type for an occupancy sensor
 - commissioning completion is logged
 - a failed commissioning attempt is logged when the fail-safe timer expires
 - removing the last fabric re-opens the commissioning window automatically
@@ -208,6 +216,8 @@ Validation notes:
 - firmware app: [`app/`](app/)
 - dependency manager: ESP-IDF Component Manager
 - declared external dependency: `espressif/esp_matter`
+- Matter device type: occupancy sensor (`0x0107`)
+- development VID/PID: `0xFFF1` / `0x8000`
 - partition layout: [`app/partitions.csv`](app/partitions.csv)
 - defaults: [`app/sdkconfig.defaults`](app/sdkconfig.defaults)
 
@@ -231,6 +241,22 @@ The firmware logs fail-safe expiration events. Retry with:
 1. the board close to the controller during BLE commissioning
 2. a fresh power cycle
 3. a controller that supports the target platform cleanly
+
+### Google Home commissioning is slow
+
+Google Home is stricter than local development controllers about the advertised
+device type, commissioning transports, and Wi-Fi behavior during network
+commissioning.
+
+Check that:
+
+1. the serial log shows CSI services as `waiting for commissioning` before
+   pairing completes
+2. the commissioning window advertises BLE through the all-supported transport
+   mode
+3. the image was built from `sdkconfig.defaults` with commissionable device type
+   enabled and device type `0x0107`
+4. Wi-Fi CSI policy logs appear only after `Commissioning complete`
 
 ### Runtime values are visible but not all tuning knobs are writable
 
@@ -257,7 +283,7 @@ It does not own:
   shared architecture and runtime contract
 - [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md):
   shared tuning guidance and tradeoffs
-- [`../ble/README.md`](../ble/README.md):
-  standalone BLE frontend
+- [`../native/README.md`](../native/README.md):
+  standalone native frontend
 - [`../esphome/README.md`](../esphome/README.md):
   ESPHome frontend

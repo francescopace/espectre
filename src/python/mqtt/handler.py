@@ -20,7 +20,7 @@ except ImportError:
 class MQTTHandler:
     """MQTT handler with publishing and command support"""
     
-    def __init__(self, config, detector, wlan, traffic_generator=None, band_calibration_func=None, global_state=None):
+    def __init__(self, config, detector, wlan, global_state=None):
         """
         Initialize MQTT handler
         
@@ -28,23 +28,27 @@ class MQTTHandler:
             config: Configuration module
             detector: IDetector instance (MVSDetector or MLDetector)
             wlan: WLAN instance
-            traffic_generator: TrafficGenerator instance (optional)
-            band_calibration_func: Function to run band calibration (optional)
             global_state: GlobalState instance for accessing loop metrics (optional)
         """
         self.config = config
         self.detector = detector
         self.wlan = wlan
-        self.traffic_gen = traffic_generator
-        self.band_calibration_func = band_calibration_func
         self.global_state = global_state
         self.client = None
         self.cmd_handler = None
+        self.start_time = time.time()
         
-        # Topics
-        self.base_topic = config.MQTT_TOPIC
-        self.cmd_topic = f"{config.MQTT_TOPIC}/cmd"
-        self.response_topic = f"{config.MQTT_TOPIC}/response"
+        # ESPectre Protocol topics
+        topic_prefix = config.MQTT_TOPIC_PREFIX.rstrip('/')
+        self.device_id = config.MQTT_CLIENT_ID
+        self.base_topic = f"{topic_prefix}/{self.device_id}"
+        self.telemetry_topic = f"{self.base_topic}/telemetry"
+        self.status_topic = f"{self.base_topic}/status"
+        self.info_topic = f"{self.base_topic}/info"
+        self.stats_topic = f"{self.base_topic}/stats"
+        self.cmd_topic = f"{self.base_topic}/commands/request"
+        self.accepted_topic = f"{self.base_topic}/commands/accepted"
+        self.rejected_topic = f"{self.base_topic}/commands/rejected"
         
         # Publishing state
         self.last_variance = 0.0
@@ -69,10 +73,11 @@ class MQTTHandler:
             self.client,
             self.config,
             self.detector,
-            self.response_topic,
+            self.accepted_topic,
+            self.rejected_topic,
+            self.info_topic,
+            self.stats_topic,
             self.wlan,
-            self.traffic_gen,
-            self.band_calibration_func,
             self.global_state
         )
         
@@ -82,6 +87,8 @@ class MQTTHandler:
         # Subscribe to command topic
         self.client.subscribe(self.cmd_topic)
         #print(f'Subscribed to: {self.cmd_topic}')
+        self.publish_status(True)
+        self.publish_info()
         
         return self.client
     
@@ -104,8 +111,7 @@ class MQTTHandler:
         except Exception as e:
             print(f"Error checking MQTT messages: {e}")
     
-    def publish_state(self, current_variance, current_state, current_threshold, 
-                     packet_delta, dropped_delta, pps):
+    def publish_state(self, current_variance, current_state, current_threshold):
         """
         Publish current state to MQTT
         
@@ -113,24 +119,29 @@ class MQTTHandler:
             current_variance: Current moving variance (or probability for ML)
             current_state: Current state (0=IDLE, 1=MOTION)
             current_threshold: Current threshold
-            packet_delta: Packets processed since last publish
-            dropped_delta: Packets dropped since last publish
-            pps: Packets per second
         """
         state_str = 'motion' if current_state == 1 else 'idle'
+        timestamp_ms = int(time.time() * 1000)
+        health = {
+            'uptime_s': int(time.time() - self.start_time),
+        }
+        if self.global_state is not None and hasattr(self.global_state, 'needs_cv_normalization'):
+            health['gain_locked'] = not bool(self.global_state.needs_cv_normalization)
         
         payload = {
-            'movement': round(current_variance, 4),
+            'protocol_version': '1.0',
+            'device_id': self.device_id,
+            'frontend': 'micro',
+            'timestamp_ms': timestamp_ms,
+            'motion_state': state_str,
+            'movement_score': round(current_variance, 4),
             'threshold': round(current_threshold, 4),
-            'state': state_str,
-            'packets_processed': packet_delta,
-            'packets_dropped': dropped_delta,
-            'pps': pps,
-            'timestamp': time.time()
+            'detector': self.detector.get_name(),
+            'health': health
         }
         
         try:
-            self.client.publish(self.base_topic, json.dumps(payload))
+            self.client.publish(self.telemetry_topic, json.dumps(payload))
         except Exception as e:
             print(f"Error publishing to MQTT: {e}")
         
@@ -142,6 +153,7 @@ class MQTTHandler:
         """Disconnect from MQTT broker"""
         if self.client:
             try:
+                self.publish_status(False)
                 self.client.disconnect()
                 print('MQTT disconnected')
             except Exception as e:
@@ -151,3 +163,20 @@ class MQTTHandler:
         """Publish system info"""
         if self.cmd_handler:
             self.cmd_handler.cmd_info()
+
+    def publish_status(self, online):
+        """Publish retained online/offline status."""
+        if not self.client:
+            return
+        payload = {
+            "protocol_version": "1.0",
+            "device_id": self.device_id,
+            "online": bool(online),
+            "timestamp_ms": int(time.time() * 1000)
+        }
+        try:
+            self.client.publish(self.status_topic, json.dumps(payload), retain=True)
+        except TypeError:
+            self.client.publish(self.status_topic, json.dumps(payload))
+        except Exception as e:
+            print(f"Error publishing MQTT status: {e}")

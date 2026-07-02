@@ -5,10 +5,10 @@
  * Stay still. Move fast. React to survive.
  * 
  * Communication: Web Bluetooth (desktop Chrome/Edge)
- * Protocol:
- *   - telemetry notify: [float32 movement, float32 threshold]
- *   - sysinfo notify: text "key=value" lines + "END"
- *   - control write: REQ_SYSINFO, SET_THRESHOLD:X.XX
+ * Protocol surface:
+ *   - BLE telemetry notifications (see docs/ESPECTRE_PROTOCOL.md)
+ *   - BLE sysinfo notifications: text "key=value" lines + "END"
+ *   - BLE control writes such as REQ_SYSINFO and runtime threshold updates
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -484,7 +484,8 @@ class ESPectreGame {
     handleSysinfoNotification(event) {
         const value = event.target.value;
         if (!value) return;
-        const line = new TextDecoder().decode(value.buffer);
+        const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+        const line = new TextDecoder().decode(bytes);
         if (!line) return;
         const trimmed = line.trim();
         if (trimmed === 'END') {

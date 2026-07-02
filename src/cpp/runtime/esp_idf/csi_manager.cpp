@@ -118,9 +118,10 @@ void CSIManager::process_normalized_packet_(const wifi_csi_info_t *data, const N
   detector_->process_packet(csi_data, csi_len, DEFAULT_SUBCARRIERS, NUM_SUBCARRIERS);
   
   // Evaluate state on the internal cadence, but always refresh before a periodic publish.
-  packets_processed_++;
+  const uint32_t processed_count = packets_processed_ + 1U;
+  packets_processed_ = processed_count;
   packets_since_evaluation_++;
-  const bool should_publish = packets_processed_ >= publish_rate_;
+  const bool should_publish = processed_count >= publish_rate_;
   const bool should_evaluate = should_publish || packets_since_evaluation_ >= evaluation_interval_;
   
   if (should_evaluate) {
@@ -137,11 +138,11 @@ void CSIManager::process_normalized_packet_(const wifi_csi_info_t *data, const N
       ESP_LOGD(TAG, "[perf] Detection time: %lld us", (long long)elapsed_us);
     }
     
-    // Game mode callback: send data every packet for low-latency gameplay
-    if (game_mode_callback_) {
+    // Emit live telemetry on each detector evaluation tick.
+    if (live_telemetry_callback_) {
       float movement = detector_->get_motion_metric();
       float threshold = detector_->get_threshold();
-      game_mode_callback_(movement, threshold);
+      live_telemetry_callback_(movement, threshold);
     }
   
     // Periodic publish callback

@@ -138,7 +138,7 @@ Micro-ESPectre now uses the repository CLI root **`espectre`**. The micro workfl
 The repository CLI is now split by workflow:
 - `./espectre micro ...` for the MicroPython and host-side research loop documented here
 - `./espectre esphome ...` for local ESPHome firmware builds from the repo examples
-- `./espectre ble ...` for the standalone BLE ESP-IDF frontend
+- `./espectre native ...` for the standalone native ESP-IDF frontend
 - `./espectre matter ...` for the Matter ESP-IDF frontend
 - `./espectre streamer ...` for the CSI streamer ESP-IDF frontend
 
@@ -154,7 +154,7 @@ The `espectre micro` namespace provides these essential commands:
 | `detect` | Run live ML motion detection on the PC | `./espectre micro detect --log-turbulence` |
 | `collect` | Collect labeled CSI data for ML training | `./espectre micro collect --label static_presence --duration 10` |
 | `verify` | Verify firmware installation | `./espectre micro verify` |
-| `ui` | Open web monitoring interface in browser | `./espectre micro ui` |
+| `ui` | Open the MQTT, BLE, or theremin web UI in browser | `./espectre micro ui theremin` |
 | *(interactive)* | Interactive MQTT control | `./espectre micro` |
 
 ### Key Features
@@ -276,6 +276,8 @@ Update these settings:
 WIFI_SSID = "YourWiFiSSID"
 WIFI_PASSWORD = "YourWiFiPassword"
 MQTT_BROKER = "homeassistant.local"  # or IP address
+MQTT_CLIENT_ID = "micro-espectre"
+MQTT_TOPIC_PREFIX = "espectre/v1/devices"
 MQTT_USERNAME = "mqtt"
 MQTT_PASSWORD = "mqtt"
 ```
@@ -310,8 +312,8 @@ Add to your `configuration.yaml`:
 mqtt:
   binary_sensor:
     - name: "ESPectre Motion"
-      state_topic: "home/espectre/node1"
-      value_template: "{{ value_json.state }}"
+      state_topic: "espectre/v1/devices/micro-espectre/telemetry"
+      value_template: "{{ value_json.motion_state }}"
       payload_on: "motion"
       payload_off: "idle"
       device_class: motion
@@ -327,7 +329,7 @@ mqtt:
 ├── test/python/               # Pytest test suite
 ├── tools/                     # Analysis and optimization tools
 ├── requirements.txt           # Python dependencies
-├── tools/web/espectre-monitor.html   # Web Monitor: real-time analysis & configuration
+├── tools/web/espectre-mqtt.html   # Web Monitor: real-time analysis & configuration
 ├── tools/web/espectre-theremin.html  # Audio sonification tool (experimental)
 ├── espectre                   # Repository CLI entrypoint
 ├── docs/ML_DATA_COLLECTION.md # Guide for ML data collection
@@ -471,21 +473,17 @@ For detailed parameter tuning, see [TUNING.md](TUNING.md).
 
 ### Published Data (MQTT Payload)
 
-The system publishes JSON payloads to the configured MQTT topic (default: `home/espectre/node1`):
+The system publishes JSON payloads to:
 
-```json
-{
-  "movement": 0.0234,            // Current moving variance
-  "threshold": 1.0,              // Current threshold
-  "state": "idle",               // "idle" or "motion"
-  "packets_processed": 100,      // Packets since last publish
-  "packets_dropped": 0,          // Packets dropped since last publish
-  "pps": 105,                    // Packets per second (calculated with ms precision)
-  "timestamp": 1700000000        // Unix timestamp
-}
+```text
+espectre/v1/devices/{MQTT_CLIENT_ID}/telemetry
 ```
 
-The payload is emitted every `PUBLISH_INTERVAL` packets. Its `state` field is
+The exact telemetry topic and payload shape are defined in
+[`docs/ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md). `Micro-ESPectre` publishes
+the same ESPectre Protocol telemetry family with `frontend: "micro"`.
+
+The payload is emitted every `PUBLISH_INTERVAL` packets. Its `motion_state` field is
 not the raw detector output of a single evaluation: it is the effective runtime
 state after evaluation every `EVALUATION_INTERVAL` packets and after the
 `MOTION_ON_HITS` / `MOTION_OFF_HITS` consecutive-hit filter.
@@ -611,7 +609,7 @@ Beyond the basic commands covered in the [CLI Tool Overview](#cli-tool-overview)
 
 - **Interactive prompt** with autocompletion (TAB) and history search (Ctrl+R)
 - **All MQTT commands** available (see table below)
-- **Web UI launcher**: `webui` command opens `tools/web/espectre-monitor.html` in browser
+- **Web UI launcher**: `webui` command opens `tools/web/espectre-mqtt.html` in browser
 - **YAML-formatted responses** for easy reading
 - **Environment variables** support via `.env` file
 
@@ -635,10 +633,9 @@ Micro-ESPectre includes a powerful **Web-based monitoring dashboard** for real-t
 |---------|-------------|
 | **MQTT Connection** | Direct WebSocket connection to your MQTT broker |
 | **Device Info** | View device model, IP, MAC, WiFi protocol, bandwidth, and channel |
-| **Live Configuration** | Adjust detection parameters (response speed, threshold) in real-time |
-| **Real-Time Chart** | Live visualization of movement, threshold, packets/sec, and dropped packets |
-| **Runtime Statistics** | Memory usage, loop timing, and Traffic Generator diagnostics |
-| **Factory Reset** | Reset device to default configuration and re-calibrate |
+| **Live Configuration** | Adjust the motion threshold in real-time |
+| **Real-Time Chart** | Live visualization of movement and threshold |
+| **Runtime Statistics** | Memory usage, loop timing, and detection metrics |
 
 ### Screenshots
 
@@ -654,8 +651,6 @@ The dashboard displays:
 The chart shows:
 - **Movement** (red line): Current moving variance output
 - **Threshold** (dashed blue): Detection threshold level
-- **Packets/sec** (green): CSI packet rate from traffic generator
-- **Dropped** (orange): Dropped packets count
 
 **Configuration Panel**
 
@@ -665,15 +660,12 @@ The chart shows:
 - Model, IP address, MAC address, WiFi protocol
 - Bandwidth (HT20), Channel, CSI status
 
-**Detection Parameters** (adjustable via sliders):
-- **Response Speed** (10-200): How fast the system reacts to changes (window size)
+**Detection Parameters** (adjustable via slider):
 - **Motion Threshold** (0.5-10.0): Minimum threshold to detect movement
-- **Active Subcarriers**: WiFi frequency channels used for detection
 
 **Action Buttons**:
 - **RELOAD INFO**: Refresh device information
-- **STATISTICS**: View runtime statistics
-- **FACTORY RESET**: Reset device to default configuration
+- **STATISTICS**: View runtime diagnostics
 
 ### Usage
 
@@ -681,12 +673,18 @@ The chart shows:
 ```bash
 ./espectre micro          # Start interactive mode
 webui         # Open web monitor in browser
+./espectre micro ui ble   # Open the BLE web UI directly
+./espectre micro ui theremin  # Open the theremin web UI directly
 ```
 
-The CLI automatically serves the HTML file and opens it in your default browser.
+The CLI opens the selected local HTML file in your default browser.
 
 **Manual launch**:
-Open `../tools/web/espectre-monitor.html` directly in your browser and configure the MQTT connection manually.
+Open `../tools/web/espectre-mqtt.html` directly in your browser and configure the MQTT connection manually.
+
+For the native frontend web client, open `../tools/web/espectre-ble.html` directly or run `./espectre micro ui ble`.
+
+For the theremin tool, open `../tools/web/espectre-theremin.html` directly or run `./espectre micro ui theremin`.
 
 ### Browser Compatibility
 
@@ -709,82 +707,26 @@ Micro-ESPectre uses MQTT for communication with Home Assistant and runtime confi
 
 ### Available MQTT Commands
 
-Publish JSON commands to `home/espectre/node1/cmd`:
+Publish JSON commands to:
+
+```text
+espectre/v1/devices/micro-espectre/commands/request
+```
 
 | Command | Example Payload | Description |
 |---------|-----------------|-------------|
-| `info` | `{"cmd": "info"}` | Get system information (network, device, config) |
-| `stats` | `{"cmd": "stats"}` | Get runtime statistics (memory, state, metrics) |
-| `segmentation_threshold` | `{"cmd": "segmentation_threshold", "value": 1.5}` | Set detection threshold (0.0-10.0) |
-| `segmentation_window_size` | `{"cmd": "segmentation_window_size", "value": 100}` | Set window size (10-200 packets) |
-| `factory_reset` | `{"cmd": "factory_reset"}` | Reset to defaults and re-calibrate |
+| `info` | `{"command": "info"}` | Get system information (identity, network, detector) |
+| `stats` | `{"command": "stats"}` | Get runtime diagnostics (`uptime`, memory, loop cost) |
+| `set_threshold` | `{"command": "set_threshold", "threshold": 1.5}` | Set detection threshold (0.0-10.0); the old `value` field is not accepted |
 
 ### Command Responses
 
-**`info` command** returns system information:
-```json
-{
-  "network": {
-    "ip_address": "192.168.1.28",
-    "mac_address": "7C:2C:67:42:BB:AC",
-    "channel": {"primary": 4, "secondary": 0},
-    "band_mode": "2g-only",
-    "protocol": "802.11b/g/n/ax",
-    "bandwidth": "HT20",
-    "csi_enabled": true,
-    "traffic_generator_rate": 100
-  },
-  "device": {"type": "esp32"},
-  "mqtt": {
-    "base_topic": "home/espectre/node1",
-    "cmd_topic": "home/espectre/node1/cmd",
-    "response_topic": "home/espectre/node1/response"
-  },
-  "detection": {
-    "algorithm": "MVS",
-    "calibrator": "fixed_subcarriers",
-    "threshold": 1.0,
-    "window_size": 100,
-    "publish_interval": 100,
-    "evaluation_interval": 25,
-    "motion_on_hits": 3,
-    "motion_off_hits": 3
-  },
-  "subcarriers": {"indices": [12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]}
-}
-```
-
-**`stats` command** returns runtime statistics:
-```json
-{
-  "timestamp": 1733250000,
-  "uptime": "2h 15m 30s",
-  "free_memory_kb": 8090.2,
-  "loop_time_ms": 0.97,
-  "state": "idle",
-  "turbulence": 1.8608,
-  "movement": 0.0824,
-  "threshold": 1.0,
-  "traffic_generator": {
-    "running": true,
-    "target_pps": 100,
-    "actual_pps": 99.8,
-    "avg_loop_ms": 1.25,
-    "packets_sent": 125000,
-    "errors": 0
-  }
-}
-```
+Exact `info`, `stats`, and command-result payload shapes are defined in
+[`docs/ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md). This document only adds the
+Micro-ESPectre-specific runtime notes below.
 
 - `free_memory_kb`: Available heap memory (higher on S3 with PSRAM ~8MB)
-- `loop_time_ms`: Main loop execution time in milliseconds (the smaller, the better)
-- `traffic_generator`: Traffic generator diagnostics
-  - `running`: Whether the generator is active
-  - `target_pps`: Configured packets per second
-  - `actual_pps`: Actual packets per second achieved
-  - `avg_loop_ms`: Average loop time (should be ≤10ms for 100pps)
-  - `packets_sent`: Total packets sent since start
-  - `errors`: Socket errors count
+- `loop_time_ms`: Last main-loop body execution time in milliseconds, excluding the outer idle sleep
 
 ### Runtime Configuration
 
@@ -800,18 +742,18 @@ Add these sensors to your `configuration.yaml`:
 mqtt:
   sensor:
     - name: "ESPectre Movement"
-      state_topic: "home/espectre/node1"
-      value_template: "{{ value_json.movement }}"
+      state_topic: "espectre/v1/devices/micro-espectre/telemetry"
+      value_template: "{{ value_json.movement_score }}"
       unit_of_measurement: ""
       
     - name: "ESPectre State"
-      state_topic: "home/espectre/node1"
-      value_template: "{{ value_json.state }}"
+      state_topic: "espectre/v1/devices/micro-espectre/telemetry"
+      value_template: "{{ value_json.motion_state }}"
 
   binary_sensor:
     - name: "ESPectre Motion"
-      state_topic: "home/espectre/node1"
-      value_template: "{{ value_json.state }}"
+      state_topic: "espectre/v1/devices/micro-espectre/telemetry"
+      value_template: "{{ value_json.motion_state }}"
       payload_on: "motion"
       payload_off: "idle"
       device_class: motion

@@ -6,6 +6,7 @@
 
 #include "espectre_log.h"
 #include "esp_netif.h"
+#include "esp_netif_ip_addr.h"
 #include "esp_wifi.h"
 
 namespace esphome {
@@ -107,8 +108,27 @@ esp_err_t StandaloneWifiManager::setup(const StandaloneWifiConfig &config,
     return err;
   }
 
+  err = esp_event_handler_instance_register(IP_EVENT,
+                                            IP_EVENT_STA_GOT_IP,
+                                            &StandaloneWifiManager::wifi_event_handler_,
+                                            this,
+                                            &ip_event_instance_);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "IP event handler registration failed: %s", esp_err_to_name(err));
+    esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_instance_);
+    wifi_event_instance_ = nullptr;
+    if (config_.manage_csi_lifecycle) {
+      wifi_lifecycle_.unregister_handlers();
+    }
+    return err;
+  }
+
   err = configure_station_();
   if (err != ESP_OK) {
+    if (ip_event_instance_ != nullptr) {
+      esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_instance_);
+      ip_event_instance_ = nullptr;
+    }
     if (wifi_event_instance_ != nullptr) {
       esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_instance_);
       wifi_event_instance_ = nullptr;
@@ -121,6 +141,41 @@ esp_err_t StandaloneWifiManager::setup(const StandaloneWifiConfig &config,
 
   setup_complete_ = true;
   return ESP_OK;
+}
+
+bool StandaloneWifiManager::get_info(StandaloneWifiInfo *info) const {
+  if (info == nullptr) {
+    return false;
+  }
+
+  *info = StandaloneWifiInfo{};
+
+  uint8_t mac[6] = {0};
+  if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK) {
+    std::snprintf(info->mac_address,
+                  sizeof(info->mac_address),
+                  "%02X:%02X:%02X:%02X:%02X:%02X",
+                  mac[0],
+                  mac[1],
+                  mac[2],
+                  mac[3],
+                  mac[4],
+                  mac[5]);
+  }
+
+  wifi_ap_record_t ap_info{};
+  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+    info->connected = true;
+    info->channel = ap_info.primary;
+  }
+
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  esp_netif_ip_info_t ip_info{};
+  if (netif != nullptr && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+    esp_ip4addr_ntoa(&ip_info.ip, info->ip_address, sizeof(info->ip_address));
+  }
+
+  return info->connected || info->ip_address[0] != '\0' || info->mac_address[0] != '\0';
 }
 
 esp_err_t StandaloneWifiManager::configure_station_() {
@@ -178,6 +233,54 @@ esp_err_t StandaloneWifiManager::start() {
   return err;
 }
 
+esp_err_t StandaloneWifiManager::update_station_config(const StandaloneWifiConfig &config) {
+  if (!setup_complete_) {
+    ESP_LOGE(TAG, "Cannot update Wi-Fi station config before setup");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  config_ = config;
+  wifi_retry_count_ = 0;
+  wifi_connect_requested_ = false;
+  csi_wifi_lifecycle_ready_ = false;
+
+  if (wifi_started_) {
+    const esp_err_t disconnect_err = esp_wifi_disconnect();
+    if (disconnect_err != ESP_OK && disconnect_err != ESP_ERR_WIFI_NOT_CONNECT) {
+      ESP_LOGW(TAG, "esp_wifi_disconnect before reconfigure failed: %s", esp_err_to_name(disconnect_err));
+    }
+  }
+
+  esp_err_t err = configure_station_();
+  if (err != ESP_OK) {
+    return err;
+  }
+
+  if (!wifi_started_) {
+    return ESP_OK;
+  }
+
+  if (!has_text(config_.ssid)) {
+    ESP_LOGW(TAG, "Wi-Fi SSID is empty; station config updated without reconnecting");
+    return ESP_OK;
+  }
+
+  if (!wifi_start_policy_applied_) {
+    wifi_start_policy_applied_ = true;
+    (void)apply_started_csi_policy();
+  }
+
+  wifi_connect_requested_ = true;
+  err = esp_wifi_connect();
+  if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
+    ESP_LOGE(TAG, "esp_wifi_connect after reconfigure failed: %s", esp_err_to_name(err));
+    wifi_connect_requested_ = false;
+    return err;
+  }
+  ESP_LOGI(TAG, "Wi-Fi station config updated; reconnecting");
+  return ESP_OK;
+}
+
 void StandaloneWifiManager::shutdown() {
   if (wifi_started_) {
     const esp_err_t err = esp_wifi_stop();
@@ -189,6 +292,10 @@ void StandaloneWifiManager::shutdown() {
   if (wifi_event_instance_ != nullptr) {
     esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_instance_);
     wifi_event_instance_ = nullptr;
+  }
+  if (ip_event_instance_ != nullptr) {
+    esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_instance_);
+    ip_event_instance_ = nullptr;
   }
   if (config_.manage_csi_lifecycle) {
     wifi_lifecycle_.unregister_handlers();
@@ -216,7 +323,7 @@ esp_err_t StandaloneWifiManager::apply_started_csi_policy() {
 
 void StandaloneWifiManager::handle_wifi_started_() {
   if (!has_text(config_.ssid)) {
-    ESP_LOGW(TAG, "Wi-Fi SSID is empty; configure sdkconfig credentials before connecting");
+    ESP_LOGW(TAG, "Wi-Fi SSID is empty; provision credentials over BLE or configure build-time credentials");
     return;
   }
 
@@ -278,14 +385,27 @@ void StandaloneWifiManager::handle_lifecycle_disconnected_() {
 void StandaloneWifiManager::wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id,
                                                 void *event_data) {
   auto *manager = static_cast<StandaloneWifiManager *>(arg);
-  if (manager == nullptr || event_base == nullptr || std::strcmp(event_base, WIFI_EVENT) != 0) {
+  if (manager == nullptr || event_base == nullptr) {
     return;
   }
 
-  if (event_id == WIFI_EVENT_STA_START) {
-    manager->handle_wifi_started_();
-  } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-    manager->handle_wifi_disconnected_(event_data);
+  if (std::strcmp(event_base, WIFI_EVENT) == 0) {
+    if (event_id == WIFI_EVENT_STA_START) {
+      manager->handle_wifi_started_();
+    } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
+      manager->handle_wifi_disconnected_(event_data);
+      if (!manager->config_.manage_csi_lifecycle && manager->disconnected_cb_) {
+        manager->disconnected_cb_();
+      }
+    }
+    return;
+  }
+
+  if (std::strcmp(event_base, IP_EVENT) == 0 && event_id == IP_EVENT_STA_GOT_IP) {
+    manager->wifi_retry_count_ = 0;
+    if (!manager->config_.manage_csi_lifecycle && manager->connected_cb_) {
+      manager->connected_cb_();
+    }
   }
 }
 

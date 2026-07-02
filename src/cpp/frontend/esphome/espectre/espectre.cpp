@@ -17,6 +17,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
 
+#include "runtime_listener_utils.h"
 #include "sdkconfig.h"
 
 namespace esphome {
@@ -95,14 +96,12 @@ void ESpectreComponent::on_calibration_started(const RuntimeSnapshot &snapshot) 
 }
 
 void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
-  this->runtime_.record_snapshot(snapshot);
   if (this->calibrate_switch_ != nullptr) {
     static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
   }
-  this->sensor_publisher_.reset_rate_counter();
-  if (!success) {
-    ESP_LOGW(TAG, "Calibration finished without a valid update");
-  }
+  finalize_frontend_calibration(this->runtime_, snapshot,
+                                [this]() { this->sensor_publisher_.reset_rate_counter(); },
+                                success, TAG);
 }
 
 void ESpectreComponent::on_runtime_fault(const char *message) {

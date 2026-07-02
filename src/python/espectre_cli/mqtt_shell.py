@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shlex
-import sys
 import time
 from datetime import datetime
 from typing import Any, Dict
@@ -42,12 +41,13 @@ class EspectreMQTTShell:
     def __init__(self, args):
         self.broker = args.broker
         self.port = args.port
-        self.base_topic = args.topic
+        self.device_id = args.device_id
+        self.base_topic = f"{args.topic_prefix.rstrip('/')}/{self.device_id}"
         self.username = args.username
         self.password = args.password
 
-        self.topic_cmd = f"{self.base_topic}/cmd"
-        self.topic_response = f"{self.base_topic}/response"
+        self.topic_cmd = f"{self.base_topic}/commands/request"
+        self.topic_responses = f"{self.base_topic}/commands/+"
         if PAHO_V2:
             self.client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION1)
         else:
@@ -61,11 +61,9 @@ class EspectreMQTTShell:
 
         hist_file = os.path.join(os.path.expanduser("~"), ".espectre_cli_history")
         completer_dict = {
-            "segmentation_threshold": None,
-            "segmentation_window_size": None,
+            "set_threshold": None,
             "info": None,
             "stats": None,
-            "factory_reset": None,
             "webui": None,
             "clear": None,
             "help": None,
@@ -85,8 +83,8 @@ class EspectreMQTTShell:
         if rc == 0:
             print(f"{Fore.BLUE}Connected to: {self.broker}:{self.port}{Style.RESET_ALL}")
             print(f"{Fore.BLUE}Command topic: {self.topic_cmd}{Style.RESET_ALL}")
-            print(f"{Fore.BLUE}Listening on: {self.topic_response}{Style.RESET_ALL}")
-            client.subscribe(self.topic_response)
+            print(f"{Fore.BLUE}Listening on: {self.topic_responses}{Style.RESET_ALL}")
+            client.subscribe(self.topic_responses)
         else:
             print(f"{Fore.RED}Failed to connect, return code {rc}{Style.RESET_ALL}")
 
@@ -164,37 +162,22 @@ class EspectreMQTTShell:
             return
 
         try:
-            if cmd in ["segmentation_threshold", "st"]:
-                self.cmd_set_value("segmentation_threshold", args, float, "value")
-            elif cmd in ["segmentation_window_size", "sws"]:
-                self.cmd_set_value("segmentation_window_size", args, int, "packets")
+            if cmd in ["set_threshold", "st"]:
+                self.cmd_set_threshold(args)
             elif cmd in ["info", "i"]:
-                self.send_command({"cmd": "info"})
+                self.send_command({"command": "info"})
             elif cmd in ["stats", "s"]:
-                self.send_command({"cmd": "stats"})
-            elif cmd in ["factory_reset", "reset", "fr"]:
-                self.cmd_factory_reset()
+                self.send_command({"command": "stats"})
             else:
                 print(f"{Fore.RED}Unknown command: {cmd}{Style.RESET_ALL}")
         except Exception as e:
             print(f"{Fore.RED}Error executing command: {e}{Style.RESET_ALL}")
 
-    def cmd_set_value(self, cmd_name, args, value_type, usage_hint):
+    def cmd_set_threshold(self, args):
         if not args:
-            print(f"{Fore.RED}Usage: {cmd_name} <{usage_hint}>{Style.RESET_ALL}")
+            print(f"{Fore.RED}Usage: set_threshold <threshold>{Style.RESET_ALL}")
             return
-        self.send_command({"cmd": cmd_name, "value": value_type(args[0])})
-
-    def cmd_factory_reset(self):
-        print(f"{Fore.YELLOW}⚠️  WARNING: This will reset ALL settings to factory defaults!{Style.RESET_ALL}")
-        print("Are you sure you want to continue? (yes/no): ", end="")
-        sys.stdout.flush()
-        confirm = input().lower()
-        if confirm == "yes":
-            print(f"{Fore.BLUE}Performing factory reset...{Style.RESET_ALL}")
-            self.send_command({"cmd": "factory_reset"})
-        else:
-            print(f"{Fore.BLUE}Factory reset cancelled{Style.RESET_ALL}")
+        self.send_command({"command": "set_threshold", "threshold": float(args[0])})
 
     def show_help(self):
         help_text = HTML(
@@ -202,13 +185,11 @@ class EspectreMQTTShell:
 <ansibrightcyan><b>Micro-ESPectre CLI - Interactive Commands</b></ansibrightcyan>
 
 <ansiyellow><b>Configuration Commands:</b></ansiyellow>
-  <ansigreen>segmentation_threshold|st</ansigreen> &lt;val&gt;     Set segmentation threshold (0.5-10.0)
-  <ansigreen>segmentation_window_size|sws</ansigreen> &lt;n&gt;    Set moving variance window (10-200 packets)
+  <ansigreen>set_threshold|st</ansigreen> &lt;val&gt;               Set segmentation threshold (0.5-10.0)
 
 <ansiyellow><b>System Commands:</b></ansiyellow>
   <ansigreen>info|i</ansigreen>                              Show current configuration
   <ansigreen>stats|s</ansigreen>                             Show runtime statistics (memory, loop time)
-  <ansigreen>factory_reset|reset|fr</ansigreen>              Reset all settings and re-calibrate
 
 <ansiyellow><b>Utility Commands:</b></ansiyellow>
   <ansigreen>webui|web|ui</ansigreen>                        Open web interface in browser

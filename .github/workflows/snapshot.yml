@@ -183,8 +183,8 @@ jobs:
           path: output/espectre-matter-*.bin
           retention-days: 1
 
-  build-ble:
-    name: Build BLE ${{ matrix.chip }}
+  build-native:
+    name: Build native ${{ matrix.chip }}
     needs: check-changes
     if: needs.check-changes.outputs.should_build == 'true'
     runs-on: ubuntu-latest
@@ -208,24 +208,24 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Build BLE firmware
+      - name: Build native firmware
         run: |
           mkdir -p output
-          bash .github/scripts/build_ble_firmware.sh
+          bash .github/scripts/build_native_firmware.sh
         env:
-          BLE_TARGET: ${{ matrix.target }}
-          BLE_OUTPUT: ${{ github.workspace }}/output/espectre-ble-snapshot-${{ matrix.target }}.bin
+          NATIVE_TARGET: ${{ matrix.target }}
+          NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-snapshot-${{ matrix.target }}.bin
 
-      - name: Upload BLE firmware artifact
+      - name: Upload native firmware artifact
         uses: actions/upload-artifact@v7
         with:
-          name: firmware-ble-${{ matrix.chip }}
-          path: output/espectre-ble-*.bin
+          name: firmware-native-${{ matrix.chip }}
+          path: output/espectre-native-*.bin
           retention-days: 1
 
   release:
     name: Create Snapshot Release
-    needs: [build, build-matter, build-ble]
+    needs: [build, build-matter, build-native]
     runs-on: ubuntu-latest
     
     steps:

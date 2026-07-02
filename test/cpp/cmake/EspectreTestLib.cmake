@@ -18,6 +18,7 @@ endif()
 add_library(espectre_test_framework STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/support/test_harness.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_event_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/nvs_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_wifi_mock.cpp"
 )
 target_include_directories(espectre_test_framework
@@ -52,6 +53,8 @@ target_link_libraries(espectre_core_testlib
 )
 
 add_library(espectre_runtime_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
@@ -66,6 +69,8 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/device_config_store.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/wifi_provisioning_service.cpp"
 )
 target_link_libraries(espectre_runtime_testlib
     PUBLIC
@@ -94,12 +99,13 @@ target_link_libraries(espectre_frontend_matter_testlib
         espectre_test_mocks
 )
 
-add_library(espectre_frontend_ble_testlib STATIC
-    ${ESPECTRE_FRONTEND_BLE_SOURCES}
+add_library(espectre_frontend_native_testlib STATIC
+    ${ESPECTRE_FRONTEND_NATIVE_SOURCES}
     "${CMAKE_CURRENT_SOURCE_DIR}/support/ble_bindings_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/support/mqtt_transport_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
 )
-target_link_libraries(espectre_frontend_ble_testlib
+target_link_libraries(espectre_frontend_native_testlib
     PUBLIC
         espectre_runtime_testlib
         espectre_test_mocks
@@ -111,7 +117,7 @@ foreach(target_name
         espectre_core_testlib
         espectre_runtime_testlib
         espectre_frontend_esphome_testlib
-        espectre_frontend_ble_testlib
+        espectre_frontend_native_testlib
         espectre_frontend_matter_testlib)
     espectre_apply_coverage("${target_name}")
 endforeach()

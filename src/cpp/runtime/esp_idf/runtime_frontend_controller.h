@@ -24,6 +24,7 @@ class RuntimeFrontendController {
   void shutdown();
 
   void set_services_armed(bool armed);
+  void set_live_telemetry_enabled(bool enabled);
   bool services_armed() const { return services_armed_; }
 
   bool set_threshold_runtime(float threshold);
@@ -39,6 +40,7 @@ class RuntimeFrontendController {
   std::unique_ptr<IEspectreRuntime> runtime_;
   bool setup_complete_{false};
   bool services_armed_{true};
+  bool live_telemetry_enabled_{true};
 };
 
 }  // namespace espectre

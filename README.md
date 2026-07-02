@@ -1,6 +1,8 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
-[![ESPHome](https://img.shields.io/badge/ESPHome-Component-blue.svg)](https://esphome.io/)
-[![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
+[![Chips ESP32 family](https://img.shields.io/badge/chips-ESP32%20family-red.svg)](https://www.espressif.com/en/products/socs)
+[![Works with ESPHome](https://img.shields.io/badge/works%20with-ESPHome-blue.svg)](https://esphome.io/)
+[![Works with Matter](https://img.shields.io/badge/works%20with-Matter-5C6BC0.svg)](https://csa-iot.org/all-solutions/matter/)
+[![Works with Native](https://img.shields.io/badge/works%20with-Native-00897B.svg)](src/cpp/frontend/native/README.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
 
@@ -64,7 +66,7 @@
 Repository CLI namespaces:
 - `./espectre micro ...` for MicroPython flashing, deploy, streaming, dataset collection, and MQTT control
 - `./espectre esphome ...` for local ESPHome build/flash/config/logs workflows
-- `./espectre ble ...` for the standalone BLE firmware `idf.py` workflow
+- `./espectre native ...` for the standalone native firmware `idf.py` workflow
 - `./espectre matter ...` for Matter `idf.py` build/flash/monitor
 - `./espectre streamer ...` for streamer firmware `idf.py` build/flash/monitor
 
@@ -214,7 +216,7 @@ Each sensor is automatically discovered by Home Assistant with:
 - Adjustable threshold (number entity)
 
 Today, the main user-facing integration is still ESPHome + Home Assistant. The
-same internal architecture now also supports Matter and BLE frontends, plus
+same internal architecture now also supports Matter and native frontends, plus
 future local orchestration layers that can combine events from multiple sensors
 across the home.
 
@@ -233,14 +235,14 @@ The runtime processing pipeline above is implemented with a separate internal co
 - `src/cpp/core/` for reusable detectors, filters, thresholds, and domain logic
 - `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current ESP-IDF CSI/Wi-Fi/calibration implementation
 - `src/cpp/frontend/esphome/espectre/` for the ESPHome adapter and packaging entrypoint
-- `src/cpp/frontend/ble/espectre/` for the standalone BLE adapter and firmware app
+- `src/cpp/frontend/native/espectre/` for the standalone native adapter and firmware app
 - `src/cpp/frontend/matter/espectre/` for the Matter adapter and esp-matter firmware app
 - `src/cpp/frontend/streamer/espectre/` for the standalone CSI streamer frontend and UDP transport
 
 ```text
 ┌──────────────────────────────────┐
 │ Frontend                         │
-│ (ESPHome, BLE, Matter, streamer) │
+│ (ESPHome, native, Matter, streamer) │
 └──────────────┬───────────────────┘
                │ uses
                ▼
@@ -258,7 +260,7 @@ The runtime processing pipeline above is implemented with a separate internal co
 
 This split keeps decoupled core logic from runtimes and frontends:
 
-- the standalone BLE frontend under `src/cpp/frontend/ble/`
+- the standalone native frontend under `src/cpp/frontend/native/`
 - the Matter frontend under `src/cpp/frontend/matter/`
 - the streamer frontend under `src/cpp/frontend/streamer/`
 - alternate runtimes
@@ -269,7 +271,7 @@ This split keeps decoupled core logic from runtimes and frontends:
 Frontend-local source of truth documents:
 
 - [ESPHome Frontend](src/cpp/frontend/esphome/README.md)
-- [BLE Frontend](src/cpp/frontend/ble/README.md)
+- [Native Frontend](src/cpp/frontend/native/README.md)
 - [Matter Frontend](src/cpp/frontend/matter/README.md)
 - [Streamer Frontend](src/cpp/frontend/streamer/README.md)
 
@@ -422,7 +424,7 @@ Micro-ESPectre gives you the fundamentals for:
 For local development, the repository CLI is rooted at `./espectre`:
 - `./espectre micro ...` for MicroPython tooling, data collection, and MQTT control
 - `./espectre esphome ...` for local ESPHome build/flash/config/logs workflows
-- `./espectre ble ...`, `./espectre matter ...`, and `./espectre streamer ...` as thin `idf.py` wrappers
+- `./espectre native ...`, `./espectre matter ...`, and `./espectre streamer ...` as thin `idf.py` wrappers
 
 ---
 
@@ -435,7 +437,7 @@ While ESPectre v2.x focuses on **motion detection** (MVS + adaptive threshold bo
 | **Core / Runtime / Frontend platform split** | In Progress | Reusable architecture for multiple frontends and custom firmware |
 | **Matter Frontend** | Available (experimental) | Compatibility path for Apple / Google / Alexa ecosystems via Matter |
 | **Presence / Occupancy Inference** | In Progress | Practical amplitude-first sensing beyond binary motion |
-| **ESPectre Cloud** | Planned | Optional privacy-first cloud layer for multi-room state, device visibility, alerting, history, and fleet management |
+| **Managed Cloud Profile** | Planned | Optional privacy-first cloud layer for multi-room state, device visibility, alerting, history, and fleet management |
 | **Gesture Recognition** | Deferred | Future research/product phase after the current platform and orchestration work |
 | **Human Activity Recognition** | Deferred | Future research/product phase after the current platform and orchestration work |
 | **People Counting** | Planned | Estimate number of people in a room |
@@ -443,7 +445,7 @@ While ESPectre v2.x focuses on **motion detection** (MVS + adaptive threshold bo
 
 The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md#ml-neural-network-detector) and `PERFORMANCE.md` for current metrics.
 
-The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md). The broader product direction and sequencing between platform work, frontends, cloud orchestration, and research tracks are described in [ROADMAP.md](docs/ROADMAP.md), with the proposed cloud architecture in [ESPECTRE_CLOUD.md](docs/ESPECTRE_CLOUD.md).
+The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md). The broader product direction and sequencing between platform work, frontends, cloud orchestration, and research tracks are described in [ROADMAP.md](docs/ROADMAP.md), with the device protocol in [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) and the local/cloud architecture profiles in [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -454,17 +456,17 @@ The ML data collection and training infrastructure is documented in [ML_DATA_COL
 | Document | Description |
 |----------|-------------|
 | [Intro](README.md) | (This file) Project overview, quick start, FAQ |
-| [Setup Guide](docs/SETUP.md) | Shared setup hub and frontend chooser for ESPHome, BLE, Matter, and streamer workflows |
+| [Setup Guide](docs/SETUP.md) | Shared setup hub and frontend chooser for ESPHome, native, Matter, and streamer workflows |
 | [Tuning Guide](docs/TUNING.md) | Parameter tuning for optimal detection |
 | [Performance](docs/PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
-| [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, `core` / `runtime` / `frontend` split, and orchestration alignment |
+| [Architecture Guide](docs/ARCHITECTURE.md) | Internal source layout, `core` / `runtime` / `frontend` split, local lab profile, managed cloud profile, and orchestration alignment |
 | [Test Suite](test/cpp/README.md) | Layered CMake/CTest suite, coverage flow, and support layout |
 | [ESPHome Frontend](src/cpp/frontend/esphome/README.md) | Local source of truth for the ESPHome integration surface |
-| [BLE Frontend](src/cpp/frontend/ble/README.md) | Local source of truth for the BLE protocol and firmware surface |
+| [Native Frontend](src/cpp/frontend/native/README.md) | Native frontend firmware workflow, provisioning notes, and frontend-specific troubleshooting |
 | [Matter Frontend](src/cpp/frontend/matter/README.md) | Local source of truth for the Matter surface and firmware workflow |
 | [Streamer Frontend](src/cpp/frontend/streamer/README.md) | Local source of truth for the CSI UDP streamer surface |
-| [The Game](docs/web/game/README.md) | Browser game example built on the generic BLE frontend protocol, with interactive threshold tuning |
-| [ESPectre Cloud](docs/ESPECTRE_CLOUD.md) | Proposed privacy-first cloud architecture, onboarding, telemetry, alerting, and OTA plan |
+| [The Game](docs/web/game/README.md) | Browser game example built on the native frontend protocol over BLE, with interactive threshold tuning |
+| [ESPectre Protocol](docs/ESPECTRE_PROTOCOL.md) | Shared device protocol, payloads, topics, transport mapping, and privacy boundary |
 
 ### Micro-ESPectre (R&D)
 

@@ -47,8 +47,15 @@ def _add_micro_namespace(subparsers) -> None:
     verify_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
     verify_parser.set_defaults(handler=verify_installation)
 
-    ui_parser = micro_subparsers.add_parser("ui", help="Open web monitoring interface in browser")
-    ui_parser.set_defaults(handler=lambda args: open_web_ui())
+    ui_parser = micro_subparsers.add_parser("ui", help="Open a web UI in the browser")
+    ui_parser.add_argument(
+        "interface",
+        nargs="?",
+        choices=["mqtt", "ble", "theremin"],
+        default="mqtt",
+        help="Web UI to open (default: mqtt)",
+    )
+    ui_parser.set_defaults(handler=lambda args: open_web_ui(args.interface))
 
     collect_parser = micro_subparsers.add_parser("collect", help="Collect labeled CSI data for training")
     collect_parser.add_argument("--label", "-l", help="Label for collected data (e.g., static_presence, motion, empty, wave)")
@@ -132,12 +139,18 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
         command_parser.add_argument("--chip", choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()), required=True, help="ESP-IDF target chip")
         if command_name in {"flash", "monitor"}:
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+        if command_name == "monitor":
+            command_parser.add_argument(
+                "--print-filter",
+                dest="print_filter",
+                help="Forward an ESP-IDF monitor print filter such as '*:W espectre.matter:I'",
+            )
         command_parser.set_defaults(handler=lambda args, current_frontend=frontend: run_idf_command(current_frontend, args))
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="ESPectre CLI - repository orchestrator for micro, esphome, ble, matter, and streamer workflows",
+        description="ESPectre CLI - repository orchestrator for micro, esphome, native, matter, and streamer workflows",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -145,7 +158,7 @@ Examples:
   ./espectre micro deploy
   ./espectre micro
   ./espectre esphome build --chip c3 --dev
-  ./espectre ble build --chip c3
+  ./espectre native build --chip c3
   ./espectre matter build --chip c3
   ./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX
 """,
@@ -153,7 +166,7 @@ Examples:
     subparsers = parser.add_subparsers(dest="namespace", help="Available namespaces")
     _add_micro_namespace(subparsers)
     _add_esphome_namespace(subparsers)
-    _add_idf_namespace(subparsers, "ble")
+    _add_idf_namespace(subparsers, "native")
     _add_idf_namespace(subparsers, "matter")
     _add_idf_namespace(subparsers, "streamer")
     return parser

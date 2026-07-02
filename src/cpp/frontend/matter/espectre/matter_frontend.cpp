@@ -8,6 +8,7 @@
 #include "matter_frontend.h"
 
 #include "espectre_log.h"
+#include "runtime_listener_utils.h"
 
 namespace esphome {
 namespace espectre {
@@ -99,6 +100,7 @@ void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
     threshold_republished_ = true;
   }
 
+  status_logger_.log_status(TAG, snapshot, packets_received);
   bindings_->publish_periodic_state(endpoint_id_, snapshot_to_periodic_state(snapshot, packets_received));
 }
 
@@ -114,11 +116,8 @@ void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
 }
 
 void MatterFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
-  runtime_.record_snapshot(snapshot);
   bindings_->publish_calibrating(endpoint_id_, false);
-  if (!success) {
-    ESP_LOGW(TAG, "Calibration finished without a valid update");
-  }
+  finalize_frontend_calibration(runtime_, snapshot, [this]() { status_logger_.reset(); }, success, TAG);
 }
 
 void MatterFrontend::on_live_telemetry(float movement, float threshold) {

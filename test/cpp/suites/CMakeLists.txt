@@ -53,8 +53,28 @@ add_espectre_test(test_runtime_helpers
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_runtime_frontend_controller
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_runtime_frontend_controller.cpp"
+    LIBRARIES espectre_frontend_esphome_testlib
+)
+
 add_espectre_test(test_wifi_lifecycle
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_wifi_lifecycle.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_wifi_provisioning_service
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_wifi_provisioning_service.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_device_config_store
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_device_config_store.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_espectre_protocol
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_espectre_protocol.cpp"
     LIBRARIES espectre_runtime_testlib
 )
 
@@ -83,9 +103,9 @@ add_espectre_test(test_frontend_controls
     LIBRARIES espectre_frontend_esphome_testlib
 )
 
-add_espectre_test(test_ble_frontend
-    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_ble_frontend.cpp"
-    LIBRARIES espectre_frontend_ble_testlib
+add_espectre_test(test_native_frontend
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_native_frontend.cpp"
+    LIBRARIES espectre_frontend_native_testlib
 )
 
 add_espectre_test(test_matter_frontend

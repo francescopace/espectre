@@ -9,12 +9,15 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cinttypes>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include "ble_protocol.h"
 #include "csi_stream_protocol.h"
+#include "device_config_store.h"
 #include "espectre_log.h"
 #include "stimulus_protocol.h"
 #include "utils.h"
@@ -35,6 +38,7 @@ namespace {
 
 static const char *const TAG = "espectre.stream";
 constexpr int kWifiConnectMaxRetry = 8;
+constexpr const char *kDefaultStreamerDeviceName = "ESPectre Streamer";
 
 #ifdef CONFIG_ESPECTRE_STREAM_OUTPUT_ENABLED
 constexpr bool kStreamOutputEnabled = true;
@@ -111,6 +115,46 @@ uint64_t derive_device_id() {
     device_id = (device_id << 8U) | static_cast<uint64_t>(byte);
   }
   return device_id;
+}
+
+std::string ble_device_name_from_config(const EspectreDeviceConfig &config) {
+  constexpr size_t kMaxBleNameLen = 24;
+  const std::string source = espectre_effective_device_name(config);
+  std::string out;
+  out.reserve(kMaxBleNameLen);
+
+  bool last_was_space = false;
+  for (unsigned char ch : source) {
+    char normalized = '\0';
+    if (std::isalnum(ch)) {
+      normalized = static_cast<char>(ch);
+    } else if (ch == ' ' || ch == '-' || ch == '_') {
+      normalized = ' ';
+    } else if (std::isspace(ch)) {
+      normalized = ' ';
+    } else {
+      continue;
+    }
+
+    if (normalized == ' ') {
+      if (out.empty() || last_was_space) {
+        continue;
+      }
+      last_was_space = true;
+    } else {
+      last_was_space = false;
+    }
+
+    if (out.size() >= kMaxBleNameLen) {
+      break;
+    }
+    out.push_back(normalized);
+  }
+
+  while (!out.empty() && out.back() == ' ') {
+    out.pop_back();
+  }
+  return out.empty() ? ESPECTRE_BLE_DEVICE_NAME : out;
 }
 
 void format_ipv4_addr(uint32_t network_addr, char *buffer, size_t buffer_len) {
@@ -234,6 +278,21 @@ bool StreamFrontend::setup() {
 
   device_id_ = derive_device_id();
   stream_seq_ = 0U;
+  device_config_ = EspectreDeviceConfig{};
+  device_config_.device_name = kDefaultStreamerDeviceName;
+
+  EspectreDeviceConfig stored_device_config;
+  bool has_stored_device_config = false;
+  const esp_err_t load_err = load_stored_device_config(&stored_device_config, &has_stored_device_config);
+  if (load_err == ESP_OK && has_stored_device_config) {
+    device_config_ = stored_device_config;
+    ESP_LOGI(TAG, "Using device config provisioned over BLE");
+  } else if (load_err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to load BLE-provisioned device config: %s", esp_err_to_name(load_err));
+  }
+  if (device_config_.device_name.empty()) {
+    device_config_.device_name = kDefaultStreamerDeviceName;
+  }
 
   if (!udp_sender_.setup()) {
     return false;
@@ -256,6 +315,10 @@ bool StreamFrontend::setup() {
 
   if (!init_wifi_station_()) {
     return false;
+  }
+
+  if (!setup_ble_provisioning_()) {
+    ESP_LOGW(TAG, "BLE Wi-Fi provisioning is unavailable");
   }
 
   setup_complete_ = true;
@@ -331,6 +394,10 @@ void StreamFrontend::shutdown() {
 
   stop_capture_();
   stimulus_service_.stop();
+  if (ble_ready_) {
+    ble_bindings_.shutdown();
+    ble_ready_ = false;
+  }
   wifi_manager_.shutdown();
   udp_sender_.shutdown();
   setup_complete_ = false;
@@ -352,21 +419,43 @@ bool StreamFrontend::init_nvs_() {
 bool StreamFrontend::init_wifi_station_() {
   constexpr int kConfiguredWifiChannel = CONFIG_ESPECTRE_WIFI_CHANNEL;
   static_assert(kConfiguredWifiChannel >= 0 && kConfiguredWifiChannel <= 14, "invalid Wi-Fi channel");
-  StandaloneWifiConfig wifi_config;
-  wifi_config.ssid = CONFIG_ESPECTRE_WIFI_SSID;
-  wifi_config.password = CONFIG_ESPECTRE_WIFI_PASSWORD;
-  wifi_config.bssid = CONFIG_ESPECTRE_WIFI_BSSID;
-  wifi_config.channel = static_cast<uint8_t>(kConfiguredWifiChannel);
-  wifi_config.max_retry = kWifiConnectMaxRetry;
-  wifi_config.manage_csi_lifecycle = true;
 
-  if (!check_esp(wifi_manager_.setup(wifi_config,
-                                     [this]() { on_wifi_connected_(); },
-                                     [this]() { on_wifi_disconnected_(); }),
-                 "wifi_manager_.setup")) {
+  WifiProvisioningDefaults defaults;
+  defaults.ssid = CONFIG_ESPECTRE_WIFI_SSID;
+  defaults.password = CONFIG_ESPECTRE_WIFI_PASSWORD;
+  defaults.bssid = CONFIG_ESPECTRE_WIFI_BSSID;
+  defaults.channel = static_cast<uint8_t>(kConfiguredWifiChannel);
+  defaults.max_retry = kWifiConnectMaxRetry;
+  defaults.manage_csi_lifecycle = true;
+
+  wifi_provisioning_.set_change_callback([this]() { this->publish_ble_sysinfo_(); });
+  const esp_err_t setup_err = wifi_provisioning_.setup_station(defaults,
+                                                               [this]() { this->on_wifi_connected_(); },
+                                                               [this]() { this->on_wifi_disconnected_(); });
+  if (!check_esp(setup_err, "wifi_provisioning_.setup_station")) {
     return false;
   }
+  if (wifi_provisioning_.config().has_saved_config) {
+    ESP_LOGI(TAG, "Using Wi-Fi credentials provisioned over BLE");
+  }
   return check_esp(wifi_manager_.start(), "wifi_manager_.start");
+}
+
+bool StreamFrontend::setup_ble_provisioning_() {
+  ble_bindings_.set_device_name(ble_device_name_from_config(device_config_).c_str());
+  ble_bindings_.set_connection_state_callback([this](bool connected) {
+    if (connected) {
+      this->publish_ble_sysinfo_();
+    }
+  });
+  ble_bindings_.set_control_write_callback([this](const std::string &command) { this->handle_ble_control_(command); });
+  ble_bindings_.set_telemetry_subscription_callback([](bool) {});
+  if (!ble_bindings_.setup()) {
+    return false;
+  }
+  ble_ready_ = true;
+  ESP_LOGI(TAG, "BLE Wi-Fi provisioning ready");
+  return true;
 }
 
 bool StreamFrontend::start_capture_() {
@@ -395,6 +484,7 @@ void StreamFrontend::on_wifi_connected_() {
   collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
   udp_sender_.set_collector(collector_addr, false);
   capture_service_.reset_session();
+  publish_ble_sysinfo_();
 }
 
 void StreamFrontend::on_wifi_disconnected_() {
@@ -407,6 +497,114 @@ void StreamFrontend::on_wifi_disconnected_() {
   collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
   udp_sender_.set_collector(collector_addr, false);
   transition_to_(WorkflowState::WAIT_WIFI, "wifi disconnected");
+  publish_ble_sysinfo_();
+}
+
+void StreamFrontend::handle_ble_control_(const std::string &command) {
+  if (command == "REQ_SYSINFO") {
+    publish_ble_sysinfo_();
+    return;
+  }
+
+  std::string message;
+  bool accepted = false;
+  if (command == "CLEAR_DEVICE_CONFIG") {
+    const esp_err_t err = clear_stored_device_config();
+    accepted = err == ESP_OK;
+    if (accepted) {
+      device_config_.device_name = kDefaultStreamerDeviceName;
+      ble_bindings_.set_device_name(ble_device_name_from_config(device_config_).c_str());
+      message = "device settings cleared";
+    } else {
+      message = esp_err_to_name(err);
+    }
+  } else if (command.rfind("SET_DEVICE_CONFIG:", 0) == 0) {
+    EspectreDeviceConfig updated = device_config_;
+    std::string error;
+    if (parse_espectre_config_command(command, &updated, &error) &&
+        updated.mqtt_host == device_config_.mqtt_host &&
+        updated.mqtt_port == device_config_.mqtt_port &&
+        updated.mqtt_username == device_config_.mqtt_username &&
+        updated.mqtt_password == device_config_.mqtt_password &&
+        updated.topic_prefix == device_config_.topic_prefix &&
+        updated.mqtt_enabled == device_config_.mqtt_enabled) {
+      const esp_err_t err = save_stored_device_config(updated);
+      accepted = err == ESP_OK;
+      if (accepted) {
+        device_config_ = updated;
+        ble_bindings_.set_device_name(ble_device_name_from_config(device_config_).c_str());
+        message = "device settings saved";
+      } else {
+        message = esp_err_to_name(err);
+      }
+    } else {
+      message = error.empty() ? "unsupported device config field" : error;
+    }
+  } else {
+    accepted = wifi_provisioning_.handle_command(command, &message);
+  }
+  char line[192];
+  std::snprintf(line,
+                sizeof(line),
+                "last_command=%s:%s",
+                accepted ? "ok" : "error",
+                message.empty() ? command.c_str() : message.c_str());
+  publish_ble_line_(line);
+  publish_ble_sysinfo_();
+}
+
+void StreamFrontend::publish_ble_sysinfo_() {
+  if (!ble_ready_) {
+    return;
+  }
+
+  char line[192];
+  publish_ble_line_("frontend=streamer");
+  publish_ble_line_("espectre_protocol_version=1.0");
+  publish_ble_line_("supports_wifi_provisioning=true");
+  publish_ble_line_("supports_mqtt_config=false");
+  publish_ble_line_("supports_device_config=true");
+  publish_ble_line_("supports_runtime_threshold=false");
+  publish_ble_line_("supports_live_telemetry=false");
+  publish_ble_line_("supports_extended_diagnostics=false");
+  publish_ble_line_("firmware_version=unknown");
+  publish_ble_line_("chip=" CONFIG_IDF_TARGET);
+  std::snprintf(line, sizeof(line), "device_id=0x%016" PRIx64, device_id_);
+  publish_ble_line_(line);
+  std::snprintf(line, sizeof(line), "device_name=%s", espectre_effective_device_name(device_config_).c_str());
+  publish_ble_line_(line);
+  const std::string ble_device_name = ble_device_name_from_config(device_config_);
+  std::snprintf(line, sizeof(line), "ble_device_name=%s", ble_device_name.c_str());
+  publish_ble_line_(line);
+
+  const StoredWifiConfig &wifi_config = wifi_provisioning_.config();
+  std::snprintf(line, sizeof(line), "wifi_saved=%s", wifi_config.has_saved_config ? "true" : "false");
+  publish_ble_line_(line);
+  std::snprintf(line, sizeof(line), "wifi_ssid=%s", wifi_config.ssid.c_str());
+  publish_ble_line_(line);
+  std::snprintf(line, sizeof(line), "wifi_bssid=%s", wifi_config.bssid.c_str());
+  publish_ble_line_(line);
+  std::snprintf(line, sizeof(line), "wifi_channel=%u", static_cast<unsigned>(wifi_config.channel));
+  publish_ble_line_(line);
+  std::snprintf(line, sizeof(line), "wifi_password_set=%s", wifi_provisioning_.password_set() ? "true" : "false");
+  publish_ble_line_(line);
+  std::snprintf(line, sizeof(line), "wifi_connected=%s", wifi_connected_.load(std::memory_order_relaxed) ? "true" : "false");
+  publish_ble_line_(line);
+
+  StandaloneWifiInfo wifi_info;
+  if (wifi_manager_.get_info(&wifi_info)) {
+    std::snprintf(line, sizeof(line), "ip_address=%s", wifi_info.ip_address);
+    publish_ble_line_(line);
+    std::snprintf(line, sizeof(line), "mac_address=%s", wifi_info.mac_address);
+    publish_ble_line_(line);
+  }
+  publish_ble_line_("END");
+}
+
+void StreamFrontend::publish_ble_line_(const char *line) {
+  if (ble_ready_ && line != nullptr) {
+    ble_bindings_.publish_sysinfo_line(line);
+  }
 }
 
 void StreamFrontend::handle_gain_lock_packet_(const wifi_csi_info_t *info) {

@@ -20,6 +20,14 @@ void MockBleBindings::set_control_write_callback(ControlWriteCallback callback) 
   state.control_callback = std::move(callback);
 }
 
+void MockBleBindings::set_telemetry_subscription_callback(TelemetrySubscriptionCallback callback) {
+  state.telemetry_subscription_callback = std::move(callback);
+}
+
+void MockBleBindings::set_device_name(const char *name) {
+  state.device_names.emplace_back(name != nullptr ? name : "");
+}
+
 void MockBleBindings::publish_telemetry(const uint8_t *payload, size_t payload_len) {
   TelemetryPublish publish;
   publish.payload.assign(payload, payload + payload_len);
@@ -47,6 +55,12 @@ void MockBleBindings::emit_control(const std::string &command) {
   state.control_commands.push_back(command);
   if (state.control_callback) {
     state.control_callback(command);
+  }
+}
+
+void MockBleBindings::emit_telemetry_subscription(bool subscribed) {
+  if (state.telemetry_subscription_callback) {
+    state.telemetry_subscription_callback(subscribed);
   }
 }
 

@@ -51,8 +51,8 @@ Dependency shape:
 ┌────────────────────────────────────────────────────────────┐
 │ FRONTEND                                                   │
 │                                                            │
-│  ESPHome frontend  BLE frontend  Matter frontend  Streamer frontend │
-│  src/cpp/frontend/esphome/espectre  .../ble/...  .../matter/...     │
+│  ESPHome frontend  native frontend  Matter frontend  Streamer frontend │
+│  src/cpp/frontend/esphome/espectre  .../native/...  .../matter/...     │
 └───────────────────────────┬────────────────────────────────┘
                             │ uses
                             ▼
@@ -117,7 +117,14 @@ Shared runtime helpers also live here:
 
 - `runtime_config_utils.*` for threshold validation and stable mode names
 - `runtime_diagnostics.*` for common runtime diagnostic key/value fields
+- `periodic_sensing_status_logger.*` for the shared progress-bar sensing status log used by `ESPHome`, `BLE`, and `Matter`
 - `esp_idf/standalone_wifi_manager.*` for standalone ESP-IDF STA setup, CSI Wi-Fi policy, BSSID/channel fast scan, and retry behavior used by firmware targets that own their Wi-Fi stack
+- `espectre_protocol.*`, `ble_protocol.h`, and `mqtt_transport.h` for the
+  shared device protocol model, BLE GATT mapping constants, and transport
+  boundary reused by ESP-IDF firmware targets
+- `esp_idf/protocol/` for ESP-IDF protocol services such as NimBLE bindings,
+  NVS-backed provisioning storage, MQTT transport implementation, and shared
+  Wi-Fi provisioning command handling
 
 ### `src/cpp/frontend/esphome/espectre/`
 
@@ -128,20 +135,23 @@ codegen, and packaging metadata for the production-oriented frontend.
 For frontend-specific details, see
 [`src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md).
 
-### `src/cpp/frontend/ble/espectre/`
+### `src/cpp/frontend/native/espectre/`
 
-This is the standalone BLE adapter used by generic BLE clients, including a web
+This is the standalone native adapter used by generic BLE clients, including a web
 client as one example integration.
 
 It reuses the same runtime contract as the other frontends, but maps runtime
 events and controls to a custom GATT surface instead of Home Assistant entities
 or Matter clusters.
 
-The BLE adapter uses the shared `RuntimeFrontendController` for runtime
-ownership and the shared standalone Wi-Fi manager for ESP-IDF STA setup.
+The native adapter uses the shared `RuntimeFrontendController` for runtime
+ownership and shared ESP-IDF protocol services for BLE transport, NVS-backed
+Wi-Fi/device configuration, MQTT transport, and standalone Wi-Fi setup.
 
-For the BLE protocol, stability model, and firmware-specific surface, see
-[`src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md).
+For the BLE protocol, payload shape, field semantics, and transport mapping,
+see [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md). For native frontend firmware workflow
+and frontend-specific operational notes, see
+[`src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md).
 
 ### `src/cpp/frontend/matter/espectre/`
 
@@ -170,8 +180,9 @@ capture CSI and emit a compact UDP stream for host-side tools and data
 collection workflows.
 
 It still uses shared infrastructure where the behavior is identical, notably
-the standalone Wi-Fi manager and CSI Wi-Fi policy. Its CSI capture and UDP
-streaming state machine stay frontend-specific.
+the standalone Wi-Fi manager, CSI Wi-Fi policy, and BLE-assisted Wi-Fi
+provisioning service. Its CSI capture and UDP streaming state machine stay
+frontend-specific.
 
 For the UDP packet format, frontend state machine, and Kconfig surface, see
 [`src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md).
@@ -285,6 +296,347 @@ That is the architectural bridge between:
 
 ---
 
+## ESPectre Protocol In The Architecture
+
+The firmware split gives each frontend a clean way to expose the same logical
+device model without sharing ecosystem-specific code. ESPectre Protocol is that
+logical device model at the integration boundary.
+
+It defines message families such as telemetry, status, info, stats, commands,
+and command results. It does not define a separate local protocol or cloud
+protocol. BLE, MQTT, MQTT over TLS, shadows, jobs, local services, and
+managed services are deployment profiles or transports for the same message
+semantics.
+
+The source of truth for payload shape, topic shape, field semantics, and current
+transport mapping is [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md).
+
+---
+
+## Local Lab Profile
+
+The currently implemented self-hosted path is intentionally small:
+
+```text
+ESPectre device
+  -> BLE for setup, recovery, and local diagnostics
+  -> MQTT broker
+  -> tools/web/espectre-mqtt.html
+```
+
+This profile already supports:
+
+- BLE-assisted Wi-Fi provisioning
+- BLE-assisted MQTT provisioning
+- on-device persistence for Wi-Fi and MQTT settings
+- MQTT telemetry, status, info, stats, and command results as defined in
+  [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md)
+- shared ESPectre Protocol payloads from native frontend firmware and `micro-espectre`
+- `tools/web/espectre-ble.html` as the Web Bluetooth provisioning/test client, including subscription-driven live telemetry and runtime threshold tuning
+- `tools/web/espectre-mqtt.html` as the browser MQTT monitor for realtime validation
+
+A future local lab service can extend this into:
+
+```text
+ESPectre device
+  -> BLE for setup, recovery, and local diagnostics
+  -> MQTT broker
+  -> local lab service
+  -> SQLite or other lightweight local store
+  -> MQTT dashboard or API
+```
+
+Practical local-lab scope:
+
+- manual or BLE-assisted Wi-Fi provisioning
+- single-site deployment
+- latest device state plus recent history
+- threshold updates
+- local retention controls
+- optional export of history
+
+The local lab profile deliberately excludes first-wave local clones of:
+
+- social login
+- billing
+- OTA fleet workflows
+- complex queue orchestration
+- multi-tenant account models
+- image-based floor plans
+
+---
+
+## Managed Cloud Profile
+
+The managed cloud profile builds on ESPectre Protocol and adds product
+infrastructure around it:
+
+```text
+ESPectre device
+  -> BLE for claim bootstrap, provisioning, and recovery
+  -> MQTT over TLS for operational telemetry and commands
+  -> device state mirror / shadow service
+  -> ingestion and routing layer
+  -> time-series telemetry store
+  -> metadata store for users, homes, rooms, devices, and rules
+  -> API backend and realtime UI
+  -> OTA artifact and rollout service
+  -> async alert workflow
+```
+
+Cloud-specific additions are profiles and services:
+
+- user identity
+- tenant/home/room/device ownership
+- short-lived Web Bluetooth claim sessions
+- per-device credentials and least-privilege MQTT policies
+- retention controls
+- alerting rules
+- signed firmware artifact metadata
+- OTA rollout and audit state
+
+Candidate managed services remain implementation choices:
+
+| Concern | Candidate |
+|---------|-----------|
+| Device MQTT ingress | AWS IoT Core |
+| Device current state | AWS IoT Device Shadows |
+| Device commands and OTA | AWS IoT Jobs |
+| User identity | Cognito, Auth0, or Clerk |
+| Application API | API Gateway + Lambda, ECS/Fargate, or AppSync |
+| Near-realtime UI | AppSync subscriptions or API Gateway WebSocket |
+| Time-series storage | Amazon Timestream or DynamoDB time-series pattern |
+| Metadata storage | DynamoDB |
+| Firmware artifacts | S3 + CloudFront |
+| Async workflows | EventBridge + SQS + Lambda |
+| Email alerts | SES |
+| Telegram alerts | Telegram Bot API integration |
+| WhatsApp alerts | WhatsApp Business Platform integration |
+| Billing | Stripe |
+
+### Device Connectivity And Policies
+
+Devices expose two complementary connectivity surfaces:
+
+- `BLE` for proximity-limited setup, claim, diagnostics, and recovery
+- `MQTT` over TLS for normal telemetry and command flows
+
+The normal steady-state operational path should use MQTT with per-device
+credentials. Broker policies must restrict each device credential to its own
+thing/shadow/jobs and MQTT topics. A device must not be able to publish as
+another device or subscribe to tenant-wide topics.
+
+Topic design should avoid human-readable tenant, user, or home names. Tenancy
+belongs in credentials, policies, metadata, and backend authorization.
+
+### Device State Mirror
+
+The managed backend can keep a device state mirror derived from the current
+ESPectre Protocol surfaces:
+
+- `reported` should be built from the latest `status`, `telemetry`, `info`, and
+  optional `stats` messages defined in [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md)
+- `desired` can represent target configuration such as runtime threshold or
+  firmware rollout intent
+
+The device should acknowledge applied settings by copying accepted values from
+`desired` to `reported` or by publishing ESPectre Protocol command results. For
+the self-hosted local lab, an equivalent state mirror can be implemented by the
+local service without requiring a cloud-specific shadow product. The exact
+payload fields should not be duplicated here; `docs/ESPECTRE_PROTOCOL.md`
+remains the source of truth.
+
+### Onboarding And Claim
+
+Onboarding is split into two flows:
+
+1. local provisioning
+2. optional managed-cloud claim
+
+Local provisioning must work without a hosted account:
+
+1. User opens a local web app or desktop client.
+2. Client connects to the ESPectre device over BLE.
+3. Device exposes protocol version, firmware version, frontend, and basic
+   health.
+4. User provides Wi-Fi credentials and optional MQTT settings.
+5. Device stores configuration and reconnects without losing BLE recovery.
+6. Device connects to Wi-Fi and the configured MQTT broker.
+7. Local tooling binds the device to a site or room if needed.
+
+Managed cloud claim builds on the same BLE surface:
+
+1. User signs in to the cloud web app.
+2. User selects a home/location and starts "Add device".
+3. Browser connects to the ESPectre device over Web Bluetooth.
+4. Device exposes claim material such as firmware version, frontend capability,
+   a device public key, and a nonce.
+5. Backend creates a short-lived claim session bound to the authenticated user.
+6. Browser passes claim material to the device over BLE.
+7. Device exchanges the claim token for cloud credentials or receives a
+   provisioned certificate bundle through the claim flow.
+8. Device connects to the managed MQTT ingress and publishes first status.
+9. Backend binds the cloud thing to the selected user, home, and room.
+
+Security requirements:
+
+- claim tokens must be short-lived and single-use
+- pairing must require physical proximity
+- long-lived cloud credentials must never be exposed as reusable browser secrets
+- device credentials must be revocable and rotatable
+- failed or abandoned claims must expire automatically
+- stolen claim tokens must not allow claiming arbitrary devices
+
+### Identity And Application Model
+
+The managed cloud should support social login early, because it reduces account
+friction for a consumer-oriented service. Candidate providers include Google,
+Microsoft, GitHub, Apple, Facebook, and LinkedIn.
+
+The application model separates identity from tenancy:
+
+```text
+User
+  -> Membership
+  -> Tenant
+  -> Home / Location
+  -> Floor / Room / Zone
+  -> Device
+```
+
+Core entities:
+
+| Entity | Notes |
+|--------|-------|
+| `User` | Authenticated person |
+| `Tenant` | Billing and ownership boundary |
+| `Membership` | User role within a tenant |
+| `Home` / `Location` | A physical site |
+| `Floor` | Optional grouping for larger locations |
+| `Room` / `Zone` | User-drawn area on the map |
+| `Device` | Claimed ESPectre node |
+| `DevicePlacement` | Device coordinates, room, label, orientation metadata |
+| `TelemetrySample` | Time-series movement/status values |
+| `AlertRule` | User-configured trigger |
+| `AlertDelivery` | Delivery attempt and outcome |
+| `FirmwareArtifact` | Signed firmware image metadata |
+| `FirmwareRollout` | OTA targeting and rollout state |
+
+### Home Map And Room Flow
+
+The first managed map should avoid image uploads and keep the model simple:
+
+- user draws rooms/zones as rectangles or polygons
+- user places devices on the map
+- each device is assigned to one room or zone
+- the UI shows live device state and room-level aggregate state
+
+Approximate movement flow can be inferred from ordered room events:
+
+```text
+living_room motion -> hallway motion -> bedroom motion
+```
+
+This must be presented as best-effort activity flow, not precise localization.
+
+### Realtime And History
+
+Realtime view:
+
+- online/offline status
+- latest movement score
+- motion state
+- room-level active/idle state
+- firmware/update status
+
+History view:
+
+- movement score over time
+- motion events
+- device availability
+- firmware updates
+- alert triggers and delivery status
+
+Retention must be configurable and visible to users. Local lab dashboards can
+start with polling; managed cloud can later add WebSocket or subscription-style
+updates without changing the device payload model.
+
+### Alerts
+
+Initial alert rule:
+
+```text
+When motion is detected in selected room/device during selected schedule, send notification.
+```
+
+Delivery order:
+
+1. Email through SES
+2. Telegram bot integration
+3. WhatsApp Business integration
+
+Alerts should use asynchronous queues so notification provider failures do not
+block telemetry ingestion.
+
+### OTA And Remote Configuration
+
+Firmware update requirements:
+
+- firmware artifacts stored in object storage
+- artifacts signed before publication
+- device verifies signature before applying update
+- rollout can target frontend, chip, firmware version, tenant, home, or device
+- staged rollout and rollback metadata are supported
+- update status is visible in the dashboard
+
+Remote configuration requirements:
+
+- threshold updates through desired state, command topics, or local BLE fallback
+- device validates ranges before applying settings
+- all remote changes are auditable
+- user can restore defaults
+
+Configuration ownership is split by channel:
+
+- `BLE`: bootstrap, provisioning, recovery, and nearby diagnostics
+- `MQTT`: routine online configuration and backend-issued commands
+
+### Security Requirements
+
+- per-device credentials
+- least-privilege MQTT policies
+- tenant isolation at every API boundary
+- encrypted storage at rest
+- TLS for all device and user traffic
+- signed firmware artifacts
+- audit log for ownership, settings, alerts, and OTA operations
+- rate limiting for APIs and device ingestion
+- abuse controls for alert delivery
+- explicit deletion flow for accounts, homes, devices, and historical data
+
+### Open Source Boundary
+
+The open-source project should keep enough public surface to preserve trust and
+avoid lock-in:
+
+- firmware remains open source
+- ESPectre Protocol payloads are documented
+- provisioning protocol is documented
+- device-side managed-cloud client code should be open source if shipped in
+  firmware
+- a minimal self-hosted local lab remains a supported option
+
+The managed service can remain proprietary initially:
+
+- SaaS backend implementation
+- billing
+- managed dashboard
+- alert delivery orchestration
+- managed OTA fleet workflows
+- operational tooling
+
+---
+
 ## Runtime Contract
 
 The runtime contract is intentionally frontend-oriented, not platform-oriented.
@@ -376,7 +728,7 @@ Current implemented paths:
 - `core`: shared detectors and math
 - `runtime`: ESP-IDF runtime
 - `frontend/esphome`: ESPHome adapter
-- `frontend/ble`: standalone BLE adapter + ESP-IDF firmware app
+- `frontend/native`: standalone native adapter + ESP-IDF firmware app
 - `frontend/matter`: Matter adapter + esp-matter firmware app (experimental)
 
 ---

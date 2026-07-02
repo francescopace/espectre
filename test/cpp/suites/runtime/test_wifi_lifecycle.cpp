@@ -141,6 +141,84 @@ void test_standalone_wifi_manager_managed_lifecycle_dispatches_after_csi_init(vo
   TEST_ASSERT_EQUAL(1, disconnected_calls);
 }
 
+void test_standalone_wifi_manager_get_info_reports_station_details(void) {
+  StandaloneWifiManager manager;
+  StandaloneWifiInfo info{};
+
+  TEST_ASSERT_FALSE(manager.get_info(nullptr));
+  TEST_ASSERT_TRUE(manager.get_info(&info));
+  TEST_ASSERT_TRUE(info.connected);
+  TEST_ASSERT_EQUAL_UINT8(6, info.channel);
+  TEST_ASSERT_TRUE(std::string(info.ip_address).find('.') != std::string::npos);
+  TEST_ASSERT_EQUAL_STRING("7C:2C:67:42:BB:AC", info.mac_address);
+}
+
+void test_standalone_wifi_manager_update_station_config_handles_setup_and_reconnect_paths(void) {
+  StandaloneWifiManager manager;
+  StandaloneWifiConfig config;
+  config.ssid = "InitialSSID";
+  config.password = "secret";
+
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, manager.update_station_config(config));
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.update_station_config(config));
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.start());
+  StandaloneWifiConfig empty = config;
+  empty.ssid = "";
+  TEST_ASSERT_EQUAL(ESP_OK, manager.update_station_config(empty));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.update_station_config(config));
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_ps_call_count);
+}
+
+void test_standalone_wifi_manager_update_station_config_rejects_invalid_bssid(void) {
+  StandaloneWifiManager manager;
+  StandaloneWifiConfig config;
+  config.ssid = "SSID";
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.setup(config));
+  config.bssid = "not-a-bssid";
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, manager.update_station_config(config));
+}
+
+void test_standalone_wifi_manager_apply_started_policy_and_retry_logic(void) {
+  TEST_ASSERT_EQUAL(ESP_OK, StandaloneWifiManager::apply_started_csi_policy());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_bandwidth_call_count);
+
+  esp_wifi_mock_reset();
+  g_esp_wifi_mock.set_protocol_results[0] = ESP_FAIL;
+  g_esp_wifi_mock.set_protocol_results[1] = ESP_FAIL;
+  g_esp_wifi_mock.set_protocol_result_count = 2;
+  TEST_ASSERT_EQUAL(ESP_FAIL, StandaloneWifiManager::apply_started_csi_policy());
+
+  esp_wifi_mock_reset();
+  StandaloneWifiManager manager;
+  StandaloneWifiConfig config;
+  config.ssid = "SSID";
+  config.max_retry = 2;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.start());
+
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+
+  wifi_event_sta_disconnected_t event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &event);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &event);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &event);
+  TEST_ASSERT_EQUAL(3, g_esp_wifi_mock.connect_call_count);
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous);
@@ -150,6 +228,10 @@ int process(void) {
   RUN_TEST(test_standalone_wifi_manager_configures_fast_scan_bssid_and_channel);
   RUN_TEST(test_standalone_wifi_manager_applies_policy_and_connects_on_start);
   RUN_TEST(test_standalone_wifi_manager_managed_lifecycle_dispatches_after_csi_init);
+  RUN_TEST(test_standalone_wifi_manager_get_info_reports_station_details);
+  RUN_TEST(test_standalone_wifi_manager_update_station_config_handles_setup_and_reconnect_paths);
+  RUN_TEST(test_standalone_wifi_manager_update_station_config_rejects_invalid_bssid);
+  RUN_TEST(test_standalone_wifi_manager_apply_started_policy_and_retry_logic);
   return UNITY_END();
 }
 

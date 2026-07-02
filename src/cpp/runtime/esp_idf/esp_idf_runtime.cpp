@@ -48,6 +48,18 @@ GainLockMode to_gain_lock_mode(RuntimeGainLockMode mode) {
 
 }  // namespace
 
+void EspIdfRuntime::update_live_telemetry_callback_() {
+  if (live_telemetry_enabled_) {
+    csi_manager_.set_live_telemetry_callback([this](float movement, float threshold) {
+      if (listener_ != nullptr) {
+        listener_->on_live_telemetry(movement, threshold);
+      }
+    });
+  } else {
+    csi_manager_.set_live_telemetry_callback({});
+  }
+}
+
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config) : config_(config) {
   snapshot_.threshold = config_.segmentation_threshold;
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
@@ -70,11 +82,7 @@ bool EspIdfRuntime::setup() {
   csi_manager_.set_evaluation_interval(config_.evaluation_interval);
   csi_manager_.set_motion_on_hits(config_.motion_on_hits);
   csi_manager_.set_motion_off_hits(config_.motion_off_hits);
-  csi_manager_.set_game_mode_callback([this](float movement, float threshold) {
-    if (listener_ != nullptr) {
-      listener_->on_live_telemetry(movement, threshold);
-    }
-  });
+  update_live_telemetry_callback_();
 
   if (wifi_lifecycle_.register_handlers([this]() { on_wifi_connected_(); },
                                         [this]() { on_wifi_disconnected_(); }) != ESP_OK) {
@@ -134,6 +142,11 @@ void EspIdfRuntime::set_services_armed(bool armed) {
   } else {
     ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, waiting for WiFi IP");
   }
+}
+
+void EspIdfRuntime::set_live_telemetry_enabled(bool enabled) {
+  live_telemetry_enabled_ = enabled;
+  update_live_telemetry_callback_();
 }
 
 bool EspIdfRuntime::set_threshold_runtime(float threshold) {

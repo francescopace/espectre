@@ -427,8 +427,8 @@ jobs:
           path: qemu_output.log
           retention-days: 7
 
-  build-ble:
-    name: Build BLE ${{ matrix.chip }}
+  build-native:
+    name: Build native ${{ matrix.chip }}
     runs-on: ubuntu-latest
     needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
@@ -450,18 +450,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Build BLE firmware
+      - name: Build native firmware
         run: |
           mkdir -p output
-          bash .github/scripts/build_ble_firmware.sh
+          bash .github/scripts/build_native_firmware.sh
         env:
-          BLE_TARGET: ${{ matrix.target }}
-          BLE_OUTPUT: ${{ github.workspace }}/output/espectre-ble-ci-${{ matrix.target }}.bin
+          NATIVE_TARGET: ${{ matrix.target }}
+          NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-ci-${{ matrix.target }}.bin
 
-      - name: Upload BLE firmware artifact
+      - name: Upload native firmware artifact
         uses: actions/upload-artifact@v7
         with:
-          name: firmware-ble-${{ matrix.chip }}
-          path: output/espectre-ble-*.bin
+          name: firmware-native-${{ matrix.chip }}
+          path: output/espectre-native-*.bin
           retention-days: 7
 

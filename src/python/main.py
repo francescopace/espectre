@@ -322,9 +322,8 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
         # Phase 1: Gain Lock only (~3 seconds)
         agc, fft, needs_cv = run_gain_lock(wlan)
         
-        # Save CV normalization state
-        if agc is not None and fft is not None:
-            g_state.needs_cv_normalization = needs_cv
+        # Save the effective runtime gain-lock state for diagnostics/telemetry.
+        g_state.needs_cv_normalization = needs_cv
         
         if needs_cv:
             print("Note: Proceeding without gain lock (CV normalization enabled)")
@@ -356,8 +355,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
 
     agc, fft, needs_cv = run_gain_lock(wlan)
 
-    if agc is not None and fft is not None:
-        g_state.needs_cv_normalization = needs_cv
+    g_state.needs_cv_normalization = needs_cv
 
     if needs_cv:
         print("Note: Proceeding with threshold bootstrap without gain lock (CV normalization enabled)")
@@ -608,9 +606,9 @@ def main():
     mqtt_enabled = getattr(config, 'MQTT_ENABLED', True)
     mqtt_handler = None
     if mqtt_enabled:
-        # Initialize MQTT (pass calibration function for factory_reset and global state for metrics)
+        # Initialize MQTT ESPectre Protocol and runtime metrics.
         from src.mqtt.handler import MQTTHandler
-        mqtt_handler = MQTTHandler(config, detector, wlan, traffic_gen, run_startup_calibration, g_state)
+        mqtt_handler = MQTTHandler(config, detector, wlan, g_state)
         print_heap('after_mqtt_handler_init')
         mqtt_handler.connect()
         print_heap('after_mqtt_connect')
@@ -750,10 +748,7 @@ def main():
                             mqtt_handler.publish_state(
                                 motion_metric,
                                 effective_state,
-                                threshold,
-                                publish_counter,
-                                dropped_delta,
-                                pps
+                                threshold
                             )
                         publish_counter = 0
                         last_publish_time = current_time

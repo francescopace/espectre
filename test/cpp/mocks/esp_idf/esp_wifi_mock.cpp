@@ -15,6 +15,13 @@ void esp_wifi_mock_reset(void) {
   g_esp_wifi_mock.bandwidths.ghz_5g = WIFI_BW_HT20;
   g_esp_wifi_mock.ps_type = WIFI_PS_NONE;
   g_esp_wifi_mock.last_set_ps_type = WIFI_PS_NONE;
+  g_esp_wifi_mock.get_mac_result = ESP_OK;
+  g_esp_wifi_mock.mac[0] = 0x7C;
+  g_esp_wifi_mock.mac[1] = 0x2C;
+  g_esp_wifi_mock.mac[2] = 0x67;
+  g_esp_wifi_mock.mac[3] = 0x42;
+  g_esp_wifi_mock.mac[4] = 0xBB;
+  g_esp_wifi_mock.mac[5] = 0xAC;
   g_esp_wifi_mock.primary_channel = 6;
   g_esp_wifi_mock.second_channel = WIFI_SECOND_CHAN_NONE;
   g_esp_wifi_mock.get_protocol_result = ESP_OK;

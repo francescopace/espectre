@@ -1,5 +1,11 @@
 menu "ESPectre Matter"
 
+config ESPECTRE_MATTER_NODE_LABEL
+    string "Matter node label"
+    default "ESPectre Matter"
+    help
+        Node label exposed through the Matter Basic Information cluster.
+
 choice ESPECTRE_MATTER_DETECTION_ALGORITHM
     prompt "ESPectre Matter detection algorithm"
     default ESPECTRE_MATTER_DETECTION_ALGORITHM_ML

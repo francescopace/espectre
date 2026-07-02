@@ -8,6 +8,30 @@ from pathlib import Path
 from .common import Fore, Style, get_serial_port
 from .targets import resolve_idf_target
 
+DEFAULT_MATTER_MONITOR_PRINT_FILTER = (
+    "*:W "
+    "espectre.matter:I "
+    "espectre.matter.app:I "
+    "espectre.runtime:I "
+    "WiFiLifecycle:I "
+    "GainController:I "
+    "BaseDetector:I "
+    "MLDetector:I "
+    "MVSDetector:I "
+    "CsiCapture:I "
+    "TrafficGen:I "
+    "ROUTE_HOOK:I"
+)
+
+
+def _resolve_monitor_print_filter(frontend: str, args) -> str | None:
+    explicit_filter = getattr(args, "print_filter", None)
+    if explicit_filter:
+        return explicit_filter
+    if frontend == "matter" and args.idf_command == "monitor":
+        return DEFAULT_MATTER_MONITOR_PRINT_FILTER
+    return None
+
 
 def run_idf_command(frontend: str, args) -> None:
     """Run an IDF workflow for the given frontend."""
@@ -35,7 +59,11 @@ def run_idf_command(frontend: str, args) -> None:
         commands = [["idf.py", "-p", port, "flash"]]
     elif args.idf_command == "monitor":
         port = get_serial_port(args.port)
-        commands = [["idf.py", "-p", port, "monitor"]]
+        monitor_command = ["idf.py", "-p", port, "monitor"]
+        print_filter = _resolve_monitor_print_filter(frontend, args)
+        if print_filter:
+            monitor_command.append(f"--print-filter={print_filter}")
+        commands = [monitor_command]
 
     try:
         for command in commands:
