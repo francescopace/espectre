@@ -19,6 +19,8 @@
 #include <esp_matter_attribute.h>
 #include <esp_matter_cluster.h>
 #include <esp_matter_endpoint.h>
+#include <lib/support/logging/Constants.h>
+#include <lib/support/logging/TextOnlyLogging.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
 #include "matter_bindings_esp_matter.h"
@@ -57,6 +59,7 @@ bool has_commissioned_fabric() { return chip::Server::GetInstance().GetFabricTab
 
 void configure_log_levels() {
   // Keep ESPectre frontend logs visible while muting noisy Matter internals.
+  chip::Logging::SetLogFilter(chip::Logging::kLogCategory_Error);
   esp_log_level_set("esp_matter_attribute", ESP_LOG_WARN);
   esp_log_level_set("chip[EM]", ESP_LOG_WARN);
   esp_log_level_set("chip[IM]", ESP_LOG_WARN);

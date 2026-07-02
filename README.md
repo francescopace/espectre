@@ -1,6 +1,8 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
-[![ESPHome](https://img.shields.io/badge/ESPHome-Component-blue.svg)](https://esphome.io/)
-[![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
+[![Chips ESP32 family](https://img.shields.io/badge/chips-ESP32%20family-red.svg)](https://www.espressif.com/en/products/socs)
+[![Works with ESPHome](https://img.shields.io/badge/works%20with-ESPHome-blue.svg)](https://esphome.io/)
+[![Works with Matter](https://img.shields.io/badge/works%20with-Matter-5C6BC0.svg)](https://csa-iot.org/all-solutions/matter/)
+[![Works with BLE](https://img.shields.io/badge/works%20with-BLE-00897B.svg)](src/cpp/frontend/ble/README.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
 
