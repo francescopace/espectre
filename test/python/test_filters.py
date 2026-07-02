@@ -142,6 +142,20 @@ class TestHampelFilterEdgeCases:
             result = hf.filter(v)
             assert math.isfinite(result)
 
+    def test_even_window_outlier_uses_averaged_median_and_mad(self):
+        """Even-sized windows should use the same median/MAD semantics as C++."""
+        hf = HampelFilter(window_size=4, threshold=3.0)
+
+        assert hf.filter(1.0) == 1.0
+        assert hf.filter(2.0) == 2.0
+        assert hf.filter(3.0) == 3.0
+
+        # For [1, 2, 3, 100], C++ computes:
+        # median = (2 + 3) / 2 = 2.5
+        # mad = (0.5 + 1.5) / 2 = 1.0
+        # The outlier should therefore be replaced with 2.5, not 3.0.
+        assert hf.filter(100.0) == pytest.approx(2.5)
+
 
 class TestHampelFilterCircularBuffer:
     """Test circular buffer behavior"""

@@ -54,7 +54,7 @@ We appreciate all contributions, no matter how small!
 
 ### Prerequisites
 
-- Python 3.12 (recommended)
+- Python 3.14 (recommended)
 - ESP32 device (S3/C6 recommended)
 - Home Assistant (optional, for testing ESPHome integration)
 
@@ -66,12 +66,16 @@ git clone https://github.com/francescopace/espectre.git
 cd espectre
 
 # Create and activate virtual environment
-python3 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate  # On macOS/Linux
 # .venv\Scripts\activate   # On Windows
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Optional: ML training extras
+# Install these only if you need to retrain or inspect the exported model.
+pip install -r requirements-ml.txt
 ```
 
 ### Source Layout

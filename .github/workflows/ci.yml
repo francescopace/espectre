@@ -5,18 +5,10 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [develop]
-  workflow_dispatch:  # Manual trigger to warm up cache
+  workflow_dispatch:
 
-# Permissions for GitHub Pages deployment
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# Allow only one concurrent deployment
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   detect-push-origin:
@@ -75,17 +67,25 @@ jobs:
     needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: '3.14'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
       
       - name: Install Dependencies
-        run: pip install markdown
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
       
       - name: Build Documentation
         run: python .github/scripts/build_docs.py
@@ -115,6 +115,13 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: build-docs
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -131,7 +138,7 @@ jobs:
     needs: deploy-docs
     
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Extract URLs and notify IndexNow
         run: |
@@ -143,7 +150,7 @@ jobs:
             -H "Content-Type: application/json; charset=utf-8" \
             -d "{\"host\":\"espectre.dev\",\"key\":\"1a2e73ccf9558a06830546c288699e0c\",\"keyLocation\":\"https://espectre.dev/1a2e73ccf9558a06830546c288699e0c.txt\",\"urlList\":$URLS}"
           
-          echo "Notified IndexNow with $(echo $URLS | jq length) URLs"
+          echo "Notified IndexNow with $(echo "$URLS" | jq length) URLs"
 
   test-cpp:
     name: C++ Unit Tests
@@ -152,24 +159,25 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: 'pip'
+          cache-dependency-path: requirements.txt
       
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install gcovr
+          pip install -r requirements.txt
       
       - name: Run Host-side Tests with Coverage
         run: ./test/cpp/run_coverage.sh --ci
       
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: test/cpp/coverage.xml,test/cpp/coverage.lcov
           flags: cpp
@@ -185,22 +193,26 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: '3.14'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
       
       - name: Install Dependencies
-        run: pip install pytest pytest-cov numpy
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
       
       - name: Run Tests with Coverage
         run: |
           pytest test/python -v --cov=src/python --cov-report=xml --cov-report=term-missing
       
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.xml
           flags: python
@@ -209,44 +221,10 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # Pre-cache job: downloads toolchain once, shared by all build jobs
-  setup-cache:
-    name: Setup Build Cache
-    needs: detect-push-origin
-    if: needs.detect-push-origin.outputs.run_ci == 'true'
-    runs-on: ubuntu-latest
-    outputs:
-      cache-hit: ${{ steps.cache.outputs.cache-hit }}
-    
-    steps:
-      - uses: actions/checkout@v6
-      
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      
-      - name: Cache ESPHome build toolchain
-        id: cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.platformio
-            ~/.esphome/cache
-          key: pio-espidf-${{ hashFiles('src/**') }}
-          restore-keys: |
-            pio-espidf-
-      
-      - name: Install ESPHome
-        run: |
-          python -m pip install --upgrade pip
-          pip install esphome
-
   build:
     name: ${{ matrix.qemu_chip && 'Smoke Test' || 'Build' }} ${{ matrix.chip }}
     runs-on: ubuntu-latest
-    needs: [detect-push-origin, setup-cache]
+    needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
     strategy:
       fail-fast: false
@@ -293,28 +271,30 @@ jobs:
             qemu_machine: esp32c3
     
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.14'
           cache: 'pip'
+          cache-dependency-path: requirements.txt
       
       - name: Restore ESPHome build toolchain cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.platformio
             ~/.esphome/cache
-          key: pio-espidf-${{ hashFiles('src/**') }}
+          key: pio-${{ runner.os }}-${{ matrix.qemu_chip || matrix.chip }}-${{ hashFiles('requirements.txt', 'examples/*.yaml', '.github/actions/qemu-smoke-test/configs/*.yaml') }}
           restore-keys: |
-            pio-espidf-
+            pio-${{ runner.os }}-${{ matrix.qemu_chip || matrix.chip }}-
+            pio-${{ runner.os }}-
       
       - name: Install ESPHome
         run: |
           python -m pip install --upgrade pip
-          pip install esphome
+          pip install -r requirements.txt
       
       - name: Create secrets.yaml for dev configs
         if: github.ref != 'refs/heads/main' && !matrix.qemu_chip
@@ -387,17 +367,18 @@ jobs:
             qemu_expected_log: "ESPectre Matter smoke marker: endpoint .* configured, starting Matter stack"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache Matter toolchain and components
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             .github/.cache/matter-home
             src/cpp/frontend/matter/app/managed_components
-          key: matter-${{ matrix.target }}-${{ hashFiles('src/cpp/**') }}
+          key: matter-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-${{ hashFiles('.github/scripts/build_matter_firmware.sh', 'src/cpp/frontend/matter/app/dependencies.lock', 'src/cpp/frontend/matter/app/main/idf_component.yml', 'src/cpp/frontend/matter/app/sdkconfig*.defaults', 'src/cpp/frontend/matter/app/partitions.csv') }}
           restore-keys: |
-            matter-${{ matrix.target }}-
+            matter-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-
+            matter-${{ runner.os }}-idf-v5.5-
 
       - name: Build Matter firmware
         run: |
@@ -448,7 +429,16 @@ jobs:
             target: esp32s3
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+
+      - name: Cache native toolchain
+        uses: actions/cache@v6
+        with:
+          path: .github/.cache/native-home
+          key: native-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-${{ hashFiles('.github/scripts/build_native_firmware.sh', 'src/cpp/frontend/native/app/dependencies.lock', 'src/cpp/frontend/native/app/sdkconfig*.defaults', 'src/cpp/frontend/native/app/partitions.csv') }}
+          restore-keys: |
+            native-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-
+            native-${{ runner.os }}-idf-v5.5-
 
       - name: Build native firmware
         run: |
@@ -464,4 +454,3 @@ jobs:
           name: firmware-native-${{ matrix.chip }}
           path: output/espectre-native-*.bin
           retention-days: 7
-

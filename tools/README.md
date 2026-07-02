@@ -87,8 +87,9 @@ python 4_analyze_filter_location.py --plot       # Show visualizations
 **Purpose**: Compare how different filters affect turbulence and motion detection
 
 - **Hampel vs Lowpass comparison**: Shows the fundamental difference between outlier removal and frequency smoothing
-- Tests multiple filter configurations (EMA, SMA, Butterworth, Chebyshev, Bessel, Hampel, Savitzky-Golay, Wavelet)
-- Visualizes raw vs filtered turbulence signal and resulting moving variance
+- Tests only the four runtime-relevant configurations: no filter, Hampel only, low-pass only, and Hampel + low-pass
+- Reuses the production `SegmentationContext` instead of maintaining parallel experimental filters
+- Visualizes the resulting moving-variance traces and effective MOTION/IDLE regions
 
 **Key insight**: Hampel and Lowpass are NOT the same type of filter!
 - **Hampel**: Removes spikes/outliers (preserves signal shape)
@@ -99,7 +100,6 @@ python 4_analyze_filter_location.py --plot       # Show visualizations
 python 5_analyze_filter_turbulence.py              # Use C6 dataset
 python 5_analyze_filter_turbulence.py --chip S3    # Use S3 dataset
 python 5_analyze_filter_turbulence.py --plot       # Show 4-panel visualization
-python 5_analyze_filter_turbulence.py --optimize-filters  # Optimize parameters
 ```
 
 ---
@@ -179,14 +179,19 @@ python 9_compare_chips.py --plot
 
 **Purpose**: Train, evaluate, and export the production ML model
 
+Install the ML requirements before using this script:
+
+```bash
+pip install -r requirements-ml.txt
+```
+
+The main repository workflow and this training stack target Python `3.14`.
+
 - Trains the MLP detector with weighted binary cross-entropy
 - Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 32`, grouped session-level CV, and context-aware MVS-guided sample weights
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
-- Uses the standard compiled Keras training/inference path on CPU-only TensorFlow
-- Supports FP-first architecture campaigns and feature-importance analysis
-- Supports optional chip exclusion experiments via `--exclude-chip CHIP[,CHIP...]`
-- Supports exported-artifact gain-shift diagnostics via `--gain-stress-gate`
-- Supports raw/relative/hybrid gain-robustness comparisons via `--gain-feature-experiment`
+- Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms
+- Supports FP-first architecture campaigns, gain-shift diagnostics, and feature-importance analysis
 - Exports weights for both platforms:
   - `src/python/ml_weights.py`
   - `src/cpp/core/ml_weights.h`
@@ -209,21 +214,10 @@ python 10_train_ml_model.py --shap         # SHAP importance (200 samples)
 python 10_train_ml_model.py --shap 500     # SHAP importance (500 samples)
 ```
 
-For production artifact promotion, prefer either `--seed-search-until-improvement` or the FP-first `--experiment --experiment-promote` campaign instead of a plain training run. The plain command always exports the requested seed, while the gated flows replace artifacts only after a stricter validation pass.
-
-`--gain-stress-gate` does not train or export. It loads the current exported
-`src/python/ml_weights.py`, scales only the amplitude-gain-sensitive input
-features, and reports recall/FP degradation overall plus worst chip,
-environment, session, and source-file groups. Use it to compare candidate
-feature sets or seeds for gain-shift robustness.
-
-The default binary ML detector currently exports an 8-feature relative input
-set (`std/mean`, `iqr/mean`, `mad/mean`, normalized waveform length, skewness,
-and autocorrelation) with topology `8 -> 32 -> 16 -> 1` to reduce sensitivity
-to absolute device/session gain while keeping long-recording false positives in
-check.
-
-For full training workflow and dataset preparation, see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md#5-train-model).
+For the complete ML training workflow, promotion guidance, gain-stress
+diagnostics, and post-training regressions, see
+[ML_TRAINING.md](../docs/ML_TRAINING.md). For dataset preparation and labeling,
+see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
 
 ### 11. Dataset Quality Validation (`11_validate_dataset_quality.py`)
 

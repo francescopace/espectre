@@ -3,7 +3,7 @@
 ML Motion Detection - Training Script
 
 Trains neural network models for motion detection using all available CSI data.
-Generates models for both ESP-IDF (TFLite) and MicroPython.
+Generates exported weights for both C++ and MicroPython runtimes.
 
 Training features:
   - Grouped cross-validation with blocked out-of-fold scoring
@@ -40,16 +40,11 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-# Suppress TensorFlow/absl warnings BEFORE any imports
 import os
 import sys
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['ABSL_MIN_LOG_LEVEL'] = '2'
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['GRPC_VERBOSITY'] = 'ERROR'
-os.environ['GLOG_minloglevel'] = '2'
 
 import argparse
+import copy
 import json
 import numpy as np
 import random
@@ -57,7 +52,6 @@ import subprocess
 import re
 import shutil
 import tempfile
-import warnings
 from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
@@ -67,14 +61,23 @@ from contextlib import contextmanager
 from datetime import datetime
 from time import perf_counter
 
+try:
+    import torch
+    import torch.nn as nn
+except ImportError:
+    torch = None
+    nn = None
+
+TorchModuleBase = nn.Module if nn is not None else object
+
 
 @contextmanager
 def suppress_stderr():
     """
     Context manager to suppress stderr output at the file descriptor level.
     
-    This is necessary because TensorFlow's C++ code writes directly to the
-    C-level stderr, bypassing Python's sys.stderr.
+    Some native libraries write directly to the C-level stderr, bypassing
+    Python's sys.stderr.
     """
     # Save the original stderr file descriptor
     stderr_fd = sys.stderr.fileno()
@@ -91,19 +94,6 @@ def suppress_stderr():
         # Restore the original stderr
         os.dup2(saved_stderr_fd, stderr_fd)
         os.close(saved_stderr_fd)
-
-
-@contextmanager
-def suppress_keras_numpy_copy_warning():
-    """Hide a Keras/NumPy 2.x compatibility warning emitted during fit()."""
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            'ignore',
-            message=r"__array__ implementation doesn't accept a copy keyword.*",
-            category=DeprecationWarning,
-            module=r'keras\.src\.backend\.tensorflow\.core',
-        )
-        yield
 
 
 def format_duration(seconds):
@@ -127,11 +117,11 @@ def derive_seed(base_seed, *offsets):
     return seed or 1
 
 
-def set_global_determinism(seed, tf_module=None):
+def set_global_determinism(seed, torch_module=None):
     """
     Best-effort deterministic runtime configuration for a fixed seed.
 
-    This resets Python, NumPy, and TensorFlow RNG state immediately before
+    This resets Python, NumPy, and PyTorch RNG state immediately before
     stochastic training steps. `PYTHONHASHSEED` only affects new processes,
     but setting it here still documents the intended seed in subprocesses.
     """
@@ -143,15 +133,137 @@ def set_global_determinism(seed, tf_module=None):
     random.seed(seed)
     np.random.seed(seed)
 
-    tf = tf_module
-    if tf is None:
-        import tensorflow as tf
+    torch_mod = torch_module if torch_module is not None else torch
+    if torch_mod is None:
+        return
 
-    tf.keras.utils.set_random_seed(seed)
+    torch_mod.manual_seed(seed)
+    if torch_mod.cuda.is_available():
+        torch_mod.cuda.manual_seed_all(seed)
     try:
-        tf.config.experimental.enable_op_determinism()
+        torch_mod.use_deterministic_algorithms(True)
     except (AttributeError, RuntimeError, ValueError):
         pass
+    try:
+        torch_mod.backends.cudnn.deterministic = True
+        torch_mod.backends.cudnn.benchmark = False
+    except AttributeError:
+        pass
+
+
+def ensure_torch_available():
+    """Return the torch module or raise ImportError with a stable message."""
+    if torch is None or nn is None:
+        raise ImportError("No module named 'torch'")
+    return torch
+
+
+def resolve_training_seed(seed, trailing_newline=False):
+    """Resolve and print the seed used for a training/evaluation run."""
+    suffix = "\n" if trailing_newline else ""
+    if seed is None:
+        from numpy.random import SeedSequence
+        ss = SeedSequence()
+        seed = int(ss.entropy % (2**31))
+        print(f"Generated random seed: {seed}{suffix}")
+    else:
+        print(f"Using provided seed: {seed}{suffix}")
+    return seed
+
+
+def _init_linear(layer, seed=None):
+    """Initialize a Linear layer with Glorot uniform weights and zero bias."""
+    if torch is None:
+        raise ImportError("No module named 'torch'")
+    if seed is None:
+        nn.init.xavier_uniform_(layer.weight)
+        nn.init.zeros_(layer.bias)
+        return
+
+    rng_state = torch.get_rng_state()
+    try:
+        torch.manual_seed(int(seed))
+        nn.init.xavier_uniform_(layer.weight)
+        nn.init.zeros_(layer.bias)
+    finally:
+        torch.set_rng_state(rng_state)
+
+
+class TorchMLP(TorchModuleBase):
+    """Dense binary classifier with export helpers for runtime artifacts."""
+
+    def __init__(self, num_features, hidden_layers=None, use_dropout=True,
+                 dropout_rate=0.2, seed=None):
+        super().__init__()
+        if hidden_layers is None:
+            hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+        self.num_features = int(num_features)
+        self.hidden_layers = [int(units) for units in hidden_layers]
+        self.dropout_rate = float(dropout_rate)
+        self.use_dropout = bool(use_dropout and dropout_rate > 0.0)
+
+        self.linears = nn.ModuleList()
+        self.dropouts = nn.ModuleList()
+
+        in_features = self.num_features
+        for layer_idx, units in enumerate(self.hidden_layers):
+            linear = nn.Linear(in_features, units)
+            _init_linear(linear, derive_seed(seed, layer_idx, 0))
+            self.linears.append(linear)
+            if self.use_dropout:
+                self.dropouts.append(nn.Dropout(self.dropout_rate))
+            in_features = units
+
+        self.output = nn.Linear(in_features, 1)
+        _init_linear(self.output, derive_seed(seed, len(self.hidden_layers), 0))
+
+    def forward_logits(self, x):
+        if not isinstance(x, torch.Tensor):
+            x = torch.as_tensor(x, dtype=torch.float32)
+        activations = x
+        for layer_idx, linear in enumerate(self.linears):
+            activations = torch.relu(linear(activations))
+            if self.use_dropout:
+                activations = self.dropouts[layer_idx](activations)
+        return self.output(activations)
+
+    def forward(self, x):
+        return torch.sigmoid(self.forward_logits(x))
+
+    def predict(self, X, verbose=0):
+        probs = predict_probabilities(self, X)
+        return probs.reshape(-1, 1)
+
+    def get_weights(self):
+        return extract_model_weights(self)
+
+
+def extract_model_weights(model):
+    """Return dense-layer weights in the export layout expected by the runtimes."""
+    if isinstance(model, TorchMLP):
+        weights = []
+        for linear in list(model.linears) + [model.output]:
+            kernel = linear.weight.detach().cpu().numpy().T.copy()
+            bias = linear.bias.detach().cpu().numpy().copy()
+            weights.extend((kernel, bias))
+        return weights
+    if hasattr(model, 'get_weights'):
+        return model.get_weights()
+    raise TypeError(f"Unsupported model type for weight export: {type(model)!r}")
+
+
+def predict_logits(model, X):
+    """Return flat logits for a dense binary classifier."""
+    ensure_torch_available()
+    X = np.asarray(X, dtype=np.float32)
+    if X.size == 0:
+        return np.asarray([], dtype=np.float32)
+    if not isinstance(model, TorchMLP):
+        raise TypeError(f"Unsupported model type for logits: {type(model)!r}")
+    model.eval()
+    with torch.no_grad():
+        logits = model.forward_logits(torch.from_numpy(X))
+    return logits.detach().cpu().numpy().reshape(-1)
 
 # Import csi_utils first - it sets up paths automatically
 TESTS_DIR = python_tests_dir()
@@ -1568,17 +1680,9 @@ def experiment_gain_feature_sets(seed=None, feature_sets=None,
     excluded_chips = parse_chip_filter(excluded_chips)
 
     try:
-        with suppress_stderr():
-            import tensorflow as tf
-            if seed is None:
-                from numpy.random import SeedSequence
-                ss = SeedSequence()
-                seed = int(ss.entropy % (2**31))
-                print(f"Generated random seed: {seed}")
-            else:
-                print(f"Using provided seed: {seed}")
-            set_global_determinism(seed, tf_module=tf)
-            tf.get_logger().setLevel('ERROR')
+        ensure_torch_available()
+        seed = resolve_training_seed(seed)
+        set_global_determinism(seed, torch_module=torch)
     except ImportError as exc:
         print(f"Error: Missing dependency - {exc}")
         return 1, seed, None
@@ -1723,7 +1827,7 @@ def build_candidate_key(cv_results):
 def build_model(hidden_layers=None, num_features=12, use_dropout=True, dropout_rate=0.2,
                 seed=None):
     """
-    Build a Keras MLP model.
+    Build a PyTorch MLP model.
 
     Dropout layers are added during training for regularization but are
     automatically disabled during inference (and don't affect exported weights).
@@ -1733,51 +1837,31 @@ def build_model(hidden_layers=None, num_features=12, use_dropout=True, dropout_r
         num_features: Number of input features
         use_dropout: Whether to add dropout layers (for training only)
         dropout_rate: Dropout rate (0.0-1.0)
-        seed: Optional base seed for deterministic initializers/dropout
+        seed: Optional base seed for deterministic initializers
     
     Returns:
-        Compiled Keras model
+        TorchMLP instance
     """
-    import tensorflow as tf
-
-    if hidden_layers is None:
-        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
-
-    model = tf.keras.Sequential()
-    model.add(tf.keras.layers.Input(shape=(num_features,)))
-
-    for layer_idx, units in enumerate(hidden_layers):
-        dense_seed = derive_seed(seed, layer_idx, 0)
-        model.add(tf.keras.layers.Dense(
-            units,
-            activation='relu',
-            kernel_initializer=tf.keras.initializers.GlorotUniform(seed=dense_seed),
-            bias_initializer='zeros',
-        ))
-        if use_dropout and dropout_rate > 0:
-            model.add(
-                tf.keras.layers.Dropout(
-                    dropout_rate,
-                    seed=derive_seed(seed, layer_idx, 1),
-                )
-            )
-
-    model.add(tf.keras.layers.Dense(
-        1,
-        activation='sigmoid',
-        kernel_initializer=tf.keras.initializers.GlorotUniform(
-            seed=derive_seed(seed, len(hidden_layers), 0)
-        ),
-        bias_initializer='zeros',
-    ))
-
-    model.compile(
-        optimizer='adam',
-        loss='binary_crossentropy',
-        metrics=['accuracy']
+    ensure_torch_available()
+    return TorchMLP(
+        num_features=num_features,
+        hidden_layers=hidden_layers,
+        use_dropout=use_dropout,
+        dropout_rate=dropout_rate,
+        seed=seed,
     )
-    
-    return model
+
+
+def _compute_weighted_bce(logits, targets, sample_weights=None):
+    """Binary cross-entropy on logits with optional per-sample weights."""
+    losses = torch.nn.functional.binary_cross_entropy_with_logits(
+        logits,
+        targets,
+        reduction='none',
+    )
+    if sample_weights is not None:
+        losses = losses * sample_weights
+    return losses.mean()
 
 
 def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dropout=True,
@@ -1804,9 +1888,9 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
         seed: Optional base seed for deterministic training
     
     Returns:
-        Trained Keras model
+        Trained TorchMLP model
     """
-    import tensorflow as tf
+    torch_mod = ensure_torch_available()
 
     if hidden_layers is None:
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
@@ -1828,8 +1912,8 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
     if fp_weight != 1.0 and class_weight is not None:
         class_weight[0] *= fp_weight
 
-    # Keras forbids passing class_weight and sample_weight together.
-    # Merge class weights into sample_weight when both are requested.
+    # Merge class weights into sample_weight when both are requested so the
+    # optimizer sees a single per-sample weighting term.
     if sample_weight is not None and class_weight is not None:
         sample_weight = np.asarray(sample_weight, dtype=np.float32).copy()
         class_multiplier = np.where(np.asarray(y) == 1, class_weight[1], class_weight[0])
@@ -1837,8 +1921,10 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
         class_weight = None
     
     # Determine number of features from input shape
+    X = np.asarray(X, dtype=np.float32)
+    y = np.asarray(y, dtype=np.float32)
     num_features = X.shape[1] if hasattr(X, 'shape') else len(X[0])
-    set_global_determinism(seed, tf_module=tf)
+    set_global_determinism(seed, torch_module=torch_mod)
     model = build_model(
         hidden_layers=hidden_layers,
         num_features=num_features,
@@ -1846,11 +1932,11 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
         seed=seed,
     )
     
-    # Stratified validation split (Keras validation_split takes the last N%
-    # in order, which can skew chip representation)
+    # Keep a stratified validation split instead of relying on implicit slicing.
     from sklearn.model_selection import train_test_split as _val_split
     split_kwargs = dict(test_size=0.1, random_state=42, stratify=np.asarray(y))
     if sample_weight is not None:
+        sample_weight = np.asarray(sample_weight, dtype=np.float32)
         X_t, X_v, y_t, y_v, sw_t, sw_v = _val_split(
             X, y, sample_weight, **split_kwargs
         )
@@ -1858,33 +1944,77 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
         X_t, X_v, y_t, y_v = _val_split(X, y, **split_kwargs)
         sw_t, sw_v = None, None
 
-    callbacks = [
-        tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss',
-            patience=DEFAULT_EARLY_STOP_PATIENCE,
-            restore_best_weights=True,
-            min_delta=1e-4
-        ),
-        tf.keras.callbacks.ReduceLROnPlateau(
-            monitor='val_loss',
-            factor=0.5,
-            patience=DEFAULT_LR_PATIENCE,
-            min_lr=1e-6
-        ),
-    ]
+    optimizer = torch.optim.Adam(model.parameters())
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        factor=0.5,
+        patience=DEFAULT_LR_PATIENCE,
+        min_lr=1e-6,
+    )
 
-    with suppress_keras_numpy_copy_warning():
-        model.fit(
-            X_t, y_t,
-            epochs=max_epochs,
-            batch_size=batch_size,
-            validation_data=(X_v, y_v, sw_v) if sw_v is not None else (X_v, y_v),
-            class_weight=class_weight,
-            sample_weight=sw_t,
-            callbacks=callbacks,
-            verbose=verbose,
-            shuffle=False,
-        )
+    X_t_tensor = torch.from_numpy(np.asarray(X_t, dtype=np.float32))
+    y_t_tensor = torch.from_numpy(np.asarray(y_t, dtype=np.float32)).view(-1, 1)
+    X_v_tensor = torch.from_numpy(np.asarray(X_v, dtype=np.float32))
+    y_v_tensor = torch.from_numpy(np.asarray(y_v, dtype=np.float32)).view(-1, 1)
+    sw_t_tensor = None if sw_t is None else torch.from_numpy(np.asarray(sw_t, dtype=np.float32)).view(-1, 1)
+    sw_v_tensor = None if sw_v is None else torch.from_numpy(np.asarray(sw_v, dtype=np.float32)).view(-1, 1)
+
+    best_state = copy.deepcopy(model.state_dict())
+    best_val_loss = float('inf')
+    epochs_without_improvement = 0
+    batch_size = max(1, int(batch_size))
+
+    for epoch in range(int(max_epochs)):
+        model.train()
+        for start in range(0, len(X_t_tensor), batch_size):
+            stop = start + batch_size
+            batch_x = X_t_tensor[start:stop]
+            batch_y = y_t_tensor[start:stop]
+            batch_weights = None
+            if sw_t_tensor is not None:
+                batch_weights = sw_t_tensor[start:stop].clone()
+            if class_weight is not None:
+                class_multiplier = torch.where(
+                    batch_y > 0.5,
+                    float(class_weight[1]),
+                    float(class_weight[0]),
+                )
+                batch_weights = class_multiplier if batch_weights is None else batch_weights * class_multiplier
+
+            optimizer.zero_grad()
+            logits = model.forward_logits(batch_x)
+            loss = _compute_weighted_bce(logits, batch_y, sample_weights=batch_weights)
+            loss.backward()
+            optimizer.step()
+
+        model.eval()
+        with torch.no_grad():
+            val_logits = model.forward_logits(X_v_tensor)
+            val_loss = _compute_weighted_bce(
+                val_logits,
+                y_v_tensor,
+                sample_weights=sw_v_tensor,
+            ).item()
+        scheduler.step(val_loss)
+
+        if verbose:
+            print(
+                f"    epoch {epoch + 1:03d}/{max_epochs}: "
+                f"val_loss={val_loss:.6f} lr={optimizer.param_groups[0]['lr']:.2e}"
+            )
+
+        if val_loss < (best_val_loss - 1e-4):
+            best_val_loss = val_loss
+            best_state = copy.deepcopy(model.state_dict())
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= DEFAULT_EARLY_STOP_PATIENCE:
+                break
+
+    model.load_state_dict(best_state)
+    model.eval()
 
     return model
 
@@ -1893,35 +2023,25 @@ def predict_probabilities(model, X):
     """
     Return a flat probability vector for binary classification.
     """
-    X = np.asarray(X, dtype=np.float32)
-    return model.predict(X, verbose=0).reshape(-1)
+    logits = predict_logits(model, X)
+    return 1.0 / (1.0 + np.exp(-logits))
 
 
 def predict_tempered_probabilities(model, X, temperature=DEFAULT_ML_TEMPERATURE):
     """
     Return probabilities after applying the same post-logit temperature scaling
     used by Python/C++ runtime inference.
-
-    We must operate on true logits. Reconstructing them from sigmoid
-    probabilities becomes numerically unstable for saturated samples and can
-    drift from the exported manual inference path.
     """
-    import tensorflow as tf
-
     X = np.asarray(X, dtype=np.float32)
     if temperature == 1.0:
         return predict_probabilities(model, X)
-
-    if len(model.layers) == 1:
-        pre_output = X
-    else:
-        penultimate_model = tf.keras.Model(inputs=model.inputs, outputs=model.layers[-2].output)
-        pre_output = penultimate_model.predict(X, verbose=0)
-
-    output_kernel, output_bias = model.layers[-1].get_weights()
-    logits = np.matmul(pre_output, output_kernel).reshape(-1) + output_bias.reshape(-1)[0]
-    scaled_logits = logits / float(temperature)
-    return 1.0 / (1.0 + np.exp(-scaled_logits))
+    scaled_logits = predict_logits(model, X) / float(temperature)
+    probabilities = np.empty_like(scaled_logits, dtype=np.float32)
+    probabilities[scaled_logits < -20.0] = 0.0
+    probabilities[scaled_logits > 20.0] = 1.0
+    mask = (scaled_logits >= -20.0) & (scaled_logits <= 20.0)
+    probabilities[mask] = 1.0 / (1.0 + np.exp(-scaled_logits[mask]))
+    return probabilities
 
 
 def evaluate_model(model, X_test, y_test):
@@ -1929,7 +2049,7 @@ def evaluate_model(model, X_test, y_test):
     Evaluate a model on test data and return metrics dict.
     
     Args:
-        model: Trained Keras model
+        model: Trained PyTorch model
         X_test: Test features (normalized)
         y_test: Test labels
     
@@ -2076,102 +2196,9 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
     return result
 
 
-def export_tflite(model, X_sample, output_path, name, seed=None):
-    """
-    Export model to TFLite with int8 quantization.
-    
-    Args:
-        model: Trained Keras model
-        X_sample: Sample data for quantization calibration
-        output_path: Output directory
-        name: Model name
-        seed: Optional seed for deterministic calibration sampling
-    
-    Returns:
-        Path to saved .tflite file
-    """
-    import tensorflow as tf
-    import warnings
-    
-    # Use up to 500 random samples for better quantization calibration
-    n_samples = min(500, len(X_sample))
-    rng = np.random.default_rng(seed)
-    indices = rng.choice(len(X_sample), n_samples, replace=False)
-    calibration_data = X_sample[indices]
-    
-    def representative_dataset():
-        for i in range(len(calibration_data)):
-            yield [calibration_data[i:i+1].astype(np.float32)]
-    
-    def configure_converter(converter):
-        converter.optimizations = [tf.lite.Optimize.DEFAULT]
-        converter.representative_dataset = representative_dataset
-        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-        converter.inference_input_type = tf.int8
-        converter.inference_output_type = tf.int8
-        return converter
-
-    def convert_with(converter):
-        converter = configure_converter(converter)
-        with warnings.catch_warnings():
-            warnings.filterwarnings('ignore', category=UserWarning)
-            return converter.convert()
-
-    try:
-        tflite_model = convert_with(tf.lite.TFLiteConverter.from_keras_model(model))
-    except (TypeError, ValueError) as exc:
-        # TensorFlow 2.18 + Keras 3 on Apple Silicon can fail here for
-        # subclassed models, either during freezing (`NoneType` callable)
-        # or because the model input shape is not surfaced to the converter.
-        if isinstance(exc, TypeError) and "NoneType" not in str(exc):
-            raise
-        if isinstance(exc, ValueError) and "input shapes have not been set" not in str(exc):
-            raise
-        try:
-            with tempfile.TemporaryDirectory() as saved_model_dir:
-                if hasattr(model, "export"):
-                    model.export(saved_model_dir)
-                else:
-                    tf.saved_model.save(model, saved_model_dir)
-                tflite_model = convert_with(
-                    tf.lite.TFLiteConverter.from_saved_model(saved_model_dir)
-                )
-        except Exception:
-            class TFLiteExportModule(tf.Module):
-                def __init__(self, keras_model):
-                    super().__init__()
-                    self.keras_model = keras_model
-
-                @tf.function(
-                    input_signature=[
-                        tf.TensorSpec(
-                            shape=[None, X_sample.shape[1]],
-                            dtype=tf.float32,
-                            name='features',
-                        )
-                    ]
-                )
-                def serve(self, features):
-                    return {'outputs': self.keras_model(features, training=False)}
-
-            export_module = TFLiteExportModule(model)
-            concrete_fn = export_module.serve.get_concrete_function()
-            tflite_model = convert_with(
-                tf.lite.TFLiteConverter.from_concrete_functions(
-                    [concrete_fn], export_module
-                )
-            )
-    
-    tflite_path = output_path / f'motion_detector_{name}.tflite'
-    with open(tflite_path, 'wb') as f:
-        f.write(tflite_model)
-    
-    return tflite_path, len(tflite_model)
-
-
 def get_model_architecture(model):
     """Return the layer sizes of a dense MLP as [input, ..., output]."""
-    weights = model.get_weights()
+    weights = extract_model_weights(model)
     if not weights:
         return []
 
@@ -2190,7 +2217,7 @@ def export_micropython(model, scaler, output_path, seed=None,
     The inference functions are in ml_detector.py (not auto-generated).
     
     Args:
-        model: Trained Keras model
+        model: Trained PyTorch model
         scaler: Fitted preprocessing object exposing center/scale arrays
         output_path: Output file path
         seed: Random seed used for training (or None if not set)
@@ -2201,7 +2228,7 @@ def export_micropython(model, scaler, output_path, seed=None,
         Size of generated code
     """
     from datetime import datetime
-    weights = model.get_weights()
+    weights = extract_model_weights(model)
     center, scale = get_preprocessor_arrays(scaler)
     architecture = get_model_architecture(model)
     if feature_names is None:
@@ -2283,7 +2310,7 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
     Generates ml_weights.h with constexpr weights.
     
     Args:
-        model: Trained Keras model
+        model: Trained PyTorch model
         scaler: Fitted preprocessing object exposing center/scale arrays
         output_path: Output file path
         seed: Random seed used for training (or None if not set)
@@ -2294,7 +2321,7 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
         Size of generated code
     """
     from datetime import datetime
-    weights = model.get_weights()
+    weights = extract_model_weights(model)
     architecture = get_model_architecture(model)
     arch = ' -> '.join(map(str, architecture))
     center, scale = get_preprocessor_arrays(scaler)
@@ -2398,7 +2425,7 @@ def export_test_data(model, scaler, X_test_raw, y_test, output_path, sample_cont
     This allows testing the full pipeline including normalization.
     
     Args:
-        model: Trained Keras model
+        model: Trained PyTorch model
         scaler: Fitted preprocessing object used for normalization
         X_test_raw: Test features (NOT normalized, raw values)
         y_test: Test labels
@@ -2563,7 +2590,7 @@ def calculate_shap_importance(model, X, feature_names, n_samples=500):
     is its average marginal contribution across all possible coalitions.
     
     Args:
-        model: Trained Keras model
+        model: Trained PyTorch model
         X: Feature matrix (normalized)
         feature_names: List of feature names
         n_samples: Number of samples to explain (default: 500)
@@ -2591,7 +2618,11 @@ def calculate_shap_importance(model, X, feature_names, n_samples=500):
     X_explain = X[explain_idx]
     
     # Use permutation algorithm (faster than KernelExplainer for neural networks)
-    explainer = shap.Explainer(model.predict, background, algorithm='permutation')
+    explainer = shap.Explainer(
+        lambda values: predict_probabilities(model, values).reshape(-1, 1),
+        background,
+        algorithm='permutation',
+    )
     
     with suppress_stderr():
         shap_values = explainer(X_explain).values
@@ -3044,37 +3075,14 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print("="*60 + "\n")
     print(f"Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}\n")
     
-    # Check dependencies (suppress TensorFlow C++ warnings during import)
+    # Check dependencies and initialize deterministic training state.
     try:
-        with suppress_stderr():
-            import tensorflow as tf
-            
-            # Generate random seed if not provided (for reproducibility tracking)
-            # Uses NumPy's SeedSequence which gathers entropy from the OS
-            if seed is None:
-                from numpy.random import SeedSequence
-                ss = SeedSequence()
-                seed = int(ss.entropy % (2**31))  # Convert to int32 for compatibility
-                print(f"Generated random seed: {seed}\n")
-            else:
-                print(f"Using provided seed: {seed}\n")
-            
-            # Reset all RNGs before any stochastic training step.
-            set_global_determinism(seed, tf_module=tf)
-            
-            # Suppress TensorFlow Python-level warnings
-            tf.get_logger().setLevel('ERROR')
-            
-            # Suppress absl logging
-            try:
-                import absl.logging
-                absl.logging.set_verbosity(absl.logging.ERROR)
-                absl.logging.set_stderrthreshold(absl.logging.ERROR)
-            except ImportError:
-                pass
+        ensure_torch_available()
+        seed = resolve_training_seed(seed, trailing_newline=True)
+        set_global_determinism(seed, torch_module=torch)
     except ImportError as e:
         print(f"Error: Missing dependency - {e}")
-        print("Install with: pip install tensorflow scikit-learn")
+        print("Install with: pip install torch scikit-learn")
         return 1, None, None
     
     # Load data
@@ -3249,21 +3257,10 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             print_feature_importance(importance)
     
     # Export models
-    print("\nExporting models...")
+    print("\nExporting model artifacts...")
     export_start = perf_counter()
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # TFLite (suppress C++ warnings during conversion)
-    with suppress_stderr():
-        tflite_path, tflite_size = export_tflite(
-            model,
-            X_scaled,
-            MODELS_DIR,
-            'small',
-            seed=derive_seed(seed, 20_000),
-        )
-    print(f"  TFLite: {tflite_path.name} ({tflite_size/1024:.1f} KB)")
-    
+
     # MicroPython weights
     mp_path = SRC_DIR / 'ml_weights.py'
     mp_size = export_micropython(
@@ -3283,19 +3280,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         scaler_mode=scaler_mode,
     )
     print(f"  C++ weights: {cpp_path.name} ({cpp_size/1024:.1f} KB)")
-    
-    # Save scaler for TFLite (external normalization)
-    scaler_path = MODELS_DIR / 'feature_scaler.npz'
-    scaler_center, scaler_scale = get_preprocessor_arrays(scaler)
-    np.savez(
-        scaler_path,
-        mean=scaler_center,
-        center=scaler_center,
-        scale=scaler_scale,
-        mode=np.asarray(scaler_mode),
-    )
-    print(f"  Scaler: {scaler_path.name}")
-    
+
     # Test data for validation (save deterministic regression subset)
     with suppress_stderr():
         test_data_path = MODELS_DIR / 'ml_test_data.npz'
@@ -3320,8 +3305,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print(f"\nGenerated files:")
     print(f"  - {mp_path} (MicroPython)")
     print(f"  - {cpp_path} (C++ ESPHome)")
-    print(f"  - {tflite_path} (ESP-IDF TFLite)")
-    print(f"  - {scaler_path} (normalization params)")
     print(f"  - {test_data_path} (test data for validation)")
     print(f"\nTotal runtime: {format_duration(perf_counter() - total_start)}")
     print()
@@ -3349,12 +3332,12 @@ def summarize_gate(by_chip):
 
 
 class StreamingEvaluator:
-    """Evaluate a trained Keras model with the runtime-equivalent feature path."""
+    """Evaluate a trained model with the runtime-equivalent feature path."""
 
     def __init__(self, model, scaler, feature_names):
         self.feature_names = list(feature_names)
         self.center, self.scale = get_preprocessor_arrays(scaler)
-        raw_weights = model.get_weights()
+        raw_weights = extract_model_weights(model)
         self.layers = []
         for idx in range(0, len(raw_weights), 2):
             weights = raw_weights[idx]
@@ -3685,8 +3668,6 @@ def _model_artifact_paths():
     return [
         SRC_DIR / 'ml_weights.py',
         CPP_DIR / 'ml_weights.h',
-        MODELS_DIR / 'motion_detector_small.tflite',
-        MODELS_DIR / 'feature_scaler.npz',
         MODELS_DIR / 'ml_test_data.npz',
     ]
 
@@ -4163,15 +4144,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         )
 
     try:
-        with suppress_stderr():
-            import tensorflow as tf
-            tf.get_logger().setLevel('ERROR')
-            try:
-                import absl.logging
-                absl.logging.set_verbosity(absl.logging.ERROR)
-                absl.logging.set_stderrthreshold(absl.logging.ERROR)
-            except ImportError:
-                pass
+        ensure_torch_available()
     except ImportError as exc:
         print(f"Error: Missing dependency - {exc}")
         return 1
@@ -4501,7 +4474,7 @@ To compare ML with MVS, use:
                        default=DEFAULT_SCALER_MODE,
                        help='Feature normalization mode for training/evaluation')
     parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
-                       help='Mini-batch size for Keras training '
+                       help='Mini-batch size for PyTorch training '
                             f'(default: {DEFAULT_BATCH_SIZE})')
     parser.add_argument('--hidden-layers', type=parse_hidden_layers, default=None,
                        help='Comma-separated hidden layer widths for the MLP '

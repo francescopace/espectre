@@ -12,10 +12,11 @@ This guide covers how to collect and label CSI data for training ML models. This
 | Feature extraction (8 relative ML features) | ✅ Ready |
 | ML detector (MLP) | ✅ Ready |
 | Training script | ✅ Ready |
-| TFLite export | ✅ Ready |
-| Gesture recognition | 🔜 Planned (3.x) |
-| Human Activity Recognition (HAR) | 🔜 Planned (3.x) |
-| People counting | 🔜 Planned (3.x) |
+| Runtime weight export | ✅ Ready |
+| Static presence recognition | 🔜 Planned |
+| Gesture recognition | 🔜 Planned |
+| Human Activity Recognition (HAR) | 🔜 Planned |
+| People counting | 🔜 Planned |
 
 ---
 
@@ -24,6 +25,7 @@ This guide covers how to collect and label CSI data for training ML models. This
 **Recommended chips for ML data collection:**
 - ESP32-S3
 - ESP32-C3
+- ESP32-C5
 - ESP32-C6
 
 **Also supported:**
@@ -498,132 +500,20 @@ See [tools/README.md](../tools/README.md) for complete documentation of all anal
 
 ## Training the ML Model
 
-Once you have collected labeled data, train the ML model:
+Once you have collected labeled data, move to the dedicated training guide:
+
+- [ML_TRAINING.md](ML_TRAINING.md) - full ML training workflow, trainer flags,
+  export artifacts, gain-shift diagnostics, and post-training regressions
+
+Quick start:
 
 ```bash
-# Train model (default uses --fp-weight 2.0, --scaler standard, --batch-size 32)
+# ML training extras
+pip install -r requirements-ml.txt
+
+# Train model
 python tools/10_train_ml_model.py
-
-# Show dataset info (including excluded files)
-python tools/10_train_ml_model.py --info
-
-# Compare alternate feature normalization modes
-python tools/10_train_ml_model.py --scaler clipped_standard
-
-# Compare alternate exported feature sets without replacing production artifacts
-python tools/10_train_ml_model.py --feature-set robust_relative --no-export
-
-# Optional chip-exclusion experiment
-python tools/10_train_ml_model.py --exclude-chip ESP32
-
-# Diagnose exported-model sensitivity to artificial gain shifts
-python tools/10_train_ml_model.py --gain-stress-gate
-python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
 ```
-
-The binary production trainer loads `empty`, `static_presence`, and `motion`.
-`empty` and `static_presence` are both IDLE targets; `motion` is the MOTION
-target. The `--fp-weight` parameter multiplies the IDLE class weight during
-training. Values >1.0 reduce false positives at the cost of slightly lower
-recall. Current defaults: `--fp-weight 2.0`, `--scaler standard`,
-`--batch-size 32`, `--feature-set production`.
-
-### Gain-Shift Robustness Check
-
-The production ML path deliberately keeps Python/C++ runtime inference aligned
-by deriving all neural-detector inputs from the same raw turbulence signal. The
-exported default feature set is now relative to the local turbulence mean, so
-the model is structurally less sensitive to absolute amplitude gain changes.
-
-Use the exported-artifact gain-stress gate to quantify this risk without
-retraining or exporting a new model:
-
-```bash
-python tools/10_train_ml_model.py --gain-stress-gate
-python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
-python tools/10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25
-```
-
-The gate loads the current `src/python/ml_weights.py`, extracts the exported
-feature set, then applies artificial gain multipliers only to feature
-dimensions that scale with amplitude. With the promoted relative feature set,
-no exported input dimension is scaled by this diagnostic, so the expected
-result is a flat report across gain multipliers.
-
-Current finding for the relative `1890407301` export (`8 -> 32 -> 16 -> 1`,
-`fp_weight=2.0`): all-environment gain stress is flat at `1.00x`, `1.25x`,
-and `1.50x`. The remaining worst-session weakness is nominal dataset
-difficulty, not gain-shift sensitivity. Treat this gate as the primary
-diagnostic for comparing future raw, relative, or hybrid feature sets.
-
-### Empty-Room Regression Check
-
-The 2026-06-30 production retrain was motivated by a C3 ESPHome runtime log
-that produced noisy ML scores in a static room. Offline analysis showed that
-the new C3 `static_presence` capture was not the failing case; the new C3
-`empty` capture reproduced the problem. The fix was to include `empty` in the
-binary ML training labels instead of training only on `static_presence` versus
-`motion`. A later C6 bedroom `empty` capture exposed the same class of domain
-coverage issue, so the regression now covers all available empty-room files,
-not only C3.
-
-Use the dedicated regression for newly collected empty-room data:
-
-```bash
-pytest test/python/test_validation_real_data.py::TestPerformanceMetrics::test_ml_empty_false_positive_rate -v
-```
-
-The current target is below `5%` false positives for every
-`data/empty/empty_*_64sc_*.npz` file. The 2026-06-30 C6 empty-room capture
-failed at about `35%` FP before retraining and falls below the target after
-being included in the binary IDLE class.
-
-This will:
-1. Load all `.npz` files from `data/` for `empty`, `static_presence`, and `motion`
-2. Use gain-mode-aware turbulence: raw std for gain-locked files, CV-normalized turbulence for files without gain lock
-3. Apply context-aware MVS-guided sample weighting on the default subcarrier set
-4. Extract 8 relative ML features per sliding window
-5. Run grouped cross-validation by paired capture/session, with blocked scoring to reduce overlap optimism
-6. Report worst-group metrics (session, chip, source file) alongside mean fold metrics
-7. Train the selected MLP architecture with early stopping and dropout
-8. Export to:
-   - `src/python/ml_weights.py` (MicroPython) - includes seed and timestamp
-   - `src/cpp/core/ml_weights.h` (C++ shared core) - includes seed and timestamp
-   - `models/motion_detector_small.tflite` (TFLite int8)
-   - `models/feature_scaler.npz` (normalization params)
-   - `models/ml_test_data.npz` (blocked regression subset for inference validation)
-
-Use `--seed <number>` for reproducible training. The seed is saved in the generated weight files.
-
-> **Note**: The ML pipeline now matches runtime gain handling. `MLDetector::set_cv_normalization(true)` enables CV-normalized turbulence for no-gain-lock streams; gain-locked streams keep raw turbulence. The exported feature set remains the 8 relative features used by the neural detector.
->
-> **Note**: `--exclude-chip` is an experiment knob for ablations and domain-isolation studies. The default training path keeps all supported chips in the dataset unless you explicitly exclude them.
->
-> **Note**: `ml_test_data.npz` is an inference-regression artifact, not the primary model-selection metric. Architecture and scaler choices should follow the grouped blocked-CV report emitted by `10_train_ml_model.py`.
->
-> **Tip**: `--scaler clipped_standard`, `--feature-set robust_relative`, and larger `--batch-size` values are available for exploratory sweeps, but should be validated against `test/python/test_validation_real_data.py::TestPerformanceMetrics::test_ml_detection_accuracy`, the empty-room false-positive regression, and the long-recording gate before being promoted to production artifacts. Non-production feature sets should be run with `--no-export`.
->
-> **Tip**: For production artifact promotion, prefer `python tools/10_train_ml_model.py --seed-search-until-improvement <N>` over a plain training run. A plain run always exports the current seed, while the seed-search flow only replaces artifacts after a strict grouped-CV improvement.
-
-### Compare Detection Methods
-
-After training, compare ML with MVS:
-
-```bash
-python tools/7_compare_detection_methods.py
-```
-
-Add `--plot` to visualize results graphically.
-
-### Using the ML Detector
-
-Set in `config.py`:
-
-```python
-DETECTION_ALGORITHM = "ml"
-```
-
-For algorithm details, see [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector).
 
 ---
 

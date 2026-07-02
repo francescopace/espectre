@@ -43,6 +43,10 @@ All notable changes to this project will be documented in this file.
 - **Dataset and sensing defaults were normalized across the project**: room-state labels were simplified, empty-room validation became part of the standard workflow, the active runtime path now uses one fixed shared subcarrier set, and MVS startup calibration was reduced to adaptive-threshold tuning only.
 - **Matter build and CI flows were hardened**: published targets use the standard ESP-IDF path, commissioning behavior is stricter, and QEMU smoke tests now validate real application startup markers.
 - **Repository tooling and docs were aligned with the new platform direction**: `./me` became `./espectre`, the MQTT monitor was renamed from `espectre-monitor.html` to `espectre-mqtt.html`, ESPHome packaging no longer relies on symlinks, and the main docs were rewritten around the modular multi-frontend architecture.
+- **ESPHome baseline `2026.6.0`**; examples/QEMU now require `min_version: 2026.6.0`.
+- **The Python baseline was raised from `3.12` to `3.14`** across the main workflow and the ML training environment.
+- **The ML training stack was migrated from TensorFlow/Keras to PyTorch**: the trainer now runs on the PyTorch MLP path, exports the same runtime weights, and no longer produces the unused TFLite/scaler artifacts.
+- **ML documentation was split by concern**: dataset collection stays in `docs/ML_DATA_COLLECTION.md`, while training, export, and validation guidance now live in `docs/ML_TRAINING.md`.
 - **The roadmap was realigned around the platform split**: `v3` now defines the reusable local platform phase, while `v4` is positioned as an optional privacy-first orchestration layer across multiple ESPectre nodes.
 
 ### Notes

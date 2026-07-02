@@ -168,6 +168,8 @@ static LongRunMetrics evaluate_ml_long_recording() {
 
   MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
   detector.configure_hampel(true);
+  metrics.use_cv_normalization = needs_cv_normalization();
+  detector.set_cv_normalization(metrics.use_cv_normalization);
 
   metrics.static_presence_eval_count = std::max(csi_test_data::num_static_presence() - warmup, 0);
   metrics.motion_eval_count = std::max(csi_test_data::num_motion() - warmup, 0);

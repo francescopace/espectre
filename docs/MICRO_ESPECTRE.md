@@ -129,7 +129,7 @@ For detailed performance metrics (confusion matrix, F1-score, benchmarks), see [
 ### Software
 - MicroPython with esp32-csi module installed
 - MQTT broker (Home Assistant, Mosquitto, etc.)
-- Python 3.12 (Recommended for deployment scripts, CLI, and analysis tools)
+- Python 3.14 (Recommended for deployment scripts, CLI, and analysis tools)
 
 ## CLI Tool Overview
 
@@ -194,32 +194,33 @@ If you've already set up the main ESPectre project, you can reuse that virtual e
 git clone https://github.com/francescopace/espectre.git
 cd espectre
 
-# Verify Python version (3.12 required)
-python3 --version  # Should show Python 3.12.x
+# Verify Python version
+python3.14 --version  # Should show Python 3.14.x
 
 # Create and activate virtual environment
-python3.12 -m venv .venv      # macOS/Linux — use python3 if pyenv auto-selected 3.12
+python3.14 -m venv .venv      # macOS/Linux — use python3 if pyenv auto-selected 3.14
 source .venv/bin/activate     # On macOS/Linux
 # .venv\Scripts\activate      # On Windows
 
 # Your prompt should now show (.venv) prefix
 ```
 
-> **Tip — Python 3.12 not found?**
+> **Tip — Python 3.14 not found?**
 >
-> **macOS (Homebrew):** `brew install python@3.12`
+> **macOS (Homebrew):** `brew install python@3.14`
 >
 > **pyenv (any OS):**
 > ```bash
-> pyenv install 3.12
-> # The .python-version file in this directory selects it automatically
+> pyenv install 3.14
 > ```
-> After installing, re-run `python3.12 -m venv .venv`.
+> After installing, re-run `python3.14 -m venv .venv`.
 
 **Why use a virtual environment?**
 - Isolates project dependencies from system Python
 - Prevents version conflicts with other projects
 - Makes the project portable and reproducible
+
+**Note:** If you upgrade from an older Python major version (for example `3.12` to `3.14`), recreate `.venv` instead of reusing the old environment.
 
 **Note:** Remember to activate the virtual environment (`source .venv/bin/activate`) every time you open a new terminal session to work with this project.
 
@@ -231,6 +232,8 @@ pip install -r requirements.txt
 ```
 
 This installs all required tools including `esptool` (for flashing firmware) and `mpremote` (for deploying code).
+
+The base workflow (`./espectre`, tests, docs, notebooks, and ESPHome tooling) targets Python `3.14`. 
 
 ### 2. Flash MicroPython Firmware
 
@@ -333,6 +336,7 @@ mqtt:
 ├── tools/web/espectre-theremin.html  # Audio sonification tool (experimental)
 ├── espectre                   # Repository CLI entrypoint
 ├── docs/ML_DATA_COLLECTION.md # Guide for ML data collection
+├── docs/ML_TRAINING.md        # Guide for ML training and export
 ├── .gitignore                 # Git ignore rules
 └── docs/MICRO_ESPECTRE.md     # This file
 ```
@@ -348,6 +352,7 @@ mqtt:
 - **`tools/csi_utils.py`**: CSI utilities (receiver, collector, detectors) for PC-side processing
 - **`tools/web/`**: Browser-based utilities such as the Web Monitor and theremin
 - **`docs/ML_DATA_COLLECTION.md`**: Guide for collecting labeled CSI datasets for ML
+- **`docs/ML_TRAINING.md`**: Guide for training, validating, and exporting the ML detector
 
 ## Testing
 
@@ -526,7 +531,8 @@ The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real 
 
 **Documentation**:
 - [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector) - Architecture, features, performance
-- [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) - Data collection, training, usage
+- [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) - Data collection and dataset preparation
+- [ML_TRAINING.md](ML_TRAINING.md) - Training, validation, and export workflow
 
 ### Future ML Applications (Roadmap 3.x)
 

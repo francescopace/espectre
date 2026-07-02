@@ -77,6 +77,11 @@ DOCS = {
         'ML Data Collection',
         'Guide for collecting labeled data for machine learning'
     ),
+    'docs/ML_TRAINING.md': (
+        'docs/web/documentation/ml-training/index.html',
+        'ML Training',
+        'Guide for training, validating, and exporting the ML detector'
+    ),
 }
 
 # Map original .md paths to new doc paths (for link rewriting)
@@ -95,6 +100,7 @@ LINK_MAP = {
     'docs/ALGORITHMS.md': '/documentation/algorithms/',
     'docs/MICRO_ESPECTRE.md': '/documentation/micro-espectre/',
     'docs/ML_DATA_COLLECTION.md': '/documentation/ml-data-collection/',
+    'docs/ML_TRAINING.md': '/documentation/ml-training/',
     'docs/EXPERIMENTS.md': 'https://github.com/francescopace/espectre/blob/main/docs/EXPERIMENTS.md',
     'tools/README.md': 'https://github.com/francescopace/espectre/blob/main/tools/README.md',
     'test/cpp/README.md': 'https://github.com/francescopace/espectre/blob/main/test/cpp/README.md',
@@ -445,6 +451,7 @@ def generate_sitemap():
         'docs/ROADMAP.md': ('https://espectre.dev/documentation/roadmap/', 'daily', '0.6'),
         'CONTRIBUTING.md': ('https://espectre.dev/documentation/contributing/', 'daily', '0.5'),
         'docs/ML_DATA_COLLECTION.md': ('https://espectre.dev/documentation/ml-data-collection/', 'daily', '0.5'),
+        'docs/ML_TRAINING.md': ('https://espectre.dev/documentation/ml-training/', 'daily', '0.5'),
     }
     
     def get_lastmod(filepath):

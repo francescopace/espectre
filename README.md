@@ -445,7 +445,7 @@ While ESPectre v2.x focuses on **motion detection** (MVS + adaptive threshold bo
 
 The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](docs/ALGORITHMS.md#ml-neural-network-detector) and `PERFORMANCE.md` for current metrics.
 
-The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md). The broader product direction and sequencing between platform work, frontends, cloud orchestration, and research tracks are described in [ROADMAP.md](docs/ROADMAP.md), with the device protocol in [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) and the local/cloud architecture profiles in [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The ML data collection workflow is documented in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), while training and validation live in [ML_TRAINING.md](docs/ML_TRAINING.md). The broader product direction and sequencing between platform work, frontends, cloud orchestration, and research tracks are described in [ROADMAP.md](docs/ROADMAP.md), with the device protocol in [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) and the local/cloud architecture profiles in [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -476,6 +476,7 @@ The ML data collection and training infrastructure is documented in [ML_DATA_COL
 | [Algorithms](docs/ALGORITHMS.md) | Scientific documentation of MVS, fixed subcarriers, Hampel filter |
 | [Analysis Tools](tools/README.md) | CSI analysis and optimization scripts |
 | [ML Data Collection](docs/ML_DATA_COLLECTION.md) | Building labeled datasets for machine learning |
+| [ML Training](docs/ML_TRAINING.md) | Training, validating, and exporting the ML detector |
 | [References](docs/MICRO_ESPECTRE.md#references) | Academic papers and research resources |
 
 ### Project

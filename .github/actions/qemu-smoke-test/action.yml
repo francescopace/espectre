@@ -63,9 +63,9 @@ runs:
           ELF=""
         fi
 
-        echo "path=$FIRMWARE" >> $GITHUB_OUTPUT
-        echo "elf=$ELF" >> $GITHUB_OUTPUT
-        echo "merged=$MERGED" >> $GITHUB_OUTPUT
+        echo "path=$FIRMWARE" >> "$GITHUB_OUTPUT"
+        echo "elf=$ELF" >> "$GITHUB_OUTPUT"
+        echo "merged=$MERGED" >> "$GITHUB_OUTPUT"
         echo "Found firmware: $FIRMWARE"
 
     - name: Prepare flash image
@@ -97,6 +97,7 @@ runs:
           QEMU_PATH="/opt/esp/tools/qemu-riscv32/esp_develop_9.2.2_20250817/qemu/bin/qemu-system-riscv32"
         fi
         
+        set +e
         docker run --rm \
           -v /tmp/flash_qemu.bin:/flash.bin \
           espressif/idf:release-v5.5 bash -c "
@@ -106,7 +107,15 @@ runs:
               -drive file=/flash.bin,if=mtd,format=raw \
               -global driver=timer.${{ inputs.machine }}.timg,property=wdt_disable,value=true \
               -no-reboot 2>&1
-          " | tee qemu_output.log || true
+          " | tee qemu_output.log
+        QEMU_STATUS=${PIPESTATUS[0]}
+        set -e
+
+        # 124 is timeout(1), expected for firmware that keeps running after boot.
+        if [ "$QEMU_STATUS" -ne 0 ] && [ "$QEMU_STATUS" -ne 124 ]; then
+          echo "QEMU failed before smoke checks could complete (exit $QEMU_STATUS)."
+          exit "$QEMU_STATUS"
+        fi
 
     - name: Check boot success
       shell: bash
@@ -201,8 +210,9 @@ runs:
             echo "SMOKE TEST FAILED - Expected log not found: ${{ inputs.expected_log }}"
             exit 1
           fi
-        elif [ $CHECKS_PASSED -ge 3 ]; then
+        elif [ "$CHECKS_PASSED" -ge 3 ]; then
           echo "SMOKE TEST PASSED - Firmware boots without crashes"
         else
-          echo "WARNING: Boot may have stalled - only $CHECKS_PASSED/4 checks passed"
+          echo "SMOKE TEST FAILED - Boot stalled; only $CHECKS_PASSED/4 checks passed"
+          exit 1
         fi

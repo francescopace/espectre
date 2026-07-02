@@ -17,7 +17,7 @@ The notebooks share the same virtual environment as the rest of Micro-ESPectre.
 
 ### Prerequisites
 
-- Python 3.12+ (recommended)
+- Python 3.14+ (recommended)
 - The CSI datasets in `../data/` (included in the repository)
 
 ### 1. Create virtual environment (if not already done)
@@ -26,7 +26,7 @@ The notebooks share the same virtual environment as the rest of Micro-ESPectre.
 cd espectre
 
 # Create and activate virtual environment
-python3 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate  # macOS/Linux
 # .venv\Scripts\activate   # Windows
 ```
@@ -34,12 +34,11 @@ source .venv/bin/activate  # macOS/Linux
 ### 2. Install dependencies
 
 ```bash
-# Core dependencies (enough for both notebooks)
-pip install numpy matplotlib scipy
-
-# Full dependencies (includes ML training, CLI tools, etc.)
+# Full project dependencies (CLI, tests, docs, and notebook helpers)
 pip install -r requirements.txt
 ```
+
+The notebooks, main repository workflow, and ML training extras target Python `3.14`.
 
 ### 3. Install Jupyter
 
@@ -89,7 +88,7 @@ When adding a notebook:
 
 1. Use the naming convention `NN_short_description.ipynb` (e.g., `03_gesture_recognition.ipynb`)
 2. Include a markdown header cell with title, purpose, and prerequisites
-3. Keep dependencies to `numpy` + `matplotlib` where possible (the notebooks should work without tensorflow/sklearn)
+3. Keep dependencies to `numpy` + `matplotlib` where possible (the notebooks should work without torch/sklearn)
 4. Use `../data/` relative paths for datasets
 5. Add an entry to this README table
 

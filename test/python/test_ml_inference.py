@@ -59,7 +59,7 @@ class TestMLInferenceAccuracy:
             max_error = max(max_error, error)
             
             # Allow small numerical error due to float32 precision
-            # in manual MLP inference vs TensorFlow reference
+            # in manual MLP inference vs exported regression reference
             assert error < INFERENCE_TOLERANCE, (
                 f"Sample {i}: expected {expected:.6f}, got {result:.6f}, "
                 f"error {error:.6f}"
