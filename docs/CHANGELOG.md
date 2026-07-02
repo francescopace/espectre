@@ -799,9 +799,3 @@ ESP-IDF best practices: disabled power save (`WIFI_PS_NONE`), configurable count
 
 ### Initial Release
 CSI-based movement detection for ESP32-S3. Hampel + Savitzky-Golay filters, 15 features, 4-state detection (IDLE/MICRO/DETECTED/INTENSE), MQTT publishing, CLI tool. 10-100 pps, <50ms latency, 3-8m range.
-
----
-
-## License
-
-GPLv3 - See [LICENSE](../LICENSE) for details.

@@ -173,9 +173,3 @@ int main(int argc, char **argv) { return process(); }
 ```
 
 Register the file in `test/suites/CMakeLists.txt` and run it with `ctest -R test_my_feature`.
-
----
-
-## License
-
-GPLv3 - See [LICENSE](../../LICENSE) for details.

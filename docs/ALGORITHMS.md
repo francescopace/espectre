@@ -612,9 +612,3 @@ See [PERFORMANCE.md](PERFORMANCE.md) for detailed per-chip results and [TUNING.m
 7. **CIRSense: Rethinking WiFi Sensing with Channel Impulse Response (2025)**  
    SSNR (Sensing Signal-to-Noise Ratio) optimization.  
    [Read paper](https://arxiv.org/html/2510.11374v1)
-
----
-
-## License
-
-GPLv3 - See [LICENSE](../LICENSE) for details.

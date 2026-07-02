@@ -1,7 +1,7 @@
 # ESPectre Protocol
 
 ESPectre Protocol is the shared logical protocol for ESPectre devices, tools,
-MQTT dashboards, and future managed cloud services.
+MQTT dashboards, and future web orchestration services.
 
 ESPectre Protocol defines the message model. BLE, MQTT, MQTT over TLS,
 device shadows, jobs, and future bridges are transports or profiles that carry
@@ -14,11 +14,11 @@ the same semantics across different trust boundaries.
 - BLE is for proximity, setup, recovery, and nearby diagnostics.
 - MQTT is the operational plane for telemetry, status, commands, dashboards,
   history, and alerts.
-- Cloud profiles add identity, credentials, tenancy, retention, and fleet
-  management; they do not redefine device telemetry.
+- Web orchestration profiles add identity, credentials, tenancy, retention, and
+  fleet management; they do not redefine device telemetry.
 - Device identifiers are opaque protocol identifiers, not MAC addresses.
 - Privacy-sensitive values such as SSID, BSSID, local IP address, packet-level
-  radio traces, and serial logs must not be sent to managed cloud services by
+  radio traces, and serial logs must not be sent to managed services by
   default.
 
 ## Transports
@@ -44,7 +44,7 @@ Future BLE responsibilities:
 
 - Wi-Fi scan and selection
 - Wi-Fi credential validation
-- managed-cloud claim bootstrap
+- web-service claim bootstrap
 - reboot or reconnect commands
 - structured command/result framing equivalent to MQTT commands
 
@@ -65,8 +65,8 @@ espectre/v1/devices/{device_id}/commands/accepted
 espectre/v1/devices/{device_id}/commands/rejected
 ```
 
-Managed cloud MQTT should use TLS and per-device credentials. Local lab MQTT may
-use a simpler broker/auth model, but should keep the same message shape.
+Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT
+may use a simpler broker/auth model, but should keep the same message shape.
 
 ## Message Families
 
@@ -142,8 +142,8 @@ espectre/v1/devices/{device_id}/info
 ```
 
 `network` and `detection` are optional. Local tools may display local IP and MAC
-values. Managed cloud services should not collect local IP addresses, SSIDs,
-BSSIDs, access point MACs, or router identifiers by default.
+values. Managed services should not collect local IP addresses, SSIDs, BSSIDs,
+access point MACs, or router identifiers by default.
 
 ### Stats
 
@@ -364,17 +364,17 @@ implemented profile is the local lab path: BLE provisioning and diagnostics via
 `tools/web/espectre-ble.html`, plus MQTT telemetry inspection via
 `tools/web/espectre-mqtt.html`.
 
-The managed cloud profile adds identity, tenancy, device claim, state mirrors,
+Web orchestration profiles add identity, tenancy, device claim, state mirrors,
 history, alerts, and OTA around the same protocol. Those system-level concerns
 belong to [ARCHITECTURE.md](ARCHITECTURE.md), not to this message schema.
 
-## Cloud Privacy Boundary
+## Web Orchestration Privacy Boundary
 
-Default managed-cloud telemetry should be derived and minimal:
+Default web-orchestration telemetry should be derived and minimal:
 
 | Field | Purpose |
 |-------|---------|
-| `device_id` | Cloud-scoped opaque identifier |
+| `device_id` | Service-scoped opaque identifier |
 | `timestamp_ms` | Event or sample time |
 | `online` | Device availability |
 | `firmware_version` | Fleet visibility and update eligibility |
@@ -384,7 +384,7 @@ Default managed-cloud telemetry should be derived and minimal:
 | `threshold` | Current runtime threshold |
 | `health` | Minimal optional diagnostics such as uptime, reset reason, or RSSI bucket |
 
-The managed cloud service should not collect by default:
+Managed services should not collect by default:
 
 - raw CSI I/Q samples
 - SSID, BSSID, access point MAC, or router identifiers
@@ -397,17 +397,9 @@ The managed cloud service should not collect by default:
 Movement history can reveal occupancy habits, sleep patterns, and absences from
 home. Treat it as personal data even when it contains no raw CSI.
 
-## Future Protocol Work
+## Protocol Improvements
 
-- Should the first self-hosted local lab use a lightweight broker plus SQLite,
-  or start with a more cloud-shaped service stack?
-- Should firmware cloud connectivity be added to all frontends or introduced as
-  a dedicated cloud-capable firmware profile first?
-- Should Matter/ESPHome nodes connect directly to cloud, or should a local
-  bridge/gateway mode be supported later?
-- Should BLE commands remain ASCII-oriented or move to structured framing now
-  that the logical protocol is documented?
-- How much of ESPectre Protocol should be frozen before the first paid beta?
+- Evaluate structured BLE command formats such as JSON, TLV, CBOR, or compact binary framing instead of ad hoc ASCII strings
 
 ## Related Docs
 

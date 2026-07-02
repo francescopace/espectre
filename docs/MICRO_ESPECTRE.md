@@ -792,20 +792,3 @@ mqtt:
 ## References
 
 For scientific references and algorithm documentation, see [ALGORITHMS.md](ALGORITHMS.md).
-
-## Related Projects
-
-- [ESPectre](../README.md) - Main project with native Home Assistant integration
-- [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) - MicroPython CSI module
-
-## License
-
-GPLv3 - See [LICENSE](../LICENSE) for details.
-
----
-
-## Author
-
-**Francesco Pace**  
-Email: [francesco.pace@espectre.dev](mailto:francesco.pace@espectre.dev)  
-LinkedIn: [linkedin.com/in/francescopace](https://www.linkedin.com/in/francescopace/)

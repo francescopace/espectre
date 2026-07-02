@@ -749,9 +749,3 @@ entity names, commands, or telemetry channel differ.
 - **Main Documentation:** [README.md](../README.md)
 - **Setup Guide:** [SETUP.md](SETUP.md) for the shared frontend chooser
 - **ESPHome Frontend:** [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) for YAML syntax, Home Assistant entities, and troubleshooting
-
----
-
-## License
-
-GPLv3 - See [LICENSE](../LICENSE) for details.
