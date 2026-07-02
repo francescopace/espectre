@@ -186,7 +186,10 @@ class HampelFilter:
             self.sorted_buffer[i] = self.buffer[i]
         
         insertion_sort(self.sorted_buffer, n)
-        median = self.sorted_buffer[mid]
+        if n % 2 == 0:
+            median = (self.sorted_buffer[mid - 1] + self.sorted_buffer[mid]) / 2.0
+        else:
+            median = self.sorted_buffer[mid]
         
         # Second pass: calculate deviations and sort for MAD
         # Reuse sorted_buffer for deviations (saves one buffer)
@@ -195,7 +198,10 @@ class HampelFilter:
             self.sorted_buffer[i] = diff if diff >= 0 else -diff  # inline abs
         
         insertion_sort(self.sorted_buffer, n)
-        mad = self.sorted_buffer[mid]
+        if n % 2 == 0:
+            mad = (self.sorted_buffer[mid - 1] + self.sorted_buffer[mid]) / 2.0
+        else:
+            mad = self.sorted_buffer[mid]
         
         # Check if current value is an outlier
         # scaled_threshold = threshold * 1.4826 (pre-calculated)

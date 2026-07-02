@@ -129,33 +129,45 @@ For detailed performance metrics (confusion matrix, F1-score, benchmarks), see [
 ### Software
 - MicroPython with esp32-csi module installed
 - MQTT broker (Home Assistant, Mosquitto, etc.)
-- Python 3.12 (Recommended for deployment scripts, CLI, and analysis tools)
+- Python 3.14 (Recommended for deployment scripts, CLI, and analysis tools)
 
 ## CLI Tool Overview
 
-Micro-ESPectre now uses the repository CLI root **`espectre`**. The micro workflow lives under **`./espectre micro ...`**.
+Micro-ESPectre now uses the repository CLI root **`espectre`**. The MicroPython device workflow lives under **`./espectre micro ...`** on macOS/Linux and **`.\espectre.cmd micro ...`** on Windows.
 
 The repository CLI is now split by workflow:
-- `./espectre micro ...` for the MicroPython and host-side research loop documented here
+- `./espectre micro ...` for MicroPython device flashing, deploy, run, and verify
+- `./espectre collect ...` and `./espectre detect ...` for host-side CSI capture and live ML inspection
+- `./espectre ui ...`, `./espectre mqtt`, and `./espectre monitor ...` for local web, MQTT, and serial tools
 - `./espectre esphome ...` for local ESPHome firmware builds from the repo examples
 - `./espectre native ...` for the standalone native ESP-IDF frontend
 - `./espectre matter ...` for the Matter ESP-IDF frontend
 - `./espectre streamer ...` for the CSI streamer ESP-IDF frontend
 
+On Windows, replace `./espectre` with `.\espectre.cmd` and use the serial
+port shown by Device Manager, for example `COM5`, in place of `/dev/cu...` or
+`/dev/tty...`.
+
 ### Main Commands
 
-The `espectre micro` namespace provides these essential commands:
+The `espectre micro` namespace provides these essential MicroPython device commands:
 
 | Command | Description | Usage Example |
 |---------|-------------|---------------|
 | `flash` | Flash MicroPython firmware to device | `./espectre micro flash --erase` |
 | `deploy` | Deploy Python code to device | `./espectre micro deploy` |
 | `run` | Run the application | `./espectre micro run` |
-| `detect` | Run live ML motion detection on the PC | `./espectre micro detect --log-turbulence` |
-| `collect` | Collect labeled CSI data for ML training | `./espectre micro collect --label static_presence --duration 10` |
 | `verify` | Verify firmware installation | `./espectre micro verify` |
-| `ui` | Open the MQTT, BLE, or theremin web UI in browser | `./espectre micro ui theremin` |
-| *(interactive)* | Interactive MQTT control | `./espectre micro` |
+
+Host-side tools live at the repository CLI root:
+
+| Command | Description | Usage Example |
+|---------|-------------|---------------|
+| `detect` | Run live ML motion detection on the PC | `./espectre detect --streamer-ip 192.168.1.50 --log-turbulence` |
+| `collect` | Collect labeled CSI data for ML training | `./espectre collect --label static_presence --duration 10 --streamer-ip 192.168.1.50` |
+| `ui` | Open the MQTT, BLE, or theremin web UI in browser | `./espectre ui theremin` |
+| `mqtt` | Interactive MQTT control | `./espectre mqtt` |
+| `monitor` | Attach to a serial port and stream logs | `./espectre monitor --port /dev/cu.usbmodemXXXX` |
 
 ### Key Features
 
@@ -169,17 +181,17 @@ The `espectre micro` namespace provides these essential commands:
 ./espectre micro flash --erase    # Flash firmware (first time only)
 ./espectre micro deploy           # Deploy code
 ./espectre micro run              # Run application
-./espectre micro                  # Interactive MQTT control
+./espectre mqtt                   # Interactive MQTT control
 
 # For real-time CSI streaming (gesture detection, research)
-./espectre streamer flash --chip s3 --port /dev/cu.usbmodemXXXX
-./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX
+./espectre streamer flash --port /dev/cu.usbmodemXXXX
+./espectre monitor --port /dev/cu.usbmodemXXXX
 
 # On the PC, inspect live ML motion inference
-./espectre micro detect --log-turbulence
+./espectre detect --streamer-ip 192.168.1.50 --log-turbulence
 ```
 
-> **Note**: The interactive mode (`./espectre micro` without a subcommand) provides advanced MQTT control features and is covered in detail in the [Interactive CLI (Advanced)](#interactive-cli-advanced) section.
+> **Note**: `./espectre mqtt` provides advanced MQTT control features and is covered in detail in the [Interactive CLI (Advanced)](#interactive-cli-advanced) section.
 
 ## Quick Start
 
@@ -194,34 +206,37 @@ If you've already set up the main ESPectre project, you can reuse that virtual e
 git clone https://github.com/francescopace/espectre.git
 cd espectre
 
-# Verify Python version (3.12 required)
-python3 --version  # Should show Python 3.12.x
+# Verify Python version
+python3.14 --version  # Should show Python 3.14.x
 
 # Create and activate virtual environment
-python3.12 -m venv .venv      # macOS/Linux — use python3 if pyenv auto-selected 3.12
+python3.14 -m venv .venv      # macOS/Linux — use python3 if pyenv auto-selected 3.14
 source .venv/bin/activate     # On macOS/Linux
 # .venv\Scripts\activate      # On Windows
 
 # Your prompt should now show (.venv) prefix
 ```
 
-> **Tip — Python 3.12 not found?**
+> **Tip — Python 3.14 not found?**
 >
-> **macOS (Homebrew):** `brew install python@3.12`
+> **macOS (Homebrew):** `brew install python@3.14`
 >
 > **pyenv (any OS):**
 > ```bash
-> pyenv install 3.12
-> # The .python-version file in this directory selects it automatically
+> pyenv install 3.14
 > ```
-> After installing, re-run `python3.12 -m venv .venv`.
+> After installing, re-run `python3.14 -m venv .venv`.
 
 **Why use a virtual environment?**
 - Isolates project dependencies from system Python
 - Prevents version conflicts with other projects
 - Makes the project portable and reproducible
 
-**Note:** Remember to activate the virtual environment (`source .venv/bin/activate`) every time you open a new terminal session to work with this project.
+**Note:** If you upgrade from an older Python major version (for example `3.12` to `3.14`), recreate `.venv` instead of reusing the old environment.
+
+**Note:** Remember to activate the virtual environment every time you open a
+new terminal session to work with this project: `source .venv/bin/activate` on
+macOS/Linux, or `.\.venv\Scripts\Activate.ps1` in Windows PowerShell.
 
 ### 1. Install Dependencies
 
@@ -231,6 +246,9 @@ pip install -r requirements.txt
 ```
 
 This installs all required tools including `esptool` (for flashing firmware) and `mpremote` (for deploying code).
+
+The base workflow (`./espectre` on macOS/Linux, `.\espectre.cmd` on Windows,
+tests, docs, notebooks, and ESPHome tooling) targets Python `3.14`.
 
 ### 2. Flash MicroPython Firmware
 
@@ -242,6 +260,8 @@ The precompiled firmware with CSI support is automatically downloaded from [micr
 ```bash
 ./espectre micro flash --erase
 ```
+
+On Windows, use `.\espectre.cmd micro flash --erase`.
 
 The CLI will:
 - Auto-detect your serial port
@@ -256,6 +276,8 @@ The CLI will:
 ./espectre micro flash --chip s3 --port /dev/ttyUSB0 --erase
 ```
 
+On Windows, pass the serial port as `COM5` or the value shown by Device Manager.
+
 **Verify the installation:**
 ```bash
 ./espectre micro verify
@@ -269,6 +291,11 @@ cp src/python/config_local.py.example src/python/config_local.py
 
 # Edit with your credentials
 vi src/python/config_local.py  # or use your preferred editor
+```
+
+On Windows CMD, use:
+```bat
+copy src\python\config_local.py.example src\python\config_local.py
 ```
 
 Update these settings:
@@ -302,7 +329,7 @@ That's it! The device will now:
 
 **Option A: Interactive CLI (MQTT control)**
 ```bash
-./espectre micro
+./espectre mqtt
 ```
 
 **Option B: Home Assistant**
@@ -333,6 +360,7 @@ mqtt:
 ├── tools/web/espectre-theremin.html  # Audio sonification tool (experimental)
 ├── espectre                   # Repository CLI entrypoint
 ├── docs/ML_DATA_COLLECTION.md # Guide for ML data collection
+├── docs/ML_TRAINING.md        # Guide for ML training and export
 ├── .gitignore                 # Git ignore rules
 └── docs/MICRO_ESPECTRE.md     # This file
 ```
@@ -348,6 +376,7 @@ mqtt:
 - **`tools/csi_utils.py`**: CSI utilities (receiver, collector, detectors) for PC-side processing
 - **`tools/web/`**: Browser-based utilities such as the Web Monitor and theremin
 - **`docs/ML_DATA_COLLECTION.md`**: Guide for collecting labeled CSI datasets for ML
+- **`docs/ML_TRAINING.md`**: Guide for training, validating, and exporting the ML detector
 
 ## Testing
 
@@ -526,7 +555,8 @@ The ML detector (`DETECTION_ALGORITHM = "ml"`) is a compact MLP trained on real 
 
 **Documentation**:
 - [ALGORITHMS.md](ALGORITHMS.md#ml-neural-network-detector) - Architecture, features, performance
-- [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) - Data collection, training, usage
+- [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) - Data collection and dataset preparation
+- [ML_TRAINING.md](ML_TRAINING.md) - Training, validation, and export workflow
 
 ### Future ML Applications (Roadmap 3.x)
 
@@ -584,7 +614,7 @@ When 802.11bf is widely adopted, applications like this project will become:
 
 ## Interactive CLI (Advanced)
 
-Beyond the basic commands covered in the [CLI Tool Overview](#cli-tool-overview), `./espectre micro` provides an **interactive mode** for advanced device control and monitoring via MQTT.
+Beyond the basic commands covered in the [CLI Tool Overview](#cli-tool-overview), `./espectre mqtt` provides an **interactive mode** for advanced device control and monitoring via MQTT.
 
 **Prerequisites**: Make sure you have completed the [Python Environment Setup](#0-setup-python-environment) before using the CLI.
 
@@ -596,13 +626,13 @@ Beyond the basic commands covered in the [CLI Tool Overview](#cli-tool-overview)
 # If not: source .venv/bin/activate  # On macOS/Linux
 
 # Run the interactive CLI:
-./espectre micro
+./espectre mqtt
 
 # Connect to specific broker
-./espectre micro --broker 192.168.1.100 --port-mqtt 1883
+./espectre mqtt --broker 192.168.1.100 --port-mqtt 1883
 
 # With authentication
-./espectre micro --broker homeassistant.local --username mqtt --password mqtt
+./espectre mqtt --broker homeassistant.local --username mqtt --password mqtt
 ```
 
 ### Features
@@ -671,10 +701,10 @@ The chart shows:
 
 **Launch from CLI** (recommended):
 ```bash
-./espectre micro          # Start interactive mode
+./espectre mqtt           # Start interactive mode
 webui         # Open web monitor in browser
-./espectre micro ui ble   # Open the BLE web UI directly
-./espectre micro ui theremin  # Open the theremin web UI directly
+./espectre ui ble         # Open the BLE web UI directly
+./espectre ui theremin    # Open the theremin web UI directly
 ```
 
 The CLI opens the selected local HTML file in your default browser.
@@ -682,9 +712,9 @@ The CLI opens the selected local HTML file in your default browser.
 **Manual launch**:
 Open `../tools/web/espectre-mqtt.html` directly in your browser and configure the MQTT connection manually.
 
-For the native frontend web client, open `../tools/web/espectre-ble.html` directly or run `./espectre micro ui ble`.
+For the native frontend web client, open `../tools/web/espectre-ble.html` directly or run `./espectre ui ble`.
 
-For the theremin tool, open `../tools/web/espectre-theremin.html` directly or run `./espectre micro ui theremin`.
+For the theremin tool, open `../tools/web/espectre-theremin.html` directly or run `./espectre ui theremin`.
 
 ### Browser Compatibility
 

@@ -23,6 +23,8 @@ from .common import (
     detect_chip_type,
     get_serial_port,
     prompt_chip_type,
+    cli_command,
+    copy_config_command,
 )
 
 
@@ -226,10 +228,10 @@ def flash_firmware(args) -> None:
                 print(f"{Fore.GREEN}✅ Firmware flashed successfully!{Style.RESET_ALL}")
                 print()
                 print(f"{Fore.CYAN}Next steps:{Style.RESET_ALL}")
-                print("  1. cp src/python/config_local.py.example src/python/config_local.py")
+                print(f"  1. {copy_config_command()}")
                 print("  2. Edit src/python/config_local.py with your credentials")
-                print(f"  3. {Fore.GREEN}./espectre micro deploy{Style.RESET_ALL}")
-                print(f"  4. {Fore.GREEN}./espectre micro run{Style.RESET_ALL}")
+                print(f"  3. {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
+                print(f"  4. {Fore.GREEN}{cli_command('micro', 'run')}{Style.RESET_ALL}")
                 print()
                 return
             except Exception as e:
@@ -244,7 +246,7 @@ def flash_firmware(args) -> None:
         print("  2. Use a different USB cable (data cable, not charge-only)")
         print("  3. Try a different USB port (preferably USB 2.0)")
         print("  4. Ensure no other programs are using the serial port")
-        print(f"  5. Try with --erase flag: {Fore.GREEN}./espectre micro flash --erase{Style.RESET_ALL}")
+        print(f"  5. Try with --erase flag: {Fore.GREEN}{cli_command('micro', 'flash', '--erase')}{Style.RESET_ALL}")
         print()
         raise SystemExit(1)
 
@@ -258,7 +260,7 @@ def deploy_code(args) -> None:
     if not config_local_path.exists():
         print(f"{Fore.RED}❌ src/python/config_local.py not found!{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Create it from the template:{Style.RESET_ALL}")
-        print("  cp src/python/config_local.py.example src/python/config_local.py")
+        print(f"  {copy_config_command()}")
         print("  # Then edit src/python/config_local.py with your credentials")
         print()
         raise SystemExit(1)
@@ -280,8 +282,8 @@ def deploy_code(args) -> None:
             print(f"{Fore.RED}❌ Device is not running a valid MicroPython firmware{Style.RESET_ALL}")
             print(f"{Fore.YELLOW}   Serial output suggests boot failure (e.g. invalid header).{Style.RESET_ALL}")
             print(f"\n{Fore.CYAN}Recommended fix:{Style.RESET_ALL}")
-            print(f"  {Fore.GREEN}./espectre micro flash --erase --chip c5{Style.RESET_ALL}")
-            print(f"  {Fore.GREEN}./espectre micro deploy{Style.RESET_ALL}")
+            print(f"  {Fore.GREEN}{cli_command('micro', 'flash', '--erase', '--chip', 'c5')}{Style.RESET_ALL}")
+            print(f"  {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
             print()
             raise SystemExit(1)
 
@@ -321,7 +323,7 @@ def deploy_code(args) -> None:
         print(f"{Fore.GREEN}✅ Deployment complete!{Style.RESET_ALL}")
         print()
         print(f"{Fore.CYAN}To run the application:{Style.RESET_ALL}")
-        print("  ./espectre micro run")
+        print(f"  {cli_command('micro', 'run')}")
         print()
     except subprocess.CalledProcessError as e:
         print(f"\n{Fore.RED}❌ Error during deployment: {e}{Style.RESET_ALL}")
@@ -394,7 +396,7 @@ def verify_installation(args) -> None:
         else:
             print(f"{Fore.RED}❌ CSI methods not found in firmware{Style.RESET_ALL}")
             print(f"{Fore.YELLOW}   Hint: Flash the CSI-enabled firmware:{Style.RESET_ALL}")
-            print("   ./espectre micro flash --erase")
+            print(f"   {cli_command('micro', 'flash', '--erase')}")
             all_ok = False
     except subprocess.CalledProcessError as e:
         print(f"{Fore.RED}❌ Failed to check CSI support: {e.stderr.strip()}{Style.RESET_ALL}")
@@ -427,7 +429,7 @@ def verify_installation(args) -> None:
     except subprocess.CalledProcessError:
         print(f"{Fore.RED}❌ Source files not found{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}   Hint: Deploy the code first:{Style.RESET_ALL}")
-        print("   ./espectre micro deploy")
+        print(f"   {cli_command('micro', 'deploy')}")
         all_ok = False
     print()
 
@@ -453,7 +455,7 @@ def verify_installation(args) -> None:
         print(f"{Fore.GREEN}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
         print()
         print(f"{Fore.CYAN}You can now run the application:{Style.RESET_ALL}")
-        print("  ./espectre micro run")
+        print(f"  {cli_command('micro', 'run')}")
         print()
         return
 

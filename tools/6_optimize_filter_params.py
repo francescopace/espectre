@@ -61,12 +61,12 @@ def calc_avg_magnitude(iq_data, num_packets=500):
     return np.mean(mags)
 
 
-def test_config(static_presence_iq, motion_iq, target, cutoff,
+def test_config(baseline_iq, movement_iq, target, cutoff,
                 threshold=1.0, avg_mag=None,
-                static_presence_gain_locked=True, motion_gain_locked=True):
+                baseline_gain_locked=True, movement_gain_locked=True):
     """Test a configuration and return metrics"""
     if avg_mag is None:
-        avg_mag = calc_avg_magnitude(static_presence_iq)
+        avg_mag = calc_avg_magnitude(baseline_iq)
     
     norm_scale = target / avg_mag
     
@@ -80,9 +80,9 @@ def test_config(static_presence_iq, motion_iq, target, cutoff,
     
     # Process static presence
     fp = 0
-    seg.use_cv_normalization = not bool(static_presence_gain_locked)
-    for i in range(len(static_presence_iq)):
-        turb = seg.calculate_spatial_turbulence(static_presence_iq[i], DEFAULT_SUBCARRIERS)
+    seg.use_cv_normalization = not bool(baseline_gain_locked)
+    for i in range(len(baseline_iq)):
+        turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
         seg.update_state()  # Must call to calculate variance and update state
         if i >= 50 and seg.get_state() == seg.STATE_MOTION:
@@ -91,16 +91,16 @@ def test_config(static_presence_iq, motion_iq, target, cutoff,
     # Reset and process motion
     seg.reset(full=True)
     tp = 0
-    seg.use_cv_normalization = not bool(motion_gain_locked)
-    for i in range(len(motion_iq)):
-        turb = seg.calculate_spatial_turbulence(motion_iq[i], DEFAULT_SUBCARRIERS)
+    seg.use_cv_normalization = not bool(movement_gain_locked)
+    for i in range(len(movement_iq)):
+        turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
         seg.update_state()  # Must call to calculate variance and update state
         if i >= 50 and seg.get_state() == seg.STATE_MOTION:
             tp += 1
     
-    total_base = len(static_presence_iq) - 50
-    total_move = len(motion_iq) - 50
+    total_base = len(baseline_iq) - 50
+    total_move = len(movement_iq) - 50
     recall = 100 * tp / total_move if total_move > 0 else 0
     fp_rate = 100 * fp / total_base if total_base > 0 else 0
     precision = 100 * tp / (tp + fp) if (tp + fp) > 0 else 0
@@ -117,8 +117,8 @@ def test_config(static_presence_iq, motion_iq, target, cutoff,
     }
 
 
-def optimize_hampel(static_presence_iq, motion_iq, avg_mag, target=28, cutoff=11,
-                    static_presence_gain_locked=True, motion_gain_locked=True):
+def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11,
+                    baseline_gain_locked=True, movement_gain_locked=True):
     """Optimize Hampel filter parameters"""
     print('=' * 70)
     print('  HAMPEL FILTER OPTIMIZATION')
@@ -151,9 +151,9 @@ def optimize_hampel(static_presence_iq, motion_iq, avg_mag, target=28, cutoff=11
             
             # Process static presence
             fp = 0
-            seg.use_cv_normalization = not bool(static_presence_gain_locked)
-            for i in range(len(static_presence_iq)):
-                turb = seg.calculate_spatial_turbulence(static_presence_iq[i], DEFAULT_SUBCARRIERS)
+            seg.use_cv_normalization = not bool(baseline_gain_locked)
+            for i in range(len(baseline_iq)):
+                turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)
                 seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
@@ -162,16 +162,16 @@ def optimize_hampel(static_presence_iq, motion_iq, avg_mag, target=28, cutoff=11
             # Reset and process motion
             seg.reset(full=True)
             tp = 0
-            seg.use_cv_normalization = not bool(motion_gain_locked)
-            for i in range(len(motion_iq)):
-                turb = seg.calculate_spatial_turbulence(motion_iq[i], DEFAULT_SUBCARRIERS)
+            seg.use_cv_normalization = not bool(movement_gain_locked)
+            for i in range(len(movement_iq)):
+                turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)
                 seg.update_state()  # Must call to calculate variance and update state
                 if i >= 50 and seg.get_state() == seg.STATE_MOTION:
                     tp += 1
             
-            total_base = len(static_presence_iq) - 50
-            total_move = len(motion_iq) - 50
+            total_base = len(baseline_iq) - 50
+            total_move = len(movement_iq) - 50
             recall = 100 * tp / total_move if total_move > 0 else 0
             fp_rate = 100 * fp / total_base if total_base > 0 else 0
             precision = 100 * tp / (tp + fp) if (tp + fp) > 0 else 0

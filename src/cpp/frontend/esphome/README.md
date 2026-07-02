@@ -316,6 +316,9 @@ external_components:
 ./espectre esphome logs --chip c6 --device /dev/cu.usbmodemXXXX
 ```
 
+On Windows, use `.\espectre.cmd esphome ...` from the repository root and pass
+a COM port such as `COM5` to `--device` when serial access is needed.
+
 Add `--dev` to use the local development YAML mapping.
 
 ## Hardware and Packaging Notes

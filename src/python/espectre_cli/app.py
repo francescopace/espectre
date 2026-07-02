@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 
-from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace
+from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace, cli_command, serial_port_example
 from .esphome import run_esphome_command
 from .host import collect_csi_data, detect_live_motion, open_web_ui
 from .idf import run_idf_command
 from .micro import deploy_code, flash_firmware, run_application, verify_installation
 from .mqtt_shell import EspectreMQTTShell
+from .serial_monitor import run_serial_monitor
 from .targets import ESPHOME_CONFIGS, IDF_FRONTENDS
 
 
@@ -19,35 +20,9 @@ def run_mqtt_shell(args) -> int:
     return 0
 
 
-def _add_micro_namespace(subparsers) -> None:
-    micro_parser = subparsers.add_parser(
-        "micro",
-        help="MicroPython and host-side R&D workflow",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    add_mqtt_connection_args(micro_parser)
-    micro_subparsers = micro_parser.add_subparsers(dest="micro_command", help="Micro workflow commands")
-
-    flash_parser = micro_subparsers.add_parser("flash", help="Flash MicroPython firmware to ESP32")
-    flash_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="ESP32 chip type (auto-detected if not specified)")
-    flash_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
-    flash_parser.add_argument("--erase", action="store_true", help="Erase flash before flashing (recommended)")
-    flash_parser.add_argument("--firmware", help="Custom firmware path (optional)")
-    flash_parser.set_defaults(handler=flash_firmware)
-
-    deploy_parser = micro_subparsers.add_parser("deploy", help="Deploy code to MicroPython device")
-    deploy_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
-    deploy_parser.set_defaults(handler=deploy_code)
-
-    run_parser = micro_subparsers.add_parser("run", help="Run application on ESP32")
-    run_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
-    run_parser.set_defaults(handler=run_application)
-
-    verify_parser = micro_subparsers.add_parser("verify", help="Verify installation")
-    verify_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
-    verify_parser.set_defaults(handler=verify_installation)
-
-    ui_parser = micro_subparsers.add_parser("ui", help="Open a web UI in the browser")
+def _add_ui_parser(subparsers, *, name: str = "ui", help_text: str | None = "Open a web UI in the browser"):
+    parser_kwargs = {"help": help_text} if help_text is not None else {}
+    ui_parser = subparsers.add_parser(name, **parser_kwargs)
     ui_parser.add_argument(
         "interface",
         nargs="?",
@@ -56,8 +31,12 @@ def _add_micro_namespace(subparsers) -> None:
         help="Web UI to open (default: mqtt)",
     )
     ui_parser.set_defaults(handler=lambda args: open_web_ui(args.interface))
+    return ui_parser
 
-    collect_parser = micro_subparsers.add_parser("collect", help="Collect labeled CSI data for training")
+
+def _add_collect_parser(subparsers, *, name: str = "collect", help_text: str | None = "Collect labeled CSI data for training"):
+    parser_kwargs = {"help": help_text} if help_text is not None else {}
+    collect_parser = subparsers.add_parser(name, **parser_kwargs)
     collect_parser.add_argument("--label", "-l", help="Label for collected data (e.g., static_presence, motion, empty, wave)")
     collect_parser.add_argument(
         "--samples",
@@ -86,8 +65,12 @@ def _add_micro_namespace(subparsers) -> None:
     collect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor")
     collect_parser.add_argument("--description", help="Description for the collected samples")
     collect_parser.set_defaults(handler=collect_csi_data)
+    return collect_parser
 
-    detect_parser = micro_subparsers.add_parser("detect", help="Run live ML motion detection from CSI UDP stream")
+
+def _add_detect_parser(subparsers, *, name: str = "detect", help_text: str | None = "Run live ML motion detection from CSI UDP stream"):
+    parser_kwargs = {"help": help_text} if help_text is not None else {}
+    detect_parser = subparsers.add_parser(name, **parser_kwargs)
     detect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
     detect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
     detect_parser.add_argument("--streamer-ip", required=True, help="IPv4 address of the streamer device to stimulate")
@@ -103,9 +86,51 @@ def _add_micro_namespace(subparsers) -> None:
     detect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor for saved captures")
     detect_parser.add_argument("--description", help="Description for the saved live-detect capture")
     detect_parser.set_defaults(handler=detect_live_motion)
+    return detect_parser
 
-    mqtt_parser = micro_subparsers.add_parser("mqtt", help="Start the interactive MQTT shell")
+
+def _add_mqtt_parser(subparsers, *, name: str = "mqtt", help_text: str | None = "Start the interactive MQTT shell"):
+    parser_kwargs = {"help": help_text} if help_text is not None else {}
+    mqtt_parser = subparsers.add_parser(name, **parser_kwargs)
+    add_mqtt_connection_args(mqtt_parser)
     mqtt_parser.set_defaults(handler=run_mqtt_shell)
+    return mqtt_parser
+
+
+def _add_monitor_parser(subparsers) -> None:
+    monitor_parser = subparsers.add_parser("monitor", help="Attach to a serial port and stream logs")
+    monitor_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    monitor_parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate (default: 115200)")
+    monitor_parser.add_argument("--raw", action="store_true", help="Pass --raw to serial.tools.miniterm")
+    monitor_parser.set_defaults(handler=run_serial_monitor)
+
+
+def _add_micro_namespace(subparsers) -> None:
+    micro_parser = subparsers.add_parser(
+        "micro",
+        help="MicroPython device workflow",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    micro_subparsers = micro_parser.add_subparsers(dest="micro_command", required=True, help="MicroPython commands")
+
+    flash_parser = micro_subparsers.add_parser("flash", help="Flash MicroPython firmware to ESP32")
+    flash_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="ESP32 chip type (auto-detected if not specified)")
+    flash_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    flash_parser.add_argument("--erase", action="store_true", help="Erase flash before flashing (recommended)")
+    flash_parser.add_argument("--firmware", help="Custom firmware path (optional)")
+    flash_parser.set_defaults(handler=flash_firmware)
+
+    deploy_parser = micro_subparsers.add_parser("deploy", help="Deploy code to MicroPython device")
+    deploy_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    deploy_parser.set_defaults(handler=deploy_code)
+
+    run_parser = micro_subparsers.add_parser("run", help="Run application on ESP32")
+    run_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    run_parser.set_defaults(handler=run_application)
+
+    verify_parser = micro_subparsers.add_parser("verify", help="Verify installation")
+    verify_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    verify_parser.set_defaults(handler=verify_installation)
 
 
 def _add_esphome_namespace(subparsers) -> None:
@@ -133,38 +158,44 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
     for command_name, help_text in {
         "build": "Configure target and build firmware",
         "flash": "Flash firmware with idf.py",
-        "monitor": "Open idf.py monitor",
     }.items():
         command_parser = idf_subparsers.add_parser(command_name, help=help_text)
-        command_parser.add_argument("--chip", choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()), required=True, help="ESP-IDF target chip")
-        if command_name in {"flash", "monitor"}:
+        if command_name == "build":
+            command_parser.add_argument("--chip", choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()), required=True, help="ESP-IDF target chip")
+        if command_name == "flash":
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
-        if command_name == "monitor":
-            command_parser.add_argument(
-                "--print-filter",
-                dest="print_filter",
-                help="Forward an ESP-IDF monitor print filter such as '*:W espectre.matter:I'",
-            )
         command_parser.set_defaults(handler=lambda args, current_frontend=frontend: run_idf_command(current_frontend, args))
 
 
 def build_parser() -> argparse.ArgumentParser:
+    examples = "\n".join(
+        [
+            "Examples:",
+            f"  {cli_command('micro', 'flash', '--erase')}",
+            f"  {cli_command('micro', 'deploy')}",
+            f"  {cli_command('mqtt')}",
+            f"  {cli_command('ui', 'theremin')}",
+            f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--streamer-ip', '192.168.1.50')}",
+            f"  {cli_command('detect', '--streamer-ip', '192.168.1.50', '--log-turbulence')}",
+            f"  {cli_command('monitor', '--port', serial_port_example())}",
+            f"  {cli_command('esphome', 'build', '--chip', 'c3', '--dev')}",
+            f"  {cli_command('native', 'build', '--chip', 'c3')}",
+            f"  {cli_command('matter', 'build', '--chip', 'c3')}",
+            f"  {cli_command('streamer', 'flash', '--port', serial_port_example())}",
+        ]
+    )
     parser = argparse.ArgumentParser(
-        description="ESPectre CLI - repository orchestrator for micro, esphome, native, matter, and streamer workflows",
+        description="ESPectre CLI - repository orchestrator for device, host, and frontend workflows",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  ./espectre micro flash --erase
-  ./espectre micro deploy
-  ./espectre micro
-  ./espectre esphome build --chip c3 --dev
-  ./espectre native build --chip c3
-  ./espectre matter build --chip c3
-  ./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX
-""",
+        epilog=examples,
     )
     subparsers = parser.add_subparsers(dest="namespace", help="Available namespaces")
     _add_micro_namespace(subparsers)
+    _add_ui_parser(subparsers)
+    _add_collect_parser(subparsers)
+    _add_detect_parser(subparsers)
+    _add_mqtt_parser(subparsers)
+    _add_monitor_parser(subparsers)
     _add_esphome_namespace(subparsers)
     _add_idf_namespace(subparsers, "native")
     _add_idf_namespace(subparsers, "matter")
@@ -179,9 +210,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.namespace is None:
         parser.print_help()
         return 0
-
-    if args.namespace == "micro" and getattr(args, "micro_command", None) is None:
-        return run_mqtt_shell(args)
 
     handler = getattr(args, "handler", None)
     if handler is None:

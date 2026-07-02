@@ -1,35 +1,26 @@
-# Micro-ESPectre Requirements
-# Python dependencies for Micro-ESPectre CLI and analysis tools
+# Python dependencies for ESPectre
 
-# Device Management Dependencies
-esptool==5.2.0          # aligned with ESPHome 2026.5.0
-mpremote>=1.28.0        # Deploy code to MicroPython device (used as CLI tool)
-pyserial>=3.5           # Serial port detection and communication
+# ESPHome build workflow
+esphome==2026.6.2
+esptool==5.3.0          # aligned with ESPHome 2026.6.2
+mpremote>=1.28.0        # CLI wrapper coverage in Python tests
+pyserial>=3.5           # serial helpers used by CLI/runtime tests
 
-# CLI Tool Dependencies
-paho-mqtt==1.6.1        # Used directly by ./espectre; aligned with ESPHome 2026.5.0 (avoid 2.x)
-click==8.3.3            # pinned for ESPHome 2026.5.0 / PlatformIO 6.1.19 compatibility
-requests==2.34.1        # pinned for ESPHome 2026.5.0 compatibility
-colorama>=0.4.6         # Terminal colors
-python-dotenv>=1.2.2    # Environment variables support
+# Host-side CLI/runtime dependencies exercised in tests
+paho-mqtt==1.6.1        # aligned with ESPHome 2026.6.2 (avoid 2.x)
+click==8.3.3            # pinned for ESPHome 2026.6.2 / PlatformIO 6.1.19 compatibility
+requests==2.34.2        # pinned for ESPHome 2026.6.2 compatibility
+colorama>=0.4.6         # terminal colors
+python-dotenv>=1.2.2    # environment variables support
 PyYAML>=6.0.3           # YAML parsing
-prompt_toolkit>=3.0.52   # Interactive CLI with autocompletion
+prompt_toolkit>=3.0.52  # interactive CLI support
 
-# Analysis Tools Dependencies
-numpy>=2.4.6            # Numerical computing for data analysis
-matplotlib>=3.10.9      # Plotting and visualization
-scipy>=1.17.1           # Scientific computing (signal processing)
-PyWavelets>=1.9.0       # Wavelet transforms (pywt)
+# Test and docs dependencies
+numpy==2.4.6            # latest verified NumPy compatible with shap/numba on Python 3.14
+pytest>=9.1.1           # test framework
+pytest-cov>=7.1.0       # Python coverage
+markdown>=3.10.2        # static documentation builder
+gcovr>=8.6              # C++ coverage reports
 
-# Test Dependencies
-pytest>=9.0.3           # Test framework
-pytest-cov>=7.1.0       # Coverage plugin for pytest
-markdown>=3.10.2        # Static documentation builder
-
-# Code Coverage (C++ tests)
-gcovr>=8.6              # Code coverage reports for C++ tests
-
-# ML Dependencies
-tensorflow>=2.21.0      # Machine learning framework
-scikit-learn>=1.9.0     # Machine learning library
-shap>=0.52.0            # SHAP feature importance analysis
+# Local analysis extras
+matplotlib>=3.11.0      # Plotting and visualization

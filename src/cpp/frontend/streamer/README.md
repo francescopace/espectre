@@ -262,9 +262,12 @@ Repository CLI:
 
 ```bash
 ./espectre streamer build --chip s3
-./espectre streamer flash --chip s3 --port /dev/cu.usbmodemXXXX
-./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX
+./espectre streamer flash --port /dev/cu.usbmodemXXXX
+./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
+
+On Windows, use `.\espectre.cmd streamer ...` for build/flash and
+`.\espectre.cmd monitor --port COM5` for serial logs.
 
 When `app/sdkconfig.wifi` exists, the repository CLI automatically passes
 `sdkconfig.defaults;sdkconfig.wifi` to `idf.py` for `build`.
