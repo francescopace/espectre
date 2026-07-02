@@ -1,5 +1,5 @@
 /*
- * ESPectre - ESP-IDF MQTT transport for the BLE frontend.
+ * ESPectre - ESP-IDF MQTT transport for the native frontend.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3

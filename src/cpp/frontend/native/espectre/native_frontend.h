@@ -1,5 +1,5 @@
 /*
- * ESPectre - BLE Frontend Adapter
+ * ESPectre - Native Frontend Adapter
  *
  * Thin frontend that maps IEspectreRuntime events to the custom BLE protocol.
  *
@@ -24,7 +24,7 @@
 namespace esphome {
 namespace espectre {
 
-class BleFrontend : public IRuntimeListener {
+class NativeFrontend : public IRuntimeListener {
  public:
   struct WifiProvisioningInfo {
     std::string ssid;
@@ -37,8 +37,8 @@ class BleFrontend : public IRuntimeListener {
   using ProvisioningCommandCallback = std::function<bool(const std::string &command, std::string *message)>;
   using DeviceConfigChangeCallback = std::function<bool(const EspectreDeviceConfig &config, bool clear, std::string *message)>;
 
-  explicit BleFrontend(IBleBindings *bindings);
-  BleFrontend(IBleBindings *bindings, IMqttTransport *mqtt_transport);
+  explicit NativeFrontend(IBleBindings *bindings);
+  NativeFrontend(IBleBindings *bindings, IMqttTransport *mqtt_transport);
 
   void set_runtime_config(const RuntimeConfig &config);
   void set_device_config(const EspectreDeviceConfig &config);
@@ -52,7 +52,7 @@ class BleFrontend : public IRuntimeListener {
   bool setup();
   void loop();
   void shutdown();
-  ~BleFrontend();
+  ~NativeFrontend();
 
   const RuntimeSnapshot &snapshot() const { return runtime_.snapshot(); }
   const RuntimeCapabilities &capabilities() const { return runtime_.capabilities(); }

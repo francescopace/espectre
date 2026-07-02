@@ -58,12 +58,12 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   snapshot.gain_locked = true;
 
   const std::string status = espectre_status_payload(config, true, 1234);
-  const std::string telemetry = espectre_telemetry_payload(config, snapshot, 222, 33, "ble");
+  const std::string telemetry = espectre_telemetry_payload(config, snapshot, 222, 33, "native");
   const std::string stats = espectre_stats_payload(config, snapshot, 333, 44, 128.5f, 6.25f);
 
   TEST_ASSERT_TRUE(status.find("\"device_id\":\"node-7\"") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"online\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(telemetry.find("\"frontend\":\"ble\"") != std::string::npos);
+  TEST_ASSERT_TRUE(telemetry.find("\"frontend\":\"native\"") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"motion_state\":\"motion\"") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"threshold\":1.5") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"detector\":\"ml\"") != std::string::npos);
@@ -115,7 +115,7 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
 
   TEST_ASSERT_TRUE(payload.find("\"device_id\":\"espectre-node\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"device_name\":\"ESPectre Node\"") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"frontend\":\"ble\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"frontend\":\"native\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"firmware_version\":\"unknown\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"unknown\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") == std::string::npos);

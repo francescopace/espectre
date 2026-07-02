@@ -51,8 +51,8 @@ set(ESPECTRE_FRONTEND_MATTER_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/matter/espectre/matter_surface.cpp"
 )
 
-set(ESPECTRE_FRONTEND_BLE_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/ble/espectre/ble_frontend.cpp"
+set(ESPECTRE_FRONTEND_NATIVE_SOURCES
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_frontend.cpp"
 )
 
 set(ESPECTRE_FRONTEND_STREAMER_SOURCES

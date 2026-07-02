@@ -51,8 +51,8 @@ Dependency shape:
 ┌────────────────────────────────────────────────────────────┐
 │ FRONTEND                                                   │
 │                                                            │
-│  ESPHome frontend  BLE frontend  Matter frontend  Streamer frontend │
-│  src/cpp/frontend/esphome/espectre  .../ble/...  .../matter/...     │
+│  ESPHome frontend  native frontend  Matter frontend  Streamer frontend │
+│  src/cpp/frontend/esphome/espectre  .../native/...  .../matter/...     │
 └───────────────────────────┬────────────────────────────────┘
                             │ uses
                             ▼
@@ -135,23 +135,23 @@ codegen, and packaging metadata for the production-oriented frontend.
 For frontend-specific details, see
 [`src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md).
 
-### `src/cpp/frontend/ble/espectre/`
+### `src/cpp/frontend/native/espectre/`
 
-This is the standalone BLE adapter used by generic BLE clients, including a web
+This is the standalone native adapter used by generic BLE clients, including a web
 client as one example integration.
 
 It reuses the same runtime contract as the other frontends, but maps runtime
 events and controls to a custom GATT surface instead of Home Assistant entities
 or Matter clusters.
 
-The BLE adapter uses the shared `RuntimeFrontendController` for runtime
+The native adapter uses the shared `RuntimeFrontendController` for runtime
 ownership and shared ESP-IDF protocol services for BLE transport, NVS-backed
 Wi-Fi/device configuration, MQTT transport, and standalone Wi-Fi setup.
 
 For the BLE protocol, payload shape, field semantics, and transport mapping,
-see [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md). For BLE firmware workflow
+see [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md). For native frontend firmware workflow
 and frontend-specific operational notes, see
-[`src/cpp/frontend/ble/README.md`](../src/cpp/frontend/ble/README.md).
+[`src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md).
 
 ### `src/cpp/frontend/matter/espectre/`
 
@@ -331,7 +331,7 @@ This profile already supports:
 - on-device persistence for Wi-Fi and MQTT settings
 - MQTT telemetry, status, info, stats, and command results as defined in
   [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md)
-- shared ESPectre Protocol payloads from BLE firmware and `micro-espectre`
+- shared ESPectre Protocol payloads from native frontend firmware and `micro-espectre`
 - `tools/web/espectre-ble.html` as the Web Bluetooth provisioning/test client, including subscription-driven live telemetry and runtime threshold tuning
 - `tools/web/espectre-mqtt.html` as the browser MQTT monitor for realtime validation
 
@@ -728,7 +728,7 @@ Current implemented paths:
 - `core`: shared detectors and math
 - `runtime`: ESP-IDF runtime
 - `frontend/esphome`: ESPHome adapter
-- `frontend/ble`: standalone BLE adapter + ESP-IDF firmware app
+- `frontend/native`: standalone native adapter + ESP-IDF firmware app
 - `frontend/matter`: Matter adapter + esp-matter firmware app (experimental)
 
 ---

@@ -135,7 +135,7 @@ The Matter frontend keeps ownership boundaries explicit:
 That ordering is visible in [`app/main/app_main.cpp`](app/main/app_main.cpp).
 
 The Matter frontend also uses the same shared periodic progress-bar sensing
-status log helper used by the ESPHome and standalone BLE frontends, so runtime
+status log helper used by the ESPHome and standalone native frontends, so runtime
 serial diagnostics stay aligned across the ecosystem-facing firmware targets.
 
 ### Commissioning Window Behavior
@@ -283,7 +283,7 @@ It does not own:
   shared architecture and runtime contract
 - [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md):
   shared tuning guidance and tradeoffs
-- [`../ble/README.md`](../ble/README.md):
-  standalone BLE frontend
+- [`../native/README.md`](../native/README.md):
+  standalone native frontend
 - [`../esphome/README.md`](../esphome/README.md):
   ESPHome frontend

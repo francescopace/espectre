@@ -252,7 +252,7 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   out += json_pair_string("protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   out += json_pair_string("device_id", device_id.c_str());
   out += json_pair_string("device_name", device_name.c_str());
-  out += json_pair_string("frontend", info.frontend.empty() ? "ble" : info.frontend.c_str());
+  out += json_pair_string("frontend", info.frontend.empty() ? "native" : info.frontend.c_str());
   out += json_pair_string("firmware_version", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
   out += json_pair_string("chip", info.chip.empty() ? "unknown" : info.chip.c_str());
 

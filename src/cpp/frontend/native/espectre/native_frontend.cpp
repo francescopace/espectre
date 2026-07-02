@@ -1,11 +1,11 @@
 /*
- * ESPectre - BLE Frontend Adapter
+ * ESPectre - Native Frontend Adapter
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
  */
 
-#include "ble_frontend.h"
+#include "native_frontend.h"
 
 #include <cctype>
 #include <cerrno>
@@ -32,7 +32,7 @@ namespace espectre {
 
 namespace {
 
-static const char *const TAG = "espectre.ble";
+static const char *const TAG = "espectre.native";
 constexpr uint8_t kTelemetryMotionStateIdle = 0;
 constexpr uint8_t kTelemetryMotionStateMotion = 1;
 
@@ -86,14 +86,14 @@ float current_free_memory_kb() {
 
 }  // namespace
 
-BleFrontend::BleFrontend(IBleBindings *bindings) : bindings_(bindings) {}
+NativeFrontend::NativeFrontend(IBleBindings *bindings) : bindings_(bindings) {}
 
-BleFrontend::BleFrontend(IBleBindings *bindings, IMqttTransport *mqtt_transport)
+NativeFrontend::NativeFrontend(IBleBindings *bindings, IMqttTransport *mqtt_transport)
     : bindings_(bindings), mqtt_transport_(mqtt_transport) {}
 
-void BleFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set_config(config); }
+void NativeFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set_config(config); }
 
-void BleFrontend::set_device_config(const EspectreDeviceConfig &config) {
+void NativeFrontend::set_device_config(const EspectreDeviceConfig &config) {
   device_config_ = config;
   if (bindings_ != nullptr) {
     const std::string ble_name = ble_device_name_from_config(device_config_);
@@ -101,19 +101,19 @@ void BleFrontend::set_device_config(const EspectreDeviceConfig &config) {
   }
 }
 
-void BleFrontend::set_device_info(const EspectreDeviceInfo &info) { device_info_ = info; }
+void NativeFrontend::set_device_info(const EspectreDeviceInfo &info) { device_info_ = info; }
 
-void BleFrontend::set_wifi_provisioning_info(const WifiProvisioningInfo &info) { wifi_info_ = info; }
+void NativeFrontend::set_wifi_provisioning_info(const WifiProvisioningInfo &info) { wifi_info_ = info; }
 
-void BleFrontend::set_provisioning_command_callback(ProvisioningCommandCallback callback) {
+void NativeFrontend::set_provisioning_command_callback(ProvisioningCommandCallback callback) {
   provisioning_command_callback_ = std::move(callback);
 }
 
-void BleFrontend::set_device_config_change_callback(DeviceConfigChangeCallback callback) {
+void NativeFrontend::set_device_config_change_callback(DeviceConfigChangeCallback callback) {
   device_config_change_callback_ = std::move(callback);
 }
 
-bool BleFrontend::setup() {
+bool NativeFrontend::setup() {
   if (bindings_ == nullptr) {
     ESP_LOGE(TAG, "BLE bindings are not configured");
     return false;
@@ -137,11 +137,11 @@ bool BleFrontend::setup() {
   }
 
   setup_mqtt_();
-  ESP_LOGI(TAG, "BLE frontend initialized");
+  ESP_LOGI(TAG, "Native frontend initialized");
   return true;
 }
 
-void BleFrontend::loop() {
+void NativeFrontend::loop() {
   const int64_t loop_started_us = esp_timer_get_time();
   runtime_.loop();
   flush_pending_system_info_();
@@ -151,7 +151,7 @@ void BleFrontend::loop() {
   last_loop_time_ms_ = static_cast<float>(esp_timer_get_time() - loop_started_us) / 1000.0f;
 }
 
-void BleFrontend::shutdown() {
+void NativeFrontend::shutdown() {
   publish_mqtt_status_(false);
   runtime_.shutdown();
   if (mqtt_transport_ != nullptr) {
@@ -163,37 +163,37 @@ void BleFrontend::shutdown() {
   client_connected_ = false;
 }
 
-BleFrontend::~BleFrontend() { shutdown(); }
+NativeFrontend::~NativeFrontend() { shutdown(); }
 
-void BleFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
+void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
   runtime_.record_snapshot(snapshot);
 }
 
-void BleFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
+void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   runtime_.record_snapshot(snapshot);
   const uint32_t now = now_ms_();
   publish_mqtt_telemetry_(snapshot, now);
   status_logger_.log_status(TAG, snapshot, packets_received);
 }
 
-void BleFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
+void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   runtime_.record_snapshot(snapshot);
   runtime_.config().segmentation_threshold = snapshot.threshold;
   send_system_info_();
   publish_mqtt_telemetry_(snapshot, now_ms_());
 }
 
-void BleFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
+void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
   runtime_.record_snapshot(snapshot);
   send_system_info_();
 }
 
-void BleFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
+void NativeFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
   finalize_frontend_calibration(runtime_, snapshot, [this]() { status_logger_.reset(); }, success, TAG);
   send_system_info_();
 }
 
-void BleFrontend::on_live_telemetry(float movement, float threshold) {
+void NativeFrontend::on_live_telemetry(float movement, float threshold) {
   if (!client_connected_ || bindings_ == nullptr) {
     return;
   }
@@ -206,7 +206,7 @@ void BleFrontend::on_live_telemetry(float movement, float threshold) {
   bindings_->publish_telemetry(payload, sizeof(payload));
 }
 
-void BleFrontend::on_runtime_fault(const char *message) {
+void NativeFrontend::on_runtime_fault(const char *message) {
   if (message != nullptr) {
     ESP_LOGW(TAG, "Runtime fault: %s", message);
   }
@@ -215,7 +215,7 @@ void BleFrontend::on_runtime_fault(const char *message) {
   }
 }
 
-bool BleFrontend::handle_control_command_(const std::string &command) {
+bool NativeFrontend::handle_control_command_(const std::string &command) {
   if (command == "REQ_SYSINFO") {
     send_system_info_();
     return true;
@@ -317,7 +317,7 @@ bool BleFrontend::handle_control_command_(const std::string &command) {
   return false;
 }
 
-void BleFrontend::handle_mqtt_command_(const std::string &payload) {
+void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
   EspectreCommand command;
   std::string error;
   if (!parse_espectre_command(payload, &command, &error)) {
@@ -351,7 +351,7 @@ void BleFrontend::handle_mqtt_command_(const std::string &payload) {
   publish_mqtt_command_result_(command, false, "unsupported command");
 }
 
-bool BleFrontend::handle_threshold_write_(float threshold) {
+bool NativeFrontend::handle_threshold_write_(float threshold) {
   if (!runtime_.capabilities().supports_runtime_threshold_updates) {
     ESP_LOGW(TAG, "Runtime threshold updates are not supported");
     return false;
@@ -364,7 +364,7 @@ bool BleFrontend::handle_threshold_write_(float threshold) {
   return true;
 }
 
-void BleFrontend::handle_connection_state_(bool connected) {
+void NativeFrontend::handle_connection_state_(bool connected) {
   client_connected_ = connected;
   if (connected) {
     telemetry_subscribed_ = false;
@@ -379,12 +379,12 @@ void BleFrontend::handle_connection_state_(bool connected) {
   }
 }
 
-void BleFrontend::handle_live_telemetry_subscription_(bool subscribed) {
+void NativeFrontend::handle_live_telemetry_subscription_(bool subscribed) {
   telemetry_subscribed_ = subscribed;
   runtime_.set_live_telemetry_enabled(client_connected_ && telemetry_subscribed_);
 }
 
-void BleFrontend::setup_mqtt_() {
+void NativeFrontend::setup_mqtt_() {
   if (mqtt_transport_ == nullptr) {
     return;
   }
@@ -406,12 +406,12 @@ void BleFrontend::setup_mqtt_() {
   }
 }
 
-void BleFrontend::publish_mqtt_info_() {
+void NativeFrontend::publish_mqtt_info_() {
   if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
     return;
   }
   EspectreDeviceInfo info = device_info_;
-  info.frontend = info.frontend.empty() ? "ble" : info.frontend;
+  info.frontend = info.frontend.empty() ? "native" : info.frontend;
   info.firmware_version = info.firmware_version.empty() ? "unknown" : info.firmware_version;
   info.chip = info.chip.empty() ? CONFIG_IDF_TARGET : info.chip;
   if (info.detector.empty() && runtime_.snapshot().detector_name != nullptr) {
@@ -422,7 +422,7 @@ void BleFrontend::publish_mqtt_info_() {
                            true);
 }
 
-void BleFrontend::publish_mqtt_status_(bool online) {
+void NativeFrontend::publish_mqtt_status_(bool online) {
   if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
     return;
   }
@@ -431,17 +431,17 @@ void BleFrontend::publish_mqtt_status_(bool online) {
                            true);
 }
 
-void BleFrontend::publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now) {
+void NativeFrontend::publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now) {
   if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
     return;
   }
-  const char *frontend = device_info_.frontend.empty() ? "ble" : device_info_.frontend.c_str();
+  const char *frontend = device_info_.frontend.empty() ? "native" : device_info_.frontend.c_str();
   mqtt_transport_->publish(espectre_topic(device_config_, "telemetry"),
                            espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, frontend),
                            false);
 }
 
-void BleFrontend::publish_mqtt_stats_() {
+void NativeFrontend::publish_mqtt_stats_() {
   if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
     return;
   }
@@ -456,7 +456,7 @@ void BleFrontend::publish_mqtt_stats_() {
                            false);
 }
 
-void BleFrontend::publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message) {
+void NativeFrontend::publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message) {
   if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
     return;
   }
@@ -465,11 +465,11 @@ void BleFrontend::publish_mqtt_command_result_(const EspectreCommand &command, b
                            false);
 }
 
-void BleFrontend::queue_system_info_line_(const char *line) {
+void NativeFrontend::queue_system_info_line_(const char *line) {
   pending_sysinfo_lines_.emplace_back(line != nullptr ? line : "");
 }
 
-void BleFrontend::flush_pending_system_info_(bool force) {
+void NativeFrontend::flush_pending_system_info_(bool force) {
   if (!client_connected_ || bindings_ == nullptr || next_sysinfo_line_index_ >= pending_sysinfo_lines_.size()) {
     return;
   }
@@ -489,7 +489,7 @@ void BleFrontend::flush_pending_system_info_(bool force) {
   }
 }
 
-void BleFrontend::send_system_info_() {
+void NativeFrontend::send_system_info_() {
   if (!client_connected_ || bindings_ == nullptr) {
     return;
   }
@@ -501,7 +501,7 @@ void BleFrontend::send_system_info_() {
   last_sysinfo_line_ms_ = 0;
 
   queue_system_info_line_("proto_version=1");
-  queue_system_info_line_("frontend=ble");
+  queue_system_info_line_("frontend=native");
   std::snprintf(line, sizeof(line), "espectre_protocol_version=%s", ESPECTRE_PROTOCOL_VERSION);
   queue_system_info_line_(line);
   queue_system_info_line_("supports_wifi_provisioning=true");
@@ -558,7 +558,7 @@ void BleFrontend::send_system_info_() {
   flush_pending_system_info_(true);
 }
 
-uint32_t BleFrontend::now_ms_() const { return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL); }
+uint32_t NativeFrontend::now_ms_() const { return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL); }
 
 }  // namespace espectre
 }  // namespace esphome

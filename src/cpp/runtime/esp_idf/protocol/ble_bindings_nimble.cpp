@@ -179,7 +179,7 @@ void NimbleBleBindings::publish_sysinfo_line(const char *line) {
 
 void NimbleBleBindings::report_fault(const char *message) {
   if (message != nullptr) {
-    ESP_LOGW(TAG, "Runtime fault reported to BLE frontend: %s", message);
+    ESP_LOGW(TAG, "Runtime fault reported through BLE bindings: %s", message);
   }
 }
 

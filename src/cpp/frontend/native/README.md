@@ -1,24 +1,24 @@
-# ESPectre BLE Frontend
+# ESPectre Native Frontend
 
-This directory contains the standalone ESPectre BLE frontend.
+This directory contains the standalone ESPectre native frontend.
 
 Its role is to expose the shared ESPectre runtime through a lightweight custom
 GATT surface that can be used by generic BLE clients, including web clients,
 mobile apps, smart-device integrations, and other custom tooling.
 
-This file is the source of truth for the BLE frontend firmware workflow and
+This file is the source of truth for the native frontend firmware workflow and
 BLE-specific operational notes. The shared protocol surface is documented in
 [`docs/ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
 ## Scope
 
-The BLE frontend is intentionally separate from the ESPHome frontend:
+The native frontend is intentionally separate from the ESPHome frontend:
 
 - `ESPHome` remains focused on Home Assistant entities and YAML/codegen
-- `BLE` exposes a transport-oriented integration surface
+- `Native` exposes the standalone integration surface over BLE and MQTT
 - `Matter` exposes the same runtime through Matter clusters
 
-The current BLE frontend preserves the protocol already used by
+The current native frontend preserves the protocol already used by
 `docs/web/game/`, but it is not tied to that specific client.
 
 ## Directory Layout
@@ -42,11 +42,11 @@ BLE protocol mapping.
 ## Getting Started
 
 If you arrived here from [`docs/SETUP.md`](../../../../docs/SETUP.md),
-this README is the next step for the standalone BLE firmware path.
+this README is the next step for the standalone native firmware path.
 
 ### Browser-Flashed Firmware
 
-The web flasher can install published `BLE` images for supported chips. After
+The web flasher can install published `Native` images for supported chips. After
 flashing, use a BLE client that understands this protocol, such as:
 
 - [`tools/web/espectre-ble.html`](../../../../tools/web/espectre-ble.html):
@@ -59,9 +59,9 @@ flashing, use a BLE client that understands this protocol, such as:
 Repository CLI:
 
 ```bash
-./espectre ble build --chip c3
-./espectre ble flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre ble monitor --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre native build --chip c3
+./espectre native flash --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre native monitor --chip c3 --port /dev/cu.usbmodemXXXX
 ```
 
 The CLI is a thin wrapper over the ESP-IDF app in this directory.
@@ -116,26 +116,26 @@ Usage notes:
 8. use `Save MQTT` to persist MQTT settings and enable MQTT transport
 9. leave the Wi-Fi password field blank to keep an already stored password
 
-When telemetry notifications are disabled by the client, the standalone BLE
+When telemetry notifications are disabled by the client, the standalone native
 frontend keeps `sysinfo` and control commands active but deregisters the live
 telemetry callback so BLE-only live telemetry is no longer produced in the
 background. The shared protocol semantics remain documented in
 [`docs/ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
-The standalone BLE frontend uses the same shared periodic progress-bar sensing
+The standalone native frontend uses the same shared periodic progress-bar sensing
 status log helper used by the ESPHome and Matter frontends, so the serial log
 shape stays aligned across those frontend surfaces.
 
 ## Wi-Fi Configuration
 
-Unlike the ESPHome frontend, the standalone BLE firmware does not rely on YAML
+Unlike the ESPHome frontend, the standalone native firmware does not rely on YAML
 or Home Assistant for setup. In the current local-lab profile, Wi-Fi can be
 provisioned live over BLE and persisted in NVS.
 
 Frontend-owned options in [`espectre/Kconfig.projbuild`](espectre/Kconfig.projbuild)
 remain useful as firmware defaults for reproducible images or first boot.
 Versioned transport defaults in [`app/sdkconfig.defaults`](app/sdkconfig.defaults)
-also tune the standalone BLE firmware for mixed BLE + Wi-Fi traffic, including
+also tune the standalone native firmware for mixed BLE + Wi-Fi traffic, including
 larger Wi-Fi RX/TX buffers plus lwIP mailbox and IRAM optimizations inherited
 from the standalone streamer profile.
 
@@ -159,7 +159,7 @@ Runtime provisioning behavior:
 - the web client shows whether a password is already stored and lets you keep
   it by leaving the password field blank
 
-This means the current standalone BLE firmware is best suited for:
+This means the current standalone native firmware is best suited for:
 
 - local integration experiments
 - custom client development
@@ -186,14 +186,14 @@ Local implementation anchors:
 
 - [`../../runtime/ble_protocol.h`](../../runtime/ble_protocol.h):
   protocol constants such as UUIDs and default device name
-- [`espectre/ble_frontend.cpp`](espectre/ble_frontend.cpp):
+- [`espectre/native_frontend.cpp`](espectre/native_frontend.cpp):
   command handling, sysinfo emission, and telemetry serialization
 - [`../../runtime/espectre_protocol.cpp`](../../runtime/espectre_protocol.cpp):
   shared MQTT topic, payload, and command serialization
 
 ## Firmware Limits and Expectations
 
-The current standalone BLE frontend intentionally stays small.
+The current standalone native frontend intentionally stays small.
 
 Important current limits:
 
@@ -230,9 +230,9 @@ Check the active Wi-Fi values first:
    - `ESPECTRE_WIFI_PASSWORD`
    - optional `ESPECTRE_WIFI_BSSID`
 
-### The BLE firmware is not the right fit for the workflow
+### The native firmware is not the right fit for the workflow
 
-That can be expected. This frontend is optimized for custom BLE integrations,
+That can be expected. This frontend is optimized for the native standalone integration surface,
 not for Home Assistant-style provisioning or the Matter commissioning flow.
 
 ## Related Files
@@ -243,7 +243,7 @@ not for Home Assistant-style provisioning or the Matter commissioning flow.
   shared protocol payload and command helpers
 - `../../runtime/esp_idf/protocol/wifi_provisioning_service.cpp`:
   shared ESP-IDF Wi-Fi provisioning command handling
-- `espectre/ble_frontend.cpp`:
+- `espectre/native_frontend.cpp`:
   command parsing, sysinfo emission, telemetry serialization
 - `../../runtime/esp_idf/protocol/ble_bindings_nimble.cpp`:
   NimBLE transport implementation

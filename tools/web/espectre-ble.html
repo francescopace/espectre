@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESPectre BLE Provisioning</title>
+  <title>ESPectre Native Frontend Provisioning</title>
   <style>
     * {
       margin: 0;
@@ -733,7 +733,7 @@
           supportsExtendedDiagnostics: false
         };
       }
-      if (frontend === 'ble') {
+      if (frontend === 'native') {
         return defaultCapabilities();
       }
       return null;

@@ -34,7 +34,7 @@ paths.
 | **Architecture** | Shared `core`, `runtime`, and `frontend` layers |
 | **Runtime contract** | Stable frontend-oriented APIs such as `IEspectreRuntime`, snapshots, events, and capabilities |
 | **ESPHome frontend** | Production Home Assistant path kept on top of the shared platform |
-| **BLE frontend** | Standalone custom GATT surface for generic BLE clients and web integrations |
+| **Native frontend** | Standalone custom GATT surface for generic BLE clients and web integrations |
 | **ESPectre Protocol** | Shared BLE+MQTT Protocol baseline for provisioning, telemetry, status, info, commands, monitor integration, and reusable runtime protocol services |
 | **Matter frontend** | Matter occupancy and diagnostics surface proving a second ecosystem-facing frontend |
 | **Streamer frontend** | Standalone CSI UDP streamer for dataset collection, host tooling, and realtime fusion experiments |
@@ -63,20 +63,19 @@ paths.
 | **History** | Retained movement/status timeline with configurable privacy and retention policy |
 | **Alerting** | Motion-triggered notifications through email first, then Telegram and WhatsApp as integrations mature |
 | **Privacy boundary** | Derived telemetry only; no raw CSI, no unnecessary Wi-Fi identifiers, no sensitive device logs by default |
-| **Cross-frontend view** | Unified view across `ESPHome`, `Matter`, `BLE`, streamer-derived tooling, and custom firmware nodes where applicable |
+| **Cross-frontend view** | Unified view across `ESPHome`, `Matter`, `Native`, streamer-derived tooling, and custom firmware nodes where applicable |
 
 ### Implementation Checklist
 
 - [x] Define local-first shared protocol baseline for BLE and MQTT derived telemetry
 - [x] Implement BLE-assisted Wi-Fi and MQTT provisioning
-- [x] Persist Wi-Fi and ESPectre Protocol settings on the BLE firmware path
+- [x] Persist Wi-Fi and ESPectre Protocol settings on the native firmware path
 - [x] Move ESPectre Protocol helpers and ESP-IDF protocol services into shared runtime layers
 - [x] Reuse BLE-assisted Wi-Fi provisioning on the streamer firmware path
-- [x] Publish MQTT telemetry, status, info, stats, and command results from BLE firmware
+- [x] Publish MQTT telemetry, status, info, stats, and command results from native firmware
 - [x] Align `micro-espectre` MQTT payloads and commands with the ESPectre Protocol baseline
 - [x] Adapt the existing web monitor into a protocol validation and MQTT dashboard client
-- [ ] Define managed-cloud profile, per-device cloud credentials,
-  MQTT-over-TLS policy, and privacy boundary for device telemetry
+- [ ] Define managed-cloud profile, per-device cloud credentials, MQTT-over-TLS policy, and privacy boundary for device telemetry
 - [ ] Design tenant, home/location, room, and device ownership model
 - [ ] Implement social login and account management
 - [ ] Implement secure Web Bluetooth assisted device claim flow

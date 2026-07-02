@@ -138,7 +138,7 @@ Micro-ESPectre now uses the repository CLI root **`espectre`**. The micro workfl
 The repository CLI is now split by workflow:
 - `./espectre micro ...` for the MicroPython and host-side research loop documented here
 - `./espectre esphome ...` for local ESPHome firmware builds from the repo examples
-- `./espectre ble ...` for the standalone BLE ESP-IDF frontend
+- `./espectre native ...` for the standalone native ESP-IDF frontend
 - `./espectre matter ...` for the Matter ESP-IDF frontend
 - `./espectre streamer ...` for the CSI streamer ESP-IDF frontend
 
@@ -682,7 +682,7 @@ The CLI opens the selected local HTML file in your default browser.
 **Manual launch**:
 Open `../tools/web/espectre-mqtt.html` directly in your browser and configure the MQTT connection manually.
 
-For the BLE frontend web client, open `../tools/web/espectre-ble.html` directly or run `./espectre micro ui ble`.
+For the native frontend web client, open `../tools/web/espectre-ble.html` directly or run `./espectre micro ui ble`.
 
 For the theremin tool, open `../tools/web/espectre-theremin.html` directly or run `./espectre micro ui theremin`.
 

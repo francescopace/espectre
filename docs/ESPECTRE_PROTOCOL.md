@@ -82,7 +82,7 @@ espectre/v1/devices/{device_id}/telemetry
 {
   "protocol_version": "1.0",
   "device_id": "espectre-7c2c6742bbac",
-  "frontend": "ble",
+  "frontend": "native",
   "timestamp_ms": 123456,
   "motion_state": "idle",
   "movement_score": 0.18,
@@ -125,7 +125,7 @@ espectre/v1/devices/{device_id}/info
   "protocol_version": "1.0",
   "device_id": "espectre-7c2c6742bbac",
   "device_name": "Living Room",
-  "frontend": "ble",
+  "frontend": "native",
   "firmware_version": "unknown",
   "chip": "esp32c6",
   "network": {
@@ -231,7 +231,7 @@ Identity/config semantics for the current BLE control surface:
 
 - `device_id` is the firmware-generated protocol identity used by BLE sysinfo, MQTT topics, and MQTT payloads
 - `device_name` is the user-facing human-readable device name
-- the standalone BLE frontend exposes a separate pairing/display name
+- the standalone native frontend exposes a separate pairing/display name
   (`ble_device_name`) for nearby clients, derived from `device_name`
 - `CLEAR_MQTT_CONFIG` clears only broker-related MQTT settings and disables the
   active MQTT transport
@@ -240,7 +240,7 @@ Identity/config semantics for the current BLE control surface:
 
 ## Current BLE Telemetry Surface
 
-The standalone BLE frontend currently exposes two data paths:
+The standalone native frontend currently exposes two data paths:
 
 - a binary low-latency telemetry characteristic for interactive clients
 - a line-based `sysinfo` characteristic for configuration and diagnostics
@@ -249,7 +249,7 @@ Telemetry delivery is subscription-driven:
 
 - clients opt in by enabling notifications on the telemetry characteristic
 - clients may stop notifications when only provisioning or diagnostics are needed
-- when no client is subscribed, the standalone BLE frontend disables its live
+- when no client is subscribed, the standalone native frontend disables its live
   telemetry callback instead of continuing to generate BLE-only live telemetry
 - `sysinfo` and BLE control writes remain available even when live telemetry is
   not subscribed

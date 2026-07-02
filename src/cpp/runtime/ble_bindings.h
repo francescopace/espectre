@@ -1,7 +1,7 @@
 /*
  * ESPectre - BLE Bindings Interface
  *
- * Thin boundary between the BLE frontend adapter and the transport stack.
+ * Thin boundary between frontend adapters and the BLE transport stack.
  * Host-side tests provide a mock implementation.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>

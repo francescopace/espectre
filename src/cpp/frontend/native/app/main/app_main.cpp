@@ -1,5 +1,5 @@
 /*
- * ESPectre BLE firmware entrypoint.
+ * ESPectre native firmware entrypoint.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -14,19 +14,19 @@
 #include <nvs_flash.h>
 
 #include "ble_bindings_nimble.h"
-#include "ble_frontend.h"
+#include "native_frontend.h"
 #include "device_config_store.h"
 #include "mqtt_transport_esp_idf.h"
 #include "standalone_wifi_manager.h"
 #include "wifi_provisioning_service.h"
 
-static const char *TAG = "espectre.ble.app";
+static const char *TAG = "espectre.native.app";
 
 namespace {
 
 constexpr int kWifiConnectMaxRetry = 8;
 
-esphome::espectre::BleFrontend *g_frontend = nullptr;
+esphome::espectre::NativeFrontend *g_frontend = nullptr;
 esphome::espectre::StandaloneWifiManager g_wifi_manager;
 esphome::espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
 
@@ -34,7 +34,7 @@ void sync_frontend_wifi_info() {
   if (g_frontend == nullptr) {
     return;
   }
-  esphome::espectre::BleFrontend::WifiProvisioningInfo info;
+  esphome::espectre::NativeFrontend::WifiProvisioningInfo info;
   const esphome::espectre::StoredWifiConfig &wifi_config = g_wifi_provisioning.config();
   info.ssid = wifi_config.ssid;
   info.bssid = wifi_config.bssid;
@@ -44,7 +44,7 @@ void sync_frontend_wifi_info() {
   g_frontend->set_wifi_provisioning_info(info);
 
   esphome::espectre::EspectreDeviceInfo device_info;
-  device_info.frontend = "ble";
+  device_info.frontend = "native";
   device_info.firmware_version = "unknown";
   device_info.chip = CONFIG_IDF_TARGET;
 
@@ -181,7 +181,7 @@ extern "C" void app_main() {
 
   static esphome::espectre::NimbleBleBindings bindings;
   static esphome::espectre::EspIdfMqttTransport mqtt_transport;
-  static esphome::espectre::BleFrontend frontend(&bindings, &mqtt_transport);
+  static esphome::espectre::NativeFrontend frontend(&bindings, &mqtt_transport);
   frontend.set_runtime_config(make_runtime_config());
   frontend.set_device_config(make_device_config());
   g_frontend = &frontend;
@@ -189,13 +189,13 @@ extern "C" void app_main() {
   frontend.set_provisioning_command_callback(handle_wifi_provisioning_command);
   frontend.set_device_config_change_callback(handle_device_config_change);
 
-  ESP_LOGI(TAG, "ESPectre BLE smoke marker: transport configured, starting BLE frontend");
+  ESP_LOGI(TAG, "ESPectre native smoke marker: transport configured, starting native frontend");
   if (!frontend.setup()) {
-    ESP_LOGE(TAG, "Failed to initialize ESPectre BLE frontend");
+    ESP_LOGE(TAG, "Failed to initialize ESPectre native frontend");
     return;
   }
 
   ESP_ERROR_CHECK(g_wifi_manager.start());
-  xTaskCreate(espectre_loop_task, "espectre_ble_loop", 8192, nullptr, 5, nullptr);
-  ESP_LOGI(TAG, "ESPectre BLE firmware started");
+  xTaskCreate(espectre_loop_task, "espectre_native_loop", 8192, nullptr, 5, nullptr);
+  ESP_LOGI(TAG, "ESPectre native firmware started");
 }

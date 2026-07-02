@@ -150,7 +150,7 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="ESPectre CLI - repository orchestrator for micro, esphome, ble, matter, and streamer workflows",
+        description="ESPectre CLI - repository orchestrator for micro, esphome, native, matter, and streamer workflows",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -158,7 +158,7 @@ Examples:
   ./espectre micro deploy
   ./espectre micro
   ./espectre esphome build --chip c3 --dev
-  ./espectre ble build --chip c3
+  ./espectre native build --chip c3
   ./espectre matter build --chip c3
   ./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX
 """,
@@ -166,7 +166,7 @@ Examples:
     subparsers = parser.add_subparsers(dest="namespace", help="Available namespaces")
     _add_micro_namespace(subparsers)
     _add_esphome_namespace(subparsers)
-    _add_idf_namespace(subparsers, "ble")
+    _add_idf_namespace(subparsers, "native")
     _add_idf_namespace(subparsers, "matter")
     _add_idf_namespace(subparsers, "streamer")
     return parser

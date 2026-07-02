@@ -8,114 +8,47 @@ All notable changes to this project will be documented in this file.
 
 ### Highlights
 
-- **Internal architecture refactored**: the firmware codebase is now split into `core`, `runtime`, and `frontend` layers to separate reusable detection logic from ESP-IDF orchestration and ESPHome integration.
-- **ESPHome kept as the production frontend**: the existing ESPHome component model is preserved while the implementation now lives under the new `src/` layout.
-- **Foundation prepared for future frontends and runtimes**: the runtime contract is now explicit, making it possible to add a Matter frontend or alternate runtimes without cloning the motion pipeline.
-- **ESPHome packaging no longer depends on repository symlinks**: shared code is now wired from canonical `core` / `runtime` sources, making ESPHome builds more reliable on Windows and in checkout/archive workflows where symlinks may be lost.
-- **Matter firmware is now part of the published firmware surface**: CI, stable releases, snapshot releases, and the web flasher can all resolve Matter artifacts for all supported Matter targets except `ESP32-S2`.
-- **Custom BLE protocol moved into its own frontend**: the standalone GATT transport now lives in a dedicated BLE firmware instead of being embedded in the ESPHome adapter.
-- **ESPectre Protocol is now a shared runtime service**: BLE and MQTT message helpers, ESP-IDF provisioning storage, NimBLE bindings, and Wi-Fi provisioning command handling were moved out of the BLE frontend so other ESP-IDF firmware targets can reuse them.
-- **ML detector moved to relative gain-robust features**: the production binary model now uses an 8-feature relative turbulence-window input set with a wider `8 -> 32 -> 16 -> 1` MLP and `fp_weight=2.0`, reducing device/session gain sensitivity while recovering long-recording false-positive robustness.
+- **Native firmware is now a first-class frontend**: the standalone BLE/MQTT transport is no longer embedded in ESPHome and now ships as its own dedicated firmware target.
+- **Matter is now part of the published firmware surface**: releases, snapshots, CI, and the web flasher now include Matter artifacts for the supported targets.
+- **Streamer workflows were promoted and cleaned up**: the C++ streamer path is now the main live-streaming implementation, with collector-driven discovery and broader multi-chip CLI support.
+- **ESPectre Protocol is now a shared platform service**: BLE, MQTT, provisioning, telemetry, and command handling now form a reusable protocol baseline across ESP-IDF frontends.
+- **Firmware architecture is now modular**: the codebase is split into `core`, `runtime`, and `frontend` layers so native, Matter, streamer, and ESPHome can share the same sensing/runtime foundations.
+- **MVS calibration is now simpler and faster**: the active runtime path no longer depends on NBVI calibration buffers and startup calibration is now used only to tune the adaptive threshold.
+- **The ML detector was refreshed for better cross-device stability**: the promoted model now uses relative, gain-robust features to reduce sensitivity to session and hardware variance.
+- **The project roadmap was updated around the new platform direction**: `v3` is now framed as the modular multi-frontend foundation, while `v4` targets an optional multi-device orchestration layer.
 
 ### Added
 
-- **New product-first source layout**:
-  - `src/cpp/core/` for detectors, filters, thresholds, math, and shared domain logic
-  - `src/cpp/runtime/` for CSI, Wi-Fi, calibration, gain lock, and traffic orchestration
-  - `src/cpp/frontend/esphome/espectre/` for the ESPHome adapter and external component root
-  - `src/cpp/frontend/ble/espectre/` for the standalone BLE adapter and firmware app
-  - `src/cpp/frontend/matter/espectre/` for the Matter adapter and esp-matter firmware app
-- **Matter frontend scaffold using managed `espressif/esp_matter`**:
-  - `MatterFrontend` adapter over `IEspectreRuntime`
-  - occupancy endpoint plus ESPectre vendor cluster for diagnostics and runtime controls
-  - ESP-IDF firmware app under `src/cpp/frontend/matter/app/` with `main/idf_component.yml`
-  - host-side tests in `test_matter_frontend`
-  - verified `esp32c3` build/flash path using ESP-IDF managed toolchains and component registry dependencies
-- **Published firmware manifests for the web flasher**:
-  - stable manifest attached to official GitHub releases
-  - main/snapshot manifest attached to the rolling `snapshot` release
-  - browser-side frontend/channel/chip selection on `espectre.dev/flash/`
-- **Runtime/core logging decoupled from ESPHome headers** via `espectre_log.h`, so non-ESPHome frontends can reuse the same runtime sources.
-- **Frontend-oriented runtime contract** with:
-  - `IEspectreRuntime`
-  - `RuntimeSnapshot`
-  - runtime events/listener callbacks
-  - runtime capability reporting
-- **Shared frontend/runtime infrastructure** with:
-  - `RuntimeFrontendController` for common runtime setup, loop, shutdown, events, snapshots, and controls
-  - `runtime_config_utils.*` for shared threshold validation and stable mode names
-  - `runtime_diagnostics.*` for common frontend diagnostic fields
-  - `StandaloneWifiManager` for standalone ESP-IDF STA setup, CSI Wi-Fi policy, BSSID/channel fast scan, and retry handling
-- **Shared ESP-IDF protocol services** with:
-  - `runtime/espectre_protocol.*` for protocol topic, payload, and command helpers
-  - `runtime/ble_protocol.h` and `runtime/ble_bindings.h` for the shared BLE GATT surface boundary
-  - `runtime/esp_idf/protocol/ble_bindings_nimble.*` for the reusable NimBLE transport
-  - `runtime/esp_idf/protocol/device_config_store.*` for NVS-backed Wi-Fi/device protocol settings
-  - `runtime/esp_idf/protocol/wifi_provisioning_service.*` for shared `SET_WIFI_*`, `APPLY_WIFI`, and `CLEAR_WIFI` handling
-- **Matter firmware configuration regression tests** now assert the commissioning
-  window, BLE rendezvous, occupancy device identity, and pre-commissioning Wi-Fi
-  behavior expected by the standalone Matter app.
-- **BLE-assisted Wi-Fi provisioning for the streamer firmware**:
-  - streamer advertises as `ESPectre Streamer`
-  - `tools/web/espectre-ble.html` can provision streamer Wi-Fi credentials over Web Bluetooth
-  - streamer BLE support is intentionally limited to Wi-Fi provisioning and sysinfo, leaving CSI transport on UDP
-- **`ARCHITECTURE.md`** documenting the new structure, rationale, and standalone core reuse model.
+- **New source layout under `src/cpp/`**:
+  - `core/` for shared detection and domain logic
+  - `runtime/` for CSI, Wi-Fi, calibration, and protocol orchestration
+  - `frontend/esphome/`, `frontend/native/`, and `frontend/matter/` for integration-specific firmware surfaces
+- **Shared runtime/frontend infrastructure**:
+  - explicit runtime contracts (`IEspectreRuntime`, snapshots, events, capabilities)
+  - common frontend orchestration and standalone Wi-Fi management
+  - reusable ESP-IDF protocol services for BLE, MQTT, provisioning, and device config
+- **Matter frontend and release surface**:
+  - standalone Matter firmware based on managed `esp_matter`
+  - published firmware artifacts/manifests for releases, snapshots, and the web flasher
+  - regression coverage for commissioning-related behavior
+- **BLE-assisted Wi-Fi provisioning for the streamer firmware** via `tools/web/espectre-ble.html`
+- **Updated architecture documentation** in `docs/ARCHITECTURE.md`
 
 ### Changed
 
-- **Web monitor file renamed for clearer transport scope**: `tools/web/espectre-monitor.html` is now `tools/web/espectre-mqtt.html`, and the CLI/docs references were updated to use the MQTT-specific name.
-- **Production ML detector now uses relative turbulence features**: the binary `MLDetector` export moved from raw 9-feature inputs to 8 relative features (`std/mean`, envelope/mean, robust spread/mean, normalized waveform length, skewness, autocorrelation). The promoted export uses seed `1890407301`, topology `8 -> 32 -> 16 -> 1`, and `fp_weight=2.0`; the C++ extractor follows the exported model input size and keeps a legacy raw-9 path for older generated weights.
-- **ML gain-shift diagnostics were added to the training workflow**: `tools/10_train_ml_model.py` can now run `--gain-stress-gate` against exported artifacts and `--gain-feature-experiment` to compare raw, relative, hybrid, and exploratory gain-robust feature sets before promotion.
-- **Streamer CLI now exposes the full multi-chip build matrix**: `./espectre streamer build|flash|monitor` accepts `esp32`, `c3`, `c5`, `c6`, and `s3`, matching the streamer frontend's runtime chip detection and making the repository CLI consistent with the supported ESP-IDF targets.
-- **Streamer collection flow is now collector-driven**: the standalone streamer no longer depends on a built-in traffic generator or a static `COLLECTOR_IP`; it learns the collector from external UDP stimulus, while the host collector now emits `ESTM` packets with collector-controlled `stimulus_id` / `reference` policy for ML dataset capture.
-- **CSI live streaming unified around the C++ streamer frontend**: the host collector now targets the versioned ESP-IDF streamer protocol, the legacy MicroPython UDP producer has been removed, and existing `.npz` datasets remain readable while newly collected samples gain optional device/stream metadata for realtime fusion workflows.
-- **Streamer protocol simplified for ML and realtime fusion**: FTM telemetry was removed, `stimulus_id` is now optional instead of gating packet emission, and the packet header now carries a stable `gain_locked` flag plus device-side timing metadata without changing the compact HT20 CSI payload layout.
-- **Dataset labels were canonicalized for room-state sensing**: training and analysis datasets now use `empty`, `static_presence`, and `motion`; historical `baseline` captures were migrated to `static_presence`, dataset files were renamed on disk, and the tooling/tests/docs were updated to consume the new metadata and paths consistently.
-- **Empty-room datasets are now part of the validated room-state workflow**: imported `empty` captures were added to the canonical dataset metadata, `11_validate_dataset_quality.py` now checks `empty` files during integrity/quality validation, and a dedicated `EMPTY SANITY` phase reports whether `empty` separates cleanly from overlapping `static_presence` groups.
-- **ESP32-C3 streamer transport was tuned for high-rate collection**: the standalone streamer now uses a larger queued UDP sender, bounded datagram batching, and more aggressive Wi-Fi/lwIP buffer defaults on C3-oriented builds, with the streamer README documenting the practical Wi-Fi setup flow and observed collector-driven transport benchmarks.
-- **NBVI removed from the active runtime path**: MVS now uses the same fixed 12-subcarrier set as ML, startup calibration computes only the adaptive threshold in RAM, and no disk-backed calibration buffer is required anymore.
-- **Subcarrier selection fully centralized and fixed across the repo**: C++ runtime, Micro-ESPectre, tests, and analysis/training tools now all use the same shared default set `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`; runtime/config override paths were removed and related docs/tooling were simplified accordingly.
-- **SPIFFS removed from active firmware layouts**: ESPHome now relies on the default board partition table, while Matter keeps a custom layout without SPIFFS so more flash can be allocated to OTA app slots and the runtime matches the new in-RAM startup flow.
-- **Matter ESP32-C5 build flow simplified**: `idf.py set-target esp32c5` now uses the same standard path as the other published Matter targets; the repository and CI no longer need a special `--preview` branch for ESP-IDF 5.5.
-- **Matter CI now includes QEMU boot smoke coverage for `ESP32`, `ESP32-S3`, and `ESP32-C3`**: the shared QEMU action can now consume either ESPHome builds or prebuilt Matter merged images, so the emulatable Matter targets get crash/boot regression coverage in addition to plain artifact builds.
-- **Matter QEMU smoke uses a CI-only no-BLE overlay**: the QEMU path now disables CHIPoBLE via a dedicated sdkconfig overlay instead of changing the production firmware path, allowing emulated boot smoke without relaxing the normal BLE-based commissioning configuration for real devices.
-- **Matter QEMU smoke now requires a pre-WiFi application marker**: the shared QEMU action can enforce an expected runtime log, and the Matter CI path now waits for `ESPectre Matter smoke marker: endpoint ... configured, starting Matter stack` while filtering the known QEMU Wi-Fi PHY assert, instead of treating a bootloader-only path as success.
-- **`ESpectreComponent` is now a thin frontend adapter**: setup/orchestration responsibilities were moved behind the runtime facade.
-- **ESPHome is now HA-focused again**: the `ble_channel_*` options and the custom game transport were removed from the ESPHome frontend and examples.
-- **ESPHome local development path now uses `src/cpp/frontend/esphome`** as the external-components root.
-- **Native tests and CI build plumbing were updated** to follow the new `src/` layout.
-- **Repository CLI `./me` renamed to `./espectre`**: the repo now exposes explicit `micro`, `esphome`, `ble`, `matter`, and `streamer` namespaces instead of a single monolithic entrypoint.
-- **Repository CLI web launcher now covers BLE and theremin tools**: `./espectre micro ui` still opens the MQTT monitor by default, while `./espectre micro ui ble` opens `tools/web/espectre-ble.html` for BLE provisioning/telemetry workflows and `./espectre micro ui theremin` opens `tools/web/espectre-theremin.html` for CSI sonification.
-- **Host-side C++ tests now use a layered `CMake + CTest` suite under `test/`**: PlatformIO-specific scaffolding was removed, suites were regrouped by `core` / `runtime` / `integration` / `frontend`, shared support code was consolidated, and coverage reporting now includes per-layer breakdowns.
-- **Matter firmware startup ordering was hardened** so the shared runtime initializes after `esp_matter::start()`, allowing the Matter stack to bring up Wi-Fi before CSI-specific runtime configuration runs.
-- **Matter commissioning behavior was hardened for stricter controllers**:
-  the app now advertises all supported commissioning transports including BLE,
-  declares occupancy sensor commissionable device identity, leaves normal Wi-Fi
-  aggregation enabled during commissioning, and defers CSI Wi-Fi policy until
-  commissioning completes.
-- **Frontend runtime orchestration was deduplicated**: ESPHome, BLE, and Matter now use the shared runtime frontend controller, while streamer and BLE standalone Wi-Fi setup use the shared standalone Wi-Fi manager. Matter keeps `esp-matter` Wi-Fi ownership and defers CSI services until commissioning is complete.
-- **Standalone Wi-Fi CSI setup was aligned across ESP-IDF frontends**: the tested HT20/2.4 GHz CSI policy, BSSID/channel fast-scan options, retry behavior, and power-save mode now live in shared runtime code instead of being reimplemented per frontend.
-- **BLE live telemetry now carries motion state directly**: the standalone BLE telemetry payload keeps the original `movement` + `threshold` first 8 bytes for legacy clients and appends an optional trailing `motion_state` byte (`0 = idle`, `1 = motion`), while `sysinfo` no longer mirrors motion state changes as a separate text field.
-- **BLE MQTT stats now expose only system diagnostics**: the standalone BLE frontend `stats` payload now stays focused on runtime diagnostics such as `uptime`, `free_memory_kb`, and `loop_time_ms`, while motion state, movement, threshold, detector choice, turbulence, and gain lock remain on telemetry/info surfaces. The MQTT web monitor popup was simplified accordingly.
-- **Micro-ESPectre and the MQTT monitor now follow the same protocol contract**: `micro-espectre` command results now use protocol-style `message` payloads with `device_id` and `accepted`, telemetry reports the effective `gain_locked` runtime state, `stats` now uses numeric `uptime`, and `tools/web/espectre-mqtt.html` distinguishes telemetry from stats while surfacing accepted vs rejected command responses correctly.
-- **BLE live telemetry is now subscription-driven end-to-end**: nearby clients must explicitly subscribe to the telemetry characteristic, and the standalone BLE frontend now deregisters its live telemetry callback when that subscription is removed instead of continuing to generate BLE-only live telemetry work in the background.
-- **BLE device identity is now centralized and documented consistently**: the standalone BLE frontend now treats `device_id` / `device_name` as device-level identity rather than MQTT-only fields, auto-generates a read-only `device_id`, derives `ble_device_name` from `device_name`, and separates `CLEAR_MQTT_CONFIG` from full `CLEAR_DEVICE_CONFIG` resets.
-- **ESPectre Protocol payloads are no longer BLE-hardcoded**: shared telemetry serialization now takes the frontend label from the caller, allowing the same protocol helpers to represent `ble`, `streamer`, `micro`, and future runtime/frontend surfaces without cloning the serializer.
-- **Standalone Wi-Fi lifecycle callback dispatch was tightened**: `StandaloneWifiManager` now avoids double-dispatching connect/disconnect callbacks when it owns CSI lifecycle setup through `WiFiLifecycleManager`.
-- **Periodic sensing status logs are now shared across frontends**: the progress-bar periodic sensing log now comes from a shared runtime helper used by `ESPHome`, `BLE`, and `Matter`, keeping the same `mvmt`, `thr`, state, `pkt/s`, channel, and RSSI format across those frontend surfaces.
-- **BLE standalone transport defaults were tuned for mixed BLE + Wi-Fi traffic**: the BLE firmware now mirrors the streamer-oriented Wi-Fi/lwIP buffer profile for heavier runtime traffic, including larger Wi-Fi RX/TX buffers plus lwIP mailbox and IRAM optimization defaults in `app/sdkconfig.defaults`.
-- **Documentation was aligned** to the new structure, `.venv` activation flow, and the practical ESP32-C3 Matter build/flash workflow.
-- **ESPHome build metadata now points directly at shared sources** instead of relying on symlinked files inside the component directory.
-- **Project narrative was realigned around the new platform direction**:
-  - `README.md` now presents ESPectre as a modular Wi-Fi sensing platform, not only as a single ESPHome motion sensor
-  - `ROADMAP.md` now promotes `v3` as the `core` / `runtime` / `frontend` platform phase with `Matter`, `v4` as a local web/orchestration layer, and keeps 3D localization as a stage-gated research track
-  - `ARCHITECTURE.md` now explicitly connects the source split to multi-frontend firmware targets and future multi-device orchestration
+- **ESPHome, native, and Matter now share the same runtime foundations**: frontend setup, diagnostics, status reporting, and standalone Wi-Fi policy were consolidated to reduce duplication and keep behavior aligned.
+- **ESPectre Protocol was extracted from the native frontend into shared runtime code** so multiple ESP-IDF frontends can reuse the same telemetry, command, BLE, and provisioning helpers.
+- **Native firmware was simplified into a dedicated standalone frontend**: BLE telemetry, MQTT diagnostics, device identity, and subscription behavior were cleaned up around the shared protocol contract.
+- **Streamer workflows were modernized**: multi-chip CLI support was expanded, collection is now collector-driven, the C++ streamer protocol became the primary live-streaming path, and ESP32-C3 transport defaults were tuned for high-rate capture.
+- **Dataset and sensing defaults were normalized across the project**: room-state labels were simplified, empty-room validation became part of the standard workflow, the active runtime path now uses one fixed shared subcarrier set, and MVS startup calibration was reduced to adaptive-threshold tuning only.
+- **Matter build and CI flows were hardened**: published targets use the standard ESP-IDF path, commissioning behavior is stricter, and QEMU smoke tests now validate real application startup markers.
+- **Repository tooling and docs were aligned with the new platform direction**: `./me` became `./espectre`, the MQTT monitor was renamed from `espectre-monitor.html` to `espectre-mqtt.html`, ESPHome packaging no longer relies on symlinks, and the main docs were rewritten around the modular multi-frontend architecture.
+- **The roadmap was realigned around the platform split**: `v3` now defines the reusable local platform phase, while `v4` is positioned as an optional privacy-first orchestration layer across multiple ESPectre nodes.
 
 ### Notes
 
-- This release includes both the architectural/frontend split and an ML detector feature-set refresh. MVS behavior remains unchanged.
-- The small `core` / `runtime` edits included for the Matter frontend are enabling changes only (mainly removing residual ESPHome-only logging dependencies), while the intentional shared motion-detection behavior change is the promoted ML relative-feature export.
-- The `core` layer is now reusable as a clean standalone building block for future SDK-style embedding, even though no separately packaged public SDK exists yet.
+- This release mainly reorganizes the platform around reusable runtime/frontend boundaries while keeping ESPHome as the default production path.
+- The main intentional sensing change is the promoted ML relative-feature model; MVS behavior remains effectively unchanged.
 
 ---
 

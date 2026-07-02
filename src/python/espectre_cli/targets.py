@@ -34,8 +34,8 @@ ESPHOME_CONFIGS = {
 }
 
 IDF_FRONTENDS = {
-    "ble": {
-        "app_dir": REPO_ROOT / "src" / "cpp" / "frontend" / "ble" / "app",
+    "native": {
+        "app_dir": REPO_ROOT / "src" / "cpp" / "frontend" / "native" / "app",
         "targets": {
             "esp32": "esp32",
             "c3": "esp32c3",

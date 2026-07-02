@@ -156,7 +156,7 @@ def test_resolve_target_helpers_reject_invalid_inputs() -> None:
         targets.resolve_esphome_config("bad-chip", False, None)
 
     with pytest.raises(ValueError):
-        targets.resolve_idf_target("ble", "bad-chip")
+        targets.resolve_idf_target("native", "bad-chip")
 
 
 def test_resolve_idf_target_returns_app_dir_and_target() -> None:
@@ -220,7 +220,7 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
 
-    idf.run_idf_command("ble", argparse.Namespace(chip="c3", idf_command="build", port=None))
+    idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None))
 
     assert calls == [
         (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
@@ -280,7 +280,7 @@ def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, t
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (_ for _ in ()).throw(ValueError("bad target")))
 
     with pytest.raises(SystemExit):
-        idf.run_idf_command("ble", argparse.Namespace(chip="bad", idf_command="build", port=None))
+        idf.run_idf_command("native", argparse.Namespace(chip="bad", idf_command="build", port=None))
 
     app_dir = tmp_path / "app"
     app_dir.mkdir()
@@ -291,14 +291,14 @@ def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, t
 
     monkeypatch.setattr(idf.subprocess, "run", _raise_not_found)
     with pytest.raises(SystemExit):
-        idf.run_idf_command("ble", argparse.Namespace(chip="c3", idf_command="build", port=None))
+        idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None))
 
     def _raise_called(_cmd, cwd, check):
         raise subprocess.CalledProcessError(9, ["idf.py"])
 
     monkeypatch.setattr(idf.subprocess, "run", _raise_called)
     with pytest.raises(SystemExit) as exc:
-        idf.run_idf_command("ble", argparse.Namespace(chip="c3", idf_command="build", port=None))
+        idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None))
 
     assert exc.value.code == 9
 

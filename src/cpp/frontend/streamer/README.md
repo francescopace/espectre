@@ -356,7 +356,7 @@ The streamer README should not become a second copy of:
 - [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md):
   shared architecture and frontend boundaries
 - [`../ble/README.md`](../ble/README.md):
-  standalone BLE frontend
+  standalone native frontend
 - [`../matter/README.md`](../matter/README.md):
   Matter frontend
 - [`../esphome/README.md`](../esphome/README.md):

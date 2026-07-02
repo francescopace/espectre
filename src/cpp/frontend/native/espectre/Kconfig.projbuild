@@ -1,4 +1,4 @@
-menu "ESPectre BLE Frontend"
+menu "ESPectre Native Frontend"
 
     config ESPECTRE_WIFI_SSID
         string "Wi-Fi SSID"

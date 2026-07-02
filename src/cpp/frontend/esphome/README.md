@@ -27,7 +27,7 @@ For those topics, use:
 
 - [`../../../../docs/ALGORITHMS.md`](../../../../docs/ALGORITHMS.md)
 - [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md)
-- [`../ble/README.md`](../ble/README.md)
+- [`../native/README.md`](../native/README.md)
 - [`../matter/README.md`](../matter/README.md)
 
 ## Directory Layout
@@ -454,7 +454,7 @@ experience.
   `core` / `runtime` / `frontend` boundaries
 - [`../../../../docs/ALGORITHMS.md`](../../../../docs/ALGORITHMS.md):
   detector and signal-processing theory
-- [`../ble/README.md`](../ble/README.md):
-  standalone BLE frontend
+- [`../native/README.md`](../native/README.md):
+  standalone native frontend
 - [`../matter/README.md`](../matter/README.md):
   Matter frontend
