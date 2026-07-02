@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from .common import Path, REPO_ROOT, WEB_UI_FILE, Fore, Style, signal, time, webbrowser
+from .common import Path, REPO_ROOT, WEB_UI_FILE, Fore, Style, cli_command, signal, time, webbrowser
 
 
 _WEB_UI_FILES = {
@@ -71,7 +71,7 @@ def collect_csi_data(args) -> None:
             print()
             print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
             print("    1. Run the streamer firmware on the device")
-            print("    2. Collect samples: ./espectre micro collect --label wave --samples 10 --streamer-ip 192.168.1.50")
+            print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--samples', '10', '--streamer-ip', '192.168.1.50')}")
         else:
             print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10}{Style.RESET_ALL}")
             print(f"  {'-' * 32}")
@@ -85,9 +85,9 @@ def collect_csi_data(args) -> None:
     if not args.label:
         print(f"{Fore.RED}❌ Label required. Use --label <name>{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Examples:{Style.RESET_ALL}")
-        print("  ./espectre micro collect --label wave --samples 10 --streamer-ip 192.168.1.50")
-        print("  ./espectre micro collect --label static_presence --duration 10 --streamer-ip 192.168.1.50")
-        print("  ./espectre micro collect --info")
+        print(f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--streamer-ip', '192.168.1.50')}")
+        print(f"  {cli_command('collect', '--label', 'static_presence', '--duration', '10', '--streamer-ip', '192.168.1.50')}")
+        print(f"  {cli_command('collect', '--info')}")
         raise SystemExit(1)
 
     if not args.streamer_ip:

@@ -248,3 +248,21 @@ def build_mqtt_namespace(args: argparse.Namespace) -> argparse.Namespace:
         username=args.username,
         password=args.password,
     )
+
+
+def cli_command(*args: str) -> str:
+    """Return a copy/pasteable repository CLI command for the current host."""
+    prefix = r".\espectre.cmd" if os.name == "nt" else "./espectre"
+    return " ".join([prefix, *args])
+
+
+def copy_config_command() -> str:
+    """Return a platform-appropriate command to create config_local.py."""
+    if os.name == "nt":
+        return r"copy src\python\config_local.py.example src\python\config_local.py"
+    return "cp src/python/config_local.py.example src/python/config_local.py"
+
+
+def serial_port_example() -> str:
+    """Return a serial-port example for the current host."""
+    return "COM5" if os.name == "nt" else "/dev/cu.usbmodemXXXX"

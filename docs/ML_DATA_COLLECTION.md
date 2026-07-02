@@ -46,6 +46,10 @@ cd .
 source ../.venv/bin/activate  # Your prompt should show (.venv)
 ```
 
+On Windows PowerShell, activate the repository environment with
+`..\.venv\Scripts\Activate.ps1`, then replace `./espectre` examples with
+`.\espectre.cmd` and use COM ports such as `COM5`.
+
 ### 2. Flash and Deploy (First Time Only)
 
 If you haven't already flashed the firmware:
@@ -62,8 +66,9 @@ drives the UDP stimulus and the streamer learns the collector IP from incoming
 stimulus packets (default CSI UDP port: `5001`):
 
 ```bash
-./espectre streamer flash --chip <chip> --port <serial_port>
-./espectre streamer monitor --chip <chip> --port <serial_port>
+./espectre streamer build --chip <chip>
+./espectre streamer flash --port <serial_port>
+./espectre monitor --port <serial_port>
 ```
 
 The streamer frontend README is the source of truth for the firmware surface,
@@ -89,23 +94,23 @@ If you want to validate runtime ML behavior before recording data, run live
 host-side inference from the UDP CSI stream:
 
 ```bash
-./espectre micro detect --streamer-ip 192.168.1.50 --log-turbulence
+./espectre detect --streamer-ip 192.168.1.50 --log-turbulence
 ```
 
-`espectre micro detect` reads threshold, the fixed production subcarrier set,
+`espectre detect` reads threshold, the fixed production subcarrier set,
 Hampel, low-pass, and hit filtering from `src/python/config.py` and
 `src/python/config_local.py`, just like the rest of micro-ESPectre. Use
 `--streamer-ip <device_ip>` to point at the firmware device and `--bind-ip
 <local_ip>` only when auto-detection picks the wrong host interface.
 
 Live detection can also save the raw CSI packets it is inspecting. This uses
-the same dataset format as `micro collect`; no derived ML scores, feature
+the same dataset format as `collect`; no derived ML scores, feature
 vectors, or states are stored because they can be reconstructed offline from
 the raw CSI and the exported model.
 
 ```bash
 # Mixed idle/motion/idle smoke-test capture: store under data/test/
-./espectre micro detect \
+./espectre detect \
   --streamer-ip 192.168.1.50 \
   --log-features \
   --capture-label test \
@@ -113,7 +118,7 @@ the raw CSI and the exported model.
   --description "live detect ML, idle-motion-idle"
 
 # Homogeneous hard-negative capture: store under data/empty/
-./espectre micro detect \
+./espectre detect \
   --streamer-ip 192.168.1.50 \
   --capture-label empty \
   --capture-duration 60 \
@@ -126,51 +131,51 @@ the whole capture is label-homogeneous.
 
 ---
 
-## Data Collection with `espectre micro collect`
+## Data Collection with `espectre collect`
 
-The `espectre micro collect` subcommand provides a streamlined workflow for recording labeled CSI samples.
+The `espectre collect` subcommand provides a streamlined workflow for recording labeled CSI samples.
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `./espectre micro collect --label <name> --duration <sec> --streamer-ip <device_ip>` | Record for specified duration |
-| `./espectre micro collect --label <name> --samples <n> --streamer-ip <device_ip>` | Record n samples or timed collections |
-| `./espectre micro collect --label <name> --count <n> --streamer-ip <device_ip>` | Alias for `--samples`, useful for repeated timed collections |
-| `./espectre micro collect --label <name> --start-delay <sec> --streamer-ip <device_ip>` | Wait before starting collection |
-| `./espectre micro collect --label <name> --streamer-ip <device_ip> --reference-every <N>` | Mark every `N`th stimulus packet as a reference frame |
-| `./espectre micro collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
-| `./espectre micro collect --label <name> --description "text"` | Add description to sample |
-| `./espectre micro collect --info` | Show dataset statistics |
+| `./espectre collect --label <name> --duration <sec> --streamer-ip <device_ip>` | Record for specified duration |
+| `./espectre collect --label <name> --samples <n> --streamer-ip <device_ip>` | Record n samples or timed collections |
+| `./espectre collect --label <name> --count <n> --streamer-ip <device_ip>` | Alias for `--samples`, useful for repeated timed collections |
+| `./espectre collect --label <name> --start-delay <sec> --streamer-ip <device_ip>` | Wait before starting collection |
+| `./espectre collect --label <name> --streamer-ip <device_ip> --reference-every <N>` | Mark every `N`th stimulus packet as a reference frame |
+| `./espectre collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
+| `./espectre collect --label <name> --description "text"` | Add description to sample |
+| `./espectre collect --info` | Show dataset statistics |
 
 Gain lock status is **automatically detected** from the CSI stream and saved in `dataset_info.json`.
 
-`micro detect --capture-label <name>` is a convenience path for live detector
+`detect --capture-label <name>` is a convenience path for live detector
 smoke tests: it records the same raw CSI schema while printing ML output.
-Prefer `micro collect` for ordinary scripted dataset collection and its
+Prefer `collect` for ordinary scripted dataset collection and its
 pre-recording stable-scene gate.
 
 ### Recording Samples
 
 ```bash
 # Record 60 seconds of static presence (contributor auto-detected from git config)
-./espectre micro collect --label static_presence --duration 60 --streamer-ip 192.168.1.50
+./espectre collect --label static_presence --duration 60 --streamer-ip 192.168.1.50
 
 # Record 30 seconds of motion
-./espectre micro collect --label motion --duration 30 --streamer-ip 192.168.1.50
+./espectre collect --label motion --duration 30 --streamer-ip 192.168.1.50
 
 # Record with explicit contributor override
-./espectre micro collect --label gesture --samples 10 --interactive --streamer-ip 192.168.1.50 --contributor otheruser
+./espectre collect --label gesture --samples 10 --interactive --streamer-ip 192.168.1.50 --contributor otheruser
 
 # Mark every 20th stimulus packet as a reference frame
-./espectre micro collect --label static_presence --duration 30 --streamer-ip 192.168.1.50 --reference-every 20
+./espectre collect --label static_presence --duration 30 --streamer-ip 192.168.1.50 --reference-every 20
 
 # Wait 15 seconds, then record 3 timed collections
-./espectre micro collect --label static_presence --duration 10 --count 3 --start-delay 15 --streamer-ip 192.168.1.50
+./espectre collect --label static_presence --duration 10 --count 3 --start-delay 15 --streamer-ip 192.168.1.50
 
 # Gain lock status is auto-detected from the CSI stream
 # No need to specify --no-gain-lock, it's automatic!
-./espectre micro collect --label static_presence --duration 10 --streamer-ip 192.168.1.50
+./espectre collect --label static_presence --duration 10 --streamer-ip 192.168.1.50
 ```
 
 ### Reference Frames
@@ -179,7 +184,7 @@ The host collector can optionally mark some stimulus packets as reference
 frames with:
 
 ```bash
-./espectre micro collect --label static_presence --streamer-ip 192.168.1.50 --reference-every 20
+./espectre collect --label static_presence --streamer-ip 192.168.1.50 --reference-every 20
 ```
 
 Semantics:
@@ -214,7 +219,7 @@ For room-state datasets, this means:
 ### Viewing Dataset
 
 ```bash
-./espectre micro collect --info
+./espectre collect --info
 ```
 
 Output:
@@ -471,9 +476,9 @@ gesture1      # non-descriptive
 ### Session Workflow
 
 1. **Prepare environment**: Ensure room is quiet for `static_presence`
-2. **Record static presence first**: `./espectre micro collect --label static_presence --duration 60 --streamer-ip <device_ip>`
-3. **Record motion**: `./espectre micro collect --label motion --duration 60 --streamer-ip <device_ip>`
-4. **Verify dataset**: `./espectre micro collect --info`
+2. **Record static presence first**: `./espectre collect --label static_presence --duration 60 --streamer-ip <device_ip>`
+3. **Record motion**: `./espectre collect --label motion --duration 60 --streamer-ip <device_ip>`
+4. **Verify dataset**: `./espectre collect --info`
 5. **Backup data**: Copy `data/` to safe location
 
 Note: Contributor is auto-detected from `git config user.name`. Use `--contributor` to override.

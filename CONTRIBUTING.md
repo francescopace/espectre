@@ -109,6 +109,10 @@ pytest test/python -v --cov=src/python --cov-report=term-missing
 python .github/scripts/build_docs.py
 ```
 
+The coverage helper is a Bash script used on macOS/Linux and CI. On Windows,
+run the CMake/CTest commands above for the host-side C++ suite, or use WSL/Git
+Bash if you specifically need the coverage script.
+
 ---
 
 ## Code Contributions
@@ -376,4 +380,3 @@ This certifies that you have the right to submit the contribution under the
 project license.
 
 See [LICENSE](LICENSE) for details.
-

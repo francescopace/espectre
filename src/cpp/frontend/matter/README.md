@@ -91,13 +91,15 @@ Repository CLI:
 
 ```bash
 ./espectre matter build --chip c3
-./espectre matter flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre matter monitor --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre matter flash --port /dev/cu.usbmodemXXXX
+./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
 Notes:
 
-- `./espectre` still requires the repository Python dependencies from
+- On Windows, use `.\espectre.cmd matter ...` for build/flash and
+  `.\espectre.cmd monitor --port COM5` for serial logs.
+- `./espectre` / `.\espectre.cmd` still requires the repository Python dependencies from
   `requirements.txt`
 - `idf.py` must already be available in the shell through the ESP-IDF export
   script

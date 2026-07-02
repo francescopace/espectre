@@ -10,7 +10,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from espectre_cli import app, common, esphome, idf, mqtt_shell, targets
+from espectre_cli import app, common, esphome, idf, mqtt_shell, serial_monitor, targets
 
 
 def _mqtt_args() -> argparse.Namespace:
@@ -33,6 +33,18 @@ def test_build_mqtt_namespace_maps_cli_fields() -> None:
     assert namespace.device_id == "test-node"
     assert namespace.username == "user"
     assert namespace.password == "pass"
+
+
+def test_cli_command_uses_platform_launcher(monkeypatch) -> None:
+    monkeypatch.setattr(common.os, "name", "posix", raising=False)
+    assert common.cli_command("micro", "deploy") == "./espectre micro deploy"
+    assert common.copy_config_command() == "cp src/python/config_local.py.example src/python/config_local.py"
+    assert common.serial_port_example() == "/dev/cu.usbmodemXXXX"
+
+    monkeypatch.setattr(common.os, "name", "nt", raising=False)
+    assert common.cli_command("micro", "deploy") == r".\espectre.cmd micro deploy"
+    assert common.copy_config_command() == r"copy src\python\config_local.py.example src\python\config_local.py"
+    assert common.serial_port_example() == "COM5"
 
 
 def test_add_mqtt_connection_args_uses_environment_defaults(monkeypatch) -> None:
@@ -228,52 +240,48 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
     ]
 
 
-def test_run_idf_command_flash_and_monitor_resolve_port(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_flash_resolves_port(monkeypatch, tmp_path: Path) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     calls: list[list[str]] = []
 
-    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
     monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
 
-    idf.run_idf_command("matter", argparse.Namespace(chip="c3", idf_command="flash", port=None))
-    idf.run_idf_command("matter", argparse.Namespace(chip="c3", idf_command="monitor", port="/dev/cu.manual", print_filter=None))
+    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
 
-    assert calls == [
-        ["idf.py", "-p", "/dev/cu.auto", "flash"],
-        ["idf.py", "-p", "/dev/cu.manual", "monitor", f"--print-filter={idf.DEFAULT_MATTER_MONITOR_PRINT_FILTER}"],
-    ]
+    assert calls == [["idf.py", "-p", "/dev/cu.auto", "flash"]]
 
 
-def test_run_idf_command_monitor_accepts_explicit_print_filter(monkeypatch, tmp_path: Path) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
+def test_run_serial_monitor_uses_miniterm(monkeypatch) -> None:
     calls: list[list[str]] = []
 
-    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
-    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
-    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
+    monkeypatch.setattr(serial_monitor, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(serial_monitor.subprocess, "run", lambda cmd, check: calls.append(cmd))
+    monkeypatch.setattr(serial_monitor.sys, "executable", "/venv/bin/python")
 
-    idf.run_idf_command(
-        "matter",
-        argparse.Namespace(
-            chip="c3",
-            idf_command="monitor",
-            port=None,
-            print_filter="*:E espectre.matter:I",
-        ),
-    )
+    serial_monitor.run_serial_monitor(argparse.Namespace(port=None, baud=74880, raw=True))
 
-    assert calls == [["idf.py", "-p", "/dev/cu.auto", "monitor", "--print-filter=*:E espectre.matter:I"]]
+    assert calls == [["/venv/bin/python", "-m", "serial.tools.miniterm", "/dev/cu.auto", "74880", "--raw"]]
 
 
-def test_build_parser_accepts_idf_monitor_print_filter() -> None:
+def test_build_parser_accepts_top_level_monitor() -> None:
     parser = app.build_parser()
 
-    args = parser.parse_args(["matter", "monitor", "--chip", "c3", "--print-filter", "*:W espectre.matter:I"])
+    args = parser.parse_args(["monitor", "--port", "/dev/cu.test", "--baud", "74880", "--raw"])
 
-    assert args.print_filter == "*:W espectre.matter:I"
+    assert args.namespace == "monitor"
+    assert args.port == "/dev/cu.test"
+    assert args.baud == 74880
+    assert args.raw is True
+
+
+def test_idf_monitor_subcommand_is_rejected() -> None:
+    parser = app.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["native", "monitor", "--chip", "c3"])
 
 
 def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, tmp_path: Path) -> None:
@@ -473,5 +481,8 @@ def test_run_mqtt_shell_and_main_dispatch(monkeypatch) -> None:
 
     monkeypatch.setattr(app, "run_mqtt_shell", lambda args: calls.append(("mqtt", args.namespace)) or 0)
     assert app.main([]) == 0
-    assert app.main(["micro"]) == 0
-    assert ("mqtt", "micro") in calls
+    assert app.main(["mqtt"]) == 0
+    assert ("mqtt", "mqtt") in calls
+
+    with pytest.raises(SystemExit):
+        app.main(["micro"])

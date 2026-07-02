@@ -64,11 +64,13 @@
 2. **Tuning**: Optimize for your environment with [TUNING.md](docs/TUNING.md)
 
 Repository CLI namespaces:
-- `./espectre micro ...` for MicroPython flashing, deploy, streaming, dataset collection, and MQTT control
+- `./espectre micro ...` for MicroPython flashing, deploy, run, and verify
+- `./espectre collect ...` and `./espectre detect ...` for host-side CSI capture and live ML inspection
+- `./espectre ui ...`, `./espectre mqtt`, and `./espectre monitor ...` for local web, MQTT, and serial tools
 - `./espectre esphome ...` for local ESPHome build/flash/config/logs workflows
 - `./espectre native ...` for the standalone native firmware `idf.py` workflow
-- `./espectre matter ...` for Matter `idf.py` build/flash/monitor
-- `./espectre streamer ...` for streamer firmware `idf.py` build/flash/monitor
+- `./espectre matter ...` for Matter `idf.py` build/flash
+- `./espectre streamer ...` for streamer firmware `idf.py` build/flash
 
 ![ESPectre Home Assistant Dashboard](docs/images/espectre-home-assistant.png)
 *Home Assistant dashboard with real-time motion detection, threshold control, and debug sensors*
@@ -421,10 +423,12 @@ Micro-ESPectre gives you the fundamentals for:
 
 **Innovation cycle**: New features and algorithms are first developed and validated in Micro-ESPectre (Python), then ported to ESPectre (C++) once proven effective.
 
-For local development, the repository CLI is rooted at `./espectre`:
-- `./espectre micro ...` for MicroPython tooling, data collection, and MQTT control
-- `./espectre esphome ...` for local ESPHome build/flash/config/logs workflows
-- `./espectre native ...`, `./espectre matter ...`, and `./espectre streamer ...` as thin `idf.py` wrappers
+For local development, the repository CLI is rooted at `./espectre` on macOS/Linux
+and `.\espectre.cmd` on Windows:
+- `./espectre micro ...` or `.\espectre.cmd micro ...` for MicroPython device tooling
+- `./espectre collect ...`, `./espectre detect ...`, `./espectre ui ...`, `./espectre mqtt`, and `./espectre monitor ...` for host-side research, web, MQTT, and serial tools
+- `./espectre esphome ...` or `.\espectre.cmd esphome ...` for local ESPHome build/flash/config/logs workflows
+- `./espectre native ...`, `./espectre matter ...`, and `./espectre streamer ...` (or the same commands through `.\espectre.cmd`) as thin `idf.py` build/flash wrappers
 
 ---
 

@@ -1,4 +1,4 @@
-"""Tests for `espectre micro collect` CLI options."""
+"""Tests for ESPectre host-side collect/detect/ui CLI options."""
 
 from __future__ import annotations
 
@@ -136,7 +136,6 @@ def test_collect_parser_accepts_count_alias() -> None:
 
     args = parser.parse_args(
         [
-            "micro",
             "collect",
             "--label",
             "static_presence",
@@ -151,10 +150,16 @@ def test_collect_parser_accepts_count_alias() -> None:
         ]
     )
 
-    assert args.namespace == "micro"
-    assert args.micro_command == "collect"
+    assert args.namespace == "collect"
     assert args.samples == 3
     assert args.start_delay == 15.0
+
+
+def test_micro_collect_alias_is_rejected() -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["micro", "collect", "--label", "motion", "--streamer-ip", "192.168.1.15"])
 
 
 def test_collect_parser_keeps_samples_option() -> None:
@@ -162,7 +167,6 @@ def test_collect_parser_keeps_samples_option() -> None:
 
     args = parser.parse_args(
         [
-            "micro",
             "collect",
             "--label",
             "motion",
@@ -182,7 +186,6 @@ def test_detect_parser_accepts_capture_options() -> None:
 
     args = parser.parse_args(
         [
-            "micro",
             "detect",
             "--streamer-ip",
             "192.168.1.15",
@@ -195,30 +198,41 @@ def test_detect_parser_accepts_capture_options() -> None:
         ]
     )
 
-    assert args.namespace == "micro"
-    assert args.micro_command == "detect"
+    assert args.namespace == "detect"
     assert args.capture_label == "test"
     assert args.capture_duration == 45.0
     assert args.description == "live detect ML, idle-motion-idle"
 
 
+def test_micro_detect_alias_is_rejected() -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["micro", "detect", "--streamer-ip", "192.168.1.15"])
+
+
 def test_ui_parser_accepts_ble_interface() -> None:
     parser = build_parser()
 
-    args = parser.parse_args(["micro", "ui", "ble"])
+    args = parser.parse_args(["ui", "ble"])
 
-    assert args.namespace == "micro"
-    assert args.micro_command == "ui"
+    assert args.namespace == "ui"
     assert args.interface == "ble"
+
+
+def test_micro_ui_alias_is_rejected() -> None:
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["micro", "ui", "ble"])
 
 
 def test_ui_parser_accepts_theremin_interface() -> None:
     parser = build_parser()
 
-    args = parser.parse_args(["micro", "ui", "theremin"])
+    args = parser.parse_args(["ui", "theremin"])
 
-    assert args.namespace == "micro"
-    assert args.micro_command == "ui"
+    assert args.namespace == "ui"
     assert args.interface == "theremin"
 
 

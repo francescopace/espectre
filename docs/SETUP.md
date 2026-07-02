@@ -45,16 +45,25 @@ Current entry-point support by frontend:
 
 ## Local CLI Workflows
 
-Use `./espectre` from the repository root for local build, flash, and monitor
-tasks:
+Use the repository CLI from the repository root for local build, flash, and
+monitor tasks:
+
+| Host | CLI launcher |
+|------|--------------|
+| macOS/Linux | `./espectre` |
+| Windows PowerShell/CMD | `.\espectre.cmd` |
 
 | Frontend | Commands | Example |
 |----------|----------|---------|
 | `ESPHome` | `build`, `flash`, `config`, `logs` | `./espectre esphome logs --chip c6 --device /dev/cu.usbmodemXXXX` |
-| `Native` | `build`, `flash`, `monitor` | `./espectre native flash --chip c3 --port /dev/cu.usbmodemXXXX` |
-| `Matter` | `build`, `flash`, `monitor` | `./espectre matter build --chip c3` |
-| `Streamer` | `build`, `flash`, `monitor` | `./espectre streamer monitor --chip s3 --port /dev/cu.usbmodemXXXX` |
-| `Micro-ESPectre` | `flash`, `deploy`, `run`, `verify`, `detect`, `collect`, `ui` | `./espectre micro deploy` |
+| `Native` | `build`, `flash` | `./espectre native flash --port /dev/cu.usbmodemXXXX` |
+| `Matter` | `build`, `flash` | `./espectre matter build --chip c3` |
+| `Streamer` | `build`, `flash` | `./espectre streamer flash --port /dev/cu.usbmodemXXXX` |
+| `Micro-ESPectre` | `flash`, `deploy`, `run`, `verify` | `./espectre micro deploy` |
+| `Host tools` | `collect`, `detect`, `ui`, `mqtt`, `monitor` | `./espectre monitor --port /dev/cu.usbmodemXXXX` |
+
+On Windows, replace `./espectre` with `.\espectre.cmd` and use the COM port
+shown by Device Manager, for example `COM5`, instead of `/dev/cu...`.
 
 Use the frontend READMEs for complete prerequisites and chip-specific notes:
 

@@ -60,11 +60,13 @@ Repository CLI:
 
 ```bash
 ./espectre native build --chip c3
-./espectre native flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre native monitor --chip c3 --port /dev/cu.usbmodemXXXX
+./espectre native flash --port /dev/cu.usbmodemXXXX
+./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
 The CLI is a thin wrapper over the ESP-IDF app in this directory.
+On Windows, use `.\espectre.cmd native ...` for build/flash and
+`.\espectre.cmd monitor --port COM5` for serial logs.
 
 ### Local Web Bluetooth Test Client
 

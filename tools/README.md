@@ -250,10 +250,10 @@ cd tools
 # 0. Collect data (files saved in data/)
 # Requires two terminals:
 #   Terminal 1: ESPectre streamer firmware running with collector IP/port set to this host
-#   Terminal 2: ./espectre micro collect --label static_presence --duration 60
-#               ./espectre micro collect --label motion --duration 30
+#   Terminal 2: ./espectre collect --label static_presence --duration 60
+#               ./espectre collect --label motion --duration 30
 # Optional debug terminal:
-#               ./espectre micro detect --log-turbulence
+#               ./espectre detect --streamer-ip 192.168.1.50 --log-turbulence
 # see ../docs/ML_DATA_COLLECTION.md for details
 
 # 1. Analyze raw data
