@@ -91,7 +91,7 @@ The training pipeline:
 
 Default exports:
 
-- `src/python/ml_weights.py`
+- `src/python/micro_espectre/ml_weights.py`
 - `src/cpp/core/ml_weights.h`
 - `models/ml_test_data.npz`
 
@@ -135,7 +135,7 @@ python tools/10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1
 ```
 
 `--gain-stress-gate` does not train or export. It loads the current exported
-`src/python/ml_weights.py`, scales only the amplitude-gain-sensitive input
+`src/python/micro_espectre/ml_weights.py`, scales only the amplitude-gain-sensitive input
 features, and reports recall/FP degradation overall plus worst chip,
 environment, session, and source-file groups.
 

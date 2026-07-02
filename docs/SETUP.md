@@ -64,7 +64,7 @@ Use the frontend READMEs for complete prerequisites and chip-specific notes:
 - [`../src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md)
 - [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md)
 - [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md)
-- [`MICRO_ESPECTRE.md`](MICRO_ESPECTRE.md)
+- [`../src/python/micro_espectre/README.md`](../src/python/micro_espectre/README.md)
 
 ## Web Flash (no coding required)
 

@@ -25,7 +25,7 @@ def micro_espectre_root() -> Path:
 def python_src_dir() -> Path:
     """Return the current host-side Python source directory."""
     root = repo_root()
-    new_layout = root / "src" / "python"
+    new_layout = root / "src" / "python" / "micro_espectre"
     if new_layout.exists():
         return new_layout
     return micro_espectre_root() / "src"

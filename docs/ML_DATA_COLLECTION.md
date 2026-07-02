@@ -2,7 +2,11 @@
 
 **Building labeled CSI datasets for machine learning**
 
-This guide covers how to collect and label CSI data for training ML models. This infrastructure lays the groundwork for advanced Wi-Fi sensing features (gesture recognition, HAR, people counting) planned for ESPectre 3.x.
+This guide covers how to collect and label CSI data for training ML models.
+For ESPectre v3, the priority is robust room-state sensing across chips,
+routers, and environments using `empty`, `static_presence`, and `motion`
+captures. Gesture recognition, HAR, and people counting remain future research
+tracks built on the same collection infrastructure.
 
 ## Status
 
@@ -13,10 +17,11 @@ This guide covers how to collect and label CSI data for training ML models. This
 | ML detector (MLP) | ✅ Ready |
 | Training script | ✅ Ready |
 | Runtime weight export | ✅ Ready |
-| Static presence recognition | 🔜 Planned |
-| Gesture recognition | 🔜 Planned |
-| Human Activity Recognition (HAR) | 🔜 Planned |
-| People counting | 🔜 Planned |
+| Room-state datasets (`empty`, `static_presence`, `motion`) | ✅ Current priority |
+| Static presence robustness | 🔜 Planned |
+| Gesture recognition | 🔬 Future research |
+| Human Activity Recognition (HAR) | 🔬 Future research |
+| People counting | 🔬 Future research |
 
 ---
 
@@ -98,8 +103,8 @@ host-side inference from the UDP CSI stream:
 ```
 
 `espectre detect` reads threshold, the fixed production subcarrier set,
-Hampel, low-pass, and hit filtering from `src/python/config.py` and
-`src/python/config_local.py`, just like the rest of micro-ESPectre. Use
+Hampel, low-pass, and hit filtering from `src/python/micro_espectre/config.py` and
+`src/python/micro_espectre/config_local.py`, just like the rest of micro-ESPectre. Use
 `--streamer-ip <device_ip>` to point at the firmware device and `--bind-ip
 <local_ip>` only when auto-detection picks the wrong host interface.
 
@@ -560,7 +565,9 @@ Collection-specific notes that matter here:
 
 ## Contributing Your Data
 
-Help build a diverse CSI dataset for the community! Your contributions will improve ML models for everyone.
+Help build a diverse CSI dataset for the community. For v3, the most useful
+contributions are room-state captures that improve cross-device reliability and
+reduce false positives in real homes and labs.
 
 ### How to Contribute
 
@@ -577,17 +584,16 @@ Help build a diverse CSI dataset for the community! Your contributions will impr
 
 ### What We're Looking For
 
-Gestures useful for Home Assistant / smart home automation:
+Current v3 dataset priorities:
 
-| Priority | Gesture | Description | Home Automation Use |
-|----------|---------|-------------|---------------------|
-| 🔴 High | `swipe_left` / `swipe_right` | Hand swipe in air | Change scene, adjust brightness |
-| 🔴 High | `push` / `pull` | Push away / pull toward | Turn on/off, open/close |
-| 🔴 High | `circle_cw` / `circle_ccw` | Circular hand motion | Dimmer, thermostat up/down |
-| 🟡 Medium | `clap` | Hand clap | Toggle lights |
-| 🟡 Medium | `sit_down` / `stand_up` | Sitting/standing | TV mode, energy saving |
-| 🟡 Medium | `fall` | Person falling | Elderly safety alert |
-| 🟢 Low | `empty` | Empty room, no movement | Empty-room baseline (recommended) |
+| Priority | Label | Description | Why it matters |
+|----------|-------|-------------|----------------|
+| High | `empty` | Empty room, no movement | Reduces false positives and hard-negative failures |
+| High | `static_presence` | Person present but mostly still | Helps separate occupancy-like stillness from empty-room noise |
+| High | `motion` | Walking or ordinary room movement | Maintains recall across homes, chips, routers, and layouts |
+
+Future research datasets can include gestures, HAR, people counting, and other
+advanced sensing labels, but those are not the primary v3 release target.
 
 ### Data Privacy
 
@@ -606,4 +612,4 @@ For scientific background on CSI-based gesture recognition and HAR:
 - **Widar 3.0**: Cross-domain gesture recognition dataset
 - **SignFi**: Sign language recognition with WiFi
 
-See [References](MICRO_ESPECTRE.md#references) in the Micro-ESPectre guide for the complete bibliography.
+See [References](../src/python/micro_espectre/README.md#references) in the Micro-ESPectre guide for the complete bibliography.

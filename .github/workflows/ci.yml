@@ -187,7 +187,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   test-python:
-    name: Python Unit Tests (src/python)
+    name: Python Unit Tests
     needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
     runs-on: ubuntu-latest
@@ -209,7 +209,7 @@ jobs:
       
       - name: Run Tests with Coverage
         run: |
-          pytest test/python -v --cov=src/python --cov-report=xml --cov-report=term-missing
+          pytest test/python -v --cov=src/python/micro_espectre --cov=src/python/espectre_cli --cov-report=xml --cov-report=term-missing
       
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v7

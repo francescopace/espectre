@@ -358,7 +358,7 @@ The streamer README should not become a second copy of:
   collection and dataset workflow
 - [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md):
   shared architecture and frontend boundaries
-- [`../ble/README.md`](../ble/README.md):
+- [`../native/README.md`](../native/README.md):
   standalone native frontend
 - [`../matter/README.md`](../matter/README.md):
   Matter frontend

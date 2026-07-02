@@ -89,8 +89,12 @@ BAND_SIZE = len(DEFAULT_SUBCARRIERS)  # Selected subcarriers for motion detectio
 if "pytest" not in sys.modules:
     try:
         import src.config_local as _local
+    except ImportError:
+        try:
+            import config_local as _local
+        except ImportError:
+            _local = None
+    if _local is not None:
         for _name in dir(_local):
             if _name.isupper() and _name != "DEFAULT_SUBCARRIERS":
                 globals()[_name] = getattr(_local, _name)
-    except ImportError:
-        pass

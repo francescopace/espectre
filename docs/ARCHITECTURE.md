@@ -13,7 +13,7 @@ It also clarifies how the same split supports the current platform direction:
 
 ## Goals
 
-The refactor was driven by four practical goals:
+The refactor was driven by five practical goals:
 
 1. Keep the current ESPHome behavior stable for end users.
 2. Make the motion-detection logic reusable by future frontends such as Matter.
@@ -35,7 +35,7 @@ src/
 └── frontend/
     ├── esphome/
     │   └── espectre/
-    ├── ble/
+    ├── native/
     │   ├── app/
     │   └── espectre/
     ├── matter/

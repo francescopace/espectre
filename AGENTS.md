@@ -33,13 +33,13 @@ Innovation flow: prototype in Python, validate, then port to the relevant shared
 - `docs/PERFORMANCE.md`: benchmark targets and current metrics
 - `docs/ARCHITECTURE.md`: internal architecture, runtime/frontend split, and orchestration direction
 - `docs/ESPECTRE_PROTOCOL.md`: shared device protocol, payloads, topics, and transport semantics
-- `docs/MICRO_ESPECTRE.md`: Micro-ESPectre workflow, CLI, MQTT, and R&D positioning
+- `src/python/micro_espectre/README.md`: Micro-ESPectre workflow, CLI, MQTT, and R&D positioning
 - `docs/ML_DATA_COLLECTION.md`: dataset collection and labeling workflow
 - `docs/ML_TRAINING.md`: ML training, export, and validation workflow
 - `docs/ROADMAP.md`: product direction and sequencing
 - `src/cpp/frontend/*/README.md`: frontend-specific workflows, protocol surfaces, and firmware notes
 
-For current CLI syntax, use `docs/SETUP.md`, `docs/MICRO_ESPECTRE.md`, the relevant frontend README, and `./espectre --help`. Avoid duplicating command examples in agent rules because the wrapper evolves often.
+For current CLI syntax, use `docs/SETUP.md`, `src/python/micro_espectre/README.md`, the relevant frontend README, and `./espectre --help`. Avoid duplicating command examples in agent rules because the wrapper evolves often.
 
 Do not edit generated HTML under `docs/web/documentation/` directly. Update the source Markdown or `.github/scripts/build_docs.py` instead.
 
@@ -77,7 +77,7 @@ Keep C++ and Python algorithm trends aligned; see `docs/PERFORMANCE.md`.
 ## Python Rules
 
 - Distinguish device/runtime code from host-side tooling.
-- Device-oriented modules under `src/python/` should stay MicroPython-friendly.
+- Device-oriented modules under `src/python/micro_espectre/` should stay MicroPython-friendly.
 - Host-side code under `src/python/espectre_cli/`, `tools/`, and `test/python/` may use established CPython-only libraries.
 - Use `config.py` as the source of truth for shared device/runtime constants.
 - Heavy libraries such as `numpy` and `pandas` belong in host-side analysis, training, and validation tools only.

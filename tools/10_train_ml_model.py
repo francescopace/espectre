@@ -1362,7 +1362,7 @@ def load_exported_ml_weights():
 
 
 def predict_exported_probabilities_from_weights(weights_module, X_raw):
-    """Vectorized inference matching src/python/ml_detector.py for exported weights."""
+    """Vectorized inference matching src/python/micro_espectre/ml_detector.py for exported weights."""
     X_raw = np.asarray(X_raw, dtype=np.float32)
     center = np.asarray(weights_module.FEATURE_MEAN, dtype=np.float32)
     scale = np.asarray(weights_module.FEATURE_SCALE, dtype=np.float32)

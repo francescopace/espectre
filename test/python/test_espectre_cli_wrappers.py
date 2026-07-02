@@ -38,12 +38,12 @@ def test_build_mqtt_namespace_maps_cli_fields() -> None:
 def test_cli_command_uses_platform_launcher(monkeypatch) -> None:
     monkeypatch.setattr(common.os, "name", "posix", raising=False)
     assert common.cli_command("micro", "deploy") == "./espectre micro deploy"
-    assert common.copy_config_command() == "cp src/python/config_local.py.example src/python/config_local.py"
+    assert common.copy_config_command() == "cp src/python/micro_espectre/config_local.py.example src/python/micro_espectre/config_local.py"
     assert common.serial_port_example() == "/dev/cu.usbmodemXXXX"
 
     monkeypatch.setattr(common.os, "name", "nt", raising=False)
     assert common.cli_command("micro", "deploy") == r".\espectre.cmd micro deploy"
-    assert common.copy_config_command() == r"copy src\python\config_local.py.example src\python\config_local.py"
+    assert common.copy_config_command() == r"copy src\python\micro_espectre\config_local.py.example src\python\micro_espectre\config_local.py"
     assert common.serial_port_example() == "COM5"
 
 

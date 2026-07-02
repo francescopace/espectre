@@ -193,7 +193,7 @@ The main repository workflow and this training stack target Python `3.14`.
 - Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms
 - Supports FP-first architecture campaigns, gain-shift diagnostics, and feature-importance analysis
 - Exports weights for both platforms:
-  - `src/python/ml_weights.py`
+  - `src/python/micro_espectre/ml_weights.py`
   - `src/cpp/core/ml_weights.h`
 
 ```bash
@@ -307,5 +307,5 @@ For detailed performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 ## Additional Resources
 
 - [ALGORITHMS.md](../docs/ALGORITHMS.md) - Algorithm documentation (MVS, fixed subcarriers, Hampel)
-- [Micro-ESPectre](../docs/MICRO_ESPECTRE.md) - R&D platform documentation
+- [Micro-ESPectre](../src/python/micro_espectre/README.md) - R&D platform documentation
 - [ESPectre](../README.md) - Main project with Home Assistant integration

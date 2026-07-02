@@ -59,7 +59,6 @@ function loadHeader(options = {}) {
                     <a href="/documentation/roadmap/"><i class="fas fa-map"></i> Roadmap</a>
                     <div class="nav-dropdown-divider"></div>
                     <a href="/documentation/algorithms/"><i class="fas fa-square-root-variable"></i> Algorithms</a>
-                    <a href="/documentation/micro-espectre/"><i class="fas fa-flask"></i> Micro-ESPectre</a>
                 </div>
             </div>
         </nav>
@@ -116,4 +115,3 @@ function loadFooter() {
         <p class="footer-copyright">© 2025 ESPectre · GPLv3 License</p>
     `;
 }
-

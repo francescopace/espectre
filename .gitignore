@@ -25,7 +25,7 @@ __pycache__/
 *.pyo
 .cache
 .matplotlib/
-src/python/config_local.py
+src/python/micro_espectre/config_local.py
 
 # Virtual environment
 venv/

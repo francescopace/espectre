@@ -406,4 +406,4 @@ home. Treat it as personal data even when it contains no raw CSI.
 - [ROADMAP.md](ROADMAP.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)
 - [SETUP.md](SETUP.md)
-- [MICRO_ESPECTRE.md](MICRO_ESPECTRE.md)
+- [README.md](../src/python/micro_espectre/README.md)

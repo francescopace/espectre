@@ -298,7 +298,7 @@ The Hampel filter removes statistical outliers using the Median Absolute Deviati
 The constant **1.4826** is the consistency constant that makes MAD a consistent estimator of standard deviation for Gaussian distributions.
 
 ```python
-# Matches src/python/filters.py (MicroPython) and the same logic in C++.
+# Matches src/python/micro_espectre/filters.py (MicroPython) and the same logic in C++.
 # threshold_scaled = threshold * 1.4826  (pre-computed at init)
 
 def insertion_sort(arr, n):

@@ -20,11 +20,15 @@ from datetime import datetime
 
 TOOLS_PATH = Path(__file__).resolve().parents[2] / 'tools'
 sys.path.insert(0, str(TOOLS_PATH))
+PYTHON_ROOT_PATH = Path(__file__).resolve().parents[2] / "src" / "python"
+sys.path.insert(0, str(PYTHON_ROOT_PATH))
 
 from repo_paths import data_dir, python_src_dir, tools_dir
 
-# Add src and tools to path for imports
-# src is inserted last (position 0) so it takes precedence for config imports
+# Add both the Python root and the Micro-ESPectre runtime source dir.
+# The runtime dir is inserted last (position 0) so it takes precedence for
+# direct imports like `import config`, while `espectre_cli` still resolves from
+# `src/python/`.
 SRC_PATH = python_src_dir()
 TOOLS_PATH = tools_dir()
 sys.path.insert(0, str(SRC_PATH))

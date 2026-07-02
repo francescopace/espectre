@@ -103,7 +103,7 @@ ctest --test-dir test/cpp/build --output-on-failure
 pytest test/python -v
 
 # With coverage (run from repo root)
-pytest test/python -v --cov=src/python --cov-report=term-missing
+pytest test/python -v --cov=src/python/micro_espectre --cov-report=term-missing
 
 # Static documentation build
 python .github/scripts/build_docs.py
@@ -245,7 +245,8 @@ License: GPLv3
 
 ## Data Contributions
 
-Help build a diverse CSI dataset for ML training! Your contributions will improve gesture recognition and HAR models for everyone.
+Help build a diverse CSI dataset for ML training. For v3, the most useful data
+improves room-state robustness across real homes, routers, and ESP32 boards.
 
 ### How to Contribute Data
 
@@ -263,19 +264,18 @@ Help build a diverse CSI dataset for ML training! Your contributions will improv
    - Add your data to `data/<label>/`
    - Include a brief description in the PR
 
-### Priority Gestures
+### Priority Labels
 
-We're particularly looking for these gestures useful for smart home automation:
+We're particularly looking for room-state datasets:
 
-| Priority | Gesture | Description | Use Case |
-|----------|---------|-------------|----------|
-| 🔴 High | `swipe_left` / `swipe_right` | Hand swipe in air | Change scene, adjust brightness |
-| 🔴 High | `push` / `pull` | Push away / pull toward | Turn on/off, open/close |
-| 🔴 High | `circle_cw` / `circle_ccw` | Circular hand motion | Dimmer, thermostat |
-| 🟡 Medium | `clap` | Hand clap | Toggle lights |
-| 🟡 Medium | `sit_down` / `stand_up` | Sitting/standing | TV mode, energy saving |
-| 🟡 Medium | `fall` | Person falling | Elderly safety alert |
-| 🟢 Low | `empty` | No movement | Empty-room baseline (recommended) |
+| Priority | Label | Description | Use Case |
+|----------|-------|-------------|----------|
+| High | `empty` | Empty room, no movement | Hard-negative coverage and false-positive reduction |
+| High | `static_presence` | Person present but mostly still | Occupancy-like stillness coverage |
+| High | `motion` | Walking or ordinary room movement | Recall across homes, routers, and board variants |
+
+Gesture recognition, HAR, and people counting are useful future research tracks,
+but they are not the primary v3 dataset request.
 
 ### Data Privacy
 

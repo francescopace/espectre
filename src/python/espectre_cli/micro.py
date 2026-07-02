@@ -28,6 +28,11 @@ from .common import (
 )
 
 
+def _resolve_config_local_path() -> Path:
+    """Return the canonical runtime config file path."""
+    return PYTHON_SRC_DIR / "config_local.py"
+
+
 def _calculate_sha256(filepath: Path) -> str:
     sha256 = hashlib.sha256()
     with open(filepath, "rb") as f:
@@ -229,7 +234,7 @@ def flash_firmware(args) -> None:
                 print()
                 print(f"{Fore.CYAN}Next steps:{Style.RESET_ALL}")
                 print(f"  1. {copy_config_command()}")
-                print("  2. Edit src/python/config_local.py with your credentials")
+                print("  2. Edit src/python/micro_espectre/config_local.py with your credentials")
                 print(f"  3. {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
                 print(f"  4. {Fore.GREEN}{cli_command('micro', 'run')}{Style.RESET_ALL}")
                 print()
@@ -256,12 +261,12 @@ def deploy_code(args) -> None:
     _require_mpremote()
     port = get_serial_port(args.port)
 
-    config_local_path = PYTHON_SRC_DIR / "config_local.py"
+    config_local_path = _resolve_config_local_path()
     if not config_local_path.exists():
-        print(f"{Fore.RED}❌ src/python/config_local.py not found!{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ src/python/micro_espectre/config_local.py not found!{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Create it from the template:{Style.RESET_ALL}")
         print(f"  {copy_config_command()}")
-        print("  # Then edit src/python/config_local.py with your credentials")
+        print("  # Then edit src/python/micro_espectre/config_local.py with your credentials")
         print()
         raise SystemExit(1)
 
@@ -295,7 +300,7 @@ def deploy_code(args) -> None:
         files_to_upload: List[Tuple[str, str]] = [
             (str(PYTHON_SRC_DIR / "__init__.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "config.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "config_local.py"), ":src/"),
+            (str(config_local_path), ":src/"),
             (str(PYTHON_SRC_DIR / "utils.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "threshold.py"), ":src/"),
             (str(PYTHON_SRC_DIR / "filters.py"), ":src/"),
@@ -331,6 +336,8 @@ def deploy_code(args) -> None:
     except Exception as e:
         print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
         raise SystemExit(1)
+
+
 def run_application(args) -> None:
     """Run the MicroPython application on ESP32."""
     _require_mpremote()
