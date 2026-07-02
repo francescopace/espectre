@@ -2,7 +2,6 @@
 [![Chips ESP32 family](https://img.shields.io/badge/chips-ESP32%20family-red.svg)](https://www.espressif.com/en/products/socs)
 [![Works with ESPHome](https://img.shields.io/badge/works%20with-ESPHome-blue.svg)](https://esphome.io/)
 [![Works with Matter](https://img.shields.io/badge/works%20with-Matter-5C6BC0.svg)](https://csa-iot.org/all-solutions/matter/)
-[![Works with Native](https://img.shields.io/badge/works%20with-Native-00897B.svg)](src/cpp/frontend/native/README.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
 
@@ -22,7 +21,7 @@ Assistant, Matter, native BLE/MQTT firmware, and custom smart-device builds.
 ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. The v3 release turns it into a reusable Wi-Fi sensing platform:
 
 - **Smart home ready**: ESPHome remains the production path for Home Assistant.
-- **Matter path**: published Matter firmware opens the door to Apple Home, Google Home, Alexa, and other Matter ecosystems.
+- **Matter path**: published Matter firmware opens the door to Apple Home, Google Home, Alexa, and other controller-based smart-home setups.
 - **Native firmware**: standalone BLE/MQTT firmware works without Home Assistant and can be driven from web clients or custom integrations.
 - **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed into custom ESP32 firmware and OEM products.
 - **Research and ML tooling**: streamer firmware, notebooks, collection tools, and training docs support CSI datasets and future sensing models.

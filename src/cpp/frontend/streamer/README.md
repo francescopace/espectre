@@ -19,17 +19,7 @@ The streamer frontend is responsible for:
 - packaging CSI into the UDP stream format
 - sending packets to the most recent stimulus sender host
 
-It is not the source of truth for:
-
-- algorithm theory
-- ML data collection workflow as a whole
-- general `core` / `runtime` architecture
-
-Use these global docs for those topics:
-
-- [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md)
-- [`../../../../docs/ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md)
-- [`../../../../docs/ALGORITHMS.md`](../../../../docs/ALGORITHMS.md)
+Use [`ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md) for ML data collection workflow.
 
 ## Important Architectural Note
 
@@ -328,39 +318,3 @@ Practical guidance:
 - use `1000 pps` as the recommended high-rate profile for ESP32-C3
 - use `1200 pps` as an aggressive profile when a small amount of burst pressure
   is acceptable
-
-## Relationship to ML Data Collection
-
-[`../../../../docs/ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md)
-remains the workflow-oriented guide for collecting labeled datasets.
-
-This README owns:
-
-- the streamer firmware surface
-- the UDP packet format
-- the frontend-specific configuration knobs
-
-`ML_DATA_COLLECTION.md` should refer here for protocol/surface details and stay
-focused on collection, labeling, and training workflow.
-
-## Boundaries
-
-The streamer README should not become a second copy of:
-
-- runtime architecture
-- algorithm theory
-- ML best practices
-- host-side analysis workflow
-
-## Related Docs
-
-- [`../../../../docs/ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md):
-  collection and dataset workflow
-- [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md):
-  shared architecture and frontend boundaries
-- [`../native/README.md`](../native/README.md):
-  standalone native frontend
-- [`../matter/README.md`](../matter/README.md):
-  Matter frontend
-- [`../esphome/README.md`](../esphome/README.md):
-  ESPHome frontend

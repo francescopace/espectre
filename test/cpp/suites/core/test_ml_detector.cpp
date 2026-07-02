@@ -31,7 +31,7 @@ static const char *TEST_TAG = "test_ml_detector";
 // TEST DATA (loaded from ml_test_data.npz at runtime)
 // ============================================================================
 
-#define ML_TEST_DATA_PATH "../../models/ml_test_data.npz"
+#define ML_TEST_DATA_PATH "../../data/auto_generated/ml_test_data.npz"
 
 // Sample indices to test (spread across the dataset)
 static const int SAMPLE_INDICES[] = {0, 100, 500, 1000, 2000, 2500};

@@ -84,7 +84,7 @@ sensitive radio data to leave the user environment.
 | **Approximate room flow** | Best-effort room-to-room movement visualization from device transitions, without claiming precise localization |
 | **Management** | Remote threshold updates, runtime settings, and signed firmware update workflows |
 | **History** | Retained movement/status timeline with configurable privacy and retention policy |
-| **Alerting** | Motion-triggered notifications through email first, then Telegram and WhatsApp as integrations mature |
+| **Alerting** | Motion-triggered notifications through email first, then additional notification integrations as the web layer matures |
 | **Privacy boundary** | Derived telemetry only; no raw CSI, no unnecessary Wi-Fi identifiers, no sensitive device logs by default |
 | **Cross-frontend view** | Unified view across `ESPHome`, `Matter`, `Native`, streamer-derived tooling, and custom firmware nodes where applicable |
 | **Deployment profiles** | Local web app, self-hosted service, and future managed ESPectre service built around the same privacy boundary |
@@ -110,7 +110,7 @@ sensitive radio data to leave the user environment.
 - [ ] Add signed firmware artifact storage and OTA update workflow
 - [ ] Add movement/status history with explicit retention controls
 - [ ] Add alerting rules for motion detection, starting with email
-- [ ] Add Telegram and WhatsApp notification integrations
+- [ ] Evaluate additional notification integrations after the first alerting path is stable
 - [ ] Add approximate room-to-room movement visualization from multi-device events
 - [ ] Document open-source boundaries, self-hosting posture, and managed-service value
 - [ ] Validate security, abuse resistance, privacy posture, and operational resilience before public launch

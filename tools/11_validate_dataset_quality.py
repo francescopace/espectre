@@ -46,7 +46,7 @@ import numpy as np
 # ------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from repo_paths import python_src_dir  # noqa: E402
+from repo_paths import generated_data_dir, python_src_dir  # noqa: E402
 
 SRC_DIR = python_src_dir()
 sys.path.insert(0, str(SRC_DIR))
@@ -63,7 +63,7 @@ from features import extract_features_by_name  # noqa: E402
 # ------------------------------------------------------------------
 DATA_DIR = SCRIPT_DIR.parent / "data"
 DATASET_INFO = DATA_DIR / "dataset_info.json"
-REPORT_OUTPUT = DATA_DIR / "DATASET_QUALITY_CHECK.md"
+REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
 
 # Quality thresholds
 MIN_PACKETS = 800
@@ -1043,6 +1043,7 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append(f"- ⚠️ WARN: {warn_count}")
     lines.append(f"- ❌ FAIL: {fail_count}")
 
+    REPORT_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     with open(REPORT_OUTPUT, 'w') as f:
         f.write('\n'.join(lines) + '\n')
 

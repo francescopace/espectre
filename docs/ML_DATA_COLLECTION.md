@@ -612,4 +612,5 @@ For scientific background on CSI-based gesture recognition and HAR:
 - **Widar 3.0**: Cross-domain gesture recognition dataset
 - **SignFi**: Sign language recognition with WiFi
 
-See [References](../src/python/micro_espectre/README.md#references) in the Micro-ESPectre guide for the complete bibliography.
+See [References](ALGORITHMS.md#references) in the algorithms guide for the
+complete bibliography.

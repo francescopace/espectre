@@ -396,7 +396,8 @@ Web-orchestration additions are profiles and services:
 - signed firmware artifact metadata
 - OTA rollout and audit state
 
-Candidate managed-service components remain implementation choices:
+Candidate managed-service components remain implementation choices, not a required architecture for local or self-hosted deployments. 
+One possible managed profile could use services like these:
 
 | Concern | Candidate |
 |---------|-----------|

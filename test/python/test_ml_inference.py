@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from repo_paths import models_dir, python_src_dir
+from repo_paths import generated_data_dir, python_src_dir
 
 # Add src to path
 src_path = str(python_src_dir())
@@ -27,8 +27,8 @@ if src_path not in sys.path:
 from ml_detector import predict, ML_METRIC_SCALE, ML_DEFAULT_THRESHOLD
 
 # Test data path
-MODELS_DIR = models_dir()
-TEST_DATA_PATH = MODELS_DIR / 'ml_test_data.npz'
+GENERATED_DATA_DIR = generated_data_dir()
+TEST_DATA_PATH = GENERATED_DATA_DIR / 'ml_test_data.npz'
 INFERENCE_TOLERANCE = 2e-3
 
 

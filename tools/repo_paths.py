@@ -58,6 +58,11 @@ def data_dir() -> Path:
     return micro_espectre_root() / "data"
 
 
+def generated_data_dir() -> Path:
+    """Return the current shared generated-data directory."""
+    return data_dir() / "auto_generated"
+
+
 def models_dir() -> Path:
     """Return the current shared models directory."""
     root = repo_root()

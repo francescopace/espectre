@@ -93,7 +93,7 @@ Default exports:
 
 - `src/python/micro_espectre/ml_weights.py`
 - `src/cpp/core/ml_weights.h`
-- `models/ml_test_data.npz`
+- `data/auto_generated/ml_test_data.npz`
 
 Use `--seed <number>` for reproducible training. The seed is saved in the
 generated weight files.

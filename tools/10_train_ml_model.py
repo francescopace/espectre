@@ -56,7 +56,14 @@ from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
 
-from repo_paths import cpp_core_dir, models_dir, python_src_dir, python_tests_dir, repo_root
+from repo_paths import (
+    cpp_core_dir,
+    generated_data_dir,
+    models_dir,
+    python_src_dir,
+    python_tests_dir,
+    repo_root,
+)
 from contextlib import contextmanager
 from datetime import datetime
 from time import perf_counter
@@ -299,6 +306,7 @@ FEATURE_SET_CHOICES = {
 }
 # Directories
 MODELS_DIR = models_dir()
+GENERATED_DATA_DIR = generated_data_dir()
 SRC_DIR = python_src_dir()
 CPP_DIR = cpp_core_dir()
 
@@ -3283,7 +3291,8 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
 
     # Test data for validation (save deterministic regression subset)
     with suppress_stderr():
-        test_data_path = MODELS_DIR / 'ml_test_data.npz'
+        GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        test_data_path = GENERATED_DATA_DIR / 'ml_test_data.npz'
         n_test = export_test_data(
             model,
             scaler,
@@ -3668,7 +3677,7 @@ def _model_artifact_paths():
     return [
         SRC_DIR / 'ml_weights.py',
         CPP_DIR / 'ml_weights.h',
-        MODELS_DIR / 'ml_test_data.npz',
+        GENERATED_DATA_DIR / 'ml_test_data.npz',
     ]
 
 
