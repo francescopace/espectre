@@ -607,7 +607,3 @@ For scientific background on CSI-based gesture recognition and HAR:
 - **SignFi**: Sign language recognition with WiFi
 
 See [References](MICRO_ESPECTRE.md#references) in the Micro-ESPectre guide for the complete bibliography.
-
-## License
-
-GPLv3 - See [LICENSE](../LICENSE) for details.

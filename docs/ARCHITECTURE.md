@@ -303,8 +303,8 @@ device model without sharing ecosystem-specific code. ESPectre Protocol is that
 logical device model at the integration boundary.
 
 It defines message families such as telemetry, status, info, stats, commands,
-and command results. It does not define a separate local protocol or cloud
-protocol. BLE, MQTT, MQTT over TLS, shadows, jobs, local services, and
+and command results. It does not define separate local, self-hosted, or managed
+service protocols. BLE, MQTT, MQTT over TLS, shadows, jobs, local services, and
 managed services are deployment profiles or transports for the same message
 semantics.
 
@@ -366,10 +366,11 @@ The local lab profile deliberately excludes first-wave local clones of:
 
 ---
 
-## Managed Cloud Profile
+## Web Orchestration Profile
 
-The managed cloud profile builds on ESPectre Protocol and adds product
-infrastructure around it:
+The web orchestration profile builds on ESPectre Protocol and adds product
+infrastructure around it. The same architecture should support local,
+self-hosted, and future managed-service deployments:
 
 ```text
 ESPectre device
@@ -384,7 +385,7 @@ ESPectre device
   -> async alert workflow
 ```
 
-Cloud-specific additions are profiles and services:
+Web-orchestration additions are profiles and services:
 
 - user identity
 - tenant/home/room/device ownership
@@ -395,7 +396,7 @@ Cloud-specific additions are profiles and services:
 - signed firmware artifact metadata
 - OTA rollout and audit state
 
-Candidate managed services remain implementation choices:
+Candidate managed-service components remain implementation choices:
 
 | Concern | Candidate |
 |---------|-----------|
@@ -431,7 +432,7 @@ belongs in credentials, policies, metadata, and backend authorization.
 
 ### Device State Mirror
 
-The managed backend can keep a device state mirror derived from the current
+The orchestration backend can keep a device state mirror derived from the current
 ESPectre Protocol surfaces:
 
 - `reported` should be built from the latest `status`, `telemetry`, `info`, and
@@ -442,7 +443,7 @@ ESPectre Protocol surfaces:
 The device should acknowledge applied settings by copying accepted values from
 `desired` to `reported` or by publishing ESPectre Protocol command results. For
 the self-hosted local lab, an equivalent state mirror can be implemented by the
-local service without requiring a cloud-specific shadow product. The exact
+local service without requiring a provider-specific shadow product. The exact
 payload fields should not be duplicated here; `docs/ESPECTRE_PROTOCOL.md`
 remains the source of truth.
 
@@ -451,7 +452,7 @@ remains the source of truth.
 Onboarding is split into two flows:
 
 1. local provisioning
-2. optional managed-cloud claim
+2. optional managed-service claim
 
 Local provisioning must work without a hosted account:
 
@@ -464,34 +465,34 @@ Local provisioning must work without a hosted account:
 6. Device connects to Wi-Fi and the configured MQTT broker.
 7. Local tooling binds the device to a site or room if needed.
 
-Managed cloud claim builds on the same BLE surface:
+Managed-service claim builds on the same BLE surface:
 
-1. User signs in to the cloud web app.
+1. User signs in to the web app.
 2. User selects a home/location and starts "Add device".
 3. Browser connects to the ESPectre device over Web Bluetooth.
 4. Device exposes claim material such as firmware version, frontend capability,
    a device public key, and a nonce.
 5. Backend creates a short-lived claim session bound to the authenticated user.
 6. Browser passes claim material to the device over BLE.
-7. Device exchanges the claim token for cloud credentials or receives a
+7. Device exchanges the claim token for service credentials or receives a
    provisioned certificate bundle through the claim flow.
 8. Device connects to the managed MQTT ingress and publishes first status.
-9. Backend binds the cloud thing to the selected user, home, and room.
+9. Backend binds the service-side device record to the selected user, home, and room.
 
 Security requirements:
 
 - claim tokens must be short-lived and single-use
 - pairing must require physical proximity
-- long-lived cloud credentials must never be exposed as reusable browser secrets
+- long-lived service credentials must never be exposed as reusable browser secrets
 - device credentials must be revocable and rotatable
 - failed or abandoned claims must expire automatically
 - stolen claim tokens must not allow claiming arbitrary devices
 
 ### Identity And Application Model
 
-The managed cloud should support social login early, because it reduces account
-friction for a consumer-oriented service. Candidate providers include Google,
-Microsoft, GitHub, Apple, Facebook, and LinkedIn.
+The managed-service profile should support social login early, because it
+reduces account friction for a consumer-oriented service. Candidate providers
+include Google, Microsoft, GitHub, Apple, Facebook, and LinkedIn.
 
 The application model separates identity from tenancy:
 
@@ -524,7 +525,8 @@ Core entities:
 
 ### Home Map And Room Flow
 
-The first managed map should avoid image uploads and keep the model simple:
+The first managed-service map should avoid image uploads and keep the model
+simple:
 
 - user draws rooms/zones as rectangles or polygons
 - user places devices on the map
@@ -558,8 +560,8 @@ History view:
 - alert triggers and delivery status
 
 Retention must be configurable and visible to users. Local lab dashboards can
-start with polling; managed cloud can later add WebSocket or subscription-style
-updates without changing the device payload model.
+start with polling; managed services can later add WebSocket or
+subscription-style updates without changing the device payload model.
 
 ### Alerts
 
@@ -622,13 +624,13 @@ avoid lock-in:
 - firmware remains open source
 - ESPectre Protocol payloads are documented
 - provisioning protocol is documented
-- device-side managed-cloud client code should be open source if shipped in
+- device-side managed-service client code should be open source if shipped in
   firmware
 - a minimal self-hosted local lab remains a supported option
 
 The managed service can remain proprietary initially:
 
-- SaaS backend implementation
+- managed backend implementation
 - billing
 - managed dashboard
 - alert delivery orchestration

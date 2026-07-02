@@ -268,10 +268,4 @@ This provides immediate visual feedback:
 Use the dedicated `native` frontend firmware from the web flasher or build it locally with `./espectre native ...`.
 The ESPHome frontend no longer embeds this custom BLE protocol.
 
----
-
-## License
-
-This game is part of the ESPectre project and is released under the **GNU General Public License v3.0 (GPLv3)**.
-
 See [LICENSE](../../../LICENSE) for the full license text.

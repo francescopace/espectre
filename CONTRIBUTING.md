@@ -109,9 +109,7 @@ pytest test/python -v --cov=src/python --cov-report=term-missing
 python .github/scripts/build_docs.py
 ```
 
-The coverage helper is a Bash script used on macOS/Linux and CI. On Windows,
-run the CMake/CTest commands above for the host-side C++ suite, or use WSL/Git
-Bash if you specifically need the coverage script.
+The coverage helper is a Bash script used on macOS/Linux and CI. On Windows, run the CMake/CTest commands above for the host-side C++ suite, or use WSL/Git Bash if you specifically need the coverage script.
 
 ---
 
@@ -309,9 +307,7 @@ Good documentation is essential! Here's how you can help:
 - Include code examples where helpful
 - Keep formatting consistent with existing docs
 - Test any commands or code snippets you include
-- Keep a single source of truth per topic: `docs/SETUP.md` for the shared hub,
-  frontend READMEs for frontend-specific workflows and surfaces,
-  `docs/TUNING.md` for tuning guidance, and `docs/ALGORITHMS.md` for theory
+- Keep a single source of truth per topic: `docs/SETUP.md` for the shared hub, frontend READMEs for frontend-specific workflows and surfaces, `docs/TUNING.md` for tuning guidance, and `docs/ALGORITHMS.md` for theory
 
 ---
 
@@ -367,16 +363,7 @@ All contributors are recognized in:
 - Release notes for significant contributions
 - Data contributors credited in dataset documentation
 
----
-
-## License
-
-By contributing to ESPectre, you agree that your contributions are licensed
-under the **GPLv3** license.
-
-All contributions must also be certified under the Developer Certificate of
-Origin (DCO) by adding the `Signed-off-by` trailer to each commit.
-This certifies that you have the right to submit the contribution under the
-project license.
+All contributions must also be certified under the Developer Certificate of Origin (DCO) by adding the `Signed-off-by` trailer to each commit.
+This certifies that you have the right to submit the contribution under the project license.
 
 See [LICENSE](LICENSE) for details.

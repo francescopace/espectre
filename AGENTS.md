@@ -17,6 +17,7 @@ Innovation flow: prototype in Python, validate, then port to the relevant shared
 ## Communication And Style
 
 - Write code, comments, docs, filenames, and commit messages in English.
+- Use the Oxford comma in English lists across project documentation and user-facing text.
 - Keep changes surgical and aligned with existing repo patterns.
 - Prefer simple, direct implementations over speculative abstractions.
 - Match neighboring file style, including headers, naming, and formatting.

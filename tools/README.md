@@ -309,9 +309,3 @@ For detailed performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 - [ALGORITHMS.md](../docs/ALGORITHMS.md) - Algorithm documentation (MVS, fixed subcarriers, Hampel)
 - [Micro-ESPectre](../docs/MICRO_ESPECTRE.md) - R&D platform documentation
 - [ESPectre](../README.md) - Main project with Home Assistant integration
-
----
-
-## License
-
-GPLv3 - See [LICENSE](../LICENSE) for details.

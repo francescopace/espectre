@@ -481,9 +481,3 @@ tested temporal models.
 - `ALGORITHMS.md` describes the current promoted pipeline
 - This file is for historical experiments, rejected candidates, and lessons
   learned
-
----
-
-## License
-
-GPLv3 - See [../LICENSE](../LICENSE)

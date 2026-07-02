@@ -1,31 +1,21 @@
 # Roadmap
 
-## History
+## Releases
 
-| Version | Purpose |
-|---------|---------|
-| **v1.x** | First release demonstrating motion detection capabilities using turbulence analysis |
-| **v2.x** | Home Assistant integration using ESPHome plus the custom MicroPython `Micro-ESPectre` firmware |
-
-## Current Release
-
-| Version | Purpose | Status | Progress |
-|---------|---------|--------|----------|
-| **v3.x** | Turn ESPectre into a reusable platform across frontends and runtimes | Near Release | Platform split, multi-frontend firmware paths, shared runtime protocol services, ESPectre Protocol (BLE+MQTT), room-state baselines, and dataset/training workflows are landed; remaining work is mostly polish, validation depth, and broader productization |
-
-## Next Roadmap
-
-| Version | Purpose | Status | Progress |
-|---------|---------|--------|----------|
-| **v4.x** | Build an optional cloud orchestration layer across multiple ESPectre nodes | Planned | The local-first BLE+MQTT foundation is implemented, while the managed cloud backend has not started yet |
+| Version | Date | Status | Summary |
+|---------|------|--------|---------|
+| **v1.x** | 2025-11-09 | Released | First release demonstrating motion detection capabilities using the brand-new MVS algorithm |
+| **v2.x** | 2025-12-06 | Released | Home Assistant integration via ESPHome plus custom MicroPython-based firmware |
+| **v3.x** | 2026-07 (target) | Release Candidate | Reusable Wi-Fi sensing platform with Matter support, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
+| **v4.x** | 2026-12 (target) | Planned | Privacy-first web orchestration layer for multi-node sensing, secure onboarding, fleet visibility, history, alerting, and remote management |
 
 ---
 
 ## v3.x - Modular Sensing Platform
 
-**Goal**: move from a single integration-focused firmware to a reusable platform
-with shared sensing logic, a stable runtime contract, and multiple frontend
-paths.
+**Goal**: move from a single integration-focused firmware to a reusable Wi-Fi
+sensing platform with shared sensing logic, a stable runtime contract, multiple
+frontend paths, and an embeddable foundation for custom firmware and OEM products.
 
 ### Contains
 
@@ -38,21 +28,53 @@ paths.
 | **ESPectre Protocol** | Shared BLE+MQTT Protocol baseline for provisioning, telemetry, status, info, commands, monitor integration, and reusable runtime protocol services |
 | **Matter frontend** | Matter occupancy and diagnostics surface proving a second ecosystem-facing frontend |
 | **Streamer frontend** | Standalone CSI UDP streamer for dataset collection, host tooling, and realtime fusion experiments |
-| **Custom firmware path** | Ability to assemble alternate firmware targets from shared platform layers |
+| **SDK-oriented firmware path** | Ability to assemble alternate firmware targets from shared platform layers for custom devices and OEM products |
 | **Practical sensing** | Presence and occupancy baselines, plus reusable inference/tooling foundations |
 | **Host-side tooling** | Analysis tools, notebooks, datasets, and training workflows that support the platform direction |
 
+### Release Readiness
+
+The v3 platform is in a release-candidate state for the modular platform goal.
+The shared architecture, protocol services, frontend paths, and host-side
+validation workflows are present and covered by automated tests.
+Remaining work is release polish, hardware smoke coverage, and clearly
+documenting known sensing caveats.
+
+| Area | State | Notes |
+|------|-------|-------|
+| **Shared architecture** | Ready | `core`, `runtime`, ESP-IDF runtime services, and frontend adapters are split and documented |
+| **Frontend coverage** | Ready | ESPHome remains the production Home Assistant path; native, Matter, and streamer firmware paths are present on the shared platform |
+| **Firmware smoke coverage** | Ready with caveats | ESPHome dev config passes for C3/C5/C6/S3; ESPHome C3 build, native C3 Docker build, and Matter C3 Docker build pass; hardware flash/monitor smoke remains open |
+| **Protocol baseline** | Ready | BLE+MQTT payloads, provisioning, telemetry, status, info, commands, and monitor tooling are documented in `ESPECTRE_PROTOCOL.md` |
+| **Detection validation** | Ready with caveats | Current C++ and Python real-data suites pass across supported chips; long-recording tests still show elevated false positives on C5/C6 |
+| **Documentation** | Ready | Setup, architecture, protocol, tuning, performance, and frontend-specific READMEs describe the v3 surface |
+| **Product polish** | Remaining | Hardware flash smoke, release notes, final binary artifact checks, and user-facing wording should be completed before tagging |
+
+ESPectre v3 success criteria:
+
+- [x] Keep C++ and Python real-data performance validation green
+- [x] Keep C++ long-recording validation green
+- [x] Keep Python long-recording validation green
+- [x] Document multi-frontend setup, architecture, and protocol boundaries
+- [x] Run local firmware smoke tests for ESPHome, native, and Matter C3 release paths
+- [ ] Run hardware flash/monitor smoke tests for the release targets and published firmware variants
+- [ ] Reduce long-recording false-positive caveats on C5/C6
+- [ ] Finalize release notes and artifact checklist before tagging `v3.0.0`
+
 ---
 
-## v4.x - ESPectre Cloud Orchestration Layer
+## v4.x - Web Orchestration Layer
 
-**Goal**: make multiple ESPectre devices behave like one coherent home sensing system through an optional, privacy-first cloud service that adds managed realtime visibility, history, alerting, fleet management, and firmware updates without requiring raw CSI or other sensitive radio data to leave the user environment.
+**Goal**: make multiple ESPectre devices behave like one coherent sensing
+system through an optional, privacy-first web layer that can run locally,
+self-hosted, or as a managed service, without requiring raw CSI or other
+sensitive radio data to leave the user environment.
 
 ### Contains
 
 | Area | Scope |
 |------|-------|
-| **Cloud service** | Optional managed service for multi-device orchestration, built so local/open-source usage remains viable |
+| **Web orchestration** | Optional web layer for multi-device orchestration, built so local, self-hosted, and managed-service deployments remain viable |
 | **Identity and tenancy** | User login, homes/locations, roles, and device ownership |
 | **Secure device onboarding** | Physical-presence pairing, likely through Web Bluetooth, short-lived claim sessions, and per-device credentials |
 | **Device visibility** | Sensor inventory, online/offline state, firmware version, runtime status, and fleet inspection |
@@ -64,6 +86,7 @@ paths.
 | **Alerting** | Motion-triggered notifications through email first, then Telegram and WhatsApp as integrations mature |
 | **Privacy boundary** | Derived telemetry only; no raw CSI, no unnecessary Wi-Fi identifiers, no sensitive device logs by default |
 | **Cross-frontend view** | Unified view across `ESPHome`, `Matter`, `Native`, streamer-derived tooling, and custom firmware nodes where applicable |
+| **Deployment profiles** | Local web app, self-hosted service, and future managed ESPectre service built around the same privacy boundary |
 
 ### Implementation Checklist
 
@@ -75,11 +98,11 @@ paths.
 - [x] Publish MQTT telemetry, status, info, stats, and command results from native firmware
 - [x] Align `micro-espectre` MQTT payloads and commands with the ESPectre Protocol baseline
 - [x] Adapt the existing web monitor into a protocol validation and MQTT dashboard client
-- [ ] Define managed-cloud profile, per-device cloud credentials, MQTT-over-TLS policy, and privacy boundary for device telemetry
+- [ ] Define web orchestration profiles, per-device service credentials, MQTT-over-TLS policy, and privacy boundary for device telemetry
 - [ ] Design tenant, home/location, room, and device ownership model
 - [ ] Implement social login and account management
 - [ ] Implement secure Web Bluetooth assisted device claim flow
-- [ ] Build cloud ingestion path for derived telemetry and device status
+- [ ] Build telemetry ingestion path for derived sensing state and device status
 - [ ] Build near-realtime dashboard with home map and device placement
 - [ ] Add movement score, motion state, online/offline status, and firmware version views
 - [ ] Add configurable threshold updates through the device control plane
@@ -88,26 +111,19 @@ paths.
 - [ ] Add alerting rules for motion detection, starting with email
 - [ ] Add Telegram and WhatsApp notification integrations
 - [ ] Add approximate room-to-room movement visualization from multi-device events
-- [ ] Document open-source boundaries, self-hosting posture, and paid managed-service value
+- [ ] Document open-source boundaries, self-hosting posture, and managed-service value
 - [ ] Validate security, abuse resistance, privacy posture, and operational resilience before public launch
 
 See [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) for the shared device protocol
-and [ARCHITECTURE.md](ARCHITECTURE.md) for the local lab and managed cloud
-profiles.
+and [ARCHITECTURE.md](ARCHITECTURE.md) for the local lab, self-hosted, and managed-service profiles.
 
 ---
 
 ## Roadmap Updates
 
-Last update: **July 2026**
+Last update: **July 2, 2026**
 
 For discussion and proposed changes:
 
 - [GitHub Issues](https://github.com/francescopace/espectre/issues?q=is%3Aissue+label%3Aroadmap)
 - [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
-
----
-
-## License
-
-GPLv3 - See [LICENSE](../LICENSE) for details.
