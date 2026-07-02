@@ -139,6 +139,12 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
         command_parser.add_argument("--chip", choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()), required=True, help="ESP-IDF target chip")
         if command_name in {"flash", "monitor"}:
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+        if command_name == "monitor":
+            command_parser.add_argument(
+                "--print-filter",
+                dest="print_filter",
+                help="Forward an ESP-IDF monitor print filter such as '*:W espectre.matter:I'",
+            )
         command_parser.set_defaults(handler=lambda args, current_frontend=frontend: run_idf_command(current_frontend, args))
 
 

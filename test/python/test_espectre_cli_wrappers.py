@@ -238,12 +238,42 @@ def test_run_idf_command_flash_and_monitor_resolve_port(monkeypatch, tmp_path: P
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
 
     idf.run_idf_command("matter", argparse.Namespace(chip="c3", idf_command="flash", port=None))
-    idf.run_idf_command("matter", argparse.Namespace(chip="c3", idf_command="monitor", port="/dev/cu.manual"))
+    idf.run_idf_command("matter", argparse.Namespace(chip="c3", idf_command="monitor", port="/dev/cu.manual", print_filter=None))
 
     assert calls == [
         ["idf.py", "-p", "/dev/cu.auto", "flash"],
-        ["idf.py", "-p", "/dev/cu.manual", "monitor"],
+        ["idf.py", "-p", "/dev/cu.manual", "monitor", f"--print-filter={idf.DEFAULT_MATTER_MONITOR_PRINT_FILTER}"],
     ]
+
+
+def test_run_idf_command_monitor_accepts_explicit_print_filter(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
+
+    idf.run_idf_command(
+        "matter",
+        argparse.Namespace(
+            chip="c3",
+            idf_command="monitor",
+            port=None,
+            print_filter="*:E espectre.matter:I",
+        ),
+    )
+
+    assert calls == [["idf.py", "-p", "/dev/cu.auto", "monitor", "--print-filter=*:E espectre.matter:I"]]
+
+
+def test_build_parser_accepts_idf_monitor_print_filter() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["matter", "monitor", "--chip", "c3", "--print-filter", "*:W espectre.matter:I"])
+
+    assert args.print_filter == "*:W espectre.matter:I"
 
 
 def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, tmp_path: Path) -> None:

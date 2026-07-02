@@ -28,10 +28,18 @@ CONFIG_ENABLE_COMMISSIONABLE_DEVICE_TYPE=y
 CONFIG_ESPECTRE_MATTER_NODE_LABEL="ESPectre Matter"
 CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_ML=y
 
+# Reduce CHIP serial noise in the Matter frontend by compiling out
+# progress/detail logs and keeping only CHIP errors.
+# CONFIG_CHIP_LOG_DEFAULT_LEVEL_EQUALS_LOG_DEFAULT_LEVEL is not set
+CONFIG_CHIP_LOG_DEFAULT_LEVEL_ERROR=y
+
 # Matter commissioning (BLE)
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n
+# Keep CHIPoBLE initialized after commissioning to avoid the NimBLE
+# teardown path that can crash on already-commissioned devices.
+CONFIG_USE_BLE_ONLY_FOR_COMMISSIONING=n
 CONFIG_BLE_DEVICE_NAME_PREFIX="ESPectre-"
 
 # Matter IPv6 networking
