@@ -56,6 +56,14 @@ flashing, use a BLE client that understands this protocol, such as:
 
 ### Local ESP-IDF Workflow
 
+Before building locally, complete the shared
+[`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
+Use a shell where `idf.py --version` succeeds.
+
+CI QEMU smoke currently covers `ESP32`, `ESP32-S3`, and `ESP32-C3` for the
+native frontend. `ESP32-C5` and `ESP32-C6` remain build-only because the
+current Espressif QEMU fork does not support them.
+
 Repository CLI:
 
 ```bash
@@ -251,5 +259,5 @@ not for Home Assistant-style provisioning or the Matter commissioning flow.
   NimBLE transport implementation
 - `../../../../tools/web/espectre-ble.html`:
   local Web Bluetooth provisioning and protocol test client
-- `docs/web/game/README.md`:
+- `../../../../docs/web/game/README.md`:
   example client built on this protocol

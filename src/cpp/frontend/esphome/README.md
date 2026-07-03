@@ -19,7 +19,7 @@ The ESPHome frontend is responsible for:
 ## Directory Layout
 
 - [`espectre/__init__.py`](espectre/__init__.py):
-  YAML schema, validation, and codegen
+  YAML schema, validation, codegen, shared local PlatformIO library registration, and ESPHome build flags
 - [`espectre/espectre.cpp`](espectre/espectre.cpp),
   [`espectre/espectre.h`](espectre/espectre.h):
   ESPHome adapter over the shared runtime frontend controller
@@ -29,8 +29,6 @@ The ESPHome frontend is responsible for:
   runtime threshold control
 - [`espectre/calibrate_switch.cpp`](espectre/calibrate_switch.cpp):
   runtime recalibration trigger
-- [`espectre/__init__.py`](espectre/__init__.py):
-  registers the shared local PlatformIO library and ESPHome build flags
 
 ## Getting Started
 
@@ -66,9 +64,10 @@ is declared.
 ## Configuration Surface
 
 The ESPHome YAML schema is defined in [`espectre/__init__.py`](espectre/__init__.py).
-This README is the source of truth for the ESPHome syntax, defaults, and entity
-mapping. Use [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md) for
-the "when and why" of tuning.
+This README is the source of truth for ESPHome-specific syntax and entity
+mapping. Use [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md) for the
+shared configuration overview and [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md)
+for the "when and why" of tuning.
 
 ### Core Parameters
 
@@ -91,6 +90,16 @@ All frontend parameters live under the `espectre:` section:
 | `hampel_window` | int | `7` | Hampel window size (`3-11`) |
 | `hampel_threshold` | float | `5.0` | Hampel sensitivity (`1.0-10.0`) |
 | `gain_lock` | string | `auto` | Gain-lock mode: `auto`, `enabled`, or `disabled` |
+
+These options are applied from YAML during firmware configuration. Runtime
+control is exposed separately through the entities below:
+
+| Runtime surface | Config key | Runtime behavior |
+|-----------------|------------|------------------|
+| Movement score | `movement_sensor` | Read-only Home Assistant sensor |
+| Motion state | `motion_sensor` | Read-only Home Assistant binary sensor |
+| Threshold | `threshold_number` | Writable runtime threshold control |
+| Recalibration | `calibrate_switch` | Writable runtime recalibration trigger |
 
 ### Detection Algorithm Selection
 
@@ -322,7 +331,6 @@ esp32:
   variant: ESP32C6
   framework:
     type: esp-idf
-    version: 5.5.1
     sdkconfig_options:
       CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ: "160"
 ```

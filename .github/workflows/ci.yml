@@ -409,7 +409,7 @@ jobs:
           retention-days: 7
 
   build-native:
-    name: Build native ${{ matrix.chip }}
+    name: ${{ matrix.qemu_machine && 'Smoke Test Native' || 'Build Native' }} ${{ matrix.chip }}
     runs-on: ubuntu-latest
     needs: detect-push-origin
     if: needs.detect-push-origin.outputs.run_ci == 'true'
@@ -419,14 +419,26 @@ jobs:
         include:
           - chip: ESP32
             target: esp32
+            qemu_arch: xtensa
+            qemu_machine: esp32
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
+            qemu_expected_log: "ESPectre native smoke marker: transport configured, starting native frontend"
           - chip: ESP32-C3
             target: esp32c3
+            qemu_arch: riscv32
+            qemu_machine: esp32c3
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
+            qemu_expected_log: "ESPectre native smoke marker: transport configured, starting native frontend"
           - chip: ESP32-C5
             target: esp32c5
           - chip: ESP32-C6
             target: esp32c6
           - chip: ESP32-S3
             target: esp32s3
+            qemu_arch: xtensa
+            qemu_machine: esp32s3
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
+            qemu_expected_log: "ESPectre native smoke marker: transport configured, starting native frontend"
 
     steps:
       - uses: actions/checkout@v7
@@ -447,10 +459,109 @@ jobs:
         env:
           NATIVE_TARGET: ${{ matrix.target }}
           NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-ci-${{ matrix.target }}.bin
+          NATIVE_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
+
+      - name: Run native QEMU smoke test
+        if: matrix.qemu_machine
+        uses: ./.github/actions/qemu-smoke-test
+        with:
+          firmware: ${{ github.workspace }}/output/espectre-native-ci-${{ matrix.target }}.bin
+          elf: ${{ github.workspace }}/src/cpp/frontend/native/app/build-${{ matrix.target }}/espectre-native.elf
+          chip: ${{ matrix.target }}
+          arch: ${{ matrix.qemu_arch }}
+          machine: ${{ matrix.qemu_machine }}
+          expected_log: ${{ matrix.qemu_expected_log || '' }}
+
+      - name: Upload native QEMU logs
+        if: matrix.qemu_machine && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qemu-native-logs-${{ matrix.qemu_machine }}
+          path: qemu_output.log
+          retention-days: 7
 
       - name: Upload native firmware artifact
         uses: actions/upload-artifact@v7
         with:
           name: firmware-native-${{ matrix.chip }}
           path: output/espectre-native-*.bin
+          retention-days: 7
+
+  build-streamer:
+    name: ${{ matrix.qemu_machine && 'Smoke Test Streamer' || 'Build Streamer' }} ${{ matrix.chip }}
+    runs-on: ubuntu-latest
+    needs: detect-push-origin
+    if: needs.detect-push-origin.outputs.run_ci == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: ESP32
+            target: esp32
+            qemu_arch: xtensa
+            qemu_machine: esp32
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
+            qemu_expected_log: "ESPectre streamer smoke marker: transport configured, starting streamer frontend"
+          - chip: ESP32-C3
+            target: esp32c3
+            qemu_arch: riscv32
+            qemu_machine: esp32c3
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
+            qemu_expected_log: "ESPectre streamer smoke marker: transport configured, starting streamer frontend"
+          - chip: ESP32-C5
+            target: esp32c5
+          - chip: ESP32-C6
+            target: esp32c6
+          - chip: ESP32-S3
+            target: esp32s3
+            qemu_arch: xtensa
+            qemu_machine: esp32s3
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.qemu.defaults
+            qemu_expected_log: "ESPectre streamer smoke marker: transport configured, starting streamer frontend"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache streamer toolchain
+        uses: actions/cache@v6
+        with:
+          path: .github/.cache/streamer-home
+          key: streamer-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-${{ hashFiles('.github/scripts/build_streamer_firmware.sh', 'src/cpp/frontend/streamer/app/sdkconfig*.defaults', 'src/cpp/frontend/streamer/app/partitions.csv') }}
+          restore-keys: |
+            streamer-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-
+            streamer-${{ runner.os }}-idf-v5.5-
+
+      - name: Build streamer firmware
+        run: |
+          mkdir -p output
+          bash .github/scripts/build_streamer_firmware.sh
+        env:
+          STREAMER_TARGET: ${{ matrix.target }}
+          STREAMER_OUTPUT: ${{ github.workspace }}/output/espectre-streamer-ci-${{ matrix.target }}.bin
+          STREAMER_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
+
+      - name: Run streamer QEMU smoke test
+        if: matrix.qemu_machine
+        uses: ./.github/actions/qemu-smoke-test
+        with:
+          firmware: ${{ github.workspace }}/output/espectre-streamer-ci-${{ matrix.target }}.bin
+          elf: ${{ github.workspace }}/src/cpp/frontend/streamer/app/build-${{ matrix.target }}/espectre-streamer.elf
+          chip: ${{ matrix.target }}
+          arch: ${{ matrix.qemu_arch }}
+          machine: ${{ matrix.qemu_machine }}
+          expected_log: ${{ matrix.qemu_expected_log || '' }}
+
+      - name: Upload streamer QEMU logs
+        if: matrix.qemu_machine && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qemu-streamer-logs-${{ matrix.qemu_machine }}
+          path: qemu_output.log
+          retention-days: 7
+
+      - name: Upload streamer firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-streamer-${{ matrix.chip }}
+          path: output/espectre-streamer-*.bin
           retention-days: 7

@@ -2,7 +2,7 @@
 
 This directory contains the standalone CSI streamer frontend.
 
-Unlike `esphome`, `ble`, and `matter`, the streamer is not an ecosystem-facing
+Unlike `esphome`, `native`, and `matter`, the streamer is not an ecosystem-facing
 adapter over `IEspectreRuntime`. It is a dedicated firmware path for raw CSI
 collection and transport to host-side tooling.
 
@@ -19,7 +19,8 @@ The streamer frontend is responsible for:
 - packaging CSI into the UDP stream format
 - sending packets to the most recent stimulus sender host
 
-Use [`ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md) for ML data collection workflow.
+Use [`ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md) for the
+ML data collection workflow.
 
 ## Important Architectural Note
 
@@ -134,7 +135,7 @@ Typical local override file:
 CONFIG_ESPECTRE_WIFI_SSID="YourSSID"
 CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
 # CONFIG_ESPECTRE_WIFI_BSSID is not set
-# CONFIG_ESPECTRE_WIFI_CHANNEL is not set
+CONFIG_ESPECTRE_WIFI_CHANNEL=0
 ```
 
 Recommended workflow for local Wi-Fi configuration:
@@ -145,10 +146,10 @@ Recommended workflow for local Wi-Fi configuration:
    pin the streamer to a specific AP radio
 4. leave `CONFIG_ESPECTRE_WIFI_CHANNEL` unless you intentionally want to
    pin the streamer to a specific AP channel
-5. build via `./espectre streamer build --chip <esp32|c3|c5|c6|s3>`, which automatically passes
-   `sdkconfig.defaults;sdkconfig.wifi` to `idf.py`
+5. build via `./espectre streamer build --chip <esp32|c3|c5|c6|s3>`, which
+   automatically passes `sdkconfig.defaults;sdkconfig.wifi` to `idf.py`
 
-Alternative BLE provisioning workflow:
+Alternative Wi-Fi Provisioning Over BLE:
 
 1. flash the streamer firmware once
 2. open [`tools/web/espectre-ble.html`](../../../../tools/web/espectre-ble.html)
@@ -157,15 +158,6 @@ Alternative BLE provisioning workflow:
 4. use `Save Wi-Fi` to send `SET_WIFI_SSID`, `SET_WIFI_PASSWORD`,
    `SET_WIFI_BSSID`, `SET_WIFI_CHANNEL`, and `APPLY_WIFI`
 5. request sysinfo and verify `wifi_saved=true`
-
-Example local file:
-
-```ini
-CONFIG_ESPECTRE_WIFI_SSID="YourSSID"
-CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
-# CONFIG_ESPECTRE_WIFI_BSSID is not set
-CONFIG_ESPECTRE_WIFI_CHANNEL=0
-```
 
 Notes:
 
@@ -248,6 +240,10 @@ not generate them on its own and does not reinterpret their meaning.
 
 ## Build and Tooling
 
+Before building locally, complete the shared
+[`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
+Use a shell where `idf.py --version` succeeds.
+
 Repository CLI:
 
 ```bash
@@ -273,11 +269,17 @@ idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
 Current repository CLI target coverage for the streamer frontend includes
 `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, and `ESP32-S3`.
 
+CI QEMU smoke currently covers `ESP32`, `ESP32-S3`, and `ESP32-C3` for the
+streamer frontend. `ESP32-C5` and `ESP32-C6` remain build-only because the
+current Espressif QEMU fork does not support them.
+
 ## Observed ESP32-C3 Throughput
 
-The table below summarizes the latest standalone streamer transport benchmark on
-`ESP32-C3`, measured with collector-driven UDP stimulus and host-side receive
-stats over `4 s` windows.
+The table below summarizes a standalone streamer transport benchmark snapshot on
+`ESP32-C3`, recorded on `2026-07-03` near commit `7d96792`. It was measured
+with collector-driven UDP stimulus and host-side receive stats over `4 s`
+windows. Broader project performance metrics live in
+[`PERFORMANCE.md`](../../../../docs/PERFORMANCE.md).
 
 Benchmark firmware profile:
 

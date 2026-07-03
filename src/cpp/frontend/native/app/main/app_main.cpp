@@ -13,7 +13,11 @@
 #include <esp_mac.h>
 #include <nvs_flash.h>
 
+#if CONFIG_BT_ENABLED
 #include "ble_bindings_nimble.h"
+#else
+#include "ble_bindings_noop.h"
+#endif
 #include "native_frontend.h"
 #include "device_config_store.h"
 #include "mqtt_transport_esp_idf.h"
@@ -179,7 +183,11 @@ extern "C" void app_main() {
     return;
   }
 
+#if CONFIG_BT_ENABLED
   static esphome::espectre::NimbleBleBindings bindings;
+#else
+  static esphome::espectre::NoopBleBindings bindings;
+#endif
   static esphome::espectre::EspIdfMqttTransport mqtt_transport;
   static esphome::espectre::NativeFrontend frontend(&bindings, &mqtt_transport);
   frontend.set_runtime_config(make_runtime_config());

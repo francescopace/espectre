@@ -1,0 +1,9 @@
+# ESPectre streamer QEMU smoke-test overrides
+#
+# Espressif QEMU exposes the UART console path used by the bootloader and app
+# logs, but not the USB Serial/JTAG console used on some real hardware flows.
+# Force the default UART console for CI/QEMU so the smoke marker is visible.
+
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG is not set
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
