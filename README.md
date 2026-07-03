@@ -9,12 +9,26 @@
 
 **ESPectre turns low-cost ESP32 devices into privacy-first Wi-Fi sensing nodes.**
 
-ESPectre detects motion from ordinary Wi-Fi signals, without cameras,
-microphones, wearables, or dedicated radar hardware. It works with Home
-Assistant, Matter, native BLE/MQTT firmware, and custom smart-device builds.
+It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or dedicated radar hardware.  
+It works with Home Assistant, Matter, native BLE/MQTT firmware, and custom smart-device builds.
 
-> [!IMPORTANT]
-> **Upstream milestone**: ESP32 Wi-Fi CSI support for the Micro-ESPectre workflow was contributed upstream and merged in [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460) for the `1.29.0` release cycle. More context is available in [Discussion #142](https://github.com/francescopace/espectre/discussions/142).
+## How It Works
+
+Wi-Fi signals bounce around a room. When a person moves, those reflections change.  
+ESPectre reads Channel State Information (CSI) from an ESP32 Wi-Fi chip and turns those tiny radio-channel changes into motion and movement-score signals.
+
+The shared detection pipeline covers:
+
+- CSI capture and normalization
+- Gain lock and startup behavior
+- Adaptive thresholds and filtering
+- Motion detectors: 
+  - `MVSDetector`, a project-developed signal-processing algorithm 
+  - `MLDetector`, a project-trained neural model with open weights, open data, and an open-source training pipeline
+
+For the signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md).  
+For benchmarks and current caveats, see [PERFORMANCE.md](docs/PERFORMANCE.md).   
+For the ML workflow, training process, and model export path, see [ML_TRAINING.md](docs/ML_TRAINING.md).
 
 ## Why It Matters
 
@@ -26,7 +40,7 @@ ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. The v3 rele
 - **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed into custom ESP32 firmware and OEM products.
 - **Research and ML tooling**: streamer firmware, notebooks, collection tools, and training docs support CSI datasets and future sensing models.
 
-The long-term idea is simple: ordinary Wi-Fi smart devices can become ambient sensing nodes. 
+The long-term idea is simple: ordinary Wi-Fi smart devices can become ambient sensing nodes.  
 Lights, switches, HVAC devices, appliances, and custom ESP32 products can add motion or occupancy awareness without adding cameras or dedicated sensors.
 
 ## Quick Start
@@ -36,7 +50,7 @@ If you want the fastest path, use the browser flasher:
 1. Open [espectre.dev/flash](https://espectre.dev/flash/) with a Chromium-based browser
 2. Pick your firmware and ESP32 target
 3. Flash the board
-4. Continue in [SETUP.md](docs/SETUP.md)
+4. Configure Wi-Fi and the remaining parameters by following the on-screen instructions
 
 Supported hardware:
 
@@ -46,7 +60,7 @@ Supported hardware:
 ![ESP32-S3 DevKit boards with external antennas](docs/images/home_lab.jpg)
 *ESP32-S3 DevKit boards with external antennas*
 
-## Choose Your Path
+## Build Your Own Path
 
 | Path | Best for | Start here |
 |------|----------|------------|
@@ -62,22 +76,6 @@ For shared prerequisites, supported targets, and command entry points, use [SETU
 ![ESPectre Home Assistant dashboard](docs/images/espectre-home-assistant.png)
 *Home Assistant dashboard with motion state, movement score, threshold control, and diagnostics*
 
-## How It Works
-
-Wi-Fi signals bounce around a room. When a person moves, those reflections change. 
-ESPectre reads Channel State Information (CSI) from an ESP32 Wi-Fi chip and turns those tiny radio-channel changes into motion and movement-score signals.
-
-The shared detection pipeline covers:
-
-- CSI capture and normalization
-- gain lock and startup behavior
-- MVS and ML detector paths
-- adaptive thresholds and filtering
-- frontend-specific output through ESPHome, Matter, BLE/MQTT, or streamer tools
-
-For the signal-processing details, see [ALGORITHMS.md](docs/ALGORITHMS.md). 
-For benchmarks and current caveats, see [PERFORMANCE.md](docs/PERFORMANCE.md).
-
 ## Platform Architecture
 
 ESPectre v3 is organized around reusable layers:
@@ -90,14 +88,14 @@ Frontend  ->  Runtime  ->  Core
 - `src/cpp/runtime/`: CSI, Wi-Fi, calibration, runtime contracts, and protocol services
 - `src/cpp/frontend/`: ESPHome, native, Matter, and streamer firmware surfaces
 
-This split keeps sensing logic independent from any single ecosystem. 
+This split keeps sensing logic independent from any single ecosystem.  
 It also creates a practical path for custom firmware and smart-device integrations where ESPectre sensing is one feature inside a larger product.
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full internal model and [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) for the shared BLE/MQTT device protocol.
 
 ## For Device Makers
 
-ESPectre v3 is designed to be more than a reference firmware. 
+ESPectre v3 is designed to be more than a reference firmware.  
 Smart-device makers can reuse the shared sensing layers inside ESP32-based products and map the runtime to their own product surface.
 
 Useful starting points:
@@ -110,9 +108,11 @@ Useful starting points:
 
 ## Why Wi-Fi Sensing Now
 
-ESPectre is built on today's ESP32 CSI APIs, but the broader industry is moving in the same direction. IEEE 802.11bf, also known as Wi-Fi Sensing, standardizes sensing-oriented Wi-Fi capabilities so future chipsets and products can expose motion, presence, and activity signals through vendor-supported interfaces.
+ESPectre is built on today's ESP32 CSI APIs, but the broader industry is moving in the same direction.  
+IEEE 802.11bf, also known as Wi-Fi Sensing, standardizes sensing-oriented Wi-Fi capabilities so future chipsets and products can expose motion, presence, and activity signals through vendor-supported interfaces.
 
-That matters for ESPectre: the project already has reusable sensing logic, runtime boundaries, protocol semantics, data tooling, and multiple frontend surfaces. When a vendor ships a microcontroller or embedded Wi-Fi platform with practical 802.11bf-style sensing support, ESPectre is structurally close to integrating it as another runtime instead of starting over.
+That matters for ESPectre: the project already has reusable sensing logic, runtime boundaries, protocol semantics, data tooling, and multiple frontend surfaces. 
+ When a vendor ships a microcontroller or embedded Wi-Fi platform with practical 802.11bf-style sensing support, ESPectre is structurally close to integrating it as another runtime instead of starting over.
 
 ## Roadmap
 
@@ -123,9 +123,8 @@ That matters for ESPectre: the project already has reusable sensing logic, runti
 | **v3.x** | Turns ESPectre into a modular Wi-Fi sensing platform with Matter, native firmware, streamer tooling, and SDK-oriented reuse |
 | **v4.x** | Adds a privacy-first web orchestration layer for multi-node sensing, device management, history, alerts, and remote visibility |
 
-The v4 web layer is intended to support local, self-hosted, and future managed
-service deployments. ESPectre remains local-first: raw CSI, packet captures, and
-sensitive radio data should not leave the user environment by default.
+The v4 web layer is intended to support local, self-hosted, and future managed service deployments.  
+ESPectre remains local-first: raw CSI, packet captures, and sensitive radio data should not leave the user environment by default.
 
 See [ROADMAP.md](docs/ROADMAP.md) for the detailed plan.
 
@@ -143,8 +142,8 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md), dataset collection in [ML_DATA_CO
 
 ## Responsible Use
 
-ESPectre does not use cameras, microphones, or wearables. It works with derived radio-channel measurements, and the project is designed around a local-first privacy boundary.
-Motion and occupancy signals can still reveal sensitive patterns such as presence, routines, sleep, and absence from home. 
+ESPectre does not use cameras, microphones, or wearables. It works with derived radio-channel measurements, and the project is designed around a local-first privacy boundary. 
+Motion and occupancy signals can still reveal sensitive patterns such as presence, routines, sleep, and absence from home.  
 Use ESPectre only in spaces where you have the right to deploy it, inform affected people, protect retained data, and follow local privacy laws.
 
 ## Documentation
@@ -193,16 +192,15 @@ Frontend-specific docs:
 
 ## Acknowledgments
 
-ESPectre leverages native Wi-Fi CSI capabilities on ESP32 chips. 
-Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in ESP-IDF and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in [esp-csi](https://github.com/espressif/esp-csi).
+- Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in ESP-IDF and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in [esp-csi](https://github.com/espressif/esp-csi).
 
-Thanks to the MicroPython maintainers for reviewing, testing, and merging upstream ESP32 CSI support through [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460).
+- Thanks to the TOMMY team for the constructive public discussion around Wi-Fi sensing approaches, including their [TOMMY vs ESPectre](https://www.tommysense.com/docs/comparisons/espectre-comparison) comparison page.
 
-Thanks also to the TOMMY team for the constructive public discussion around Wi-Fi sensing approaches, including their [TOMMY vs ESPectre](https://www.tommysense.com/docs/comparisons/espectre-comparison) comparison page.
+- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging our [PR](https://github.com/micropython/micropython/pull/18460), which extended the ESP32 `network.WLAN` implementation in mainline MicroPython with direct Wi-Fi CSI access methods. That merge matters well beyond ESPectre: it opened public MicroPython access to ESP32 CSI data for the wider community, where that support did not previously exist, and turned a key part of our sensing stack into upstream open-source infrastructure.
 
 ## License
 
-ESPectre is released under the [GNU General Public License v3.0](LICENSE).
+ESPectre is released under the [GNU General Public License v3.0](LICENSE).  
 Contributions are submitted under GPLv3 and must include a DCO `Signed-off-by` trailer on each commit (`git commit -s`).
 
 ## Author

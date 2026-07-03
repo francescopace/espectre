@@ -19,6 +19,9 @@ htmlcov/
 # Pytest
 .pytest_cache/
 
+# Training cache
+data/auto_generated/training_matrix_*.npz
+
 # Python
 __pycache__/
 *.pyc

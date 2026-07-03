@@ -33,6 +33,7 @@ Useful variants:
 python tools/10_train_ml_model.py --info
 python tools/10_train_ml_model.py --scaler clipped_standard
 python tools/10_train_ml_model.py --feature-set robust_relative --no-export
+python tools/10_train_ml_model.py --device mps
 python tools/10_train_ml_model.py --exclude-chip ESP32
 python tools/10_train_ml_model.py --gain-stress-gate
 python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
@@ -64,11 +65,17 @@ Current default training settings:
 
 - `--fp-weight 2.0`
 - `--scaler standard`
-- `--batch-size 32`
+- `--batch-size 1024`
+- `--device cpu`
 - `--feature-set production`
 
 Values above `1.0` for `--fp-weight` reduce false positives at the cost of
 slightly lower recall.
+
+CUDA and Apple MPS are available only when requested explicitly through
+`--device cuda` or `--device mps`; this small MLP usually runs fastest and most
+predictably on CPU. The trainer caches the derived feature matrix and base
+sample weights for repeat runs; use `--no-cache` to force a rebuild.
 
 ## What The Trainer Does
 
@@ -114,7 +121,8 @@ A plain training run always exports the current seed, while the gated flows
 replace artifacts only after a stricter grouped-CV improvement.
 
 For exploratory sweeps, `--scaler clipped_standard`, `--feature-set
-robust_relative`, and larger `--batch-size` values are available, but
+robust_relative`, alternate `--device` choices, `--no-cache`, and smaller
+`--batch-size` values are available, but
 non-production feature sets should be run with `--no-export` until they pass
 the validation checks below.
 

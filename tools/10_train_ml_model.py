@@ -22,8 +22,10 @@ Usage:
     python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
     python tools/10_train_ml_model.py --scaler clipped_standard
                                                     # Robust clipping + z-score
-    python tools/10_train_ml_model.py --batch-size 1024
-                                                    # Larger batch size experiment
+    python tools/10_train_ml_model.py --batch-size 32
+                                                    # Smaller batch size experiment
+    python tools/10_train_ml_model.py --device cuda # Force CUDA when available
+    python tools/10_train_ml_model.py --device mps  # Force Apple GPU when available
     python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
     python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
 
@@ -45,6 +47,7 @@ import sys
 
 import argparse
 import copy
+import hashlib
 import json
 import numpy as np
 import random
@@ -165,6 +168,49 @@ def ensure_torch_available():
     return torch
 
 
+def set_active_torch_device(device):
+    """Set the process-wide PyTorch training device preference."""
+    global ACTIVE_TORCH_DEVICE
+    ACTIVE_TORCH_DEVICE = str(device or DEFAULT_TORCH_DEVICE).strip().lower()
+
+
+def resolve_torch_device(device=None, torch_module=None):
+    """Resolve a PyTorch device name from cpu/cuda/mps."""
+    torch_mod = torch_module if torch_module is not None else ensure_torch_available()
+    requested = str(device or ACTIVE_TORCH_DEVICE or DEFAULT_TORCH_DEVICE).strip().lower()
+    if requested == 'cuda':
+        if not torch_mod.cuda.is_available():
+            raise RuntimeError("CUDA device requested, but torch.cuda.is_available() is false")
+        return torch_mod.device('cuda')
+    if requested == 'mps':
+        if not (hasattr(torch_mod.backends, 'mps') and torch_mod.backends.mps.is_available()):
+            raise RuntimeError("MPS device requested, but torch.backends.mps.is_available() is false")
+        return torch_mod.device('mps')
+    if requested == 'cpu':
+        return torch_mod.device('cpu')
+    raise ValueError(f"Unsupported torch device: {device!r}")
+
+
+def describe_torch_device(device=None):
+    """Return a compact human-readable training device description."""
+    torch_mod = ensure_torch_available()
+    resolved = resolve_torch_device(device, torch_module=torch_mod)
+    if resolved.type == 'cuda':
+        name = torch_mod.cuda.get_device_name(resolved)
+        return f"cuda ({name})"
+    if resolved.type == 'mps':
+        return "mps (Apple Metal)"
+    return "cpu"
+
+
+def model_torch_device(model):
+    """Return the device where a TorchMLP stores its parameters."""
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        return resolve_torch_device('cpu')
+
+
 def resolve_training_seed(seed, trailing_newline=False):
     """Resolve and print the seed used for a training/evaluation run."""
     suffix = "\n" if trailing_newline else ""
@@ -268,8 +314,9 @@ def predict_logits(model, X):
     if not isinstance(model, TorchMLP):
         raise TypeError(f"Unsupported model type for logits: {type(model)!r}")
     model.eval()
+    device = model_torch_device(model)
     with torch.no_grad():
-        logits = model.forward_logits(torch.from_numpy(X))
+        logits = model.forward_logits(torch.from_numpy(X).to(device))
     return logits.detach().cpu().numpy().reshape(-1)
 
 # Import csi_utils first - it sets up paths automatically
@@ -314,7 +361,9 @@ CPP_DIR = cpp_core_dir()
 DEFAULT_HIDDEN_LAYERS = [32, 16]
 DEFAULT_FP_WEIGHT = 2.0
 DEFAULT_SCALER_MODE = 'standard'
-DEFAULT_BATCH_SIZE = 32
+DEFAULT_BATCH_SIZE = 1024
+DEFAULT_TORCH_DEVICE = 'cpu'
+TRAINING_CACHE_VERSION = 1
 DEFAULT_ML_TEMPERATURE = 5.0
 # All chips included: MLDetector keeps MVS CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
@@ -372,6 +421,7 @@ DEFAULT_REPORT_GROUP_KEYS = (
     'session_group',
     'source_file',
 )
+ACTIVE_TORCH_DEVICE = DEFAULT_TORCH_DEVICE
 # ============================================================================
 # Data Loading
 # ============================================================================
@@ -908,8 +958,10 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     dataset_info = load_dataset_info()
     file_metadata = get_file_metadata(dataset_info)
     
-    # Scan all subdirectories in data/
-    excluded_dirs = {'.'}
+    # Scan raw dataset subdirectories only. Generated artifacts such as
+    # data/auto_generated/*.npz are not packet captures and should not be
+    # parsed as CSI inputs.
+    excluded_dirs = {'.', GENERATED_DATA_DIR.name}
     for subdir in sorted(DATA_DIR.iterdir()):
         if not subdir.is_dir() or subdir.name in excluded_dirs:
             continue
@@ -1004,6 +1056,191 @@ def load_all_data(environment_filter=None, excluded_chips=None,
     return all_packets, stats
 
 
+def _training_cache_manifest(feature_names, environment_filter=None,
+                             excluded_chips=None,
+                             allowed_labels=BINARY_TRAINING_LABELS,
+                             window_size=SEG_WINDOW_SIZE,
+                             enable_hampel=True,
+                             hampel_window=HAMPEL_WINDOW,
+                             hampel_threshold=HAMPEL_THRESHOLD):
+    """Build a stable manifest for cached training matrices."""
+    allowed_labels = sorted(normalize_allowed_labels(allowed_labels) or ())
+    environment_filter = sorted(parse_environment_filter(environment_filter) or ())
+    excluded_chips = sorted(parse_chip_filter(excluded_chips) or ())
+    files = []
+    for npz_file in sorted(DATA_DIR.glob('*/*.npz')):
+        if allowed_labels and npz_file.parent.name.lower() not in allowed_labels:
+            continue
+        try:
+            stat = npz_file.stat()
+        except OSError:
+            continue
+        files.append({
+            'path': str(npz_file.relative_to(DATA_DIR)),
+            'size': int(stat.st_size),
+            'mtime_ns': int(stat.st_mtime_ns),
+        })
+
+    info_path = DATA_DIR / 'dataset_info.json'
+    dataset_info = None
+    if info_path.exists():
+        stat = info_path.stat()
+        dataset_info = {
+            'path': str(info_path.relative_to(DATA_DIR)),
+            'size': int(stat.st_size),
+            'mtime_ns': int(stat.st_mtime_ns),
+        }
+
+    return {
+        'version': TRAINING_CACHE_VERSION,
+        'feature_names': list(feature_names),
+        'allowed_labels': allowed_labels,
+        'environment_filter': environment_filter,
+        'excluded_chips': excluded_chips,
+        'default_subcarriers': [int(sc) for sc in DEFAULT_SUBCARRIERS],
+        'window_size': int(window_size),
+        'enable_hampel': bool(enable_hampel),
+        'hampel_window': int(hampel_window),
+        'hampel_threshold': float(hampel_threshold),
+        'dataset_info': dataset_info,
+        'files': files,
+    }
+
+
+def _training_cache_path(manifest):
+    """Return the on-disk cache path for a training manifest."""
+    payload = json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    digest = hashlib.sha256(payload).hexdigest()[:16]
+    return GENERATED_DATA_DIR / f'training_matrix_{digest}.npz'
+
+
+def _load_training_matrix_cache(cache_path, manifest):
+    """Load cached feature matrix, labels, context, stats, and base weights."""
+    if not cache_path.exists():
+        return None
+    try:
+        with np.load(cache_path, allow_pickle=True) as data:
+            cached_manifest = json.loads(str(data['manifest_json'].item()))
+            if cached_manifest != manifest:
+                return None
+            sample_context = {
+                key: data[f'ctx_{key}']
+                for key in data['context_keys'].tolist()
+            }
+            stats = json.loads(str(data['stats_json'].item()))
+            return {
+                'X': data['X'].astype(np.float32, copy=False),
+                'y': data['y'].astype(np.int8, copy=False),
+                'feature_names': data['feature_names'].astype(str).tolist(),
+                'sample_context': sample_context,
+                'sample_weights': data['sample_weights'].astype(np.float32, copy=False),
+                'stats': stats,
+            }
+    except Exception as exc:
+        print(f"  Warning: ignoring invalid training cache {cache_path.name}: {exc}")
+        return None
+
+
+def _save_training_matrix_cache(cache_path, manifest, X, y, feature_names,
+                                sample_context, sample_weights, stats):
+    """Persist a training matrix cache for repeated local runs."""
+    try:
+        GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            'manifest_json': np.asarray(json.dumps(manifest, sort_keys=True)),
+            'stats_json': np.asarray(json.dumps(stats, sort_keys=True)),
+            'X': np.asarray(X, dtype=np.float32),
+            'y': np.asarray(y, dtype=np.int8),
+            'feature_names': np.asarray(feature_names, dtype=object),
+            'sample_weights': np.asarray(sample_weights, dtype=np.float32),
+            'context_keys': np.asarray(list(sample_context.keys()), dtype=object),
+        }
+        for key, values in sample_context.items():
+            payload[f'ctx_{key}'] = np.asarray(values)
+        np.savez(cache_path, **payload)
+    except Exception as exc:
+        print(f"  Warning: could not write training cache {cache_path.name}: {exc}")
+
+
+def load_training_matrix(environment_filter=None, excluded_chips=None,
+                         feature_names=None, use_cache=True):
+    """Load or build the cached training matrix used by binary ML training."""
+    if feature_names is None:
+        feature_names = DEFAULT_FEATURES.copy()
+    feature_names = list(feature_names)
+
+    manifest = _training_cache_manifest(
+        feature_names,
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+        allowed_labels=BINARY_TRAINING_LABELS,
+    )
+    cache_path = _training_cache_path(manifest)
+    if use_cache:
+        cached = _load_training_matrix_cache(cache_path, manifest)
+        if cached is not None:
+            print(f"  Training matrix cache: hit ({cache_path.name})")
+            return cached, None
+        print(f"  Training matrix cache: miss ({cache_path.name})")
+    else:
+        print("  Training matrix cache: disabled")
+
+    load_start = perf_counter()
+    all_packets, stats = load_all_data(
+        environment_filter=environment_filter,
+        excluded_chips=excluded_chips,
+    )
+    print(f"  Load time: {format_duration(perf_counter() - load_start)}")
+
+    if not stats['chips']:
+        return {
+            'X': np.empty((0, len(feature_names)), dtype=np.float32),
+            'y': np.asarray([], dtype=np.int8),
+            'feature_names': feature_names,
+            'sample_context': {},
+            'sample_weights': np.asarray([], dtype=np.float32),
+            'stats': stats,
+        }, all_packets
+
+    print("\nExtracting features...")
+    features_start = perf_counter()
+    X, y, actual_feature_names, sample_context = extract_features(
+        all_packets, feature_names=feature_names
+    )
+    print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
+
+    print("\nComputing MVS-guided sample weights...")
+    weights_start = perf_counter()
+    dataset_info = load_dataset_info()
+    tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
+    sample_weights = compute_mvs_guided_sample_weights(
+        all_packets, tuning_map, window_size=SEG_WINDOW_SIZE
+    )
+    print(f"  Sample weights time: {format_duration(perf_counter() - weights_start)}")
+
+    matrix = {
+        'X': np.asarray(X, dtype=np.float32),
+        'y': np.asarray(y, dtype=np.int8),
+        'feature_names': list(actual_feature_names),
+        'sample_context': sample_context,
+        'sample_weights': np.asarray(sample_weights, dtype=np.float32),
+        'stats': stats,
+    }
+    if use_cache:
+        _save_training_matrix_cache(
+            cache_path,
+            manifest,
+            matrix['X'],
+            matrix['y'],
+            matrix['feature_names'],
+            matrix['sample_context'],
+            matrix['sample_weights'],
+            matrix['stats'],
+        )
+        print(f"  Training matrix cache: wrote {cache_path.name}")
+    return matrix, all_packets
+
+
 def extract_features(packets, window_size=SEG_WINDOW_SIZE,
                      feature_names=None, return_metadata=False,
                      enable_hampel=True, hampel_window=HAMPEL_WINDOW, hampel_threshold=HAMPEL_THRESHOLD,
@@ -1074,11 +1311,11 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
-            use_cv_normalization = not bool(pkt.get('gain_locked', True))
-
-            turb, amps = SegmentationContext.compute_spatial_turbulence(
-                csi_data, DEFAULT_SUBCARRIERS,
-                use_cv_normalization=use_cv_normalization,
+            ctx.use_cv_normalization = not bool(pkt.get('gain_locked', True))
+            turb, amps = ctx.calculate_spatial_turbulence(
+                csi_data,
+                DEFAULT_SUBCARRIERS,
+                return_amplitudes=True,
             )
             ctx.add_turbulence(turb)
             last_amplitudes = amps
@@ -1106,8 +1343,8 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             sample_context['window_index'].append(window_index)
             window_index += 1
 
-    X_arr = np.array(X)
-    y_arr = np.array(y)
+    X_arr = np.asarray(X, dtype=np.float32)
+    y_arr = np.asarray(y, dtype=np.int8)
     context_arrays = {
         key: np.asarray(values, dtype=np.int32 if key in ('packet_index', 'window_index') else object)
         for key, values in sample_context.items()
@@ -1150,10 +1387,10 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
         ctx = SegmentationContext(window_size=window_size, threshold=effective_threshold)
         file_weights = []
         for pkt in file_packets:
-            use_cv_normalization = not bool(pkt.get('gain_locked', True))
-            turb, _ = SegmentationContext.compute_spatial_turbulence(
-                pkt['csi_data'], DEFAULT_SUBCARRIERS,
-                use_cv_normalization=use_cv_normalization,
+            ctx.use_cv_normalization = not bool(pkt.get('gain_locked', True))
+            turb = ctx.calculate_spatial_turbulence(
+                pkt['csi_data'],
+                DEFAULT_SUBCARRIERS,
             )
             ctx.add_turbulence(turb)
             ctx.update_state()
@@ -1675,7 +1912,8 @@ def experiment_gain_feature_sets(seed=None, feature_sets=None,
                                  hidden_layers=None,
                                  environment_filter=None,
                                  excluded_chips=None,
-                                 scales=DEFAULT_GAIN_STRESS_SCALES):
+                                 scales=DEFAULT_GAIN_STRESS_SCALES,
+                                 use_cache=True):
     """Compare raw, relative, and hybrid feature sets under gain stress."""
     total_start = perf_counter()
     if hidden_layers is None:
@@ -1689,10 +1927,14 @@ def experiment_gain_feature_sets(seed=None, feature_sets=None,
 
     try:
         ensure_torch_available()
+        torch_device_label = describe_torch_device()
         seed = resolve_training_seed(seed)
         set_global_determinism(seed, torch_module=torch)
     except ImportError as exc:
         print(f"Error: Missing dependency - {exc}")
+        return 1, seed, None
+    except (RuntimeError, ValueError) as exc:
+        print(f"Error: {exc}")
         return 1, seed, None
 
     print("\n" + "=" * 78)
@@ -1702,19 +1944,22 @@ def experiment_gain_feature_sets(seed=None, feature_sets=None,
     print(f"Scales: {', '.join(f'{scale:g}' for scale in scales)}")
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}")
+    print(f"Torch device: {torch_device_label}")
     print(f"FP weight: {fp_weight}")
     if environment_filter is not None:
         print(f"Environment filter: {', '.join(sorted(environment_filter))}")
     if excluded_chips is not None:
         print(f"Excluded chips: {', '.join(sorted(excluded_chips))}")
 
-    print("\nLoading data...")
-    all_packets, stats = load_all_data(
+    print("\nLoading raw feature matrix...")
+    matrix, _ = load_training_matrix(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
-        allowed_labels=BINARY_TRAINING_LABELS,
+        feature_names=RAW_FEATURES,
+        use_cache=use_cache,
     )
-    if not all_packets:
+    stats = matrix['stats']
+    if not stats['chips']:
         print("Error: No empty/static_presence/motion data found")
         return 1, seed, None
     print(f"  Chips: {', '.join(stats['chips'])}")
@@ -1722,18 +1967,11 @@ def experiment_gain_feature_sets(seed=None, feature_sets=None,
         print(f"  Environments: {', '.join(stats['environment_groups'])}")
     print(f"  Total packets: {stats['total']}")
 
-    print("\nExtracting raw base features...")
-    X_raw_base, y, raw_feature_names, sample_context = extract_features(
-        all_packets,
-        feature_names=RAW_FEATURES,
-    )
-    dataset_info = load_dataset_info()
-    tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
-    sample_weights = compute_mvs_guided_sample_weights(
-        all_packets,
-        tuning_map,
-        window_size=SEG_WINDOW_SIZE,
-    )
+    X_raw_base = matrix['X']
+    y = matrix['y']
+    raw_feature_names = matrix['feature_names']
+    sample_context = matrix['sample_context']
+    sample_weights = matrix['sample_weights']
     eval_groups = sample_context[DEFAULT_PRIMARY_GROUP_KEY]
     print(f"  Samples: {len(X_raw_base)}")
     print(f"  Raw features: {', '.join(raw_feature_names)}")
@@ -1933,12 +2171,13 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
     y = np.asarray(y, dtype=np.float32)
     num_features = X.shape[1] if hasattr(X, 'shape') else len(X[0])
     set_global_determinism(seed, torch_module=torch_mod)
+    device = resolve_torch_device(torch_module=torch_mod)
     model = build_model(
         hidden_layers=hidden_layers,
         num_features=num_features,
         use_dropout=use_dropout,
         seed=seed,
-    )
+    ).to(device)
     
     # Keep a stratified validation split instead of relying on implicit slicing.
     from sklearn.model_selection import train_test_split as _val_split
@@ -1961,12 +2200,20 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
         min_lr=1e-6,
     )
 
-    X_t_tensor = torch.from_numpy(np.asarray(X_t, dtype=np.float32))
-    y_t_tensor = torch.from_numpy(np.asarray(y_t, dtype=np.float32)).view(-1, 1)
-    X_v_tensor = torch.from_numpy(np.asarray(X_v, dtype=np.float32))
-    y_v_tensor = torch.from_numpy(np.asarray(y_v, dtype=np.float32)).view(-1, 1)
-    sw_t_tensor = None if sw_t is None else torch.from_numpy(np.asarray(sw_t, dtype=np.float32)).view(-1, 1)
-    sw_v_tensor = None if sw_v is None else torch.from_numpy(np.asarray(sw_v, dtype=np.float32)).view(-1, 1)
+    X_t_tensor = torch.from_numpy(np.asarray(X_t, dtype=np.float32)).to(device)
+    y_t_tensor = torch.from_numpy(np.asarray(y_t, dtype=np.float32)).view(-1, 1).to(device)
+    X_v_tensor = torch.from_numpy(np.asarray(X_v, dtype=np.float32)).to(device)
+    y_v_tensor = torch.from_numpy(np.asarray(y_v, dtype=np.float32)).view(-1, 1).to(device)
+    sw_t_tensor = (
+        None
+        if sw_t is None
+        else torch.from_numpy(np.asarray(sw_t, dtype=np.float32)).view(-1, 1).to(device)
+    )
+    sw_v_tensor = (
+        None
+        if sw_v is None
+        else torch.from_numpy(np.asarray(sw_v, dtype=np.float32)).view(-1, 1).to(device)
+    )
 
     best_state = copy.deepcopy(model.state_dict())
     best_val_loss = float('inf')
@@ -2468,7 +2715,7 @@ def export_test_data(model, scaler, X_test_raw, y_test, output_path, sample_cont
 # Feature Importance (Correlation)
 # ============================================================================
 
-def calculate_correlation_importance(feature_names=None):
+def calculate_correlation_importance(feature_names=None, use_cache=True):
     """
     Calculate correlation of selected training features with motion label.
     
@@ -2487,14 +2734,18 @@ def calculate_correlation_importance(feature_names=None):
     print("\nCalculating feature correlations...")
     print(f"  Analyzing {len(feature_names)} features")
     
-    # Reuse existing data loading and feature extraction
-    all_packets, stats = load_all_data()
+    matrix, _ = load_training_matrix(
+        feature_names=feature_names,
+        use_cache=use_cache,
+    )
+    stats = matrix['stats']
     print(f"  Loaded {stats['total']} packets")
     if stats.get('cv_norm_files'):
         print(f"  Files using CV normalization: {len(stats['cv_norm_files'])}")
-    
-    print("  Extracting features...")
-    X, y, actual_features, _ = extract_features(all_packets, feature_names=feature_names)
+
+    X = matrix['X']
+    y = matrix['y']
+    actual_features = matrix['feature_names']
     print(f"  Extracted features for {len(X)} samples")
     
     # Calculate correlations for each feature column
@@ -3043,7 +3294,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
               hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
               batch_size=DEFAULT_BATCH_SIZE, export_artifacts=True,
               environment_filter=None, excluded_chips=None,
-              positive_chip_boost=None):
+              positive_chip_boost=None, use_cache=True):
     """
     Train models with all available data.
     
@@ -3063,6 +3314,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         excluded_chips: Optional chip name(s) to exclude.
         positive_chip_boost: Optional {CHIP: factor} boost applied to motion
                              samples after feature extraction.
+        use_cache: If True, reuse cached feature matrix and base sample weights.
 
     Returns:
         tuple[int, int | None, dict | None]:
@@ -3077,6 +3329,9 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
     if hidden_layers is None:
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+    if feature_names is None:
+        feature_names = DEFAULT_FEATURES.copy()
+    feature_names = list(feature_names)
     
     print("\n" + "="*60)
     print("           ML MOTION DETECTOR TRAINING")
@@ -3086,21 +3341,31 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     # Check dependencies and initialize deterministic training state.
     try:
         ensure_torch_available()
+        torch_device_label = describe_torch_device()
         seed = resolve_training_seed(seed, trailing_newline=True)
         set_global_determinism(seed, torch_module=torch)
     except ImportError as e:
         print(f"Error: Missing dependency - {e}")
         print("Install with: pip install torch scikit-learn")
         return 1, None, None
+    except (RuntimeError, ValueError) as e:
+        print(f"Error: {e}")
+        return 1, seed, None
     
-    # Load data
-    print("Loading data...")
-    load_start = perf_counter()
-    all_packets, stats = load_all_data(
+    # Load or build the feature matrix used by training and CV.
+    print("Loading training matrix...")
+    matrix, _all_packets = load_training_matrix(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
+        feature_names=feature_names if feature_names is not None else DEFAULT_FEATURES.copy(),
+        use_cache=use_cache,
     )
-    print(f"  Load time: {format_duration(perf_counter() - load_start)}")
+    X = matrix['X']
+    y = matrix['y']
+    actual_feature_names = matrix['feature_names']
+    sample_context = matrix['sample_context']
+    sample_weights = matrix['sample_weights']
+    stats = matrix['stats']
     
     if not stats['chips']:
         print("Error: No datasets found in data/")
@@ -3123,20 +3388,11 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         print(f"  {label}: {count} packets")
     print(f"  Total: {stats['total']} packets")
     
-    # Determine feature set to use
-    if feature_names is None:
-        feature_names = DEFAULT_FEATURES.copy()
     print(f"Architecture: {' -> '.join(map(str, [len(feature_names)] + hidden_layers + [1]))}")
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}\n")
+    print(f"Torch device: {torch_device_label}\n")
     
-    # Extract features
-    print("\nExtracting features...")
-    features_start = perf_counter()
-    X, y, actual_feature_names, sample_context = extract_features(
-        all_packets, feature_names=feature_names
-    )
-    print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
     print(f"  Samples: {len(X)}")
     print(f"  Features: {len(actual_feature_names)}")
     print(f"  Feature set: {', '.join(actual_feature_names)}")
@@ -3152,13 +3408,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print(f"  Primary eval groups ({DEFAULT_PRIMARY_GROUP_KEY}): {unique_eval_groups}")
     print(f"  Evaluation block stride: {SEG_WINDOW_SIZE} windows per source file")
 
-    print("\nComputing MVS-guided sample weights...")
-    weights_start = perf_counter()
-    dataset_info = load_dataset_info()
-    tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
-    sample_weights = compute_mvs_guided_sample_weights(
-        all_packets, tuning_map, window_size=SEG_WINDOW_SIZE
-    )
     boosted_weights, boost_summary = apply_positive_chip_boost(
         sample_weights,
         sample_context,
@@ -3166,7 +3415,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         positive_chip_boost,
     )
     sample_weights = boosted_weights
-    print(f"  Sample weights time: {format_duration(perf_counter() - weights_start)}")
     if len(sample_weights) != len(X):
         print(
             f"Error: sample weights mismatch (weights={len(sample_weights)}, samples={len(X)})."
@@ -3704,7 +3952,8 @@ def _restore_artifacts(saved_files):
 def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_names=None,
                             hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
                             batch_size=DEFAULT_BATCH_SIZE, environment_filter=None,
-                            excluded_chips=None, positive_chip_boost=None):
+                            excluded_chips=None, positive_chip_boost=None,
+                            use_cache=True):
     """
     Train repeatedly with auto-generated seeds until the promoted candidate improves.
 
@@ -3723,6 +3972,15 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
+    try:
+        ensure_torch_available()
+        torch_device_label = describe_torch_device()
+    except ImportError as exc:
+        print(f"Error: Missing dependency - {exc}")
+        return 1
+    except (RuntimeError, ValueError) as exc:
+        print(f"Error: {exc}")
+        return 1
 
     print("\n" + "=" * 70)
     print("  SEED SEARCH (loop until improvement)")
@@ -3731,6 +3989,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     print(f"FP weight: {fp_weight}")
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}")
+    print(f"Torch device: {torch_device_label}")
     if environment_filter is not None:
         print(f"Environment filter: {', '.join(sorted(parse_environment_filter(environment_filter)))}")
     if excluded_chips is not None:
@@ -3761,6 +4020,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         positive_chip_boost=positive_chip_boost,
+        use_cache=use_cache,
     )
     if static_presence_rc != 0 or static_presence_metrics is None:
         print("Error: unable to evaluate current model baseline")
@@ -3808,6 +4068,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             environment_filter=environment_filter,
             excluded_chips=excluded_chips,
             positive_chip_boost=positive_chip_boost,
+            use_cache=use_cache,
         )
         if train_rc != 0 or metrics is None:
             print(f"  Training failed (exit={train_rc})")
@@ -3841,6 +4102,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             environment_filter=environment_filter,
             excluded_chips=excluded_chips,
             positive_chip_boost=positive_chip_boost,
+            use_cache=use_cache,
         )
         if export_rc != 0 or final_metrics is None:
             print("  Candidate export failed, restoring previous artifacts")
@@ -4108,7 +4370,8 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
                              architectures=None,
                              positive_chip_boost=None,
                              output_path=DEFAULT_EXPERIMENT_OUTPUT,
-                             promote_winner=False):
+                             promote_winner=False,
+                             use_cache=True):
     """Run the FP-first architecture campaign and optionally promote a winner."""
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
@@ -4131,11 +4394,22 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     )
     screening_seed = read_exported_seed() or DEFAULT_EXPERIMENT_SCREENING_SEED
 
+    try:
+        ensure_torch_available()
+        torch_device_label = describe_torch_device()
+    except ImportError as exc:
+        print(f"Error: Missing dependency - {exc}")
+        return 1
+    except (RuntimeError, ValueError) as exc:
+        print(f"Error: {exc}")
+        return 1
+
     print("\n" + "=" * 70)
     print("  FP-FIRST MLP ARCHITECTURE CAMPAIGN")
     print("=" * 70)
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}")
+    print(f"Torch device: {torch_device_label}")
     print(f"FP weight: {fp_weight}")
     print(f"Screening seed: {screening_seed}")
     print(
@@ -4152,17 +4426,14 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
             + ', '.join(f"{chip}={factor:.2f}" for chip, factor in sorted(positive_chip_boost.items()))
         )
 
-    try:
-        ensure_torch_available()
-    except ImportError as exc:
-        print(f"Error: Missing dependency - {exc}")
-        return 1
-
-    print("\nLoading data...")
-    all_packets, stats = load_all_data(
+    print("\nLoading training matrix...")
+    matrix, _ = load_training_matrix(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
+        feature_names=TRAINING_FEATURES,
+        use_cache=use_cache,
     )
+    stats = matrix['stats']
     if not stats['chips']:
         print("Error: No datasets found in data/")
         return 1
@@ -4171,21 +4442,11 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     print(f"  Session groups: {len(stats.get('session_groups', []))}")
     print(f"  Total: {stats['total']} packets")
 
-    print("\nExtracting features...")
-    X, y, feature_names, sample_context = extract_features(
-        all_packets,
-        feature_names=TRAINING_FEATURES,
-    )
-    dataset_info = load_dataset_info()
-    tuning_map = build_gridsearch_tuning_map(
-        dataset_info,
-        default_threshold=1.0,
-    )
-    sample_weights = compute_mvs_guided_sample_weights(
-        all_packets,
-        tuning_map,
-        window_size=SEG_WINDOW_SIZE,
-    )
+    X = matrix['X']
+    y = matrix['y']
+    feature_names = matrix['feature_names']
+    sample_context = matrix['sample_context']
+    sample_weights = matrix['sample_weights']
     sample_weights, boost_summary = apply_positive_chip_boost(
         sample_weights,
         sample_context,
@@ -4359,6 +4620,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         positive_chip_boost=positive_chip_boost,
+        use_cache=use_cache,
     )
     if export_rc != 0 or export_metrics is None:
         _restore_artifacts(saved_files)
@@ -4424,7 +4686,10 @@ Examples:
   python tools/10_train_ml_model.py --fp-weight 2.0    # Penalize FP 2x more
   python tools/10_train_ml_model.py --scaler clipped_standard
                                            # Robust clipping + z-score
-  python tools/10_train_ml_model.py --batch-size 1024   # Larger batch size experiment
+  python tools/10_train_ml_model.py --batch-size 32     # Smaller batch size experiment
+  python tools/10_train_ml_model.py --device cuda       # Force CUDA when available
+  python tools/10_train_ml_model.py --device mps        # Force Apple GPU when available
+  python tools/10_train_ml_model.py --no-cache          # Rebuild cached training matrix
   python tools/10_train_ml_model.py --seed 42          # Reproducible training
   python tools/10_train_ml_model.py --hidden-layers 24,12 --positive-chip-boost ESP32=1.2
                                            # Bias training slightly toward ESP32 motion recall
@@ -4485,6 +4750,10 @@ To compare ML with MVS, use:
     parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
                        help='Mini-batch size for PyTorch training '
                             f'(default: {DEFAULT_BATCH_SIZE})')
+    parser.add_argument('--device', choices=['cpu', 'cuda', 'mps'],
+                       default=DEFAULT_TORCH_DEVICE,
+                       help='PyTorch training device. CUDA and MPS are opt-in '
+                            f'(default: {DEFAULT_TORCH_DEVICE})')
     parser.add_argument('--hidden-layers', type=parse_hidden_layers, default=None,
                        help='Comma-separated hidden layer widths for the MLP '
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
@@ -4493,6 +4762,8 @@ To compare ML with MVS, use:
                             '(default: production)')
     parser.add_argument('--no-export', action='store_true',
                        help='Run training/CV analysis without exporting runtime artifacts')
+    parser.add_argument('--no-cache', action='store_true',
+                       help='Rebuild training features and sample weights instead of using the local cache')
     parser.add_argument('--environment', type=str, default=None,
                        help='Restrict training/evaluation to one or more named environments '
                             '(comma-separated, e.g. bedroom or bedroom,living_room)')
@@ -4511,6 +4782,7 @@ To compare ML with MVS, use:
     parser.add_argument('--ablation', action='store_true',
                        help='Run ablation study (test removing each feature)')
     args = parser.parse_args()
+    set_active_torch_device(args.device)
     selected_training_features = resolve_training_feature_set(args.feature_set)
     export_compatible_feature_set = args.feature_set == 'production'
     
@@ -4562,6 +4834,7 @@ To compare ML with MVS, use:
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
             scales=args.gain_stress_scales,
+            use_cache=not args.no_cache,
         )
         return rc
 
@@ -4579,10 +4852,14 @@ To compare ML with MVS, use:
             positive_chip_boost=args.positive_chip_boost,
             output_path=args.experiment_output,
             promote_winner=args.experiment_promote,
+            use_cache=not args.no_cache,
         )
     
     if args.correlation:
-        correlations = calculate_correlation_importance(feature_names=selected_training_features)
+        correlations = calculate_correlation_importance(
+            feature_names=selected_training_features,
+            use_cache=not args.no_cache,
+        )
         if correlations:
             print_correlation_table(correlations, selected_training_features)
         return 0
@@ -4607,6 +4884,7 @@ To compare ML with MVS, use:
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
             positive_chip_boost=args.positive_chip_boost,
+            use_cache=not args.no_cache,
         )
     
     if (
@@ -4634,6 +4912,7 @@ To compare ML with MVS, use:
         environment_filter=args.environment,
         excluded_chips=args.exclude_chip,
         positive_chip_boost=args.positive_chip_boost,
+        use_cache=not args.no_cache,
         export_artifacts=not args.no_export,
     )
     return train_rc
