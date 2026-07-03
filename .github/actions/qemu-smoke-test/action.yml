@@ -92,16 +92,22 @@ runs:
       run: |
         # Select QEMU binary based on architecture
         if [ "${{ inputs.arch }}" = "xtensa" ]; then
-          QEMU_PATH="/opt/esp/tools/qemu-xtensa/esp_develop_9.2.2_20250817/qemu/bin/qemu-system-xtensa"
+          QEMU_BIN="qemu-system-xtensa"
         else
-          QEMU_PATH="/opt/esp/tools/qemu-riscv32/esp_develop_9.2.2_20250817/qemu/bin/qemu-system-riscv32"
+          QEMU_BIN="qemu-system-riscv32"
         fi
         
         set +e
         docker run --rm \
+          -e QEMU_BIN="$QEMU_BIN" \
           -v /tmp/flash_qemu.bin:/flash.bin \
           espressif/idf:release-v5.5 bash -c "
-            timeout 60 $QEMU_PATH \
+            QEMU_PATH=\$(command -v \"\$QEMU_BIN\")
+            if [ -z \"\$QEMU_PATH\" ]; then
+              echo \"QEMU binary not found on PATH: \$QEMU_BIN\" >&2
+              exit 127
+            fi
+            timeout 60 \"\$QEMU_PATH\" \
               -nographic \
               -machine ${{ inputs.machine }} \
               -drive file=/flash.bin,if=mtd,format=raw \
@@ -125,10 +131,11 @@ runs:
         echo "========================================"
         
         # Filter out known QEMU limitations before crash detection.
-        # esp_phy_enable asserts when WiFi starts because QEMU does not emulate
-        # the modem clock registers (PHY_INIT_MODEM_CLOCK_REQUIRED_BITS). This is
-        # a known, expected limitation - not a firmware bug. IDF 5.5.3 made this
-        # assert explicit; older versions would silently stall instead.
+        # In ESP-IDF 5.5.x, WiFi/PHY bring-up in QEMU can still fail because
+        # QEMU does not emulate the modem clock/register state required by PHY
+        # initialization (for example PHY_INIT_MODEM_CLOCK_REQUIRED_BITS). This
+        # may surface as esp_phy_enable-related asserts or later PHY panics, and
+        # is a known emulator limitation rather than a firmware bug.
         grep -viE "assert failed: esp_phy_enable|phy_module_has_clock_bits|PHY_INIT_MODEM_CLOCK_REQUIRED_BITS" qemu_output.log > qemu_output_filtered.log || true
 
         # Check for crashes

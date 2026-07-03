@@ -114,15 +114,12 @@ Production code under test lives outside `test/`:
 
 Smoke tests run automatically in CI using the composite action `.github/actions/qemu-smoke-test/`.
 
-To run locally with `act`:
+Current CI smoke coverage includes these firmware frontends:
 
-```bash
-# Install act (https://github.com/nektos/act)
-brew install act  # macOS
-
-# Run a specific smoke test
-act -j build --matrix chip:"QEMU ESP32-C3" -P ubuntu-latest=catthehacker/ubuntu:act-latest
-```
+- `ESPHome`
+- `Matter`
+- `Native`
+- `Streamer`
 
 ### What it detects
 
@@ -139,9 +136,12 @@ act -j build --matrix chip:"QEMU ESP32-C3" -P ubuntu-latest=catthehacker/ubuntu:
 | ESP32-S3 | Xtensa | esp32s3 |
 | ESP32-C3 | RISC-V | esp32c3 |
 
+Current QEMU-backed smoke coverage is limited to the supported Espressif QEMU
+targets above. `ESP32-C5` and `ESP32-C6` remain build-only in CI.
+
 > Note: WiFi PHY is not fully emulated by QEMU. The CI smoke test filters the known PHY assert so boot regressions still surface without failing on emulator limitations.
 
-> **Note**: Smoke tests appear as "Smoke Test ESP32-C3" etc. in CI.
+> **Note**: CI job names reflect the frontend under test, for example `Smoke Test Matter ESP32-C3`, `Smoke Test Native ESP32`, or `Smoke Test Streamer ESP32-S3`.
 
 ---
 

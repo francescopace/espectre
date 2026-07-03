@@ -38,6 +38,96 @@ Current entry-point support by frontend:
 - Chromium-based browser with Web Serial support for browser flashing
 - For local workflows, use the repository CLI namespaces documented in each frontend README
 
+### ESP-IDF Local Build Prerequisite
+
+Local `Native`, `Matter`, and `Streamer` firmware builds require ESP-IDF to be
+installed before you run the repository build commands.
+
+The repository Python dependencies include ESPHome. ESPHome uses PlatformIO and
+can provide a reusable ESP-IDF framework package at
+`~/.platformio/packages/framework-espidf` after an ESPHome build has downloaded
+it. If that package exists, reuse it instead of installing a second ESP-IDF
+copy.
+
+For the current repository baseline, `requirements.txt` pins
+`esphome==2026.6.2`, and the matching ESPHome/PlatformIO ESP-IDF framework
+package is ESP-IDF `5.5.4` (`framework-espidf` package `3.50504.0`). Use that
+same ESP-IDF version for local `Native`, `Matter`, and `Streamer` builds. If
+the ESPHome/PlatformIO package does not exist yet, install ESP-IDF `5.5.4` with
+the official Espressif setup flow for your host:
+
+- [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html)
+
+One-time repository setup:
+
+macOS/Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Windows PowerShell:
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+Per-shell environment setup before local ESP-IDF frontend builds:
+
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+source ~/.platformio/packages/framework-espidf/export.sh
+```
+
+Windows:
+
+1. Open the ESP-IDF PowerShell or Command Prompt provided by the ESP-IDF
+   installer. If you are reusing the ESPHome/PlatformIO package instead, open
+   PowerShell and export that package:
+
+   ```powershell
+   . "$env:USERPROFILE\.platformio\packages\framework-espidf\export.ps1"
+   ```
+
+2. Activate the repository virtual environment:
+
+   ```powershell
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+3. Continue with the frontend-specific `.\espectre.cmd ...` command.
+
+Common ESP-IDF export paths:
+
+| Install source | How to find or activate it |
+|----------------|----------------------------|
+| ESPHome/PlatformIO package | `source ~/.platformio/packages/framework-espidf/export.sh` |
+| Manual ESP-IDF `5.5.4` install | `source ~/esp/esp-idf/export.sh` |
+| Existing `IDF_PATH` | check with `echo "$IDF_PATH"`, then run `source "$IDF_PATH/export.sh"` |
+
+On Windows, the equivalent ESPHome/PlatformIO path is usually:
+
+```powershell
+. "$env:USERPROFILE\.platformio\packages\framework-espidf\export.ps1"
+```
+
+Verify the shell before building:
+
+```bash
+idf.py --version
+```
+
+After this succeeds, use the frontend-specific `./espectre native ...`,
+`./espectre matter ...`, or `./espectre streamer ...` commands documented in
+the relevant README. On Windows, use the ESP-IDF command prompt or PowerShell
+environment provided by the ESP-IDF installer, then run `.\espectre.cmd`.
+
 ## Local CLI Workflows
 
 Use the repository CLI from the repository root for local build, flash, and monitor tasks:

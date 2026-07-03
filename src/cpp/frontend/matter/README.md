@@ -39,6 +39,9 @@ for the Matter workflow after flashing or when building locally.
 
 ### Browser-Flashed Firmware
 
+Start from [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md) for the
+shared browser-flash entry point and supported image flow.
+
 After flashing a Matter image:
 
 1. power-cycle if needed and wait for the device to boot
@@ -52,25 +55,9 @@ part of the supported target set.
 
 ### Local ESP-IDF Workflow
 
-One-time repository setup:
-
-```bash
-python3 -m venv .venv
-python -m pip install -r requirements.txt
-```
-
-Per-shell environment setup:
-
-```bash
-source .venv/bin/activate
-source <ESP_IDF_PATH>/export.sh
-```
-
-If ESP-IDF was installed through PlatformIO or ESPHome, a common export path is:
-
-```bash
-source ~/.platformio/packages/framework-espidf/export.sh
-```
+Before building locally, complete the shared
+[`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
+Use a shell where `idf.py --version` succeeds.
 
 Repository CLI:
 
@@ -84,10 +71,6 @@ Notes:
 
 - On Windows, use `.\espectre.cmd matter ...` for build/flash and
   `.\espectre.cmd monitor --port COM5` for serial logs.
-- `./espectre` / `.\espectre.cmd` still requires the repository Python dependencies from
-  `requirements.txt`
-- `idf.py` must already be available in the shell through the ESP-IDF export
-  script
 - the Matter frontend detector is selected through `sdkconfig`; the default is
   `ML`
 - the first build downloads managed components and compiles `esp_matter`, so it
@@ -97,7 +80,6 @@ Notes:
 <summary>Raw ESP-IDF flow</summary>
 
 ```bash
-source <ESP_IDF_PATH>/export.sh
 cd src/cpp/frontend/matter/app
 idf.py set-target esp32c3
 idf.py build
@@ -148,16 +130,16 @@ depend on the Matter controller you use.
 
 The current frontend exposes:
 
-| Feature | Matter mapping |
-|---------|----------------|
-| Motion detected | `OccupancySensing` occupancy bitmap |
-| Movement metric | Vendor cluster `0xFFF1FC01`, attribute `0x0000` |
-| Threshold | Vendor cluster writable attribute `0x0001` |
-| Calibrating | Vendor cluster attribute `0x0002` |
-| Ready-to-publish | Vendor cluster attribute `0x0003` |
-| Best Pxx | Vendor cluster attribute `0x0004` |
-| Gain locked | Vendor cluster attribute `0x0005` |
-| Manual recalibration trigger | Vendor cluster writable attribute `0x0006` |
+| Feature | Matter mapping | Type | Access |
+|---------|----------------|------|--------|
+| Motion detected | `OccupancySensing` occupancy bitmap | bitmap | read-only |
+| Movement metric | Vendor cluster `0xFFF1FC01`, attribute `0x0000` | nullable float | read-only |
+| Threshold | Vendor cluster `0xFFF1FC01`, attribute `0x0001` | nullable float | writable, nonvolatile |
+| Calibrating | Vendor cluster `0xFFF1FC01`, attribute `0x0002` | boolean | read-only |
+| Ready-to-publish | Vendor cluster `0xFFF1FC01`, attribute `0x0003` | boolean | read-only |
+| Best Pxx | Vendor cluster `0xFFF1FC01`, attribute `0x0004` | nullable float | read-only |
+| Gain locked | Vendor cluster `0xFFF1FC01`, attribute `0x0005` | boolean | read-only |
+| Manual recalibration trigger | Vendor cluster `0xFFF1FC01`, attribute `0x0006` | boolean | writable trigger |
 
 Relevant constants live in [`espectre/matter_surface.h`](espectre/matter_surface.h).
 

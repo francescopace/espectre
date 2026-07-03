@@ -313,6 +313,7 @@ bool StreamFrontend::setup() {
   capture_service_.set_packet_callback(
       [this](const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) { this->handle_csi_packet_(info, normalized); });
 
+  ESP_LOGI(TAG, "ESPectre streamer smoke marker: transport configured, starting streamer frontend");
   if (!init_wifi_station_()) {
     return false;
   }

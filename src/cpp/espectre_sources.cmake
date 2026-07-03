@@ -29,8 +29,11 @@ set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
 )
 
-set(ESPECTRE_RUNTIME_ESP_IDF_BLE_PROVISIONING_SOURCES
+set(ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/ble_bindings_nimble.cpp"
+)
+
+set(ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/device_config_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/wifi_provisioning_service.cpp"
 )
