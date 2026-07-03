@@ -6,10 +6,11 @@ Validates CSI datasets for integrity, quality, and readiness for ML training.
 Generates a structured report with per-file and per-pair analysis.
 
 Checks performed:
-  1. File integrity   - NPZ loads, expected keys exist, shapes are valid
-  2. Signal quality   - Amplitude range, zero-packet detection
-  3. Pair validation  - Static-presence vs motion variance ratio, temporal gap
-  4. ML readiness     - Label balance, minimum samples, chip diversity
+  1. Metadata completeness - Required derived/manual dataset_info fields exist
+  2. File integrity        - NPZ loads, expected keys exist, shapes are valid
+  3. Signal quality        - Amplitude range, zero-packet detection
+  4. Pair validation       - Static-presence vs motion variance ratio, temporal gap
+  5. ML readiness          - Label balance, minimum samples, chip diversity
 
 Per-file integrity and signal-quality checks cover `empty`, `static_presence`,
 and `motion`. Pair validation and ML readiness intentionally focus on
@@ -75,6 +76,15 @@ MIN_EMPTY_SEPARABILITY_AUC = 0.70
 MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.70
 EMPTY_SEPARATION_TURB_MEAN_WEIGHT = 0.7
 EMPTY_SEPARATION_WAVEFORM_WEIGHT = 0.3
+METADATA_LABELS = ('empty', 'static_presence', 'motion', 'test')
+REQUIRED_PAIR_FIELD_BY_LABEL = {
+    'static_presence': 'optimal_pair_motion_file',
+    'motion': 'optimal_pair_static_presence_file',
+}
+PAIR_COUNTERPART_LABEL = {
+    'static_presence': 'motion',
+    'motion': 'static_presence',
+}
 
 
 # ------------------------------------------------------------------
@@ -250,6 +260,114 @@ class ValidationResult:
         icon = {'PASS': '✅', 'WARN': '⚠️', 'FAIL': '❌'}[self.status]
         val_str = f" ({self.value})" if self.value is not None else ""
         return f"{icon} {self.name}: {self.message}{val_str}"
+
+
+def _is_missing_metadata_value(value):
+    """Return True when a dataset_info field is absent or semantically empty."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) == 0
+    return False
+
+
+def _entry_matches_chip(entry, chip_filter):
+    """Return True when an entry should be included for the optional chip filter."""
+    if not chip_filter:
+        return True
+    entry_chip = str(entry.get('chip', '')).lower()
+    filename = str(entry.get('filename', '')).lower()
+    chip = str(chip_filter).lower()
+    return entry_chip == chip or chip in filename
+
+
+def _coerce_positive_float(value):
+    """Coerce a metadata value to a finite positive float, or return None."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(numeric) or numeric <= 0:
+        return None
+    return numeric
+
+
+def validate_metadata_completeness(dataset_info, chip_filter=None):
+    """Check derived/manual dataset_info fields required by training workflows."""
+    results = []
+    files_by_label = dataset_info.get('files', {})
+    filtered_entries = {}
+    filename_index = {}
+
+    for label in METADATA_LABELS:
+        entries = [
+            entry for entry in files_by_label.get(label, [])
+            if _entry_matches_chip(entry, chip_filter)
+        ]
+        filtered_entries[label] = entries
+        filename_index[label] = {
+            str(entry.get('filename')): entry
+            for entry in entries
+            if entry.get('filename')
+        }
+
+    for label, entries in filtered_entries.items():
+        for entry in entries:
+            filename = str(entry.get('filename', '<missing filename>'))
+            entry_errors = []
+
+            if _is_missing_metadata_value(entry.get('environment')):
+                entry_errors.append("missing environment")
+
+            threshold = _coerce_positive_float(entry.get('optimal_threshold_gridsearch'))
+            if threshold is None:
+                entry_errors.append("optimal_threshold_gridsearch must be a positive number")
+
+            pair_field = REQUIRED_PAIR_FIELD_BY_LABEL.get(label)
+            if pair_field:
+                counterpart_label = PAIR_COUNTERPART_LABEL[label]
+                counterpart_name = entry.get(pair_field)
+                if _is_missing_metadata_value(counterpart_name):
+                    entry_errors.append(f"missing {pair_field}")
+                else:
+                    counterpart_name = str(counterpart_name)
+                    counterpart_entry = filename_index[counterpart_label].get(counterpart_name)
+                    counterpart_path = DATA_DIR / counterpart_label / counterpart_name
+                    if counterpart_entry is None:
+                        entry_errors.append(
+                            f"{pair_field} does not reference a {counterpart_label} metadata entry"
+                        )
+                    if not counterpart_path.exists():
+                        entry_errors.append(f"{pair_field} target file is missing")
+                    if counterpart_entry is not None:
+                        reverse_field = REQUIRED_PAIR_FIELD_BY_LABEL[counterpart_label]
+                        if counterpart_entry.get(reverse_field) != filename:
+                            entry_errors.append(f"{pair_field} is not reciprocal")
+
+            result_name = f"metadata_{label}/{filename}"
+            if entry_errors:
+                results.append(ValidationResult(
+                    result_name,
+                    "FAIL",
+                    "; ".join(entry_errors),
+                ))
+            else:
+                results.append(ValidationResult(
+                    result_name,
+                    "PASS",
+                    "Required dataset_info metadata is complete",
+                ))
+
+    if not any(filtered_entries.values()):
+        results.append(ValidationResult(
+            "metadata_entries",
+            "FAIL",
+            "No dataset_info entries found for metadata validation",
+        ))
+
+    return results
 
 
 def _get_csi_key(data):
@@ -759,7 +877,22 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
     pair_results = []
 
     # ------------------------------------------------------------------
-    # Phase 1: Load all NPZ files once, validate integrity & quality
+    # Phase 1: Validate required dataset_info metadata
+    # ------------------------------------------------------------------
+    print("\n" + "-" * 70)
+    print("  METADATA COMPLETENESS")
+    print("-" * 70)
+
+    metadata_results = validate_metadata_completeness(
+        dataset_info,
+        chip_filter=chip_filter,
+    )
+    for r in metadata_results:
+        print(f"   {r}")
+        all_results.append(r)
+
+    # ------------------------------------------------------------------
+    # Phase 2: Load all NPZ files once, validate integrity & quality
     # ------------------------------------------------------------------
     print("\n" + "-" * 70)
     print("  FILE INTEGRITY & SIGNAL QUALITY")
@@ -797,7 +930,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                 all_results.append(r)
 
     # ------------------------------------------------------------------
-    # Phase 2: Pair validation (static presence <-> motion)
+    # Phase 3: Pair validation (static presence <-> motion)
     # ------------------------------------------------------------------
     print("\n" + "-" * 70)
     print("  PAIR VALIDATION (static presence vs motion)")
@@ -921,7 +1054,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
             })
 
     # ------------------------------------------------------------------
-    # Phase 3: Empty sanity
+    # Phase 4: Empty sanity
     # ------------------------------------------------------------------
     print("\n" + "-" * 70)
     print("  EMPTY SANITY")
@@ -937,7 +1070,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
         all_results.append(r)
 
     # ------------------------------------------------------------------
-    # Phase 4: ML readiness
+    # Phase 5: ML readiness
     # ------------------------------------------------------------------
     print("\n" + "-" * 70)
     print("  ML READINESS")

@@ -67,7 +67,7 @@ current Espressif QEMU fork does not support them.
 Repository CLI:
 
 ```bash
-./espectre native build --chip c3
+./espectre native build --chip c3 --clean
 ./espectre native flash --port /dev/cu.usbmodemXXXX
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```

@@ -6,8 +6,10 @@
  */
 
 #include "csi_manager.h"
+#include <algorithm>
 #include "espectre_log.h"
 #include "esp_timer.h"
+#include "stimulus_protocol.h"
 
 namespace esphome {
 namespace espectre {
@@ -63,6 +65,14 @@ void CSIManager::clear_detector_buffer() {
   }
 }
 
+void CSIManager::set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr) {
+  local_ip_addr_ = local_ip_addr;
+  local_mac_addr_.fill(0U);
+  if (local_mac_addr != nullptr) {
+    std::copy(local_mac_addr, local_mac_addr + local_mac_addr_.size(), local_mac_addr_.begin());
+  }
+}
+
 MotionState CSIManager::update_effective_motion_state_(MotionState detector_state) {
   if (detector_state == effective_motion_state_) {
     pending_motion_state_ = effective_motion_state_;
@@ -101,6 +111,9 @@ void CSIManager::process_packet(wifi_csi_info_t* data) {
 
 void CSIManager::process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
   if (data == nullptr || detector_ == nullptr || !normalized.valid()) {
+    return;
+  }
+  if (!csi_frame_matches_local_identity(data, local_ip_addr_, local_mac_addr_.data())) {
     return;
   }
 

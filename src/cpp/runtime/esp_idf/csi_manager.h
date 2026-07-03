@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <array>
 #include <functional>
 
 #include "base_detector.h"
@@ -151,6 +152,7 @@ class CSIManager {
    * Clear detector buffer (for calibration reset)
    */
   void clear_detector_buffer();
+  void set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr);
   
  private:
   void process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized);
@@ -175,6 +177,8 @@ class CSIManager {
   uint8_t pending_state_hits_{0};
   MotionState effective_motion_state_{MotionState::IDLE};
   MotionState pending_motion_state_{MotionState::IDLE};
+  uint32_t local_ip_addr_{0U};
+  std::array<uint8_t, 6> local_mac_addr_{};
 
   CsiCaptureService capture_service_;
 

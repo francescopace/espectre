@@ -25,11 +25,23 @@ docker run --rm \
   "${DOCKER_IMAGE}" \
   bash -lc "
     set -euo pipefail
+    case \"${MATTER_TARGET}\" in
+      esp32) MATTER_CHIP=esp32 ;;
+      esp32c3) MATTER_CHIP=c3 ;;
+      esp32c5) MATTER_CHIP=c5 ;;
+      esp32c6) MATTER_CHIP=c6 ;;
+      esp32s3) MATTER_CHIP=s3 ;;
+      *) echo \"Unsupported Matter target: ${MATTER_TARGET}\" >&2; exit 1 ;;
+    esac
+    if ! python /work/espectre --help >/dev/null 2>&1; then
+      python -m pip install --user -r /work/requirements.txt
+    fi
     if [ -n \"\${SDKCONFIG_DEFAULTS:-}\" ]; then
       export SDKCONFIG_DEFAULTS
     fi
-    idf.py -B ${BUILD_DIR} set-target ${MATTER_TARGET}
-    idf.py -B ${BUILD_DIR} build
+    export ESPECTRE_IDF_BUILD_DIR=${BUILD_DIR}
+    cd /work
+    python /work/espectre matter build --chip \"\${MATTER_CHIP}\" --clean
     cd ${BUILD_DIR}
     if python -m esptool merge-bin -h >/dev/null 2>&1; then
       python -m esptool --chip ${MATTER_TARGET} merge-bin --pad-to-size 4MB -o \"\${MATTER_OUTPUT}\" @flash_args

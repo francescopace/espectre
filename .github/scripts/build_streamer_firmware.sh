@@ -15,7 +15,6 @@ STREAMER_SDKCONFIG_DEFAULTS="${STREAMER_SDKCONFIG_DEFAULTS:-}"
 STREAMER_HOME="${REPO_ROOT}/.github/.cache/streamer-home"
 
 mkdir -p "${STREAMER_HOME}" "${OUTPUT_DIR}"
-rm -rf "${APP_DIR:?}/${BUILD_DIR:?}"
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
@@ -27,11 +26,23 @@ docker run --rm \
   "${DOCKER_IMAGE}" \
   bash -lc "
     set -euo pipefail
+    case \"${STREAMER_TARGET}\" in
+      esp32) STREAMER_CHIP=esp32 ;;
+      esp32c3) STREAMER_CHIP=c3 ;;
+      esp32c5) STREAMER_CHIP=c5 ;;
+      esp32c6) STREAMER_CHIP=c6 ;;
+      esp32s3) STREAMER_CHIP=s3 ;;
+      *) echo \"Unsupported streamer target: ${STREAMER_TARGET}\" >&2; exit 1 ;;
+    esac
+    if ! python /work/espectre --help >/dev/null 2>&1; then
+      python -m pip install --user -r /work/requirements.txt
+    fi
     if [ -n \"\${SDKCONFIG_DEFAULTS:-}\" ]; then
       export SDKCONFIG_DEFAULTS
     fi
-    idf.py -B ${BUILD_DIR} set-target ${STREAMER_TARGET}
-    idf.py -B ${BUILD_DIR} build
+    export ESPECTRE_IDF_BUILD_DIR=${BUILD_DIR}
+    cd /work
+    python /work/espectre streamer build --chip \"\${STREAMER_CHIP}\" --clean
     cd ${BUILD_DIR}
     if python -m esptool merge-bin -h >/dev/null 2>&1; then
       python -m esptool --chip ${STREAMER_TARGET} merge-bin --pad-to-size 4MB -o \"\${STREAMER_OUTPUT}\" @flash_args

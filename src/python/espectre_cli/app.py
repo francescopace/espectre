@@ -58,7 +58,12 @@ def _add_collect_parser(subparsers, *, name: str = "collect", help_text: str | N
     collect_parser.add_argument("--interactive", action="store_true", help="Interactive mode (press ENTER for each sample)")
     collect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
     collect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
-    collect_parser.add_argument("--streamer-ip", help="IPv4 address of the streamer device to stimulate")
+    collect_parser.add_argument(
+        "--stimulus-target",
+        "--streamer-ip",
+        dest="stimulus_target",
+        help="IPv4 stimulus destination(s), comma-separated for multi-unicast",
+    )
     collect_parser.add_argument("--stimulus-port", type=int, default=9999, help="UDP port used by the streamer listener (default: 9999)")
     collect_parser.add_argument("--stimulus-rate", type=int, default=100, help="Stimulus packets per second sent to the streamer (default: 100)")
     collect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth stimulus packet as reference (default: 0 = measurement only)")
@@ -73,7 +78,13 @@ def _add_detect_parser(subparsers, *, name: str = "detect", help_text: str | Non
     detect_parser = subparsers.add_parser(name, **parser_kwargs)
     detect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
     detect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
-    detect_parser.add_argument("--streamer-ip", required=True, help="IPv4 address of the streamer device to stimulate")
+    detect_parser.add_argument(
+        "--stimulus-target",
+        "--streamer-ip",
+        dest="stimulus_target",
+        required=True,
+        help="IPv4 stimulus destination(s), comma-separated for multi-unicast",
+    )
     detect_parser.add_argument("--stimulus-port", type=int, default=9999, help="UDP port used by the streamer listener (default: 9999)")
     detect_parser.add_argument("--stimulus-rate", type=int, default=100, help="Stimulus packets per second sent to the streamer (default: 100)")
     detect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth stimulus packet as reference (default: 0 = measurement only)")
@@ -139,15 +150,21 @@ def _add_esphome_namespace(subparsers) -> None:
 
     for command_name, help_text in {
         "build": "Build the selected ESPHome firmware",
-        "flash": "Build and flash the selected ESPHome firmware",
+        "flash": "Flash the selected ESPHome firmware",
         "config": "Validate and render the selected ESPHome config",
-        "logs": "Open serial logs for the selected ESPHome config",
+        "monitor": "Open logs for the selected ESPHome config",
     }.items():
         command_parser = esphome_subparsers.add_parser(command_name, help=help_text)
         command_parser.add_argument("--chip", choices=sorted(ESPHOME_CONFIGS.keys()), help="Target chip family")
         command_parser.add_argument("--dev", action="store_true", help="Use the *-dev example config")
         command_parser.add_argument("--config", help="Explicit ESPHome YAML path override")
-        command_parser.add_argument("--device", help="Serial device for flash/logs when needed")
+        command_parser.add_argument("--device", help="Serial device or hostname for flash/monitor when needed")
+        if command_name == "build":
+            command_parser.add_argument(
+                "--clean",
+                action="store_true",
+                help="Remove generated ESPHome build artifacts before building",
+            )
         command_parser.set_defaults(handler=run_esphome_command)
 
 
@@ -162,6 +179,11 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
         command_parser = idf_subparsers.add_parser(command_name, help=help_text)
         if command_name == "build":
             command_parser.add_argument("--chip", choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()), required=True, help="ESP-IDF target chip")
+            command_parser.add_argument(
+                "--clean",
+                action="store_true",
+                help="Remove generated ESP-IDF artifacts before building",
+            )
         if command_name == "flash":
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
         command_parser.set_defaults(handler=lambda args, current_frontend=frontend: run_idf_command(current_frontend, args))
@@ -175,12 +197,15 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('micro', 'deploy')}",
             f"  {cli_command('mqtt')}",
             f"  {cli_command('ui', 'theremin')}",
-            f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--streamer-ip', '192.168.1.50')}",
-            f"  {cli_command('detect', '--streamer-ip', '192.168.1.50', '--log-turbulence')}",
+            f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}",
+            f"  {cli_command('detect', '--stimulus-target', '192.168.1.50', '--log-turbulence')}",
             f"  {cli_command('monitor', '--port', serial_port_example())}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--dev')}",
+            f"  {cli_command('esphome', 'build', '--chip', 'c3', '--clean')}",
+            f"  {cli_command('esphome', 'monitor', '--chip', 'c3', '--device', serial_port_example())}",
             f"  {cli_command('native', 'build', '--chip', 'c3')}",
             f"  {cli_command('matter', 'build', '--chip', 'c3')}",
+            f"  {cli_command('streamer', 'build', '--chip', 'c3', '--clean')}",
             f"  {cli_command('streamer', 'flash', '--port', serial_port_example())}",
         ]
     )

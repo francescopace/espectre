@@ -71,7 +71,7 @@ drives the UDP stimulus and the streamer learns the collector IP from incoming
 stimulus packets (default CSI UDP port: `5001`):
 
 ```bash
-./espectre streamer build --chip <chip>
+./espectre streamer build --chip <chip> --clean
 ./espectre streamer flash --port <serial_port>
 ./espectre monitor --port <serial_port>
 ```
@@ -99,14 +99,15 @@ If you want to validate runtime ML behavior before recording data, run live
 host-side inference from the UDP CSI stream:
 
 ```bash
-./espectre detect --streamer-ip 192.168.1.50 --log-turbulence
+./espectre detect --stimulus-target 192.168.1.50 --log-turbulence
 ```
 
 `espectre detect` reads threshold, the fixed production subcarrier set,
 Hampel, low-pass, and hit filtering from `src/python/micro_espectre/config.py` and
 `src/python/micro_espectre/config_local.py`, just like the rest of micro-ESPectre. Use
-`--streamer-ip <device_ip>` to point at the firmware device and `--bind-ip
-<local_ip>` only when auto-detection picks the wrong host interface.
+`--stimulus-target <ip>` to point at the firmware device or shared stimulus
+group, and `--bind-ip <local_ip>` only when auto-detection picks the wrong host
+interface.
 
 Live detection can also save the raw CSI packets it is inspecting. This uses
 the same dataset format as `collect`; no derived ML scores, feature
@@ -116,7 +117,7 @@ the raw CSI and the exported model.
 ```bash
 # Mixed idle/motion/idle smoke-test capture: store under data/test/
 ./espectre detect \
-  --streamer-ip 192.168.1.50 \
+  --stimulus-target 192.168.1.50 \
   --log-features \
   --capture-label test \
   --capture-duration 45 \
@@ -124,7 +125,7 @@ the raw CSI and the exported model.
 
 # Homogeneous hard-negative capture: store under data/empty/
 ./espectre detect \
-  --streamer-ip 192.168.1.50 \
+  --stimulus-target 192.168.1.50 \
   --capture-label empty \
   --capture-duration 60 \
   --description "live detect ML, empty room"
@@ -139,16 +140,18 @@ the whole capture is label-homogeneous.
 ## Data Collection with `espectre collect`
 
 The `espectre collect` subcommand provides a streamlined workflow for recording labeled CSI samples.
+Each capture window now saves one `.npz` per `device_id`, so a shared-stimulus
+session can emit multiple dataset files without mixing devices into one file.
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `./espectre collect --label <name> --duration <sec> --streamer-ip <device_ip>` | Record for specified duration |
-| `./espectre collect --label <name> --samples <n> --streamer-ip <device_ip>` | Record n samples or timed collections |
-| `./espectre collect --label <name> --count <n> --streamer-ip <device_ip>` | Alias for `--samples`, useful for repeated timed collections |
-| `./espectre collect --label <name> --start-delay <sec> --streamer-ip <device_ip>` | Wait before starting collection |
-| `./espectre collect --label <name> --streamer-ip <device_ip> --reference-every <N>` | Mark every `N`th stimulus packet as a reference frame |
+| `./espectre collect --label <name> --duration <sec> --stimulus-target <ip>` | Record for the specified duration from one or more devices sharing the target |
+| `./espectre collect --label <name> --samples <n> --stimulus-target <ip>` | Record `n` timed collections |
+| `./espectre collect --label <name> --count <n> --stimulus-target <ip>` | Alias for `--samples`, useful for repeated timed collections |
+| `./espectre collect --label <name> --start-delay <sec> --stimulus-target <ip>` | Wait before starting collection |
+| `./espectre collect --label <name> --stimulus-target <ip> --reference-every <N>` | Mark every `N`th stimulus packet as a reference frame |
 | `./espectre collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
 | `./espectre collect --label <name> --description "text"` | Add description to sample |
 | `./espectre collect --info` | Show dataset statistics |
@@ -163,25 +166,38 @@ pre-recording stable-scene gate.
 ### Recording Samples
 
 ```bash
-# Record 60 seconds of static presence (contributor auto-detected from git config)
-./espectre collect --label static_presence --duration 60 --streamer-ip 192.168.1.50
+# Record 60 seconds of static presence from one device
+./espectre collect --label static_presence --duration 60 --stimulus-target 192.168.1.50
 
 # Record 30 seconds of motion
-./espectre collect --label motion --duration 30 --streamer-ip 192.168.1.50
+./espectre collect --label motion --duration 30 --stimulus-target 192.168.1.50
 
 # Record with explicit contributor override
-./espectre collect --label gesture --samples 10 --interactive --streamer-ip 192.168.1.50 --contributor otheruser
+./espectre collect --label gesture --samples 10 --interactive --stimulus-target 192.168.1.50 --contributor otheruser
 
 # Mark every 20th stimulus packet as a reference frame
-./espectre collect --label static_presence --duration 30 --streamer-ip 192.168.1.50 --reference-every 20
+./espectre collect --label static_presence --duration 30 --stimulus-target 192.168.1.50 --reference-every 20
+
+# Shared-stimulus session: all streamers subscribed to the multicast group
+# save their own per-device files during the same capture window
+./espectre collect --label empty --duration 30 --stimulus-target 239.1.1.50
 
 # Wait 15 seconds, then record 3 timed collections
-./espectre collect --label static_presence --duration 10 --count 3 --start-delay 15 --streamer-ip 192.168.1.50
+./espectre collect --label static_presence --duration 10 --count 3 --start-delay 15 --stimulus-target 192.168.1.50
 
 # Gain lock status is auto-detected from the CSI stream
 # No need to specify --no-gain-lock, it's automatic!
-./espectre collect --label static_presence --duration 10 --streamer-ip 192.168.1.50
+./espectre collect --label static_presence --duration 10 --stimulus-target 192.168.1.50
 ```
+
+Accepted target forms:
+
+- unicast IPv4, for one streamer
+- multicast IPv4, for multiple streamers joined to the same group
+- broadcast IPv4, when your network setup intentionally uses broadcast stimulus
+
+Every saved `.npz` is single-device. If packets arrive without `device_id`
+metadata, the collector fails instead of emitting a mixed or anonymous file.
 
 ### Reference Frames
 
@@ -189,7 +205,7 @@ The host collector can optionally mark some stimulus packets as reference
 frames with:
 
 ```bash
-./espectre collect --label static_presence --streamer-ip 192.168.1.50 --reference-every 20
+./espectre collect --label static_presence --stimulus-target 192.168.1.50 --reference-every 20
 ```
 
 Semantics:
@@ -251,17 +267,18 @@ data/
 ├── empty/
 │   └── ...
 ├── static_presence/
-│   ├── static_presence_c6_64sc_20251212_142443.npz
+│   ├── static_presence_c6_64sc_dev0000000000abcdef_20251212_142443_381306_0001.npz
 │   └── ...
 ├── motion/
-│   ├── motion_c6_64sc_20251212_142443.npz
+│   ├── motion_c6_64sc_dev0000000000123456_20251212_142443_381512_0002.npz
 │   └── ...
 └── ...
 ```
 
 **Note**: HT20 only - all datasets use 64 subcarriers.
 
-File naming convention: `{label}_{chip}_{num_sc}sc_{timestamp}.npz`
+File naming convention:
+`{label}_{chip}_{num_sc}sc_{device_token}_{timestamp}_{save_index}.npz`
 
 ### Dataset Info (dataset_info.json)
 
@@ -278,9 +295,11 @@ Central metadata file for the dataset:
   "files": {
     "static_presence": [
       {
-        "filename": "static_presence_c6_64sc_20251212_142443.npz",
+        "filename": "static_presence_c6_64sc_dev0000000000abcdef_20251212_142443_381306_0001.npz",
         "chip": "C6",
         "subcarriers": 64,
+        "device_id": 11259375,
+        "device_token": "dev0000000000abcdef",
         "contributor": "francescopace",
         "collected_at": "2025-12-12T14:24:43.381306",
         "duration_ms": 10000,
@@ -288,9 +307,11 @@ Central metadata file for the dataset:
         "description": "HT20 static presence sample"
       },
       {
-        "filename": "static_presence_esp32_64sc_20260214_183059.npz",
+        "filename": "static_presence_esp32_64sc_dev000000000000f00d_20260214_183059_355439_0002.npz",
         "chip": "ESP32",
         "subcarriers": 64,
+        "device_id": 61453,
+        "device_token": "dev000000000000f00d",
         "contributor": "francescopace",
         "gain_locked": false,
         "collected_at": "2026-02-14T18:30:59.355439",
@@ -309,6 +330,8 @@ Central metadata file for the dataset:
 | `filename` | NPZ file name |
 | `chip` | ESP32 chip type (C6, S3, ESP32) |
 | `subcarriers` | Number of subcarriers (64 for HT20) |
+| `device_id` | Numeric device identifier stored in each single-device file |
+| `device_token` | Stable ASCII token used in filenames |
 | `contributor` | GitHub username of data collector |
 | `collected_at` | ISO timestamp of collection |
 | `duration_ms` | Sample duration in milliseconds |
@@ -332,7 +355,7 @@ Each `.npz` file contains a minimal, compact format optimized for ML training:
 | `format_version` | `str` | NPZ format version ("1.1") |
 | `stream_seq_num` | `uint32[N]` | Per-packet stream sequence numbers |
 | `device_ticks_us` | `uint64[N]` | Device-side monotonic timestamps in microseconds |
-| `device_id` | `uint64` | Optional device identifier for multi-device fusion |
+| `device_id` | `uint64` | Device identifier for the single-device capture file |
 | `wifi_rx_ts_us` | `uint32[N]` | Optional Wi-Fi RX timestamps when available |
 | `wifi_rx_start_ts_ns` | `uint64[N]` | Optional hardware-derived RX-start estimate |
 | `channel` | `uint8[N]` | Optional per-packet Wi-Fi channel metadata |
@@ -355,7 +378,7 @@ phases = np.arctan2(Q, I)
 import numpy as np
 
 # Load single sample
-data = np.load('data/static_presence/static_presence_c6_64sc_20251212_142443.npz')
+data = np.load('data/static_presence/static_presence_c6_64sc_dev0000000000abcdef_20251212_142443_381306_0001.npz')
 csi_data = data['csi_data']        # Shape: (N, 128) for 64 subcarriers
 label = str(data['label'])         # 'static_presence'
 num_sc = int(data['num_subcarriers'])  # 64
@@ -376,7 +399,9 @@ from pathlib import Path
 import numpy as np
 
 # Load a sample file (run from the repo root)
-packets = load_npz_as_packets(Path('data/static_presence/static_presence_c6_64sc_20251212_142443.npz'))
+packets = load_npz_as_packets(
+    Path('data/static_presence/static_presence_c6_64sc_dev0000000000abcdef_20251212_142443_381306_0001.npz')
+)
 
 for pkt in packets:
     csi_data = pkt['csi_data']           # Shape: (128,) - raw I/Q data
@@ -481,8 +506,8 @@ gesture1      # non-descriptive
 ### Session Workflow
 
 1. **Prepare environment**: Ensure room is quiet for `static_presence`
-2. **Record static presence first**: `./espectre collect --label static_presence --duration 60 --streamer-ip <device_ip>`
-3. **Record motion**: `./espectre collect --label motion --duration 60 --streamer-ip <device_ip>`
+2. **Record static presence first**: `./espectre collect --label static_presence --duration 60 --stimulus-target <ip>`
+3. **Record motion**: `./espectre collect --label motion --duration 60 --stimulus-target <ip>`
 4. **Verify dataset**: `./espectre collect --info`
 5. **Backup data**: Copy `data/` to safe location
 

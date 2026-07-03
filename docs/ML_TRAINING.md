@@ -33,6 +33,7 @@ Useful variants:
 python tools/10_train_ml_model.py --info
 python tools/10_train_ml_model.py --scaler clipped_standard
 python tools/10_train_ml_model.py --feature-set robust_relative --no-export
+python tools/10_train_ml_model.py --device mps
 python tools/10_train_ml_model.py --exclude-chip ESP32
 python tools/10_train_ml_model.py --gain-stress-gate
 python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
@@ -64,11 +65,18 @@ Current default training settings:
 
 - `--fp-weight 2.0`
 - `--scaler standard`
-- `--batch-size 32`
+- `--batch-size 1024`
+- `--device cpu`
 - `--feature-set production`
+- `--sample-weight-mode mvs_hard_negative`
 
 Values above `1.0` for `--fp-weight` reduce false positives at the cost of
 slightly lower recall.
+
+CUDA and Apple MPS are available only when requested explicitly through
+`--device cuda` or `--device mps`; this small MLP usually runs fastest and most
+predictably on CPU. The trainer caches the derived feature matrix and base
+sample weights for repeat runs; use `--no-cache` to force a rebuild.
 
 ## What The Trainer Does
 
@@ -78,14 +86,25 @@ The training pipeline:
    `motion`.
 2. Uses gain-mode-aware turbulence: raw std for gain-locked files and
    CV-normalized turbulence for files without gain lock.
-3. Applies context-aware MVS-guided sample weighting on the default subcarrier
-   set.
+3. Applies the selected sample-weight policy. The production retrain uses
+   `mvs_hard_negative`, which uses MVS only to up-weight IDLE windows that look
+   motion-like; it does not use MVS as a teacher for motion labels.
 4. Extracts 8 relative ML features per sliding window.
 5. Runs grouped cross-validation by paired capture/session, with blocked
    scoring to reduce overlap optimism.
 6. Reports worst-group metrics for session, chip, environment, and source file.
 7. Trains the selected MLP architecture with PyTorch, early stopping, and dropout.
 8. Exports artifacts for both Python and C++ runtimes plus a regression dataset.
+
+Full MVS-guided weighting is intentionally not the default. Long-recording
+validation showed that it can import MVS quiet-spike bias into the ML decision
+boundary. Use `none`, `mvs_gridsearch`, and `mvs_global` for ablations; the
+default production path uses only hard-negative MVS weighting.
+
+A fixed-seed comparison with seed `2083554459` selected `mvs_hard_negative`
+over `none`, `mvs_global`, and `mvs_gridsearch`: it gave the strongest blocked
+OOF F1, precision, and false-positive profile while keeping recall within the
+same operating band.
 
 ## Exported Artifacts
 
@@ -114,7 +133,8 @@ A plain training run always exports the current seed, while the gated flows
 replace artifacts only after a stricter grouped-CV improvement.
 
 For exploratory sweeps, `--scaler clipped_standard`, `--feature-set
-robust_relative`, and larger `--batch-size` values are available, but
+robust_relative`, alternate `--device` choices, `--no-cache`, and smaller
+`--batch-size` values are available, but
 non-production feature sets should be run with `--no-export` until they pass
 the validation checks below.
 

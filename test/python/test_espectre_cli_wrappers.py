@@ -190,7 +190,41 @@ def test_run_esphome_command_uses_resolved_config_and_device(monkeypatch, tmp_pa
         argparse.Namespace(chip="c3", dev=True, config=None, esphome_command="flash", device="/dev/cu.usb")
     )
 
-    assert calls == [["esphome", "run", str(config_path), "--device", "/dev/cu.usb"]]
+    assert calls == [["esphome", "upload", str(config_path), "--device", "/dev/cu.usb"]]
+
+
+def test_run_esphome_monitor_uses_logs_action(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "firmware.yaml"
+    config_path.write_text("esphome:", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
+    monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check: calls.append(cmd))
+
+    esphome.run_esphome_command(
+        argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="monitor", device="/dev/cu.usb")
+    )
+
+    assert calls == [["esphome", "logs", str(config_path), "--device", "/dev/cu.usb"]]
+
+
+def test_run_esphome_command_build_cleans_generated_artifacts_when_requested(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "firmware.yaml"
+    config_path.write_text("esphome:", encoding="utf-8")
+    build_dir = tmp_path / ".esphome"
+    build_dir.mkdir()
+    (build_dir / "artifact.bin").write_text("bin", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
+    monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check: calls.append(cmd))
+
+    esphome.run_esphome_command(
+        argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=True)
+    )
+
+    assert not build_dir.exists()
+    assert calls == [["esphome", "compile", str(config_path)]]
 
 
 def test_run_esphome_command_handles_missing_config(monkeypatch, tmp_path: Path) -> None:
@@ -198,7 +232,9 @@ def test_run_esphome_command_handles_missing_config(monkeypatch, tmp_path: Path)
     monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: missing)
 
     with pytest.raises(SystemExit):
-        esphome.run_esphome_command(argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None))
+        esphome.run_esphome_command(
+            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False)
+        )
 
 
 def test_run_esphome_command_surfaces_subprocess_failures(monkeypatch, tmp_path: Path) -> None:
@@ -211,14 +247,18 @@ def test_run_esphome_command_surfaces_subprocess_failures(monkeypatch, tmp_path:
 
     monkeypatch.setattr(esphome.subprocess, "run", _raise_not_found)
     with pytest.raises(SystemExit):
-        esphome.run_esphome_command(argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None))
+        esphome.run_esphome_command(
+            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False)
+        )
 
     def _raise_called(_cmd, check):
         raise subprocess.CalledProcessError(7, ["esphome"])
 
     monkeypatch.setattr(esphome.subprocess, "run", _raise_called)
     with pytest.raises(SystemExit) as exc:
-        esphome.run_esphome_command(argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None))
+        esphome.run_esphome_command(
+            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False)
+        )
 
     assert exc.value.code == 7
 
@@ -232,11 +272,61 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
 
-    idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None))
+    idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
 
     assert calls == [
         (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
         (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
+    ]
+
+
+def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    build_dir = app_dir / "build"
+    build_dir.mkdir()
+    (build_dir / "firmware.bin").write_text("bin", encoding="utf-8")
+    (app_dir / "sdkconfig").write_text("CONFIG_TEST=y\n", encoding="utf-8")
+    (app_dir / "sdkconfig.old").write_text("CONFIG_TEST_OLD=y\n", encoding="utf-8")
+    (app_dir / "dependencies.lock").write_text("lock", encoding="utf-8")
+    (app_dir / "sdkconfig.wifi").write_text("", encoding="utf-8")
+    calls: list[tuple[list[str], Path]] = []
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
+
+    idf.run_idf_command("streamer", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=True))
+
+    assert not build_dir.exists()
+    assert not (app_dir / "sdkconfig").exists()
+    assert not (app_dir / "sdkconfig.old").exists()
+    assert not (app_dir / "dependencies.lock").exists()
+    assert (app_dir / "sdkconfig.wifi").exists()
+    assert calls == [
+        (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
+        (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
+    ]
+
+
+def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    build_dir = app_dir / "build-esp32c3"
+    build_dir.mkdir()
+    (build_dir / "firmware.bin").write_text("bin", encoding="utf-8")
+    calls: list[tuple[list[str], Path]] = []
+
+    monkeypatch.setenv("SDKCONFIG_DEFAULTS", "sdkconfig.defaults;sdkconfig.qemu.defaults")
+    monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "build-esp32c3")
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
+
+    idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=True))
+
+    assert not build_dir.exists()
+    assert calls == [
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.qemu.defaults", "set-target", "esp32c3"], app_dir),
+        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.qemu.defaults", "build"], app_dir),
     ]
 
 
@@ -252,6 +342,21 @@ def test_run_idf_command_flash_resolves_port(monkeypatch, tmp_path: Path) -> Non
     idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
 
     assert calls == [["idf.py", "-p", "/dev/cu.auto", "flash"]]
+
+
+def test_run_idf_command_flash_uses_custom_build_dir_when_present(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    calls: list[list[str]] = []
+
+    monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "build-esp32c3")
+    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
+
+    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
+
+    assert calls == [["idf.py", "-B", "build-esp32c3", "-p", "/dev/cu.auto", "flash"]]
 
 
 def test_run_serial_monitor_uses_miniterm(monkeypatch) -> None:
@@ -284,11 +389,51 @@ def test_idf_monitor_subcommand_is_rejected() -> None:
         parser.parse_args(["native", "monitor", "--chip", "c3"])
 
 
+def test_idf_build_parser_accepts_clean_flag() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["streamer", "build", "--chip", "c6", "--clean"])
+
+    assert args.namespace == "streamer"
+    assert args.idf_command == "build"
+    assert args.chip == "c6"
+    assert args.clean is True
+
+
+def test_esphome_build_parser_accepts_clean_flag() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["esphome", "build", "--chip", "c6", "--clean"])
+
+    assert args.namespace == "esphome"
+    assert args.esphome_command == "build"
+    assert args.chip == "c6"
+    assert args.clean is True
+
+
+def test_esphome_monitor_parser_accepts_device() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["esphome", "monitor", "--chip", "c6", "--device", "/dev/cu.test"])
+
+    assert args.namespace == "esphome"
+    assert args.esphome_command == "monitor"
+    assert args.chip == "c6"
+    assert args.device == "/dev/cu.test"
+
+
+def test_esphome_logs_subcommand_is_rejected() -> None:
+    parser = app.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["esphome", "logs", "--chip", "c6"])
+
+
 def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (_ for _ in ()).throw(ValueError("bad target")))
 
     with pytest.raises(SystemExit):
-        idf.run_idf_command("native", argparse.Namespace(chip="bad", idf_command="build", port=None))
+        idf.run_idf_command("native", argparse.Namespace(chip="bad", idf_command="build", port=None, clean=False))
 
     app_dir = tmp_path / "app"
     app_dir.mkdir()
@@ -299,14 +444,14 @@ def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, t
 
     monkeypatch.setattr(idf.subprocess, "run", _raise_not_found)
     with pytest.raises(SystemExit):
-        idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None))
+        idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
 
     def _raise_called(_cmd, cwd, check):
         raise subprocess.CalledProcessError(9, ["idf.py"])
 
     monkeypatch.setattr(idf.subprocess, "run", _raise_called)
     with pytest.raises(SystemExit) as exc:
-        idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None))
+        idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
 
     assert exc.value.code == 9
 

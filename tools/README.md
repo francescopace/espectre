@@ -66,7 +66,23 @@ python 2_analyze_system_tuning.py --quick      # Reduced parameter space
 
 ---
 
-### 3. Filter Location Analysis (`4_analyze_filter_location.py`)
+### 3. Grid-Search Metadata Refresh (`3_refresh_gridsearch_metadata.py`)
+
+**Purpose**: Refresh the production-aligned MVS threshold field in `data/dataset_info.json`
+
+- Calculates `optimal_threshold_gridsearch` for `empty`, `static_presence`, `motion`, and `test` entries
+- Uses fixed default subcarriers, Hampel filtering, and adaptive P95 × 1.1 threshold bootstrap
+- Runs as a dry run by default, supports `--write` to update the field, and supports `--check` for validation
+
+```bash
+python 3_refresh_gridsearch_metadata.py          # Dry run
+python 3_refresh_gridsearch_metadata.py --write  # Update dataset_info.json
+python 3_refresh_gridsearch_metadata.py --check  # Fail if metadata is stale
+```
+
+---
+
+### 4. Filter Location Analysis (`4_analyze_filter_location.py`)
 
 **Purpose**: Compare filter placement in processing pipeline
 
@@ -82,7 +98,7 @@ python 4_analyze_filter_location.py --plot       # Show visualizations
 
 ---
 
-### 4. Filter Turbulence Analysis (`5_analyze_filter_turbulence.py`)
+### 5. Filter Turbulence Analysis (`5_analyze_filter_turbulence.py`)
 
 **Purpose**: Compare how different filters affect turbulence and motion detection
 
@@ -104,7 +120,7 @@ python 5_analyze_filter_turbulence.py --plot       # Show 4-panel visualization
 
 ---
 
-### 5. Filter Parameters Optimization (`6_optimize_filter_params.py`)
+### 6. Filter Parameters Optimization (`6_optimize_filter_params.py`)
 
 **Purpose**: Optimize low-pass and Hampel filter parameters
 
@@ -188,7 +204,8 @@ pip install -r requirements-ml.txt
 The main repository workflow and this training stack target Python `3.14`.
 
 - Trains the MLP detector with weighted binary cross-entropy
-- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 32`, grouped session-level CV, and context-aware MVS-guided sample weights
+- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, grouped session-level CV, and hard-negative MVS sample weighting
+- Caches derived features and base sample weights for repeated local runs; use `--no-cache` to rebuild
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
 - Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms
 - Supports FP-first architecture campaigns, gain-shift diagnostics, and feature-importance analysis
@@ -204,7 +221,10 @@ python 10_train_ml_model.py --experiment --experiment-promote  # Promote the win
 python 10_train_ml_model.py --experiment --experiment-architectures "16,8;24,12;32,16;24;24,12,6"  # Custom shortlist
 python 10_train_ml_model.py --fp-weight 2.0  # Penalize false positives 2x
 python 10_train_ml_model.py --scaler clipped_standard  # Robust clipping + z-score
-python 10_train_ml_model.py --batch-size 128  # Faster exploratory sweeps
+python 10_train_ml_model.py --batch-size 32  # Smaller-batch comparison
+python 10_train_ml_model.py --device cuda    # Force CUDA when available
+python 10_train_ml_model.py --device mps     # Force Apple GPU when available
+python 10_train_ml_model.py --no-cache       # Rebuild cached training matrix
 python 10_train_ml_model.py --exclude-chip ESP32  # Run a chip-exclusion experiment
 python 10_train_ml_model.py --seed-search-until-improvement 20  # Stop at first better seed
 python 10_train_ml_model.py --gain-stress-gate  # Stress exported model with artificial feature gain shifts

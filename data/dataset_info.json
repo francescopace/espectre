@@ -1,7 +1,7 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-06-30T18:55:24.086526",
+  "updated_at": "2026-07-03T14:07:48.017800",
   "labels": {
     "empty": {
       "description": "Quiet room, no human present"
@@ -28,7 +28,8 @@
         "num_packets": 1001,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.011977461
       },
       {
         "filename": "empty_c6_64sc_20260629_173217.npz",
@@ -40,7 +41,8 @@
         "num_packets": 1001,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.01208011
       },
       {
         "filename": "empty_c6_64sc_20260629_173231.npz",
@@ -52,7 +54,8 @@
         "num_packets": 1001,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.011766875
       },
       {
         "filename": "empty_c3_64sc_20260629_180056.npz",
@@ -64,7 +67,8 @@
         "num_packets": 1006,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.184975664
       },
       {
         "filename": "empty_c3_64sc_20260629_180110.npz",
@@ -76,7 +80,8 @@
         "num_packets": 1009,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.345412253
       },
       {
         "filename": "empty_c3_64sc_20260629_180124.npz",
@@ -88,7 +93,8 @@
         "num_packets": 1005,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.201957926
       },
       {
         "filename": "empty_esp32_64sc_20260629_181405.npz",
@@ -100,7 +106,8 @@
         "num_packets": 1305,
         "gain_locked": false,
         "environment": "bedroom",
-        "description": "HT20 empty, no gain lock (ESP32 lacks AGC lock support)"
+        "description": "HT20 empty, no gain lock (ESP32 lacks AGC lock support)",
+        "optimal_threshold_gridsearch": 0.000497636
       },
       {
         "filename": "empty_esp32_64sc_20260629_181419.npz",
@@ -112,7 +119,8 @@
         "num_packets": 1070,
         "gain_locked": false,
         "environment": "bedroom",
-        "description": "HT20 empty, no gain lock (ESP32 lacks AGC lock support)"
+        "description": "HT20 empty, no gain lock (ESP32 lacks AGC lock support)",
+        "optimal_threshold_gridsearch": 0.000208867
       },
       {
         "filename": "empty_s3_64sc_20260629_182728.npz",
@@ -124,7 +132,8 @@
         "num_packets": 1001,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.707089046
       },
       {
         "filename": "empty_s3_64sc_20260629_182742.npz",
@@ -136,7 +145,8 @@
         "num_packets": 1001,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.587404894
       },
       {
         "filename": "empty_s3_64sc_20260629_182756.npz",
@@ -148,7 +158,8 @@
         "num_packets": 1001,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.382933266
       },
       {
         "filename": "empty_c5_64sc_20260629_190141.npz",
@@ -160,7 +171,8 @@
         "num_packets": 1010,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.260003423
       },
       {
         "filename": "empty_c5_64sc_20260629_190155.npz",
@@ -172,7 +184,8 @@
         "num_packets": 1010,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.119573546
       },
       {
         "filename": "empty_c5_64sc_20260629_190209.npz",
@@ -184,7 +197,8 @@
         "num_packets": 1010,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.124051904
       },
       {
         "filename": "empty_c3_64sc_20260630_095710.npz",
@@ -196,7 +210,8 @@
         "num_packets": 18093,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.32860665
       },
       {
         "filename": "empty_c6_64sc_20260630_120210.npz",
@@ -208,7 +223,8 @@
         "num_packets": 18000,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.720654395
       },
       {
         "filename": "empty_s3_64sc_20260630_133644.npz",
@@ -220,7 +236,8 @@
         "num_packets": 18004,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.115143752
       },
       {
         "filename": "empty_esp32_64sc_20260630_153341.npz",
@@ -232,7 +249,8 @@
         "num_packets": 16120,
         "gain_locked": false,
         "environment": "bedroom",
-        "description": "HT20 empty, no gain lock (ESP32 lacks AGC lock support)"
+        "description": "HT20 empty, no gain lock (ESP32 lacks AGC lock support)",
+        "optimal_threshold_gridsearch": 0.000122276
       },
       {
         "filename": "empty_c5_64sc_20260630_155549.npz",
@@ -244,7 +262,8 @@
         "num_packets": 18114,
         "gain_locked": true,
         "environment": "bedroom",
-        "description": "HT20 empty, AGC gain locked"
+        "description": "HT20 empty, AGC gain locked",
+        "optimal_threshold_gridsearch": 0.176265013
       }
     ],
     "static_presence": [
@@ -259,7 +278,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_s3_64sc_20260117_222626.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_20260117_222626.npz",
+        "optimal_threshold_gridsearch": 5.066612416
       },
       {
         "filename": "static_presence_esp32_64sc_20260214_183059.npz",
@@ -272,7 +292,8 @@
         "gain_locked": false,
         "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_esp32_64sc_20260214_183141.npz"
+        "optimal_pair_motion_file": "motion_esp32_64sc_20260214_183141.npz",
+        "optimal_threshold_gridsearch": 0.000225355
       },
       {
         "filename": "static_presence_c6_64sc_20260310_230414.npz",
@@ -285,7 +306,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_c6_64sc_20260310_230434.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_20260310_230434.npz",
+        "optimal_threshold_gridsearch": 0.815600213
       },
       {
         "filename": "static_presence_esp32_64sc_20260310_232100.npz",
@@ -298,7 +320,8 @@
         "gain_locked": false,
         "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_esp32_64sc_20260310_232137.npz"
+        "optimal_pair_motion_file": "motion_esp32_64sc_20260310_232137.npz",
+        "optimal_threshold_gridsearch": 5.6053e-05
       },
       {
         "filename": "static_presence_c5_64sc_20260310_233856.npz",
@@ -311,7 +334,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_c5_64sc_20260310_233928.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_20260310_233928.npz",
+        "optimal_threshold_gridsearch": 0.112025
       },
       {
         "filename": "static_presence_c6_64sc_20260310_234819.npz",
@@ -324,7 +348,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_c6_64sc_20260310_234839.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_20260310_234839.npz",
+        "optimal_threshold_gridsearch": 0.040383517
       },
       {
         "filename": "static_presence_c5_64sc_20260329_124440.npz",
@@ -337,7 +362,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_c5_64sc_20260329_124504.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_20260329_124504.npz",
+        "optimal_threshold_gridsearch": 0.092439336
       },
       {
         "filename": "static_presence_s3_64sc_20260329_125557.npz",
@@ -350,7 +376,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_s3_64sc_20260329_125616.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_20260329_125616.npz",
+        "optimal_threshold_gridsearch": 0.10646541
       },
       {
         "filename": "static_presence_c3_64sc_20260329_130303.npz",
@@ -363,7 +390,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_c3_64sc_20260329_130321.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_20260329_130321.npz",
+        "optimal_threshold_gridsearch": 0.453750819
       },
       {
         "filename": "static_presence_c3_64sc_20260329_130411.npz",
@@ -376,7 +404,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_c3_64sc_20260329_130429.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_20260329_130429.npz",
+        "optimal_threshold_gridsearch": 0.43817532
       },
       {
         "filename": "static_presence_c3_64sc_20260503_120837.npz",
@@ -389,7 +418,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "living_room",
-        "optimal_pair_motion_file": "motion_c3_64sc_20260503_120856.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_20260503_120856.npz",
+        "optimal_threshold_gridsearch": 0.280965087
       },
       {
         "filename": "static_presence_c6_64sc_20260503_121755.npz",
@@ -402,7 +432,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "living_room",
-        "optimal_pair_motion_file": "motion_c6_64sc_20260503_121812.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_20260503_121812.npz",
+        "optimal_threshold_gridsearch": 0.032324286
       },
       {
         "filename": "static_presence_s3_64sc_20260503_122221.npz",
@@ -415,7 +446,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "living_room",
-        "optimal_pair_motion_file": "motion_s3_64sc_20260503_122250.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_20260503_122250.npz",
+        "optimal_threshold_gridsearch": 0.261125589
       },
       {
         "filename": "static_presence_c5_64sc_20260503_122543.npz",
@@ -428,7 +460,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "living_room",
-        "optimal_pair_motion_file": "motion_c5_64sc_20260503_122602.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_20260503_122602.npz",
+        "optimal_threshold_gridsearch": 0.2159109
       },
       {
         "filename": "static_presence_esp32_64sc_20260503_123427.npz",
@@ -441,7 +474,8 @@
         "gain_locked": false,
         "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)",
         "environment": "living_room",
-        "optimal_pair_motion_file": "motion_esp32_64sc_20260503_123451.npz"
+        "optimal_pair_motion_file": "motion_esp32_64sc_20260503_123451.npz",
+        "optimal_threshold_gridsearch": 0.000188209
       },
       {
         "filename": "static_presence_c3_64sc_20260503_131521.npz",
@@ -454,7 +488,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "hobby_room",
-        "optimal_pair_motion_file": "motion_c3_64sc_20260503_131538.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_20260503_131538.npz",
+        "optimal_threshold_gridsearch": 0.2086742
       },
       {
         "filename": "static_presence_c6_64sc_20260503_131805.npz",
@@ -467,7 +502,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "hobby_room",
-        "optimal_pair_motion_file": "motion_c6_64sc_20260503_131826.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_20260503_131826.npz",
+        "optimal_threshold_gridsearch": 0.168827845
       },
       {
         "filename": "static_presence_s3_64sc_20260503_132012.npz",
@@ -480,7 +516,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "hobby_room",
-        "optimal_pair_motion_file": "motion_s3_64sc_20260503_132053.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_20260503_132053.npz",
+        "optimal_threshold_gridsearch": 0.679157509
       },
       {
         "filename": "static_presence_c5_64sc_20260503_132216.npz",
@@ -493,7 +530,8 @@
         "gain_locked": true,
         "description": "HT20 static presence, AGC gain locked",
         "environment": "hobby_room",
-        "optimal_pair_motion_file": "motion_c5_64sc_20260503_132236.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_20260503_132236.npz",
+        "optimal_threshold_gridsearch": 0.207594613
       },
       {
         "filename": "static_presence_esp32_64sc_20260503_132351.npz",
@@ -506,7 +544,8 @@
         "gain_locked": false,
         "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)",
         "environment": "hobby_room",
-        "optimal_pair_motion_file": "motion_esp32_64sc_20260503_132411.npz"
+        "optimal_pair_motion_file": "motion_esp32_64sc_20260503_132411.npz",
+        "optimal_threshold_gridsearch": 9.6386e-05
       },
       {
         "filename": "static_presence_c3_64sc_20260623_171556.npz",
@@ -519,7 +558,8 @@
         "gain_locked": true,
         "description": "HT20 static_presence, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_motion_file": "motion_c3_64sc_20260623_171629.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_20260623_171629.npz",
+        "optimal_threshold_gridsearch": 0.143159849
       },
       {
         "filename": "static_presence_s3_64sc_20260623_173036.npz",
@@ -532,7 +572,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 static_presence, AGC gain locked",
-        "optimal_pair_motion_file": "motion_s3_64sc_20260623_173116.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_20260623_173116.npz",
+        "optimal_threshold_gridsearch": 0.487685291
       },
       {
         "filename": "static_presence_c6_64sc_20260629_174637.npz",
@@ -545,7 +586,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 static_presence, AGC gain locked",
-        "optimal_pair_motion_file": "motion_c6_64sc_20260629_174702.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_20260629_174702.npz",
+        "optimal_threshold_gridsearch": 0.029862625
       },
       {
         "filename": "static_presence_c5_64sc_20260629_190738.npz",
@@ -558,7 +600,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 static_presence, AGC gain locked",
-        "optimal_pair_motion_file": "motion_c5_64sc_20260629_190810.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_20260629_190810.npz",
+        "optimal_threshold_gridsearch": 0.19276605
       },
       {
         "filename": "static_presence_c3_64sc_20260630_095059.npz",
@@ -571,7 +614,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 static_presence, AGC gain locked",
-        "optimal_pair_motion_file": "motion_c3_64sc_20260630_095249.npz"
+        "optimal_pair_motion_file": "motion_c3_64sc_20260630_095249.npz",
+        "optimal_threshold_gridsearch": 0.40098663
       },
       {
         "filename": "static_presence_c6_64sc_20260630_115158.npz",
@@ -584,7 +628,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 static_presence, AGC gain locked",
-        "optimal_pair_motion_file": "motion_c6_64sc_20260630_115334.npz"
+        "optimal_pair_motion_file": "motion_c6_64sc_20260630_115334.npz",
+        "optimal_threshold_gridsearch": 0.197105686
       },
       {
         "filename": "static_presence_s3_64sc_20260630_132802.npz",
@@ -597,7 +642,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 static_presence, AGC gain locked",
-        "optimal_pair_motion_file": "motion_s3_64sc_20260630_133251.npz"
+        "optimal_pair_motion_file": "motion_s3_64sc_20260630_133251.npz",
+        "optimal_threshold_gridsearch": 1.147987592
       },
       {
         "filename": "static_presence_esp32_64sc_20260630_152826.npz",
@@ -610,7 +656,8 @@
         "gain_locked": false,
         "environment": "bedroom",
         "description": "HT20 static_presence, no gain lock (ESP32 lacks AGC lock support)",
-        "optimal_pair_motion_file": "motion_esp32_64sc_20260630_152953.npz"
+        "optimal_pair_motion_file": "motion_esp32_64sc_20260630_152953.npz",
+        "optimal_threshold_gridsearch": 7.0456e-05
       },
       {
         "filename": "static_presence_c5_64sc_20260630_154917.npz",
@@ -623,7 +670,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 static_presence, AGC gain locked",
-        "optimal_pair_motion_file": "motion_c5_64sc_20260630_161946.npz"
+        "optimal_pair_motion_file": "motion_c5_64sc_20260630_161946.npz",
+        "optimal_threshold_gridsearch": 0.219600788
       }
     ],
     "motion": [
@@ -638,7 +686,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260117_222606.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260117_222606.npz",
+        "optimal_threshold_gridsearch": 5.066612416
       },
       {
         "filename": "motion_esp32_64sc_20260214_183141.npz",
@@ -651,7 +700,8 @@
         "gain_locked": false,
         "description": "HT20 motion, no gain lock (ESP32 lacks AGC lock support)",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260214_183059.npz"
+        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260214_183059.npz",
+        "optimal_threshold_gridsearch": 0.000225355
       },
       {
         "filename": "motion_c6_64sc_20260310_230434.npz",
@@ -664,7 +714,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260310_230414.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260310_230414.npz",
+        "optimal_threshold_gridsearch": 0.815600213
       },
       {
         "filename": "motion_esp32_64sc_20260310_232137.npz",
@@ -677,7 +728,8 @@
         "gain_locked": false,
         "description": "HT20 motion, no gain lock (ESP32 lacks AGC lock support)",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260310_232100.npz"
+        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260310_232100.npz",
+        "optimal_threshold_gridsearch": 5.6053e-05
       },
       {
         "filename": "motion_c5_64sc_20260310_233928.npz",
@@ -690,7 +742,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260310_233856.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260310_233856.npz",
+        "optimal_threshold_gridsearch": 0.112025
       },
       {
         "filename": "motion_c6_64sc_20260310_234839.npz",
@@ -703,7 +756,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260310_234819.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260310_234819.npz",
+        "optimal_threshold_gridsearch": 0.040383517
       },
       {
         "filename": "motion_c5_64sc_20260329_124504.npz",
@@ -716,7 +770,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260329_124440.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260329_124440.npz",
+        "optimal_threshold_gridsearch": 0.092439336
       },
       {
         "filename": "motion_s3_64sc_20260329_125616.npz",
@@ -729,7 +784,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260329_125557.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260329_125557.npz",
+        "optimal_threshold_gridsearch": 0.10646541
       },
       {
         "filename": "motion_c3_64sc_20260329_130321.npz",
@@ -742,7 +798,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260329_130303.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260329_130303.npz",
+        "optimal_threshold_gridsearch": 0.453750819
       },
       {
         "filename": "motion_c3_64sc_20260329_130429.npz",
@@ -755,7 +812,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260329_130411.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260329_130411.npz",
+        "optimal_threshold_gridsearch": 0.43817532
       },
       {
         "filename": "motion_c3_64sc_20260503_120856.npz",
@@ -768,7 +826,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "living_room",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260503_120837.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260503_120837.npz",
+        "optimal_threshold_gridsearch": 0.280965087
       },
       {
         "filename": "motion_c6_64sc_20260503_121812.npz",
@@ -781,7 +840,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "living_room",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260503_121755.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260503_121755.npz",
+        "optimal_threshold_gridsearch": 0.032324286
       },
       {
         "filename": "motion_s3_64sc_20260503_122250.npz",
@@ -794,7 +854,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "living_room",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260503_122221.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260503_122221.npz",
+        "optimal_threshold_gridsearch": 0.261125589
       },
       {
         "filename": "motion_c5_64sc_20260503_122602.npz",
@@ -807,7 +868,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "living_room",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260503_122543.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260503_122543.npz",
+        "optimal_threshold_gridsearch": 0.2159109
       },
       {
         "filename": "motion_esp32_64sc_20260503_123451.npz",
@@ -820,7 +882,8 @@
         "gain_locked": false,
         "description": "HT20 motion, no gain lock (ESP32 lacks AGC lock support)",
         "environment": "living_room",
-        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260503_123427.npz"
+        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260503_123427.npz",
+        "optimal_threshold_gridsearch": 0.000188209
       },
       {
         "filename": "motion_c3_64sc_20260503_131538.npz",
@@ -833,7 +896,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "hobby_room",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260503_131521.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260503_131521.npz",
+        "optimal_threshold_gridsearch": 0.2086742
       },
       {
         "filename": "motion_c6_64sc_20260503_131826.npz",
@@ -846,7 +910,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "hobby_room",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260503_131805.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260503_131805.npz",
+        "optimal_threshold_gridsearch": 0.168827845
       },
       {
         "filename": "motion_s3_64sc_20260503_132053.npz",
@@ -859,7 +924,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "hobby_room",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260503_132012.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260503_132012.npz",
+        "optimal_threshold_gridsearch": 0.679157509
       },
       {
         "filename": "motion_c5_64sc_20260503_132236.npz",
@@ -872,7 +938,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "hobby_room",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260503_132216.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260503_132216.npz",
+        "optimal_threshold_gridsearch": 0.207594613
       },
       {
         "filename": "motion_esp32_64sc_20260503_132411.npz",
@@ -885,7 +952,8 @@
         "gain_locked": false,
         "description": "HT20 motion, no gain lock (ESP32 lacks AGC lock support)",
         "environment": "hobby_room",
-        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260503_132351.npz"
+        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260503_132351.npz",
+        "optimal_threshold_gridsearch": 9.6386e-05
       },
       {
         "filename": "motion_c3_64sc_20260623_171629.npz",
@@ -898,7 +966,8 @@
         "gain_locked": true,
         "description": "HT20 motion, AGC gain locked",
         "environment": "bedroom",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260623_171556.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260623_171556.npz",
+        "optimal_threshold_gridsearch": 0.143159849
       },
       {
         "filename": "motion_s3_64sc_20260623_173116.npz",
@@ -911,7 +980,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 motion, AGC gain locked",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260623_173036.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260623_173036.npz",
+        "optimal_threshold_gridsearch": 0.487685291
       },
       {
         "filename": "motion_c6_64sc_20260629_174702.npz",
@@ -924,7 +994,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 motion, AGC gain locked",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260629_174637.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260629_174637.npz",
+        "optimal_threshold_gridsearch": 0.029862625
       },
       {
         "filename": "motion_c5_64sc_20260629_190810.npz",
@@ -937,7 +1008,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 motion, AGC gain locked",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260629_190738.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260629_190738.npz",
+        "optimal_threshold_gridsearch": 0.19276605
       },
       {
         "filename": "motion_c3_64sc_20260630_095249.npz",
@@ -950,7 +1022,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 motion, AGC gain locked",
-        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260630_095059.npz"
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_20260630_095059.npz",
+        "optimal_threshold_gridsearch": 0.40098663
       },
       {
         "filename": "motion_c6_64sc_20260630_115334.npz",
@@ -963,7 +1036,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 motion, AGC gain locked",
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260630_115158.npz"
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_20260630_115158.npz",
+        "optimal_threshold_gridsearch": 0.197105686
       },
       {
         "filename": "motion_s3_64sc_20260630_133251.npz",
@@ -976,7 +1050,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 motion, AGC gain locked",
-        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260630_132802.npz"
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_20260630_132802.npz",
+        "optimal_threshold_gridsearch": 1.147987592
       },
       {
         "filename": "motion_esp32_64sc_20260630_152953.npz",
@@ -989,7 +1064,8 @@
         "gain_locked": false,
         "environment": "bedroom",
         "description": "HT20 motion, no gain lock (ESP32 lacks AGC lock support)",
-        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260630_152826.npz"
+        "optimal_pair_static_presence_file": "static_presence_esp32_64sc_20260630_152826.npz",
+        "optimal_threshold_gridsearch": 7.0456e-05
       },
       {
         "filename": "motion_c5_64sc_20260630_161946.npz",
@@ -1002,7 +1078,8 @@
         "gain_locked": true,
         "environment": "bedroom",
         "description": "HT20 motion, AGC gain locked",
-        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260630_154917.npz"
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_20260630_154917.npz",
+        "optimal_threshold_gridsearch": 0.219600788
       }
     ],
     "test": [
@@ -1016,7 +1093,8 @@
         "num_packets": 6068,
         "gain_locked": true,
         "description": "HT20 test, AGC gain locked. Motion starts at packet index 3087 (~30.5 s).",
-        "environment": "bedroom"
+        "environment": "bedroom",
+        "optimal_threshold_gridsearch": 0.124285016
       },
       {
         "filename": "test_c6_64sc_20260517_171522.npz",
@@ -1028,7 +1106,8 @@
         "num_packets": 6379,
         "gain_locked": true,
         "description": "HT20 test, AGC gain locked. Motion starts at packet index 3263 (~30.7 s).",
-        "environment": "bedroom"
+        "environment": "bedroom",
+        "optimal_threshold_gridsearch": 0.039100025
       },
       {
         "filename": "test_c5_64sc_20260517_183523.npz",
@@ -1040,7 +1119,8 @@
         "num_packets": 6008,
         "gain_locked": true,
         "description": "HT20 test, AGC gain locked. Motion starts at packet index 3320 (~33.2 s).",
-        "environment": "bedroom"
+        "environment": "bedroom",
+        "optimal_threshold_gridsearch": 0.072410399
       },
       {
         "filename": "test_s3_64sc_20260518_180502.npz",
@@ -1052,7 +1132,8 @@
         "num_packets": 6006,
         "gain_locked": true,
         "description": "HT20 test, AGC gain locked. Motion starts at packet index 3180 (~31.8 s).",
-        "environment": "bedroom"
+        "environment": "bedroom",
+        "optimal_threshold_gridsearch": 0.52090362
       }
     ]
   },

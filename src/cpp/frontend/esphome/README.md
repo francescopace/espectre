@@ -305,16 +305,17 @@ external_components:
 ### Repository CLI
 
 ```bash
-./espectre esphome build --chip c6
+./espectre esphome build --chip c6 --clean
 ./espectre esphome flash --chip c6
 ./espectre esphome config --chip c6
-./espectre esphome logs --chip c6 --device /dev/cu.usbmodemXXXX
+./espectre esphome monitor --chip c6 --device /dev/cu.usbmodemXXXX
 ```
 
 On Windows, use `.\espectre.cmd esphome ...` from the repository root and pass
 a COM port such as `COM5` to `--device` when serial access is needed.
 
 Add `--dev` to use the local development YAML mapping.
+Use `flash` for upload-only and `monitor` for logs.
 
 ## Hardware and Packaging Notes
 

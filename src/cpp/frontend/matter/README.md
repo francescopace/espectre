@@ -62,7 +62,7 @@ Use a shell where `idf.py --version` succeeds.
 Repository CLI:
 
 ```bash
-./espectre matter build --chip c3
+./espectre matter build --chip c3 --clean
 ./espectre matter flash --port /dev/cu.usbmodemXXXX
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```

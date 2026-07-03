@@ -26,7 +26,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional, Dict, Any, Tuple
+from typing import Callable, Iterable, List, Optional, Dict, Any, Tuple
 
 from repo_paths import data_dir, python_src_dir, repo_root, tools_dir
 
@@ -117,6 +117,11 @@ DATA_DIR = data_dir()
 DATASET_INFO_FILE = DATA_DIR / 'dataset_info.json'
 
 
+def format_device_token(device_id: int) -> str:
+    """Return a stable ASCII token used in filenames and metadata."""
+    return f'dev{int(device_id):016x}'
+
+
 
 # ============================================================================
 # Data Structures
@@ -177,15 +182,13 @@ class StimulusSender:
 
     def __init__(
         self,
-        target_host: str,
+        target_host: str | Iterable[str],
         target_port: int = DEFAULT_STIMULUS_PORT,
         rate_pps: int = DEFAULT_STIMULUS_RATE_PPS,
         reference_every: int = 0,
         stimulus_id_start: int = 1,
         source_host: Optional[str] = None,
     ):
-        if not target_host or not str(target_host).strip():
-            raise ValueError('target_host cannot be empty')
         if target_port <= 0 or target_port > 65535:
             raise ValueError(f'invalid target_port: {target_port}')
         if rate_pps <= 0:
@@ -195,7 +198,23 @@ class StimulusSender:
         if stimulus_id_start < 0 or stimulus_id_start > 0xFFFFFFFF:
             raise ValueError(f'invalid stimulus_id_start: {stimulus_id_start}')
 
-        self.target_host = str(target_host).strip()
+        raw_targets = [target_host] if isinstance(target_host, str) else list(target_host)
+        self.target_hosts: List[str] = []
+        self.target_ips: List[ipaddress.IPv4Address] = []
+        for raw_target in raw_targets:
+            target = str(raw_target).strip()
+            if not target:
+                continue
+            try:
+                target_ip = ipaddress.ip_address(target)
+            except ValueError as exc:
+                raise ValueError(f'invalid target_host: {target}') from exc
+            if target_ip.version != 4:
+                raise ValueError(f'target_host must be an IPv4 address: {target}')
+            self.target_hosts.append(target)
+            self.target_ips.append(target_ip)
+        if not self.target_hosts:
+            raise ValueError('target_host cannot be empty')
         self.target_port = int(target_port)
         self.rate_pps = int(rate_pps)
         self.reference_every = int(reference_every)
@@ -218,6 +237,8 @@ class StimulusSender:
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        if any(target_ip.is_multicast for target_ip in self.target_ips):
+            self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
         if self.source_host:
             self.sock.bind((self.source_host, 0))
         self._stop_event.clear()
@@ -243,7 +264,8 @@ class StimulusSender:
             payload = build_stimulus_datagram(self.next_stimulus_id, is_reference=is_reference)
             try:
                 if self.sock is not None:
-                    self.sock.sendto(payload, (self.target_host, self.target_port))
+                    for target_host in self.target_hosts:
+                        self.sock.sendto(payload, (target_host, self.target_port))
             except OSError:
                 pass
 
@@ -443,14 +465,27 @@ class CSIReceiver:
         if len(packets) != 1:
             return None
         return packets[0]
+
+    @staticmethod
+    def _compute_sequence_gap(previous_seq: int, current_seq: int) -> int:
+        """Return the forward gap between two uint32 sequence numbers.
+
+        Small forward deltas, including wrap-around, are counted as packet loss.
+        Large modular deltas are treated as out-of-order packets or sender resets
+        and do not contribute to the drop counter.
+        """
+        expected = (previous_seq + 1) & 0xFFFFFFFF
+        delta = (current_seq - expected) & 0xFFFFFFFF
+        if delta == 0:
+            return 0
+        if delta >= 0x80000000:
+            return 0
+        return delta
     
     def _check_sequence(self, seq_num: int):
         """Track sequence numbers and detect drops"""
         if self.last_seq >= 0:
-            expected = (self.last_seq + 1) & 0xFFFFFFFF
-            if seq_num != expected:
-                dropped = (seq_num - expected) & 0xFFFFFFFF
-                self.dropped_count += dropped
+            self.dropped_count += self._compute_sequence_gap(self.last_seq, seq_num)
         self.last_seq = seq_num
     
     def _update_pps(self):
@@ -500,10 +535,11 @@ class CSIReceiver:
     def get_stats(self) -> Dict[str, Any]:
         """Get current statistics"""
         elapsed = time.time() - self.start_time if self.start_time else 0
+        total_expected = self.packet_count + self.dropped_count
         return {
             'packets': self.packet_count,
             'dropped': self.dropped_count,
-            'drop_rate': self.dropped_count / max(self.packet_count, 1) * 100,
+            'drop_rate': self.dropped_count / max(total_expected, 1) * 100,
             'pps': self.pps,
             'buffer_fill': len(self.buffer),
             'buffer_size': self.buffer_size,
@@ -641,7 +677,7 @@ class CSICollector:
     # Implicit readiness gate before each sample recording
     READY_STABLE_SECONDS = 3.0
     READY_MV_THRESHOLD = 1.0
-    READY_REFRESH_SECONDS = 0.2
+    STATUS_REFRESH_SECONDS = 0.2
     
     def __init__(
         self,
@@ -649,7 +685,9 @@ class CSICollector:
         port: int = DEFAULT_PORT,
         contributor: str = None,
         description: str = None,
-        bind_host: Optional[str] = None
+        bind_host: Optional[str] = None,
+        expected_device_count: Optional[int] = None,
+        expected_source_hosts: Optional[List[str]] = None,
     ):
         """
         Initialize collector.
@@ -660,6 +698,8 @@ class CSICollector:
             contributor: GitHub username of the contributor (auto-detected from git if not provided)
             description: Optional description for the collected samples
             bind_host: Local interface IP to bind UDP socket
+            expected_device_count: Number of devices expected to participate in the session
+            expected_source_hosts: Expected streamer IPs for readiness logging
         """
         self.label = label
         self.port = port
@@ -667,12 +707,15 @@ class CSICollector:
         self.chip = None  # Auto-detected from CSI packets
         self.contributor = contributor or get_git_username()
         self.description = description
+        self.expected_source_hosts = list(dict.fromkeys(expected_source_hosts or []))
+        self.expected_device_count = max(1, int(expected_device_count)) if expected_device_count is not None else 1
         
         self.receiver = CSIReceiver(port=port, buffer_size=2000, bind_host=bind_host)
         self._recording = False
         self._recorded_packets: List[CSIPacket] = []
         self._sample_count = 0
         self._ready_detector = self._build_ready_detector()
+        self._live_status_line_count = 0
     
     def _get_label_dir(self) -> Path:
         """Get directory for this label, create if needed"""
@@ -680,11 +723,53 @@ class CSICollector:
         label_dir.mkdir(parents=True, exist_ok=True)
         return label_dir
     
-    def _generate_filename(self, num_subcarriers: int) -> str:
-        """Generate filename with format: {label}_{chip}_{num_sc}sc_{timestamp}.npz"""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    def _generate_filename(self, num_subcarriers: int, device_id: int) -> str:
+        """Generate a collision-safe per-device filename."""
+        self._sample_count += 1
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         chip = self.chip or 'unknown'
-        return f'{self.label}_{chip}_{num_subcarriers}sc_{timestamp}.npz'
+        device_token = format_device_token(device_id)
+        return f'{self.label}_{chip}_{num_subcarriers}sc_{device_token}_{timestamp}_{self._sample_count:04d}.npz'
+
+    @staticmethod
+    def _require_single_device_id(packets: List[CSIPacket]) -> int:
+        """Validate that one device and only one device is present."""
+        missing_device_packets = sum(1 for packet in packets if packet.device_id is None)
+        if missing_device_packets:
+            raise ValueError(
+                f'cannot save sample without device_id metadata ({missing_device_packets} packets missing device_id)'
+            )
+
+        device_ids = {int(packet.device_id) for packet in packets if packet.device_id is not None}
+        if len(device_ids) != 1:
+            raise ValueError(f'cannot save mixed-device sample as one file: found {len(device_ids)} device ids')
+        return next(iter(device_ids))
+
+    def save_samples_by_device(self, packets: List[CSIPacket]) -> List[Path]:
+        """Split a mixed capture window into one file per device."""
+        if not packets:
+            return []
+
+        packets_by_device: Dict[int, List[CSIPacket]] = {}
+        missing_device_packets = 0
+        for packet in packets:
+            if packet.device_id is None:
+                missing_device_packets += 1
+                continue
+            packets_by_device.setdefault(int(packet.device_id), []).append(packet)
+
+        if missing_device_packets:
+            raise ValueError(
+                f'cannot save capture window without device_id metadata '
+                f'({missing_device_packets} packets missing device_id)'
+            )
+
+        saved_files: List[Path] = []
+        for device_id in sorted(packets_by_device):
+            filepath = self.save_sample(packets_by_device[device_id])
+            if filepath is not None:
+                saved_files.append(filepath)
+        return saved_files
     
     def save_sample(self, packets: List[CSIPacket]) -> Optional[Path]:
         """
@@ -710,6 +795,8 @@ class CSICollector:
         if not packets:
             return None
         
+        device_id = self._require_single_device_id(packets)
+
         # Auto-detect chip from first packet (v2 protocol)
         if packets[0].chip and packets[0].chip != 'unknown':
             self.chip = packets[0].chip.lower()
@@ -753,9 +840,7 @@ class CSICollector:
         if all(value is not None for value in device_ticks):
             sample['device_ticks_us'] = np.array(device_ticks, dtype=np.uint64)
 
-        device_ids = {p.device_id for p in packets if p.device_id is not None}
-        if len(device_ids) == 1:
-            sample['device_id'] = np.uint64(next(iter(device_ids)))
+        sample['device_id'] = np.uint64(device_id)
 
         def add_optional_array(key: str, values, dtype) -> None:
             if any(value is not None for value in values):
@@ -774,7 +859,7 @@ class CSICollector:
         # Save file
         label_dir = self._get_label_dir()
         num_subcarriers = packets[0].num_subcarriers
-        filename = self._generate_filename(num_subcarriers)
+        filename = self._generate_filename(num_subcarriers, device_id)
         filepath = label_dir / filename
         
         np.savez_compressed(filepath, **sample)
@@ -787,7 +872,8 @@ class CSICollector:
             duration_ms=duration_ms,
             collected_at=sample['collected_at'],
             gain_locked=gain_locked,
-            description=self.description
+            description=self.description,
+            device_id=device_id
         )
         
         return filepath
@@ -795,7 +881,7 @@ class CSICollector:
     def _update_dataset_info(self, filename: str = None, num_subcarriers: int = None,
                                 num_packets: int = None, duration_ms: float = None,
                                 collected_at: str = None, gain_locked: bool = True,
-                                description: str = None):
+                                description: str = None, device_id: Optional[int] = None):
         """Update dataset info with current sample counts and file details"""
         info = load_dataset_info()
         
@@ -838,7 +924,9 @@ class CSICollector:
                     'duration_ms': int(duration_ms) if duration_ms else 0,
                     'num_packets': num_packets or 0,
                     'gain_locked': bool(gain_locked),
-                    'description': description
+                    'description': description,
+                    'device_id': int(device_id) if device_id is not None else None,
+                    'device_token': format_device_token(device_id) if device_id is not None else '',
                 }
                 info['files'][self.label].append(file_info)
         
@@ -896,6 +984,25 @@ class CSICollector:
             gain_locked=True
         )
 
+    def _reset_live_status_block(self) -> None:
+        """Forget the currently rendered inline status block."""
+        self._live_status_line_count = 0
+
+    def _render_live_status_block(
+        self,
+        summary_line: str,
+        detail_lines: List[str],
+        *,
+        inline: Optional[bool] = None,
+    ) -> None:
+        """Render and remember the current inline status block size."""
+        self._live_status_line_count = self._emit_ready_status_block(
+            summary_line,
+            detail_lines,
+            previous_line_count=self._live_status_line_count,
+            inline=inline,
+        )
+
     @staticmethod
     def _build_status_bar(ratio: float, width: int = 18) -> str:
         """Build a compact ASCII progress bar for terminal status."""
@@ -903,7 +1010,186 @@ class CSICollector:
         filled = int(round(clamped * width))
         return '[' + ('#' * filled) + ('-' * (width - filled)) + ']'
 
-    def _wait_for_ready_state(self, quiet: bool = False) -> None:
+    @staticmethod
+    def _supports_inline_terminal(stream: Any = None) -> bool:
+        """Return True when the output stream supports inline ANSI refresh."""
+        target_stream = sys.stdout if stream is None else stream
+        isatty = getattr(target_stream, 'isatty', None)
+        return bool(callable(isatty) and isatty())
+
+    @staticmethod
+    def _emit_ready_status_block(
+        summary_line: str,
+        detail_lines: List[str],
+        *,
+        previous_line_count: int = 0,
+        stream: Any = None,
+        inline: Optional[bool] = None,
+    ) -> int:
+        """Render the readiness summary and detail lines, optionally in place."""
+        target_stream = sys.stdout if stream is None else stream
+        use_inline = CSICollector._supports_inline_terminal(target_stream) if inline is None else inline
+        lines = [summary_line, *detail_lines]
+
+        if not use_inline:
+            for line in lines:
+                target_stream.write(f'{line}\n')
+            target_stream.flush()
+            return len(lines)
+
+        if previous_line_count > 0:
+            target_stream.write(f'\x1b[{previous_line_count}F')
+
+        total_lines = max(previous_line_count, len(lines))
+        for idx in range(total_lines):
+            target_stream.write('\x1b[2K')
+            if idx < len(lines):
+                target_stream.write(lines[idx])
+            target_stream.write('\n')
+
+        target_stream.flush()
+        return len(lines)
+
+    @staticmethod
+    def _check_sequence_by_device(packet: CSIPacket, last_seq_by_device: Dict[int, int]) -> int:
+        """Track per-device sequence gaps and return detected drops."""
+        if packet.device_id is None:
+            return 0
+        device_id = int(packet.device_id)
+        dropped = 0
+        if device_id in last_seq_by_device:
+            dropped = CSIReceiver._compute_sequence_gap(last_seq_by_device[device_id], packet.seq_num)
+        last_seq_by_device[device_id] = packet.seq_num
+        return dropped
+
+    @staticmethod
+    def _summarize_ready_devices(
+        device_states: Dict[int, Dict[str, Any]],
+        *,
+        expected_device_count: int,
+        warmup_target: int,
+        threshold: float,
+        now: float,
+    ) -> Dict[str, Any]:
+        """Summarize multi-device readiness for status rendering and gating."""
+        observed_count = len(device_states)
+        required_count = max(1, expected_device_count)
+        relevant_states = list(device_states.values())
+
+        if observed_count < required_count:
+            return {
+                'ready': False,
+                'status': f'DEVICES {observed_count}/{required_count}',
+                'stable_elapsed': 0.0,
+                'ready_count': 0,
+                'observed_count': observed_count,
+                'required_count': required_count,
+            }
+
+        warm_states = [state for state in relevant_states if state['processed_packets'] >= warmup_target]
+        total_relevant = max(observed_count, required_count)
+        if len(warm_states) < observed_count:
+            return {
+                'ready': False,
+                'status': f'WARMUP {len(warm_states)}/{total_relevant}',
+                'stable_elapsed': 0.0,
+                'ready_count': 0,
+                'observed_count': observed_count,
+                'required_count': required_count,
+            }
+
+        if any(state['current_mv'] > threshold for state in relevant_states):
+            ready_count = sum(1 for state in relevant_states if state['current_mv'] <= threshold)
+            return {
+                'ready': False,
+                'status': f'UNSTABLE {ready_count}/{total_relevant}',
+                'stable_elapsed': 0.0,
+                'ready_count': ready_count,
+                'observed_count': observed_count,
+                'required_count': required_count,
+            }
+
+        stable_elapsed = min(
+            max(0.0, now - state['stable_since']) if state['stable_since'] is not None else 0.0
+            for state in relevant_states
+        )
+        ready = stable_elapsed >= CSICollector.READY_STABLE_SECONDS
+        return {
+            'ready': ready,
+            'status': f'READY {observed_count}/{total_relevant}' if ready else f'STABLE {observed_count}/{total_relevant}',
+            'stable_elapsed': stable_elapsed,
+            'ready_count': observed_count,
+            'observed_count': observed_count,
+            'required_count': required_count,
+        }
+
+    @staticmethod
+    def _format_ready_device_lines(
+        device_states: Dict[int, Dict[str, Any]],
+        *,
+        expected_source_hosts: List[str],
+        warmup_target: int,
+        threshold: float,
+        now: float,
+    ) -> List[str]:
+        """Build detailed per-device readiness lines for terminal logging."""
+        lines: List[str] = []
+        seen_ips = {state.get('source_ip') for state in device_states.values() if state.get('source_ip')}
+
+        for expected_ip in expected_source_hosts:
+            if expected_ip not in seen_ips:
+                lines.append(
+                    f'    ip={expected_ip} chip=? ch=-- rssi=--- '
+                    f'{CSICollector._build_status_bar(0.0)} '
+                    f'mv=--/{threshold:.3f} pps=-- '
+                    f'| WAITING'
+                )
+
+        for device_id in sorted(device_states):
+            state = device_states[device_id]
+            source_ip = state.get('source_ip', '?')
+            chip = str(state.get('chip', '?')).upper()
+            channel = state.get('channel')
+            rssi_dbm = state.get('rssi_dbm')
+            processed_packets = int(state.get('processed_packets', 0))
+            current_mv = float(state.get('current_mv', 0.0))
+            current_pps = state.get('current_pps')
+            stable_since = state.get('stable_since')
+
+            if processed_packets < warmup_target:
+                status = f'WARMUP {processed_packets}/{warmup_target}'
+                stable_value = 0.0
+                mv_ratio = 0.0
+            else:
+                stable_value = max(0.0, now - stable_since) if stable_since is not None else 0.0
+                mv_ratio = min(current_mv / threshold, 1.0) if threshold > 0 else 0.0
+                if current_mv > threshold:
+                    status = 'UNSTABLE'
+                    stable_value = 0.0
+                elif stable_value >= CSICollector.READY_STABLE_SECONDS:
+                    status = 'READY'
+                    stable_value = CSICollector.READY_STABLE_SECONDS
+                else:
+                    status = 'STABLE'
+
+            mv_text = '--' if processed_packets < warmup_target else f'{current_mv:.3f}'
+            channel_text = '--' if channel is None else f'{int(channel):02d}'
+            rssi_text = '---' if rssi_dbm is None else str(int(rssi_dbm))
+            pps_text = '--' if current_pps is None else str(int(current_pps))
+            lines.append(
+                f'    ip={source_ip} chip={chip} ch={channel_text} rssi={rssi_text} '
+                f'{CSICollector._build_status_bar(mv_ratio)} '
+                f'mv={mv_text}/{threshold:.3f} pps={pps_text} '
+                f'| {status}'
+            )
+
+        return lines
+
+    def _wait_for_ready_state(
+        self,
+        quiet: bool = False,
+        summary_prefix: str = '  ',
+    ) -> Dict[int, Dict[str, Any]]:
         """
         Wait until environment is stable before recording.
 
@@ -915,19 +1201,17 @@ class CSICollector:
             raise RuntimeError('Receiver socket is not initialized')
 
         self.receiver.reset_stats()
-        self._ready_detector.reset()
-
         warmup_target = self._ready_detector.window_size
+        device_states: Dict[int, Dict[str, Any]] = {}
+        last_seq_by_device: Dict[int, int] = {}
         processed_packets = 0
-        stable_since = None
         last_render = 0.0
         last_pps_time = time.monotonic()
         last_pps_count = 0
         current_pps = 0
-        current_mv = 0.0
-        current_state = 'WARMUP'
-        ready_ratio = 0.0
-
+        current_state = f'DEVICES 0/{self.expected_device_count}'
+        detail_render_interval = self.STATUS_REFRESH_SECONDS
+        use_inline_status = self._supports_inline_terminal()
         while True:
             try:
                 data, addr = self.receiver.sock.recvfrom(MAX_STREAM_DATAGRAM_BYTES)
@@ -938,82 +1222,286 @@ class CSICollector:
                 for packet in packets:
                     processed_packets += 1
                     self.receiver.packet_count += 1
-                    self.receiver._check_sequence(packet.seq_num)
+                    self.receiver.dropped_count += self._check_sequence_by_device(packet, last_seq_by_device)
+
+                    if packet.device_id is None:
+                        continue
+
+                    device_id = int(packet.device_id)
+                    state = device_states.get(device_id)
+                    if state is None:
+                        state = {
+                            'detector': self._build_ready_detector(),
+                            'processed_packets': 0,
+                            'stable_since': None,
+                            'current_mv': 0.0,
+                            'current_pps': 0,
+                            'last_pps_count': 0,
+                            'source_ip': addr[0],
+                            'chip': packet.chip or 'unknown',
+                            'channel': packet.channel,
+                            'rssi_dbm': packet.rssi_dbm,
+                            'last_seq': packet.seq_num,
+                        }
+                        device_states[device_id] = state
+                    else:
+                        state['source_ip'] = addr[0]
+                        if packet.chip and packet.chip != 'unknown':
+                            state['chip'] = packet.chip
+                        if packet.channel is not None:
+                            state['channel'] = packet.channel
+                        if packet.rssi_dbm is not None:
+                            state['rssi_dbm'] = packet.rssi_dbm
+                        state['last_seq'] = packet.seq_num
 
                     packet_dict = {
                         'csi_data': packet.iq_raw,
                         'gain_locked': packet.gain_locked
                     }
-                    self._ready_detector.process_packet(packet_dict)
+                    state['detector'].process_packet(packet_dict)
+                    state['processed_packets'] += 1
 
-                if processed_packets >= warmup_target:
-                    current_mv = self._ready_detector._context.current_moving_variance
-                    current_state = 'UNSTABLE' if current_mv > self.READY_MV_THRESHOLD else 'READY'
-                    ready_ratio = min(current_mv / self.READY_MV_THRESHOLD, 1.0)
+                    if state['processed_packets'] >= warmup_target:
+                        state['current_mv'] = state['detector']._context.current_moving_variance
+                        now = time.monotonic()
+                        if state['current_mv'] <= self.READY_MV_THRESHOLD:
+                            if state['stable_since'] is None:
+                                state['stable_since'] = now
+                        else:
+                            state['stable_since'] = None
 
-                    now = time.monotonic()
-                    if current_mv <= self.READY_MV_THRESHOLD:
-                        if stable_since is None:
-                            stable_since = now
+                now = time.monotonic()
+                summary = self._summarize_ready_devices(
+                    device_states,
+                    expected_device_count=self.expected_device_count,
+                    warmup_target=warmup_target,
+                    threshold=self.READY_MV_THRESHOLD,
+                    now=now,
+                )
+                current_state = summary['status']
+                if summary['ready']:
+                    if not quiet:
+                        detail_lines = self._format_ready_device_lines(
+                            device_states,
+                            expected_source_hosts=self.expected_source_hosts,
+                            warmup_target=warmup_target,
+                            threshold=self.READY_MV_THRESHOLD,
+                            now=now,
+                        )
+                        summary_line = (
+                            f'{summary_prefix}STATUS: READY {summary["observed_count"]}/{summary["required_count"]} '
+                            + f'| pps {current_pps} '
+                            + f'| drop {self.receiver.get_stats()["drop_rate"]:.1f}% '
+                        )
+                        self._render_live_status_block(
+                            summary_line,
+                            detail_lines,
+                            inline=use_inline_status,
+                        )
+                    return device_states
+
+                if now - last_pps_time >= 1.0:
+                    delta = processed_packets - last_pps_count
+                    elapsed = now - last_pps_time
+                    current_pps = int(delta / elapsed) if elapsed > 0 else 0
+                    for state in device_states.values():
+                        device_delta = int(state.get('processed_packets', 0)) - int(state.get('last_pps_count', 0))
+                        state['current_pps'] = int(device_delta / elapsed) if elapsed > 0 else 0
+                        state['last_pps_count'] = int(state.get('processed_packets', 0))
+                    last_pps_time = now
+                    last_pps_count = processed_packets
+
+                if (not quiet) and (now - last_render >= detail_render_interval):
+                    drop_rate = self.receiver.get_stats()['drop_rate']
+                    detail_lines = self._format_ready_device_lines(
+                        device_states,
+                        expected_source_hosts=self.expected_source_hosts,
+                        warmup_target=warmup_target,
+                        threshold=self.READY_MV_THRESHOLD,
+                        now=now,
+                    )
+                    summary_line = (
+                        f'{summary_prefix}STATUS: {current_state} '
+                        + f'| pps {current_pps} '
+                        + f'| drop {drop_rate:.1f}% '
+                    )
+                    self._render_live_status_block(
+                        summary_line,
+                        detail_lines,
+                        inline=use_inline_status,
+                    )
+                    last_render = now
+
+            except socket.timeout:
+                now = time.monotonic()
+                if (not quiet) and (now - last_render >= detail_render_interval):
+                    detail_lines = self._format_ready_device_lines(
+                        device_states,
+                        expected_source_hosts=self.expected_source_hosts,
+                        warmup_target=warmup_target,
+                        threshold=self.READY_MV_THRESHOLD,
+                        now=now,
+                    )
+                    summary_line = f'{summary_prefix}STATUS: NO DATA | pps 0 | drop 0.0%'
+                    self._render_live_status_block(
+                        summary_line,
+                        detail_lines,
+                        inline=use_inline_status,
+                    )
+                    last_render = now
+                continue
+
+    def _collect_with_live_status(
+        self,
+        duration: float,
+        *,
+        quiet: bool = False,
+        initial_device_states: Optional[Dict[int, Dict[str, Any]]] = None,
+        summary_prefix: str = '  ',
+    ) -> List[CSIPacket]:
+        """Collect a timed window while keeping the per-device status block live."""
+        if self.receiver.sock is None:
+            raise RuntimeError('Receiver socket is not initialized')
+
+        self.receiver.reset_stats()
+        packets: List[CSIPacket] = []
+        deadline = time.monotonic() + duration
+        warmup_target = self._ready_detector.window_size
+        device_states: Dict[int, Dict[str, Any]] = dict(initial_device_states or {})
+        last_seq_by_device: Dict[int, int] = {
+            device_id: int(state['last_seq'])
+            for device_id, state in device_states.items()
+            if state.get('last_seq') is not None
+        }
+        processed_packets = 0
+        last_render = 0.0
+        last_pps_time = time.monotonic()
+        last_pps_count = 0
+        current_pps = 0
+        use_inline_status = self._supports_inline_terminal()
+
+        while time.monotonic() < deadline:
+            try:
+                data, addr = self.receiver.sock.recvfrom(MAX_STREAM_DATAGRAM_BYTES)
+                parsed_packets = self.receiver._parse_packets(data)
+                if not parsed_packets:
+                    continue
+
+                for packet in parsed_packets:
+                    packets.append(packet)
+                    processed_packets += 1
+                    self.receiver.packet_count += 1
+                    self.receiver.dropped_count += self._check_sequence_by_device(packet, last_seq_by_device)
+
+                    if packet.device_id is None:
+                        continue
+
+                    device_id = int(packet.device_id)
+                    state = device_states.get(device_id)
+                    if state is None:
+                        state = {
+                            'detector': self._build_ready_detector(),
+                            'processed_packets': 0,
+                            'stable_since': None,
+                            'current_mv': 0.0,
+                            'current_pps': 0,
+                            'last_pps_count': 0,
+                            'source_ip': addr[0],
+                            'chip': packet.chip or 'unknown',
+                            'channel': packet.channel,
+                            'rssi_dbm': packet.rssi_dbm,
+                            'last_seq': packet.seq_num,
+                        }
+                        device_states[device_id] = state
                     else:
-                        stable_since = None
+                        state['source_ip'] = addr[0]
+                        if packet.chip and packet.chip != 'unknown':
+                            state['chip'] = packet.chip
+                        if packet.channel is not None:
+                            state['channel'] = packet.channel
+                        if packet.rssi_dbm is not None:
+                            state['rssi_dbm'] = packet.rssi_dbm
+                        state['last_seq'] = packet.seq_num
 
-                    stable_elapsed = 0.0 if stable_since is None else (now - stable_since)
-                    if stable_elapsed >= self.READY_STABLE_SECONDS:
-                        if not quiet:
-                            print(
-                                '\r'
-                                + f'  {self._build_status_bar(ready_ratio)} '
-                                + f'MV {current_mv:.3f}/{self.READY_MV_THRESHOLD:.3f} '
-                                + f'| stable {self.READY_STABLE_SECONDS:.1f}/{self.READY_STABLE_SECONDS:.1f}s '
-                                + f'| pps {current_pps:3d} '
-                                + f'| drop {self.receiver.get_stats()["drop_rate"]:.1f}% '
-                                + '| READY',
-                                end='',
-                                flush=True
-                            )
-                            print()
-                        return
-                else:
-                    current_state = f'WARMUP {processed_packets}/{warmup_target}'
-                    stable_elapsed = 0.0
+                    packet_dict = {
+                        'csi_data': packet.iq_raw,
+                        'gain_locked': packet.gain_locked
+                    }
+                    state['detector'].process_packet(packet_dict)
+                    state['processed_packets'] += 1
+
+                    if state['processed_packets'] >= warmup_target:
+                        state['current_mv'] = state['detector']._context.current_moving_variance
+                        now = time.monotonic()
+                        if state['current_mv'] <= self.READY_MV_THRESHOLD:
+                            if state['stable_since'] is None:
+                                state['stable_since'] = now
+                        else:
+                            state['stable_since'] = None
 
                 now = time.monotonic()
                 if now - last_pps_time >= 1.0:
                     delta = processed_packets - last_pps_count
                     elapsed = now - last_pps_time
                     current_pps = int(delta / elapsed) if elapsed > 0 else 0
+                    for state in device_states.values():
+                        device_delta = int(state.get('processed_packets', 0)) - int(state.get('last_pps_count', 0))
+                        state['current_pps'] = int(device_delta / elapsed) if elapsed > 0 else 0
+                        state['last_pps_count'] = int(state.get('processed_packets', 0))
                     last_pps_time = now
                     last_pps_count = processed_packets
 
-                if (not quiet) and (now - last_render >= self.READY_REFRESH_SECONDS):
-                    drop_rate = self.receiver.get_stats()['drop_rate']
-                    status_bar = self._build_status_bar(ready_ratio)
-                    print(
-                        '\r'
-                        + f'  {status_bar} '
-                        + f'MV {current_mv:.3f}/{self.READY_MV_THRESHOLD:.3f} '
-                        + f'| stable {stable_elapsed:.1f}/{self.READY_STABLE_SECONDS:.1f}s '
-                        + f'| pps {current_pps:3d} '
-                        + f'| drop {drop_rate:.1f}% '
-                        + f'| {current_state}',
-                        end='',
-                        flush=True
+                if (not quiet) and (now - last_render >= self.STATUS_REFRESH_SECONDS):
+                    detail_lines = self._format_ready_device_lines(
+                        device_states,
+                        expected_source_hosts=self.expected_source_hosts,
+                        warmup_target=warmup_target,
+                        threshold=self.READY_MV_THRESHOLD,
+                        now=now,
+                    )
+                    elapsed = max(0.0, duration - max(0.0, deadline - now))
+                    stats = self.receiver.get_stats()
+                    summary_line = (
+                        f'{summary_prefix}STATUS: RECORDING '
+                        + f'| elapsed {elapsed:.1f}/{duration:.1f}s '
+                        + f'| pps {current_pps} '
+                        + f'| drop {stats["drop_rate"]:.1f}% '
+                        + f'| packets {len(packets)}'
+                    )
+                    self._render_live_status_block(
+                        summary_line,
+                        detail_lines,
+                        inline=use_inline_status,
                     )
                     last_render = now
-
             except socket.timeout:
                 now = time.monotonic()
-                if (not quiet) and (now - last_render >= self.READY_REFRESH_SECONDS):
-                    print(
-                        '\r'
-                        + '  [------------------] waiting packets...'
-                        + ' | stable 0.0/3.0s | pps   0 | drop 0.0% | NO DATA',
-                        end='',
-                        flush=True
+                if (not quiet) and (now - last_render >= self.STATUS_REFRESH_SECONDS):
+                    detail_lines = self._format_ready_device_lines(
+                        device_states,
+                        expected_source_hosts=self.expected_source_hosts,
+                        warmup_target=warmup_target,
+                        threshold=self.READY_MV_THRESHOLD,
+                        now=now,
+                    )
+                    elapsed = max(0.0, duration - max(0.0, deadline - now))
+                    stats = self.receiver.get_stats()
+                    summary_line = (
+                        f'{summary_prefix}STATUS: RECORDING '
+                        + f'| elapsed {elapsed:.1f}/{duration:.1f}s '
+                        + f'| pps {current_pps} '
+                        + f'| drop {stats["drop_rate"]:.1f}% '
+                        + f'| packets {len(packets)}'
+                    )
+                    self._render_live_status_block(
+                        summary_line,
+                        detail_lines,
+                        inline=use_inline_status,
                     )
                     last_render = now
                 continue
+
+        return packets
 
     def collect_timed(self, duration: float, num_samples: int = 1, quiet: bool = False) -> List[Path]:
         """
@@ -1045,41 +1533,39 @@ class CSICollector:
         
         try:
             for sample_idx in range(num_samples):
-                if not quiet:
-                    print(f'\nSample {sample_idx + 1}/{num_samples}')
-                    print('  Waiting for stable scene (ML subcarriers + MVS)...', flush=True)
+                self._reset_live_status_block()
+                summary_prefix = f'  Sample {sample_idx + 1}/{num_samples} | '
 
                 # Flush packets that accumulated during countdown/idle time.
                 self._drain_udp_backlog()
-                self._wait_for_ready_state(quiet=quiet)
+                ready_device_states = self._wait_for_ready_state(
+                    quiet=quiet,
+                    summary_prefix=summary_prefix,
+                )
 
-                if not quiet:
-                    print('  ▶ RECORDING...', end='', flush=True)
-
-                # Reset and collect
-                self.receiver.reset_stats()
-                packets = []
-                deadline = time.monotonic() + duration
-
-                while time.monotonic() < deadline:
-                    try:
-                        data, addr = self.receiver.sock.recvfrom(MAX_STREAM_DATAGRAM_BYTES)
-                        for packet in self.receiver._parse_packets(data):
-                            packets.append(packet)
-                            self.receiver._check_sequence(packet.seq_num)
-                    except socket.timeout:
-                        continue
+                packets = self._collect_with_live_status(
+                    duration,
+                    quiet=quiet,
+                    initial_device_states=ready_device_states,
+                    summary_prefix=summary_prefix,
+                )
                 
                 # Save sample
-                filepath = self.save_sample(packets)
-                
-                if filepath:
-                    saved_files.append(filepath)
+                sample_files = self.save_samples_by_device(packets)
+
+                if sample_files:
+                    saved_files.extend(sample_files)
                     if not quiet:
-                        print(f'\r  ✅ Saved: {filepath.name} ({len(packets)} packets)')
+                        print(
+                            f'\r  ✅ Saved {len(sample_files)} device file(s) '
+                            f'from {len(packets)} packets'
+                        )
+                        for filepath in sample_files:
+                            print(f'     - {filepath.name}')
                 else:
                     if not quiet:
                         print(f'\r  ❌ No packets received!')
+                self._reset_live_status_block()
         
         finally:
             if self.receiver.sock:
@@ -1087,7 +1573,7 @@ class CSICollector:
         
         if not quiet:
             print(f'\n{"=" * 60}')
-            print(f'  Collection complete: {len(saved_files)}/{num_samples} samples saved')
+            print(f'  Collection complete: {len(saved_files)} device file(s) saved')
             print(f'{"=" * 60}\n')
         
         return saved_files
@@ -1125,6 +1611,7 @@ class CSICollector:
             sample_idx = 0
             while sample_idx < num_samples:
                 try:
+                    self._reset_live_status_block()
                     user_input = input(f'\nSample {sample_idx + 1}/{num_samples} - Press ENTER to record (Q to quit): ')
                     
                     if user_input.lower() == 'q':
@@ -1135,33 +1622,28 @@ class CSICollector:
 
                     # Flush packets that accumulated while waiting for user input.
                     self._drain_udp_backlog()
-                    print('  Waiting for stable scene (ML subcarriers + MVS)...', flush=True)
-                    self._wait_for_ready_state(quiet=False)
-                    print('  ▶ RECORDING...', end='', flush=True)
-
-                    # Collect for configured duration
-                    self.receiver.reset_stats()
-                    packets = []
-                    deadline = time.monotonic() + duration
-
-                    while time.monotonic() < deadline:
-                        try:
-                            data, addr = self.receiver.sock.recvfrom(MAX_STREAM_DATAGRAM_BYTES)
-                            for packet in self.receiver._parse_packets(data):
-                                packets.append(packet)
-                                self.receiver._check_sequence(packet.seq_num)
-                        except socket.timeout:
-                            continue
+                    ready_device_states = self._wait_for_ready_state(quiet=False)
+                    packets = self._collect_with_live_status(
+                        duration,
+                        quiet=False,
+                        initial_device_states=ready_device_states,
+                    )
                     
                     # Save sample
-                    filepath = self.save_sample(packets)
-                    
-                    if filepath:
-                        saved_files.append(filepath)
-                        print(f'\r  ✅ Saved: {filepath.name} ({len(packets)} packets)')
+                    sample_files = self.save_samples_by_device(packets)
+
+                    if sample_files:
+                        saved_files.extend(sample_files)
+                        print(
+                            f'\r  ✅ Saved {len(sample_files)} device file(s) '
+                            f'from {len(packets)} packets'
+                        )
+                        for filepath in sample_files:
+                            print(f'     - {filepath.name}')
                         sample_idx += 1
                     else:
                         print(f'\r  ❌ No packets received! Check the streamer firmware and collector IP/port.')
+                    self._reset_live_status_block()
                         
                 except KeyboardInterrupt:
                     print('\nCollection cancelled.')
@@ -1172,7 +1654,7 @@ class CSICollector:
                 self.receiver.sock.close()
         
         print(f'\n{"=" * 60}')
-        print(f'  Collection complete: {len(saved_files)} samples saved')
+        print(f'  Collection complete: {len(saved_files)} device file(s) saved')
         print(f'{"=" * 60}\n')
         
         return saved_files

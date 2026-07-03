@@ -478,6 +478,8 @@ void StreamFrontend::stop_capture_() {
 void StreamFrontend::on_wifi_connected_() {
   wifi_connected_.store(true, std::memory_order_relaxed);
   collector_ip_addr_ = 0U;
+  local_ip_addr_ = 0U;
+  local_mac_addr_.fill(0U);
   gain_lock_complete_.store(false, std::memory_order_relaxed);
   reset_runtime_telemetry_baseline_();
   sockaddr_in collector_addr{};
@@ -485,6 +487,14 @@ void StreamFrontend::on_wifi_connected_() {
   collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
   udp_sender_.set_collector(collector_addr, false);
   capture_service_.reset_session();
+  StandaloneWifiInfo wifi_info;
+  if (wifi_manager_.get_info(&wifi_info) && wifi_info.ip_address[0] != '\0') {
+    local_ip_addr_ = inet_addr(wifi_info.ip_address);
+  }
+  uint8_t mac[6] = {0U, 0U, 0U, 0U, 0U, 0U};
+  if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
+    std::copy(std::begin(mac), std::end(mac), local_mac_addr_.begin());
+  }
   publish_ble_sysinfo_();
 }
 
@@ -493,6 +503,8 @@ void StreamFrontend::on_wifi_disconnected_() {
   stop_capture_();
   stimulus_service_.stop();
   collector_ip_addr_ = 0U;
+  local_ip_addr_ = 0U;
+  local_mac_addr_.fill(0U);
   sockaddr_in collector_addr{};
   collector_addr.sin_family = AF_INET;
   collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
@@ -646,7 +658,8 @@ void StreamFrontend::handle_csi_packet_(const wifi_csi_info_t *info, const Norma
   }
 
   StimulusMetadata stimulus{};
-  const bool has_stimulus = extract_stimulus_metadata_from_csi(info, collector_ip_addr_, &stimulus);
+  const bool has_stimulus =
+      extract_stimulus_metadata_from_csi(info, collector_ip_addr_, local_ip_addr_, local_mac_addr_.data(), &stimulus);
   if (!has_stimulus) {
     stimulus_parse_fail_total_++;
     filtered_total_++;

@@ -23,7 +23,7 @@ def _make_collect_args(**overrides) -> argparse.Namespace:
         "interactive": False,
         "udp_port": 5001,
         "bind_ip": None,
-        "streamer_ip": "192.168.1.15",
+        "stimulus_target": "192.168.1.15",
         "stimulus_port": 9999,
         "stimulus_rate": 100,
         "reference_every": 20,
@@ -38,7 +38,7 @@ def _make_detect_args(**overrides) -> argparse.Namespace:
     args = {
         "udp_port": 5001,
         "bind_ip": None,
-        "streamer_ip": "192.168.1.15",
+        "stimulus_target": "192.168.1.15",
         "stimulus_port": 9999,
         "stimulus_rate": 100,
         "reference_every": 0,
@@ -145,8 +145,8 @@ def test_collect_parser_accepts_count_alias() -> None:
             "3",
             "--start-delay",
             "15",
-            "--streamer-ip",
-            "192.168.1.15",
+            "--stimulus-target",
+            "239.1.1.15",
         ]
     )
 
@@ -159,7 +159,7 @@ def test_micro_collect_alias_is_rejected() -> None:
     parser = build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["micro", "collect", "--label", "motion", "--streamer-ip", "192.168.1.15"])
+        parser.parse_args(["micro", "collect", "--label", "motion", "--stimulus-target", "192.168.1.15"])
 
 
 def test_collect_parser_keeps_samples_option() -> None:
@@ -172,7 +172,7 @@ def test_collect_parser_keeps_samples_option() -> None:
             "motion",
             "--samples",
             "4",
-            "--streamer-ip",
+            "--stimulus-target",
             "192.168.1.15",
         ]
     )
@@ -181,13 +181,29 @@ def test_collect_parser_keeps_samples_option() -> None:
     assert args.start_delay == 0.0
 
 
+def test_collect_parser_accepts_comma_separated_stimulus_targets() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "collect",
+            "--label",
+            "test",
+            "--stimulus-target",
+            "192.168.1.17,192.168.1.24,192.168.1.29",
+        ]
+    )
+
+    assert args.stimulus_target == "192.168.1.17,192.168.1.24,192.168.1.29"
+
+
 def test_detect_parser_accepts_capture_options() -> None:
     parser = build_parser()
 
     args = parser.parse_args(
         [
             "detect",
-            "--streamer-ip",
+            "--stimulus-target",
             "192.168.1.15",
             "--capture-label",
             "test",
@@ -208,7 +224,7 @@ def test_micro_detect_alias_is_rejected() -> None:
     parser = build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["micro", "detect", "--streamer-ip", "192.168.1.15"])
+        parser.parse_args(["micro", "detect", "--stimulus-target", "192.168.1.15"])
 
 
 def test_ui_parser_accepts_ble_interface() -> None:
@@ -371,7 +387,7 @@ def test_collect_csi_data_validates_arguments_and_imports(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
 
     with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_collect_args(streamer_ip=None))
+        host.collect_csi_data(_make_collect_args(stimulus_target=None))
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_collect_args(start_delay=-1))
@@ -421,7 +437,7 @@ def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> No
 
     class FakeCollector:
         def __init__(self, **kwargs):
-            events.append(("collector_init", kwargs["label"], kwargs["bind_host"]))
+            events.append(("collector_init", kwargs["label"], kwargs["bind_host"], kwargs["expected_device_count"]))
 
         def collect_timed(self, duration: float, num_samples: int):
             events.append(("collect_timed", duration, num_samples))
@@ -449,10 +465,12 @@ def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> No
     monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
     monkeypatch.setattr(host, "_wait_before_collection", lambda delay: events.append(("delay", delay)))
 
-    host.collect_csi_data(_make_collect_args())
+    host.collect_csi_data(_make_collect_args(stimulus_target="192.168.1.17,192.168.1.24,192.168.1.29"))
 
     assert ("delay", 5.0) in events
     assert ("collect_timed", 10.0, 2) in events
+    assert ("collector_init", "static_presence", "127.0.0.1", 3) in events
+    assert ("sender_init", ["192.168.1.17", "192.168.1.24", "192.168.1.29"], 20) in events
     assert events.index(("delay", 5.0)) < events.index("start")
     assert events[-1] == "stop"
 
@@ -483,11 +501,11 @@ def test_detect_capture_saves_raw_packets_with_collector(monkeypatch) -> None:
 
     class FakeCollector:
         def __init__(self, **kwargs):
-            events.append(("collector_init", kwargs["label"], kwargs["description"]))
+            events.append(("collector_init", kwargs["label"], kwargs["description"], kwargs["expected_device_count"]))
 
-        def save_sample(self, packets):
+        def save_samples_by_device(self, packets):
             events.append(("save_sample", [p.seq_num for p in packets]))
-            return Path("test_c3_64sc_20260630_120000.npz")
+            return [Path("test_c3_64sc_dev0000000000abc123_20260630_120000_000001_0001.npz")]
 
     class FakeReceiver:
         def __init__(self, **kwargs):
@@ -569,12 +587,14 @@ def test_detect_capture_saves_raw_packets_with_collector(monkeypatch) -> None:
 
     host.detect_live_motion(
         _make_detect_args(
+            stimulus_target="192.168.1.17,192.168.1.24,192.168.1.29",
             capture_label="test",
             description="live detect ML, idle-motion-idle",
         )
     )
 
-    assert ("collector_init", "test", "live detect ML, idle-motion-idle") in events
+    assert ("collector_init", "test", "live detect ML, idle-motion-idle", 3) in events
+    assert ("sender_init", ["192.168.1.17", "192.168.1.24", "192.168.1.29"]) in events
     assert ("save_sample", [1, 2]) in events
     assert "stop" in events
     assert "receiver_stop" in events
@@ -662,7 +682,7 @@ def test_detect_live_motion_logs_features_and_handles_capture_without_packets(mo
         def __init__(self, **kwargs):
             pass
 
-        def save_sample(self, packets):
+        def save_samples_by_device(self, packets):
             return None
 
     class FakeReceiver:

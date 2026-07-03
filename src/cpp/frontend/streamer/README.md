@@ -147,7 +147,8 @@ Recommended workflow for local Wi-Fi configuration:
 4. leave `CONFIG_ESPECTRE_WIFI_CHANNEL` unless you intentionally want to
    pin the streamer to a specific AP channel
 5. build via `./espectre streamer build --chip <esp32|c3|c5|c6|s3>`, which
-   automatically passes `sdkconfig.defaults;sdkconfig.wifi` to `idf.py`
+   automatically passes `sdkconfig.defaults;sdkconfig.wifi` to `idf.py`;
+   add `--clean` when you want a fresh build
 
 Alternative Wi-Fi Provisioning Over BLE:
 
@@ -171,9 +172,9 @@ Notes:
 - set `CONFIG_ESPECTRE_WIFI_CHANNEL=<1-14>` together with BSSID when you want
   deterministic BSSID+channel association for CSI captures
 - if you change `sdkconfig.defaults`, `sdkconfig.wifi`, or the frontend Kconfig
-  surface and the generated `sdkconfig` appears stale, remove
-  `src/cpp/frontend/streamer/app/sdkconfig` and `sdkconfig.old` before
-  rebuilding so ESP-IDF regenerates the active config from the defaults
+  surface and the generated `sdkconfig` appears stale, rebuild with
+  `./espectre streamer build --chip <esp32|c3|c5|c6|s3> --clean` so ESP-IDF
+  regenerates the active config from the defaults
 - the active generated files `sdkconfig`, `sdkconfig.old`, and
   `dependencies.lock` are build artifacts and should remain untracked
 
@@ -216,12 +217,18 @@ The collector is responsible for:
 - choosing the stimulus rate (`pps`)
 - assigning `stimulus_id`
 - optionally marking packets as reference frames
+- choosing a shared stimulus destination, which may be unicast, broadcast, or
+  multicast depending on the session design
 
 The streamer is responsible for:
 
 - learning the collector IP from the source address of valid incoming stimulus
 - extracting `ESTM` metadata from the packet payload seen in CSI
 - copying `stimulus_id` / `reference` markers into the UDP CSI stream
+
+When multiple streamers share the same stimulus target, the host collector is
+expected to demultiplex incoming CSI by `device_id` and save one dataset file
+per device. Mixed-device `.npz` files are not part of the supported workflow.
 
 `ESTM` carries:
 
@@ -247,7 +254,7 @@ Use a shell where `idf.py --version` succeeds.
 Repository CLI:
 
 ```bash
-./espectre streamer build --chip s3
+./espectre streamer build --chip s3 --clean
 ./espectre streamer flash --port /dev/cu.usbmodemXXXX
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
