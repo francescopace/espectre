@@ -204,7 +204,7 @@ pip install -r requirements-ml.txt
 The main repository workflow and this training stack target Python `3.14`.
 
 - Trains the MLP detector with weighted binary cross-entropy
-- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, grouped session-level CV, and context-aware MVS-guided sample weights
+- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, grouped session-level CV, and hard-negative MVS sample weighting
 - Caches derived features and base sample weights for repeated local runs; use `--no-cache` to rebuild
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
 - Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms

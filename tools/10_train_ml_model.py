@@ -363,6 +363,8 @@ DEFAULT_FP_WEIGHT = 2.0
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
+SAMPLE_WEIGHT_MODES = ('none', 'mvs_global', 'mvs_gridsearch', 'mvs_hard_negative')
+DEFAULT_SAMPLE_WEIGHT_MODE = 'mvs_hard_negative'
 TRAINING_CACHE_VERSION = 1
 DEFAULT_ML_TEMPERATURE = 5.0
 # All chips included: MLDetector keeps MVS CV normalization disabled, then
@@ -421,6 +423,8 @@ DEFAULT_REPORT_GROUP_KEYS = (
     'session_group',
     'source_file',
 )
+MAX_PROMOTION_TOTAL_FP_INCREASE = 0
+MAX_PROMOTION_FP_RATE_INCREASE = 0.0
 ACTIVE_TORCH_DEVICE = DEFAULT_TORCH_DEVICE
 # ============================================================================
 # Data Loading
@@ -465,6 +469,16 @@ def normalize_allowed_labels(labels):
     if labels is None:
         return None
     return {str(label).strip().lower() for label in labels if str(label).strip()} or None
+
+
+def normalize_sample_weight_mode(value):
+    """Return a supported sample-weight mode."""
+    mode = str(value or DEFAULT_SAMPLE_WEIGHT_MODE).strip().lower()
+    if mode not in SAMPLE_WEIGHT_MODES:
+        raise argparse.ArgumentTypeError(
+            f"unsupported sample weight mode {mode!r}; expected one of {SAMPLE_WEIGHT_MODES}"
+        )
+    return mode
 
 
 def parse_hidden_layers(value):
@@ -1059,6 +1073,7 @@ def load_all_data(environment_filter=None, excluded_chips=None,
 def _training_cache_manifest(feature_names, environment_filter=None,
                              excluded_chips=None,
                              allowed_labels=BINARY_TRAINING_LABELS,
+                             sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
                              window_size=SEG_WINDOW_SIZE,
                              enable_hampel=True,
                              hampel_window=HAMPEL_WINDOW,
@@ -1067,6 +1082,7 @@ def _training_cache_manifest(feature_names, environment_filter=None,
     allowed_labels = sorted(normalize_allowed_labels(allowed_labels) or ())
     environment_filter = sorted(parse_environment_filter(environment_filter) or ())
     excluded_chips = sorted(parse_chip_filter(excluded_chips) or ())
+    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
     files = []
     for npz_file in sorted(DATA_DIR.glob('*/*.npz')):
         if allowed_labels and npz_file.parent.name.lower() not in allowed_labels:
@@ -1097,6 +1113,7 @@ def _training_cache_manifest(feature_names, environment_filter=None,
         'allowed_labels': allowed_labels,
         'environment_filter': environment_filter,
         'excluded_chips': excluded_chips,
+        'sample_weight_mode': sample_weight_mode,
         'default_subcarriers': [int(sc) for sc in DEFAULT_SUBCARRIERS],
         'window_size': int(window_size),
         'enable_hampel': bool(enable_hampel),
@@ -1163,17 +1180,20 @@ def _save_training_matrix_cache(cache_path, manifest, X, y, feature_names,
 
 
 def load_training_matrix(environment_filter=None, excluded_chips=None,
-                         feature_names=None, use_cache=True):
+                         feature_names=None, sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
+                         use_cache=True):
     """Load or build the cached training matrix used by binary ML training."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES.copy()
     feature_names = list(feature_names)
+    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
 
     manifest = _training_cache_manifest(
         feature_names,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         allowed_labels=BINARY_TRAINING_LABELS,
+        sample_weight_mode=sample_weight_mode,
     )
     cache_path = _training_cache_path(manifest)
     if use_cache:
@@ -1209,12 +1229,13 @@ def load_training_matrix(environment_filter=None, excluded_chips=None,
     )
     print(f"  Feature extraction time: {format_duration(perf_counter() - features_start)}")
 
-    print("\nComputing MVS-guided sample weights...")
+    print(f"\nComputing sample weights ({sample_weight_mode})...")
     weights_start = perf_counter()
-    dataset_info = load_dataset_info()
-    tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
-    sample_weights = compute_mvs_guided_sample_weights(
-        all_packets, tuning_map, window_size=SEG_WINDOW_SIZE
+    sample_weights = compute_sample_weights(
+        all_packets,
+        y,
+        sample_weight_mode=sample_weight_mode,
+        window_size=SEG_WINDOW_SIZE,
     )
     print(f"  Sample weights time: {format_duration(perf_counter() - weights_start)}")
 
@@ -1352,13 +1373,42 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
     return X_arr, y_arr, feature_names, context_arrays
 
 
-def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDOW_SIZE):
+def compute_sample_weights(packets, labels, sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
+                           window_size=SEG_WINDOW_SIZE):
+    """Compute base sample weights for the selected training policy."""
+    mode = normalize_sample_weight_mode(sample_weight_mode)
+    if mode == 'none':
+        return np.ones(len(labels), dtype=np.float32)
+
+    dataset_info = load_dataset_info()
+    if mode == 'mvs_global':
+        tuning_map = {}
+        mvs_policy = 'full'
+    elif mode == 'mvs_gridsearch':
+        tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
+        mvs_policy = 'full'
+    elif mode == 'mvs_hard_negative':
+        tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
+        mvs_policy = 'hard_negative'
+    else:
+        raise AssertionError(f"Unhandled sample weight mode: {mode}")
+
+    return compute_mvs_guided_sample_weights(
+        packets,
+        tuning_map,
+        window_size=window_size,
+        policy=mvs_policy,
+    )
+
+
+def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDOW_SIZE,
+                                      policy='full'):
     """
     Compute sample weights using context-aware MVS scoring per source file.
 
     Weight policy:
-    - movement samples: hard-positive mining
-      (harder positives near threshold are weighted more)
+    - full policy: hard-positive mining for movement samples
+    - hard_negative policy: leave movement samples neutral
     - baseline samples: promote hard negatives (2.0) when metric >= threshold, else 1.0
     - per-file thresholds fall back toward the default threshold when pairing
       confidence is low, reducing overfitting to file-specific grid-search tuning
@@ -1402,7 +1452,9 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
                 # Hard-positive mining:
                 # subtle/near-threshold motion is exactly where recall drops in
                 # deployment, so up-weight it; easy positives get lower weight.
-                if ratio < 0.5:
+                if policy == 'hard_negative':
+                    base = 1.0
+                elif ratio < 0.5:
                     base = 2.4
                 elif ratio < 0.8:
                     base = 2.0
@@ -3294,7 +3346,9 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
               hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
               batch_size=DEFAULT_BATCH_SIZE, export_artifacts=True,
               environment_filter=None, excluded_chips=None,
-              positive_chip_boost=None, use_cache=True):
+              positive_chip_boost=None,
+              sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
+              use_cache=True):
     """
     Train models with all available data.
     
@@ -3314,6 +3368,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         excluded_chips: Optional chip name(s) to exclude.
         positive_chip_boost: Optional {CHIP: factor} boost applied to motion
                              samples after feature extraction.
+        sample_weight_mode: Base sample weighting policy.
         use_cache: If True, reuse cached feature matrix and base sample weights.
 
     Returns:
@@ -3327,6 +3382,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
+    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
     if hidden_layers is None:
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
     if feature_names is None:
@@ -3358,6 +3414,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         feature_names=feature_names if feature_names is not None else DEFAULT_FEATURES.copy(),
+        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     X = matrix['X']
@@ -3420,10 +3477,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             f"Error: sample weights mismatch (weights={len(sample_weights)}, samples={len(X)})."
         )
         return 1, seed, None
-    print(
-        "  Weight mode: context-aware + hard-positive mining "
-        "(threshold fallback + per-file normalization)"
-    )
+    print(f"  Weight mode: {sample_weight_mode}")
     print(
         f"  Weight stats: min={float(np.min(sample_weights)):.3f}, "
         f"max={float(np.max(sample_weights)):.3f}, "
@@ -3914,6 +3968,18 @@ def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, 
         return False
     if not candidate_gate.passed or not static_presence_gate.passed:
         return False
+    candidate_long = candidate_gate.long_metrics or {}
+    baseline_long = static_presence_gate.long_metrics or {}
+    if (
+        candidate_long.get('total_fp', 0)
+        > baseline_long.get('total_fp', 0) + MAX_PROMOTION_TOTAL_FP_INCREASE
+    ):
+        return False
+    if (
+        candidate_long.get('max_fp_rate', 0.0)
+        > baseline_long.get('max_fp_rate', 0.0) + MAX_PROMOTION_FP_RATE_INCREASE
+    ):
+        return False
     return _combined_candidate_key(candidate_cv, candidate_gate.long_metrics) > _combined_candidate_key(
         static_presence_cv,
         static_presence_gate.long_metrics,
@@ -3953,6 +4019,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                             hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
                             batch_size=DEFAULT_BATCH_SIZE, environment_filter=None,
                             excluded_chips=None, positive_chip_boost=None,
+                            sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
                             use_cache=True):
     """
     Train repeatedly with auto-generated seeds until the promoted candidate improves.
@@ -3972,6 +4039,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
+    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
     try:
         ensure_torch_available()
         torch_device_label = describe_torch_device()
@@ -3989,6 +4057,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     print(f"FP weight: {fp_weight}")
     print(f"Scaler: {scaler_mode}")
     print(f"Batch size: {batch_size}")
+    print(f"Sample weight mode: {sample_weight_mode}")
     print(f"Torch device: {torch_device_label}")
     if environment_filter is not None:
         print(f"Environment filter: {', '.join(sorted(parse_environment_filter(environment_filter)))}")
@@ -4020,6 +4089,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         positive_chip_boost=positive_chip_boost,
+        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     if static_presence_rc != 0 or static_presence_metrics is None:
@@ -4068,6 +4138,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             environment_filter=environment_filter,
             excluded_chips=excluded_chips,
             positive_chip_boost=positive_chip_boost,
+            sample_weight_mode=sample_weight_mode,
             use_cache=use_cache,
         )
         if train_rc != 0 or metrics is None:
@@ -4102,6 +4173,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             environment_filter=environment_filter,
             excluded_chips=excluded_chips,
             positive_chip_boost=positive_chip_boost,
+            sample_weight_mode=sample_weight_mode,
             use_cache=use_cache,
         )
         if export_rc != 0 or final_metrics is None:
@@ -4369,6 +4441,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
                              excluded_chips=None,
                              architectures=None,
                              positive_chip_boost=None,
+                             sample_weight_mode=DEFAULT_SAMPLE_WEIGHT_MODE,
                              output_path=DEFAULT_EXPERIMENT_OUTPUT,
                              promote_winner=False,
                              use_cache=True):
@@ -4376,6 +4449,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
+    sample_weight_mode = normalize_sample_weight_mode(sample_weight_mode)
     architectures = normalize_architecture_specs(architectures or DEFAULT_ARCHITECTURE_SWEEP)
 
     static_presence_layers = tuple(DEFAULT_HIDDEN_LAYERS)
@@ -4411,6 +4485,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
     print(f"Batch size: {batch_size}")
     print(f"Torch device: {torch_device_label}")
     print(f"FP weight: {fp_weight}")
+    print(f"Sample weight mode: {sample_weight_mode}")
     print(f"Screening seed: {screening_seed}")
     print(
         "Architectures: "
@@ -4431,6 +4506,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         feature_names=TRAINING_FEATURES,
+        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     stats = matrix['stats']
@@ -4474,6 +4550,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
             'environment': sorted(environment_filter) if environment_filter else None,
             'exclude_chip': sorted(excluded_chips) if excluded_chips else [],
             'positive_chip_boost': positive_chip_boost,
+            'sample_weight_mode': sample_weight_mode,
             'screening_seed': screening_seed,
             'initial_seeds': list(DEFAULT_EXPERIMENT_INITIAL_SEEDS),
             'final_seeds': list(DEFAULT_EXPERIMENT_FINAL_SEEDS),
@@ -4620,6 +4697,7 @@ def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
         positive_chip_boost=positive_chip_boost,
+        sample_weight_mode=sample_weight_mode,
         use_cache=use_cache,
     )
     if export_rc != 0 or export_metrics is None:
@@ -4774,6 +4852,13 @@ To compare ML with MVS, use:
                             f'default: {",".join(DEFAULT_EXCLUDED_CHIPS)})')
     parser.add_argument('--positive-chip-boost', type=parse_positive_chip_boost, default=None,
                        help='Boost motion samples for specific chips, e.g. ESP32=1.2 or ESP32=1.2,S3=1.1')
+    parser.add_argument('--sample-weight-mode', choices=SAMPLE_WEIGHT_MODES,
+                       default=DEFAULT_SAMPLE_WEIGHT_MODE,
+                       help='Base sample weighting policy. "none" keeps MVS out of training; '
+                            '"mvs_global" uses the legacy global MVS score; '
+                            '"mvs_gridsearch" uses per-file optimal_threshold_gridsearch; '
+                            '"mvs_hard_negative" uses MVS only to promote hard idle windows '
+                            f'(default: {DEFAULT_SAMPLE_WEIGHT_MODE})')
     parser.add_argument('--shap', type=int, nargs='?', const=200, default=None,
                        metavar='SAMPLES',
                        help='Calculate SHAP feature importance (default: 200 samples)')
@@ -4850,6 +4935,7 @@ To compare ML with MVS, use:
             excluded_chips=args.exclude_chip,
             architectures=args.experiment_architectures,
             positive_chip_boost=args.positive_chip_boost,
+            sample_weight_mode=args.sample_weight_mode,
             output_path=args.experiment_output,
             promote_winner=args.experiment_promote,
             use_cache=not args.no_cache,
@@ -4884,6 +4970,7 @@ To compare ML with MVS, use:
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
             positive_chip_boost=args.positive_chip_boost,
+            sample_weight_mode=args.sample_weight_mode,
             use_cache=not args.no_cache,
         )
     
@@ -4912,6 +4999,7 @@ To compare ML with MVS, use:
         environment_filter=args.environment,
         excluded_chips=args.exclude_chip,
         positive_chip_boost=args.positive_chip_boost,
+        sample_weight_mode=args.sample_weight_mode,
         use_cache=not args.no_cache,
         export_artifacts=not args.no_export,
     )

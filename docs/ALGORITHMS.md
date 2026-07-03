@@ -449,10 +449,11 @@ The input feature set was previously reduced from 12 to 9 after long-recording
 holdout experiments showed that `turb_kurtosis`, `turb_entropy`, and
 `turb_slope` hurt deployment robustness more than they helped paired
 validation. A later gain-shift sweep moved the production export from raw
-9-feature inputs to an 8-feature relative set. The current `32-16` topology and
-`fp_weight=2.0` training policy were selected because they recovered
-long-recording false-positive robustness while preserving the relative
-feature set's gain-shift invariance.
+9-feature inputs to an 8-feature relative set. The current `32-16` topology,
+`fp_weight=2.0`, and hard-negative sample weighting were selected because they
+improved long-recording false-positive robustness while preserving the relative
+feature set's gain-shift invariance. MVS is used only to mine difficult IDLE
+windows during this training mode, not as a general teacher for motion labels.
 
 ### Inference Pipeline
 

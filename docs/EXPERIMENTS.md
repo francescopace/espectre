@@ -421,6 +421,106 @@ case, but the candidate keeps the gain-shift invariance objective while
 substantially reducing long-run false positives versus the initial relative
 `24-12` export.
 
+This baseline was later superseded by the hard-negative MVS weighting retrain
+described below.
+
+---
+
+## MVS-Guided Weighting Bias and Hard-Negative Retrain
+
+### Goal
+
+Determine whether MVS-derived metadata should guide ML training after long-run
+validation showed that both MVS and ML can produce quiet-room motion spikes.
+
+### Background
+
+The training stack was extended to annotate `optimal_threshold_gridsearch` in
+`data/dataset_info.json`. The first use of this metadata treated MVS as a
+context-aware training guide: per-file thresholds affected the moving-variance
+ratio used for sample weights, including both hard-positive mining and hard
+negative emphasis.
+
+That full MVS-guided approach was not a clear win:
+
+- paired real-data ML validation regressed on `C3`, `C6`, and `S3`
+- `ESP32` improved, but the aggregate result was mixed
+- long-recording `mean_f1` improved only slightly, while total false positives
+  increased
+- the change looked like a sensitivity shift rather than a robust generalization
+  improvement
+
+The key concern was conceptual, not only numerical: MVS itself is weak on the
+same noisy long-run quiet segments. Using MVS as a broad teacher can therefore
+import MVS quiet-spike bias into the ML decision boundary.
+
+### Tooling Added
+
+`tools/10_train_ml_model.py` gained explicit sample-weight policies:
+
+- `none`: uniform sample weights; no MVS involvement
+- `mvs_global`: legacy MVS-guided weighting with the global fallback threshold
+- `mvs_gridsearch`: full MVS-guided weighting using per-file
+  `optimal_threshold_gridsearch`
+- `mvs_hard_negative`: use MVS only to up-weight IDLE windows that look
+  motion-like; motion samples remain neutral
+
+Seed-search promotion was also tightened: a candidate is not promoted if it
+increases long-recording total false positives or max false-positive rate over
+the current exported baseline.
+
+### Seed Search Result
+
+Seed-search with `mvs_hard_negative` found seed `2083554459`.
+
+Compared with the previously documented long-recording ML baseline:
+
+| Metric | Previous ML Baseline | Hard-Negative Retrain |
+|--------|----------------------|------------------------|
+| Mean F1 | 97.0% | 97.1% |
+| Worst F1 | 92.8% | 94.0% |
+| Total FP | 578 | 497 |
+| Mean recall | 99.0% | 98.6% |
+
+Per-chip long-recording ML result:
+
+| Chip | Recall | Precision | FP Rate | F1 | FP Count |
+|------|-------:|----------:|--------:|---:|---------:|
+| C3 | 98.5% | 100.0% | 0.0% | 99.2% | 0 |
+| C5 | 100.0% | 91.3% | 7.7% | 95.4% | 247 |
+| C6 | 96.0% | 92.1% | 7.9% | 94.0% | 250 |
+| S3 | 99.9% | 100.0% | 0.0% | 99.9% | 0 |
+
+The retrain deliberately accepts a small recall reduction in exchange for a
+material false-positive reduction and a better worst-chip F1. This matches the
+product priority for long static runs: avoid buying small recall gains with
+large quiet-room FP costs.
+
+### Fixed-Seed Weighting Comparison
+
+With seed fixed to `2083554459` and `--no-export`, the four weighting modes
+were compared using grouped blocked CV:
+
+| Mode | Recall | Precision | FP Rate | Fold F1 | Blocked OOF F1 | Worst C6 FP | Worst Source FP |
+|------|-------:|----------:|--------:|--------:|---------------:|------------:|----------------:|
+| `none` | 95.6% | 90.1% | 2.9% | 92.5% | 92.2% | 11.2% | 26.7% |
+| `mvs_global` | 95.6% | 89.2% | 3.3% | 91.9% | 91.6% | 12.8% | 30.6% |
+| `mvs_gridsearch` | 95.2% | 89.5% | 3.0% | 92.0% | 91.8% | 11.0% | 25.6% |
+| `mvs_hard_negative` | 95.2% | 90.8% | 2.6% | 92.7% | 92.5% | 9.6% | 23.1% |
+
+`mvs_hard_negative` was the clearest fixed-seed winner: best blocked OOF F1,
+best precision, lowest FP rate, lowest C6 FP, and lowest worst-source FP, with
+only a small recall trade-off versus `none`.
+
+### Decision
+
+Promote seed `2083554459` and make `mvs_hard_negative` the default
+sample-weight policy for production training.
+
+MVS remains useful as a hard-negative mining signal, but it should not be used
+as a general teacher for motion labels unless a future long-recording gate
+shows a clear FP-safe improvement.
+
 ---
 
 ## Tiny CNN / TCN Sweep
