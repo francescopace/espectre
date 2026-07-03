@@ -2248,8 +2248,8 @@ def export_micropython(model, scaler, output_path, seed=None,
     architecture_csv = ', '.join(str(x) for x in architecture)
     hidden_csv = ', '.join(str(x) for x in architecture[1:-1])
     feature_csv = ', '.join(repr(name) for name in feature_names)
-    center_csv = ', '.join(f'{x:.6f}' for x in center)
-    scale_csv = ', '.join(f'{x:.6f}' for x in scale)
+    center_csv = ', '.join(f'{x:.9g}' for x in center)
+    scale_csv = ', '.join(f'{x:.9g}' for x in scale)
     
     # Build code - weights only
     code = f'''"""
@@ -2295,9 +2295,9 @@ FEATURE_SCALE = [{scale_csv}]
         code += f'# Layer {layer_num}: {in_size} -> {out_size} ({activation})\n'
         code += f'W{layer_num} = [\n'
         for row in W:
-            code += '    [' + ', '.join(f'{x:.6f}' for x in row) + '],\n'
+            code += '    [' + ', '.join(f'{x:.9g}' for x in row) + '],\n'
         code += ']\n'
-        code += f'B{layer_num} = [' + ', '.join(f'{x:.6f}' for x in b) + ']\n\n'
+        code += f'B{layer_num} = [' + ', '.join(f'{x:.9g}' for x in b) + ']\n\n'
         weight_names.append(f'W{layer_num}')
         bias_names.append(f'B{layer_num}')
 
@@ -2339,8 +2339,8 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
     seed_info = f"Seed: {seed}"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     architecture_csv = ', '.join(str(x) for x in architecture)
-    center_csv = ', '.join(f'{x:.6f}f' for x in center)
-    scale_csv = ', '.join(f'{x:.6f}f' for x in scale)
+    center_csv = ', '.join(f'{x:.9g}f' for x in center)
+    scale_csv = ', '.join(f'{x:.9g}f' for x in scale)
     
     code = f'''/*
  * ESPectre - ML Model Weights
@@ -2391,8 +2391,8 @@ constexpr float ML_FEATURE_SCALE[{len(scale)}] = {{{scale_csv}}};
         code += f'// Layer {layer_num}: {in_size} -> {out_size} ({activation})\n'
         flat_weights = W.reshape(-1)
         code += f'constexpr float ML_W{layer_num}[{len(flat_weights)}] = {{' \
-                + ', '.join(f'{x:.6f}f' for x in flat_weights) + '};\n'
-        code += f'constexpr float ML_B{layer_num}[{out_size}] = {{{", ".join(f"{x:.6f}f" for x in b)}}};\n\n'
+                + ', '.join(f'{x:.9g}f' for x in flat_weights) + '};\n'
+        code += f'constexpr float ML_B{layer_num}[{out_size}] = {{{", ".join(f"{x:.9g}f" for x in b)}}};\n\n'
         weight_names.append(f'ML_W{layer_num}')
         bias_names.append(f'ML_B{layer_num}')
         input_sizes.append(str(in_size))

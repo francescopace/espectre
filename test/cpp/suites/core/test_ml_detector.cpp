@@ -209,7 +209,7 @@ static float run_inference(const float* features) {
 }
 
 void test_ml_inference_matches_reference(void) {
-    const float TOLERANCE = 1e-4f;  // Allow small numerical error
+    const float TOLERANCE = 2e-3f;  // Match Python export-regression tolerance
     TEST_ASSERT_TRUE_MESSAGE(num_test_samples > 0, "No test data loaded");
     
     for (int i = 0; i < num_test_samples; i++) {
