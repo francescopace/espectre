@@ -71,7 +71,7 @@ drives the UDP stimulus and the streamer learns the collector IP from incoming
 stimulus packets (default CSI UDP port: `5001`):
 
 ```bash
-./espectre streamer build --chip <chip>
+./espectre streamer build --chip <chip> --clean
 ./espectre streamer flash --port <serial_port>
 ./espectre monitor --port <serial_port>
 ```

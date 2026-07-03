@@ -139,7 +139,7 @@ Use the repository CLI from the repository root for local build, flash, and moni
 
 | Frontend | Commands | Example |
 |----------|----------|---------|
-| `ESPHome` | `build`, `flash`, `config`, `logs` | `./espectre esphome logs --chip c6 --device /dev/cu.usbmodemXXXX` |
+| `ESPHome` | `build`, `flash`, `config`, `monitor` | `./espectre esphome monitor --chip c6 --device /dev/cu.usbmodemXXXX` |
 | `Native` | `build`, `flash` | `./espectre native flash --port /dev/cu.usbmodemXXXX` |
 | `Matter` | `build`, `flash` | `./espectre matter build --chip c3` |
 | `Streamer` | `build`, `flash` | `./espectre streamer flash --port /dev/cu.usbmodemXXXX` |

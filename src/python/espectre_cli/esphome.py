@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 
 from .common import Fore, REPO_ROOT, Style
@@ -9,10 +10,24 @@ from .targets import resolve_esphome_config
 
 ACTION_MAP = {
     "build": "compile",
-    "flash": "run",
+    "flash": "upload",
     "config": "config",
-    "logs": "logs",
+    "monitor": "logs",
 }
+
+
+def clean_esphome_build_artifacts(config_path) -> None:
+    """Remove generated ESPHome build artifacts before a fresh build."""
+    build_dir = config_path.parent / ".esphome"
+    if build_dir.is_dir():
+        shutil.rmtree(build_dir)
+        try:
+            display_path = build_dir.relative_to(REPO_ROOT)
+        except ValueError:
+            display_path = build_dir
+        print(f"{Fore.CYAN}Cleaned:   {display_path}{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.CYAN}Cleaned:   nothing to remove{Style.RESET_ALL}")
 
 
 def run_esphome_command(args) -> None:
@@ -28,6 +43,9 @@ def run_esphome_command(args) -> None:
         raise SystemExit(1)
 
     action = ACTION_MAP[args.esphome_command]
+    if args.esphome_command == "build" and getattr(args, "clean", False):
+        clean_esphome_build_artifacts(config_path)
+
     command = ["esphome", action, str(config_path)]
     if getattr(args, "device", None):
         command.extend(["--device", args.device])
