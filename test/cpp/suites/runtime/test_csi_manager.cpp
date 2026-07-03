@@ -10,6 +10,7 @@
 #include "test_harness.h"
 #include <cstdint>
 #include <cstring>
+#include "lwip/inet.h"
 #include "csi_manager.h"
 #include "mvs_detector.h"
 #include "utils.h"
@@ -744,6 +745,27 @@ void test_csi_manager_get_gain_controller(void) {
     TEST_ASSERT_TRUE(gc.is_locked());
 }
 
+void test_csi_manager_filters_unicast_frames_for_other_device(void) {
+    MVSDetector detector(10, 1.0f);
+    CSIManager manager;
+    manager.init(&detector, TEST_PUBLISH_RATE, GainLockMode::DISABLED, &g_wifi_mock);
+
+    const uint8_t local_mac[6] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
+    const uint8_t other_mac[6] = {0x66, 0x55, 0x44, 0x33, 0x22, 0x11};
+    manager.set_local_identity(inet_addr("192.168.1.17"), local_mac);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+    std::memcpy(csi_info.dmac, other_mac, sizeof(other_mac));
+
+    manager.enable(nullptr);
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(MotionState::IDLE, detector.get_state());
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_motion_metric());
+}
+
 // ============================================================================
 // ENTRY POINT
 // ============================================================================
@@ -798,6 +820,7 @@ int process(void) {
     // Gain lock tests
     RUN_TEST(test_csi_manager_gain_lock_disabled);
     RUN_TEST(test_csi_manager_get_gain_controller);
+    RUN_TEST(test_csi_manager_filters_unicast_frames_for_other_device);
     
     return UNITY_END();
 }

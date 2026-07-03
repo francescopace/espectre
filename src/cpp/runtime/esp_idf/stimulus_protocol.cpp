@@ -29,7 +29,82 @@ bool collector_matches(uint32_t collector_ip_addr, uint32_t packet_src_ipv4) {
   return collector_ip_addr == 0U || packet_src_ipv4 == ntohl(collector_ip_addr);
 }
 
+bool local_ip_matches(uint32_t local_ip_addr, uint32_t packet_dst_ipv4) {
+  return local_ip_addr == 0U || packet_dst_ipv4 == ntohl(local_ip_addr);
+}
+
+bool is_broadcast_mac(const uint8_t *mac) {
+  if (mac == nullptr) {
+    return false;
+  }
+  for (size_t i = 0; i < 6U; i++) {
+    if (mac[i] != 0xFFU) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool is_zero_mac(const uint8_t *mac) {
+  if (mac == nullptr) {
+    return true;
+  }
+  for (size_t i = 0; i < 6U; i++) {
+    if (mac[i] != 0U) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool destination_mac_matches(const uint8_t *local_mac_addr, const uint8_t *frame_dmac) {
+  if (frame_dmac == nullptr) {
+    return true;
+  }
+  if (is_broadcast_mac(frame_dmac) || (frame_dmac[0] & 0x01U) != 0U) {
+    return true;
+  }
+  if (is_zero_mac(local_mac_addr)) {
+    return true;
+  }
+  return std::memcmp(local_mac_addr, frame_dmac, 6U) == 0;
+}
+
 }  // namespace
+
+bool csi_frame_matches_local_identity(const wifi_csi_info_t *info,
+                                      uint32_t local_ip_addr,
+                                      const uint8_t *local_mac_addr) {
+  if (info == nullptr) {
+    return false;
+  }
+
+  if (!destination_mac_matches(local_mac_addr, info->dmac)) {
+    return false;
+  }
+
+  if (info->payload == nullptr || info->payload_len == 0U) {
+    return true;
+  }
+
+  StimulusMetadata metadata{};
+  const uint8_t *payload = reinterpret_cast<const uint8_t *>(info->payload);
+  if (parse_stimulus_from_llc_snap(payload, info->payload_len, &metadata)) {
+    return local_ip_matches(local_ip_addr, metadata.dst_ipv4_addr);
+  }
+
+  const size_t scan_limit = std::min<size_t>(info->payload_len, 32U);
+  for (size_t offset = 1U; offset + sizeof(kLlcSnapPrefix) <= scan_limit; offset++) {
+    if (std::memcmp(payload + offset, kLlcSnapPrefix, sizeof(kLlcSnapPrefix)) != 0) {
+      continue;
+    }
+    if (parse_stimulus_from_llc_snap(payload + offset, info->payload_len - offset, &metadata)) {
+      return local_ip_matches(local_ip_addr, metadata.dst_ipv4_addr);
+    }
+  }
+
+  return true;
+}
 
 bool parse_stimulus_datagram(const uint8_t *payload, size_t payload_len, StimulusMetadata *metadata) {
   if (payload == nullptr || metadata == nullptr || payload_len < STIMULUS_HEADER_BYTES) {
@@ -45,6 +120,7 @@ bool parse_stimulus_datagram(const uint8_t *payload, size_t payload_len, Stimulu
   metadata->stimulus_id = read_be32(payload + 6U);
   metadata->is_reference = (payload[5] == STIMULUS_ROLE_REFERENCE);
   metadata->src_ipv4_addr = 0U;
+  metadata->dst_ipv4_addr = 0U;
   return true;
 }
 
@@ -79,12 +155,14 @@ bool parse_stimulus_from_llc_snap(const uint8_t *payload, size_t payload_len, St
   }
 
   metadata->src_ipv4_addr = read_be32(ip + 12U);
+  metadata->dst_ipv4_addr = read_be32(ip + 16U);
   return true;
 }
 
 bool extract_stimulus_metadata_from_payload(const uint8_t *payload,
                                             size_t payload_len,
                                             uint32_t collector_ip_addr,
+                                            uint32_t local_ip_addr,
                                             StimulusMetadata *metadata) {
   if (payload == nullptr || metadata == nullptr || payload_len == 0U) {
     return false;
@@ -95,7 +173,8 @@ bool extract_stimulus_metadata_from_payload(const uint8_t *payload,
   }
 
   if (parse_stimulus_from_llc_snap(payload, payload_len, metadata)) {
-    return collector_matches(collector_ip_addr, metadata->src_ipv4_addr);
+    return collector_matches(collector_ip_addr, metadata->src_ipv4_addr) &&
+           local_ip_matches(local_ip_addr, metadata->dst_ipv4_addr);
   }
 
   const size_t scan_limit = std::min<size_t>(payload_len, 32U);
@@ -104,7 +183,8 @@ bool extract_stimulus_metadata_from_payload(const uint8_t *payload,
       continue;
     }
     if (parse_stimulus_from_llc_snap(payload + offset, payload_len - offset, metadata)) {
-      return collector_matches(collector_ip_addr, metadata->src_ipv4_addr);
+      return collector_matches(collector_ip_addr, metadata->src_ipv4_addr) &&
+             local_ip_matches(local_ip_addr, metadata->dst_ipv4_addr);
     }
   }
 
@@ -123,15 +203,50 @@ bool extract_stimulus_metadata_from_payload(const uint8_t *payload,
 
 bool extract_stimulus_metadata_from_csi(const wifi_csi_info_t *info,
                                         uint32_t collector_ip_addr,
+                                        uint32_t local_ip_addr,
+                                        const uint8_t *local_mac_addr,
                                         StimulusMetadata *metadata) {
   if (info == nullptr || metadata == nullptr || info->payload == nullptr || info->payload_len == 0U) {
     return false;
   }
+  if (!csi_frame_matches_local_identity(info, local_ip_addr, local_mac_addr)) {
+    return false;
+  }
 
-  return extract_stimulus_metadata_from_payload(reinterpret_cast<const uint8_t *>(info->payload),
-                                                info->payload_len,
-                                                collector_ip_addr,
-                                                metadata);
+  const uint8_t *payload = reinterpret_cast<const uint8_t *>(info->payload);
+  const size_t payload_len = info->payload_len;
+
+  if (parse_stimulus_datagram(payload, payload_len, metadata)) {
+    return destination_mac_matches(local_mac_addr, info->dmac);
+  }
+
+  if (parse_stimulus_from_llc_snap(payload, payload_len, metadata)) {
+    return collector_matches(collector_ip_addr, metadata->src_ipv4_addr) &&
+           local_ip_matches(local_ip_addr, metadata->dst_ipv4_addr);
+  }
+
+  const size_t scan_limit = std::min<size_t>(payload_len, 32U);
+  for (size_t offset = 1U; offset + sizeof(kLlcSnapPrefix) <= scan_limit; offset++) {
+    if (std::memcmp(payload + offset, kLlcSnapPrefix, sizeof(kLlcSnapPrefix)) != 0) {
+      continue;
+    }
+    if (parse_stimulus_from_llc_snap(payload + offset, payload_len - offset, metadata)) {
+      return collector_matches(collector_ip_addr, metadata->src_ipv4_addr) &&
+             local_ip_matches(local_ip_addr, metadata->dst_ipv4_addr);
+    }
+  }
+
+  const size_t magic_scan_limit = std::min<size_t>(payload_len, 96U);
+  for (size_t offset = 1U; offset + STIMULUS_HEADER_BYTES <= magic_scan_limit; offset++) {
+    if (std::memcmp(payload + offset, kStimulusMagic, sizeof(kStimulusMagic)) != 0) {
+      continue;
+    }
+    if (parse_stimulus_datagram(payload + offset, payload_len - offset, metadata)) {
+      return destination_mac_matches(local_mac_addr, info->dmac);
+    }
+  }
+
+  return false;
 }
 
 }  // namespace espectre

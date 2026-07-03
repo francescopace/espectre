@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import sys
 
 from .common import Path, REPO_ROOT, WEB_UI_FILE, Fore, Style, cli_command, signal, time, webbrowser
@@ -12,6 +13,44 @@ _WEB_UI_FILES = {
     "ble": REPO_ROOT / "tools" / "web" / "espectre-ble.html",
     "theremin": REPO_ROOT / "tools" / "web" / "espectre-theremin.html",
 }
+
+
+def _parse_stimulus_targets(targets: str) -> tuple[list[str], str]:
+    """Validate one or more comma-separated IPv4 stimulus destinations."""
+    parsed_targets: list[str] = []
+    mode_counts = {"unicast": 0, "broadcast": 0, "multicast": 0}
+    for raw_target in str(targets).split(","):
+        target = raw_target.strip()
+        if not target:
+            continue
+        try:
+            target_ip = ipaddress.ip_address(target)
+        except ValueError as exc:
+            raise ValueError(f"invalid stimulus target: {target}") from exc
+        if target_ip.version != 4:
+            raise ValueError(f"stimulus target must be an IPv4 address: {target}")
+        normalized_target = str(target_ip)
+        parsed_targets.append(normalized_target)
+        if target_ip.is_multicast:
+            mode_counts["multicast"] += 1
+        elif int(target_ip) == 0xFFFFFFFF or normalized_target.endswith(".255"):
+            mode_counts["broadcast"] += 1
+        else:
+            mode_counts["unicast"] += 1
+
+    if not parsed_targets:
+        raise ValueError("stimulus target required. Use --stimulus-target <ip[,ip,...]>")
+
+    unique_targets = list(dict.fromkeys(parsed_targets))
+    if mode_counts["multicast"]:
+        mode = "multicast"
+    elif mode_counts["broadcast"]:
+        mode = "broadcast"
+    elif len(unique_targets) > 1:
+        mode = "multi-unicast"
+    else:
+        mode = "unicast"
+    return unique_targets, mode
 
 
 def open_web_ui(interface: str = "mqtt") -> None:
@@ -71,7 +110,7 @@ def collect_csi_data(args) -> None:
             print()
             print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
             print("    1. Run the streamer firmware on the device")
-            print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--samples', '10', '--streamer-ip', '192.168.1.50')}")
+            print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}")
         else:
             print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10}{Style.RESET_ALL}")
             print(f"  {'-' * 32}")
@@ -85,17 +124,23 @@ def collect_csi_data(args) -> None:
     if not args.label:
         print(f"{Fore.RED}❌ Label required. Use --label <name>{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Examples:{Style.RESET_ALL}")
-        print(f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--streamer-ip', '192.168.1.50')}")
-        print(f"  {cli_command('collect', '--label', 'static_presence', '--duration', '10', '--streamer-ip', '192.168.1.50')}")
+        print(f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}")
+        print(f"  {cli_command('collect', '--label', 'static_presence', '--duration', '10', '--stimulus-target', '192.168.1.50')}")
         print(f"  {cli_command('collect', '--info')}")
         raise SystemExit(1)
 
-    if not args.streamer_ip:
-        print(f"{Fore.RED}❌ Streamer IP required. Use --streamer-ip <device_ip>{Style.RESET_ALL}")
+    if not args.stimulus_target:
+        print(f"{Fore.RED}❌ Stimulus target required. Use --stimulus-target <ip[,ip,...]>{Style.RESET_ALL}")
         raise SystemExit(1)
 
     if args.start_delay < 0:
         print(f"{Fore.RED}❌ Start delay must be >= 0 seconds{Style.RESET_ALL}")
+        raise SystemExit(1)
+
+    try:
+        stimulus_targets, target_mode = _parse_stimulus_targets(args.stimulus_target)
+    except ValueError as e:
+        print(f"{Fore.RED}❌ {e}{Style.RESET_ALL}")
         raise SystemExit(1)
 
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
@@ -110,15 +155,15 @@ def collect_csi_data(args) -> None:
         print(f"  {Fore.CYAN}Start delay:{Style.RESET_ALL} {args.start_delay}s")
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
-    print(f"  {Fore.CYAN}Streamer IP:{Style.RESET_ALL} {args.streamer_ip}")
-    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {args.streamer_ip}:{args.stimulus_port}")
+    print(f"  {Fore.CYAN}Stimulus target:{Style.RESET_ALL} {', '.join(stimulus_targets)} ({target_mode})")
+    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {len(stimulus_targets)} target(s) on UDP {args.stimulus_port}")
     if args.reference_every > 0:
         print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
     if args.description:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
     print(f"  {Fore.YELLOW}Chip type and gain lock status auto-detected from CSI stream{Style.RESET_ALL}")
-    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is running and reachable at the configured IP{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening for the configured shared stimulus target{Style.RESET_ALL}")
     print()
 
     collector = CSICollector(
@@ -127,9 +172,11 @@ def collect_csi_data(args) -> None:
         contributor=args.contributor,
         description=args.description,
         bind_host=resolved_bind_ip,
+        expected_device_count=len(stimulus_targets),
+        expected_source_hosts=stimulus_targets,
     )
     stimulus_sender = StimulusSender(
-        target_host=args.streamer_ip,
+        target_host=stimulus_targets,
         target_port=args.stimulus_port,
         rate_pps=args.stimulus_rate,
         reference_every=args.reference_every,
@@ -143,7 +190,7 @@ def collect_csi_data(args) -> None:
         else:
             saved = collector.collect_timed(duration=args.duration, num_samples=args.samples)
         if saved:
-            print(f"{Fore.GREEN}✅ Collected {len(saved)} samples for label '{args.label}'{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}✅ Collected {len(saved)} device file(s) for label '{args.label}'{Style.RESET_ALL}")
         else:
             print(f"{Fore.RED}❌ No samples collected{Style.RESET_ALL}")
     except KeyboardInterrupt:
@@ -220,6 +267,12 @@ def detect_live_motion(args) -> None:
         print(f"{Fore.RED}❌ --capture-duration requires --capture-label{Style.RESET_ALL}")
         raise SystemExit(1)
 
+    try:
+        stimulus_targets, target_mode = _parse_stimulus_targets(args.stimulus_target)
+    except ValueError as e:
+        print(f"{Fore.RED}❌ {e}{Style.RESET_ALL}")
+        raise SystemExit(1)
+
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
     subcarriers = list(config.DEFAULT_SUBCARRIERS)
     threshold = get_runtime_ml_threshold()
@@ -240,7 +293,7 @@ def detect_live_motion(args) -> None:
     publish_rate = getattr(config, "PUBLISH_INTERVAL", 100) or 100
     receiver = CSIReceiver(port=args.udp_port, buffer_size=4000, bind_host=resolved_bind_ip)
     stimulus_sender = StimulusSender(
-        target_host=args.streamer_ip,
+        target_host=stimulus_targets,
         target_port=args.stimulus_port,
         rate_pps=args.stimulus_rate,
         reference_every=args.reference_every,
@@ -254,6 +307,8 @@ def detect_live_motion(args) -> None:
             contributor=getattr(args, "contributor", None),
             description=getattr(args, "description", None),
             bind_host=resolved_bind_ip,
+            expected_device_count=len(stimulus_targets),
+            expected_source_hosts=stimulus_targets,
         )
 
     state = {
@@ -340,8 +395,8 @@ def detect_live_motion(args) -> None:
     print()
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
-    print(f"  {Fore.CYAN}Streamer IP:{Style.RESET_ALL} {args.streamer_ip}")
-    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {args.streamer_ip}:{args.stimulus_port}")
+    print(f"  {Fore.CYAN}Stimulus target:{Style.RESET_ALL} {', '.join(stimulus_targets)} ({target_mode})")
+    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {len(stimulus_targets)} target(s) on UDP {args.stimulus_port}")
     if args.reference_every > 0:
         print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
     print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {threshold:.1f}")
@@ -356,7 +411,7 @@ def detect_live_motion(args) -> None:
         if getattr(args, "description", None):
             print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
-    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is running and reachable at the configured IP{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening for the configured shared stimulus target{Style.RESET_ALL}")
     print(f"  {Fore.YELLOW}Press Ctrl+C to stop{Style.RESET_ALL}")
     print()
 
@@ -375,12 +430,18 @@ def detect_live_motion(args) -> None:
         if capture_writer is not None:
             captured_packets = state["capture_packets"]
             if captured_packets:
-                saved_path = capture_writer.save_sample(captured_packets)
-                if saved_path:
+                try:
+                    saved_paths = capture_writer.save_samples_by_device(captured_packets)
+                except ValueError as e:
+                    print(f"{Fore.RED}❌ Failed to save live capture: {e}{Style.RESET_ALL}")
+                    raise SystemExit(1)
+                if saved_paths:
                     print(
-                        f"{Fore.GREEN}✅ Saved live capture: {saved_path.name} "
-                        f"({len(captured_packets)} packets){Style.RESET_ALL}"
+                        f"{Fore.GREEN}✅ Saved {len(saved_paths)} live capture file(s) "
+                        f"from {len(captured_packets)} packets{Style.RESET_ALL}"
                     )
+                    for saved_path in saved_paths:
+                        print(f"  - {saved_path.name}")
                 else:
                     print(f"{Fore.RED}❌ Live capture had no packets to save{Style.RESET_ALL}")
             else:

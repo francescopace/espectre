@@ -7,6 +7,7 @@
 #include "espectre_log.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
+#include "esp_wifi.h"
 #include "esp_netif.h"
 #include "runtime_config_utils.h"
 
@@ -246,6 +247,7 @@ void EspIdfRuntime::on_wifi_connected_() {
       listener_->on_motion_state_changed(snapshot_);
     }
   });
+  refresh_csi_local_identity_();
 
   if (!csi_manager_.is_enabled()) {
     const esp_err_t err = csi_manager_.enable([this](MotionState state, uint32_t packets_received) {
@@ -287,6 +289,7 @@ void EspIdfRuntime::on_wifi_disconnected_() {
   csi_wifi_lifecycle_ready_ = false;
   threshold_calibration_active_ = false;
   csi_manager_.set_packet_interceptor({});
+  csi_manager_.set_local_identity(0U, nullptr);
   csi_manager_.disable();
   stimulus_service_.stop();
   snapshot_.ready_to_publish = false;
@@ -395,6 +398,28 @@ bool EspIdfRuntime::has_wifi_ip_() const {
   }
 
   return ip_info.ip.addr != 0;
+}
+
+uint32_t EspIdfRuntime::local_wifi_ip_addr_() const {
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  if (netif == nullptr) {
+    return 0U;
+  }
+
+  esp_netif_ip_info_t ip_info{};
+  if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
+    return 0U;
+  }
+  return ip_info.ip.addr;
+}
+
+void EspIdfRuntime::refresh_csi_local_identity_() {
+  uint8_t mac[6] = {0U, 0U, 0U, 0U, 0U, 0U};
+  if (esp_wifi_get_mac(WIFI_IF_STA, mac) != ESP_OK) {
+    csi_manager_.set_local_identity(local_wifi_ip_addr_(), nullptr);
+    return;
+  }
+  csi_manager_.set_local_identity(local_wifi_ip_addr_(), mac);
 }
 
 }  // namespace espectre

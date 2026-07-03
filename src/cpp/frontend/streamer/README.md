@@ -217,12 +217,18 @@ The collector is responsible for:
 - choosing the stimulus rate (`pps`)
 - assigning `stimulus_id`
 - optionally marking packets as reference frames
+- choosing a shared stimulus destination, which may be unicast, broadcast, or
+  multicast depending on the session design
 
 The streamer is responsible for:
 
 - learning the collector IP from the source address of valid incoming stimulus
 - extracting `ESTM` metadata from the packet payload seen in CSI
 - copying `stimulus_id` / `reference` markers into the UDP CSI stream
+
+When multiple streamers share the same stimulus target, the host collector is
+expected to demultiplex incoming CSI by `device_id` and save one dataset file
+per device. Mixed-device `.npz` files are not part of the supported workflow.
 
 `ESTM` carries:
 

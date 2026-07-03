@@ -2,9 +2,11 @@
 Unit tests for the unified CSI stream protocol parser and dataset writer.
 """
 
+import io
 import socket
 
 import numpy as np
+import pytest
 
 import csi_utils
 from csi_utils import (
@@ -170,6 +172,50 @@ def test_stimulus_sender_binds_to_requested_source_host():
     assert addr[0] == "127.0.0.1"
 
 
+def test_stimulus_sender_fans_out_same_datagram_to_multiple_targets():
+    class FakeSocket:
+        def __init__(self):
+            self.calls = []
+
+        def sendto(self, payload, addr):
+            self.calls.append((payload, addr))
+
+    sender = StimulusSender(
+        target_host=["192.168.1.17", "192.168.1.24", "192.168.1.29"],
+        target_port=9999,
+        rate_pps=100,
+    )
+    sender.sock = FakeSocket()
+    sender._stop_event.set()
+    sender._stop_event.clear()
+
+    original_wait = sender._stop_event.wait
+
+    def stop_after_first_interval(_timeout):
+        sender._stop_event.set()
+        return True
+
+    sender._stop_event.wait = stop_after_first_interval
+    try:
+        sender._run()
+    finally:
+        sender._stop_event.wait = original_wait
+
+    assert len(sender.sock.calls) == 3
+    payloads = {payload for payload, _addr in sender.sock.calls}
+    assert len(payloads) == 1
+    assert [addr for _payload, addr in sender.sock.calls] == [
+        ("192.168.1.17", 9999),
+        ("192.168.1.24", 9999),
+        ("192.168.1.29", 9999),
+    ]
+    magic, version, role, stimulus_id = STIMULUS_HEADER_STRUCT.unpack(next(iter(payloads)))
+    assert magic == STIMULUS_MAGIC
+    assert version == STIMULUS_VERSION
+    assert role == STIMULUS_ROLE_MEASUREMENT
+    assert stimulus_id == 1
+
+
 def test_parse_packet_reads_optional_metadata():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     flags = (
@@ -291,3 +337,279 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert info['format_version'] == '1.1'
     assert info['files']['static_presence'][0]['gain_locked'] is True
     assert info['files']['static_presence'][0]['filename'] == filepath.name
+    assert info['files']['static_presence'][0]['device_id'] == 0xABCDEF
+    assert info['files']['static_presence'][0]['device_token'] == 'dev0000000000abcdef'
+    assert 'dev0000000000abcdef' in filepath.name
+
+
+def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):
+    data_dir = tmp_path / 'data'
+    monkeypatch.setattr(csi_utils, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(csi_utils, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    collector = CSICollector(label='motion', contributor='tester', bind_host='127.0.0.1')
+    packets = [
+        receiver._parse_packet(build_packet(seq_num=1, payload=[1, 2, 3, 4], device_id=0x10)),
+        receiver._parse_packet(build_packet(seq_num=2, payload=[5, 6, 7, 8], device_id=0x20)),
+        receiver._parse_packet(build_packet(seq_num=3, payload=[9, 10, 11, 12], device_id=0x10)),
+    ]
+
+    saved_paths = collector.save_samples_by_device(packets)
+
+    assert len(saved_paths) == 2
+    saved_names = {path.name for path in saved_paths}
+    assert any('dev0000000000000010' in name for name in saved_names)
+    assert any('dev0000000000000020' in name for name in saved_names)
+
+    info = csi_utils.load_dataset_info()
+    assert len(info['files']['motion']) == 2
+    assert {entry['device_id'] for entry in info['files']['motion']} == {0x10, 0x20}
+
+
+def test_save_samples_by_device_rejects_missing_device_id(tmp_path, monkeypatch):
+    data_dir = tmp_path / 'data'
+    monkeypatch.setattr(csi_utils, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(csi_utils, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    collector = CSICollector(label='motion', contributor='tester', bind_host='127.0.0.1')
+    packet = receiver._parse_packet(build_packet(seq_num=7, payload=[1, 2, 3, 4], device_id=0))
+
+    with pytest.raises(ValueError, match='missing device_id'):
+        collector.save_samples_by_device([packet])
+
+
+def test_save_sample_rejects_mixed_device_packets(tmp_path, monkeypatch):
+    data_dir = tmp_path / 'data'
+    monkeypatch.setattr(csi_utils, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(csi_utils, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    collector = CSICollector(label='motion', contributor='tester', bind_host='127.0.0.1')
+    packets = [
+        receiver._parse_packet(build_packet(seq_num=1, payload=[1, 2, 3, 4], device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=2, payload=[5, 6, 7, 8], device_id=0x2)),
+    ]
+
+    with pytest.raises(ValueError, match='mixed-device sample'):
+        collector.save_sample(packets)
+
+
+def test_check_sequence_by_device_handles_interleaved_streams():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    packets = [
+        receiver._parse_packet(build_packet(seq_num=1, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=1, device_id=0x2)),
+        receiver._parse_packet(build_packet(seq_num=2, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=2, device_id=0x2)),
+        receiver._parse_packet(build_packet(seq_num=4, device_id=0x1)),
+    ]
+
+    last_seq_by_device = {}
+    drops = [CSICollector._check_sequence_by_device(packet, last_seq_by_device) for packet in packets]
+
+    assert drops == [0, 0, 0, 0, 1]
+
+
+def test_check_sequence_by_device_ignores_large_backward_jump():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    packets = [
+        receiver._parse_packet(build_packet(seq_num=100, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=101, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=3, device_id=0x1)),
+        receiver._parse_packet(build_packet(seq_num=4, device_id=0x1)),
+    ]
+
+    last_seq_by_device = {}
+    drops = [CSICollector._check_sequence_by_device(packet, last_seq_by_device) for packet in packets]
+
+    assert drops == [0, 0, 0, 0]
+
+
+def test_summarize_ready_devices_waits_for_all_expected_devices():
+    now = 100.0
+    warmup_target = 10
+    threshold = CSICollector.READY_MV_THRESHOLD
+
+    summary = CSICollector._summarize_ready_devices(
+        {
+            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_mv': 0.2},
+        },
+        expected_device_count=2,
+        warmup_target=warmup_target,
+        threshold=threshold,
+        now=now,
+    )
+    assert summary['ready'] is False
+    assert summary['status'] == 'DEVICES 1/2'
+
+    summary = CSICollector._summarize_ready_devices(
+        {
+            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_mv': 0.2},
+            0x2: {'processed_packets': warmup_target, 'stable_since': now - 1.0, 'current_mv': 0.3},
+        },
+        expected_device_count=2,
+        warmup_target=warmup_target,
+        threshold=threshold,
+        now=now,
+    )
+    assert summary['ready'] is False
+    assert summary['status'] == 'STABLE 2/2'
+    assert summary['stable_elapsed'] == pytest.approx(1.0)
+
+    summary = CSICollector._summarize_ready_devices(
+        {
+            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_mv': 0.2},
+            0x2: {'processed_packets': warmup_target, 'stable_since': now - 3.5, 'current_mv': 0.3},
+        },
+        expected_device_count=2,
+        warmup_target=warmup_target,
+        threshold=threshold,
+        now=now,
+    )
+    assert summary['ready'] is True
+    assert summary['status'] == 'READY 2/2'
+
+
+def test_format_ready_device_lines_includes_waiting_ip_and_device_details():
+    now = 100.0
+    lines = CSICollector._format_ready_device_lines(
+        {
+            0x1: {
+                'processed_packets': 12,
+                'stable_since': now - 3.5,
+                'current_mv': 0.2,
+                'current_pps': 121,
+                'source_ip': '192.168.1.17',
+                'chip': 'c6',
+                'channel': 6,
+                'rssi_dbm': -48,
+            },
+            0x2: {
+                'processed_packets': 8,
+                'stable_since': None,
+                'current_mv': 0.0,
+                'current_pps': 87,
+                'source_ip': '192.168.1.24',
+                'chip': 'c3',
+                'channel': 11,
+                'rssi_dbm': -63,
+            },
+        },
+        expected_source_hosts=['192.168.1.17', '192.168.1.24', '192.168.1.29'],
+        warmup_target=10,
+        threshold=CSICollector.READY_MV_THRESHOLD,
+        now=now,
+    )
+
+    assert any(
+        'ip=192.168.1.29' in line
+        and 'chip=?' in line
+        and 'ch=--' in line
+        and 'rssi=---' in line
+        and 'pps=--' in line
+        and '[------------------]' in line
+        and 'WAITING' in line
+        and 'stable' not in line
+        for line in lines
+    )
+    assert any(
+        'ip=192.168.1.17' in line
+        and 'chip=C6' in line
+        and 'ch=06' in line
+        and 'rssi=-48' in line
+        and 'pps=121' in line
+        and '[####--------------]' in line
+        and 'READY' in line
+        and 'stable' not in line
+        for line in lines
+    )
+    assert any(
+        'ip=192.168.1.24' in line
+        and 'chip=C3' in line
+        and 'ch=11' in line
+        and 'rssi=-63' in line
+        and 'pps=87' in line
+        and '[------------------]' in line
+        and 'WARMUP 8/10' in line
+        and 'stable' not in line
+        for line in lines
+    )
+
+
+def test_summarize_ready_devices_does_not_expose_global_mv_metrics():
+    now = 100.0
+    warmup_target = 10
+    threshold = CSICollector.READY_MV_THRESHOLD
+
+    summary = CSICollector._summarize_ready_devices(
+        {
+            0x1: {'processed_packets': warmup_target, 'stable_since': now - 4.0, 'current_mv': 0.2},
+            0x2: {'processed_packets': warmup_target, 'stable_since': None, 'current_mv': 2.5},
+        },
+        expected_device_count=2,
+        warmup_target=warmup_target,
+        threshold=threshold,
+        now=now,
+    )
+
+    assert summary['status'] == 'UNSTABLE 1/2'
+    assert 'max_mv' not in summary
+    assert 'ready_ratio' not in summary
+
+
+def test_receiver_drop_rate_uses_expected_packet_total():
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    receiver.packet_count = 400
+    receiver.dropped_count = 4
+
+    stats = receiver.get_stats()
+
+    assert stats['drop_rate'] == pytest.approx(4 / 404 * 100)
+
+
+class _TTYBuffer(io.StringIO):
+    def isatty(self):
+        return True
+
+
+def test_emit_ready_status_block_uses_ansi_when_inline_enabled():
+    stream = _TTYBuffer()
+
+    rendered = CSICollector._emit_ready_status_block(
+        'summary 1',
+        ['detail 1', 'detail 2'],
+        stream=stream,
+        inline=True,
+    )
+    assert rendered == 3
+    assert stream.getvalue() == '\x1b[2Ksummary 1\n\x1b[2Kdetail 1\n\x1b[2Kdetail 2\n'
+
+    stream.seek(0)
+    stream.truncate(0)
+
+    rendered = CSICollector._emit_ready_status_block(
+        'summary 2',
+        ['detail 3'],
+        previous_line_count=3,
+        stream=stream,
+        inline=True,
+    )
+    assert rendered == 2
+    assert stream.getvalue() == '\x1b[3F\x1b[2Ksummary 2\n\x1b[2Kdetail 3\n\x1b[2K\n'
+
+
+def test_emit_ready_status_block_falls_back_to_plain_lines():
+    stream = io.StringIO()
+
+    rendered = CSICollector._emit_ready_status_block(
+        'summary',
+        ['detail'],
+        previous_line_count=5,
+        stream=stream,
+        inline=False,
+    )
+
+    assert rendered == 2
+    assert stream.getvalue() == 'summary\ndetail\n'

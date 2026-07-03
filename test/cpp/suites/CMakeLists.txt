@@ -83,6 +83,11 @@ add_espectre_test(test_csi_manager
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_stimulus_protocol
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_stimulus_protocol.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
 add_espectre_test(test_motion_detection
     "${CMAKE_CURRENT_SOURCE_DIR}/integration/test_motion_detection.cpp"
     LIBRARIES espectre_runtime_testlib

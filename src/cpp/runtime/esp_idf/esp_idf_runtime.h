@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,8 @@ class EspIdfRuntime : public IEspectreRuntime {
   void finish_threshold_calibration_(bool success);
   void notify_fault_(const char *message);
   bool has_wifi_ip_() const;
+  uint32_t local_wifi_ip_addr_() const;
+  void refresh_csi_local_identity_();
 
   RuntimeConfig config_;
   RuntimeSnapshot snapshot_;

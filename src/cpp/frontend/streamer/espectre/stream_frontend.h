@@ -10,6 +10,7 @@
 #pragma once
 
 #include <atomic>
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -82,6 +83,8 @@ class StreamFrontend {
   uint64_t filtered_total_{0U};
   uint64_t last_log_ms_{0U};
   uint32_t collector_ip_addr_{0U};
+  uint32_t local_ip_addr_{0U};
+  std::array<uint8_t, 6> local_mac_addr_{};
   uint16_t last_csi_len_{0U};
   uint16_t last_csi_payload_len_{0U};
   uint64_t prev_csi_callback_total_{0U};
