@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ESP32 CSI Data Comparison Tool (S3/C3/C6)
+ESP32 CSI Data Comparison Tool
 
 Analyzes raw CSI data from multiple ESP32 chips to identify:
 - I/Q value ranges and scaling differences
@@ -173,59 +173,45 @@ def print_comparison(s3_stats, c6_stats, metric_name):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Compare ESP32 CSI data (S3/C3/C6)')
+    parser = argparse.ArgumentParser(description='Compare ESP32 CSI data across supported chips')
     parser.add_argument('--plot', action='store_true', help='Generate comparison plots')
     args = parser.parse_args()
+
+    supported_chips = [
+        ('S3', 64),
+        ('C3', 64),
+        ('C5', 64),
+        ('C6', 64),
+        ('ESP32', 64),
+    ]
     
     print("\n" + "="*70)
-    print("  ESP32 CSI Data Comparison (S3/C3/C6)")
+    print("  ESP32 CSI Data Comparison")
     print("="*70)
     
     # Load data for all chips (auto-find most recent files)
     print("\nLoading data...")
     
     chips_data = {}
-    
-    # S3: 64 SC (HT20)
-    try:
-        s3_baseline, s3_movement = load_static_presence_and_motion(chip='S3')
-        chips_data['S3'] = {'static_presence': s3_baseline, 'motion': s3_movement, 'num_sc': 64}
-        print(f"  S3: {len(s3_baseline)} static-presence, {len(s3_movement)} motion packets (64 SC)")
-    except FileNotFoundError as e:
-        print(f"  S3 data not found: {e}")
-    
-    # C3: 64 SC (HT20)
-    try:
-        c3_baseline, c3_movement = load_static_presence_and_motion(chip='C3')
-        chips_data['C3'] = {'static_presence': c3_baseline, 'motion': c3_movement, 'num_sc': 64}
-        print(f"  C3: {len(c3_baseline)} static-presence, {len(c3_movement)} motion packets (64 SC)")
-    except FileNotFoundError as e:
-        print(f"  C3 data not found: {e}")
-    
-    # C6: 64 SC (HT20)
-    try:
-        c6_baseline, c6_movement = load_static_presence_and_motion(chip='C6')
-        chips_data['C6'] = {'static_presence': c6_baseline, 'motion': c6_movement, 'num_sc': 64}
-        print(f"  C6: {len(c6_baseline)} static-presence, {len(c6_movement)} motion packets (64 SC)")
-    except FileNotFoundError as e:
-        print(f"  C6 data not found: {e}")
+
+    for chip, num_sc in supported_chips:
+        try:
+            baseline_packets, motion_packets = load_static_presence_and_motion(chip=chip)
+            chips_data[chip] = {
+                'static_presence': baseline_packets,
+                'motion': motion_packets,
+                'num_sc': num_sc,
+            }
+            print(
+                f"  {chip}: {len(baseline_packets)} static-presence, "
+                f"{len(motion_packets)} motion packets ({num_sc} SC)"
+            )
+        except FileNotFoundError as e:
+            print(f"  {chip} data not found: {e}")
     
     if len(chips_data) < 2:
         print("\nNeed at least 2 chips with data for comparison.")
         return
-    
-    # For backward compatibility, extract individual variables
-    s3_baseline = chips_data.get('S3', {}).get('static_presence', [])
-    s3_movement = chips_data.get('S3', {}).get('motion', [])
-    s3_num_sc = chips_data.get('S3', {}).get('num_sc', 0)
-    
-    c3_baseline = chips_data.get('C3', {}).get('static_presence', [])
-    c3_movement = chips_data.get('C3', {}).get('motion', [])
-    c3_num_sc = chips_data.get('C3', {}).get('num_sc', 0)
-    
-    c6_baseline = chips_data.get('C6', {}).get('static_presence', [])
-    c6_movement = chips_data.get('C6', {}).get('motion', [])
-    c6_num_sc = chips_data.get('C6', {}).get('num_sc', 0)
     
     # =========================================================================
     # 1. RAW I/Q VALUE ANALYSIS
@@ -460,11 +446,11 @@ def main():
             data_to_plot = []
             labels = []
             for chip in chip_list:
-                for phase in ['static_presence', 'motion']:
+                for phase, label in [('baseline', 'Base'), ('movement', 'Move')]:
                     key = f"{chip}_{phase}"
                     if key in turb_stats:
                         data_to_plot.append(turb_stats[key]['mvs_values'])
-                        labels.append(f"{chip} {'Base' if phase == 'static_presence' else 'Move'}")
+                        labels.append(f"{chip} {label}")
             ax.boxplot(data_to_plot, tick_labels=labels)
             ax.axhline(y=THRESHOLD, color='r', linestyle='--', label=f'Threshold={THRESHOLD}')
             ax.set_ylabel('Moving Variance')

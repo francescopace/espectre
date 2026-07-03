@@ -2,7 +2,6 @@
 [![Chips ESP32 family](https://img.shields.io/badge/chips-ESP32%20family-red.svg)](https://www.espressif.com/en/products/socs)
 [![Works with ESPHome](https://img.shields.io/badge/works%20with-ESPHome-blue.svg)](https://esphome.io/)
 [![Works with Matter](https://img.shields.io/badge/works%20with-Matter-5C6BC0.svg)](https://csa-iot.org/all-solutions/matter/)
-[![Works with Native](https://img.shields.io/badge/works%20with-Native-00897B.svg)](src/cpp/frontend/native/README.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
 
@@ -10,8 +9,9 @@
 
 **ESPectre turns low-cost ESP32 devices into privacy-first Wi-Fi sensing nodes.**
 
-ESPectre detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or radar hardware. 
-Works with Home Assistant, Matter, and MQTT. It can also serve as an embeddable sensing SDK for custom smart devices.
+ESPectre detects motion from ordinary Wi-Fi signals, without cameras,
+microphones, wearables, or dedicated radar hardware. It works with Home
+Assistant, Matter, native BLE/MQTT firmware, and custom smart-device builds.
 
 > [!IMPORTANT]
 > **Upstream milestone**: ESP32 Wi-Fi CSI support for the Micro-ESPectre workflow was contributed upstream and merged in [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460) for the `1.29.0` release cycle. More context is available in [Discussion #142](https://github.com/francescopace/espectre/discussions/142).
@@ -21,7 +21,7 @@ Works with Home Assistant, Matter, and MQTT. It can also serve as an embeddable 
 ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. The v3 release turns it into a reusable Wi-Fi sensing platform:
 
 - **Smart home ready**: ESPHome remains the production path for Home Assistant.
-- **Matter path**: published Matter firmware opens the door to Apple Home, Google Home, Alexa, and other Matter ecosystems.
+- **Matter path**: published Matter firmware opens the door to Apple Home, Google Home, Alexa, and other controller-based smart-home setups.
 - **Native firmware**: standalone BLE/MQTT firmware works without Home Assistant and can be driven from web clients or custom integrations.
 - **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed into custom ESP32 firmware and OEM products.
 - **Research and ML tooling**: streamer firmware, notebooks, collection tools, and training docs support CSI datasets and future sensing models.
@@ -54,7 +54,7 @@ Supported hardware:
 | **Matter** | Apple Home, Google Home, Alexa, and Matter ecosystem experiments | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Native BLE/MQTT** | Standalone devices, web clients, custom apps, and non-Home Assistant setups | [Native frontend](src/cpp/frontend/native/README.md) |
 | **Streamer** | CSI data capture, dataset collection, live experiments, and ML workflows | [Streamer frontend](src/cpp/frontend/streamer/README.md) |
-| **Micro-ESPectre** | Python/MicroPython research and rapid algorithm prototyping | [MICRO_ESPECTRE.md](docs/MICRO_ESPECTRE.md) |
+| **Micro-ESPectre** | Python/MicroPython research and rapid algorithm prototyping | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 | **SDK-oriented reuse** | Custom firmware, smart-device makers, and OEM exploration | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 
 For shared prerequisites, supported targets, and command entry points, use [SETUP.md](docs/SETUP.md).
@@ -95,6 +95,25 @@ It also creates a practical path for custom firmware and smart-device integratio
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full internal model and [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md) for the shared BLE/MQTT device protocol.
 
+## For Device Makers
+
+ESPectre v3 is designed to be more than a reference firmware. 
+Smart-device makers can reuse the shared sensing layers inside ESP32-based products and map the runtime to their own product surface.
+
+Useful starting points:
+
+- embed `core` and `runtime` logic in custom firmware
+- use the native BLE/MQTT frontend as a standalone integration baseline
+- build a custom frontend over the same runtime contract
+- keep telemetry derived and minimal through ESPectre Protocol
+- discuss OEM-style integration needs in [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
+
+## Why Wi-Fi Sensing Now
+
+ESPectre is built on today's ESP32 CSI APIs, but the broader industry is moving in the same direction. IEEE 802.11bf, also known as Wi-Fi Sensing, standardizes sensing-oriented Wi-Fi capabilities so future chipsets and products can expose motion, presence, and activity signals through vendor-supported interfaces.
+
+That matters for ESPectre: the project already has reusable sensing logic, runtime boundaries, protocol semantics, data tooling, and multiple frontend surfaces. When a vendor ships a microcontroller or embedded Wi-Fi platform with practical 802.11bf-style sensing support, ESPectre is structurally close to integrating it as another runtime instead of starting over.
+
 ## Roadmap
 
 | Version | Direction |
@@ -104,7 +123,8 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full internal model and [ESP
 | **v3.x** | Turns ESPectre into a modular Wi-Fi sensing platform with Matter, native firmware, streamer tooling, and SDK-oriented reuse |
 | **v4.x** | Adds a privacy-first web orchestration layer for multi-node sensing, device management, history, alerts, and remote visibility |
 
-The v4 web layer is intended to support local, self-hosted, and future managed service deployments. ESPectre remains local-first: raw CSI, packet captures, and
+The v4 web layer is intended to support local, self-hosted, and future managed
+service deployments. ESPectre remains local-first: raw CSI, packet captures, and
 sensitive radio data should not leave the user environment by default.
 
 See [ROADMAP.md](docs/ROADMAP.md) for the detailed plan.

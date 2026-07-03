@@ -72,7 +72,7 @@ pytest test/python/test_validation_long_recordings.py -v -s
 
 ## Current Results
 
-**Last verified:** 2026-06-30 (`test_motion_detection`, C++ `test_long_recordings`, Python `TestPerformanceMetrics`, Python `test_validation_long_recordings.py`)
+**Last verified:** 2026-07-03 (`test_motion_detection`, C++ `test_long_recordings`, Python `TestPerformanceMetrics`, Python `test_validation_long_recordings.py`)
 
 ### Python + C++ real-data validation
 
@@ -86,13 +86,13 @@ pytest test/python/test_validation_long_recordings.py -v -s
 | ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32-C6 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-C6 | MVS Runtime | 99.7% | 100.0% | 0.0% | 99.9% |
-| ESP32-C6 | ML | 99.2% | 100.0% | 0.0% | 99.6% |
+| ESP32-C6 | ML | 99.6% | 100.0% | 0.0% | 99.8% |
 | ESP32-S3 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-S3 | MVS Runtime | 99.7% | 100.0% | 0.0% | 99.9% |
 | ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
 | ESP32 | MVS Default | 99.4% | 100.0% | 0.0% | 99.7% |
 | ESP32 | MVS Runtime | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
+| ESP32 | ML | 99.7% | 99.9% | 0.2% | 99.8% |
 
 **MVS Default**: Uses fixed default subcarriers with adaptive threshold from baseline.
 **MVS Runtime**: Current production startup path; matches `MVS Default`.
@@ -185,13 +185,13 @@ Methodology:
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score | FP Count |
 |------|-----------|--------|-----------|---------|----------|----------|
 | C3 | MVS Fixed | 100.0% | 99.8% | 0.2% | 99.9% | 5 |
-| C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% | 0 |
+| C3 | ML | 99.8% | 100.0% | 0.0% | 99.9% | 0 |
 | C5 | MVS Fixed | 100.0% | 87.9% | 11.1% | 93.5% | 357 |
-| C5 | ML | 100.0% | 91.3% | 7.7% | 95.4% | 248 |
+| C5 | ML | 100.0% | 91.3% | 7.7% | 95.4% | 247 |
 | C6 | MVS Fixed | 100.0% | 70.4% | 40.2% | 82.6% | 1270 |
-| C6 | ML | 97.3% | 90.2% | 10.1% | 93.6% | 319 |
+| C6 | ML | 96.1% | 89.7% | 10.5% | 92.8% | 331 |
 | S3 | MVS Fixed | 100.0% | 94.8% | 4.9% | 97.3% | 151 |
-| S3 | ML | 99.5% | 100.0% | 0.0% | 99.7% | 1 |
+| S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% | 0 |
 
 ---
 
@@ -199,8 +199,8 @@ Methodology:
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
-| 2026-06-30 | v3.0.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
-| 2026-06-30 | v3.0.0 | C6 |  -   | MVS + Hampel | 99.7% | 100.0% | 0.0% | 99.9% |
+| 2026-07-03 | v3.0.0 | C6 |  -   | ML + Hampel | 99.6% | 100.0% | 0.0% | 99.8% |
+| 2026-07-03 | v3.0.0 | C6 |  -   | MVS + Hampel | 99.7% | 100.0% | 0.0% | 99.9% |
 | 2026-05-21 | v2.8.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-05-21 | v2.8.0 | C6 | NBVI | MVS + Hampel| 99.6% | 100.0% | 0.0% | 99.8% |
 | 2026-03-11 | v2.6.1 | C6 |  -   | ML | 100.0% | 100.0% | 0.0% | 100.0% |

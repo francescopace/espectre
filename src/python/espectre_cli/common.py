@@ -31,12 +31,15 @@ except ImportError as e:
     raise SystemExit(1) from e
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PYTHON_SRC_DIR = REPO_ROOT / "src" / "python"
+PYTHON_ROOT_DIR = REPO_ROOT / "src" / "python"
+MICRO_ESPECTRE_SRC_DIR = PYTHON_ROOT_DIR / "micro_espectre"
+# Backward-compatible alias used by existing host-side helpers/tests.
+PYTHON_SRC_DIR = MICRO_ESPECTRE_SRC_DIR
 TOOLS_DIR = REPO_ROOT / "tools"
 WEB_UI_FILE = TOOLS_DIR / "web" / "espectre-mqtt.html"
 FIRMWARE_CACHE_DIR = REPO_ROOT / ".firmware"
 
-for path in (str(REPO_ROOT), str(PYTHON_SRC_DIR), str(TOOLS_DIR)):
+for path in (str(REPO_ROOT), str(PYTHON_ROOT_DIR), str(PYTHON_SRC_DIR), str(TOOLS_DIR)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
@@ -259,8 +262,8 @@ def cli_command(*args: str) -> str:
 def copy_config_command() -> str:
     """Return a platform-appropriate command to create config_local.py."""
     if os.name == "nt":
-        return r"copy src\python\config_local.py.example src\python\config_local.py"
-    return "cp src/python/config_local.py.example src/python/config_local.py"
+        return r"copy src\python\micro_espectre\config_local.py.example src\python\micro_espectre\config_local.py"
+    return "cp src/python/micro_espectre/config_local.py.example src/python/micro_espectre/config_local.py"
 
 
 def serial_port_example() -> str:

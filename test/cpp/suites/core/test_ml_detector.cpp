@@ -31,7 +31,7 @@ static const char *TEST_TAG = "test_ml_detector";
 // TEST DATA (loaded from ml_test_data.npz at runtime)
 // ============================================================================
 
-#define ML_TEST_DATA_PATH "../../models/ml_test_data.npz"
+#define ML_TEST_DATA_PATH "../../data/auto_generated/ml_test_data.npz"
 
 // Sample indices to test (spread across the dataset)
 static const int SAMPLE_INDICES[] = {0, 100, 500, 1000, 2000, 2500};
@@ -209,7 +209,7 @@ static float run_inference(const float* features) {
 }
 
 void test_ml_inference_matches_reference(void) {
-    const float TOLERANCE = 1e-4f;  // Allow small numerical error
+    const float TOLERANCE = 2e-3f;  // Match Python export-regression tolerance
     TEST_ASSERT_TRUE_MESSAGE(num_test_samples > 0, "No test data loaded");
     
     for (int i = 0; i < num_test_samples; i++) {

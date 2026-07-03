@@ -253,16 +253,3 @@ not for Home Assistant-style provisioning or the Matter commissioning flow.
   local Web Bluetooth provisioning and protocol test client
 - `docs/web/game/README.md`:
   example client built on this protocol
-
-## Related Docs
-
-- [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md):
-  shared installation hub and frontend chooser
-- [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md):
-  shared architecture and runtime contract
-- [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md):
-  shared tuning guidance and parameter tradeoffs
-- [`../matter/README.md`](../matter/README.md):
-  Matter frontend
-- [`../esphome/README.md`](../esphome/README.md):
-  ESPHome frontend

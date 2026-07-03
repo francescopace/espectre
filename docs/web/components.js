@@ -55,11 +55,15 @@ function loadHeader(options = {}) {
                     <a href="/documentation/"><i class="fas fa-home"></i> Main</a>
                     <a href="/documentation/setup/"><i class="fas fa-wrench"></i> Setup Guide</a>
                     <a href="/documentation/tuning/"><i class="fas fa-sliders"></i> Tuning Guide</a>
-                    <a href="/documentation/changelog/"><i class="fas fa-list"></i> Changelog</a>
-                    <a href="/documentation/roadmap/"><i class="fas fa-map"></i> Roadmap</a>
+                    <a href="/documentation/architecture/"><i class="fas fa-diagram-project"></i> Architecture</a>
+                    <a href="/documentation/protocol/"><i class="fas fa-network-wired"></i> Protocol</a>
+                    <a href="/documentation/performance/"><i class="fas fa-gauge-high"></i> Performance</a>
                     <div class="nav-dropdown-divider"></div>
+                    <a href="/documentation/roadmap/"><i class="fas fa-map"></i> Roadmap</a>
+                    <a href="/documentation/changelog/"><i class="fas fa-list"></i> Changelog</a>
                     <a href="/documentation/algorithms/"><i class="fas fa-square-root-variable"></i> Algorithms</a>
-                    <a href="/documentation/micro-espectre/"><i class="fas fa-flask"></i> Micro-ESPectre</a>
+                    <a href="/documentation/ml-data-collection/"><i class="fas fa-database"></i> ML Data</a>
+                    <a href="/documentation/ml-training/"><i class="fas fa-brain"></i> ML Training</a>
                 </div>
             </div>
         </nav>
@@ -116,4 +120,3 @@ function loadFooter() {
         <p class="footer-copyright">© 2025 ESPectre · GPLv3 License</p>
     `;
 }
-

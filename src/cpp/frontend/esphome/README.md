@@ -16,20 +16,6 @@ The ESPHome frontend is responsible for:
 - ESPHome provisioning and dashboard-oriented usage
 - ESPHome-specific SDK configuration defaults and troubleshooting
 
-It is not the source of truth for:
-
-- algorithm theory
-- runtime internals
-- the standalone BLE protocol
-- the Matter surface
-
-For those topics, use:
-
-- [`../../../../docs/ALGORITHMS.md`](../../../../docs/ALGORITHMS.md)
-- [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md)
-- [`../native/README.md`](../native/README.md)
-- [`../matter/README.md`](../matter/README.md)
-
 ## Directory Layout
 
 - [`espectre/__init__.py`](espectre/__init__.py):
@@ -436,28 +422,3 @@ esphome logs <your-config>.yaml --device espectre.local
 canonical shared sources directly from `src/cpp/core/` and
 `src/cpp/runtime/esp_idf/`. This keeps ESPHome packaging aligned with the main
 repository layout across platforms.
-
-## Boundaries
-
-The ESPHome frontend is intentionally focused on the ESPHome and Home Assistant
-experience.
-
-- It owns YAML syntax, provisioning, and entities.
-- It does not own detector theory.
-- It does not own shared runtime architecture.
-- It does not define the BLE or Matter surfaces.
-
-## Related Docs
-
-- [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md):
-  shared installation hub and frontend chooser
-- [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md):
-  tuning guidance and parameter tradeoffs
-- [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md):
-  `core` / `runtime` / `frontend` boundaries
-- [`../../../../docs/ALGORITHMS.md`](../../../../docs/ALGORITHMS.md):
-  detector and signal-processing theory
-- [`../native/README.md`](../native/README.md):
-  standalone native frontend
-- [`../matter/README.md`](../matter/README.md):
-  Matter frontend

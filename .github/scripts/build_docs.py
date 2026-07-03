@@ -52,6 +52,11 @@ DOCS = {
         'Architecture',
         'Source layout, runtime boundaries, and frontend split'
     ),
+    'docs/ESPECTRE_PROTOCOL.md': (
+        'docs/web/documentation/protocol/index.html',
+        'ESPectre Protocol',
+        'Shared BLE and MQTT protocol, payloads, commands, and privacy boundary'
+    ),
     'docs/ROADMAP.md': (
         'docs/web/documentation/roadmap/index.html',
         'Roadmap',
@@ -66,11 +71,6 @@ DOCS = {
         'docs/web/documentation/algorithms/index.html',
         'Algorithms',
         'Scientific documentation of motion detection algorithms'
-    ),
-    'docs/MICRO_ESPECTRE.md': (
-        'docs/web/documentation/micro-espectre/index.html',
-        'Micro-ESPectre',
-        'R&D platform for WiFi CSI motion detection'
     ),
     'docs/ML_DATA_COLLECTION.md': (
         'docs/web/documentation/ml-data-collection/index.html',
@@ -92,19 +92,26 @@ LINK_MAP = {
     'docs/PERFORMANCE.md': '/documentation/performance/',
     'docs/CHANGELOG.md': '/documentation/changelog/',
     'docs/ARCHITECTURE.md': '/documentation/architecture/',
+    'docs/ESPECTRE_PROTOCOL.md': '/documentation/protocol/',
     'docs/ROADMAP.md': '/documentation/roadmap/',
     'CONTRIBUTING.md': '/documentation/contributing/',
     'CODE_OF_CONDUCT.md': 'https://github.com/francescopace/espectre/blob/main/CODE_OF_CONDUCT.md',
     'SECURITY.md': 'https://github.com/francescopace/espectre/blob/main/SECURITY.md',
     'LICENSE': 'https://github.com/francescopace/espectre/blob/main/LICENSE',
     'docs/ALGORITHMS.md': '/documentation/algorithms/',
-    'docs/MICRO_ESPECTRE.md': '/documentation/micro-espectre/',
+    'src/python/micro_espectre/README.md': 'https://github.com/francescopace/espectre/blob/main/src/python/micro_espectre/README.md',
     'docs/ML_DATA_COLLECTION.md': '/documentation/ml-data-collection/',
     'docs/ML_TRAINING.md': '/documentation/ml-training/',
     'docs/EXPERIMENTS.md': 'https://github.com/francescopace/espectre/blob/main/docs/EXPERIMENTS.md',
     'tools/README.md': 'https://github.com/francescopace/espectre/blob/main/tools/README.md',
+    'tools/web/espectre-ble.html': 'https://github.com/francescopace/espectre/blob/main/tools/web/espectre-ble.html',
+    'tools/web/espectre-mqtt.html': 'https://github.com/francescopace/espectre/blob/main/tools/web/espectre-mqtt.html',
     'test/cpp/README.md': 'https://github.com/francescopace/espectre/blob/main/test/cpp/README.md',
     'docs/web/game/README.md': 'https://github.com/francescopace/espectre/blob/main/docs/web/game/README.md',
+    'src/cpp/frontend/esphome/README.md': 'https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md',
+    'src/cpp/frontend/native/README.md': 'https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/native/README.md',
+    'src/cpp/frontend/matter/README.md': 'https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/matter/README.md',
+    'src/cpp/frontend/streamer/README.md': 'https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/streamer/README.md',
 }
 
 # HTML template for documentation pages
@@ -324,15 +331,10 @@ def clean_content(content: str, source_path: str) -> str:
         if toc_index != -1:
             clean_header = (
                 '# ESPectre\n\n'
-                '**Motion detection system based on Wi-Fi spectrum analysis (CSI), '
-                'with native Home Assistant integration via ESPHome.**\n\n'
+                '**Privacy-first Wi-Fi sensing platform for ESP32 devices, '
+                'with ESPHome, Matter, native BLE/MQTT, streamer, and SDK-oriented paths.**\n\n'
             )
             content = clean_header + content[toc_index:]
-    
-    # docs/MICRO_ESPECTRE.md: Replace MicroPython title with cleaner one
-    # Same as main.js: markdown.replace(/^# .+$/m, '# Micro-ESPectre')
-    if source_path == 'docs/MICRO_ESPECTRE.md':
-        content = re.sub(r'^# .+$', '# Micro-ESPectre', content, count=1, flags=re.MULTILINE)
     
     return content
 
@@ -445,8 +447,8 @@ def generate_sitemap():
         'docs/TUNING.md': ('https://espectre.dev/documentation/tuning/', 'daily', '0.8'),
         'docs/PERFORMANCE.md': ('https://espectre.dev/documentation/performance/', 'daily', '0.7'),
         'docs/ARCHITECTURE.md': ('https://espectre.dev/documentation/architecture/', 'daily', '0.7'),
+        'docs/ESPECTRE_PROTOCOL.md': ('https://espectre.dev/documentation/protocol/', 'daily', '0.7'),
         'docs/ALGORITHMS.md': ('https://espectre.dev/documentation/algorithms/', 'daily', '0.8'),
-        'docs/MICRO_ESPECTRE.md': ('https://espectre.dev/documentation/micro-espectre/', 'daily', '0.7'),
         'docs/CHANGELOG.md': ('https://espectre.dev/documentation/changelog/', 'daily', '0.6'),
         'docs/ROADMAP.md': ('https://espectre.dev/documentation/roadmap/', 'daily', '0.6'),
         'CONTRIBUTING.md': ('https://espectre.dev/documentation/contributing/', 'daily', '0.5'),

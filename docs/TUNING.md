@@ -749,3 +749,6 @@ entity names, commands, or telemetry channel differ.
 - **Main Documentation:** [README.md](../README.md)
 - **Setup Guide:** [SETUP.md](SETUP.md) for the shared frontend chooser
 - **ESPHome Frontend:** [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) for YAML syntax, Home Assistant entities, and troubleshooting
+- **Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md) for the shared runtime and frontend split
+- **Protocol:** [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) for BLE/MQTT message semantics
+- **Performance:** [PERFORMANCE.md](PERFORMANCE.md) for current validation metrics and caveats

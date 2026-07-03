@@ -15,7 +15,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from repo_paths import models_dir, python_src_dir
+from repo_paths import generated_data_dir, python_src_dir
 
 # Add src to path for imports
 sys.path.insert(0, str(python_src_dir()))
@@ -135,7 +135,7 @@ class TestPredict:
         # Use two real reference samples from the current exported model data.
         # This avoids brittle hand-picked vectors that may both saturate to 0
         # after retraining, while still verifying input sensitivity.
-        test_data_path = models_dir() / "ml_test_data.npz"
+        test_data_path = generated_data_dir() / "ml_test_data.npz"
         if not test_data_path.exists():
             pytest.skip(f"Test data not found: {test_data_path}")
 

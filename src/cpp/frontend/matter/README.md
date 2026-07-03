@@ -15,21 +15,6 @@ The Matter frontend is responsible for:
 - vendor-cluster diagnostics and runtime controls
 - target-specific build, flash, and monitor workflow
 
-It is not the source of truth for:
-
-- algorithm theory
-- runtime internals
-- general `core` / `runtime` architecture
-- ESPHome YAML configuration
-- BLE protocol documentation
-
-Use these global docs for those topics:
-
-- [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md)
-- [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md)
-- [`../../../../docs/ALGORITHMS.md`](../../../../docs/ALGORITHMS.md)
-- [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md)
-
 ## Directory Layout
 
 - [`espectre/matter_frontend.cpp`](espectre/matter_frontend.cpp),
@@ -264,28 +249,3 @@ Check that:
 
 That is expected in the current frontend. The Matter surface exposes threshold
 and recalibration today, not the full ESPHome parameter surface.
-
-## Boundaries
-
-The Matter frontend documents the Matter-specific surface and firmware
-behavior.
-
-It does not own:
-
-- `core` detector and filter documentation
-- generic runtime theory
-- ESPHome provisioning or YAML syntax
-- BLE protocol documentation
-
-## Related Docs
-
-- [`../../../../docs/SETUP.md`](../../../../docs/SETUP.md):
-  shared installation hub and frontend chooser
-- [`../../../../docs/ARCHITECTURE.md`](../../../../docs/ARCHITECTURE.md):
-  shared architecture and runtime contract
-- [`../../../../docs/TUNING.md`](../../../../docs/TUNING.md):
-  shared tuning guidance and tradeoffs
-- [`../native/README.md`](../native/README.md):
-  standalone native frontend
-- [`../esphome/README.md`](../esphome/README.md):
-  ESPHome frontend

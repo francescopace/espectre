@@ -400,10 +400,3 @@ home. Treat it as personal data even when it contains no raw CSI.
 ## Protocol Improvements
 
 - Evaluate structured BLE command formats such as JSON, TLV, CBOR, or compact binary framing instead of ad hoc ASCII strings
-
-## Related Docs
-
-- [ROADMAP.md](ROADMAP.md)
-- [ARCHITECTURE.md](ARCHITECTURE.md)
-- [SETUP.md](SETUP.md)
-- [MICRO_ESPECTRE.md](MICRO_ESPECTRE.md)

@@ -16,13 +16,13 @@ and `motion`. Pair validation and ML readiness intentionally focus on
 `static_presence` / `motion`.
 
 SOURCE CODE ALIGNMENT:
-  This script imports core functions directly from src/python/ to ensure correctness:
-  - src/python/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
-  - src/python/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
+  This script imports core functions directly from src/python/micro_espectre/ to ensure correctness:
+  - src/python/micro_espectre/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
+  - src/python/micro_espectre/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
 
   Amplitude extraction is vectorized with numpy (int8 → int16 to avoid overflow)
-  rather than looping through src/utils.py:extract_amplitudes() per packet.
-  src/utils.py works on Python int lists (no overflow), but NPZ stores numpy int8.
+  rather than looping through src/micro_espectre/utils.py:extract_amplitudes() per packet.
+  src/micro_espectre/utils.py works on Python int lists (no overflow), but NPZ stores numpy int8.
 
 Usage:
     python 11_validate_dataset_quality.py              # Full validation
@@ -42,10 +42,13 @@ from pathlib import Path
 import numpy as np
 
 # ------------------------------------------------------------------
-# Add src/python/ to path and import production code
+# Add the Micro-ESPectre runtime source directory to path and import production code
 # ------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
-SRC_DIR = SCRIPT_DIR.parent / "src" / "python"
+sys.path.insert(0, str(SCRIPT_DIR))
+from repo_paths import generated_data_dir, python_src_dir  # noqa: E402
+
+SRC_DIR = python_src_dir()
 sys.path.insert(0, str(SRC_DIR))
 
 from utils import (                                      # noqa: E402
@@ -60,7 +63,7 @@ from features import extract_features_by_name  # noqa: E402
 # ------------------------------------------------------------------
 DATA_DIR = SCRIPT_DIR.parent / "data"
 DATASET_INFO = DATA_DIR / "dataset_info.json"
-REPORT_OUTPUT = DATA_DIR / "DATASET_QUALITY_CHECK.md"
+REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
 
 # Quality thresholds
 MIN_PACKETS = 800
@@ -1040,6 +1043,7 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append(f"- ⚠️ WARN: {warn_count}")
     lines.append(f"- ❌ FAIL: {fail_count}")
 
+    REPORT_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     with open(REPORT_OUTPUT, 'w') as f:
         f.write('\n'.join(lines) + '\n')
 

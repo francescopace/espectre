@@ -6,8 +6,9 @@
 |---------|------|--------|---------|
 | **v1.x** | 2025-11-09 | Released | First release demonstrating motion detection capabilities using the brand-new MVS algorithm |
 | **v2.x** | 2025-12-06 | Released | Home Assistant integration via ESPHome plus custom MicroPython-based firmware |
-| **v3.x** | 2026-07 (target) | Release Candidate | Reusable Wi-Fi sensing platform with Matter support, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
+| **v3.x** | 2026-08 (target) | Release Candidate | Reusable Wi-Fi sensing platform with Matter support, native BLE/MQTT firmware, and an SDK-oriented foundation for OEM integrations |
 | **v4.x** | 2026-12 (target) | Planned | Privacy-first web orchestration layer for multi-node sensing, secure onboarding, fleet visibility, history, alerting, and remote management |
+| **v5.x** | Future | Exploratory | Standards-ready sensing platform prepared for practical IEEE 802.11bf / Wi-Fi Sensing hardware support when embedded vendors expose it |
 
 ---
 
@@ -83,7 +84,7 @@ sensitive radio data to leave the user environment.
 | **Approximate room flow** | Best-effort room-to-room movement visualization from device transitions, without claiming precise localization |
 | **Management** | Remote threshold updates, runtime settings, and signed firmware update workflows |
 | **History** | Retained movement/status timeline with configurable privacy and retention policy |
-| **Alerting** | Motion-triggered notifications through email first, then Telegram and WhatsApp as integrations mature |
+| **Alerting** | Motion-triggered notifications through email first, then additional notification integrations as the web layer matures |
 | **Privacy boundary** | Derived telemetry only; no raw CSI, no unnecessary Wi-Fi identifiers, no sensitive device logs by default |
 | **Cross-frontend view** | Unified view across `ESPHome`, `Matter`, `Native`, streamer-derived tooling, and custom firmware nodes where applicable |
 | **Deployment profiles** | Local web app, self-hosted service, and future managed ESPectre service built around the same privacy boundary |
@@ -109,7 +110,7 @@ sensitive radio data to leave the user environment.
 - [ ] Add signed firmware artifact storage and OTA update workflow
 - [ ] Add movement/status history with explicit retention controls
 - [ ] Add alerting rules for motion detection, starting with email
-- [ ] Add Telegram and WhatsApp notification integrations
+- [ ] Evaluate additional notification integrations after the first alerting path is stable
 - [ ] Add approximate room-to-room movement visualization from multi-device events
 - [ ] Document open-source boundaries, self-hosting posture, and managed-service value
 - [ ] Validate security, abuse resistance, privacy posture, and operational resilience before public launch
@@ -119,9 +120,28 @@ and [ARCHITECTURE.md](ARCHITECTURE.md) for the local lab, self-hosted, and manag
 
 ---
 
+## v5.x - Standards-Ready Wi-Fi Sensing
+
+**Goal**: keep ESPectre aligned with the emerging IEEE 802.11bf / Wi-Fi Sensing ecosystem so future vendor-supported sensing chipsets can be integrated through the existing SDK-oriented architecture instead of requiring a new project shape.
+
+IEEE 802.11bf is expected to make Wi-Fi sensing a first-class capability in future Wi-Fi products. ESPectre already validates the product and developer model around today's ESP32 CSI APIs: reusable sensing logic, runtime contracts, protocol semantics, dataset tooling, frontend adapters, and web-oriented orchestration boundaries.
+
+When a microcontroller or embedded Wi-Fi platform exposes practical 802.11bf-style sensing APIs, the intended path is to add it as another runtime or hardware backend while preserving the higher-level ESPectre protocol, frontends, tooling, and device-maker integration model.
+
+### Exploration Areas
+
+- Track embedded vendor support for IEEE 802.11bf / Wi-Fi Sensing APIs
+- Map standardized sensing measurements to ESPectre runtime snapshots and events
+- Preserve compatibility with ESPectre Protocol telemetry and command semantics
+- Keep frontend surfaces stable across ESPHome, Matter, native, web, and OEM firmware paths
+- Validate whether standardized sensing improves calibration, false-positive control, and multi-node fusion
+- Document the migration path from ESP32 CSI-based firmware to standards-backed hardware when available
+
+---
+
 ## Roadmap Updates
 
-Last update: **July 2, 2026**
+Last update: **July 3, 2026**
 
 For discussion and proposed changes:
 
