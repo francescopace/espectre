@@ -62,6 +62,11 @@ void RuntimeFrontendController::set_live_telemetry_enabled(bool enabled) {
   }
 }
 
+void RuntimeFrontendController::quiesce_for_ota() {
+  set_live_telemetry_enabled(false);
+  set_services_armed(false);
+}
+
 bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
   if (!validate_runtime_threshold(threshold)) {
     return false;

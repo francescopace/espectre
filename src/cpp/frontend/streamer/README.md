@@ -42,6 +42,10 @@ Wi-Fi setup only. This lets a browser client save Wi-Fi credentials over Web
 Bluetooth without turning the streamer into a full runtime frontend or adding
 motion telemetry over BLE.
 
+For remote fleet operations, the streamer now also exposes a minimal MQTT
+control plane for `info` and OTA commands. It does not publish CSI, runtime
+telemetry, or detector-style control over MQTT.
+
 ## Directory Layout
 
 - [`espectre/stream_frontend.cpp`](espectre/stream_frontend.cpp),
@@ -184,6 +188,9 @@ Key knobs in the frontend surface:
 - `ESPECTRE_WIFI_PASSWORD`
 - `ESPECTRE_WIFI_BSSID`
 - `ESPECTRE_WIFI_CHANNEL`
+- `ESPECTRE_MQTT_HOST`
+- `ESPECTRE_MQTT_PORT`
+- `ESPECTRE_TOPIC_PREFIX`
 - `ESPECTRE_STREAM_OUTPUT_ENABLED`
 - `ESPECTRE_COLLECTOR_PORT`
 - `ESPECTRE_TRAFFIC_RX_PORT`
@@ -200,6 +207,9 @@ Runtime behavior notes:
 - the streamer no longer owns an internal traffic generator
 - BLE provisioning handles Wi-Fi setup plus device naming/sysinfo; it does not
   expose streamer CSI data or runtime motion telemetry over BLE
+- MQTT is intentionally narrow on the streamer: it exposes `info`,
+  `ota_check`, `ota_start`, `ota_status`, command results, and retained OTA
+  state, but not CSI or continuous telemetry
 - the collector address is learned from the source IP of the latest UDP stimulus packet
 - the UDP stimulus payload may carry the `ESTM` metadata header
   (`magic + version + role + stimulus_id`), which is propagated into the CSI
@@ -272,6 +282,25 @@ cd src/cpp/frontend/streamer/app
 idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" set-target esp32c3
 idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
 ```
+
+## OTA
+
+The streamer uses the shared ESP-IDF HTTPS OTA service used by the standalone
+native frontend, but with a much smaller MQTT surface.
+
+Operational model:
+
+- MQTT stays connected as the remote control plane
+- `ota_check` checks a remote HTTPS manifest
+- `ota_start` downloads the OTA image into the inactive slot
+- the frontend stops CSI capture and stimulus processing before applying the OTA
+- MQTT does not become a second data plane for CSI streaming
+
+Artifact model:
+
+- factory images remain the recovery and first-flash path
+- streamer OTA uses the published `espectre-streamer-...-ota.bin` payload and
+  its matching JSON manifest
 
 Current repository CLI target coverage for the streamer frontend includes
 `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, and `ESP32-S3`.

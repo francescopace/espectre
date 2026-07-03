@@ -18,6 +18,9 @@ The native frontend is intentionally separate from the ESPHome frontend:
 - `Native` exposes the standalone integration surface over BLE and MQTT
 - `Matter` exposes the same runtime through Matter clusters
 
+The native frontend now also supports HTTPS OTA triggered from its MQTT command
+plane.
+
 The current native frontend preserves the protocol already used by
 `docs/web/game/`, but it is not tied to that specific client.
 
@@ -95,6 +98,7 @@ Current capabilities:
 - derive the BLE pairing name from `device_name`
 - provision or clear Wi-Fi credentials over BLE
 - provision or clear MQTT configuration over BLE
+- keep HTTPS OTA reachable through the always-on MQTT control plane
 
 Requirements:
 
@@ -201,6 +205,28 @@ Local implementation anchors:
 - [`../../runtime/espectre_protocol.cpp`](../../runtime/espectre_protocol.cpp):
   shared MQTT topic, payload, and command serialization
 
+## OTA
+
+The native frontend uses the shared ESPectre MQTT command surface plus a shared
+ESP-IDF HTTPS OTA implementation.
+
+Operational model:
+
+- MQTT remains the command plane
+- `ota_check` checks a remote HTTPS manifest
+- `ota_start` downloads an HTTPS application image into the inactive OTA slot
+- successful OTA schedules an immediate reboot into the new slot
+
+Artifact model:
+
+- `factory` images remain the published full-flash binaries used by the browser
+  flasher and manual recovery flows
+- native OTA uses the published `espectre-native-...-ota.bin` payload together
+  with its matching JSON manifest
+
+BLE remains useful for local provisioning and recovery, but native OTA is not a
+BLE-only workflow.
+
 ## Firmware Limits and Expectations
 
 The current standalone native frontend intentionally stays small.
@@ -211,6 +237,8 @@ Important current limits:
 - the BLE control surface is still ASCII commands rather than a structured schema
 - clients should not assume diagnostic sysinfo fields are stable forever
 - there is no capability discovery or negotiated feature set yet
+- OTA uses HTTPS transport and dual OTA slots, so local recovery still starts
+  from the published factory image when an image must be reflashed from USB
 
 This keeps the transport simple while allowing external BLE clients to provision
 Wi-Fi and MQTT, tune the runtime threshold, and observe the runtime in real

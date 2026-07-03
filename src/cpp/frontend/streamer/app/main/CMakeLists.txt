@@ -9,5 +9,11 @@ idf_component_register(
         "../../../../runtime/esp_idf"
     REQUIRES
         espectre
+        app_update
+        esp_http_client
+        esp_https_ota
+        esp-tls
+        mbedtls
+        mqtt
         nvs_flash
 )

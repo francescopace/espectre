@@ -65,24 +65,34 @@ def parse_esphome_asset(filename: str, version_prefix: str) -> dict | None:
 def parse_matter_asset(filename: str, version_prefix: str) -> dict | None:
     if not filename.startswith(version_prefix) or not filename.endswith(".bin"):
         return None
-    chip = filename.removeprefix(version_prefix).removesuffix(".bin")
+    suffix = filename.removeprefix(version_prefix).removesuffix(".bin")
+    build_type = "factory"
+    chip = suffix
+    if suffix.endswith("-ota"):
+        chip = suffix.removesuffix("-ota")
+        build_type = "ota"
     return {
         "frontend": "matter",
         "chip": chip,
         "algorithm": None,
-        "build_type": "factory",
+        "build_type": build_type,
     }
 
 
 def parse_native_asset(filename: str, version_prefix: str) -> dict | None:
     if not filename.startswith(version_prefix) or not filename.endswith(".bin"):
         return None
-    chip = filename.removeprefix(version_prefix).removesuffix(".bin")
+    suffix = filename.removeprefix(version_prefix).removesuffix(".bin")
+    build_type = "factory"
+    chip = suffix
+    if suffix.endswith("-ota"):
+        chip = suffix.removesuffix("-ota")
+        build_type = "ota"
     return {
         "frontend": "native",
         "chip": chip,
         "algorithm": None,
-        "build_type": "factory",
+        "build_type": build_type,
     }
 
 

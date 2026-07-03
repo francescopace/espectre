@@ -6,6 +6,7 @@ set(espectre_native_sources
     ${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES}
+    ${ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES}
 )
 
 set(espectre_native_requires
@@ -14,6 +15,11 @@ set(espectre_native_requires
     esp_netif
     esp_timer
     mqtt
+    app_update
+    esp_http_client
+    esp_https_ota
+    esp-tls
+    mbedtls
     nvs_flash
     lwip
     driver

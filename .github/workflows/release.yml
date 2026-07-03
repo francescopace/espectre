@@ -144,6 +144,9 @@ jobs:
         env:
           MATTER_TARGET: ${{ matrix.target }}
           MATTER_OUTPUT: ${{ github.workspace }}/output/espectre-matter-${{ github.ref_name }}-${{ matrix.target }}.bin
+          MATTER_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-matter-${{ github.ref_name }}-${{ matrix.target }}-ota.bin
+          MATTER_OTA_VERSION: ${{ github.run_number }}
+          MATTER_OTA_VERSION_STR: ${{ github.ref_name }}
 
       - name: Upload Matter firmware artifact
         uses: actions/upload-artifact@v7
@@ -189,6 +192,7 @@ jobs:
         env:
           NATIVE_TARGET: ${{ matrix.target }}
           NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ github.ref_name }}-${{ matrix.target }}.bin
+          NATIVE_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ github.ref_name }}-${{ matrix.target }}-ota.bin
 
       - name: Upload native firmware artifact
         uses: actions/upload-artifact@v7
@@ -197,9 +201,55 @@ jobs:
           path: output/espectre-native-*.bin
           retention-days: 7
 
+  build-streamer:
+    name: Build streamer ${{ matrix.chip }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: ESP32
+            target: esp32
+          - chip: ESP32-C3
+            target: esp32c3
+          - chip: ESP32-C5
+            target: esp32c5
+          - chip: ESP32-C6
+            target: esp32c6
+          - chip: ESP32-S3
+            target: esp32s3
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache streamer toolchain
+        uses: actions/cache@v6
+        with:
+          path: .github/.cache/streamer-home
+          key: streamer-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-${{ hashFiles('.github/scripts/build_streamer_firmware.sh', 'src/cpp/frontend/streamer/app/sdkconfig*.defaults', 'src/cpp/frontend/streamer/app/partitions.csv') }}
+          restore-keys: |
+            streamer-${{ runner.os }}-idf-v5.5-${{ matrix.target }}-
+            streamer-${{ runner.os }}-idf-v5.5-
+
+      - name: Build streamer firmware
+        run: |
+          mkdir -p output
+          bash .github/scripts/build_streamer_firmware.sh
+        env:
+          STREAMER_TARGET: ${{ matrix.target }}
+          STREAMER_OUTPUT: ${{ github.workspace }}/output/espectre-streamer-${{ github.ref_name }}-${{ matrix.target }}.bin
+          STREAMER_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-streamer-${{ github.ref_name }}-${{ matrix.target }}-ota.bin
+
+      - name: Upload streamer firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-streamer-${{ matrix.chip }}
+          path: output/espectre-streamer-*.bin
+          retention-days: 7
+
   release:
     name: Create Release
-    needs: [build, build-matter, build-native]
+    needs: [build, build-matter, build-native, build-streamer]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -231,6 +281,13 @@ jobs:
             --channel stable \
             --version "${GITHUB_REF_NAME}" \
             --release-tag "${GITHUB_REF_NAME}"
+
+      - name: Build IDF OTA manifests
+        run: |
+          python .github/scripts/build_idf_ota_manifests.py \
+            --firmware-dir firmware \
+            --release-tag "${GITHUB_REF_NAME}" \
+            --version "${GITHUB_REF_NAME}"
       
       - name: Extract release notes from CHANGELOG
         id: changelog
@@ -289,6 +346,7 @@ jobs:
           body_path: release_notes.md
           files: |
             firmware/*.bin
+            firmware/*.json
             firmware/firmware-manifest-stable.json
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}

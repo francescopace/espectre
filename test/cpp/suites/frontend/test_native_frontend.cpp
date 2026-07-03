@@ -13,10 +13,12 @@
 #include "ble_bindings_mock.h"
 #include "frontend_runtime_shim.h"
 #include "mqtt_transport_mock.h"
+#include "ota_service_mock.h"
 
 using namespace esphome::espectre;
 using esphome::espectre::ble_bindings_mock::MockBleBindings;
 using esphome::espectre::mqtt_transport_mock::MockMqttTransport;
+using esphome::espectre::ota_service_mock::MockOtaService;
 
 namespace {
 
@@ -50,6 +52,7 @@ void setUp(void) {
   frontend_runtime_shim::reset();
   ble_bindings_mock::reset();
   mqtt_transport_mock::reset();
+  ota_service_mock::reset();
 }
 
 void tearDown(void) {}
@@ -309,6 +312,51 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"state\":") == std::string::npos);
 }
 
+void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  MockOtaService ota;
+  EspectreDeviceConfig config;
+  config.device_id = "lab-01";
+  config.mqtt_host = "localhost";
+  config.mqtt_enabled = true;
+
+  NativeFrontend frontend(&bindings, &mqtt, &ota);
+  EspectreDeviceInfo info;
+  info.frontend = "native";
+  info.firmware_version = "1.0.0";
+  frontend.set_device_config(config);
+  frontend.set_device_info(info);
+  TEST_ASSERT_TRUE(frontend.setup());
+  mqtt_transport_mock::state.publishes.clear();
+
+  mqtt.emit_command("{\"command_id\":\"cmd-ota-check\",\"command\":\"ota_check\",\"manifest_url\":\"https://fw.example/manifest.json\"}");
+  TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
+  TEST_ASSERT_EQUAL_STRING("https://fw.example/manifest.json", ota_service_mock::state.last_manifest_url.c_str());
+  TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/lab-01/commands/accepted",
+                           mqtt_transport_mock::state.publishes.back().topic.c_str());
+
+  mqtt_transport_mock::state.publishes.clear();
+  mqtt.emit_command("{\"command_id\":\"cmd-ota-start\",\"command\":\"ota_start\",\"image_url\":\"https://fw.example/native.bin\",\"version\":\"1.1.0\"}");
+  TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_update_calls);
+  TEST_ASSERT_EQUAL_STRING("https://fw.example/native.bin", ota_service_mock::state.last_image_url.c_str());
+  TEST_ASSERT_EQUAL_STRING("1.1.0", ota_service_mock::state.last_target_version.c_str());
+
+  mqtt_transport_mock::state.publishes.clear();
+  EspectreOtaStatus ota_status;
+  ota_status.state = EspectreOtaState::UPDATE_AVAILABLE;
+  ota_status.current_version = "1.0.0";
+  ota_status.target_version = "1.1.0";
+  ota_status.image_url = "https://fw.example/native.bin";
+  ota.emit_status(ota_status);
+  TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/lab-01/ota/state",
+                           mqtt_transport_mock::state.publishes[0].topic.c_str());
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"state\":\"update_available\"") !=
+                   std::string::npos);
+}
+
 void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
   EspectreDeviceConfig config;
   std::string error;
@@ -526,6 +574,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_periodic_update_publishes_mqtt_telemetry);
   RUN_TEST(test_native_frontend_mqtt_set_threshold_command_publishes_result);
   RUN_TEST(test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads);
+  RUN_TEST(test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state);
   RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);
   RUN_TEST(test_native_frontend_control_commands_validate_and_update_runtime);
   RUN_TEST(test_native_frontend_wifi_provisioning_commands_forward_to_callback);

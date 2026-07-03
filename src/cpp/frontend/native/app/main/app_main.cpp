@@ -20,6 +20,8 @@
 #endif
 #include "native_frontend.h"
 #include "device_config_store.h"
+#include "firmware_version.h"
+#include "https_ota_service.h"
 #include "mqtt_transport_esp_idf.h"
 #include "standalone_wifi_manager.h"
 #include "wifi_provisioning_service.h"
@@ -49,7 +51,7 @@ void sync_frontend_wifi_info() {
 
   esphome::espectre::EspectreDeviceInfo device_info;
   device_info.frontend = "native";
-  device_info.firmware_version = "unknown";
+  device_info.firmware_version = esphome::espectre::espectre_firmware_version();
   device_info.chip = CONFIG_IDF_TARGET;
 
   esphome::espectre::StandaloneWifiInfo wifi_info;
@@ -189,7 +191,8 @@ extern "C" void app_main() {
   static esphome::espectre::NoopBleBindings bindings;
 #endif
   static esphome::espectre::EspIdfMqttTransport mqtt_transport;
-  static esphome::espectre::NativeFrontend frontend(&bindings, &mqtt_transport);
+  static esphome::espectre::HttpsOtaService ota_service;
+  static esphome::espectre::NativeFrontend frontend(&bindings, &mqtt_transport, &ota_service);
   frontend.set_runtime_config(make_runtime_config());
   frontend.set_device_config(make_device_config());
   g_frontend = &frontend;

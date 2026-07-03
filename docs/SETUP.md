@@ -29,9 +29,9 @@ Current entry-point support by frontend:
 | Frontend | Supported published targets | Notes |
 |----------|-----------------------------|-------|
 | `ESPHome` | `ESP32-S3`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32`, `ESP32-S2` (experimental) | Web flasher supports the default `MVS` detector and `ML` assets |
-| `Native` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Standalone native frontend exposed over BLE and MQTT |
-| `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Requires BLE commissioning, so `ESP32-S2` is excluded |
-| `Streamer` | local build workflow | Not part of the browser flasher path |
+| `Native` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Standalone native frontend exposed over BLE and MQTT, with HTTPS OTA triggered over MQTT |
+| `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Requires BLE commissioning, so `ESP32-S2` is excluded; OTA stays in the Matter ecosystem |
+| `Streamer` | local build workflow | Not part of the browser flasher path; uses minimal MQTT control plus HTTPS OTA |
 
 ### Software
 
@@ -185,9 +185,9 @@ The next step depends on the frontend you chose:
 | Frontend | Continue here | What that README owns |
 |----------|---------------|-----------------------|
 | `ESPHome` | [`../src/cpp/frontend/esphome/README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
-| `Native` | [`../src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi build-time configuration, firmware limits, and links to the shared protocol spec |
-| `Matter` | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter surface, writable attributes, local ESP-IDF workflow |
-| `Streamer` | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, Wi-Fi setup via `sdkconfig.wifi` or BLE provisioning, frontend-specific configuration |
+| `Native` | [`../src/cpp/frontend/native/README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi and MQTT setup, native control surface, and HTTPS OTA flow |
+| `Matter` | [`../src/cpp/frontend/matter/README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter surface, Matter-native OTA behavior, and local ESP-IDF workflow |
+| `Streamer` | [`../src/cpp/frontend/streamer/README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, Wi-Fi and minimal MQTT setup, and HTTPS OTA flow |
 
 ## Shared Runtime Concepts
 

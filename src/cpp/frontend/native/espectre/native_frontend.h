@@ -17,6 +17,7 @@
 
 #include "ble_bindings.h"
 #include "mqtt_transport.h"
+#include "ota_service.h"
 #include "periodic_sensing_status_logger.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
@@ -38,7 +39,7 @@ class NativeFrontend : public IRuntimeListener {
   using DeviceConfigChangeCallback = std::function<bool(const EspectreDeviceConfig &config, bool clear, std::string *message)>;
 
   explicit NativeFrontend(IBleBindings *bindings);
-  NativeFrontend(IBleBindings *bindings, IMqttTransport *mqtt_transport);
+  NativeFrontend(IBleBindings *bindings, IMqttTransport *mqtt_transport, IOtaService *ota_service = nullptr);
 
   void set_runtime_config(const RuntimeConfig &config);
   void set_device_config(const EspectreDeviceConfig &config);
@@ -76,10 +77,12 @@ class NativeFrontend : public IRuntimeListener {
   void handle_connection_state_(bool connected);
   void handle_live_telemetry_subscription_(bool subscribed);
   void setup_mqtt_();
+  bool handle_ota_command_(const EspectreCommand &command);
   void publish_mqtt_info_();
   void publish_mqtt_status_(bool online);
   void publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now_ms);
   void publish_mqtt_stats_();
+  void publish_mqtt_ota_status_(const EspectreOtaStatus &status);
   void publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message);
   void send_system_info_();
   void queue_system_info_line_(const char *line);
@@ -88,6 +91,7 @@ class NativeFrontend : public IRuntimeListener {
 
   IBleBindings *bindings_;
   IMqttTransport *mqtt_transport_{nullptr};
+  IOtaService *ota_service_{nullptr};
   ProvisioningCommandCallback provisioning_command_callback_{};
   DeviceConfigChangeCallback device_config_change_callback_{};
   RuntimeFrontendController runtime_;

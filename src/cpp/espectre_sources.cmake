@@ -12,6 +12,7 @@ set(ESPECTRE_CORE_SOURCES
 set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
@@ -27,6 +28,10 @@ set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
+)
+
+set(ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/https_ota_service.cpp"
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES
