@@ -60,6 +60,7 @@ espectre/v1/devices/{device_id}/telemetry
 espectre/v1/devices/{device_id}/status
 espectre/v1/devices/{device_id}/info
 espectre/v1/devices/{device_id}/stats
+espectre/v1/devices/{device_id}/ota/state
 espectre/v1/devices/{device_id}/commands/request
 espectre/v1/devices/{device_id}/commands/accepted
 espectre/v1/devices/{device_id}/commands/rejected
@@ -126,7 +127,7 @@ espectre/v1/devices/{device_id}/info
   "device_id": "espectre-7c2c6742bbac",
   "device_name": "Living Room",
   "frontend": "native",
-  "firmware_version": "unknown",
+  "firmware_version": "1.2.3",
   "chip": "esp32c6",
   "network": {
     "ip_address": "192.168.1.28",
@@ -186,6 +187,51 @@ Set threshold:
 }
 ```
 
+Request OTA manifest check:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-ota-check",
+  "command": "ota_check",
+  "manifest_url": "https://example.invalid/espectre-native-ota.json"
+}
+```
+
+Start OTA directly from an image URL:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-ota-start",
+  "command": "ota_start",
+  "image_url": "https://example.invalid/espectre-native-ota.bin",
+  "version": "1.2.3"
+}
+```
+
+Publish retained OTA state on:
+
+```text
+espectre/v1/devices/{device_id}/ota/state
+```
+
+```json
+{
+  "protocol_version": "1.0",
+  "device_id": "espectre-7c2c6742bbac",
+  "state": "update_available",
+  "timestamp_ms": 123456,
+  "busy": false,
+  "update_available": true,
+  "current_version": "1.2.2",
+  "target_version": "1.2.3",
+  "manifest_url": "https://example.invalid/espectre-native-ota.json",
+  "image_url": "https://example.invalid/espectre-native-ota.bin",
+  "message": "update available"
+}
+```
+
 Command result:
 
 ```json
@@ -237,6 +283,12 @@ Identity/config semantics for the current BLE control surface:
   active MQTT transport
 - `CLEAR_DEVICE_CONFIG` resets device-facing naming and MQTT settings while keeping the firmware-generated `device_id`
 - `CLEAR_WIFI` clears only persisted Wi-Fi station settings
+
+Frontend notes:
+
+- the standalone native frontend exposes the full current MQTT telemetry/status/info/stats command plane
+- the standalone streamer frontend exposes only `info`, `ota_check`, `ota_start`, `ota_status`, command results, and retained OTA state over MQTT
+- Matter does not use this MQTT command plane for OTA; it follows the Matter OTA requestor/provider flow instead
 
 ## Current BLE Telemetry Surface
 

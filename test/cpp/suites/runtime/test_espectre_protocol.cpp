@@ -154,6 +154,22 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_EQUAL_STRING("set_threshold", command.command.c_str());
   TEST_ASSERT_TRUE(command.has_threshold);
   TEST_ASSERT_EQUAL_FLOAT(2.5f, command.threshold);
+
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x3\",\"command\":\"ota_check\",\"manifest_url\":\"https://fw.example/manifest.json\"}",
+                                          &command,
+                                          &error));
+  TEST_ASSERT_EQUAL_STRING("ota_check", command.command.c_str());
+  TEST_ASSERT_TRUE(command.has_manifest_url);
+  TEST_ASSERT_EQUAL_STRING("https://fw.example/manifest.json", command.manifest_url.c_str());
+
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x4\",\"command\":\"ota_start\",\"image_url\":\"https://fw.example/native.bin\",\"version\":\"2026.7.3\"}",
+                                          &command,
+                                          &error));
+  TEST_ASSERT_EQUAL_STRING("ota_start", command.command.c_str());
+  TEST_ASSERT_TRUE(command.has_image_url);
+  TEST_ASSERT_TRUE(command.has_version);
+  TEST_ASSERT_EQUAL_STRING("https://fw.example/native.bin", command.image_url.c_str());
+  TEST_ASSERT_EQUAL_STRING("2026.7.3", command.version.c_str());
 }
 
 void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(void) {
@@ -170,7 +186,37 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":1e999}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid threshold", error.c_str());
 
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"ota_check\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("missing manifest_url", error.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"ota_start\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("missing manifest_url or image_url", error.c_str());
+
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"info\"}", nullptr, &error));
+}
+
+void test_ota_status_payload_includes_expected_fields(void) {
+  EspectreDeviceConfig config;
+  config.device_id = "node-ota";
+
+  EspectreOtaStatus status;
+  status.state = EspectreOtaState::UPDATE_AVAILABLE;
+  status.current_version = "1.0.0";
+  status.target_version = "1.1.0";
+  status.manifest_url = "https://fw.example/manifest.json";
+  status.image_url = "https://fw.example/native.bin";
+  status.message = "update available";
+  status.busy = false;
+  status.update_available = true;
+
+  const std::string payload = espectre_ota_status_payload(config, status, 4321);
+
+  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"node-ota\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"state\":\"update_available\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"current_version\":\"1.0.0\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"target_version\":\"1.1.0\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"update_available\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"manifest_url\":\"https://fw.example/manifest.json\"") != std::string::npos);
 }
 
 void test_parse_espectre_config_command_updates_supported_fields(void) {
@@ -230,6 +276,7 @@ int process(void) {
   RUN_TEST(test_command_result_payload_includes_acceptance_and_message);
   RUN_TEST(test_parse_espectre_command_parses_info_and_threshold_commands);
   RUN_TEST(test_parse_espectre_command_rejects_missing_command_and_invalid_threshold);
+  RUN_TEST(test_ota_status_payload_includes_expected_fields);
   RUN_TEST(test_parse_espectre_config_command_updates_supported_fields);
   RUN_TEST(test_parse_espectre_config_command_rejects_invalid_inputs);
   return UNITY_END();

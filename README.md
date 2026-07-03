@@ -37,6 +37,7 @@ ESPectre started as a Home Assistant-friendly Wi-Fi motion detector. The v3 rele
 - **Smart home ready**: ESPHome remains the production path for Home Assistant.
 - **Matter path**: published Matter firmware opens the door to Apple Home, Google Home, Alexa, and other controller-based smart-home setups.
 - **Native firmware**: standalone BLE/MQTT firmware works without Home Assistant and can be driven from web clients or custom integrations.
+- **OTA across frontends**: every published firmware path has an OTA story, but the mechanism depends on the frontend: ESPHome uses its native OTA flow, Native and Streamer use HTTPS OTA triggered over MQTT, and Matter follows the Matter OTA ecosystem.
 - **SDK-oriented architecture**: shared `core`, `runtime`, and `frontend` layers make ESPectre easier to embed into custom ESP32 firmware and OEM products.
 - **Research and ML tooling**: streamer firmware, notebooks, collection tools, and training docs support CSI datasets and future sensing models.
 

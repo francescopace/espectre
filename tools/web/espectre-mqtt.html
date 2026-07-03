@@ -190,6 +190,15 @@
             background: #7f8c8d;
         }
 
+        .btn-info {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #2980b9;
+        }
+
         .status-item {
             display: flex;
             align-items: center;
@@ -474,6 +483,13 @@
             color: #f39c12;
         }
 
+        .ota-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-top: 15px;
+        }
+
         @keyframes fadeIn {
             from {
                 opacity: 0;
@@ -530,6 +546,10 @@
                         <input type="text" id="topic" placeholder="espectre/v1/devices/+/telemetry" value="espectre/v1/devices/+/telemetry">
                     </div>
                     <div class="input-group">
+                        <label for="commandDeviceId">Device ID</label>
+                        <input type="text" id="commandDeviceId" placeholder="espectre-node">
+                    </div>
+                    <div class="input-group">
                         <label for="username">Username (optional)</label>
                         <input type="text" id="username" placeholder="user" value="mqtt">
                     </div>
@@ -580,6 +600,36 @@
                             <span style="font-weight: 600; color: #666;">Detector:</span>
                             <span id="detectorAlgorithm">-</span>
                         </div>
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
+                            <span style="font-size: 1.1em;">🏷️</span>
+                            <span style="font-weight: 600; color: #666;">Device ID:</span>
+                            <span id="protocolDeviceId">-</span>
+                        </div>
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
+                            <span style="font-size: 1.1em;">🧩</span>
+                            <span style="font-weight: 600; color: #666;">Firmware:</span>
+                            <span id="firmwareVersion">-</span>
+                        </div>
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
+                            <span style="font-size: 1.1em;">⬆️</span>
+                            <span style="font-weight: 600; color: #666;">OTA state:</span>
+                            <span id="otaStateValue">-</span>
+                        </div>
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
+                            <span style="font-size: 1.1em;">🎯</span>
+                            <span style="font-weight: 600; color: #666;">OTA target:</span>
+                            <span id="otaTargetVersionValue">-</span>
+                        </div>
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
+                            <span style="font-size: 1.1em;">✅</span>
+                            <span style="font-weight: 600; color: #666;">Update available:</span>
+                            <span id="otaUpdateAvailableValue">-</span>
+                        </div>
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
+                            <span style="font-size: 1.1em;">💬</span>
+                            <span style="font-weight: 600; color: #666;">OTA message:</span>
+                            <span id="otaMessageValue">-</span>
+                        </div>
                     </div>
                 </div>
 
@@ -608,14 +658,31 @@
                                 <small style="color: #666; font-size: 0.8em;">Minimum threshold required to detect movement.<br>Low value = detects small movements.<br>High value = detects large movements.<br><b>Recommended: 1.0 for balanced detection 💡</b></small>
                             </div>
                         </div>
+                        <div class="ota-grid">
+                            <div class="input-group">
+                                <label for="otaManifestUrl">Manifest URL</label>
+                                <input type="text" id="otaManifestUrl" placeholder="https://example.invalid/espectre-native-ota.json">
+                            </div>
+                            <div class="input-group">
+                                <label for="otaImageUrl">Image URL (optional)</label>
+                                <input type="text" id="otaImageUrl" placeholder="https://example.invalid/espectre-native-ota.bin">
+                            </div>
+                            <div class="input-group">
+                                <label for="otaTargetVersion">Target Version (optional)</label>
+                                <input type="text" id="otaTargetVersion" placeholder="3.0.0">
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Global Action Buttons -->
                 <div
                     style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding-top: 10px; border-top: 2px solid #e0e0e0;">
-                    <button class="btn btn-warning" onclick="requestInfo()">Reload Info</button>
-                    <button class="btn btn-success btn-sm" onclick="requestStats()">Statistics</button>
+                    <button class="btn btn-secondary" onclick="requestInfo()">Reload Info</button>
+                    <button class="btn btn-primary btn-sm" onclick="requestStats()">Statistics</button>
+                    <button class="btn btn-info btn-sm" onclick="requestOtaStatus()">OTA Status</button>
+                    <button class="btn btn-warning btn-sm" onclick="requestOtaCheck()">OTA Check</button>
+                    <button class="btn btn-success btn-sm" onclick="requestOtaStart()">OTA Start</button>
                 </div>
             </div>
         </div>
@@ -658,6 +725,7 @@
         let isPaused = false;
         let pendingData = [];
         let currentDeviceId = null;
+        let lastOtaState = null;
 
         const chartData = {
             labels: [],
@@ -824,11 +892,14 @@
                         } else {
                             console.log('Subscribed to:', responseTopic);
 
-                            // Request current configuration after successful connection
-                            setTimeout(() => {
-                                console.log('Requesting initial configuration...');
-                                requestInfo();
-                            }, 500); // Small delay to ensure subscriptions are ready
+                            const selectedDeviceId = resolveCommandDeviceId(topic);
+                            if (selectedDeviceId) {
+                                // Request current configuration after successful connection
+                                setTimeout(() => {
+                                    console.log('Requesting initial configuration...');
+                                    requestInfo();
+                                }, 500); // Small delay to ensure subscriptions are ready
+                            }
                         }
                     });
                 });
@@ -986,9 +1057,41 @@
             };
         }
 
+        function resolveCommandDeviceId(inputTopic) {
+            const manualDeviceId = document.getElementById('commandDeviceId').value.trim();
+            if (manualDeviceId) {
+                return manualDeviceId;
+            }
+
+            const topic = trimTopic(inputTopic);
+            const parts = topic.split('/').filter(Boolean);
+            const devicesIndex = parts.indexOf('devices');
+            if (devicesIndex >= 0 && parts.length > devicesIndex + 1) {
+                const candidate = parts[devicesIndex + 1];
+                if (candidate && candidate !== '+') {
+                    return candidate;
+                }
+            }
+
+            return currentDeviceId;
+        }
+
+        function setCurrentDeviceId(deviceId) {
+            if (!deviceId) return;
+            currentDeviceId = deviceId;
+            const input = document.getElementById('commandDeviceId');
+            if (input && !input.value.trim()) {
+                input.value = deviceId;
+            }
+            setInfoField('protocolDeviceId', deviceId);
+        }
+
         function commandTopicFor(inputTopic) {
             const topics = resolveProtocolTopics(inputTopic);
-            const deviceId = currentDeviceId || 'espectre-node';
+            const deviceId = resolveCommandDeviceId(inputTopic);
+            if (!deviceId) {
+                return null;
+            }
             return `${topics.root}/${deviceId}/commands/request`;
         }
 
@@ -1001,6 +1104,10 @@
 
             const topic = document.getElementById('topic').value;
             const cmdTopic = commandTopicFor(topic);
+            if (!cmdTopic) {
+                showNotification('Set a Device ID or use a device-specific topic before sending commands', 'error');
+                return;
+            }
             const message = JSON.stringify({
                 protocol_version: '1.0',
                 command_id: 'web-' + Date.now(),
@@ -1025,6 +1132,36 @@
 
         function requestStats() {
             sendCommand('stats');
+        }
+
+        function requestOtaStatus() {
+            sendCommand('ota_status');
+        }
+
+        function requestOtaCheck() {
+            const manifestUrl = document.getElementById('otaManifestUrl').value.trim();
+            if (!manifestUrl) {
+                showNotification('Manifest URL is required for OTA check', 'error');
+                return;
+            }
+            sendCommand('ota_check', { manifest_url: manifestUrl });
+        }
+
+        function requestOtaStart() {
+            const manifestUrl = document.getElementById('otaManifestUrl').value.trim();
+            const imageUrl = document.getElementById('otaImageUrl').value.trim();
+            const version = document.getElementById('otaTargetVersion').value.trim();
+
+            if (!manifestUrl && !imageUrl) {
+                showNotification('Manifest URL or image URL is required for OTA start', 'error');
+                return;
+            }
+
+            const params = {};
+            if (manifestUrl) params.manifest_url = manifestUrl;
+            if (imageUrl) params.image_url = imageUrl;
+            if (version) params.version = version;
+            sendCommand('ota_start', params);
         }
 
         // Section Toggle Function
@@ -1076,14 +1213,21 @@
                 return data;
             }
             if (data.device_id) {
-                currentDeviceId = data.device_id;
+                setCurrentDeviceId(data.device_id);
             } else if (topic && topic.startsWith('espectre/v1/devices/')) {
-                currentDeviceId = topic.split('/')[3];
+                setCurrentDeviceId(topic.split('/')[3]);
             }
             if (data.accepted !== undefined && data.message) {
                 return {
                     response: data.message,
                     responseType: data.accepted ? 'success' : 'error'
+                };
+            }
+            const isOtaTopic = typeof topic === 'string' && topic.endsWith('/ota/state');
+            if (isOtaTopic || data.current_version !== undefined || data.update_available !== undefined) {
+                return {
+                    ...data,
+                    ota_state: true
                 };
             }
             if (data.motion_state || data.movement_score !== undefined) {
@@ -1116,6 +1260,12 @@
                     if (!data.info_only) {
                         populateUIFromConfig(data);
                     }
+                    return;
+                }
+
+                if (data.ota_state) {
+                    console.log('Detected OTA state');
+                    updateOtaStatus(data);
                     return;
                 }
 
@@ -1308,12 +1458,16 @@
                 'deviceIP',
                 'deviceMAC',
                 'wifiChannel',
-                'detectorAlgorithm'
+                'detectorAlgorithm',
+                'protocolDeviceId',
+                'firmwareVersion'
             ].forEach((id) => setInfoField(id, null));
 
             // Update Device & Network Information
             setInfoField('deviceType', config.chip || (config.device && config.device.type));
             setInfoField('detectorAlgorithm', config.frontend);
+            setInfoField('firmwareVersion', config.firmware_version);
+            setCurrentDeviceId(config.device_id);
             
             if (config.network) {
                 setInfoField('deviceIP', config.network.ip_address);
@@ -1347,8 +1501,59 @@
                 }
             }
 
+            if (config.firmware_version) {
+                setInfoField('firmwareVersion', config.firmware_version);
+            }
+
             if (options.notify !== false) {
                 showNotification('Configuration loaded from device', 'success');
+            }
+        }
+
+        function setOtaValue(id, value) {
+            const target = document.getElementById(id);
+            if (!target) return;
+            const hasValue = value !== undefined && value !== null && String(value).trim() !== '' && value !== '-';
+            const nextValue = hasValue ? value : '-';
+            if ('value' in target) {
+                target.value = nextValue;
+            } else {
+                target.textContent = nextValue;
+                const row = target.closest('.info-field');
+                if (row) {
+                    row.hidden = !hasValue;
+                }
+            }
+        }
+
+        function updateOtaStatus(data) {
+            const state = data.state || '-';
+            setOtaValue('otaStateValue', state);
+            if (data.current_version) {
+                setInfoField('firmwareVersion', data.current_version);
+            }
+            setOtaValue('otaTargetVersionValue', data.target_version);
+            setOtaValue(
+                'otaUpdateAvailableValue',
+                data.update_available === undefined ? '-' : (data.update_available ? 'Yes' : 'No')
+            );
+            setOtaValue('otaMessageValue', data.message);
+
+            if (data.manifest_url) {
+                document.getElementById('otaManifestUrl').value = data.manifest_url;
+            }
+            if (data.image_url) {
+                document.getElementById('otaImageUrl').value = data.image_url;
+            }
+            if (data.target_version) {
+                document.getElementById('otaTargetVersion').value = data.target_version;
+            }
+
+            if (state && state !== '-' && state !== lastOtaState) {
+                lastOtaState = state;
+                const type = state === 'error' ? 'error' : (state === 'update_available' ? 'info' : 'success');
+                const message = data.message ? `OTA: ${state} - ${data.message}` : `OTA: ${state}`;
+                showNotification(message, type);
             }
         }
 

@@ -18,6 +18,8 @@
 #include "csi_capture_service.h"
 #include "csi_udp_sender.h"
 #include "espectre_protocol.h"
+#include "mqtt_transport.h"
+#include "ota_service.h"
 #include "standalone_wifi_manager.h"
 #include "stimulus_service.h"
 #include "wifi_provisioning_service.h"
@@ -33,8 +35,11 @@ class StreamFrontend {
     CSI_READY,
     GAIN_LOCK,
     STREAMING,
+    OTA_IN_PROGRESS,
   };
 
+  StreamFrontend() = default;
+  StreamFrontend(IMqttTransport *mqtt_transport, IOtaService *ota_service);
   bool setup();
   void loop();
   void shutdown();
@@ -44,13 +49,20 @@ class StreamFrontend {
   bool init_nvs_();
   bool init_wifi_station_();
   bool setup_ble_provisioning_();
+  void setup_mqtt_();
   bool start_capture_();
   void stop_capture_();
+  void prepare_for_ota_();
   void on_wifi_connected_();
   void on_wifi_disconnected_();
   void handle_ble_control_(const std::string &command);
+  void handle_mqtt_command_(const std::string &payload);
   void publish_ble_sysinfo_();
   void publish_ble_line_(const char *line);
+  void publish_mqtt_info_();
+  void publish_mqtt_status_(bool online);
+  void publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message);
+  void publish_mqtt_ota_status_(const EspectreOtaStatus &status);
   void handle_gain_lock_packet_(const wifi_csi_info_t *info);
   void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
   void transition_to_(WorkflowState next, const char *reason);
@@ -63,7 +75,10 @@ class StreamFrontend {
   StandaloneWifiManager wifi_manager_;
   WifiProvisioningService wifi_provisioning_{&wifi_manager_};
   NimbleBleBindings ble_bindings_;
+  IMqttTransport *mqtt_transport_{nullptr};
+  IOtaService *ota_service_{nullptr};
   EspectreDeviceConfig device_config_{};
+  EspectreDeviceInfo device_info_{};
   bool setup_complete_{false};
   bool ble_ready_{false};
   std::atomic<bool> wifi_connected_{false};

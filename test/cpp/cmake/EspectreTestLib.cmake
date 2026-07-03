@@ -53,6 +53,7 @@ target_link_libraries(espectre_core_testlib
 )
 
 add_library(espectre_runtime_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
@@ -103,6 +104,7 @@ add_library(espectre_frontend_native_testlib STATIC
     ${ESPECTRE_FRONTEND_NATIVE_SOURCES}
     "${CMAKE_CURRENT_SOURCE_DIR}/support/ble_bindings_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/mqtt_transport_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/support/ota_service_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
 )
 target_link_libraries(espectre_frontend_native_testlib

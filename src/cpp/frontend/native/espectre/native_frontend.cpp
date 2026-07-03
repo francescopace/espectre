@@ -88,8 +88,8 @@ float current_free_memory_kb() {
 
 NativeFrontend::NativeFrontend(IBleBindings *bindings) : bindings_(bindings) {}
 
-NativeFrontend::NativeFrontend(IBleBindings *bindings, IMqttTransport *mqtt_transport)
-    : bindings_(bindings), mqtt_transport_(mqtt_transport) {}
+NativeFrontend::NativeFrontend(IBleBindings *bindings, IMqttTransport *mqtt_transport, IOtaService *ota_service)
+    : bindings_(bindings), mqtt_transport_(mqtt_transport), ota_service_(ota_service) {}
 
 void NativeFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set_config(config); }
 
@@ -136,6 +136,11 @@ bool NativeFrontend::setup() {
     return false;
   }
 
+  if (ota_service_ != nullptr) {
+    ota_service_->set_prepare_for_update_callback([this]() { this->runtime_.quiesce_for_ota(); });
+    ota_service_->set_status_callback([this](const EspectreOtaStatus &status) { this->publish_mqtt_ota_status_(status); });
+  }
+
   setup_mqtt_();
   ESP_LOGI(TAG, "Native frontend initialized");
   return true;
@@ -148,6 +153,9 @@ void NativeFrontend::loop() {
   if (mqtt_transport_ != nullptr) {
     mqtt_transport_->loop();
   }
+  if (ota_service_ != nullptr) {
+    ota_service_->loop();
+  }
   last_loop_time_ms_ = static_cast<float>(esp_timer_get_time() - loop_started_us) / 1000.0f;
 }
 
@@ -156,6 +164,9 @@ void NativeFrontend::shutdown() {
   runtime_.shutdown();
   if (mqtt_transport_ != nullptr) {
     mqtt_transport_->shutdown();
+  }
+  if (ota_service_ != nullptr) {
+    ota_service_->shutdown();
   }
   if (bindings_ != nullptr) {
     bindings_->shutdown();
@@ -348,7 +359,36 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
     return;
   }
 
+  if (command.command == "ota_check" || command.command == "ota_start" || command.command == "ota_status") {
+    const bool accepted = handle_ota_command_(command);
+    publish_mqtt_command_result_(command, accepted, accepted ? "ota command accepted" : "ota command rejected");
+    return;
+  }
+
   publish_mqtt_command_result_(command, false, "unsupported command");
+}
+
+bool NativeFrontend::handle_ota_command_(const EspectreCommand &command) {
+  if (ota_service_ == nullptr) {
+    return false;
+  }
+
+  const std::string current_version =
+      device_info_.firmware_version.empty() ? "unknown" : device_info_.firmware_version;
+  if (command.command == "ota_status") {
+    publish_mqtt_ota_status_(ota_service_->status());
+    return true;
+  }
+  if (command.command == "ota_check") {
+    return command.has_manifest_url && ota_service_->start_check(command.manifest_url, current_version);
+  }
+  if (command.command == "ota_start") {
+    return ota_service_->start_update(command.has_manifest_url ? command.manifest_url : "",
+                                      command.has_image_url ? command.image_url : "",
+                                      command.has_version ? command.version : "",
+                                      current_version);
+  }
+  return false;
 }
 
 bool NativeFrontend::handle_threshold_write_(float threshold) {
@@ -456,6 +496,15 @@ void NativeFrontend::publish_mqtt_stats_() {
                            false);
 }
 
+void NativeFrontend::publish_mqtt_ota_status_(const EspectreOtaStatus &status) {
+  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
+    return;
+  }
+  mqtt_transport_->publish(espectre_topic(device_config_, "ota/state"),
+                           espectre_ota_status_payload(device_config_, status, now_ms_()),
+                           true);
+}
+
 void NativeFrontend::publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message) {
   if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
     return;
@@ -521,6 +570,8 @@ void NativeFrontend::send_system_info_() {
                 sizeof(line),
                 "supports_extended_diagnostics=%s",
                 runtime_.capabilities().supports_extended_diagnostics ? "true" : "false");
+  queue_system_info_line_(line);
+  std::snprintf(line, sizeof(line), "supports_ota=%s", ota_service_ != nullptr ? "true" : "false");
   queue_system_info_line_(line);
   std::snprintf(line, sizeof(line), "device_id=%s", espectre_effective_device_id(device_config_).c_str());
   queue_system_info_line_(line);

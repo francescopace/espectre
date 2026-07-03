@@ -1,5 +1,7 @@
 # ESPectre Native Partition Table
 # Name,   Type, SubType, Offset,   Size,    Flags
-nvs,      data, nvs,     0x9000,   0x6000,
-phy_init, data, phy,     0xf000,   0x1000,
-factory,  app,  factory, 0x10000,  0x1F0000,
+nvs,      data, nvs,      0x9000,   0x5000,
+otadata,  data, ota,      0xe000,   0x2000,
+nvs_key,  data, nvs_keys, 0x10000,  0x1000,
+app0,     app,  ota_0,    0x20000,  0x1E0000,
+app1,     app,  ota_1,    0x200000, 0x1E0000,

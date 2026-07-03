@@ -11,8 +11,13 @@ BUILD_DIR="build-${NATIVE_TARGET}"
 DOCKER_IMAGE="${NATIVE_DOCKER_IMAGE:-espressif/idf:release-v5.5}"
 OUTPUT_DIR="$(dirname "${NATIVE_OUTPUT}")"
 NATIVE_OUTPUT_IN_WORK="/work/${NATIVE_OUTPUT#"${REPO_ROOT}"/}"
+NATIVE_OTA_OUTPUT_IN_WORK=""
 NATIVE_SDKCONFIG_DEFAULTS="${NATIVE_SDKCONFIG_DEFAULTS:-}"
 NATIVE_HOME="${REPO_ROOT}/.github/.cache/native-home"
+
+if [ -n "${NATIVE_OTA_OUTPUT:-}" ]; then
+  NATIVE_OTA_OUTPUT_IN_WORK="/work/${NATIVE_OTA_OUTPUT#"${REPO_ROOT}"/}"
+fi
 
 mkdir -p "${NATIVE_HOME}" "${OUTPUT_DIR}"
 
@@ -21,6 +26,7 @@ docker run --rm \
   -e HOME="/work/.github/.cache/native-home" \
   -e SDKCONFIG_DEFAULTS="${NATIVE_SDKCONFIG_DEFAULTS}" \
   -e NATIVE_OUTPUT="${NATIVE_OUTPUT_IN_WORK}" \
+  -e NATIVE_OTA_OUTPUT="${NATIVE_OTA_OUTPUT_IN_WORK}" \
   -v "${REPO_ROOT}:/work" \
   -w "/work/src/cpp/frontend/native/app" \
   "${DOCKER_IMAGE}" \
@@ -48,5 +54,8 @@ docker run --rm \
       python -m esptool --chip ${NATIVE_TARGET} merge-bin --pad-to-size 4MB -o \"\${NATIVE_OUTPUT}\" @flash_args
     else
       python -m esptool --chip ${NATIVE_TARGET} merge_bin --fill-flash-size 4MB -o \"\${NATIVE_OUTPUT}\" @flash_args
+    fi
+    if [ -n \"\${NATIVE_OTA_OUTPUT:-}\" ]; then
+      cp espectre-native.bin \"\${NATIVE_OTA_OUTPUT}\"
     fi
   "

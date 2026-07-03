@@ -26,6 +26,7 @@ class RuntimeFrontendController {
   void set_services_armed(bool armed);
   void set_live_telemetry_enabled(bool enabled);
   bool services_armed() const { return services_armed_; }
+  void quiesce_for_ota();
 
   bool set_threshold_runtime(float threshold);
   bool trigger_recalibration();

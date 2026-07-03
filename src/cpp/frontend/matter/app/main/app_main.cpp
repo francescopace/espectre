@@ -19,6 +19,7 @@
 #include <esp_matter_attribute.h>
 #include <esp_matter_cluster.h>
 #include <esp_matter_endpoint.h>
+#include <esp_matter_ota.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
 #include "matter_bindings_esp_matter.h"
@@ -207,6 +208,12 @@ extern "C" void app_main() {
 
   g_motion_endpoint_id = endpoint::get_id(motion_endpoint);
 
+  err = esp_matter_ota_requestor_init();
+  if (err != ESP_OK && err != ESP_ERR_NOT_SUPPORTED) {
+    ESP_LOGE(TAG, "Failed to initialize Matter OTA requestor (%d)", err);
+    return;
+  }
+
   static esphome::espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id);
   frontend.set_runtime_config(build_runtime_config());
   g_frontend = &frontend;
@@ -222,6 +229,7 @@ extern "C" void app_main() {
     ESP_LOGE(TAG, "Failed to start Matter (%d)", err);
     return;
   }
+  esp_matter_ota_requestor_start();
 
   frontend.set_runtime_services_armed(has_commissioned_fabric());
   PrintOnboardingCodes(chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));

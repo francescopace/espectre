@@ -11,7 +11,12 @@ DOCKER_IMAGE="${MATTER_DOCKER_IMAGE:-espressif/idf:release-v5.5}"
 MATTER_HOME="${REPO_ROOT}/.github/.cache/matter-home"
 OUTPUT_DIR="$(dirname "${MATTER_OUTPUT}")"
 MATTER_OUTPUT_IN_WORK="/work/${MATTER_OUTPUT#"${REPO_ROOT}"/}"
+MATTER_OTA_OUTPUT_IN_WORK=""
 MATTER_SDKCONFIG_DEFAULTS="${MATTER_SDKCONFIG_DEFAULTS:-}"
+
+if [ -n "${MATTER_OTA_OUTPUT:-}" ]; then
+  MATTER_OTA_OUTPUT_IN_WORK="/work/${MATTER_OTA_OUTPUT#"${REPO_ROOT}"/}"
+fi
 
 mkdir -p "${MATTER_HOME}" "${OUTPUT_DIR}"
 
@@ -20,6 +25,11 @@ docker run --rm \
   -e HOME="/work/.github/.cache/matter-home" \
   -e SDKCONFIG_DEFAULTS="${MATTER_SDKCONFIG_DEFAULTS}" \
   -e MATTER_OUTPUT="${MATTER_OUTPUT_IN_WORK}" \
+  -e MATTER_OTA_OUTPUT="${MATTER_OTA_OUTPUT_IN_WORK}" \
+  -e MATTER_OTA_VERSION="${MATTER_OTA_VERSION:-}" \
+  -e MATTER_OTA_VERSION_STR="${MATTER_OTA_VERSION_STR:-}" \
+  -e MATTER_VENDOR_ID="${MATTER_VENDOR_ID:-0xFFF1}" \
+  -e MATTER_PRODUCT_ID="${MATTER_PRODUCT_ID:-0x8000}" \
   -v "${REPO_ROOT}:/work" \
   -w "/work/src/cpp/frontend/matter/app" \
   "${DOCKER_IMAGE}" \
@@ -47,5 +57,33 @@ docker run --rm \
       python -m esptool --chip ${MATTER_TARGET} merge-bin --pad-to-size 4MB -o \"\${MATTER_OUTPUT}\" @flash_args
     else
       python -m esptool --chip ${MATTER_TARGET} merge_bin --fill-flash-size 4MB -o \"\${MATTER_OUTPUT}\" @flash_args
+    fi
+    if [ -n \"\${MATTER_OTA_OUTPUT:-}\" ]; then
+      OTA_TOOL=\$(python - <<'PY'
+from pathlib import Path
+candidates = sorted(Path('managed_components').glob('**/ota_image_tool.py'))
+print(candidates[0] if candidates else '')
+PY
+)
+      if [ -z \"\${OTA_TOOL}\" ]; then
+        echo \"Matter OTA tool not found under managed_components\" >&2
+        exit 1
+      fi
+      if [ -z \"\${MATTER_OTA_VERSION:-}\" ]; then
+        echo \"MATTER_OTA_VERSION is required when MATTER_OTA_OUTPUT is set\" >&2
+        exit 1
+      fi
+      if [ -z \"\${MATTER_OTA_VERSION_STR:-}\" ]; then
+        echo \"MATTER_OTA_VERSION_STR is required when MATTER_OTA_OUTPUT is set\" >&2
+        exit 1
+      fi
+      python \"\${OTA_TOOL}\" create \
+        --vendor-id \"\${MATTER_VENDOR_ID}\" \
+        --product-id \"\${MATTER_PRODUCT_ID}\" \
+        --version \"\${MATTER_OTA_VERSION}\" \
+        --version-str \"\${MATTER_OTA_VERSION_STR}\" \
+        -da sha256 \
+        espectre-matter.bin \
+        \"\${MATTER_OTA_OUTPUT}\"
     fi
   "

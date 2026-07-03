@@ -51,6 +51,34 @@ struct EspectreCommand {
   std::string command;
   float threshold{0.0f};
   bool has_threshold{false};
+  std::string manifest_url;
+  bool has_manifest_url{false};
+  std::string image_url;
+  bool has_image_url{false};
+  std::string version;
+  bool has_version{false};
+};
+
+enum class EspectreOtaState : uint8_t {
+  IDLE = 0,
+  CHECKING,
+  UPDATE_AVAILABLE,
+  UP_TO_DATE,
+  DOWNLOADING,
+  APPLYING,
+  REBOOT_SCHEDULED,
+  ERROR,
+};
+
+struct EspectreOtaStatus {
+  EspectreOtaState state{EspectreOtaState::IDLE};
+  std::string current_version{"unknown"};
+  std::string target_version;
+  std::string manifest_url;
+  std::string image_url;
+  std::string message;
+  bool busy{false};
+  bool update_available{false};
 };
 
 std::string espectre_effective_device_id(const EspectreDeviceConfig &config);
@@ -75,6 +103,9 @@ std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
                                          const EspectreCommand &command,
                                          bool accepted,
                                          const char *message);
+std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
+                                    const EspectreOtaStatus &status,
+                                    uint32_t timestamp_ms);
 
 bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error);
 bool parse_espectre_config_command(const std::string &command, EspectreDeviceConfig *config, std::string *error);

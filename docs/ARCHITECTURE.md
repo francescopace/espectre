@@ -334,6 +334,10 @@ This profile already supports:
 - shared ESPectre Protocol payloads from native frontend firmware and `micro-espectre`
 - `tools/web/espectre-ble.html` as the Web Bluetooth provisioning/test client, including subscription-driven live telemetry and runtime threshold tuning
 - `tools/web/espectre-mqtt.html` as the browser MQTT monitor for realtime validation
+- shared HTTPS OTA for the standalone `native` and `streamer` ESP-IDF frontends,
+  with MQTT as the trigger surface and HTTPS as the image transport
+- Matter-native OTA kept in the Matter frontend/app layer instead of the shared
+  ESPectre MQTT OTA path
 
 A future local lab service can extend this into:
 
@@ -395,6 +399,12 @@ Web-orchestration additions are profiles and services:
 - alerting rules
 - signed firmware artifact metadata
 - OTA rollout and audit state
+
+Frontend split for OTA:
+
+- `native`: shared ESPectre MQTT command plane plus shared HTTPS OTA service
+- `streamer`: minimal MQTT control plane plus the same shared HTTPS OTA service
+- `matter`: Matter OTA requestor/provider flow in the Matter frontend/app layer
 
 Candidate managed-service components remain implementation choices, not a required architecture for local or self-hosted deployments. 
 One possible managed profile could use services like these:

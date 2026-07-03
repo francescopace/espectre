@@ -154,6 +154,29 @@ std::string extract_json_number_token(const std::string &payload, const char *ke
   return payload.substr(begin, end - begin);
 }
 
+const char *ota_state_name(EspectreOtaState state) {
+  switch (state) {
+    case EspectreOtaState::IDLE:
+      return "idle";
+    case EspectreOtaState::CHECKING:
+      return "checking";
+    case EspectreOtaState::UPDATE_AVAILABLE:
+      return "update_available";
+    case EspectreOtaState::UP_TO_DATE:
+      return "up_to_date";
+    case EspectreOtaState::DOWNLOADING:
+      return "downloading";
+    case EspectreOtaState::APPLYING:
+      return "applying";
+    case EspectreOtaState::REBOOT_SCHEDULED:
+      return "reboot_scheduled";
+    case EspectreOtaState::ERROR:
+      return "error";
+    default:
+      return "unknown";
+  }
+}
+
 bool assign_config_field(const std::string &field, const std::string &value, EspectreDeviceConfig *config) {
   if (field == "device_name") {
     config->device_name = value;
@@ -351,6 +374,29 @@ std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
   return out;
 }
 
+std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
+                                    const EspectreOtaStatus &status,
+                                    uint32_t timestamp_ms) {
+  const std::string device_id = espectre_effective_device_id(config);
+  std::string out = "{";
+  out += json_pair_string("protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  out += json_pair_string("device_id", device_id.c_str());
+  out += json_pair_string("state", ota_state_name(status.state));
+  out += ",\"timestamp_ms\":";
+  out += std::to_string(static_cast<unsigned>(timestamp_ms));
+  out += ",\"busy\":";
+  out += status.busy ? "true" : "false";
+  out += ",\"update_available\":";
+  out += status.update_available ? "true" : "false";
+  out += json_pair_string("current_version", status.current_version.empty() ? "unknown" : status.current_version.c_str());
+  out += json_pair_string("target_version", status.target_version.c_str());
+  out += json_pair_string("manifest_url", status.manifest_url.c_str());
+  out += json_pair_string("image_url", status.image_url.c_str());
+  out += json_pair_string("message", status.message.c_str());
+  out += "}";
+  return out;
+}
+
 bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error) {
   if (command == nullptr) {
     return false;
@@ -373,6 +419,30 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
       return false;
     }
     parsed.has_threshold = true;
+  } else if (parsed.command == "ota_check") {
+    parsed.manifest_url = extract_json_string(payload, "manifest_url");
+    parsed.has_manifest_url = !parsed.manifest_url.empty();
+    if (!parsed.has_manifest_url) {
+      if (error != nullptr) {
+        *error = "missing manifest_url";
+      }
+      return false;
+    }
+  } else if (parsed.command == "ota_start") {
+    parsed.manifest_url = extract_json_string(payload, "manifest_url");
+    parsed.has_manifest_url = !parsed.manifest_url.empty();
+    parsed.image_url = extract_json_string(payload, "image_url");
+    parsed.has_image_url = !parsed.image_url.empty();
+    parsed.version = extract_json_string(payload, "version");
+    parsed.has_version = !parsed.version.empty();
+    if (!parsed.has_manifest_url && !parsed.has_image_url) {
+      if (error != nullptr) {
+        *error = "missing manifest_url or image_url";
+      }
+      return false;
+    }
+  } else if (parsed.command == "ota_status") {
+    // No additional payload required.
   }
   *command = parsed;
   return true;

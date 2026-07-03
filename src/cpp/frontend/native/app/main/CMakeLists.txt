@@ -16,5 +16,10 @@ idf_component_register(
         freertos
         lwip
         mqtt
+        app_update
+        esp_http_client
+        esp_https_ota
+        esp-tls
+        mbedtls
         nvs_flash
 )

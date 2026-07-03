@@ -13,6 +13,7 @@ The Matter frontend is responsible for:
 - Matter-specific surface mapping
 - Matter firmware app startup and commissioning flow
 - vendor-cluster diagnostics and runtime controls
+- Matter-native OTA requestor behavior
 - target-specific build, flash, and monitor workflow
 
 ## Directory Layout
@@ -103,6 +104,10 @@ The Matter frontend keeps ownership boundaries explicit:
 
 That ordering is visible in [`app/main/app_main.cpp`](app/main/app_main.cpp).
 
+Matter OTA follows the same ownership rule: OTA stays in the Matter frontend
+and app layer instead of reusing the shared MQTT-triggered HTTPS OTA service
+used by the standalone native and streamer frontends.
+
 The Matter frontend also uses the same shared periodic progress-bar sensing
 status log helper used by the ESPHome and standalone native frontends, so runtime
 serial diagnostics stay aligned across the ecosystem-facing firmware targets.
@@ -191,6 +196,20 @@ Validation notes:
 - defaults: [`app/sdkconfig.defaults`](app/sdkconfig.defaults)
 
 No manual `esp_matter` clone is required.
+
+## OTA
+
+The Matter frontend uses the Matter OTA requestor path.
+
+Current implementation notes:
+
+- the firmware enables the Matter OTA requestor in `sdkconfig.defaults`
+- OTA clusters are added from the Matter app layer before `esp_matter::start()`
+- the requestor is started after the Matter stack starts
+- the shared ESPectre MQTT OTA path is not used by Matter
+
+Provider-side image distribution and controller UX remain Matter-ecosystem
+concerns rather than ESPectre Protocol MQTT concerns.
 
 ## Matter-Specific Troubleshooting
 

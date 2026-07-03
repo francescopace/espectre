@@ -17,6 +17,19 @@ menu "ESPectre CSI Streamer"
         range 0 14
         default 0
 
+    config ESPECTRE_MQTT_HOST
+        string "MQTT broker host"
+        default ""
+
+    config ESPECTRE_MQTT_PORT
+        int "MQTT broker port"
+        range 1 65535
+        default 1883
+
+    config ESPECTRE_TOPIC_PREFIX
+        string "MQTT topic prefix"
+        default "espectre/v1/devices"
+
     config ESPECTRE_STREAM_OUTPUT_ENABLED
         bool "Enable UDP stream output"
         default y
