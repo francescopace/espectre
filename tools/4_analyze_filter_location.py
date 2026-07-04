@@ -82,7 +82,7 @@ FilteredTurbulenceSegmentation = lambda window_size=SEG_WINDOW_SIZE, threshold=1
     StreamingSegmentationWrapper(window_size, threshold, track_data, enable_hampel=True)
 
 
-def calculate_turbulence_filtered_iq(csi_packet, hampel_I, hampel_Q, subcarriers, gain_locked=True):
+def calculate_turbulence_filtered_iq(csi_packet, hampel_I, hampel_Q, subcarriers):
     """Calculate turbulence from filtered I/Q values"""
     amplitudes = []
     for i, sc_idx in enumerate(subcarriers):
@@ -93,13 +93,11 @@ def calculate_turbulence_filtered_iq(csi_packet, hampel_I, hampel_Q, subcarriers
         Q_filt = hampel_Q[i].filter(Q_raw)
         amplitudes.append(np.sqrt(I_filt*I_filt + Q_filt*Q_filt))
     std_amp = np.std(amplitudes)
-    if gain_locked:
-        return std_amp
     mean_amp = np.mean(amplitudes)
     return std_amp / mean_amp if mean_amp > 0 else 0.0
 
 
-def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarriers, gain_locked=True):
+def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarriers):
     """Calculate turbulence from Hampel-filtered amplitudes (paper-style approach).
     
     This applies Hampel filter to each subcarrier's amplitude time series,
@@ -115,8 +113,6 @@ def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarrier
         filtered_amp = hampel_amps[i].filter(raw_amp)
         amplitudes.append(filtered_amp)
     std_amp = np.std(amplitudes)
-    if gain_locked:
-        return std_amp
     mean_amp = np.mean(amplitudes)
     return std_amp / mean_amp if mean_amp > 0 else 0.0
 
@@ -130,10 +126,7 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
     seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
     for pkt in static_presence_packets:
         seg.add_turbulence(
-            calculate_spatial_turbulence(
-                pkt['csi_data'],
-                gain_locked=pkt.get('gain_locked', True)
-            )
+            calculate_spatial_turbulence(pkt['csi_data'])
         )
     static_presence_fp = seg.motion_packets
     static_presence_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
@@ -141,10 +134,7 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
     seg.reset()
     for pkt in motion_packets:
         seg.add_turbulence(
-            calculate_spatial_turbulence(
-                pkt['csi_data'],
-                gain_locked=pkt.get('gain_locked', True)
-            )
+            calculate_spatial_turbulence(pkt['csi_data'])
         )
     results['No Filter'] = {
         'fp': static_presence_fp, 'tp': seg.motion_packets,
@@ -156,10 +146,7 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
     seg = FilteredTurbulenceSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
     for pkt in static_presence_packets:
         seg.add_turbulence(
-            calculate_spatial_turbulence(
-                pkt['csi_data'],
-                gain_locked=pkt.get('gain_locked', True)
-            )
+            calculate_spatial_turbulence(pkt['csi_data'])
         )
     static_presence_fp = seg.motion_packets
     static_presence_data = {'moving_var': np.array(seg.moving_var_history)} if track_data else None
@@ -167,10 +154,7 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
     seg.reset()
     for pkt in motion_packets:
         seg.add_turbulence(
-            calculate_spatial_turbulence(
-                pkt['csi_data'],
-                gain_locked=pkt.get('gain_locked', True)
-            )
+            calculate_spatial_turbulence(pkt['csi_data'])
         )
     results['Filter Turbulence'] = {
         'fp': static_presence_fp, 'tp': seg.motion_packets,
@@ -189,7 +173,6 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
             hampel_I,
             hampel_Q,
             DEFAULT_SUBCARRIERS,
-            gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)
     static_presence_fp = seg.motion_packets
@@ -204,7 +187,6 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
             hampel_I,
             hampel_Q,
             DEFAULT_SUBCARRIERS,
-            gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)
     results['Filter I/Q Raw'] = {
@@ -222,7 +204,6 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
             pkt['csi_data'],
             hampel_amps,
             DEFAULT_SUBCARRIERS,
-            gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)
     static_presence_fp = seg.motion_packets
@@ -235,7 +216,6 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
             pkt['csi_data'],
             hampel_amps,
             DEFAULT_SUBCARRIERS,
-            gain_locked=pkt.get('gain_locked', True)
         )
         seg.add_turbulence(turb)
     results['Filter Amplitudes'] = {

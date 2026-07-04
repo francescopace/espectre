@@ -27,7 +27,7 @@ Computed metrics:
 - `Gap`: non-negative time between the `static_presence` and `motion` capture intervals
   regardless of acquisition order (`0s` means the intervals overlap)
 - `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set
-- `Turbulence`: `raw_std` = gain locked (raw standard deviation), `CV` = gain not locked (coefficient of variation; used by MVS and ML)
+- `Turbulence`: `CV` = coefficient of variation (`std/mean`), the shared production path for MVS and ML
 
 ## Results (sorted by chip, then ratio desc)
 

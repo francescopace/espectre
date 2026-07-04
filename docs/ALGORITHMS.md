@@ -8,8 +8,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 
 - [Overview](#overview)
 - [Processing Pipeline](#processing-pipeline)
-- [Gain Lock (Hardware Stabilization)](#gain-lock-hardware-stabilization)
-- [CV Normalization (Gain-Invariant Turbulence)](#cv-normalization-gain-invariant-turbulence)
+- [AGC-Active Normalization](#agc-active-normalization)
 - [Fixed Subcarrier Set](#fixed-subcarrier-set)
 - [Signal Conditioning](#signal-conditioning)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
@@ -55,11 +54,11 @@ When a person moves in an environment, they alter multipath reflections, change 
 │                           CSI PROCESSING PIPELINE                                  │
 ├───────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                   │
-│  ┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌─────────────┐              │
-│  │ CSI Data │───▶│Gain Lock │───▶│ Fixed 12 SC  │───▶│ Turbulence  │              │
-│  │ N subcs  │    │ AGC/FFT  │    │ Threshold    │    │ σ or σ/μ    │              │
-│  └──────────┘    └──────────┘    └──────────────┘    └──────┬──────┘              │
-│                  (3s, 300 pkt)   (~10s, 10×window)          │                     │
+│  ┌──────────┐    ┌──────────────┐    ┌─────────────┐                              │
+│  │ CSI Data │───▶│ Fixed 12 SC  │───▶│ Turbulence  │                              │
+│  │ N subcs  │    │ Threshold    │    │ σ/μ         │                              │
+│  └──────────┘    └──────────────┘    └──────┬──────┘                              │
+│                  (~10s, 10×window)          │                                     │
 │                                                             ▼                     │
 │  ┌───────────┐    ┌───────────────┐    ┌─────────────────┐  ┌──────────────────┐  │
 │  │ IDLE or   │◀───│ Adaptive      │◀───│ Moving Variance │◀─│ Optional Filters │  │
@@ -70,8 +69,7 @@ When a person moves in an environment, they alter multipath reflections, change 
 ```
 
 **Calibration sequence (at boot):**
-1. **Gain Lock** (3s, 300 packets): Collect AGC/FFT, lock values
-2. **Threshold Bootstrap** (~10s, 10 × window_size packets, MVS only): Keep the fixed 12-subcarrier set and calculate baseline moving variance
+1. **Threshold Bootstrap** (~10s, 10 × window_size packets, MVS only): Keep the fixed 12-subcarrier set and calculate baseline moving variance
 
 With default `window_size=100`, this means 1000 packets. If you change `segmentation_window_size`, the calibration buffer adjusts automatically.
 
@@ -79,7 +77,7 @@ With default `window_size=100`, this means 1000 packets. If you change `segmenta
 1. **CSI Data**: Raw I/Q values for 64 subcarriers (HT20 mode)
    - Espressif format: `[Q₀, I₀, Q₁, I₁, ...]` (Imaginary first, Real second per subcarrier)
 2. **Amplitude Extraction**: `|H| = √(I² + Q²)` for selected 12 subcarriers
-3. **Spatial Turbulence**: `σ(amplitudes)` (raw std, gain locked) or `σ/μ` (CV, gain not locked)
+3. **Spatial Turbulence**: `σ(amplitudes) / μ(amplitudes)` (gain-invariant CV normalization)
 4. **Hampel Filter** (optional): Remove outliers using MAD
 5. **Low-Pass Filter** (optional): Remove high-frequency noise (Butterworth 1st order)
 6. **Moving Variance**: `Var(turbulence)` over sliding window
@@ -87,136 +85,37 @@ With default `window_size=100`, this means 1000 packets. If you change `segmenta
 
 ---
 
-## Gain Lock (Hardware Stabilization)
+## AGC-Active Normalization
 
-### The Problem
-
-The ESP32 WiFi hardware includes automatic gain control (AGC) that dynamically adjusts signal amplification based on received signal strength. While this improves data decoding reliability, it creates a problem for CSI sensing:
-
-| Without Gain Lock | With Gain Lock |
-|-------------------|----------------|
-| AGC varies dynamically | AGC fixed to calibrated value |
-| CSI amplitudes oscillate ±20-30% | Amplitudes stable |
-| Baseline appears "noisy" | Baseline flat |
-| Potential false positives | Cleaner detection |
-
-### How It Works
-
-**Gain Lock** stabilizes CSI amplitude measurements by locking the ESP32's AGC and FFT scaling. Based on [Espressif's esp-csi recommendations](https://github.com/espressif/esp-csi).
-
-The lock happens in a **dedicated phase BEFORE threshold bootstrap** to ensure clean data:
+ESPectre no longer forces hardware gain. The receiver AGC stays active on all
+supported chips and the shared detector pipeline always computes spatial
+turbulence as:
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                    TWO-PHASE CALIBRATION                              │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  PHASE 1: GAIN LOCK (~3 seconds, 300 packets)                        │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │
-│  │  Read PHY   │───▶│   Collect   │───▶│  Calculate  │              │
-│  │  agc_gain   │    │  agc_samples│    │   Median    │              │
-│  │  fft_gain   │    │  fft_samples│    │             │              │
-│  └─────────────┘    └─────────────┘    └──────┬──────┘              │
-│                                               │                      │
-│  Packet 300:                                  ▼                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  phy_fft_scale_force(true, median_fft)                       │   │
-│  │  phy_force_rx_gain(true, median_agc)                         │   │
-│  │  → AGC/FFT now LOCKED                                        │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                           │                                          │
-│                           ▼                                          │
-│  PHASE 2: BAND CALIBRATION (~10 seconds, 10 × window_size packets)   │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  Now all packets have stable gain!                           │   │
-│  │  → Baseline variance calculated on clean data                │   │
-│  │  → Subcarrier selection more accurate                        │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+turbulence = σ(amplitudes) / μ(amplitudes)
 ```
 
-**Why two phases?** Separating gain lock from threshold bootstrap ensures:
-- Calibration only sees data with **stable, locked gain**
-- Baseline variance is **accurate** (not inflated by AGC variations)
-- Adaptive threshold is calculated correctly
-- Total time: ~13 seconds (3s gain lock + 10s calibration)
-
-**Why median instead of mean?** Median is more robust against outliers:
-- Occasional packet with extreme gain values doesn't skew the baseline
-- Matches Espressif's internal methodology for gain calibration
-
-### Implementation
-
-The gain lock uses undocumented PHY functions available on newer ESP32 variants:
-
-```c
-extern void phy_fft_scale_force(bool force_en, int8_t force_value);
-extern void phy_force_rx_gain(int force_en, int force_value);
-
-if (packet_count < 300) {
-    agc_samples[packet_count] = phy_info->agc_gain;   // uint8_t
-    fft_samples[packet_count] = phy_info->fft_gain;   // int8_t (signed!)
-} else if (packet_count == 300) {
-    median_agc = calculate_median(agc_samples, 300);
-    median_fft = calculate_median(fft_samples, 300);
-    
-    phy_fft_scale_force(true, median_fft);
-    phy_force_rx_gain(true, median_agc);
-    on_gain_locked_callback();
-}
-```
-
-On platforms without gain lock support (ESP32 Base, ESP32-S2), [CV Normalization](#cv-normalization-gain-invariant-turbulence) provides gain-invariant detection as a fallback.
-
-**Reference**: [Espressif esp-csi example](https://github.com/espressif/esp-csi/blob/master/examples/get-started/csi_recv_router/main/app_main.c)
-
----
-
-## CV Normalization (Gain-Invariant Turbulence)
-
-### The Concept
-
-ESPectre computes **spatial turbulence** -- a scalar that summarizes how much the CSI amplitude pattern varies across subcarriers in a single packet. The computation depends on whether gain lock is active:
-
-- **Gain locked**: Raw standard deviation is used (better sensitivity when gain is stable)
-  ```
-  turbulence = σ(amplitudes)
-  ```
-- **Gain not locked**: The **Coefficient of Variation (CV)** is used instead
-  ```
-  turbulence = σ(amplitudes) / μ(amplitudes)
-  ```
-
-### Why CV Works
-
-CV is a dimensionless ratio that is mathematically invariant to linear gain scaling:
+This coefficient-of-variation form is gain-invariant:
 
 ```
-CV(kA) = σ(kA) / μ(kA) = k·σ(A) / k·μ(A) = σ(A) / μ(A) = CV(A)
+CV(kA) = σ(kA) / μ(kA) = σ(A) / μ(A)
 ```
 
-If the receiver AGC scales all amplitudes by a factor k, the CV remains unchanged. This eliminates the need for gain compensation on platforms where AGC cannot be locked.
+If AGC scales all amplitudes by a factor `k`, turbulence remains unchanged. The
+project intentionally standardizes on this single path across runtime,
+collector, dataset schema, and offline tooling instead of exposing gain-lock
+state or compensated raw samples.
 
-### When CV Normalization Is Used
+Why this design:
+- aligns with Espressif's newer public examples, which prefer AGC-active capture
+- avoids undocumented PHY coupling and forced-gain edge cases
+- removes the dedicated gain-lock startup delay
+- keeps datasets consistent across chips, including ESP32 variants that never
+  exposed forced-gain control
 
-CV normalization is automatically enabled when:
-1. Gain lock mode is `disabled`
-2. Gain lock mode is `auto` and lock was skipped (e.g., signal too strong, AGC < 30)
-3. Platform does not support gain lock (ESP32 Base, ESP32-S2)
-
-**Impact on detection**: CV-normalized turbulence values are typically in the range 0.05-0.25 (compared to 2-20 for raw std). Adaptive thresholds from calibration are correspondingly smaller (order of 1e-4 to 1e-3).
-
-### Platform Support
-
-| Platform | Gain Lock | CV Normalization |
-|----------|-----------|------------------|
-| ESP32-S3 | Supported | When lock skipped |
-| ESP32-C3 | Supported | When lock skipped |
-| ESP32-C5 | Supported | When lock skipped |
-| ESP32-C6 | Supported | When lock skipped |
-| ESP32 (original) | Not available | Always enabled |
-| ESP32-S2 | Not available | Always enabled |
+**Impact on detection**: CV-normalized turbulence values are typically in the
+range 0.05-0.25. Adaptive thresholds from calibration are correspondingly
+smaller (order of 1e-4 to 1e-3).
 
 ---
 
@@ -387,7 +286,7 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 
 1. **Spatial Turbulence**
 
-   Computed per packet from the 12 selected subcarrier amplitudes. MVS and ML use raw std when gain is locked, or CV normalization otherwise (see [CV Normalization](#cv-normalization-gain-invariant-turbulence)). ML then extracts relative window features for the neural detector.
+   Computed per packet from the 12 selected subcarrier amplitudes using gain-invariant CV normalization. ML then extracts relative window features for the neural detector.
 
 2. **Moving Variance (Two-Pass Algorithm)**
    ```
@@ -480,7 +379,7 @@ Both detectors use the same fixed, non-configurable subcarrier set:
 | ML | Fixed (5.0 on 0-10 scale) | **~3s** |
 
 The production subcarrier set is `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`.
-MVS uses a baseline threshold bootstrap after gain lock; ML keeps its fixed threshold and therefore finishes boot after gain lock only.
+MVS uses a baseline threshold bootstrap after startup; ML keeps its fixed threshold and therefore starts immediately once CSI capture is active.
 
 ### Features
 

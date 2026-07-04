@@ -135,7 +135,6 @@ class MockGlobalState:
     def __init__(self):
         self.loop_time_us = 5000  # 5ms
         self.chip_type = 'c6'
-        self.needs_cv_normalization = False
 
 
 @pytest.fixture
@@ -220,7 +219,7 @@ class TestMQTTHandler:
         assert payload['motion_state'] == 'idle'
         assert payload['movement_score'] == 0.5
         assert payload['threshold'] == 1.0
-        assert payload['health']['gain_locked'] is True
+        assert payload['health']['uptime_s'] >= 0
         assert 'packets_processed' not in payload
         assert 'packets_dropped' not in payload
         assert 'pps' not in payload
@@ -244,27 +243,7 @@ class TestMQTTHandler:
         assert payload['motion_state'] == 'motion'
         assert payload['movement_score'] == 5.0
         assert payload['threshold'] == 1.0
-
-    def test_publish_state_reports_gain_lock_status(self, mock_config, mock_segmentation, mock_wlan,
-                                                     mock_mqtt_client_instance, mock_global_state):
-        """Telemetry health reflects the effective gain-lock state."""
-        from mqtt.handler import MQTTHandler
-
-        mock_global_state.needs_cv_normalization = True
-        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
-        handler.client = mock_mqtt_client_instance
-
-        handler.publish_state(
-            current_variance=0.5,
-            current_state=0,
-            current_threshold=1.0
-        )
-
-        call_args = mock_mqtt_client_instance.publish.call_args
-        payload = json.loads(call_args[0][1])
-
-        assert payload['health']['gain_locked'] is False
-    
+   
     def test_publish_state_error_handling(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test error handling during publish"""
         from mqtt.handler import MQTTHandler

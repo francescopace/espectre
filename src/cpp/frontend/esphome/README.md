@@ -89,8 +89,6 @@ All frontend parameters live under the `espectre:` section:
 | `hampel_enabled` | bool | `true` | Enable Hampel outlier filtering |
 | `hampel_window` | int | `7` | Hampel window size (`3-11`) |
 | `hampel_threshold` | float | `5.0` | Hampel sensitivity (`1.0-10.0`) |
-| `gain_lock` | string | `auto` | Gain-lock mode: `auto`, `enabled`, or `disabled` |
-
 These options are applied from YAML during firmware configuration. Runtime
 control is exposed separately through the entities below:
 
@@ -267,7 +265,7 @@ startup threshold bootstrap.
 
 Startup behavior:
 
-1. gain lock, when supported and enabled
+1. AGC-active startup with normalized turbulence
 2. adaptive threshold bootstrap for `MVS`
 3. normal motion detection loop
 

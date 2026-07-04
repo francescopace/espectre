@@ -1035,7 +1035,6 @@
             if (!window.biquadFilter) {
                 window.biquadFilter = audioContext.createBiquadFilter();
                 window.biquadFilter.type = 'lowpass';
-                // Reconnect: oscillator -> filter -> gain -> destination
                 oscillator.disconnect();
                 oscillator.connect(window.biquadFilter);
                 window.biquadFilter.connect(gainNode);
@@ -1086,7 +1085,6 @@
             // Create panner if it doesn't exist
             if (!window.stereoPanner) {
                 window.stereoPanner = audioContext.createStereoPanner();
-                // Reconnect: oscillator -> panner -> gain -> destination
                 // But we need to handle the filter too if it exists
                 oscillator.disconnect();
                 if (window.biquadFilter) {

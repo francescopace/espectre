@@ -23,12 +23,6 @@ enum class RuntimeTrafficMode {
   PING,
 };
 
-enum class RuntimeGainLockMode {
-  AUTO,
-  ENABLED,
-  DISABLED,
-};
-
 struct RuntimeConfig {
   DetectionAlgorithm detection_algorithm{DetectionAlgorithm::MVS};
   ThresholdMode threshold_mode{ThresholdMode::AUTO};
@@ -39,7 +33,6 @@ struct RuntimeConfig {
   StimulusMode stimulus_mode{StimulusMode::INTERNAL};
   uint16_t stimulus_udp_port{5555};
   std::string stimulus_multicast_group;
-  RuntimeGainLockMode gain_lock_mode{RuntimeGainLockMode::AUTO};
   uint32_t publish_interval{100};
   uint32_t evaluation_interval{25};
   uint8_t motion_on_hits{3};

@@ -224,7 +224,6 @@ class TestRealCSIData:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
-                gain_locked=pkt.get('gain_locked', True)
             )
             two_pass.add(turb)
             running.add(turb)
@@ -251,7 +250,6 @@ class TestRealCSIData:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
-                gain_locked=pkt.get('gain_locked', True)
             )
             two_pass.add(turb)
             running.add(turb)
@@ -288,7 +286,6 @@ class TestDetectionEquivalence:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
-                gain_locked=pkt.get('gain_locked', True)
             )
             two_pass.add(turb)
             running.add(turb)

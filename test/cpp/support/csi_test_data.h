@@ -58,8 +58,6 @@ struct CsiData {
     int num_packets;
     int packet_size;      // bytes per packet (num_subcarriers * 2)
     int num_subcarriers;
-    bool gain_locked;      // From NPZ 'gain_locked' field; false if not present
-    bool has_gain_locked;  // Whether 'gain_locked' was found in the NPZ
 };
 
 /**
@@ -94,17 +92,6 @@ inline CsiData load_npz(const std::string& filepath) {
         }
     }
 
-    // Load gain_locked if available (saved as numpy bool -> uint8/bool, word_size=1)
-    result.gain_locked = false;
-    result.has_gain_locked = false;
-    if (npz.find("gain_locked") != npz.end()) {
-        cnpy::NpyArray& gl_arr = npz["gain_locked"];
-        if (gl_arr.word_size == 1) {
-            result.gain_locked = (*gl_arr.data<uint8_t>() != 0);
-            result.has_gain_locked = true;
-        }
-    }
-    
     // Copy data into packets vector
     const int8_t* data = csi_arr.data<int8_t>();
     result.packets.resize(result.num_packets);
@@ -218,9 +205,9 @@ inline const char* chip_skip_reason(ChipType chip) {
 // Global Data Storage
 // ============================================================================
 
-// Skip first N packets from static presence to remove gain lock stabilization noise.
-// These packets are recorded during radio warm-up and inflate calibration thresholds.
-static constexpr int GAIN_LOCK_SKIP = 300;
+// Skip first N packets from static presence to remove radio warm-up noise.
+// These packets inflate calibration thresholds in the baseline capture.
+static constexpr int STARTUP_WARMUP_SKIP = 300;
 
 enum class DatasetMode {
     StandardPair,
@@ -253,7 +240,6 @@ struct LongRecordingSelection {
     std::string collected_at;
     int motion_start_packet = 0;
     int num_packets = 0;
-    bool gain_locked = false;
     bool valid = false;
 };
 static std::array<LongRecordingSelection, CHIP_COUNT> g_long_selected_by_chip;
@@ -278,15 +264,11 @@ inline CsiData slice_packets(const CsiData& source, int start_idx, int end_idx) 
         result.num_packets = 0;
         result.packet_size = source.packet_size;
         result.num_subcarriers = source.num_subcarriers;
-        result.gain_locked = source.gain_locked;
-        result.has_gain_locked = source.has_gain_locked;
         return result;
     }
 
     result.packet_size = source.packet_size;
     result.num_subcarriers = source.num_subcarriers;
-    result.gain_locked = source.gain_locked;
-    result.has_gain_locked = source.has_gain_locked;
     result.packets.assign(source.packets.begin() + clamped_start, source.packets.begin() + clamped_end);
     result.num_packets = static_cast<int>(result.packets.size());
     return result;
@@ -503,7 +485,6 @@ inline bool load_long_recording_cache() {
         const char* description = entry["description"];
         const int subcarriers = entry["subcarriers"] | 0;
         const int num_packets = entry["num_packets"] | 0;
-        const bool gain_locked = entry["gain_locked"] | false;
         if (filename == nullptr || chip_text == nullptr || collected_at == nullptr || subcarriers != 64) {
             continue;
         }
@@ -532,7 +513,6 @@ inline bool load_long_recording_cache() {
         candidate.collected_at = collected_at;
         candidate.motion_start_packet = motion_start_packet;
         candidate.num_packets = num_packets;
-        candidate.gain_locked = gain_locked;
         candidate.valid = true;
 
         LongRecordingSelection& selected = g_long_selected_by_chip[idx];
@@ -621,7 +601,8 @@ inline void skip_packets(CsiData& data, int skip) {
 
 /**
  * Load CSI test data from NPZ files for a specific chip.
- * Static-presence data has the first GAIN_LOCK_SKIP packets removed (radio warm-up noise).
+ * Static-presence data has the first STARTUP_WARMUP_SKIP packets removed
+ * (radio warm-up noise).
  * @param chip Chip type (C3, C6, ESP32, or S3)
  */
 inline bool load(ChipType chip = ChipType::C6) {
@@ -640,7 +621,7 @@ inline bool load(ChipType chip = ChipType::C6) {
         printf("[CSI Test Data] Static presence: %s\n", static_presence_file);
         g_static_presence_data = load_npz(static_presence_file);
         int raw_count = g_static_presence_data.num_packets;
-        skip_packets(g_static_presence_data, GAIN_LOCK_SKIP);
+        skip_packets(g_static_presence_data, STARTUP_WARMUP_SKIP);
         g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
         printf("[CSI Test Data] Loaded %d static-presence packets (%d bytes each, skipped first %d)\n", 
                g_static_presence_data.num_packets, g_static_presence_data.packet_size, raw_count - g_static_presence_data.num_packets);
@@ -758,18 +739,6 @@ inline const char* current_long_recording_name() {
 inline int current_motion_start_packet() {
     return is_long_recording_mode() ? long_recording_motion_start_for_chip(g_current_chip) : 0;
 }
-
-/**
- * Whether the static-presence dataset was collected with gain lock enabled.
- * Returns false (use CV normalization) when 'gain_locked' field is absent from NPZ.
- */
-inline bool static_presence_gain_locked() { return g_static_presence_data.gain_locked; }
-
-/**
- * Whether 'gain_locked' metadata was found in the static-presence NPZ file.
- * If false, callers should fall back to chip-based heuristics.
- */
-inline bool static_presence_gain_locked_known() { return g_static_presence_data.has_gain_locked; }
 
 inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm) {
     // Expected examples:

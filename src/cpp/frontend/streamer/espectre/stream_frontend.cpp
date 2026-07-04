@@ -47,21 +47,6 @@ constexpr bool kStreamOutputEnabled = true;
 constexpr bool kStreamOutputEnabled = false;
 #endif
 
-#ifdef CONFIG_ESPECTRE_GAIN_LOCK_ENABLED
-constexpr bool kGainLockEnabled = true;
-#else
-constexpr bool kGainLockEnabled = false;
-#endif
-
-constexpr GainLockMode kGainLockMode =
-#if CONFIG_ESPECTRE_GAIN_LOCK_MODE_ENABLED
-    GainLockMode::ENABLED;
-#elif CONFIG_ESPECTRE_GAIN_LOCK_MODE_DISABLED
-    GainLockMode::DISABLED;
-#else
-    GainLockMode::AUTO;
-#endif
-
 const char *workflow_state_name(StreamFrontend::WorkflowState state) {
   switch (state) {
     case StreamFrontend::WorkflowState::WAIT_WIFI:
@@ -70,8 +55,6 @@ const char *workflow_state_name(StreamFrontend::WorkflowState state) {
       return "WIFI_READY";
     case StreamFrontend::WorkflowState::CSI_READY:
       return "CSI_READY";
-    case StreamFrontend::WorkflowState::GAIN_LOCK:
-      return "GAIN_LOCK";
     case StreamFrontend::WorkflowState::STREAMING:
       return "STREAMING";
     case StreamFrontend::WorkflowState::OTA_IN_PROGRESS:
@@ -126,22 +109,6 @@ void format_ipv4_addr(uint32_t network_addr, char *buffer, size_t buffer_len) {
                 static_cast<unsigned>(host_addr & 0xFFU));
 }
 
-bool fill_gain_metadata(const wifi_csi_info_t *info, CsiStreamHeaderV2 *header) {
-  if (info == nullptr || header == nullptr) {
-    return false;
-  }
-#if ESPECTRE_GAIN_LOCK_SUPPORTED
-  const auto *phy_info = reinterpret_cast<const wifi_pkt_rx_ctrl_phy_t *>(info);
-  header->agc_gain = static_cast<uint8_t>(phy_info->agc_gain);
-  header->fft_gain = static_cast<int8_t>(phy_info->fft_gain);
-  return true;
-#else
-  header->agc_gain = 0U;
-  header->fft_gain = 0;
-  return false;
-#endif
-}
-
 #if CONFIG_IDF_TARGET_ESP32C3
 typedef struct {
   signed rssi : 8;
@@ -185,7 +152,7 @@ static_assert(sizeof(wifi_pkt_rx_ctrl_time_t) == sizeof(wifi_pkt_rx_ctrl_t),
               "timestamp overlay must match wifi_pkt_rx_ctrl_t");
 #endif
 
-bool fill_rx_timestamp_metadata(const wifi_csi_info_t *info, CsiStreamHeaderV2 *header) {
+bool fill_rx_timestamp_metadata(const wifi_csi_info_t *info, CsiStreamHeaderV3 *header) {
   if (info == nullptr || header == nullptr) {
     return false;
   }
@@ -267,9 +234,7 @@ bool StreamFrontend::setup() {
   stimulus_config.udp_port = static_cast<uint16_t>(CONFIG_ESPECTRE_TRAFFIC_RX_PORT);
   stimulus_config.multicast_group = CONFIG_ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP;
   stimulus_service_.init(stimulus_config);
-  capture_service_.init(kGainLockMode);
-  capture_service_.set_gain_lock_callback([this]() { gain_lock_complete_.store(true, std::memory_order_relaxed); });
-  capture_service_.set_gain_packet_callback([this](const wifi_csi_info_t *info) { this->handle_gain_lock_packet_(info); });
+  capture_service_.init();
   capture_service_.set_packet_callback(
       [this](const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) { this->handle_csi_packet_(info, normalized); });
 
@@ -290,9 +255,8 @@ bool StreamFrontend::setup() {
 
   setup_complete_ = true;
   ESP_LOGI(TAG,
-           "Streamer frontend ready: collector=learned:%u gain_lock=%s traffic_rx_port=%u device_id=0x%016" PRIx64,
+           "Streamer frontend ready: collector=learned:%u traffic_rx_port=%u device_id=0x%016" PRIx64,
            static_cast<unsigned>(CONFIG_ESPECTRE_COLLECTOR_PORT),
-           kGainLockEnabled ? "on" : "off",
            static_cast<unsigned>(CONFIG_ESPECTRE_TRAFFIC_RX_PORT),
            device_config_.device_id);
   return true;
@@ -348,18 +312,7 @@ void StreamFrontend::loop() {
       transition_to_(WorkflowState::CSI_READY, "csi enabled");
     }
   } else if (state == WorkflowState::CSI_READY) {
-    if (!kGainLockEnabled || capture_service_.is_gain_locked()) {
-      transition_to_(WorkflowState::STREAMING, "gain lock skipped");
-    } else {
-      transition_to_(WorkflowState::GAIN_LOCK, "collecting gain baseline");
-    }
-  } else if (state == WorkflowState::GAIN_LOCK && gain_lock_complete_.exchange(false, std::memory_order_relaxed)) {
-    ESP_LOGI(TAG,
-             "Gain lock completed: agc=%u fft=%d needs_cv=%s",
-             static_cast<unsigned>(capture_service_.get_gain_controller().get_agc_gain()),
-             static_cast<int>(capture_service_.get_gain_controller().get_fft_gain()),
-             capture_service_.get_gain_controller().needs_cv_normalization() ? "yes" : "no");
-    transition_to_(WorkflowState::STREAMING, "gain lock complete");
+    transition_to_(WorkflowState::STREAMING, "pipeline ready");
   }
 
   log_runtime_telemetry_();
@@ -500,7 +453,6 @@ void StreamFrontend::on_wifi_connected_() {
   collector_ip_addr_ = 0U;
   local_ip_addr_ = 0U;
   local_mac_addr_.fill(0U);
-  gain_lock_complete_.store(false, std::memory_order_relaxed);
   reset_runtime_telemetry_baseline_();
   sockaddr_in collector_addr{};
   collector_addr.sin_family = AF_INET;
@@ -746,31 +698,6 @@ void StreamFrontend::publish_mqtt_ota_status_(const EspectreOtaStatus &status) {
                            true);
 }
 
-void StreamFrontend::handle_gain_lock_packet_(const wifi_csi_info_t *info) {
-  csi_callback_total_++;
-  if (info == nullptr) {
-    return;
-  }
-  last_csi_len_ = info->len;
-  last_csi_payload_len_ = info->payload_len;
-  if (info->buf == nullptr || info->len == 0U) {
-    return;
-  }
-  csi_nonempty_total_++;
-  if (info->payload != nullptr && info->payload_len > 0U) {
-    csi_payload_present_total_++;
-  }
-
-  const WorkflowState state = state_.load(std::memory_order_relaxed);
-  if (state != WorkflowState::GAIN_LOCK) {
-    return;
-  }
-
-  csi_rx_total_++;
-  last_csi_ms_ = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
-  last_csi_channel_ = info->rx_ctrl.channel;
-}
-
 void StreamFrontend::handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) {
   csi_callback_total_++;
   if (info == nullptr || !normalized.valid()) {
@@ -801,7 +728,7 @@ void StreamFrontend::handle_csi_packet_(const wifi_csi_info_t *info, const Norma
   last_csi_channel_ = info->rx_ctrl.channel;
 
   std::array<uint8_t, CsiUdpSender::MAX_PACKET_BYTES> packet{};
-  auto *header = reinterpret_cast<CsiStreamHeaderV2 *>(packet.data());
+  auto *header = reinterpret_cast<CsiStreamHeaderV3 *>(packet.data());
   header->magic = STREAM_MAGIC;
   header->version = STREAM_VERSION;
   header->header_len = static_cast<uint8_t>(sizeof(*header));
@@ -823,21 +750,12 @@ void StreamFrontend::handle_csi_packet_(const wifi_csi_info_t *info, const Norma
 #else
   header->noise_floor_dbm = -128;
 #endif
-  header->agc_gain = 0U;
-  header->fft_gain = 0;
-  header->reserved0 = 0U;
 
-  if (!capture_service_.get_gain_controller().needs_cv_normalization()) {
-    header->flags |= STREAM_FLAG_GAIN_LOCKED;
-  }
   if (info->first_word_invalid) {
     header->flags |= STREAM_FLAG_FIRST_WORD_INVALID;
   }
   if (header->wifi_rx_ts_us != 0U) {
     header->flags |= STREAM_FLAG_WIFI_RX_TS_VALID;
-  }
-  if (fill_gain_metadata(info, header)) {
-    header->flags |= STREAM_FLAG_GAIN_INFO_VALID;
   }
   if (fill_rx_timestamp_metadata(info, header)) {
     header->flags |= STREAM_FLAG_WIFI_RX_START_TS_NS_VALID;
@@ -903,17 +821,7 @@ void StreamFrontend::log_runtime_telemetry_() {
   const unsigned queue_peak = udp_sender_.take_ready_queue_high_watermark();
   const unsigned queue_capacity = CsiUdpSender::QUEUE_CAPACITY;
 
-  if (state == WorkflowState::GAIN_LOCK) {
-    ESP_LOGI(TAG,
-             "state=GAIN_LOCK csi=%.2f traffic=%.2f queue=%u peak=%u/%u age_ms=%" PRIu32 " channel=%u",
-             csi_callback_pps,
-             traffic_rx_pps,
-             queue_ready,
-             queue_peak,
-             queue_capacity,
-             csi_age_ms,
-             static_cast<unsigned>(last_csi_channel_));
-  } else if (state == WorkflowState::STREAMING) {
+  if (state == WorkflowState::STREAMING) {
     const bool stream_active =
         csi_callback_pps > 1.0F || stimulus_pps > 1.0F || tx_pps > 1.0F || traffic_rx_pps > 1.0F;
     if (stream_active) {

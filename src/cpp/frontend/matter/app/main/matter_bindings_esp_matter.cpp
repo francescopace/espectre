@@ -45,7 +45,6 @@ void MatterEspBindings::publish_periodic_state(uint16_t endpoint_id, const Matte
   update_nullable_float(endpoint_id, ESPECTRE_MATTER_VENDOR_CLUSTER_ID, ESPECTRE_MATTER_ATTR_BEST_PXX, state.best_pxx);
   update_bool(endpoint_id, ESPECTRE_MATTER_VENDOR_CLUSTER_ID, ESPECTRE_MATTER_ATTR_READY_TO_PUBLISH,
               state.ready_to_publish);
-  update_bool(endpoint_id, ESPECTRE_MATTER_VENDOR_CLUSTER_ID, ESPECTRE_MATTER_ATTR_GAIN_LOCKED, state.gain_locked);
   update_bool(endpoint_id, ESPECTRE_MATTER_VENDOR_CLUSTER_ID, ESPECTRE_MATTER_ATTR_CALIBRATING, state.calibrating);
 }
 

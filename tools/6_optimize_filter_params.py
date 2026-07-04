@@ -62,8 +62,7 @@ def calc_avg_magnitude(iq_data, num_packets=500):
 
 
 def test_config(baseline_iq, movement_iq, target, cutoff,
-                threshold=1.0, avg_mag=None,
-                baseline_gain_locked=True, movement_gain_locked=True):
+                threshold=1.0, avg_mag=None):
     """Test a configuration and return metrics"""
     if avg_mag is None:
         avg_mag = calc_avg_magnitude(baseline_iq)
@@ -80,7 +79,7 @@ def test_config(baseline_iq, movement_iq, target, cutoff,
     
     # Process static presence
     fp = 0
-    seg.use_cv_normalization = not bool(baseline_gain_locked)
+    seg.use_cv_normalization = True
     for i in range(len(baseline_iq)):
         turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
@@ -91,7 +90,7 @@ def test_config(baseline_iq, movement_iq, target, cutoff,
     # Reset and process motion
     seg.reset(full=True)
     tp = 0
-    seg.use_cv_normalization = not bool(movement_gain_locked)
+    seg.use_cv_normalization = True
     for i in range(len(movement_iq)):
         turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
@@ -117,8 +116,7 @@ def test_config(baseline_iq, movement_iq, target, cutoff,
     }
 
 
-def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11,
-                    baseline_gain_locked=True, movement_gain_locked=True):
+def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11):
     """Optimize Hampel filter parameters"""
     print('=' * 70)
     print('  HAMPEL FILTER OPTIMIZATION')
@@ -151,7 +149,7 @@ def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11,
             
             # Process static presence
             fp = 0
-            seg.use_cv_normalization = not bool(baseline_gain_locked)
+            seg.use_cv_normalization = True
             for i in range(len(baseline_iq)):
                 turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)
@@ -162,7 +160,7 @@ def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11,
             # Reset and process motion
             seg.reset(full=True)
             tp = 0
-            seg.use_cv_normalization = not bool(movement_gain_locked)
+            seg.use_cv_normalization = True
             for i in range(len(movement_iq)):
                 turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)
@@ -250,8 +248,6 @@ def main():
     # Load data
     baseline_data = np.load(baseline_file, allow_pickle=True)
     movement_data = np.load(movement_file, allow_pickle=True)
-    baseline_gain_locked = bool(baseline_data['gain_locked']) if 'gain_locked' in baseline_data.files else True
-    movement_gain_locked = bool(movement_data['gain_locked']) if 'gain_locked' in movement_data.files else True
     
     # Get IQ data (handle different formats)
     if 'iq_raw' in baseline_data:
@@ -263,8 +259,7 @@ def main():
     
     print(f"Static presence: {len(baseline_iq)} packets")
     print(f"Motion:          {len(movement_iq)} packets")
-    print(f"Static presence gain lock: {'yes' if baseline_gain_locked else 'no'}")
-    print(f"Motion gain lock:          {'yes' if movement_gain_locked else 'no'}")
+    print("Normalization:   CV (shared production path)")
     print()
     
     # Determine optimal band (64 SC HT20 mode)
@@ -282,8 +277,6 @@ def main():
     if args.hampel:
         optimize_hampel(
             baseline_iq, movement_iq, avg_mag,
-            baseline_gain_locked=baseline_gain_locked,
-            movement_gain_locked=movement_gain_locked
         )
         return
     
@@ -307,8 +300,6 @@ def main():
         m = test_config(
             baseline_iq, movement_iq, target, 10.0,
             avg_mag=avg_mag,
-            baseline_gain_locked=baseline_gain_locked,
-            movement_gain_locked=movement_gain_locked
         )
         marker = ''
         if m['f1'] > best_f1_target:
@@ -339,8 +330,6 @@ def main():
         m = test_config(
             baseline_iq, movement_iq, best_target, cutoff,
             avg_mag=avg_mag,
-            baseline_gain_locked=baseline_gain_locked,
-            movement_gain_locked=movement_gain_locked
         )
         marker = ''
         if m['f1'] > best_f1_cutoff:
@@ -375,8 +364,6 @@ def main():
             m = test_config(
                 baseline_iq, movement_iq, target, cutoff,
                 avg_mag=avg_mag,
-                baseline_gain_locked=baseline_gain_locked,
-                movement_gain_locked=movement_gain_locked
             )
             
             if m['f1'] > best_f1:
@@ -415,8 +402,6 @@ def main():
             m2 = test_config(
                 baseline_iq, movement_iq, target, c,
                 avg_mag=avg_mag,
-                baseline_gain_locked=baseline_gain_locked,
-                movement_gain_locked=movement_gain_locked
             )
             status = '✅' if m2['recall'] >= 90 else ''
             print(f'  Cutoff={c}: Recall={m2["recall"]:.1f}%, FP={m2["fp_rate"]:.2f}% {status}')
@@ -431,8 +416,6 @@ def main():
             m2 = test_config(
                 baseline_iq, movement_iq, t, cutoff,
                 avg_mag=avg_mag,
-                baseline_gain_locked=baseline_gain_locked,
-                movement_gain_locked=movement_gain_locked
             )
             status = '✅' if m2['recall'] >= 90 else ''
             print(f'  Target={t}: Recall={m2["recall"]:.1f}%, FP={m2["fp_rate"]:.2f}% {status}')

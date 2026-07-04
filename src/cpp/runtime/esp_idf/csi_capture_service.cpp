@@ -12,15 +12,12 @@ static const char *const TAG = "CsiCapture";
 
 }  // namespace
 
-void CsiCaptureService::init(GainLockMode gain_lock_mode, IWiFiCSI *wifi_csi) {
-  gain_lock_mode_ = gain_lock_mode;
+void CsiCaptureService::init(IWiFiCSI *wifi_csi) {
   wifi_csi_ = wifi_csi ? wifi_csi : &default_wifi_csi_;
   reset_session();
 }
 
 void CsiCaptureService::reset_session() {
-  gain_controller_.init(gain_lock_mode_);
-  gain_controller_.set_lock_complete_callback(gain_lock_callback_);
   filtered_packets_ = 0U;
   collapse_logged_ = false;
   remap_logged_ = false;
@@ -82,14 +79,6 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
     return;
   }
 
-  if (!gain_controller_.is_locked()) {
-    gain_controller_.process_packet(data);
-    if (gain_packet_callback_) {
-      gain_packet_callback_(data);
-    }
-    return;
-  }
-
   int8_t csi_remapped[HT20_CSI_LEN];
   const NormalizedCSIPayload normalized =
       normalize_ht20_csi_payload(data->buf, data->len, csi_remapped, sizeof(csi_remapped));
@@ -129,7 +118,11 @@ void IRAM_ATTR CsiCaptureService::csi_rx_callback_wrapper_(void *ctx, wifi_csi_i
 }
 
 esp_err_t CsiCaptureService::configure_platform_specific_() {
+#ifdef CONFIG_IDF_TARGET
   ESP_LOGI(TAG, "Using %s CSI configuration", CONFIG_IDF_TARGET);
+#else
+  ESP_LOGI(TAG, "Using host CSI configuration");
+#endif
   return configure_ht20_csi(wifi_csi_);
 }
 

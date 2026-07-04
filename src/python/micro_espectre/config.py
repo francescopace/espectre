@@ -37,12 +37,6 @@ CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until pro
 # Fixed subcarriers shared by MVS and ML detectors.
 DEFAULT_SUBCARRIERS = (12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52)
 
-# Gain Lock Configuration
-# Controls AGC/FFT gain locking for stable CSI amplitudes
-# Modes: "auto" (skip if signal too strong), "enabled" (always lock), "disabled" (never lock)
-GAIN_LOCK_MODE = "auto"       # Recommended: "auto" - skips gain lock if AGC < 30
-GAIN_LOCK_MIN_SAFE_AGC = 30   # Minimum safe AGC value (below this, gain lock is skipped in auto mode)
-
 # Detection Algorithm
 # "mvs" (default): Moving Variance Segmentation - fast, good accuracy
 # "ml": Neural Network - learned patterns, fixed threshold

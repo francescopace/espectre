@@ -7,7 +7,6 @@
 
 #include "base_detector.h"
 #include "csi_manager.h"
-#include "gain_controller.h"
 #include "ml_detector.h"
 #include "mvs_detector.h"
 #include "runtime_interface.h"

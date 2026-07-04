@@ -19,8 +19,6 @@ from csi_utils import (
     STIMULUS_ROLE_MEASUREMENT,
     STIMULUS_ROLE_REFERENCE,
     STIMULUS_VERSION,
-    STREAM_FLAG_GAIN_INFO_VALID,
-    STREAM_FLAG_GAIN_LOCKED,
     STREAM_FLAG_REFERENCE_FRAME,
     STREAM_FLAG_STIMULUS_ID_VALID,
     STREAM_FLAG_WIFI_RX_START_TS_NS_VALID,
@@ -45,8 +43,6 @@ def build_packet(
     channel=6,
     rssi_dbm=-42,
     noise_floor_dbm=-96,
-    agc_gain=0,
-    fft_gain=0,
 ):
     payload_values = payload if payload is not None else [1, 2, 3, 4]
     payload = np.array(payload_values, dtype=np.int8).tobytes()
@@ -68,9 +64,6 @@ def build_packet(
         channel,
         rssi_dbm,
         noise_floor_dbm,
-        agc_gain,
-        fft_gain,
-        0,
     )
     return header + payload
 
@@ -80,7 +73,6 @@ def test_parse_packet_accepts_unified_stream_header():
     packet = receiver._parse_packet(
         build_packet(
             seq_num=7,
-            flags=STREAM_FLAG_GAIN_LOCKED,
             payload=[10, 20, -30, 40],
             device_ticks_us=987654,
             channel=11,
@@ -92,7 +84,6 @@ def test_parse_packet_accepts_unified_stream_header():
     assert packet.seq_num == 7
     assert packet.num_subcarriers == 2
     assert packet.chip == 'C6'
-    assert packet.gain_locked is True
     assert packet.device_ticks_us == 987654
     assert packet.channel == 11
     assert packet.rssi_dbm == -55
@@ -219,10 +210,8 @@ def test_stimulus_sender_fans_out_same_datagram_to_multiple_targets():
 def test_parse_packet_reads_optional_metadata():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     flags = (
-        STREAM_FLAG_GAIN_LOCKED
-        | STREAM_FLAG_WIFI_RX_TS_VALID
+        STREAM_FLAG_WIFI_RX_TS_VALID
         | STREAM_FLAG_WIFI_RX_START_TS_NS_VALID
-        | STREAM_FLAG_GAIN_INFO_VALID
         | STREAM_FLAG_STIMULUS_ID_VALID
         | STREAM_FLAG_REFERENCE_FRAME
     )
@@ -233,8 +222,6 @@ def test_parse_packet_reads_optional_metadata():
             wifi_rx_ts_us=5555,
             wifi_rx_start_ts_ns=987654321,
             stimulus_id=1234,
-            agc_gain=77,
-            fft_gain=-8,
         )
     )
 
@@ -243,8 +230,6 @@ def test_parse_packet_reads_optional_metadata():
     assert packet.wifi_rx_start_ts_ns == 987654321
     assert packet.stimulus_id == 1234
     assert packet.is_reference is True
-    assert packet.agc_gain == 77
-    assert packet.fft_gain == -8
 
 
 def test_parse_packets_accepts_multiple_records_in_one_datagram():
@@ -279,11 +264,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     monkeypatch.setattr(csi_utils, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
 
     receiver = CSIReceiver(bind_host='127.0.0.1')
-    flags = (
-        STREAM_FLAG_GAIN_LOCKED
-        | STREAM_FLAG_WIFI_RX_TS_VALID
-        | STREAM_FLAG_GAIN_INFO_VALID
-    )
+    flags = STREAM_FLAG_WIFI_RX_TS_VALID
     packets = [
         receiver._parse_packet(
             build_packet(
@@ -295,8 +276,6 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
                 wifi_rx_ts_us=4000,
                 channel=1,
                 rssi_dbm=-50,
-                agc_gain=33,
-                fft_gain=-3,
             )
         ),
         receiver._parse_packet(
@@ -309,8 +288,6 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
                 wifi_rx_ts_us=5000,
                 channel=1,
                 rssi_dbm=-49,
-                agc_gain=34,
-                fft_gain=-2,
             )
         ),
     ]
@@ -325,7 +302,6 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert str(data['label']) == 'static_presence'
     assert str(data['chip']) == 'c6'
     assert int(data['num_subcarriers']) == 2
-    assert bool(data['gain_locked']) is True
     assert str(data['format_version']) == '1.1'
     assert int(data['device_id']) == 0xABCDEF
     np.testing.assert_array_equal(data['stream_seq_num'], np.array([100, 101], dtype=np.uint32))
@@ -335,7 +311,6 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
 
     info = csi_utils.load_dataset_info()
     assert info['format_version'] == '1.1'
-    assert info['files']['static_presence'][0]['gain_locked'] is True
     assert info['files']['static_presence'][0]['filename'] == filepath.name
     assert info['files']['static_presence'][0]['device_id'] == '0x0000000000abcdef'
     assert 'dev0000000000abcdef' in filepath.name

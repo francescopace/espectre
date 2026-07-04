@@ -108,19 +108,6 @@ class IDetector:
         """
         raise NotImplementedError
     
-    def set_cv_normalization(self, enabled):
-        """
-        Configure CV normalization mode for turbulence calculation.
-        
-        CV normalization (std/mean) is gain-invariant but reduces sensitivity
-        for contiguous subcarrier bands. When gain is locked, raw std is preferred.
-        
-        Args:
-            enabled: True = std/mean (gain-invariant), False = raw std
-        """
-        if hasattr(self, '_context'):
-            self._context.use_cv_normalization = enabled
-    
     @property
     def total_packets(self):
         """Total packets processed"""

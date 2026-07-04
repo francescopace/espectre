@@ -24,9 +24,12 @@ Configuration used for all test results (unified across chips):
 | Calibration | Fixed subcarriers + threshold bootstrap | Shared 12-subcarrier set, adaptive threshold for MVS |
 | Hampel Filter | ON | Enabled for both MVS and ML (window=7, threshold=5.0 MAD) |
 | Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
-| CV Normalization | Gain-mode aware | Based on `gain_locked` metadata (`false` => apply CV norm) |
+| CV Normalization | Always on | Shared AGC-active turbulence path (`std/mean`) |
 
-CV normalization is applied per-file based on whether data was collected with AGC gain lock enabled. Gain-locked streams use raw turbulence; streams without gain lock use CV-normalized turbulence (`std/mean`). ML then exports relative neural-detector features such as `std/mean`, `iqr/mean`, `mad/mean`, and normalized waveform length.
+CV normalization is applied uniformly across the production and validation
+pipeline. Both detectors use CV-normalized turbulence (`std/mean`), while ML
+still exports relative neural-detector features such as `std/mean`, `iqr/mean`,
+`mad/mean`, and normalized waveform length.
 
 ---
 
@@ -37,14 +40,14 @@ CV normalization is applied per-file based on whether data was collected with AG
 counts below are aggregated packet totals across all currently available
 training captures, including the dedicated empty-room recordings.
 
-| Chip | Empty | Static Presence | Motion | Total | Gain Lock |
-|------|-------|-----------------|--------|-------|-----------|
-| ESP32-C3 | 21113 | 23204 | 11100 | 55417 | Yes |
-| ESP32-C5 | 21144 | 23359 | 11380 | 55883 | Yes |
-| ESP32-C6 | 21003 | 23770 | 11891 | 56664 | Yes |
-| ESP32-S3 | 21007 | 23364 | 11376 | 55747 | Yes |
-| ESP32 | 18495 | 20535 | 9513 | 48543 | No |
-| Total | 102762 | 114232 | 55260 | 272254 | Mixed |
+| Chip | Empty | Static Presence | Motion | Total |
+|------|-------|-----------------|--------|-------|
+| ESP32-C3 | 21113 | 23204 | 11100 | 55417 |
+| ESP32-C5 | 21144 | 23359 | 11380 | 55883 |
+| ESP32-C6 | 21003 | 23770 | 11891 | 56664 |
+| ESP32-S3 | 21007 | 23364 | 11376 | 55747 |
+| ESP32 | 18495 | 20535 | 9513 | 48543 |
+| Total | 102762 | 114232 | 55260 | 272254 |
 
 Data location: `data/`
 

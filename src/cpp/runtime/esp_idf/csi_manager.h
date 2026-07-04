@@ -33,7 +33,7 @@ using motion_state_callback_t = std::function<void(MotionState)>;
 // Callback type for live telemetry updates emitted on evaluation ticks.
 using live_telemetry_callback_t = std::function<void(float movement, float threshold)>;
 
-// Callback type for intercepting normalized CSI packets after gain lock.
+// Callback type for intercepting normalized CSI packets before detector processing.
 using csi_packet_interceptor_t = std::function<bool(const int8_t *, size_t)>;
 
 /**
@@ -50,12 +50,10 @@ class CSIManager {
    * 
    * @param detector Motion detector instance (BaseDetector*)
    * @param publish_rate Number of packets before triggering callback
-   * @param gain_lock_mode Gain lock mode (auto/enabled/disabled)
    * @param wifi_csi WiFi CSI interface (nullptr for real implementation)
    */
   void init(BaseDetector* detector,
             uint32_t publish_rate,
-            GainLockMode gain_lock_mode = GainLockMode::AUTO,
             IWiFiCSI* wifi_csi = nullptr);
   
   /**
@@ -106,28 +104,6 @@ class CSIManager {
    * Check if CSI is currently enabled
    */
   bool is_enabled() const { return enabled_; }
-  
-  /**
-   * Check if gain is locked
-   */
-  bool is_gain_locked() const { return capture_service_.is_gain_locked(); }
-  
-  /**
-   * Get the number of packets used for gain lock calibration
-   */
-  uint16_t get_gain_lock_packets() const { return GainController::get_calibration_packets(); }
-  
-  /**
-   * Get the gain controller (for status reporting)
-   */
-  const GainController& get_gain_controller() const { return capture_service_.get_gain_controller(); }
-  
-  /**
-   * Set callback for when gain lock completes
-   */
-  void set_gain_lock_callback(GainController::lock_complete_callback_t callback) {
-    capture_service_.set_gain_lock_callback(std::move(callback));
-  }
   
   /**
    * Set callback for live telemetry updates.

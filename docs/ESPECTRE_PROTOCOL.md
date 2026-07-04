@@ -90,8 +90,7 @@ espectre/v1/devices/{device_id}/telemetry
   "threshold": 5.0,
   "detector": "MVS",
   "health": {
-    "uptime_s": 3821,
-    "gain_locked": true
+    "uptime_s": 3821
   }
 }
 ```
@@ -166,7 +165,7 @@ Stats are diagnostic. Product dashboards should prefer telemetry/status/info for
 normal operation. When available, `free_memory_kb` reports current free heap and
 `loop_time_ms` reports the measured last loop-body cost in milliseconds,
 excluding the outer task sleep or idle delay. Motion state, movement score,
-threshold, detector selection, turbulence, and gain-lock state belong to
+threshold, detector selection, and turbulence belong to
 telemetry or retained config/info surfaces instead of `stats`.
 
 ### Commands
@@ -374,7 +373,6 @@ Current BLE `sysinfo` diagnostic keys may include:
 |-----|---------|
 | `chip` | Target chip reported by the firmware, such as `esp32c3` |
 | `detector` | Active detector name |
-| `gain_locked` | Whether CSI gain lock is currently active |
 | `window` | Detection window size in packets |
 | `lowpass` | Whether the low-pass stage is enabled |
 | `lowpass_cutoff` | Low-pass cutoff in Hz |

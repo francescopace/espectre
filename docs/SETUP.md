@@ -209,7 +209,7 @@ Frontend-level configuration syntax belongs in the README of the frontend you ar
 
 At boot, the shared runtime may perform:
 
-1. gain lock, when supported by the chip and enabled by the frontend surface
+1. AGC-active startup with the shared normalized turbulence path
 2. startup calibration for `MVS`, which expects the room to stay quiet for about 10 seconds
 3. transition into steady-state motion detection
 

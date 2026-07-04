@@ -568,7 +568,6 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
             self.channel = 8
             self.rssi_dbm = -47
             self.chip = "s3"
-            self.gain_locked = True
 
     class FakeCollector:
         def __init__(self, **kwargs):
@@ -713,7 +712,6 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
             self.channel = 8
             self.rssi_dbm = -47
             self.chip = "s3"
-            self.gain_locked = True
 
     class FakeCollector:
         def __init__(self, **kwargs):
@@ -1022,7 +1020,7 @@ def test_collect_live_logs_features_and_handles_save_without_packets(monkeypatch
     assert "Save:" in output and "label=test duration=until Ctrl+C" in output
     assert "STATUS: STABILIZING 1/1" in output
     assert "ip=192.168.1.29 chip=C6 ch=08 rssi=-47" in output
-    assert "80% | mvmt:4.0000 thr:5.0000 | MOTION | 0 pkt/s" in output
+    assert " 80% | mvmt:4.000000 thr:5.000000 | MOTION | 0 pkt/s" in output
     assert "turbulence: raw=0.7500 filtered=0.5000" in output
     assert "tail[2]:" in output
     assert "features: f1=0.1000 f2=0.2000" in output
@@ -1161,9 +1159,9 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     assert "collecting until Ctrl+C" in output
     assert "ip=192.168.1.17 chip=C6 ch=08 rssi=-47" in output
     assert "ip=192.168.1.24 chip=S3 ch=11 rssi=-51" in output
-    assert "80% | mvmt:4.0000 thr:5.0000 | IDLE | 0 pkt/s" in output
-    assert "120% | mvmt:6.0000 thr:5.0000 | MOTION | 0 pkt/s" in output
-    assert "mvmt:10.0000" not in output
+    assert " 80% | mvmt:4.000000 thr:5.000000 | IDLE | 0 pkt/s" in output
+    assert "120% | mvmt:6.000000 thr:5.000000 | MOTION | 0 pkt/s" in output
+    assert "mvmt:10.000000" not in output
 
 
 def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
@@ -1193,7 +1191,6 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
             self.seq_num = seq_num
             self.device_id = device_id
             self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
-            self.gain_locked = True
             self.chip = "c6" if device_id == 0x11 else "s3"
             self.source_ip = "192.168.1.17" if device_id == 0x11 else "192.168.1.24"
             self.channel = 8 if device_id == 0x11 else 11
@@ -1357,7 +1354,7 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     assert "STATUS: CALIBRATING" in output
     assert calibration_calls == [([3.0], "auto"), ([3.0], "auto")]
     assert FakeMVSDetector.adaptive_thresholds == [8.0, 8.0]
-    assert "87% | mvmt:7.0000 thr:8.0000 | IDLE | 0 pkt/s" in output
+    assert " 87% | mvmt:7.000000 thr:8.000000 | IDLE | 0 pkt/s" in output
     assert "STATUS: COLLECTING 2/2" in output
 
 

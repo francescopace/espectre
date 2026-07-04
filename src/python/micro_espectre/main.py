@@ -14,15 +14,11 @@ import os
 import src.config as config
 from src.console_output import format_calibration_status_line, format_detection_publish_line
 
-# Gain lock configuration
-GAIN_LOCK_PACKETS = 300  # ~3 seconds at 100 Hz
 ML_DEFAULT_THRESHOLD = 5.0
 
 # Import HT20 constants from config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
 from src.utils import (
-    to_signed_int8,
-    calculate_median,
     normalize_ht20_csi_payload,
     csi_read_frame,
 )
@@ -34,8 +30,6 @@ class GlobalState:
         self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.current_channel = 0  # Track WiFi channel for change detection
-        # CV normalization state (when gain lock is skipped or disabled)
-        self.needs_cv_normalization = False
 
 
 g_state = GlobalState()
@@ -161,101 +155,6 @@ def connect_wifi():
         raise Exception("Connection timeout")
 
 
-def run_gain_lock(wlan):
-    """
-    Run gain lock calibration phase (ESP32-S3, C3, C5, C6 only)
-    
-    Collects AGC/FFT gain values from first packets and locks them
-    to stabilize CSI amplitudes for consistent motion detection.
-    Uses median calculation for robustness against outliers.
-    
-    HT20 only: 64 subcarriers.
-    
-    Respects config.GAIN_LOCK_MODE:
-    - "auto": Lock gain, but skip if signal too strong (AGC < MIN_SAFE_AGC)
-    - "enabled": Always force gain lock
-    - "disabled": No gain lock, use CV normalization
-    
-    Args:
-        wlan: WLAN instance with CSI enabled
-        
-    Returns:
-        tuple: (agc_gain, fft_gain, needs_cv_normalization) where:
-            - needs_cv_normalization=True if gain lock was skipped/disabled
-    """
-    # Check configuration mode
-    mode = getattr(config, 'GAIN_LOCK_MODE', 'auto').lower()
-    min_safe_agc = getattr(config, 'GAIN_LOCK_MIN_SAFE_AGC', 30)
-    
-    # Check platform support
-    gain_lock_supported = hasattr(wlan, 'csi_gain_lock_supported') and wlan.csi_gain_lock_supported()
-    
-    if not gain_lock_supported:
-        print(f"Gain lock: Not supported on this platform")
-        print(f"  HT20 mode: {NUM_SUBCARRIERS} subcarriers")
-        print("  CV normalization enabled")
-        # No hardware gain lock support -> must use CV normalization.
-        return None, None, True
-    
-    print('')
-    print('-'*60)
-    print(f'Gain Lock Calibration (~3 seconds) [mode: {mode}]')
-    print('-'*60)
-    
-    # Collect samples for median calculation
-    agc_samples = []
-    fft_samples = []
-    count = 0
-    
-    frame_result = None
-    while count < GAIN_LOCK_PACKETS:
-        frame = csi_read_frame(wlan, frame_result)
-        if frame:
-            frame_result = frame
-            # frame[22] = agc_gain (uint8), frame[23] = fft_gain (int8 as uint8)
-            agc_samples.append(frame[22])
-            fft_samples.append(to_signed_int8(frame[23]))
-            
-            del frame  # Free memory immediately
-            count += 1
-            
-            # Progress every 25% (with GC to prevent ENOMEM)
-            if count == GAIN_LOCK_PACKETS // 4:
-                gc.collect()
-                print(f"  Gain calibration 25% ({count}/{GAIN_LOCK_PACKETS} packets)")
-            elif count == GAIN_LOCK_PACKETS // 2:
-                gc.collect()
-                print(f"  Gain calibration 50% ({count}/{GAIN_LOCK_PACKETS} packets)")
-            elif count == (GAIN_LOCK_PACKETS * 3) // 4:
-                gc.collect()
-                print(f"  Gain calibration 75% ({count}/{GAIN_LOCK_PACKETS} packets)")
-    
-    # Calculate medians (more robust than mean against outliers)
-    median_agc = calculate_median(agc_samples)
-    median_fft = calculate_median(fft_samples)
-    
-    print(f"  HT20 mode: {NUM_SUBCARRIERS} subcarriers")
-    
-    # Handle different modes
-    if mode == 'disabled':
-        # DISABLED mode: no gain lock, use CV normalization
-        print(f"Gain baseline: AGC={median_agc}, FFT={median_fft} (no lock, CV normalization enabled)")
-        return median_agc, median_fft, True
-    
-    # In auto mode, skip gain lock if signal is too strong
-    if mode == 'auto' and median_agc < min_safe_agc:
-        print(f"WARNING: Signal too strong (AGC={median_agc} < {min_safe_agc}) - skipping gain lock")
-        print(f"         Move sensor 2-3 meters from AP for optimal performance")
-        print(f"         CV normalization enabled (baseline: AGC={median_agc}, FFT={median_fft})")
-        return median_agc, median_fft, True
-    
-    # Lock the gain values
-    wlan.csi_force_gain(median_agc, median_fft)
-    print(f"Gain locked: AGC={median_agc}, FFT={median_fft} (median of {GAIN_LOCK_PACKETS} packets)")
-    
-    return median_agc, median_fft, False
-
-
 def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart_traffic_gen=True):
     """
     Run startup calibration with fixed subcarriers.
@@ -278,29 +177,16 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
 
         print('')
         print('='*60)
-        print('ML Quick Boot - Gain Lock Only')
+        print('ML Quick Boot')
         print('='*60)
         print(f'Free memory: {gc.mem_free()} bytes')
-        print('Please remain still for gain lock...')
-        
-        # Phase 1: Gain Lock only (~3 seconds)
-        agc, fft, needs_cv = run_gain_lock(wlan)
-        
-        # Save the effective runtime gain-lock state for diagnostics/telemetry.
-        g_state.needs_cv_normalization = needs_cv
-        
-        if needs_cv:
-            print("Note: Proceeding without gain lock (CV normalization enabled)")
-        
-        # CV normalization: only needed when gain is not locked
-        detector.set_cv_normalization(needs_cv)
         
         print('')
         print('='*60)
         print('ML Quick Boot Complete!')
         print(f'   Subcarriers: {list(config.DEFAULT_SUBCARRIERS)}')
         print(f'   Threshold: {detector.get_threshold():.1f} (scaled 0-10 score)')
-        print(f'   Total boot time: ~3 seconds (gain lock only)')
+        print('   Startup path: AGC-active normalized pipeline')
         print('='*60)
         print('')
         
@@ -312,19 +198,10 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
 
     print('')
     print('='*60)
-    print('Two-Phase Startup Calibration')
+    print('Startup Threshold Calibration')
     print('='*60)
     print(f'Free memory: {gc.mem_free()} bytes')
     print('Please remain still for calibration...')
-
-    agc, fft, needs_cv = run_gain_lock(wlan)
-
-    g_state.needs_cv_normalization = needs_cv
-
-    if needs_cv:
-        print("Note: Proceeding with threshold bootstrap without gain lock (CV normalization enabled)")
-
-    detector.set_cv_normalization(needs_cv)
 
     from src.mvs_detector import MVSDetector
     from src.threshold import calculate_adaptive_threshold
@@ -338,7 +215,6 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
     )
-    calibration_detector.use_cv_normalization = needs_cv
     mv_values = []
 
     print('')

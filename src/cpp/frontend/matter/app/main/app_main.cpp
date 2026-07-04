@@ -78,8 +78,6 @@ cluster_t *create_espectre_vendor_cluster(endpoint_t *endpoint) {
                     esp_matter_bool(false));
   attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_BEST_PXX, ATTRIBUTE_FLAG_NONE,
                     esp_matter_nullable_float(0.0f));
-  attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_GAIN_LOCKED, ATTRIBUTE_FLAG_NONE,
-                    esp_matter_bool(false));
   attribute::create(vendor_cluster, esphome::espectre::ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE,
                     ATTRIBUTE_FLAG_WRITABLE, esp_matter_bool(false));
   return vendor_cluster;

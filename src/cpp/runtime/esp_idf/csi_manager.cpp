@@ -26,11 +26,10 @@ static void publish_motion_state_if_changed_(MotionState previous_state,
 
 void CSIManager::init(BaseDetector* detector,
                      uint32_t publish_rate,
-                     GainLockMode gain_lock_mode,
                      IWiFiCSI* wifi_csi) {
   detector_ = detector;
   publish_rate_ = publish_rate;
-  capture_service_.init(gain_lock_mode, wifi_csi);
+  capture_service_.init(wifi_csi);
   capture_service_.set_packet_callback(
       [this](const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
         this->process_normalized_packet_(data, normalized);

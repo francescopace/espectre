@@ -32,7 +32,6 @@
       "+<runtime/esp_idf/csi_payload_normalizer.cpp>",
       "+<runtime/esp_idf/csi_platform_config.cpp>",
       "+<runtime/esp_idf/esp_idf_runtime.cpp>",
-      "+<runtime/esp_idf/gain_controller.cpp>",
       "+<runtime/esp_idf/runtime_frontend_controller.cpp>",
       "+<runtime/esp_idf/stimulus_protocol.cpp>",
       "+<runtime/esp_idf/stimulus_service.cpp>",

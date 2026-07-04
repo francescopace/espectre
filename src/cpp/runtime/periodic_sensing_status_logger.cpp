@@ -54,7 +54,7 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   const int percent = static_cast<int>(progress * 100.0f);
 
   log_progress_bar(tag, progress, 20, 15,
-                   "%d%% | mvmt:%.4f thr:%.4f | %s | %u pkt/s | ch:%u rssi:%d",
+                   "%3d%% | mvmt:%.6f thr:%.6f | %s | %u pkt/s | ch:%u rssi:%d",
                    percent, motion_metric, threshold,
                    is_motion ? "MOTION" : "IDLE",
                    static_cast<unsigned>(rate_pps),

@@ -86,40 +86,35 @@ inline int8_t calculate_median_i8(int8_t* arr, size_t size) {
 }
 
 /**
- * Apply CV normalization to standard deviation
+ * Apply gain-invariant normalization to standard deviation
  * 
  * CV (Coefficient of Variation) = std / mean
  * Makes turbulence gain-invariant when AGC is not locked.
  * 
  * @param std_dev Standard deviation
  * @param mean Mean value
- * @param use_cv true = return std/mean, false = return raw std
- * @return CV-normalized or raw std
+ * @return Normalized turbulence
  */
-inline float apply_cv_normalization(float std_dev, float mean, bool use_cv) {
-    if (!use_cv) return std_dev;
+inline float apply_cv_normalization(float std_dev, float mean) {
     return (mean > 0.0f) ? std_dev / mean : 0.0f;
 }
 
 /**
- * Calculate turbulence from variance with optional CV normalization
+ * Calculate turbulence from variance with gain-invariant normalization
  * 
- * Combines variance → std → optional CV normalization in one call.
+ * Combines variance → std → normalization in one call.
  * 
  * @param variance Pre-calculated variance
- * @param values Array used for mean calculation (if CV enabled)
+ * @param values Array used for mean calculation
  * @param count Number of values
- * @param use_cv true = CV normalization, false = raw std
  * @return Turbulence value
  */
 inline float calculate_turbulence_from_variance(float variance, 
                                                  const float* values, 
-                                                 size_t count,
-                                                 bool use_cv) {
+                                                 size_t count) {
     float std_dev = std::sqrt(variance);
-    if (!use_cv) return std_dev;
     float mean = calculate_mean(values, count);
-    return apply_cv_normalization(std_dev, mean, true);
+    return apply_cv_normalization(std_dev, mean);
 }
 
 // =============================================================================
@@ -237,22 +232,16 @@ inline float calculate_magnitude(int8_t i, int8_t q) {
  * selected subcarriers. It measures the spatial variability of the
  * Wi-Fi channel - higher values indicate motion/disturbance.
  * 
- * Two modes:
- *   CV normalization (std/mean): gain-invariant, used when gain is NOT locked
- *   Raw std: better sensitivity for contiguous bands, used when gain IS locked
- * 
  * @param magnitudes Array of magnitude values (one per subcarrier)
  * @param subcarriers Array of selected subcarrier indices
  * @param num_subcarriers Number of selected subcarriers (max 12)
  * @param max_subcarrier Maximum valid subcarrier index (default: 64 for HT20)
- * @param use_cv_normalization true = std/mean, false = raw std (default: true)
  * @return Turbulence value
  */
 inline float calculate_spatial_turbulence(const float* magnitudes,
                                           const uint8_t* subcarriers,
                                           uint8_t num_subcarriers,
-                                          uint16_t max_subcarrier = 64,
-                                          bool use_cv_normalization = true) {
+                                          uint16_t max_subcarrier = 64) {
     if (num_subcarriers == 0 || !magnitudes || !subcarriers) {
         return 0.0f;
     }
@@ -272,7 +261,7 @@ inline float calculate_spatial_turbulence(const float* magnitudes,
     }
     
     float variance = calculate_variance_two_pass(valid_mags, valid_count);
-    return calculate_turbulence_from_variance(variance, valid_mags, valid_count, use_cv_normalization);
+    return calculate_turbulence_from_variance(variance, valid_mags, valid_count);
 }
 
 /**
@@ -287,14 +276,12 @@ inline float calculate_spatial_turbulence(const float* magnitudes,
  * @param csi_len Length of CSI data in bytes (expected: 128 for HT20)
  * @param subcarriers Array of selected subcarrier indices
  * @param num_subcarriers Number of selected subcarriers (max 12)
- * @param use_cv_normalization true = std/mean, false = raw std (default: true)
  * @return Turbulence value
  */
 inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
                                                    size_t csi_len,
                                                    const uint8_t* subcarriers,
-                                                   uint8_t num_subcarriers,
-                                                   bool use_cv_normalization = true) {
+                                                   uint8_t num_subcarriers) {
     if (!csi_data || csi_len < 2 || num_subcarriers == 0 || !subcarriers) {
         return 0.0f;
     }
@@ -320,7 +307,7 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
 
     return calculate_spatial_turbulence(
         amplitudes, compact_indices, valid_count,
-        static_cast<uint16_t>(valid_count), use_cv_normalization);
+        static_cast<uint16_t>(valid_count));
 }
 
 /**

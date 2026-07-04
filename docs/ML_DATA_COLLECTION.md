@@ -34,9 +34,9 @@ tracks built on the same collection infrastructure.
 - ESP32-C6
 
 **Also supported:**
-- ESP32 (original) - Does not support AGC gain lock, but data is usable for ML training (ML features are relative to local turbulence mean)
+- ESP32 (original) - Data is usable for ML training because the pipeline always uses AGC-active normalized turbulence and relative ML features
 
-> **Note**: AGC gain lock stabilizes CSI amplitudes during data collection. Without it, amplitudes vary with signal strength. Both MVS and ML use the no-gain-lock CV-normalized turbulence path for streams where `gain_locked=false`; ML then extracts relative per-window features such as `std/mean`, `iqr/mean`, and `mad/mean`.
+> **Note**: ESPectre now keeps AGC active during collection and normalizes turbulence as `std/mean`. ML then extracts relative per-window features such as `std/mean`, `iqr/mean`, and `mad/mean`.
 
 ---
 
@@ -88,7 +88,6 @@ Use that README as the source of truth for:
 - observed standalone streamer throughput on `ESP32-C3`
 
 **Features:**
-- Gain lock phase (~3s) for stable CSI acquisition
 - 64 subcarriers (HT20 mode)
 - 32-bit sequence numbers for packet loss detection
 - collector-driven stimulus rate (see streamer README for practical transport profiles and benchmarks)
@@ -158,8 +157,6 @@ into one file.
 | `./espectre collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
 | `./espectre collect --label <name> --description "text"` | Add description to sample |
 | `./espectre collect --info` | Show dataset statistics |
-
-Gain lock status is **automatically detected** from the CSI stream and saved in `dataset_info.json`.
 
 When saving is enabled, live collect keeps a pre-recording readiness gate: the
 selected detector must stay below its effective threshold for 3 continuous
@@ -242,8 +239,6 @@ happens after the startup calibration phase.
 # Wait 15 seconds, then record 3 timed collections
 ./espectre collect --label static_presence --duration 10 --count 3 --start-delay 15 --stimulus-target 192.168.1.50
 
-# Gain lock status is auto-detected from the CSI stream
-# No need to specify --no-gain-lock, it's automatic!
 ./espectre collect --label static_presence --duration 10 --stimulus-target 192.168.1.50
 
 # Continuous live recording until Ctrl+C
@@ -378,11 +373,10 @@ Central metadata file for the dataset:
         "subcarriers": 64,
         "device_id": "0x000000000000f00d",
         "contributor": "francescopace",
-        "gain_locked": false,
         "collected_at": "2026-02-14T18:30:59.355439",
         "duration_ms": 9998,
         "num_packets": 961,
-        "description": "HT20 static presence, no gain lock (ESP32 lacks AGC lock support)"
+        "description": "HT20 static presence, AGC-active normalized pipeline"
       }
     ]
   },
@@ -400,7 +394,6 @@ Central metadata file for the dataset:
 | `collected_at` | ISO timestamp of collection |
 | `duration_ms` | Sample duration in milliseconds |
 | `num_packets` | Number of CSI packets |
-| `gain_locked` | `true` if AGC gain lock was active during collection |
 | `description` | Human-readable description |
 
 ### Sample Format (.npz)
@@ -413,7 +406,6 @@ Each `.npz` file contains a minimal, compact format optimized for ML training:
 | `num_subcarriers` | `int` | Number of subcarriers (64 for HT20) |
 | `label` | `str` | Sample label (e.g., "static_presence", "motion") |
 | `chip` | `str` | ESP32 chip type (e.g., "c6", "s3") |
-| `gain_locked` | `bool` | Whether AGC gain lock was active during collection |
 | `collected_at` | `str` | ISO timestamp of collection |
 | `duration_ms` | `float` | Sample duration in milliseconds |
 | `format_version` | `str` | NPZ format version ("1.1") |
@@ -480,9 +472,10 @@ for pkt in packets:
 
 ---
 
-## Data Without Gain Lock
+## AGC-Active Data Model
 
-Some ESP32 chips (original ESP32) or data collection sessions may not have AGC gain lock enabled. This causes CSI amplitudes to vary with signal strength rather than just motion.
+CSI amplitudes may vary with signal strength because AGC remains active by design.  
+ESPectre compensates for this by using normalized turbulence and relative ML features rather than relying on forced-gain control.
 
 ### Canonical Labels
 
@@ -503,36 +496,18 @@ dataset schema.
 
 ### How It Works
 
-The ML training script uses gain-mode-aware turbulence for all chips:
-gain-locked streams use raw turbulence, while streams without gain lock use
-CV-normalized turbulence (`std/mean`) before the sliding-window features are
-computed. The exported ML features are still relative ratios such as
+The ML training script uses normalized turbulence (`std/mean`) for all chips
+before the sliding-window features are computed. The exported ML features are
+still relative ratios such as
 `std/mean`, `iqr/mean`, `mad/mean`, and normalized waveform length.
 
-### When CV Normalization Is Applied
-
-CV normalization is used by both detectors when gain lock is unavailable:
-- **ESP32 (original)**: CV normalization is used since AGC gain lock is not supported
-- **Data collected before enabling gain lock**: CV normalization applies for older captures
-- **Future compatibility**: Any data where amplitudes are unreliable
-
-### Automatic Detection
-
-The collector **automatically detects** the gain lock status from the CSI stream:
-
-1. The ESP32 firmware sends a `gain_locked` flag in each UDP packet
-2. The collector saves this flag in the `.npz` file
-3. `dataset_info.json` stores `gain_locked: false` when gain lock was not applied
-
-No manual flags needed - the system handles everything automatically!
-
-### Viewing Files with CV Normalization
+### Viewing Files and Training Metadata
 
 ```bash
 python tools/10_train_ml_model.py --info
 ```
 
-This shows which files use CV normalization.
+This prints the current dataset summary used by the training pipeline.
 
 ---
 
@@ -644,7 +619,6 @@ The UDP stream format is now documented in the streamer frontend README:
 
 Collection-specific notes that matter here:
 
-- `gain_locked` is carried by the stream and saved into dataset metadata
 - ESPectre uses HT20 mode (64 subcarriers) for consistent cross-chip datasets
 - chip type is auto-detected from the stream
 - `wifi_rx_start_ts_ns` is a hardware-derived estimate, not a guaranteed

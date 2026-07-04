@@ -247,16 +247,15 @@ def calculate_magnitude(i, q):
 def calculate_spatial_turbulence(magnitudes, band, use_cv_normalization=True):
     """
     Calculate spatial turbulence from magnitudes.
-    
-    Two modes:
-    - CV normalization (std/mean): gain-invariant, used when gain is NOT locked.
-      If AGC scales all amplitudes by factor k, std(kA)/mean(kA) = std(A)/mean(A).
-    - Raw std: better sensitivity for contiguous bands, used when gain IS locked.
+
+    The normalized path is the canonical runtime behavior. The optional
+    argument remains accepted so older callers do not crash, but the returned
+    turbulence is always gain-invariant `std/mean`.
     
     Args:
         magnitudes: List of magnitude values (one per subcarrier)
         band: List of subcarrier indices to use
-        use_cv_normalization: True = std/mean, False = raw std (default: True)
+        use_cv_normalization: kept for compatibility; turbulence is always normalized
     
     Returns:
         float: Turbulence value (0.0 if no valid subcarriers)
@@ -267,11 +266,8 @@ def calculate_spatial_turbulence(magnitudes, band, use_cv_normalization=True):
         return 0.0
     
     std = calculate_std(band_mags)
-    if use_cv_normalization:
-        mean = sum(band_mags) / len(band_mags)
-        return std / mean if mean > 0 else 0.0
-    else:
-        return std
+    mean = sum(band_mags) / len(band_mags)
+    return std / mean if mean > 0 else 0.0
 
 
 def calculate_moving_variance(values, window_size=100):

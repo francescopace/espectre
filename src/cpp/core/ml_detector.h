@@ -4,8 +4,8 @@
  * Neural network-based motion detection algorithm.
  * 
  * Algorithm:
- * 1. Calculate spatial turbulence per packet (raw std when gain is locked,
- *    std/mean when gain lock is unavailable)
+ * 1. Calculate spatial turbulence per packet using CV normalization
+ *    (`std/mean`)
  * 2. Apply optional Hampel filter to remove outliers
  * 3. Apply optional low-pass filter for noise reduction
  * 4. Extract statistical features from turbulence buffer

@@ -94,12 +94,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
   component.set_traffic_generator_mode("ping");
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::PING);
-  component.set_gain_lock_mode("enabled");
-  TEST_ASSERT_TRUE(component.runtime_.config().gain_lock_mode == RuntimeGainLockMode::ENABLED);
-  component.set_gain_lock_mode("disabled");
-  TEST_ASSERT_TRUE(component.runtime_.config().gain_lock_mode == RuntimeGainLockMode::DISABLED);
-  component.set_gain_lock_mode("auto");
-  TEST_ASSERT_TRUE(component.runtime_.config().gain_lock_mode == RuntimeGainLockMode::AUTO);
   component.set_detection_algorithm("ml");
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
   component.set_detection_algorithm("mvs");
@@ -120,7 +114,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
 
   component.set_threshold_mode("min");
   component.set_traffic_generator_mode("dns");
-  component.set_gain_lock_mode("enabled");
   component.set_detection_algorithm("ml");
 
   TEST_ASSERT_TRUE(component.runtime_.config().threshold_mode == ThresholdMode::MIN);
@@ -128,7 +121,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_EQUAL(64, component.runtime_.config().segmentation_window_size);
   TEST_ASSERT_EQUAL(0, component.runtime_.config().traffic_generator_rate);
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
-  TEST_ASSERT_TRUE(component.runtime_.config().gain_lock_mode == RuntimeGainLockMode::ENABLED);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::ML);
   TEST_ASSERT_EQUAL(200, component.runtime_.config().publish_interval);
   TEST_ASSERT_EQUAL(50, component.runtime_.config().evaluation_interval);
@@ -282,14 +274,12 @@ void test_dump_config_covers_configuration_branches(void) {
   component.runtime_.config().hampel_enabled = true;
   component.runtime_.config().hampel_window = 9;
   component.runtime_.config().hampel_threshold = 4.0f;
-  component.runtime_.config().gain_lock_mode = RuntimeGainLockMode::DISABLED;
   component.dump_config();
 
   component.runtime_.config().threshold_mode = ThresholdMode::AUTO;
   component.runtime_.config().traffic_generator_rate = 0;
   component.runtime_.config().lowpass_enabled = false;
   component.runtime_.config().hampel_enabled = false;
-  component.runtime_.config().gain_lock_mode = RuntimeGainLockMode::AUTO;
   snapshot.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
   component.runtime_.record_snapshot(snapshot);
   component.dump_config();

@@ -9,9 +9,9 @@ Configuration is aligned with C++ tests (test_motion_detection.cpp):
 - warmup = DETECTOR_DEFAULT_WINDOW_SIZE (buffer must be full before detection)
 - adaptive_factor = 1.1 (DEFAULT_ADAPTIVE_FACTOR)
 - enable_hampel = true
-- CV normalization for ESP32 (needs_cv_normalization())
+- CV normalization always enabled
 - Targets come from getter fixtures aligned with C++ target functions
-- Baseline packets: first 300 skipped (GAIN_LOCK_SKIP)
+- Baseline packets: first 300 skipped (STARTUP_WARMUP_SKIP)
 
 Converted from:
 - tools/11_test_band_selection.py (algorithm validation)
@@ -47,7 +47,7 @@ from features import (
 from filters import HampelFilter
 from csi_utils import (
     load_static_presence_and_motion, calculate_spatial_turbulence,
-    calculate_variance_two_pass, MVSDetector, read_gain_locked
+    calculate_variance_two_pass, MVSDetector
 )
 from config import (
     SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
@@ -156,20 +156,20 @@ def real_data(dataset_config):
     """Load real CSI data from the current dataset.
     
     Matches C++ behavior (csi_test_data.h):
-    - Baseline: first 300 packets skipped (GAIN_LOCK_SKIP) for radio warm-up
+    - Baseline: first 300 packets skipped (STARTUP_WARMUP_SKIP) for radio warm-up
     - Movement: all packets loaded
     """
     from csi_utils import load_npz_as_packets
     static_presence_path, motion_path, num_sc, chip = dataset_config
     
-    # Match C++ GAIN_LOCK_SKIP = 300 (skip radio warm-up noise in baseline)
-    GAIN_LOCK_SKIP = 300
+    # Match C++ STARTUP_WARMUP_SKIP = 300 (skip radio warm-up noise in baseline)
+    STARTUP_WARMUP_SKIP = 300
     
     static_presence_packets = load_npz_as_packets(static_presence_path)
     motion_packets = load_npz_as_packets(motion_path)
     
-    # Skip first GAIN_LOCK_SKIP baseline packets (matches C++ behavior)
-    static_presence_packets = static_presence_packets[GAIN_LOCK_SKIP:]
+    # Skip first STARTUP_WARMUP_SKIP baseline packets (matches C++ behavior)
+    static_presence_packets = static_presence_packets[STARTUP_WARMUP_SKIP:]
     
     return static_presence_packets, motion_packets
 
@@ -209,18 +209,8 @@ def calibration_algorithm(request, chip_type):
 
 @pytest.fixture
 def use_cv_normalization(dataset_config):
-    """Determine CV normalization from NPZ 'gain_locked' metadata.
-    
-    Reads the 'gain_locked' field from the baseline NPZ file (matches C++
-    needs_cv_normalization()). Falls back to chip-based heuristic for older
-    files that predate the field:
-    - ESP32: hardware has no gain lock
-    """
-    static_presence_path, _, _, chip = dataset_config
-    gain_locked = read_gain_locked(static_presence_path)
-    if gain_locked is not None:
-        return not gain_locked
-    return chip == 'ESP32'
+    """Return the shared production normalization mode."""
+    return True
 
 
 @pytest.fixture
@@ -285,11 +275,11 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
     """
     Run fixed-subcarrier threshold bootstrap exactly as in production.
     
-    Note: static_presence_packets is assumed to already have GAIN_LOCK_SKIP packets
+    Note: static_presence_packets is assumed to already have STARTUP_WARMUP_SKIP packets
     removed (done in real_data fixture to match C++ csi_test_data.h behavior).
     
     Args:
-        static_presence_packets: List of baseline CSI packets (already gain-lock skipped)
+        static_presence_packets: List of baseline CSI packets (already warm-up skipped)
         num_subcarriers: Number of subcarriers
         hint_band: Optional subcarrier band override (defaults to fixed defaults).
         mvs_window_size: MVS window size for validation
@@ -504,12 +494,11 @@ class TestFeatureSeparationRealData:
     def test_turbulence_variance_separation(self, real_data, default_subcarriers, chip_type, use_cv_normalization, window_size):
         """Test that turbulence variance separates baseline from movement.
         
-        Uses CV normalization for chips that need it (ESP32),
-        matching C++ needs_cv_normalization() behavior.
+        Uses the shared CV-normalized turbulence path, matching production.
         """
         static_presence_packets, motion_packets = real_data
         
-        # Calculate turbulence for each packet using CV normalization where needed
+        # Calculate turbulence for each packet using the shared CV normalization
         static_presence_turb = []
         for pkt in static_presence_packets:
             turb, _ = SegmentationContext.compute_spatial_turbulence(
@@ -600,7 +589,6 @@ class TestHampelFilterRealData:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
-                gain_locked=pkt.get('gain_locked', True)
             )
             raw_turbulence.append(turb)
         
@@ -627,7 +615,6 @@ class TestHampelFilterRealData:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
-                gain_locked=pkt.get('gain_locked', True)
             )
             filtered = hf_baseline.filter(turb)
             static_presence_turb.append(filtered)
@@ -639,7 +626,6 @@ class TestHampelFilterRealData:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
-                gain_locked=pkt.get('gain_locked', True)
             )
             filtered = hf_movement.filter(turb)
             motion_turb.append(filtered)
@@ -769,7 +755,7 @@ class TestPerformanceMetrics:
         - Process ALL packets (no warmup skip)
         - Process baseline first, then movement (continuous context)
         - Unified window_size (100) and adaptive threshold (P95 × 1.1)
-        - CV normalization for ESP32 (no gain lock)
+        - CV normalization for all chips
         
         Targets: >recall_target% Recall, <fp_rate_target% FP Rate.
         """
@@ -788,7 +774,7 @@ class TestPerformanceMetrics:
         ctx = SegmentationContext(
             window_size=window_size, threshold=adaptive_threshold, enable_hampel=enable_hampel
         )
-        # Set CV normalization based on chip
+        # Production uses CV normalization for every chip
         ctx.use_cv_normalization = use_cv_normalization
         
         num_baseline = len(static_presence_packets)
@@ -885,8 +871,7 @@ class TestPerformanceMetrics:
         No calibration needed - uses pre-trained weights.
         
         Note: ML model uses fixed subcarriers from config.DEFAULT_SUBCARRIERS regardless of chip type.
-        ML uses raw std for gain-locked streams and CV-normalized turbulence
-        for streams without gain lock.
+        ML uses the shared CV-normalized turbulence path.
         
         Targets: >ml_recall_target% Recall, <ml_fp_rate_target% FP Rate.
         """
@@ -901,10 +886,7 @@ class TestPerformanceMetrics:
         
         # ML model uses fixed subcarriers (must match training)
         ml_subcarriers = DEFAULT_SUBCARRIERS
-        use_cv_norm = any(
-            bool(pkt.get("gain_locked", True)) is False
-            for pkt in list(static_presence_packets[:8]) + list(motion_packets[:8])
-        )
+        use_cv_norm = True
         
         # ========================================
         # Initialize ML Detector (no calibration needed)
@@ -1011,7 +993,7 @@ class TestPerformanceMetrics:
         from detector_interface import MotionState
 
         packets = load_npz_as_packets(empty_dataset_path)
-        use_cv_norm = any(bool(pkt.get("gain_locked", True)) is False for pkt in packets[:8])
+        use_cv_norm = True
         detector = MLDetector(
             threshold=5.0,
             window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
@@ -1096,7 +1078,6 @@ class TestFloat32Stability:
             turb = calculate_spatial_turbulence(
                 pkt['csi_data'],
                 default_subcarriers,
-                gain_locked=pkt.get('gain_locked', True)
             )
             turbulences.append(turb)
         

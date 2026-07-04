@@ -35,18 +35,6 @@ StimulusServiceConfig to_stimulus_config(const RuntimeConfig &config) {
   return stimulus_config;
 }
 
-GainLockMode to_gain_lock_mode(RuntimeGainLockMode mode) {
-  switch (mode) {
-    case RuntimeGainLockMode::ENABLED:
-      return GainLockMode::ENABLED;
-    case RuntimeGainLockMode::DISABLED:
-      return GainLockMode::DISABLED;
-    case RuntimeGainLockMode::AUTO:
-    default:
-      return GainLockMode::AUTO;
-  }
-}
-
 }  // namespace
 
 void EspIdfRuntime::update_live_telemetry_callback_() {
@@ -79,7 +67,7 @@ bool EspIdfRuntime::setup() {
 
   stimulus_service_.init(to_stimulus_config(config_));
 
-  csi_manager_.init(detector_, config_.publish_interval, to_gain_lock_mode(config_.gain_lock_mode));
+  csi_manager_.init(detector_, config_.publish_interval);
   csi_manager_.set_evaluation_interval(config_.evaluation_interval);
   csi_manager_.set_motion_on_hits(config_.motion_on_hits);
   csi_manager_.set_motion_off_hits(config_.motion_off_hits);
@@ -152,7 +140,7 @@ void EspIdfRuntime::set_live_telemetry_enabled(bool enabled) {
 
 bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   if (!validate_runtime_threshold(threshold)) {
-    ESP_LOGW(RUNTIME_TAG, "Rejected invalid runtime threshold: %.3f", threshold);
+    ESP_LOGW(RUNTIME_TAG, "Rejected invalid runtime threshold: %.6f", threshold);
     return false;
   }
   if (!csi_manager_.set_threshold(threshold)) {
@@ -163,18 +151,13 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   if (listener_ != nullptr) {
     listener_->on_threshold_changed(snapshot_);
   }
-  ESP_LOGD(RUNTIME_TAG, "Threshold updated to %.2f (session-only, recalculated at boot)", threshold);
+  ESP_LOGD(RUNTIME_TAG, "Threshold updated to %.6f (session-only, recalculated at boot)", threshold);
   return true;
 }
 
 bool EspIdfRuntime::trigger_recalibration() {
   if (snapshot_.calibrating) {
     ESP_LOGW(RUNTIME_TAG, "Calibration already in progress");
-    return false;
-  }
-
-  if (!csi_manager_.is_gain_locked()) {
-    ESP_LOGW(RUNTIME_TAG, "Cannot recalibrate: gain not yet locked");
     return false;
   }
 
@@ -254,7 +237,6 @@ void EspIdfRuntime::on_wifi_connected_() {
       snapshot_.motion_state = state;
       snapshot_.movement_metric = detector_ != nullptr ? detector_->get_motion_metric() : 0.0f;
       snapshot_.threshold = detector_ != nullptr ? detector_->get_threshold() : snapshot_.threshold;
-      snapshot_.gain_locked = csi_manager_.is_gain_locked();
 
       if (snapshot_.ready_to_publish && listener_ != nullptr) {
         listener_->on_periodic_update(snapshot_, packets_received);
@@ -271,16 +253,7 @@ void EspIdfRuntime::on_wifi_connected_() {
     return;
   }
 
-  csi_manager_.set_gain_lock_callback([this]() {
-    const GainController &gc = csi_manager_.get_gain_controller();
-    const bool need_cv = gc.needs_cv_normalization();
-    if (detector_ != nullptr) {
-      detector_->set_cv_normalization(need_cv);
-    }
-    snapshot_.gain_locked = csi_manager_.is_gain_locked();
-    start_calibration_();
-  });
-
+  start_calibration_();
   snapshot_.ready_to_publish = true;
 }
 
@@ -319,8 +292,6 @@ bool EspIdfRuntime::start_calibration_() {
   threshold_calibration_detector_.configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
   threshold_calibration_detector_.configure_hampel(config_.hampel_enabled, config_.hampel_window,
                                                    config_.hampel_threshold);
-  threshold_calibration_detector_.set_cv_normalization(detector_ != nullptr &&
-                                                       detector_->is_cv_normalization_enabled());
   threshold_calibration_values_.clear();
   threshold_calibration_values_.reserve(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS);
   threshold_calibration_packets_ = 0;
@@ -367,7 +338,7 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
 
     if (config_.threshold_mode != ThresholdMode::MANUAL) {
       set_threshold_runtime(adaptive_threshold);
-      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.4f (P%d)", adaptive_threshold, percentile);
+      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (P%d)", adaptive_threshold, percentile);
     }
     csi_manager_.clear_detector_buffer();
   }

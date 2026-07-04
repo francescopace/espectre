@@ -51,11 +51,11 @@ FILTER_COLORS = {
 }
 
 
-def extract_csi_and_gain_locked(packet):
-    """Extract CSI array and gain lock flag from packet-like input."""
+def extract_csi(packet):
+    """Extract the CSI array from packet-like input."""
     if isinstance(packet, dict):
-        return packet["csi_data"], bool(packet.get("gain_locked", True))
-    return packet, True
+        return packet["csi_data"]
+    return packet
 
 
 def build_context(config: dict[str, bool]) -> SegmentationContext:
@@ -79,11 +79,10 @@ def run_pass(packets, config: dict[str, bool], track_data: bool) -> dict[str, ob
     motion_packets = 0
 
     for packet in packets:
-        csi_data, gain_locked = extract_csi_and_gain_locked(packet)
+        csi_data = extract_csi(packet)
         turbulence = calculate_spatial_turbulence(
             csi_data,
             DEFAULT_SUBCARRIERS,
-            gain_locked=gain_locked,
         )
         ctx.add_turbulence(turbulence)
         ctx.update_state()

@@ -86,15 +86,11 @@ def compute_threshold_info(packets):
     if not packets:
         return None
 
-    use_cv_normalization = any(
-        bool(pkt.get("gain_locked", True)) is False for pkt in packets[:8]
-    )
     context = SegmentationContext(
         window_size=SEG_WINDOW_SIZE,
         threshold=1.0,
         enable_hampel=True,
     )
-    context.use_cv_normalization = use_cv_normalization
 
     calibration_packets = min(CALIBRATION_BUFFER_SIZE, len(packets))
     moving_variance_values = []

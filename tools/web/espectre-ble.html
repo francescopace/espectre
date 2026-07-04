@@ -618,10 +618,6 @@
               <div class="metric-label">Traffic</div>
               <div class="metric-value" id="diagTraffic">-</div>
             </div>
-            <div class="diag-item" id="diagGainLockItem">
-              <div class="metric-label">Gain Lock</div>
-              <div class="metric-value" id="diagGainLock">-</div>
-            </div>
             <div class="diag-item" id="diagPublishItem">
               <div class="metric-label">Publish</div>
               <div class="metric-value" id="diagPublishInterval">-</div>
@@ -874,7 +870,6 @@
       setCardVisible('diagLowpassItem', capabilityState.supportsExtendedDiagnostics);
       setCardVisible('diagHampelItem', capabilityState.supportsExtendedDiagnostics);
       setCardVisible('diagTrafficItem', capabilityState.supportsExtendedDiagnostics);
-      setCardVisible('diagGainLockItem', capabilityState.supportsExtendedDiagnostics);
       setCardVisible('diagPublishItem', capabilityState.supportsExtendedDiagnostics);
       setCardVisible('diagEvaluationItem', capabilityState.supportsExtendedDiagnostics);
       setCardVisible('diagMotionHitsItem', capabilityState.supportsExtendedDiagnostics);
@@ -969,8 +964,6 @@
         el('diagProtocol').textContent = key === 'espectre_protocol_version' ? value : value;
       } else if (key === 'detector') {
         el('diagDetector').textContent = value;
-      } else if (key === 'gain_locked') {
-        el('diagGainLock').textContent = value === 'true' || value === '1' ? 'locked' : 'unlocked';
       } else if (key === 'window') {
         el('diagWindow').textContent = value;
       } else if (key === 'lowpass') {

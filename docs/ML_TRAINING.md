@@ -84,8 +84,7 @@ The training pipeline:
 
 1. Loads all `.npz` files from `data/` for `empty`, `static_presence`, and
    `motion`.
-2. Uses gain-mode-aware turbulence: raw std for gain-locked files and
-   CV-normalized turbulence for files without gain lock.
+2. Uses the shared CV-normalized turbulence path (`std/mean`) across all files.
 3. Applies the selected sample-weight policy. The production retrain uses
    `mvs_hard_negative`, which uses MVS only to up-weight IDLE windows that look
    motion-like; it does not use MVS as a teacher for motion labels.
@@ -200,10 +199,9 @@ Add `--plot` to `7_compare_detection_methods.py` to visualize the comparison.
 
 ## Runtime Notes
 
-The ML pipeline matches runtime gain handling.
-`MLDetector::set_cv_normalization(true)` enables CV-normalized turbulence for
-no-gain-lock streams; gain-locked streams keep raw turbulence. The exported
-feature set remains the 8 relative features used by the neural detector.
+The ML pipeline matches the runtime's AGC-active design. Turbulence is always
+normalized before the same 8 relative features are extracted for the neural
+detector.
 
 To switch the Python runtime to ML detection:
 

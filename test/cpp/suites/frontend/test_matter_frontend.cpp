@@ -22,7 +22,6 @@ RuntimeSnapshot make_ready_snapshot(bool motion) {
   snapshot.movement_metric = 2.75f;
   snapshot.threshold = 1.5f;
   snapshot.best_pxx = 0.42f;
-  snapshot.gain_locked = true;
   snapshot.detector_name = "mvs";
   return snapshot;
 }

@@ -39,7 +39,7 @@ def format_progress_bar(
     bar += "]"
 
     percent = int(progress * 100)
-    return f"{bar} {percent}%"
+    return f"{bar} {percent:>3d}%"
 
 
 def format_detection_publish_line(
@@ -71,7 +71,10 @@ def format_detection_publish_line(
         threshold_char=threshold_char,
     )
     state_str = "MOTION" if effective_state == 1 else "IDLE"
-    line = f"{progress_bar} | mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str} | {pps} pkt/s"
+    line = (
+        f"{progress_bar} | mvmt:{motion_metric:.6f} "
+        f"thr:{threshold:.6f} | {state_str} | {pps} pkt/s"
+    )
     if device_label:
         return f"{device_label} | {line}"
     return line
