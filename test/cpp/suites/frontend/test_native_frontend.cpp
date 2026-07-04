@@ -110,9 +110,11 @@ void test_native_frontend_connection_and_sysinfo_paths(void) {
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
                              "frontend=native") != ble_bindings_mock::state.sysinfo_lines.end());
-  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
-                             ble_bindings_mock::state.sysinfo_lines.end(),
-                             "ble_device_name=ESPectre Node") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::any_of(ble_bindings_mock::state.sysinfo_lines.begin(),
+                               ble_bindings_mock::state.sysinfo_lines.end(),
+                               [](const std::string &line) {
+                                 return line.rfind("device_name=ESPectre ", 0) == 0;
+                               }));
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
                              "espectre_protocol_version=1.0") != ble_bindings_mock::state.sysinfo_lines.end());
@@ -127,8 +129,8 @@ void test_native_frontend_device_config_commands_setup_mqtt_and_publish_info_sta
   MockMqttTransport mqtt;
   NativeFrontend frontend(&bindings, &mqtt);
   EspectreDeviceConfig config;
-  config.device_id = "living-room";
-  config.device_name = "Living Room";
+  config.device_id = 0x0000111122223333ULL;
+  config.device_label = "Living Room";
   std::vector<EspectreDeviceConfig> persisted_configs;
   frontend.set_device_config(config);
   frontend.set_device_config_change_callback(
@@ -144,23 +146,24 @@ void test_native_frontend_device_config_commands_setup_mqtt_and_publish_info_sta
   TEST_ASSERT_EQUAL(0, mqtt_transport_mock::state.setup_calls);
 
   bindings.emit_connection(true);
-  bindings.emit_control("SET_DEVICE_CONFIG:device_name=Kitchen Sensor");
+  bindings.emit_control("SET_DEVICE_CONFIG:device_label=Kitchen Sensor");
   bindings.emit_control("SET_DEVICE_CONFIG:mqtt_host=127.0.0.1");
 
   TEST_ASSERT_TRUE(frontend.mqtt_enabled());
-  TEST_ASSERT_EQUAL_STRING("living-room", frontend.device_config().device_id.c_str());
-  TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", frontend.device_config().device_name.c_str());
+  TEST_ASSERT_EQUAL(0x0000111122223333ULL, frontend.device_config().device_id);
+  TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", frontend.device_config().device_label.c_str());
   TEST_ASSERT_EQUAL(2, static_cast<int>(persisted_configs.size()));
-  TEST_ASSERT_EQUAL_STRING("living-room", persisted_configs.back().device_id.c_str());
-  TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", persisted_configs.back().device_name.c_str());
+  TEST_ASSERT_EQUAL(0x0000111122223333ULL, persisted_configs.back().device_id);
+  TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", persisted_configs.back().device_label.c_str());
   TEST_ASSERT_TRUE(!ble_bindings_mock::state.device_names.empty());
-  TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", ble_bindings_mock::state.device_names.back().c_str());
+  TEST_ASSERT_TRUE(ble_bindings_mock::state.device_names.back().rfind("ESPectre ", 0) == 0);
+  TEST_ASSERT_TRUE(ble_bindings_mock::state.device_names.back().find("223333") != std::string::npos);
   TEST_ASSERT_EQUAL(1, mqtt_transport_mock::state.setup_calls);
   mqtt.emit_connection(true);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.size() >= 2);
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/living-room/info",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000111122223333/info",
                            mqtt_transport_mock::state.publishes[0].topic.c_str());
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/living-room/status",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000111122223333/status",
                            mqtt_transport_mock::state.publishes[1].topic.c_str());
 }
 
@@ -168,7 +171,7 @@ void test_native_frontend_clear_device_config_forwards_to_callback_and_stops_mqt
   MockBleBindings bindings;
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
-  config.device_id = "lab-01";
+  config.device_id = 0x0000abcdeffedcbaULL;
   config.mqtt_host = "localhost";
   config.mqtt_enabled = true;
 
@@ -192,7 +195,7 @@ void test_native_frontend_clear_device_config_forwards_to_callback_and_stops_mqt
   bindings.emit_control("CLEAR_DEVICE_CONFIG");
 
   TEST_ASSERT_TRUE(clear_called);
-  TEST_ASSERT_EQUAL_STRING("lab-01", frontend.device_config().device_id.c_str());
+  TEST_ASSERT_EQUAL(0x0000abcdeffedcbaULL, frontend.device_config().device_id);
   TEST_ASSERT_FALSE(frontend.mqtt_enabled());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.shutdown_called);
 }
@@ -201,8 +204,8 @@ void test_native_frontend_clear_mqtt_config_preserves_device_identity(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
-  config.device_id = "lab-01";
-  config.device_name = "Lab 01";
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.device_label = "Lab 01";
   config.mqtt_host = "localhost";
   config.mqtt_username = "mqtt";
   config.mqtt_enabled = true;
@@ -225,8 +228,8 @@ void test_native_frontend_clear_mqtt_config_preserves_device_identity(void) {
   bindings.emit_control("CLEAR_MQTT_CONFIG");
 
   TEST_ASSERT_EQUAL(1, static_cast<int>(persisted_configs.size()));
-  TEST_ASSERT_EQUAL_STRING("lab-01", frontend.device_config().device_id.c_str());
-  TEST_ASSERT_EQUAL_STRING("Lab 01", frontend.device_config().device_name.c_str());
+  TEST_ASSERT_EQUAL(0x0000abcdeffedcbaULL, frontend.device_config().device_id);
+  TEST_ASSERT_EQUAL_STRING("Lab 01", frontend.device_config().device_label.c_str());
   TEST_ASSERT_FALSE(frontend.mqtt_enabled());
   TEST_ASSERT_EQUAL_STRING("", frontend.device_config().mqtt_host.c_str());
 }
@@ -235,7 +238,7 @@ void test_native_frontend_periodic_update_publishes_mqtt_telemetry(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
-  config.device_id = "lab-01";
+  config.device_id = 0x0000abcdeffedcbaULL;
   config.mqtt_host = "localhost";
   config.mqtt_enabled = true;
 
@@ -248,7 +251,7 @@ void test_native_frontend_periodic_update_publishes_mqtt_telemetry(void) {
   frontend.on_periodic_update(snapshot, 10);
 
   TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/lab-01/telemetry",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/telemetry",
                            mqtt_transport_mock::state.publishes[0].topic.c_str());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"motion_state\":\"motion\"") !=
                    std::string::npos);
@@ -260,7 +263,7 @@ void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
-  config.device_id = "lab-01";
+  config.device_id = 0x0000abcdeffedcbaULL;
   config.mqtt_host = "localhost";
   config.mqtt_enabled = true;
 
@@ -275,7 +278,7 @@ void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   TEST_ASSERT_EQUAL_FLOAT(4.5f, frontend_runtime_shim::state.last_threshold);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
   const auto &publish = mqtt_transport_mock::state.publishes.back();
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/lab-01/commands/accepted", publish.topic.c_str());
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted", publish.topic.c_str());
   TEST_ASSERT_TRUE(publish.payload.find("\"accepted\":true") != std::string::npos);
 }
 
@@ -283,7 +286,7 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   MockBleBindings bindings;
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
-  config.device_id = "lab-01";
+  config.device_id = 0x0000abcdeffedcbaULL;
   config.mqtt_host = "localhost";
   config.mqtt_enabled = true;
 
@@ -298,11 +301,11 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   mqtt.emit_command("{\"command_id\":\"cmd-stats\",\"command\":\"stats\"}");
 
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.size() >= 4);
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/lab-01/info",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/info",
                            mqtt_transport_mock::state.publishes[0].topic.c_str());
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/lab-01/commands/accepted",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted",
                            mqtt_transport_mock::state.publishes[1].topic.c_str());
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/lab-01/stats",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/stats",
                            mqtt_transport_mock::state.publishes[2].topic.c_str());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"uptime\":") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"free_memory_kb\":") != std::string::npos);
@@ -317,7 +320,7 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
   MockMqttTransport mqtt;
   MockOtaService ota;
   EspectreDeviceConfig config;
-  config.device_id = "lab-01";
+  config.device_id = 0x0000abcdeffedcbaULL;
   config.mqtt_host = "localhost";
   config.mqtt_enabled = true;
 
@@ -334,7 +337,7 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
   TEST_ASSERT_EQUAL_STRING("https://fw.example/manifest.json", ota_service_mock::state.last_manifest_url.c_str());
   TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/lab-01/commands/accepted",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted",
                            mqtt_transport_mock::state.publishes.back().topic.c_str());
 
   mqtt_transport_mock::state.publishes.clear();
@@ -351,7 +354,7 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
   ota_status.image_url = "https://fw.example/native.bin";
   ota.emit_status(ota_status);
   TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/lab-01/ota/state",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/ota/state",
                            mqtt_transport_mock::state.publishes[0].topic.c_str());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"state\":\"update_available\"") !=
                    std::string::npos);
@@ -360,8 +363,8 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
 void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
   EspectreDeviceConfig config;
   std::string error;
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_name=Living Room", &config, &error));
-  TEST_ASSERT_EQUAL_STRING("Living Room", config.device_name.c_str());
+  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label=Living Room", &config, &error));
+  TEST_ASSERT_EQUAL_STRING("Living Room", config.device_label.c_str());
   TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=1884", &config, &error));
   TEST_ASSERT_EQUAL(1884, config.mqtt_port);
   TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_username=mqtt", &config, &error));

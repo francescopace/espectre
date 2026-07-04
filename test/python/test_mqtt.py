@@ -575,6 +575,8 @@ class TestMQTTCommands:
         
         assert 'network' in payload
         assert 'detection' in payload
+        assert payload['device_name'] == 'ESPectre C6 device'
+        assert payload['device_label'] == ''
         assert 'device' not in payload
         assert 'mqtt' not in payload
         assert 'subcarriers' not in payload
@@ -612,6 +614,7 @@ class TestMQTTCommands:
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
         
+        assert payload['device_name'] == 'ESPectre C6 device'
         assert payload['network']['ip_address'] == '192.168.1.100'
         assert payload['network']['mac_address'] == '12:34:56:78:9A:BC'
         assert payload['network']['channel']['primary'] == 6
@@ -640,5 +643,6 @@ class TestMQTTCommands:
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
         
+        assert payload['device_name'] == 'ESPectre C6 device'
         assert payload['network']['ip_address'] == ''
         assert payload['network']['mac_address'] == ''

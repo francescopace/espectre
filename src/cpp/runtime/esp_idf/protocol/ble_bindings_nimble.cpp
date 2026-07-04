@@ -26,7 +26,6 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.ble.bind";
-static const char *const kAdvertisingName = "ESPectre";
 
 static ble_uuid128_t g_service_uuid =
     BLE_UUID128_INIT(0xf0, 0xf8, 0x6a, 0xc3, 0xa2, 0xb3, 0x6f, 0xbc, 0x75, 0x47, 0x03, 0x22, 0x6b, 0xf4, 0x3f, 0xd3);
@@ -63,6 +62,7 @@ bool NimbleBleBindings::setup() {
   sysinfo_value_.clear();
   conn_handle_ = BLE_HS_CONN_HANDLE_NONE;
   telemetry_subscribed_ = false;
+  advertising_active_ = false;
 
   const int init_rc = nimble_port_init();
   if (init_rc != 0) {
@@ -126,6 +126,7 @@ void NimbleBleBindings::shutdown() {
   nimble_port_deinit();
   setup_complete_ = false;
   conn_handle_ = BLE_HS_CONN_HANDLE_NONE;
+  advertising_active_ = false;
   instance_ = nullptr;
 }
 
@@ -148,6 +149,10 @@ void NimbleBleBindings::set_device_name(const char *name) {
     if (rc != 0) {
       ESP_LOGW(TAG, "ble_svc_gap_device_name_set failed: %d", rc);
     }
+    if (advertising_active_) {
+      ble_gap_adv_stop();
+    }
+    start_advertising_();
   }
 }
 
@@ -186,9 +191,6 @@ void NimbleBleBindings::report_fault(const char *message) {
 bool NimbleBleBindings::start_advertising_() {
   ble_hs_adv_fields fields{};
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-  fields.name = reinterpret_cast<const uint8_t *>(kAdvertisingName);
-  fields.name_len = std::strlen(kAdvertisingName);
-  fields.name_is_complete = 0;
   fields.uuids128 = &g_service_uuid;
   fields.num_uuids128 = 1;
   fields.uuids128_is_complete = 1;
@@ -199,14 +201,26 @@ bool NimbleBleBindings::start_advertising_() {
     return false;
   }
 
+  ble_hs_adv_fields scan_response_fields{};
+  scan_response_fields.name = reinterpret_cast<const uint8_t *>(device_name_.c_str());
+  scan_response_fields.name_len = device_name_.size();
+  scan_response_fields.name_is_complete = 1;
+  rc = ble_gap_adv_rsp_set_fields(&scan_response_fields);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "ble_gap_adv_rsp_set_fields failed: %d", rc);
+    return false;
+  }
+
   ble_gap_adv_params adv_params{};
   adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
   adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
   rc = ble_gap_adv_start(addr_type_, nullptr, BLE_HS_FOREVER, &adv_params, &NimbleBleBindings::gap_event_static_, this);
   if (rc != 0) {
     ESP_LOGE(TAG, "ble_gap_adv_start failed: %d", rc);
+    advertising_active_ = false;
     return false;
   }
+  advertising_active_ = true;
   return true;
 }
 
@@ -226,6 +240,7 @@ int NimbleBleBindings::on_gap_event_(ble_gap_event *event) {
     case BLE_GAP_EVENT_CONNECT:
       if (event->connect.status == 0) {
         conn_handle_ = event->connect.conn_handle;
+        advertising_active_ = false;
         if (connection_state_callback_) {
           connection_state_callback_(true);
         }
@@ -235,6 +250,7 @@ int NimbleBleBindings::on_gap_event_(ble_gap_event *event) {
       return 0;
     case BLE_GAP_EVENT_DISCONNECT:
       conn_handle_ = BLE_HS_CONN_HANDLE_NONE;
+      advertising_active_ = false;
       telemetry_subscribed_ = false;
       if (telemetry_subscription_callback_) {
         telemetry_subscription_callback_(false);
@@ -253,6 +269,7 @@ int NimbleBleBindings::on_gap_event_(ble_gap_event *event) {
       }
       return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
+      advertising_active_ = false;
       start_advertising_();
       return 0;
     default:

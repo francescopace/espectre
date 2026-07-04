@@ -21,9 +21,9 @@ menu "ESPectre Native Frontend"
         bool "Enable MQTT telemetry"
         default n
 
-    config ESPECTRE_DEVICE_NAME
-        string "Device name"
-        default "ESPectre Node"
+    config ESPECTRE_DEVICE_LABEL
+        string "Device label"
+        default ""
 
     config ESPECTRE_MQTT_HOST
         string "MQTT broker host"

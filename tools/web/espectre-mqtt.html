@@ -542,12 +542,8 @@
                         <input type="number" id="port" placeholder="9001" value="9001">
                     </div>
                     <div class="input-group">
-                        <label for="topic">Topic</label>
-                        <input type="text" id="topic" placeholder="espectre/v1/devices/+/telemetry" value="espectre/v1/devices/+/telemetry">
-                    </div>
-                    <div class="input-group">
-                        <label for="commandDeviceId">Device ID</label>
-                        <input type="text" id="commandDeviceId" placeholder="espectre-node">
+                        <label for="baseTopic">Base Topic</label>
+                        <input type="text" id="baseTopic" placeholder="espectre/v1/devices/0x00007c2c6742bbac" value="espectre/v1/devices/0x00007c2c6742bbac">
                     </div>
                     <div class="input-group">
                         <label for="username">Username (optional)</label>
@@ -606,6 +602,16 @@
                             <span id="protocolDeviceId">-</span>
                         </div>
                         <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
+                            <span style="font-size: 1.1em;">📛</span>
+                            <span style="font-weight: 600; color: #666;">Device Name:</span>
+                            <span id="protocolDeviceName">-</span>
+                        </div>
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
+                            <span style="font-size: 1.1em;">📝</span>
+                            <span style="font-weight: 600; color: #666;">Device Label:</span>
+                            <span id="protocolDeviceLabel">-</span>
+                        </div>
+                        <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
                             <span style="font-size: 1.1em;">🧩</span>
                             <span style="font-weight: 600; color: #666;">Firmware:</span>
                             <span id="firmwareVersion">-</span>
@@ -658,7 +664,7 @@
                                 <small style="color: #666; font-size: 0.8em;">Minimum threshold required to detect movement.<br>Low value = detects small movements.<br>High value = detects large movements.<br><b>Recommended: 1.0 for balanced detection 💡</b></small>
                             </div>
                         </div>
-                        <div class="ota-grid">
+                        <div class="ota-grid" id="otaControlsSection" style="display: none;">
                             <div class="input-group">
                                 <label for="otaManifestUrl">Manifest URL</label>
                                 <input type="text" id="otaManifestUrl" placeholder="https://example.invalid/espectre-native-ota.json">
@@ -677,12 +683,13 @@
 
                 <!-- Global Action Buttons -->
                 <div
+                    id="otaActions"
                     style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding-top: 10px; border-top: 2px solid #e0e0e0;">
                     <button class="btn btn-secondary" onclick="requestInfo()">Reload Info</button>
                     <button class="btn btn-primary btn-sm" onclick="requestStats()">Statistics</button>
-                    <button class="btn btn-info btn-sm" onclick="requestOtaStatus()">OTA Status</button>
-                    <button class="btn btn-warning btn-sm" onclick="requestOtaCheck()">OTA Check</button>
-                    <button class="btn btn-success btn-sm" onclick="requestOtaStart()">OTA Start</button>
+                    <button class="btn btn-info btn-sm ota-action" onclick="requestOtaStatus()" style="display: none;">OTA Status</button>
+                    <button class="btn btn-warning btn-sm ota-action" onclick="requestOtaCheck()" style="display: none;">OTA Check</button>
+                    <button class="btn btn-success btn-sm ota-action" onclick="requestOtaStart()" style="display: none;">OTA Start</button>
                 </div>
             </div>
         </div>
@@ -844,12 +851,18 @@
         function connect() {
             const broker = document.getElementById('broker').value;
             const port = document.getElementById('port').value;
-            const topic = document.getElementById('topic').value;
+            const baseTopic = document.getElementById('baseTopic').value;
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
 
-            if (!broker || !port || !topic) {
+            if (!broker || !port || !baseTopic) {
                 alert('Please fill in all required fields!');
+                return;
+            }
+
+            const protocolTopics = resolveProtocolTopics(baseTopic);
+            if (!protocolTopics) {
+                alert('Set a device-specific base topic like espectre/v1/devices/0x00007c2c6742bbac. Wildcards and suffixes are not supported.');
                 return;
             }
 
@@ -873,33 +886,19 @@
                     document.getElementById('configContent').classList.add('collapsed');
                     document.getElementById('configArrow').classList.add('rotate');
 
-                    const protocolTopics = resolveProtocolTopics(topic);
-
-                    // Subscribe to main topic
-                    client.subscribe(protocolTopics.telemetry, (err) => {
+                    client.subscribe(protocolTopics.all, (err) => {
                         if (err) {
                             console.error('Subscribe error:', err);
                             alert('Error subscribing to topic!');
                         } else {
-                            console.log('Subscribed to:', protocolTopics.telemetry);
-                        }
-                    });
+                            console.log('Subscribed to:', protocolTopics.all);
+                            setCurrentDeviceId(protocolTopics.deviceId);
 
-                    const responseTopic = protocolTopics.responses;
-                    client.subscribe(responseTopic, (err) => {
-                        if (err) {
-                            console.error('Subscribe error for response topic:', err);
-                        } else {
-                            console.log('Subscribed to:', responseTopic);
-
-                            const selectedDeviceId = resolveCommandDeviceId(topic);
-                            if (selectedDeviceId) {
-                                // Request current configuration after successful connection
-                                setTimeout(() => {
-                                    console.log('Requesting initial configuration...');
-                                    requestInfo();
-                                }, 500); // Small delay to ensure subscriptions are ready
-                            }
+                            // Request current configuration after successful connection.
+                            setTimeout(() => {
+                                console.log('Requesting initial configuration...');
+                                requestInfo();
+                            }, 500);
                         }
                     });
                 });
@@ -1023,6 +1022,17 @@
             input.value = value;
         }
 
+        function setOtaControlsVisibility(supported) {
+            const enabled = supported === true;
+            const otaControlsSection = document.getElementById('otaControlsSection');
+            if (otaControlsSection) {
+                otaControlsSection.style.display = enabled ? 'grid' : 'none';
+            }
+            document.querySelectorAll('.ota-action').forEach((button) => {
+                button.style.display = enabled ? 'inline-block' : 'none';
+            });
+        }
+
         function clearData() {
             chartData.labels = [];
             chartData.movement = [];
@@ -1030,6 +1040,7 @@
             pendingData = [];
 
             document.getElementById('lastUpdate').textContent = '-';
+            setOtaControlsVisibility(false);
 
             chart.update();
         }
@@ -1038,61 +1049,50 @@
             return (topic || '').trim().replace(/\/+$/, '');
         }
 
-        function resolveProtocolTopics(inputTopic) {
-            const topic = trimTopic(inputTopic);
-            const telemetrySuffix = '/telemetry';
-            const wildcardTelemetrySuffix = '/+/telemetry';
-            let root = topic;
-
-            if (topic.endsWith(wildcardTelemetrySuffix)) {
-                root = topic.slice(0, -wildcardTelemetrySuffix.length);
-            } else if (topic.endsWith(telemetrySuffix)) {
-                root = topic.slice(0, -telemetrySuffix.length);
-            }
-
-            return {
-                root,
-                telemetry: `${root}/+/#`,
-                responses: `${root}/+/commands/+`
-            };
-        }
-
-        function resolveCommandDeviceId(inputTopic) {
-            const manualDeviceId = document.getElementById('commandDeviceId').value.trim();
-            if (manualDeviceId) {
-                return manualDeviceId;
-            }
-
-            const topic = trimTopic(inputTopic);
-            const parts = topic.split('/').filter(Boolean);
+        function extractDeviceIdFromBaseTopic(baseTopic) {
+            const parts = trimTopic(baseTopic).split('/').filter(Boolean);
             const devicesIndex = parts.indexOf('devices');
-            if (devicesIndex >= 0 && parts.length > devicesIndex + 1) {
+            if (devicesIndex >= 0 && parts.length === devicesIndex + 2) {
                 const candidate = parts[devicesIndex + 1];
-                if (candidate && candidate !== '+') {
+                if (candidate && !candidate.includes('+') && !candidate.includes('#') && !candidate.includes('<') && !candidate.includes('>')) {
                     return candidate;
                 }
             }
+            return null;
+        }
 
-            return currentDeviceId;
+        function resolveProtocolTopics(inputBaseTopic) {
+            const base = trimTopic(inputBaseTopic);
+            const deviceId = extractDeviceIdFromBaseTopic(base);
+            if (!base || !deviceId) {
+                return null;
+            }
+
+            return {
+                base,
+                deviceId,
+                all: `${base}/#`,
+                info: `${base}/info`,
+                status: `${base}/status`,
+                otaState: `${base}/ota/state`,
+                commandsRequest: `${base}/commands/request`,
+                commandsAccepted: `${base}/commands/accepted`,
+                commandsRejected: `${base}/commands/rejected`
+            };
         }
 
         function setCurrentDeviceId(deviceId) {
             if (!deviceId) return;
             currentDeviceId = deviceId;
-            const input = document.getElementById('commandDeviceId');
-            if (input && !input.value.trim()) {
-                input.value = deviceId;
-            }
             setInfoField('protocolDeviceId', deviceId);
         }
 
-        function commandTopicFor(inputTopic) {
-            const topics = resolveProtocolTopics(inputTopic);
-            const deviceId = resolveCommandDeviceId(inputTopic);
-            if (!deviceId) {
+        function commandTopicFor(inputBaseTopic) {
+            const topics = resolveProtocolTopics(inputBaseTopic);
+            if (!topics) {
                 return null;
             }
-            return `${topics.root}/${deviceId}/commands/request`;
+            return topics.commandsRequest;
         }
 
         // MQTT Command Functions
@@ -1102,10 +1102,10 @@
                 return;
             }
 
-            const topic = document.getElementById('topic').value;
-            const cmdTopic = commandTopicFor(topic);
+            const baseTopic = document.getElementById('baseTopic').value;
+            const cmdTopic = commandTopicFor(baseTopic);
             if (!cmdTopic) {
-                showNotification('Set a Device ID or use a device-specific topic before sending commands', 'error');
+                showNotification('Set a device-specific base topic before sending commands', 'error');
                 return;
             }
             const message = JSON.stringify({
@@ -1460,6 +1460,8 @@
                 'wifiChannel',
                 'detectorAlgorithm',
                 'protocolDeviceId',
+                'protocolDeviceName',
+                'protocolDeviceLabel',
                 'firmwareVersion'
             ].forEach((id) => setInfoField(id, null));
 
@@ -1468,6 +1470,9 @@
             setInfoField('detectorAlgorithm', config.frontend);
             setInfoField('firmwareVersion', config.firmware_version);
             setCurrentDeviceId(config.device_id);
+            setInfoField('protocolDeviceName', config.device_name);
+            setInfoField('protocolDeviceLabel', config.device_label);
+            setOtaControlsVisibility(config.supports_ota === true);
             
             if (config.network) {
                 setInfoField('deviceIP', config.network.ip_address);
@@ -1527,6 +1532,7 @@
         }
 
         function updateOtaStatus(data) {
+            setOtaControlsVisibility(true);
             const state = data.state || '-';
             setOtaValue('otaStateValue', state);
             if (data.current_version) {

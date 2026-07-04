@@ -13,16 +13,33 @@
 
 using namespace esphome::espectre;
 
+void test_device_id_helpers_format_parse_and_pack_mac_consistently(void) {
+  TEST_ASSERT_EQUAL_STRING("0x00007c2c6742bbac", format_espectre_device_id(0x00007C2C6742BBACULL).c_str());
+
+  uint64_t parsed = 0U;
+  TEST_ASSERT_TRUE(parse_espectre_device_id("0x00007c2c6742bbac", &parsed));
+  TEST_ASSERT_EQUAL(0x00007C2C6742BBACULL, parsed);
+  TEST_ASSERT_TRUE(parse_espectre_device_id("124", &parsed));
+  TEST_ASSERT_EQUAL(124ULL, parsed);
+  TEST_ASSERT_FALSE(parse_espectre_device_id("bad-id", &parsed));
+
+  const uint8_t mac[6] = {0x7C, 0x2C, 0x67, 0x42, 0xBB, 0xAC};
+  TEST_ASSERT_EQUAL(0x00007C2C6742BBACULL, espectre_device_id_from_mac(mac, sizeof(mac)));
+  TEST_ASSERT_EQUAL(ESPECTRE_DEFAULT_DEVICE_ID, espectre_device_id_from_mac(nullptr, 0));
+  TEST_ASSERT_EQUAL_STRING("ESPectre C6 42bbac", espectre_device_name(0x00007C2C6742BBACULL, "esp32c6").c_str());
+  TEST_ASSERT_EQUAL_STRING("ESPectre UNK 000000", espectre_device_name(ESPECTRE_DEFAULT_DEVICE_ID).c_str());
+}
+
 void test_effective_device_helpers_and_topic_generation_use_defaults(void) {
   EspectreDeviceConfig config;
-  config.device_id.clear();
-  config.device_name.clear();
+  config.device_id = ESPECTRE_DEFAULT_DEVICE_ID;
+  config.device_label.clear();
   config.topic_prefix = "custom/root/";
 
-  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DEFAULT_DEVICE_ID, espectre_effective_device_id(config).c_str());
-  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DEFAULT_DEVICE_NAME, espectre_effective_device_name(config).c_str());
-  TEST_ASSERT_EQUAL_STRING("custom/root/espectre-node/telemetry", espectre_topic(config, "telemetry").c_str());
-  TEST_ASSERT_EQUAL_STRING("custom/root/espectre-node/", espectre_topic(config, nullptr).c_str());
+  TEST_ASSERT_EQUAL_STRING("0x0000000000000000", espectre_effective_device_id(config).c_str());
+  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DEFAULT_DEVICE_LABEL, espectre_effective_device_label(config).c_str());
+  TEST_ASSERT_EQUAL_STRING("custom/root/0x0000000000000000/telemetry", espectre_topic(config, "telemetry").c_str());
+  TEST_ASSERT_EQUAL_STRING("custom/root/0x0000000000000000/", espectre_topic(config, nullptr).c_str());
 }
 
 void test_clear_mqtt_config_resets_runtime_defaults(void) {
@@ -48,7 +65,7 @@ void test_clear_mqtt_config_resets_runtime_defaults(void) {
 
 void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   EspectreDeviceConfig config;
-  config.device_id = "node-7";
+  config.device_id = 0x0000000000000007ULL;
 
   RuntimeSnapshot snapshot;
   snapshot.motion_state = MotionState::MOTION;
@@ -61,7 +78,7 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   const std::string telemetry = espectre_telemetry_payload(config, snapshot, 222, 33, "native");
   const std::string stats = espectre_stats_payload(config, snapshot, 333, 44, 128.5f, 6.25f);
 
-  TEST_ASSERT_TRUE(status.find("\"device_id\":\"node-7\"") != std::string::npos);
+  TEST_ASSERT_TRUE(status.find("\"device_id\":\"0x0000000000000007\"") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"online\":true") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"frontend\":\"native\"") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"motion_state\":\"motion\"") != std::string::npos);
@@ -75,8 +92,8 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
 
 void test_info_payload_uses_defaults_and_optional_sections(void) {
   EspectreDeviceConfig config;
-  config.device_id = "node-1";
-  config.device_name = "Kitchen \"node\"\nA";
+  config.device_id = 0x0000000000000001ULL;
+  config.device_label = "Kitchen \"node\"\nA";
 
   EspectreDeviceInfo info;
   info.frontend = "streamer";
@@ -89,8 +106,9 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
 
   const std::string payload = espectre_info_payload(config, info);
 
-  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"node-1\"") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"device_name\":\"Kitchen \\\"node\\\"\\nA\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"0x0000000000000001\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_name\":\"ESPectre C6 000001\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_label\":\"Kitchen \\\"node\\\"\\nA\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"frontend\":\"streamer\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"firmware_version\":\"2026.7\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"esp32c6\"") != std::string::npos);
@@ -102,8 +120,8 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
 
 void test_info_payload_omits_optional_sections_when_empty(void) {
   EspectreDeviceConfig config;
-  config.device_id.clear();
-  config.device_name.clear();
+  config.device_id = ESPECTRE_DEFAULT_DEVICE_ID;
+  config.device_label.clear();
 
   EspectreDeviceInfo info;
   info.frontend.clear();
@@ -113,8 +131,9 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
 
   const std::string payload = espectre_info_payload(config, info);
 
-  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"espectre-node\"") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"device_name\":\"ESPectre Node\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"0x0000000000000000\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_name\":\"ESPectre UNK 000000\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_label\":\"\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"frontend\":\"native\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"firmware_version\":\"unknown\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"unknown\"") != std::string::npos);
@@ -124,7 +143,7 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
 
 void test_command_result_payload_includes_acceptance_and_message(void) {
   EspectreDeviceConfig config;
-  config.device_id = "node-5";
+  config.device_id = 0x0000000000000005ULL;
 
   EspectreCommand command;
   command.command_id = "abc123";
@@ -197,7 +216,7 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
 
 void test_ota_status_payload_includes_expected_fields(void) {
   EspectreDeviceConfig config;
-  config.device_id = "node-ota";
+  config.device_id = 0x000000000000000AULL;
 
   EspectreOtaStatus status;
   status.state = EspectreOtaState::UPDATE_AVAILABLE;
@@ -211,7 +230,7 @@ void test_ota_status_payload_includes_expected_fields(void) {
 
   const std::string payload = espectre_ota_status_payload(config, status, 4321);
 
-  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"node-ota\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"0x000000000000000a\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"state\":\"update_available\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"current_version\":\"1.0.0\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"target_version\":\"1.1.0\"") != std::string::npos);
@@ -223,7 +242,7 @@ void test_parse_espectre_config_command_updates_supported_fields(void) {
   EspectreDeviceConfig config;
   std::string error;
 
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_name=Office", &config, &error));
+  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label=Office", &config, &error));
   TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_host=broker.local", &config, &error));
   TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_username=user", &config, &error));
   TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_password=secret", &config, &error));
@@ -232,7 +251,7 @@ void test_parse_espectre_config_command_updates_supported_fields(void) {
   TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_enabled=false", &config, &error));
   TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_enabled=true", &config, &error));
 
-  TEST_ASSERT_EQUAL_STRING("Office", config.device_name.c_str());
+  TEST_ASSERT_EQUAL_STRING("Office", config.device_label.c_str());
   TEST_ASSERT_EQUAL_STRING("broker.local", config.mqtt_host.c_str());
   TEST_ASSERT_EQUAL_STRING("user", config.mqtt_username.c_str());
   TEST_ASSERT_EQUAL_STRING("secret", config.mqtt_password.c_str());
@@ -245,10 +264,10 @@ void test_parse_espectre_config_command_rejects_invalid_inputs(void) {
   EspectreDeviceConfig config;
   std::string error;
 
-  TEST_ASSERT_FALSE(parse_espectre_config_command("BAD_PREFIX:device_name=Office", &config, &error));
+  TEST_ASSERT_FALSE(parse_espectre_config_command("BAD_PREFIX:device_label=Office", &config, &error));
   TEST_ASSERT_EQUAL_STRING("invalid prefix", error.c_str());
 
-  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_name", &config, &error));
+  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label", &config, &error));
   TEST_ASSERT_EQUAL_STRING("expected key=value", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=0", &config, &error));
@@ -263,11 +282,12 @@ void test_parse_espectre_config_command_rejects_invalid_inputs(void) {
   TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:unsupported=value", &config, &error));
   TEST_ASSERT_EQUAL_STRING("invalid config field", error.c_str());
 
-  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_name=test", nullptr, &error));
+  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label=test", nullptr, &error));
 }
 
 int process(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_device_id_helpers_format_parse_and_pack_mac_consistently);
   RUN_TEST(test_effective_device_helpers_and_topic_generation_use_defaults);
   RUN_TEST(test_clear_mqtt_config_resets_runtime_defaults);
   RUN_TEST(test_status_telemetry_and_stats_payloads_include_expected_fields);

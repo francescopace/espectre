@@ -118,6 +118,7 @@ MQTT_CLIENT_ID = "micro-espectre"
 MQTT_TOPIC_PREFIX = "espectre/v1/devices"
 MQTT_USERNAME = "mqtt"
 MQTT_PASSWORD = "mqtt"
+MQTT_DEVICE_LABEL = "Lab prototype"  # Optional
 ```
 
 Do not commit `config_local.py`.
@@ -173,6 +174,12 @@ theory, use [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 Micro-ESPectre publishes ESPectre Protocol telemetry with `frontend: "micro"`.
 The exact payload and topic model are defined in
 [ESPECTRE_PROTOCOL.md](../../../docs/ESPECTRE_PROTOCOL.md).
+
+For protocol identity fields:
+
+- `device_id` comes from `MQTT_CLIENT_ID`
+- `device_name` is derived automatically from chip and `device_id`
+- `device_label` is optional and can be supplied through `MQTT_DEVICE_LABEL`
 
 Default telemetry topic shape:
 

@@ -258,6 +258,178 @@ def detect_live_motion(args) -> None:
             return float(threshold)
         return ML_DEFAULT_THRESHOLD
 
+    def supports_inline_terminal(stream=None):
+        target_stream = sys.stdout if stream is None else stream
+        isatty = getattr(target_stream, "isatty", None)
+        return bool(callable(isatty) and isatty())
+
+    def emit_status_block(summary_line, detail_lines, *, previous_line_count=0, inline=None):
+        target_stream = sys.stdout
+        use_inline = supports_inline_terminal(target_stream) if inline is None else inline
+        lines = [summary_line, *detail_lines]
+
+        if not use_inline:
+            for line in lines:
+                target_stream.write(f"{line}\n")
+            target_stream.flush()
+            return len(lines)
+
+        if previous_line_count > 0:
+            target_stream.write(f"\x1b[{previous_line_count}F")
+
+        total_lines = max(previous_line_count, len(lines))
+        for idx in range(total_lines):
+            target_stream.write("\x1b[2K")
+            if idx < len(lines):
+                target_stream.write(lines[idx])
+            target_stream.write("\n")
+
+        target_stream.flush()
+        return len(lines)
+
+    def clear_status_block():
+        line_count = state["summary_line_count"]
+        if line_count <= 0:
+            return
+
+        target_stream = sys.stdout
+        if not state["summary_use_inline"]:
+            state["summary_line_count"] = 0
+            return
+
+        target_stream.write(f"\x1b[{line_count}F")
+        for _ in range(line_count):
+            target_stream.write("\x1b[2K\n")
+        target_stream.write(f"\x1b[{line_count}F")
+        target_stream.flush()
+        state["summary_line_count"] = 0
+
+    def format_device_label(device_id):
+        if device_id is None:
+            return "device=unknown"
+        return f"device=dev{int(device_id):016x}"
+
+    def compute_sequence_gap(previous_seq, current_seq):
+        expected = (previous_seq + 1) & 0xFFFFFFFF
+        delta = (current_seq - expected) & 0xFFFFFFFF
+        if delta == 0:
+            return 0
+        if delta >= 0x80000000:
+            return 0
+        return delta
+
+    def get_packet_device_id(pkt):
+        device_id = getattr(pkt, "device_id", None)
+        if device_id is None:
+            return None
+        return int(device_id)
+
+    def check_sequence_by_device(pkt):
+        device_id = get_packet_device_id(pkt)
+        seq_num = getattr(pkt, "seq_num", None)
+        if device_id is None or seq_num is None:
+            return 0
+        dropped = 0
+        if device_id in state["last_seq_by_device"]:
+            dropped = compute_sequence_gap(state["last_seq_by_device"][device_id], seq_num)
+        state["last_seq_by_device"][device_id] = seq_num
+        return dropped
+
+    def build_device_state(device_id):
+        return {
+            "device_id": device_id,
+            "label": format_device_label(device_id),
+            "packet_count": 0,
+            "publish_counter": 0,
+            "dropped_count": 0,
+            "pps": 0,
+            "pps_window_started_at": None,
+            "pps_window_packets": 0,
+            "motion_metric": 0.0,
+            "metric_threshold": threshold,
+            "effective_state": 0,
+            "status": "WARMUP",
+            "last_publish_at": None,
+            "detector": MLDetector(
+                window_size=config.SEG_WINDOW_SIZE,
+                threshold=threshold,
+                enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+                lowpass_cutoff=config.LOWPASS_CUTOFF,
+                enable_hampel=config.ENABLE_HAMPEL_FILTER,
+                hampel_window=config.HAMPEL_WINDOW,
+                hampel_threshold=config.HAMPEL_THRESHOLD,
+            ),
+            "runtime_policy": RuntimeMotionPolicy(
+                evaluation_interval=getattr(config, "EVALUATION_INTERVAL", 25),
+                motion_on_hits=getattr(config, "MOTION_ON_HITS", 3),
+                motion_off_hits=getattr(config, "MOTION_OFF_HITS", 3),
+            ),
+        }
+
+    def get_device_state(pkt):
+        device_id = get_packet_device_id(pkt)
+        device_state = state["devices"].get(device_id)
+        if device_state is None:
+            device_state = build_device_state(device_id)
+            state["devices"][device_id] = device_state
+        return device_state
+
+    def update_device_pps(device_state, now):
+        if device_state["pps_window_started_at"] is None:
+            device_state["pps_window_started_at"] = now
+        device_state["pps_window_packets"] += 1
+        elapsed = now - device_state["pps_window_started_at"]
+        if elapsed >= 1.0:
+            device_state["pps"] = int(device_state["pps_window_packets"] / elapsed) if elapsed > 0 else 0
+            device_state["pps_window_started_at"] = now
+            device_state["pps_window_packets"] = 0
+
+    def get_device_status(device_state):
+        detector = device_state["detector"]
+        if not detector.is_ready():
+            return "WARMUP"
+        return "MOTION" if int(device_state["effective_state"]) == 1 else "IDLE"
+
+    def should_print_publish_details(effective_state):
+        if not (args.log_turbulence or args.log_features):
+            return False
+        if args.log_only_motion and effective_state != 1:
+            return False
+        return True
+
+    def render_multi_device_summary(now, *, force=False):
+        refresh_seconds = 1.0
+        if not force and (now - state["summary_last_rendered_at"]) < refresh_seconds:
+            return
+
+        observed_count = len(state["devices"])
+        required_count = max(1, len(stimulus_targets))
+        detail_lines = []
+        for device_id in sorted(state["devices"], key=lambda value: (value is None, value if value is not None else 0)):
+            device_state = state["devices"][device_id]
+            status = get_device_status(device_state)
+            progress_bar = format_progress_bar(device_state["motion_metric"], device_state["metric_threshold"])
+            detail_lines.append(
+                f"    {device_state['label']} | {progress_bar} | {status:<6} "
+                f"mvmt:{device_state['motion_metric']:.4f}/{device_state['metric_threshold']:.4f} "
+                f"pkt:{device_state['packet_count']} drop:{device_state['dropped_count']} pps:{device_state['pps']}"
+            )
+
+        for waiting_idx in range(observed_count, required_count):
+            detail_lines.append(f"    device=waiting-{waiting_idx + 1:02d} | WAITING")
+
+        summary_line = (
+            f"  STATUS: DEVICES {observed_count}/{required_count} | "
+            f"packets {state['packet_count']} | capture {len(state['capture_packets'])}"
+        )
+        state["summary_line_count"] = emit_status_block(
+            summary_line,
+            detail_lines,
+            previous_line_count=state["summary_line_count"],
+            inline=state["summary_use_inline"],
+        )
+        state["summary_last_rendered_at"] = now
+
     capture_enabled = bool(getattr(args, "capture_label", None))
     capture_duration = getattr(args, "capture_duration", None)
     if capture_duration is not None and capture_duration <= 0:
@@ -276,20 +448,6 @@ def detect_live_motion(args) -> None:
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
     subcarriers = list(config.DEFAULT_SUBCARRIERS)
     threshold = get_runtime_ml_threshold()
-    detector = MLDetector(
-        window_size=config.SEG_WINDOW_SIZE,
-        threshold=threshold,
-        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=config.LOWPASS_CUTOFF,
-        enable_hampel=config.ENABLE_HAMPEL_FILTER,
-        hampel_window=config.HAMPEL_WINDOW,
-        hampel_threshold=config.HAMPEL_THRESHOLD,
-    )
-    runtime_policy = RuntimeMotionPolicy(
-        evaluation_interval=getattr(config, "EVALUATION_INTERVAL", 25),
-        motion_on_hits=getattr(config, "MOTION_ON_HITS", 3),
-        motion_off_hits=getattr(config, "MOTION_OFF_HITS", 3),
-    )
     publish_rate = getattr(config, "PUBLISH_INTERVAL", 100) or 100
     receiver = CSIReceiver(port=args.udp_port, buffer_size=4000, bind_host=resolved_bind_ip)
     stimulus_sender = StimulusSender(
@@ -314,15 +472,14 @@ def detect_live_motion(args) -> None:
     state = {
         "running": True,
         "packet_count": 0,
-        "publish_counter": 0,
         "capture_packets": [],
         "capture_started_at": None,
+        "devices": {},
+        "last_seq_by_device": {},
+        "summary_last_rendered_at": 0.0,
+        "summary_line_count": 0,
+        "summary_use_inline": supports_inline_terminal(),
     }
-
-    def should_log_publish(effective_state):
-        if not args.log_only_motion:
-            return True
-        return effective_state == 1
 
     def handle_sigint(_signum, _frame):
         state["running"] = False
@@ -333,7 +490,6 @@ def detect_live_motion(args) -> None:
             return
 
         state["packet_count"] += 1
-        state["publish_counter"] += 1
 
         if capture_enabled:
             now = time.monotonic()
@@ -348,6 +504,15 @@ def detect_live_motion(args) -> None:
                 receiver.stop()
                 return
 
+        device_state = get_device_state(pkt)
+        device_state["packet_count"] += 1
+        device_state["publish_counter"] += 1
+        device_state["dropped_count"] += check_sequence_by_device(pkt)
+        now = time.monotonic()
+        update_device_pps(device_state, now)
+
+        detector = device_state["detector"]
+        runtime_policy = device_state["runtime_policy"]
         raw_turbulence = None
         if args.log_turbulence:
             raw_turbulence = detector._context._compute_spatial_turbulence_in_buffer(pkt.iq_raw, subcarriers)
@@ -355,25 +520,30 @@ def detect_live_motion(args) -> None:
         filtered_turbulence = detector._context.last_turbulence
         runtime_policy.note_packet()
 
-        should_publish = state["publish_counter"] >= publish_rate
+        should_publish = device_state["publish_counter"] >= publish_rate
         if not runtime_policy.should_evaluate(should_publish):
             return
 
         metrics = detector.update_state()
         effective_state, _ = runtime_policy.apply_state(metrics["state"])
         runtime_policy.after_evaluation()
+        device_state["motion_metric"] = metrics.get("probability", 0.0)
+        device_state["metric_threshold"] = metrics["threshold"]
+        device_state["effective_state"] = effective_state
+        device_state["status"] = get_device_status(device_state)
 
         if should_publish:
-            motion_metric = metrics.get("probability", 0.0)
-            metric_threshold = metrics["threshold"]
-            progress_bar = format_progress_bar(motion_metric, metric_threshold)
+            motion_metric = device_state["motion_metric"]
+            metric_threshold = device_state["metric_threshold"]
             state_str = "MOTION" if effective_state == 1 else "IDLE"
+            device_state["last_publish_at"] = now
 
-            if should_log_publish(effective_state):
+            if should_print_publish_details(effective_state):
+                clear_status_block()
                 print(
-                    f"{progress_bar} | mvmt:{motion_metric:.4f} thr:{metric_threshold:.4f} | "
-                    f"{state_str} | pkt:{state['packet_count']} drop:{receiver.dropped_count} "
-                    f"pps:{receiver.pps}"
+                    f"{device_state['label']} | {format_progress_bar(motion_metric, metric_threshold)} | mvmt:{motion_metric:.4f} "
+                    f"thr:{metric_threshold:.4f} | {state_str} | pkt:{device_state['packet_count']} "
+                    f"drop:{device_state['dropped_count']} pps:{device_state['pps']}"
                 )
                 if args.log_turbulence:
                     window_tail = get_ordered_turbulence_tail(detector._context, args.window_tail)
@@ -384,7 +554,9 @@ def detect_live_motion(args) -> None:
                     features = detector._extract_features()
                     print(f"  features: {format_feature_vector(features)}")
 
-            state["publish_counter"] = 0
+            device_state["publish_counter"] = 0
+
+        render_multi_device_summary(now)
 
     receiver.add_callback(on_packet)
     signal.signal(signal.SIGINT, handle_sigint)
@@ -419,7 +591,9 @@ def detect_live_motion(args) -> None:
         stimulus_sender.start()
         while state["running"]:
             receiver.run(timeout=1.0, quiet=True)
+            render_multi_device_summary(time.monotonic(), force=True)
     except KeyboardInterrupt:
+        render_multi_device_summary(time.monotonic(), force=True)
         pass
     except Exception as e:
         print(f"\n{Fore.RED}❌ Error during live detection: {e}{Style.RESET_ALL}")
@@ -427,6 +601,7 @@ def detect_live_motion(args) -> None:
     finally:
         stimulus_sender.stop()
         receiver.stop()
+        clear_status_block()
         if capture_writer is not None:
             captured_packets = state["capture_packets"]
             if captured_packets:

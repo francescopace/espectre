@@ -93,9 +93,10 @@ Current capabilities:
 - request a fresh sysinfo block with `REQ_SYSINFO`
 - adjust the runtime threshold with `SET_THRESHOLD:X.XX`
 - show a firmware-generated read-only `device_id`
-- edit the human-facing `device_name`
+- inspect the immutable firmware-derived `device_name`
+- edit the human-facing `device_label`
 - clear the persisted device-facing configuration without disconnecting
-- derive the BLE pairing name from `device_name`
+- expose the immutable BLE pairing name as the shared `device_name`
 - provision or clear Wi-Fi credentials over BLE
 - provision or clear MQTT configuration over BLE
 - keep HTTPS OTA reachable through the always-on MQTT control plane
@@ -124,7 +125,7 @@ Usage notes:
 2. wait for the initial `REQ_SYSINFO` refresh after notifications start
 3. disable live BLE telemetry from the test client when you only need provisioning or sysinfo
 4. use `Save Wi-Fi` to write Wi-Fi values and `APPLY_WIFI` in one step
-5. use `Save Device` to persist the human-facing `device_name`
+5. use `Save Device` to persist the human-facing `device_label`
 6. use `Clear Device` when you want to reset the persisted device-facing config while keeping the generated `device_id`
 7. use the threshold slider to send `SET_THRESHOLD` automatically when you release it
 8. use `Save MQTT` to persist MQTT settings and enable MQTT transport
@@ -194,7 +195,7 @@ Use that file as the source of truth for:
 - telemetry payload format
 - sysinfo framing and key semantics
 - control command syntax
-- compatibility expectations for nearby BLE clients
+- nearby BLE client expectations
 
 Local implementation anchors:
 

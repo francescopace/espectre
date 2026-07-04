@@ -18,12 +18,12 @@ namespace espectre {
 
 inline constexpr const char *ESPECTRE_PROTOCOL_VERSION = "1.0";
 inline constexpr const char *ESPECTRE_TOPIC_PREFIX = "espectre/v1/devices";
-inline constexpr const char *ESPECTRE_DEFAULT_DEVICE_ID = "espectre-node";
-inline constexpr const char *ESPECTRE_DEFAULT_DEVICE_NAME = "ESPectre Node";
+inline constexpr uint64_t ESPECTRE_DEFAULT_DEVICE_ID = 0U;
+inline constexpr const char *ESPECTRE_DEFAULT_DEVICE_LABEL = "";
 
 struct EspectreDeviceConfig {
-  std::string device_id{ESPECTRE_DEFAULT_DEVICE_ID};
-  std::string device_name{ESPECTRE_DEFAULT_DEVICE_NAME};
+  uint64_t device_id{ESPECTRE_DEFAULT_DEVICE_ID};
+  std::string device_label{ESPECTRE_DEFAULT_DEVICE_LABEL};
   std::string mqtt_host;
   uint16_t mqtt_port{1883};
   std::string mqtt_username;
@@ -43,6 +43,7 @@ struct EspectreDeviceInfo {
   std::string firmware_version{"unknown"};
   std::string chip{"unknown"};
   std::string detector;
+  bool supports_ota{false};
   EspectreNetworkInfo network{};
 };
 
@@ -81,8 +82,13 @@ struct EspectreOtaStatus {
   bool update_available{false};
 };
 
+std::string format_espectre_device_id(uint64_t device_id);
+bool parse_espectre_device_id(const std::string &value, uint64_t *device_id);
+uint64_t espectre_device_id_from_mac(const uint8_t *mac, size_t mac_len);
+std::string espectre_device_name(uint64_t device_id, const char *chip = nullptr);
+uint64_t espectre_effective_device_id_u64(const EspectreDeviceConfig &config);
 std::string espectre_effective_device_id(const EspectreDeviceConfig &config);
-std::string espectre_effective_device_name(const EspectreDeviceConfig &config);
+std::string espectre_effective_device_label(const EspectreDeviceConfig &config);
 void clear_espectre_mqtt_config(EspectreDeviceConfig *config);
 
 std::string espectre_topic(const EspectreDeviceConfig &config, const char *suffix);

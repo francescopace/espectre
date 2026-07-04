@@ -57,6 +57,7 @@ class NimbleBleBindings : public IBleBindings {
   uint16_t conn_handle_{0xFFFF};
   bool setup_complete_{false};
   bool telemetry_subscribed_{false};
+  bool advertising_active_{false};
 };
 
 }  // namespace espectre

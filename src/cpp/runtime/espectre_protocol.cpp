@@ -9,6 +9,7 @@
 
 #include <cctype>
 #include <cerrno>
+#include <cinttypes>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -91,6 +92,27 @@ bool parse_uint16_value(const std::string &value, uint16_t *out) {
   }
   *out = static_cast<uint16_t>(parsed);
   return true;
+}
+
+std::string normalize_ble_chip_label(const char *chip) {
+  if (chip == nullptr || chip[0] == '\0') {
+    return "UNK";
+  }
+  std::string normalized;
+  normalized.reserve(8);
+  for (const char *p = chip; *p != '\0'; ++p) {
+    const unsigned char ch = static_cast<unsigned char>(*p);
+    if (std::isalnum(ch)) {
+      normalized.push_back(static_cast<char>(std::toupper(ch)));
+    }
+  }
+  if (normalized == "ESP32C3") return "C3";
+  if (normalized == "ESP32C5") return "C5";
+  if (normalized == "ESP32C6") return "C6";
+  if (normalized == "ESP32S2") return "S2";
+  if (normalized == "ESP32S3") return "S3";
+  if (normalized == "ESP32") return "ESP32";
+  return normalized.empty() ? "UNK" : normalized;
 }
 
 std::string extract_json_string(const std::string &payload, const char *key) {
@@ -178,8 +200,8 @@ const char *ota_state_name(EspectreOtaState state) {
 }
 
 bool assign_config_field(const std::string &field, const std::string &value, EspectreDeviceConfig *config) {
-  if (field == "device_name") {
-    config->device_name = value;
+  if (field == "device_label") {
+    config->device_label = value;
     return true;
   }
   if (field == "mqtt_host") {
@@ -223,12 +245,54 @@ bool assign_config_field(const std::string &field, const std::string &value, Esp
 
 }  // namespace
 
-std::string espectre_effective_device_id(const EspectreDeviceConfig &config) {
-  return config.device_id.empty() ? ESPECTRE_DEFAULT_DEVICE_ID : config.device_id;
+std::string format_espectre_device_id(uint64_t device_id) {
+  char text[sizeof("0x0123456789abcdef")] = {0};
+  std::snprintf(text, sizeof(text), "0x%016" PRIx64, device_id);
+  return text;
 }
 
-std::string espectre_effective_device_name(const EspectreDeviceConfig &config) {
-  return config.device_name.empty() ? ESPECTRE_DEFAULT_DEVICE_NAME : config.device_name;
+bool parse_espectre_device_id(const std::string &value, uint64_t *device_id) {
+  if (device_id == nullptr || value.empty()) {
+    return false;
+  }
+  char *end_ptr = nullptr;
+  errno = 0;
+  const unsigned long long parsed = std::strtoull(value.c_str(), &end_ptr, 0);
+  if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE) {
+    return false;
+  }
+  *device_id = static_cast<uint64_t>(parsed);
+  return true;
+}
+
+uint64_t espectre_device_id_from_mac(const uint8_t *mac, size_t mac_len) {
+  if (mac == nullptr || mac_len < 6U) {
+    return ESPECTRE_DEFAULT_DEVICE_ID;
+  }
+  uint64_t device_id = 0U;
+  for (size_t i = 0; i < 6U; ++i) {
+    device_id = (device_id << 8U) | static_cast<uint64_t>(mac[i]);
+  }
+  return device_id;
+}
+
+std::string espectre_device_name(uint64_t device_id, const char *chip) {
+  const std::string chip_label = normalize_ble_chip_label(chip);
+  const std::string formatted_id = format_espectre_device_id(device_id);
+  const std::string suffix = formatted_id.size() >= 6 ? formatted_id.substr(formatted_id.size() - 6) : formatted_id;
+  return std::string("ESPectre ") + chip_label + " " + suffix;
+}
+
+uint64_t espectre_effective_device_id_u64(const EspectreDeviceConfig &config) {
+  return config.device_id == ESPECTRE_DEFAULT_DEVICE_ID ? ESPECTRE_DEFAULT_DEVICE_ID : config.device_id;
+}
+
+std::string espectre_effective_device_id(const EspectreDeviceConfig &config) {
+  return format_espectre_device_id(espectre_effective_device_id_u64(config));
+}
+
+std::string espectre_effective_device_label(const EspectreDeviceConfig &config) {
+  return config.device_label;
 }
 
 void clear_espectre_mqtt_config(EspectreDeviceConfig *config) {
@@ -270,14 +334,19 @@ std::string espectre_status_payload(const EspectreDeviceConfig &config, bool onl
 
 std::string espectre_info_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info) {
   const std::string device_id = espectre_effective_device_id(config);
-  const std::string device_name = espectre_effective_device_name(config);
+  const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(config),
+                                                       info.chip.empty() ? nullptr : info.chip.c_str());
+  const std::string device_label = espectre_effective_device_label(config);
   std::string out = "{";
   out += json_pair_string("protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   out += json_pair_string("device_id", device_id.c_str());
   out += json_pair_string("device_name", device_name.c_str());
+  out += json_pair_string("device_label", device_label.c_str());
   out += json_pair_string("frontend", info.frontend.empty() ? "native" : info.frontend.c_str());
   out += json_pair_string("firmware_version", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
   out += json_pair_string("chip", info.chip.empty() ? "unknown" : info.chip.c_str());
+  out += ",\"supports_ota\":";
+  out += info.supports_ota ? "true" : "false";
 
   if (!info.network.ip_address.empty() || !info.network.mac_address.empty() || info.network.channel > 0U) {
     out += ",\"network\":{";
