@@ -273,7 +273,7 @@ cd tools
 #   Terminal 2: ./espectre collect --label static_presence --duration 60
 #               ./espectre collect --label motion --duration 30
 # Optional debug terminal:
-#               ./espectre detect --streamer-ip 192.168.1.50 --log-turbulence
+#               ./espectre collect --streamer-ip 192.168.1.50 --no-save --log-turbulence
 # see ../docs/ML_DATA_COLLECTION.md for details
 
 # 1. Analyze raw data

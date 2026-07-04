@@ -122,6 +122,11 @@ def format_device_token(device_id: int) -> str:
     return f'dev{int(device_id):016x}'
 
 
+def format_device_id_hex(device_id: int) -> str:
+    """Return the canonical hexadecimal device identifier string."""
+    return f'0x{int(device_id):016x}'
+
+
 
 # ============================================================================
 # Data Structures
@@ -150,6 +155,7 @@ class CSIPacket:
     noise_floor_dbm: Optional[int] = None
     agc_gain: Optional[int] = None
     fft_gain: Optional[int] = None
+    source_ip: Optional[str] = None
 
 
 # Chip code to name mapping (must match streamer)
@@ -598,6 +604,7 @@ class CSIReceiver:
                     continue
 
                 for packet in packets:
+                    packet.source_ip = addr[0]
                     self._check_sequence(packet.seq_num)
                     self.buffer.append(packet)
                     self.packet_count += 1
@@ -925,8 +932,7 @@ class CSICollector:
                     'num_packets': num_packets or 0,
                     'gain_locked': bool(gain_locked),
                     'description': description,
-                    'device_id': int(device_id) if device_id is not None else None,
-                    'device_token': format_device_token(device_id) if device_id is not None else '',
+                    'device_id': format_device_id_hex(device_id) if device_id is not None else '',
                 }
                 info['files'][self.label].append(file_info)
         

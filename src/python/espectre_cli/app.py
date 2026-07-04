@@ -6,7 +6,7 @@ import argparse
 
 from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace, cli_command, serial_port_example
 from .esphome import run_esphome_command
-from .host import collect_csi_data, detect_live_motion, open_web_ui
+from .host import collect_csi_data, open_web_ui
 from .idf import run_idf_command
 from .micro import deploy_code, flash_firmware, run_application, verify_installation
 from .mqtt_shell import EspectreMQTTShell
@@ -34,10 +34,15 @@ def _add_ui_parser(subparsers, *, name: str = "ui", help_text: str | None = "Ope
     return ui_parser
 
 
-def _add_collect_parser(subparsers, *, name: str = "collect", help_text: str | None = "Collect labeled CSI data for training"):
+def _add_collect_parser(
+    subparsers,
+    *,
+    name: str = "collect",
+    help_text: str | None = "Run live CSI collection and dataset capture",
+):
     parser_kwargs = {"help": help_text} if help_text is not None else {}
     collect_parser = subparsers.add_parser(name, **parser_kwargs)
-    collect_parser.add_argument("--label", "-l", help="Label for collected data (e.g., static_presence, motion, empty, wave)")
+    collect_parser.add_argument("--label", "-l", help="Dataset label used when saving collected CSI")
     collect_parser.add_argument(
         "--samples",
         "--count",
@@ -45,17 +50,27 @@ def _add_collect_parser(subparsers, *, name: str = "collect", help_text: str | N
         dest="samples",
         type=int,
         default=1,
-        help="Number of timed collections/samples to record (default: 1)",
+        help="Legacy timed dataset mode: number of samples to record (default: 1)",
     )
-    collect_parser.add_argument("--duration", "-d", type=float, default=2.0, help="Duration per sample in seconds (default: 2.0)")
+    collect_parser.add_argument(
+        "--duration",
+        "-d",
+        type=float,
+        default=None,
+        help="Live mode: stop after N seconds. Timed dataset mode: duration per sample.",
+    )
     collect_parser.add_argument(
         "--start-delay",
         type=float,
         default=0.0,
-        help="Delay before starting collection in seconds (default: 0.0)",
+        help="Legacy timed dataset mode: delay before starting collection in seconds (default: 0.0)",
     )
     collect_parser.add_argument("--info", "-i", action="store_true", help="Show dataset statistics")
-    collect_parser.add_argument("--interactive", action="store_true", help="Interactive mode (press ENTER for each sample)")
+    collect_parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Legacy dataset mode: press ENTER before each saved sample",
+    )
     collect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
     collect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
     collect_parser.add_argument(
@@ -67,37 +82,16 @@ def _add_collect_parser(subparsers, *, name: str = "collect", help_text: str | N
     collect_parser.add_argument("--stimulus-port", type=int, default=9999, help="UDP port used by the streamer listener (default: 9999)")
     collect_parser.add_argument("--stimulus-rate", type=int, default=100, help="Stimulus packets per second sent to the streamer (default: 100)")
     collect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth stimulus packet as reference (default: 0 = measurement only)")
+    collect_parser.add_argument("--detector", choices=["ml", "mvs"], default="mvs", help="Detection algorithm (default: mvs)")
+    collect_parser.add_argument("--no-save", action="store_true", help="Run live collect without saving dataset files")
+    collect_parser.add_argument("--log-features", action="store_true", help="Print the 8 ML features after each published sample (ML only)")
+    collect_parser.add_argument("--log-turbulence", action="store_true", help="Print raw/filtered turbulence and recent buffer tail after each publish")
+    collect_parser.add_argument("--log-only-motion", action="store_true", help="Only print publish lines when the effective state is MOTION")
+    collect_parser.add_argument("--window-tail", type=int, default=16, help="Number of latest turbulence samples to print with --log-turbulence")
     collect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor")
     collect_parser.add_argument("--description", help="Description for the collected samples")
     collect_parser.set_defaults(handler=collect_csi_data)
     return collect_parser
-
-
-def _add_detect_parser(subparsers, *, name: str = "detect", help_text: str | None = "Run live ML motion detection from CSI UDP stream"):
-    parser_kwargs = {"help": help_text} if help_text is not None else {}
-    detect_parser = subparsers.add_parser(name, **parser_kwargs)
-    detect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
-    detect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
-    detect_parser.add_argument(
-        "--stimulus-target",
-        "--streamer-ip",
-        dest="stimulus_target",
-        required=True,
-        help="IPv4 stimulus destination(s), comma-separated for multi-unicast",
-    )
-    detect_parser.add_argument("--stimulus-port", type=int, default=9999, help="UDP port used by the streamer listener (default: 9999)")
-    detect_parser.add_argument("--stimulus-rate", type=int, default=100, help="Stimulus packets per second sent to the streamer (default: 100)")
-    detect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth stimulus packet as reference (default: 0 = measurement only)")
-    detect_parser.add_argument("--log-features", action="store_true", help="Print the 8 ML features after each published sample")
-    detect_parser.add_argument("--log-turbulence", action="store_true", help="Print raw/filtered turbulence and recent buffer tail after each publish")
-    detect_parser.add_argument("--log-only-motion", action="store_true", help="Only print publish lines when the effective state is MOTION")
-    detect_parser.add_argument("--window-tail", type=int, default=16, help="Number of latest turbulence samples to print with --log-turbulence")
-    detect_parser.add_argument("--capture-label", help="Also save received raw CSI as this dataset label")
-    detect_parser.add_argument("--capture-duration", type=float, help="Stop and save capture after N seconds of received CSI")
-    detect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor for saved captures")
-    detect_parser.add_argument("--description", help="Description for the saved live-detect capture")
-    detect_parser.set_defaults(handler=detect_live_motion)
-    return detect_parser
 
 
 def _add_mqtt_parser(subparsers, *, name: str = "mqtt", help_text: str | None = "Start the interactive MQTT shell"):
@@ -197,8 +191,9 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('micro', 'deploy')}",
             f"  {cli_command('mqtt')}",
             f"  {cli_command('ui', 'theremin')}",
+            f"  {cli_command('collect', '--stimulus-target', '192.168.1.50', '--no-save', '--log-turbulence')}",
+            f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--stimulus-target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}",
-            f"  {cli_command('detect', '--stimulus-target', '192.168.1.50', '--log-turbulence')}",
             f"  {cli_command('monitor', '--port', serial_port_example())}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--dev')}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--clean')}",
@@ -218,7 +213,6 @@ def build_parser() -> argparse.ArgumentParser:
     _add_micro_namespace(subparsers)
     _add_ui_parser(subparsers)
     _add_collect_parser(subparsers)
-    _add_detect_parser(subparsers)
     _add_mqtt_parser(subparsers)
     _add_monitor_parser(subparsers)
     _add_esphome_namespace(subparsers)

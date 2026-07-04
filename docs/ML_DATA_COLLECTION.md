@@ -93,42 +93,42 @@ Use that README as the source of truth for:
 - 32-bit sequence numbers for packet loss detection
 - collector-driven stimulus rate (see streamer README for practical transport profiles and benchmarks)
 
-### 4. Optional: Inspect Live ML Motion Detection
+### 4. Optional: Inspect Live Motion With `collect`
 
-If you want to validate runtime ML behavior before recording data, run live
-host-side inference from the UDP CSI stream:
+If you want to validate runtime detector behavior before saving data, run the
+same host-side pipeline in live mode without saving files:
 
 ```bash
-./espectre detect --stimulus-target 192.168.1.50 --log-turbulence
+./espectre collect --stimulus-target 192.168.1.50 --no-save --log-turbulence
 ```
 
-`espectre detect` reads threshold, the fixed production subcarrier set,
+`espectre collect` reads threshold, the fixed production subcarrier set,
 Hampel, low-pass, and hit filtering from `src/python/micro_espectre/config.py` and
 `src/python/micro_espectre/config_local.py`, just like the rest of micro-ESPectre. Use
 `--stimulus-target <ip>` to point at the firmware device or shared stimulus
 group, and `--bind-ip <local_ip>` only when auto-detection picks the wrong host
 interface.
 
-Live detection can also save the raw CSI packets it is inspecting. This uses
-the same dataset format as `collect`; no derived ML scores, feature
-vectors, or states are stored because they can be reconstructed offline from
-the raw CSI and the exported model.
+The same live path can also save the raw CSI packets it is inspecting. This
+uses the ordinary dataset format; no derived ML scores, feature vectors, or
+states are stored because they can be reconstructed offline from the raw CSI
+and the exported model.
 
 ```bash
 # Mixed idle/motion/idle smoke-test capture: store under data/test/
-./espectre detect \
+./espectre collect \
   --stimulus-target 192.168.1.50 \
   --log-features \
-  --capture-label test \
-  --capture-duration 45 \
-  --description "live detect ML, idle-motion-idle"
+  --label test \
+  --duration 45 \
+  --description "live collect ML, idle-motion-idle"
 
 # Homogeneous hard-negative capture: store under data/empty/
-./espectre detect \
+./espectre collect \
   --stimulus-target 192.168.1.50 \
-  --capture-label empty \
-  --capture-duration 60 \
-  --description "live detect ML, empty room"
+  --label empty \
+  --duration 60 \
+  --description "live collect ML, empty room"
 ```
 
 Use `test` for mixed sessions where the room state changes during the capture.
@@ -139,18 +139,21 @@ the whole capture is label-homogeneous.
 
 ## Data Collection with `espectre collect`
 
-The `espectre collect` subcommand provides a streamlined workflow for recording labeled CSI samples.
-Each capture window now saves one `.npz` per `device_id`, so a shared-stimulus
-session can emit multiple dataset files without mixing devices into one file.
+The `espectre collect` subcommand now covers both live inspection and dataset
+capture. Each saved capture window emits one `.npz` per `device_id`, so a
+shared-stimulus session can save multiple dataset files without mixing devices
+into one file.
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `./espectre collect --label <name> --duration <sec> --stimulus-target <ip>` | Record for the specified duration from one or more devices sharing the target |
-| `./espectre collect --label <name> --samples <n> --stimulus-target <ip>` | Record `n` timed collections |
+| `./espectre collect --stimulus-target <ip> --no-save --log-turbulence` | Inspect live detector output without saving files |
+| `./espectre collect --label <name> --duration <sec> --stimulus-target <ip>` | Run live collect and save the accepted capture window for the specified duration |
+| `./espectre collect --label <name> --stimulus-target <ip>` | Run live collect, wait for the ready gate, then keep saving until `Ctrl+C` |
+| `./espectre collect --label <name> --samples <n> --stimulus-target <ip>` | Legacy timed dataset mode: record `n` timed collections |
 | `./espectre collect --label <name> --count <n> --stimulus-target <ip>` | Alias for `--samples`, useful for repeated timed collections |
-| `./espectre collect --label <name> --start-delay <sec> --stimulus-target <ip>` | Wait before starting collection |
+| `./espectre collect --label <name> --start-delay <sec> --stimulus-target <ip>` | Legacy timed dataset mode: wait before starting collection |
 | `./espectre collect --label <name> --stimulus-target <ip> --reference-every <N>` | Mark every `N`th stimulus packet as a reference frame |
 | `./espectre collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
 | `./espectre collect --label <name> --description "text"` | Add description to sample |
@@ -158,14 +161,68 @@ session can emit multiple dataset files without mixing devices into one file.
 
 Gain lock status is **automatically detected** from the CSI stream and saved in `dataset_info.json`.
 
-`detect --capture-label <name>` is a convenience path for live detector
-smoke tests: it records the same raw CSI schema while printing ML output.
-Prefer `collect` for ordinary scripted dataset collection and its
-pre-recording stable-scene gate.
+When saving is enabled, live collect keeps a pre-recording readiness gate: the
+selected detector must stay below its effective threshold for 3 continuous
+seconds before packets are accepted into the saved capture. For `mvs`, this
+happens after the startup calibration phase.
+
+### Options
+
+#### Core modes
+
+| Option | Meaning |
+|--------|---------|
+| `--info` | Print dataset statistics and exit without starting UDP collection |
+| `--no-save` | Live inspection mode: do not save `.npz` files |
+| `--label <name>` | Dataset label used when saving live captures or legacy timed samples |
+| `--duration <sec>` | In live mode, stop after the accepted recording window reaches the requested duration. In legacy timed dataset mode, duration per sample |
+| `--samples`, `--count`, `-n` | Legacy timed dataset mode: save multiple samples |
+| `--interactive` | Legacy dataset mode: prompt before each saved sample |
+| `--start-delay <sec>` | Legacy timed dataset mode: wait before starting |
+
+#### Detector and logging
+
+| Option | Meaning |
+|--------|---------|
+| `--detector {ml,mvs}` | Select the live detector (`mvs` default) |
+| `--log-turbulence` | Print raw and filtered turbulence plus the recent tail buffer |
+| `--log-features` | Print the 8 ML features after each publish (`ml` only) |
+| `--log-only-motion` | Suppress publish detail lines unless the effective state is `MOTION` |
+| `--window-tail <n>` | Number of turbulence values shown with `--log-turbulence` |
+
+#### Transport and dataset metadata
+
+| Option | Meaning |
+|--------|---------|
+| `--stimulus-target`, `--streamer-ip` | One or more IPv4 stimulus targets, comma-separated for multi-unicast |
+| `--bind-ip <ip>` | Override the local bind interface used for UDP reception |
+| `--udp-port <port>` | CSI UDP listen port (default `5001`) |
+| `--stimulus-port <port>` | Streamer listener UDP port for stimulus packets (default `9999`) |
+| `--stimulus-rate <pps>` | Stimulus send rate in packets per second (default `100`) |
+| `--reference-every <n>` | Mark every `n`th stimulus packet as a reference frame |
+| `--contributor <user>` | Override contributor metadata for saved files |
+| `--description "text"` | Store a human-readable description in dataset metadata |
+
+#### Save semantics
+
+- In live mode with `--label` and no `--no-save`, saving starts only after the
+  ready gate reaches `READY`.
+- With `--duration`, `Ctrl+C` before the requested duration aborts the run and
+  discards the partial live capture instead of saving it.
+- Without `--duration`, `Ctrl+C` stops the live run and saves the packets
+  already accepted after the ready gate.
+- With `--no-save`, `Ctrl+C` only stops the live session; no `.npz` files are created.
 
 ### Recording Samples
 
 ```bash
+# Live inspection only, no files written
+./espectre collect --stimulus-target 192.168.1.50 --no-save --detector mvs --log-turbulence
+
+# Live recording: save after the stream stays below threshold for 3s
+# and stop automatically after 60 accepted seconds
+./espectre collect --label static_presence --duration 60 --stimulus-target 192.168.1.50
+
 # Record 60 seconds of static presence from one device
 ./espectre collect --label static_presence --duration 60 --stimulus-target 192.168.1.50
 
@@ -188,6 +245,9 @@ pre-recording stable-scene gate.
 # Gain lock status is auto-detected from the CSI stream
 # No need to specify --no-gain-lock, it's automatic!
 ./espectre collect --label static_presence --duration 10 --stimulus-target 192.168.1.50
+
+# Continuous live recording until Ctrl+C
+./espectre collect --label test --stimulus-target 192.168.1.50 --detector ml --log-features
 ```
 
 Accepted target forms:
@@ -305,8 +365,7 @@ Central metadata file for the dataset:
         "filename": "static_presence_c6_64sc_dev0000000000abcdef_20251212_142443_381306_0001.npz",
         "chip": "C6",
         "subcarriers": 64,
-        "device_id": 11259375,
-        "device_token": "dev0000000000abcdef",
+        "device_id": "0x0000000000abcdef",
         "contributor": "francescopace",
         "collected_at": "2025-12-12T14:24:43.381306",
         "duration_ms": 10000,
@@ -317,8 +376,7 @@ Central metadata file for the dataset:
         "filename": "static_presence_esp32_64sc_dev000000000000f00d_20260214_183059_355439_0002.npz",
         "chip": "ESP32",
         "subcarriers": 64,
-        "device_id": 61453,
-        "device_token": "dev000000000000f00d",
+        "device_id": "0x000000000000f00d",
         "contributor": "francescopace",
         "gain_locked": false,
         "collected_at": "2026-02-14T18:30:59.355439",
@@ -337,8 +395,7 @@ Central metadata file for the dataset:
 | `filename` | NPZ file name |
 | `chip` | ESP32 chip type (C6, S3, ESP32) |
 | `subcarriers` | Number of subcarriers (64 for HT20) |
-| `device_id` | Numeric `uint64` device identifier stored in each single-device file; MQTT/BLE surface the same identity as a `0x...` hex string |
-| `device_token` | Stable ASCII token used in filenames |
+| `device_id` | Canonical `0x...` device identifier for the saved single-device file |
 | `contributor` | GitHub username of data collector |
 | `collected_at` | ISO timestamp of collection |
 | `duration_ms` | Sample duration in milliseconds |

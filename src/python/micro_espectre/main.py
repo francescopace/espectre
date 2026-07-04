@@ -12,12 +12,11 @@ import time
 import gc
 import os
 import src.config as config
+from src.console_output import format_calibration_status_line, format_detection_publish_line
 
 # Gain lock configuration
 GAIN_LOCK_PACKETS = 300  # ~3 seconds at 100 Hz
-# Keep ML UI scaling constants local so ML code can be imported lazily.
 ML_DEFAULT_THRESHOLD = 5.0
-ML_METRIC_SCALE = 10.0
 
 # Import HT20 constants from config
 from src.config import NUM_SUBCARRIERS, EXPECTED_CSI_LEN, SEG_THRESHOLD
@@ -160,41 +159,6 @@ def connect_wifi():
         return wlan
     else:
         raise Exception("Connection timeout")
-
-
-def format_progress_bar(score, threshold, width=20, is_probability=False):
-    """Format progress bar for console output.
-    
-    For MVS: score = metric/threshold, threshold_pos at 75% (15/20)
-    For ML: score/threshold are on the detector's 0-10 scale.
-    """
-    if is_probability:
-        # ML mode: threshold and score are already scaled to 0-10.
-        threshold_pos = int((threshold / ML_METRIC_SCALE) * width)
-        filled = int((score / ML_METRIC_SCALE) * width)
-    else:
-        # MVS mode: score is already normalized (metric/threshold)
-        threshold_pos = 15  # 75% position
-        filled = int(score * threshold_pos)
-    
-    threshold_pos = max(0, min(threshold_pos, width - 1))
-    filled = max(0, min(filled, width))
-    
-    bar = '['
-    for i in range(width):
-        if i == threshold_pos:
-            bar += '|'
-        elif i < filled:
-            bar += '█'
-        else:
-            bar += '░'
-    bar += ']'
-    
-    if is_probability:
-        percent = int((score / threshold) * 100) if threshold > 0 else 0
-    else:
-        percent = int(score * 100)
-    return f"{bar} {percent}%"
 
 
 def run_gain_lock(wlan):
@@ -432,7 +396,17 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
                 pps = int((packets_delta * 1000) / elapsed) if elapsed > 0 else 0
                 dropped = wlan.csi_dropped()
                 tg_pps = traffic_gen.get_actual_pps()
-                print(f"Collecting {calibration_progress}/{config.CALIBRATION_BUFFER_SIZE} packets... (pps:{pps}, TG:{tg_pps}, drop:{dropped})")
+                current_mv = calibration_detector.get_motion_metric() if calibration_detector.is_ready() else None
+                print(
+                    format_calibration_status_line(
+                        progress=calibration_progress / config.CALIBRATION_BUFFER_SIZE,
+                        pps=pps,
+                        motion_metric=current_mv,
+                        calibration_packets=calibration_progress,
+                        calibration_target_packets=config.CALIBRATION_BUFFER_SIZE,
+                    )
+                    + f" | TG:{tg_pps} drop:{dropped}"
+                )
                 last_progress_time = current_time
                 last_progress_count = calibration_progress
         else:
@@ -734,15 +708,16 @@ def main():
                         state_str = 'MOTION' if effective_state == 1 else 'IDLE'
                         motion_metric = metrics.get('moving_variance', metrics.get('jitter', metrics.get('probability', 0)))
                         threshold = metrics['threshold']
-                        is_ml = 'probability' in metrics
-                        # For ML, motion_metric and threshold are both on the detector's 0-10 scale.
-                        if is_ml:
-                            progress = motion_metric
-                        else:
-                            progress = motion_metric / threshold if threshold > 0 else 0
-                        progress_bar = format_progress_bar(progress, threshold, is_probability=is_ml)
-                        print(f"{progress_bar} | pkts:{publish_counter} drop:{dropped_delta} pps:{pps} | "
-                              f"mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str}")
+                        progress = motion_metric / threshold if threshold > 0 else 0
+                        print(
+                            format_detection_publish_line(
+                                pps=pps,
+                                motion_metric=motion_metric,
+                                threshold=threshold,
+                                effective_state=effective_state,
+                                progress=progress,
+                            )
+                        )
                         
                         if mqtt_handler is not None:
                             mqtt_handler.publish_state(
