@@ -244,18 +244,15 @@ def calculate_magnitude(i, q):
     return math.sqrt(fi * fi + fq * fq)
 
 
-def calculate_spatial_turbulence(magnitudes, band, use_cv_normalization=True):
+def calculate_spatial_turbulence(magnitudes, band):
     """
     Calculate spatial turbulence from magnitudes.
 
-    The normalized path is the canonical runtime behavior. The optional
-    argument remains accepted so older callers do not crash, but the returned
-    turbulence is always gain-invariant `std/mean`.
+    The returned turbulence is always gain-invariant `std/mean`.
     
     Args:
         magnitudes: List of magnitude values (one per subcarrier)
         band: List of subcarrier indices to use
-        use_cv_normalization: kept for compatibility; turbulence is always normalized
     
     Returns:
         float: Turbulence value (0.0 if no valid subcarriers)

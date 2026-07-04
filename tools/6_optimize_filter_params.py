@@ -79,7 +79,6 @@ def test_config(baseline_iq, movement_iq, target, cutoff,
     
     # Process static presence
     fp = 0
-    seg.use_cv_normalization = True
     for i in range(len(baseline_iq)):
         turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
@@ -90,7 +89,6 @@ def test_config(baseline_iq, movement_iq, target, cutoff,
     # Reset and process motion
     seg.reset(full=True)
     tp = 0
-    seg.use_cv_normalization = True
     for i in range(len(movement_iq)):
         turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
         seg.add_turbulence(turb)
@@ -149,7 +147,6 @@ def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11):
             
             # Process static presence
             fp = 0
-            seg.use_cv_normalization = True
             for i in range(len(baseline_iq)):
                 turb = seg.calculate_spatial_turbulence(baseline_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)
@@ -160,7 +157,6 @@ def optimize_hampel(baseline_iq, movement_iq, avg_mag, target=28, cutoff=11):
             # Reset and process motion
             seg.reset(full=True)
             tp = 0
-            seg.use_cv_normalization = True
             for i in range(len(movement_iq)):
                 turb = seg.calculate_spatial_turbulence(movement_iq[i], DEFAULT_SUBCARRIERS)
                 seg.add_turbulence(turb)

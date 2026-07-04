@@ -54,7 +54,7 @@ def test_empty_separation_uses_two_feature_score(monkeypatch) -> None:
     def fake_filter(csi_data, data):
         return csi_data
 
-    def fake_compute(csi_data, use_cv_normalization=True):
+    def fake_compute(csi_data):
         if csi_data is fake_data["empty_a.npz"][0]:
             # `turb_mean` separates empty from static, while moving variance stays identical.
             return np.array([1.0, 1.0, 1.0, 1.0]), np.array([0.2, 0.2, 0.2])
@@ -103,6 +103,17 @@ def test_metadata_refresh_recommendation_triggers_for_missing_pair_warning() -> 
     assert module.should_recommend_dataset_metadata_refresh([], missing_motion_pair_count=1) is True
 
 
+def test_per_file_quality_labels_include_test_recordings() -> None:
+    module = _load_validator_module()
+
+    assert module.PER_FILE_QUALITY_LABELS == (
+        "empty",
+        "static_presence",
+        "motion",
+        "test",
+    )
+
+
 def test_metadata_completeness_fails_when_environment_is_missing() -> None:
     module = _load_validator_module()
 
@@ -135,3 +146,55 @@ def test_metadata_completeness_fails_when_environment_is_missing() -> None:
 
     assert missing_environment.status == "FAIL"
     assert "missing environment" in missing_environment.message
+
+
+def test_capture_continuity_flags_low_rate_and_stream_gaps() -> None:
+    module = _load_validator_module()
+
+    class FakeNpz:
+        files = ["duration_ms", "stream_seq_num"]
+
+        def __init__(self):
+            self.values = {
+                "duration_ms": np.array(1000.0),
+                "stream_seq_num": np.array([10, 11, 12, 60], dtype=np.uint32),
+            }
+
+        def __getitem__(self, key):
+            return self.values[key]
+
+    csi_data = np.zeros((4, 128), dtype=np.int8)
+
+    results = module.validate_capture_continuity(FakeNpz(), csi_data)
+    by_name = {result.name: result for result in results}
+
+    assert by_name["packet_rate"].status == "WARN"
+    assert "Low packet rate" in by_name["packet_rate"].message
+    assert by_name["stream_seq_gaps"].status == "FAIL"
+    assert "Missing stream packets: 92.2%" in by_name["stream_seq_gaps"].message
+    assert by_name["stream_seq_max_gap"].status == "WARN"
+
+
+def test_capture_continuity_flags_large_inter_packet_gap() -> None:
+    module = _load_validator_module()
+
+    class FakeNpz:
+        files = ["duration_ms", "stream_seq_num", "device_ticks_us"]
+
+        def __init__(self):
+            self.values = {
+                "duration_ms": np.array(1000.0),
+                "stream_seq_num": np.array([1, 2, 3, 4], dtype=np.uint32),
+                "device_ticks_us": np.array([0, 10_000, 20_000, 2_500_000], dtype=np.uint64),
+            }
+
+        def __getitem__(self, key):
+            return self.values[key]
+
+    csi_data = np.zeros((4, 128), dtype=np.int8)
+
+    results = module.validate_capture_continuity(FakeNpz(), csi_data)
+    by_name = {result.name: result for result in results}
+
+    assert by_name["inter_packet_gap"].status == "FAIL"
+    assert "Largest inter-packet gap: 2480.0 ms" in by_name["inter_packet_gap"].message

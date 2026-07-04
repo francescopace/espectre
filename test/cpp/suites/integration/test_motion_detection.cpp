@@ -204,11 +204,6 @@ inline bool is_esp32_chip() {
     return csi_test_data::current_chip() == csi_test_data::ChipType::ESP32;
 }
 
-// The production pipeline now always uses CV normalization (std/mean).
-inline bool needs_cv_normalization() {
-    return true;
-}
-
 // Unified parameters for all chips (use production defaults)
 inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
 inline bool get_enable_hampel() { return true; }
@@ -234,15 +229,14 @@ void test_mvs_default_subcarriers(void) {
     float recall_target = get_default_recall_target();
     uint16_t window_size = get_window_size();
     bool enable_hampel = get_enable_hampel();
-    bool cv_norm = needs_cv_normalization();
     const int pkt_size = csi_test_data::packet_size();
     
     printf("\n");
     printf("═══════════════════════════════════════════════════════\n");
     printf("  TEST: MVS with Fixed Subcarriers (Production Runtime)\n");
-    printf("  Chip: %s, Window: %d, CV Norm: %s\n", 
+    printf("  Chip: %s, Window: %d\n",
            csi_test_data::chip_name(csi_test_data::current_chip()), 
-           window_size, cv_norm ? "ON" : "OFF");
+           window_size);
     printf("  Pair: %s\n", csi_test_data::current_pair_label());
     printf("═══════════════════════════════════════════════════════\n\n");
     
@@ -335,14 +329,10 @@ void test_ml_detection(void) {
     float fp_target = get_ml_fp_rate_target();
     float recall_target = get_ml_recall_target();
     const int pkt_size = csi_test_data::packet_size();
-    const bool cv_norm = needs_cv_normalization();
-    
     printf("\n");
     printf("═══════════════════════════════════════════════════════\n");
     printf("  TEST: ML Detection (Neural Network)\n");
-    printf("  Chip: %s, CV Norm: %s\n",
-           csi_test_data::chip_name(csi_test_data::current_chip()),
-           cv_norm ? "ON" : "OFF");
+    printf("  Chip: %s\n", csi_test_data::chip_name(csi_test_data::current_chip()));
     printf("═══════════════════════════════════════════════════════\n\n");
     
     MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);

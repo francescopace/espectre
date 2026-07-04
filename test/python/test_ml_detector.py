@@ -237,10 +237,10 @@ class TestMLDetector:
         assert detector.set_threshold(-0.1) == False
         assert detector._threshold == original
 
-    def test_detector_uses_normalized_turbulence_by_default(self):
-        """ML detector keeps the normalized turbulence path enabled."""
+    def test_detector_initializes_segmentation_context(self):
+        """ML detector initializes its segmentation context."""
         detector = MLDetector()
-        assert detector._context.use_cv_normalization is True
+        assert detector._context is not None
     
     def test_is_ready_empty(self):
         """Detector is not ready before filling buffer."""

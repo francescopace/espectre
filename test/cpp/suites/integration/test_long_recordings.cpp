@@ -34,7 +34,6 @@ struct LongRunMetrics {
   std::array<uint8_t, HT20_SELECTED_BAND_SIZE> selected_band{};
   uint8_t selected_band_size{0};
   float adaptive_threshold{0.0f};
-  bool use_cv_normalization{false};
 };
 
 struct ChipLongRunResults {
@@ -62,10 +61,6 @@ static void compute_derived_metrics(LongRunMetrics &metrics) {
                    ? 2.0f * (metrics.precision / 100.0f) * (metrics.recall / 100.0f) /
                          ((metrics.precision + metrics.recall) / 100.0f) * 100.0f
                    : 0.0f;
-}
-
-static bool needs_cv_normalization() {
-  return true;
 }
 
 static void record_result(const char *algorithm, const LongRunMetrics &metrics) {
@@ -98,9 +93,7 @@ static void print_metrics(const char *label, const LongRunMetrics &metrics) {
         printf(", ");
       }
     }
-    printf("], threshold=%.6f, cv_norm=%s\n",
-           metrics.adaptive_threshold,
-           metrics.use_cv_normalization ? "ON" : "OFF");
+    printf("], threshold=%.6f\n", metrics.adaptive_threshold);
   }
 }
 
@@ -165,7 +158,6 @@ static LongRunMetrics evaluate_ml_long_recording() {
 
   MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
   detector.configure_hampel(true);
-  metrics.use_cv_normalization = needs_cv_normalization();
 
   metrics.static_presence_eval_count = std::max(csi_test_data::num_static_presence() - warmup, 0);
   metrics.motion_eval_count = std::max(csi_test_data::num_motion() - warmup, 0);
@@ -199,8 +191,6 @@ static LongRunMetrics evaluate_mvs_long_recording() {
   LongRunMetrics metrics;
   const int warmup = DETECTOR_DEFAULT_WINDOW_SIZE;
   const int pkt_size = csi_test_data::packet_size();
-
-  metrics.use_cv_normalization = needs_cv_normalization();
 
   MVSDetector calibration_detector(DETECTOR_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD);
   calibration_detector.configure_lowpass(false);

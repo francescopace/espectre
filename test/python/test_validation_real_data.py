@@ -198,12 +198,6 @@ def calibration_algorithm(request, chip_type):
 
 
 @pytest.fixture
-def use_cv_normalization(dataset_config):
-    """Return the shared production normalization mode."""
-    return True
-
-
-@pytest.fixture
 def enable_hampel(chip_type):
     """Enable Hampel filter for chip type.
     
@@ -260,8 +254,7 @@ def motion_amplitudes(real_data, default_subcarriers):
 # MVS Detection Tests
 # ============================================================================
 
-def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, hint_band=None, mvs_window_size=None,
-                                     use_cv_normalization=False):
+def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, hint_band=None, mvs_window_size=None):
     """
     Run fixed-subcarrier threshold bootstrap exactly as in production.
     
@@ -273,7 +266,6 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
         num_subcarriers: Number of subcarriers
         hint_band: Optional subcarrier band override (defaults to fixed defaults).
         mvs_window_size: MVS window size for validation
-        use_cv_normalization: True to use CV (std/mean) turbulence
     
     Returns:
         tuple: (selected_band, adaptive_threshold)
@@ -284,7 +276,6 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
     mv_values = []
     window_size = mvs_window_size or DETECTOR_DEFAULT_WINDOW_SIZE
     cal_ctx = SegmentationContext(window_size=window_size, threshold=1.0, enable_hampel=True)
-    cal_ctx.use_cv_normalization = use_cv_normalization
 
     buffer_size = min(CALIBRATION_BUFFER_SIZE, len(static_presence_packets))
     for pkt in static_presence_packets[:buffer_size]:
@@ -302,7 +293,7 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
 
 
 def run_calibration(static_presence_packets, num_subcarriers, algorithm="fixed_default", hint_band=None,
-                    mvs_window_size=None, use_cv_normalization=False):
+                    mvs_window_size=None):
     """
     Run startup calibration using fixed subcarriers.
     
@@ -312,7 +303,6 @@ def run_calibration(static_presence_packets, num_subcarriers, algorithm="fixed_d
         algorithm: Calibration variant name (only "fixed_default" supported)
         hint_band: Optional fixed subcarrier band to use
         mvs_window_size: MVS window size for validation
-        use_cv_normalization: True to use CV (std/mean) turbulence
     
     Returns:
         tuple: (selected_band, adaptive_threshold)
@@ -322,14 +312,13 @@ def run_calibration(static_presence_packets, num_subcarriers, algorithm="fixed_d
         num_subcarriers,
         hint_band=hint_band,
         mvs_window_size=mvs_window_size,
-        use_cv_normalization=use_cv_normalization,
     )
 
 
 class TestMVSDetectionRealData:
     """Test MVS motion detection with real CSI data using fixed subcarriers."""
     
-    def test_static_presence_low_motion_rate(self, real_data, num_subcarriers, window_size, fp_rate_target, enable_hampel, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
+    def test_static_presence_low_motion_rate(self, real_data, num_subcarriers, window_size, fp_rate_target, enable_hampel, calibration_algorithm, chip_type, default_subcarriers):
         """Test that baseline data produces low motion detection rate"""
         
         static_presence_packets, _ = real_data
@@ -340,11 +329,9 @@ class TestMVSDetectionRealData:
             calibration_algorithm,
             hint_band=default_subcarriers,
             mvs_window_size=window_size,
-            use_cv_normalization=use_cv_normalization,
         )
         
         ctx = SegmentationContext(window_size=window_size, threshold=adaptive_threshold, enable_hampel=enable_hampel)
-        ctx.use_cv_normalization = use_cv_normalization
         
         motion_count = 0
         for pkt in static_presence_packets:
@@ -362,7 +349,7 @@ class TestMVSDetectionRealData:
         target_rate = fp_rate_target / 100.0
         assert motion_rate < target_rate, f"[{calibration_algorithm}] Baseline motion rate too high: {motion_rate:.1%} (target: <{fp_rate_target}%)"
     
-    def test_motion_high_motion_rate(self, real_data, num_subcarriers, window_size, recall_target, enable_hampel, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
+    def test_motion_high_motion_rate(self, real_data, num_subcarriers, window_size, recall_target, enable_hampel, calibration_algorithm, chip_type, default_subcarriers):
         """Test that movement data produces high motion detection rate"""
         
         static_presence_packets, motion_packets = real_data
@@ -373,11 +360,9 @@ class TestMVSDetectionRealData:
             calibration_algorithm,
             hint_band=default_subcarriers,
             mvs_window_size=window_size,
-            use_cv_normalization=use_cv_normalization,
         )
         
         ctx = SegmentationContext(window_size=window_size, threshold=adaptive_threshold, enable_hampel=enable_hampel)
-        ctx.use_cv_normalization = use_cv_normalization
         
         motion_count = 0
         for pkt in motion_packets:
@@ -398,7 +383,7 @@ class TestMVSDetectionRealData:
             f"{motion_rate:.1%} (target: >{recall_target}%)"
         )
     
-    def test_mvs_detector_wrapper(self, real_data, num_subcarriers, window_size, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
+    def test_mvs_detector_wrapper(self, real_data, num_subcarriers, window_size, calibration_algorithm, chip_type, default_subcarriers):
         """Test MVSDetector wrapper class with calibration"""
         
         static_presence_packets, motion_packets = real_data
@@ -409,7 +394,6 @@ class TestMVSDetectionRealData:
             calibration_algorithm,
             hint_band=default_subcarriers,
             mvs_window_size=window_size,
-            use_cv_normalization=use_cv_normalization,
         )
         
         # Test with the calibrated band and adaptive threshold
@@ -421,7 +405,6 @@ class TestMVSDetectionRealData:
             track_data=True
         )
         # csi_utils.MVSDetector internally uses SegmentationContext
-        detector._context.use_cv_normalization = use_cv_normalization
         
         for pkt in static_presence_packets:
             detector.process_packet(pkt)
@@ -481,26 +464,22 @@ class TestFeatureSeparationRealData:
         # so we only require minimal separation to confirm the feature works
         assert J > 0.0001, f"Skewness Fisher's J too low: {J:.6f}"
     
-    def test_turbulence_variance_separation(self, real_data, default_subcarriers, chip_type, use_cv_normalization, window_size):
+    def test_turbulence_variance_separation(self, real_data, default_subcarriers, chip_type, window_size):
         """Test that turbulence variance separates baseline from movement.
         
         Uses the shared CV-normalized turbulence path, matching production.
         """
         static_presence_packets, motion_packets = real_data
         
-        # Calculate turbulence for each packet using the shared CV normalization
+        # Calculate turbulence for each packet using the shared runtime path.
         static_presence_turb = []
         for pkt in static_presence_packets:
-            turb, _ = SegmentationContext.compute_spatial_turbulence(
-                pkt['csi_data'], default_subcarriers, use_cv_normalization=use_cv_normalization
-            )
+            turb, _ = SegmentationContext.compute_spatial_turbulence(pkt['csi_data'], default_subcarriers)
             static_presence_turb.append(turb)
         
         motion_turb = []
         for pkt in motion_packets:
-            turb, _ = SegmentationContext.compute_spatial_turbulence(
-                pkt['csi_data'], default_subcarriers, use_cv_normalization=use_cv_normalization
-            )
+            turb, _ = SegmentationContext.compute_spatial_turbulence(pkt['csi_data'], default_subcarriers)
             motion_turb.append(turb)
         
         # Calculate variance of turbulence over windows (use window_size from C++ config)
@@ -530,7 +509,7 @@ class TestFeatureSeparationRealData:
 class TestPublishTimeFeaturesRealData:
     """Test publish-time feature extraction with real data"""
     
-    def test_mad_turb_separation(self, real_data, default_subcarriers, window_size, chip_type, use_cv_normalization):
+    def test_mad_turb_separation(self, real_data, default_subcarriers, window_size, chip_type):
         """Test MAD of turbulence buffer separates baseline from movement"""
         
         static_presence_packets, motion_packets = real_data
@@ -538,7 +517,6 @@ class TestPublishTimeFeaturesRealData:
         
         def calculate_mad_values(packets):
             ctx = SegmentationContext(window_size=ws, threshold=1.0)
-            ctx.use_cv_normalization = use_cv_normalization
             mad_values = []
             
             for pkt in packets:
@@ -638,7 +616,7 @@ class TestPerformanceMetrics:
     def test_mvs_default_subcarriers(self, real_data, window_size, mvs_default_fp_rate_target,
                                      mvs_default_recall_target,
                                      enable_hampel, chip_type, default_subcarriers,
-                                     use_cv_normalization, dataset_id):
+                                     dataset_id):
         """
         Test MVS motion detection with default (offline-tuned) subcarriers.
         
@@ -658,7 +636,6 @@ class TestPerformanceMetrics:
         cal_ctx = SegmentationContext(
             window_size=window_size, threshold=1.0, enable_hampel=enable_hampel
         )
-        cal_ctx.use_cv_normalization = use_cv_normalization
         mv_values = []
         calibration_packets = min(len(static_presence_packets), CALIBRATION_BUFFER_SIZE)
         for pkt in static_presence_packets[:calibration_packets]:
@@ -673,7 +650,6 @@ class TestPerformanceMetrics:
         ctx = SegmentationContext(
             window_size=window_size, threshold=adaptive_threshold, enable_hampel=enable_hampel
         )
-        ctx.use_cv_normalization = use_cv_normalization
         
         num_baseline = len(static_presence_packets)
         num_movement = len(motion_packets)
@@ -736,7 +712,7 @@ class TestPerformanceMetrics:
 
     def test_mvs_detection_accuracy(self, real_data, num_subcarriers, window_size, fp_rate_target,
                                     recall_target, enable_hampel, calibration_algorithm, chip_type,
-                                    default_subcarriers, use_cv_normalization, dataset_id):
+                                    default_subcarriers, dataset_id):
         """
         Test MVS motion detection accuracy with real CSI data.
         
@@ -758,15 +734,12 @@ class TestPerformanceMetrics:
             calibration_algorithm,
             hint_band=default_subcarriers,
             mvs_window_size=window_size,
-            use_cv_normalization=use_cv_normalization,
         )
         
         # Initialize with adaptive threshold from calibration
         ctx = SegmentationContext(
             window_size=window_size, threshold=adaptive_threshold, enable_hampel=enable_hampel
         )
-        # Production uses CV normalization for every chip
-        ctx.use_cv_normalization = use_cv_normalization
         
         num_baseline = len(static_presence_packets)
         num_movement = len(motion_packets)
@@ -879,22 +852,19 @@ class TestPerformanceMetrics:
         
         # ML model uses fixed subcarriers (must match training)
         ml_subcarriers = DEFAULT_SUBCARRIERS
-        use_cv_norm = True
-        
         # ========================================
         # Initialize ML Detector (no calibration needed)
         # ========================================
         detector = MLDetector(
             threshold=5.0,  # Default scaled threshold (0.1-10.0)
             window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
-            use_cv_normalization=use_cv_norm,
         )
         
         print(f"\nML Detector initialized")
         print(f"  Threshold: 5.0")
         print(f"  Window size: {DETECTOR_DEFAULT_WINDOW_SIZE} (DETECTOR_DEFAULT_WINDOW_SIZE)")
         print(f"  Subcarriers: {ml_subcarriers} (fixed for ML)")
-        print(f"  CV normalization: {'ON' if use_cv_norm else 'OFF'}")
+        print("  Turbulence: normalized runtime path")
         
         # ========================================
         # Process ALL baseline packets (first window_size packets are warmup)
@@ -987,11 +957,9 @@ class TestPerformanceMetrics:
         from detector_interface import MotionState
 
         packets = load_npz_as_packets(empty_dataset_path)
-        use_cv_norm = True
         detector = MLDetector(
             threshold=5.0,
             window_size=DETECTOR_DEFAULT_WINDOW_SIZE,
-            use_cv_normalization=use_cv_norm,
         )
 
         warmup = DETECTOR_DEFAULT_WINDOW_SIZE
@@ -1184,7 +1152,7 @@ class TestEndToEndWithCalibration:
         print(f"  Selected band: {selected_band}")
         print(f"  Adaptive threshold: {adaptive_threshold:.4f}")
     
-    def test_end_to_end_with_band_calibration_and_mvs(self, real_data, num_subcarriers, window_size, fp_rate_target, recall_target, enable_hampel, calibration_algorithm, chip_type, use_cv_normalization, default_subcarriers):
+    def test_end_to_end_with_band_calibration_and_mvs(self, real_data, num_subcarriers, window_size, fp_rate_target, recall_target, enable_hampel, calibration_algorithm, chip_type, default_subcarriers):
         """
         Test complete end-to-end flow: Startup Calibration → MVS → Detection
         
@@ -1208,7 +1176,6 @@ class TestEndToEndWithCalibration:
             calibration_algorithm,
             hint_band=default_subcarriers,
             mvs_window_size=window_size,
-            use_cv_normalization=use_cv_normalization,
         )
         print(f"  Selected band: {selected_band}")
         
@@ -1220,13 +1187,12 @@ class TestEndToEndWithCalibration:
         # ========================================
         # Initialize MVS with calibration-selected subcarriers AND adaptive threshold
         # This tests the complete production pipeline
-        print(f"\nStep 2: Initialize MVS with calibration results (Hampel: {enable_hampel}, CV norm: {use_cv_normalization})...")
+        print(f"\nStep 2: Initialize MVS with calibration results (Hampel: {enable_hampel})...")
         ctx = SegmentationContext(
             window_size=window_size,
             threshold=adaptive_threshold,  # Apply calibration adaptive threshold
             enable_hampel=enable_hampel
         )
-        ctx.use_cv_normalization = use_cv_normalization
         
         # ========================================
         # Step 3: Process baseline (expecting IDLE)

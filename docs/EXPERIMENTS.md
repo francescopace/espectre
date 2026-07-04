@@ -459,9 +459,6 @@ used seed `20260521`, passed the final paired validation rerun, and kept the
 same 9-feature input set while improving the FP-first long-run ranking over the
 previous raw `24-12` baseline.
 
-The full campaign payload is stored in
-`models/mlp_architecture_experiment.json`.
-
 ---
 
 ### Relative-8 Topology and FP-Weight Sweep

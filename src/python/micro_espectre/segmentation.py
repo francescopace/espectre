@@ -63,9 +63,6 @@ class SegmentationContext:
         self.window_size = window_size
         self.threshold = threshold
         
-        # The runtime always uses gain-invariant turbulence under active AGC.
-        self.use_cv_normalization = True
-        
         # Turbulence circular buffer (pre-allocated)
         self.turbulence_buffer = [0.0] * window_size
         self.buffer_index = 0
@@ -176,8 +173,8 @@ class SegmentationContext:
         return n
 
     @staticmethod
-    def _turbulence_from_amplitude_buffer(amplitude_buffer, count, use_cv_normalization=True):
-        """Compute spatial turbulence from amplitudes stored in a fixed buffer."""
+    def _turbulence_from_amplitude_buffer(amplitude_buffer, count):
+        """Compute gain-invariant spatial turbulence from amplitudes."""
         if count < 2:
             return 0.0
 
@@ -192,23 +189,18 @@ class SegmentationContext:
             var_sum += diff * diff
         variance = var_sum / count
 
-        if not use_cv_normalization:
-            use_cv_normalization = True
         return math.sqrt(variance) / mean if mean > 0 else 0.0
 
     @staticmethod
-    def compute_spatial_turbulence(csi_data, selected_subcarriers=None, use_cv_normalization=True):
+    def compute_spatial_turbulence(csi_data, selected_subcarriers=None):
         """
         Calculate spatial turbulence from CSI subcarrier amplitudes
         
-        The normalized path is the canonical runtime behavior. The optional
-        argument remains accepted so older internal callers do not crash, but
-        turbulence is always returned as std/mean.
+        The runtime always returns gain-invariant turbulence as `std/mean`.
         
         Args:
             csi_data: array of int8 I/Q values (alternating real, imag)
             selected_subcarriers: list of subcarrier indices to use (default: all up to 64)
-            use_cv_normalization: kept for compatibility; turbulence is always normalized
             
         Returns:
             tuple: (turbulence, amplitudes) - turbulence value and amplitude list
@@ -220,9 +212,7 @@ class SegmentationContext:
         count = SegmentationContext._fill_amplitude_buffer(
             csi_data, selected_subcarriers, scratch
         )
-        turbulence = SegmentationContext._turbulence_from_amplitude_buffer(
-            scratch, count, use_cv_normalization
-        )
+        turbulence = SegmentationContext._turbulence_from_amplitude_buffer(scratch, count)
         return turbulence, scratch[:count]
 
     def _compute_spatial_turbulence_in_buffer(self, csi_data, selected_subcarriers=None):
@@ -234,11 +224,7 @@ class SegmentationContext:
         self._amplitude_count = self._fill_amplitude_buffer(
             csi_data, selected_subcarriers, self._amplitude_buffer
         )
-        return self._turbulence_from_amplitude_buffer(
-            self._amplitude_buffer,
-            self._amplitude_count,
-            self.use_cv_normalization,
-        )
+        return self._turbulence_from_amplitude_buffer(self._amplitude_buffer, self._amplitude_count)
 
     def calculate_spatial_turbulence(self, csi_data, selected_subcarriers=None, return_amplitudes=False):
         """

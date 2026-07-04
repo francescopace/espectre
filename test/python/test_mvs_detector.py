@@ -167,17 +167,13 @@ class TestMVSDetectorBasics:
         turb = detector.last_turbulence
         assert isinstance(turb, (int, float))
     
-    def test_cv_normalization_property(self):
-        """Test CV normalization property getter/setter"""
+    def test_process_packet_uses_normalized_turbulence(self):
+        """Process packet populates turbulence without a normalization toggle."""
         detector = MVSDetector()
-        
-        # Default value
-        original = detector.use_cv_normalization
-        assert isinstance(original, bool)
-        
-        # Set value
-        detector.use_cv_normalization = not original
-        assert detector.use_cv_normalization == (not original)
+        csi_data = [10, 10] * 64
+
+        detector.process_packet(csi_data, [0, 10, 20])
+        assert isinstance(detector.last_turbulence, (int, float))
     
     def test_motion_detection_with_varying_data(self):
         """Test motion detection with varying CSI data"""

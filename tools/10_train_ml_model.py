@@ -62,7 +62,6 @@ from dataclasses import dataclass
 from repo_paths import (
     cpp_core_dir,
     generated_data_dir,
-    models_dir,
     python_src_dir,
     python_tests_dir,
     repo_root,
@@ -364,7 +363,6 @@ FEATURE_SET_CHOICES = {
     'hybrid': HYBRID_FEATURES,
 }
 # Directories
-MODELS_DIR = models_dir()
 GENERATED_DATA_DIR = generated_data_dir()
 SRC_DIR = python_src_dir()
 CPP_DIR = cpp_core_dir()
@@ -389,7 +387,7 @@ DEFAULT_ARCHITECTURE_SWEEP = (
     {'name': 'Current default (32-16)', 'layers': [32, 16]},
     {'name': 'Deep (24-12-6)', 'layers': [24, 12, 6]},
 )
-DEFAULT_EXPERIMENT_OUTPUT = MODELS_DIR / 'mlp_architecture_experiment.json'
+DEFAULT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_architecture_experiment.json'
 DEFAULT_EXPERIMENT_SCREENING_SEED = 20260519
 DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
 DEFAULT_EXPERIMENT_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
@@ -3567,7 +3565,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     # Export models
     print("\nExporting model artifacts...")
     export_start = perf_counter()
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     # MicroPython weights
     mp_path = SRC_DIR / 'ml_weights.py'
