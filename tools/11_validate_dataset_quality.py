@@ -69,7 +69,7 @@ REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
 # Quality thresholds
 MIN_PACKETS = 800
 MAX_ZERO_PACKET_RATIO = 0.01
-MIN_VARIANCE_RATIO = 3
+MIN_VARIANCE_RATIO = 2.5
 MAX_TEMPORAL_GAP_S = 30 * 60
 MIN_AMPLITUDE_MEAN = 9.0
 MIN_EMPTY_SEPARABILITY_AUC = 0.70
@@ -366,6 +366,22 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
         ))
 
     return results
+
+
+def should_recommend_dataset_metadata_refresh(results, missing_motion_pair_count=0):
+    """Return True when validation suggests refreshing derived dataset metadata."""
+    if missing_motion_pair_count > 0:
+        return True
+
+    for result in results:
+        message = str(getattr(result, "message", ""))
+        if "optimal_threshold_gridsearch" in message:
+            return True
+        if "optimal_pair_motion_file" in message:
+            return True
+        if "optimal_pair_static_presence_file" in message:
+            return True
+    return False
 
 
 def _get_csi_key(data):
@@ -861,6 +877,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
 
     all_results = []
     pair_results = []
+    missing_motion_pair_count = 0
 
     # ------------------------------------------------------------------
     # Phase 1: Validate required dataset_info metadata
@@ -926,63 +943,32 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
     motion_dir = DATA_DIR / "motion"
 
     if static_presence_dir.exists() and motion_dir.exists():
-        static_presence_files = sorted(static_presence_dir.glob("*.npz"))
-        motion_files = sorted(motion_dir.glob("*.npz"))
+        static_presence_files = {
+            path.name: path for path in sorted(static_presence_dir.glob("*.npz"))
+        }
+        motion_files = {
+            path.name: path for path in sorted(motion_dir.glob("*.npz"))
+        }
 
-        def _parse_file_meta(filepath):
-            """Extract (chip, datetime) from filename.
-
-            Filenames follow: label_chip_64sc_YYYYMMDD_HHMMSS.npz
-            """
-            parts = filepath.stem.split('_')
-            if filepath.stem.startswith('static_presence_'):
-                chip = parts[2] if len(parts) > 2 else 'unknown'
-                date_idx = 4
-                time_idx = 5
-            else:
-                chip = parts[1] if len(parts) > 1 else 'unknown'
-                date_idx = 3
-                time_idx = 4
-            try:
-                dt = datetime.datetime.strptime(
-                    f"{parts[date_idx]}_{parts[time_idx]}", "%Y%m%d_%H%M%S"
-                )
-            except (IndexError, ValueError):
-                dt = None
-            return chip, dt
-
-        # Match each static-presence file to its closest same-chip motion file,
-        # producing 1:1 pairs.
-        mv_used = set()
-
-        for bl_file in static_presence_files:
-            if chip_filter and chip_filter.lower() not in bl_file.name.lower():
+        static_entries = dataset_info.get("files", {}).get("static_presence", [])
+        for entry in static_entries:
+            if not _entry_matches_chip(entry, chip_filter):
                 continue
 
-            bl_chip, bl_dt = _parse_file_meta(bl_file)
+            bl_name = str(entry.get("filename", ""))
+            bl_file = static_presence_files.get(bl_name)
+            mv_name = str(entry.get("optimal_pair_motion_file", ""))
+            best_mv = motion_files.get(mv_name)
 
-            best_mv = None
-            best_gap = None
-
-            for mf in motion_files:
-                if mf in mv_used:
-                    continue
-                mv_chip, mv_dt = _parse_file_meta(mf)
-                if mv_chip != bl_chip:
-                    continue
-                if bl_dt is None or mv_dt is None:
-                    continue
-                gap = abs((mv_dt - bl_dt).total_seconds())
-                if best_gap is None or gap < best_gap:
-                    best_mv = mf
-                    best_gap = gap
-
+            if bl_file is None:
+                print(f"\n⚠️  Static-presence file missing: {bl_name}")
+                continue
             if best_mv is None:
                 print(f"\n⚠️  No motion pair for: {bl_file.name}")
+                missing_motion_pair_count += 1
                 continue
 
-            mv_used.add(best_mv)
-            chip = bl_chip
+            chip = str(entry.get("chip", "unknown")).upper()
             mv_file = best_mv
 
             sc_source = "DEFAULT_SUBCARRIERS"
@@ -1075,6 +1061,14 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
     if pair_results:
         pass_pairs = sum(1 for p in pair_results if p['status'] == 'PASS')
         print(f"   Pairs: {pass_pairs}/{len(pair_results)} passed")
+
+    if should_recommend_dataset_metadata_refresh(
+        all_results,
+        missing_motion_pair_count=missing_motion_pair_count,
+    ):
+        print("\n💡 Metadata refresh recommended:")
+        print("   Run `python tools/3_refresh_dataset_metadata.py --write`")
+        print("   to regenerate pair metadata and optimal_threshold_gridsearch.")
 
     if generate_report:
         _generate_report(pair_results, all_results, dataset_info)

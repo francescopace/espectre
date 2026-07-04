@@ -61,7 +61,8 @@ flashing, use a BLE client that understands this protocol, such as:
 
 Before building locally, complete the shared
 [`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
-Use a shell where `idf.py --version` succeeds.
+The repository CLI auto-detects a reusable ESP-IDF install, so the wrapper-first
+workflow does not require a separate setup check before build.
 
 CI QEMU smoke currently covers `ESP32`, `ESP32-S3`, and `ESP32-C3` for the
 native frontend. `ESP32-C5` and `ESP32-C6` remain build-only because the
@@ -76,8 +77,9 @@ Repository CLI:
 ```
 
 The CLI is a thin wrapper over the ESP-IDF app in this directory.
-On Windows, use `.\espectre.cmd native ...` for build/flash and
-`.\espectre.cmd monitor --port COM5` for serial logs.
+On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port COM5`.
+If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor`
+or `./espectre doctor` to inspect the detected environment.
 
 ### Local Web Bluetooth Test Client
 

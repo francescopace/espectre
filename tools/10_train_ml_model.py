@@ -329,8 +329,15 @@ from csi_utils import (
     load_npz_as_packets,
     DATA_DIR,
 )
-from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS, HAMPEL_WINDOW, HAMPEL_THRESHOLD
+from config import (
+    CALIBRATION_BUFFER_SIZE,
+    DEFAULT_SUBCARRIERS,
+    HAMPEL_THRESHOLD,
+    HAMPEL_WINDOW,
+    SEG_WINDOW_SIZE,
+)
 from segmentation import SegmentationContext
+from threshold import calculate_adaptive_threshold
 from features import (
     extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
     ROBUST_RELATIVE_FEATURES,
@@ -346,10 +353,15 @@ from features import (
 
 TRAINING_FEATURES = DEFAULT_FEATURES
 BINARY_TRAINING_LABELS = ('empty', 'static_presence', 'motion')
+HYBRID_FEATURES = RAW_FEATURES + [
+    name for name in RELATIVE_FEATURES if name not in RAW_FEATURES
+]
 FEATURE_SET_CHOICES = {
     'production': DEFAULT_FEATURES,
     'relative': RELATIVE_FEATURES,
     'robust_relative': ROBUST_RELATIVE_FEATURES,
+    'raw': RAW_FEATURES,
+    'hybrid': HYBRID_FEATURES,
 }
 # Directories
 MODELS_DIR = models_dir()
@@ -364,8 +376,8 @@ DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
 SAMPLE_WEIGHT_MODES = ('none', 'mvs_global', 'mvs_gridsearch', 'mvs_hard_negative')
-DEFAULT_SAMPLE_WEIGHT_MODE = 'mvs_hard_negative'
-TRAINING_CACHE_VERSION = 1
+DEFAULT_SAMPLE_WEIGHT_MODE = 'none'
+TRAINING_CACHE_VERSION = 2
 DEFAULT_ML_TEMPERATURE = 5.0
 # All chips included: MLDetector keeps MVS CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
@@ -852,7 +864,7 @@ def _is_temporally_paired(dataset_info, label, entry, max_delta_seconds=30 * 60)
     return abs((t2 - t1).total_seconds()) <= max_delta_seconds
 
 
-def build_gridsearch_tuning_map(dataset_info, default_threshold=1.0):
+def build_gridsearch_tuning_map(dataset_info, default_threshold=None):
     """
     Build per-file tuning map from dataset_info.
 
@@ -872,14 +884,17 @@ def build_gridsearch_tuning_map(dataset_info, default_threshold=1.0):
             if not name:
                 continue
 
-            threshold = float(entry.get('optimal_threshold_gridsearch', default_threshold))
+            threshold_value = entry.get('optimal_threshold_gridsearch', default_threshold)
             paired = _is_temporally_paired(dataset_info, label, entry)
-            mode = 'paired' if paired else 'single-dataset fallback'
-            confidence_factor = 1.0 if paired else 0.5
+            if threshold_value is None:
+                threshold = None
+                mode = 'missing'
+            else:
+                threshold = float(threshold_value)
+                mode = 'paired' if paired else 'single-dataset fallback'
             tuning[name] = {
                 'threshold': threshold,
                 'mode': mode,
-                'confidence_factor': confidence_factor,
             }
     return tuning
 
@@ -1374,12 +1389,15 @@ def compute_sample_weights(packets, labels, sample_weight_mode=DEFAULT_SAMPLE_WE
     if mode == 'mvs_global':
         tuning_map = {}
         mvs_policy = 'full'
+        fallback_threshold = 1.0
     elif mode == 'mvs_gridsearch':
-        tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
+        tuning_map = build_gridsearch_tuning_map(dataset_info)
         mvs_policy = 'full'
+        fallback_threshold = None
     elif mode == 'mvs_hard_negative':
-        tuning_map = build_gridsearch_tuning_map(dataset_info, default_threshold=1.0)
+        tuning_map = build_gridsearch_tuning_map(dataset_info)
         mvs_policy = 'hard_negative'
+        fallback_threshold = None
     else:
         raise AssertionError(f"Unhandled sample weight mode: {mode}")
 
@@ -1388,11 +1406,39 @@ def compute_sample_weights(packets, labels, sample_weight_mode=DEFAULT_SAMPLE_WE
         tuning_map,
         window_size=window_size,
         policy=mvs_policy,
+        fallback_threshold=fallback_threshold,
     )
 
 
+def estimate_mvs_threshold_from_packets(file_packets, window_size=SEG_WINDOW_SIZE):
+    """Estimate the production adaptive threshold from a file calibration prefix."""
+    ctx = SegmentationContext(
+        window_size=window_size,
+        threshold=1.0,
+        enable_hampel=True,
+    )
+    moving_variance_values = []
+    for pkt in file_packets[:CALIBRATION_BUFFER_SIZE]:
+        turb = ctx.calculate_spatial_turbulence(
+            pkt['csi_data'],
+            DEFAULT_SUBCARRIERS,
+        )
+        ctx.add_turbulence(turb)
+        ctx.update_state()
+        if ctx.buffer_count >= window_size:
+            moving_variance_values.append(ctx.current_moving_variance)
+
+    if not moving_variance_values:
+        return None
+    threshold, _percentile = calculate_adaptive_threshold(
+        moving_variance_values,
+        'auto',
+    )
+    return max(float(threshold), 1e-6)
+
+
 def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDOW_SIZE,
-                                      policy='full'):
+                                      policy='full', fallback_threshold=None):
     """
     Compute sample weights using context-aware MVS scoring per source file.
 
@@ -1400,8 +1446,8 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
     - full policy: hard-positive mining for movement samples
     - hard_negative policy: leave movement samples neutral
     - baseline samples: promote hard negatives (2.0) when metric >= threshold, else 1.0
-    - per-file thresholds fall back toward the default threshold when pairing
-      confidence is low, reducing overfitting to file-specific grid-search tuning
+    - per-file thresholds come from dataset metadata when available
+    - missing metadata falls back to a production-style calibration-prefix estimate
     - weights are normalized per file so no single recording dominates training
     """
     weights = []
@@ -1413,16 +1459,19 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
 
     for source_file, file_packets in grouped.items():
         cfg = tuning_map.get(source_file, None)
-        if cfg is None:
-            threshold = 1.0
-            confidence_factor = 0.5
+        if cfg is None or cfg.get('threshold') is None:
+            if fallback_threshold is None:
+                threshold = estimate_mvs_threshold_from_packets(
+                    file_packets,
+                    window_size=window_size,
+                )
+                if threshold is None:
+                    threshold = 1.0
+            else:
+                threshold = float(fallback_threshold)
         else:
             threshold = max(float(cfg['threshold']), 1e-6)
-            confidence_factor = float(cfg['confidence_factor'])
-        effective_threshold = (
-            confidence_factor * threshold
-            + (1.0 - confidence_factor) * 1.0
-        )
+        effective_threshold = max(float(threshold), 1e-6)
 
         ctx = SegmentationContext(window_size=window_size, threshold=effective_threshold)
         file_weights = []

@@ -394,7 +394,13 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
 
 int process(void) {
     int failures = 0;
-    for (auto chip : csi_test_data::get_available_chips()) {
+    auto chips = csi_test_data::get_available_chips();
+    if (chips.empty()) {
+        printf("ERROR: No complete 64 SC static-presence/motion dataset pairs available\n");
+        return 1;
+    }
+
+    for (auto chip : chips) {
         failures += run_tests_for_chip(chip);
     }
     

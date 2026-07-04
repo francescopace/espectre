@@ -58,7 +58,8 @@ part of the supported target set.
 
 Before building locally, complete the shared
 [`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
-Use a shell where `idf.py --version` succeeds.
+The repository CLI auto-detects a reusable ESP-IDF install, so prefer the
+wrapper-first workflow without a mandatory pre-check:
 
 Repository CLI:
 
@@ -70,15 +71,16 @@ Repository CLI:
 
 Notes:
 
-- On Windows, use `.\espectre.cmd matter ...` for build/flash and
-  `.\espectre.cmd monitor --port COM5` for serial logs.
+- On Windows, use `.\espectre.cmd matter ...` and `.\espectre.cmd monitor --port COM5`.
+- If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor`
+  or `./espectre doctor` for troubleshooting.
 - the Matter frontend detector is selected through `sdkconfig`; the default is
   `ML`
 - the first build downloads managed components and compiles `esp_matter`, so it
   is significantly slower than incremental builds
 
 <details>
-<summary>Raw ESP-IDF flow</summary>
+<summary>Advanced raw ESP-IDF flow</summary>
 
 ```bash
 cd src/cpp/frontend/matter/app

@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
 
-from .common import Fore, Style, get_serial_port
+from .common import Fore, Style, cli_command, get_serial_port
 from .targets import IDF_FRONTENDS, resolve_idf_target
+
+
+@dataclass(frozen=True)
+class ResolvedIdfEnvironment:
+    """Describe how the CLI will launch idf.py on the current host."""
+
+    mode: str
+    source: str
+    install_dir: Path | None = None
+    export_script: Path | None = None
+    export_kind: str | None = None
+    idf_path_entry: str | None = None
 
 
 def clean_idf_build_artifacts(app_path: Path, build_dir_name: str | None = None) -> None:
@@ -31,13 +45,17 @@ def clean_idf_build_artifacts(app_path: Path, build_dir_name: str | None = None)
         print(f"{Fore.CYAN}Cleaned:   nothing to remove{Style.RESET_ALL}")
 
 
-def resolve_sdkconfig_defaults(app_path: Path) -> str:
+def resolve_sdkconfig_defaults(app_path: Path, idf_target: str | None = None) -> str:
     """Resolve SDKCONFIG defaults from the environment or local app defaults."""
     env_defaults = os.environ.get("SDKCONFIG_DEFAULTS")
     if env_defaults:
         return env_defaults
 
     sdkconfig_defaults = ["sdkconfig.defaults"]
+    if idf_target:
+        target_defaults = app_path / f"sdkconfig.defaults.{idf_target}"
+        if target_defaults.exists():
+            sdkconfig_defaults.append(target_defaults.name)
     if (app_path / "sdkconfig.wifi").exists():
         sdkconfig_defaults.append("sdkconfig.wifi")
     return ";".join(sdkconfig_defaults)
@@ -49,6 +67,219 @@ def build_idf_base_command(build_dir_name: str | None) -> list[str]:
     if build_dir_name:
         command.extend(["-B", build_dir_name])
     return command
+
+
+def is_windows_host() -> bool:
+    """Return True when the current host is Windows."""
+    return os.name == "nt"
+
+
+def format_idf_host_label() -> str:
+    """Return a compact host label for user-facing output."""
+    return "Windows" if is_windows_host() else "macOS/Linux"
+
+
+def is_idf_environment_active() -> bool:
+    """Best-effort check for an already prepared ESP-IDF shell."""
+    return bool(shutil.which("idf.py") and os.environ.get("IDF_PATH") and os.environ.get("IDF_PYTHON_ENV_PATH"))
+
+
+def iter_idf_install_candidates() -> list[tuple[str, Path]]:
+    """Return likely ESP-IDF installation directories for the current host."""
+    candidates: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+
+    env_idf_path = os.environ.get("IDF_PATH")
+    if env_idf_path:
+        candidates.append(("IDF_PATH", Path(env_idf_path).expanduser()))
+
+    home = Path(os.environ.get("USERPROFILE") or Path.home()) if is_windows_host() else Path.home()
+    candidates.extend(
+        [
+            ("ESPHome/PlatformIO package", home / ".platformio" / "packages" / "framework-espidf"),
+            ("standard ESP-IDF install", home / "esp" / "esp-idf"),
+        ]
+    )
+    if is_windows_host():
+        candidates.append(("standard ESP-IDF install", home / "esp" / "v5.5" / "esp-idf"))
+
+    unique_candidates: list[tuple[str, Path]] = []
+    for source, candidate in candidates:
+        try:
+            normalized = candidate.expanduser().resolve(strict=False)
+        except OSError:
+            normalized = candidate.expanduser()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_candidates.append((source, candidate.expanduser()))
+    return unique_candidates
+
+
+def resolve_idf_export_script_for_install(install_dir: Path) -> tuple[Path, str] | None:
+    """Find a usable export script inside an ESP-IDF installation directory."""
+    if is_windows_host():
+        candidates = [
+            (install_dir / "export.bat", "bat"),
+            (install_dir / "export.ps1", "ps1"),
+        ]
+    else:
+        candidates = [(install_dir / "export.sh", "sh")]
+
+    for script_path, script_kind in candidates:
+        if script_path.is_file():
+            return script_path, script_kind
+    return None
+
+
+def resolve_idf_environment() -> ResolvedIdfEnvironment:
+    """Resolve how the CLI should launch idf.py on this host."""
+    if is_idf_environment_active():
+        return ResolvedIdfEnvironment(
+            mode="active",
+            source="active ESP-IDF shell",
+            install_dir=Path(os.environ["IDF_PATH"]).expanduser(),
+        )
+
+    for source, install_dir in iter_idf_install_candidates():
+        export_script = resolve_idf_export_script_for_install(install_dir)
+        if export_script is None:
+            continue
+        script_path, script_kind = export_script
+        return ResolvedIdfEnvironment(
+            mode="export",
+            source=source,
+            install_dir=install_dir,
+            export_script=script_path,
+            export_kind=script_kind,
+        )
+
+    idf_on_path = shutil.which("idf.py")
+    if idf_on_path:
+        return ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry=idf_on_path)
+
+    raise FileNotFoundError("idf.py")
+
+
+def describe_idf_environment(env: ResolvedIdfEnvironment) -> str:
+    """Return a user-facing description of the resolved ESP-IDF environment."""
+    if env.mode == "active":
+        return f"using active shell environment at {env.install_dir}"
+    if env.mode == "export":
+        return f"auto-loading {env.source} at {env.install_dir}"
+    return f"using idf.py from PATH at {env.idf_path_entry}"
+
+
+def print_idf_recovery_instructions() -> None:
+    """Print concise, platform-aware recovery guidance."""
+    print(f"{Fore.YELLOW}Try one of these setup paths, then rerun {cli_command('doctor')}.{Style.RESET_ALL}")
+    if is_windows_host():
+        print('  1. . "$env:USERPROFILE\\.platformio\\packages\\framework-espidf\\export.ps1"')
+        print(f"     {cli_command('doctor')}")
+        print('  2. . "$env:USERPROFILE\\esp\\esp-idf\\export.ps1"')
+        print(f"     {cli_command('doctor')}")
+    else:
+        print("  1. source ~/.platformio/packages/framework-espidf/export.sh")
+        print(f"     {cli_command('doctor')}")
+        print("  2. source ~/esp/esp-idf/export.sh")
+        print(f"     {cli_command('doctor')}")
+
+
+def quote_powershell_literal(value: str) -> str:
+    """Quote a string as a PowerShell single-quoted literal."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def prepare_idf_subprocess_command(
+    command: list[str], env: ResolvedIdfEnvironment
+) -> tuple[list[str], Path | None]:
+    """Prepare the subprocess command for the resolved ESP-IDF environment."""
+    if env.mode != "export":
+        return command, None
+
+    assert env.export_script is not None
+    assert env.export_kind is not None
+
+    if env.export_kind == "sh":
+        shell = shutil.which("bash") or shutil.which("zsh") or "/bin/sh"
+        shell_command = f". {shlex.quote(str(env.export_script))} >/dev/null && {shlex.join(command)}"
+        return [shell, "-lc", shell_command], env.export_script
+
+    if env.export_kind == "bat":
+        shell = os.environ.get("COMSPEC") or shutil.which("cmd") or "cmd.exe"
+        shell_command = f'call "{env.export_script}" >NUL && {subprocess.list2cmdline(command)}'
+        return [shell, "/d", "/c", shell_command], env.export_script
+
+    shell = shutil.which("powershell") or shutil.which("pwsh")
+    if not shell:
+        raise FileNotFoundError("powershell")
+    quoted_command = " ".join(quote_powershell_literal(part) for part in command)
+    shell_command = f"& {{ . {quote_powershell_literal(str(env.export_script))}; & {quoted_command} }}"
+    return [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", shell_command], env.export_script
+
+
+def prepare_idf_subprocess_command_sequence(
+    commands: list[list[str]], env: ResolvedIdfEnvironment
+) -> tuple[list[str], Path | None]:
+    """Prepare a single subprocess command that runs multiple idf.py commands."""
+    if not commands:
+        raise ValueError("at least one idf.py command is required")
+    if len(commands) == 1 or env.mode != "export":
+        return prepare_idf_subprocess_command(commands[0], env)
+
+    assert env.export_script is not None
+    assert env.export_kind is not None
+
+    if env.export_kind == "sh":
+        shell = shutil.which("bash") or shutil.which("zsh") or "/bin/sh"
+        joined_commands = " && ".join(shlex.join(command) for command in commands)
+        shell_command = f". {shlex.quote(str(env.export_script))} >/dev/null && {joined_commands}"
+        return [shell, "-lc", shell_command], env.export_script
+
+    if env.export_kind == "bat":
+        shell = os.environ.get("COMSPEC") or shutil.which("cmd") or "cmd.exe"
+        joined_commands = " && ".join(subprocess.list2cmdline(command) for command in commands)
+        shell_command = f'call "{env.export_script}" >NUL && {joined_commands}'
+        return [shell, "/d", "/c", shell_command], env.export_script
+
+    shell = shutil.which("powershell") or shutil.which("pwsh")
+    if not shell:
+        raise FileNotFoundError("powershell")
+    joined_commands = " ; ".join(
+        "& " + " ".join(quote_powershell_literal(part) for part in command) for command in commands
+    )
+    shell_command = f"& {{ . {quote_powershell_literal(str(env.export_script))}; {joined_commands} }}"
+    return [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", shell_command], env.export_script
+
+
+def run_idf_doctor(_args) -> int:
+    """Validate the local ESP-IDF environment used by the repository CLI."""
+    print(f"{Fore.CYAN}Host:     {format_idf_host_label()}{Style.RESET_ALL}")
+    try:
+        env = resolve_idf_environment()
+    except FileNotFoundError:
+        print(f"{Fore.RED}❌ No usable ESP-IDF installation was auto-detected.{Style.RESET_ALL}")
+        print_idf_recovery_instructions()
+        raise SystemExit(1)
+
+    print(f"{Fore.CYAN}ESP-IDF:  {describe_idf_environment(env)}{Style.RESET_ALL}")
+    command = ["idf.py", "--version"]
+    subprocess_command, export_script = prepare_idf_subprocess_command(command, env)
+    if export_script is not None:
+        print(f"{Fore.CYAN}Export:   {export_script}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}Command:  {' '.join(command)}{Style.RESET_ALL}")
+    try:
+        subprocess.run(subprocess_command, check=True)
+    except FileNotFoundError:
+        print(f"{Fore.RED}❌ The resolved ESP-IDF launcher could not be started.{Style.RESET_ALL}")
+        print_idf_recovery_instructions()
+        raise SystemExit(1)
+    except subprocess.CalledProcessError as e:
+        print(f"{Fore.RED}❌ ESP-IDF validation failed with exit code {e.returncode}.{Style.RESET_ALL}")
+        print_idf_recovery_instructions()
+        raise SystemExit(e.returncode)
+    print(f"{Fore.GREEN}✅ ESP-IDF is ready for repository build commands.{Style.RESET_ALL}")
+    return 0
 
 
 def run_idf_command(frontend: str, args) -> None:
@@ -72,7 +303,7 @@ def run_idf_command(frontend: str, args) -> None:
     if args.idf_command == "build" and getattr(args, "clean", False):
         clean_idf_build_artifacts(app_path, build_dir_name)
 
-    defaults_arg = f"-DSDKCONFIG_DEFAULTS={resolve_sdkconfig_defaults(app_path)}"
+    defaults_arg = f"-DSDKCONFIG_DEFAULTS={resolve_sdkconfig_defaults(app_path, idf_target)}"
 
     commands = []
     if args.idf_command == "build":
@@ -87,11 +318,33 @@ def run_idf_command(frontend: str, args) -> None:
         commands = [[*base_command, "-p", port, "flash"]]
 
     try:
-        for command in commands:
-            print(f"{Fore.CYAN}Command: {' '.join(command)}{Style.RESET_ALL}")
-            subprocess.run(command, cwd=app_dir, check=True)
+        env = resolve_idf_environment()
     except FileNotFoundError:
-        print(f"{Fore.RED}❌ idf.py not found. Load the ESP-IDF environment first.{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ No usable ESP-IDF installation was auto-detected.{Style.RESET_ALL}")
+        print_idf_recovery_instructions()
+        raise SystemExit(1)
+
+    print(f"{Fore.CYAN}ESP-IDF: {describe_idf_environment(env)}{Style.RESET_ALL}")
+    try:
+        if env.mode == "export" and len(commands) > 1:
+            for command in commands:
+                print(f"{Fore.CYAN}Command: {' '.join(command)}{Style.RESET_ALL}")
+            subprocess_command, export_script = prepare_idf_subprocess_command_sequence(commands, env)
+            assert export_script is not None
+            print(f"{Fore.CYAN}Export:  {export_script}{Style.RESET_ALL}")
+            subprocess.run(subprocess_command, cwd=app_dir, check=True)
+        else:
+            fallback_notice_printed = False
+            for command in commands:
+                print(f"{Fore.CYAN}Command: {' '.join(command)}{Style.RESET_ALL}")
+                subprocess_command, export_script = prepare_idf_subprocess_command(command, env)
+                if export_script is not None and not fallback_notice_printed:
+                    print(f"{Fore.CYAN}Export:  {export_script}{Style.RESET_ALL}")
+                    fallback_notice_printed = True
+                subprocess.run(subprocess_command, cwd=app_dir, check=True)
+    except FileNotFoundError:
+        print(f"{Fore.RED}❌ The resolved ESP-IDF launcher could not be started.{Style.RESET_ALL}")
+        print_idf_recovery_instructions()
         raise SystemExit(1)
     except subprocess.CalledProcessError as e:
         print(f"{Fore.RED}❌ idf.py command failed with exit code {e.returncode}{Style.RESET_ALL}")

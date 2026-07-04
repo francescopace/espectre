@@ -41,7 +41,7 @@ Current entry-point support by frontend:
 ### ESP-IDF Local Build Prerequisite
 
 Local `Native`, `Matter`, and `Streamer` firmware builds require ESP-IDF to be
-installed before you run the repository build commands.
+available to the repository CLI.
 
 The repository Python dependencies include ESPHome. ESPHome uses PlatformIO and
 can provide a reusable ESP-IDF framework package at
@@ -76,61 +76,97 @@ py -3 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-Per-shell environment setup before local ESP-IDF frontend builds:
+Fast path for local `Native`, `Matter`, and `Streamer` builds:
+
+1. activate the repository virtual environment
+2. run the frontend-specific `build` or `flash` command
+3. if ESP-IDF detection fails, run `doctor` for troubleshooting
 
 macOS/Linux:
 
 ```bash
 source .venv/bin/activate
-source ~/.platformio/packages/framework-espidf/export.sh
+./espectre native build --chip c3
 ```
 
-Windows:
+Windows PowerShell:
 
-1. Open the ESP-IDF PowerShell or Command Prompt provided by the ESP-IDF
-   installer. If you are reusing the ESPHome/PlatformIO package instead, open
-   PowerShell and export that package:
+```powershell
+.\.venv\Scripts\Activate.ps1
+.\espectre.cmd native build --chip c3
+```
 
-   ```powershell
-   . "$env:USERPROFILE\.platformio\packages\framework-espidf\export.ps1"
-   ```
+Optional environment check:
 
-2. Activate the repository virtual environment:
+- use `./espectre doctor` or `.\espectre.cmd doctor` when a build fails to find
+  or validate ESP-IDF
+- use it when you want to see which local ESP-IDF install the wrapper will use
 
-   ```powershell
-   .\.venv\Scripts\Activate.ps1
-   ```
+What `doctor` auto-detects today:
 
-3. Continue with the frontend-specific `.\espectre.cmd ...` command.
+| Install source | macOS/Linux | Windows |
+|----------------|-------------|---------|
+| ESPHome/PlatformIO package | `~/.platformio/packages/framework-espidf` | `%USERPROFILE%\.platformio\packages\framework-espidf` |
+| Standard ESP-IDF install | `~/esp/esp-idf` | `%USERPROFILE%\esp\esp-idf` |
+| Existing `IDF_PATH` | uses `IDF_PATH` when it points to an ESP-IDF install | uses `IDF_PATH` when it points to an ESP-IDF install |
 
-Common ESP-IDF export paths:
+If a build fails and `doctor` reports that no usable ESP-IDF install was found:
 
-| Install source | How to find or activate it |
-|----------------|----------------------------|
-| ESPHome/PlatformIO package | `source ~/.platformio/packages/framework-espidf/export.sh` |
-| Manual ESP-IDF `5.5.4` install | `source ~/esp/esp-idf/export.sh` |
-| Existing `IDF_PATH` | check with `echo "$IDF_PATH"`, then run `source "$IDF_PATH/export.sh"` |
+- first choice: reuse the ESP-IDF package downloaded by ESPHome/PlatformIO
+- second choice: install official ESP-IDF `5.5.4`, then rerun `doctor`
 
-On Windows, the equivalent ESPHome/PlatformIO path is usually:
+If the ESPHome/PlatformIO package does not exist yet, any local ESPHome build
+will download it:
+
+macOS/Linux:
+
+```bash
+./espectre esphome build --chip c3
+./espectre doctor
+```
+
+Windows PowerShell:
+
+```powershell
+.\espectre.cmd esphome build --chip c3
+.\espectre.cmd doctor
+```
+
+### ESP-IDF Troubleshooting
+
+Use these manual exports only when `doctor` cannot auto-detect or validate your
+ESP-IDF install.
+
+macOS/Linux:
+
+```bash
+source ~/.platformio/packages/framework-espidf/export.sh
+./espectre doctor
+```
+
+```bash
+source ~/esp/esp-idf/export.sh
+./espectre doctor
+```
+
+Windows PowerShell:
 
 ```powershell
 . "$env:USERPROFILE\.platformio\packages\framework-espidf\export.ps1"
+.\espectre.cmd doctor
 ```
 
-Verify the shell before building:
-
-```bash
-idf.py --version
+```powershell
+. "$env:USERPROFILE\esp\esp-idf\export.ps1"
+.\espectre.cmd doctor
 ```
-
-After this succeeds, use the frontend-specific `./espectre native ...`,
-`./espectre matter ...`, or `./espectre streamer ...` commands documented in
-the relevant README. On Windows, use the ESP-IDF command prompt or PowerShell
-environment provided by the ESP-IDF installer, then run `.\espectre.cmd`.
 
 ## Local CLI Workflows
 
-Use the repository CLI from the repository root for local build, flash, and monitor tasks:
+Use the repository CLI from the repository root for local build, flash, and monitor tasks.
+For `Native`, `Matter`, and `Streamer`, the wrapper auto-detects ESP-IDF during
+`build` and `flash`. Use `doctor` only when you want an explicit environment
+check or when a build reports an ESP-IDF setup problem:
 
 | Host | CLI launcher |
 |------|--------------|

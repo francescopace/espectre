@@ -1,0 +1,16 @@
+CONFIG_LWIP_IRAM_OPTIMIZATION=n
+
+# Original ESP32 has much less headroom than newer targets. Use a leaner
+# network profile so the streamer can sustain collector-driven 100 pps sessions
+# without exhausting RAM in the Wi-Fi/LwIP path.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
+CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=32
+CONFIG_LWIP_UDP_RECVMBOX_SIZE=16
+
+# Shrink the preallocated CSI stream staging area on ESP32. This saves a large
+# amount of internal RAM and is acceptable for the lower target throughput.
+CONFIG_ESPECTRE_STREAM_QUEUE_SLOTS=8
+CONFIG_ESPECTRE_STREAM_BATCH_MAX_RECORDS=2
+CONFIG_ESPECTRE_STREAM_BATCH_MAX_BYTES=512
