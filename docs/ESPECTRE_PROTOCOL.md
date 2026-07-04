@@ -34,7 +34,7 @@ Current BLE responsibilities:
 - expose protocol and sysinfo notifications
 - publish live movement, threshold, and motion-state telemetry to subscribed
   nearby clients
-- provision device identity (`device_id`, `device_name`)
+- provision device identity (`device_id`, `device_label`)
 - provision Wi-Fi credentials
 - provision MQTT endpoint settings
 - allow local threshold updates
@@ -82,7 +82,7 @@ espectre/v1/devices/{device_id}/telemetry
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "espectre-7c2c6742bbac",
+  "device_id": "0x00007c2c6742bbac",
   "frontend": "native",
   "timestamp_ms": 123456,
   "motion_state": "idle",
@@ -107,7 +107,7 @@ espectre/v1/devices/{device_id}/status
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "espectre-7c2c6742bbac",
+  "device_id": "0x00007c2c6742bbac",
   "online": true,
   "timestamp_ms": 123456
 }
@@ -124,8 +124,9 @@ espectre/v1/devices/{device_id}/info
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "espectre-7c2c6742bbac",
-  "device_name": "Living Room",
+  "device_id": "0x00007c2c6742bbac",
+  "device_name": "ESPectre C6 42bbac",
+  "device_label": "Living Room",
   "frontend": "native",
   "firmware_version": "1.2.3",
   "chip": "esp32c6",
@@ -153,7 +154,7 @@ Published on request or at low rate by clients that expose runtime diagnostics:
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "espectre-7c2c6742bbac",
+  "device_id": "0x00007c2c6742bbac",
   "timestamp_ms": 123456,
   "uptime": 3821,
   "free_memory_kb": 182.4,
@@ -219,7 +220,7 @@ espectre/v1/devices/{device_id}/ota/state
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "espectre-7c2c6742bbac",
+  "device_id": "0x00007c2c6742bbac",
   "state": "update_available",
   "timestamp_ms": 123456,
   "busy": false,
@@ -237,7 +238,7 @@ Command result:
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "espectre-7c2c6742bbac",
+  "device_id": "0x00007c2c6742bbac",
   "command_id": "cmd-001",
   "command": "set_threshold",
   "accepted": true,
@@ -252,7 +253,7 @@ The current BLE firmware still carries setup commands as ASCII control writes:
 ```text
 REQ_SYSINFO
 SET_THRESHOLD:4.5
-SET_DEVICE_CONFIG:device_name=Living Room
+SET_DEVICE_CONFIG:device_label=Living Room
 SET_DEVICE_CONFIG:mqtt_host=192.168.1.20
 SET_DEVICE_CONFIG:mqtt_port=1883
 SET_DEVICE_CONFIG:mqtt_username=mqtt
@@ -275,10 +276,9 @@ families and semantics.
 
 Identity/config semantics for the current BLE control surface:
 
-- `device_id` is the firmware-generated protocol identity used by BLE sysinfo, MQTT topics, and MQTT payloads
-- `device_name` is the user-facing human-readable device name
-- the standalone native frontend exposes a separate pairing/display name
-  (`ble_device_name`) for nearby clients, derived from `device_name`
+- `device_id` is the firmware-generated MAC-packed identity rendered as a stable `0x...` hex string in BLE sysinfo, MQTT topics, and MQTT payloads
+- `device_name` is the immutable protocol/device name derived from chip and `device_id`
+- `device_label` is the optional user-facing human-readable device label
 - `CLEAR_MQTT_CONFIG` clears only broker-related MQTT settings and disables the
   active MQTT transport
 - `CLEAR_DEVICE_CONFIG` resets device-facing naming and MQTT settings while keeping the firmware-generated `device_id`
@@ -320,11 +320,10 @@ Field semantics:
 | `threshold` | `float32` | Current runtime threshold |
 | `motion_state` | `uint8` | Optional trailing state byte: `0 = idle`, `1 = motion` |
 
-Compatibility notes:
+Receiver notes:
 
-- the first 8 bytes remain the stable legacy surface for nearby clients
-- clients that only read `movement` and `threshold` continue to work unchanged
-- clients may ignore trailing bytes they do not understand
+- the first 8 bytes carry the fixed header fields required by the current protocol
+- receivers may ignore trailing bytes they do not understand
 - clients that want live movement updates must explicitly subscribe to the
   telemetry characteristic
 
@@ -344,9 +343,9 @@ Current BLE `sysinfo` identity/config keys include:
 
 | Key | Meaning |
 |-----|---------|
-| `device_id` | Current firmware-generated protocol device identifier |
-| `device_name` | Current human-readable device name |
-| `ble_device_name` | Current BLE pairing/display name derived from `device_name` |
+| `device_id` | Current firmware-generated device identifier in canonical `0x...` hex form |
+| `device_name` | Current immutable protocol/device name derived from chip and `device_id` |
+| `device_label` | Current human-readable device label |
 | `mqtt_enabled` | Whether MQTT transport is currently enabled |
 | `mqtt_host` | Current MQTT broker host |
 | `mqtt_port` | Current MQTT broker port |
@@ -391,8 +390,7 @@ Current BLE `sysinfo` diagnostic keys may include:
 
 These diagnostic keys are intentionally more implementation-oriented than the
 identity/config keys above. Nearby tools may display them, but clients should
-not treat the full diagnostic set or its formatting as a hard compatibility
-contract.
+not treat the full diagnostic set or its formatting as a stable contract.
 
 Wi-Fi provisioning values are persisted in NVS by ESP-IDF firmware targets that
 use the shared provisioning service. `APPLY_WIFI` saves the current values,
@@ -405,7 +403,7 @@ provisioning, device naming, and a reduced sysinfo subset.
 MQTT settings are also persisted in NVS after each
 `SET_DEVICE_CONFIG:key=value` command. `CLEAR_MQTT_CONFIG` erases only the saved
 MQTT broker settings, stops any active MQTT client, and preserves the current
-device identity. `CLEAR_DEVICE_CONFIG` resets the persisted `device_name` and
+device identity. `CLEAR_DEVICE_CONFIG` resets the persisted `device_label` and
 MQTT settings and returns the live BLE session to the generated/default device
 identity state until it is reprovisioned or rebooted.
 

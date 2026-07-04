@@ -558,12 +558,13 @@
             </div>
             <div class="input-group">
               <label for="deviceNameInput">Device Name</label>
-              <input id="deviceNameInput" type="text" autocomplete="off" maxlength="64" placeholder="Living Room">
+              <input id="deviceNameInput" type="text" readonly disabled placeholder="Derived by firmware">
+              <small>Canonical immutable device name derived from chip and device ID.</small>
             </div>
             <div class="input-group">
-              <label for="bleDeviceNameInput">BLE Pairing Name</label>
-              <input id="bleDeviceNameInput" type="text" readonly disabled placeholder="Derived from device name">
-              <small>Derived and sanitized by firmware for the BLE pairing picker.</small>
+              <label for="deviceLabelInput">Device Label</label>
+              <input id="deviceLabelInput" type="text" autocomplete="off" maxlength="64" placeholder="Living Room">
+              <small>Optional human-readable label shown in local tools and retained info payloads.</small>
             </div>
           </div>
           <div class="section-actions">
@@ -705,7 +706,6 @@
     let telemetryChar = null;
     let sysinfoChar = null;
     let controlChar = null;
-    let wifiPasswordStored = false;
     let liveTelemetryRequested = true;
     let capabilityState = defaultCapabilities();
 
@@ -743,6 +743,17 @@
       const line = `[${new Date().toLocaleTimeString()}] ${message}`;
       el('eventLog').textContent += `${line}\n`;
       el('eventLog').scrollTop = el('eventLog').scrollHeight;
+    }
+
+    function revealLogs() {
+      el('logsContent').classList.remove('collapsed');
+      el('logsArrow').classList.add('rotate');
+    }
+
+    function showValidationError(message) {
+      revealLogs();
+      log(`error: ${message}`);
+      window.alert(message);
     }
 
     function toggleConfig() {
@@ -927,10 +938,10 @@
         el('diagChip').textContent = value.toUpperCase();
       } else if (key === 'device_id') {
         el('deviceIdInput').value = value;
+      } else if (key === 'device_label') {
+        el('deviceLabelInput').value = value;
       } else if (key === 'device_name') {
         el('deviceNameInput').value = value;
-      } else if (key === 'ble_device_name') {
-        el('bleDeviceNameInput').value = value;
       } else if (key === 'mqtt_host') {
         el('mqttHostInput').value = value;
       } else if (key === 'mqtt_port') {
@@ -945,10 +956,6 @@
         el('wifiBssidInput').value = value;
       } else if (key === 'wifi_channel') {
         el('wifiChannelInput').value = value || '0';
-      } else if (key === 'wifi_password_set') {
-        wifiPasswordStored = value === 'true' || value === '1';
-        el('wifiPasswordInput').value = '';
-        el('wifiPasswordInput').placeholder = wifiPasswordStored ? 'Saved password; leave blank to keep' : 'Password';
       } else if (key === 'threshold') {
         const threshold = parseLeadingNumber(value);
         if (threshold !== null) {
@@ -1015,6 +1022,16 @@
     function parsePortInput(value) {
       const port = Number(String(value).trim());
       return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+    }
+
+    function hasNonEmptyValue(value) {
+      return String(value).trim().length > 0;
+    }
+
+    function logMissingRequiredFields(sectionLabel, fieldLabels) {
+      const missingFields = fieldLabels.join(', ');
+      const suffix = fieldLabels.length === 1 ? 'field is' : 'fields are';
+      showValidationError(`${sectionLabel} required ${suffix} missing: ${missingFields}`);
     }
 
     async function connect() {
@@ -1118,12 +1135,8 @@
 
     el('deviceApplyBtn').addEventListener('click', async () => {
       try {
-        const deviceName = el('deviceNameInput').value.trim();
-        if (!deviceName) {
-          log('error: device name is required');
-          return;
-        }
-        await writeControl(`SET_DEVICE_CONFIG:device_name=${deviceName}`);
+        const deviceLabel = el('deviceLabelInput').value.trim();
+        await writeControl(`SET_DEVICE_CONFIG:device_label=${deviceLabel}`);
         await writeControl('REQ_SYSINFO');
         log('Device settings saved');
       } catch (error) {
@@ -1149,7 +1162,7 @@
       try {
         const threshold = updateThresholdSlider(el('thresholdInput').value);
         if (threshold === null) {
-          log('error: invalid threshold value');
+          showValidationError('invalid threshold value');
           return;
         }
         await writeControl(`SET_THRESHOLD:${threshold.toFixed(2)}`);
@@ -1163,23 +1176,29 @@
         const ssid = el('wifiSsidInput').value.trim();
         const password = el('wifiPasswordInput').value;
         const channel = Number(el('wifiChannelInput').value);
+        const missingFields = [];
+
         if (!ssid) {
-          log('error: SSID is required');
+          missingFields.push('SSID');
+        }
+        if (!hasNonEmptyValue(password)) {
+          missingFields.push('password');
+        }
+        if (missingFields.length > 0) {
+          logMissingRequiredFields('Wi-Fi', missingFields);
           return;
         }
         if (!Number.isInteger(channel) || channel < 0 || channel > 14) {
-          log('error: channel must be 0..14');
+          showValidationError('channel must be 0..14');
           return;
         }
         const bssid = el('wifiBssidInput').value.trim();
         if (bssid && !/^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/.test(bssid)) {
-          log('error: BSSID must match aa:bb:cc:dd:ee:ff');
+          showValidationError('BSSID must match aa:bb:cc:dd:ee:ff');
           return;
         }
         await writeControl(`SET_WIFI_SSID:${ssid}`);
-        if (password || !wifiPasswordStored) {
-          await writeControl(`SET_WIFI_PASSWORD:${password}`);
-        }
+        await writeControl(`SET_WIFI_PASSWORD:${password}`);
         await writeControl(`SET_WIFI_BSSID:${bssid}`);
         await writeControl(`SET_WIFI_CHANNEL:${channel}`);
         await writeControl('APPLY_WIFI');
@@ -1193,7 +1212,6 @@
     el('wifiClearBtn').addEventListener('click', async () => {
       try {
         await writeControl('CLEAR_WIFI');
-        wifiPasswordStored = false;
         el('wifiSsidInput').value = '';
         el('wifiPasswordInput').value = '';
         el('wifiPasswordInput').placeholder = 'Password';
@@ -1209,17 +1227,31 @@
     el('mqttApplyBtn').addEventListener('click', async () => {
       try {
         const mqttHost = el('mqttHostInput').value.trim();
-        const mqttPort = parsePortInput(el('mqttPortInput').value);
+        const mqttPortRaw = el('mqttPortInput').value;
+        const mqttPort = parsePortInput(mqttPortRaw);
         const mqttUsername = el('mqttUsernameInput').value.trim();
         const mqttPassword = el('mqttPasswordInput').value;
         const topicPrefix = el('topicPrefixInput').value.trim() || 'espectre/v1/devices';
+        const missingFields = [];
 
-        if (mqttPort === null) {
-          log('error: MQTT port must be 1..65535');
+        if (!mqttHost) {
+          missingFields.push('broker host');
+        }
+        if (!hasNonEmptyValue(mqttPortRaw)) {
+          missingFields.push('broker port');
+        }
+        if (!mqttUsername) {
+          missingFields.push('username');
+        }
+        if (!hasNonEmptyValue(mqttPassword)) {
+          missingFields.push('password');
+        }
+        if (missingFields.length > 0) {
+          logMissingRequiredFields('MQTT', missingFields);
           return;
         }
-        if (!mqttHost) {
-          log('error: MQTT host is required');
+        if (mqttPort === null) {
+          showValidationError('MQTT port must be 1..65535');
           return;
         }
 

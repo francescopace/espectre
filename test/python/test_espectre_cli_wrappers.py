@@ -18,7 +18,7 @@ def _mqtt_args() -> argparse.Namespace:
         broker="broker.local",
         port_mqtt=1884,
         topic_prefix="espectre/v1/devices",
-        device_id="test-node",
+        device_id="0x0000111122223333",
         username="user",
         password="pass",
     )
@@ -30,7 +30,7 @@ def test_build_mqtt_namespace_maps_cli_fields() -> None:
     assert namespace.broker == "broker.local"
     assert namespace.port == 1884
     assert namespace.topic_prefix == "espectre/v1/devices"
-    assert namespace.device_id == "test-node"
+    assert namespace.device_id == "0x0000111122223333"
     assert namespace.username == "user"
     assert namespace.password == "pass"
 
@@ -51,7 +51,7 @@ def test_add_mqtt_connection_args_uses_environment_defaults(monkeypatch) -> None
     monkeypatch.setenv("MQTT_BROKER", "mqtt.local")
     monkeypatch.setenv("MQTT_PORT", "2883")
     monkeypatch.setenv("MQTT_TOPIC_PREFIX", "custom/topic")
-    monkeypatch.setenv("MQTT_CLIENT_ID", "env-device")
+    monkeypatch.setenv("MQTT_CLIENT_ID", "0x0000abcdeffedcba")
     monkeypatch.setenv("MQTT_USERNAME", "env-user")
     monkeypatch.setenv("MQTT_PASSWORD", "env-pass")
 
@@ -62,7 +62,7 @@ def test_add_mqtt_connection_args_uses_environment_defaults(monkeypatch) -> None
     assert args.broker == "mqtt.local"
     assert args.port_mqtt == 2883
     assert args.topic_prefix == "custom/topic"
-    assert args.device_id == "env-device"
+    assert args.device_id == "0x0000abcdeffedcba"
     assert args.username == "env-user"
     assert args.password == "env-pass"
 
@@ -528,7 +528,7 @@ def _build_shell(monkeypatch, responses: list[object] | None = None):
             broker="broker.local",
             port=1883,
             topic_prefix="espectre/v1/devices",
-            device_id="node-1",
+            device_id="0x0000000000000001",
             username="user",
             password="pass",
         )
@@ -539,8 +539,8 @@ def _build_shell(monkeypatch, responses: list[object] | None = None):
 def test_mqtt_shell_initialization_and_connect_callbacks(monkeypatch, capsys) -> None:
     shell, client, _rendered = _build_shell(monkeypatch)
 
-    assert shell.topic_cmd == "espectre/v1/devices/node-1/commands/request"
-    assert shell.topic_responses == "espectre/v1/devices/node-1/commands/+"
+    assert shell.topic_cmd == "espectre/v1/devices/0x0000000000000001/commands/request"
+    assert shell.topic_responses == "espectre/v1/devices/0x0000000000000001/commands/+"
     assert client.username == "user"
     assert client.password == "pass"
 
@@ -548,7 +548,7 @@ def test_mqtt_shell_initialization_and_connect_callbacks(monkeypatch, capsys) ->
     shell.on_connect(client, None, None, 5)
     captured = capsys.readouterr().out
 
-    assert client.subscriptions == ["espectre/v1/devices/node-1/commands/+"]
+    assert client.subscriptions == ["espectre/v1/devices/0x0000000000000001/commands/+"]
     assert "Connected to: broker.local:1883" in captured
     assert "Failed to connect, return code 5" in captured
 
@@ -622,7 +622,7 @@ def test_run_mqtt_shell_and_main_dispatch(monkeypatch) -> None:
     monkeypatch.setattr(app, "EspectreMQTTShell", FakeShell)
 
     assert app.run_mqtt_shell(_mqtt_args()) == 0
-    assert calls == [("shell", "test-node", 1884), "start"]
+    assert calls == [("shell", "0x0000111122223333", 1884), "start"]
 
     monkeypatch.setattr(app, "run_mqtt_shell", lambda args: calls.append(("mqtt", args.namespace)) or 0)
     assert app.main([]) == 0

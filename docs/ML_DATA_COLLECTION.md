@@ -223,6 +223,13 @@ CSI; it only tags frames so downstream tooling can distinguish:
 - reference frames: collector-selected anchor samples for later alignment,
   normalization, or analysis policies
 
+In the current ESPectre workflow, most ordinary ML dataset collection still uses
+measurement-only stimulus. The main reason to preserve `stimulus_id` and
+optional reference markers is to keep datasets usable for future multi-device
+host-side experiments, especially phase-coherence studies and temporally aligned
+feature fusion. See [`EXPERIMENTS.md`](EXPERIMENTS.md) for the research context
+and current limitations of those paths.
+
 Use reference frames only when your host-side processing pipeline has a clear
 reason to distinguish them. For ordinary dataset collection, leaving
 `--reference-every` at `0` is usually the simplest choice.
@@ -330,7 +337,7 @@ Central metadata file for the dataset:
 | `filename` | NPZ file name |
 | `chip` | ESP32 chip type (C6, S3, ESP32) |
 | `subcarriers` | Number of subcarriers (64 for HT20) |
-| `device_id` | Numeric device identifier stored in each single-device file |
+| `device_id` | Numeric `uint64` device identifier stored in each single-device file; MQTT/BLE surface the same identity as a `0x...` hex string |
 | `device_token` | Stable ASCII token used in filenames |
 | `contributor` | GitHub username of data collector |
 | `collected_at` | ISO timestamp of collection |
@@ -355,7 +362,7 @@ Each `.npz` file contains a minimal, compact format optimized for ML training:
 | `format_version` | `str` | NPZ format version ("1.1") |
 | `stream_seq_num` | `uint32[N]` | Per-packet stream sequence numbers |
 | `device_ticks_us` | `uint64[N]` | Device-side monotonic timestamps in microseconds |
-| `device_id` | `uint64` | Device identifier for the single-device capture file |
+| `device_id` | `uint64` | Device identifier for the single-device capture file; same canonical identity exposed by MQTT/BLE in hex string form |
 | `wifi_rx_ts_us` | `uint32[N]` | Optional Wi-Fi RX timestamps when available |
 | `wifi_rx_start_ts_ns` | `uint64[N]` | Optional hardware-derived RX-start estimate |
 | `channel` | `uint8[N]` | Optional per-packet Wi-Fi channel metadata |

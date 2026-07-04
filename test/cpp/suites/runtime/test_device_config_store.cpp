@@ -91,7 +91,7 @@ void test_device_config_store_handles_missing_namespace_and_invalid_args(void) {
 
 void test_device_config_store_round_trips_current_fields(void) {
   EspectreDeviceConfig stored;
-  stored.device_name = "Office Node";
+  stored.device_label = "Office Node";
   stored.mqtt_host = "mqtt.local";
   stored.mqtt_port = 2883;
   stored.mqtt_username = "user";
@@ -106,7 +106,7 @@ void test_device_config_store_round_trips_current_fields(void) {
   TEST_ASSERT_EQUAL(ESP_OK, load_stored_device_config(&loaded, &has_saved_config));
 
   TEST_ASSERT_TRUE(has_saved_config);
-  TEST_ASSERT_EQUAL_STRING("Office Node", loaded.device_name.c_str());
+  TEST_ASSERT_EQUAL_STRING("Office Node", loaded.device_label.c_str());
   TEST_ASSERT_EQUAL_STRING("mqtt.local", loaded.mqtt_host.c_str());
   TEST_ASSERT_EQUAL(2883, loaded.mqtt_port);
   TEST_ASSERT_EQUAL_STRING("user", loaded.mqtt_username.c_str());
@@ -124,7 +124,7 @@ void test_device_config_store_applies_defaults_and_mqtt_enabled_fallback(void) {
   TEST_ASSERT_EQUAL(ESP_OK, load_stored_device_config(&loaded, &has_saved_config));
 
   TEST_ASSERT_TRUE(has_saved_config);
-  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DEFAULT_DEVICE_NAME, loaded.device_name.c_str());
+  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DEFAULT_DEVICE_LABEL, loaded.device_label.c_str());
   TEST_ASSERT_EQUAL_STRING("broker.local", loaded.mqtt_host.c_str());
   TEST_ASSERT_EQUAL(1883, loaded.mqtt_port);
   TEST_ASSERT_EQUAL_STRING(ESPECTRE_TOPIC_PREFIX, loaded.topic_prefix.c_str());
@@ -139,10 +139,8 @@ void test_device_config_store_reports_absence_when_no_fields_are_saved(void) {
   TEST_ASSERT_FALSE(has_saved_config);
 }
 
-void test_device_config_store_clear_removes_all_current_and_legacy_keys(void) {
-  nvs_mock_put_str("device_id", "legacy-id");
-  nvs_mock_put_str("device_label", "legacy-label");
-  nvs_mock_put_str("device_name", "Node");
+void test_device_config_store_clear_removes_all_current_keys(void) {
+  nvs_mock_put_str("device_label", "Label");
   nvs_mock_put_str("mqtt_host", "mqtt.local");
   nvs_mock_put_u16("mqtt_port", 1884);
   nvs_mock_put_str("mqtt_user", "user");
@@ -229,7 +227,7 @@ int process(void) {
   RUN_TEST(test_device_config_store_round_trips_current_fields);
   RUN_TEST(test_device_config_store_applies_defaults_and_mqtt_enabled_fallback);
   RUN_TEST(test_device_config_store_reports_absence_when_no_fields_are_saved);
-  RUN_TEST(test_device_config_store_clear_removes_all_current_and_legacy_keys);
+  RUN_TEST(test_device_config_store_clear_removes_all_current_keys);
   RUN_TEST(test_normalize_ht20_csi_payload_handles_supported_lengths);
   RUN_TEST(test_normalize_ht20_csi_payload_rejects_invalid_inputs_and_renders_tags);
   return UNITY_END();

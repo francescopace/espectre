@@ -784,10 +784,147 @@ def test_detect_live_motion_logs_features_and_handles_capture_without_packets(mo
     assert "Threshold:" in output and "5.0" in output
     assert "Low-pass:" in output and "ON" in output
     assert "Capture:" in output and "label=test duration=until Ctrl+C" in output
+    assert "STATUS: DEVICES 1/1" in output
+    assert "device=unknown" in output
+    assert "MOTION mvmt:4.0000/5.0000" in output
     assert "turbulence: raw=0.7500 filtered=0.5000" in output
     assert "tail[2]:" in output
     assert "features: f1=0.1000 f2=0.2000" in output
     assert "Live capture had no packets to save" in output
+
+
+def test_detect_live_motion_tracks_interleaved_devices_independently(monkeypatch, capsys) -> None:
+    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_config = ModuleType("config")
+    fake_ml_detector = ModuleType("ml_detector")
+    fake_runtime_policy = ModuleType("runtime_policy")
+
+    fake_config.DEFAULT_SUBCARRIERS = [12, 14]
+    fake_config.SEG_WINDOW_SIZE = 2
+    fake_config.ENABLE_LOWPASS_FILTER = False
+    fake_config.LOWPASS_CUTOFF = 11.0
+    fake_config.ENABLE_HAMPEL_FILTER = True
+    fake_config.HAMPEL_WINDOW = 7
+    fake_config.HAMPEL_THRESHOLD = 5.0
+    fake_config.PUBLISH_INTERVAL = 2
+    fake_config.EVALUATION_INTERVAL = 99
+    fake_config.MOTION_ON_HITS = 1
+    fake_config.MOTION_OFF_HITS = 1
+    fake_config.SEG_THRESHOLD = 5.0
+
+    class FakePacket:
+        def __init__(self, seq_num: int, device_id: int):
+            self.seq_num = seq_num
+            self.device_id = device_id
+            self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
+
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.dropped_count = 0
+            self.pps = 100
+
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            packets = [
+                FakePacket(1, 0x11),
+                FakePacket(2, 0x22),
+                FakePacket(3, 0x11),
+                FakePacket(4, 0x22),
+            ]
+            for packet in packets:
+                for callback in self._callbacks:
+                    callback(packet)
+            raise KeyboardInterrupt
+
+        def stop(self):
+            pass
+
+    class FakeStimulusSender:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    class FakeContext:
+        def __init__(self):
+            self.last_turbulence = 0.0
+            self.buffer_count = 0
+            self.window_size = 2
+            self.buffer_index = 0
+            self.turbulence_buffer = []
+
+    class FakeMLDetector:
+        instances = []
+
+        def __init__(self, **kwargs):
+            self._context = FakeContext()
+            self.seen = []
+            self.__class__.instances.append(self)
+
+        def process_packet(self, csi_data, subcarriers):
+            self.seen.append(int(csi_data[0]))
+
+        def update_state(self):
+            probability = float(sum(self.seen))
+            state = 1 if probability > 5.0 else 0
+            return {"probability": probability, "threshold": 5.0, "state": state}
+
+        def is_ready(self):
+            return True
+
+        def _extract_features(self):
+            return [float(value) for value in self.seen[-2:]]
+
+    class FakeRuntimeMotionPolicy:
+        def __init__(self, **kwargs):
+            pass
+
+        def note_packet(self):
+            pass
+
+        def should_evaluate(self, should_publish):
+            return should_publish
+
+        def apply_state(self, state):
+            return state, None
+
+        def after_evaluation(self):
+            pass
+
+    fake_csi_utils.CSICollector = object
+    fake_csi_utils.CSIReceiver = FakeReceiver
+    fake_csi_utils.StimulusSender = FakeStimulusSender
+    fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
+    fake_ml_detector.FEATURE_NAMES = ["f1", "f2"]
+    fake_ml_detector.ML_DEFAULT_THRESHOLD = 5.0
+    fake_ml_detector.ML_METRIC_SCALE = 10.0
+    fake_ml_detector.MLDetector = FakeMLDetector
+    fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
+
+    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "config", fake_config)
+    monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
+    monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
+
+    host.detect_live_motion(_make_detect_args(stimulus_target="192.168.1.17,192.168.1.24"))
+
+    output = capsys.readouterr().out
+    assert len(FakeMLDetector.instances) == 2
+    assert "STATUS: DEVICES 2/2" in output
+    assert "device=dev0000000000000011" in output
+    assert "device=dev0000000000000022" in output
+    assert "mvmt:4.0000/5.0000 pkt:2" in output
+    assert "mvmt:6.0000/5.0000 pkt:2" in output
+    assert "mvmt:4.0000/5.0000" in output
+    assert "mvmt:6.0000/5.0000" in output
+    assert "mvmt:10.0000" not in output
 
 
 def test_detect_live_motion_surfaces_runtime_error(monkeypatch) -> None:

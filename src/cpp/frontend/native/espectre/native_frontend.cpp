@@ -36,46 +36,6 @@ static const char *const TAG = "espectre.native";
 constexpr uint8_t kTelemetryMotionStateIdle = 0;
 constexpr uint8_t kTelemetryMotionStateMotion = 1;
 
-std::string ble_device_name_from_config(const EspectreDeviceConfig &config) {
-  constexpr size_t kMaxBleNameLen = 24;
-  const std::string source = espectre_effective_device_name(config);
-  std::string out;
-  out.reserve(kMaxBleNameLen);
-
-  bool last_was_space = false;
-  for (unsigned char ch : source) {
-    char normalized = '\0';
-    if (std::isalnum(ch)) {
-      normalized = static_cast<char>(ch);
-    } else if (ch == ' ' || ch == '-' || ch == '_') {
-      normalized = ' ';
-    } else if (std::isspace(ch)) {
-      normalized = ' ';
-    } else {
-      continue;
-    }
-
-    if (normalized == ' ') {
-      if (out.empty() || last_was_space) {
-        continue;
-      }
-      last_was_space = true;
-    } else {
-      last_was_space = false;
-    }
-
-    if (out.size() >= kMaxBleNameLen) {
-      break;
-    }
-    out.push_back(normalized);
-  }
-
-  while (!out.empty() && out.back() == ' ') {
-    out.pop_back();
-  }
-  return out.empty() ? ESPECTRE_BLE_DEVICE_NAME : out;
-}
-
 float current_free_memory_kb() {
 #ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
   return static_cast<float>(heap_caps_get_free_size(MALLOC_CAP_DEFAULT)) / 1024.0f;
@@ -96,8 +56,10 @@ void NativeFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.
 void NativeFrontend::set_device_config(const EspectreDeviceConfig &config) {
   device_config_ = config;
   if (bindings_ != nullptr) {
-    const std::string ble_name = ble_device_name_from_config(device_config_);
-    bindings_->set_device_name(ble_name.c_str());
+    const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(device_config_),
+                                                         device_info_.chip.empty() ? nullptr
+                                                                                   : device_info_.chip.c_str());
+    bindings_->set_device_name(device_name.c_str());
   }
 }
 
@@ -123,7 +85,10 @@ bool NativeFrontend::setup() {
   bindings_->set_control_write_callback([this](const std::string &command) { this->handle_control_command_(command); });
   bindings_->set_telemetry_subscription_callback(
       [this](bool subscribed) { this->handle_live_telemetry_subscription_(subscribed); });
-  bindings_->set_device_name(ble_device_name_from_config(device_config_).c_str());
+  const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(device_config_),
+                                                       device_info_.chip.empty() ? nullptr
+                                                                                 : device_info_.chip.c_str());
+  bindings_->set_device_name(device_name.c_str());
   runtime_.set_live_telemetry_enabled(false);
   if (!bindings_->setup()) {
     ESP_LOGE(TAG, "BLE bindings setup failed");
@@ -267,7 +232,7 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
     }
     publish_mqtt_status_(false);
     EspectreDeviceConfig cleared{};
-    cleared.device_id = espectre_effective_device_id(device_config_);
+    cleared.device_id = espectre_effective_device_id_u64(device_config_);
     set_device_config(cleared);
     setup_mqtt_();
     send_system_info_();
@@ -454,6 +419,7 @@ void NativeFrontend::publish_mqtt_info_() {
   info.frontend = info.frontend.empty() ? "native" : info.frontend;
   info.firmware_version = info.firmware_version.empty() ? "unknown" : info.firmware_version;
   info.chip = info.chip.empty() ? CONFIG_IDF_TARGET : info.chip;
+  info.supports_ota = ota_service_ != nullptr;
   if (info.detector.empty() && runtime_.snapshot().detector_name != nullptr) {
     info.detector = runtime_.snapshot().detector_name;
   }
@@ -544,7 +510,9 @@ void NativeFrontend::send_system_info_() {
   }
 
   char line[96];
-  const std::string ble_device_name = ble_device_name_from_config(device_config_);
+  const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(device_config_),
+                                                       device_info_.chip.empty() ? nullptr
+                                                                                 : device_info_.chip.c_str());
   pending_sysinfo_lines_.clear();
   next_sysinfo_line_index_ = 0;
   last_sysinfo_line_ms_ = 0;
@@ -575,9 +543,9 @@ void NativeFrontend::send_system_info_() {
   queue_system_info_line_(line);
   std::snprintf(line, sizeof(line), "device_id=%s", espectre_effective_device_id(device_config_).c_str());
   queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "device_name=%s", espectre_effective_device_name(device_config_).c_str());
+  std::snprintf(line, sizeof(line), "device_label=%s", espectre_effective_device_label(device_config_).c_str());
   queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "ble_device_name=%s", ble_device_name.c_str());
+  std::snprintf(line, sizeof(line), "device_name=%s", device_name.c_str());
   queue_system_info_line_(line);
   std::snprintf(line, sizeof(line), "mqtt_enabled=%s", device_config_.mqtt_enabled ? "true" : "false");
   queue_system_info_line_(line);

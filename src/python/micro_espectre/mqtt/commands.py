@@ -16,6 +16,34 @@ import sys
 SEG_THRESHOLD_MIN = 0.0
 SEG_THRESHOLD_MAX = 10.0
 
+
+def _normalize_chip_label(chip):
+    """Normalize chip identifiers to the shared short labels used by firmware."""
+    if not chip:
+        return "UNK"
+    normalized = ''.join(ch for ch in str(chip).upper() if ch.isalnum())
+    if normalized == "ESP32C3":
+        return "C3"
+    if normalized == "ESP32C5":
+        return "C5"
+    if normalized == "ESP32C6":
+        return "C6"
+    if normalized == "ESP32S2":
+        return "S2"
+    if normalized == "ESP32S3":
+        return "S3"
+    if normalized == "ESP32":
+        return "ESP32"
+    return normalized or "UNK"
+
+
+def _protocol_device_name(device_id, chip):
+    """Build the immutable ESPectre device name from chip and device_id."""
+    compact_id = ''.join(ch for ch in str(device_id).lower() if ch.isalnum())
+    suffix = compact_id[-6:] if compact_id else "000000"
+    return "ESPectre {} {}".format(_normalize_chip_label(chip), suffix)
+
+
 class MQTTCommands:
     """MQTT command processor"""
     
@@ -108,6 +136,7 @@ class MQTTCommands:
         ip_address = ""
         mac_address = ""
         channel_primary = 0
+        chip = getattr(self.global_state, 'chip_type', None) or sys.platform
         
         if self.wlan.active():
             try:
@@ -128,10 +157,11 @@ class MQTTCommands:
         response = {
             "protocol_version": "1.0",
             "device_id": self.config.MQTT_CLIENT_ID,
-            "device_name": getattr(self.config, "MQTT_DEVICE_LABEL", self.config.MQTT_CLIENT_ID),
+            "device_name": _protocol_device_name(self.config.MQTT_CLIENT_ID, chip),
+            "device_label": getattr(self.config, "MQTT_DEVICE_LABEL", ""),
             "frontend": "micro",
             "firmware_version": "micropython",
-            "chip": getattr(self.global_state, 'chip_type', None) or sys.platform,
+            "chip": chip,
             "network": {
                 "ip_address": ip_address,
                 "mac_address": mac_address,

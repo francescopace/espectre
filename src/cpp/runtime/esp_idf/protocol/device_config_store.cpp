@@ -12,9 +12,7 @@ constexpr const char *kWifiSsidKey = "wifi_ssid";
 constexpr const char *kWifiPasswordKey = "wifi_pass";
 constexpr const char *kWifiBssidKey = "wifi_bssid";
 constexpr const char *kWifiChannelKey = "wifi_chan";
-constexpr const char *kLegacyDeviceIdKey = "device_id";
-constexpr const char *kLegacyDeviceLabelKey = "device_label";
-constexpr const char *kDeviceNameKey = "device_name";
+constexpr const char *kDeviceLabelKey = "device_label";
 constexpr const char *kMqttHostKey = "mqtt_host";
 constexpr const char *kMqttPortKey = "mqtt_port";
 constexpr const char *kMqttUserKey = "mqtt_user";
@@ -170,7 +168,7 @@ esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_save
   }
 
   EspectreDeviceConfig loaded;
-  err = read_string(handle, kDeviceNameKey, &loaded.device_name);
+  err = read_string(handle, kDeviceLabelKey, &loaded.device_label);
   if (err == ESP_OK) {
     err = read_string(handle, kMqttHostKey, &loaded.mqtt_host);
   }
@@ -201,7 +199,7 @@ esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_save
     return err;
   }
 
-  const bool has_config = !loaded.device_name.empty() || !loaded.mqtt_host.empty() || !loaded.mqtt_username.empty() ||
+  const bool has_config = !loaded.device_label.empty() || !loaded.mqtt_host.empty() || !loaded.mqtt_username.empty() ||
                           !loaded.mqtt_password.empty() || !loaded.topic_prefix.empty() || port_err == ESP_OK ||
                           enabled_err == ESP_OK;
   if (!has_config) {
@@ -211,9 +209,6 @@ esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_save
     return ESP_OK;
   }
 
-  if (loaded.device_name.empty()) {
-    loaded.device_name = ESPECTRE_DEFAULT_DEVICE_NAME;
-  }
   if (loaded.topic_prefix.empty()) {
     loaded.topic_prefix = ESPECTRE_TOPIC_PREFIX;
   }
@@ -236,13 +231,7 @@ esp_err_t save_stored_device_config(const EspectreDeviceConfig &config) {
     return err;
   }
 
-  err = write_string(handle, kLegacyDeviceIdKey, std::string{});
-  if (err == ESP_OK) {
-    err = write_string(handle, kLegacyDeviceLabelKey, std::string{});
-  }
-  if (err == ESP_OK) {
-    err = write_string(handle, kDeviceNameKey, config.device_name);
-  }
+  err = write_string(handle, kDeviceLabelKey, config.device_label);
   if (err == ESP_OK) {
     err = write_string(handle, kMqttHostKey, config.mqtt_host);
   }
@@ -278,9 +267,7 @@ esp_err_t clear_stored_device_config() {
     return err;
   }
 
-  const char *keys[] = {kLegacyDeviceIdKey,
-                        kLegacyDeviceLabelKey,
-                        kDeviceNameKey,
+  const char *keys[] = {kDeviceLabelKey,
                         kMqttHostKey,
                         kMqttPortKey,
                         kMqttUserKey,

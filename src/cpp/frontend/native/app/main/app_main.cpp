@@ -10,7 +10,6 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
-#include <esp_mac.h>
 #include <nvs_flash.h>
 
 #if CONFIG_BT_ENABLED
@@ -20,6 +19,7 @@
 #endif
 #include "native_frontend.h"
 #include "device_config_store.h"
+#include "device_identity.h"
 #include "firmware_version.h"
 #include "https_ota_service.h"
 #include "mqtt_transport_esp_idf.h"
@@ -68,29 +68,10 @@ esphome::espectre::RuntimeConfig make_runtime_config() {
   return config;
 }
 
-std::string derive_protocol_device_id() {
-  uint8_t mac[6] = {0U, 0U, 0U, 0U, 0U, 0U};
-  if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) {
-    return esphome::espectre::ESPECTRE_DEFAULT_DEVICE_ID;
-  }
-
-  char device_id[sizeof("espectre-ffffffffffff")] = {0};
-  std::snprintf(device_id,
-                sizeof(device_id),
-                "espectre-%02x%02x%02x%02x%02x%02x",
-                mac[0],
-                mac[1],
-                mac[2],
-                mac[3],
-                mac[4],
-                mac[5]);
-  return device_id;
-}
-
 esphome::espectre::EspectreDeviceConfig make_device_config() {
   esphome::espectre::EspectreDeviceConfig config;
-  config.device_id = derive_protocol_device_id();
-  config.device_name = CONFIG_ESPECTRE_DEVICE_NAME;
+  config.device_id = esphome::espectre::derive_runtime_device_id();
+  config.device_label = CONFIG_ESPECTRE_DEVICE_LABEL;
   config.mqtt_host = CONFIG_ESPECTRE_MQTT_HOST;
   config.mqtt_port = CONFIG_ESPECTRE_MQTT_PORT;
   config.topic_prefix = CONFIG_ESPECTRE_TOPIC_PREFIX;
@@ -108,10 +89,7 @@ esphome::espectre::EspectreDeviceConfig make_device_config() {
   } else if (load_err != ESP_OK) {
     ESP_LOGW(TAG, "Failed to load BLE-provisioned device config: %s", esp_err_to_name(load_err));
   }
-  config.device_id = derive_protocol_device_id();
-  if (config.device_name.empty()) {
-    config.device_name = CONFIG_ESPECTRE_DEVICE_NAME;
-  }
+  config.device_id = esphome::espectre::derive_runtime_device_id();
   return config;
 }
 

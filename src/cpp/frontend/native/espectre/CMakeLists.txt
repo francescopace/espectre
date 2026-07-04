@@ -14,6 +14,7 @@ set(espectre_native_requires
     esp_event
     esp_netif
     esp_timer
+    bt
     mqtt
     app_update
     esp_http_client
@@ -30,7 +31,6 @@ set(espectre_native_requires
 
 if(CONFIG_BT_ENABLED)
     list(APPEND espectre_native_sources ${ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES})
-    list(APPEND espectre_native_requires bt)
 endif()
 
 idf_component_register(

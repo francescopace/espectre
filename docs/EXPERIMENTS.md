@@ -9,6 +9,46 @@ The goal is to preserve design history in one place without turning
 
 ---
 
+## Multi-Device Sync and Phase Research
+
+### Goal
+
+Evaluate whether collector-driven `stimulus_id` tagging and optional reference
+frames are worth preserving in raw datasets, even when the current promoted ML
+baselines are amplitude-first and usually measurement-only.
+
+### What The Experiments Show
+
+Historical multi-device experiments showed that `stimulus_id` is the practical
+current key for cross-device grouping, while frame-level metadata is more useful
+as diagnostics than as a guaranteed global identifier. They also showed that:
+
+- packet grouping quality can be very strong even on standard hardware
+- raw inter-node phase remains much noisier than packet grouping alone suggests
+- reference-assisted paths are still experimental and have not yet displaced the
+  best simpler compensated baselines
+- amplitude-first single-link inference is currently more credible than
+  phase-heavy or fused multi-link baselines
+
+### Practical Interpretation
+
+So the presence of `stimulus_id` and optional reference flags in collected
+datasets is intentional, not accidental. They are low-cost metadata for future
+research tracks, even when a given ML dataset is used today only for the
+ordinary measurement-only path.
+
+### Why The Metadata Stays
+
+Those fields are kept because they remain the practical bridge from ordinary
+dataset collection to future host-side experiments that need temporal
+association across devices, including:
+
+- `stimulus_id`-anchored multi-device packet grouping
+- reference-assisted phase-coherence experiments
+- temporally aligned multi-device feature fusion
+
+---
+
 ## Gain-Shift Robustness Diagnostic
 
 ### Goal

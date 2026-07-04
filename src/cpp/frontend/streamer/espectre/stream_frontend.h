@@ -84,7 +84,6 @@ class StreamFrontend {
   std::atomic<bool> wifi_connected_{false};
   std::atomic<bool> gain_lock_complete_{false};
   std::atomic<WorkflowState> state_{WorkflowState::WAIT_WIFI};
-  uint64_t device_id_{0U};
   uint32_t stream_seq_{0U};
   uint32_t last_csi_ms_{0U};
   uint8_t last_csi_channel_{0U};
