@@ -35,7 +35,7 @@ MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -
 CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
 
 # Fixed subcarriers shared by MVS and ML detectors.
-DEFAULT_SUBCARRIERS = (12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52)
+DEFAULT_SUBCARRIERS = (14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50)
 
 # Detection Algorithm
 # "mvs" (default): Moving Variance Segmentation - fast, good accuracy

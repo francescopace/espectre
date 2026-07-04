@@ -123,7 +123,7 @@ smaller (order of 1e-4 to 1e-3).
 
 ESPectre uses one shared fixed 12-subcarrier set for both detectors:
 
-`[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`
+`[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`
 
 This set was originally validated offline and is now treated as part of the production detector definition.
 
@@ -378,7 +378,7 @@ Both detectors use the same fixed, non-configurable subcarrier set:
 | MVS | Adaptive (percentile-based) | ~13s |
 | ML | Fixed (5.0 on 0-10 scale) | **~3s** |
 
-The production subcarrier set is `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`.
+The production subcarrier set is `[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`.
 MVS uses a baseline threshold bootstrap after startup; ML keeps its fixed threshold and therefore starts immediately once CSI capture is active.
 
 ### Features

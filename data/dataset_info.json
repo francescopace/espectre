@@ -1,7 +1,7 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-04T17:22:20.889472",
+  "updated_at": "2026-07-04T17:46:10.383962",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -29,7 +29,7 @@
         "description": "HT20 empty sample",
         "environment": "hobby_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_threshold_gridsearch": 0.00056907
+        "optimal_threshold_gridsearch": 3.5817e-05
       },
       {
         "filename": "empty_c6_64sc_dev00007c2c6742bbac_20260704_110200_111964_0002.npz",
@@ -42,7 +42,7 @@
         "description": "HT20 empty sample",
         "environment": "living_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 4.9234e-05
+        "optimal_threshold_gridsearch": 3.4434e-05
       },
       {
         "filename": "empty_c3_64sc_dev0000acebe64ae708_20260704_110200_173996_0003.npz",
@@ -55,7 +55,7 @@
         "description": "HT20 empty sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708",
-        "optimal_threshold_gridsearch": 0.000332102
+        "optimal_threshold_gridsearch": 0.000111539
       },
       {
         "filename": "empty_s3_64sc_dev000010b41de8ec00_20260704_152451_463332_0001.npz",
@@ -68,7 +68,7 @@
         "description": "HT20 empty sample",
         "environment": "living_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_threshold_gridsearch": 0.001357627
+        "optimal_threshold_gridsearch": 0.000155687
       },
       {
         "filename": "empty_c5_64sc_dev000030eda0e46278_20260704_152451_546228_0002.npz",
@@ -81,7 +81,7 @@
         "description": "HT20 empty sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_threshold_gridsearch": 0.000273548
+        "optimal_threshold_gridsearch": 0.000166446
       },
       {
         "filename": "empty_c6_64sc_dev00007c2c6742bbac_20260704_152451_607669_0003.npz",
@@ -94,7 +94,7 @@
         "description": "HT20 empty sample",
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 4.1542e-05
+        "optimal_threshold_gridsearch": 4.2784e-05
       },
       {
         "filename": "empty_c3_64sc_dev0000acebe64ae708_20260704_155135_955386_0001.npz",
@@ -107,7 +107,7 @@
         "description": "HT20 empty sample",
         "environment": "hobby_room",
         "device_id": "0x0000acebe64ae708",
-        "optimal_threshold_gridsearch": 6.3143e-05
+        "optimal_threshold_gridsearch": 5.629e-06
       }
     ],
     "static_presence": [
@@ -122,7 +122,7 @@
         "description": "HT20 static presence sample",
         "environment": "living_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 2.9716e-05,
+        "optimal_threshold_gridsearch": 2.3702e-05,
         "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_121231_690177_0001.npz"
       },
       {
@@ -136,7 +136,7 @@
         "description": "HT20 static presence sample",
         "environment": "hobby_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_threshold_gridsearch": 0.000387875,
+        "optimal_threshold_gridsearch": 1.9661e-05,
         "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260704_113807_171019_0001.npz"
       },
       {
@@ -150,7 +150,7 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708",
-        "optimal_threshold_gridsearch": 0.000182358,
+        "optimal_threshold_gridsearch": 1.5236e-05,
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260704_123617_904895_0001.npz"
       },
       {
@@ -164,7 +164,7 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 0.000270284,
+        "optimal_threshold_gridsearch": 0.000151674,
         "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_124920_958458_0001.npz"
       },
       {
@@ -178,7 +178,7 @@
         "description": "HT20 static presence sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_threshold_gridsearch": 0.000176717,
+        "optimal_threshold_gridsearch": 0.000209698,
         "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz"
       },
       {
@@ -192,7 +192,7 @@
         "description": "HT20 static presence sample",
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 4.0475e-05,
+        "optimal_threshold_gridsearch": 5.1431e-05,
         "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz"
       },
       {
@@ -206,7 +206,7 @@
         "description": "HT20 static presence sample",
         "environment": "hobby_room",
         "device_id": "0x0000acebe64ae708",
-        "optimal_threshold_gridsearch": 7.5667e-05,
+        "optimal_threshold_gridsearch": 8.153e-06,
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260704_155947_468944_0001.npz"
       },
       {
@@ -220,7 +220,7 @@
         "description": "HT20 static presence sample",
         "environment": "living_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_threshold_gridsearch": 8.9905e-05,
+        "optimal_threshold_gridsearch": 2.705e-06,
         "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260704_163815_805153_0001.npz"
       }
     ],
@@ -236,7 +236,7 @@
         "description": "HT20 motion sample",
         "environment": "hobby_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_threshold_gridsearch": 0.000387875,
+        "optimal_threshold_gridsearch": 1.9661e-05,
         "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260704_113202_728050_0001.npz"
       },
       {
@@ -250,7 +250,7 @@
         "description": "HT20 motion sample",
         "environment": "living_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 2.9716e-05,
+        "optimal_threshold_gridsearch": 2.3702e-05,
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_120322_224513_0001.npz"
       },
       {
@@ -264,7 +264,7 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708",
-        "optimal_threshold_gridsearch": 0.000182358,
+        "optimal_threshold_gridsearch": 1.5236e-05,
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_123300_815785_0001.npz"
       },
       {
@@ -278,7 +278,7 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 0.000270284,
+        "optimal_threshold_gridsearch": 0.000151674,
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_124608_748309_0001.npz"
       },
       {
@@ -292,7 +292,7 @@
         "description": "HT20 motion sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_threshold_gridsearch": 0.000176717,
+        "optimal_threshold_gridsearch": 0.000209698,
         "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz"
       },
       {
@@ -306,7 +306,7 @@
         "description": "HT20 motion sample",
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 4.0475e-05,
+        "optimal_threshold_gridsearch": 5.1431e-05,
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz"
       },
       {
@@ -320,7 +320,7 @@
         "description": "HT20 motion sample",
         "environment": "hobby_room",
         "device_id": "0x0000acebe64ae708",
-        "optimal_threshold_gridsearch": 7.5667e-05,
+        "optimal_threshold_gridsearch": 8.153e-06,
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_155658_712410_0001.npz"
       },
       {
@@ -334,7 +334,7 @@
         "description": "HT20 motion sample",
         "environment": "living_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_threshold_gridsearch": 8.9905e-05,
+        "optimal_threshold_gridsearch": 2.705e-06,
         "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260704_163350_581389_0001.npz"
       }
     ],
@@ -350,7 +350,7 @@
         "description": "quiet long-run",
         "environment": "hobby_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_threshold_gridsearch": 0.000478752
+        "optimal_threshold_gridsearch": 3.5268e-05
       },
       {
         "filename": "test_c6_64sc_dev00007c2c6742bbac_20260704_112318_971151_0002.npz",
@@ -363,7 +363,7 @@
         "description": "quiet long-run",
         "environment": "living_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 3.7493e-05
+        "optimal_threshold_gridsearch": 2.7451e-05
       },
       {
         "filename": "test_c3_64sc_dev0000acebe64ae708_20260704_112319_314055_0003.npz",
@@ -376,7 +376,7 @@
         "description": "quiet long-run",
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708",
-        "optimal_threshold_gridsearch": 0.000262695
+        "optimal_threshold_gridsearch": 0.000112388
       },
       {
         "filename": "test_s3_64sc_dev000010b41de8ec00_20260704_151619_726071_0001.npz",
@@ -389,7 +389,7 @@
         "description": "HT20 test sample",
         "environment": "living_room",
         "device_id": "0x000010b41de8ec00",
-        "optimal_threshold_gridsearch": 0.000547303
+        "optimal_threshold_gridsearch": 5.2924e-05
       },
       {
         "filename": "test_c5_64sc_dev000030eda0e46278_20260704_151620_081075_0002.npz",
@@ -402,7 +402,7 @@
         "description": "HT20 test sample",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "optimal_threshold_gridsearch": 0.00026438
+        "optimal_threshold_gridsearch": 0.000142428
       },
       {
         "filename": "test_c6_64sc_dev00007c2c6742bbac_20260704_151620_420932_0003.npz",
@@ -415,7 +415,7 @@
         "description": "HT20 test sample",
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 3.4984e-05
+        "optimal_threshold_gridsearch": 4.0762e-05
       },
       {
         "filename": "test_c3_64sc_dev0000acebe64ae708_20260704_161540_862193_0001.npz",
@@ -428,7 +428,7 @@
         "description": "HT20 test sample",
         "environment": "hobby_room",
         "device_id": "0x0000acebe64ae708",
-        "optimal_threshold_gridsearch": 5.95e-05
+        "optimal_threshold_gridsearch": 4.304e-06
       },
       {
         "filename": "test_c3_64sc_dev0000acebe64ae708_20260704_172130_076465_0001.npz",
@@ -441,7 +441,7 @@
         "description": "HT20 test sample",
         "environment": "living_room",
         "device_id": "0x0000acebe64ae708",
-        "optimal_threshold_gridsearch": 6.5339e-05
+        "optimal_threshold_gridsearch": 8.339e-06
       }
     ]
   },
