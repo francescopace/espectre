@@ -15,7 +15,7 @@ The streamer frontend is responsible for:
 
 - capturing CSI on-device
 - receiving external UDP stimulus
-- gain lock before streaming
+- immediate AGC-active normalized startup
 - packaging CSI into the UDP stream format
 - sending packets to the most recent stimulus sender host
 
@@ -67,7 +67,6 @@ The streamer frontend uses these states:
 - `WAIT_WIFI`
 - `WIFI_READY`
 - `CSI_READY`
-- `GAIN_LOCK`
 - `STREAMING`
 
 This state machine is defined in [`espectre/stream_frontend.h`](espectre/stream_frontend.h).
@@ -102,20 +101,15 @@ Header layout:
 | `channel` | `uint8` | Wi-Fi channel |
 | `rssi_dbm` | `int8` | RSSI |
 | `noise_floor_dbm` | `int8` | Noise floor |
-| `agc_gain` | `uint8` | AGC gain |
-| `fft_gain` | `int8` | FFT gain |
-
 Flags:
 
 | Bit | Constant | Meaning |
 |-----|----------|---------|
-| 0 | `STREAM_FLAG_GAIN_LOCKED` | Gain lock active |
-| 1 | `STREAM_FLAG_FIRST_WORD_INVALID` | Espressif CSI flag |
-| 2 | `STREAM_FLAG_WIFI_RX_TS_VALID` | `wifi_rx_ts_us` valid |
-| 3 | `STREAM_FLAG_WIFI_RX_START_TS_NS_VALID` | `wifi_rx_start_ts_ns` valid |
-| 4 | `STREAM_FLAG_GAIN_INFO_VALID` | Gain metadata valid |
-| 5 | `STREAM_FLAG_STIMULUS_ID_VALID` | `stimulus_id` valid |
-| 6 | `STREAM_FLAG_REFERENCE_FRAME` | Packet marked as reference frame |
+| 0 | `STREAM_FLAG_FIRST_WORD_INVALID` | Espressif CSI flag |
+| 1 | `STREAM_FLAG_WIFI_RX_TS_VALID` | `wifi_rx_ts_us` valid |
+| 2 | `STREAM_FLAG_WIFI_RX_START_TS_NS_VALID` | `wifi_rx_start_ts_ns` valid |
+| 3 | `STREAM_FLAG_STIMULUS_ID_VALID` | `stimulus_id` valid |
+| 4 | `STREAM_FLAG_REFERENCE_FRAME` | Packet marked as reference frame |
 
 Payload:
 
@@ -195,8 +189,6 @@ Key knobs in the frontend surface:
 - `ESPECTRE_COLLECTOR_PORT`
 - `ESPECTRE_TRAFFIC_RX_PORT`
 - `ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP`
-- `ESPECTRE_GAIN_LOCK_ENABLED`
-- `ESPECTRE_GAIN_LOCK_MODE_*`
 - `ESPECTRE_STREAM_QUEUE_SLOTS`
 - `ESPECTRE_STREAM_BATCH_MAX_RECORDS`
 - `ESPECTRE_STREAM_BATCH_MAX_BYTES`

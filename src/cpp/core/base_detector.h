@@ -176,22 +176,6 @@ public:
                           float threshold = HAMPEL_TURBULENCE_THRESHOLD_DEFAULT);
     
     /**
-     * Configure CV normalization mode
-     * 
-     * CV normalization (std/mean) makes turbulence gain-invariant but reduces
-     * sensitivity for contiguous subcarrier bands (P95). When gain is locked,
-     * raw std is preferred as amplitudes are already stable.
-     * 
-     * @param enabled true = CV normalization (std/mean), false = raw std
-     */
-    virtual void set_cv_normalization(bool enabled);
-    
-    /**
-     * Check if CV normalization is enabled
-     */
-    bool is_cv_normalization_enabled() const { return use_cv_normalization_; }
-    
-    /**
      * Clear turbulence buffer (cold restart)
      */
     void clear_buffer();
@@ -251,10 +235,6 @@ protected:
     hampel_filter_state_t hampel_state_;
     lowpass_filter_state_t lowpass_state_;
     
-    // CV normalization: true = std/mean (gain-invariant), false = raw std
-    // Default false: raw std is more sensitive and matches ML model training
-    // Set true only for chips without gain lock (e.g., ESP32)
-    bool use_cv_normalization_{false};
 };
 
 }  // namespace espectre

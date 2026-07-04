@@ -52,9 +52,6 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_traffic_generator_mode(const std::string &mode) { 
     this->runtime_.config().traffic_generator_mode = parse_traffic_mode(mode.c_str());
   }
-  void set_gain_lock_mode(const std::string &mode) {
-    this->runtime_.config().gain_lock_mode = parse_gain_lock_mode(mode.c_str());
-  }
   void set_detection_algorithm(const std::string &algo) {
     this->runtime_.config().detection_algorithm = parse_detection_algorithm(algo.c_str());
   }

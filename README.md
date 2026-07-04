@@ -20,7 +20,7 @@ ESPectre reads Channel State Information (CSI) from an ESP32 Wi-Fi chip and turn
 The shared detection pipeline covers:
 
 - CSI capture and normalization
-- Gain lock and startup behavior
+- AGC-active normalization and startup behavior
 - Adaptive thresholds and filtering
 - Motion detectors: 
   - `MVSDetector`, a project-developed signal-processing algorithm 

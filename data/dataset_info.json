@@ -13,7 +13,7 @@
       "description": "Human presence in room, movement detected"
     },
     "test": {
-      "description": "mixed scenarios for testing purposes"
+      "description": "Mixed scenarios for testing purposes"
     }
   },
   "files": {

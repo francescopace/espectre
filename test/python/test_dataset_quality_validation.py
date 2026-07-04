@@ -82,14 +82,13 @@ def test_empty_separation_uses_two_feature_score(monkeypatch) -> None:
     dataset_info = {
         "files": {
             "empty": [
-                {"filename": "empty_a.npz", "chip": "C5", "environment": "bedroom", "gain_locked": True},
+                {"filename": "empty_a.npz", "chip": "C5", "environment": "bedroom"},
             ],
             "static_presence": [
                 {
                     "filename": "static_a.npz",
                     "chip": "C5",
                     "environment": "bedroom",
-                    "gain_locked": True,
                 },
             ],
         }
@@ -110,7 +109,7 @@ def test_empty_separation_uses_two_feature_score(monkeypatch) -> None:
     def fake_filter(csi_data, data):
         return csi_data
 
-    def fake_compute(csi_data, gain_locked=True):
+    def fake_compute(csi_data, use_cv_normalization=True):
         if csi_data is fake_data["empty_a.npz"][0]:
             # `turb_mean` separates empty from static, while moving variance stays identical.
             return np.array([1.0, 1.0, 1.0, 1.0]), np.array([0.2, 0.2, 0.2])

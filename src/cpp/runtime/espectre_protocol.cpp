@@ -390,7 +390,7 @@ std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
                 sizeof(line),
                 "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"frontend\":\"%s\","
                 "\"timestamp_ms\":%u,\"motion_state\":\"%s\",\"movement_score\":%.6g,"
-                "\"threshold\":%.6g,\"detector\":\"%s\",\"health\":{\"uptime_s\":%u,\"gain_locked\":%s}}",
+                "\"threshold\":%.6g,\"detector\":\"%s\",\"health\":{\"uptime_s\":%u}}",
                 ESPECTRE_PROTOCOL_VERSION,
                 device_id.c_str(),
                 frontend != nullptr && frontend[0] != '\0' ? frontend : "unknown",
@@ -399,8 +399,7 @@ std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
                 static_cast<double>(snapshot.movement_metric),
                 static_cast<double>(snapshot.threshold),
                 snapshot.detector_name != nullptr ? snapshot.detector_name : "unknown",
-                static_cast<unsigned>(uptime_s),
-                snapshot.gain_locked ? "true" : "false");
+                static_cast<unsigned>(uptime_s));
   return line;
 }
 

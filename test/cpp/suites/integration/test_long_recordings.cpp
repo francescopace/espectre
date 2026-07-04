@@ -65,10 +65,7 @@ static void compute_derived_metrics(LongRunMetrics &metrics) {
 }
 
 static bool needs_cv_normalization() {
-  if (csi_test_data::static_presence_gain_locked_known()) {
-    return !csi_test_data::static_presence_gain_locked();
-  }
-  return csi_test_data::current_chip() == csi_test_data::ChipType::ESP32;
+  return true;
 }
 
 static void record_result(const char *algorithm, const LongRunMetrics &metrics) {
@@ -169,7 +166,6 @@ static LongRunMetrics evaluate_ml_long_recording() {
   MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
   detector.configure_hampel(true);
   metrics.use_cv_normalization = needs_cv_normalization();
-  detector.set_cv_normalization(metrics.use_cv_normalization);
 
   metrics.static_presence_eval_count = std::max(csi_test_data::num_static_presence() - warmup, 0);
   metrics.motion_eval_count = std::max(csi_test_data::num_motion() - warmup, 0);
@@ -209,7 +205,6 @@ static LongRunMetrics evaluate_mvs_long_recording() {
   MVSDetector calibration_detector(DETECTOR_DEFAULT_WINDOW_SIZE, SEGMENTATION_DEFAULT_THRESHOLD);
   calibration_detector.configure_lowpass(false);
   calibration_detector.configure_hampel(true);
-  calibration_detector.set_cv_normalization(metrics.use_cv_normalization);
 
   std::vector<float> mv_values;
   const int calibration_packets = std::min(csi_test_data::num_static_presence(),
@@ -230,7 +225,6 @@ static LongRunMetrics evaluate_mvs_long_recording() {
   MVSDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, calibrated_threshold);
   detector.configure_lowpass(false);
   detector.configure_hampel(true);
-  detector.set_cv_normalization(metrics.use_cv_normalization);
 
   metrics.selected_band_size = HT20_SELECTED_BAND_SIZE;
   std::copy(DEFAULT_SUBCARRIERS, DEFAULT_SUBCARRIERS + HT20_SELECTED_BAND_SIZE, metrics.selected_band.begin());

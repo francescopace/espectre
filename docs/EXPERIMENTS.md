@@ -59,8 +59,8 @@ current collected domains.
 
 ### Background
 
-MVS has an explicit no-gain-lock path: when gain is not locked, turbulence can
-be computed as coefficient of variation (`std / mean`), which is invariant to a
+Earlier MVS variants had a split normalization path, but the current detector
+uses coefficient-of-variation turbulence (`std / mean`), which is invariant to a
 uniform amplitude scale factor. At the time of the first gain-stress
 diagnostic, the ML detector intentionally used raw turbulence std in both
 training and runtime inference. Its exported feature scaler was a global
@@ -214,9 +214,6 @@ and static-presence rooms, not only distinguish static presence from motion.
 At this point no C++ feature ABI change was required:
 
 - the production ML feature set remains the 8 relative features
-- `MLDetector::set_cv_normalization()` remained a no-op in that retrain, so
-  generic gain-lock fallback logic could not silently switch ML into a
-  different turbulence mode
 - the C++ runtime changed only through regenerated exported weights
 
 A live ESPHome C3 smoke test after the retrain produced 37 IDLE publications
@@ -225,12 +222,9 @@ and 1 MOTION publication across 38 post-connect samples, with median score
 
 ### Follow-Up
 
-Per-packet CV turbulence for ML (`std(amplitudes) / mean(amplitudes)`) was later
-promoted for no-gain-lock streams. The production rule is now gain-mode aware:
-gain-locked streams use raw turbulence, while streams without gain lock use
-CV-normalized turbulence before the same 8 relative ML features are extracted.
-`MLDetector::set_cv_normalization()` now follows the runtime request instead of
-ignoring it.
+Per-packet normalized turbulence for ML (`std(amplitudes) / mean(amplitudes)`)
+was later promoted to the single production path before the same 8 relative ML
+features are extracted.
 
 Retraining with seed `1890407301` on the full clean dataset produced blocked
 grouped-CV `F1=92.2%` and passed the Python and C++ real-data gates. The C++
@@ -239,10 +233,10 @@ had `90.2%` recall, while the gain-aware path reached `100.0%` recall with
 `0.0%` FP.
 
 The long-recording gate still exposes noisy C5/C6 idle segments (`C5` ML
-`7.7%` FP, `C6` ML `10.1%` FP). This appears separate from ESP32 gain-lock
-handling because the same long files are also difficult for MVS (`C5` `11.1%`
+`7.7%` FP, `C6` ML `10.1%` FP). This appears separate from the historical
+ESP32 normalization issue because the same long files are also difficult for MVS (`C5` `11.1%`
 FP, `C6` `40.2%` FP). Treat it as a dataset/environment coverage issue, not as
-evidence against the ESP32 gain-aware ML fix.
+evidence against the ESP32 normalization fix.
 
 ### Second Empty-Domain Capture
 

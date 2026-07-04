@@ -143,7 +143,6 @@ The current frontend exposes:
 | Calibrating | Vendor cluster `0xFFF1FC01`, attribute `0x0002` | boolean | read-only |
 | Ready-to-publish | Vendor cluster `0xFFF1FC01`, attribute `0x0003` | boolean | read-only |
 | Best Pxx | Vendor cluster `0xFFF1FC01`, attribute `0x0004` | nullable float | read-only |
-| Gain locked | Vendor cluster `0xFFF1FC01`, attribute `0x0005` | boolean | read-only |
 | Manual recalibration trigger | Vendor cluster `0xFFF1FC01`, attribute `0x0006` | boolean | writable trigger |
 
 Relevant constants live in [`espectre/matter_surface.h`](espectre/matter_surface.h).

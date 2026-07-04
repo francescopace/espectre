@@ -48,24 +48,6 @@ menu "ESPectre CSI Streamer"
         string "Optional external traffic multicast group"
         default ""
 
-    config ESPECTRE_GAIN_LOCK_ENABLED
-        bool "Enable gain lock before streaming"
-        default y
-
-    choice ESPECTRE_GAIN_LOCK_MODE
-        prompt "Gain lock mode"
-        default ESPECTRE_GAIN_LOCK_MODE_AUTO
-
-        config ESPECTRE_GAIN_LOCK_MODE_AUTO
-            bool "AUTO"
-
-        config ESPECTRE_GAIN_LOCK_MODE_ENABLED
-            bool "ENABLED"
-
-        config ESPECTRE_GAIN_LOCK_MODE_DISABLED
-            bool "DISABLED"
-    endchoice
-
     config ESPECTRE_STREAM_QUEUE_SLOTS
         int "Preallocated stream queue slots"
         range 2 32

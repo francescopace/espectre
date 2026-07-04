@@ -27,15 +27,13 @@ constexpr uint32_t ESPECTRE_MATTER_ATTR_THRESHOLD = 0x0001;
 constexpr uint32_t ESPECTRE_MATTER_ATTR_CALIBRATING = 0x0002;
 constexpr uint32_t ESPECTRE_MATTER_ATTR_READY_TO_PUBLISH = 0x0003;
 constexpr uint32_t ESPECTRE_MATTER_ATTR_BEST_PXX = 0x0004;
-constexpr uint32_t ESPECTRE_MATTER_ATTR_GAIN_LOCKED = 0x0005;
-constexpr uint32_t ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE = 0x0006;
+constexpr uint32_t ESPECTRE_MATTER_ATTR_REQUEST_RECALIBRATE = 0x0005;
 
 struct MatterPeriodicState {
   float movement_metric{0.0f};
   float threshold{SEGMENTATION_DEFAULT_THRESHOLD};
   float best_pxx{0.0f};
   bool ready_to_publish{false};
-  bool gain_locked{false};
   bool calibrating{false};
   const char *detector_name{"unknown"};
   uint32_t packets_received{0};

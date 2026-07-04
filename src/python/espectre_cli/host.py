@@ -178,7 +178,7 @@ def _collect_dataset_csi_data(args) -> None:
     if args.description:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
-    print(f"  {Fore.YELLOW}Chip type and gain lock status auto-detected from CSI stream{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Chip type auto-detected from CSI stream{Style.RESET_ALL}")
     print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening for the configured shared stimulus target{Style.RESET_ALL}")
     print()
 
@@ -377,10 +377,6 @@ def _run_live_collect(args) -> None:
         if device_id is None:
             return None
         return int(device_id)
-
-    def set_detector_cv_mode(detector, pkt):
-        if hasattr(detector, "set_cv_normalization"):
-            detector.set_cv_normalization(not bool(getattr(pkt, "gain_locked", True)))
 
     def create_runtime_detector(initial_threshold):
         common_kwargs = {
@@ -625,7 +621,6 @@ def _run_live_collect(args) -> None:
         if calibration_detector is None or device_state["calibration_done"]:
             return
 
-        set_detector_cv_mode(calibration_detector, pkt)
         calibration_detector.process_packet(pkt.iq_raw, subcarriers)
         calibration_metrics = calibration_detector.update_state()
         device_state["calibration_packets"] += 1
@@ -837,7 +832,6 @@ def _run_live_collect(args) -> None:
 
         detector = device_state["detector"]
         runtime_policy = device_state["runtime_policy"]
-        set_detector_cv_mode(detector, pkt)
         raw_turbulence = None
         if args.log_turbulence:
             raw_turbulence = detector._context._compute_spatial_turbulence_in_buffer(pkt.iq_raw, subcarriers)
@@ -923,7 +917,10 @@ def _run_live_collect(args) -> None:
         print(f"  {Fore.CYAN}Calibration:{Style.RESET_ALL} {calibration_target_packets} packets/device")
     print(f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {config.SEG_WINDOW_SIZE} pkts")
     print(f"  {Fore.CYAN}Subcarriers:{Style.RESET_ALL} {subcarriers}")
-    print(f"  {Fore.CYAN}Hits on/off:{Style.RESET_ALL} {getattr(config, 'MOTION_ON_HITS', 3)}/{getattr(config, 'MOTION_OFF_HITS', 3)}")
+    print(
+        f"  {Fore.CYAN}Consecutive hits motion/idle:{Style.RESET_ALL} "
+        f"{getattr(config, 'MOTION_ON_HITS', 3)}/{getattr(config, 'MOTION_OFF_HITS', 3)}"
+    )
     print(f"  {Fore.CYAN}Low-pass:{Style.RESET_ALL}  {'ON' if config.ENABLE_LOWPASS_FILTER else 'OFF'}")
     print(f"  {Fore.CYAN}Hampel:{Style.RESET_ALL}    {'ON' if config.ENABLE_HAMPEL_FILTER else 'OFF'}")
     if save_enabled:
@@ -933,8 +930,7 @@ def _run_live_collect(args) -> None:
         if getattr(args, "description", None):
             print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     else:
-        duration_text = "until Ctrl+C" if live_duration is None else f"{live_duration:g}s"
-        print(f"  {Fore.CYAN}Save:{Style.RESET_ALL}      disabled ({duration_text})")
+        print(f"  {Fore.CYAN}Save:{Style.RESET_ALL}      disabled")
     print()
     print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening for the configured shared stimulus target{Style.RESET_ALL}")
     if detector_kind == "mvs":

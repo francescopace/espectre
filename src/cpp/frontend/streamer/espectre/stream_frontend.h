@@ -33,7 +33,6 @@ class StreamFrontend {
     WAIT_WIFI = 0,
     WIFI_READY,
     CSI_READY,
-    GAIN_LOCK,
     STREAMING,
     OTA_IN_PROGRESS,
   };
@@ -63,7 +62,6 @@ class StreamFrontend {
   void publish_mqtt_status_(bool online);
   void publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message);
   void publish_mqtt_ota_status_(const EspectreOtaStatus &status);
-  void handle_gain_lock_packet_(const wifi_csi_info_t *info);
   void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
   void transition_to_(WorkflowState next, const char *reason);
   void log_runtime_telemetry_();
@@ -82,7 +80,6 @@ class StreamFrontend {
   bool setup_complete_{false};
   bool ble_ready_{false};
   std::atomic<bool> wifi_connected_{false};
-  std::atomic<bool> gain_lock_complete_{false};
   std::atomic<WorkflowState> state_{WorkflowState::WAIT_WIFI};
   uint32_t stream_seq_{0U};
   uint32_t last_csi_ms_{0U};

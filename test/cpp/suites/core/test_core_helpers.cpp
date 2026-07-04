@@ -50,15 +50,12 @@ void test_utils_statistical_helpers_cover_edge_cases(void) {
     TEST_ASSERT_EQUAL_INT8(3, calculate_median_i8(i8_values, 4));
     TEST_ASSERT_EQUAL_INT8(0, calculate_median_i8(nullptr, 0));
 
-    TEST_ASSERT_EQUAL_FLOAT(6.0f, apply_cv_normalization(6.0f, 2.0f, false));
-    TEST_ASSERT_EQUAL_FLOAT(3.0f, apply_cv_normalization(6.0f, 2.0f, true));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, apply_cv_normalization(6.0f, 0.0f, true));
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, apply_cv_normalization(6.0f, 2.0f));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, apply_cv_normalization(6.0f, 0.0f));
 
     float mean_values[] = {2.0f, 4.0f, 6.0f, 8.0f};
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.2360679f,
-                             calculate_turbulence_from_variance(5.0f, mean_values, 4, false));
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.4472136f,
-                             calculate_turbulence_from_variance(5.0f, mean_values, 4, true));
+                             calculate_turbulence_from_variance(5.0f, mean_values, 4));
 }
 
 void test_utils_spatial_turbulence_handles_invalid_inputs(void) {
@@ -68,9 +65,9 @@ void test_utils_spatial_turbulence_handles_invalid_inputs(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence(nullptr, invalid_band, 3));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence(magnitudes, nullptr, 3));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence(magnitudes, invalid_band, 0));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence(magnitudes, invalid_band, 3, 4, true));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence(magnitudes, invalid_band, 3, 4));
 
-    float valid = calculate_spatial_turbulence(magnitudes, invalid_band, 3, 10, false);
+    float valid = calculate_spatial_turbulence(magnitudes, invalid_band, 3, 10);
     TEST_ASSERT_TRUE(valid >= 0.0f);
 
     auto packet = make_constant_packet(3, 4);
@@ -80,7 +77,7 @@ void test_utils_spatial_turbulence_handles_invalid_inputs(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence_from_csi(packet.data(), packet.size(), nullptr, 4));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calculate_spatial_turbulence_from_csi(packet.data(), packet.size(), sparse_band, 0));
 
-    float from_csi = calculate_spatial_turbulence_from_csi(packet.data(), packet.size(), sparse_band, 4, false);
+    float from_csi = calculate_spatial_turbulence_from_csi(packet.data(), packet.size(), sparse_band, 4);
     TEST_ASSERT_TRUE(from_csi >= 0.0f);
 
     float negative = -3.0f;
@@ -152,11 +149,9 @@ void test_mvs_detector_move_semantics_and_base_accessors(void) {
     MVSDetector source(5, 2.5f);
     source.configure_lowpass(true, 2.0f);
     source.configure_hampel(true, 5, 2.5f);
-    source.set_cv_normalization(true);
     source.process_packet(nullptr, packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
     source.process_packet(packet.data(), packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
 
-    TEST_ASSERT_TRUE(source.is_cv_normalization_enabled());
     TEST_ASSERT_NOT_NULL(source.get_turbulence_buffer());
     TEST_ASSERT_EQUAL(1, source.get_buffer_count());
 
@@ -164,7 +159,6 @@ void test_mvs_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_NULL(source.get_turbulence_buffer());
     TEST_ASSERT_TRUE(moved.is_lowpass_enabled());
     TEST_ASSERT_TRUE(moved.is_hampel_enabled());
-    TEST_ASSERT_TRUE(moved.is_cv_normalization_enabled());
     TEST_ASSERT_EQUAL(1, moved.get_total_packets());
     TEST_ASSERT_EQUAL(1, moved.get_buffer_count());
     TEST_ASSERT_EQUAL_FLOAT(2.5f, moved.get_threshold());
@@ -174,7 +168,6 @@ void test_mvs_detector_move_semantics_and_base_accessors(void) {
     TEST_ASSERT_NULL(moved.get_turbulence_buffer());
     TEST_ASSERT_TRUE(assigned.is_lowpass_enabled());
     TEST_ASSERT_TRUE(assigned.is_hampel_enabled());
-    TEST_ASSERT_TRUE(assigned.is_cv_normalization_enabled());
     TEST_ASSERT_EQUAL(1, assigned.get_total_packets());
     TEST_ASSERT_EQUAL(1, assigned.get_buffer_count());
 }
@@ -184,9 +177,6 @@ void test_ml_detector_move_semantics_and_cv_state(void) {
 
     MLDetector source(6, 6.0f);
     source.process_packet(packet.data(), packet.size(), DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE);
-    source.set_cv_normalization(true);
-
-    TEST_ASSERT_TRUE(source.is_cv_normalization_enabled());
 
     MLDetector moved(std::move(source));
     TEST_ASSERT_NULL(source.get_turbulence_buffer());

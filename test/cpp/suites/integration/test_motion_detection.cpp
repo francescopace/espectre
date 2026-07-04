@@ -153,15 +153,9 @@ inline bool is_esp32_chip() {
     return csi_test_data::current_chip() == csi_test_data::ChipType::ESP32;
 }
 
-// Determine whether CV normalization (std/mean) is needed for the current dataset.
-// Uses 'gain_locked' metadata from the NPZ file when available; falls back to
-// chip-based heuristics for older files that predate the field.
+// The production pipeline now always uses CV normalization (std/mean).
 inline bool needs_cv_normalization() {
-    if (csi_test_data::static_presence_gain_locked_known()) {
-        return !csi_test_data::static_presence_gain_locked();
-    }
-    // Fallback: ESP32 has no hardware gain lock;
-    return is_esp32_chip();
+    return true;
 }
 
 inline const char* get_pairing_mode() {
@@ -224,7 +218,6 @@ void test_mvs_default_subcarriers(void) {
     MVSDetector cal_detector(window_size, SEGMENTATION_DEFAULT_THRESHOLD);
     cal_detector.configure_lowpass(false);
     cal_detector.configure_hampel(enable_hampel);
-    cal_detector.set_cv_normalization(cv_norm);
 
     std::vector<float> mv_values;
     int calibration_packets = std::min(num_static_presence, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
@@ -247,7 +240,6 @@ void test_mvs_default_subcarriers(void) {
     MVSDetector detector(window_size, adaptive_threshold);
     detector.configure_lowpass(false);
     detector.configure_hampel(enable_hampel);
-    detector.set_cv_normalization(cv_norm);
     
     // Process static presence
     int static_presence_motion = 0;
@@ -313,7 +305,6 @@ void test_ml_detection(void) {
     
     MLDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, ML_DEFAULT_THRESHOLD);
     detector.configure_hampel(get_enable_hampel());
-    detector.set_cv_normalization(cv_norm);
     
     printf("ML subcarriers: [%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d] (fixed)\n",
            DEFAULT_SUBCARRIERS[0], DEFAULT_SUBCARRIERS[1], DEFAULT_SUBCARRIERS[2], DEFAULT_SUBCARRIERS[3],

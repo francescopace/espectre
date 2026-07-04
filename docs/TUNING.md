@@ -28,7 +28,7 @@ For frontend-owned setup details, continue in the relevant README.
 ### 2. Wait for Startup Calibration
 
 On first boot, keep the room **empty and still** for 10 seconds. The system will:
-1. Run gain lock (when supported) for stable amplitudes
+1. Start CSI capture with AGC active
 2. Collect CSI packets during baseline (10 × `window_size`, default 1000 packets)
 3. Keep the shared fixed 12-subcarrier set for motion detection
 4. Calculate adaptive threshold based on baseline noise
@@ -39,7 +39,7 @@ Look for log messages like:
 [I][espectre]: Calibration completed successfully
 ```
 
-NOTE: In ML mode, only gain lock runs and the threshold remains fixed.
+NOTE: In ML mode, the threshold remains fixed and startup is immediate once CSI capture is active.
 
 ### 3. Test Movement
 
@@ -347,53 +347,6 @@ ESPHome YAML mapping lives in
 
 ---
 
-## Gain Lock
-
-### AGC/FFT Gain Lock
-
-**What it does:** Locks the AGC (Automatic Gain Control) and FFT gain values after initial calibration to eliminate amplitude variations caused by the WiFi hardware. This improves CSI stability and motion detection accuracy.
-
-**Default:** auto
-
-**Example ESPHome syntax:**
-```yaml
-espectre:
-  gain_lock: auto  # auto (default), enabled, disabled
-```
-
-| Mode | Description |
-|------|-------------|
-| `auto` | Enable gain lock but skip if signal too strong (AGC < 30). Uses CV normalization when skipped. **Recommended.** |
-| `enabled` | Always force gain lock. May freeze if too close to AP. |
-| `disabled` | Never lock gain. Uses CV normalization for stable detection. Works at any distance. |
-
-**How it works:**
-1. During the first 300 packets (~3 seconds), ESPectre collects AGC/FFT samples and calculates the **median** (more robust than mean against outliers)
-2. These values are then "locked" (forced) to eliminate hardware-induced variations
-3. In `auto` mode, if AGC < 30 (signal too strong), gain lock is skipped and **CV normalization** is enabled instead
-4. In `disabled` mode, baseline is collected but never locked; CV normalization provides stable detection
-
-**CV normalization:** When gain is not locked (skipped or disabled), spatial turbulence is calculated as the Coefficient of Variation (CV = std/mean) instead of raw standard deviation. This is gain-invariant: if all amplitudes are scaled by factor k (due to AGC), then σ(kA)/μ(kA) = σ(A)/μ(A). This maintains detection accuracy without hardware locking.
-
-**When to change from `auto`:**
-
-| Situation | Recommended Setting |
-|-----------|---------------------|
-| Normal operation (3-8m from AP) | `auto` (default) |
-| Testing very close to AP (< 2m) | `disabled` |
-| Debugging calibration issues | `disabled` |
-| Maximum CSI stability needed | `enabled` (if RSSI < -40 dB) |
-
-**Warning log when signal too strong:**
-```
-[W][GainController]: Signal too strong (AGC=14 < 30) - skipping gain lock
-[W][GainController]: Move sensor 2-3 meters from AP for optimal performance
-```
-
-> **Note:** Gain lock is only available on ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. On ESP32 (original) and ESP32-S2, it's automatically skipped (not supported by hardware).
-
----
-
 ## Low-Pass Filter
 
 ### Low-Pass Filter (Noise Reduction)
@@ -436,8 +389,8 @@ The distance between the ESP32 sensor and your WiFi access point (AP) significan
 
 | Distance | RSSI | AGC | Status | Notes |
 |----------|------|-----|--------|-------|
-| < 0.5m | > -30 dB | 0-15 | System may freeze | Too close, signal saturated |
-| 0.5-2m | -30 to -40 dB | 15-30 | Marginal | Works with `gain_lock: disabled` |
+| < 0.5m | > -30 dB | 0-15 | Poor | Too close, signal saturated |
+| 0.5-2m | -30 to -40 dB | 15-30 | Marginal | May clip or reduce CSI quality |
 | **3-8m** | -40 to -70 dB | **30-60** | **Optimal** | Best CSI quality and stability |
 | 8-15m | -70 to -80 dB | 60-80 | Good | Still reliable detection |
 | > 15m | < -80 dB | > 80 | Reduced quality | Weaker signal, more noise |
@@ -447,27 +400,26 @@ The distance between the ESP32 sensor and your WiFi access point (AP) significan
 When the sensor is too close to the AP, the received signal is extremely strong, causing:
 1. **AGC saturation**: The automatic gain control cannot reduce amplification enough
 2. **CSI distortion**: Signal clipping leads to unreliable CSI data
-3. **Gain lock freeze**: When `phy_force_rx_gain()` is called with a very low AGC value, the WiFi driver may fail to decode frames, halting CSI reception entirely
+3. **Reduced detector quality**: heavily compressed amplitudes can make baseline and motion less separable
 
 **Symptoms of being too close:**
-- System freezes after "Auto-Calibration Starting" log
-- Repeated "ping_sock: send error=0" messages
-- Low AGC values in logs (< 30)
-- High RSSI (> -40 dB)
+- weak motion contrast despite packet flow
+- unusually high RSSI (> -40 dB)
+- low AGC values in logs (< 30)
+- more clipped or low-dynamic-range CSI amplitudes in captures
 
 **Solution:**
 1. Move the sensor 2-3 meters away from the AP
-2. Or set `gain_lock: disabled` (less optimal but works at any distance)
+2. Re-run startup calibration in a quiet room after repositioning
 
 **Checking your placement:**
 
-Look at the gain lock log after WiFi connection:
-```
-[I][GainController]: Gain locked: AGC=51, FFT=234 (after 300 packets)
-```
+Look at RSSI, packet flow, and readiness/calibration stability after Wi-Fi
+connection:
 
-- **AGC > 30**: Good placement, gain lock works correctly
-- **AGC < 30**: Consider moving the sensor further from the AP
+- **RSSI between -40 and -70 dB**: usually a good operating range
+- **AGC comfortably above saturation**: better headroom for clean CSI
+- **steady packet flow and stable ready/calibration state**: healthy setup
 
 ---
 
@@ -567,44 +519,28 @@ or an explicit "CSI disabled" warning.
 
 5. **If protocol/bandwidth logs show `unavailable`:** this can happen on some target/band mode API paths and does not automatically mean CSI is broken. Focus on CSI packet flow (`pps`, dropped packets, calibration progress) to assess runtime health.
 
-### System Freezes During Calibration
+### Calibration Stalls or Poor Startup Quality
 
-**Symptoms:** Device freezes after "Auto-Calibration Starting (file-based storage)" message. May show watchdog timeout or repeated "ping_sock: send error=0" messages.
+**Symptoms:** The device keeps recalibrating, readiness never becomes stable, or
+runtime quality is poor immediately after startup.
 
-**Cause:** Sensor is too close to the access point. When RSSI > -40 dB, the AGC value is very low (< 30), and forcing this gain causes the WiFi driver to fail decoding frames.
+**Cause:** Usually the room is not quiet enough during calibration, packet flow
+is too sparse, or the sensor is placed too close to the access point.
 
 **Solutions:**
 
-1. **Move the sensor further from the AP** (recommended):
+1. **Move the sensor further from the AP**:
    - Place at least 2-3 meters away
    - Optimal distance: 3-8 meters
-   - Check logs for AGC value > 30 after gain lock
+   - Prefer RSSI roughly between -40 and -70 dB
 
-2. **Disable gain lock** (workaround):
-   ```yaml
-   espectre:
-     gain_lock: disabled
-   ```
-   This allows operation at any distance but with slightly less stable CSI.
+2. **Keep the room quiet during startup**:
+   - avoid movement in the monitored area
+   - wait for calibration/readiness to complete before evaluating motion quality
 
-3. **Use `auto` mode** (default, v2.4.0+):
-   ```yaml
-   espectre:
-     gain_lock: auto  # Default - skips gain lock if AGC < 30
-   ```
-   In `auto` mode, ESPectre automatically skips gain lock when the signal is too strong, logging a warning instead of freezing.
-
-**Diagnosis:**
-
-Check the gain lock log:
-```
-[I][GainController]: Gain locked: AGC=51, FFT=234  # Good - AGC > 30
-```
-
-vs.
-```
-[W][GainController]: Signal too strong (AGC=14 < 30) - skipping gain lock  # Auto mode protection
-```
+3. **Verify CSI packet flow and stimulus configuration**:
+   - keep `traffic_generator_rate` above `0` on integrated frontends
+   - verify the external stimulus path when using the streamer frontend
 
 ---
 
@@ -738,7 +674,7 @@ entity names, commands, or telemetry channel differ.
 3. **Document your settings:** Note what works for your environment
 4. **Seasonal adjustments:** Retune when furniture changes or new interference sources appear
 5. **Distance matters:** Keep sensor 3-8m from router (RSSI between -40 and -70 dB for best results)
-6. **Check AGC value:** After boot, look for "Gain locked: AGC=XX" - values 30-60 are optimal
+6. **Check AGC headroom:** After boot, moderate AGC values and stable calibration are good signs
 7. **Quiet calibration:** Ensure no movement during first ~13 seconds after boot
 8. **Try a BLE client:** Use a client built on the native frontend protocol over BLE, such as [`tools/web/espectre-ble.html`](../tools/web/espectre-ble.html) or [ESPectre - The Game](https://espectre.dev/game), for interactive threshold tuning with real-time visual feedback
 

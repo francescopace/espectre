@@ -309,12 +309,12 @@ class TestCalculateSpatialTurbulence:
         result = calculate_spatial_turbulence(magnitudes, band, use_cv_normalization=True)
         assert result == 0.0  # std = 0, so std/mean = 0
     
-    def test_constant_magnitudes_raw(self):
-        """Test with constant magnitudes (raw std mode)"""
+    def test_constant_magnitudes_legacy_flag_still_normalized(self):
+        """Legacy flag does not disable normalized turbulence."""
         magnitudes = [10.0] * 64
         band = [0, 1, 2, 3, 4]
         result = calculate_spatial_turbulence(magnitudes, band, use_cv_normalization=False)
-        assert result == 0.0  # std = 0
+        assert result == 0.0  # std = 0, therefore std/mean = 0
     
     def test_varied_magnitudes(self):
         """Test with varied magnitudes"""

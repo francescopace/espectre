@@ -156,10 +156,10 @@ class MVSDetector(IDetector):
     
     @property
     def use_cv_normalization(self):
-        """Get CV normalization setting."""
-        return self._context.use_cv_normalization
+        """Compatibility accessor for the always-normalized turbulence path."""
+        return True
     
     @use_cv_normalization.setter
     def use_cv_normalization(self, value):
-        """Set CV normalization."""
-        self._context.use_cv_normalization = value
+        """Ignore attempts to disable normalized turbulence."""
+        self._context.use_cv_normalization = True

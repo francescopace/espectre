@@ -113,13 +113,11 @@ def _extract_amplitudes_matrix(csi_matrix):
 # Wrappers for src/ functions
 # ------------------------------------------------------------------
 
-def _spatial_turbulence_from_amps(amplitudes, band, use_cv_normalization=False):
+def _spatial_turbulence_from_amps(amplitudes, band, use_cv_normalization=True):
     """Compute spatial turbulence from a pre-extracted amplitude list.
 
     Delegates to src/utils.py:calculate_spatial_turbulence().
-    Default is raw std (use_cv_normalization=False) to match MVS production
-    behavior for gain-lock chips. CV normalization is only enabled for files
-    without gain lock.
+    Defaults to the shared production path: CV-normalized turbulence.
     """
     return _src_spatial_turbulence(amplitudes, band, use_cv_normalization)
 
@@ -447,7 +445,7 @@ def validate_signal_quality(csi_data):
     return results
 
 
-def validate_pair(bl_csi, mv_csi, bl_data, mv_data, gain_locked=True):
+def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
     """Validate a static-presence/motion pair.
 
     Args:
@@ -455,25 +453,21 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data, gain_locked=True):
         mv_csi: motion CSI array (num_packets, 128)
         bl_data: full static-presence NpzFile (for metadata)
         mv_data: full motion NpzFile (for metadata)
-        gain_locked: True → raw_std, False → CV normalization (MVS behavior)
-
     Returns:
         tuple: (results, bl_var, mv_var, ratio, gap_s)
     """
     results = []
-
-    use_cv = not gain_locked
 
     # Vectorized amplitude extraction, then per-packet turbulence via src/
     bl_amps = _extract_amplitudes_matrix(bl_csi)
     mv_amps = _extract_amplitudes_matrix(mv_csi)
 
     bl_turbulence = [
-        _spatial_turbulence_from_amps(bl_amps[i].tolist(), DEFAULT_SUBCARRIERS, use_cv)
+        _spatial_turbulence_from_amps(bl_amps[i].tolist(), DEFAULT_SUBCARRIERS)
         for i in range(bl_amps.shape[0])
     ]
     mv_turbulence = [
-        _spatial_turbulence_from_amps(mv_amps[i].tolist(), DEFAULT_SUBCARRIERS, use_cv)
+        _spatial_turbulence_from_amps(mv_amps[i].tolist(), DEFAULT_SUBCARRIERS)
         for i in range(mv_amps.shape[0])
     ]
 
@@ -594,22 +588,20 @@ def _filter_measurement_frames(csi_data, data):
     return csi_data
 
 
-def _compute_moving_variance_series(csi_data, gain_locked=True):
+def _compute_moving_variance_series(csi_data):
     """Compute moving-variance series for one CSI array."""
     turbulence, moving_variance = _compute_turbulence_and_moving_variance_series(
         csi_data,
-        gain_locked=gain_locked,
     )
     _ = turbulence
     return moving_variance
 
 
-def _compute_turbulence_and_moving_variance_series(csi_data, gain_locked=True):
+def _compute_turbulence_and_moving_variance_series(csi_data):
     """Compute turbulence and moving-variance series for one CSI array."""
-    use_cv = not gain_locked
     amps = _extract_amplitudes_matrix(csi_data)
     turbulence = [
-        _spatial_turbulence_from_amps(amps[i].tolist(), DEFAULT_SUBCARRIERS, use_cv)
+        _spatial_turbulence_from_amps(amps[i].tolist(), DEFAULT_SUBCARRIERS)
         for i in range(amps.shape[0])
     ]
     moving_variance = np.asarray(_moving_variance(turbulence), dtype=np.float64)
@@ -749,10 +741,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
             filepath = _resolve_dataset_entry_path(entry, 'empty')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
             csi_data = _filter_measurement_frames(data[csi_key], data)
-            turbulence, _ = _compute_turbulence_and_moving_variance_series(
-                csi_data,
-                gain_locked=bool(entry.get('gain_locked', True)),
-            )
+            turbulence, _ = _compute_turbulence_and_moving_variance_series(csi_data)
             if len(turbulence):
                 turb_mean = _window_mean(turbulence)
                 if len(turb_mean):
@@ -769,10 +758,7 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
         for entry in static_group_map[(chip, environment)]:
             filepath = _resolve_dataset_entry_path(entry, 'static_presence')
             data, csi_key = _load_cached_or_npz(filepath, npz_cache)
-            turbulence, _ = _compute_turbulence_and_moving_variance_series(
-                data[csi_key],
-                gain_locked=bool(entry.get('gain_locked', True)),
-            )
+            turbulence, _ = _compute_turbulence_and_moving_variance_series(data[csi_key])
             if len(turbulence):
                 turb_mean = _window_mean(turbulence)
                 if len(turb_mean):
@@ -965,14 +951,6 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                 dt = None
             return chip, dt
 
-        # Build gain-lock lookup from dataset_info.json
-        gain_locked_map = {}
-        for label in ('static_presence', 'motion'):
-            for entry in dataset_info.get('files', {}).get(label, []):
-                fname = entry['filename']
-                if 'gain_locked' in entry:
-                    gain_locked_map[fname] = entry['gain_locked']
-
         # Match each static-presence file to its closest same-chip motion file,
         # producing 1:1 pairs.
         mv_used = set()
@@ -1008,8 +986,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
             mv_file = best_mv
 
             sc_source = "DEFAULT_SUBCARRIERS"
-            pair_gain_locked = gain_locked_map.get(bl_file.name, True)
-            cv_mode = "CV" if not pair_gain_locked else "raw_std"
+            cv_mode = "CV"
 
             print(f"\n🔗 Pair: {bl_file.name} ↔ {mv_file.name}")
             print(f"   [subcarriers: {sc_source}, turbulence: {cv_mode}]")
@@ -1034,7 +1011,6 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
             pair_res, bl_var, mv_var, ratio, gap_s = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
                 bl_data, mv_data,
-                gain_locked=pair_gain_locked,
             )
             for r in pair_res:
                 print(f"   {r}")
@@ -1140,8 +1116,7 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("- `Gap`: non-negative time between the `static_presence` and `motion` capture intervals")
     lines.append("  regardless of acquisition order (`0s` means the intervals overlap)")
     lines.append("- `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set")
-    lines.append("- `Turbulence`: `raw_std` = gain locked (raw standard deviation), "
-                 "`CV` = gain not locked (coefficient of variation; used by MVS and ML)\n")
+    lines.append("- `Turbulence`: `CV` = coefficient of variation (`std/mean`), the shared production path for MVS and ML\n")
 
     lines.append("## Results (sorted by chip, then ratio desc)\n")
     lines.append("| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var "

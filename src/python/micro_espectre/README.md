@@ -127,21 +127,20 @@ Do not commit `config_local.py`.
 Micro-ESPectre follows the same detector direction as the C++ platform:
 
 ```text
-Boot -> Gain Lock -> MVS threshold bootstrap or ML startup -> Detection Loop
+Boot -> AGC-active startup -> MVS threshold bootstrap or ML startup -> Detection Loop
 ```
 
 ### Detection Algorithms
 
 | Algorithm | Method | Startup behavior |
 |-----------|--------|------------------|
-| `mvs` | Moving variance over turbulence | Gain lock plus startup threshold bootstrap |
-| `ml` | 8-feature MLP over turbulence windows | Gain lock only, fixed threshold |
+| `mvs` | Moving variance over turbulence | Threshold bootstrap with normalized AGC-active turbulence |
+| `ml` | 8-feature MLP over turbulence windows | Immediate startup with normalized AGC-active turbulence |
 
 Key config values live in `config.py`:
 
 ```python
 DETECTION_ALGORITHM = "mvs"  # "mvs" or "ml"
-GAIN_LOCK_MODE = "auto"      # "auto", "enabled", or "disabled"
 SEG_THRESHOLD = "auto"       # "auto", "min", or 0.0-10.0
 SEG_WINDOW_SIZE = 100
 EVALUATION_INTERVAL = 25
@@ -149,8 +148,7 @@ MOTION_ON_HITS = 3
 MOTION_OFF_HITS = 3
 ```
 
-Keep the room quiet after boot in `mvs` mode while threshold bootstrap runs. In
-`ml` mode, only gain lock runs.
+Keep the room quiet after boot in `mvs` mode while threshold bootstrap runs.
 
 ### Filters
 

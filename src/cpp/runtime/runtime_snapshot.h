@@ -16,7 +16,6 @@ struct RuntimeSnapshot {
   float threshold{SEGMENTATION_DEFAULT_THRESHOLD};
   bool calibrating{false};
   bool ready_to_publish{false};
-  bool gain_locked{false};
   float best_pxx{0.0f};
   const char *detector_name{"unknown"};
   RuntimeSubcarrierSource subcarrier_source{RuntimeSubcarrierSource::FIXED_DEFAULT};

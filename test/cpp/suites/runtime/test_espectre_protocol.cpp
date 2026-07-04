@@ -72,7 +72,6 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   snapshot.movement_metric = 2.75f;
   snapshot.threshold = 1.5f;
   snapshot.detector_name = "ml";
-  snapshot.gain_locked = true;
 
   const std::string status = espectre_status_payload(config, true, 1234);
   const std::string telemetry = espectre_telemetry_payload(config, snapshot, 222, 33, "native");
@@ -84,7 +83,6 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   TEST_ASSERT_TRUE(telemetry.find("\"motion_state\":\"motion\"") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"threshold\":1.5") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"detector\":\"ml\"") != std::string::npos);
-  TEST_ASSERT_TRUE(telemetry.find("\"gain_locked\":true") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"uptime\":44") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"free_memory_kb\":128.5") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"loop_time_ms\":6.25") != std::string::npos);

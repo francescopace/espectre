@@ -63,10 +63,8 @@ class SegmentationContext:
         self.window_size = window_size
         self.threshold = threshold
         
-        # CV normalization: True = std/mean (gain-invariant), False = raw std
-        # Default False for compatibility with origin/develop (most chips have gain lock)
-        # Set to True for ESP32 which doesn't have gain lock
-        self.use_cv_normalization = False
+        # The runtime always uses gain-invariant turbulence under active AGC.
+        self.use_cv_normalization = True
         
         # Turbulence circular buffer (pre-allocated)
         self.turbulence_buffer = [0.0] * window_size
@@ -194,25 +192,23 @@ class SegmentationContext:
             var_sum += diff * diff
         variance = var_sum / count
 
-        if use_cv_normalization:
-            return math.sqrt(variance) / mean if mean > 0 else 0.0
-        return math.sqrt(variance)
+        if not use_cv_normalization:
+            use_cv_normalization = True
+        return math.sqrt(variance) / mean if mean > 0 else 0.0
 
     @staticmethod
     def compute_spatial_turbulence(csi_data, selected_subcarriers=None, use_cv_normalization=True):
         """
         Calculate spatial turbulence from CSI subcarrier amplitudes
         
-        Two modes controlled by use_cv_normalization:
-        - True (default): CV normalization (std/mean), gain-invariant. Used when gain
-          is NOT locked (AGC varies). Safe but reduces sensitivity for contiguous bands.
-        - False: Raw std, better sensitivity for all band types. Used when gain IS locked
-          (amplitudes are stable, no normalization needed).
+        The normalized path is the canonical runtime behavior. The optional
+        argument remains accepted so older internal callers do not crash, but
+        turbulence is always returned as std/mean.
         
         Args:
             csi_data: array of int8 I/Q values (alternating real, imag)
             selected_subcarriers: list of subcarrier indices to use (default: all up to 64)
-            use_cv_normalization: True = std/mean, False = raw std (default: True)
+            use_cv_normalization: kept for compatibility; turbulence is always normalized
             
         Returns:
             tuple: (turbulence, amplitudes) - turbulence value and amplitude list
@@ -248,8 +244,7 @@ class SegmentationContext:
         """
         Calculate spatial turbulence and store amplitudes for features
         
-        Uses the instance's use_cv_normalization setting to determine
-        whether to apply CV normalization (std/mean) or raw std.
+        Uses the instance's normalized turbulence path.
         
         Args:
             csi_data: array of int8 I/Q values (alternating real, imag)
@@ -257,7 +252,7 @@ class SegmentationContext:
             return_amplitudes: if True, return (turbulence, amplitudes) tuple
             
         Returns:
-            float: Turbulence value (CV-normalized or raw std depending on config)
+            float: Gain-invariant turbulence value
             OR tuple (turbulence, amplitudes) if return_amplitudes=True
         
         Note: Stores last amplitudes only when return_amplitudes=True (legacy callers).

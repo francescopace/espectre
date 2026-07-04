@@ -67,16 +67,14 @@ except ImportError:
 
 # UDP Protocol constants
 MAGIC_STREAM = 0x4353  # "CS" in little-endian
-STREAM_VERSION = 2
+STREAM_VERSION = 3
 DEFAULT_PORT = 5001
-STREAM_FLAG_GAIN_LOCKED = 1 << 0
-STREAM_FLAG_FIRST_WORD_INVALID = 1 << 1
-STREAM_FLAG_WIFI_RX_TS_VALID = 1 << 2
-STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1 << 3
-STREAM_FLAG_GAIN_INFO_VALID = 1 << 4
-STREAM_FLAG_STIMULUS_ID_VALID = 1 << 5
-STREAM_FLAG_REFERENCE_FRAME = 1 << 6
-CSI_HEADER_FORMAT = '<HBBBBIHHQQIQIBbbBbB'
+STREAM_FLAG_FIRST_WORD_INVALID = 1 << 0
+STREAM_FLAG_WIFI_RX_TS_VALID = 1 << 1
+STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1 << 2
+STREAM_FLAG_STIMULUS_ID_VALID = 1 << 3
+STREAM_FLAG_REFERENCE_FRAME = 1 << 4
+CSI_HEADER_FORMAT = '<HBBBBIHHQQIQIBbb'
 CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
 MAX_STREAM_DATAGRAM_BYTES = 2048
 STIMULUS_MAGIC = b'ESTM'
@@ -143,7 +141,6 @@ class CSIPacket:
     amplitudes: np.ndarray   # Amplitude per subcarrier
     phases: np.ndarray       # Phase per subcarrier (radians)
     chip: str = 'unknown'    # Chip type (e.g., 'C6', 'S3', 'ESP32')
-    gain_locked: bool = True # True if AGC gain lock was applied during collection
     device_id: Optional[int] = None
     device_ticks_us: Optional[int] = None
     wifi_rx_ts_us: Optional[int] = None
@@ -153,8 +150,6 @@ class CSIPacket:
     channel: Optional[int] = None
     rssi_dbm: Optional[int] = None
     noise_floor_dbm: Optional[int] = None
-    agc_gain: Optional[int] = None
-    fft_gain: Optional[int] = None
     source_ip: Optional[str] = None
 
 
@@ -365,11 +360,11 @@ class CSIReceiver:
     def _parse_record(self, data: bytes, offset: int = 0) -> Tuple[Optional[CSIPacket], int]:
         """Parse one CSI record from a datagram starting at offset.
         
-        Packet format (version 2):
+        Packet format (version 3):
             <magic:2><version:1><header_len:1><chip:1><flags:1>
             <seq:4><num_sc:2><csi_len:2><device_id:8><device_ticks_us:8>
             <wifi_rx_ts_us:4><wifi_rx_start_ts_ns:8><stimulus_id:4>
-            <channel:1><rssi_dbm:1><noise_floor_dbm:1><agc_gain:1><fft_gain:1><reserved0:1>
+            <channel:1><rssi_dbm:1><noise_floor_dbm:1>
             <payload>
         """
         if offset < 0 or len(data) - offset < CSI_HEADER_STRUCT.size:
@@ -392,9 +387,6 @@ class CSIReceiver:
             channel,
             rssi_dbm,
             noise_floor_dbm,
-            agc_gain,
-            fft_gain,
-            _reserved0,
         ) = CSI_HEADER_STRUCT.unpack_from(data, offset)
 
         if magic != MAGIC_STREAM or version != STREAM_VERSION:
@@ -409,7 +401,6 @@ class CSIReceiver:
         if len(data) - offset < record_len:
             return None, offset
 
-        gain_locked = bool(flags & STREAM_FLAG_GAIN_LOCKED)
         chip = CHIP_CODES.get(chip_code, 'unknown')
 
         iq_raw = np.array(
@@ -438,7 +429,6 @@ class CSIReceiver:
             amplitudes=amplitudes,
             phases=phases,
             chip=chip,
-            gain_locked=gain_locked,
             device_id=device_id or None,
             device_ticks_us=device_ticks_us or None,
             wifi_rx_ts_us=wifi_rx_ts_us if (flags & STREAM_FLAG_WIFI_RX_TS_VALID) else None,
@@ -448,8 +438,6 @@ class CSIReceiver:
             channel=int(channel),
             rssi_dbm=int(rssi_dbm),
             noise_floor_dbm=int(noise_floor_dbm),
-            agc_gain=int(agc_gain) if (flags & STREAM_FLAG_GAIN_INFO_VALID) else None,
-            fft_gain=int(fft_gain) if (flags & STREAM_FLAG_GAIN_INFO_VALID) else None,
         )
         return packet, offset + record_len
 
@@ -796,7 +784,6 @@ class CSICollector:
             collected_at: str - ISO timestamp
             duration_ms: float - Total duration
             format_version: str - Format version
-            gain_locked: bool - Session gain-lock status
             optional stream metadata arrays - Device timestamps and RF metadata
         """
         if not packets:
@@ -833,13 +820,6 @@ class CSICollector:
             'format_version': self.FORMAT_VERSION,
         }
         
-        # Determine if gain lock was applied (from packet flags)
-        # All packets in a session have the same gain_locked value
-        gain_locked = packets[0].gain_locked if hasattr(packets[0], 'gain_locked') else True
-        
-        # Add gain_locked to sample for future reference
-        sample['gain_locked'] = gain_locked
-
         # Packet-level metadata for replay, synchronization, and realtime fusion.
         sample['stream_seq_num'] = np.array([p.seq_num for p in packets], dtype=np.uint32)
 
@@ -860,8 +840,6 @@ class CSICollector:
         add_optional_array('channel', [p.channel for p in packets], np.uint8)
         add_optional_array('rssi_dbm', [p.rssi_dbm for p in packets], np.int16)
         add_optional_array('noise_floor_dbm', [p.noise_floor_dbm for p in packets], np.int16)
-        add_optional_array('agc_gain', [p.agc_gain for p in packets], np.uint8)
-        add_optional_array('fft_gain', [p.fft_gain for p in packets], np.int8)
         
         # Save file
         label_dir = self._get_label_dir()
@@ -878,7 +856,6 @@ class CSICollector:
             num_packets=len(packets),
             duration_ms=duration_ms,
             collected_at=sample['collected_at'],
-            gain_locked=gain_locked,
             description=self.description,
             device_id=device_id
         )
@@ -887,8 +864,8 @@ class CSICollector:
     
     def _update_dataset_info(self, filename: str = None, num_subcarriers: int = None,
                                 num_packets: int = None, duration_ms: float = None,
-                                collected_at: str = None, gain_locked: bool = True,
-                                description: str = None, device_id: Optional[int] = None):
+                                collected_at: str = None, description: str = None,
+                                device_id: Optional[int] = None):
         """Update dataset info with current sample counts and file details"""
         info = load_dataset_info()
         
@@ -911,16 +888,8 @@ class CSICollector:
             # Check if file already exists in list
             existing_files = [f['filename'] for f in info['files'][self.label]]
             if filename not in existing_files:
-                # Build description based on gain lock status
                 if not description:
-                    if not gain_locked:
-                        chip = self.chip.upper() if self.chip else 'unknown'
-                        if chip == 'ESP32':
-                            description = f'HT20 {self.label}, no gain lock (ESP32 lacks AGC lock support)'
-                        else:
-                            description = f'HT20 {self.label}, gain lock skipped (weak signal or disabled)'
-                    else:
-                        description = f'HT20 {self.label}, AGC gain locked'
+                    description = f'HT20 {self.label}, AGC-active normalized pipeline'
                 
                 file_info = {
                     'filename': filename,
@@ -930,7 +899,6 @@ class CSICollector:
                     'collected_at': collected_at or '',
                     'duration_ms': int(duration_ms) if duration_ms else 0,
                     'num_packets': num_packets or 0,
-                    'gain_locked': bool(gain_locked),
                     'description': description,
                     'device_id': format_device_id_hex(device_id) if device_id is not None else '',
                 }
@@ -986,8 +954,7 @@ class CSICollector:
         return MVSDetector(
             window_size=window_size,
             threshold=self.READY_MV_THRESHOLD,
-            track_data=False,
-            gain_locked=True
+            track_data=False
         )
 
     def _reset_live_status_block(self) -> None:
@@ -1260,10 +1227,7 @@ class CSICollector:
                             state['rssi_dbm'] = packet.rssi_dbm
                         state['last_seq'] = packet.seq_num
 
-                    packet_dict = {
-                        'csi_data': packet.iq_raw,
-                        'gain_locked': packet.gain_locked
-                    }
+                    packet_dict = {'csi_data': packet.iq_raw}
                     state['detector'].process_packet(packet_dict)
                     state['processed_packets'] += 1
 
@@ -1429,10 +1393,7 @@ class CSICollector:
                             state['rssi_dbm'] = packet.rssi_dbm
                         state['last_seq'] = packet.seq_num
 
-                    packet_dict = {
-                        'csi_data': packet.iq_raw,
-                        'gain_locked': packet.gain_locked
-                    }
+                    packet_dict = {'csi_data': packet.iq_raw}
                     state['detector'].process_packet(packet_dict)
                     state['processed_packets'] += 1
 
@@ -1770,25 +1731,6 @@ def load_samples(label: str = None) -> List[Dict[str, Any]]:
 # ============================================================================
 # Data Loading Functions
 # ============================================================================
-
-def read_gain_locked(filepath: Path) -> Optional[bool]:
-    """
-    Read the 'gain_locked' field from an NPZ file.
-
-    Returns True if gain lock was active, False if not, or None if the field
-    is absent (older files collected before the field was added).
-
-    Args:
-        filepath: Path to the .npz file
-
-    Returns:
-        bool or None
-    """
-    data = np.load(filepath, allow_pickle=True)
-    if 'gain_locked' in data.files:
-        return bool(data['gain_locked'])
-    return None
-
 def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     """
     Load .npz file and convert to list of packet dicts.
@@ -1817,7 +1759,6 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     label = str(data.get('label', 'unknown'))
     num_subcarriers = int(data.get('num_subcarriers', csi_array.shape[1] // 2))
     chip = str(data.get('chip', 'unknown'))
-    gain_locked = bool(data['gain_locked']) if 'gain_locked' in data.files else True
     
     stream_seq_nums = data['stream_seq_num'] if 'stream_seq_num' in data.files else None
     device_ticks_us = data['device_ticks_us'] if 'device_ticks_us' in data.files else None
@@ -1829,8 +1770,6 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
     channels = data['channel'] if 'channel' in data.files else None
     rssi_dbm = data['rssi_dbm'] if 'rssi_dbm' in data.files else None
     noise_floor_dbm = data['noise_floor_dbm'] if 'noise_floor_dbm' in data.files else None
-    agc_gain = data['agc_gain'] if 'agc_gain' in data.files else None
-    fft_gain = data['fft_gain'] if 'fft_gain' in data.files else None
 
     def optional_scalar(array, index, cast):
         if array is None:
@@ -1849,7 +1788,6 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
             'label': label,
             'num_subcarriers': num_subcarriers,
             'chip': chip,
-            'gain_locked': gain_locked,
             'stream_seq_num': optional_scalar(stream_seq_nums, i, int),
             'device_ticks_us': optional_scalar(device_ticks_us, i, int),
             'wifi_rx_ts_us': optional_scalar(wifi_rx_ts_us, i, int),
@@ -1860,8 +1798,6 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
             'channel': optional_scalar(channels, i, int),
             'rssi_dbm': optional_scalar(rssi_dbm, i, int),
             'noise_floor_dbm': optional_scalar(noise_floor_dbm, i, int),
-            'agc_gain': optional_scalar(agc_gain, i, int),
-            'fft_gain': optional_scalar(fft_gain, i, int),
         })
     
     return packets
@@ -2059,28 +1995,20 @@ from mvs_detector import MVSDetector as MVSDetectorNew
 # ============================================================================
 
 def calculate_spatial_turbulence(csi_data,
-                                 selected_subcarriers=None,
-                                 gain_locked: bool = True) -> float:
+                                 selected_subcarriers=None) -> float:
     """
-    Calculate spatial turbulence from CSI data with gain-lock-aware normalization.
-    
-    Delegates to SegmentationContext.compute_spatial_turbulence (static method).
-    If gain lock is not active, uses CV normalization (std/mean) for gain invariance.
-    If gain lock is active, uses raw standard deviation for better sensitivity.
+    Calculate spatial turbulence from CSI data using the normalized AGC-active path.
     
     Args:
         csi_data: CSI data array (I/Q pairs)
         selected_subcarriers: Optional explicit subcarrier list. When omitted,
             the fixed production defaults from config.DEFAULT_SUBCARRIERS are used.
-        gain_locked: True if AGC gain lock was active for this packet/file
-    
     Returns:
         float: Spatial turbulence value
     """
-    use_cv_norm = not bool(gain_locked)
     band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else selected_subcarriers
     turbulence, _ = SegmentationContext.compute_spatial_turbulence(
-        csi_data, band, use_cv_normalization=use_cv_norm
+        csi_data, band
     )
     return turbulence
 
@@ -2114,8 +2042,7 @@ class MVSDetector:
                  track_data: bool = False,
                  enable_hampel: bool = True, hampel_window: int = config.HAMPEL_WINDOW,
                  hampel_threshold: float = config.HAMPEL_THRESHOLD,
-                 enable_lowpass: bool = False, lowpass_cutoff: float = 11.0,
-                 gain_locked: bool = True):
+                 enable_lowpass: bool = False, lowpass_cutoff: float = 11.0):
         """
         Initialize MVS detector
         
@@ -2129,7 +2056,6 @@ class MVSDetector:
             hampel_threshold: Hampel filter MAD threshold
             enable_lowpass: Enable low-pass filter for noise reduction
             lowpass_cutoff: Low-pass filter cutoff frequency in Hz
-            gain_locked: Default gain lock status for packets without metadata
         """
         self.window_size = window_size
         self.threshold = threshold
@@ -2137,7 +2063,6 @@ class MVSDetector:
             config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else list(selected_subcarriers)
         )
         self.track_data = track_data
-        self.default_gain_locked = bool(gain_locked)
         
         # Use production SegmentationContext
         self._context = SegmentationContext(
@@ -2149,7 +2074,6 @@ class MVSDetector:
             enable_lowpass=enable_lowpass,
             lowpass_cutoff=lowpass_cutoff
         )
-        self._context.use_cv_normalization = not self.default_gain_locked
         
         self.state = 'IDLE'
         self.motion_packet_count = 0
@@ -2161,23 +2085,17 @@ class MVSDetector:
             self.moving_var_history: List[float] = []
             self.state_history: List[str] = []
     
-    def process_packet(self, packet_or_csi, gain_locked: Optional[bool] = None):
+    def process_packet(self, packet_or_csi):
         """
         Process a single CSI packet
         
         Args:
-            packet_or_csi: Either packet dict with {'csi_data', 'gain_locked'} or CSI array
-            gain_locked: Optional gain lock override when passing raw CSI array
+            packet_or_csi: Either packet dict with {'csi_data'} or CSI array
         """
         if isinstance(packet_or_csi, dict):
             csi_data = packet_or_csi['csi_data']
-            packet_gain_locked = bool(packet_or_csi.get('gain_locked', self.default_gain_locked))
         else:
             csi_data = packet_or_csi
-            packet_gain_locked = self.default_gain_locked if gain_locked is None else bool(gain_locked)
-        
-        # Apply packet-aware normalization mode before turbulence calculation.
-        self._context.use_cv_normalization = not packet_gain_locked
         
         # Calculate turbulence using SegmentationContext method
         turb = self._context.calculate_spatial_turbulence(csi_data, self.fixed_subcarriers)

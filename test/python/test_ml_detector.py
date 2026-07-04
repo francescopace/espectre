@@ -237,14 +237,10 @@ class TestMLDetector:
         assert detector.set_threshold(-0.1) == False
         assert detector._threshold == original
 
-    def test_set_cv_normalization_updates_context(self):
-        """ML detector follows runtime gain-mode normalization requests."""
+    def test_detector_uses_normalized_turbulence_by_default(self):
+        """ML detector keeps the normalized turbulence path enabled."""
         detector = MLDetector()
-        detector.set_cv_normalization(True)
         assert detector._context.use_cv_normalization is True
-
-        detector.set_cv_normalization(False)
-        assert detector._context.use_cv_normalization is False
     
     def test_is_ready_empty(self):
         """Detector is not ready before filling buffer."""

@@ -297,7 +297,7 @@ def compute_method_results(methods, method_thresholds):
 class MLDetectorAdapter:
     """Compatibility wrapper around production MLDetector."""
 
-    def __init__(self, window_size=SEG_WINDOW_SIZE, track_data=False, use_cv_normalization=False):
+    def __init__(self, window_size=SEG_WINDOW_SIZE, track_data=False):
         self._detector = ProdMLDetector(
             window_size=window_size,
             threshold=ML_DEFAULT_THRESHOLD,
@@ -306,7 +306,6 @@ class MLDetectorAdapter:
             enable_hampel=ENABLE_HAMPEL_FILTER,
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
-            use_cv_normalization=use_cv_normalization
         )
         self._detector.track_data = track_data
         self.probability_history = self._detector.probability_history
@@ -352,10 +351,7 @@ def compare_detection_methods(static_presence_packets, motion_packets, window_si
         methods['RSSI']['static_presence'].append(calculate_rssi(pkt['csi_data']))
         methods['Mean Amplitude']['static_presence'].append(calculate_mean_amplitude(pkt['csi_data']))
         methods['Turbulence']['static_presence'].append(
-            calculate_spatial_turbulence(
-                pkt['csi_data'],
-                gain_locked=pkt.get('gain_locked', True)
-            )
+            calculate_spatial_turbulence(pkt['csi_data'])
         )
     
     methods['RSSI']['static_presence'] = np.array(methods['RSSI']['static_presence'])
@@ -381,10 +377,7 @@ def compare_detection_methods(static_presence_packets, motion_packets, window_si
         methods['RSSI']['motion'].append(calculate_rssi(pkt['csi_data']))
         methods['Mean Amplitude']['motion'].append(calculate_mean_amplitude(pkt['csi_data']))
         methods['Turbulence']['motion'].append(
-            calculate_spatial_turbulence(
-                pkt['csi_data'],
-                gain_locked=pkt.get('gain_locked', True)
-            )
+            calculate_spatial_turbulence(pkt['csi_data'])
         )
     
     methods['RSSI']['motion'] = np.array(methods['RSSI']['motion'])
@@ -424,10 +417,7 @@ def compare_detection_methods(static_presence_packets, motion_packets, window_si
     
     start = time.perf_counter()
     for pkt in all_packets:
-        calculate_spatial_turbulence(
-            pkt['csi_data'],
-            gain_locked=pkt.get('gain_locked', True)
-        )
+        calculate_spatial_turbulence(pkt['csi_data'])
     timing['Turbulence'] = ((time.perf_counter() - start) / num_packets) * 1e6
     
     # ML detector (if available)
@@ -436,12 +426,11 @@ def compare_detection_methods(static_presence_packets, motion_packets, window_si
     
     if ML_AVAILABLE:
         start = time.perf_counter()
-        use_cv_norm_ml = not static_presence_packets[0].get('gain_locked', True) if static_presence_packets else False
-        ml_baseline = MLDetectorAdapter(window_size, track_data=True, use_cv_normalization=use_cv_norm_ml)
+        ml_baseline = MLDetectorAdapter(window_size, track_data=True)
         for pkt in static_presence_packets:
             ml_baseline.process_packet(pkt)
         methods['ML']['static_presence'] = np.array(ml_baseline.probability_history)
-        ml_movement = MLDetectorAdapter(window_size, track_data=True, use_cv_normalization=use_cv_norm_ml)
+        ml_movement = MLDetectorAdapter(window_size, track_data=True)
         for pkt in motion_packets:
             ml_movement.process_packet(pkt)
         methods['ML']['motion'] = np.array(ml_movement.probability_history)

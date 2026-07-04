@@ -106,7 +106,7 @@ This is the part that can be embedded by other applications as a standalone libr
 
 - CSI ingress and normalization
 - Wi-Fi lifecycle handling
-- gain lock
+- AGC-active normalization
 - startup calibration orchestration
 - traffic generation / UDP listener
 - runtime facade and event contract

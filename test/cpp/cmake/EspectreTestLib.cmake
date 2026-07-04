@@ -62,7 +62,6 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/gain_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_protocol.cpp"

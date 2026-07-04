@@ -32,8 +32,8 @@ Usage:
 Configuration:
   - TRAINING_FEATURES: Edit at top of file to change feature set
 
-Note: turbulence normalization follows the gain mode: gain-locked streams use
-raw std, streams without gain lock use CV normalization (std/mean).
+Note: turbulence normalization now follows the shared production path:
+CV-normalized turbulence (`std/mean`) for every stream.
 
 To compare ML with MVS, use:
     python tools/7_compare_detection_methods.py
@@ -781,7 +781,6 @@ def _build_file_context(label, file_info, dataset_info=None):
     """Derive grouping metadata used for honest evaluation and reporting."""
     filename = str(file_info.get('filename', ''))
     chip = str(file_info.get('chip', 'unknown')).upper()
-    gain_locked = bool(file_info.get('gain_locked', True))
     collected_at = _parse_iso_timestamp(file_info.get('collected_at'))
     explicit_environment = _first_non_empty(
         file_info,
@@ -803,7 +802,6 @@ def _build_file_context(label, file_info, dataset_info=None):
     day_group = collected_at.date().isoformat() if collected_at else 'unknown-day'
 
     return {
-        'gain_locked': gain_locked,
         'chip': chip,
         'collected_at': collected_at.isoformat() if collected_at else '',
         'day_group': day_group,
@@ -822,7 +820,6 @@ def _fallback_file_context(filename, label, packet):
     fallback = {
         'filename': filename,
         'chip': packet.get('chip', 'unknown'),
-        'gain_locked': packet.get('gain_locked', True),
         'collected_at': packet.get('collected_at', ''),
     }
     return _build_file_context(label, fallback)
@@ -918,7 +915,7 @@ def get_file_metadata(dataset_info):
         dataset_info: Loaded dataset_info.json
 
     Returns:
-        dict: {filename: {gain_locked: bool, ...}}
+        dict: {filename: {...}}
     """
     file_metadata = {}
     files_by_label = dataset_info.get('files', {})
@@ -938,8 +935,8 @@ def load_all_data(environment_filter=None, excluded_chips=None,
 
     Reads label from npz file metadata (not folder structure).
     Uses dataset_info.json only to determine if label is motion or idle.
-    Uses each NPZ file's `gain_locked` field to decide CV normalization and
-    attaches grouping metadata (file, session/pair, environment when available).
+    Uses the normalized turbulence pipeline and attaches grouping metadata
+    (file, session/pair, environment when available).
 
     Args:
         environment_filter: Optional set/string of environment names to keep.
@@ -957,7 +954,6 @@ def load_all_data(environment_filter=None, excluded_chips=None,
         'chips': set(),
         'labels': {},
         'total': 0,
-        'cv_norm_files': set(),
         'files': [],
         'excluded_labels': set(),
         'excluded_chips': set(),
@@ -1011,7 +1007,6 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                     stats['excluded_environments'].add(environment_group)
                     continue
 
-                gain_locked = bool(meta.get('gain_locked', packets[0].get('gain_locked', True)))
                 has_sync_metadata = any(
                     p.get('stimulus_id') is not None and (
                         p.get('wifi_rx_start_ts_ns') is not None or p.get('device_ticks_us') is not None
@@ -1030,8 +1025,6 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                 stats['labels'][label] += len(packets)
                 stats['total'] += len(packets)
                 stats['chips'].add(chip)
-                if not gain_locked:
-                    stats['cv_norm_files'].add(npz_file.name)
 
                 stats['session_groups'].add(meta.get('session_group', f"file:{npz_file.name}"))
                 if environment_group != 'unknown-environment':
@@ -1042,7 +1035,6 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                 for idx, p in enumerate(packets):
                     p['is_motion'] = is_motion
                     p['label_name'] = label_lc
-                    p['gain_locked'] = gain_locked
                     p['source_file'] = npz_file.name
                     p['packet_index'] = idx
                     p['chip'] = meta.get('chip', chip)
@@ -1059,7 +1051,6 @@ def load_all_data(environment_filter=None, excluded_chips=None,
                 print(f"  Warning: Could not load {npz_file.name}: {e}")
     
     stats['chips'] = sorted(stats['chips'])
-    stats['cv_norm_files'] = sorted(stats['cv_norm_files'])
     stats['excluded_labels'] = sorted(stats['excluded_labels'])
     stats['excluded_chips'] = sorted(stats['excluded_chips'])
     stats['excluded_environments'] = sorted(stats['excluded_environments'])
@@ -1332,7 +1323,6 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
-            ctx.use_cv_normalization = not bool(pkt.get('gain_locked', True))
             turb, amps = ctx.calculate_spatial_turbulence(
                 csi_data,
                 DEFAULT_SUBCARRIERS,
@@ -1437,7 +1427,6 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
         ctx = SegmentationContext(window_size=window_size, threshold=effective_threshold)
         file_weights = []
         for pkt in file_packets:
-            ctx.use_cv_normalization = not bool(pkt.get('gain_locked', True))
             turb = ctx.calculate_spatial_turbulence(
                 pkt['csi_data'],
                 DEFAULT_SUBCARRIERS,
@@ -2792,8 +2781,6 @@ def calculate_correlation_importance(feature_names=None, use_cache=True):
     )
     stats = matrix['stats']
     print(f"  Loaded {stats['total']} packets")
-    if stats.get('cv_norm_files'):
-        print(f"  Files using CV normalization: {len(stats['cv_norm_files'])}")
 
     X = matrix['X']
     y = matrix['y']
@@ -3292,14 +3279,7 @@ def show_info():
             print(f"    {info['description']}")
     print()
     
-    # Show files using CV normalization
     file_metadata = get_file_metadata(dataset_info)
-    cv_norm_files = [f for f, meta in file_metadata.items() if not meta.get('gain_locked', True)]
-    if cv_norm_files:
-        print(f"Files using CV normalization ({len(cv_norm_files)}):")
-        for f in sorted(cv_norm_files):
-            print(f"  - {f}")
-        print()
     
     # Load and analyze data
     _, stats = load_all_data()
@@ -3436,8 +3416,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         print(f"  Excluded chips: {', '.join(stats['excluded_chips'])}")
     if stats.get('excluded_environments'):
         print(f"  Excluded environments: {', '.join(stats['excluded_environments'])}")
-    if stats.get('cv_norm_files'):
-        print(f"  Files using CV normalization: {len(stats['cv_norm_files'])}")
     print(f"  Session groups: {len(stats.get('session_groups', []))}")
     if stats.get('environment_groups'):
         print(f"  Named environments: {len(stats['environment_groups'])}")
@@ -3662,7 +3640,6 @@ class StreamingEvaluator:
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
         )
-        self.context.use_cv_normalization = False
         self.current_amplitudes = None
 
     def _predict_probability(self, features):

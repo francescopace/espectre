@@ -125,8 +125,6 @@ class MQTTHandler:
         health = {
             'uptime_s': int(time.time() - self.start_time),
         }
-        if self.global_state is not None and hasattr(self.global_state, 'needs_cv_normalization'):
-            health['gain_locked'] = not bool(self.global_state.needs_cv_normalization)
         
         payload = {
             'protocol_version': '1.0',

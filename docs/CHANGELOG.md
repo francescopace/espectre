@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - **Native firmware was simplified into a dedicated standalone frontend**: BLE telemetry, MQTT diagnostics, device identity, and subscription behavior were cleaned up around the shared protocol contract.
 - **Streamer workflows were modernized**: multi-chip CLI support was expanded, collection is now collector-driven, the C++ streamer protocol became the primary live-streaming path, and ESP32-C3 transport defaults were tuned for high-rate capture.
 - **Dataset and sensing defaults were normalized across the project**: room-state labels were simplified, empty-room validation became part of the standard workflow, the active runtime path now uses one fixed shared subcarrier set, and MVS startup calibration was reduced to adaptive-threshold tuning only.
+- **Hardware gain lock was removed completely**: ESPectre now keeps AGC active on all chips and uses one shared CV-normalized turbulence path (`std/mean`) across runtime, collection, datasets, and tooling. This avoids the forced-gain instability and Wi-Fi RX/TX problems that may lead to packet loss.
 - **Matter build and CI flows were hardened**: published targets use the standard ESP-IDF path, commissioning behavior is stricter, and QEMU smoke tests now validate real application startup markers.
 - **Repository tooling and docs were aligned with the new platform direction**: `./me` became `./espectre`, host-side tools now live at the top level (`collect`, `ui`, `mqtt`, `monitor`), `micro` is limited to MicroPython device commands, ESP-IDF frontend namespaces focus on build/flash, serial logs use the frontend-agnostic `monitor` command, the MQTT monitor was renamed from `espectre-monitor.html` to `espectre-mqtt.html`, ESPHome packaging no longer relies on symlinks, the main docs were rewritten around the modular multi-frontend architecture, and release/snapshot tooling now emits OTA-oriented artifacts for the non-ESPHome frontends.
 - **Micro-ESPectre was reorganized under src/python/micro_espectre/**: the runtime/device sources now live in a dedicated subdirectory.
@@ -55,11 +56,6 @@ All notable changes to this project will be documented in this file.
 - **ML documentation was split by concern**: dataset collection stays in `docs/ML_DATA_COLLECTION.md`, while training, export, and validation guidance now live in `docs/ML_TRAINING.md`.
 - **The roadmap was realigned around the platform split**: `v3` now defines the reusable local platform phase, while `v4` is positioned as an optional privacy-first orchestration layer across multiple ESPectre nodes.
 
-### Notes
-
-- This release mainly reorganizes the platform around reusable runtime/frontend boundaries while keeping ESPHome as the default production path.
-- The main intentional sensing change is the promoted ML relative-feature model; MVS behavior remains effectively unchanged.
-
 ---
 
 ## [2.8.0] - 2026-05-21 - Detection hardening, ML cross-chip reliability, and runtime motion policy
@@ -68,7 +64,7 @@ All notable changes to this project will be documented in this file.
 
 - **Detection and calibration hardened across stacks**: multi-strategy NBVI band selection, Hampel on by default, stricter NBVI defaults, conservative hint-band fallback, unified 12-subcarrier defaults, and a 100-packet detection window.
 - **Runtime motion policy aligned between firmware and Micro-ESPectre**: edge-driven binary motion publish, configurable `motion_on_hits` / `motion_off_hits` (default `3` / `3`), and `evaluation_interval` decoupled from `publish_interval`.
-- **ML detector reliability improved on all chips**: datasets recollected, chip-grouped training, updated 9-feature model (`9 -> 32 -> 16 -> 1`), Hampel-aligned weights, raw-std features for ML, and a more gradual temperature-scaled Movement Score for Home Assistant.
+- **ML detector reliability improved on all chips**: datasets recollected, chip-grouped training, updated 9-feature model (`9 -> 32 -> 16 -> 1`), Hampel-aligned weights, shared CV-normalized turbulence, and a more gradual temperature-scaled Movement Score for Home Assistant.
 - **Traffic generator defaults to `ping`**: ICMP ping replaces DNS as the default CSI traffic source on both ESPHome and Micro-ESPectre (`dns` remains available).
 
 ### Detection and calibration
@@ -86,11 +82,11 @@ All notable changes to this project will be documented in this file.
 
 ### ML detector
 
-- **ML uses raw turbulence std, not CV normalization**: fixes ESP32 feature-scale mismatch with gain-locked chips; CV normalization remains MVS-only.
+- **ML now uses the shared CV-normalized turbulence path**: removes the gain-mode split so ML and MVS both operate on `std/mean`, keeping feature scales aligned across chips and sessions.
 - **Movement Score is more gradual for Home Assistant**: temperature scaling before sigmoid; default threshold `5.0` unchanged for binary detection.
 - **Production model refreshed**: 9 inputs (`turb_mean`, `turb_std`, `turb_max`, `turb_min`, `turb_iqr`, `turb_skewness`, `turb_autocorr`, `turb_mad`, `waveform_length`); topology `9 -> 32 -> 16 -> 1`; weights retrained on Hampel-filtered input.
 - **Training pipeline hardened**: `StratifiedGroupKFold` by chip, stratified internal validation, hard-positive mining for near-threshold motion.
-- **Per-chip datasets recollected** under stricter quality controls (gain-locked, 128 SC HT20, balanced baseline/motion); used for NBVI validation, MVS tests, and ML training.
+- **Per-chip datasets recollected** under stricter quality controls (128 SC HT20, balanced baseline/motion); used for NBVI validation, MVS tests, and ML training.
 
 ### Added
 

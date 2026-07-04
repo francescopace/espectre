@@ -249,7 +249,9 @@ Validates CSI datasets for integrity, signal quality, and ML readiness. It now c
 - Pair validation — static-presence vs motion variance ratio, temporal gap
 - ML readiness — label balance, minimum samples, chip diversity
 
-Turbulence mode follows runtime conventions: raw std for gain-locked files, CV normalization for files without gain lock. ML uses the same gain-mode-aware base turbulence and exports relative neural-detector features.
+Turbulence mode follows runtime conventions: CV-normalized turbulence for every
+file. ML uses the same normalized base turbulence and exports relative
+neural-detector features.
 
 ```bash
 python 11_validate_dataset_quality.py              # Full validation

@@ -67,8 +67,7 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , total_packets_(other.total_packets_)
     , packet_index_(other.packet_index_)
     , hampel_state_(other.hampel_state_)
-    , lowpass_state_(other.lowpass_state_)
-    , use_cv_normalization_(other.use_cv_normalization_) {
+    , lowpass_state_(other.lowpass_state_) {
     // Transfer ownership - null out source pointer
     other.turbulence_buffer_ = nullptr;
 }
@@ -88,7 +87,6 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         packet_index_ = other.packet_index_;
         lowpass_state_ = other.lowpass_state_;
         hampel_state_ = other.hampel_state_;
-        use_cv_normalization_ = other.use_cv_normalization_;
         
         // Transfer ownership - null out source pointer
         other.turbulence_buffer_ = nullptr;
@@ -111,8 +109,7 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     float turbulence = 0.0f;
     if (selected_subcarriers && num_subcarriers > 0) {
         turbulence = calculate_spatial_turbulence_from_csi(
-            csi_data, csi_len, selected_subcarriers, num_subcarriers,
-            use_cv_normalization_);
+            csi_data, csi_len, selected_subcarriers, num_subcarriers);
     }
 
     // Add to buffer with filtering
@@ -140,11 +137,6 @@ void BaseDetector::configure_hampel(bool enabled, uint8_t window_size, float thr
     hampel_turbulence_init(&hampel_state_, window_size, threshold, enabled);
     ESP_LOGI(TAG, "Hampel filter %s (window=%d, threshold=%.1f)", 
              enabled ? "enabled" : "disabled", window_size, threshold);
-}
-
-void BaseDetector::set_cv_normalization(bool enabled) {
-    use_cv_normalization_ = enabled;
-    ESP_LOGI(TAG, "CV normalization %s", enabled ? "enabled (std/mean)" : "disabled (raw std)");
 }
 
 void BaseDetector::clear_buffer() {

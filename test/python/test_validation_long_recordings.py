@@ -106,9 +106,8 @@ def _evaluate_ml_long_recording(baseline_packets, movement_packets):
 
 
 def _long_recording_uses_cv_normalization(baseline_packets, movement_packets):
-    """Detect whether the recording should use CV normalization (ESP32/no gain lock)."""
-    sample_packets = list(baseline_packets[:8]) + list(movement_packets[:8])
-    return any(bool(pkt.get("gain_locked", True)) is False for pkt in sample_packets)
+    """Return the shared production normalization mode for long recordings."""
+    return True
 
 
 def _evaluate_mvs_long_recording(baseline_packets, movement_packets):

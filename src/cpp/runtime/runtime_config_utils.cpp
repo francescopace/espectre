@@ -38,18 +38,6 @@ const char *traffic_mode_name(RuntimeTrafficMode mode) {
   return mode == RuntimeTrafficMode::PING ? "ping" : "dns";
 }
 
-const char *gain_lock_mode_name(RuntimeGainLockMode mode) {
-  switch (mode) {
-    case RuntimeGainLockMode::ENABLED:
-      return "enabled";
-    case RuntimeGainLockMode::DISABLED:
-      return "disabled";
-    case RuntimeGainLockMode::AUTO:
-    default:
-      return "auto";
-  }
-}
-
 const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
   return algorithm == DetectionAlgorithm::ML ? "ml" : "mvs";
 }
@@ -71,16 +59,6 @@ ThresholdMode parse_threshold_mode(const char *mode) {
 
 RuntimeTrafficMode parse_traffic_mode(const char *mode) {
   return (mode != nullptr && std::strcmp(mode, "ping") == 0) ? RuntimeTrafficMode::PING : RuntimeTrafficMode::DNS;
-}
-
-RuntimeGainLockMode parse_gain_lock_mode(const char *mode) {
-  if (mode != nullptr && std::strcmp(mode, "enabled") == 0) {
-    return RuntimeGainLockMode::ENABLED;
-  }
-  if (mode != nullptr && std::strcmp(mode, "disabled") == 0) {
-    return RuntimeGainLockMode::DISABLED;
-  }
-  return RuntimeGainLockMode::AUTO;
 }
 
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {

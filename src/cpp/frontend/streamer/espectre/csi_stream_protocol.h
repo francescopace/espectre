@@ -25,20 +25,18 @@ enum class StreamChipType : uint8_t {
 };
 
 enum StreamFlags : uint8_t {
-  STREAM_FLAG_GAIN_LOCKED = 1u << 0,
-  STREAM_FLAG_FIRST_WORD_INVALID = 1u << 1,
-  STREAM_FLAG_WIFI_RX_TS_VALID = 1u << 2,
-  STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1u << 3,
-  STREAM_FLAG_GAIN_INFO_VALID = 1u << 4,
-  STREAM_FLAG_STIMULUS_ID_VALID = 1u << 5,
-  STREAM_FLAG_REFERENCE_FRAME = 1u << 6,
+  STREAM_FLAG_FIRST_WORD_INVALID = 1u << 0,
+  STREAM_FLAG_WIFI_RX_TS_VALID = 1u << 1,
+  STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1u << 2,
+  STREAM_FLAG_STIMULUS_ID_VALID = 1u << 3,
+  STREAM_FLAG_REFERENCE_FRAME = 1u << 4,
 };
 
 static constexpr uint16_t STREAM_MAGIC = 0x4353U;
-static constexpr uint8_t STREAM_VERSION = 2U;
+static constexpr uint8_t STREAM_VERSION = 3U;
 
 #pragma pack(push, 1)
-struct CsiStreamHeaderV2 {
+struct CsiStreamHeaderV3 {
   uint16_t magic;
   uint8_t version;
   uint8_t header_len;
@@ -58,15 +56,12 @@ struct CsiStreamHeaderV2 {
   uint8_t channel;
   int8_t rssi_dbm;
   int8_t noise_floor_dbm;
-  uint8_t agc_gain;
-  int8_t fft_gain;
-  uint8_t reserved0;
 };
 #pragma pack(pop)
 
-static_assert(sizeof(CsiStreamHeaderV2) == 52U, "CSI stream header size must remain stable");
+static_assert(sizeof(CsiStreamHeaderV3) == 49U, "CSI stream header size must remain stable");
 
-inline void stream_set_stimulus_id(CsiStreamHeaderV2 *header, uint32_t stimulus_id) {
+inline void stream_set_stimulus_id(CsiStreamHeaderV3 *header, uint32_t stimulus_id) {
   if (header == nullptr) {
     return;
   }
@@ -74,7 +69,7 @@ inline void stream_set_stimulus_id(CsiStreamHeaderV2 *header, uint32_t stimulus_
   header->stimulus_id = stimulus_id;
 }
 
-inline uint32_t stream_get_stimulus_id(const CsiStreamHeaderV2 &header) {
+inline uint32_t stream_get_stimulus_id(const CsiStreamHeaderV3 &header) {
   return header.stimulus_id;
 }
 

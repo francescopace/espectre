@@ -34,7 +34,7 @@ namespace espectre {
 class CsiUdpSender {
  public:
   static constexpr size_t MAX_CSI_LEN_BYTES = 512U;
-  static constexpr size_t MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV2) + MAX_CSI_LEN_BYTES;
+  static constexpr size_t MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV3) + MAX_CSI_LEN_BYTES;
   static constexpr uint8_t QUEUE_CAPACITY = CONFIG_ESPECTRE_STREAM_QUEUE_SLOTS;
   static constexpr size_t MAX_BATCH_BYTES = CONFIG_ESPECTRE_STREAM_BATCH_MAX_BYTES;
   static constexpr uint8_t MAX_BATCH_RECORDS = CONFIG_ESPECTRE_STREAM_BATCH_MAX_RECORDS;
