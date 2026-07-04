@@ -986,10 +986,10 @@
         el('diagPublishInterval').textContent = `every ${value} pkts`;
       } else if (key === 'evaluation_interval') {
         el('diagEvaluationInterval').textContent = `every ${value} pkts`;
-      } else if (key === 'wifi_saved') {
-        el('diagWifi').textContent = value === 'true' || value === '1' ? 'saved' : 'default';
-      } else if (key === 'mqtt_enabled') {
-        el('diagMqtt').textContent = value === 'true' || value === '1' ? 'enabled' : 'disabled';
+      } else if (key === 'wifi_connected') {
+        el('diagWifi').textContent = value === 'true' || value === '1' ? 'connected' : 'disconnected';
+      } else if (key === 'mqtt_connected') {
+        el('diagMqtt').textContent = value === 'true' || value === '1' ? 'connected' : 'disconnected';
       } else if (key === 'motion_hits') {
         el('diagMotionHits').textContent = value;
       } else if (key === 'best_pxx') {
@@ -1253,7 +1253,6 @@
         await writeControl(`SET_DEVICE_CONFIG:mqtt_username=${mqttUsername}`);
         await writeControl(`SET_DEVICE_CONFIG:mqtt_password=${mqttPassword}`);
         await writeControl(`SET_DEVICE_CONFIG:topic_prefix=${topicPrefix}`);
-        await writeControl('SET_DEVICE_CONFIG:mqtt_enabled=true');
         await writeControl('REQ_SYSINFO');
         log('MQTT settings saved');
       } catch (error) {

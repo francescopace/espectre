@@ -2,6 +2,7 @@
 #define ESP_EVENT_H
 
 #include "esp_err.h"
+#include "esp_netif.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -44,6 +45,12 @@ typedef enum {
   IP_EVENT_STA_GOT_IP,
   IP_EVENT_STA_LOST_IP,
 } ip_event_t;
+
+typedef struct {
+  esp_netif_t *esp_netif;
+  esp_netif_ip_info_t ip_info;
+  bool ip_changed;
+} ip_event_got_ip_t;
 
 typedef struct {
   esp_event_base_t event_base;

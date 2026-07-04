@@ -29,7 +29,6 @@ struct EspectreDeviceConfig {
   std::string mqtt_username;
   std::string mqtt_password;
   std::string topic_prefix{ESPECTRE_TOPIC_PREFIX};
-  bool mqtt_enabled{false};
 };
 
 struct EspectreNetworkInfo {

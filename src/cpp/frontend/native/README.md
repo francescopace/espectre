@@ -262,7 +262,7 @@ Check these first:
 Check the active Wi-Fi values first:
 
 1. request fresh sysinfo and inspect `wifi_ssid`, `wifi_bssid`,
-   `wifi_channel`, and `wifi_saved`
+   `wifi_channel`, and `wifi_connected`
 2. if using `tools/web/espectre-ble.html`, press `Save Wi-Fi` and wait for the
    station reconnect after `APPLY_WIFI`
 3. if no provisioning has been stored yet, verify the Kconfig defaults used at

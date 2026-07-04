@@ -258,7 +258,6 @@ SET_DEVICE_CONFIG:mqtt_port=1883
 SET_DEVICE_CONFIG:mqtt_username=mqtt
 SET_DEVICE_CONFIG:mqtt_password=secret-password
 SET_DEVICE_CONFIG:topic_prefix=espectre/v1/devices
-SET_DEVICE_CONFIG:mqtt_enabled=true
 CLEAR_MQTT_CONFIG
 CLEAR_DEVICE_CONFIG
 SET_WIFI_SSID:Lab Network
@@ -345,12 +344,12 @@ Current BLE `sysinfo` identity/config keys include:
 | `device_id` | Current firmware-generated device identifier in canonical `0x...` hex form |
 | `device_name` | Current immutable protocol/device name derived from chip and `device_id` |
 | `device_label` | Current human-readable device label |
-| `mqtt_enabled` | Whether MQTT transport is currently enabled |
+| `mqtt_connected` | Whether the MQTT transport is currently connected |
 | `mqtt_host` | Current MQTT broker host |
 | `mqtt_port` | Current MQTT broker port |
 | `mqtt_username` | Current MQTT username |
 | `topic_prefix` | Current MQTT topic prefix |
-| `wifi_saved` | Whether Wi-Fi settings are persisted |
+| `wifi_connected` | Whether the Wi-Fi station is currently connected |
 | `wifi_ssid` | Current persisted Wi-Fi SSID |
 | `wifi_bssid` | Current persisted Wi-Fi BSSID lock |
 | `wifi_channel` | Current persisted Wi-Fi channel lock |

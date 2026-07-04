@@ -59,7 +59,6 @@ class NativeFrontend : public IRuntimeListener {
   const RuntimeCapabilities &capabilities() const { return runtime_.capabilities(); }
   bool is_setup_complete() const { return runtime_.is_setup_complete(); }
   bool client_connected() const { return client_connected_; }
-  bool mqtt_enabled() const { return device_config_.mqtt_enabled; }
 
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;

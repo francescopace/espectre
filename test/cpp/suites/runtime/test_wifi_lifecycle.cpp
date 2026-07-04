@@ -9,6 +9,7 @@ using namespace esphome::espectre;
 
 void setUp(void) {
   esp_event_mock_reset();
+  esp_netif_mock_reset();
   esp_wifi_mock_reset();
 }
 
@@ -153,6 +154,32 @@ void test_standalone_wifi_manager_get_info_reports_station_details(void) {
   TEST_ASSERT_EQUAL_STRING("7C:2C:67:42:BB:AC", info.mac_address);
 }
 
+void test_standalone_wifi_manager_get_info_uses_cached_ip_from_got_ip_event(void) {
+  StandaloneWifiManager manager;
+  StandaloneWifiInfo info{};
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.setup(config));
+
+  g_esp_netif_mock.ip_addr = 0U;
+
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr =
+      ((uint32_t)192U << 0U) | ((uint32_t)168U << 8U) | ((uint32_t)1U << 16U) | ((uint32_t)55U << 24U);
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+
+  TEST_ASSERT_TRUE(manager.get_info(&info));
+  TEST_ASSERT_EQUAL_STRING("192.168.1.55", info.ip_address);
+
+  wifi_event_sta_disconnected_t disconnect_event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_event);
+
+  StandaloneWifiInfo after_disconnect{};
+  TEST_ASSERT_TRUE(manager.get_info(&after_disconnect));
+  TEST_ASSERT_EQUAL_STRING("", after_disconnect.ip_address);
+}
+
 void test_standalone_wifi_manager_update_station_config_handles_setup_and_reconnect_paths(void) {
   StandaloneWifiManager manager;
   StandaloneWifiConfig config;
@@ -229,6 +256,7 @@ int process(void) {
   RUN_TEST(test_standalone_wifi_manager_applies_policy_and_connects_on_start);
   RUN_TEST(test_standalone_wifi_manager_managed_lifecycle_dispatches_after_csi_init);
   RUN_TEST(test_standalone_wifi_manager_get_info_reports_station_details);
+  RUN_TEST(test_standalone_wifi_manager_get_info_uses_cached_ip_from_got_ip_event);
   RUN_TEST(test_standalone_wifi_manager_update_station_config_handles_setup_and_reconnect_paths);
   RUN_TEST(test_standalone_wifi_manager_update_station_config_rejects_invalid_bssid);
   RUN_TEST(test_standalone_wifi_manager_apply_started_policy_and_retry_logic);

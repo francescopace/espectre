@@ -156,7 +156,7 @@ Alternative Wi-Fi Provisioning Over BLE:
 3. connect to `ESPectre Streamer`
 4. use `Save Wi-Fi` to send `SET_WIFI_SSID`, `SET_WIFI_PASSWORD`,
    `SET_WIFI_BSSID`, `SET_WIFI_CHANNEL`, and `APPLY_WIFI`
-5. request sysinfo and verify `wifi_saved=true`
+5. request sysinfo and verify `wifi_connected=true`
 
 Notes:
 

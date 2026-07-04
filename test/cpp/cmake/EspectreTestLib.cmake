@@ -18,6 +18,7 @@ endif()
 add_library(espectre_test_framework STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/support/test_harness.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_event_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_netif_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/nvs_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_wifi_mock.cpp"
 )

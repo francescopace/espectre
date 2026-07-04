@@ -75,11 +75,6 @@ esphome::espectre::EspectreDeviceConfig make_device_config() {
   config.mqtt_host = CONFIG_ESPECTRE_MQTT_HOST;
   config.mqtt_port = CONFIG_ESPECTRE_MQTT_PORT;
   config.topic_prefix = CONFIG_ESPECTRE_TOPIC_PREFIX;
-#if defined(CONFIG_ESPECTRE_MQTT_ENABLED)
-  config.mqtt_enabled = !config.mqtt_host.empty();
-#else
-  config.mqtt_enabled = false;
-#endif
   esphome::espectre::EspectreDeviceConfig stored_config;
   bool has_stored_config = false;
   const esp_err_t load_err = esphome::espectre::load_stored_device_config(&stored_config, &has_stored_config);
