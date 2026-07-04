@@ -90,8 +90,7 @@ Host-side workflows live at the repository CLI root:
 
 | Command | Purpose |
 |---------|---------|
-| `./espectre collect ...` | Collect labeled CSI datasets |
-| `./espectre detect ...` | Inspect live ML inference from the streamer |
+| `./espectre collect ...` | Unified host CLI for live detection, live recording, and legacy timed dataset collection |
 | `./espectre mqtt` | Interactive MQTT command and telemetry console |
 | `./espectre ui ...` | Open local browser tools |
 | `./espectre monitor ...` | Attach to serial logs |

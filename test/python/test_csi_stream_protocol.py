@@ -337,8 +337,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert info['format_version'] == '1.1'
     assert info['files']['static_presence'][0]['gain_locked'] is True
     assert info['files']['static_presence'][0]['filename'] == filepath.name
-    assert info['files']['static_presence'][0]['device_id'] == 0xABCDEF
-    assert info['files']['static_presence'][0]['device_token'] == 'dev0000000000abcdef'
+    assert info['files']['static_presence'][0]['device_id'] == '0x0000000000abcdef'
     assert 'dev0000000000abcdef' in filepath.name
 
 
@@ -364,7 +363,10 @@ def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):
 
     info = csi_utils.load_dataset_info()
     assert len(info['files']['motion']) == 2
-    assert {entry['device_id'] for entry in info['files']['motion']} == {0x10, 0x20}
+    assert {entry['device_id'] for entry in info['files']['motion']} == {
+        '0x0000000000000010',
+        '0x0000000000000020',
+    }
 
 
 def test_save_samples_by_device_rejects_missing_device_id(tmp_path, monkeypatch):

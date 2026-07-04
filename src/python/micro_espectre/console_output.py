@@ -1,0 +1,140 @@
+"""
+Shared console formatting helpers for live motion detection output.
+"""
+
+from __future__ import annotations
+
+
+def format_progress_bar(
+    progress,
+    width=20,
+    threshold_pos=15,
+    *,
+    filled_char="█",
+    empty_char="░",
+    threshold_char="|",
+):
+    """Format the runtime-style progress bar for console output."""
+    if width < 1:
+        width = 1
+    elif width > 20:
+        width = 20
+    show_threshold = threshold_pos > 0
+    if show_threshold and threshold_pos >= width:
+        threshold_pos = width - 1
+    elif not show_threshold:
+        threshold_pos = -1
+
+    filled = int(progress * (threshold_pos if show_threshold else width))
+    filled = max(0, min(filled, width))
+
+    bar = "["
+    for idx in range(width):
+        if show_threshold and idx == threshold_pos:
+            bar += threshold_char
+        elif idx < filled:
+            bar += filled_char
+        else:
+            bar += empty_char
+    bar += "]"
+
+    percent = int(progress * 100)
+    return f"{bar} {percent}%"
+
+
+def format_detection_publish_line(
+    *,
+    packet_count=None,
+    dropped_count=None,
+    pps,
+    motion_metric,
+    threshold,
+    effective_state,
+    progress=None,
+    device_label=None,
+    width=20,
+    threshold_pos=15,
+    filled_char="█",
+    empty_char="░",
+    threshold_char="|",
+):
+    """Build the shared runtime-style live publish log line."""
+    if progress is None:
+        progress = motion_metric / threshold if threshold > 0 else 0.0
+
+    progress_bar = format_progress_bar(
+        progress,
+        width=width,
+        threshold_pos=threshold_pos,
+        filled_char=filled_char,
+        empty_char=empty_char,
+        threshold_char=threshold_char,
+    )
+    state_str = "MOTION" if effective_state == 1 else "IDLE"
+    line = f"{progress_bar} | mvmt:{motion_metric:.4f} thr:{threshold:.4f} | {state_str} | {pps} pkt/s"
+    if device_label:
+        return f"{device_label} | {line}"
+    return line
+
+
+def format_calibration_status_line(
+    *,
+    progress,
+    pps,
+    motion_metric=None,
+    calibration_packets=None,
+    calibration_target_packets=None,
+    effective_state_label="CALIBRATING",
+    device_label=None,
+    width=20,
+    threshold_pos=-1,
+    filled_char="█",
+    empty_char="░",
+    threshold_char="|",
+):
+    """Build a shared calibration progress line."""
+    progress_bar = format_progress_bar(
+        progress,
+        width=width,
+        threshold_pos=threshold_pos,
+        filled_char=filled_char,
+        empty_char=empty_char,
+        threshold_char=threshold_char,
+    )
+    packets_text = ""
+    if calibration_packets is not None and calibration_target_packets is not None:
+        packets_text = f" pkt:{calibration_packets}/{calibration_target_packets}"
+
+    line = f"{progress_bar} |{packets_text} | {effective_state_label} | {pps} pkt/s"
+    if device_label:
+        return f"{device_label} | {line}"
+    return line
+
+
+def format_waiting_status_line(
+    *,
+    device_label,
+    pps_placeholder="--",
+    metric_placeholder="--",
+    threshold_placeholder="--",
+    state_label="WAITING",
+    width=20,
+    threshold_pos=15,
+    filled_char="█",
+    empty_char="░",
+    threshold_char="|",
+):
+    """Build a placeholder line that matches the standard status layout."""
+    progress_bar = format_progress_bar(
+        0.0,
+        width=width,
+        threshold_pos=threshold_pos,
+        filled_char=filled_char,
+        empty_char=empty_char,
+        threshold_char=threshold_char,
+    )
+    return (
+        f"{device_label} | {progress_bar} | "
+        f"mvmt:{metric_placeholder} thr:{threshold_placeholder} | "
+        f"{state_label} | {pps_placeholder} pkt/s"
+    )

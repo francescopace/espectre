@@ -543,7 +543,7 @@
                     </div>
                     <div class="input-group">
                         <label for="baseTopic">Base Topic</label>
-                        <input type="text" id="baseTopic" placeholder="espectre/v1/devices/0x00007c2c6742bbac" value="espectre/v1/devices/0x00007c2c6742bbac">
+                        <input type="text" id="baseTopic" placeholder="espectre/v1/devices/<device_id>" value="espectre/v1/devices/<device_id>">
                     </div>
                     <div class="input-group">
                         <label for="username">Username (optional)</label>
@@ -556,7 +556,6 @@
                 </div>
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                     <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">Connect</button>
-                    <button class="btn btn-danger" id="clearBtn" onclick="clearData()" style="display: none;">Clear Data</button>
                 </div>
             </div>
         </div>
@@ -933,11 +932,22 @@
             }
         }
 
+        function setMqttConfigLocked(locked) {
+            const fieldIds = ['broker', 'port', 'baseTopic', 'username', 'password'];
+            fieldIds.forEach((id) => {
+                const field = document.getElementById(id);
+                if (!field) return;
+                field.readOnly = locked;
+                field.disabled = locked;
+            });
+        }
+
         function updateStatus(connected) {
             const indicator = document.getElementById('statusIndicator');
             const statusText = document.getElementById('statusText');
             const connectBtn = document.getElementById('connectBtn');
-            const clearBtn = document.getElementById('clearBtn');
+
+            setMqttConfigLocked(connected);
 
             if (connected) {
                 indicator.classList.remove('disconnected');
@@ -946,7 +956,6 @@
                 connectBtn.textContent = 'Disconnect';
                 connectBtn.classList.remove('btn-primary');
                 connectBtn.classList.add('btn-danger');
-                clearBtn.style.display = 'inline-block';
             } else {
                 indicator.classList.remove('connected');
                 indicator.classList.add('disconnected');
@@ -954,7 +963,6 @@
                 connectBtn.textContent = 'Connect';
                 connectBtn.classList.remove('btn-danger');
                 connectBtn.classList.add('btn-primary');
-                clearBtn.style.display = 'none';
             }
         }
 
@@ -1031,18 +1039,6 @@
             document.querySelectorAll('.ota-action').forEach((button) => {
                 button.style.display = enabled ? 'inline-block' : 'none';
             });
-        }
-
-        function clearData() {
-            chartData.labels = [];
-            chartData.movement = [];
-            chartData.threshold = [];
-            pendingData = [];
-
-            document.getElementById('lastUpdate').textContent = '-';
-            setOtaControlsVisibility(false);
-
-            chart.update();
         }
 
         function trimTopic(topic) {
