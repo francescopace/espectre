@@ -18,7 +18,6 @@ constexpr const char *kMqttPortKey = "mqtt_port";
 constexpr const char *kMqttUserKey = "mqtt_user";
 constexpr const char *kMqttPasswordKey = "mqtt_pass";
 constexpr const char *kTopicPrefixKey = "topic_prefix";
-constexpr const char *kMqttEnabledKey = "mqtt_enabled";
 
 esp_err_t read_string(nvs_handle_t handle, const char *key, std::string *value) {
   size_t length = 0;
@@ -188,11 +187,6 @@ esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_save
     err = port_err;
   }
 
-  uint8_t mqtt_enabled = 0;
-  const esp_err_t enabled_err = nvs_get_u8(handle, kMqttEnabledKey, &mqtt_enabled);
-  if (err == ESP_OK && enabled_err != ESP_OK && enabled_err != ESP_ERR_NVS_NOT_FOUND) {
-    err = enabled_err;
-  }
   nvs_close(handle);
 
   if (err != ESP_OK) {
@@ -200,8 +194,7 @@ esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_save
   }
 
   const bool has_config = !loaded.device_label.empty() || !loaded.mqtt_host.empty() || !loaded.mqtt_username.empty() ||
-                          !loaded.mqtt_password.empty() || !loaded.topic_prefix.empty() || port_err == ESP_OK ||
-                          enabled_err == ESP_OK;
+                          !loaded.mqtt_password.empty() || !loaded.topic_prefix.empty() || port_err == ESP_OK;
   if (!has_config) {
     if (has_saved_config != nullptr) {
       *has_saved_config = false;
@@ -215,8 +208,6 @@ esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_save
   if (port_err == ESP_OK && port != 0) {
     loaded.mqtt_port = port;
   }
-  loaded.mqtt_enabled = enabled_err == ESP_OK ? mqtt_enabled != 0 : !loaded.mqtt_host.empty();
-
   *config = loaded;
   if (has_saved_config != nullptr) {
     *has_saved_config = true;
@@ -248,9 +239,6 @@ esp_err_t save_stored_device_config(const EspectreDeviceConfig &config) {
     err = nvs_set_u16(handle, kMqttPortKey, config.mqtt_port);
   }
   if (err == ESP_OK) {
-    err = nvs_set_u8(handle, kMqttEnabledKey, config.mqtt_enabled ? 1 : 0);
-  }
-  if (err == ESP_OK) {
     err = nvs_commit(handle);
   }
   nvs_close(handle);
@@ -272,8 +260,7 @@ esp_err_t clear_stored_device_config() {
                         kMqttPortKey,
                         kMqttUserKey,
                         kMqttPasswordKey,
-                        kTopicPrefixKey,
-                        kMqttEnabledKey};
+                        kTopicPrefixKey};
   esp_err_t result = ESP_OK;
   for (const char *key : keys) {
     const esp_err_t erase_err = nvs_erase_key(handle, key);

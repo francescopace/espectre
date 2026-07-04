@@ -203,7 +203,6 @@ bool StreamFrontend::setup() {
   device_config_.mqtt_host = CONFIG_ESPECTRE_MQTT_HOST;
   device_config_.mqtt_port = CONFIG_ESPECTRE_MQTT_PORT;
   device_config_.topic_prefix = CONFIG_ESPECTRE_TOPIC_PREFIX;
-  device_config_.mqtt_enabled = !device_config_.mqtt_host.empty();
 #endif
   device_info_.frontend = "streamer";
   device_info_.firmware_version = espectre_firmware_version();
@@ -219,7 +218,6 @@ bool StreamFrontend::setup() {
     ESP_LOGW(TAG, "Failed to load BLE-provisioned device config: %s", esp_err_to_name(load_err));
   }
   device_config_.device_id = derive_runtime_device_id();
-  device_config_.mqtt_enabled = !device_config_.mqtt_host.empty();
 
   if (!udp_sender_.setup()) {
     return false;
@@ -402,7 +400,7 @@ void StreamFrontend::setup_mqtt_() {
   if (mqtt_transport_ == nullptr) {
     return;
   }
-  if (!device_config_.mqtt_enabled || device_config_.mqtt_host.empty()) {
+  if (device_config_.mqtt_host.empty()) {
     mqtt_transport_->shutdown();
     return;
   }
@@ -517,7 +515,6 @@ void StreamFrontend::handle_ble_control_(const std::string &command) {
     std::string error;
     if (parse_espectre_config_command(command, &updated, &error)) {
       updated.device_id = derive_runtime_device_id();
-      updated.mqtt_enabled = !updated.mqtt_host.empty();
       const esp_err_t err = save_stored_device_config(updated);
       accepted = err == ESP_OK;
       if (accepted) {
@@ -623,8 +620,6 @@ void StreamFrontend::publish_ble_sysinfo_() {
   publish_ble_line_(line);
 
   const StoredWifiConfig &wifi_config = wifi_provisioning_.config();
-  std::snprintf(line, sizeof(line), "wifi_saved=%s", wifi_config.has_saved_config ? "true" : "false");
-  publish_ble_line_(line);
   std::snprintf(line, sizeof(line), "wifi_ssid=%s", wifi_config.ssid.c_str());
   publish_ble_line_(line);
   std::snprintf(line, sizeof(line), "wifi_bssid=%s", wifi_config.bssid.c_str());
@@ -635,7 +630,10 @@ void StreamFrontend::publish_ble_sysinfo_() {
   publish_ble_line_(line);
   std::snprintf(line, sizeof(line), "wifi_connected=%s", wifi_connected_.load(std::memory_order_relaxed) ? "true" : "false");
   publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "mqtt_enabled=%s", device_config_.mqtt_enabled ? "true" : "false");
+  std::snprintf(line,
+                sizeof(line),
+                "mqtt_connected=%s",
+                mqtt_transport_ != nullptr && mqtt_transport_->connected() ? "true" : "false");
   publish_ble_line_(line);
   std::snprintf(line, sizeof(line), "mqtt_host=%s", device_config_.mqtt_host.c_str());
   publish_ble_line_(line);

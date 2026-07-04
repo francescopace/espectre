@@ -35,6 +35,16 @@ bool parse_bssid(const char *text, uint8_t out[6]) {
 
 bool has_text(const char *text) { return text != nullptr && text[0] != '\0'; }
 
+void format_ip_address(const esp_ip4_addr_t &ip, char *out, size_t out_size) {
+  if (out == nullptr || out_size == 0U) {
+    return;
+  }
+  out[0] = '\0';
+  if (ip.addr != 0U) {
+    esp_ip4addr_ntoa(&ip, out, static_cast<int>(out_size));
+  }
+}
+
 }  // namespace
 
 esp_err_t StandaloneWifiManager::setup(const StandaloneWifiConfig &config,
@@ -172,7 +182,9 @@ bool StandaloneWifiManager::get_info(StandaloneWifiInfo *info) const {
   esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
   esp_netif_ip_info_t ip_info{};
   if (netif != nullptr && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
-    esp_ip4addr_ntoa(&ip_info.ip, info->ip_address, sizeof(info->ip_address));
+    format_ip_address(ip_info.ip, info->ip_address, sizeof(info->ip_address));
+  } else if (cached_ip_address_[0] != '\0') {
+    std::snprintf(info->ip_address, sizeof(info->ip_address), "%s", cached_ip_address_);
   }
 
   return info->connected || info->ip_address[0] != '\0' || info->mac_address[0] != '\0';
@@ -224,6 +236,7 @@ esp_err_t StandaloneWifiManager::configure_station_() {
 }
 
 esp_err_t StandaloneWifiManager::start() {
+  clear_cached_ip_address_();
   wifi_start_policy_applied_ = false;
   wifi_connect_requested_ = false;
   csi_wifi_lifecycle_ready_ = false;
@@ -240,6 +253,7 @@ esp_err_t StandaloneWifiManager::update_station_config(const StandaloneWifiConfi
   }
 
   config_ = config;
+  clear_cached_ip_address_();
   wifi_retry_count_ = 0;
   wifi_connect_requested_ = false;
   csi_wifi_lifecycle_ready_ = false;
@@ -304,6 +318,7 @@ void StandaloneWifiManager::shutdown() {
   csi_wifi_lifecycle_ready_ = false;
   wifi_connect_requested_ = false;
   wifi_start_policy_applied_ = false;
+  clear_cached_ip_address_();
 }
 
 esp_err_t StandaloneWifiManager::apply_started_csi_policy() {
@@ -341,6 +356,7 @@ void StandaloneWifiManager::handle_wifi_started_() {
 void StandaloneWifiManager::handle_wifi_disconnected_(void *event_data) {
   const auto *event = static_cast<const wifi_event_sta_disconnected_t *>(event_data);
   ESP_LOGW(TAG, "Wi-Fi disconnected: reason=%u", event != nullptr ? static_cast<unsigned>(event->reason) : 0U);
+  clear_cached_ip_address_();
   wifi_connect_requested_ = false;
   if (has_text(config_.ssid) && wifi_retry_count_ < config_.max_retry) {
     wifi_retry_count_++;
@@ -382,6 +398,8 @@ void StandaloneWifiManager::handle_lifecycle_disconnected_() {
   }
 }
 
+void StandaloneWifiManager::clear_cached_ip_address_() { cached_ip_address_[0] = '\0'; }
+
 void StandaloneWifiManager::wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id,
                                                 void *event_data) {
   auto *manager = static_cast<StandaloneWifiManager *>(arg);
@@ -402,6 +420,10 @@ void StandaloneWifiManager::wifi_event_handler_(void *arg, esp_event_base_t even
   }
 
   if (std::strcmp(event_base, IP_EVENT) == 0 && event_id == IP_EVENT_STA_GOT_IP) {
+    const auto *event = static_cast<const ip_event_got_ip_t *>(event_data);
+    if (event != nullptr) {
+      format_ip_address(event->ip_info.ip, manager->cached_ip_address_, sizeof(manager->cached_ip_address_));
+    }
     manager->wifi_retry_count_ = 0;
     if (!manager->config_.manage_csi_lifecycle && manager->connected_cb_) {
       manager->connected_cb_();

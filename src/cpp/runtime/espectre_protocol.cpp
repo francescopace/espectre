@@ -206,7 +206,6 @@ bool assign_config_field(const std::string &field, const std::string &value, Esp
   }
   if (field == "mqtt_host") {
     config->mqtt_host = value;
-    config->mqtt_enabled = !config->mqtt_host.empty();
     return true;
   }
   if (field == "mqtt_username") {
@@ -228,17 +227,6 @@ bool assign_config_field(const std::string &field, const std::string &value, Esp
     }
     config->mqtt_port = port;
     return true;
-  }
-  if (field == "mqtt_enabled") {
-    if (value == "1" || value == "true") {
-      config->mqtt_enabled = true;
-      return true;
-    }
-    if (value == "0" || value == "false") {
-      config->mqtt_enabled = false;
-      return true;
-    }
-    return false;
   }
   return false;
 }
@@ -304,7 +292,6 @@ void clear_espectre_mqtt_config(EspectreDeviceConfig *config) {
   config->mqtt_username.clear();
   config->mqtt_password.clear();
   config->topic_prefix = ESPECTRE_TOPIC_PREFIX;
-  config->mqtt_enabled = false;
 }
 
 std::string espectre_topic(const EspectreDeviceConfig &config, const char *suffix) {

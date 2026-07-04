@@ -28,7 +28,7 @@ std::string make_broker_uri(const EspectreDeviceConfig &config) {
 
 bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   config_ = config;
-  if (!config_.mqtt_enabled || config_.mqtt_host.empty()) {
+  if (config_.mqtt_host.empty()) {
     return false;
   }
 

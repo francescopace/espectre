@@ -15,6 +15,19 @@ typedef void *esp_netif_t;
 typedef ip4_addr_t esp_ip4_addr_t;
 typedef ip4_addr_t esp_netif_ip4_addr_t;
 
+typedef struct {
+  esp_err_t get_ip_info_result;
+  uint32_t ip_addr;
+  uint32_t netmask_addr;
+  uint32_t gw_addr;
+  int get_ip_info_call_count;
+  int get_handle_call_count;
+} esp_netif_mock_state_t;
+
+extern esp_netif_mock_state_t g_esp_netif_mock;
+
+void esp_netif_mock_reset(void);
+
 // IP info structure
 typedef struct {
   esp_netif_ip4_addr_t ip;
@@ -32,6 +45,7 @@ static inline esp_netif_t *esp_netif_create_default_wifi_sta(void) {
 
 static inline esp_netif_t *esp_netif_get_handle_from_ifkey(const char *ifkey) {
   (void)ifkey;
+  g_esp_netif_mock.get_handle_call_count++;
   // Return a non-null pointer for testing
   static esp_netif_t dummy_netif = (esp_netif_t)0x1;
   return &dummy_netif;
@@ -39,13 +53,16 @@ static inline esp_netif_t *esp_netif_get_handle_from_ifkey(const char *ifkey) {
 
 static inline esp_err_t esp_netif_get_ip_info(esp_netif_t *netif, esp_netif_ip_info_t *ip_info) {
   (void)netif;
-  if (ip_info) {
-    // Set default IP info for testing
-    ip_info->ip.addr = 0xC0A80164;      // 192.168.1.100
-    ip_info->netmask.addr = 0xFFFFFF00; // 255.255.255.0
-    ip_info->gw.addr = 0xC0A80101;      // 192.168.1.1
+  g_esp_netif_mock.get_ip_info_call_count++;
+  if (g_esp_netif_mock.get_ip_info_result != ESP_OK) {
+    return g_esp_netif_mock.get_ip_info_result;
   }
-  return ESP_OK;
+  if (ip_info) {
+    ip_info->ip.addr = g_esp_netif_mock.ip_addr;
+    ip_info->netmask.addr = g_esp_netif_mock.netmask_addr;
+    ip_info->gw.addr = g_esp_netif_mock.gw_addr;
+  }
+  return g_esp_netif_mock.get_ip_info_result;
 }
 
 static inline int esp_netif_get_netif_impl_index(esp_netif_t *netif) {

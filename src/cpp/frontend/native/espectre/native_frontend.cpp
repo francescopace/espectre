@@ -393,7 +393,7 @@ void NativeFrontend::setup_mqtt_() {
   if (mqtt_transport_ == nullptr) {
     return;
   }
-  if (!device_config_.mqtt_enabled || device_config_.mqtt_host.empty()) {
+  if (device_config_.mqtt_host.empty()) {
     mqtt_transport_->shutdown();
     return;
   }
@@ -547,7 +547,10 @@ void NativeFrontend::send_system_info_() {
   queue_system_info_line_(line);
   std::snprintf(line, sizeof(line), "device_name=%s", device_name.c_str());
   queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "mqtt_enabled=%s", device_config_.mqtt_enabled ? "true" : "false");
+  std::snprintf(line,
+                sizeof(line),
+                "mqtt_connected=%s",
+                mqtt_transport_ != nullptr && mqtt_transport_->connected() ? "true" : "false");
   queue_system_info_line_(line);
   std::snprintf(line, sizeof(line), "mqtt_host=%s", device_config_.mqtt_host.c_str());
   queue_system_info_line_(line);
@@ -557,7 +560,7 @@ void NativeFrontend::send_system_info_() {
   queue_system_info_line_(line);
   std::snprintf(line, sizeof(line), "topic_prefix=%s", device_config_.topic_prefix.c_str());
   queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_saved=%s", wifi_info_.has_saved_config ? "true" : "false");
+  std::snprintf(line, sizeof(line), "wifi_connected=%s", device_info_.network.channel > 0U ? "true" : "false");
   queue_system_info_line_(line);
   std::snprintf(line, sizeof(line), "wifi_ssid=%s", wifi_info_.ssid.c_str());
   queue_system_info_line_(line);

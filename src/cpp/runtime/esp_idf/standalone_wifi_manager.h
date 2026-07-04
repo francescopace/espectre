@@ -49,6 +49,7 @@ class StandaloneWifiManager {
   void handle_lifecycle_connected_();
   void handle_lifecycle_disconnected_();
   bool ensure_csi_lifecycle_ready_();
+  void clear_cached_ip_address_();
 
   StandaloneWifiConfig config_{};
   WiFiLifecycleManager wifi_lifecycle_;
@@ -62,6 +63,7 @@ class StandaloneWifiManager {
   bool wifi_started_{false};
   bool csi_wifi_lifecycle_ready_{false};
   int wifi_retry_count_{0};
+  char cached_ip_address_[16]{};
 };
 
 }  // namespace espectre
