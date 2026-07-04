@@ -724,8 +724,8 @@ def _parse_iso_timestamp(value):
         return None
 
 
-def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 * 60):
-    """Resolve the paired baseline/movement file from metadata or nearest timestamp."""
+def _resolve_counterpart_name(label, entry, dataset_info=None):
+    """Resolve the paired baseline/movement file from explicit metadata."""
     if label not in ('static_presence', 'motion'):
         return None
 
@@ -737,30 +737,7 @@ def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 *
     explicit = entry.get(counterpart_field)
     if explicit:
         return str(explicit)
-
-    target_label = 'motion' if label == 'static_presence' else 'static_presence'
-    timestamp = _parse_iso_timestamp(entry.get('collected_at'))
-    if timestamp is None:
-        return None
-
-    chip = str(entry.get('chip', '')).upper()
-    best_name = None
-    best_delta = None
-    for candidate in dataset_info.get('files', {}).get(target_label, []):
-        if chip and str(candidate.get('chip', '')).upper() != chip:
-            continue
-        candidate_ts = _parse_iso_timestamp(candidate.get('collected_at'))
-        candidate_name = candidate.get('filename')
-        if candidate_ts is None or not candidate_name:
-            continue
-
-        delta = abs((candidate_ts - timestamp).total_seconds())
-        if delta > max_delta_seconds:
-            continue
-        if best_delta is None or delta < best_delta:
-            best_delta = delta
-            best_name = str(candidate_name)
-    return best_name
+    return None
 
 
 def _build_pair_id(label, entry, dataset_info=None):
@@ -837,8 +814,8 @@ def _fallback_file_context(filename, label, packet):
     return _build_file_context(label, fallback)
 
 
-def _is_temporally_paired(dataset_info, label, entry, max_delta_seconds=30 * 60):
-    """Check if entry has a valid counterpart within max delta."""
+def _has_explicit_pair(dataset_info, label, entry):
+    """Check if entry has an explicit counterpart in dataset_info."""
     if label == 'static_presence':
         counterpart_label = 'motion'
         counterpart_name = entry.get('optimal_pair_motion_file')
@@ -855,13 +832,7 @@ def _is_temporally_paired(dataset_info, label, entry, max_delta_seconds=30 * 60)
             break
     if counterpart is None:
         return False
-
-    try:
-        t1 = datetime.fromisoformat(entry['collected_at'])
-        t2 = datetime.fromisoformat(counterpart['collected_at'])
-    except Exception:
-        return False
-    return abs((t2 - t1).total_seconds()) <= max_delta_seconds
+    return True
 
 
 def build_gridsearch_tuning_map(dataset_info, default_threshold=None):
@@ -872,7 +843,7 @@ def build_gridsearch_tuning_map(dataset_info, default_threshold=None):
         dict: {
             filename: {
                 'threshold': float,
-                'mode': 'paired' | 'single-dataset fallback' | 'missing',
+                'mode': 'explicit-pair' | 'unpaired' | 'missing',
                 'confidence_factor': float,
             }
         }
@@ -885,13 +856,13 @@ def build_gridsearch_tuning_map(dataset_info, default_threshold=None):
                 continue
 
             threshold_value = entry.get('optimal_threshold_gridsearch', default_threshold)
-            paired = _is_temporally_paired(dataset_info, label, entry)
+            paired = _has_explicit_pair(dataset_info, label, entry)
             if threshold_value is None:
                 threshold = None
                 mode = 'missing'
             else:
                 threshold = float(threshold_value)
-                mode = 'paired' if paired else 'single-dataset fallback'
+                mode = 'explicit-pair' if paired else 'unpaired'
             tuning[name] = {
                 'threshold': threshold,
                 'mode': mode,
@@ -3789,7 +3760,7 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
             static_presence_path, motion_path, _ = find_static_presence_motion_dataset(chip=chip, num_sc=64)
         except FileNotFoundError:
             continue
-        static_presence_packets = load_npz_as_packets(static_presence_path)[300:]
+        static_presence_packets = load_npz_as_packets(static_presence_path)
         motion_packets = load_npz_as_packets(motion_path)
         by_chip[chip] = evaluate_split(
             model,

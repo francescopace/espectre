@@ -39,6 +39,7 @@
 #include <cstring>
 #include <regex>
 #include <unordered_map>
+#include <algorithm>
 #include <ArduinoJson.h>
 #include "utils.h"
 
@@ -186,6 +187,10 @@ inline const char* static_presence_file_for_chip(ChipType chip);
 inline const char* motion_file_for_chip(ChipType chip);
 inline std::vector<ChipType> get_supported_chips();
 inline std::vector<ChipType> get_available_chips();
+inline int get_available_pair_count();
+inline ChipType pair_chip(int pair_index);
+inline const char* pair_label(int pair_index);
+inline bool switch_dataset_pair(int pair_index);
 inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm);
 inline bool parse_iso8601_epoch_seconds(const std::string& text, double& out_epoch_seconds);
 
@@ -206,10 +211,6 @@ inline const char* chip_skip_reason(ChipType chip) {
 // Global Data Storage
 // ============================================================================
 
-// Skip first N packets from static presence to remove radio warm-up noise.
-// These packets inflate calibration thresholds in the baseline capture.
-static constexpr int STARTUP_WARMUP_SKIP = 300;
-
 enum class DatasetMode {
     StandardPair,
     LongRecording
@@ -225,15 +226,17 @@ static DatasetMode g_dataset_mode = DatasetMode::StandardPair;
 static bool g_tuning_cache_loaded = false;
 static bool g_long_recording_cache_loaded = false;
 struct ChipDatasetSelection {
+    ChipType chip = ChipType::C6;
     std::string static_presence_filename;
     std::string motion_filename;
     std::string static_presence_path;
     std::string motion_path;
-    std::string static_presence_collected_at;
-    std::string motion_collected_at;
+    std::string environment;
     bool valid = false;
 };
 static std::array<ChipDatasetSelection, CHIP_COUNT> g_selected_by_chip;
+static std::vector<ChipDatasetSelection> g_pair_selections;
+static int g_current_pair_index = -1;
 
 struct LongRecordingSelection {
     std::string filename;
@@ -294,24 +297,24 @@ inline bool load_tuning_cache() {
         return false;
     }
 
-    JsonArray static_presence_entries = doc["files"]["static_presence"].as<JsonArray>();
-    struct LatestFile {
+    struct PairFile {
         std::string filename;
         std::string path;
-        std::string collected_at;
+        std::string environment;
+        std::string optimal_pair_motion_file;
         bool valid = false;
     };
-    std::array<LatestFile, CHIP_COUNT> latest_static_presence{};
-    std::array<LatestFile, CHIP_COUNT> latest_motion{};
-    std::array<std::vector<LatestFile>, CHIP_COUNT> static_presence_candidates{};
-    std::array<std::vector<LatestFile>, CHIP_COUNT> motion_candidates{};
+    std::array<std::vector<PairFile>, CHIP_COUNT> static_presence_candidates{};
+    std::unordered_map<std::string, PairFile> motion_by_filename;
 
+    JsonArray static_presence_entries = doc["files"]["static_presence"].as<JsonArray>();
     for (JsonObject entry : static_presence_entries) {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
         int subcarriers = entry["subcarriers"] | 0;
-        const char* collected_at = entry["collected_at"];
-        if (filename == nullptr || chip_text == nullptr || collected_at == nullptr) {
+        const char* environment = entry["environment"] | "";
+        const char* optimal_pair_motion_file = entry["optimal_pair_motion_file"];
+        if (filename == nullptr || chip_text == nullptr || optimal_pair_motion_file == nullptr) {
             continue;
         }
 
@@ -324,23 +327,14 @@ inline bool load_tuning_cache() {
             continue;
         }
 
-        // Keep the latest static-presence file per chip for robust fallback pairing.
         if (subcarriers == 64) {
-            LatestFile candidate{};
+            PairFile candidate{};
             candidate.filename = filename;
             candidate.path = std::string("../../data/static_presence/") + filename;
-            candidate.collected_at = collected_at;
+            candidate.environment = environment;
+            candidate.optimal_pair_motion_file = optimal_pair_motion_file;
             candidate.valid = true;
             static_presence_candidates[idx].push_back(candidate);
-
-            LatestFile& latest = latest_static_presence[idx];
-            const std::string ts(collected_at);
-            if (!latest.valid || ts > latest.collected_at) {
-                latest.filename = filename;
-                latest.path = std::string("../../data/static_presence/") + filename;
-                latest.collected_at = ts;
-                latest.valid = true;
-            }
         }
 
     }
@@ -348,29 +342,19 @@ inline bool load_tuning_cache() {
     JsonArray motion_entries = doc["files"]["motion"].as<JsonArray>();
     for (JsonObject entry : motion_entries) {
         const char* filename = entry["filename"];
-        const char* collected_at = entry["collected_at"];
         const char* chip_text = entry["chip"];
         int subcarriers = entry["subcarriers"] | 0;
         ChipType chip{};
         if (filename != nullptr && chip_from_string(chip_text, chip)) {
-            if (subcarriers == 64 && collected_at != nullptr) {
+            if (subcarriers == 64) {
                 const int idx = chip_index(chip);
                 if (idx >= 0) {
-                    LatestFile& latest = latest_motion[idx];
-                    const std::string ts(collected_at);
-                    LatestFile candidate{};
+                    PairFile candidate{};
                     candidate.filename = filename;
                     candidate.path = std::string("../../data/motion/") + filename;
-                    candidate.collected_at = ts;
+                    candidate.environment = entry["environment"] | "";
                     candidate.valid = true;
-                    motion_candidates[idx].push_back(candidate);
-
-                    if (!latest.valid || ts > latest.collected_at) {
-                        latest.filename = filename;
-                        latest.path = std::string("../../data/motion/") + filename;
-                        latest.collected_at = ts;
-                        latest.valid = true;
-                    }
+                    motion_by_filename[candidate.filename] = candidate;
                 }
             }
         }
@@ -379,77 +363,54 @@ inline bool load_tuning_cache() {
     for (auto& selected : g_selected_by_chip) {
         selected = ChipDatasetSelection{};
     }
+    g_pair_selections.clear();
+    g_current_pair_index = -1;
 
-    // Select one 64SC static-presence/motion pair per chip using nearest timestamps.
-    auto parse_epoch = [](const std::string& ts, double& out_epoch_seconds) -> bool {
-        return parse_iso8601_epoch_seconds(ts, out_epoch_seconds);
-    };
-
+    // Load every explicit static-presence/motion pair from dataset_info.json.
     for (ChipType chip : get_supported_chips()) {
         const int idx = chip_index(chip);
         if (idx < 0) {
             continue;
         }
 
-        if (static_presence_candidates[idx].empty() || motion_candidates[idx].empty()) {
-            continue;
-        }
-
-        LatestFile best_static_presence{};
-        LatestFile best_motion{};
-        bool found_nearest_pair = false;
-        double best_delta = 1e100;
-        for (const auto& b : static_presence_candidates[idx]) {
-            double b_epoch = 0.0;
-            if (!parse_epoch(b.collected_at, b_epoch)) {
+        for (const auto& static_presence : static_presence_candidates[idx]) {
+            auto motion_it = motion_by_filename.find(static_presence.optimal_pair_motion_file);
+            if (motion_it == motion_by_filename.end()) {
                 continue;
             }
-            for (const auto& m : motion_candidates[idx]) {
-                double m_epoch = 0.0;
-                if (!parse_epoch(m.collected_at, m_epoch)) {
-                    continue;
-                }
-                const double delta = std::fabs(m_epoch - b_epoch);
-                if (!found_nearest_pair || delta < best_delta) {
-                    best_delta = delta;
-                    best_static_presence = b;
-                    best_motion = m;
-                    found_nearest_pair = true;
-                }
-            }
-        }
 
-        ChipDatasetSelection& selected = g_selected_by_chip[idx];
-        if (found_nearest_pair) {
-            selected.static_presence_filename = best_static_presence.filename;
-            selected.motion_filename = best_motion.filename;
-            selected.static_presence_path = best_static_presence.path;
-            selected.motion_path = best_motion.path;
-            selected.static_presence_collected_at = best_static_presence.collected_at;
-            selected.motion_collected_at = best_motion.collected_at;
-        } else {
-            if (!latest_static_presence[idx].valid || !latest_motion[idx].valid) {
-                continue;
-            }
-            selected.static_presence_filename = latest_static_presence[idx].filename;
-            selected.motion_filename = latest_motion[idx].filename;
-            selected.static_presence_path = latest_static_presence[idx].path;
-            selected.motion_path = latest_motion[idx].path;
-            selected.static_presence_collected_at = latest_static_presence[idx].collected_at;
-            selected.motion_collected_at = latest_motion[idx].collected_at;
-        }
-        selected.valid = true;
-    }
+            const PairFile& motion = motion_it->second;
+            ChipDatasetSelection selected{};
+            selected.chip = chip;
+            selected.static_presence_filename = static_presence.filename;
+            selected.motion_filename = motion.filename;
+            selected.static_presence_path = static_presence.path;
+            selected.motion_path = motion.path;
+            selected.environment = static_presence.environment;
+            selected.valid = true;
+            g_pair_selections.push_back(selected);
 
-    int selected_count = 0;
-    for (ChipType chip : get_supported_chips()) {
-        const int idx = chip_index(chip);
-        if (idx >= 0 && g_selected_by_chip[idx].valid) {
-            selected_count++;
+            ChipDatasetSelection& selected_by_chip = g_selected_by_chip[idx];
+            if (!selected_by_chip.valid) {
+                selected_by_chip = selected;
+            }
         }
     }
 
-    if (selected_count == 0) {
+    std::sort(g_pair_selections.begin(), g_pair_selections.end(),
+              [](const ChipDatasetSelection& a, const ChipDatasetSelection& b) {
+                  const int a_idx = chip_index(a.chip);
+                  const int b_idx = chip_index(b.chip);
+                  if (a_idx != b_idx) {
+                      return a_idx < b_idx;
+                  }
+                  if (a.environment != b.environment) {
+                      return a.environment < b.environment;
+                  }
+                  return a.static_presence_filename < b.static_presence_filename;
+              });
+
+    if (g_pair_selections.empty()) {
         std::fprintf(stderr,
             "[CSI Test Data] ERROR: No complete 64SC static-presence/motion dataset pairs found\n");
         return false;
@@ -596,23 +557,17 @@ inline const char* long_recording_name_for_chip(ChipType chip) {
 }
 
 /**
- * Remove first N packets from a CsiData struct (in-place).
- */
-inline void skip_packets(CsiData& data, int skip) {
-    if (skip <= 0 || skip >= data.num_packets) return;
-    data.packets.erase(data.packets.begin(), data.packets.begin() + skip);
-    data.num_packets = static_cast<int>(data.packets.size());
-}
-
-/**
  * Load CSI test data from NPZ files for a specific chip.
- * Static-presence data has the first STARTUP_WARMUP_SKIP packets removed
- * (radio warm-up noise).
+ * Static-presence data is loaded from packet 0 so threshold calibration matches
+ * live startup behavior.
  * @param chip Chip type (C3, C6, ESP32, or S3)
  */
 inline bool load(ChipType chip = ChipType::C6) {
     // If already loaded with same chip, skip
-    if (g_loaded && chip == g_current_chip && g_dataset_mode == DatasetMode::StandardPair) return true;
+    if (g_loaded && chip == g_current_chip && g_dataset_mode == DatasetMode::StandardPair &&
+        g_current_pair_index < 0) {
+        return true;
+    }
     
     const char* static_presence_file = static_presence_file_for_chip(chip);
     const char* motion_file = motion_file_for_chip(chip);
@@ -625,11 +580,9 @@ inline bool load(ChipType chip = ChipType::C6) {
         printf("\n[CSI Test Data] Loading %s 64 SC dataset (HT20)...\n", chip_name(chip));
         printf("[CSI Test Data] Static presence: %s\n", static_presence_file);
         g_static_presence_data = load_npz(static_presence_file);
-        int raw_count = g_static_presence_data.num_packets;
-        skip_packets(g_static_presence_data, STARTUP_WARMUP_SKIP);
         g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
-        printf("[CSI Test Data] Loaded %d static-presence packets (%d bytes each, skipped first %d)\n", 
-               g_static_presence_data.num_packets, g_static_presence_data.packet_size, raw_count - g_static_presence_data.num_packets);
+        printf("[CSI Test Data] Loaded %d static-presence packets (%d bytes each, from packet 0)\n",
+               g_static_presence_data.num_packets, g_static_presence_data.packet_size);
         
         printf("[CSI Test Data] Motion: %s\n", motion_file);
         g_motion_data = load_npz(motion_file);
@@ -640,8 +593,49 @@ inline bool load(ChipType chip = ChipType::C6) {
         g_loaded = true;
         g_current_chip = chip;
         g_dataset_mode = DatasetMode::StandardPair;
+        g_current_pair_index = -1;
         return true;
         
+    } catch (const std::exception& e) {
+        printf("[CSI Test Data] ERROR: Failed to load NPZ files: %s\n", e.what());
+        return false;
+    }
+}
+
+inline bool load_pair(int pair_index) {
+    if (!load_tuning_cache()) {
+        return false;
+    }
+    if (pair_index < 0 || pair_index >= static_cast<int>(g_pair_selections.size())) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Invalid pair index %d\n", pair_index);
+        return false;
+    }
+    if (g_loaded && pair_index == g_current_pair_index && g_dataset_mode == DatasetMode::StandardPair) {
+        return true;
+    }
+
+    const ChipDatasetSelection& selected = g_pair_selections[pair_index];
+    try {
+        printf("\n[CSI Test Data] Loading %s 64 SC pair #%d (%s)...\n",
+               chip_name(selected.chip), pair_index, selected.environment.c_str());
+        printf("[CSI Test Data] Static presence: %s\n", selected.static_presence_path.c_str());
+        g_static_presence_data = load_npz(selected.static_presence_path);
+        g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
+        printf("[CSI Test Data] Loaded %d static-presence packets (%d bytes each, from packet 0)\n",
+               g_static_presence_data.num_packets, g_static_presence_data.packet_size);
+
+        printf("[CSI Test Data] Motion: %s\n", selected.motion_path.c_str());
+        g_motion_data = load_npz(selected.motion_path);
+        g_motion_ptrs = get_packet_pointers(g_motion_data);
+        printf("[CSI Test Data] Loaded %d motion packets (%d bytes each)\n",
+               g_motion_data.num_packets, g_motion_data.packet_size);
+
+        g_loaded = true;
+        g_current_chip = selected.chip;
+        g_dataset_mode = DatasetMode::StandardPair;
+        g_current_pair_index = pair_index;
+        return true;
+
     } catch (const std::exception& e) {
         printf("[CSI Test Data] ERROR: Failed to load NPZ files: %s\n", e.what());
         return false;
@@ -681,6 +675,7 @@ inline bool load_long_recording(ChipType chip = ChipType::C6) {
         g_loaded = true;
         g_current_chip = chip;
         g_dataset_mode = DatasetMode::LongRecording;
+        g_current_pair_index = -1;
         return true;
 
     } catch (const std::exception& e) {
@@ -696,6 +691,11 @@ inline bool load_long_recording(ChipType chip = ChipType::C6) {
 inline bool switch_dataset(ChipType chip) {
     g_loaded = false;  // Force reload
     return load(chip);
+}
+
+inline bool switch_dataset_pair(int pair_index) {
+    g_loaded = false;
+    return load_pair(pair_index);
 }
 
 inline bool switch_long_recording_dataset(ChipType chip) {
@@ -740,6 +740,43 @@ inline std::vector<ChipType> get_available_chips() {
         }
     }
     return chips;
+}
+
+inline int get_available_pair_count() {
+    if (!load_tuning_cache()) {
+        return 0;
+    }
+    return static_cast<int>(g_pair_selections.size());
+}
+
+inline ChipType pair_chip(int pair_index) {
+    if (!load_tuning_cache() || pair_index < 0 ||
+        pair_index >= static_cast<int>(g_pair_selections.size())) {
+        return ChipType::C6;
+    }
+    return g_pair_selections[pair_index].chip;
+}
+
+inline const char* pair_label(int pair_index) {
+    static std::string label;
+    if (!load_tuning_cache() || pair_index < 0 ||
+        pair_index >= static_cast<int>(g_pair_selections.size())) {
+        label = "unknown_pair";
+        return label.c_str();
+    }
+
+    const ChipDatasetSelection& selected = g_pair_selections[pair_index];
+    label = std::string(chip_name(selected.chip)) + ":" + selected.environment + ":" +
+            selected.static_presence_filename;
+    return label.c_str();
+}
+
+inline int current_pair_index() {
+    return g_current_pair_index;
+}
+
+inline const char* current_pair_label() {
+    return pair_label(g_current_pair_index);
 }
 
 // ============================================================================
@@ -812,38 +849,6 @@ inline bool parse_iso8601_epoch_seconds(const std::string& text, double& out_epo
 
     out_epoch_seconds = static_cast<double>(epoch) + fractional_seconds;
     return true;
-}
-
-inline bool current_pair_delta_seconds(double& out_delta_sec) {
-    if (!load_tuning_cache()) {
-        return false;
-    }
-    const int idx = chip_index(g_current_chip);
-    if (idx < 0 || !g_selected_by_chip[idx].valid) {
-        return false;
-    }
-    const ChipDatasetSelection& selected = g_selected_by_chip[idx];
-    if (selected.static_presence_collected_at.empty() || selected.motion_collected_at.empty()) {
-        return false;
-    }
-
-    double bt = 0.0;
-    double mt = 0.0;
-    if (!parse_iso8601_epoch_seconds(selected.static_presence_collected_at, bt) ||
-        !parse_iso8601_epoch_seconds(selected.motion_collected_at, mt)) {
-        return false;
-    }
-
-    out_delta_sec = mt - bt;
-    return true;
-}
-
-inline bool is_temporally_paired() {
-    double delta_sec = 0.0;
-    if (!current_pair_delta_seconds(delta_sec)) {
-        return false;
-    }
-    return std::fabs(delta_sec) <= (60.0);
 }
 
 } // namespace csi_test_data

@@ -1,7 +1,7 @@
 {
   "format_version": "1.0",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-07-04T17:46:10.383962",
+  "updated_at": "2026-07-04T20:14:01.330570",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -108,6 +108,71 @@
         "environment": "hobby_room",
         "device_id": "0x0000acebe64ae708",
         "optimal_threshold_gridsearch": 5.629e-06
+      },
+      {
+        "filename": "empty_c5_64sc_dev000030eda0e46278_20260704_180132_733678_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T18:01:32.713354",
+        "duration_ms": 119909,
+        "num_packets": 11998,
+        "description": "HT20 empty sample",
+        "environment": "hobby_room",
+        "device_id": "0x000030eda0e46278",
+        "optimal_threshold_gridsearch": 4.0864e-05
+      },
+      {
+        "filename": "empty_c6_64sc_dev00007c2c6742bbac_20260704_180132_814046_0002.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T18:01:32.808570",
+        "duration_ms": 119926,
+        "num_packets": 11841,
+        "description": "HT20 empty sample",
+        "environment": "bedroom",
+        "device_id": "0x00007c2c6742bbac",
+        "optimal_threshold_gridsearch": 5.8072e-05
+      },
+      {
+        "filename": "empty_s3_64sc_dev000010b41de8ec00_20260704_182559_884551_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T18:25:59.875074",
+        "duration_ms": 119937,
+        "num_packets": 11934,
+        "description": "HT20 empty sample",
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
+        "optimal_threshold_gridsearch": 0.000212278
+      },
+      {
+        "filename": "empty_c3_64sc_dev0000acebe64ae708_20260704_182559_975633_0002.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T18:25:59.967363",
+        "duration_ms": 119936,
+        "num_packets": 12069,
+        "description": "HT20 empty sample",
+        "environment": "living_room",
+        "device_id": "0x0000acebe64ae708",
+        "optimal_threshold_gridsearch": 1.3817e-05
+      },
+      {
+        "filename": "empty_c5_64sc_dev000030eda0e46278_20260704_192416_825863_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T19:24:16.814911",
+        "duration_ms": 119953,
+        "num_packets": 11777,
+        "description": "HT20 empty sample",
+        "environment": "living_room",
+        "device_id": "0x000030eda0e46278",
+        "optimal_threshold_gridsearch": 7.4033e-05
       }
     ],
     "static_presence": [
@@ -152,20 +217,6 @@
         "device_id": "0x0000acebe64ae708",
         "optimal_threshold_gridsearch": 1.5236e-05,
         "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260704_123617_904895_0001.npz"
-      },
-      {
-        "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_124608_748309_0001.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T12:46:08.736168",
-        "duration_ms": 179953,
-        "num_packets": 17616,
-        "description": "HT20 static presence sample",
-        "environment": "bedroom",
-        "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 0.000151674,
-        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_124920_958458_0001.npz"
       },
       {
         "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz",
@@ -222,6 +273,76 @@
         "device_id": "0x000010b41de8ec00",
         "optimal_threshold_gridsearch": 2.705e-06,
         "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260704_163815_805153_0001.npz"
+      },
+      {
+        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260704_184649_979004_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T18:46:49.966759",
+        "duration_ms": 180000,
+        "num_packets": 17474,
+        "description": "HT20 static presence sample",
+        "environment": "hobby_room",
+        "device_id": "0x000030eda0e46278",
+        "optimal_threshold_gridsearch": 3.2774e-05,
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260704_185343_276594_0001.npz"
+      },
+      {
+        "filename": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_190103_229855_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T19:01:03.222377",
+        "duration_ms": 179951,
+        "num_packets": 17868,
+        "description": "HT20 static presence sample",
+        "environment": "living_room",
+        "device_id": "0x0000acebe64ae708",
+        "optimal_threshold_gridsearch": 3.9286e-05,
+        "optimal_pair_motion_file": "motion_c3_64sc_dev0000acebe64ae708_20260704_190325_096036_0001.npz"
+      },
+      {
+        "filename": "static_presence_s3_64sc_dev000010b41de8ec00_20260704_193850_592133_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T19:38:50.584926",
+        "duration_ms": 179954,
+        "num_packets": 17683,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
+        "optimal_threshold_gridsearch": 3.7244e-05,
+        "optimal_pair_motion_file": "motion_s3_64sc_dev000010b41de8ec00_20260704_194251_648972_0001.npz"
+      },
+      {
+        "filename": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T19:52:09.454915",
+        "duration_ms": 179993,
+        "num_packets": 17617,
+        "description": "HT20 static presence sample",
+        "environment": "bedroom",
+        "device_id": "0x00007c2c6742bbac",
+        "optimal_threshold_gridsearch": 3.1105e-05,
+        "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_195515_808506_0001.npz"
+      },
+      {
+        "filename": "static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T20:09:11.593595",
+        "duration_ms": 179943,
+        "num_packets": 17490,
+        "description": "HT20 static presence sample",
+        "environment": "living_room",
+        "device_id": "0x000030eda0e46278",
+        "optimal_threshold_gridsearch": 6.5963e-05,
+        "optimal_pair_motion_file": "motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz"
       }
     ],
     "motion": [
@@ -266,20 +387,6 @@
         "device_id": "0x0000acebe64ae708",
         "optimal_threshold_gridsearch": 1.5236e-05,
         "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_123300_815785_0001.npz"
-      },
-      {
-        "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260704_124920_958458_0001.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T12:49:20.953011",
-        "duration_ms": 89999,
-        "num_packets": 8827,
-        "description": "HT20 motion sample",
-        "environment": "bedroom",
-        "device_id": "0x00007c2c6742bbac",
-        "optimal_threshold_gridsearch": 0.000151674,
-        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_124608_748309_0001.npz"
       },
       {
         "filename": "motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz",
@@ -336,6 +443,76 @@
         "device_id": "0x000010b41de8ec00",
         "optimal_threshold_gridsearch": 2.705e-06,
         "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260704_163350_581389_0001.npz"
+      },
+      {
+        "filename": "motion_c5_64sc_dev000030eda0e46278_20260704_185343_276594_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T18:53:43.268320",
+        "duration_ms": 89942,
+        "num_packets": 8692,
+        "description": "HT20 motion sample",
+        "environment": "hobby_room",
+        "device_id": "0x000030eda0e46278",
+        "optimal_threshold_gridsearch": 3.2774e-05,
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260704_184649_979004_0001.npz"
+      },
+      {
+        "filename": "motion_c3_64sc_dev0000acebe64ae708_20260704_190325_096036_0001.npz",
+        "chip": "C3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T19:03:25.081546",
+        "duration_ms": 90000,
+        "num_packets": 8914,
+        "description": "HT20 motion sample",
+        "environment": "living_room",
+        "device_id": "0x0000acebe64ae708",
+        "optimal_threshold_gridsearch": 3.9286e-05,
+        "optimal_pair_static_presence_file": "static_presence_c3_64sc_dev0000acebe64ae708_20260704_190103_229855_0001.npz"
+      },
+      {
+        "filename": "motion_s3_64sc_dev000010b41de8ec00_20260704_194251_648972_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T19:42:51.640700",
+        "duration_ms": 89951,
+        "num_packets": 8839,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
+        "optimal_threshold_gridsearch": 3.7244e-05,
+        "optimal_pair_static_presence_file": "static_presence_s3_64sc_dev000010b41de8ec00_20260704_193850_592133_0001.npz"
+      },
+      {
+        "filename": "motion_c6_64sc_dev00007c2c6742bbac_20260704_195515_808506_0001.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T19:55:15.799824",
+        "duration_ms": 89945,
+        "num_packets": 8802,
+        "description": "HT20 motion sample",
+        "environment": "bedroom",
+        "device_id": "0x00007c2c6742bbac",
+        "optimal_threshold_gridsearch": 3.1105e-05,
+        "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz"
+      },
+      {
+        "filename": "motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T20:12:03.736889",
+        "duration_ms": 89991,
+        "num_packets": 8722,
+        "description": "HT20 motion sample",
+        "environment": "living_room",
+        "device_id": "0x000030eda0e46278",
+        "optimal_pair_static_presence_file": "static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz",
+        "optimal_threshold_gridsearch": 6.5963e-05
       }
     ],
     "test": [
@@ -442,6 +619,58 @@
         "environment": "living_room",
         "device_id": "0x0000acebe64ae708",
         "optimal_threshold_gridsearch": 8.339e-06
+      },
+      {
+        "filename": "test_c5_64sc_dev000030eda0e46278_20260704_175448_826137_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T17:54:48.788208",
+        "duration_ms": 599894,
+        "num_packets": 59995,
+        "description": "HT20 test sample",
+        "device_id": "0x000030eda0e46278",
+        "environment": "hobby_room",
+        "optimal_threshold_gridsearch": 3.4078e-05
+      },
+      {
+        "filename": "test_c6_64sc_dev00007c2c6742bbac_20260704_175449_155134_0002.npz",
+        "chip": "C6",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T17:54:49.117365",
+        "duration_ms": 599978,
+        "num_packets": 59341,
+        "description": "HT20 test sample",
+        "environment": "bedroom",
+        "device_id": "0x00007c2c6742bbac",
+        "optimal_threshold_gridsearch": 3.6448e-05
+      },
+      {
+        "filename": "test_s3_64sc_dev000010b41de8ec00_20260704_181757_047886_0001.npz",
+        "chip": "S3",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T18:17:57.017554",
+        "duration_ms": 599982,
+        "num_packets": 59101,
+        "description": "HT20 test sample",
+        "environment": "bedroom",
+        "device_id": "0x000010b41de8ec00",
+        "optimal_threshold_gridsearch": 9.8879e-05
+      },
+      {
+        "filename": "test_c5_64sc_dev000030eda0e46278_20260704_192116_870146_0001.npz",
+        "chip": "C5",
+        "subcarriers": 64,
+        "contributor": "francescopace",
+        "collected_at": "2026-07-04T19:21:16.842036",
+        "duration_ms": 600008,
+        "num_packets": 58431,
+        "description": "HT20 test sample",
+        "environment": "living_room",
+        "device_id": "0x000030eda0e46278",
+        "optimal_threshold_gridsearch": 0.000113766
       }
     ]
   },

@@ -12,9 +12,10 @@ The threshold path stays aligned with the production MVS startup path:
   fixed default subcarriers + Hampel + adaptive P95 x 1.1 threshold.
 
 Usage:
-    python tools/3_refresh_dataset_metadata.py          # Dry run
-    python tools/3_refresh_dataset_metadata.py --write  # Update dataset_info.json
-    python tools/3_refresh_dataset_metadata.py --check  # Fail if stale
+    python tools/3_refresh_dataset_metadata.py                  # Dry run
+    python tools/3_refresh_dataset_metadata.py --write          # Update dataset_info.json
+    python tools/3_refresh_dataset_metadata.py --write --force  # Rewrite even if unchanged
+    python tools/3_refresh_dataset_metadata.py --check          # Fail if stale
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -385,6 +386,11 @@ def build_arg_parser():
         help="Exit non-zero if data/dataset_info.json is stale",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Rewrite data/dataset_info.json even if metadata is unchanged",
+    )
+    parser.add_argument(
         "--chip",
         action="append",
         default=[],
@@ -399,6 +405,8 @@ def main():
 
     if args.write and args.check:
         parser.error("--write and --check are mutually exclusive")
+    if args.force and not args.write:
+        parser.error("--force requires --write")
 
     current = load_dataset_info()
     refreshed, pair_rows, threshold_rows = refresh_metadata(current, chip_filter=args.chip)
@@ -408,6 +416,10 @@ def main():
     current_updated_at = current.get("updated_at")
     comparable_refreshed = normalize_updated_at(refreshed, current_updated_at)
     if comparable_refreshed == current:
+        if args.write and args.force:
+            save_dataset_info(refreshed)
+            print(f"Force-wrote {DATASET_INFO_PATH}")
+            return 0
         print("dataset_info.json is already up to date")
         return 0
 

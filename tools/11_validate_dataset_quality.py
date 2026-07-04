@@ -9,7 +9,7 @@ Checks performed:
   1. Metadata completeness - Required derived/manual dataset_info fields exist
   2. File integrity        - NPZ loads, expected keys exist, shapes are valid
   3. Signal quality        - Amplitude range, zero-packet detection
-  4. Pair validation       - Static-presence vs motion variance ratio, temporal gap
+  4. Pair validation       - Static-presence vs motion variance ratio
   5. ML readiness          - Label balance, minimum samples, chip diversity
 
 Per-file integrity and signal-quality checks cover `empty`, `static_presence`,
@@ -69,8 +69,7 @@ REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
 # Quality thresholds
 MIN_PACKETS = 800
 MAX_ZERO_PACKET_RATIO = 0.01
-MIN_VARIANCE_RATIO = 2.5
-MAX_TEMPORAL_GAP_S = 30 * 60
+MIN_VARIANCE_RATIO = 4
 MIN_AMPLITUDE_MEAN = 9.0
 MIN_EMPTY_SEPARABILITY_AUC = 0.70
 MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.70
@@ -201,44 +200,6 @@ def _build_empty_separation_score(
         + EMPTY_SEPARATION_WAVEFORM_WEIGHT * static_wave_score
     )
     return empty_score, static_score
-
-
-def _coerce_metadata_scalar(value):
-    """Return a scalar value from NPZ-style metadata fields."""
-    return value.item() if hasattr(value, 'item') else value
-
-
-def _compute_capture_gap_seconds(bl_data, mv_data):
-    """Return the non-negative time gap between capture intervals.
-
-    The metric is order-agnostic:
-    - 0.0 means the captures overlap in time
-    - a positive value means they are separated by that many seconds
-
-    This avoids false warnings when `motion` is intentionally recorded before
-    `static_presence`.
-    """
-    bl_collected = bl_data.get('collected_at', None)
-    mv_collected = mv_data.get('collected_at', None)
-    bl_duration = bl_data.get('duration_ms', None)
-    mv_duration = mv_data.get('duration_ms', None)
-
-    if None in (bl_collected, mv_collected, bl_duration, mv_duration):
-        return None
-
-    bl_start = datetime.datetime.fromisoformat(str(_coerce_metadata_scalar(bl_collected)))
-    mv_start = datetime.datetime.fromisoformat(str(_coerce_metadata_scalar(mv_collected)))
-    bl_duration_ms = float(_coerce_metadata_scalar(bl_duration))
-    mv_duration_ms = float(_coerce_metadata_scalar(mv_duration))
-
-    bl_end = bl_start + datetime.timedelta(milliseconds=bl_duration_ms)
-    mv_end = mv_start + datetime.timedelta(milliseconds=mv_duration_ms)
-
-    if bl_end <= mv_start:
-        return (mv_start - bl_end).total_seconds()
-    if mv_end <= bl_start:
-        return (bl_start - mv_end).total_seconds()
-    return 0.0
 
 
 # ------------------------------------------------------------------
@@ -470,7 +431,7 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
         bl_data: full static-presence NpzFile (for metadata)
         mv_data: full motion NpzFile (for metadata)
     Returns:
-        tuple: (results, bl_var, mv_var, ratio, gap_s)
+        tuple: (results, bl_var, mv_var, ratio)
     """
     results = []
 
@@ -504,26 +465,8 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
         results.append(ValidationResult("variance_ratio", "PASS",
             f"Ratio {ratio_for_check}x (static={bl_var:.6f}, motion={mv_var:.6f})", ratio_for_check))
 
-    # Temporal gap between capture intervals, independent of acquisition order.
-    gap_s = None
-    try:
-        gap_s = _compute_capture_gap_seconds(bl_data, mv_data)
-        if gap_s is not None:
-            if gap_s > MAX_TEMPORAL_GAP_S:
-                results.append(ValidationResult("temporal_gap", "WARN",
-                    f"Large gap: {gap_s:.1f}s > {MAX_TEMPORAL_GAP_S}s", gap_s))
-            else:
-                results.append(ValidationResult("temporal_gap", "PASS",
-                    f"Gap: {gap_s:.1f}s", gap_s))
-        else:
-            results.append(ValidationResult("temporal_gap", "WARN",
-                "Could not parse collected_at/duration_ms timestamps"))
-    except Exception:
-        results.append(ValidationResult("temporal_gap", "WARN",
-            "Could not parse collected_at/duration_ms timestamps"))
-
     # Return the same ratio value used by PASS/FAIL checks and logs.
-    return results, bl_var, mv_var, ratio_for_check, gap_s
+    return results, bl_var, mv_var, ratio_for_check
 
 
 def validate_ml_readiness(dataset_info):
@@ -994,7 +937,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                         all_results.append(r)
                     continue
 
-            pair_res, bl_var, mv_var, ratio, gap_s = validate_pair(
+            pair_res, bl_var, mv_var, ratio = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
                 bl_data, mv_data,
             )
@@ -1009,7 +952,6 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                 'bl_var': bl_var,
                 'mv_var': mv_var,
                 'ratio': ratio,
-                'gap_s': gap_s,
                 'sc_source': sc_source,
                 'cv_mode': cv_mode,
                 'status': 'PASS' if ratio >= MIN_VARIANCE_RATIO else 'FAIL'
@@ -1114,18 +1056,16 @@ def _generate_report(pair_results, all_results, dataset_info):
 
     lines.append("## Results (sorted by chip, then ratio desc)\n")
     lines.append("| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var "
-                 "| Ratio | Gap | Subcarriers | Turbulence | Status |")
-    lines.append("|---|---|---:|---:|---:|---:|---|---|---|")
+                 "| Ratio | Subcarriers | Turbulence | Status |")
+    lines.append("|---|---|---:|---:|---:|---|---|---|")
 
     sorted_pairs = sorted(pair_results, key=lambda x: (x['chip'], -x['ratio']))
     for p in sorted_pairs:
         bl_var_str = f"{p['bl_var']:.2e}" if p['bl_var'] < 0.01 else f"{p['bl_var']:.2f}"
         mv_var_str = f"{p['mv_var']:.2e}" if p['mv_var'] < 0.01 else f"{p['mv_var']:.2f}"
-        gap = p.get('gap_s')
-        gap_str = f"{gap:.1f}s" if gap is not None else "N/A"
         lines.append(
             f"| {p['chip']} | `{p['static_presence']}` / `{p['motion']}` | "
-            f"{bl_var_str} | {mv_var_str} | {p['ratio']:.2f}x | {gap_str} | "
+            f"{bl_var_str} | {mv_var_str} | {p['ratio']:.2f}x | "
             f"{p.get('sc_source', '?')} | {p.get('cv_mode', '?')} | {p['status']} |"
         )
 

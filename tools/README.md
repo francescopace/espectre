@@ -247,7 +247,7 @@ Validates CSI datasets for integrity, signal quality, and ML readiness. It now c
 **Checks performed:**
 - File integrity — NPZ loads, expected keys exist, shapes are valid
 - Signal quality — amplitude range, zero-packet detection
-- Pair validation — static-presence vs motion variance ratio, temporal gap
+- Pair validation — static-presence vs motion variance ratio
 - ML readiness — label balance, minimum samples, chip diversity
 
 Turbulence mode follows runtime conventions: CV-normalized turbulence for every

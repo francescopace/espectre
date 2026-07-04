@@ -19,7 +19,6 @@ import time
 import json
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 # Import csi_utils first - it sets up paths automatically
@@ -52,7 +51,6 @@ except ImportError:
 # Configuration
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else float(SEG_THRESHOLD)
-PAIR_MAX_DELTA_SECONDS = 30 * 60
 DATASET_INFO_PATH = data_dir() / 'dataset_info.json'
 
 # Adaptive threshold config (aligned with tools/3_analyze_moving_variance_segmentation.py)
@@ -85,8 +83,8 @@ def lookup_file_info(dataset_info, filename):
     return None, None
 
 
-def pair_is_temporally_valid(dataset_info, label, entry):
-    """Validate pair metadata and ensure temporal distance <= 30 minutes."""
+def has_explicit_pair(dataset_info, label, entry):
+    """Validate that pair metadata points to an existing counterpart."""
     if label == 'static_presence':
         pair_name = entry.get('optimal_pair_motion_file')
         pair_label = 'motion'
@@ -101,12 +99,7 @@ def pair_is_temporally_valid(dataset_info, label, entry):
     if counterpart is None:
         return False
 
-    try:
-        t1 = datetime.fromisoformat(entry['collected_at'])
-        t2 = datetime.fromisoformat(counterpart['collected_at'])
-    except Exception:
-        return False
-    return abs((t2 - t1).total_seconds()) <= PAIR_MAX_DELTA_SECONDS
+    return True
 
 
 def _extract_motion_start_from_description(description):
@@ -187,7 +180,7 @@ def resolve_context_aware_config_for_test(test_entry):
     has_optimal = test_entry.get('optimal_threshold_gridsearch') is not None
     return {
         'threshold': threshold,
-        'pairing_mode': 'test-metadata optimal' if has_optimal else 'test default fallback',
+        'context_source': 'test-metadata threshold' if has_optimal else 'test default threshold',
         'confidence_factor': 1.0 if has_optimal else 0.5,
     }
 
@@ -198,7 +191,7 @@ def resolve_context_aware_config(static_presence_path):
 
     Fallback policy:
     - missing metadata -> project defaults
-    - metadata present but no pairing -> still use gridsearch threshold
+    - metadata present but no pairing -> still use the default threshold
     """
     dataset_info = load_dataset_info()
     label, entry = lookup_file_info(dataset_info, static_presence_path.name)
@@ -206,17 +199,17 @@ def resolve_context_aware_config(static_presence_path):
     if entry is None:
         return {
             'threshold': THRESHOLD,
-            'pairing_mode': 'metadata-missing fallback',
+            'context_source': 'metadata-missing default',
             'confidence_factor': 0.5,
         }
 
     threshold = float(THRESHOLD)
-    paired = pair_is_temporally_valid(dataset_info, label, entry) if label else False
-    pairing_mode = 'paired' if paired else 'single-dataset fallback'
+    paired = has_explicit_pair(dataset_info, label, entry) if label else False
+    context_source = 'explicit-pair' if paired else 'unpaired'
 
     return {
         'threshold': threshold,
-        'pairing_mode': pairing_mode,
+        'context_source': context_source,
         'confidence_factor': 1.0 if paired else 0.5,
     }
 
@@ -754,7 +747,7 @@ def run_all_chips():
         
         all_results.append({
             'chip': chip,
-            'pairing_mode': context_cfg['pairing_mode'],
+            'context_source': context_cfg['context_source'],
             'mvs': {'recall': mvs_recall, 'fp': mvs_fp, 'precision': mvs_precision, 'f1': mvs_f1},
             'ml': {'recall': ml_recall, 'fp': ml_fp, 'precision': ml_precision, 'f1': ml_f1},
         })
@@ -771,7 +764,7 @@ def run_all_chips():
     for r in all_results:
         chip = r['chip']
         num_baseline = 1000  # Approximate for FP rate calculation
-        print(f"Context mode ({chip}): {r['pairing_mode']}")
+        print(f"Context source ({chip}): {r['context_source']}")
         
         for detector, data in [('MVS', r['mvs']), ('ML', r['ml'])]:
             fp_rate = data['fp'] / num_baseline * 100 if num_baseline > 0 else 0
@@ -831,7 +824,7 @@ def main():
                 )
             context_cfg = resolve_context_aware_config_for_test(test_entry)
             threshold = context_cfg['threshold']
-            pairing_mode = context_cfg['pairing_mode']
+            context_source = context_cfg['context_source']
             confidence_factor = context_cfg['confidence_factor']
         else:
             static_presence_path, motion_path, chip_name = find_static_presence_motion_dataset(chip=chip)
@@ -842,7 +835,7 @@ def main():
             )
             context_cfg = resolve_context_aware_config(static_presence_path)
             threshold = context_cfg['threshold']
-            pairing_mode = context_cfg['pairing_mode']
+            context_source = context_cfg['context_source']
             confidence_factor = context_cfg['confidence_factor']
     except FileNotFoundError as e:
         print(f"Error: {e}")
@@ -856,7 +849,7 @@ def main():
         print(f"   Test dataset: {test_path.name}")
         print(f"   Motion starts at packet: {motion_start_packet}")
     else:
-        print(f"   Pairing mode: {pairing_mode}")
+        print(f"   Context source: {context_source}")
     print(f"   Static presence: {len(static_presence_packets)} packets")
     print(f"   Motion:          {len(motion_packets)} packets\n")
     print(f"   Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")

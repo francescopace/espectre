@@ -17,6 +17,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include <algorithm>
+#include <string>
+#include <vector>
 
 // Include headers from lib/espectre
 #include "utils.h"
@@ -52,14 +54,14 @@ struct PerformanceResult {
     bool valid;
 };
 
-struct ChipResults {
+struct DatasetResults {
+    std::string dataset_name;
     const char* chip_name;
     PerformanceResult mvs_default;
     PerformanceResult ml;
 };
 
-static ChipResults g_results[5];  // C3, C5, C6, ESP32, S3
-static int g_results_count = 0;
+static std::vector<DatasetResults> g_results;
 
 // Forward declarations for target getters used in summary output.
 inline float get_default_fp_rate_target();
@@ -68,21 +70,60 @@ inline float get_ml_fp_rate_target();
 inline float get_ml_recall_target();
 
 static void record_result(const char* algorithm, float recall, float fp_rate, float precision, float f1) {
-    if (g_results_count == 0 || strcmp(g_results[g_results_count - 1].chip_name, 
-            csi_test_data::chip_name(csi_test_data::current_chip())) != 0) {
-        // New chip
-        g_results[g_results_count].chip_name = csi_test_data::chip_name(csi_test_data::current_chip());
-        g_results[g_results_count].mvs_default = {0, 0, 0, 0, false};
-        g_results[g_results_count].ml = {0, 0, 0, 0, false};
-        g_results_count++;
+    const char* current_label = csi_test_data::current_pair_label();
+    if (g_results.empty() || g_results.back().dataset_name != current_label) {
+        DatasetResults row{};
+        row.dataset_name = current_label;
+        row.chip_name = csi_test_data::chip_name(csi_test_data::current_chip());
+        row.mvs_default = {0, 0, 0, 0, false};
+        row.ml = {0, 0, 0, 0, false};
+        g_results.push_back(row);
     }
     
-    ChipResults& current = g_results[g_results_count - 1];
+    DatasetResults& current = g_results.back();
     if (strcmp(algorithm, "mvs_default") == 0) {
         current.mvs_default = {recall, fp_rate, precision, f1, true};
     } else if (strcmp(algorithm, "ml") == 0) {
         current.ml = {recall, fp_rate, precision, f1, true};
     }
+}
+
+static PerformanceResult mean_result_for_chip(const char* chip_name, bool ml) {
+    PerformanceResult mean{0, 0, 0, 0, false};
+    int count = 0;
+    for (const auto& r : g_results) {
+        if (strcmp(r.chip_name, chip_name) != 0) {
+            continue;
+        }
+        const PerformanceResult& value = ml ? r.ml : r.mvs_default;
+        if (!value.valid) {
+            continue;
+        }
+        mean.recall += value.recall;
+        mean.fp_rate += value.fp_rate;
+        mean.precision += value.precision;
+        mean.f1 += value.f1;
+        count++;
+    }
+    if (count == 0) {
+        return mean;
+    }
+    mean.recall /= count;
+    mean.fp_rate /= count;
+    mean.precision /= count;
+    mean.f1 /= count;
+    mean.valid = true;
+    return mean;
+}
+
+static int dataset_count_for_chip(const char* chip_name) {
+    int count = 0;
+    for (const auto& r : g_results) {
+        if (strcmp(r.chip_name, chip_name) == 0) {
+            count++;
+        }
+    }
+    return count;
 }
 
 static void print_summary_table() {
@@ -91,26 +132,32 @@ static void print_summary_table() {
     printf("                      PERFORMANCE SUMMARY TABLE (C++)\n");
     printf("================================================================================\n");
     printf("\n");
-    printf("| Chip   | MVS Runtime             | ML                      |\n");
-    printf("|--------|-------------------------|-------------------------|\n");
-    
-    for (int i = 0; i < g_results_count; i++) {
-        const ChipResults& r = g_results[i];
-        
+    printf("| Chip   | Datasets | MVS Runtime             | ML                      |\n");
+    printf("|--------|----------|-------------------------|-------------------------|\n");
+
+    for (auto chip : csi_test_data::get_supported_chips()) {
+        const char* chip_name = csi_test_data::chip_name(chip);
+        const int dataset_count = dataset_count_for_chip(chip_name);
+        if (dataset_count == 0) {
+            continue;
+        }
+
         char mvs_default_str[32] = "N/A";
         char ml_str[32] = "N/A";
+        const PerformanceResult mvs_default = mean_result_for_chip(chip_name, false);
+        const PerformanceResult ml = mean_result_for_chip(chip_name, true);
         
-        if (r.mvs_default.valid) {
+        if (mvs_default.valid) {
             snprintf(mvs_default_str, sizeof(mvs_default_str), "%.1f%% R, %.1f%% FP",
-                     r.mvs_default.recall, r.mvs_default.fp_rate);
+                     mvs_default.recall, mvs_default.fp_rate);
         }
-        if (r.ml.valid) {
+        if (ml.valid) {
             snprintf(ml_str, sizeof(ml_str), "%.1f%% R, %.1f%% FP",
-                     r.ml.recall, r.ml.fp_rate);
+                     ml.recall, ml.fp_rate);
         }
         
-        printf("| %-6s | %-23s | %-23s |\n", 
-               r.chip_name, mvs_default_str, ml_str);
+        printf("| %-6s | %8d | %-23s | %-23s |\n",
+               chip_name, dataset_count, mvs_default_str, ml_str);
     }
     
     printf("\n");
@@ -124,20 +171,24 @@ static void print_summary_table() {
     printf("\n");
     printf("                         DETAILED METRICS (for PERFORMANCE.md)\n");
     printf("--------------------------------------------------------------------------------\n");
-    printf("| Chip   | Algorithm   | Recall  | Precision | FP Rate | F1-Score |\n");
-    printf("|--------|-------------|---------|-----------|---------|----------|\n");
-    
-    for (int i = 0; i < g_results_count; i++) {
-        const ChipResults& r = g_results[i];
+    printf("| Dataset                                         | Chip   | Algorithm   | Recall  | Precision | FP Rate | F1-Score |\n");
+    printf("|-------------------------------------------------|--------|-------------|---------|-----------|---------|----------|\n");
+
+    for (const auto& r : g_results) {
+        std::string dataset_name = r.dataset_name;
+        const size_t slash_pos = dataset_name.find_last_of('/');
+        if (slash_pos != std::string::npos) {
+            dataset_name = dataset_name.substr(slash_pos + 1);
+        }
         
         if (r.mvs_default.valid) {
-            printf("| %-6s | MVS Runtime | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
-                   r.chip_name, r.mvs_default.recall, r.mvs_default.precision,
+            printf("| %-47.47s | %-6s | MVS Runtime | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
+                   dataset_name.c_str(), r.chip_name, r.mvs_default.recall, r.mvs_default.precision,
                    r.mvs_default.fp_rate, r.mvs_default.f1);
         }
         if (r.ml.valid) {
-            printf("| %-6s | ML          | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
-                   r.chip_name, r.ml.recall, r.ml.precision,
+            printf("| %-47.47s | %-6s | ML          | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
+                   dataset_name.c_str(), r.chip_name, r.ml.recall, r.ml.precision,
                    r.ml.fp_rate, r.ml.f1);
         }
     }
@@ -156,10 +207,6 @@ inline bool is_esp32_chip() {
 // The production pipeline now always uses CV normalization (std/mean).
 inline bool needs_cv_normalization() {
     return true;
-}
-
-inline const char* get_pairing_mode() {
-    return csi_test_data::is_temporally_paired() ? "paired" : "single-dataset fallback";
 }
 
 // Unified parameters for all chips (use production defaults)
@@ -196,12 +243,7 @@ void test_mvs_default_subcarriers(void) {
     printf("  Chip: %s, Window: %d, CV Norm: %s\n", 
            csi_test_data::chip_name(csi_test_data::current_chip()), 
            window_size, cv_norm ? "ON" : "OFF");
-    double pair_delta_sec = 0.0;
-    if (csi_test_data::current_pair_delta_seconds(pair_delta_sec)) {
-        printf("  Pair mode: %s (delta: %.1fs)\n", get_pairing_mode(), pair_delta_sec);
-    } else {
-        printf("  Pair mode: %s (delta: N/A)\n", get_pairing_mode());
-    }
+    printf("  Pair: %s\n", csi_test_data::current_pair_label());
     printf("═══════════════════════════════════════════════════════\n\n");
     
     // Use default subcarriers for this chip.
@@ -370,9 +412,11 @@ void test_ml_detection(void) {
 // Test Runner
 // ============================================================================
 
-int run_tests_for_chip(csi_test_data::ChipType chip) {
+int run_tests_for_pair(int pair_index) {
+    const csi_test_data::ChipType chip = csi_test_data::pair_chip(pair_index);
     printf("\n========================================\n");
-    printf("Running tests with %s 64 SC dataset (HT20)\n", csi_test_data::chip_name(chip));
+    printf("Running tests with %s 64 SC dataset pair (HT20)\n", csi_test_data::chip_name(chip));
+    printf("Pair: %s\n", csi_test_data::pair_label(pair_index));
     printf("========================================\n");
     
     const char* skip_reason = csi_test_data::chip_skip_reason(chip);
@@ -381,8 +425,8 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
         return 0;
     }
     
-    if (!csi_test_data::switch_dataset(chip)) {
-        printf("ERROR: Failed to load %s dataset\n", csi_test_data::chip_name(chip));
+    if (!csi_test_data::switch_dataset_pair(pair_index)) {
+        printf("ERROR: Failed to load %s dataset pair\n", csi_test_data::chip_name(chip));
         return 1;
     }
     
@@ -394,14 +438,14 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
 
 int process(void) {
     int failures = 0;
-    auto chips = csi_test_data::get_available_chips();
-    if (chips.empty()) {
+    const int pair_count = csi_test_data::get_available_pair_count();
+    if (pair_count <= 0) {
         printf("ERROR: No complete 64 SC static-presence/motion dataset pairs available\n");
         return 1;
     }
 
-    for (auto chip : chips) {
-        failures += run_tests_for_chip(chip);
+    for (int pair_index = 0; pair_index < pair_count; pair_index++) {
+        failures += run_tests_for_pair(pair_index);
     }
     
     // Print summary table at the end

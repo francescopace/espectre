@@ -31,26 +31,30 @@ Computed metrics:
 
 ## Results (sorted by chip, then ratio desc)
 
-| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var | Ratio | Gap | Subcarriers | Turbulence | Status |
-|---|---|---:|---:|---:|---:|---|---|---|
-| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_123300_815785_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_123617_904895_0001.npz` | 1.27e-05 | 2.49e-04 | 19.66x | 17.1s | DEFAULT_SUBCARRIERS | CV | PASS |
-| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_155658_712410_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_155947_468944_0001.npz` | 6.88e-06 | 8.49e-05 | 12.34x | 0.0s | DEFAULT_SUBCARRIERS | CV | PASS |
-| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz` | 1.05e-04 | 3.09e-03 | 29.52x | 0.0s | DEFAULT_SUBCARRIERS | CV | PASS |
-| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_120322_224513_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_121231_690177_0001.npz` | 2.04e-05 | 3.99e-04 | 19.57x | 369.5s | DEFAULT_SUBCARRIERS | CV | PASS |
-| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz` | 3.51e-05 | 6.39e-04 | 18.19x | 24.7s | DEFAULT_SUBCARRIERS | CV | PASS |
-| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_124608_748309_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_124920_958458_0001.npz` | 1.08e-04 | 3.81e-04 | 3.53x | 12.3s | DEFAULT_SUBCARRIERS | CV | PASS |
-| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260704_163350_581389_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260704_163815_805153_0001.npz` | 2.07e-05 | 1.41e-04 | 6.81x | 85.3s | DEFAULT_SUBCARRIERS | CV | PASS |
-| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260704_113202_728050_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260704_113807_171019_0001.npz` | 1.36e-05 | 5.94e-05 | 4.38x | 289.8s | DEFAULT_SUBCARRIERS | CV | PASS |
+| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var | Ratio | Subcarriers | Turbulence | Status |
+|---|---|---:|---:|---:|---|---|---|
+| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_123300_815785_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_123617_904895_0001.npz` | 1.27e-05 | 2.49e-04 | 19.66x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_190103_229855_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_190325_096036_0001.npz` | 1.66e-05 | 2.21e-04 | 13.28x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_155658_712410_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_155947_468944_0001.npz` | 6.88e-06 | 8.49e-05 | 12.34x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_184649_979004_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_185343_276594_0001.npz` | 1.90e-05 | 1.42e-03 | 75.12x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz` | 1.05e-04 | 3.09e-03 | 29.52x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz` | 6.10e-05 | 7.48e-04 | 12.27x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_195515_808506_0001.npz` | 3.10e-05 | 8.49e-04 | 27.42x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_120322_224513_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_121231_690177_0001.npz` | 2.04e-05 | 3.99e-04 | 19.57x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz` | 3.51e-05 | 6.39e-04 | 18.19x | DEFAULT_SUBCARRIERS | CV | PASS |
+| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260704_163350_581389_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260704_163815_805153_0001.npz` | 2.07e-05 | 1.41e-04 | 6.81x | DEFAULT_SUBCARRIERS | CV | PASS |
+| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260704_193850_592133_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260704_194251_648972_0001.npz` | 4.07e-05 | 2.72e-04 | 6.69x | DEFAULT_SUBCARRIERS | CV | PASS |
+| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260704_113202_728050_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260704_113807_171019_0001.npz` | 1.36e-05 | 5.94e-05 | 4.38x | DEFAULT_SUBCARRIERS | CV | PASS |
 
 ## Summary
 
-- total pairs: 8
-- pass: 8
+- total pairs: 12
+- pass: 12
 - fail: 0
 
 ## Detailed Check Summary
 
-- Total checks: 174
-- ✅ PASS: 173
+- Total checks: 257
+- ✅ PASS: 256
 - ⚠️ WARN: 1
 - ❌ FAIL: 0
