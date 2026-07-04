@@ -161,7 +161,7 @@ All notable changes to this project will be documented in this file.
 ### Calibration, ML, and Dataset Pipeline
 
 - **NBVI hot-path optimization**: reduced allocations, enforced memory-bounded chunked validation reads (avoids `std::bad_alloc`/`abort()` on low-heap targets), and replaced O(window) shifts with ring buffer + running statistics
-- **Context-aware grid-search metadata workflow**: `tools/11_refresh_gridsearch_metadata.py` introduced and then simplified to a single C++-aligned evaluation path (legacy hardcoded subcarrier override removed)
+- **Context-aware dataset metadata workflow**: `tools/3_refresh_dataset_metadata.py` refreshes explicit pair metadata plus the single C++-aligned `optimal_threshold_gridsearch` path (legacy hardcoded subcarrier override removed)
 - **Metadata consistency cleanup**: `gain_locked` is now the single source of truth in `.npz` and `dataset_info.json`; deprecated `use_cv_normalization` and `label_id` metadata removed
 - **ML pipeline alignment (training + inference)**: both stacks now use `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`; models were retrained/re-exported with validated seed, and feature extraction was simplified to the selected 12 runtime features
 

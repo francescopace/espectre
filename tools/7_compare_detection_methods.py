@@ -130,7 +130,7 @@ def load_test_dataset(chip=None, motion_start_packet=None):
     Split logic:
     - Use --test-motion-start-packet when provided
     - Else parse packet index from test description in dataset_info.json
-    - Else fallback to half of the stream
+    - Else use the full stream as quiet baseline
     """
     dataset_info = load_dataset_info()
     test_entries = dataset_info.get('files', {}).get('test', [])
@@ -167,9 +167,9 @@ def load_test_dataset(chip=None, motion_start_packet=None):
         )
 
     if motion_start_packet is None:
-        motion_start_packet = len(packets) // 2
+        motion_start_packet = len(packets)
 
-    if motion_start_packet <= 0 or motion_start_packet >= len(packets):
+    if motion_start_packet <= 0 or motion_start_packet > len(packets):
         raise ValueError(
             f"Invalid motion start packet {motion_start_packet} "
             f"for {len(packets)} packets"

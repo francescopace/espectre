@@ -68,7 +68,7 @@ Current default training settings:
 - `--batch-size 1024`
 - `--device cpu`
 - `--feature-set production`
-- `--sample-weight-mode mvs_hard_negative`
+- `--sample-weight-mode none`
 
 Values above `1.0` for `--fp-weight` reduce false positives at the cost of
 slightly lower recall.
@@ -85,9 +85,9 @@ The training pipeline:
 1. Loads all `.npz` files from `data/` for `empty`, `static_presence`, and
    `motion`.
 2. Uses the shared CV-normalized turbulence path (`std/mean`) across all files.
-3. Applies the selected sample-weight policy. The production retrain uses
-   `mvs_hard_negative`, which uses MVS only to up-weight IDLE windows that look
-   motion-like; it does not use MVS as a teacher for motion labels.
+3. Applies the selected sample-weight policy. The default production retrain
+   uses `none` so the first clean AGC-active baseline does not inherit MVS
+   threshold bias.
 4. Extracts 8 relative ML features per sliding window.
 5. Runs grouped cross-validation by paired capture/session, with blocked
    scoring to reduce overlap optimism.
@@ -95,15 +95,11 @@ The training pipeline:
 7. Trains the selected MLP architecture with PyTorch, early stopping, and dropout.
 8. Exports artifacts for both Python and C++ runtimes plus a regression dataset.
 
-Full MVS-guided weighting is intentionally not the default. Long-recording
-validation showed that it can import MVS quiet-spike bias into the ML decision
-boundary. Use `none`, `mvs_gridsearch`, and `mvs_global` for ablations; the
-default production path uses only hard-negative MVS weighting.
-
-A fixed-seed comparison with seed `2083554459` selected `mvs_hard_negative`
-over `none`, `mvs_global`, and `mvs_gridsearch`: it gave the strongest blocked
-OOF F1, precision, and false-positive profile while keeping recall within the
-same operating band.
+MVS-guided weighting is analysis-only until the clean AGC-active dataset is
+recollected and re-evaluated. Previous contaminated-dataset experiments selected
+`mvs_hard_negative`, but that result should not drive the new baseline. Use
+`mvs_hard_negative`, `mvs_gridsearch`, and `mvs_global` only for ablations after
+refreshing `optimal_threshold_gridsearch`.
 
 ## Exported Artifacts
 

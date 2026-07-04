@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -268,8 +269,11 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
     app_dir.mkdir()
     (app_dir / "sdkconfig.wifi").write_text("", encoding="utf-8")
     calls: list[tuple[list[str], Path]] = []
+    env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
@@ -277,6 +281,33 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
     assert calls == [
         (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
         (["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
+    ]
+
+
+def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig.defaults.esp32").write_text("CONFIG_TEST=y\n", encoding="utf-8")
+    (app_dir / "sdkconfig.wifi").write_text("", encoding="utf-8")
+    calls: list[tuple[list[str], Path]] = []
+    env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32"))
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
+
+    idf.run_idf_command("streamer", argparse.Namespace(chip="esp32", idf_command="build", port=None, clean=False))
+
+    assert calls == [
+        (
+            ["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi", "set-target", "esp32"],
+            app_dir,
+        ),
+        (
+            ["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi", "build"],
+            app_dir,
+        ),
     ]
 
 
@@ -291,8 +322,11 @@ def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeyp
     (app_dir / "dependencies.lock").write_text("lock", encoding="utf-8")
     (app_dir / "sdkconfig.wifi").write_text("", encoding="utf-8")
     calls: list[tuple[list[str], Path]] = []
+    env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command("streamer", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=True))
@@ -319,6 +353,12 @@ def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatc
     monkeypatch.setenv("SDKCONFIG_DEFAULTS", "sdkconfig.defaults;sdkconfig.qemu.defaults")
     monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "build-esp32c3")
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+    )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=True))
@@ -337,6 +377,12 @@ def test_run_idf_command_flash_resolves_port(monkeypatch, tmp_path: Path) -> Non
 
     monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
     monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+    )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
 
     idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
@@ -352,6 +398,12 @@ def test_run_idf_command_flash_uses_custom_build_dir_when_present(monkeypatch, t
     monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "build-esp32c3")
     monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
     monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+    )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
 
     idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
@@ -380,6 +432,14 @@ def test_build_parser_accepts_top_level_monitor() -> None:
     assert args.port == "/dev/cu.test"
     assert args.baud == 74880
     assert args.raw is True
+
+
+def test_build_parser_accepts_doctor() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["doctor"])
+
+    assert args.namespace == "doctor"
 
 
 def test_idf_monitor_subcommand_is_rejected() -> None:
@@ -438,6 +498,11 @@ def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, t
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+    )
 
     def _raise_not_found(_cmd, cwd, check):
         raise FileNotFoundError()
@@ -454,6 +519,174 @@ def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, t
         idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
 
     assert exc.value.code == 9
+
+
+def test_resolve_idf_environment_prefers_platformio_export(monkeypatch, tmp_path: Path) -> None:
+    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.sh"
+    export_script.parent.mkdir(parents=True)
+    export_script.write_text("#!/bin/sh\n", encoding="utf-8")
+    manual_export = tmp_path / "esp" / "esp-idf" / "export.sh"
+    manual_export.parent.mkdir(parents=True)
+    manual_export.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.delenv("IDF_PATH", raising=False)
+    monkeypatch.setattr(idf.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(idf.shutil, "which", lambda _binary: None)
+
+    env = idf.resolve_idf_environment()
+
+    assert env.mode == "export"
+    assert env.source == "ESPHome/PlatformIO package"
+    assert env.export_script == export_script
+    assert env.export_kind == "sh"
+
+
+def test_prepare_idf_subprocess_command_uses_platformio_export_fallback(monkeypatch, tmp_path: Path) -> None:
+    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.sh"
+    export_script.parent.mkdir(parents=True)
+    export_script.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        idf.shutil,
+        "which",
+        lambda binary: {"bash": "/bin/bash", "zsh": None}.get(binary),
+    )
+
+    env = idf.ResolvedIdfEnvironment(
+        mode="export",
+        source="ESPHome/PlatformIO package",
+        install_dir=export_script.parent,
+        export_script=export_script,
+        export_kind="sh",
+    )
+    command, used_export = idf.prepare_idf_subprocess_command(["idf.py", "build"], env)
+
+    assert command == ["/bin/bash", "-lc", f". {shlex.quote(str(export_script))} >/dev/null && idf.py build"]
+    assert used_export == export_script
+
+
+def test_prepare_idf_subprocess_command_sequence_combines_exported_build_steps(
+    monkeypatch, tmp_path: Path
+) -> None:
+    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.sh"
+    export_script.parent.mkdir(parents=True)
+    export_script.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        idf.shutil,
+        "which",
+        lambda binary: {"bash": "/bin/bash", "zsh": None}.get(binary),
+    )
+
+    env = idf.ResolvedIdfEnvironment(
+        mode="export",
+        source="ESPHome/PlatformIO package",
+        install_dir=export_script.parent,
+        export_script=export_script,
+        export_kind="sh",
+    )
+    command, used_export = idf.prepare_idf_subprocess_command_sequence(
+        [
+            ["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"],
+            ["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"],
+        ],
+        env,
+    )
+
+    assert command == [
+        "/bin/bash",
+        "-lc",
+        (
+            f". {shlex.quote(str(export_script))} >/dev/null"
+            " && idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' set-target esp32c3"
+            " && idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' build"
+        ),
+    ]
+    assert used_export == export_script
+
+
+def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig.wifi").write_text("", encoding="utf-8")
+    calls: list[tuple[list[str], Path]] = []
+    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.sh"
+    export_script.parent.mkdir(parents=True)
+    export_script.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(
+        idf.shutil,
+        "which",
+        lambda binary: {"bash": "/bin/bash", "zsh": None}.get(binary),
+    )
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(
+            mode="export",
+            source="ESPHome/PlatformIO package",
+            install_dir=export_script.parent,
+            export_script=export_script,
+            export_kind="sh",
+        ),
+    )
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
+
+    idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
+
+    assert calls == [
+        (
+            [
+                "/bin/bash",
+                "-lc",
+                (
+                    f". {shlex.quote(str(export_script))} >/dev/null"
+                    " && idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' set-target esp32c3"
+                    " && idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' build"
+                ),
+            ],
+            app_dir,
+        )
+    ]
+
+
+def test_resolve_idf_environment_supports_windows_export_bat(monkeypatch, tmp_path: Path) -> None:
+    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.bat"
+    export_script.parent.mkdir(parents=True)
+    export_script.write_text("@echo off\r\n", encoding="utf-8")
+
+    monkeypatch.setattr(idf, "is_windows_host", lambda: True)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("IDF_PATH", raising=False)
+    monkeypatch.setattr(idf.shutil, "which", lambda _binary: None)
+
+    env = idf.resolve_idf_environment()
+
+    assert env.mode == "export"
+    assert env.source == "ESPHome/PlatformIO package"
+    assert env.export_script == export_script
+    assert env.export_kind == "bat"
+
+
+def test_run_idf_doctor_uses_export_fallback_on_windows(monkeypatch, tmp_path: Path) -> None:
+    export_script = tmp_path / ".platformio" / "packages" / "framework-espidf" / "export.bat"
+    export_script.parent.mkdir(parents=True)
+    export_script.write_text("@echo off\r\n", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(idf, "is_windows_host", lambda: True)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("IDF_PATH", raising=False)
+    monkeypatch.setattr(
+        idf.shutil,
+        "which",
+        lambda binary: {"idf.py": None, "cmd": "cmd.exe"}.get(binary),
+    )
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, check: calls.append(cmd))
+
+    assert idf.run_idf_doctor(argparse.Namespace()) == 0
+    assert calls == [["cmd.exe", "/d", "/c", f'call "{export_script}" >NUL && idf.py --version']]
 
 
 class _FakeMQTTClient:

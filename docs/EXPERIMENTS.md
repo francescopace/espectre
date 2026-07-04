@@ -1,43 +1,75 @@
 # Historical Experiments
 
-This document records notable host-side experiments that informed the current
-production choices, including both rejected candidates and experiments that
-eventually promoted a new runtime baseline.
+This document records notable host-side experiments that informed production
+choices over time, including both rejected candidates and experiments that
+eventually promoted a runtime baseline.
 
 The goal is to preserve design history in one place without turning
 `ALGORITHMS.md` into a research log.
 
----
+## Overview
 
-## Multi-Device Sync and Phase Research
+| Date | Experiment | Status | Main Lesson |
+|------|------------|--------|-------------|
+| 2026-05-20 | Feature-set reduction sweep | Superseded by relative-8 and AGC-active normalization | Dropping unstable raw-window features improved the raw-9 line. |
+| 2026-05-20 | FP-first feature and training sweep | Superseded by later ML baselines | Long-recording false positives must outrank CV-only wins. |
+| 2026-05-20 | Raw-9 MLP topology sweep | Superseded by relative-8 | `32 -> 16` was the best raw-9 topology among tested candidates. |
+| 2026-05-20 | Tiny CNN / TCN sweep | Rejected | Small temporal models did not beat the MLP FP-first ranking. |
+| 2026-06-29 | Gain-shift robustness diagnostic | Superseded as a gate by AGC-active normalization | Raw turbulence features were not structurally gain-invariant. |
+| 2026-06-29 | Relative-8 topology and FP-weight sweep | Superseded by MVS hard-negative retrain, then by AGC-active clean baseline work | Relative features solved uniform gain-shift sensitivity but not all quiet long-run false positives. |
+| 2026-06-30 | C3 empty-room retrain incident | Partly superseded; lesson retained | `empty` captures must be first-class IDLE training data. |
+| 2026-07-03 | MVS-guided weighting bias and hard-negative retrain | Superseded by AGC-active normalization and clean data recollection | MVS can help as hard-negative mining, but it can also import MVS quiet-spike bias. |
+| 2026-07-04 | Multi-device sync and phase research | Active research note | `stimulus_id` and reference metadata remain useful for future multi-device experiments. |
 
-### Goal
+## Current Superseding Events
+
+Date: 2026-07-04
+
+Status: Active baseline reset.
+
+The runtime and training path now use AGC-active, coefficient-of-variation
+turbulence (`std(amplitudes) / mean(amplitudes)`) as the single production
+path. Earlier dataset captures may also have been contaminated by a collection
+bug. For that reason, the next clean ML baseline starts from
+`--sample-weight-mode none`; MVS-guided weighting should be re-evaluated only
+after clean data collection and refreshed `optimal_threshold_gridsearch`
+metadata.
+
+## Active Research Notes
+
+### Multi-Device Sync and Phase Research
+
+Date: 2026-07-04
+
+Status: Active research note.
+
+#### Goal
 
 Evaluate whether collector-driven `stimulus_id` tagging and optional reference
-frames are worth preserving in raw datasets, even when the current promoted ML
-baselines are amplitude-first and usually measurement-only.
+frames are worth preserving in raw datasets, even when promoted ML baselines are
+amplitude-first and usually measurement-only.
 
-### What The Experiments Show
+#### What The Experiments Show
 
 Historical multi-device experiments showed that `stimulus_id` is the practical
-current key for cross-device grouping, while frame-level metadata is more useful
-as diagnostics than as a guaranteed global identifier. They also showed that:
+key for cross-device grouping, while frame-level metadata is more useful as
+diagnostics than as a guaranteed global identifier. They also showed that:
 
 - packet grouping quality can be very strong even on standard hardware
 - raw inter-node phase remains much noisier than packet grouping alone suggests
 - reference-assisted paths are still experimental and have not yet displaced the
   best simpler compensated baselines
-- amplitude-first single-link inference is currently more credible than
-  phase-heavy or fused multi-link baselines
+- amplitude-first single-link inference was more credible than phase-heavy or
+  fused multi-link baselines in the tested setup
 
-### Practical Interpretation
+#### Practical Interpretation
 
 So the presence of `stimulus_id` and optional reference flags in collected
 datasets is intentional, not accidental. They are low-cost metadata for future
 research tracks, even when a given ML dataset is used today only for the
 ordinary measurement-only path.
 
-### Why The Metadata Stays
+#### Why The Metadata Stays
 
 Those fields are kept because they remain the practical bridge from ordinary
 dataset collection to future host-side experiments that need temporal
@@ -49,23 +81,30 @@ association across devices, including:
 
 ---
 
-## Gain-Shift Robustness Diagnostic
+## Historical ML Experiments
 
-### Goal
+### Gain-Shift Robustness Diagnostic
 
-Check whether the production ML detector is structurally robust to
-device/session gain shifts, or whether it is only empirically robust on the
-current collected domains.
+Date: 2026-06-29
 
-### Background
+Status: Superseded as a production gate by AGC-active normalization; retained
+as the experiment that motivated relative and normalized turbulence features.
 
-Earlier MVS variants had a split normalization path, but the current detector
-uses coefficient-of-variation turbulence (`std / mean`), which is invariant to a
-uniform amplitude scale factor. At the time of the first gain-stress
-diagnostic, the ML detector intentionally used raw turbulence std in both
-training and runtime inference. Its exported feature scaler was a global
-statistical standardization fitted on the training set; it did not compensate
-an unseen per-device/session gain shift.
+#### Goal
+
+Check whether the then-production ML detector was structurally robust to
+device/session gain shifts, or whether it was only empirically robust on the
+collected domains.
+
+#### Background
+
+Earlier MVS variants had a split normalization path. The later AGC-active
+detector uses coefficient-of-variation turbulence (`std / mean`), which is
+invariant to a uniform amplitude scale factor. At the time of the first
+gain-stress diagnostic, the ML detector intentionally used raw turbulence std
+in both training and runtime inference. Its exported feature scaler was a
+global statistical standardization fitted on the training set; it did not
+compensate an unseen per-device/session gain shift.
 
 For the previous raw 9-feature production baseline:
 
@@ -74,10 +113,10 @@ For the previous raw 9-feature production baseline:
 - scale-invariant under positive uniform gain: `turb_skewness`,
   `turb_autocorr`
 
-### Tooling Added
+#### Tooling Added
 
-`tools/10_train_ml_model.py --gain-stress-gate` evaluates the currently
-exported Python weights without retraining. It extracts the exported feature
+`tools/10_train_ml_model.py --gain-stress-gate` evaluated the exported Python
+weights without retraining. It extracted the exported feature
 set from real `empty`/`static_presence`/`motion` data, applies artificial gain
 multipliers only to the scale-sensitive features, and reports overall plus
 worst-group metrics.
@@ -90,7 +129,7 @@ python tools/10_train_ml_model.py --gain-stress-gate --environment bedroom
 python tools/10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.25
 ```
 
-### Raw-Feature Result
+#### Raw-Feature Result
 
 Exported raw-feature seed: `721498330`.
 
@@ -112,7 +151,7 @@ Bedroom-only:
 - `1.50x`: FP `14.2%`, worst-chip FP `ESP32 37.4%`
 - `2.00x`: FP `27.6%`, worst-chip FP `S3 61.1%`
 
-### Decision
+#### Decision
 
 The raw-feature ML detector is strong at nominal gain, but it is not
 structurally gain-invariant. Global feature standardization is numeric
@@ -122,7 +161,7 @@ cross-gain robustness.
 
 Follow-up experiments compared:
 
-1. current raw features
+1. the then-current raw features
 2. relative/gain-invariant features such as `std/mean`, `iqr/mean`,
    `mad/mean`, and normalized waveform length
 3. a small hybrid set that keeps useful raw features while adding relative
@@ -163,23 +202,31 @@ Those extra relative features produced occasional local wins, but did not beat
 the simpler relative set on the combined long-recording and gain-stress
 comparison. The later `robust_relative` p95/p05 variant reduced single-spike
 feature leverage in isolation, but its grouped-CV result was weaker than the
-production relative set (`F1=89.8%`, `recall=89.1%`, `FP=4.0%` versus the
+promoted relative set (`F1=89.8%`, `recall=89.1%`, `FP=4.0%` versus the
 promoted retrain's `F1=91.5%`, `recall=91.6%`, `FP=3.5%`). It remains an
-analysis-only feature set. The gain-stress gate remains the primary diagnostic
-for gain-shift robustness, with the long-recording gate acting as the
-false-positive non-regression check.
+analysis-only feature set. At the time, the gain-stress gate was the primary
+diagnostic for gain-shift robustness, with the long-recording gate acting as
+the false-positive non-regression check. After the AGC-active normalization
+refactor, this post-feature gain-stress diagnostic is historical rather than a
+production promotion gate.
 
 ---
 
-## C3 Empty-Room Retrain Incident
+### C3 Empty-Room Retrain Incident
 
-### Goal
+Date: 2026-06-30
+
+Status: Partly superseded by AGC-active normalization and clean data
+recollection; retained because it established `empty` as an IDLE training
+class.
+
+#### Goal
 
 Diagnose why a C3 ESPHome deployment in a static room produced noisy ML scores
 despite good offline validation, then decide whether the failure was caused by
 the model, runtime inference, or dataset coverage.
 
-### Observation
+#### Observation
 
 The failing runtime log was a C3 connected to the same AP/BSSID, at the same
 distance and packet rate used for collection. ESPHome generated ping traffic at
@@ -198,29 +245,29 @@ offline. The new C3 `empty` capture did:
 - global `empty` false-positive rate after retrain: about `0.3%`
 
 The problematic packets showed frame-scale amplitude jumps while channel, RSSI,
-and reported gain metadata stayed stable. Because the production ML pipeline
-uses raw per-packet turbulence as its base signal, those jumps entered the
-100-packet ML window as turbulence spikes. Relative window features reduce
-uniform window-level gain shifts, but they do not make the model structurally
+and reported gain metadata stayed stable. Because the then-production ML
+pipeline used raw per-packet turbulence as its base signal, those jumps entered
+the 100-packet ML window as turbulence spikes. Relative window features reduced
+uniform window-level gain shifts, but they did not make the model structurally
 immune to arbitrary per-frame amplitude jumps.
 
-### Decision
+#### Decision
 
-The production fix was to include `empty` in binary ML training, mapping both
+The fix at that point was to include `empty` in binary ML training, mapping both
 `empty` and `static_presence` to IDLE and `motion` to MOTION. This better
 matches the deployed task: the detector must suppress both quiet empty rooms
 and static-presence rooms, not only distinguish static presence from motion.
 
 At this point no C++ feature ABI change was required:
 
-- the production ML feature set remains the 8 relative features
+- the ML feature set remained the 8 relative features
 - the C++ runtime changed only through regenerated exported weights
 
 A live ESPHome C3 smoke test after the retrain produced 37 IDLE publications
 and 1 MOTION publication across 38 post-connect samples, with median score
 `0.10`, mean score `0.76`, and one score above the fixed threshold `5.0`.
 
-### Follow-Up
+#### Follow-Up
 
 Per-packet normalized turbulence for ML (`std(amplitudes) / mean(amplitudes)`)
 was later promoted to the single production path before the same 8 relative ML
@@ -233,12 +280,12 @@ had `90.2%` recall, while the gain-aware path reached `100.0%` recall with
 `0.0%` FP.
 
 The long-recording gate still exposes noisy C5/C6 idle segments (`C5` ML
-`7.7%` FP, `C6` ML `10.1%` FP). This appears separate from the historical
-ESP32 normalization issue because the same long files are also difficult for MVS (`C5` `11.1%`
-FP, `C6` `40.2%` FP). Treat it as a dataset/environment coverage issue, not as
-evidence against the ESP32 normalization fix.
+`7.7%` FP, `C6` ML `10.1%` FP). This appeared separate from the historical
+ESP32 normalization issue because the same long files were also difficult for
+MVS (`C5` `11.1%` FP, `C6` `40.2%` FP). The working interpretation was
+dataset/environment coverage, not evidence against the ESP32 normalization fix.
 
-### Second Empty-Domain Capture
+#### Second Empty-Domain Capture
 
 A later C6 bedroom `empty` capture (`empty_c6_64sc_20260630_120210.npz`) was a
 true empty-room recording but looked motion-like to the previous export:
@@ -258,21 +305,25 @@ regression gate and be evaluated with long-recording holdouts before promotion.
 
 ---
 
-## Feature-Set Reduction Sweep
+### Feature-Set Reduction Sweep
 
-### Goal
+Date: 2026-05-20
+
+Status: Superseded by later relative-8 and AGC-active normalized baselines.
+
+#### Goal
 
 Reduce long-recording false positives without weakening the deployed MLP
 architecture or breaking Python/C++ parity.
 
-### Setup
+#### Setup
 
-- Production topology kept fixed at `9 -> 24 -> 12 -> 1`
+- Then-production topology kept fixed at `9 -> 24 -> 12 -> 1`
 - Candidate feature sets evaluated with grouped CV, paired validation, and
   long-recording holdout
 - Ranking favored holdout robustness, not CV alone
 
-### Decision
+#### Decision
 
 The input feature set was reduced from 12 to 9.
 
@@ -282,7 +333,7 @@ Removed features:
 - `turb_entropy`
 - `turb_slope`
 
-### Why These Features Were Dropped
+#### Why These Features Were Dropped
 
 - They sometimes improved paired validation slightly, but hurt the
   long-recording holdout where FP robustness mattered more
@@ -291,32 +342,37 @@ Removed features:
 - They increased deployment complexity without producing a reliable FP-first
   win
 
-### Outcome
+#### Outcome
 
-- The current 9-feature MLP became the production baseline
+- The 9-feature MLP became the production baseline at that point
 - The simpler input set improved holdout robustness while preserving strong
   paired-set quality
 
 ---
 
 
-## FP-First Feature and Training Sweep
+### FP-First Feature and Training Sweep
 
-### Goal
+Date: 2026-05-20
 
-Revisit the production `mlp-9` from the opposite angle of the temporal sweep:
+Status: Superseded by later ML baselines; retained for FP-first ranking
+criteria.
+
+#### Goal
+
+Revisit the then-production `mlp-9` from the opposite angle of the temporal sweep:
 identify which features amplify long-run false positives, then test whether
 feature-set changes or training-policy changes can reduce FP without paired-set
 regression.
 
-### Axes Tested
+#### Axes Tested
 
 - per-window profiling on the 4 curated long recordings
 - feature diagnostics on `TP/FP/TN/FN` buckets
 - FP-first training policies (`fp_weight`, negative emphasis, threshold tuning)
 - targeted candidates combining feature-set changes and training policy
 
-### Result
+#### Result
 
 - Winner: `baseline-9`
 - Median long `max_fp_rate`: 7.00%
@@ -324,13 +380,13 @@ regression.
 - Median long `worst_chip_f1`: 89.00
 - Baseline reference (`baseline-9`): `max_fp_rate=7.00%`, `total_fp=356.0`, `worst_chip_f1=89.00`
 
-### Decision
+#### Decision
 
 The campaign only promotes a candidate if the FP-first ranking improves in
 median and stays stable in the worst case. See the generated JSON campaign
 artifact for the full shortlist and diagnostics.
 
-### Follow-Up: `drop-turb_min`
+#### Follow-Up: `drop-turb_min`
 
 The long-run diagnostics flagged `turb_min` as a suspicious feature, so a
 focused 5-seed follow-up compared `baseline-9` against a single ablation that
@@ -349,20 +405,24 @@ Conclusion:
 - median total FP was slightly worse
 - robustness regressed materially on the weakest seed / chip combinations
 
-So `drop-turb_min` was explicitly rejected and the production baseline remains
-unchanged.
+So `drop-turb_min` was explicitly rejected, and the production baseline stayed
+unchanged at that point.
 
 ---
 
-## Raw-9 MLP Topology Sweep
+### Raw-9 MLP Topology Sweep
 
-### Goal
+Date: 2026-05-20
+
+Status: Superseded by the relative-8 line.
+
+#### Goal
 
 Check whether the then-current 9-feature MLP could reduce long-run false positives
 by changing only the hidden-layer topology, without reopening the feature set
 or training-policy axes.
 
-### Candidates
+#### Candidates
 
 - `Then-current default (24-12)` -> `9 -> 24 -> 12 -> 1`
 - `Legacy (16-8)` -> `9 -> 16 -> 8 -> 1`
@@ -370,7 +430,7 @@ or training-policy axes.
 - `Wider (32-16)` -> `9 -> 32 -> 16 -> 1`
 - `Deep (24-12-6)` -> `9 -> 24 -> 12 -> 6 -> 1`
 
-### Ranking Priority
+#### Ranking Priority
 
 1. lowest long-run `max_fp_rate`
 2. lowest long-run `total_fp`
@@ -379,22 +439,22 @@ or training-policy axes.
 5. paired validation as a non-regression constraint
 6. grouped CV only as a final tie-breaker
 
-### Key Observation During Screening
+#### Key Observation During Screening
 
 `Shallow (24)` looked strong on 3-seed median `total_fp`, but `Wider (32-16)`
 held a slightly better primary FP ceiling (`max_fp_rate`) and therefore won the
 head-to-head slot for the final 5-seed comparison.
 
-### Final Outcome
+#### Final Outcome
 
 | Architecture | Seeds | Median Max FP Rate | Median Total FP | Median Paired Pass Count | Median Worst-Chip F1 |
 |--------------|-------|--------------------|-----------------|--------------------------|----------------------|
 | Then-current default (24-12) | 5 | 7.89% | 567.0 | 5.0 | 93.46 |
 | Wider (32-16) | 5 | 7.86% | 506.0 | 5.0 | 93.96 |
 
-### Decision
+#### Decision
 
-`Wider (32-16)` was promoted for the raw-9 production line. The winning export
+`Wider (32-16)` was promoted for the raw-9 line. The winning export
 used seed `20260521`, passed the final paired validation rerun, and kept the
 same 9-feature input set while improving the FP-first long-run ranking over the
 previous raw `24-12` baseline.
@@ -404,15 +464,20 @@ The full campaign payload is stored in
 
 ---
 
-## Relative-8 Topology and FP-Weight Sweep
+### Relative-8 Topology and FP-Weight Sweep
 
-### Goal
+Date: 2026-06-29
+
+Status: Superseded by the MVS hard-negative retrain, then by AGC-active clean
+baseline work.
+
+#### Goal
 
 Keep the gain-invariant relative feature set, then recover long-recording
 false-positive robustness by changing only the MLP topology and IDLE-class
 weighting.
 
-### Setup
+#### Setup
 
 - Feature set fixed to the promoted relative 8-feature view:
   `std/mean`, `max/mean`, `min/mean`, `iqr/mean`, `mad/mean`,
@@ -422,7 +487,7 @@ weighting.
 - Non-regression checks: paired real-data validation and exported gain-stress
   gate
 
-### Focused Screen
+#### Focused Screen
 
 | Candidate | Params | Long Total FP | Long Max FP Rate | Worst-Chip F1 | Mean Recall | Gain-Stress FP @ 1.5x |
 |-----------|-------:|--------------:|-----------------:|--------------:|------------:|----------------------:|
@@ -434,7 +499,7 @@ weighting.
 | `32-16`, `fp_weight=1.5` | 833 | 822 | 13.3% | 93.3% | 99.9% | 1.4% |
 | `32-16`, `fp_weight=2.0` | 833 | 712 | 11.3% | 94.2% | 99.7% | 0.7% |
 
-### Promoted Export
+#### Promoted Export
 
 The focused screen selected `32-16` with `fp_weight=2.0`. A full train/export
 with seed `1890407301` produced:
@@ -447,11 +512,11 @@ with seed `1890407301` produced:
 - long-recording ML gate: `total_fp=654`; per-chip FP counts `C3=0`,
   `C5=249`, `C6=405`, `S3=0`
 
-### Decision
+#### Decision
 
 Promote `8 -> 32 -> 16 -> 1`, `fp_weight=2.0`, seed `1890407301` as the
-relative-feature production baseline. C6 remains the weakest long-recording
-case, but the candidate keeps the gain-shift invariance objective while
+relative-feature baseline. C6 remained the weakest long-recording
+case, but the candidate kept the gain-shift invariance objective while
 substantially reducing long-run false positives versus the initial relative
 `24-12` export.
 
@@ -460,14 +525,18 @@ described below.
 
 ---
 
-## MVS-Guided Weighting Bias and Hard-Negative Retrain
+### MVS-Guided Weighting Bias and Hard-Negative Retrain
 
-### Goal
+Date: 2026-07-03
+
+Status: Superseded by AGC-active normalization and clean data recollection.
+
+#### Goal
 
 Determine whether MVS-derived metadata should guide ML training after long-run
 validation showed that both MVS and ML can produce quiet-room motion spikes.
 
-### Background
+#### Background
 
 The training stack was extended to annotate `optimal_threshold_gridsearch` in
 `data/dataset_info.json`. The first use of this metadata treated MVS as a
@@ -488,7 +557,7 @@ The key concern was conceptual, not only numerical: MVS itself is weak on the
 same noisy long-run quiet segments. Using MVS as a broad teacher can therefore
 import MVS quiet-spike bias into the ML decision boundary.
 
-### Tooling Added
+#### Tooling Added
 
 `tools/10_train_ml_model.py` gained explicit sample-weight policies:
 
@@ -499,11 +568,11 @@ import MVS quiet-spike bias into the ML decision boundary.
 - `mvs_hard_negative`: use MVS only to up-weight IDLE windows that look
   motion-like; motion samples remain neutral
 
-Seed-search promotion was also tightened: a candidate is not promoted if it
-increases long-recording total false positives or max false-positive rate over
-the current exported baseline.
+Seed-search promotion was also tightened: a candidate was not promoted if it
+increased long-recording total false positives or max false-positive rate over
+the exported baseline.
 
-### Seed Search Result
+#### Seed Search Result
 
 Seed-search with `mvs_hard_negative` found seed `2083554459`.
 
@@ -530,7 +599,7 @@ material false-positive reduction and a better worst-chip F1. This matches the
 product priority for long static runs: avoid buying small recall gains with
 large quiet-room FP costs.
 
-### Fixed-Seed Weighting Comparison
+#### Fixed-Seed Weighting Comparison
 
 With seed fixed to `2083554459` and `--no-export`, the four weighting modes
 were compared using grouped blocked CV:
@@ -546,38 +615,52 @@ were compared using grouped blocked CV:
 best precision, lowest FP rate, lowest C6 FP, and lowest worst-source FP, with
 only a small recall trade-off versus `none`.
 
-### Decision
+#### Decision
 
 Promote seed `2083554459` and make `mvs_hard_negative` the default
-sample-weight policy for production training.
+sample-weight policy for production training at that point.
 
-MVS remains useful as a hard-negative mining signal, but it should not be used
+MVS remained useful as a hard-negative mining signal, but it should not be used
 as a general teacher for motion labels unless a future long-recording gate
 shows a clear FP-safe improvement.
 
+#### Later Status
+
+This result is superseded by the later AGC-active normalization refactor and by
+the discovery that earlier datasets may have been contaminated. Production
+training now defaults back to `none` so the first clean retrain establishes an
+unbiased baseline.
+
+Compare `mvs_hard_negative` against `none` again only after clean data
+collection and refreshed `optimal_threshold_gridsearch` metadata.
+
 ---
 
-## Tiny CNN / TCN Sweep
+### Tiny CNN / TCN Sweep
 
-### Goal
+Date: 2026-05-20
 
-Test whether small temporal models could beat the production `mlp-9` on an
+Status: Rejected; superseded by later MLP baseline work.
+
+#### Goal
+
+Test whether small temporal models could beat the then-production `mlp-9` on an
 FP-first ranking over the 4 curated long recordings.
 
-### Candidates
+#### Candidates
 
-- `mlp-9`: production 9-feature MLP baseline
+- `mlp-9`: then-production 9-feature MLP baseline
 - `cnn-b`: Tiny 1D CNN using `turbulence + delta_turbulence`
 - `tcn-a`: small causal temporal convolution baseline
 
-### Ranking Priority
+#### Ranking Priority
 
 1. lowest `max_fp_rate` on the 4 long recordings
 2. lowest `total_fp`
 3. highest long-run `pass_count`
 4. highest `worst_chip_f1`
 
-### Final Outcome
+#### Final Outcome
 
 - `mlp-9` remained the best practical model after the completed 5-seed final
   comparison
@@ -585,27 +668,27 @@ FP-first ranking over the 4 curated long recordings.
 - `tcn-a` remained non-competitive during screening / initial multi-seed
   evaluation and was not promoted
 
-### Completed Result Comparison
+#### Completed Result Comparison
 
 | Model | Seeds | Median Max FP Rate | Median Total FP | Median Pass Count | Median Worst-Chip F1 | Worst Max FP Rate |
 |-------|-------|--------------------|-----------------|-------------------|----------------------|-------------------|
 | MLP-9 | 5 | 7.86% | 556.0 | 2.0 | 94.04 | 7.89% |
 | CNN-B | 5 | 7.92% | 553.0 | 2.0 | 83.54 | 9.77% |
 
-### Interpretation
+#### Interpretation
 
 - `cnn-b` occasionally matched the MLP on total FP, but it was less stable and
   substantially worse on the weakest chip/seed combination
 - The main failure mode stayed on `C6`, where temporal candidates often traded
   away too much recall to gain only marginal FP improvements
 - No tested temporal model showed a clear enough win to justify a deployment
-  path beyond the current MLP
+  path beyond the MLP baseline at that time
 
-### Decision
+#### Decision
 
-Keep `mlp-9` as the production baseline and focus follow-up work on FP-first
-decision logic or alternative host-side baselines rather than porting the
-tested temporal models.
+Keep `mlp-9` as the production baseline at that time and focus follow-up work
+on FP-first decision logic or alternative host-side baselines rather than
+porting the tested temporal models.
 
 ---
 

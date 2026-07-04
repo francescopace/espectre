@@ -7,7 +7,7 @@ import argparse
 from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace, cli_command, serial_port_example
 from .esphome import run_esphome_command
 from .host import collect_csi_data, open_web_ui
-from .idf import run_idf_command
+from .idf import run_idf_command, run_idf_doctor
 from .micro import deploy_code, flash_firmware, run_application, verify_installation
 from .mqtt_shell import EspectreMQTTShell
 from .serial_monitor import run_serial_monitor
@@ -110,6 +110,11 @@ def _add_monitor_parser(subparsers) -> None:
     monitor_parser.set_defaults(handler=run_serial_monitor)
 
 
+def _add_doctor_parser(subparsers) -> None:
+    doctor_parser = subparsers.add_parser("doctor", help="Validate the local ESP-IDF setup used by the CLI")
+    doctor_parser.set_defaults(handler=run_idf_doctor)
+
+
 def _add_micro_namespace(subparsers) -> None:
     micro_parser = subparsers.add_parser(
         "micro",
@@ -168,7 +173,7 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
 
     for command_name, help_text in {
         "build": "Configure target and build firmware",
-        "flash": "Flash firmware with idf.py",
+        "flash": "Flash firmware with the auto-detected ESP-IDF setup",
     }.items():
         command_parser = idf_subparsers.add_parser(command_name, help=help_text)
         if command_name == "build":
@@ -194,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('collect', '--stimulus-target', '192.168.1.50', '--no-save', '--log-turbulence')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--stimulus-target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}",
+            f"  {cli_command('doctor')}",
             f"  {cli_command('monitor', '--port', serial_port_example())}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--dev')}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--clean')}",
@@ -215,6 +221,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_collect_parser(subparsers)
     _add_mqtt_parser(subparsers)
     _add_monitor_parser(subparsers)
+    _add_doctor_parser(subparsers)
     _add_esphome_namespace(subparsers)
     _add_idf_namespace(subparsers, "native")
     _add_idf_namespace(subparsers, "matter")

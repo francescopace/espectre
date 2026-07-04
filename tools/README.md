@@ -66,18 +66,19 @@ python 2_analyze_system_tuning.py --quick      # Reduced parameter space
 
 ---
 
-### 3. Grid-Search Metadata Refresh (`3_refresh_gridsearch_metadata.py`)
+### 3. Dataset Metadata Refresh (`3_refresh_dataset_metadata.py`)
 
-**Purpose**: Refresh the production-aligned MVS threshold field in `data/dataset_info.json`
+**Purpose**: Refresh derived fields in `data/dataset_info.json`
 
+- Writes nearest 1:1 `static_presence` / `motion` pairing metadata for matching chip and subcarrier captures
 - Calculates `optimal_threshold_gridsearch` for `empty`, `static_presence`, `motion`, and `test` entries
 - Uses fixed default subcarriers, Hampel filtering, and adaptive P95 × 1.1 threshold bootstrap
-- Runs as a dry run by default, supports `--write` to update the field, and supports `--check` for validation
+- Runs as a dry run by default, supports `--write` to update metadata, and supports `--check` for validation
 
 ```bash
-python 3_refresh_gridsearch_metadata.py          # Dry run
-python 3_refresh_gridsearch_metadata.py --write  # Update dataset_info.json
-python 3_refresh_gridsearch_metadata.py --check  # Fail if metadata is stale
+python 3_refresh_dataset_metadata.py          # Dry run
+python 3_refresh_dataset_metadata.py --write  # Update dataset_info.json
+python 3_refresh_dataset_metadata.py --check  # Fail if metadata is stale
 ```
 
 ---

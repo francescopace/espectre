@@ -16,12 +16,12 @@ This document provides detailed performance metrics for ESPectre's motion detect
 --
 ### Test Configuration
 
-Configuration used for all test results (unified across chips):
+Shared validation configuration across chips and detectors:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Window Size | 100 | `DETECTOR_DEFAULT_WINDOW_SIZE` |
-| Calibration | Fixed subcarriers + threshold bootstrap | Shared 12-subcarrier set, adaptive threshold for MVS |
+| Calibration | Fixed subcarriers + threshold bootstrap | Shared 12-subcarrier set; threshold bootstrap applies to MVS, while ML keeps a fixed threshold |
 | Hampel Filter | ON | Enabled for both MVS and ML (window=7, threshold=5.0 MAD) |
 | Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
 | CV Normalization | Always on | Shared AGC-active turbulence path (`std/mean`) |
@@ -35,166 +35,51 @@ still exports relative neural-detector features such as `std/mean`, `iqr/mean`,
 
 ## Training Dataset
 
-`data/dataset_info.json` contains canonical `empty` / `static_presence` /
-`motion` labels across multiple collection sessions and environments. The
-counts below are aggregated packet totals across all currently available
-training captures, including the dedicated empty-room recordings.
+`data/dataset_info.json` contains canonical `empty` / `static_presence` /`motion` labels across multiple collection sessions and environments.  
+The counts below are aggregated packet totals across all currently available training captures, including the dedicated empty-room recordings.
 
 | Chip | Empty | Static Presence | Motion | Total |
 |------|-------|-----------------|--------|-------|
-| ESP32-C3 | 21113 | 23204 | 11100 | 55417 |
-| ESP32-C5 | 21144 | 23359 | 11380 | 55883 |
-| ESP32-C6 | 21003 | 23770 | 11891 | 56664 |
-| ESP32-S3 | 21007 | 23364 | 11376 | 55747 |
-| ESP32 | 18495 | 20535 | 9513 | 48543 |
-| Total | 102762 | 114232 | 55260 | 272254 |
+| ESP32-C3 | 23899 | 35587 | 17803 | 77289 |
+| ESP32-C5 | 11962 | 17444 | 8727 | 38133 |
+| ESP32-C6 | 23956 | 53014 | 26429 | 103399 |
+| ESP32-S3 | 23930 | 25594 | 17104 | 66628 |
+| Total | 83747 | 131639 | 70063 | 285449 |
 
 Data location: `data/`
 
 ---
 
-## Running Tests
-
-```bash
-source .venv/bin/activate
-
-# C++
-cmake -S test/cpp -B test/cpp/build
-cmake --build test/cpp/build
-ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
-ctest --test-dir test/cpp/build -R test_long_recordings --output-on-failure
-
-# Python (real-data validation)
-pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -v
-
-# Python (60-second long recordings, prints summary tables)
-pytest test/python/test_validation_long_recordings.py -v -s
-```
-
----
-
 ## Current Results
 
-**Last verified:** 2026-07-03 (`test_motion_detection`, C++ `test_long_recordings`, Python `TestPerformanceMetrics`, Python `test_validation_long_recordings.py`)
+- C++ `test_motion_detection`
+- C++ `test_long_recordings`
+- Python `TestPerformanceMetrics`
+- Python `test_validation_long_recordings.py`
 
-### Python + C++ real-data validation
+### Real-data validation
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
-| ESP32-C3 | MVS Default | 98.5% | 100.0% | 0.0% | 99.3% |
-| ESP32-C3 | MVS Runtime | 98.5% | 100.0% | 0.0% | 99.3% |
-| ESP32-C3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-C5 | MVS Default | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32-C5 | MVS Runtime | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32-C5 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32-C6 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
-| ESP32-C6 | MVS Runtime | 99.7% | 100.0% | 0.0% | 99.9% |
-| ESP32-C6 | ML | 98.7% | 100.0% | 0.0% | 99.4% |
-| ESP32-S3 | MVS Default | 99.7% | 100.0% | 0.0% | 99.9% |
-| ESP32-S3 | MVS Runtime | 99.7% | 100.0% | 0.0% | 99.9% |
-| ESP32-S3 | ML | 100.0% | 100.0% | 0.0% | 100.0% |
-| ESP32 | MVS Default | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32 | MVS Runtime | 99.4% | 100.0% | 0.0% | 99.7% |
-| ESP32 | ML | 99.9% | 100.0% | 0.0% | 99.9% |
-
-**MVS Default**: Uses fixed default subcarriers with adaptive threshold from baseline.
-**MVS Runtime**: Current production startup path; matches `MVS Default`.
-**ML**: Neural network with grouped session-level blocked CV for model selection, hard-negative MVS sample weighting, Hampel filtering, gain-mode-aware turbulence normalization, and exported relative turbulence-window features. Binary training uses `empty`, `static_presence`, and `motion`; `empty` and `static_presence` are both IDLE targets.
+| ESP32-C3 | MVS  | 99.3% | 84.0% | 9.6% | 91.0% |
+| ESP32-C3 | ML | 94.1% | 100.0% | 0.0% | 97.0% |
+| ESP32-C5 | MVS  | 100.0% | 86.8% | 7.7% | 92.9% |
+| ESP32-C5 | ML | 100.0% | 87.4% | 7.3% | 93.3% |
+| ESP32-C6 | MVS  | 58.8% | 99.6% | 0.1% | 73.9% |
+| ESP32-C6 | ML | 89.9% | 99.5% | 0.2% | 94.4% |
+| ESP32-S3 | MVS | 75.3% | 96.7% | 1.3% | 84.7% |
+| ESP32-S3 | ML | 92.6% | 89.8% | 5.2% | 91.2% |
 
 ---
 
-## System Resources
+## Long Test Recordings
 
-Resource usage benchmarks for ESPectre with full ESPHome stack (WiFi, API, OTA, debug sensors).
-
-Development YAML files (`-dev.yaml`) include ESPHome debug sensors for runtime monitoring of free heap, max block size, and loop time. 
-These sensors are available in Home Assistant for continuous monitoring.
-
-Additional performance logs are available at DEBUG level (`logger.level: DEBUG`):
-- `[resources]` - Free heap at startup and post-calibration
-- `[perf]` - Detection time per packet (logged every ~10 seconds)
-
----
-
-### Flash Usage
-
-| Chip | Firmware Size | Flash Used | Free App Slot |
-|------|---------------|------------|---------------|
-| ESP32-C3 | 1370 KB | 73.8% | 486 KB |
-| ESP32-C5 | 1587 KB | 85.5% | 269 KB |
-| ESP32-C6 | 1539 KB | 82.9% | 317 KB |
-| ESP32-S3 | 1246 KB | 67.1% | 610 KB |
-
-Partition layout uses two app slots (`app0`/`app1`, 1.81 MB each) plus a small `otadata` partition for OTA metadata.
- `Free App Slot` is the remaining space in one app slot after placing the firmware image.
-
----
-
-### RAM Usage
-
-| Chip | Phase | Free Heap | Notes |
-|------|-------|-----------|-------|
-| ESP32-C3 | Post-setup | 179 KB | After ESPectre init |
-| ESP32-C3 | Post-calibration | 83 KB | After startup calibration completes |
-| ESP32-C5 | Post-setup | 162 KB | After ESPectre init |
-| ESP32-C5 | Post-calibration | 71 KB | After startup calibration completes |
-| ESP32-C6 | Post-setup | 272 KB | After ESPectre init |
-| ESP32-C6 | Post-calibration | 180 KB | After startup calibration completes |
-| ESP32-S3 | Post-setup | 8425 KB | After ESPectre init (includes PSRAM heap) |
-| ESP32-S3 | Post-calibration | 8331 KB | After startup calibration completes (includes PSRAM heap) |
-
----
-
-### Detection Timing
-
-Time to process one CSI packet (feature extraction + detection, measured on hardware).
-At 100 pps, each packet has a 10 ms budget. 
-
-| Chip | Algorithm | Detection Time | CPU @ 100 pps |
-|------|-----------|----------------|---------------|
-| ESP32-C3 | MVS | ~440 µs | ~4.4% |
-| ESP32-C3 | ML | ~3400 µs | ~34% |
-| ESP32-C5 | MVS | ~220 µs | ~2.2% |
-| ESP32-C5 | ML | ~1500 µs | ~15% |
-| ESP32-C6 | MVS | ~250 µs | ~2.5% |
-| ESP32-C6 | ML | ~1900 µs | ~19% |
-| ESP32-S3 | MVS | ~150 µs | ~1.5% |
-| ESP32-S3 | ML | ~430 µs | ~4.3% |
-
-The worst-case path is ML on ESP32-C3 (~3.5 ms peak, ~35% CPU), which still leaves substantial budget for WiFi, ESPHome, and Home Assistant communication.
-
-**MVS**: Extracts a single feature (spatial turbulence) and its moving variance.
-
-**ML**: Extracts 8 relative statistical features from the sliding window, then runs MLP inference (8 -> 32 -> 16 -> 1 = 784 MACs).
-The MLP itself is lightweight; most time is spent on feature extraction. 
-For ML architecture details, see [ALGORITHMS.md](ALGORITHMS.md#architecture).
-
----
-
-## 60-Second Test Recordings
-
-Continuous recordings (~30s idle + ~30s motion) provide a realistic production-style scenario. These files are not used during training.
-
-Test data: `data/test/`
-Source of truth: `test/python/test_validation_long_recordings.py`
-
-The Python and C++ long-recording suites currently produce matching packet-level metrics on all available long-test datasets (`C3`, `C5`, `C6`, `S3`).
-
-Methodology:
-- `MVS Fixed`: keep the shared fixed subcarrier set, run baseline threshold bootstrap on the idle segment, then evaluate the full recording with adaptive threshold and Hampel enabled
-- `ML`: use exported production weights with threshold `5.0` and Hampel enabled
-- Both paths skip the first `100` packets of each segment as warmup when scoring packet-level metrics
-
-| Chip | Algorithm | Recall | Precision | FP Rate | F1-Score | FP Count |
-|------|-----------|--------|-----------|---------|----------|----------|
-| C3 | MVS Fixed | 100.0% | 99.8% | 0.2% | 99.9% | 5 |
-| C3 | ML | 98.5% | 100.0% | 0.0% | 99.2% | 0 |
-| C5 | MVS Fixed | 100.0% | 87.9% | 11.1% | 93.5% | 357 |
-| C5 | ML | 100.0% | 91.3% | 7.7% | 95.4% | 247 |
-| C6 | MVS Fixed | 100.0% | 70.4% | 40.2% | 82.6% | 1270 |
-| C6 | ML | 96.0% | 92.1% | 7.9% | 94.0% | 250 |
-| S3 | MVS Fixed | 100.0% | 94.8% | 4.9% | 97.3% | 151 |
-| S3 | ML | 99.9% | 100.0% | 0.0% | 99.9% | 0 |
+| Chip | MVS Recall | MVS FP Rate | ML Recall | ML FP Rate |
+|------|-------|-----|------|----|
+| C3 | 2.7% | 4.4% | 0.0% | 0.0% |
+| C5 | 2.0% | 1.5% | 1.7% | 1.6% |
+| C6 | 8.0% | 6.9% | 0.2% | 0.2% |
+| S3 | 14.5% | 11.9% | 7.4% | 4.4% |
 
 ---
 
@@ -202,8 +87,8 @@ Methodology:
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
-| 2026-07-03 | v3.0.0 | C6 |  -   | ML + Hampel | 99.6% | 100.0% | 0.0% | 99.8% |
-| 2026-07-03 | v3.0.0 | C6 |  -   | MVS + Hampel | 99.7% | 100.0% | 0.0% | 99.9% |
+| 2026-07-04 | v3.0.0 | C6 |  -   | ML + Hampel | 89.9% | 99.5% | 0.2% | 94.4% |
+| 2026-07-04 | v3.0.0 | C6 |  -   | MVS + Hampel | 58.8% | 99.6% | 0.1% | 73.9% |
 | 2026-05-21 | v2.8.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-05-21 | v2.8.0 | C6 | NBVI | MVS + Hampel| 99.6% | 100.0% | 0.0% | 99.8% |
 | 2026-03-11 | v2.6.1 | C6 |  -   | ML | 100.0% | 100.0% | 0.0% | 100.0% |

@@ -251,7 +251,8 @@ not generate them on its own and does not reinterpret their meaning.
 
 Before building locally, complete the shared
 [`ESP-IDF Local Build Prerequisite`](../../../../docs/SETUP.md#esp-idf-local-build-prerequisite).
-Use a shell where `idf.py --version` succeeds.
+The repository CLI auto-detects a reusable ESP-IDF install, so prefer the
+wrapper-first workflow without a mandatory pre-check:
 
 Repository CLI:
 
@@ -261,19 +262,23 @@ Repository CLI:
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
-On Windows, use `.\espectre.cmd streamer ...` for build/flash and
-`.\espectre.cmd monitor --port COM5` for serial logs.
+On Windows, use `.\espectre.cmd streamer ...` and `.\espectre.cmd monitor --port COM5`.
+If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor`
+or `./espectre doctor` for troubleshooting.
 
 When `app/sdkconfig.wifi` exists, the repository CLI automatically passes
 `sdkconfig.defaults;sdkconfig.wifi` to `idf.py` for `build`.
 
-Raw ESP-IDF flow:
+<details>
+<summary>Advanced raw ESP-IDF flow</summary>
 
 ```bash
 cd src/cpp/frontend/streamer/app
 idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" set-target esp32c3
 idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
 ```
+
+</details>
 
 ## OTA
 

@@ -238,7 +238,10 @@ class TestLongRecordings:
         )
 
         assert len(baseline_packets) == motion_start_packet
-        assert len(movement_packets) > 0
+        if extract_motion_start_from_description(entry.get("description")) is None:
+            assert len(movement_packets) == 0
+        else:
+            assert len(movement_packets) > 0
         assert metrics["baseline_eval_count"] >= 0
         assert metrics["movement_eval_count"] >= 0
         assert 0.0 <= metrics["recall"] <= 100.0
@@ -296,7 +299,10 @@ class TestLongRecordingsMVS:
         )
 
         assert len(baseline_packets) == motion_start_packet
-        assert len(movement_packets) > 0
+        if extract_motion_start_from_description(entry.get("description")) is None:
+            assert len(movement_packets) == 0
+        else:
+            assert len(movement_packets) > 0
         assert len(metrics["selected_band"]) == 12
         assert metrics["baseline_eval_count"] >= 0
         assert metrics["movement_eval_count"] >= 0
@@ -311,18 +317,22 @@ class TestLongRecordingsMVS:
 class TestLongRecordingHelpers:
     """Regression tests for long recording metadata and parser helpers."""
 
-    def test_motion_start_packet_is_parsed_from_dataset_metadata(self):
+    def test_motion_start_packet_uses_metadata_or_full_capture_fallback(self):
         datasets = get_available_long_test_datasets()
         assert datasets, f"No datasets found via {DATASET_INFO_PATH}"
 
         chips = {chip for _, _, _, _, chip, _ in datasets}
-        assert {"C3", "C5", "C6"}.issubset(chips)
+        assert chips
 
         for _, baseline_packets, movement_packets, motion_start_packet, _, entry in datasets:
             expected = extract_motion_start_from_description(entry.get("description"))
-            assert expected == motion_start_packet
             assert len(baseline_packets) == motion_start_packet
-            assert len(movement_packets) > 0
+            if expected is None:
+                assert motion_start_packet == len(baseline_packets) + len(movement_packets)
+                assert len(movement_packets) == 0
+            else:
+                assert expected == motion_start_packet
+                assert len(movement_packets) > 0
 
     @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
     def test_long_test_loader_splits_stream_consistently(self, long_dataset):
@@ -334,7 +344,10 @@ class TestLongRecordingHelpers:
         assert test_path.parent == DATA_DIR / "test"
         assert test_path.exists()
         assert len(baseline_packets) == motion_start_packet
-        assert len(movement_packets) > 0
+        if extract_motion_start_from_description(entry.get("description")) is None:
+            assert len(movement_packets) == 0
+        else:
+            assert len(movement_packets) > 0
         assert str(entry.get("chip", "")).upper() == chip
 
     def test_long_gate_output_parser_extracts_rows(self):

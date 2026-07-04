@@ -177,6 +177,9 @@ def get_available_long_test_datasets(chips=None):
 
     Each item is a tuple:
         (test_path, static_presence_packets, motion_packets, motion_start_packet, chip, entry)
+
+    When test metadata does not annotate a motion start packet, the whole stream
+    is treated as baseline and the movement segment is empty.
     """
     from csi_utils import load_npz_as_packets
 
@@ -207,9 +210,9 @@ def get_available_long_test_datasets(chips=None):
 
         motion_start_packet = extract_motion_start_from_description(entry.get("description"))
         if motion_start_packet is None:
-            motion_start_packet = len(packets) // 2
+            motion_start_packet = len(packets)
 
-        if motion_start_packet <= 0 or motion_start_packet >= len(packets):
+        if motion_start_packet <= 0 or motion_start_packet > len(packets):
             continue
 
         static_presence_packets = packets[:motion_start_packet]

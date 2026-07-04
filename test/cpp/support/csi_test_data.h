@@ -184,6 +184,7 @@ inline const char* chip_name(ChipType chip) {
 inline bool load_tuning_cache();
 inline const char* static_presence_file_for_chip(ChipType chip);
 inline const char* motion_file_for_chip(ChipType chip);
+inline std::vector<ChipType> get_supported_chips();
 inline std::vector<ChipType> get_available_chips();
 inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm);
 inline bool parse_iso8601_epoch_seconds(const std::string& text, double& out_epoch_seconds);
@@ -384,7 +385,7 @@ inline bool load_tuning_cache() {
         return parse_iso8601_epoch_seconds(ts, out_epoch_seconds);
     };
 
-    for (ChipType chip : get_available_chips()) {
+    for (ChipType chip : get_supported_chips()) {
         const int idx = chip_index(chip);
         if (idx < 0) {
             continue;
@@ -440,14 +441,18 @@ inline bool load_tuning_cache() {
         selected.valid = true;
     }
 
-    for (ChipType chip : get_available_chips()) {
+    int selected_count = 0;
+    for (ChipType chip : get_supported_chips()) {
         const int idx = chip_index(chip);
-        if (idx < 0 || !g_selected_by_chip[idx].valid) {
-            std::fprintf(stderr,
-                "[CSI Test Data] ERROR: Missing 64SC static-presence/motion datasets for chip %s\n",
-                chip_name(chip));
-            return false;
+        if (idx >= 0 && g_selected_by_chip[idx].valid) {
+            selected_count++;
         }
+    }
+
+    if (selected_count == 0) {
+        std::fprintf(stderr,
+            "[CSI Test Data] ERROR: No complete 64SC static-presence/motion dataset pairs found\n");
+        return false;
     }
 
     g_tuning_cache_loaded = true;
@@ -521,7 +526,7 @@ inline bool load_long_recording_cache() {
         }
     }
 
-    for (ChipType chip : get_available_chips()) {
+    for (ChipType chip : get_supported_chips()) {
         const int idx = chip_index(chip);
         if (idx < 0) {
             continue;
@@ -703,7 +708,7 @@ inline std::vector<ChipType> get_available_long_recording_chips() {
     if (!load_long_recording_cache()) {
         return chips;
     }
-    for (ChipType chip : get_available_chips()) {
+    for (ChipType chip : get_supported_chips()) {
         const int idx = chip_index(chip);
         if (idx >= 0 && g_long_selected_by_chip[idx].valid) {
             chips.push_back(chip);
@@ -713,11 +718,28 @@ inline std::vector<ChipType> get_available_long_recording_chips() {
 }
 
 /**
- * Get list of available chip configurations for parametrized testing.
+ * Get list of supported chip configurations.
+ */
+inline std::vector<ChipType> get_supported_chips() {
+    return {ChipType::C3, ChipType::C5, ChipType::C6, ChipType::ESP32, ChipType::S3};
+}
+
+/**
+ * Get list of chip configurations with complete static-presence/motion pairs.
  * Note: Some chips are skipped (check chip_skip_reason()).
  */
 inline std::vector<ChipType> get_available_chips() {
-    return {ChipType::C3, ChipType::C5, ChipType::C6, ChipType::ESP32, ChipType::S3};
+    std::vector<ChipType> chips;
+    if (!load_tuning_cache()) {
+        return chips;
+    }
+    for (ChipType chip : get_supported_chips()) {
+        const int idx = chip_index(chip);
+        if (idx >= 0 && g_selected_by_chip[idx].valid) {
+            chips.push_back(chip);
+        }
+    }
+    return chips;
 }
 
 // ============================================================================

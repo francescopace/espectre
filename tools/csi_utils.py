@@ -726,6 +726,11 @@ class CSICollector:
         device_token = format_device_token(device_id)
         return f'{self.label}_{chip}_{num_subcarriers}sc_{device_token}_{timestamp}_{self._sample_count:04d}.npz'
 
+    def _build_default_description(self) -> str:
+        """Return a concise, human-readable default dataset description."""
+        readable_label = str(self.label).replace('_', ' ').strip()
+        return f'HT20 {readable_label} sample'
+
     @staticmethod
     def _require_single_device_id(packets: List[CSIPacket]) -> int:
         """Validate that one device and only one device is present."""
@@ -889,7 +894,7 @@ class CSICollector:
             existing_files = [f['filename'] for f in info['files'][self.label]]
             if filename not in existing_files:
                 if not description:
-                    description = f'HT20 {self.label}, AGC-active normalized pipeline'
+                    description = self._build_default_description()
                 
                 file_info = {
                     'filename': filename,

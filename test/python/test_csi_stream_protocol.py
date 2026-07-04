@@ -313,6 +313,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert info['format_version'] == '1.1'
     assert info['files']['static_presence'][0]['filename'] == filepath.name
     assert info['files']['static_presence'][0]['device_id'] == '0x0000000000abcdef'
+    assert info['files']['static_presence'][0]['description'] == 'HT20 static presence sample'
     assert 'dev0000000000abcdef' in filepath.name
 
 

@@ -136,3 +136,57 @@ def test_empty_separation_uses_two_feature_score(monkeypatch) -> None:
     assert separation.message.startswith(
         "Empty-vs-static score separates group ('C5', 'bedroom')"
     )
+
+
+def test_metadata_refresh_recommendation_triggers_for_missing_threshold() -> None:
+    module = _load_validator_module()
+
+    results = [
+        module.ValidationResult(
+            "metadata_test/example.npz",
+            "FAIL",
+            "optimal_threshold_gridsearch must be a positive number",
+        )
+    ]
+
+    assert module.should_recommend_dataset_metadata_refresh(results) is True
+
+
+def test_metadata_refresh_recommendation_triggers_for_missing_pair_warning() -> None:
+    module = _load_validator_module()
+
+    assert module.should_recommend_dataset_metadata_refresh([], missing_motion_pair_count=1) is True
+
+
+def test_metadata_completeness_fails_when_environment_is_missing() -> None:
+    module = _load_validator_module()
+
+    dataset_info = {
+        "files": {
+            "static_presence": [
+                {
+                    "filename": "static_a.npz",
+                    "chip": "C5",
+                    "optimal_threshold_gridsearch": 1.5,
+                    "optimal_pair_motion_file": "motion_a.npz",
+                },
+            ],
+            "motion": [
+                {
+                    "filename": "motion_a.npz",
+                    "chip": "C5",
+                    "environment": "bedroom",
+                    "optimal_threshold_gridsearch": 1.8,
+                    "optimal_pair_static_presence_file": "static_a.npz",
+                },
+            ],
+        }
+    }
+
+    results = module.validate_metadata_completeness(dataset_info)
+    missing_environment = next(
+        result for result in results if result.name == "metadata_static_presence/static_a.npz"
+    )
+
+    assert missing_environment.status == "FAIL"
+    assert "missing environment" in missing_environment.message
