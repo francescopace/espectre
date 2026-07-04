@@ -2,7 +2,7 @@
  * ESPectre - C++ Long Recording Tests
  *
  * Runs the same long recordings used by Python validation and prints
- * native MVS fixed-subcarrier and ML metrics for manual comparison.
+ * native MVS and ML metrics for manual comparison.
  */
 
 #include "test_harness.h"
@@ -38,9 +38,9 @@ struct LongRunMetrics {
 
 struct ChipLongRunResults {
   const char *chip_name{nullptr};
-  LongRunMetrics mvs_fixed;
+  LongRunMetrics mvs;
   LongRunMetrics ml;
-  bool has_mvs_fixed{false};
+  bool has_mvs{false};
   bool has_ml{false};
 };
 
@@ -72,9 +72,9 @@ static void record_result(const char *algorithm, const LongRunMetrics &metrics) 
   }
 
   ChipLongRunResults &current = g_results[g_results_count - 1];
-  if (std::strcmp(algorithm, "mvs_fixed") == 0) {
-    current.mvs_fixed = metrics;
-    current.has_mvs_fixed = true;
+  if (std::strcmp(algorithm, "mvs") == 0) {
+    current.mvs = metrics;
+    current.has_mvs = true;
   } else if (std::strcmp(algorithm, "ml") == 0) {
     current.ml = metrics;
     current.has_ml = true;
@@ -127,7 +127,7 @@ static void print_summary_table() {
   printf("=====================================================================================================================\n");
   printf("                                     LONG RECORDING SUMMARY (C++)\n");
   printf("=====================================================================================================================\n");
-  printf("| Chip   | MVS Fixed               | ML                      |\n");
+  printf("| Chip   | MVS                     | ML                      |\n");
   printf("|--------|-------------------------|-------------------------|\n");
 
   for (int i = 0; i < g_results_count; i++) {
@@ -135,9 +135,9 @@ static void print_summary_table() {
     char mvs_str[32] = "N/A";
     char ml_str[32] = "N/A";
 
-    if (r.has_mvs_fixed) {
+    if (r.has_mvs) {
       std::snprintf(mvs_str, sizeof(mvs_str), "%.1f%% R, %.1f%% FP",
-                    r.mvs_fixed.recall, r.mvs_fixed.fp_rate);
+                    r.mvs.recall, r.mvs.fp_rate);
     }
     if (r.has_ml) {
       std::snprintf(ml_str, sizeof(ml_str), "%.1f%% R, %.1f%% FP",
@@ -252,12 +252,12 @@ static LongRunMetrics evaluate_mvs_long_recording() {
 void setUp(void) {}
 void tearDown(void) {}
 
-void test_long_recording_mvs_fixed(void) {
+void test_long_recording_mvs(void) {
   assert_dataset_metadata_is_valid();
   LongRunMetrics actual = evaluate_mvs_long_recording();
   print_metrics("MVS actual", actual);
   assert_mvs_metrics_are_valid(actual);
-  record_result("mvs_fixed", actual);
+  record_result("mvs", actual);
 }
 
 void test_long_recording_ml(void) {
@@ -279,7 +279,7 @@ int run_tests_for_chip(csi_test_data::ChipType chip) {
   }
 
   UNITY_BEGIN();
-  RUN_TEST(test_long_recording_mvs_fixed);
+  RUN_TEST(test_long_recording_mvs);
   RUN_TEST(test_long_recording_ml);
   return UNITY_END();
 }

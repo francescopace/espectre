@@ -7,7 +7,7 @@ These tests verify that algorithms produce expected results on actual captured d
 Configuration is aligned with C++ tests (test_motion_detection.cpp):
 - window_size = DETECTOR_DEFAULT_WINDOW_SIZE (100)
 - warmup = DETECTOR_DEFAULT_WINDOW_SIZE (buffer must be full before detection)
-- adaptive_factor = 1.1 (DEFAULT_ADAPTIVE_FACTOR)
+- adaptive_factor = 1.3 (DEFAULT_ADAPTIVE_FACTOR)
 - enable_hampel = true
 - CV normalization always enabled
 - Targets come from getter fixtures aligned with C++ target functions
@@ -613,15 +613,14 @@ class TestHampelFilterRealData:
 class TestPerformanceMetrics:
     """Test that we achieve expected performance metrics with fixed subcarriers."""
     
-    def test_mvs_default_subcarriers(self, real_data, window_size, mvs_default_fp_rate_target,
-                                     mvs_default_recall_target,
-                                     enable_hampel, chip_type, default_subcarriers,
-                                     dataset_id):
+    def test_mvs_fixed_subcarriers(self, real_data, window_size, fp_rate_target,
+                                   recall_target, enable_hampel, chip_type,
+                                   default_subcarriers, dataset_id):
         """
-        Test MVS motion detection with default (offline-tuned) subcarriers.
+        Test MVS motion detection with fixed production subcarriers.
         
-        This is the production-baseline reference test - uses pre-calculated default
-        subcarriers for each chip (matches C++ test_mvs_default_subcarriers).
+        This is a fixed-band regression test that uses the shared production
+        subcarriers for each chip (matches C++ test_mvs_fixed_subcarriers).
         
         Startup uses fixed subcarriers from conftest.py.
         """
@@ -689,25 +688,17 @@ class TestPerformanceMetrics:
         print(f"\n  * Dataset pair: {dataset_id}")
         print(f"  * Subcarriers: {selected_band}")
         print(f"  * Threshold:  {adaptive_threshold:.3f}")
-        print(f"  * Recall:     {pkt_recall:.1f}% (target: >{mvs_default_recall_target}%)")
+        print(f"  * Recall:     {pkt_recall:.1f}% (target: >{recall_target}%)")
         print(f"  * Precision:  {pkt_precision:.1f}%")
-        print(f"  * FP Rate:    {pkt_fp_rate:.1f}% (target: <{mvs_default_fp_rate_target}%)")
+        print(f"  * FP Rate:    {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)")
         print(f"  * F1-Score:   {pkt_f1:.1f}%")
-        
-        # Record results for summary table
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path(__file__).parent))
-        from conftest import record_performance
-        record_performance(chip_type, 'mvs_default', pkt_recall, pkt_fp_rate, pkt_precision, pkt_f1,
-                           dataset_id=dataset_id)
-        
+
         # Assertions
-        assert pkt_recall > mvs_default_recall_target, (
-            f"Recall too low: {pkt_recall:.1f}% (target: >{mvs_default_recall_target}%)"
+        assert pkt_recall > recall_target, (
+            f"Recall too low: {pkt_recall:.1f}% (target: >{recall_target}%)"
         )
-        assert pkt_fp_rate < mvs_default_fp_rate_target, (
-            f"FP Rate too high: {pkt_fp_rate:.1f}% (target: <{mvs_default_fp_rate_target}%)"
+        assert pkt_fp_rate < fp_rate_target, (
+            f"FP Rate too high: {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)"
         )
 
     def test_mvs_detection_accuracy(self, real_data, num_subcarriers, window_size, fp_rate_target,
@@ -721,7 +712,7 @@ class TestPerformanceMetrics:
         - Adaptive threshold from baseline calibration
         - Process ALL packets (no warmup skip)
         - Process baseline first, then movement (continuous context)
-        - Unified window_size (100) and adaptive threshold (P95 × 1.1)
+        - Unified window_size (100) and adaptive threshold (P100 x 1.3)
         - CV normalization for all chips
         
         Targets: >recall_target% Recall, <fp_rate_target% FP Rate.

@@ -9,7 +9,7 @@ This tool updates metadata derived from the recorded NPZ files:
 
 The threshold path stays aligned with the production MVS startup path:
 
-  fixed default subcarriers + Hampel + adaptive P95 x 1.1 threshold.
+  fixed default subcarriers + Hampel + adaptive P100 x 1.3 threshold.
 
 Usage:
     python tools/3_refresh_dataset_metadata.py                  # Dry run
@@ -95,7 +95,7 @@ def compute_threshold_info(packets):
     Calculate production-aligned adaptive threshold metadata for a packet list.
 
     Only the first CALIBRATION_BUFFER_SIZE packets are used, matching the MVS
-    startup bootstrap. The returned threshold is P95 x 1.1 over full-window
+    startup bootstrap. The returned threshold is P100 x 1.3 over full-window
     moving-variance values.
     """
     if not packets:

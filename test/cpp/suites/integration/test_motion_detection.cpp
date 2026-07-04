@@ -5,7 +5,7 @@
  * Tests motion detection performance with real CSI data.
  * 
  * Test Categories:
- *   1. test_mvs_default_subcarriers - MVS with fixed production subcarriers
+ *   1. test_mvs_fixed_subcarriers - MVS with fixed production subcarriers
  *   2. test_ml_detection - ML neural network detection
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -57,15 +57,15 @@ struct PerformanceResult {
 struct DatasetResults {
     std::string dataset_name;
     const char* chip_name;
-    PerformanceResult mvs_default;
+    PerformanceResult mvs;
     PerformanceResult ml;
 };
 
 static std::vector<DatasetResults> g_results;
 
 // Forward declarations for target getters used in summary output.
-inline float get_default_fp_rate_target();
-inline float get_default_recall_target();
+inline float get_mvs_fp_rate_target();
+inline float get_mvs_recall_target();
 inline float get_ml_fp_rate_target();
 inline float get_ml_recall_target();
 
@@ -75,14 +75,14 @@ static void record_result(const char* algorithm, float recall, float fp_rate, fl
         DatasetResults row{};
         row.dataset_name = current_label;
         row.chip_name = csi_test_data::chip_name(csi_test_data::current_chip());
-        row.mvs_default = {0, 0, 0, 0, false};
+        row.mvs = {0, 0, 0, 0, false};
         row.ml = {0, 0, 0, 0, false};
         g_results.push_back(row);
     }
     
     DatasetResults& current = g_results.back();
-    if (strcmp(algorithm, "mvs_default") == 0) {
-        current.mvs_default = {recall, fp_rate, precision, f1, true};
+    if (strcmp(algorithm, "mvs") == 0) {
+        current.mvs = {recall, fp_rate, precision, f1, true};
     } else if (strcmp(algorithm, "ml") == 0) {
         current.ml = {recall, fp_rate, precision, f1, true};
     }
@@ -95,7 +95,7 @@ static PerformanceResult mean_result_for_chip(const char* chip_name, bool ml) {
         if (strcmp(r.chip_name, chip_name) != 0) {
             continue;
         }
-        const PerformanceResult& value = ml ? r.ml : r.mvs_default;
+        const PerformanceResult& value = ml ? r.ml : r.mvs;
         if (!value.valid) {
             continue;
         }
@@ -132,7 +132,7 @@ static void print_summary_table() {
     printf("                      PERFORMANCE SUMMARY TABLE (C++)\n");
     printf("================================================================================\n");
     printf("\n");
-    printf("| Chip   | Datasets | MVS Runtime             | ML                      |\n");
+    printf("| Chip   | Datasets | MVS                     | ML                      |\n");
     printf("|--------|----------|-------------------------|-------------------------|\n");
 
     for (auto chip : csi_test_data::get_supported_chips()) {
@@ -142,14 +142,14 @@ static void print_summary_table() {
             continue;
         }
 
-        char mvs_default_str[32] = "N/A";
+        char mvs_str[32] = "N/A";
         char ml_str[32] = "N/A";
-        const PerformanceResult mvs_default = mean_result_for_chip(chip_name, false);
+        const PerformanceResult mvs = mean_result_for_chip(chip_name, false);
         const PerformanceResult ml = mean_result_for_chip(chip_name, true);
         
-        if (mvs_default.valid) {
-            snprintf(mvs_default_str, sizeof(mvs_default_str), "%.1f%% R, %.1f%% FP",
-                     mvs_default.recall, mvs_default.fp_rate);
+        if (mvs.valid) {
+            snprintf(mvs_str, sizeof(mvs_str), "%.1f%% R, %.1f%% FP",
+                     mvs.recall, mvs.fp_rate);
         }
         if (ml.valid) {
             snprintf(ml_str, sizeof(ml_str), "%.1f%% R, %.1f%% FP",
@@ -157,13 +157,13 @@ static void print_summary_table() {
         }
         
         printf("| %-6s | %8d | %-23s | %-23s |\n",
-               chip_name, dataset_count, mvs_default_str, ml_str);
+               chip_name, dataset_count, mvs_str, ml_str);
     }
     
     printf("\n");
     printf("Legend: R = Recall, FP = False Positive Rate\n");
     printf("Targets: MVS >%.0f%% R, <%.1f%% FP | ML >%.0f%% R, <%.1f%% FP\n",
-           get_default_recall_target(), get_default_fp_rate_target(),
+           get_mvs_recall_target(), get_mvs_fp_rate_target(),
            get_ml_recall_target(), get_ml_fp_rate_target());
     printf("================================================================================\n");
     
@@ -181,10 +181,10 @@ static void print_summary_table() {
             dataset_name = dataset_name.substr(slash_pos + 1);
         }
         
-        if (r.mvs_default.valid) {
-            printf("| %-47.47s | %-6s | MVS Runtime | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
-                   dataset_name.c_str(), r.chip_name, r.mvs_default.recall, r.mvs_default.precision,
-                   r.mvs_default.fp_rate, r.mvs_default.f1);
+        if (r.mvs.valid) {
+            printf("| %-47.47s | %-6s | MVS         | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
+                   dataset_name.c_str(), r.chip_name, r.mvs.recall, r.mvs.precision,
+                   r.mvs.fp_rate, r.mvs.f1);
         }
         if (r.ml.valid) {
             printf("| %-47.47s | %-6s | ML          | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
@@ -209,8 +209,8 @@ inline uint16_t get_window_size() { return DETECTOR_DEFAULT_WINDOW_SIZE; }
 inline bool get_enable_hampel() { return true; }
 
 // MVS targets
-inline float get_default_fp_rate_target() { return 5.0f; }
-inline float get_default_recall_target() { return 95.0f; }
+inline float get_mvs_fp_rate_target() { return 5.0f; }
+inline float get_mvs_recall_target() { return 95.0f; }
 
 // ML targets
 inline float get_ml_fp_rate_target() { return 5.0f; }
@@ -224,9 +224,9 @@ void tearDown(void) {}
 // ============================================================================
 // Uses the shared fixed subcarriers and a static-presence-derived adaptive threshold.
 
-void test_mvs_default_subcarriers(void) {
-    float fp_target = get_default_fp_rate_target();
-    float recall_target = get_default_recall_target();
+void test_mvs_fixed_subcarriers(void) {
+    float fp_target = get_mvs_fp_rate_target();
+    float recall_target = get_mvs_recall_target();
     uint16_t window_size = get_window_size();
     bool enable_hampel = get_enable_hampel();
     const int pkt_size = csi_test_data::packet_size();
@@ -314,7 +314,7 @@ void test_mvs_default_subcarriers(void) {
     printf("  * F1-Score:  %.1f%%\n\n", f1);
     
     // Record for summary table
-    record_result("mvs_default", recall, fp_rate, precision, f1);
+    record_result("mvs", recall, fp_rate, precision, f1);
     
     TEST_ASSERT_TRUE_MESSAGE(recall > recall_target, "Recall too low");
     TEST_ASSERT_TRUE_MESSAGE(fp_rate < fp_target, "FP Rate too high");
@@ -421,7 +421,7 @@ int run_tests_for_pair(int pair_index) {
     }
     
     UNITY_BEGIN();
-    RUN_TEST(test_mvs_default_subcarriers);   // Production runtime path
+    RUN_TEST(test_mvs_fixed_subcarriers);   // Production runtime path
     RUN_TEST(test_ml_detection);              // ML neural network
     return UNITY_END();
 }

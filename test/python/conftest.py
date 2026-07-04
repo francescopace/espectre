@@ -40,16 +40,6 @@ DATASET_INFO_PATH = DATA_DIR / 'dataset_info.json'
 UNIT_TEST_SUBCARRIERS = DEFAULT_SUBCARRIERS
 
 
-def get_default_fp_rate_target():
-    """Match C++ get_default_fp_rate_target()."""
-    return 5.0
-
-
-def get_default_recall_target():
-    """Match C++ get_default_recall_target()."""
-    return 95.0
-
-
 def get_mvs_fp_rate_target():
     """Match the shared MVS FP-rate target."""
     return 5.0
@@ -74,7 +64,7 @@ def format_targets_summary_line():
     """Build summary line from target getter functions."""
     return (
         "Targets: "
-        f"MVS >{get_default_recall_target():.0f}% R, <{get_default_fp_rate_target():.1f}% FP | "
+        f"MVS >{get_mvs_recall_target():.0f}% R, <{get_mvs_fp_rate_target():.1f}% FP | "
         f"ML >{get_ml_recall_target():.0f}% R, <{get_ml_fp_rate_target():.1f}% FP"
     )
 
@@ -89,18 +79,6 @@ def fp_rate_target(chip_type):
 def recall_target(chip_type):
     """MVS recall target fixture shared across test modules."""
     return get_mvs_recall_target()
-
-
-@pytest.fixture
-def mvs_default_fp_rate_target(chip_type):
-    """MVS default-band FP-rate target fixture shared across test modules."""
-    return get_default_fp_rate_target()
-
-
-@pytest.fixture
-def mvs_default_recall_target(chip_type):
-    """MVS default-band recall target fixture shared across test modules."""
-    return get_default_recall_target()
 
 
 @pytest.fixture
@@ -513,7 +491,7 @@ def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
     
     Args:
         chip: Chip type (C3, C5, C6, ESP32, S3)
-        algorithm: Algorithm name (mvs_default, mvs, ml)
+        algorithm: Algorithm name (mvs, ml)
         recall: Recall percentage
         fp_rate: False positive rate percentage
         precision: Precision percentage
@@ -582,14 +560,14 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             'precision': sum(r.get('precision', 0) for r in entries) / len(entries),
             'f1': sum(r.get('f1', 0) for r in entries) / len(entries),
         }
-    
+
     terminalreporter.write_line("")
     terminalreporter.write_line("=" * 105)
     terminalreporter.write_line("                              PERFORMANCE SUMMARY TABLE (Python)")
     terminalreporter.write_line("=" * 105)
     terminalreporter.write_line("")
-    terminalreporter.write_line("| Chip   | Datasets | MVS Default             | MVS Runtime             | ML                      |")
-    terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|-------------------------|")
+    terminalreporter.write_line("| Chip   | Datasets | MVS                     | ML                      |")
+    terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|")
     
     # Sort chips for consistent output
     for chip in ['C3', 'C5', 'C6', 'ESP32', 'S3']:
@@ -602,14 +580,6 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             for v in chip_results.values()
         )
         
-        # MVS Default
-        if 'mvs_default' in chip_results:
-            mvs_default = average_metrics(chip_results['mvs_default'])
-            mvs_default_str = f"{mvs_default['recall']:.1f}% R, {mvs_default['fp_rate']:.1f}% FP"
-        else:
-            mvs_default_str = "N/A"
-        
-        # MVS runtime path
         if 'mvs' in chip_results:
             mvs = average_metrics(chip_results['mvs'])
             mvs_str = f"{mvs['recall']:.1f}% R, {mvs['fp_rate']:.1f}% FP"
@@ -624,7 +594,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             ml_str = "N/A"
         
         terminalreporter.write_line(
-            f"| {chip:<6} | {dataset_count:>8} | {mvs_default_str:<23} | {mvs_str:<23} | {ml_str:<23} |"
+            f"| {chip:<6} | {dataset_count:>8} | {mvs_str:<23} | {ml_str:<23} |"
         )
     
     terminalreporter.write_line("")
@@ -645,12 +615,17 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         
         chip_results = results[chip]
         
-        for algo_key, algo_name in [('mvs_default', 'MVS Default'), ('mvs', 'MVS Runtime'), ('ml', 'ML')]:
-            if algo_key in chip_results:
-                r = average_metrics(chip_results[algo_key])
-                terminalreporter.write_line(
-                    f"| {chip:<6} | {algo_name:<11} | {r['count']:>8} | {r['recall']:>6.1f}% | {r.get('precision', 0):>8.1f}% | {r['fp_rate']:>6.1f}% | {r.get('f1', 0):>7.1f}% |"
-                )
+        if 'mvs' in chip_results:
+            mvs = average_metrics(chip_results['mvs'])
+            terminalreporter.write_line(
+                f"| {chip:<6} | {'MVS':<11} | {mvs['count']:>8} | {mvs['recall']:>6.1f}% | {mvs.get('precision', 0):>8.1f}% | {mvs['fp_rate']:>6.1f}% | {mvs.get('f1', 0):>7.1f}% |"
+            )
+
+        if 'ml' in chip_results:
+            r = average_metrics(chip_results['ml'])
+            terminalreporter.write_line(
+                f"| {chip:<6} | {'ML':<11} | {r['count']:>8} | {r['recall']:>6.1f}% | {r.get('precision', 0):>8.1f}% | {r['fp_rate']:>6.1f}% | {r.get('f1', 0):>7.1f}% |"
+            )
     
     terminalreporter.write_line("-" * 105)
     

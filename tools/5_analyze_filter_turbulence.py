@@ -1,298 +1,426 @@
 #!/usr/bin/env python3
 """
-ESPectre - Filter Turbulence Analysis
+ESPectre - Production-aligned MVS sweep and prototype comparison.
 
-Compare the four filter setups that match the current production runtime:
-1. No Filter
-2. Hampel Only
-3. Lowpass Only
-4. Hampel + Lowpass
+Default mode compares the current production MVS path against Python-only drift
+mitigations over all explicit static_presence/motion pairs from dataset_info.json.
 
-This tool intentionally reuses the production `SegmentationContext` instead of
-maintaining parallel experimental filters.
+Optional filter-comparison mode keeps the older filter-analysis workflow, but
+now runs it over the same explicit pair sweep instead of a single ad hoc pair.
 """
 
 from __future__ import annotations
 
 import argparse
 
-import matplotlib.pyplot as plt
 import numpy as np
 
-from csi_utils import (
-    calculate_spatial_turbulence,
-    find_static_presence_motion_dataset,
-    load_static_presence_and_motion,
-)
+from csi_utils import setup_paths  # noqa: F401 - side effect import
 from config import (
     DEFAULT_SUBCARRIERS,
+    ENABLE_HAMPEL_FILTER,
+    ENABLE_LOWPASS_FILTER,
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     LOWPASS_CUTOFF,
-    SEG_THRESHOLD,
     SEG_WINDOW_SIZE,
 )
-from segmentation import SegmentationContext
+from mvs_sweep_core import (
+    MVSFilterConfig,
+    MVSEvaluationResult,
+    baseline_tracking_variant,
+    evaluate_pairs,
+    iter_paired_datasets,
+    production_variant,
+    subcarrier_ema_norm_variant,
+    summarize_results,
+)
 
-WINDOW_SIZE = SEG_WINDOW_SIZE
-THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else float(SEG_THRESHOLD)
+
 SAMPLING_RATE = 100.0
-FILTER_CONFIGS = [
-    ("No Filter", {"enable_hampel": False, "enable_lowpass": False}),
-    ("Hampel Only", {"enable_hampel": True, "enable_lowpass": False}),
-    ("Lowpass Only", {"enable_hampel": False, "enable_lowpass": True}),
-    ("Hampel + Lowpass", {"enable_hampel": True, "enable_lowpass": True}),
-]
+WINDOW_SIZE = SEG_WINDOW_SIZE
+PRODUCTION_FILTER = MVSFilterConfig(
+    enable_hampel=ENABLE_HAMPEL_FILTER,
+    enable_lowpass=ENABLE_LOWPASS_FILTER,
+    hampel_window=HAMPEL_WINDOW,
+    hampel_threshold=HAMPEL_THRESHOLD,
+    lowpass_cutoff=LOWPASS_CUTOFF,
+)
+FILTER_PROFILES = {
+    "production": ("Production", PRODUCTION_FILTER),
+    "no_filter": (
+        "No Filter",
+        MVSFilterConfig(enable_hampel=False, enable_lowpass=False),
+    ),
+    "hampel_only": (
+        "Hampel Only",
+        MVSFilterConfig(enable_hampel=True, enable_lowpass=False),
+    ),
+    "lowpass_only": (
+        "Lowpass Only",
+        MVSFilterConfig(enable_hampel=False, enable_lowpass=True),
+    ),
+    "hampel_lowpass": (
+        "Hampel + Lowpass",
+        MVSFilterConfig(enable_hampel=True, enable_lowpass=True),
+    ),
+}
 FILTER_COLORS = {
+    "Production": "#8e44ad",
     "No Filter": "#666666",
     "Hampel Only": "#e74c3c",
     "Lowpass Only": "#3498db",
     "Hampel + Lowpass": "#27ae60",
+    "baseline": "#8e44ad",
+    "baseline_tracking": "#d35400",
+    "subcarrier_ema_norm": "#16a085",
 }
 
 
-def extract_csi(packet):
-    """Extract the CSI array from packet-like input."""
-    if isinstance(packet, dict):
-        return packet["csi_data"]
-    return packet
-
-
-def build_context(config: dict[str, bool]) -> SegmentationContext:
-    """Create a production SegmentationContext for one filter configuration."""
-    return SegmentationContext(
-        window_size=WINDOW_SIZE,
-        threshold=THRESHOLD,
-        enable_hampel=config["enable_hampel"],
-        hampel_window=HAMPEL_WINDOW,
-        hampel_threshold=HAMPEL_THRESHOLD,
-        enable_lowpass=config["enable_lowpass"],
-        lowpass_cutoff=LOWPASS_CUTOFF,
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="ESPectre - Production-aligned MVS sweep",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("--chip", type=str, default=None, help="Only evaluate one chip, e.g. C6")
+    parser.add_argument("--dataset-id", type=str, default=None, help="Only evaluate one explicit dataset pair")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of dataset pairs")
+    parser.add_argument("--plot", action="store_true", help="Plot moving variance for one selected pair")
+    parser.add_argument(
+        "--variant",
+        choices=["baseline", "baseline_tracking", "subcarrier_ema_norm", "all"],
+        default="all",
+        help="Variant selection for the default comparison mode",
+    )
+    parser.add_argument(
+        "--compare-filters",
+        action="store_true",
+        help="Compare filter profiles instead of detector variants",
+    )
+    parser.add_argument(
+        "--filter-profile",
+        choices=["production", "no_filter", "hampel_only", "lowpass_only", "hampel_lowpass", "all"],
+        default="production",
+        help="Filter profile selection in filter-comparison mode",
+    )
+    parser.add_argument(
+        "--tracking-factor",
+        type=float,
+        default=1.10,
+        help="Scale factor for the idle p99 baseline tracker",
+    )
+    parser.add_argument(
+        "--tracking-percentile",
+        type=float,
+        default=99.0,
+        help="Idle percentile used by the online baseline tracker",
+    )
+    parser.add_argument(
+        "--tracking-margin-ratio",
+        type=float,
+        default=0.98,
+        help="Idle gate ratio relative to the current threshold for baseline tracking",
+    )
+    parser.add_argument(
+        "--tracking-min-idle-samples",
+        type=int,
+        default=24,
+        help="Minimum accepted idle samples before threshold updates are allowed",
+    )
+    parser.add_argument(
+        "--tracking-history-size",
+        type=int,
+        default=512,
+        help="Rolling idle history size for baseline tracking",
+    )
+    parser.add_argument(
+        "--tracking-transition-guard",
+        type=int,
+        default=max(1, WINDOW_SIZE // 2),
+        help="Packets to ignore after each transition before accepting idle samples",
+    )
+    parser.add_argument(
+        "--ema-alpha",
+        type=float,
+        default=0.01,
+        help="EMA alpha for the per-subcarrier normalization prototype",
+    )
+    return parser.parse_args()
 
 
-def run_pass(packets, config: dict[str, bool], track_data: bool) -> dict[str, object]:
-    """Run one filter configuration across one packet stream."""
-    ctx = build_context(config)
-    moving_var = []
-    motion_state = []
-    motion_packets = 0
-
-    for packet in packets:
-        csi_data = extract_csi(packet)
-        turbulence = calculate_spatial_turbulence(
-            csi_data,
-            DEFAULT_SUBCARRIERS,
-        )
-        ctx.add_turbulence(turbulence)
-        ctx.update_state()
-
-        current_mv = ctx.current_moving_variance
-        state = ctx.get_state() == SegmentationContext.STATE_MOTION
-        if state:
-            motion_packets += 1
-
-        if track_data:
-            moving_var.append(current_mv)
-            motion_state.append(state)
-
-    result = {"motion_packets": motion_packets}
-    if track_data:
-        result["moving_var"] = np.array(moving_var)
-        result["motion_state"] = motion_state
-    return result
+def select_variants(args):
+    all_variants = [
+        production_variant(),
+        baseline_tracking_variant(
+            factor=args.tracking_factor,
+            idle_percentile=args.tracking_percentile,
+            margin_ratio=args.tracking_margin_ratio,
+            min_idle_samples=args.tracking_min_idle_samples,
+            idle_history_size=args.tracking_history_size,
+            transition_guard_packets=args.tracking_transition_guard,
+        ),
+        subcarrier_ema_norm_variant(alpha=args.ema_alpha),
+    ]
+    if args.variant == "all":
+        return all_variants
+    return [variant for variant in all_variants if variant.name == args.variant]
 
 
-def run_comparison_test(static_presence_packets, motion_packets, track_data: bool = False):
-    """Run the four production-relevant filter configurations."""
-    results = {}
-
-    for name, config in FILTER_CONFIGS:
-        baseline_result = run_pass(static_presence_packets, config, track_data)
-        motion_result = run_pass(motion_packets, config, track_data)
-
-        fp = baseline_result["motion_packets"]
-        tp = motion_result["motion_packets"]
-        baseline_count = len(static_presence_packets)
-        motion_count = len(motion_packets)
-        fp_rate = fp / baseline_count * 100.0 if baseline_count > 0 else 0.0
-        recall = tp / motion_count * 100.0 if motion_count > 0 else 0.0
-        score = tp - fp * 10
-
-        results[name] = {
-            "config": config,
-            "static_presence_fp": fp,
-            "motion_tp": tp,
-            "fp_rate": fp_rate,
-            "recall": recall,
-            "score": score,
-            "static_presence_data": baseline_result if track_data else None,
-            "motion_data": motion_result if track_data else None,
-        }
-
-    return results
+def select_filter_profiles(args):
+    if args.filter_profile == "all":
+        return list(FILTER_PROFILES.values())
+    return [FILTER_PROFILES[args.filter_profile]]
 
 
-def print_summary(results) -> None:
-    """Print a compact result table and a short interpretation."""
-    print("Results:")
-    print("-" * 82)
-    print(f"{'Configuration':<18} {'FP':<6} {'FP Rate':<10} {'TP':<6} {'Recall':<10} {'Score':<8}")
-    print("-" * 82)
-    for name, _config in FILTER_CONFIGS:
-        result = results[name]
+def print_header(args, pair_count):
+    print("\n==========================================================================")
+    print("  PRODUCTION-ALIGNED MVS SWEEP")
+    print("==========================================================================")
+    print(f"Window size: {WINDOW_SIZE} packets")
+    print(f"Selected band: {list(DEFAULT_SUBCARRIERS)}")
+    print(f"Pairs: {pair_count}")
+    if args.chip:
+        print(f"Chip filter: {args.chip.upper()}")
+    if args.dataset_id:
+        print(f"Dataset filter: {args.dataset_id}")
+    if args.compare_filters:
+        print("Mode: filter comparison over explicit pairs")
+    else:
+        print("Mode: detector prototype comparison over explicit pairs")
         print(
-            f"{name:<18} {result['static_presence_fp']:<6d} "
-            f"{result['fp_rate']:<10.1f} {result['motion_tp']:<6d} "
-            f"{result['recall']:<10.1f} {result['score']:<8.2f}"
+            "Baseline tracker: "
+            f"percentile={args.tracking_percentile:.1f}, factor={args.tracking_factor:.3f}, "
+            f"margin={args.tracking_margin_ratio:.3f}, min_idle={args.tracking_min_idle_samples}, "
+            f"history={args.tracking_history_size}, guard={args.tracking_transition_guard}"
         )
-    print("-" * 82)
+        print(f"Subcarrier EMA alpha: {args.ema_alpha:.4f}")
     print()
 
-    no_filter = results["No Filter"]
-    print("Delta vs No Filter:")
-    print("-" * 50)
-    for name, _config in FILTER_CONFIGS[1:]:
-        result = results[name]
-        fp_delta = result["static_presence_fp"] - no_filter["static_presence_fp"]
-        recall_delta = result["recall"] - no_filter["recall"]
+
+def print_summary_table(rows):
+    print("Aggregate results:")
+    print("-" * 118)
+    print(
+        f"{'Name':<22} {'Datasets':>8} {'Recall':>8} {'Precision':>10} "
+        f"{'FP Rate':>9} {'F1':>8} {'ThrUpd':>8} {'EmaUpd':>8} {'IdleRef':>8}"
+    )
+    print("-" * 118)
+    for row in rows:
         print(
-            f"  {name:<16} FP {fp_delta:+4d} packets, "
-            f"Recall {recall_delta:+5.1f}%"
+            f"{row['label']:<22} {row['summary']['dataset_count']:>8} "
+            f"{row['summary']['recall']:>7.1f}% {row['summary']['precision']:>9.1f}% "
+            f"{row['summary']['fp_rate']:>8.1f}% {row['summary']['f1']:>7.1f}% "
+            f"{row['summary']['threshold_updates']:>8} {row['summary']['ema_updates']:>8} "
+            f"{row['summary']['idle_reference_count']:>8}"
+        )
+    print("-" * 118)
+    print()
+
+
+def print_per_chip_breakdown(rows):
+    print("Per-chip breakdown:")
+    for row in rows:
+        print(f"  {row['label']}:")
+        per_chip = row["summary"]["per_chip"]
+        if not per_chip:
+            print("    no results")
+            continue
+        for chip, metrics in sorted(per_chip.items()):
+            print(
+                f"    {chip:<6} datasets={metrics['datasets']:>2} "
+                f"recall={metrics['recall']:>6.1f}% precision={metrics['precision']:>6.1f}% "
+                f"fp={metrics['fp_rate']:>5.1f}% f1={metrics['f1']:>6.1f}%"
+            )
+    print()
+
+
+def print_worst_pairs(rows):
+    print("Worst pairs:")
+    for row in rows:
+        worst_fp = row["summary"]["worst_fp_pair"]
+        worst_recall = row["summary"]["worst_recall_pair"]
+        if worst_fp is None or worst_recall is None:
+            continue
+        print(
+            f"  {row['label']}: worst FP={worst_fp.dataset.dataset_id} "
+            f"({worst_fp.fp_rate:.1f}% FP, recall={worst_fp.recall:.1f}%)"
+        )
+        print(
+            f"  {row['label']}: worst Recall={worst_recall.dataset.dataset_id} "
+            f"({worst_recall.recall:.1f}% recall, fp={worst_recall.fp_rate:.1f}%)"
         )
     print()
 
-    best_name, best_result = max(results.items(), key=lambda item: item[1]["score"])
-    print(f"Best configuration: {best_name}")
-    print(f"  Score: {best_result['score']:.2f}")
-    print(f"  FP: {best_result['static_presence_fp']}")
-    print(f"  TP: {best_result['motion_tp']}")
-    print(f"  Recall: {best_result['recall']:.1f}%")
-    print(f"  FP Rate: {best_result['fp_rate']:.1f}%")
+
+def print_tracking_diagnostics(rows):
+    tracking_rows = [row for row in rows if row["label"] == "baseline_tracking"]
+    if not tracking_rows:
+        return
+
+    print("Baseline-tracking diagnostics:")
+    for row in tracking_rows:
+        summary = row["summary"]
+        print(
+            f"  {row['label']}: gate_hits={summary['tracking_gate_hits']} "
+            f"updates={summary['threshold_updates']} raise_capable_datasets={summary['raise_capable_datasets']} "
+            f"max_candidate_threshold={summary['max_candidate_threshold']:.4f}"
+        )
+        print(
+            f"  {row['label']}: blocked_by_state={summary['tracking_state_blocks']} "
+            f"blocked_by_transition={summary['tracking_transition_blocks']} "
+            f"blocked_by_margin={summary['tracking_margin_blocks']}"
+        )
+
+        interesting = [
+            result
+            for result in row["results"]
+            if result.max_candidate_threshold > (result.startup_threshold + 1e-6)
+            or result.threshold_update_count > 0
+        ]
+        interesting.sort(
+            key=lambda item: (
+                item.threshold_update_count,
+                item.max_candidate_threshold - item.startup_threshold,
+            ),
+            reverse=True,
+        )
+        for result in interesting[:5]:
+            print(
+                f"    {result.dataset.dataset_id}: startup={result.startup_threshold:.4f} "
+                f"final={result.final_threshold:.4f} max_candidate={result.max_candidate_threshold:.4f} "
+                f"updates={result.threshold_update_count} gate_hits={result.tracking_gate_hit_count}"
+            )
+    print()
 
 
-def plot_filter_effect(results) -> None:
-    """Plot baseline and movement moving variance for the four runtime filters."""
-    fig = plt.figure(figsize=(20, 12))
+def build_rows(args, pairs):
+    rows = []
+    if args.compare_filters:
+        for label, filter_cfg in select_filter_profiles(args):
+            results = evaluate_pairs(
+                pairs,
+                variant=production_variant(),
+                filter_config=filter_cfg,
+                window_size=WINDOW_SIZE,
+                selected_band=DEFAULT_SUBCARRIERS,
+                track_trace=args.plot,
+            )
+            rows.append(
+                {
+                    "label": label,
+                    "results": results,
+                    "summary": summarize_results(results),
+                }
+            )
+    else:
+        for variant in select_variants(args):
+            results = evaluate_pairs(
+                pairs,
+                variant=variant,
+                filter_config=PRODUCTION_FILTER,
+                window_size=WINDOW_SIZE,
+                selected_band=DEFAULT_SUBCARRIERS,
+                track_trace=args.plot,
+            )
+            rows.append(
+                {
+                    "label": variant.name,
+                    "results": results,
+                    "summary": summarize_results(results),
+                }
+            )
+    return rows
+
+
+def plot_rows(rows):
+    import matplotlib.pyplot as plt
+
+    first_result_sets = [row["results"][0] for row in rows if row["results"]]
+    if not first_result_sets:
+        return
+
+    dataset_id = first_result_sets[0].dataset.dataset_id
+    fig = plt.figure(figsize=(18, 4 * len(first_result_sets)))
     fig.suptitle(
-        "ESPectre - Filter Effect on Moving Variance\n"
-        "Left: Baseline (FP should stay low) | Right: Movement (recall should stay high)",
+        f"ESPectre - MVS Sweep Comparison\nDataset: {dataset_id}",
         fontsize=13,
         fontweight="bold",
     )
 
-    try:
-        manager = plt.get_current_fig_manager()
-        if hasattr(manager, "window"):
-            if hasattr(manager.window, "showMaximized"):
-                manager.window.showMaximized()
-            elif hasattr(manager.window, "state"):
-                manager.window.state("zoomed")
-        elif hasattr(manager, "full_screen_toggle"):
-            manager.full_screen_toggle()
-    except Exception:
-        pass
+    for index, result in enumerate(first_result_sets):
+        baseline_trace = result.baseline_trace or []
+        motion_trace = result.motion_trace or []
+        baseline_mv = np.array([item.moving_variance for item in baseline_trace], dtype=float)
+        baseline_threshold = np.array([item.threshold for item in baseline_trace], dtype=float)
+        motion_mv = np.array([item.moving_variance for item in motion_trace], dtype=float)
+        motion_threshold = np.array([item.threshold for item in motion_trace], dtype=float)
+        baseline_states = [item.motion for item in baseline_trace]
+        motion_states = [item.motion for item in motion_trace]
 
-    for index, (name, _config) in enumerate(FILTER_CONFIGS):
-        result = results[name]
-        baseline = result["static_presence_data"]
-        movement = result["motion_data"]
-        baseline_mv = baseline["moving_var"]
-        movement_mv = movement["moving_var"]
-        time_baseline = np.arange(len(baseline_mv)) / SAMPLING_RATE
-        time_movement = np.arange(len(movement_mv)) / SAMPLING_RATE
-        color = FILTER_COLORS[name]
+        label = result.variant_name if result.variant_name != "baseline" else rows[index]["label"]
+        color = FILTER_COLORS.get(rows[index]["label"], FILTER_COLORS.get(label, "#8e44ad"))
 
-        ax1 = fig.add_subplot(4, 2, index * 2 + 1)
-        ax1.plot(time_baseline, baseline_mv, color=color, linewidth=1.0, alpha=0.8)
-        ax1.axhline(y=THRESHOLD, color="red", linestyle="--", linewidth=2)
-        for i, is_motion in enumerate(baseline["motion_state"]):
+        ax1 = fig.add_subplot(len(first_result_sets), 2, index * 2 + 1)
+        ax1.plot(np.arange(len(baseline_mv)) / SAMPLING_RATE, baseline_mv, color=color, linewidth=1.0, alpha=0.85)
+        ax1.plot(np.arange(len(baseline_threshold)) / SAMPLING_RATE, baseline_threshold, color="red", linestyle="--", linewidth=1.5)
+        for packet_idx, is_motion in enumerate(baseline_states):
             if is_motion:
-                ax1.axvspan(i / SAMPLING_RATE, (i + 1) / SAMPLING_RATE, alpha=0.3, color="red")
-        ax1.set_ylabel("Moving Variance", fontsize=9)
+                ax1.axvspan(packet_idx / SAMPLING_RATE, (packet_idx + 1) / SAMPLING_RATE, alpha=0.15, color="red")
         ax1.set_title(
-            f"{name}\nBaseline (FP: {result['static_presence_fp']}, {result['fp_rate']:.1f}%)",
+            f"{rows[index]['label']}\nBaseline (FP={result.fp_rate:.1f}%)",
             fontsize=10,
             fontweight="bold",
             color=color,
         )
+        ax1.set_ylabel("Moving Variance")
         ax1.grid(True, alpha=0.3)
-        if index == 3:
-            ax1.set_xlabel("Time (seconds)", fontsize=9)
 
-        ax2 = fig.add_subplot(4, 2, index * 2 + 2)
-        ax2.plot(time_movement, movement_mv, color=color, linewidth=1.0, alpha=0.8)
-        ax2.axhline(y=THRESHOLD, color="red", linestyle="--", linewidth=2)
-        for i, is_motion in enumerate(movement["motion_state"]):
+        ax2 = fig.add_subplot(len(first_result_sets), 2, index * 2 + 2)
+        ax2.plot(np.arange(len(motion_mv)) / SAMPLING_RATE, motion_mv, color=color, linewidth=1.0, alpha=0.85)
+        ax2.plot(np.arange(len(motion_threshold)) / SAMPLING_RATE, motion_threshold, color="red", linestyle="--", linewidth=1.5)
+        for packet_idx, is_motion in enumerate(motion_states):
             if is_motion:
-                ax2.axvspan(i / SAMPLING_RATE, (i + 1) / SAMPLING_RATE, alpha=0.2, color="green")
-        ax2.set_ylabel("Moving Variance", fontsize=9)
+                ax2.axvspan(packet_idx / SAMPLING_RATE, (packet_idx + 1) / SAMPLING_RATE, alpha=0.15, color="green")
         ax2.set_title(
-            f"{name}\nMovement (TP: {result['motion_tp']}, {result['recall']:.1f}%)",
+            f"{rows[index]['label']}\nMovement (Recall={result.recall:.1f}%)",
             fontsize=10,
             fontweight="bold",
             color=color,
         )
         ax2.grid(True, alpha=0.3)
-        if index == 3:
-            ax2.set_xlabel("Time (seconds)", fontsize=9)
 
     plt.tight_layout()
-    fig.text(
-        0.5,
-        0.01,
-        "Hampel removes spikes/outliers; low-pass smooths high-frequency noise; the combined path matches the production chain.",
-        ha="center",
-        fontsize=9,
-        style="italic",
-        color="#666666",
-    )
-    plt.subplots_adjust(bottom=0.05)
+    plt.subplots_adjust(top=0.92)
     plt.show()
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="ESPectre - Filter Turbulence Analysis",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    args = parse_args()
+    pairs = iter_paired_datasets(
+        chip=args.chip,
+        dataset_id=args.dataset_id,
+        num_subcarriers=64,
+        limit=args.limit,
     )
-    parser.add_argument(
-        "--chip",
-        type=str,
-        default="C6",
-        help="Chip type to use: C6, S3, etc. (default: C6)",
-    )
-    parser.add_argument("--plot", action="store_true", help="Show moving-variance plots")
-    args = parser.parse_args()
-
-    chip = args.chip.upper()
-    print("\n============================================================")
-    print("  FILTER TURBULENCE ANALYSIS")
-    print("============================================================")
-    print(f"Chip: {chip}")
-    print(f"Window size: {WINDOW_SIZE} packets")
-    print(f"Threshold: {THRESHOLD}")
-    print(f"Hampel: window={HAMPEL_WINDOW}, threshold={HAMPEL_THRESHOLD}")
-    print(f"Lowpass cutoff: {LOWPASS_CUTOFF} Hz\n")
-
-    print(f"Loading CSI data for {chip}...")
-    try:
-        _static_presence_path, _motion_path, chip_name = find_static_presence_motion_dataset(chip=chip)
-        static_presence_packets, motion_packets = load_static_presence_and_motion(chip=chip)
-    except FileNotFoundError as exc:
-        print(f"ERROR: {exc}")
+    if not pairs:
+        print("ERROR: no explicit dataset_info.json pairs matched the selected filters.")
+        print("Run tools/3_refresh_dataset_metadata.py --write if pair metadata is stale.")
         return
 
-    print(f"  Chip: {chip_name}")
-    print(f"  Loaded {len(static_presence_packets)} static-presence packets")
-    print(f"  Loaded {len(motion_packets)} motion packets\n")
+    if args.plot and len(pairs) != 1:
+        print("ERROR: --plot requires exactly one selected pair. Use --dataset-id or --limit 1.")
+        return
 
-    results = run_comparison_test(static_presence_packets, motion_packets, track_data=args.plot)
-    print_summary(results)
+    print_header(args, len(pairs))
+    rows = build_rows(args, pairs)
+    print_summary_table(rows)
+    print_per_chip_breakdown(rows)
+    print_worst_pairs(rows)
+    print_tracking_diagnostics(rows)
 
     if args.plot:
-        print("\nGenerating filter comparison visualization...\n")
-        plot_filter_effect(results)
+        print("Generating moving-variance plots...\n")
+        plot_rows(rows)
 
 
 if __name__ == "__main__":

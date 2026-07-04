@@ -290,7 +290,7 @@ class SegmentationContext:
         Formula: adaptive_threshold = Pxx(baseline_mv) × factor
         
         Where Pxx and factor are configured via ADAPTIVE_PERCENTILE and
-        ADAPTIVE_FACTOR in config.py (default: 1.0, so threshold = P95).
+        ADAPTIVE_FACTOR in config.py (threshold bootstrap defaults live in threshold.py).
         
         Args:
             threshold: Adaptive threshold value (typically 0.5 to 5.0)

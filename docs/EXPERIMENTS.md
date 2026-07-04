@@ -20,6 +20,7 @@ The goal is to preserve design history in one place without turning
 | 2026-06-30 | C3 empty-room retrain incident | Partly superseded; lesson retained | `empty` captures must be first-class IDLE training data. |
 | 2026-07-03 | MVS-guided weighting bias and hard-negative retrain | Superseded by AGC-active normalization and clean data recollection | MVS can help as hard-negative mining, but it can also import MVS quiet-spike bias. |
 | 2026-07-04 | Multi-device sync and phase research | Active research note | `stimulus_id` and reference metadata remain useful for future multi-device experiments. |
+| 2026-07-05 | MVS startup-threshold and online adaptation sweep | Active research note | `P100 x 1.3` remains the safest global baseline; online threshold tracking helps some chips, but not all. |
 
 ## Current Superseding Events
 
@@ -78,6 +79,153 @@ association across devices, including:
 - `stimulus_id`-anchored multi-device packet grouping
 - reference-assisted phase-coherence experiments
 - temporally aligned multi-device feature fusion
+
+---
+
+### MVS Startup-Threshold And Online Adaptation Sweep
+
+Date: 2026-07-05
+
+Status: Active research note.
+
+#### Goal
+
+Test whether the current MVS startup threshold and simple online adaptation can
+reduce static-room false positives without paying too much recall, before any
+runtime C++ changes.
+
+#### Background
+
+The current production MVS startup path uses:
+
+- fixed production subcarriers
+- AGC-active coefficient-of-variation turbulence
+- startup adaptive threshold from baseline moving variance
+- `P100 x 1.3` as the default startup multiplier
+
+The two main hypotheses tested were:
+
+1. lower startup threshold (`P100 x 1.1`) might recover weak-motion recall
+2. online idle-only threshold tracking might recover some false-positive drift
+   after startup
+
+A second candidate path tested slow per-subcarrier EMA normalization:
+
+`amp_norm[i] = amp[i] / ema_amp_baseline[i]`
+
+followed by the usual CV turbulence metric on the normalized amplitudes.
+
+#### Tooling Added
+
+The following tools were realigned to run production-aligned paired sweeps over
+all explicit `static_presence` / `motion` pairs from `data/dataset_info.json`:
+
+- `tools/mvs_sweep_core.py`: shared pair iterator, startup calibration, and
+  continuous baseline -> motion evaluator
+- `tools/5_analyze_filter_turbulence.py`: main MVS sweep and prototype
+  comparison entry point
+- `tools/6_optimize_filter_params.py`: paired filter optimizer that now reuses
+  the same sweep core instead of latest-file heuristics
+
+#### Global Result
+
+Current all-pairs production baseline:
+
+- recall `96.8%`
+- precision `93.6%`
+- FP rate `3.3%`
+- F1 `95.2%`
+
+Online threshold tracking became active after the sweep harness exposed update
+gates and candidate-threshold diagnostics. The best tested global compromise
+was approximately:
+
+- startup threshold: `P100 x 1.1`
+- online tracking: idle-only, `p99 x 1.15`, margin `0.95`, transition guard `50`
+
+That variant improved aggregate precision and FP slightly, but it was not a
+clear promotion candidate:
+
+- recall `96.3%`
+- precision `94.3%`
+- FP rate `2.9%`
+- F1 `95.3%`
+
+Interpretation: the gain is real but marginal, and it is not uniform across
+chips.
+
+#### Chip-Specific Result
+
+The useful diagnostic was to compare startup `P100 x 1.1` directly against the
+current `P100 x 1.3` baseline on chips that are sensitive to the threshold
+choice.
+
+S3 is the clearest negative case:
+
+- `P100 x 1.3`: recall `91.3%`, FP `12.3%`
+- `P100 x 1.1`: recall `93.2%`, FP `14.6%`
+
+Online threshold tracking on top of `P100 x 1.1` reduced some of that extra FP,
+but not enough to beat the safer startup threshold:
+
+- conservative tracking: recall `92.0%`, FP `14.1%`
+- medium tracking: recall `92.5%`, FP `13.8%`
+
+So for S3, online tracking did not rescue the lower startup threshold.
+
+C6 is more encouraging:
+
+- `P100 x 1.3`: recall `98.9%`, precision `95.9%`, FP `2.3%`
+- `P100 x 1.1`: recall `99.0%`, precision `92.6%`, FP `4.7%`
+
+Online threshold tracking recovered most of that regression:
+
+- conservative tracking over `1.1`: recall `99.0%`, precision `95.1%`, FP `2.8%`
+- medium tracking over `1.1`: recall `99.0%`, precision `94.6%`, FP `3.2%`
+
+So for C6, threshold tracking can act as a partial safety net for a more
+sensitive startup threshold, although it still did not beat the plain `1.3`
+baseline.
+
+#### Per-Subcarrier EMA Normalization Result
+
+The slow per-subcarrier EMA normalization path did not hold up in the all-pairs
+sweep.
+
+Representative runs:
+
+- `alpha=0.001`: recall `84.6%`, FP `4.5%`, F1 `87.4%`
+- `alpha=0.0005`: recall `85.1%`, FP `4.5%`, F1 `87.7%`
+
+The main issue was not only update speed. The worst C3 paired datasets suffered
+severe recall collapse, while some C6 datasets still produced large false
+positive spikes. This path remains exploratory and is not close to promotion.
+
+#### Decision
+
+Keep `P100 x 1.3` as the default global MVS startup threshold.
+
+Do not port online threshold tracking or per-subcarrier EMA normalization into
+the runtime yet.
+
+The current evidence supports these narrower conclusions:
+
+- online threshold tracking is chip-dependent, not a universal fix
+- S3 remains a fragile false-positive case under a lower startup threshold
+- C6 may justify further chip-specific host-side tuning if future work needs a
+  more aggressive startup threshold
+- per-subcarrier EMA normalization is currently too unstable to justify runtime
+  work
+
+#### Follow-Up
+
+If this line of research is resumed, the next sensible experiment is not a
+global promotion attempt, but a chip-specific host-side study:
+
+1. keep `P100 x 1.3` as the default control
+2. test capped and less frequent threshold tracking only on chips like C5/C6
+3. treat S3 as a non-regression chip, not as a candidate for lower startup
+   sensitivity
 
 ---
 

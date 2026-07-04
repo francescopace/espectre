@@ -149,7 +149,7 @@ def calculate_adaptive_threshold(mv_values, percentile, factor):
 
 | Mode | Formula | Effect |
 |------|---------|--------|
-| Auto (default) | P95 × 1.1 | Balanced sensitivity/false positives |
+| Auto (default) | P100 x 1.3 | Lower false positives on no-gain-lock captures |
 | Min | P100 × 1.0 | Maximum sensitivity (may have FP) |
 
 See [TUNING.md](TUNING.md) for configuration options (`segmentation_threshold`).

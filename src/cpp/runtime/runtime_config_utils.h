@@ -1,12 +1,13 @@
 #pragma once
 
 #include "runtime_interface.h"
+#include "utils.h"
 
 namespace esphome {
 namespace espectre {
 
 constexpr float RUNTIME_THRESHOLD_MIN = 0.0f;
-constexpr float RUNTIME_THRESHOLD_MAX = 10.0f;
+constexpr float RUNTIME_THRESHOLD_MAX = SEGMENTATION_MAX_THRESHOLD;
 
 bool validate_runtime_threshold(float threshold);
 

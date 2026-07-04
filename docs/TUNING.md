@@ -288,7 +288,7 @@ espectre:
 
 | Mode | Formula | Description |
 |------|---------|-------------|
-| `auto` (default) | P95 × 1.1 | Minimizes false positives |
+| `auto` (default) | P100 x 1.3 | Minimizes false positives |
 | `min` | P100 × 1.0 | Maximum sensitivity |
 
 **Note:** The subcarrier set is fixed. Only the threshold calculation varies.
