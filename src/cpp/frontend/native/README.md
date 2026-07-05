@@ -126,12 +126,11 @@ Usage notes:
 1. click `Connect` and select the ESPectre device
 2. wait for the initial `REQ_SYSINFO` refresh after notifications start
 3. disable live BLE telemetry from the test client when you only need provisioning or sysinfo
-4. use `Save Wi-Fi` to write Wi-Fi values and `APPLY_WIFI` in one step
+4. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
 5. use `Save Device` to persist the human-facing `device_label`
 6. use `Clear Device` when you want to reset the persisted device-facing config while keeping the generated `device_id`
-7. use the threshold slider to send `SET_THRESHOLD` automatically when you release it
-8. use `Save MQTT` to persist MQTT settings and enable MQTT transport
-9. leave the Wi-Fi password field blank to keep an already stored password
+7. edit the `Threshold` box in the BLE client to send `SET_THRESHOLD` immediately with the current numeric value
+8. use `Save MQTT` to send one atomic `SET_MQTT_CONFIG` update and enable MQTT transport
 
 When telemetry notifications are disabled by the client, the standalone native
 frontend keeps `sysinfo` and control commands active but deregisters the live
@@ -169,12 +168,11 @@ to force a known 2.4 GHz channel for repeatable CSI captures.
 
 Runtime provisioning behavior:
 
-- `SET_WIFI_SSID`, `SET_WIFI_PASSWORD`, `SET_WIFI_BSSID`, and
-  `SET_WIFI_CHANNEL` persist the working values in NVS
-- `APPLY_WIFI` reconnects the station immediately without restarting BLE
+- `SET_WIFI_CONFIG` persists the full Wi-Fi block in NVS and reconnects the
+  station immediately without restarting BLE
 - `CLEAR_WIFI` erases stored Wi-Fi values and disconnects the station
-- the web client shows whether a password is already stored and lets you keep
-  it by leaving the password field blank
+- `SET_MQTT_CONFIG` persists the full MQTT broker block in NVS and reinitializes
+  the MQTT transport
 
 This means the current standalone native firmware is best suited for:
 
@@ -264,7 +262,7 @@ Check the active Wi-Fi values first:
 1. request fresh sysinfo and inspect `wifi_ssid`, `wifi_bssid`,
    `wifi_channel`, and `wifi_connected`
 2. if using `tools/web/espectre-ble.html`, press `Save Wi-Fi` and wait for the
-   station reconnect after `APPLY_WIFI`
+   station reconnect after the atomic `SET_WIFI_CONFIG` update
 3. if no provisioning has been stored yet, verify the Kconfig defaults used at
    build time:
    - `ESPECTRE_WIFI_SSID`

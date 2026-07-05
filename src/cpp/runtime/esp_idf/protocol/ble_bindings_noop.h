@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <vector>
 #include <utility>
 
 #include "ble_bindings.h"
@@ -20,6 +21,7 @@ namespace espectre {
 class NoopBleBindings : public IBleBindings {
  public:
   bool setup() override { return true; }
+  void loop() override {}
   void shutdown() override {}
 
   void set_connection_state_callback(ConnectionStateCallback callback) override { connection_state_callback_ = std::move(callback); }
@@ -33,6 +35,7 @@ class NoopBleBindings : public IBleBindings {
     (void) payload;
     (void) payload_len;
   }
+  void replace_sysinfo_lines(std::vector<std::string> lines) override { (void) lines; }
   void publish_sysinfo_line(const char *line) override { (void) line; }
   void report_fault(const char *message) override { (void) message; }
 

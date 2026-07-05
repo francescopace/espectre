@@ -22,6 +22,7 @@ class EspIdfMqttTransport : public IMqttTransport {
   void shutdown() override;
   bool connected() const override { return connected_; }
   bool publish(const std::string &topic, const std::string &payload, bool retain) override;
+  bool publish_suffix(const char *suffix, const std::string &payload, bool retain) override;
   void set_command_callback(CommandCallback callback) override;
   void set_connection_callback(ConnectionCallback callback) override;
 
@@ -35,6 +36,8 @@ class EspIdfMqttTransport : public IMqttTransport {
   CommandCallback command_callback_{};
   ConnectionCallback connection_callback_{};
   std::string broker_uri_{};
+  std::string topic_base_{};
+  std::string command_topic_{};
   std::string last_will_topic_{};
   std::string last_will_payload_{};
   bool connected_{false};

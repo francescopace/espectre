@@ -51,6 +51,7 @@ class StreamFrontend {
   void setup_mqtt_();
   bool start_capture_();
   void stop_capture_();
+  void reset_collector_endpoint_();
   void prepare_for_ota_();
   void on_wifi_connected_();
   void on_wifi_disconnected_();
@@ -60,6 +61,7 @@ class StreamFrontend {
   void publish_ble_line_(const char *line);
   void publish_mqtt_info_();
   void publish_mqtt_status_(bool online);
+  void publish_mqtt_stats_();
   void publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message);
   void publish_mqtt_ota_status_(const EspectreOtaStatus &status);
   void handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized);
@@ -79,6 +81,7 @@ class StreamFrontend {
   EspectreDeviceInfo device_info_{};
   bool setup_complete_{false};
   bool ble_ready_{false};
+  bool ble_client_connected_{false};
   std::atomic<bool> wifi_connected_{false};
   std::atomic<WorkflowState> state_{WorkflowState::WAIT_WIFI};
   uint32_t stream_seq_{0U};
@@ -107,6 +110,7 @@ class StreamFrontend {
   uint64_t prev_parse_fail_total_{0U};
   uint64_t prev_log_sample_ms_{0U};
   bool stream_active_last_tick_{true};
+  float last_loop_time_ms_{0.0F};
 };
 
 }  // namespace espectre

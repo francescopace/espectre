@@ -88,6 +88,11 @@ std::string espectre_device_name(uint64_t device_id, const char *chip = nullptr)
 uint64_t espectre_effective_device_id_u64(const EspectreDeviceConfig &config);
 std::string espectre_effective_device_id(const EspectreDeviceConfig &config);
 std::string espectre_effective_device_label(const EspectreDeviceConfig &config);
+EspectreDeviceInfo normalize_protocol_device_info(const EspectreDeviceInfo &info,
+                                                  const RuntimeSnapshot *snapshot,
+                                                  bool supports_ota,
+                                                  const char *default_frontend,
+                                                  const char *default_chip = nullptr);
 void clear_espectre_mqtt_config(EspectreDeviceConfig *config);
 
 std::string espectre_topic(const EspectreDeviceConfig &config, const char *suffix);
@@ -114,6 +119,7 @@ std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
 
 bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error);
 bool parse_espectre_config_command(const std::string &command, EspectreDeviceConfig *config, std::string *error);
+bool parse_espectre_mqtt_config_command(const std::string &command, EspectreDeviceConfig *config, std::string *error);
 
 }  // namespace espectre
 }  // namespace esphome

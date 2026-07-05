@@ -9,19 +9,52 @@ set(ESPECTRE_CORE_SOURCES
     "${ESPECTRE_CPP_ROOT}/core/mvs_detector.cpp"
 )
 
-set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
+set(ESPECTRE_RUNTIME_COMMON_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/protocol_json.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
+)
+
+set(ESPECTRE_RUNTIME_PROTOCOL_HELPER_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/frontend_bootstrap_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/frontend_control_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/frontend_mqtt_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/protocol/frontend_sysinfo_helpers.cpp"
+)
+
+set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_time.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_protocol.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
+)
+
+set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
+    ${ESPECTRE_RUNTIME_COMMON_SOURCES}
+    ${ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES}
+)
+
+set(ESPECTRE_RUNTIME_STREAMER_SOURCES
+    ${ESPECTRE_RUNTIME_COMMON_SOURCES}
+    ${ESPECTRE_RUNTIME_PROTOCOL_HELPER_SOURCES}
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_time.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_service.cpp"

@@ -24,6 +24,17 @@ std::string make_broker_uri(const EspectreDeviceConfig &config) {
   return uri;
 }
 
+std::string make_topic_base(const EspectreDeviceConfig &config) {
+  std::string topic = config.topic_prefix.empty() ? ESPECTRE_TOPIC_PREFIX : config.topic_prefix;
+  if (!topic.empty() && topic.back() == '/') {
+    topic.pop_back();
+  }
+  topic.push_back('/');
+  topic.append(espectre_effective_device_id(config));
+  topic.push_back('/');
+  return topic;
+}
+
 }  // namespace
 
 bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
@@ -37,7 +48,9 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   }
 
   broker_uri_ = make_broker_uri(config_);
-  last_will_topic_ = espectre_topic(config_, "status");
+  topic_base_ = make_topic_base(config_);
+  command_topic_ = topic_base_ + "commands/request";
+  last_will_topic_ = topic_base_ + "status";
   last_will_payload_ = espectre_status_payload(config_, false, 0);
   esp_mqtt_client_config_t mqtt_config{};
   mqtt_config.broker.address.uri = broker_uri_.c_str();
@@ -51,7 +64,7 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   mqtt_config.session.last_will.msg = last_will_payload_.c_str();
   mqtt_config.session.last_will.msg_len = 0;
   mqtt_config.session.last_will.qos = 0;
-  mqtt_config.session.last_will.retain = true;
+  mqtt_config.session.last_will.retain = false;
 
   client_ = esp_mqtt_client_init(&mqtt_config);
   if (client_ == nullptr) {
@@ -88,6 +101,13 @@ bool EspIdfMqttTransport::publish(const std::string &topic, const std::string &p
   }
   const int id = esp_mqtt_client_publish(client_, topic.c_str(), payload.c_str(), 0, 0, retain ? 1 : 0);
   return id >= 0;
+}
+
+bool EspIdfMqttTransport::publish_suffix(const char *suffix, const std::string &payload, bool retain) {
+  if (suffix == nullptr || suffix[0] == '\0') {
+    return false;
+  }
+  return publish(topic_base_ + suffix, payload, retain);
 }
 
 void EspIdfMqttTransport::set_command_callback(CommandCallback callback) {
@@ -144,8 +164,7 @@ void EspIdfMqttTransport::subscribe_commands_() {
   if (client_ == nullptr) {
     return;
   }
-  const std::string command_topic = espectre_topic(config_, "commands/request");
-  esp_mqtt_client_subscribe(client_, command_topic.c_str(), 0);
+  esp_mqtt_client_subscribe(client_, command_topic_.c_str(), 0);
 }
 
 }  // namespace espectre

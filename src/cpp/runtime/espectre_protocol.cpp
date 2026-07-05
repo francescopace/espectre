@@ -11,10 +11,12 @@
 #include <cerrno>
 #include <cinttypes>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 
 #include "base_detector.h"
+#include "protocol_json.h"
 
 namespace esphome {
 namespace espectre {
@@ -23,46 +25,6 @@ namespace {
 
 const char *motion_state_name(MotionState state) {
   return state == MotionState::MOTION ? "motion" : "idle";
-}
-
-void append_json_string(std::string *out, const char *value) {
-  out->push_back('"');
-  if (value != nullptr) {
-    for (const char *p = value; *p != '\0'; ++p) {
-      switch (*p) {
-        case '"':
-          out->append("\\\"");
-          break;
-        case '\\':
-          out->append("\\\\");
-          break;
-        case '\n':
-          out->append("\\n");
-          break;
-        case '\r':
-          out->append("\\r");
-          break;
-        case '\t':
-          out->append("\\t");
-          break;
-        default:
-          out->push_back(*p);
-          break;
-      }
-    }
-  }
-  out->push_back('"');
-}
-
-std::string json_pair_string(const char *key, const char *value, bool first = false) {
-  std::string out;
-  if (!first) {
-    out.append(",");
-  }
-  append_json_string(&out, key);
-  out.append(":");
-  append_json_string(&out, value);
-  return out;
 }
 
 bool parse_float_value(const std::string &value, float *out) {
@@ -115,67 +77,6 @@ std::string normalize_ble_chip_label(const char *chip) {
   return normalized.empty() ? "UNK" : normalized;
 }
 
-std::string extract_json_string(const std::string &payload, const char *key) {
-  const std::string needle = std::string("\"") + key + "\"";
-  const size_t key_pos = payload.find(needle);
-  if (key_pos == std::string::npos) {
-    return {};
-  }
-  const size_t colon = payload.find(':', key_pos + needle.size());
-  if (colon == std::string::npos) {
-    return {};
-  }
-  const size_t first_quote = payload.find('"', colon + 1);
-  if (first_quote == std::string::npos) {
-    return {};
-  }
-  std::string value;
-  bool escaped = false;
-  for (size_t i = first_quote + 1; i < payload.size(); ++i) {
-    const char ch = payload[i];
-    if (escaped) {
-      value.push_back(ch);
-      escaped = false;
-      continue;
-    }
-    if (ch == '\\') {
-      escaped = true;
-      continue;
-    }
-    if (ch == '"') {
-      return value;
-    }
-    value.push_back(ch);
-  }
-  return {};
-}
-
-std::string extract_json_number_token(const std::string &payload, const char *key) {
-  const std::string needle = std::string("\"") + key + "\"";
-  const size_t key_pos = payload.find(needle);
-  if (key_pos == std::string::npos) {
-    return {};
-  }
-  const size_t colon = payload.find(':', key_pos + needle.size());
-  if (colon == std::string::npos) {
-    return {};
-  }
-  size_t begin = payload.find_first_not_of(" \t\r\n", colon + 1);
-  if (begin == std::string::npos) {
-    return {};
-  }
-  size_t end = begin;
-  while (end < payload.size()) {
-    const char ch = payload[end];
-    if ((ch >= '0' && ch <= '9') || ch == '-' || ch == '+' || ch == '.' || ch == 'e' || ch == 'E') {
-      ++end;
-      continue;
-    }
-    break;
-  }
-  return payload.substr(begin, end - begin);
-}
-
 const char *ota_state_name(EspectreOtaState state) {
   switch (state) {
     case EspectreOtaState::IDLE:
@@ -204,31 +105,11 @@ bool assign_config_field(const std::string &field, const std::string &value, Esp
     config->device_label = value;
     return true;
   }
-  if (field == "mqtt_host") {
-    config->mqtt_host = value;
-    return true;
-  }
-  if (field == "mqtt_username") {
-    config->mqtt_username = value;
-    return true;
-  }
-  if (field == "mqtt_password") {
-    config->mqtt_password = value;
-    return true;
-  }
-  if (field == "topic_prefix") {
-    config->topic_prefix = value.empty() ? ESPECTRE_TOPIC_PREFIX : value;
-    return true;
-  }
-  if (field == "mqtt_port") {
-    uint16_t port = 0;
-    if (!parse_uint16_value(value, &port) || port == 0) {
-      return false;
-    }
-    config->mqtt_port = port;
-    return true;
-  }
   return false;
+}
+
+bool parse_mqtt_port_value(const std::string &value, uint16_t *port) {
+  return parse_uint16_value(value, port) && port != nullptr && *port > 0U;
 }
 
 }  // namespace
@@ -272,7 +153,7 @@ std::string espectre_device_name(uint64_t device_id, const char *chip) {
 }
 
 uint64_t espectre_effective_device_id_u64(const EspectreDeviceConfig &config) {
-  return config.device_id == ESPECTRE_DEFAULT_DEVICE_ID ? ESPECTRE_DEFAULT_DEVICE_ID : config.device_id;
+  return config.device_id;
 }
 
 std::string espectre_effective_device_id(const EspectreDeviceConfig &config) {
@@ -281,6 +162,23 @@ std::string espectre_effective_device_id(const EspectreDeviceConfig &config) {
 
 std::string espectre_effective_device_label(const EspectreDeviceConfig &config) {
   return config.device_label;
+}
+
+EspectreDeviceInfo normalize_protocol_device_info(const EspectreDeviceInfo &info,
+                                                  const RuntimeSnapshot *snapshot,
+                                                  bool supports_ota,
+                                                  const char *default_frontend,
+                                                  const char *default_chip) {
+  EspectreDeviceInfo normalized = info;
+  normalized.frontend =
+      normalized.frontend.empty() ? (default_frontend != nullptr ? default_frontend : "native") : normalized.frontend;
+  normalized.firmware_version = normalized.firmware_version.empty() ? "unknown" : normalized.firmware_version;
+  normalized.chip = normalized.chip.empty() ? (default_chip != nullptr ? default_chip : "unknown") : normalized.chip;
+  normalized.supports_ota = supports_ota;
+  if (normalized.detector.empty() && snapshot != nullptr && snapshot->detector_name != nullptr) {
+    normalized.detector = snapshot->detector_name;
+  }
+  return normalized;
 }
 
 void clear_espectre_mqtt_config(EspectreDeviceConfig *config) {
@@ -527,6 +425,79 @@ bool parse_espectre_config_command(const std::string &command, EspectreDeviceCon
   if (!assign_config_field(field, value, config)) {
     if (error != nullptr) {
       *error = "invalid config field";
+    }
+    return false;
+  }
+  return true;
+}
+
+bool parse_espectre_mqtt_config_command(const std::string &command, EspectreDeviceConfig *config, std::string *error) {
+  if (config == nullptr) {
+    if (error != nullptr) {
+      *error = "config output is required";
+    }
+    return false;
+  }
+  constexpr const char *prefix = "SET_MQTT_CONFIG:";
+  if (command.rfind(prefix, 0) != 0) {
+    if (error != nullptr) {
+      *error = "invalid mqtt config command";
+    }
+    return false;
+  }
+
+  std::vector<std::pair<std::string, std::string>> pairs;
+  if (!parse_urlencoded_key_value_pairs(command.substr(std::strlen(prefix)), &pairs, error)) {
+    return false;
+  }
+
+  bool has_host = false;
+  bool has_port = false;
+  for (const auto &pair : pairs) {
+    if (pair.first == "host") {
+      config->mqtt_host = pair.second;
+      has_host = true;
+      continue;
+    }
+    if (pair.first == "port") {
+      uint16_t port = 0U;
+      if (!parse_mqtt_port_value(pair.second, &port)) {
+        if (error != nullptr) {
+          *error = "mqtt port must be 1..65535";
+        }
+        return false;
+      }
+      config->mqtt_port = port;
+      has_port = true;
+      continue;
+    }
+    if (pair.first == "username") {
+      config->mqtt_username = pair.second;
+      continue;
+    }
+    if (pair.first == "password") {
+      config->mqtt_password = pair.second;
+      continue;
+    }
+    if (pair.first == "topic_prefix") {
+      config->topic_prefix = pair.second.empty() ? ESPECTRE_TOPIC_PREFIX : pair.second;
+      continue;
+    }
+    if (error != nullptr) {
+      *error = "unsupported mqtt config field";
+    }
+    return false;
+  }
+
+  if (!has_host || config->mqtt_host.empty()) {
+    if (error != nullptr) {
+      *error = "missing mqtt host";
+    }
+    return false;
+  }
+  if (!has_port) {
+    if (error != nullptr) {
+      *error = "missing mqtt port";
     }
     return false;
   }

@@ -1,16 +1,12 @@
 #include "periodic_sensing_status_logger.h"
 
-#if __has_include("esp_timer.h")
-#include "esp_timer.h"
-#define ESPECTRE_HAVE_ESP_TIMER 1
-#endif
-
 #if __has_include("esp_wifi.h")
 #include "esp_wifi.h"
 #define ESPECTRE_HAVE_ESP_WIFI 1
 #endif
 
 #include "espectre_log.h"
+#include "runtime_time.h"
 
 namespace esphome {
 namespace espectre {
@@ -26,10 +22,7 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   const float threshold = snapshot.threshold;
   const bool is_motion = (snapshot.motion_state == MotionState::MOTION);
 
-  uint32_t now_ms = 0;
-#ifdef ESPECTRE_HAVE_ESP_TIMER
-  now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
-#endif
+  const uint32_t now_ms = monotonic_now_ms();
 
   uint32_t rate_pps = 0;
   if (last_log_time_ms_ > 0 && now_ms > last_log_time_ms_) {

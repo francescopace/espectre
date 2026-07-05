@@ -15,12 +15,18 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 #include "ble_protocol.h"
 #include "csi_stream_protocol.h"
 #include "device_config_store.h"
 #include "device_identity.h"
 #include "espectre_log.h"
 #include "firmware_version.h"
+#include "frontend_bootstrap_helpers.h"
+#include "frontend_control_helpers.h"
+#include "frontend_mqtt_helpers.h"
+#include "frontend_sysinfo_helpers.h"
+#include "runtime_time.h"
 #include "stimulus_protocol.h"
 #include "utils.h"
 #include "esp_attr.h"
@@ -32,6 +38,11 @@
 #include "lwip/inet.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
+
+#if __has_include("esp_heap_caps.h")
+#include "esp_heap_caps.h"
+#define ESPECTRE_HAVE_ESP_HEAP_CAPS 1
+#endif
 
 namespace esphome {
 namespace espectre {
@@ -46,6 +57,14 @@ constexpr bool kStreamOutputEnabled = true;
 #else
 constexpr bool kStreamOutputEnabled = false;
 #endif
+
+float current_free_memory_kb() {
+#ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
+  return static_cast<float>(heap_caps_get_free_size(MALLOC_CAP_DEFAULT)) / 1024.0f;
+#else
+  return 0.0f;
+#endif
+}
 
 const char *workflow_state_name(StreamFrontend::WorkflowState state) {
   switch (state) {
@@ -197,36 +216,26 @@ bool StreamFrontend::setup() {
   }
 
   stream_seq_ = 0U;
-  device_config_ = EspectreDeviceConfig{};
-  device_config_.device_id = derive_runtime_device_id();
+  FrontendDeviceConfigDefaults device_config_defaults;
+  device_config_defaults.runtime_device_id = derive_runtime_device_id();
 #if defined(CONFIG_ESPECTRE_MQTT_HOST)
-  device_config_.mqtt_host = CONFIG_ESPECTRE_MQTT_HOST;
-  device_config_.mqtt_port = CONFIG_ESPECTRE_MQTT_PORT;
-  device_config_.topic_prefix = CONFIG_ESPECTRE_TOPIC_PREFIX;
+  device_config_defaults.mqtt_host = CONFIG_ESPECTRE_MQTT_HOST;
+  device_config_defaults.mqtt_port = CONFIG_ESPECTRE_MQTT_PORT;
+  device_config_defaults.topic_prefix = CONFIG_ESPECTRE_TOPIC_PREFIX;
 #endif
+  device_config_ = load_frontend_device_config(device_config_defaults,
+                                               TAG,
+                                               "Using device config provisioned over BLE",
+                                               "Failed to load BLE-provisioned device config");
   device_info_.frontend = "streamer";
   device_info_.firmware_version = espectre_firmware_version();
   device_info_.chip = CONFIG_IDF_TARGET;
-
-  EspectreDeviceConfig stored_device_config;
-  bool has_stored_device_config = false;
-  const esp_err_t load_err = load_stored_device_config(&stored_device_config, &has_stored_device_config);
-  if (load_err == ESP_OK && has_stored_device_config) {
-    device_config_ = stored_device_config;
-    ESP_LOGI(TAG, "Using device config provisioned over BLE");
-  } else if (load_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to load BLE-provisioned device config: %s", esp_err_to_name(load_err));
-  }
-  device_config_.device_id = derive_runtime_device_id();
 
   if (!udp_sender_.setup()) {
     return false;
   }
 
-  sockaddr_in collector_addr{};
-  collector_addr.sin_family = AF_INET;
-  collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
-  udp_sender_.set_collector(collector_addr, false);
+  reset_collector_endpoint_();
   StimulusServiceConfig stimulus_config;
   stimulus_config.mode = StimulusMode::EXTERNAL;
   stimulus_config.udp_port = static_cast<uint16_t>(CONFIG_ESPECTRE_TRAFFIC_RX_PORT);
@@ -261,9 +270,16 @@ bool StreamFrontend::setup() {
 }
 
 void StreamFrontend::loop() {
+  const uint64_t loop_start_us = monotonic_now_us();
+  const auto finish_loop = [this, loop_start_us]() {
+    last_loop_time_ms_ = static_cast<float>(monotonic_now_us() - loop_start_us) / 1000.0F;
+  };
   if (!setup_complete_) {
+    finish_loop();
     return;
   }
+
+  ble_bindings_.loop();
 
   if (stimulus_service_.is_running()) {
     stimulus_service_.loop();
@@ -292,12 +308,14 @@ void StreamFrontend::loop() {
 
   if (!wifi_connected_.load(std::memory_order_relaxed)) {
     log_runtime_telemetry_();
+    finish_loop();
     return;
   }
 
   const WorkflowState state = state_.load(std::memory_order_relaxed);
   if (state == WorkflowState::OTA_IN_PROGRESS) {
     log_runtime_telemetry_();
+    finish_loop();
     return;
   }
   if (state == WorkflowState::WAIT_WIFI) {
@@ -314,6 +332,7 @@ void StreamFrontend::loop() {
   }
 
   log_runtime_telemetry_();
+  finish_loop();
 }
 
 void StreamFrontend::shutdown() {
@@ -352,28 +371,25 @@ bool StreamFrontend::init_nvs_() {
 }
 
 bool StreamFrontend::init_wifi_station_() {
-  constexpr int kConfiguredWifiChannel = CONFIG_ESPECTRE_WIFI_CHANNEL;
-  static_assert(kConfiguredWifiChannel >= 0 && kConfiguredWifiChannel <= 14, "invalid Wi-Fi channel");
-
-  WifiProvisioningDefaults defaults;
-  defaults.ssid = CONFIG_ESPECTRE_WIFI_SSID;
-  defaults.password = CONFIG_ESPECTRE_WIFI_PASSWORD;
-  defaults.bssid = CONFIG_ESPECTRE_WIFI_BSSID;
-  defaults.channel = static_cast<uint8_t>(kConfiguredWifiChannel);
-  defaults.max_retry = kWifiConnectMaxRetry;
-  defaults.manage_csi_lifecycle = true;
-
-  wifi_provisioning_.set_change_callback([this]() { this->publish_ble_sysinfo_(); });
-  const esp_err_t setup_err = wifi_provisioning_.setup_station(defaults,
-                                                               [this]() { this->on_wifi_connected_(); },
-                                                               [this]() { this->on_wifi_disconnected_(); });
+  const esp_err_t setup_err = setup_frontend_wifi_station(
+      &wifi_provisioning_,
+      &wifi_manager_,
+      FrontendWifiStationOptions{CONFIG_ESPECTRE_WIFI_SSID,
+                                 CONFIG_ESPECTRE_WIFI_PASSWORD,
+                                 CONFIG_ESPECTRE_WIFI_BSSID,
+                                 CONFIG_ESPECTRE_WIFI_CHANNEL,
+                                 kWifiConnectMaxRetry,
+                                 true,
+                                 true,
+                                 [this]() { this->publish_ble_sysinfo_(); },
+                                 [this]() { this->on_wifi_connected_(); },
+                                 [this]() { this->on_wifi_disconnected_(); }},
+      TAG,
+      "Using Wi-Fi credentials provisioned over BLE");
   if (!check_esp(setup_err, "wifi_provisioning_.setup_station")) {
     return false;
   }
-  if (wifi_provisioning_.config().has_saved_config) {
-    ESP_LOGI(TAG, "Using Wi-Fi credentials provisioned over BLE");
-  }
-  return check_esp(wifi_manager_.start(), "wifi_manager_.start");
+  return true;
 }
 
 bool StreamFrontend::setup_ble_provisioning_() {
@@ -382,6 +398,7 @@ bool StreamFrontend::setup_ble_provisioning_() {
                                                                                  : device_info_.chip.c_str());
   ble_bindings_.set_device_name(device_name.c_str());
   ble_bindings_.set_connection_state_callback([this](bool connected) {
+    this->ble_client_connected_ = connected;
     if (connected) {
       this->publish_ble_sysinfo_();
     }
@@ -397,27 +414,17 @@ bool StreamFrontend::setup_ble_provisioning_() {
 }
 
 void StreamFrontend::setup_mqtt_() {
-  if (mqtt_transport_ == nullptr) {
-    return;
-  }
-  if (device_config_.mqtt_host.empty()) {
-    mqtt_transport_->shutdown();
-    return;
-  }
-
-  mqtt_transport_->set_command_callback([this](const std::string &payload) { this->handle_mqtt_command_(payload); });
-  mqtt_transport_->set_connection_callback([this](bool connected) {
-    if (connected) {
-      this->publish_mqtt_info_();
-      this->publish_mqtt_status_(true);
-      if (this->ota_service_ != nullptr) {
-        this->publish_mqtt_ota_status_(this->ota_service_->status());
-      }
-    }
-  });
-  if (!mqtt_transport_->setup(device_config_)) {
-    ESP_LOGW(TAG, "MQTT transport setup failed");
-  }
+  (void) setup_frontend_mqtt_transport(mqtt_transport_,
+                                       device_config_,
+                                       [this](const std::string &payload) { this->handle_mqtt_command_(payload); },
+                                       [this]() {
+                                         this->publish_mqtt_info_();
+                                         this->publish_mqtt_status_(true);
+                                         if (this->ota_service_ != nullptr) {
+                                           this->publish_mqtt_ota_status_(this->ota_service_->status());
+                                         }
+                                       },
+                                       TAG);
 }
 
 bool StreamFrontend::start_capture_() {
@@ -436,13 +443,17 @@ void StreamFrontend::stop_capture_() {
   (void)capture_service_.disable();
 }
 
-void StreamFrontend::prepare_for_ota_() {
-  stop_capture_();
-  stimulus_service_.stop();
+void StreamFrontend::reset_collector_endpoint_() {
   sockaddr_in collector_addr{};
   collector_addr.sin_family = AF_INET;
   collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
   udp_sender_.set_collector(collector_addr, false);
+}
+
+void StreamFrontend::prepare_for_ota_() {
+  stop_capture_();
+  stimulus_service_.stop();
+  reset_collector_endpoint_();
   transition_to_(WorkflowState::OTA_IN_PROGRESS, "ota requested");
 }
 
@@ -452,10 +463,7 @@ void StreamFrontend::on_wifi_connected_() {
   local_ip_addr_ = 0U;
   local_mac_addr_.fill(0U);
   reset_runtime_telemetry_baseline_();
-  sockaddr_in collector_addr{};
-  collector_addr.sin_family = AF_INET;
-  collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
-  udp_sender_.set_collector(collector_addr, false);
+  reset_collector_endpoint_();
   capture_service_.reset_session();
   StandaloneWifiInfo wifi_info;
   if (wifi_manager_.get_info(&wifi_info) && wifi_info.ip_address[0] != '\0') {
@@ -478,10 +486,7 @@ void StreamFrontend::on_wifi_disconnected_() {
   collector_ip_addr_ = 0U;
   local_ip_addr_ = 0U;
   local_mac_addr_.fill(0U);
-  sockaddr_in collector_addr{};
-  collector_addr.sin_family = AF_INET;
-  collector_addr.sin_port = htons(static_cast<uint16_t>(CONFIG_ESPECTRE_COLLECTOR_PORT));
-  udp_sender_.set_collector(collector_addr, false);
+  reset_collector_endpoint_();
   transition_to_(WorkflowState::WAIT_WIFI, "wifi disconnected");
   device_info_.network = EspectreNetworkInfo{};
   publish_ble_sysinfo_();
@@ -495,44 +500,61 @@ void StreamFrontend::handle_ble_control_(const std::string &command) {
 
   std::string message;
   bool accepted = false;
-  if (command == "CLEAR_DEVICE_CONFIG") {
-    const esp_err_t err = clear_stored_device_config();
-    accepted = err == ESP_OK;
-    if (accepted) {
-      device_config_ = EspectreDeviceConfig{};
-      device_config_.device_id = derive_runtime_device_id();
+  bool refresh_sysinfo_now = true;
+  DeviceConfigBleCommandResult device_config_result = handle_ble_device_config_command(
+      command,
+      device_config_,
+      [](EspectreDeviceConfig *cleared_config, std::string *message) {
+        const esp_err_t err = clear_stored_device_config();
+        if (err != ESP_OK) {
+          if (message != nullptr) {
+            *message = esp_err_to_name(err);
+          }
+          return false;
+        }
+        if (cleared_config != nullptr) {
+          *cleared_config = EspectreDeviceConfig{};
+          cleared_config->device_id = derive_runtime_device_id();
+        }
+        if (message != nullptr) {
+          *message = "device settings cleared";
+        }
+        return true;
+      },
+      [](EspectreDeviceConfig *updated_config, std::string *message) {
+        if (updated_config == nullptr) {
+          return false;
+        }
+        updated_config->device_id = derive_runtime_device_id();
+        const esp_err_t err = save_stored_device_config(*updated_config);
+        if (err != ESP_OK) {
+          if (message != nullptr) {
+            *message = esp_err_to_name(err);
+          }
+          return false;
+        }
+        if (message != nullptr) {
+          *message = "device settings saved";
+        }
+        return true;
+      });
+  if (device_config_result.handled) {
+    accepted = device_config_result.accepted;
+    message = device_config_result.message;
+    if (accepted && device_config_result.config_changed) {
+      publish_mqtt_status_(false);
+      device_config_ = device_config_result.config;
       const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(device_config_),
                                                            device_info_.chip.empty() ? nullptr
                                                                                      : device_info_.chip.c_str());
       ble_bindings_.set_device_name(device_name.c_str());
       setup_mqtt_();
-      message = "device settings cleared";
-    } else {
-      message = esp_err_to_name(err);
-    }
-  } else if (command.rfind("SET_DEVICE_CONFIG:", 0) == 0) {
-    EspectreDeviceConfig updated = device_config_;
-    std::string error;
-    if (parse_espectre_config_command(command, &updated, &error)) {
-      updated.device_id = derive_runtime_device_id();
-      const esp_err_t err = save_stored_device_config(updated);
-      accepted = err == ESP_OK;
-      if (accepted) {
-        device_config_ = updated;
-        const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(device_config_),
-                                                             device_info_.chip.empty() ? nullptr
-                                                                                       : device_info_.chip.c_str());
-        ble_bindings_.set_device_name(device_name.c_str());
-        setup_mqtt_();
-        message = "device settings saved";
-      } else {
-        message = esp_err_to_name(err);
-      }
-    } else {
-      message = error.empty() ? "unsupported device config field" : error;
     }
   } else {
     accepted = wifi_provisioning_.handle_command(command, &message);
+    if (accepted) {
+      refresh_sysinfo_now = false;
+    }
   }
   char line[192];
   std::snprintf(line,
@@ -541,159 +563,95 @@ void StreamFrontend::handle_ble_control_(const std::string &command) {
                 accepted ? "ok" : "error",
                 message.empty() ? command.c_str() : message.c_str());
   publish_ble_line_(line);
-  publish_ble_sysinfo_();
+  if (refresh_sysinfo_now) {
+    publish_ble_sysinfo_();
+  }
 }
 
 void StreamFrontend::handle_mqtt_command_(const std::string &payload) {
-  EspectreCommand command;
-  std::string error;
-  if (!parse_espectre_command(payload, &command, &error)) {
-    command.command = "unknown";
-    publish_mqtt_command_result_(command, false, error.c_str());
-    return;
+  const FrontendMqttCommandResult result =
+      handle_frontend_mqtt_command(payload,
+                                   ota_service_,
+                                   device_info_.firmware_version.c_str(),
+                                   FrontendMqttCommandCapabilities{true, true, false, ota_service_ != nullptr},
+                                   [this]() { this->publish_mqtt_info_(); },
+                                   [this]() { this->publish_mqtt_stats_(); },
+                                   {},
+                                   [this](const EspectreOtaStatus &status) { this->publish_mqtt_ota_status_(status); });
+  if (result.handled) {
+    publish_mqtt_command_result_(result.command, result.accepted, result.message.c_str());
   }
-
-  if (command.command == "info") {
-    publish_mqtt_info_();
-    publish_mqtt_command_result_(command, true, "info published");
-    return;
-  }
-
-  if (command.command == "ota_status") {
-    if (ota_service_ == nullptr) {
-      publish_mqtt_command_result_(command, false, "ota unavailable");
-      return;
-    }
-    publish_mqtt_ota_status_(ota_service_->status());
-    publish_mqtt_command_result_(command, true, "ota status published");
-    return;
-  }
-
-  if (command.command == "ota_check") {
-    const bool accepted = ota_service_ != nullptr &&
-                          command.has_manifest_url &&
-                          ota_service_->start_check(command.manifest_url, device_info_.firmware_version);
-    publish_mqtt_command_result_(command, accepted, accepted ? "ota check started" : "ota check rejected");
-    return;
-  }
-
-  if (command.command == "ota_start") {
-    const bool accepted =
-        ota_service_ != nullptr &&
-        ota_service_->start_update(command.has_manifest_url ? command.manifest_url : "",
-                                   command.has_image_url ? command.image_url : "",
-                                   command.has_version ? command.version : "",
-                                   device_info_.firmware_version);
-    publish_mqtt_command_result_(command, accepted, accepted ? "ota update started" : "ota update rejected");
-    return;
-  }
-
-  publish_mqtt_command_result_(command, false, "unsupported command");
 }
 
 void StreamFrontend::publish_ble_sysinfo_() {
-  if (!ble_ready_) {
+  if (!ble_ready_ || !ble_client_connected_) {
     return;
   }
 
-  char line[192];
-  publish_ble_line_("frontend=streamer");
-  publish_ble_line_("espectre_protocol_version=1.0");
-  publish_ble_line_("supports_wifi_provisioning=true");
-  publish_ble_line_("supports_mqtt_config=true");
-  publish_ble_line_("supports_device_config=true");
-  publish_ble_line_("supports_runtime_threshold=false");
-  publish_ble_line_("supports_live_telemetry=false");
-  publish_ble_line_("supports_extended_diagnostics=false");
-  publish_ble_line_("supports_ota=true");
-  std::snprintf(line, sizeof(line), "firmware_version=%s", device_info_.firmware_version.c_str());
-  publish_ble_line_(line);
-  publish_ble_line_("chip=" CONFIG_IDF_TARGET);
-  std::snprintf(line, sizeof(line), "device_id=%s", espectre_effective_device_id(device_config_).c_str());
-  publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "device_label=%s", espectre_effective_device_label(device_config_).c_str());
-  publish_ble_line_(line);
-  const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(device_config_),
-                                                       device_info_.chip.empty() ? nullptr
-                                                                                 : device_info_.chip.c_str());
-  std::snprintf(line, sizeof(line), "device_name=%s", device_name.c_str());
-  publish_ble_line_(line);
-
+  std::vector<std::string> lines;
+  EspectreDeviceInfo sysinfo_device_info = device_info_;
+  if (sysinfo_device_info.chip.empty()) {
+    sysinfo_device_info.chip = CONFIG_IDF_TARGET;
+  }
   const StoredWifiConfig &wifi_config = wifi_provisioning_.config();
-  std::snprintf(line, sizeof(line), "wifi_ssid=%s", wifi_config.ssid.c_str());
-  publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_bssid=%s", wifi_config.bssid.c_str());
-  publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_channel=%u", static_cast<unsigned>(wifi_config.channel));
-  publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_password_set=%s", wifi_provisioning_.password_set() ? "true" : "false");
-  publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_connected=%s", wifi_connected_.load(std::memory_order_relaxed) ? "true" : "false");
-  publish_ble_line_(line);
-  std::snprintf(line,
-                sizeof(line),
-                "mqtt_connected=%s",
-                mqtt_transport_ != nullptr && mqtt_transport_->connected() ? "true" : "false");
-  publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "mqtt_host=%s", device_config_.mqtt_host.c_str());
-  publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "mqtt_port=%u", static_cast<unsigned>(device_config_.mqtt_port));
-  publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "mqtt_username=%s", device_config_.mqtt_username.c_str());
-  publish_ble_line_(line);
-  std::snprintf(line, sizeof(line), "topic_prefix=%s", device_config_.topic_prefix.c_str());
-  publish_ble_line_(line);
+  lines = build_frontend_sysinfo_lines(FrontendSysinfoBase{
+      "streamer",
+      SysinfoCapabilities{true, true, true, false, false, false, true},
+      device_config_,
+      sysinfo_device_info,
+      false,
+      true,
+      mqtt_transport_ != nullptr && mqtt_transport_->connected(),
+      SysinfoWifiState{
+          wifi_config.ssid,
+          wifi_config.bssid,
+          wifi_config.channel,
+          wifi_provisioning_.password_set(),
+          wifi_connected_.load(std::memory_order_relaxed),
+      },
+  });
 
   StandaloneWifiInfo wifi_info;
   if (wifi_manager_.get_info(&wifi_info)) {
-    std::snprintf(line, sizeof(line), "ip_address=%s", wifi_info.ip_address);
-    publish_ble_line_(line);
-    std::snprintf(line, sizeof(line), "mac_address=%s", wifi_info.mac_address);
-    publish_ble_line_(line);
+    append_sysinfo_network_lines(&lines, wifi_info.ip_address, wifi_info.mac_address);
   }
-  publish_ble_line_("END");
+  append_sysinfo_end_line(&lines);
+  ble_bindings_.replace_sysinfo_lines(std::move(lines));
 }
 
 void StreamFrontend::publish_ble_line_(const char *line) {
-  if (ble_ready_ && line != nullptr) {
+  if (ble_ready_ && ble_client_connected_ && line != nullptr) {
     ble_bindings_.publish_sysinfo_line(line);
   }
 }
 
 void StreamFrontend::publish_mqtt_info_() {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
-  EspectreDeviceInfo info = device_info_;
-  info.supports_ota = ota_service_ != nullptr;
-  mqtt_transport_->publish(espectre_topic(device_config_, "info"), espectre_info_payload(device_config_, info), true);
+  const EspectreDeviceInfo info =
+      normalize_protocol_device_info(device_info_, nullptr, ota_service_ != nullptr, "streamer", CONFIG_IDF_TARGET);
+  (void) publish_frontend_mqtt_message(
+      mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), false);
 }
 
 void StreamFrontend::publish_mqtt_status_(bool online) {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
-  mqtt_transport_->publish(espectre_topic(device_config_, "status"),
-                           espectre_status_payload(device_config_, online, static_cast<uint32_t>(esp_timer_get_time() / 1000ULL)),
-                           true);
+  (void) publish_frontend_mqtt_status(mqtt_transport_, device_config_, online, monotonic_now_ms());
+}
+
+void StreamFrontend::publish_mqtt_stats_() {
+  const uint32_t now = monotonic_now_ms();
+  (void) publish_frontend_mqtt_message(mqtt_transport_,
+                                       device_config_,
+                                       "stats",
+                                       espectre_stats_payload(
+                                           device_config_, RuntimeSnapshot{}, now, now / 1000U, current_free_memory_kb(), last_loop_time_ms_),
+                                       false);
 }
 
 void StreamFrontend::publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message) {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
-  mqtt_transport_->publish(espectre_topic(device_config_, accepted ? "commands/accepted" : "commands/rejected"),
-                           espectre_command_result_payload(device_config_, command, accepted, message),
-                           false);
+  (void) publish_frontend_mqtt_command_result(mqtt_transport_, device_config_, command, accepted, message);
 }
 
 void StreamFrontend::publish_mqtt_ota_status_(const EspectreOtaStatus &status) {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
-  mqtt_transport_->publish(espectre_topic(device_config_, "ota/state"),
-                           espectre_ota_status_payload(device_config_, status, static_cast<uint32_t>(esp_timer_get_time() / 1000ULL)),
-                           true);
+  (void) publish_frontend_mqtt_ota_status(mqtt_transport_, device_config_, status, monotonic_now_ms());
 }
 
 void StreamFrontend::handle_csi_packet_(const wifi_csi_info_t *info, const NormalizedCSIPayload &normalized) {
@@ -722,7 +680,7 @@ void StreamFrontend::handle_csi_packet_(const wifi_csi_info_t *info, const Norma
   }
 
   csi_rx_total_++;
-  last_csi_ms_ = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+  last_csi_ms_ = monotonic_now_ms();
   last_csi_channel_ = info->rx_ctrl.channel;
 
   std::array<uint8_t, CsiUdpSender::MAX_PACKET_BYTES> packet{};
@@ -782,7 +740,7 @@ void StreamFrontend::transition_to_(WorkflowState next, const char *reason) {
 }
 
 void StreamFrontend::log_runtime_telemetry_() {
-  const uint64_t now_ms = static_cast<uint64_t>(esp_timer_get_time() / 1000ULL);
+  const uint64_t now_ms = static_cast<uint64_t>(monotonic_now_ms());
   if (last_log_ms_ != 0U && now_ms - last_log_ms_ < CONFIG_ESPECTRE_STREAM_LOG_INTERVAL_MS) {
     return;
   }
@@ -874,7 +832,7 @@ void StreamFrontend::reset_runtime_telemetry_baseline_() {
   prev_drop_total_ = udp_sender_.drop_total();
   prev_fail_total_ = udp_sender_.send_fail_total();
   prev_parse_fail_total_ = stimulus_parse_fail_total_;
-  prev_log_sample_ms_ = static_cast<uint64_t>(esp_timer_get_time() / 1000ULL);
+  prev_log_sample_ms_ = static_cast<uint64_t>(monotonic_now_ms());
   stream_active_last_tick_ = true;
 }
 

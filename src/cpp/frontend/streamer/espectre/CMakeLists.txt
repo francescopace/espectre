@@ -3,18 +3,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/../../../espectre_sources.cmake")
 idf_component_register(
     SRCS
         ${ESPECTRE_FRONTEND_STREAMER_SOURCES}
-        "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_manager.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_protocol.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stimulus_service.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
+        ${ESPECTRE_RUNTIME_STREAMER_SOURCES}
         ${ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES}
         ${ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES}
         ${ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES}

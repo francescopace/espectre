@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace esphome {
 namespace espectre {
@@ -27,6 +28,7 @@ class IBleBindings {
   virtual ~IBleBindings() = default;
 
   virtual bool setup() = 0;
+  virtual void loop() = 0;
   virtual void shutdown() = 0;
 
   virtual void set_connection_state_callback(ConnectionStateCallback callback) = 0;
@@ -35,6 +37,7 @@ class IBleBindings {
   virtual void set_device_name(const char *name) = 0;
 
   virtual void publish_telemetry(const uint8_t *payload, size_t payload_len) = 0;
+  virtual void replace_sysinfo_lines(std::vector<std::string> lines) = 0;
   virtual void publish_sysinfo_line(const char *line) = 0;
   virtual void report_fault(const char *message) = 0;
 };
