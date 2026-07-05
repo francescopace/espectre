@@ -450,10 +450,10 @@ amplitudes = np.sqrt(I**2 + Q**2)    # Shape: (N, 64)
 phases = np.arctan2(Q, I)            # Shape: (N, 64)
 ```
 
-### Using csi_utils
+### Using the tool library
 
 ```python
-from tools.csi_utils import load_npz_as_packets
+from tools.lib.csi_io import load_npz_as_packets
 from pathlib import Path
 import numpy as np
 
@@ -599,7 +599,7 @@ python tools/10_train_ml_model.py
 For custom real-time processing, you can use `CSIReceiver` as a library:
 
 ```python
-from csi_utils import CSIReceiver
+from tools.lib.csi_io import CSIReceiver
 
 def my_callback(packet):
     # packet is a CSIPacket dataclass with:

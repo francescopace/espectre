@@ -16,16 +16,24 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
 """
 
-import numpy as np
 import argparse
+import sys
+from pathlib import Path
 
-# Import csi_utils first - it sets up paths automatically
-from csi_utils import (
-    load_static_presence_and_motion, HampelFilter,
-    calculate_spatial_turbulence, find_static_presence_motion_dataset
-)
+import numpy as np
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.csi_analysis import calculate_spatial_turbulence
+from tools.lib.csi_io import load_static_presence_and_motion
+from tools.lib.dataset_metadata import resolve_explicit_pair, select_dataset_interactively
+from tools.lib.ui import show_plot_window
 from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
                     HAMPEL_WINDOW, HAMPEL_THRESHOLD, DEFAULT_SUBCARRIERS)
+from filters import HampelFilter
 from segmentation import SegmentationContext
 
 # Alias for backward compatibility
@@ -117,13 +125,13 @@ def calculate_turbulence_filtered_amplitudes(csi_packet, hampel_amps, subcarrier
     return std_amp / mean_amp if mean_amp > 0 else 0.0
 
 
-def run_comparison(static_presence_packets, motion_packets, track_data=False):
+def run_comparison(static_presence_packets, motion_packets, threshold, track_data=False):
     """Compare 4 filtering approaches"""
     results = {}
     num_sc = len(DEFAULT_SUBCARRIERS)
     
     # 1. No Filter
-    seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
+    seg = StreamingSegmentation(WINDOW_SIZE, threshold, track_data)
     for pkt in static_presence_packets:
         seg.add_turbulence(
             calculate_spatial_turbulence(pkt['csi_data'])
@@ -143,7 +151,7 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
     }
     
     # 2. Filter Turbulence (current ESPectre implementation)
-    seg = FilteredTurbulenceSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
+    seg = FilteredTurbulenceSegmentation(WINDOW_SIZE, threshold, track_data)
     for pkt in static_presence_packets:
         seg.add_turbulence(
             calculate_spatial_turbulence(pkt['csi_data'])
@@ -165,7 +173,7 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
     # 3. Filter I/Q Raw (separate I and Q filtering)
     hampel_I = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
     hampel_Q = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
-    seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
+    seg = StreamingSegmentation(WINDOW_SIZE, threshold, track_data)
     
     for pkt in static_presence_packets:
         turb = calculate_turbulence_filtered_iq(
@@ -197,7 +205,7 @@ def run_comparison(static_presence_packets, motion_packets, track_data=False):
     
     # 4. Filter Amplitudes (paper-style: Hampel on amplitude time series per subcarrier)
     hampel_amps = [HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) for _ in range(num_sc)]
-    seg = StreamingSegmentation(WINDOW_SIZE, THRESHOLD, track_data)
+    seg = StreamingSegmentation(WINDOW_SIZE, threshold, track_data)
     
     for pkt in static_presence_packets:
         turb = calculate_turbulence_filtered_amplitudes(
@@ -277,13 +285,19 @@ def plot_comparison(results, threshold):
             axes[i, 1].set_xlabel('Time (seconds)')
     
     plt.tight_layout()
-    plt.show()
+    show_plot_window(plt)
 
 
 def main():
+    raw_args = __import__('sys').argv[1:]
+    chip_explicit = '--chip' in raw_args
     parser = argparse.ArgumentParser(description='Filter Location Comparison')
     parser.add_argument('--chip', type=str, default='C6',
                         help='Chip type to use: C6, S3, etc. (default: C6)')
+    parser.add_argument('--dataset', type=str, default=None,
+                        help='Dataset filename, stem, or dataset id; pair is resolved from metadata')
+    parser.add_argument('--interactive', action='store_true',
+                        help='Choose the dataset interactively from dataset_info.json')
     parser.add_argument('--plot', action='store_true', help='Show visualization')
     args = parser.parse_args()
     
@@ -293,19 +307,39 @@ def main():
     
     chip = args.chip.upper()
     try:
-        static_presence_path, motion_path, chip_name = find_static_presence_motion_dataset(chip=chip)
-        static_presence_data, motion_data = load_static_presence_and_motion(chip=chip)
+        chip_filter = chip if chip_explicit and not args.dataset else (None if args.dataset else chip)
+        if args.interactive:
+            selected = select_dataset_interactively(
+                chip=chip if chip_explicit else None,
+                num_sc=64,
+                require_pair=True,
+                prompt='Select dataset for filter-location analysis',
+            )
+            pair = resolve_explicit_pair(dataset=selected.path.name, num_sc=64)
+        else:
+            pair = resolve_explicit_pair(dataset=args.dataset, chip=chip_filter, num_sc=64)
+        static_presence_path = pair.static_presence.path
+        motion_path = pair.motion.path
+        chip_name = pair.chip
+        static_presence_data, motion_data = load_static_presence_and_motion(
+            static_presence_file=static_presence_path,
+            motion_file=motion_path,
+            chip=chip_name,
+            dataset=args.dataset,
+        )
     except FileNotFoundError as e:
         print(f"❌ Error: {e}")
         return
     
     static_presence_packets = static_presence_data
     motion_packets = motion_data
+    threshold = pair.threshold if pair.threshold is not None else THRESHOLD
     
     print(f"Chip: {chip_name}")
     print(f"Loaded {len(static_presence_packets)} static-presence packets, {len(motion_packets)} motion packets\n")
+    print(f"Using threshold: {threshold:.6f}")
     
-    results = run_comparison(static_presence_packets, motion_packets, track_data=args.plot)
+    results = run_comparison(static_presence_packets, motion_packets, threshold, track_data=args.plot)
     
     # Print results
     print(f"{'Approach':<20} {'FP':<6} {'TP':<6} {'Score':<8}")
@@ -319,7 +353,7 @@ def main():
     print(f"\n✅ Best: {best[0]}\n")
     
     if args.plot:
-        plot_comparison(results, THRESHOLD)
+        plot_comparison(results, threshold)
 
 
 if __name__ == "__main__":

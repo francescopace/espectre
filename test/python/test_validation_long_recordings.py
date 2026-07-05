@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from repo_paths import tools_dir
+from tools.lib.repo_paths import tools_dir
 
 TESTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(TESTS_DIR))

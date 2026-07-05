@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from repo_paths import generated_data_dir, python_src_dir
+from tools.lib.repo_paths import generated_data_dir, python_src_dir
 
 # Add src to path
 src_path = str(python_src_dir())

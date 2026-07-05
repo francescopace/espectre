@@ -16,21 +16,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import time
-import json
 import re
 import sys
 from pathlib import Path
 
-# Import csi_utils first - it sets up paths automatically
-from repo_paths import data_dir
-from csi_utils import (
-    load_static_presence_and_motion, 
-    MVSDetector, 
-    calculate_spatial_turbulence, 
-    find_static_presence_motion_dataset, 
-    load_npz_as_packets,
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.csi_analysis import calculate_spatial_turbulence
+from tools.lib.csi_io import load_npz_as_packets, load_static_presence_and_motion
+from tools.lib.dataset_metadata import (
     DATA_DIR,
+    load_dataset_info,
+    resolve_dataset_selection,
+    resolve_explicit_pair,
+    resolve_dataset_threshold,
+    select_dataset_interactively,
 )
+from tools.lib.ui import show_plot_window
 from config import (
     SEG_WINDOW_SIZE, SEG_THRESHOLD,
     ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
@@ -38,7 +43,8 @@ from config import (
     DEFAULT_SUBCARRIERS
 )
 from filters import HampelFilter, LowPassFilter
-from threshold import calculate_startup_threshold as calculate_shared_startup_threshold
+from threshold import calculate_startup_threshold_from_max
+from mvs_detector import MVSDetector as ProdMVSDetector
 
 # Check if ML model is available (production implementation).
 ML_AVAILABLE = False
@@ -52,47 +58,9 @@ except ImportError:
 # Configuration
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else float(SEG_THRESHOLD)
-DATASET_INFO_PATH = data_dir() / 'dataset_info.json'
 
 # Threshold mode config aligned with the shared micro_espectre startup path.
 THRESHOLD_MODE = SEG_THRESHOLD if isinstance(SEG_THRESHOLD, str) else "auto"
-
-
-def load_dataset_info():
-    """Load dataset_info.json metadata used for context-aware tuning."""
-    if not DATASET_INFO_PATH.exists():
-        return {'files': {}}
-    with open(DATASET_INFO_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
-
-def lookup_file_info(dataset_info, filename):
-    """Return (label, entry) for a dataset filename, or (None, None)."""
-    files = dataset_info.get('files', {})
-    for label in ('static_presence', 'motion'):
-        for entry in files.get(label, []):
-            if entry.get('filename') == filename:
-                return label, entry
-    return None, None
-
-
-def has_explicit_pair(dataset_info, label, entry):
-    """Validate that pair metadata points to an existing counterpart."""
-    if label == 'static_presence':
-        pair_name = entry.get('optimal_pair_motion_file')
-        pair_label = 'motion'
-    else:
-        pair_name = entry.get('optimal_pair_static_presence_file')
-        pair_label = 'static_presence'
-    if not pair_name:
-        return False
-
-    files = dataset_info.get('files', {}).get(pair_label, [])
-    counterpart = next((x for x in files if x.get('filename') == pair_name), None)
-    if counterpart is None:
-        return False
-
-    return True
 
 
 def _extract_motion_start_from_description(description):
@@ -136,7 +104,10 @@ def load_test_dataset(chip=None, motion_start_packet=None):
     else:
         candidates = list(test_entries)
 
-    selected = sorted(candidates, key=lambda e: str(e.get('filename', '')))[-1]
+    selected = sorted(
+        candidates,
+        key=lambda e: (str(e.get('collected_at', '')), str(e.get('filename', ''))),
+    )[-1]
     filename = selected.get('filename')
     selected_chip = str(selected.get('chip', 'unknown')).upper()
     test_path = DATA_DIR / 'test' / filename
@@ -169,41 +140,29 @@ def load_test_dataset(chip=None, motion_start_packet=None):
 
 def resolve_context_aware_config_for_test(test_entry):
     """Resolve threshold for a test dataset from metadata."""
-    threshold = float(test_entry.get('optimal_threshold_gridsearch', THRESHOLD))
-    has_optimal = test_entry.get('optimal_threshold_gridsearch') is not None
+    threshold, source = resolve_dataset_threshold(test_entry)
+    if threshold is None:
+        threshold = THRESHOLD
+        source = 'test default threshold'
     return {
         'threshold': threshold,
-        'context_source': 'test-metadata threshold' if has_optimal else 'test default threshold',
-        'confidence_factor': 1.0 if has_optimal else 0.5,
+        'context_source': f'test {source}',
+        'confidence_factor': 1.0 if source == 'metadata' else 0.5,
     }
 
 
-def resolve_context_aware_config(static_presence_path):
-    """
-    Resolve context-aware threshold from dataset_info metadata.
-
-    Fallback policy:
-    - missing metadata -> project defaults
-    - metadata present but no pairing -> still use the default threshold
-    """
-    dataset_info = load_dataset_info()
-    label, entry = lookup_file_info(dataset_info, static_presence_path.name)
-
-    if entry is None:
-        return {
-            'threshold': THRESHOLD,
-            'context_source': 'metadata-missing default',
-            'confidence_factor': 0.5,
-        }
-
-    threshold = float(THRESHOLD)
-    paired = has_explicit_pair(dataset_info, label, entry) if label else False
-    context_source = 'explicit-pair' if paired else 'unpaired'
-
+def resolve_context_aware_config(pair):
+    """Resolve threshold from a shared explicit pair selection."""
+    threshold = pair.threshold if pair.threshold is not None else THRESHOLD
+    context_source = (
+        f'explicit-pair {pair.threshold_source}'
+        if pair.threshold is not None
+        else 'explicit-pair default'
+    )
     return {
         'threshold': threshold,
         'context_source': context_source,
-        'confidence_factor': 1.0 if paired else 0.5,
+        'confidence_factor': 1.0 if pair.threshold is not None else 0.5,
     }
 
 
@@ -232,7 +191,8 @@ def calculate_adaptive_threshold(values, threshold_mode=None):
     if len(values) == 0:
         return 1.0
     selected_mode = THRESHOLD_MODE if threshold_mode is None else threshold_mode
-    threshold, _formula = calculate_shared_startup_threshold(values, selected_mode)
+    max_value = float(np.max(np.asarray(values, dtype=float)))
+    threshold, _formula = calculate_startup_threshold_from_max(max_value, selected_mode)
     return float(threshold)
 
 
@@ -276,6 +236,41 @@ def compute_method_results(methods, method_thresholds):
     return results
 
 
+class MVSDetectorAdapter:
+    """Compatibility wrapper around the production MVS detector."""
+
+    def __init__(self, window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False):
+        self._detector = ProdMVSDetector(
+            window_size=window_size,
+            threshold=threshold,
+            enable_lowpass=ENABLE_LOWPASS_FILTER,
+            lowpass_cutoff=LOWPASS_CUTOFF,
+            enable_hampel=ENABLE_HAMPEL_FILTER,
+            hampel_window=HAMPEL_WINDOW,
+            hampel_threshold=HAMPEL_THRESHOLD,
+        )
+        self._track_data = bool(track_data)
+        self.moving_var_history = []
+        self.state_history = []
+
+    def process_packet(self, packet):
+        csi_data = packet['csi_data'] if isinstance(packet, dict) else packet
+        self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
+        state = self._detector.update_state()
+        if self._track_data:
+            self.moving_var_history.append(float(state.get('moving_variance', 0.0)))
+            motion_state = state.get('state', 'IDLE')
+            self.state_history.append(str(motion_state).upper())
+
+    def get_motion_count(self):
+        return self._detector.get_motion_count()
+
+    def reset(self):
+        self._detector.reset()
+        self.moving_var_history = []
+        self.state_history = []
+
+
 class MLDetectorAdapter:
     """Compatibility wrapper around production MLDetector."""
 
@@ -309,7 +304,14 @@ class MLDetectorAdapter:
         self.state_history = self._detector.state_history
 
 
-def compare_detection_methods(static_presence_packets, motion_packets, window_size, threshold):
+def compare_detection_methods(
+    static_presence_packets,
+    motion_packets,
+    window_size,
+    threshold,
+    *,
+    threshold_source='metadata',
+):
     """
     Compare different detection methods on same data.
     Returns metrics for each method.
@@ -342,14 +344,7 @@ def compare_detection_methods(static_presence_packets, motion_packets, window_si
     
     # MVS static presence
     start = time.perf_counter()
-    mvs_baseline = MVSDetector(
-        window_size, threshold, track_data=True,
-        enable_hampel=ENABLE_HAMPEL_FILTER,
-        hampel_window=HAMPEL_WINDOW,
-        hampel_threshold=HAMPEL_THRESHOLD,
-        enable_lowpass=ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=LOWPASS_CUTOFF
-    )
+    mvs_baseline = MVSDetectorAdapter(window_size, threshold, track_data=True)
     for pkt in static_presence_packets:
         mvs_baseline.process_packet(pkt)
     methods['MVS']['static_presence'] = np.array(mvs_baseline.moving_var_history)
@@ -367,14 +362,7 @@ def compare_detection_methods(static_presence_packets, motion_packets, window_si
     methods['Turbulence']['motion'] = np.array(methods['Turbulence']['motion'])
     
     # MVS motion
-    mvs_movement = MVSDetector(
-        window_size, threshold, track_data=True,
-        enable_hampel=ENABLE_HAMPEL_FILTER,
-        hampel_window=HAMPEL_WINDOW,
-        hampel_threshold=HAMPEL_THRESHOLD,
-        enable_lowpass=ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=LOWPASS_CUTOFF
-    )
+    mvs_movement = MVSDetectorAdapter(window_size, threshold, track_data=True)
     for pkt in motion_packets:
         mvs_movement.process_packet(pkt)
     mvs_time = time.perf_counter() - start
@@ -425,7 +413,7 @@ def compare_detection_methods(static_presence_packets, motion_packets, window_si
         'RSSI': calculate_adaptive_threshold(methods['RSSI']['static_presence']),
         'Mean Amplitude': calculate_adaptive_threshold(methods['Mean Amplitude']['static_presence']),
         'Turbulence': calculate_adaptive_threshold(methods['Turbulence']['static_presence']),
-        'MVS': calculate_adaptive_threshold(methods['MVS']['static_presence']),
+        'MVS': float(threshold) if threshold_source == 'metadata' else calculate_adaptive_threshold(methods['MVS']['static_presence']),
     }
     if ML_AVAILABLE and 'ML' in methods:
         method_thresholds['ML'] = ML_DEFAULT_THRESHOLD
@@ -573,7 +561,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
             ax_movement.set_xlabel('Time (seconds)', fontsize=10)
     
     plt.tight_layout()
-    plt.show()
+    show_plot_window(plt)
 
 
 def print_comparison_summary(methods, mvs_baseline, mvs_movement,
@@ -658,24 +646,12 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement,
 
 def run_all_chips():
     """Run comparison on all available chips and print summary table."""
-    from csi_utils import DATA_DIR
-    
-    # Find all available chips
-    chips = set()
-    for subdir in ['static_presence', 'motion']:
-        dir_path = DATA_DIR / subdir
-        if dir_path.exists():
-            for npz_file in dir_path.glob('*.npz'):
-                # Extract chip name from filename (e.g., static_presence_c6_64sc_... -> C6)
-                parts = npz_file.stem.split('_')
-                if subdir == 'static_presence' and len(parts) >= 3:
-                    chip = parts[2].upper()
-                    chips.add(chip)
-                elif subdir == 'motion' and len(parts) >= 2:
-                    chip = parts[1].upper()
-                    chips.add(chip)
-    
-    chips = sorted(chips)
+    dataset_info = load_dataset_info()
+    chips = sorted({
+        str(entry.get('chip', '')).upper()
+        for entry in dataset_info.get('files', {}).get('static_presence', [])
+        if entry.get('optimal_pair_motion_file')
+    })
     if not chips:
         print("No datasets found!")
         return
@@ -689,22 +665,26 @@ def run_all_chips():
     
     for chip in chips:
         try:
-            static_presence_path, motion_path, _ = find_static_presence_motion_dataset(chip=chip)
+            pair = resolve_explicit_pair(chip=chip, num_sc=64)
             static_presence_packets, motion_packets = load_static_presence_and_motion(
-                static_presence_file=static_presence_path,
-                motion_file=motion_path,
-                chip=chip
+                static_presence_file=pair.static_presence.path,
+                motion_file=pair.motion.path,
+                chip=chip,
             )
         except FileNotFoundError:
             continue
 
-        context_cfg = resolve_context_aware_config(static_presence_path)
+        context_cfg = resolve_context_aware_config(pair)
         chip_threshold = context_cfg['threshold']
         
         print(f"Processing {chip}...", end=" ", flush=True)
         
         result = compare_detection_methods(
-            static_presence_packets, motion_packets, WINDOW_SIZE, chip_threshold
+            static_presence_packets,
+            motion_packets,
+            WINDOW_SIZE,
+            chip_threshold,
+            threshold_source='metadata',
         )
         methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
         result_by_name = {r['name']: r for r in results}
@@ -773,12 +753,18 @@ def main():
     chip_explicit = '--chip' in raw_args
     parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Mean Amplitude, Turbulence, MVS, ML)')
     parser.add_argument('--chip', type=str, default='C6', help='Chip type: C6, S3, etc.')
+    parser.add_argument('--dataset', type=str, default=None,
+                        help='Dataset filename, stem, or dataset id; pair is resolved from metadata')
+    parser.add_argument('--interactive', action='store_true',
+                        help='Choose the dataset interactively from dataset_info.json')
     parser.add_argument('--all', action='store_true', help='Run on all available chips and show summary')
     parser.add_argument('--use-test-dataset', action='store_true',
                         help='Use latest data/test dataset for selected chip and split by motion start packet')
     parser.add_argument('--test-motion-start-packet', type=int, default=None,
                         help='Override motion start packet index when using --use-test-dataset')
     parser.add_argument('--plot', action='store_true', help='Show visualization plots')
+    parser.add_argument('--threshold-source', choices=['metadata', 'adaptive'], default='metadata',
+                        help='Use metadata MVS threshold or recompute it from the selected baseline capture')
     
     args = parser.parse_args()
     
@@ -816,13 +802,27 @@ def main():
             context_source = context_cfg['context_source']
             confidence_factor = context_cfg['confidence_factor']
         else:
-            static_presence_path, motion_path, chip_name = find_static_presence_motion_dataset(chip=chip)
+            chip_filter = chip if chip_explicit and not args.dataset else (None if args.dataset else chip)
+            if args.interactive:
+                selected = select_dataset_interactively(
+                    chip=chip if chip_explicit else None,
+                    num_sc=64,
+                    require_pair=True,
+                    prompt='Select dataset for detection comparison',
+                )
+                pair = resolve_explicit_pair(dataset=selected.path.name, num_sc=64)
+            else:
+                pair = resolve_explicit_pair(dataset=args.dataset, chip=chip_filter, num_sc=64)
+            static_presence_path = pair.static_presence.path
+            motion_path = pair.motion.path
+            chip_name = pair.chip
             static_presence_packets, motion_packets = load_static_presence_and_motion(
                 static_presence_file=static_presence_path,
                 motion_file=motion_path,
-                chip=chip
+                chip=chip,
+                dataset=args.dataset,
             )
-            context_cfg = resolve_context_aware_config(static_presence_path)
+            context_cfg = resolve_context_aware_config(pair)
             threshold = context_cfg['threshold']
             context_source = context_cfg['context_source']
             confidence_factor = context_cfg['confidence_factor']
@@ -843,10 +843,15 @@ def main():
     print(f"   Motion:          {len(motion_packets)} packets\n")
     print(f"   Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
     print(f"   Context-aware threshold: {threshold:.6f}")
+    print(f"   MVS evaluation threshold source: {args.threshold_source}")
     print(f"   Confidence factor: {confidence_factor:.1f}\n")
     
     result = compare_detection_methods(
-        static_presence_packets, motion_packets, WINDOW_SIZE, threshold
+        static_presence_packets,
+        motion_packets,
+        WINDOW_SIZE,
+        threshold,
+        threshold_source=args.threshold_source,
     )
     methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
     

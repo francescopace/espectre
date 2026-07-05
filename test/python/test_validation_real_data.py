@@ -36,7 +36,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from repo_paths import data_dir, python_src_dir
+from tools.lib.repo_paths import data_dir, python_src_dir
 
 sys.path.insert(0, str(python_src_dir()))
 
@@ -46,10 +46,8 @@ from features import (
     calc_skewness, calc_mad,
 )
 from filters import HampelFilter
-from csi_utils import (
-    load_static_presence_and_motion, calculate_spatial_turbulence,
-    calculate_variance_two_pass, MVSDetector
-)
+from tools.lib.csi_analysis import MVSDetector, calculate_spatial_turbulence, calculate_variance_two_pass
+from tools.lib.csi_io import load_static_presence_and_motion
 from config import (
     SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
     CALIBRATION_BUFFER_SIZE,
@@ -148,7 +146,7 @@ def real_data(dataset_config):
     - Baseline: all packets loaded, starting from packet 0
     - Movement: all packets loaded
     """
-    from csi_utils import load_npz_as_packets
+    from tools.lib.csi_io import load_npz_as_packets
     static_presence_path, motion_path, num_sc, chip, dataset_id = dataset_config
 
     static_presence_packets = load_npz_as_packets(static_presence_path)
@@ -399,14 +397,14 @@ class TestMVSDetectionRealData:
         )
         
         # Test with the calibrated band and adaptive threshold
-        # Note: csi_utils.MVSDetector has different signature than src.mvs_detector.MVSDetector
+        # Note: the tools compatibility detector has a different signature than src.mvs_detector.MVSDetector
         detector = MVSDetector(
             window_size=window_size,
             threshold=adaptive_threshold,
             selected_subcarriers=selected_band,
             track_data=True
         )
-        # csi_utils.MVSDetector internally uses SegmentationContext
+        # The tools compatibility detector internally uses SegmentationContext.
         
         for pkt in static_presence_packets:
             detector.process_packet(pkt)
@@ -950,7 +948,7 @@ class TestPerformanceMetrics:
     @pytest.mark.parametrize("empty_dataset_path", get_available_empty_datasets())
     def test_ml_empty_false_positive_rate(self, empty_dataset_path):
         """Validate that empty-room recordings stay below the ML FP target."""
-        from csi_utils import load_npz_as_packets
+        from tools.lib.csi_io import load_npz_as_packets
         from ml_detector import MLDetector
         from config import DEFAULT_SUBCARRIERS
         from detector_interface import MotionState

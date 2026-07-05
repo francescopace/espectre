@@ -1,9 +1,9 @@
 """
-Repository path helpers for Micro-ESPectre host-side tooling.
+Repository path helpers for ESPectre host-side tooling.
 
 Provides a single place to resolve repository-root-relative paths so
 tests, CLI utilities, and analysis scripts do not depend on fragile
-Path(__file__).parent.parent chains.
+Path(__file__).parent chains.
 """
 
 from pathlib import Path
@@ -79,3 +79,4 @@ def requirements_file() -> Path:
     if new_layout.exists():
         return new_layout
     return micro_espectre_root() / "requirements.txt"
+

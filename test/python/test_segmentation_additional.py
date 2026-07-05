@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 # Add src to path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from repo_paths import python_src_dir
+from tools.lib.repo_paths import python_src_dir
 
 sys.path.insert(0, str(python_src_dir()))
 

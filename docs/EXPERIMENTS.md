@@ -120,7 +120,7 @@ followed by the usual CV turbulence metric on the normalized amplitudes.
 The following tools were realigned to run production-aligned paired sweeps over
 all explicit `static_presence` / `motion` pairs from `data/dataset_info.json`:
 
-- `tools/mvs_sweep_core.py`: shared pair iterator, startup calibration, and
+- `tools/lib/mvs_sweep_core.py`: shared pair iterator, startup calibration, and
   continuous baseline -> motion evaluator
 - `tools/5_analyze_filter_turbulence.py`: main MVS sweep and prototype
   comparison entry point

@@ -198,3 +198,72 @@ def test_capture_continuity_flags_large_inter_packet_gap() -> None:
 
     assert by_name["inter_packet_gap"].status == "FAIL"
     assert "Largest inter-packet gap: 2480.0 ms" in by_name["inter_packet_gap"].message
+
+
+def test_validate_pair_uses_threshold_activation_logic(monkeypatch) -> None:
+    module = _load_validator_module()
+
+    static_csi = np.zeros((4, 128), dtype=np.int8)
+    motion_csi = np.ones((4, 128), dtype=np.int8)
+    threshold = 0.5
+
+    monkeypatch.setattr(module, "_filter_measurement_frames", lambda csi_data, data: csi_data)
+
+    def fake_replay(csi_data, runtime_threshold):
+        assert runtime_threshold == threshold
+        if csi_data is static_csi:
+            return np.array([0.10, 0.20, 0.30], dtype=np.float64)
+        return np.array([0.55, 0.70, 0.80], dtype=np.float64)
+
+    monkeypatch.setattr(module, "_replay_mvs_metric_series", fake_replay)
+
+    results, static_active, motion_active, returned_threshold, motion_peak_ratio = module.validate_pair(
+        static_csi,
+        motion_csi,
+        {},
+        {},
+        threshold,
+    )
+
+    activation = results[0]
+    assert activation.name == "threshold_activation"
+    assert activation.status == "PASS"
+    assert static_active == 0.0
+    assert motion_active == 1.0
+    assert returned_threshold == threshold
+    assert motion_peak_ratio == pytest.approx(1.6)
+
+
+def test_validate_pair_fails_when_motion_stays_below_threshold(monkeypatch) -> None:
+    module = _load_validator_module()
+
+    static_csi = np.zeros((4, 128), dtype=np.int8)
+    motion_csi = np.ones((4, 128), dtype=np.int8)
+    threshold = 0.5
+
+    monkeypatch.setattr(module, "_filter_measurement_frames", lambda csi_data, data: csi_data)
+
+    def fake_replay(csi_data, runtime_threshold):
+        assert runtime_threshold == threshold
+        if csi_data is static_csi:
+            return np.array([0.10, 0.15, 0.20], dtype=np.float64)
+        return np.array([0.25, 0.30, 0.40], dtype=np.float64)
+
+    monkeypatch.setattr(module, "_replay_mvs_metric_series", fake_replay)
+
+    results, static_active, motion_active, returned_threshold, motion_peak_ratio = module.validate_pair(
+        static_csi,
+        motion_csi,
+        {},
+        {},
+        threshold,
+    )
+
+    activation = results[0]
+    assert activation.name == "threshold_activation"
+    assert activation.status == "FAIL"
+    assert "motion_above=0.0%" in activation.message
+    assert static_active == 0.0
+    assert motion_active == 0.0
+    assert returned_threshold == threshold
+    assert motion_peak_ratio == pytest.approx(0.8)

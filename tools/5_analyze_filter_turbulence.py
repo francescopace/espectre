@@ -12,10 +12,19 @@ now runs it over the same explicit pair sweep instead of a single ad hoc pair.
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
 import numpy as np
 
-from csi_utils import setup_paths  # noqa: F401 - side effect import
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.bootstrap import setup_paths  # noqa: F401
+from tools.lib.dataset_metadata import select_dataset_interactively
+from tools.lib.ui import show_plot_window
 from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
@@ -25,7 +34,7 @@ from config import (
     LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
-from mvs_sweep_core import (
+from tools.lib.mvs_sweep_core import (
     MVSFilterConfig,
     MVSEvaluationResult,
     baseline_tracking_variant,
@@ -83,8 +92,26 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--chip", type=str, default=None, help="Only evaluate one chip, e.g. C6")
-    parser.add_argument("--dataset-id", type=str, default=None, help="Only evaluate one explicit dataset pair")
+    parser.add_argument(
+        "--dataset",
+        "--dataset-id",
+        dest="dataset_id",
+        type=str,
+        default=None,
+        help="Only evaluate one explicit dataset pair by filename, stem, or dataset id",
+    )
     parser.add_argument("--limit", type=int, default=None, help="Limit the number of dataset pairs")
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Choose one dataset pair interactively from dataset_info.json",
+    )
+    parser.add_argument(
+        "--threshold-source",
+        choices=["metadata", "calibrate"],
+        default="metadata",
+        help="Use metadata thresholds by default, or force calibration replay",
+    )
     parser.add_argument("--plot", action="store_true", help="Plot moving variance for one selected pair")
     parser.add_argument(
         "--variant",
@@ -179,6 +206,7 @@ def print_header(args, pair_count):
     print(f"Window size: {WINDOW_SIZE} packets")
     print(f"Selected band: {list(DEFAULT_SUBCARRIERS)}")
     print(f"Pairs: {pair_count}")
+    print(f"Threshold source: {args.threshold_source}")
     if args.chip:
         print(f"Chip filter: {args.chip.upper()}")
     if args.dataset_id:
@@ -304,6 +332,7 @@ def build_rows(args, pairs):
                 window_size=WINDOW_SIZE,
                 selected_band=DEFAULT_SUBCARRIERS,
                 track_trace=args.plot,
+                threshold_source=args.threshold_source,
             )
             rows.append(
                 {
@@ -321,6 +350,7 @@ def build_rows(args, pairs):
                 window_size=WINDOW_SIZE,
                 selected_band=DEFAULT_SUBCARRIERS,
                 track_trace=args.plot,
+                threshold_source=args.threshold_source,
             )
             rows.append(
                 {
@@ -391,11 +421,20 @@ def plot_rows(rows):
 
     plt.tight_layout()
     plt.subplots_adjust(top=0.92)
-    plt.show()
+    show_plot_window(plt)
 
 
 def main():
     args = parse_args()
+    if args.interactive:
+        selected = select_dataset_interactively(
+            chip=args.chip,
+            num_sc=64,
+            require_pair=True,
+            prompt="Select dataset for MVS sweep",
+        )
+        args.dataset_id = selected.path.name
+        args.limit = 1
     pairs = iter_paired_datasets(
         chip=args.chip,
         dataset_id=args.dataset_id,

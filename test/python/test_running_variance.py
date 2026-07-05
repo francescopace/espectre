@@ -11,7 +11,7 @@ License: GPLv3
 import pytest
 import math
 import numpy as np
-from csi_utils import calculate_variance_two_pass, calculate_spatial_turbulence
+from tools.lib.csi_analysis import calculate_spatial_turbulence, calculate_variance_two_pass
 
 
 class RunningVariance:

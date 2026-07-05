@@ -14,15 +14,19 @@ License: GPLv3
 """
 
 import argparse
+import sys
+from pathlib import Path
 
-# Import csi_utils first - it sets up paths automatically
-from csi_utils import (
-    load_npz_as_packets,
-    test_mvs_configuration,
-    MVSDetector,
-    find_static_presence_motion_dataset,
-)
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.csi_analysis import test_mvs_configuration
+from tools.lib.csi_io import load_npz_as_packets
+from tools.lib.dataset_metadata import resolve_explicit_pair, select_dataset_interactively
 from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE, SEG_THRESHOLD
+from mvs_detector import MVSDetector as ProdMVSDetector
 
 WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
@@ -55,14 +59,26 @@ def _build_result_entry(base_fields, fp, tp, score, static_presence_count, motio
     return result
 
 
-def load_dataset(chip="C6"):
+def load_dataset(chip="C6", dataset=None, interactive=False):
     """
     Load static-presence and motion datasets for the specified chip.
 
     Returns:
         tuple: (static_presence_packets, motion_packets, num_subcarriers, chip_name)
     """
-    static_presence_file, motion_file, chip_name = find_static_presence_motion_dataset(chip=chip)
+    if interactive:
+        selected = select_dataset_interactively(
+            chip=chip,
+            num_sc=64,
+            require_pair=True,
+            prompt="Select dataset for MVS grid search",
+        )
+        pair = resolve_explicit_pair(dataset=selected.path.name, num_sc=64)
+    else:
+        pair = resolve_explicit_pair(dataset=dataset, chip=chip, num_sc=64)
+    static_presence_file = pair.static_presence.path
+    motion_file = pair.motion.path
+    chip_name = pair.chip
     static_presence_packets = load_npz_as_packets(static_presence_file)
     motion_packets = load_npz_as_packets(motion_file)
     num_sc = len(static_presence_packets[0]["csi_data"]) // 2
@@ -120,16 +136,18 @@ def print_confusion_matrix(static_presence_packets, motion_packets, threshold, w
 
     num_baseline = len(static_presence_packets)
     num_movement = len(motion_packets)
-    detector = MVSDetector(window_size, threshold)
+    detector = ProdMVSDetector(window_size=window_size, threshold=threshold)
 
     for pkt in static_presence_packets:
-        detector.process_packet(pkt)
+        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.update_state()
     fp = detector.get_motion_count()
     tn = num_baseline - fp
 
     detector.motion_packet_count = 0
     for pkt in motion_packets:
-        detector.process_packet(pkt)
+        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.update_state()
     tp = detector.get_motion_count()
     fn = num_movement - tp
 
@@ -229,9 +247,15 @@ def print_top_results(results, num_sc, top_n=20):
 
 
 def main():
+    raw_args = __import__("sys").argv[1:]
+    chip_explicit = "--chip" in raw_args
     parser = argparse.ArgumentParser(description="Grid search for fixed-subcarrier MVS parameters")
     parser.add_argument("--quick", action="store_true", help="Quick mode (fewer tests)")
     parser.add_argument("--chip", type=str, default="C6", help="Chip type to use: C6, S3, etc. (default: C6)")
+    parser.add_argument("--dataset", type=str, default=None,
+                        help="Dataset filename, stem, or dataset id; pair is resolved from metadata")
+    parser.add_argument("--interactive", action="store_true",
+                        help="Choose the dataset interactively from dataset_info.json")
     args = parser.parse_args()
 
     print("")
@@ -242,9 +266,14 @@ def main():
         print("\nQUICK MODE: Testing reduced parameter space")
 
     chip = args.chip.upper()
+    chip_filter = chip if chip_explicit and not args.dataset else (None if args.dataset else chip)
     print(f"\nLoading data for {chip}...")
     try:
-        static_presence_packets, motion_packets, num_sc, chip_name = load_dataset(chip)
+        static_presence_packets, motion_packets, num_sc, chip_name = load_dataset(
+            chip_filter,
+            dataset=args.dataset,
+            interactive=args.interactive,
+        )
     except FileNotFoundError as e:
         print(f"Error: {e}")
         return

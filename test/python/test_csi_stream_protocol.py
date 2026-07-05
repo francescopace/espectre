@@ -8,8 +8,8 @@ import socket
 import numpy as np
 import pytest
 
-import csi_utils
-from csi_utils import (
+from tools.lib import dataset_metadata
+from tools.lib.csi_io import (
     CSICollector,
     CSIReceiver,
     CSI_HEADER_STRUCT,
@@ -260,8 +260,8 @@ def test_parse_packet_rejects_legacy_python_header():
 
 def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, monkeypatch):
     data_dir = tmp_path / 'data'
-    monkeypatch.setattr(csi_utils, 'DATA_DIR', data_dir)
-    monkeypatch.setattr(csi_utils, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+    monkeypatch.setattr(dataset_metadata, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(dataset_metadata, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
 
     receiver = CSIReceiver(bind_host='127.0.0.1')
     flags = STREAM_FLAG_WIFI_RX_TS_VALID
@@ -309,7 +309,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     np.testing.assert_array_equal(data['wifi_rx_ts_us'], np.array([4000, 5000], dtype=np.uint32))
     np.testing.assert_array_equal(data['csi_data'], np.array([[1, 2, 3, 4], [5, 6, 7, 8]], dtype=np.int8))
 
-    info = csi_utils.load_dataset_info()
+    info = dataset_metadata.load_dataset_info()
     assert info['format_version'] == '1.1'
     assert info['files']['static_presence'][0]['filename'] == filepath.name
     assert info['files']['static_presence'][0]['device_id'] == '0x0000000000abcdef'
@@ -319,8 +319,8 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
 
 def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):
     data_dir = tmp_path / 'data'
-    monkeypatch.setattr(csi_utils, 'DATA_DIR', data_dir)
-    monkeypatch.setattr(csi_utils, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+    monkeypatch.setattr(dataset_metadata, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(dataset_metadata, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
 
     receiver = CSIReceiver(bind_host='127.0.0.1')
     collector = CSICollector(label='motion', contributor='tester', bind_host='127.0.0.1')
@@ -337,7 +337,7 @@ def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):
     assert any('dev0000000000000010' in name for name in saved_names)
     assert any('dev0000000000000020' in name for name in saved_names)
 
-    info = csi_utils.load_dataset_info()
+    info = dataset_metadata.load_dataset_info()
     assert len(info['files']['motion']) == 2
     assert {entry['device_id'] for entry in info['files']['motion']} == {
         '0x0000000000000010',
@@ -347,8 +347,8 @@ def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):
 
 def test_save_samples_by_device_rejects_missing_device_id(tmp_path, monkeypatch):
     data_dir = tmp_path / 'data'
-    monkeypatch.setattr(csi_utils, 'DATA_DIR', data_dir)
-    monkeypatch.setattr(csi_utils, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+    monkeypatch.setattr(dataset_metadata, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(dataset_metadata, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
 
     receiver = CSIReceiver(bind_host='127.0.0.1')
     collector = CSICollector(label='motion', contributor='tester', bind_host='127.0.0.1')
@@ -360,8 +360,8 @@ def test_save_samples_by_device_rejects_missing_device_id(tmp_path, monkeypatch)
 
 def test_save_sample_rejects_mixed_device_packets(tmp_path, monkeypatch):
     data_dir = tmp_path / 'data'
-    monkeypatch.setattr(csi_utils, 'DATA_DIR', data_dir)
-    monkeypatch.setattr(csi_utils, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+    monkeypatch.setattr(dataset_metadata, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(dataset_metadata, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
 
     receiver = CSIReceiver(bind_host='127.0.0.1')
     collector = CSICollector(label='motion', contributor='tester', bind_host='127.0.0.1')

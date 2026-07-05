@@ -92,26 +92,10 @@ def calculate_startup_threshold_from_max(max_moving_variance, threshold_mode="au
     return startup_threshold, describe_threshold_mode(threshold_mode)
 
 
-def calculate_startup_threshold(cal_values, threshold_mode="auto"):
-    """
-    Calculate the startup threshold from calibration values.
-    
-    MVS: threshold = max(mv_values) x factor for the current production modes.
-    
-    AUTO mode applies a 1.3x multiplier to reduce false positives.
-    MIN mode uses the raw max moving variance for maximum sensitivity.
-    
-    Args:
-        cal_values: List of calibration values (moving variance)
-        threshold_mode: "auto" (max x 1.3) or "min" (max x 1.0)
-    
-    Returns:
-        tuple: (adaptive_threshold, formula_description)
-    """
-    max_moving_variance = max(cal_values) if cal_values else 0.0
-    return calculate_startup_threshold_from_max(max_moving_variance, threshold_mode)
-
-
 def calculate_adaptive_threshold(cal_values, threshold_mode="auto"):
     """Backward-compatible alias for the MVS startup-threshold helper."""
-    return calculate_startup_threshold(cal_values, threshold_mode)
+    if cal_values is None:
+        max_moving_variance = 0.0
+    else:
+        max_moving_variance = max(iter(cal_values), default=0.0)
+    return calculate_startup_threshold_from_max(max_moving_variance, threshold_mode)

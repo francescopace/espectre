@@ -21,13 +21,32 @@ License: GPLv3
 """
 
 import argparse
+import sys
+from pathlib import Path
+
 import numpy as np
 import math
 
-# Import csi_utils first - it sets up paths automatically
-from csi_utils import load_static_presence_and_motion, DATA_DIR
-from config import SEG_WINDOW_SIZE, SEG_THRESHOLD, DEFAULT_SUBCARRIERS
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.csi_io import load_static_presence_and_motion
+from tools.lib.dataset_metadata import DATA_DIR
+from tools.lib.ui import show_plot_window
+from config import (
+    SEG_WINDOW_SIZE,
+    SEG_THRESHOLD,
+    DEFAULT_SUBCARRIERS,
+    ENABLE_HAMPEL_FILTER,
+    ENABLE_LOWPASS_FILTER,
+    HAMPEL_WINDOW,
+    HAMPEL_THRESHOLD,
+    LOWPASS_CUTOFF,
+)
 from segmentation import SegmentationContext
+from mvs_detector import MVSDetector as ProdMVSDetector
 
 # Alias for backward compatibility
 WINDOW_SIZE = SEG_WINDOW_SIZE
@@ -110,6 +129,25 @@ def calculate_spatial_turbulence(csi_data):
     )
 
 
+def calculate_runtime_mvs_series(packets):
+    """Replay packets through the production MVS detector and collect moving variance."""
+    detector = ProdMVSDetector(
+        window_size=WINDOW_SIZE,
+        threshold=THRESHOLD,
+        enable_hampel=ENABLE_HAMPEL_FILTER,
+        hampel_window=HAMPEL_WINDOW,
+        hampel_threshold=HAMPEL_THRESHOLD,
+        enable_lowpass=ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=LOWPASS_CUTOFF,
+    )
+    series = []
+    for pkt in packets:
+        detector.process_packet(pkt['csi_data'], DEFAULT_SUBCARRIERS)
+        state = detector.update_state()
+        series.append(float(state.get('moving_variance', 0.0)))
+    return series
+
+
 def analyze_turbulence_and_mvs(packets, name, window_size):
     """Analyze turbulence and moving variance with the fixed production subcarriers."""
     turbulences = []
@@ -120,12 +158,7 @@ def analyze_turbulence_and_mvs(packets, name, window_size):
         turbulences.append(turb)
         all_amplitudes.extend(amps)
     
-    # Calculate moving variance
-    mvs_values = []
-    for i in range(window_size, len(turbulences)):
-        window = turbulences[i-window_size:i]
-        mvs = np.var(window)
-        mvs_values.append(mvs)
+    mvs_values = calculate_runtime_mvs_series(packets)
     
     return {
         'name': name,
@@ -454,7 +487,7 @@ def main():
             ax.legend()
             
             plt.tight_layout()
-            plt.show()
+            show_plot_window(plt)
             
         except ImportError:
             print("\n  matplotlib not available. Skipping plots.")

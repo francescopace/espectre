@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from repo_paths import python_src_dir
+from tools.lib.repo_paths import python_src_dir
 
 # Load src/config.py directly using importlib to avoid conflicts with tools/config.py
 SRC_CONFIG_PATH = python_src_dir() / 'config.py'

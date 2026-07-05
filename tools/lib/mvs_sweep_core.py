@@ -14,10 +14,17 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
+import sys
 
 import numpy as np
 
-from csi_utils import load_dataset_info, load_npz_as_packets
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.csi_io import load_npz_as_packets
+from tools.lib.dataset_metadata import load_dataset_info, resolve_explicit_pair
 from config import (
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
@@ -28,7 +35,7 @@ from config import (
     LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
-from repo_paths import data_dir
+from tools.lib.repo_paths import data_dir
 from segmentation import SegmentationContext
 from threshold import get_threshold_factor
 
@@ -94,6 +101,7 @@ class MVSEvaluationResult:
     filter_config: MVSFilterConfig
     startup_threshold: float
     final_threshold: float
+    threshold_source: str
     tp: int
     fn: int
     fp: int
@@ -129,7 +137,7 @@ def iter_paired_datasets(
     info = load_dataset_info()
     files = info.get("files", {})
     selected_chip = chip.upper() if chip else None
-    selected_dataset_id = dataset_id.strip() if dataset_id else None
+    selected_dataset_key = dataset_id.strip().lower() if dataset_id else None
 
     motion_by_filename = {
         str(entry.get("filename")): entry
@@ -164,7 +172,13 @@ def iter_paired_datasets(
 
         environment = str(static_entry.get("environment") or "unknown")
         current_dataset_id = f"{static_chip.lower()}_{environment}_{static_path.stem}"
-        if selected_dataset_id and current_dataset_id != selected_dataset_id:
+        if selected_dataset_key and selected_dataset_key not in {
+            current_dataset_id.lower(),
+            static_path.name.lower(),
+            static_path.stem.lower(),
+            str(motion_name).lower(),
+            Path(str(motion_name)).stem.lower(),
+        }:
             continue
 
         pairs.append(
@@ -355,18 +369,30 @@ def evaluate_pair(
     window_size: int = SEG_WINDOW_SIZE,
     selected_band: tuple[int, ...] = DEFAULT_SUBCARRIERS,
     track_trace: bool = False,
+    threshold_source: str = "metadata",
 ) -> MVSEvaluationResult:
     """Evaluate one paired dataset with a continuous baseline -> motion pass."""
     cfg = filter_config or MVSFilterConfig()
     variant_cfg = variant or production_variant()
     static_presence_packets, motion_packets = load_paired_packets(pair)
 
-    startup_threshold, _calibration_mv = calibrate_startup_threshold(
-        static_presence_packets,
-        selected_band=selected_band,
-        window_size=window_size,
-        filter_config=cfg,
+    resolved_metadata_pair = resolve_explicit_pair(
+        dataset=pair.static_presence_path.name,
+        num_sc=pair.num_subcarriers,
     )
+    resolved_metadata_threshold = resolved_metadata_pair.threshold
+    metadata_threshold_available = resolved_metadata_threshold is not None
+    if threshold_source == "metadata" and metadata_threshold_available:
+        startup_threshold = float(resolved_metadata_threshold)
+        effective_threshold_source = resolved_metadata_pair.threshold_source
+    else:
+        startup_threshold, _calibration_mv = calibrate_startup_threshold(
+            static_presence_packets,
+            selected_band=selected_band,
+            window_size=window_size,
+            filter_config=cfg,
+        )
+        effective_threshold_source = "fallback_calibration" if threshold_source == "metadata" else "calibrate"
 
     ctx = build_segmentation_context(threshold=startup_threshold, window_size=window_size, filter_config=cfg)
     tracking = variant_cfg.baseline_tracking
@@ -533,6 +559,7 @@ def evaluate_pair(
         filter_config=cfg,
         startup_threshold=float(startup_threshold),
         final_threshold=float(ctx.threshold),
+        threshold_source=effective_threshold_source,
         tp=tp,
         fn=fn,
         fp=fp,
@@ -566,6 +593,7 @@ def evaluate_pairs(
     window_size: int = SEG_WINDOW_SIZE,
     selected_band: tuple[int, ...] = DEFAULT_SUBCARRIERS,
     track_trace: bool = False,
+    threshold_source: str = "metadata",
 ) -> list[MVSEvaluationResult]:
     """Evaluate a list of paired datasets with the same configuration."""
     return [
@@ -576,6 +604,7 @@ def evaluate_pairs(
             window_size=window_size,
             selected_band=selected_band,
             track_trace=track_trace,
+            threshold_source=threshold_source,
         )
         for pair in pairs
     ]

@@ -17,9 +17,17 @@ License: GPLv3
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
+import sys
+from pathlib import Path
 
-# Import csi_utils first - it sets up paths automatically
-from csi_utils import load_static_presence_and_motion, find_static_presence_motion_dataset
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.csi_io import load_static_presence_and_motion
+from tools.lib.dataset_metadata import resolve_explicit_pair, select_dataset_interactively
+from tools.lib.ui import show_plot_window
 from config import DEFAULT_SUBCARRIERS
 
 def extract_iq_data(packets, subcarriers, num_packets=500, offset=100):
@@ -206,7 +214,7 @@ def plot_constellation_comparison(static_presence_packets, motion_packets,
     
     print("\n" + "="*80 + "\n")
     
-    plt.show()
+    show_plot_window(plt)
 
 def plot_single_subcarrier_grid(static_presence_packets, motion_packets, 
                                 subcarriers, num_packets=500, offset=100,
@@ -288,7 +296,7 @@ def plot_single_subcarrier_grid(static_presence_packets, motion_packets,
         axes[idx].set_visible(False)
     
     plt.tight_layout()
-    plt.show()
+    show_plot_window(plt)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -310,8 +318,14 @@ Examples:
         """
     )
     
+    raw_args = __import__('sys').argv[1:]
+    chip_explicit = '--chip' in raw_args
     parser.add_argument('--chip', type=str, default='C6',
                        help='Chip type to use: C6, S3, etc. (default: C6)')
+    parser.add_argument('--dataset', type=str, default=None,
+                       help='Dataset filename, stem, or dataset id; pair is resolved from metadata')
+    parser.add_argument('--interactive', action='store_true',
+                       help='Choose the dataset interactively from dataset_info.json')
     parser.add_argument('--packets', type=int, default=500,
                        help='Number of contiguous packets to plot (default: 500)')
     parser.add_argument('--offset', type=int, default=100,
@@ -324,7 +338,20 @@ Examples:
     # Find dataset files dynamically
     chip = args.chip.upper()
     try:
-        static_presence_file, motion_file, chip_name = find_static_presence_motion_dataset(chip=chip)
+        chip_filter = chip if chip_explicit and not args.dataset else (None if args.dataset else chip)
+        if args.interactive:
+            selected = select_dataset_interactively(
+                chip=chip if chip_explicit else None,
+                num_sc=64,
+                require_pair=True,
+                prompt='Select dataset for constellation plotting',
+            )
+            pair = resolve_explicit_pair(dataset=selected.path.name, num_sc=64)
+        else:
+            pair = resolve_explicit_pair(dataset=args.dataset, chip=chip_filter, num_sc=64)
+        static_presence_file = pair.static_presence.path
+        motion_file = pair.motion.path
+        chip_name = pair.chip
     except FileNotFoundError as e:
         print(f"\nError: {e}")
         print(f"\nCollect data using: ./espectre collect --label static_presence --duration 10")
@@ -351,7 +378,9 @@ Examples:
     try:
         static_presence_packets, motion_packets = load_static_presence_and_motion(
             static_presence_file=static_presence_file,
-            motion_file=motion_file
+            motion_file=motion_file,
+            chip=chip_name,
+            dataset=args.dataset,
         )
     except FileNotFoundError as e:
         print(f"Error: {e}")

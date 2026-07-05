@@ -9,7 +9,7 @@ Checks performed:
   1. Metadata completeness - Required derived/manual dataset_info fields exist
   2. File integrity        - NPZ loads, expected keys exist, shapes are valid
   3. Signal quality        - Amplitude range, zero-packet detection
-  4. Pair validation       - Static-presence vs motion variance ratio
+  4. Pair validation       - Runtime-like threshold activation on static/motion pairs
   5. ML readiness          - Label balance, minimum samples, chip diversity
 
 Per-file integrity and signal-quality checks cover `empty`, `static_presence`,
@@ -20,6 +20,7 @@ SOURCE CODE ALIGNMENT:
   This script imports core functions directly from src/python/micro_espectre/ to ensure correctness:
   - src/python/micro_espectre/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
   - src/python/micro_espectre/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
+  - src/python/micro_espectre/mvs_detector.py: production runtime replay for pair validation
 
   Amplitude extraction is vectorized with numpy (int8 → int16 to avoid overflow)
   rather than looping through src/micro_espectre/utils.py:extract_amplitudes() per packet.
@@ -47,7 +48,10 @@ import numpy as np
 # ------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from repo_paths import generated_data_dir, python_src_dir  # noqa: E402
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from tools.lib.repo_paths import generated_data_dir, python_src_dir  # noqa: E402
 
 SRC_DIR = python_src_dir()
 sys.path.insert(0, str(SRC_DIR))
@@ -56,8 +60,17 @@ from utils import (                                      # noqa: E402
     calculate_spatial_turbulence as _src_spatial_turbulence,
     calculate_moving_variance as _src_moving_variance,
 )
-from config import SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS  # noqa: E402
+from config import (  # noqa: E402
+    DEFAULT_SUBCARRIERS,
+    ENABLE_HAMPEL_FILTER,
+    ENABLE_LOWPASS_FILTER,
+    HAMPEL_THRESHOLD,
+    HAMPEL_WINDOW,
+    LOWPASS_CUTOFF,
+    SEG_WINDOW_SIZE,
+)
 from features import extract_features_by_name  # noqa: E402
+from mvs_detector import MVSDetector  # noqa: E402
 
 # ------------------------------------------------------------------
 # Constants
@@ -69,7 +82,6 @@ REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
 # Quality thresholds
 MIN_PACKETS = 800
 MAX_ZERO_PACKET_RATIO = 0.01
-MIN_VARIANCE_RATIO = 4
 MIN_AMPLITUDE_MEAN = 9.0
 MIN_CAPTURE_PACKET_RATE_PPS = 95.0
 MAX_STREAM_SEQ_MISSING_WARN_RATIO = 0.03
@@ -82,6 +94,9 @@ MIN_EMPTY_SEPARABILITY_AUC = 0.70
 MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.70
 EMPTY_SEPARATION_TURB_MEAN_WEIGHT = 0.7
 EMPTY_SEPARATION_WAVEFORM_WEIGHT = 0.3
+MAX_STATIC_ACTIVE_RATIO = 0.20
+MIN_MOTION_ACTIVE_RATIO = 0.20
+MIN_ACTIVE_RATIO_MARGIN = 0.10
 METADATA_LABELS = ('empty', 'static_presence', 'motion', 'test')
 PER_FILE_QUALITY_LABELS = METADATA_LABELS
 REQUIRED_PAIR_FIELD_BY_LABEL = {
@@ -596,7 +611,7 @@ def validate_capture_continuity(data, csi_data):
     return results
 
 
-def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
+def validate_pair(bl_csi, mv_csi, bl_data, mv_data, threshold):
     """Validate a static-presence/motion pair.
 
     Args:
@@ -604,43 +619,63 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
         mv_csi: motion CSI array (num_packets, 128)
         bl_data: full static-presence NpzFile (for metadata)
         mv_data: full motion NpzFile (for metadata)
+        threshold: production-aligned threshold used by the runtime detector
     Returns:
-        tuple: (results, bl_var, mv_var, ratio)
+        tuple: (
+            results,
+            static_active_ratio,
+            motion_active_ratio,
+            threshold,
+            motion_peak_ratio,
+        )
     """
     results = []
+    threshold = _coerce_positive_float(threshold)
+    if threshold is None:
+        results.append(ValidationResult(
+            "threshold_activation",
+            "FAIL",
+            "Missing or invalid optimal_threshold_gridsearch for pair validation",
+        ))
+        return results, 0.0, 0.0, 0.0, 0.0
 
-    # Vectorized amplitude extraction, then per-packet turbulence via src/
-    bl_amps = _extract_amplitudes_matrix(bl_csi)
-    mv_amps = _extract_amplitudes_matrix(mv_csi)
+    bl_csi = _filter_measurement_frames(bl_csi, bl_data)
+    mv_csi = _filter_measurement_frames(mv_csi, mv_data)
+    bl_metric = _replay_mvs_metric_series(bl_csi, threshold)
+    mv_metric = _replay_mvs_metric_series(mv_csi, threshold)
+    if len(bl_metric) == 0 or len(mv_metric) == 0:
+        results.append(ValidationResult(
+            "threshold_activation",
+            "FAIL",
+            "Insufficient full-window detector samples for pair validation",
+        ))
+        return results, 0.0, 0.0, threshold, 0.0
 
-    bl_turbulence = [
-        _spatial_turbulence_from_amps(bl_amps[i].tolist(), DEFAULT_SUBCARRIERS)
-        for i in range(bl_amps.shape[0])
-    ]
-    mv_turbulence = [
-        _spatial_turbulence_from_amps(mv_amps[i].tolist(), DEFAULT_SUBCARRIERS)
-        for i in range(mv_amps.shape[0])
-    ]
+    static_active_ratio = float((bl_metric > threshold).mean())
+    motion_active_ratio = float((mv_metric > threshold).mean())
+    motion_peak_ratio = float(mv_metric.max() / threshold) if threshold > 0 else float('inf')
+    active_ratio_delta = motion_active_ratio - static_active_ratio
 
-    bl_mv = _moving_variance(bl_turbulence)
-    mv_mv = _moving_variance(mv_turbulence)
-
-    bl_var = np.mean(bl_mv) if bl_mv else 0
-    mv_var = np.mean(mv_mv) if mv_mv else 0
-
-    ratio = mv_var / bl_var if bl_var > 1e-10 else float('inf')
-    # Keep threshold check aligned with displayed ratio precision.
-    ratio_for_check = float(f"{ratio:.2f}") if np.isfinite(ratio) else ratio
-
-    if ratio_for_check < MIN_VARIANCE_RATIO:
-        results.append(ValidationResult("variance_ratio", "FAIL",
-            f"Ratio {ratio_for_check}x < {MIN_VARIANCE_RATIO}x (static={bl_var:.4f}, motion={mv_var:.4f})", ratio_for_check))
-    else:
-        results.append(ValidationResult("variance_ratio", "PASS",
-            f"Ratio {ratio_for_check}x (static={bl_var:.6f}, motion={mv_var:.6f})", ratio_for_check))
-
-    # Return the same ratio value used by PASS/FAIL checks and logs.
-    return results, bl_var, mv_var, ratio_for_check
+    passes = (
+        static_active_ratio <= MAX_STATIC_ACTIVE_RATIO
+        and motion_active_ratio >= MIN_MOTION_ACTIVE_RATIO
+        and active_ratio_delta >= MIN_ACTIVE_RATIO_MARGIN
+    )
+    message = (
+        "Runtime-like MVS threshold activation: "
+        f"static_above={static_active_ratio:.1%}, "
+        f"motion_above={motion_active_ratio:.1%}, "
+        f"delta={active_ratio_delta:+.1%}, "
+        f"motion_peak={motion_peak_ratio:.2f}x threshold, "
+        f"threshold={threshold:.6f}"
+    )
+    results.append(ValidationResult(
+        "threshold_activation",
+        "PASS" if passes else "FAIL",
+        message,
+        round(motion_active_ratio, 4),
+    ))
+    return results, static_active_ratio, motion_active_ratio, threshold, motion_peak_ratio
 
 
 def validate_ml_readiness(dataset_info):
@@ -708,7 +743,8 @@ def _resolve_dataset_entry_path(entry, label_group):
 
 def _filter_measurement_frames(csi_data, data):
     """Drop reference frames when the NPZ explicitly tracks them."""
-    if 'is_reference' not in data.files:
+    data_files = getattr(data, 'files', ())
+    if 'is_reference' not in data_files:
         return csi_data
 
     is_reference = np.asarray(data['is_reference']).astype(bool)
@@ -739,6 +775,27 @@ def _compute_turbulence_and_moving_variance_series(csi_data):
     ]
     moving_variance = np.asarray(_moving_variance(turbulence), dtype=np.float64)
     return np.asarray(turbulence, dtype=np.float64), moving_variance
+
+
+def _replay_mvs_metric_series(csi_data, threshold):
+    """Replay one capture through the production MVS detector."""
+    detector = MVSDetector(
+        window_size=SEG_WINDOW_SIZE,
+        threshold=float(threshold),
+        enable_lowpass=ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=LOWPASS_CUTOFF,
+        enable_hampel=ENABLE_HAMPEL_FILTER,
+        hampel_window=HAMPEL_WINDOW,
+        hampel_threshold=HAMPEL_THRESHOLD,
+    )
+    metric_series = []
+    for packet in csi_data:
+        detector.process_packet(packet.tolist(), DEFAULT_SUBCARRIERS)
+        metric_series.append(float(detector.update_state()['moving_variance']))
+
+    if len(metric_series) <= SEG_WINDOW_SIZE:
+        return np.asarray([], dtype=np.float64)
+    return np.asarray(metric_series[SEG_WINDOW_SIZE:], dtype=np.float64)
 
 
 def _evaluate_threshold_direction(neg_values, pos_values, expect_pos_higher=True):
@@ -1116,24 +1173,28 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                         all_results.append(r)
                     continue
 
-            pair_res, bl_var, mv_var, ratio = validate_pair(
+            threshold = _coerce_positive_float(entry.get("optimal_threshold_gridsearch"))
+            pair_res, static_active_ratio, motion_active_ratio, pair_threshold, motion_peak_ratio = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
                 bl_data, mv_data,
+                threshold,
             )
             for r in pair_res:
                 print(f"   {r}")
                 all_results.append(r)
 
+            pair_status = 'FAIL' if any(r.status == 'FAIL' for r in pair_res) else 'PASS'
             pair_results.append({
                 'static_presence': bl_file.name,
                 'motion': mv_file.name,
                 'chip': chip.upper(),
-                'bl_var': bl_var,
-                'mv_var': mv_var,
-                'ratio': ratio,
+                'threshold': pair_threshold,
+                'static_active_ratio': static_active_ratio,
+                'motion_active_ratio': motion_active_ratio,
+                'motion_peak_ratio': motion_peak_ratio,
                 'sc_source': sc_source,
                 'cv_mode': cv_mode,
-                'status': 'PASS' if ratio >= MIN_VARIANCE_RATIO else 'FAIL'
+                'status': pair_status,
             })
 
     # ------------------------------------------------------------------
@@ -1218,14 +1279,23 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("Per-file integrity and signal-quality checks cover `empty`, `static_presence`, `motion`, and `test`.\n")
     lines.append("A pair is considered valid when:\n")
     lines.append("- labels are coherent (`static_presence` vs `motion`)")
-    lines.append(f"- `motion_variance > static_presence_variance` (ratio >= {MIN_VARIANCE_RATIO}x)\n")
+    lines.append(
+        "- replaying the production `MVSDetector` with the pair-specific "
+        "`optimal_threshold_gridsearch` keeps `static_presence` mostly below threshold"
+    )
+    lines.append(
+        f"- `static_presence` above-threshold share <= {MAX_STATIC_ACTIVE_RATIO:.0%}, "
+        f"`motion` above-threshold share >= {MIN_MOTION_ACTIVE_RATIO:.0%}, and "
+        f"the motion-minus-static gap >= {MIN_ACTIVE_RATIO_MARGIN:.0%}\n"
+    )
     lines.append("Empty sanity uses overlapping `static_presence` groups with the same ")
     lines.append("chip/environment to check both quietness and separability, after dropping ")
     lines.append("reference frames from `empty` files when present.\n")
     lines.append("Computed metrics:\n")
-    lines.append("- `Static Presence Var`: variance of spatial turbulence on the static-presence file")
-    lines.append("- `Motion Var`: variance of spatial turbulence on the motion file")
-    lines.append("- `Ratio`: `Motion Var / Static Presence Var`")
+    lines.append("- `Threshold`: pair-specific `optimal_threshold_gridsearch` from `dataset_info.json`")
+    lines.append("- `Static Above`: share of replayed MVS windows above threshold on `static_presence`")
+    lines.append("- `Motion Above`: share of replayed MVS windows above threshold on `motion`")
+    lines.append("- `Motion Peak`: maximum replayed motion metric divided by the threshold")
     lines.append("- `Empty separation`: score-based separability between `empty` and ")
     lines.append("  `static_presence` windows using `0.7*z(turb_mean) + 0.3*z(waveform_length_over_mean)`")
     lines.append("- `Gap`: non-negative time between the `static_presence` and `motion` capture intervals")
@@ -1233,18 +1303,16 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("- `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set")
     lines.append("- `Turbulence`: `CV` = coefficient of variation (`std/mean`), the shared production path for MVS and ML\n")
 
-    lines.append("## Results (sorted by chip, then ratio desc)\n")
-    lines.append("| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var "
-                 "| Ratio | Subcarriers | Turbulence | Status |")
-    lines.append("|---|---|---:|---:|---:|---|---|---|")
+    lines.append("## Results (sorted by chip, then motion activation desc)\n")
+    lines.append("| Chip | File pair (static_presence / motion) | Threshold | Static Above | Motion Above | Motion Peak | Subcarriers | Turbulence | Status |")
+    lines.append("|---|---|---:|---:|---:|---:|---|---|---|")
 
-    sorted_pairs = sorted(pair_results, key=lambda x: (x['chip'], -x['ratio']))
+    sorted_pairs = sorted(pair_results, key=lambda x: (x['chip'], -x['motion_active_ratio']))
     for p in sorted_pairs:
-        bl_var_str = f"{p['bl_var']:.2e}" if p['bl_var'] < 0.01 else f"{p['bl_var']:.2f}"
-        mv_var_str = f"{p['mv_var']:.2e}" if p['mv_var'] < 0.01 else f"{p['mv_var']:.2f}"
         lines.append(
             f"| {p['chip']} | `{p['static_presence']}` / `{p['motion']}` | "
-            f"{bl_var_str} | {mv_var_str} | {p['ratio']:.2f}x | "
+            f"{p['threshold']:.2e} | {p['static_active_ratio']:.1%} | "
+            f"{p['motion_active_ratio']:.1%} | {p['motion_peak_ratio']:.2f}x | "
             f"{p.get('sc_source', '?')} | {p.get('cv_mode', '?')} | {p['status']} |"
         )
 

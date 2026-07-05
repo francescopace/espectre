@@ -22,7 +22,7 @@ sys.path.insert(0, str(TOOLS_PATH))
 PYTHON_ROOT_PATH = Path(__file__).resolve().parents[2] / "src" / "python"
 sys.path.insert(0, str(PYTHON_ROOT_PATH))
 
-from repo_paths import data_dir, python_src_dir, tools_dir
+from tools.lib.repo_paths import data_dir, python_src_dir, tools_dir
 
 # Add both the Python root and the Micro-ESPectre runtime source dir.
 # The runtime dir is inserted last (position 0) so it takes precedence for
@@ -125,7 +125,7 @@ def get_available_long_test_datasets(chips=None):
     When test metadata does not annotate a motion start packet, the whole stream
     is treated as baseline and the movement segment is empty.
     """
-    from csi_utils import load_npz_as_packets
+    from tools.lib.csi_io import load_npz_as_packets
 
     dataset_info = _load_dataset_info()
     test_entries = dataset_info.get("files", {}).get("test", [])
@@ -391,7 +391,7 @@ def synthetic_csi_movement_packets(synthetic_csi_motion_packets):
 @pytest.fixture
 def real_csi_data_available():
     """Check if real CSI data files are available"""
-    from csi_utils import find_static_presence_motion_dataset
+    from tools.lib.csi_io import find_static_presence_motion_dataset
     try:
         find_static_presence_motion_dataset(chip='C6')
         return True
@@ -405,7 +405,7 @@ def real_static_presence_packets(real_csi_data_available):
     if not real_csi_data_available:
         pytest.skip("Real CSI data not available")
     
-    from csi_utils import load_static_presence_and_motion
+    from tools.lib.csi_io import load_static_presence_and_motion
     baseline, _ = load_static_presence_and_motion()
     return baseline
 
@@ -422,7 +422,7 @@ def real_motion_packets(real_csi_data_available):
     if not real_csi_data_available:
         pytest.skip("Real CSI data not available")
     
-    from csi_utils import load_static_presence_and_motion
+    from tools.lib.csi_io import load_static_presence_and_motion
     _, movement = load_static_presence_and_motion()
     return movement
 
@@ -439,7 +439,8 @@ def real_turbulence_values(real_csi_data_available, default_subcarriers):
     if not real_csi_data_available:
         pytest.skip("Real CSI data not available")
     
-    from csi_utils import load_static_presence_and_motion, calculate_spatial_turbulence
+    from tools.lib.csi_analysis import calculate_spatial_turbulence
+    from tools.lib.csi_io import load_static_presence_and_motion
     
     baseline, movement = load_static_presence_and_motion()
     turbulence_values = []

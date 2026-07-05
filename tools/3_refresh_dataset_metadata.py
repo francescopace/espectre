@@ -31,14 +31,17 @@ from pathlib import Path
 
 # Import repo_paths first: it exposes the repository-local runtime paths.
 SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(SCRIPT_DIR))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from repo_paths import data_dir, python_src_dir  # noqa: E402
+from tools.lib.repo_paths import data_dir, python_src_dir  # noqa: E402
 
 SRC_DIR = python_src_dir()
 sys.path.insert(0, str(SRC_DIR))
 
-from csi_utils import load_npz_as_packets  # noqa: E402
+from tools.lib.csi_io import load_npz_as_packets  # noqa: E402
 from config import (  # noqa: E402
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,

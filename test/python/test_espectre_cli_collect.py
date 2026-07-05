@@ -62,7 +62,7 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
 
 
 def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, collector_cls=object, config_overrides=None) -> None:
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
     fake_ml_detector = ModuleType("ml_detector")
     fake_mvs_detector = ModuleType("mvs_detector")
@@ -190,7 +190,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
 
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
     monkeypatch.setitem(sys.modules, "mvs_detector", fake_mvs_detector)
@@ -428,12 +428,12 @@ def test_wait_before_collection_counts_down(monkeypatch, capsys) -> None:
 
 
 def test_collect_info_shows_empty_dataset(monkeypatch, capsys) -> None:
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_csi_utils.CSICollector = object
     fake_csi_utils.StimulusSender = object
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
     fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
 
     host.collect_csi_data(_make_collect_args(info=True))
 
@@ -443,7 +443,7 @@ def test_collect_info_shows_empty_dataset(monkeypatch, capsys) -> None:
 
 
 def test_collect_info_shows_label_table(monkeypatch, capsys) -> None:
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_csi_utils.CSICollector = object
     fake_csi_utils.StimulusSender = object
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
@@ -451,7 +451,7 @@ def test_collect_info_shows_label_table(monkeypatch, capsys) -> None:
         "labels": {"motion": {"samples": 4}, "empty": {"samples": 2}},
         "total_samples": 6,
     }
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
 
     host.collect_csi_data(_make_collect_args(info=True))
 
@@ -462,17 +462,17 @@ def test_collect_info_shows_label_table(monkeypatch, capsys) -> None:
 
 
 def test_collect_csi_data_validates_arguments_and_imports(monkeypatch) -> None:
-    monkeypatch.delitem(sys.modules, "tools.csi_utils", raising=False)
+    monkeypatch.delitem(sys.modules, "tools.lib.csi_io", raising=False)
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_collect_args(label=None))
 
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_csi_utils.CSICollector = object
     fake_csi_utils.StimulusSender = object
     fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_collect_args(stimulus_target=None))
@@ -483,7 +483,7 @@ def test_collect_csi_data_validates_arguments_and_imports(monkeypatch) -> None:
 
 def test_collect_csi_data_handles_interrupt_and_runtime_error(monkeypatch) -> None:
     events: list[str] = []
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
 
     class InterruptCollector:
         def __init__(self, **kwargs):
@@ -509,7 +509,7 @@ def test_collect_csi_data_handles_interrupt_and_runtime_error(monkeypatch) -> No
     fake_csi_utils.StimulusSender = FakeStimulusSender
     fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setattr(host, "_wait_before_collection", lambda delay: None)
 
     host.collect_csi_data(_make_collect_args())
@@ -521,7 +521,7 @@ def test_collect_csi_data_handles_interrupt_and_runtime_error(monkeypatch) -> No
 
 def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> None:
     events: list[object] = []
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
 
     class FakeCollector:
         def __init__(self, **kwargs):
@@ -550,7 +550,7 @@ def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> No
     fake_csi_utils.get_dataset_stats = lambda: {"labels": {}, "total_samples": 0}
     fake_csi_utils.get_default_bind_host = lambda: "127.0.0.1"
 
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setattr(host, "_wait_before_collection", lambda delay: events.append(("delay", delay)))
 
     host.collect_csi_data(_make_collect_args(stimulus_target="192.168.1.17,192.168.1.24,192.168.1.29"))
@@ -566,7 +566,7 @@ def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> No
 def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> None:
     events: list[object] = []
     clock = {"now": 0.0}
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
     fake_ml_detector = ModuleType("ml_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
@@ -682,7 +682,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
 
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
@@ -710,7 +710,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
 def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, capsys) -> None:
     events: list[object] = []
     clock = {"now": 0.0}
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
     fake_ml_detector = ModuleType("ml_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
@@ -826,7 +826,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
 
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
@@ -888,7 +888,7 @@ def test_collect_live_handles_import_failure(monkeypatch) -> None:
 
     def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
         blocked = {
-            "tools.csi_utils",
+            "tools.lib.csi_io",
             "config",
             "ml_detector",
             "mvs_detector",
@@ -911,7 +911,7 @@ def test_collect_live_handles_import_failure(monkeypatch) -> None:
 
 
 def test_collect_live_logs_features_and_handles_save_without_packets(monkeypatch, capsys) -> None:
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
     fake_ml_detector = ModuleType("ml_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
@@ -1023,7 +1023,7 @@ def test_collect_live_logs_features_and_handles_save_without_packets(monkeypatch
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
 
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
@@ -1052,7 +1052,7 @@ def test_collect_live_logs_features_and_handles_save_without_packets(monkeypatch
 
 
 def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, capsys) -> None:
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
     fake_ml_detector = ModuleType("ml_detector")
     fake_runtime_policy = ModuleType("runtime_policy")
@@ -1170,7 +1170,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
 
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
@@ -1189,7 +1189,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
 
 
 def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
-    fake_csi_utils = ModuleType("tools.csi_utils")
+    fake_csi_utils = ModuleType("tools.lib.csi_io")
     fake_config = ModuleType("config")
     fake_ml_detector = ModuleType("ml_detector")
     fake_mvs_detector = ModuleType("mvs_detector")
@@ -1385,7 +1385,7 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
 
-    monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
+    monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
     monkeypatch.setitem(sys.modules, "mvs_detector", fake_mvs_detector)

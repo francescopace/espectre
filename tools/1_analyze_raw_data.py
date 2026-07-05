@@ -13,15 +13,24 @@ License: GPLv3
 """
 
 import argparse
-import re
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
+
 import numpy as np
 
-# Import csi_utils first - it sets up paths automatically
-from csi_utils import (
-    calculate_spatial_turbulence, load_static_presence_and_motion,
-    find_static_presence_motion_dataset, DATA_DIR, load_dataset_info,
-    load_npz_as_packets
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.csi_analysis import calculate_spatial_turbulence
+from tools.lib.csi_io import load_npz_as_packets, load_static_presence_and_motion
+from tools.lib.dataset_metadata import (
+    DATA_DIR,
+    load_dataset_info,
+    resolve_explicit_pair,
+    select_dataset_interactively,
 )
 from config import DEFAULT_SUBCARRIERS
 
@@ -48,30 +57,13 @@ def discover_available_chips() -> list:
     Returns:
         list: Sorted list of chip names (e.g., ['C6', 'S3'])
     """
-    static_presence_dir = DATA_DIR / 'static_presence'
-    motion_dir = DATA_DIR / 'motion'
-    
-    if not static_presence_dir.exists() or not motion_dir.exists():
-        return []
-    
-    # Find all chips with static-presence data
-    static_presence_chips = set()
-    for f in static_presence_dir.glob('static_presence_*_64sc_*.npz'):
-        # Extract chip name from filename: static_presence_{chip}_64sc_*.npz
-        match = re.match(r'static_presence_(\w+)_64sc_', f.name)
-        if match:
-            static_presence_chips.add(match.group(1).upper())
-    
-    # Find all chips with motion data
-    motion_chips = set()
-    for f in motion_dir.glob('motion_*_64sc_*.npz'):
-        match = re.match(r'motion_(\w+)_64sc_', f.name)
-        if match:
-            motion_chips.add(match.group(1).upper())
-    
-    # Return chips that have both static-presence and motion data
-    available = static_presence_chips & motion_chips
-    return sorted(available)
+    info = load_dataset_info()
+    available = {
+        str(entry.get('chip', '')).upper()
+        for entry in info.get('files', {}).get('static_presence', [])
+        if entry.get('optimal_pair_motion_file')
+    }
+    return sorted(chip for chip in available if chip)
 
 
 def analyze_packets(packets, label_name):
@@ -247,7 +239,7 @@ def print_pairs_table(rows: list):
     print()
 
 
-def analyze_chip(chip: str) -> dict:
+def analyze_chip(chip: str | None = None, *, dataset: str | None = None, interactive: bool = False) -> dict:
     """
     Analyze dataset for a specific chip.
     
@@ -258,16 +250,33 @@ def analyze_chip(chip: str) -> dict:
         dict with analysis results or None if failed
     """
     print(f"\n{'#'*70}")
-    print(f"#  CHIP: {chip}")
+    print(f"#  CHIP: {chip or 'AUTO'}")
     print(f"{'#'*70}")
     
     try:
-        static_presence_path, motion_path, _ = find_static_presence_motion_dataset(chip=chip)
+        if interactive:
+            selected = select_dataset_interactively(
+                chip=chip,
+                num_sc=64,
+                require_pair=True,
+                prompt='Select dataset for raw-data analysis',
+            )
+            pair = resolve_explicit_pair(dataset=selected.path.name, num_sc=64)
+        else:
+            pair = resolve_explicit_pair(dataset=dataset, chip=chip, num_sc=64)
+        static_presence_path = pair.static_presence.path
+        motion_path = pair.motion.path
+        chip_name = pair.chip
         print(f"\nDataset files:")
         print(f"  Static presence: {static_presence_path.name}")
         print(f"  Motion:          {motion_path.name}")
         
-        static_presence_packets, motion_packets = load_static_presence_and_motion(chip=chip)
+        static_presence_packets, motion_packets = load_static_presence_and_motion(
+            static_presence_file=static_presence_path,
+            motion_file=motion_path,
+            chip=chip_name,
+            dataset=dataset,
+        )
     except FileNotFoundError as e:
         print(f"\nError: {e}")
         return None
@@ -284,7 +293,7 @@ def analyze_chip(chip: str) -> dict:
     variance_ok = static_presence_stats['turb_variance'] < motion_stats['turb_variance']
     
     result = {
-        'chip': chip,
+        'chip': chip_name,
         'static_presence': static_presence_stats,
         'motion': motion_stats,
         'labels_ok': static_presence_ok and motion_ok,
@@ -336,6 +345,8 @@ def print_summary(results: list):
 
 
 def main():
+    raw_args = __import__('sys').argv[1:]
+    chip_explicit = '--chip' in raw_args
     parser = argparse.ArgumentParser(
         description='Analyze raw CSI data quality for all available datasets'
     )
@@ -344,14 +355,25 @@ def main():
         type=str,
         help='Analyze only this chip type (e.g., C6, S3). Default: analyze all'
     )
+    parser.add_argument(
+        '--dataset',
+        type=str,
+        help='Dataset filename, stem, or dataset id; pair is resolved from metadata'
+    )
+    parser.add_argument(
+        '--interactive',
+        action='store_true',
+        help='Choose the dataset interactively from dataset_info.json'
+    )
     args = parser.parse_args()
     
     print("\n" + "=" * 70)
     print("  Data File Verification Tool")
     print("=" * 70)
     
-    if args.chip:
-        result = analyze_chip(args.chip.upper())
+    if args.chip or args.dataset or args.interactive:
+        chip = args.chip.upper() if args.chip and chip_explicit and not args.dataset else None
+        result = analyze_chip(chip, dataset=args.dataset, interactive=args.interactive)
         if result is not None:
             print_summary([result])
         return

@@ -59,7 +59,12 @@ from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
 
-from repo_paths import (
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT_PATH = SCRIPT_DIR.parent
+if str(REPO_ROOT_PATH) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT_PATH))
+
+from tools.lib.repo_paths import (
     cpp_core_dir,
     generated_data_dir,
     python_src_dir,
@@ -69,6 +74,10 @@ from repo_paths import (
 from contextlib import contextmanager
 from datetime import datetime
 from time import perf_counter
+
+REPO_ROOT = repo_root()
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 try:
     import torch
@@ -318,16 +327,12 @@ def predict_logits(model, X):
         logits = model.forward_logits(torch.from_numpy(X).to(device))
     return logits.detach().cpu().numpy().reshape(-1)
 
-# Import csi_utils first - it sets up paths automatically
 TESTS_DIR = python_tests_dir()
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
-from csi_utils import (
-    find_static_presence_motion_dataset,
-    load_npz_as_packets,
-    DATA_DIR,
-)
+from tools.lib.csi_io import load_npz_as_packets
+from tools.lib.dataset_metadata import DATA_DIR, resolve_explicit_pair
 from config import (
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
@@ -3753,11 +3758,11 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
     by_chip = {}
     for chip in chips:
         try:
-            static_presence_path, motion_path, _ = find_static_presence_motion_dataset(chip=chip, num_sc=64)
+            pair = resolve_explicit_pair(chip=chip, num_sc=64)
         except FileNotFoundError:
             continue
-        static_presence_packets = load_npz_as_packets(static_presence_path)
-        motion_packets = load_npz_as_packets(motion_path)
+        static_presence_packets = load_npz_as_packets(pair.static_presence.path)
+        motion_packets = load_npz_as_packets(pair.motion.path)
         by_chip[chip] = evaluate_split(
             model,
             scaler,

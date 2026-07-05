@@ -104,10 +104,10 @@ def _uses_legacy_dataset_collection(args) -> bool:
 def _collect_dataset_csi_data(args) -> None:
     """Run the legacy timed/interactive dataset collection workflow."""
     try:
-        from tools.csi_utils import CSICollector, StimulusSender, get_dataset_stats, get_default_bind_host
+        from tools.lib.csi_io import CSICollector, StimulusSender, get_dataset_stats, get_default_bind_host
     except ImportError as e:
-        print(f"{Fore.RED}❌ Failed to import csi_utils: {e}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Make sure tools/csi_utils.py exists{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ Failed to import tooling helpers: {e}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Make sure the tools library package is available{Style.RESET_ALL}")
         raise SystemExit(1)
 
     if args.info:
@@ -229,7 +229,7 @@ def collect_csi_data(args) -> None:
 def _run_live_collect(args) -> None:
     """Run the host-side live collect pipeline."""
     try:
-        from tools.csi_utils import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
+        from tools.lib.csi_io import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
         import config
         from console_output import format_calibration_status_line, format_detection_publish_line
         from ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD, MLDetector
@@ -238,7 +238,7 @@ def _run_live_collect(args) -> None:
         from threshold import StartupThresholdCalibrator
     except ImportError:
         try:
-            from tools.csi_utils import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
+            from tools.lib.csi_io import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
             import src.config as config
             from src.console_output import format_calibration_status_line, format_detection_publish_line
             from src.ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD, MLDetector
@@ -900,7 +900,7 @@ def _run_live_collect(args) -> None:
     signal.signal(signal.SIGINT, handle_sigint)
 
     print(f"\n{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}║         μESPectre - Live CSI Collect                     ║{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}║         μESPectre - Live CSI Collect                      ║{Style.RESET_ALL}")
     print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
     print()
     print(f"  {Fore.CYAN}Detector:{Style.RESET_ALL}  {detector_kind.upper()}")
