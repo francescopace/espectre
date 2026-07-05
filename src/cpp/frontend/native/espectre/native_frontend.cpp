@@ -13,10 +13,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 #include "ble_protocol.h"
 #include "espectre_log.h"
 #include "esp_timer.h"
+#include "frontend_control_helpers.h"
+#include "frontend_mqtt_helpers.h"
+#include "frontend_sysinfo_helpers.h"
+#include "runtime_time.h"
 #include "runtime_config_utils.h"
 #include "runtime_diagnostics.h"
 #include "runtime_listener_utils.h"
@@ -63,7 +68,12 @@ void NativeFrontend::set_device_config(const EspectreDeviceConfig &config) {
   }
 }
 
-void NativeFrontend::set_device_info(const EspectreDeviceInfo &info) { device_info_ = info; }
+void NativeFrontend::set_device_info(const EspectreDeviceInfo &info) {
+  device_info_ = info;
+  if (client_connected_) {
+    send_system_info_();
+  }
+}
 
 void NativeFrontend::set_wifi_provisioning_info(const WifiProvisioningInfo &info) { wifi_info_ = info; }
 
@@ -114,7 +124,9 @@ bool NativeFrontend::setup() {
 void NativeFrontend::loop() {
   const int64_t loop_started_us = esp_timer_get_time();
   runtime_.loop();
-  flush_pending_system_info_();
+  if (bindings_ != nullptr) {
+    bindings_->loop();
+  }
   if (mqtt_transport_ != nullptr) {
     mqtt_transport_->loop();
   }
@@ -196,71 +208,48 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
     send_system_info_();
     return true;
   }
-  if (command == "CLEAR_MQTT_CONFIG") {
-    if (!device_config_change_callback_) {
-      ESP_LOGW(TAG, "Device config change callback is not configured");
+  DeviceConfigBleCommandResult device_config_result = handle_ble_device_config_command(
+      command,
+      device_config_,
+      [this](EspectreDeviceConfig *cleared_config, std::string *message) {
+        if (!device_config_change_callback_) {
+          ESP_LOGW(TAG, "Device config change callback is not configured");
+          return false;
+        }
+        const bool accepted = device_config_change_callback_(EspectreDeviceConfig{}, true, message);
+        if (accepted && cleared_config != nullptr) {
+          cleared_config->device_id = espectre_effective_device_id_u64(device_config_);
+        }
+        return accepted;
+      },
+      [this](EspectreDeviceConfig *updated_config, std::string *message) {
+        if (updated_config == nullptr) {
+          return false;
+        }
+        if (!device_config_change_callback_) {
+          return true;
+        }
+        return device_config_change_callback_(*updated_config, false, message);
+      });
+  if (device_config_result.handled) {
+    if (!device_config_result.message.empty()) {
+      ESP_LOGI(TAG,
+               "Device config command %s: %s",
+               device_config_result.accepted ? "accepted" : "rejected",
+               device_config_result.message.c_str());
+    }
+    if (!device_config_result.accepted) {
       return false;
     }
-    EspectreDeviceConfig updated = device_config_;
-    clear_espectre_mqtt_config(&updated);
-    std::string message;
-    if (!device_config_change_callback_(updated, false, &message)) {
-      ESP_LOGW(TAG, "MQTT config clear failed: %s", message.c_str());
-      return false;
-    }
-    if (!message.empty()) {
-      ESP_LOGI(TAG, "MQTT config cleared: %s", message.c_str());
-    }
-    set_device_config(updated);
     publish_mqtt_status_(false);
+    if (device_config_result.config_changed) {
+      set_device_config(device_config_result.config);
+    }
     setup_mqtt_();
     send_system_info_();
     return true;
   }
-  if (command == "CLEAR_DEVICE_CONFIG") {
-    if (!device_config_change_callback_) {
-      ESP_LOGW(TAG, "Device config change callback is not configured");
-      return false;
-    }
-    std::string message;
-    const bool accepted = device_config_change_callback_(EspectreDeviceConfig{}, true, &message);
-    if (!message.empty()) {
-      ESP_LOGI(TAG, "Device config clear %s: %s", accepted ? "accepted" : "rejected", message.c_str());
-    }
-    if (!accepted) {
-      return false;
-    }
-    publish_mqtt_status_(false);
-    EspectreDeviceConfig cleared{};
-    cleared.device_id = espectre_effective_device_id_u64(device_config_);
-    set_device_config(cleared);
-    setup_mqtt_();
-    send_system_info_();
-    return true;
-  }
-  if (command.rfind("SET_DEVICE_CONFIG:", 0) == 0) {
-    EspectreDeviceConfig updated = device_config_;
-    std::string error;
-    if (!parse_espectre_config_command(command, &updated, &error)) {
-      ESP_LOGW(TAG, "Invalid device config command: %s", error.c_str());
-      return false;
-    }
-    if (device_config_change_callback_) {
-      std::string message;
-      if (!device_config_change_callback_(updated, false, &message)) {
-        ESP_LOGW(TAG, "Device config persistence failed: %s", message.c_str());
-        return false;
-      }
-      if (!message.empty()) {
-        ESP_LOGI(TAG, "Device config persisted: %s", message.c_str());
-      }
-    }
-    set_device_config(updated);
-    setup_mqtt_();
-    send_system_info_();
-    return true;
-  }
-  if (command.rfind("SET_WIFI_", 0) == 0 || command == "APPLY_WIFI" || command == "CLEAR_WIFI") {
+  if (command.rfind("SET_WIFI_CONFIG:", 0) == 0 || command == "CLEAR_WIFI") {
     if (!provisioning_command_callback_) {
       ESP_LOGW(TAG, "Provisioning command callback is not configured");
       return false;
@@ -269,9 +258,6 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
     const bool accepted = provisioning_command_callback_(command, &message);
     if (!message.empty()) {
       ESP_LOGI(TAG, "Provisioning command %s: %s", accepted ? "accepted" : "rejected", message.c_str());
-    }
-    if (accepted) {
-      send_system_info_();
     }
     return accepted;
   }
@@ -294,66 +280,29 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
 }
 
 void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
-  EspectreCommand command;
-  std::string error;
-  if (!parse_espectre_command(payload, &command, &error)) {
-    command.command = "unknown";
-    publish_mqtt_command_result_(command, false, error.c_str());
-    return;
+  const FrontendMqttCommandResult result = handle_frontend_mqtt_command(
+      payload,
+      ota_service_,
+      device_info_.firmware_version.c_str(),
+      FrontendMqttCommandCapabilities{
+          true,
+          true,
+          runtime_.capabilities().supports_runtime_threshold_updates,
+          ota_service_ != nullptr,
+      },
+      [this]() { this->publish_mqtt_info_(); },
+      [this]() { this->publish_mqtt_stats_(); },
+      [this](float threshold, std::string *message) {
+        const bool accepted = this->handle_threshold_write_(threshold);
+        if (message != nullptr && message->empty()) {
+          *message = accepted ? "threshold updated" : "threshold rejected";
+        }
+        return accepted;
+      },
+      [this](const EspectreOtaStatus &status) { this->publish_mqtt_ota_status_(status); });
+  if (result.handled) {
+    publish_mqtt_command_result_(result.command, result.accepted, result.message.c_str());
   }
-
-  if (command.command == "set_threshold") {
-    if (!command.has_threshold || !validate_runtime_threshold(command.threshold)) {
-      publish_mqtt_command_result_(command, false, "invalid threshold");
-      return;
-    }
-    const bool accepted = handle_threshold_write_(command.threshold);
-    publish_mqtt_command_result_(command, accepted, accepted ? "threshold updated" : "threshold rejected");
-    return;
-  }
-
-  if (command.command == "info") {
-    publish_mqtt_info_();
-    publish_mqtt_command_result_(command, true, "info published");
-    return;
-  }
-
-  if (command.command == "stats") {
-    publish_mqtt_stats_();
-    publish_mqtt_command_result_(command, true, "stats published");
-    return;
-  }
-
-  if (command.command == "ota_check" || command.command == "ota_start" || command.command == "ota_status") {
-    const bool accepted = handle_ota_command_(command);
-    publish_mqtt_command_result_(command, accepted, accepted ? "ota command accepted" : "ota command rejected");
-    return;
-  }
-
-  publish_mqtt_command_result_(command, false, "unsupported command");
-}
-
-bool NativeFrontend::handle_ota_command_(const EspectreCommand &command) {
-  if (ota_service_ == nullptr) {
-    return false;
-  }
-
-  const std::string current_version =
-      device_info_.firmware_version.empty() ? "unknown" : device_info_.firmware_version;
-  if (command.command == "ota_status") {
-    publish_mqtt_ota_status_(ota_service_->status());
-    return true;
-  }
-  if (command.command == "ota_check") {
-    return command.has_manifest_url && ota_service_->start_check(command.manifest_url, current_version);
-  }
-  if (command.command == "ota_start") {
-    return ota_service_->start_update(command.has_manifest_url ? command.manifest_url : "",
-                                      command.has_image_url ? command.image_url : "",
-                                      command.has_version ? command.version : "",
-                                      current_version);
-  }
-  return false;
 }
 
 bool NativeFrontend::handle_threshold_write_(float threshold) {
@@ -378,9 +327,6 @@ void NativeFrontend::handle_connection_state_(bool connected) {
   } else {
     telemetry_subscribed_ = false;
     runtime_.set_live_telemetry_enabled(false);
-    pending_sysinfo_lines_.clear();
-    next_sysinfo_line_index_ = 0;
-    last_sysinfo_line_ms_ = 0;
   }
 }
 
@@ -390,118 +336,53 @@ void NativeFrontend::handle_live_telemetry_subscription_(bool subscribed) {
 }
 
 void NativeFrontend::setup_mqtt_() {
-  if (mqtt_transport_ == nullptr) {
-    return;
-  }
-  if (device_config_.mqtt_host.empty()) {
-    mqtt_transport_->shutdown();
-    return;
-  }
-
-  mqtt_transport_->set_command_callback([this](const std::string &payload) { this->handle_mqtt_command_(payload); });
-  mqtt_transport_->set_connection_callback([this](bool connected) {
-    if (connected) {
-      this->publish_mqtt_info_();
-      this->publish_mqtt_status_(true);
-    }
-  });
-  if (!mqtt_transport_->setup(device_config_)) {
-    ESP_LOGW(TAG, "MQTT transport setup failed");
-    return;
-  }
+  (void) setup_frontend_mqtt_transport(mqtt_transport_,
+                                       device_config_,
+                                       [this](const std::string &payload) { this->handle_mqtt_command_(payload); },
+                                       [this]() {
+                                         this->publish_mqtt_info_();
+                                         this->publish_mqtt_status_(true);
+                                       },
+                                       TAG);
 }
 
 void NativeFrontend::publish_mqtt_info_() {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
-  EspectreDeviceInfo info = device_info_;
-  info.frontend = info.frontend.empty() ? "native" : info.frontend;
-  info.firmware_version = info.firmware_version.empty() ? "unknown" : info.firmware_version;
-  info.chip = info.chip.empty() ? CONFIG_IDF_TARGET : info.chip;
-  info.supports_ota = ota_service_ != nullptr;
-  if (info.detector.empty() && runtime_.snapshot().detector_name != nullptr) {
-    info.detector = runtime_.snapshot().detector_name;
-  }
-  mqtt_transport_->publish(espectre_topic(device_config_, "info"),
-                           espectre_info_payload(device_config_, info),
-                           true);
+  const EspectreDeviceInfo info =
+      normalize_protocol_device_info(device_info_, &runtime_.snapshot(), ota_service_ != nullptr, "native", CONFIG_IDF_TARGET);
+  (void) publish_frontend_mqtt_message(
+      mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), false);
 }
 
 void NativeFrontend::publish_mqtt_status_(bool online) {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
-  mqtt_transport_->publish(espectre_topic(device_config_, "status"),
-                           espectre_status_payload(device_config_, online, now_ms_()),
-                           true);
+  (void) publish_frontend_mqtt_status(mqtt_transport_, device_config_, online, now_ms_());
 }
 
 void NativeFrontend::publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now) {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
   const char *frontend = device_info_.frontend.empty() ? "native" : device_info_.frontend.c_str();
-  mqtt_transport_->publish(espectre_topic(device_config_, "telemetry"),
-                           espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, frontend),
-                           false);
+  (void) publish_frontend_mqtt_message(mqtt_transport_,
+                                       device_config_,
+                                       "telemetry",
+                                       espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, frontend),
+                                       false);
 }
 
 void NativeFrontend::publish_mqtt_stats_() {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
   const uint32_t now = now_ms_();
-  mqtt_transport_->publish(espectre_topic(device_config_, "stats"),
-                           espectre_stats_payload(device_config_,
-                                                  runtime_.snapshot(),
-                                                  now,
-                                                  now / 1000U,
-                                                  current_free_memory_kb(),
-                                                  last_loop_time_ms_),
-                           false);
+  (void) publish_frontend_mqtt_message(
+      mqtt_transport_,
+      device_config_,
+      "stats",
+      espectre_stats_payload(
+          device_config_, runtime_.snapshot(), now, now / 1000U, current_free_memory_kb(), last_loop_time_ms_),
+      false);
 }
 
 void NativeFrontend::publish_mqtt_ota_status_(const EspectreOtaStatus &status) {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
-  mqtt_transport_->publish(espectre_topic(device_config_, "ota/state"),
-                           espectre_ota_status_payload(device_config_, status, now_ms_()),
-                           true);
+  (void) publish_frontend_mqtt_ota_status(mqtt_transport_, device_config_, status, now_ms_());
 }
 
 void NativeFrontend::publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message) {
-  if (mqtt_transport_ == nullptr || !mqtt_transport_->connected()) {
-    return;
-  }
-  mqtt_transport_->publish(espectre_topic(device_config_, accepted ? "commands/accepted" : "commands/rejected"),
-                           espectre_command_result_payload(device_config_, command, accepted, message),
-                           false);
-}
-
-void NativeFrontend::queue_system_info_line_(const char *line) {
-  pending_sysinfo_lines_.emplace_back(line != nullptr ? line : "");
-}
-
-void NativeFrontend::flush_pending_system_info_(bool force) {
-  if (!client_connected_ || bindings_ == nullptr || next_sysinfo_line_index_ >= pending_sysinfo_lines_.size()) {
-    return;
-  }
-
-  const uint32_t now = now_ms_();
-  if (!force && last_sysinfo_line_ms_ != 0 && (now - last_sysinfo_line_ms_) < sysinfo_line_interval_ms_) {
-    return;
-  }
-
-  bindings_->publish_sysinfo_line(pending_sysinfo_lines_[next_sysinfo_line_index_].c_str());
-  last_sysinfo_line_ms_ = now;
-  next_sysinfo_line_index_ += 1;
-
-  if (next_sysinfo_line_index_ >= pending_sysinfo_lines_.size()) {
-    pending_sysinfo_lines_.clear();
-    next_sysinfo_line_index_ = 0;
-  }
+  (void) publish_frontend_mqtt_command_result(mqtt_transport_, device_config_, command, accepted, message);
 }
 
 void NativeFrontend::send_system_info_() {
@@ -509,78 +390,39 @@ void NativeFrontend::send_system_info_() {
     return;
   }
 
-  char line[96];
-  const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(device_config_),
-                                                       device_info_.chip.empty() ? nullptr
-                                                                                 : device_info_.chip.c_str());
-  pending_sysinfo_lines_.clear();
-  next_sysinfo_line_index_ = 0;
-  last_sysinfo_line_ms_ = 0;
-
-  queue_system_info_line_("proto_version=1");
-  queue_system_info_line_("frontend=native");
-  std::snprintf(line, sizeof(line), "espectre_protocol_version=%s", ESPECTRE_PROTOCOL_VERSION);
-  queue_system_info_line_(line);
-  queue_system_info_line_("supports_wifi_provisioning=true");
-  queue_system_info_line_("supports_mqtt_config=true");
-  queue_system_info_line_("supports_device_config=true");
-  std::snprintf(line,
-                sizeof(line),
-                "supports_runtime_threshold=%s",
-                runtime_.capabilities().supports_runtime_threshold_updates ? "true" : "false");
-  queue_system_info_line_(line);
-  std::snprintf(line,
-                sizeof(line),
-                "supports_live_telemetry=%s",
-                runtime_.capabilities().supports_ble_telemetry ? "true" : "false");
-  queue_system_info_line_(line);
-  std::snprintf(line,
-                sizeof(line),
-                "supports_extended_diagnostics=%s",
-                runtime_.capabilities().supports_extended_diagnostics ? "true" : "false");
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "supports_ota=%s", ota_service_ != nullptr ? "true" : "false");
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "device_id=%s", espectre_effective_device_id(device_config_).c_str());
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "device_label=%s", espectre_effective_device_label(device_config_).c_str());
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "device_name=%s", device_name.c_str());
-  queue_system_info_line_(line);
-  std::snprintf(line,
-                sizeof(line),
-                "mqtt_connected=%s",
-                mqtt_transport_ != nullptr && mqtt_transport_->connected() ? "true" : "false");
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "mqtt_host=%s", device_config_.mqtt_host.c_str());
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "mqtt_port=%u", static_cast<unsigned>(device_config_.mqtt_port));
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "mqtt_username=%s", device_config_.mqtt_username.c_str());
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "topic_prefix=%s", device_config_.topic_prefix.c_str());
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_connected=%s", device_info_.network.channel > 0U ? "true" : "false");
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_ssid=%s", wifi_info_.ssid.c_str());
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_bssid=%s", wifi_info_.bssid.c_str());
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_channel=%u", static_cast<unsigned>(wifi_info_.channel));
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "wifi_password_set=%s", wifi_info_.password_set ? "true" : "false");
-  queue_system_info_line_(line);
-  std::snprintf(line, sizeof(line), "chip=%s", CONFIG_IDF_TARGET);
-  queue_system_info_line_(line);
-  visit_runtime_diagnostics(runtime_.config(), runtime_.snapshot(), [this, &line](const char *key, const char *value) {
-    std::snprintf(line, sizeof(line), "%s=%s", key, value);
-    queue_system_info_line_(line);
+  std::vector<std::string> lines;
+  EspectreDeviceInfo sysinfo_device_info = device_info_;
+  if (sysinfo_device_info.chip.empty()) {
+    sysinfo_device_info.chip = CONFIG_IDF_TARGET;
+  }
+  lines = build_frontend_sysinfo_lines(FrontendSysinfoBase{
+      "native",
+      SysinfoCapabilities{true,
+                          true,
+                          true,
+                          runtime_.capabilities().supports_runtime_threshold_updates,
+                          runtime_.capabilities().supports_ble_telemetry,
+                          runtime_.capabilities().supports_extended_diagnostics,
+                          ota_service_ != nullptr},
+      device_config_,
+      sysinfo_device_info,
+      true,
+      false,
+      mqtt_transport_ != nullptr && mqtt_transport_->connected(),
+      SysinfoWifiState{
+          wifi_info_.ssid, wifi_info_.bssid, wifi_info_.channel, wifi_info_.password_set, device_info_.network.channel > 0U,
+      },
   });
-  queue_system_info_line_("END");
-  flush_pending_system_info_(true);
+  char line[96];
+  visit_runtime_diagnostics(runtime_.config(), runtime_.snapshot(), [&line, &lines](const char *key, const char *value) {
+    std::snprintf(line, sizeof(line), "%s=%s", key, value);
+    lines.emplace_back(line);
+  });
+  append_sysinfo_end_line(&lines);
+  bindings_->replace_sysinfo_lines(std::move(lines));
 }
 
-uint32_t NativeFrontend::now_ms_() const { return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL); }
+uint32_t NativeFrontend::now_ms_() const { return monotonic_now_ms(); }
 
 }  // namespace espectre
 }  // namespace esphome

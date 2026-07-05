@@ -35,12 +35,14 @@ void reset();
 class MockBleBindings : public IBleBindings {
  public:
   bool setup() override;
+  void loop() override;
   void shutdown() override;
   void set_connection_state_callback(ConnectionStateCallback callback) override;
   void set_control_write_callback(ControlWriteCallback callback) override;
   void set_telemetry_subscription_callback(TelemetrySubscriptionCallback callback) override;
   void set_device_name(const char *name) override;
   void publish_telemetry(const uint8_t *payload, size_t payload_len) override;
+  void replace_sysinfo_lines(std::vector<std::string> lines) override;
   void publish_sysinfo_line(const char *line) override;
   void report_fault(const char *message) override;
 

@@ -33,7 +33,7 @@ All notable changes to this project will be documented in this file.
   - regression coverage for commissioning-related behavior
 - **Shared HTTPS OTA service for ESP-IDF frontends**:
   - common OTA service under `runtime/esp_idf` for `native` and `streamer`
-  - retained OTA status surface and MQTT OTA command handling in ESPectre Protocol
+  - MQTT OTA status surface and MQTT OTA command handling in ESPectre Protocol
   - firmware version reporting wired into frontend info/status paths
 
 - **BLE-assisted Wi-Fi provisioning for the streamer firmware** via `tools/web/espectre-ble.html`

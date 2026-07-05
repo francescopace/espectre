@@ -82,9 +82,9 @@ For example:
 
 - `ESPHome`: edit YAML and re-flash or update the runtime threshold entity
 - `Matter`: use the writable threshold attribute exposed by the Matter surface
-- `Native`: use a BLE client such as `tools/web/espectre-ble.html`, which sends `SET_THRESHOLD:X.XX` when you release the threshold slider
+- `Native`: use a BLE client such as `tools/web/espectre-ble.html`, which sends `SET_THRESHOLD:X.XXXXXX` when you edit the `Threshold` box
 
-**Interactive tuning:** You can also adjust the threshold in real-time using a BLE client built on the native frontend protocol, including [ESPectre - The Game](https://espectre.dev/game) as one example. Connect, drag the threshold slider, and see immediate visual feedback. Note that runtime adjustments are temporary (session-only) - the adaptive threshold is recalculated on every boot.
+**Interactive tuning:** You can also adjust the threshold in real-time using a BLE client built on the native frontend protocol, including [ESPectre - The Game](https://espectre.dev/game) as one example. Connect, edit the `Threshold` value in the BLE client, and watch the live motion/threshold feedback. Note that runtime adjustments are temporary (session-only) - the adaptive threshold is recalculated on every boot.
 
 ---
 

@@ -97,7 +97,7 @@ espectre/v1/devices/{device_id}/telemetry
 
 ### Status
 
-Published retained on:
+Published on:
 
 ```text
 espectre/v1/devices/{device_id}/status
@@ -114,7 +114,7 @@ espectre/v1/devices/{device_id}/status
 
 ### Info
 
-Published retained on:
+Published on:
 
 ```text
 espectre/v1/devices/{device_id}/info
@@ -166,7 +166,7 @@ normal operation. When available, `free_memory_kb` reports current free heap and
 `loop_time_ms` reports the measured last loop-body cost in milliseconds,
 excluding the outer task sleep or idle delay. Motion state, movement score,
 threshold, detector selection, and turbulence belong to
-telemetry or retained config/info surfaces instead of `stats`.
+telemetry or live config/info surfaces instead of `stats`.
 
 ### Commands
 
@@ -210,7 +210,7 @@ Start OTA directly from an image URL:
 }
 ```
 
-Publish retained OTA state on:
+Publish OTA state on:
 
 ```text
 espectre/v1/devices/{device_id}/ota/state
@@ -253,18 +253,10 @@ The current BLE firmware still carries setup commands as ASCII control writes:
 REQ_SYSINFO
 SET_THRESHOLD:4.5
 SET_DEVICE_CONFIG:device_label=Living Room
-SET_DEVICE_CONFIG:mqtt_host=192.168.1.20
-SET_DEVICE_CONFIG:mqtt_port=1883
-SET_DEVICE_CONFIG:mqtt_username=mqtt
-SET_DEVICE_CONFIG:mqtt_password=secret-password
-SET_DEVICE_CONFIG:topic_prefix=espectre/v1/devices
+SET_MQTT_CONFIG:host=192.168.1.20&port=1883&username=mqtt&password=secret-password&topic_prefix=espectre%2Fv1%2Fdevices
 CLEAR_MQTT_CONFIG
 CLEAR_DEVICE_CONFIG
-SET_WIFI_SSID:Lab Network
-SET_WIFI_PASSWORD:secret-password
-SET_WIFI_CHANNEL:6
-SET_WIFI_BSSID:aa:bb:cc:dd:ee:ff
-APPLY_WIFI
+SET_WIFI_CONFIG:ssid=Lab%20Network&password=secret-password&channel=6&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff
 CLEAR_WIFI
 ```
 
@@ -277,15 +269,17 @@ Identity/config semantics for the current BLE control surface:
 - `device_id` is the firmware-generated MAC-packed identity rendered as a stable `0x...` hex string in BLE sysinfo, MQTT topics, and MQTT payloads
 - `device_name` is the immutable protocol/device name derived from chip and `device_id`
 - `device_label` is the optional user-facing human-readable device label
+- `SET_MQTT_CONFIG:...` replaces the full persisted MQTT broker block in one write
 - `CLEAR_MQTT_CONFIG` clears only broker-related MQTT settings and disables the
   active MQTT transport
 - `CLEAR_DEVICE_CONFIG` resets device-facing naming and MQTT settings while keeping the firmware-generated `device_id`
+- `SET_WIFI_CONFIG:...` replaces the full persisted Wi-Fi station block in one write and applies it immediately
 - `CLEAR_WIFI` clears only persisted Wi-Fi station settings
 
 Frontend notes:
 
 - the standalone native frontend exposes the full current MQTT telemetry/status/info/stats command plane
-- the standalone streamer frontend exposes only `info`, `ota_check`, `ota_start`, `ota_status`, command results, and retained OTA state over MQTT
+- the standalone streamer frontend exposes `info`, `stats`, `ota_check`, `ota_start`, `ota_status`, and command results over MQTT
 - Matter does not use this MQTT command plane for OTA; it follows the Matter OTA requestor/provider flow instead
 
 ## Current BLE Telemetry Surface
@@ -390,19 +384,20 @@ identity/config keys above. Nearby tools may display them, but clients should
 not treat the full diagnostic set or its formatting as a stable contract.
 
 Wi-Fi provisioning values are persisted in NVS by ESP-IDF firmware targets that
-use the shared provisioning service. `APPLY_WIFI` saves the current values,
-updates the station configuration, and reconnects Wi-Fi without restarting the
-BLE transport. `CLEAR_WIFI` erases provisioned values and disconnects the
-station without rebooting. The standalone BLE firmware uses the same surface for
-its full runtime frontend, while the streamer firmware exposes Wi-Fi
-provisioning, device naming, and a reduced sysinfo subset.
+use the shared provisioning service. `SET_WIFI_CONFIG:...` saves the full Wi-Fi
+block, updates the station configuration, and reconnects Wi-Fi without
+restarting the BLE transport. `CLEAR_WIFI` erases provisioned values and
+disconnects the station without rebooting. The standalone BLE firmware uses the
+same surface for its full runtime frontend, while the streamer firmware exposes
+Wi-Fi provisioning, device naming, and a reduced sysinfo subset.
 
-MQTT settings are also persisted in NVS after each
-`SET_DEVICE_CONFIG:key=value` command. `CLEAR_MQTT_CONFIG` erases only the saved
-MQTT broker settings, stops any active MQTT client, and preserves the current
-device identity. `CLEAR_DEVICE_CONFIG` resets the persisted `device_label` and
-MQTT settings and returns the live BLE session to the generated/default device
-identity state until it is reprovisioned or rebooted.
+MQTT settings are also persisted in NVS as one block. `SET_MQTT_CONFIG:...`
+replaces the saved MQTT broker settings and reinitializes the active MQTT
+transport. `CLEAR_MQTT_CONFIG` erases only the saved MQTT broker settings, stops
+any active MQTT client, and preserves the current device identity.
+`CLEAR_DEVICE_CONFIG` resets the persisted `device_label` and MQTT settings and
+returns the live BLE session to the generated/default device identity state
+until it is reprovisioned or rebooted.
 
 ## Deployment Profiles
 

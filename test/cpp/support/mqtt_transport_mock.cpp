@@ -25,6 +25,13 @@ bool MockMqttTransport::publish(const std::string &topic, const std::string &pay
   return true;
 }
 
+bool MockMqttTransport::publish_suffix(const char *suffix, const std::string &payload, bool retain) {
+  if (suffix == nullptr) {
+    return false;
+  }
+  return publish(espectre_topic(state.last_config, suffix), payload, retain);
+}
+
 void MockMqttTransport::set_command_callback(CommandCallback callback) { state.command_callback = std::move(callback); }
 
 void MockMqttTransport::set_connection_callback(ConnectionCallback callback) {

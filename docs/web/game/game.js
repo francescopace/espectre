@@ -9,6 +9,7 @@
  *   - BLE telemetry notifications (see docs/ESPECTRE_PROTOCOL.md)
  *   - BLE sysinfo notifications: text "key=value" lines + "END"
  *   - BLE control writes such as REQ_SYSINFO and runtime threshold updates
+ *   - sysinfo snapshots are applied only after the terminating "END" line
  * 
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * License: GPLv3
@@ -96,6 +97,7 @@ class ESPectreGame {
         
         // System info from ESP32
         this.systemInfo = {};
+        this.sysinfoSnapshotBuffer = [];
         
         // Game timers (for cleanup on disconnect/home)
         this.gameTimers = [];
@@ -155,11 +157,6 @@ class ESPectreGame {
             // System info elements
             systemInfo: document.getElementById('system-info'),
             infoThreshold: document.getElementById('info-threshold'),
-            infoWindow: document.getElementById('info-window'),
-            infoSubcarriers: document.getElementById('info-subcarriers'),
-            infoLowpass: document.getElementById('info-lowpass'),
-            infoHampel: document.getElementById('info-hampel'),
-            infoTraffic: document.getElementById('info-traffic'),
             // Connection box and mobile hint
             connectionBox: document.getElementById('connection-box'),
             mobileUsbHint: document.getElementById('mobile-usb-hint')
@@ -489,14 +486,14 @@ class ESPectreGame {
         if (!line) return;
         const trimmed = line.trim();
         if (trimmed === 'END') {
-            this.handleSystemInfo('END', '');
+            this.applySystemInfoSnapshot();
             return;
         }
         const equalIdx = trimmed.indexOf('=');
         if (equalIdx <= 0) return;
         const key = trimmed.slice(0, equalIdx).trim();
         const data = trimmed.slice(equalIdx + 1).trim();
-        this.handleSystemInfo(key, data);
+        this.sysinfoSnapshotBuffer.push([key, data]);
     }
 
     async sendBleControlCommand(command) {
@@ -521,10 +518,24 @@ class ESPectreGame {
         await this.disconnect();
     }
     
+    applySystemInfoSnapshot() {
+        const snapshotEntries = this.sysinfoSnapshotBuffer;
+        this.sysinfoSnapshotBuffer = [];
+        const nextSystemInfo = {};
+        snapshotEntries.forEach(([key, value]) => {
+            if (key === 'chip' || key === 'threshold') {
+                nextSystemInfo[key] = value;
+            }
+        });
+        this.systemInfo = nextSystemInfo;
+        Object.entries(nextSystemInfo).forEach(([key, value]) => this.handleSystemInfo(key, value));
+
+        if (this.elements.systemInfo && Object.keys(nextSystemInfo).length > 0) {
+            this.elements.systemInfo.classList.remove('hidden');
+        }
+    }
+
     handleSystemInfo(key, value) {
-        this.systemInfo[key] = value;
-        
-        // Update UI based on key
         switch (key) {
             case 'chip':
                 // Update device name in ready status (uppercase chip name)
@@ -543,48 +554,6 @@ class ESPectreGame {
                 if (!isNaN(thresholdValue)) {
                     this.threshold = thresholdValue;
                     this.updateThresholdMarkerPosition();
-                }
-                break;
-            case 'window':
-                if (this.elements.infoWindow) {
-                    this.elements.infoWindow.textContent = value + ' pkts';
-                }
-                break;
-            case 'subcarriers':
-                if (this.elements.infoSubcarriers) {
-                    this.elements.infoSubcarriers.textContent = value.toUpperCase();
-                }
-                break;
-            case 'lowpass':
-                if (this.elements.infoLowpass) {
-                    this.elements.infoLowpass.textContent = value.toUpperCase();
-                }
-                break;
-            case 'lowpass_cutoff':
-                if (this.elements.infoLowpass) {
-                    this.elements.infoLowpass.textContent = value + ' Hz';
-                }
-                break;
-            case 'hampel':
-                if (this.elements.infoHampel) {
-                    this.elements.infoHampel.textContent = value.toUpperCase();
-                }
-                break;
-            case 'hampel_window':
-                // Append to existing hampel info
-                if (this.elements.infoHampel && this.systemInfo['hampel'] === 'on') {
-                    this.elements.infoHampel.textContent = value + ' pkts';
-                }
-                break;
-            case 'traffic_rate':
-                if (this.elements.infoTraffic) {
-                    this.elements.infoTraffic.textContent = value + ' pps';
-                }
-                break;
-            case 'END':
-                // Show the system info panel
-                if (this.elements.systemInfo) {
-                    this.elements.systemInfo.classList.remove('hidden');
                 }
                 break;
         }
@@ -1381,6 +1350,7 @@ class ESPectreGame {
             this.elements.systemInfo.classList.add('hidden');
         }
         this.systemInfo = {};
+        this.sysinfoSnapshotBuffer = [];
         
         // Show mouse mode section again
         if (this.elements.dividerMouse) {

@@ -17,6 +17,7 @@
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "os/os_mbuf.h"
+#include "runtime_time.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
@@ -60,6 +61,9 @@ bool NimbleBleBindings::setup() {
   }
   telemetry_value_.clear();
   sysinfo_value_.clear();
+  pending_sysinfo_lines_.clear();
+  next_sysinfo_line_index_ = 0U;
+  last_sysinfo_line_ms_ = 0U;
   conn_handle_ = BLE_HS_CONN_HANDLE_NONE;
   telemetry_subscribed_ = false;
   advertising_active_ = false;
@@ -117,6 +121,8 @@ bool NimbleBleBindings::setup() {
   return true;
 }
 
+void NimbleBleBindings::loop() { flush_pending_sysinfo_(); }
+
 void NimbleBleBindings::shutdown() {
   if (!setup_complete_) {
     return;
@@ -127,6 +133,9 @@ void NimbleBleBindings::shutdown() {
   setup_complete_ = false;
   conn_handle_ = BLE_HS_CONN_HANDLE_NONE;
   advertising_active_ = false;
+  pending_sysinfo_lines_.clear();
+  next_sysinfo_line_index_ = 0U;
+  last_sysinfo_line_ms_ = 0U;
   instance_ = nullptr;
 }
 
@@ -168,18 +177,37 @@ void NimbleBleBindings::publish_telemetry(const uint8_t *payload, size_t payload
   }
 }
 
+void NimbleBleBindings::replace_sysinfo_lines(std::vector<std::string> lines) {
+  pending_sysinfo_lines_.clear();
+  next_sysinfo_line_index_ = 0U;
+  last_sysinfo_line_ms_ = 0U;
+  if (!setup_complete_ || conn_handle_ == BLE_HS_CONN_HANDLE_NONE || g_sysinfo_val_handle == 0) {
+    return;
+  }
+  pending_sysinfo_lines_ = std::move(lines);
+  flush_pending_sysinfo_(true);
+}
+
 void NimbleBleBindings::publish_sysinfo_line(const char *line) {
   if (!setup_complete_ || g_sysinfo_val_handle == 0 || line == nullptr) {
     return;
   }
 
   sysinfo_value_ = line;
-  if (conn_handle_ != BLE_HS_CONN_HANDLE_NONE) {
-    os_mbuf *om = ble_hs_mbuf_from_flat(sysinfo_value_.data(), sysinfo_value_.size());
-    if (om != nullptr) {
-      ble_gatts_notify_custom(conn_handle_, g_sysinfo_val_handle, om);
-    }
+  if (conn_handle_ == BLE_HS_CONN_HANDLE_NONE) {
+    return;
   }
+
+  if (next_sysinfo_line_index_ < pending_sysinfo_lines_.size()) {
+    pending_sysinfo_lines_.emplace_back(line);
+    return;
+  }
+
+  pending_sysinfo_lines_.clear();
+  pending_sysinfo_lines_.emplace_back(line);
+  next_sysinfo_line_index_ = 0U;
+  last_sysinfo_line_ms_ = 0U;
+  flush_pending_sysinfo_(true);
 }
 
 void NimbleBleBindings::report_fault(const char *message) {
@@ -252,6 +280,9 @@ int NimbleBleBindings::on_gap_event_(ble_gap_event *event) {
       conn_handle_ = BLE_HS_CONN_HANDLE_NONE;
       advertising_active_ = false;
       telemetry_subscribed_ = false;
+      pending_sysinfo_lines_.clear();
+      next_sysinfo_line_index_ = 0U;
+      last_sysinfo_line_ms_ = 0U;
       if (telemetry_subscription_callback_) {
         telemetry_subscription_callback_(false);
       }
@@ -292,20 +323,62 @@ int NimbleBleBindings::on_gatt_access_(uint16_t conn_handle, uint16_t attr_handl
   }
 
   if (attr_handle == g_control_val_handle && ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-    char buffer[192] = {0};
+    const uint16_t payload_len = OS_MBUF_PKTLEN(ctxt->om);
+    std::string command(payload_len, '\0');
     uint16_t command_len = 0;
-    const int rc = ble_hs_mbuf_to_flat(ctxt->om, buffer, sizeof(buffer) - 1, &command_len);
+    const int rc = ble_hs_mbuf_to_flat(ctxt->om, command.data(), payload_len, &command_len);
     if (rc != 0) {
+      ESP_LOGW(TAG, "Failed to flatten control write payload: %d", rc);
       return BLE_ATT_ERR_UNLIKELY;
     }
-    buffer[command_len] = '\0';
+    command.resize(command_len);
     if (control_write_callback_) {
-      control_write_callback_(std::string(buffer, command_len));
+      control_write_callback_(command);
     }
     return 0;
   }
 
   return 0;
+}
+
+void NimbleBleBindings::flush_pending_sysinfo_(bool force) {
+  if (!setup_complete_ || conn_handle_ == BLE_HS_CONN_HANDLE_NONE || g_sysinfo_val_handle == 0 ||
+      next_sysinfo_line_index_ >= pending_sysinfo_lines_.size()) {
+    return;
+  }
+
+  const uint32_t now_ms = monotonic_now_ms();
+  if (!force && last_sysinfo_line_ms_ != 0U && (now_ms - last_sysinfo_line_ms_) < sysinfo_line_interval_ms_) {
+    return;
+  }
+
+  const std::string &line = pending_sysinfo_lines_[next_sysinfo_line_index_];
+  if (notify_sysinfo_line_(line)) {
+    last_sysinfo_line_ms_ = now_ms;
+    next_sysinfo_line_index_ += 1U;
+    if (next_sysinfo_line_index_ >= pending_sysinfo_lines_.size()) {
+      pending_sysinfo_lines_.clear();
+      next_sysinfo_line_index_ = 0U;
+    }
+  } else {
+    last_sysinfo_line_ms_ = now_ms;
+  }
+}
+
+bool NimbleBleBindings::notify_sysinfo_line_(const std::string &line) {
+  sysinfo_value_ = line;
+  os_mbuf *om = ble_hs_mbuf_from_flat(sysinfo_value_.data(), sysinfo_value_.size());
+  if (om == nullptr) {
+    ESP_LOGW(TAG, "Failed to allocate sysinfo notification buffer");
+    return false;
+  }
+
+  const int rc = ble_gatts_notify_custom(conn_handle_, g_sysinfo_val_handle, om);
+  if (rc != 0) {
+    ESP_LOGW(TAG, "ble_gatts_notify_custom(sysinfo) failed: %d", rc);
+    return false;
+  }
+  return true;
 }
 
 void NimbleBleBindings::host_task_(void *param) {

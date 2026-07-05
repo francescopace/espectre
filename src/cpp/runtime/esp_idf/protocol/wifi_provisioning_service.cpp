@@ -10,8 +10,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <utility>
+#include <vector>
 
 #include "espectre_log.h"
+#include "protocol_json.h"
 
 namespace esphome {
 namespace espectre {
@@ -19,6 +21,64 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.wifi_prov";
+
+bool assign_wifi_config_field(const std::string &field,
+                              const std::string &value,
+                              StoredWifiConfig *config,
+                              std::string *error) {
+  if (config == nullptr) {
+    if (error != nullptr) {
+      *error = "wifi config output is required";
+    }
+    return false;
+  }
+  if (field == "ssid") {
+    if (value.empty() || value.size() > 32) {
+      if (error != nullptr) {
+        *error = "SSID must be 1..32 bytes";
+      }
+      return false;
+    }
+    config->ssid = value;
+    return true;
+  }
+  if (field == "password") {
+    if (value.size() > 63) {
+      if (error != nullptr) {
+        *error = "password must be 0..63 bytes";
+      }
+      return false;
+    }
+    config->password = value;
+    return true;
+  }
+  if (field == "bssid") {
+    if (!value.empty() && value.size() != 17) {
+      if (error != nullptr) {
+        *error = "BSSID must be empty or 17 chars";
+      }
+      return false;
+    }
+    config->bssid = value;
+    return true;
+  }
+  if (field == "channel") {
+    char *end_ptr = nullptr;
+    const long parsed = std::strtol(value.c_str(), &end_ptr, 10);
+    if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' || parsed < 0 || parsed > 14) {
+      if (error != nullptr) {
+        *error = "channel must be 0..14";
+      }
+      return false;
+    }
+    config->channel = static_cast<uint8_t>(parsed);
+    return true;
+  }
+  if (error != nullptr) {
+    *error = "unsupported wifi config field";
+  }
+  return false;
+}
 
 }  // namespace
 
@@ -88,68 +148,40 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
     }
   };
 
-  constexpr const char *kSsidPrefix = "SET_WIFI_SSID:";
-  constexpr const char *kPasswordPrefix = "SET_WIFI_PASSWORD:";
-  constexpr const char *kBssidPrefix = "SET_WIFI_BSSID:";
-  constexpr const char *kChannelPrefix = "SET_WIFI_CHANNEL:";
+  constexpr const char *kBatchPrefix = "SET_WIFI_CONFIG:";
 
-  if (command.rfind(kSsidPrefix, 0) == 0) {
-    const std::string ssid = command.substr(std::strlen(kSsidPrefix));
-    if (ssid.empty() || ssid.size() > 32) {
+  if (command.rfind(kBatchPrefix, 0) == 0) {
+    std::vector<std::pair<std::string, std::string>> pairs;
+    std::string error;
+    if (!parse_urlencoded_key_value_pairs(command.substr(std::strlen(kBatchPrefix)), &pairs, &error)) {
+      set_message(error.c_str());
+      return false;
+    }
+    StoredWifiConfig updated = wifi_config_;
+    bool has_ssid = false;
+    for (const auto &pair : pairs) {
+      if (!assign_wifi_config_field(pair.first, pair.second, &updated, &error)) {
+        set_message(error.c_str());
+        return false;
+      }
+      if (pair.first == "ssid") {
+        has_ssid = true;
+      }
+    }
+    if (!has_ssid || updated.ssid.empty()) {
       set_message("SSID must be 1..32 bytes");
       return false;
     }
-    wifi_config_.ssid = ssid;
-    wifi_config_.has_saved_config = true;
-    const esp_err_t err = save_stored_wifi_config(wifi_config_);
-    refresh_cached_strings_();
-    notify_changed_();
-    set_message(err == ESP_OK ? "SSID saved" : esp_err_to_name(err));
-    return err == ESP_OK;
-  }
-
-  if (command.rfind(kPasswordPrefix, 0) == 0) {
-    const std::string password = command.substr(std::strlen(kPasswordPrefix));
-    if (password.size() > 63) {
-      set_message("password must be 0..63 bytes");
+    updated.has_saved_config = true;
+    const esp_err_t err = save_stored_wifi_config(updated);
+    if (err != ESP_OK) {
+      set_message(esp_err_to_name(err));
       return false;
     }
-    wifi_config_.password = password;
-    wifi_config_.has_saved_config = true;
-    const esp_err_t err = save_stored_wifi_config(wifi_config_);
+    wifi_config_ = std::move(updated);
     refresh_cached_strings_();
     notify_changed_();
-    set_message(err == ESP_OK ? "password saved" : esp_err_to_name(err));
-    return err == ESP_OK;
-  }
-
-  if (command.rfind(kBssidPrefix, 0) == 0) {
-    const std::string bssid = command.substr(std::strlen(kBssidPrefix));
-    if (!bssid.empty() && bssid.size() != 17) {
-      set_message("BSSID must be empty or 17 chars");
-      return false;
-    }
-    wifi_config_.bssid = bssid;
-    wifi_config_.has_saved_config = true;
-    const esp_err_t err = save_stored_wifi_config(wifi_config_);
-    refresh_cached_strings_();
-    notify_changed_();
-    set_message(err == ESP_OK ? "BSSID saved" : esp_err_to_name(err));
-    return err == ESP_OK;
-  }
-
-  if (command.rfind(kChannelPrefix, 0) == 0) {
-    uint8_t channel = 0;
-    if (!parse_wifi_channel_(command.substr(std::strlen(kChannelPrefix)), &channel)) {
-      set_message("channel must be 0..14");
-      return false;
-    }
-    wifi_config_.channel = channel;
-    wifi_config_.has_saved_config = true;
-    const esp_err_t err = save_stored_wifi_config(wifi_config_);
-    notify_changed_();
-    set_message(err == ESP_OK ? "channel saved" : esp_err_to_name(err));
-    return err == ESP_OK;
+    return apply_live(message);
   }
 
   if (command == "CLEAR_WIFI") {
@@ -159,22 +191,6 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
       return false;
     }
     wifi_config_ = StoredWifiConfig{};
-    refresh_cached_strings_();
-    notify_changed_();
-    return apply_live(message);
-  }
-
-  if (command == "APPLY_WIFI") {
-    if (wifi_config_.ssid.empty()) {
-      set_message("SSID is empty");
-      return false;
-    }
-    wifi_config_.has_saved_config = true;
-    const esp_err_t err = save_stored_wifi_config(wifi_config_);
-    if (err != ESP_OK) {
-      set_message(esp_err_to_name(err));
-      return false;
-    }
     refresh_cached_strings_();
     notify_changed_();
     return apply_live(message);

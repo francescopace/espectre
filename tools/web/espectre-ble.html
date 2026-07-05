@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESPectre Native Frontend Provisioning</title>
+  <title>ESPectre BLE Provisioning Client</title>
   <style>
     * {
       margin: 0;
@@ -337,6 +337,19 @@
       color: white;
     }
 
+    .metric-card.idle {
+      background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+    }
+
+    .metric-card.motion {
+      background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    }
+
+    .metric-card.pending {
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+      box-shadow: 0 0 0 3px rgba(243, 156, 18, 0.18);
+    }
+
     .metric-card:hover {
       transform: translateY(-3px);
     }
@@ -352,6 +365,32 @@
       font-size: 1.8em;
       font-weight: bold;
       overflow-wrap: anywhere;
+    }
+
+    .metric-value-input {
+      width: 100%;
+      border: none;
+      background: transparent;
+      color: inherit;
+      text-align: center;
+      padding: 0;
+      appearance: textfield;
+      -moz-appearance: textfield;
+    }
+
+    .metric-value-input::-webkit-outer-spin-button,
+    .metric-value-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    .metric-value-input:focus {
+      outline: none;
+    }
+
+    .metric-value-input:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
     }
 
     .subsection-card {
@@ -467,7 +506,7 @@
   <div class="container">
     <div class="header">
       <h1>🛜 ESPectre 👻</h1>
-      <p>BLE provisioning, telemetry inspection, and MQTT setup</p>
+      <p>BLE provisioning client for atomic Wi-Fi, MQTT, and device settings</p>
     </div>
 
     <div class="card compact">
@@ -564,26 +603,12 @@
             <div class="input-group">
               <label for="deviceLabelInput">Device Label</label>
               <input id="deviceLabelInput" type="text" autocomplete="off" maxlength="64" placeholder="Living Room">
-              <small>Optional human-readable label shown in local tools and retained info payloads.</small>
+              <small>Optional human-readable label shown in local tools and live info payloads.</small>
             </div>
           </div>
           <div class="section-actions">
             <button class="btn btn-secondary" id="deviceApplyBtn" disabled>Save Device</button>
             <button class="btn btn-danger" id="deviceClearBtn" disabled>Clear Device</button>
-          </div>
-        </div>
-
-        <div class="subsection-card" id="runtimeControlsCard">
-          <h3>🎚️ Runtime Controls</h3>
-          <div class="config-section ble-toolbar-grid">
-            <div class="input-group">
-              <label class="range-label" for="thresholdInput">
-                <span>Motion Threshold</span>
-                <span class="range-value-badge" id="thresholdInputValue">4.5</span>
-              </label>
-              <input id="thresholdInput" type="range" min="0.5" max="10" step="0.1" value="4.5">
-              <small>Updated from system info when available and sent automatically when you release the slider.</small>
-            </div>
           </div>
         </div>
 
@@ -649,17 +674,17 @@
 
     <div class="card compact" id="telemetryCard">
       <div class="metrics-grid">
-        <div class="metric-card">
+        <div class="metric-card" id="stateCard">
           <div class="metric-label">State</div>
           <div class="metric-value" id="stateValue">-</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Movement</div>
+          <div class="metric-label">Motion Level</div>
           <div class="metric-value" id="movementValue">-</div>
         </div>
-        <div class="metric-card">
+        <div class="metric-card" id="thresholdCard">
           <div class="metric-label">Threshold</div>
-          <div class="metric-value" id="thresholdValue">-</div>
+          <input class="metric-value metric-value-input" id="thresholdValue" type="number" min="0" max="10" step="0.000001" value="" placeholder="-">
         </div>
         <button class="metric-card metric-toggle-button enabled" id="liveTelemetryBtn" type="button">
           <div class="metric-label">Live Telemetry</div>
@@ -704,6 +729,8 @@
     let controlChar = null;
     let liveTelemetryRequested = true;
     let capabilityState = defaultCapabilities();
+    let sysinfoSnapshotBuffer = [];
+    let pendingThresholdValue = null;
 
     const el = (id) => document.getElementById(id);
 
@@ -781,6 +808,23 @@
       return String(value);
     }
 
+    function updateStateCard(value) {
+      const stateCard = el('stateCard');
+      const label = formatMotionState(value);
+      el('stateValue').textContent = label;
+      stateCard.classList.remove('idle', 'motion');
+      if (label === 'Idle') {
+        stateCard.classList.add('idle');
+      } else if (label === 'Motion') {
+        stateCard.classList.add('motion');
+      }
+    }
+
+    function setThresholdPending(value = null) {
+      pendingThresholdValue = Number.isFinite(value) ? value : null;
+      el('thresholdCard').classList.toggle('pending', pendingThresholdValue !== null);
+    }
+
     function setConnected(connected) {
       el('statusText').textContent = connected ? 'Connected' : 'Disconnected';
       el('statusIndicator').className = `status-indicator ${connected ? 'connected' : 'disconnected'}`;
@@ -788,8 +832,10 @@
       el('connectBtn').classList.toggle('btn-primary', !connected);
       el('connectBtn').classList.toggle('btn-danger', connected);
       el('sysinfoBtn').disabled = !connected;
+      sysinfoSnapshotBuffer = [];
       if (!connected) {
         capabilityState = defaultCapabilities();
+        setThresholdPending(null);
       }
       applyCapabilityState(connected);
       if (connected) {
@@ -802,15 +848,30 @@
       return liveTelemetryRequested;
     }
 
-    function updateThresholdSlider(value) {
+    function updateThresholdValue(value, force = false) {
       const threshold = parseDecimalInput(value);
       if (threshold === null) {
         return null;
       }
-      el('thresholdInput').value = threshold.toFixed(1);
-      el('thresholdInputValue').textContent = threshold.toFixed(1);
-      el('thresholdValue').textContent = threshold.toFixed(3);
+      if (pendingThresholdValue !== null && Math.abs(threshold - pendingThresholdValue) <= 1e-4) {
+        setThresholdPending(null);
+      }
+      const input = el('thresholdValue');
+      if (!force && document.activeElement === input) {
+        return threshold;
+      }
+      input.value = threshold.toFixed(6);
       return threshold;
+    }
+
+    function updateMotionLevel(movement, threshold) {
+      const movementValue = Number(movement);
+      const thresholdValue = Number(threshold);
+      if (!Number.isFinite(movementValue) || !Number.isFinite(thresholdValue) || thresholdValue <= 0) {
+        el('movementValue').textContent = '-';
+        return;
+      }
+      el('movementValue').textContent = `${((movementValue / thresholdValue) * 100).toFixed(1)}%`;
     }
 
     function updateTrafficDiagnostic() {
@@ -861,7 +922,6 @@
       setCardVisible('wifiProvisioningCard', capabilityState.supportsWifiProvisioning);
       setCardVisible('mqttSettingsCard', capabilityState.supportsMqttConfig);
       setCardVisible('deviceSettingsCard', capabilityState.supportsDeviceConfig);
-      setCardVisible('runtimeControlsCard', capabilityState.supportsRuntimeThreshold);
       setCardVisible('telemetryCard', isConnected && capabilityState.supportsLiveTelemetry);
       setCardVisible('diagWifiItem', capabilityState.supportsWifiProvisioning);
       setCardVisible('diagMqttItem', capabilityState.supportsMqttConfig);
@@ -881,7 +941,7 @@
       el('mqttClearBtn').disabled = !isConnected || !capabilityState.supportsMqttConfig;
       el('deviceApplyBtn').disabled = !isConnected || !capabilityState.supportsDeviceConfig;
       el('deviceClearBtn').disabled = !isConnected || !capabilityState.supportsDeviceConfig;
-      el('thresholdInput').disabled = !isConnected || !capabilityState.supportsRuntimeThreshold;
+      el('thresholdValue').disabled = !isConnected || !capabilityState.supportsRuntimeThreshold;
       el('liveTelemetryBtn').disabled = !capabilityState.supportsLiveTelemetry;
       updateLiveTelemetryButton();
     }
@@ -899,9 +959,12 @@
       }
     }
 
-    function appendSysinfo(line) {
+    function appendSysinfoLog(line) {
       el('sysinfoLog').textContent += `${line}\n`;
       el('sysinfoLog').scrollTop = el('sysinfoLog').scrollHeight;
+    }
+
+    function applySysinfoLine(line) {
       const idx = line.indexOf('=');
       if (idx <= 0) {
         return;
@@ -954,9 +1017,9 @@
       } else if (key === 'threshold') {
         const threshold = parseLeadingNumber(value);
         if (threshold !== null) {
-          updateThresholdSlider(threshold);
+          updateThresholdValue(threshold);
         } else {
-          el('thresholdValue').textContent = value;
+          el('thresholdValue').value = value;
         }
       }
 
@@ -997,6 +1060,20 @@
       }
     }
 
+    function appendSysinfo(line) {
+      appendSysinfoLog(line);
+      if (!line) {
+        return;
+      }
+      if (line === 'END') {
+        const snapshot = sysinfoSnapshotBuffer;
+        sysinfoSnapshotBuffer = [];
+        snapshot.forEach(applySysinfoLine);
+        return;
+      }
+      sysinfoSnapshotBuffer.push(line);
+    }
+
     async function writeControl(command) {
       const payload = new TextEncoder().encode(command);
       if (controlChar.writeValueWithResponse) {
@@ -1019,6 +1096,13 @@
 
     function hasNonEmptyValue(value) {
       return String(value).trim().length > 0;
+    }
+
+    function buildEncodedCommand(prefix, fields) {
+      const payload = Object.entries(fields).map(([key, value]) => {
+        return `${encodeURIComponent(key)}=${encodeURIComponent(String(value ?? ''))}`;
+      }).join('&');
+      return `${prefix}${payload}`;
     }
 
     function logMissingRequiredFields(sectionLabel, fieldLabels) {
@@ -1059,10 +1143,12 @@
         const movement = dv.getFloat32(0, true);
         const threshold = dv.getFloat32(4, true);
         const motionState = dv.byteLength >= 9 ? dv.getUint8(8) : null;
-        el('movementValue').textContent = Number.isFinite(movement) ? movement.toFixed(3) : '-';
-        el('thresholdValue').textContent = Number.isFinite(threshold) ? threshold.toFixed(3) : '-';
+        updateMotionLevel(movement, threshold);
+        if (document.activeElement !== el('thresholdValue')) {
+          el('thresholdValue').value = Number.isFinite(threshold) ? threshold.toFixed(6) : '';
+        }
         if (motionState !== null) {
-          el('stateValue').textContent = formatMotionState(motionState);
+          updateStateCard(motionState);
         }
       });
 
@@ -1147,19 +1233,17 @@
       }
     });
 
-    el('thresholdInput').addEventListener('input', () => {
-      updateThresholdSlider(el('thresholdInput').value);
-    });
-
-    el('thresholdInput').addEventListener('change', async () => {
+    el('thresholdValue').addEventListener('change', async () => {
       try {
-        const threshold = updateThresholdSlider(el('thresholdInput').value);
+        const threshold = updateThresholdValue(el('thresholdValue').value, true);
         if (threshold === null) {
           showValidationError('invalid threshold value');
           return;
         }
-        await writeControl(`SET_THRESHOLD:${threshold.toFixed(2)}`);
+        setThresholdPending(threshold);
+        await writeControl(`SET_THRESHOLD:${threshold.toFixed(6)}`);
       } catch (error) {
+        setThresholdPending(null);
         log(`error: ${error.message}`);
       }
     });
@@ -1190,13 +1274,13 @@
           showValidationError('BSSID must match aa:bb:cc:dd:ee:ff');
           return;
         }
-        await writeControl(`SET_WIFI_SSID:${ssid}`);
-        await writeControl(`SET_WIFI_PASSWORD:${password}`);
-        await writeControl(`SET_WIFI_BSSID:${bssid}`);
-        await writeControl(`SET_WIFI_CHANNEL:${channel}`);
-        await writeControl('APPLY_WIFI');
-        await writeControl('REQ_SYSINFO');
-        log('Wi-Fi credentials saved; station reconnecting');
+        await writeControl(buildEncodedCommand('SET_WIFI_CONFIG:', {
+          ssid,
+          password,
+          bssid,
+          channel
+        }));
+        log('Wi-Fi credentials saved with one atomic SET_WIFI_CONFIG write; station reconnecting');
       } catch (error) {
         log(`error: ${error.message}`);
       }
@@ -1210,7 +1294,6 @@
         el('wifiPasswordInput').placeholder = 'Password';
         el('wifiBssidInput').value = '';
         el('wifiChannelInput').value = '0';
-        await writeControl('REQ_SYSINFO');
         log('Wi-Fi credentials cleared; station disconnected');
       } catch (error) {
         log(`error: ${error.message}`);
@@ -1248,13 +1331,14 @@
           return;
         }
 
-        await writeControl(`SET_DEVICE_CONFIG:mqtt_host=${mqttHost}`);
-        await writeControl(`SET_DEVICE_CONFIG:mqtt_port=${mqttPort}`);
-        await writeControl(`SET_DEVICE_CONFIG:mqtt_username=${mqttUsername}`);
-        await writeControl(`SET_DEVICE_CONFIG:mqtt_password=${mqttPassword}`);
-        await writeControl(`SET_DEVICE_CONFIG:topic_prefix=${topicPrefix}`);
-        await writeControl('REQ_SYSINFO');
-        log('MQTT settings saved');
+        await writeControl(buildEncodedCommand('SET_MQTT_CONFIG:', {
+          host: mqttHost,
+          port: mqttPort,
+          username: mqttUsername,
+          password: mqttPassword,
+          topic_prefix: topicPrefix
+        }));
+        log('MQTT settings saved with one atomic SET_MQTT_CONFIG write');
       } catch (error) {
         log(`error: ${error.message}`);
       }
@@ -1264,7 +1348,6 @@
       try {
         await writeControl('CLEAR_MQTT_CONFIG');
         el('mqttPasswordInput').value = '';
-        await writeControl('REQ_SYSINFO');
         log('MQTT settings cleared');
       } catch (error) {
         log(`error: ${error.message}`);
@@ -1273,8 +1356,11 @@
 
     el('clearBtn').addEventListener('click', () => {
       el('stateValue').textContent = '-';
+      el('stateCard').classList.remove('idle', 'motion');
       el('movementValue').textContent = '-';
-      el('thresholdValue').textContent = '-';
+      el('thresholdValue').value = '';
+      setThresholdPending(null);
+      sysinfoSnapshotBuffer = [];
       el('sysinfoLog').textContent = '';
       el('eventLog').textContent = '';
     });

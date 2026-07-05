@@ -62,7 +62,6 @@ class HttpsOtaService : public IOtaService {
                          const std::string &image_url);
   bool fetch_https_text_(const std::string &url, std::string *body, std::string *error) const;
   bool parse_manifest_(const std::string &body, ManifestInfo *manifest, std::string *error) const;
-  static std::string extract_json_string_(const std::string &payload, const char *key);
 
   mutable SemaphoreHandle_t lock_{nullptr};
   TaskHandle_t worker_task_{nullptr};

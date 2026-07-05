@@ -66,7 +66,7 @@ class MQTTCommands:
             detector: IDetector instance (MVSDetector or MLDetector)
             accepted_topic: MQTT topic for accepted command responses
             rejected_topic: MQTT topic for rejected command responses
-            info_topic: MQTT topic for retained system info
+            info_topic: MQTT topic for live system info
             stats_topic: MQTT topic for runtime stats
             wlan: wlan instance
             global_state: GlobalState instance for accessing loop metrics (optional)
@@ -121,11 +121,8 @@ class MQTTCommands:
             print(f"Error sending MQTT response: {e}")
 
     def publish_info_payload(self, payload):
-        """Publish retained info payload."""
-        try:
-            self.mqtt.publish(self.info_topic, json.dumps(payload), retain=True)
-        except TypeError:
-            self.mqtt.publish(self.info_topic, json.dumps(payload))
+        """Publish live info payload."""
+        self.mqtt.publish(self.info_topic, json.dumps(payload))
 
     def publish_stats_payload(self, payload):
         """Publish stats payload."""

@@ -21,6 +21,7 @@ namespace espectre {
 class NimbleBleBindings : public IBleBindings {
  public:
   bool setup() override;
+  void loop() override;
   void shutdown() override;
 
   void set_connection_state_callback(ConnectionStateCallback callback) override;
@@ -29,10 +30,13 @@ class NimbleBleBindings : public IBleBindings {
   void set_device_name(const char *name) override;
 
   void publish_telemetry(const uint8_t *payload, size_t payload_len) override;
+  void replace_sysinfo_lines(std::vector<std::string> lines) override;
   void publish_sysinfo_line(const char *line) override;
   void report_fault(const char *message) override;
 
  private:
+  void flush_pending_sysinfo_(bool force = false);
+  bool notify_sysinfo_line_(const std::string &line);
   bool start_advertising_();
   void on_sync_();
   void on_reset_(int reason);
@@ -58,6 +62,10 @@ class NimbleBleBindings : public IBleBindings {
   bool setup_complete_{false};
   bool telemetry_subscribed_{false};
   bool advertising_active_{false};
+  uint32_t sysinfo_line_interval_ms_{20U};
+  uint32_t last_sysinfo_line_ms_{0U};
+  std::vector<std::string> pending_sysinfo_lines_;
+  size_t next_sysinfo_line_index_{0U};
 };
 
 }  // namespace espectre

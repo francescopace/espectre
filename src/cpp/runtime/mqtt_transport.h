@@ -27,6 +27,7 @@ class IMqttTransport {
   virtual void shutdown() = 0;
   virtual bool connected() const = 0;
   virtual bool publish(const std::string &topic, const std::string &payload, bool retain) = 0;
+  virtual bool publish_suffix(const char *suffix, const std::string &payload, bool retain) = 0;
   virtual void set_command_callback(CommandCallback callback) = 0;
   virtual void set_connection_callback(ConnectionCallback callback) = 0;
 };

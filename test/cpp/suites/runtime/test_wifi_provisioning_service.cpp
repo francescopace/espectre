@@ -77,19 +77,18 @@ void test_wifi_provisioning_records_load_error_and_falls_back_to_defaults(void) 
 }
 
 void test_wifi_provisioning_commands_validate_and_persist_config(void) {
-  WifiProvisioningService service(nullptr);
+  StandaloneWifiManager manager;
+  WifiProvisioningService service(&manager);
   std::string message;
-  TEST_ASSERT_EQUAL(ESP_OK, service.load_or_set_defaults(make_defaults()));
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
 
-  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_SSID:", &message));
+  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=&password=secret&channel=9", &message));
   TEST_ASSERT_EQUAL_STRING("SSID must be 1..32 bytes", message.c_str());
-  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CHANNEL:15", &message));
+  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&channel=15", &message));
   TEST_ASSERT_EQUAL_STRING("channel must be 0..14", message.c_str());
 
-  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_SSID:Lab", &message));
-  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_PASSWORD:secret", &message));
-  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_BSSID:aa:bb:cc:dd:ee:ff", &message));
-  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_CHANNEL:9", &message));
+  TEST_ASSERT_TRUE(
+      service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&channel=9", &message));
 
   WifiProvisioningService reloaded(nullptr);
   TEST_ASSERT_EQUAL(ESP_OK, reloaded.load_or_set_defaults(make_defaults()));
@@ -107,16 +106,34 @@ void test_wifi_provisioning_apply_updates_wifi_manager_live(void) {
 
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_config_call_count);
-  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_SSID:Applied", &message));
-  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_PASSWORD:applied-secret", &message));
-  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_CHANNEL:3", &message));
-  TEST_ASSERT_TRUE(service.handle_command("APPLY_WIFI", &message));
+  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_CONFIG:ssid=Applied&password=applied-secret&channel=3", &message));
 
   TEST_ASSERT_EQUAL_STRING("Wi-Fi config applied", message.c_str());
   TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_config_call_count);
   TEST_ASSERT_EQUAL_STRING("Applied", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
   TEST_ASSERT_EQUAL_STRING("applied-secret", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.password));
   TEST_ASSERT_EQUAL_UINT8(3, g_esp_wifi_mock.last_config.sta.channel);
+}
+
+void test_wifi_provisioning_batch_command_persists_and_applies_config(void) {
+  StandaloneWifiManager manager;
+  WifiProvisioningService service(&manager);
+  std::string message;
+
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
+  TEST_ASSERT_TRUE(service.handle_command(
+      "SET_WIFI_CONFIG:ssid=Lab%20Net&password=top%20secret&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&channel=9",
+      &message));
+
+  TEST_ASSERT_EQUAL_STRING("Wi-Fi config applied", message.c_str());
+  TEST_ASSERT_TRUE(service.config().has_saved_config);
+  TEST_ASSERT_EQUAL_STRING("Lab Net", service.config().ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("top secret", service.config().password.c_str());
+  TEST_ASSERT_EQUAL_STRING("aa:bb:cc:dd:ee:ff", service.config().bssid.c_str());
+  TEST_ASSERT_EQUAL_UINT8(9, service.config().channel);
+  TEST_ASSERT_EQUAL_STRING("Lab Net", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
+  TEST_ASSERT_EQUAL_STRING("top secret", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.password));
+  TEST_ASSERT_EQUAL_UINT8(9, g_esp_wifi_mock.last_config.sta.channel);
 }
 
 int process(void) {
@@ -126,6 +143,7 @@ int process(void) {
   RUN_TEST(test_wifi_provisioning_records_load_error_and_falls_back_to_defaults);
   RUN_TEST(test_wifi_provisioning_commands_validate_and_persist_config);
   RUN_TEST(test_wifi_provisioning_apply_updates_wifi_manager_live);
+  RUN_TEST(test_wifi_provisioning_batch_command_persists_and_applies_config);
   return UNITY_END();
 }
 

@@ -37,6 +37,7 @@ class MockMqttTransport : public IMqttTransport {
   void shutdown() override;
   bool connected() const override;
   bool publish(const std::string &topic, const std::string &payload, bool retain) override;
+  bool publish_suffix(const char *suffix, const std::string &payload, bool retain) override;
   void set_command_callback(CommandCallback callback) override;
   void set_connection_callback(ConnectionCallback callback) override;
 

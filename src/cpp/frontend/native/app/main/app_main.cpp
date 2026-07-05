@@ -21,6 +21,7 @@
 #include "device_config_store.h"
 #include "device_identity.h"
 #include "firmware_version.h"
+#include "frontend_bootstrap_helpers.h"
 #include "https_ota_service.h"
 #include "mqtt_transport_esp_idf.h"
 #include "standalone_wifi_manager.h"
@@ -69,23 +70,16 @@ esphome::espectre::RuntimeConfig make_runtime_config() {
 }
 
 esphome::espectre::EspectreDeviceConfig make_device_config() {
-  esphome::espectre::EspectreDeviceConfig config;
-  config.device_id = esphome::espectre::derive_runtime_device_id();
-  config.device_label = CONFIG_ESPECTRE_DEVICE_LABEL;
-  config.mqtt_host = CONFIG_ESPECTRE_MQTT_HOST;
-  config.mqtt_port = CONFIG_ESPECTRE_MQTT_PORT;
-  config.topic_prefix = CONFIG_ESPECTRE_TOPIC_PREFIX;
-  esphome::espectre::EspectreDeviceConfig stored_config;
-  bool has_stored_config = false;
-  const esp_err_t load_err = esphome::espectre::load_stored_device_config(&stored_config, &has_stored_config);
-  if (load_err == ESP_OK && has_stored_config) {
-    ESP_LOGI(TAG, "Using ESPectre Protocol config provisioned over BLE");
-    config = stored_config;
-  } else if (load_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to load BLE-provisioned device config: %s", esp_err_to_name(load_err));
-  }
-  config.device_id = esphome::espectre::derive_runtime_device_id();
-  return config;
+  return esphome::espectre::load_frontend_device_config(esphome::espectre::FrontendDeviceConfigDefaults{
+                                                            CONFIG_ESPECTRE_DEVICE_LABEL,
+                                                            CONFIG_ESPECTRE_MQTT_HOST,
+                                                            CONFIG_ESPECTRE_MQTT_PORT,
+                                                            CONFIG_ESPECTRE_TOPIC_PREFIX,
+                                                            esphome::espectre::derive_runtime_device_id(),
+                                                        },
+                                                        TAG,
+                                                        "Using ESPectre Protocol config provisioned over BLE",
+                                                        "Failed to load BLE-provisioned device config");
 }
 
 void espectre_loop_task(void *arg) {
@@ -99,25 +93,24 @@ void espectre_loop_task(void *arg) {
 }
 
 bool init_wifi_station() {
-  constexpr int kConfiguredWifiChannel = CONFIG_ESPECTRE_WIFI_CHANNEL;
-  static_assert(kConfiguredWifiChannel >= 0 && kConfiguredWifiChannel <= 14, "invalid Wi-Fi channel");
-
-  esphome::espectre::WifiProvisioningDefaults defaults;
-  defaults.ssid = CONFIG_ESPECTRE_WIFI_SSID;
-  defaults.password = CONFIG_ESPECTRE_WIFI_PASSWORD;
-  defaults.bssid = CONFIG_ESPECTRE_WIFI_BSSID;
-  defaults.channel = static_cast<uint8_t>(kConfiguredWifiChannel);
-  defaults.max_retry = kWifiConnectMaxRetry;
-  defaults.manage_csi_lifecycle = false;
-
-  g_wifi_provisioning.set_change_callback(sync_frontend_wifi_info);
-  const esp_err_t setup_err = g_wifi_provisioning.setup_station(defaults, sync_frontend_wifi_info, sync_frontend_wifi_info);
+  const esp_err_t setup_err = esphome::espectre::setup_frontend_wifi_station(
+      &g_wifi_provisioning,
+      &g_wifi_manager,
+      esphome::espectre::FrontendWifiStationOptions{CONFIG_ESPECTRE_WIFI_SSID,
+                                                    CONFIG_ESPECTRE_WIFI_PASSWORD,
+                                                    CONFIG_ESPECTRE_WIFI_BSSID,
+                                                    CONFIG_ESPECTRE_WIFI_CHANNEL,
+                                                    kWifiConnectMaxRetry,
+                                                    false,
+                                                    false,
+                                                    sync_frontend_wifi_info,
+                                                    sync_frontend_wifi_info,
+                                                    sync_frontend_wifi_info},
+      TAG,
+      "Using Wi-Fi credentials provisioned over BLE");
   if (setup_err != ESP_OK) {
     ESP_LOGW(TAG, "Failed to initialize Wi-Fi provisioning service: %s", esp_err_to_name(setup_err));
     return false;
-  }
-  if (g_wifi_provisioning.config().has_saved_config) {
-    ESP_LOGI(TAG, "Using Wi-Fi credentials provisioned over BLE");
   }
   sync_frontend_wifi_info();
   return true;

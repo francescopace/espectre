@@ -283,6 +283,44 @@
             margin-bottom: 10px;
         }
 
+        .threshold-drag-hint {
+            position: absolute;
+            top: 50%;
+            right: 14px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            padding: 8px 10px;
+            transform: translateY(-50%);
+            border-radius: 12px;
+            background: rgba(52, 152, 219, 0.92);
+            color: white;
+            font-size: 18px;
+            font-weight: 700;
+            box-shadow: 0 6px 16px rgba(52, 152, 219, 0.28);
+            pointer-events: auto;
+            user-select: none;
+            z-index: 2;
+            transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease;
+            cursor: ns-resize;
+            touch-action: none;
+        }
+
+        .threshold-drag-hint[hidden] {
+            display: none;
+        }
+
+        .threshold-drag-hint.active {
+            background: rgba(46, 204, 113, 0.95);
+            transform: translateY(-50%) scale(1.06);
+        }
+
+        .threshold-drag-hint-icon {
+            font-size: 18px;
+            line-height: 1;
+        }
+
         .chart-header {
             display: flex;
             justify-content: space-between;
@@ -524,7 +562,7 @@
         <!-- MQTT Configuration Card -->
         <div class="card compact">
             <div class="collapsible-header" onclick="toggleConfig()" style="display: flex; align-items: center; gap: 15px;">
-                <h2 style="margin: 0;">⚙️ MQTT Configuration</h2>
+                <h2 style="margin: 0;">🔵 MQTT Connection</h2>
                 <div class="status-item" style="margin-left: auto;">
                     <div class="status-indicator disconnected" id="statusIndicator"></div>
                     <span id="statusText">Disconnected</span>
@@ -615,6 +653,28 @@
                             <span style="font-weight: 600; color: #666;">Firmware:</span>
                             <span id="firmwareVersion">-</span>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Global Action Buttons -->
+                <div
+                    id="otaActions"
+                    style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding-top: 10px; border-top: 2px solid #e0e0e0;">
+                    <button class="btn btn-secondary" onclick="requestInfo()">Reload Info</button>
+                    <button class="btn btn-primary btn-sm" id="statsBtn" onclick="requestStats()">Statistics</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Firmware Upgrade -->
+        <div class="card compact">
+            <div class="collapsible-header" onclick="toggleSection('firmwareUpgrade')">
+                <h2>⬆️ Firmware Upgrade</h2>
+                <span class="arrow rotate" id="firmwareUpgradeArrow">▼</span>
+            </div>
+            <div class="collapsible-content collapsed" id="firmwareUpgradeContent">
+                <div id="otaSummaryBox" style="background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #667eea; border-radius: 8px; margin-bottom: 20px; padding: 15px;" hidden>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; font-size: 0.95em;">
                         <div class="info-field" style="display: flex; align-items: center; gap: 8px;" hidden>
                             <span style="font-size: 1.1em;">⬆️</span>
                             <span style="font-weight: 600; color: #666;">OTA state:</span>
@@ -637,55 +697,23 @@
                         </div>
                     </div>
                 </div>
-
-                <!-- Detection Parameters Section -->
-                <div
-                    style="background: #f8f9fa; border-radius: 10px; padding: 15px; margin-bottom: 15px; border: 2px solid #e0e0e0;">
-                    <div class="collapsible-header" onclick="toggleSubSection('detectionParams')"
-                        style="padding: 5px 0;">
-                        <h3
-                            style="margin: 0; color: #667eea; font-size: 1.1em; display: flex; align-items: center; gap: 8px;">
-                            <span>🎯</span> Detection Parameters
-                        </h3>
-                        <span class="arrow" id="detectionParamsArrow">▼</span>
+                <div class="ota-grid" id="otaSectionBody" style="display: none;">
+                    <div class="input-group">
+                        <label for="otaManifestUrl">Manifest URL</label>
+                        <input type="text" id="otaManifestUrl" placeholder="https://example.invalid/espectre-native-ota.json">
                     </div>
-                    <div class="collapsible-content" id="detectionParamsContent" style="margin-top: 15px;">
-                        <div id="mvsParamsSection"
-                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 15px;">
-                            <div class="input-group">
-                                <label for="segThreshold" style="font-size: 0.85em;">🎯 Motion Threshold (0.5-10.0)</label>
-                                <div style="display: flex; gap: 8px; align-items: center;">
-                                    <input type="range" id="segThreshold" min="0.5" max="10.0" step="0.1" value="1.0"
-                                        style="flex: 1;">
-                                    <input type="number" id="segThresholdValue" min="0.5" max="10.0" step="0.1"
-                                        value="3.0" style="width: 70px; padding: 6px; font-size: 0.9em;">
-                                </div>
-                                <small style="color: #666; font-size: 0.8em;">Minimum threshold required to detect movement.<br>Low value = detects small movements.<br>High value = detects large movements.<br><b>Recommended: 1.0 for balanced detection 💡</b></small>
-                            </div>
-                        </div>
-                        <div class="ota-grid" id="otaControlsSection" style="display: none;">
-                            <div class="input-group">
-                                <label for="otaManifestUrl">Manifest URL</label>
-                                <input type="text" id="otaManifestUrl" placeholder="https://example.invalid/espectre-native-ota.json">
-                            </div>
-                            <div class="input-group">
-                                <label for="otaImageUrl">Image URL (optional)</label>
-                                <input type="text" id="otaImageUrl" placeholder="https://example.invalid/espectre-native-ota.bin">
-                            </div>
-                            <div class="input-group">
-                                <label for="otaTargetVersion">Target Version (optional)</label>
-                                <input type="text" id="otaTargetVersion" placeholder="3.0.0">
-                            </div>
-                        </div>
+                    <div class="input-group">
+                        <label for="otaImageUrl">Image URL (optional)</label>
+                        <input type="text" id="otaImageUrl" placeholder="https://example.invalid/espectre-native-ota.bin">
+                    </div>
+                    <div class="input-group">
+                        <label for="otaTargetVersion">Target Version (optional)</label>
+                        <input type="text" id="otaTargetVersion" placeholder="3.0.0">
                     </div>
                 </div>
-
-                <!-- Global Action Buttons -->
                 <div
-                    id="otaActions"
-                    style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding-top: 10px; border-top: 2px solid #e0e0e0;">
-                    <button class="btn btn-secondary" onclick="requestInfo()">Reload Info</button>
-                    <button class="btn btn-primary btn-sm" onclick="requestStats()">Statistics</button>
+                    id="firmwareUpgradeActions"
+                    style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding-top: 10px; border-top: 2px solid #e0e0e0; margin-top: 15px;">
                     <button class="btn btn-info btn-sm ota-action" onclick="requestOtaStatus()" style="display: none;">OTA Status</button>
                     <button class="btn btn-warning btn-sm ota-action" onclick="requestOtaCheck()" style="display: none;">OTA Check</button>
                     <button class="btn btn-success btn-sm ota-action" onclick="requestOtaStart()" style="display: none;">OTA Start</button>
@@ -701,8 +729,12 @@
                     <div class="metric-value" id="stateValue">-</div>
                 </div>
                 <div class="metric-card neutral">
-                    <div class="metric-label">Movement</div>
+                    <div class="metric-label">Motion Level</div>
                     <div class="metric-value" id="movementValue">-</div>
+                </div>
+                <div class="metric-card neutral">
+                    <div class="metric-label">Threshold</div>
+                    <div class="metric-value" id="thresholdValue">-</div>
                 </div>
                 <div class="metric-card neutral">
                     <div class="metric-label">Last Update</div>
@@ -718,6 +750,10 @@
                 <button class="btn btn-warning btn-sm" id="pauseBtn" onclick="togglePause()">⏸️ Pause</button>
             </div>
             <div class="chart-container">
+                <div class="threshold-drag-hint" id="thresholdDragHint" hidden>
+                    <span class="threshold-drag-hint-icon">↑</span>
+                    <span class="threshold-drag-hint-icon">↓</span>
+                </div>
                 <canvas id="motionChart"></canvas>
             </div>
         </div>
@@ -732,6 +768,18 @@
         let pendingData = [];
         let currentDeviceId = null;
         let lastOtaState = null;
+        let capabilityState = {
+            frontend: null,
+            supportsRuntimeThreshold: null,
+            supportsOta: false,
+            supportsStats: false
+        };
+        const thresholdUiMin = 0.0;
+        const thresholdUiMax = 10.0;
+        const thresholdDragTolerancePx = 14;
+        let isThresholdDragging = false;
+        let draggedThresholdValue = null;
+        let currentThresholdValue = 1.0;
 
         const chartData = {
             labels: [],
@@ -806,6 +854,7 @@
                     }
                 }
             });
+            setupThresholdDrag();
         }
 
         function togglePause() {
@@ -970,10 +1019,13 @@
         function addDataToChart(data) {
             const now = new Date();
             const timeLabel = now.toLocaleTimeString('en-US');
+            const thresholdValue = isThresholdDragging && draggedThresholdValue !== null
+                ? draggedThresholdValue
+                : (data.threshold || 0);
 
             chartData.labels.push(timeLabel);
             chartData.movement.push(data.movement || 0);
-            chartData.threshold.push(data.threshold || 0);
+            chartData.threshold.push(thresholdValue);
 
             if (chartData.labels.length > maxDataPoints) {
                 chartData.labels.shift();
@@ -982,6 +1034,7 @@
             }
 
             chart.update('none');
+            updateThresholdDragHintPosition();
         }
 
         function updateMetrics(data) {
@@ -997,12 +1050,22 @@
                 stateCard.classList.add('idle');
             }
 
+            const movement = Number(data.movement);
+            const threshold = Number(data.threshold);
+            const hasMovement = Number.isFinite(movement);
+            const hasThreshold = Number.isFinite(threshold) && threshold > 0;
             document.getElementById('movementValue').textContent =
-                data.movement !== undefined ? data.movement.toFixed(2) : '-';
+                hasMovement && hasThreshold ? `${((movement / threshold) * 100).toFixed(1)}%` : '-';
+            document.getElementById('thresholdValue').textContent =
+                Number.isFinite(threshold) ? threshold.toFixed(6) : '-';
             if (data.detector) {
                 setInfoField('detectorAlgorithm', String(data.detector).toUpperCase());
             }
             if (data.threshold !== undefined) {
+                if (capabilityState.supportsRuntimeThreshold !== true) {
+                    capabilityState.supportsRuntimeThreshold = true;
+                    setThresholdControlAvailability(true);
+                }
                 setThresholdControls(data.threshold);
             }
         }
@@ -1021,24 +1084,183 @@
         function setThresholdControls(threshold, force = false) {
             const parsed = Number(threshold);
             if (!Number.isFinite(parsed)) return;
-            const slider = document.getElementById('segThreshold');
-            const input = document.getElementById('segThresholdValue');
-            const editingThreshold = document.activeElement === slider || document.activeElement === input;
+            const editingThreshold = isThresholdDragging;
             if (editingThreshold && !force) return;
-            const value = parsed.toFixed(3);
-            slider.value = parsed;
-            input.value = value;
+            currentThresholdValue = parsed;
+            document.getElementById('thresholdValue').textContent = parsed.toFixed(6);
+        }
+
+        function clampThresholdValue(value) {
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed)) {
+                return null;
+            }
+            return Math.min(thresholdUiMax, Math.max(thresholdUiMin, parsed));
+        }
+
+        function getCurrentThresholdValue() {
+            const clamped = clampThresholdValue(currentThresholdValue);
+            if (clamped !== null) {
+                return clamped;
+            }
+            const latestThreshold = chartData.threshold.length > 0 ? chartData.threshold[chartData.threshold.length - 1] : null;
+            const latestClamped = clampThresholdValue(latestThreshold);
+            return latestClamped !== null ? latestClamped : 1.0;
+        }
+
+        function setChartThresholdLine(threshold) {
+            const clamped = clampThresholdValue(threshold);
+            if (clamped === null) {
+                return;
+            }
+            const points = Math.max(chartData.labels.length, 1);
+            chartData.threshold = Array(points).fill(clamped);
+            if (chart && chart.data && chart.data.datasets && chart.data.datasets[1]) {
+                chart.data.datasets[1].data = chartData.threshold;
+                chart.update('none');
+                updateThresholdDragHintPosition(clamped);
+            }
+        }
+
+        function thresholdFromPointerEvent(event) {
+            if (!chart || !chart.scales || !chart.scales.y) {
+                return null;
+            }
+            const yScale = chart.scales.y;
+            const canvasRect = chart.canvas.getBoundingClientRect();
+            const y = event.clientY - canvasRect.top;
+            return clampThresholdValue(yScale.getValueForPixel(y));
+        }
+
+        function canStartThresholdDrag() {
+            return !!chart && !!chart.scales && !!chart.scales.y && capabilityState.supportsRuntimeThreshold === true;
+        }
+
+        function commitThresholdValue(threshold) {
+            const clamped = clampThresholdValue(threshold);
+            if (clamped === null || !capabilityState.supportsRuntimeThreshold) {
+                return;
+            }
+            setThresholdControls(clamped, true);
+            setChartThresholdLine(clamped);
+            sendCommand('set_threshold', { threshold: clamped });
+        }
+
+        function updateThresholdDragHintPosition(threshold = null) {
+            const hint = document.getElementById('thresholdDragHint');
+            if (!hint || !chart || !chart.scales || !chart.scales.y || !chart.canvas) {
+                return;
+            }
+            const resolvedThreshold = clampThresholdValue(
+                threshold !== null ? threshold : (draggedThresholdValue !== null ? draggedThresholdValue : getCurrentThresholdValue())
+            );
+            if (resolvedThreshold === null) {
+                return;
+            }
+            const canvasTop = chart.canvas.offsetTop || 0;
+            const canvasHeight = chart.canvas.clientHeight || 0;
+            const rawTop = canvasTop + chart.scales.y.getPixelForValue(resolvedThreshold);
+            const clampedTop = Math.min(
+                Math.max(rawTop, canvasTop + 20),
+                canvasTop + Math.max(20, canvasHeight - 20)
+            );
+            hint.style.top = `${clampedTop}px`;
+        }
+
+        function setThresholdDragHintState(enabled, active = false) {
+            const hint = document.getElementById('thresholdDragHint');
+            if (!hint) {
+                return;
+            }
+            hint.hidden = !enabled;
+            hint.classList.toggle('active', enabled && active);
+            if (enabled) {
+                updateThresholdDragHintPosition();
+            }
+        }
+
+        function setupThresholdDrag() {
+            if (!chart || !chart.canvas) {
+                return;
+            }
+            const hint = document.getElementById('thresholdDragHint');
+            if (!hint) {
+                return;
+            }
+
+            hint.addEventListener('pointerdown', (event) => {
+                if (!canStartThresholdDrag()) {
+                    return;
+                }
+                const threshold = thresholdFromPointerEvent(event);
+                if (threshold === null) {
+                    return;
+                }
+                isThresholdDragging = true;
+                draggedThresholdValue = threshold;
+                setThresholdControls(threshold, true);
+                setChartThresholdLine(threshold);
+                setThresholdDragHintState(true, true);
+                hint.setPointerCapture(event.pointerId);
+                event.preventDefault();
+            });
+
+            hint.addEventListener('pointermove', (event) => {
+                if (!isThresholdDragging) {
+                    return;
+                }
+                const threshold = thresholdFromPointerEvent(event);
+                if (threshold === null) {
+                    return;
+                }
+                draggedThresholdValue = threshold;
+                setThresholdControls(threshold, true);
+                setChartThresholdLine(threshold);
+                event.preventDefault();
+            });
+
+            const finishDrag = (event) => {
+                if (!isThresholdDragging) {
+                    return;
+                }
+                const threshold = draggedThresholdValue;
+                isThresholdDragging = false;
+                draggedThresholdValue = null;
+                if (event) {
+                    hint.releasePointerCapture(event.pointerId);
+                }
+                setThresholdDragHintState(capabilityState.supportsRuntimeThreshold === true, false);
+                if (threshold !== null) {
+                    commitThresholdValue(threshold);
+                }
+            };
+
+            hint.addEventListener('pointerup', finishDrag);
+            hint.addEventListener('pointercancel', finishDrag);
         }
 
         function setOtaControlsVisibility(supported) {
             const enabled = supported === true;
-            const otaControlsSection = document.getElementById('otaControlsSection');
-            if (otaControlsSection) {
-                otaControlsSection.style.display = enabled ? 'grid' : 'none';
+            const otaSectionBody = document.getElementById('otaSectionBody');
+            if (otaSectionBody) {
+                otaSectionBody.style.display = enabled ? 'grid' : 'none';
             }
             document.querySelectorAll('.ota-action').forEach((button) => {
                 button.style.display = enabled ? 'inline-block' : 'none';
             });
+        }
+
+        function setThresholdControlAvailability(supported) {
+            const enabled = supported === true;
+            setThresholdDragHintState(enabled, false);
+        }
+
+        function setStatsControlsVisibility(supported) {
+            const enabled = supported === true;
+            const statsBtn = document.getElementById('statsBtn');
+            if (statsBtn) {
+                statsBtn.style.display = enabled ? 'inline-block' : 'none';
+            }
         }
 
         function trimTopic(topic) {
@@ -1127,6 +1349,10 @@
         }
 
         function requestStats() {
+            if (!capabilityState.supportsStats) {
+                showNotification('Statistics are not supported by this frontend', 'error');
+                return;
+            }
             sendCommand('stats');
         }
 
@@ -1187,20 +1413,6 @@
                 notification.style.animation = 'slideIn 0.3s ease-out reverse';
                 setTimeout(() => notification.remove(), 300);
             }, 3000);
-        }
-
-        // Slider Synchronization
-        function syncSlider(sliderId, valueId) {
-            const slider = document.getElementById(sliderId);
-            const valueInput = document.getElementById(valueId);
-
-            slider.addEventListener('input', (e) => {
-                valueInput.value = e.target.value;
-            });
-
-            valueInput.addEventListener('input', (e) => {
-                slider.value = e.target.value;
-            });
         }
 
         // Enhanced Message Handler for Info/Stats and regular data
@@ -1484,23 +1696,21 @@
             // Detection algorithm info
             if (config.detection) {
                 if (config.detection.algorithm) {
-                    const algorithm = config.detection.algorithm.toLowerCase();
                     setInfoField('detectorAlgorithm', config.detection.algorithm.toUpperCase());
-                    
-                    // Show MVS params section only for MVS detector
-                    const mvsParamsSection = document.getElementById('mvsParamsSection');
-                    if (mvsParamsSection) {
-                        mvsParamsSection.style.display = algorithm === 'mvs' ? 'grid' : 'none';
-                    }
                 }
             }
 
-            // Detection Parameters (from detection object)
-            if (config.detection) {
-                if (config.detection.threshold !== undefined) {
-                    setThresholdControls(config.detection.threshold, true);
-                }
-            }
+            capabilityState = {
+                frontend: config.frontend || capabilityState.frontend,
+                supportsRuntimeThreshold: config.supports_runtime_threshold === true
+                    ? true
+                    : (config.supports_runtime_threshold === false ? false : null),
+                supportsOta: config.supports_ota === true,
+                supportsStats: config.frontend === 'native' || config.frontend === 'streamer'
+            };
+            setThresholdControlAvailability(capabilityState.supportsRuntimeThreshold);
+            setOtaControlsVisibility(capabilityState.supportsOta);
+            setStatsControlsVisibility(capabilityState.supportsStats);
 
             if (config.firmware_version) {
                 setInfoField('firmwareVersion', config.firmware_version);
@@ -1525,6 +1735,16 @@
                     row.hidden = !hasValue;
                 }
             }
+            updateOtaSummaryVisibility();
+        }
+
+        function updateOtaSummaryVisibility() {
+            const summaryBox = document.getElementById('otaSummaryBox');
+            if (!summaryBox) {
+                return;
+            }
+            const visibleRows = summaryBox.querySelectorAll('.info-field:not([hidden])');
+            summaryBox.hidden = visibleRows.length === 0;
         }
 
         function updateOtaStatus(data) {
@@ -1572,32 +1792,17 @@
             };
         }
 
-        // Real-time configuration update functions with debounce
-        const debouncedSendCommand = debounce((cmd, params) => {
-            sendCommand(cmd, params);
-        }, 300);
-
-        // Setup real-time listeners for Detection Parameters
-        function setupDetectionListeners() {
-            // Segmentation Threshold
-            document.getElementById('segThreshold').addEventListener('change', (e) => {
-                debouncedSendCommand('set_threshold', { threshold: parseFloat(e.target.value) });
-            });
-            document.getElementById('segThresholdValue').addEventListener('change', (e) => {
-                debouncedSendCommand('set_threshold', { threshold: parseFloat(e.target.value) });
-            });
-
-        }
-
         // Initialize on load
         window.addEventListener('load', () => {
             initChart();
+            setThresholdControlAvailability(null);
+            setOtaControlsVisibility(false);
+            setStatsControlsVisibility(false);
+            updateOtaSummaryVisibility();
+        });
 
-            // Sync all sliders with their value inputs
-            syncSlider('segThreshold', 'segThresholdValue');
-
-            // Setup real-time configuration listeners
-            setupDetectionListeners();
+        window.addEventListener('resize', () => {
+            updateThresholdDragHintPosition();
         });
     </script>
 </body>

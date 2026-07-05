@@ -10,6 +10,7 @@
 #include "esp_https_ota.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "protocol_json.h"
 
 namespace esphome {
 namespace espectre {
@@ -322,10 +323,10 @@ bool HttpsOtaService::parse_manifest_(const std::string &body, ManifestInfo *man
   if (manifest == nullptr) {
     return false;
   }
-  manifest->version = extract_json_string_(body, "version");
-  manifest->image_url = extract_json_string_(body, "image_url");
+  manifest->version = extract_json_string(body, "version");
+  manifest->image_url = extract_json_string(body, "image_url");
   if (manifest->image_url.empty()) {
-    manifest->image_url = extract_json_string_(body, "url");
+    manifest->image_url = extract_json_string(body, "url");
   }
   if (manifest->version.empty() || manifest->image_url.empty()) {
     if (error != nullptr) {
@@ -334,45 +335,6 @@ bool HttpsOtaService::parse_manifest_(const std::string &body, ManifestInfo *man
     return false;
   }
   return true;
-}
-
-std::string HttpsOtaService::extract_json_string_(const std::string &payload, const char *key) {
-  if (key == nullptr || key[0] == '\0') {
-    return {};
-  }
-  const std::string needle = std::string("\"") + key + "\"";
-  const size_t key_pos = payload.find(needle);
-  if (key_pos == std::string::npos) {
-    return {};
-  }
-  const size_t colon = payload.find(':', key_pos + needle.size());
-  if (colon == std::string::npos) {
-    return {};
-  }
-  const size_t first_quote = payload.find('"', colon + 1);
-  if (first_quote == std::string::npos) {
-    return {};
-  }
-
-  std::string value;
-  bool escaped = false;
-  for (size_t i = first_quote + 1; i < payload.size(); ++i) {
-    const char ch = payload[i];
-    if (escaped) {
-      value.push_back(ch);
-      escaped = false;
-      continue;
-    }
-    if (ch == '\\') {
-      escaped = true;
-      continue;
-    }
-    if (ch == '"') {
-      return value;
-    }
-    value.push_back(ch);
-  }
-  return {};
 }
 
 }  // namespace espectre

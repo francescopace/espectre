@@ -1,5 +1,7 @@
 #include "ble_bindings_mock.h"
 
+#include <iterator>
+
 namespace esphome {
 namespace espectre {
 namespace ble_bindings_mock {
@@ -9,6 +11,8 @@ State state{};
 void reset() { state = State{}; }
 
 bool MockBleBindings::setup() { return state.setup_result; }
+
+void MockBleBindings::loop() {}
 
 void MockBleBindings::shutdown() { state.shutdown_called = true; }
 
@@ -32,6 +36,12 @@ void MockBleBindings::publish_telemetry(const uint8_t *payload, size_t payload_l
   TelemetryPublish publish;
   publish.payload.assign(payload, payload + payload_len);
   state.telemetry_events.push_back(std::move(publish));
+}
+
+void MockBleBindings::replace_sysinfo_lines(std::vector<std::string> lines) {
+  state.sysinfo_lines.insert(state.sysinfo_lines.end(),
+                             std::make_move_iterator(lines.begin()),
+                             std::make_move_iterator(lines.end()));
 }
 
 void MockBleBindings::publish_sysinfo_line(const char *line) {

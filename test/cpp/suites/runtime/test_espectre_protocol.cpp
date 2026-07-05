@@ -61,6 +61,26 @@ void test_clear_mqtt_config_resets_runtime_defaults(void) {
   clear_espectre_mqtt_config(nullptr);
 }
 
+void test_parse_mqtt_batch_config_command_updates_all_fields(void) {
+  EspectreDeviceConfig config;
+  std::string error;
+
+  TEST_ASSERT_TRUE(parse_espectre_mqtt_config_command(
+      "SET_MQTT_CONFIG:host=broker.local&port=2883&username=user%20name&password=s3cr%25t&topic_prefix=lab%2Froot",
+      &config,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("broker.local", config.mqtt_host.c_str());
+  TEST_ASSERT_EQUAL(2883, config.mqtt_port);
+  TEST_ASSERT_EQUAL_STRING("user name", config.mqtt_username.c_str());
+  TEST_ASSERT_EQUAL_STRING("s3cr%t", config.mqtt_password.c_str());
+  TEST_ASSERT_EQUAL_STRING("lab/root", config.topic_prefix.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_mqtt_config_command("SET_MQTT_CONFIG:host=broker.local", &config, &error));
+  TEST_ASSERT_EQUAL_STRING("missing mqtt port", error.c_str());
+  TEST_ASSERT_FALSE(parse_espectre_mqtt_config_command("SET_MQTT_CONFIG:host=broker.local&port=0", &config, &error));
+  TEST_ASSERT_EQUAL_STRING("mqtt port must be 1..65535", error.c_str());
+}
+
 void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   EspectreDeviceConfig config;
   config.device_id = 0x0000000000000007ULL;
@@ -239,18 +259,8 @@ void test_parse_espectre_config_command_updates_supported_fields(void) {
   std::string error;
 
   TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label=Office", &config, &error));
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_host=broker.local", &config, &error));
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_username=user", &config, &error));
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_password=secret", &config, &error));
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:topic_prefix=", &config, &error));
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=2883", &config, &error));
 
   TEST_ASSERT_EQUAL_STRING("Office", config.device_label.c_str());
-  TEST_ASSERT_EQUAL_STRING("broker.local", config.mqtt_host.c_str());
-  TEST_ASSERT_EQUAL_STRING("user", config.mqtt_username.c_str());
-  TEST_ASSERT_EQUAL_STRING("secret", config.mqtt_password.c_str());
-  TEST_ASSERT_EQUAL_STRING(ESPECTRE_TOPIC_PREFIX, config.topic_prefix.c_str());
-  TEST_ASSERT_EQUAL(2883, config.mqtt_port);
 }
 
 void test_parse_espectre_config_command_rejects_invalid_inputs(void) {
@@ -263,10 +273,7 @@ void test_parse_espectre_config_command_rejects_invalid_inputs(void) {
   TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label", &config, &error));
   TEST_ASSERT_EQUAL_STRING("expected key=value", error.c_str());
 
-  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=0", &config, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid config field", error.c_str());
-
-  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=70000", &config, &error));
+  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=2883", &config, &error));
   TEST_ASSERT_EQUAL_STRING("invalid config field", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:unsupported=value", &config, &error));
@@ -280,6 +287,7 @@ int process(void) {
   RUN_TEST(test_device_id_helpers_format_parse_and_pack_mac_consistently);
   RUN_TEST(test_effective_device_helpers_and_topic_generation_use_defaults);
   RUN_TEST(test_clear_mqtt_config_resets_runtime_defaults);
+  RUN_TEST(test_parse_mqtt_batch_config_command_updates_all_fields);
   RUN_TEST(test_status_telemetry_and_stats_payloads_include_expected_fields);
   RUN_TEST(test_info_payload_uses_defaults_and_optional_sections);
   RUN_TEST(test_info_payload_omits_optional_sections_when_empty);

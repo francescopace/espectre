@@ -154,8 +154,7 @@ Alternative Wi-Fi Provisioning Over BLE:
 2. open [`tools/web/espectre-ble.html`](../../../../tools/web/espectre-ble.html)
    from a secure browser context
 3. connect to `ESPectre Streamer`
-4. use `Save Wi-Fi` to send `SET_WIFI_SSID`, `SET_WIFI_PASSWORD`,
-   `SET_WIFI_BSSID`, `SET_WIFI_CHANNEL`, and `APPLY_WIFI`
+4. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
 5. request sysinfo and verify `wifi_connected=true`
 
 Notes:
@@ -199,9 +198,9 @@ Runtime behavior notes:
 - the streamer no longer owns an internal traffic generator
 - BLE provisioning handles Wi-Fi setup plus device naming/sysinfo; it does not
   expose streamer CSI data or runtime motion telemetry over BLE
-- MQTT is intentionally narrow on the streamer: it exposes `info`,
-  `ota_check`, `ota_start`, `ota_status`, command results, and retained OTA
-  state, but not CSI or continuous telemetry
+- MQTT is intentionally narrow on the streamer: it exposes `info`, `stats`,
+  `ota_check`, `ota_start`, `ota_status`, and command results, but not CSI or
+  continuous telemetry
 - the collector address is learned from the source IP of the latest UDP stimulus packet
 - the UDP stimulus payload may carry the `ESTM` metadata header
   (`magic + version + role + stimulus_id`), which is propagated into the CSI

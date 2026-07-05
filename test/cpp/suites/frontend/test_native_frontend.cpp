@@ -40,7 +40,7 @@ float read_float_at(const std::vector<uint8_t> &payload, size_t offset) {
 }
 
 void drain_pending_sysinfo(NativeFrontend &frontend) {
-  for (int i = 0; i < 64 && (!frontend.pending_sysinfo_lines_.empty() || frontend.next_sysinfo_line_index_ != 0); ++i) {
+  for (int i = 0; i < 4; ++i) {
     frontend.loop();
   }
 }
@@ -163,23 +163,30 @@ void test_native_frontend_device_config_commands_setup_mqtt_and_publish_info_sta
 
   bindings.emit_connection(true);
   bindings.emit_control("SET_DEVICE_CONFIG:device_label=Kitchen Sensor");
-  bindings.emit_control("SET_DEVICE_CONFIG:mqtt_host=127.0.0.1");
+  bindings.emit_control("SET_MQTT_CONFIG:host=127.0.0.1&port=1883&username=mqtt&password=secret&topic_prefix=espectre%2Fv1%2Fdevices");
 
   TEST_ASSERT_EQUAL(0x0000111122223333ULL, frontend.device_config().device_id);
   TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", frontend.device_config().device_label.c_str());
   TEST_ASSERT_EQUAL(2, static_cast<int>(persisted_configs.size()));
   TEST_ASSERT_EQUAL(0x0000111122223333ULL, persisted_configs.back().device_id);
   TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", persisted_configs.back().device_label.c_str());
+  TEST_ASSERT_EQUAL_STRING("127.0.0.1", persisted_configs.back().mqtt_host.c_str());
   TEST_ASSERT_TRUE(!ble_bindings_mock::state.device_names.empty());
   TEST_ASSERT_TRUE(ble_bindings_mock::state.device_names.back().rfind("ESPectre ", 0) == 0);
   TEST_ASSERT_TRUE(ble_bindings_mock::state.device_names.back().find("223333") != std::string::npos);
   TEST_ASSERT_EQUAL(1, mqtt_transport_mock::state.setup_calls);
   mqtt.emit_connection(true);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.size() >= 2);
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000111122223333/info",
-                           mqtt_transport_mock::state.publishes[0].topic.c_str());
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000111122223333/status",
-                           mqtt_transport_mock::state.publishes[1].topic.c_str());
+  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
+                               mqtt_transport_mock::state.publishes.end(),
+                               [](const mqtt_transport_mock::Publish &publish) {
+                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/info";
+                               }));
+  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
+                               mqtt_transport_mock::state.publishes.end(),
+                               [](const mqtt_transport_mock::Publish &publish) {
+                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/status";
+                               }));
   ble_bindings_mock::state.sysinfo_lines.clear();
   bindings.emit_control("REQ_SYSINFO");
   drain_pending_sysinfo(frontend);
@@ -249,6 +256,39 @@ void test_native_frontend_clear_mqtt_config_preserves_device_identity(void) {
   TEST_ASSERT_EQUAL(0x0000abcdeffedcbaULL, frontend.device_config().device_id);
   TEST_ASSERT_EQUAL_STRING("Lab 01", frontend.device_config().device_label.c_str());
   TEST_ASSERT_EQUAL_STRING("", frontend.device_config().mqtt_host.c_str());
+}
+
+void test_native_frontend_set_mqtt_config_batch_command_updates_runtime_config(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+
+  NativeFrontend frontend(&bindings, &mqtt);
+  std::vector<EspectreDeviceConfig> persisted_configs;
+  frontend.set_device_config(config);
+  frontend.set_device_config_change_callback(
+      [&persisted_configs](const EspectreDeviceConfig &updated, bool clear, std::string *message) {
+        TEST_ASSERT_FALSE(clear);
+        persisted_configs.push_back(updated);
+        if (message != nullptr) {
+          *message = "mqtt saved";
+        }
+        return true;
+      });
+  TEST_ASSERT_TRUE(frontend.setup());
+
+  bindings.emit_connection(true);
+  bindings.emit_control(
+      "SET_MQTT_CONFIG:host=broker.local&port=2883&username=mqtt%20user&password=sec%40ret&topic_prefix=lab%2Fdevices");
+
+  TEST_ASSERT_EQUAL(1, static_cast<int>(persisted_configs.size()));
+  TEST_ASSERT_EQUAL_STRING("broker.local", frontend.device_config().mqtt_host.c_str());
+  TEST_ASSERT_EQUAL(2883, frontend.device_config().mqtt_port);
+  TEST_ASSERT_EQUAL_STRING("mqtt user", frontend.device_config().mqtt_username.c_str());
+  TEST_ASSERT_EQUAL_STRING("sec@ret", frontend.device_config().mqtt_password.c_str());
+  TEST_ASSERT_EQUAL_STRING("lab/devices", frontend.device_config().topic_prefix.c_str());
+  TEST_ASSERT_EQUAL(1, mqtt_transport_mock::state.setup_calls);
 }
 
 void test_native_frontend_periodic_update_publishes_mqtt_telemetry(void) {
@@ -378,14 +418,8 @@ void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
   std::string error;
   TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label=Living Room", &config, &error));
   TEST_ASSERT_EQUAL_STRING("Living Room", config.device_label.c_str());
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=1884", &config, &error));
-  TEST_ASSERT_EQUAL(1884, config.mqtt_port);
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_username=mqtt", &config, &error));
-  TEST_ASSERT_EQUAL_STRING("mqtt", config.mqtt_username.c_str());
-  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_password=secret", &config, &error));
-  TEST_ASSERT_EQUAL_STRING("secret", config.mqtt_password.c_str());
   TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_id=manual", &config, &error));
-  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=0", &config, &error));
+  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=1884", &config, &error));
 
   EspectreCommand command;
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":3.25}", &command, &error));
@@ -435,16 +469,11 @@ void test_native_frontend_wifi_provisioning_commands_forward_to_callback(void) {
   bindings.emit_connection(true);
   ble_bindings_mock::state.sysinfo_lines.clear();
 
-  bindings.emit_control("SET_WIFI_SSID:Lab Network");
-  bindings.emit_control("SET_WIFI_PASSWORD:secret");
-  bindings.emit_control("SET_WIFI_CHANNEL:6");
-  bindings.emit_control("APPLY_WIFI");
+  bindings.emit_control("SET_WIFI_CONFIG:ssid=Lab%20Network&password=secret&channel=6");
 
-  TEST_ASSERT_EQUAL(4, static_cast<int>(received.size()));
-  TEST_ASSERT_EQUAL_STRING("SET_WIFI_SSID:Lab Network", received[0].c_str());
-  TEST_ASSERT_EQUAL_STRING("SET_WIFI_PASSWORD:secret", received[1].c_str());
-  TEST_ASSERT_EQUAL_STRING("SET_WIFI_CHANNEL:6", received[2].c_str());
-  TEST_ASSERT_EQUAL_STRING("APPLY_WIFI", received[3].c_str());
+  TEST_ASSERT_EQUAL(1, static_cast<int>(received.size()));
+  TEST_ASSERT_EQUAL_STRING("SET_WIFI_CONFIG:ssid=Lab%20Network&password=secret&channel=6", received[0].c_str());
+  bindings.emit_control("REQ_SYSINFO");
   drain_pending_sysinfo(frontend);
   TEST_ASSERT_TRUE(!ble_bindings_mock::state.sysinfo_lines.empty());
 }
@@ -453,7 +482,7 @@ void test_native_frontend_wifi_provisioning_rejects_without_callback(void) {
   MockBleBindings bindings;
   NativeFrontend frontend(&bindings);
   TEST_ASSERT_TRUE(frontend.setup());
-  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_WIFI_SSID:Lab"));
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_WIFI_CONFIG:ssid=Lab&password=secret&channel=6"));
 }
 
 void test_native_frontend_live_telemetry_is_encoded_with_optional_motion_state(void) {
@@ -587,6 +616,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_device_config_commands_setup_mqtt_and_publish_info_status);
   RUN_TEST(test_native_frontend_clear_device_config_forwards_to_callback_and_stops_mqtt);
   RUN_TEST(test_native_frontend_clear_mqtt_config_preserves_device_identity);
+  RUN_TEST(test_native_frontend_set_mqtt_config_batch_command_updates_runtime_config);
   RUN_TEST(test_native_frontend_periodic_update_publishes_mqtt_telemetry);
   RUN_TEST(test_native_frontend_mqtt_set_threshold_command_publishes_result);
   RUN_TEST(test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads);

@@ -13,8 +13,6 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <vector>
-
 #include "ble_bindings.h"
 #include "mqtt_transport.h"
 #include "ota_service.h"
@@ -76,7 +74,6 @@ class NativeFrontend : public IRuntimeListener {
   void handle_connection_state_(bool connected);
   void handle_live_telemetry_subscription_(bool subscribed);
   void setup_mqtt_();
-  bool handle_ota_command_(const EspectreCommand &command);
   void publish_mqtt_info_();
   void publish_mqtt_status_(bool online);
   void publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now_ms);
@@ -84,8 +81,6 @@ class NativeFrontend : public IRuntimeListener {
   void publish_mqtt_ota_status_(const EspectreOtaStatus &status);
   void publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message);
   void send_system_info_();
-  void queue_system_info_line_(const char *line);
-  void flush_pending_system_info_(bool force = false);
   uint32_t now_ms_() const;
 
   IBleBindings *bindings_;
@@ -101,10 +96,6 @@ class NativeFrontend : public IRuntimeListener {
   bool client_connected_{false};
   bool telemetry_subscribed_{false};
   float last_loop_time_ms_{0.0f};
-  uint32_t sysinfo_line_interval_ms_{20};
-  uint32_t last_sysinfo_line_ms_{0};
-  std::vector<std::string> pending_sysinfo_lines_;
-  size_t next_sysinfo_line_index_{0};
 };
 
 }  // namespace espectre

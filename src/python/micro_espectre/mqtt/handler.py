@@ -163,7 +163,7 @@ class MQTTHandler:
             self.cmd_handler.cmd_info()
 
     def publish_status(self, online):
-        """Publish retained online/offline status."""
+        """Publish live online/offline status."""
         if not self.client:
             return
         payload = {
@@ -173,8 +173,6 @@ class MQTTHandler:
             "timestamp_ms": int(time.time() * 1000)
         }
         try:
-            self.client.publish(self.status_topic, json.dumps(payload), retain=True)
-        except TypeError:
             self.client.publish(self.status_topic, json.dumps(payload))
         except Exception as e:
             print(f"Error publishing MQTT status: {e}")
