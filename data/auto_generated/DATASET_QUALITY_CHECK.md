@@ -11,7 +11,8 @@ Per-file integrity and signal-quality checks cover `empty`, `static_presence`, `
 A pair is considered valid when:
 
 - labels are coherent (`static_presence` vs `motion`)
-- `motion_variance > static_presence_variance` (ratio >= 4x)
+- replaying the production `MVSDetector` with the pair-specific `optimal_threshold_gridsearch` keeps `static_presence` mostly below threshold
+- `static_presence` above-threshold share <= 20%, `motion` above-threshold share >= 20%, and the motion-minus-static gap >= 10%
 
 Empty sanity uses overlapping `static_presence` groups with the same 
 chip/environment to check both quietness and separability, after dropping 
@@ -19,9 +20,10 @@ reference frames from `empty` files when present.
 
 Computed metrics:
 
-- `Static Presence Var`: variance of spatial turbulence on the static-presence file
-- `Motion Var`: variance of spatial turbulence on the motion file
-- `Ratio`: `Motion Var / Static Presence Var`
+- `Threshold`: pair-specific `optimal_threshold_gridsearch` from `dataset_info.json`
+- `Static Above`: share of replayed MVS windows above threshold on `static_presence`
+- `Motion Above`: share of replayed MVS windows above threshold on `motion`
+- `Motion Peak`: maximum replayed motion metric divided by the threshold
 - `Empty separation`: score-based separability between `empty` and 
   `static_presence` windows using `0.7*z(turb_mean) + 0.3*z(waveform_length_over_mean)`
 - `Gap`: non-negative time between the `static_presence` and `motion` capture intervals
@@ -29,30 +31,31 @@ Computed metrics:
 - `Subcarriers`: `DEFAULT_SUBCARRIERS` = fixed production default set
 - `Turbulence`: `CV` = coefficient of variation (`std/mean`), the shared production path for MVS and ML
 
-## Results (sorted by chip, then ratio desc)
+## Results (sorted by chip, then motion activation desc)
 
-| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var | Ratio | Subcarriers | Turbulence | Status |
-|---|---|---:|---:|---:|---|---|---|
-| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_123300_815785_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_123617_904895_0001.npz` | 1.27e-05 | 2.49e-04 | 19.66x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_190103_229855_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_190325_096036_0001.npz` | 1.66e-05 | 2.21e-04 | 13.28x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_155658_712410_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_155947_468944_0001.npz` | 6.88e-06 | 8.49e-05 | 12.34x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_184649_979004_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_185343_276594_0001.npz` | 1.90e-05 | 1.42e-03 | 75.12x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz` | 1.05e-04 | 3.09e-03 | 29.52x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz` | 6.10e-05 | 7.48e-04 | 12.27x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_195515_808506_0001.npz` | 3.10e-05 | 8.49e-04 | 27.42x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_120322_224513_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_121231_690177_0001.npz` | 2.04e-05 | 3.99e-04 | 19.57x | DEFAULT_SUBCARRIERS | CV | PASS |
-| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz` | 3.51e-05 | 6.39e-04 | 18.19x | DEFAULT_SUBCARRIERS | CV | PASS |
-| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260704_193850_592133_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260704_194251_648972_0001.npz` | 4.07e-05 | 2.72e-04 | 6.69x | DEFAULT_SUBCARRIERS | CV | PASS |
+| Chip | File pair (static_presence / motion) | Threshold | Static Above | Motion Above | Motion Peak | Subcarriers | Turbulence | Status |
+|---|---|---:|---:|---:|---:|---|---|---|
+| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_123300_815785_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_123617_904895_0001.npz` | 1.87e-05 | 8.1% | 100.0% | 66.65x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_155658_712410_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_155947_468944_0001.npz` | 1.08e-05 | 0.0% | 96.8% | 79.84x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C3 | `static_presence_c3_64sc_dev0000acebe64ae708_20260704_190103_229855_0001.npz` / `motion_c3_64sc_dev0000acebe64ae708_20260704_190325_096036_0001.npz` | 4.75e-05 | 0.0% | 85.2% | 34.12x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_141842_520560_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_142046_208982_0001.npz` | 2.99e-04 | 1.5% | 100.0% | 39.25x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_184649_979004_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_185343_276594_0001.npz` | 4.11e-05 | 0.0% | 100.0% | 182.98x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C5 | `static_presence_c5_64sc_dev000030eda0e46278_20260704_200911_606140_0001.npz` / `motion_c5_64sc_dev000030eda0e46278_20260704_201203_743575_0001.npz` | 8.13e-05 | 4.1% | 99.6% | 38.48x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_120322_224513_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_121231_690177_0001.npz` | 3.06e-05 | 0.0% | 100.0% | 94.75x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_195209_464420_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_195515_808506_0001.npz` | 4.25e-05 | 6.9% | 100.0% | 90.15x | DEFAULT_SUBCARRIERS | CV | PASS |
+| C6 | `static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz` / `motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz` | 6.72e-05 | 0.0% | 99.0% | 41.80x | DEFAULT_SUBCARRIERS | CV | PASS |
+| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260704_193850_592133_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260704_194251_648972_0001.npz` | 4.71e-05 | 12.4% | 92.4% | 20.85x | DEFAULT_SUBCARRIERS | CV | PASS |
+| S3 | `static_presence_s3_64sc_dev000010b41de8ec00_20260705_115119_722041_0001.npz` / `motion_s3_64sc_dev000010b41de8ec00_20260705_115458_527844_0001.npz` | 1.69e-05 | 0.6% | 68.5% | 12.24x | DEFAULT_SUBCARRIERS | CV | PASS |
 
 ## Summary
 
-- total pairs: 10
-- pass: 10
+- total pairs: 11
+- pass: 11
 - fail: 0
 
 ## Detailed Check Summary
 
-- Total checks: 455
-- ✅ PASS: 450
-- ⚠️ WARN: 5
+- Total checks: 477
+- ✅ PASS: 470
+- ⚠️ WARN: 7
 - ❌ FAIL: 0

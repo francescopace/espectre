@@ -276,6 +276,7 @@ def _run_live_collect(args) -> None:
         1,
         int(getattr(config, "CALIBRATION_BUFFER_SIZE", getattr(config, "SEG_WINDOW_SIZE", 100) * 10)),
     )
+    summary_evaluation_interval = max(1, int(getattr(config, "EVALUATION_INTERVAL", 25)))
 
     def format_feature_vector(features):
         return " ".join(f"{name}={value:.4f}" for name, value in zip(feature_names, features))
@@ -651,11 +652,7 @@ def _run_live_collect(args) -> None:
         receiver.stop()
         return True
 
-    def render_multi_device_summary(now, *, force=False):
-        refresh_seconds = 1.0
-        if not force and (now - state["summary_last_rendered_at"]) < refresh_seconds:
-            return
-
+    def render_multi_device_summary(now):
         observed_count = len(state["devices"])
         required_count = max(1, len(stimulus_targets))
         detail_lines = []
@@ -752,7 +749,6 @@ def _run_live_collect(args) -> None:
             previous_line_count=state["summary_line_count"],
             inline=state["summary_use_inline"],
         )
-        state["summary_last_rendered_at"] = now
 
     try:
         stimulus_targets, target_mode = _parse_stimulus_targets(args.stimulus_target)
@@ -795,7 +791,6 @@ def _run_live_collect(args) -> None:
         "interrupted": False,
         "devices": {},
         "last_seq_by_device": {},
-        "summary_last_rendered_at": 0.0,
         "summary_line_count": 0,
         "summary_use_inline": supports_inline_terminal(),
         "calibration_active": detector_kind == "mvs",
@@ -823,10 +818,16 @@ def _run_live_collect(args) -> None:
 
         if state["calibration_active"] and detector_kind == "mvs":
             process_calibration_packet(device_state, pkt)
+            calibration_tracker = device_state["calibration_tracker"]
+            calibration_render_due = (
+                calibration_tracker is not None
+                and (calibration_tracker.packet_count % summary_evaluation_interval) == 0
+            )
             if is_calibration_complete():
                 state["calibration_active"] = False
-                state["summary_last_rendered_at"] = 0.0
-            render_multi_device_summary(now, force=not state["calibration_active"])
+                render_multi_device_summary(now)
+            elif calibration_render_due:
+                render_multi_device_summary(now)
             if not save_enabled and maybe_stop_live_session(now):
                 return
             return
@@ -845,11 +846,13 @@ def _run_live_collect(args) -> None:
         update_ready_gate_state(device_state, now)
 
         should_publish = device_state["publish_counter"] >= publish_rate
+        should_render_summary = False
         if runtime_policy.should_evaluate(should_publish):
             effective_state, _ = runtime_policy.apply_state(metrics["state"])
             runtime_policy.after_evaluation()
             device_state["effective_state"] = effective_state
             device_state["status"] = get_device_status(device_state)
+            should_render_summary = True
 
             if should_publish:
                 motion_metric = device_state["motion_metric"]
@@ -885,7 +888,7 @@ def _run_live_collect(args) -> None:
             if ready_summary["ready"]:
                 state["capture_ready"] = True
                 state["capture_started_at"] = now
-                state["summary_last_rendered_at"] = 0.0
+                should_render_summary = True
 
         if save_enabled and state["capture_ready"]:
             if maybe_stop_live_session(now):
@@ -894,7 +897,8 @@ def _run_live_collect(args) -> None:
         elif not save_enabled and maybe_stop_live_session(now):
             return
 
-        render_multi_device_summary(now)
+        if should_render_summary:
+            render_multi_device_summary(now)
 
     receiver.add_callback(on_packet)
     signal.signal(signal.SIGINT, handle_sigint)
@@ -943,10 +947,9 @@ def _run_live_collect(args) -> None:
         stimulus_sender.start()
         while state["running"]:
             receiver.run(timeout=1.0, quiet=True)
-            render_multi_device_summary(time.monotonic(), force=True)
     except KeyboardInterrupt:
         state["interrupted"] = True
-        render_multi_device_summary(time.monotonic(), force=True)
+        render_multi_device_summary(time.monotonic())
     except Exception as e:
         print(f"\n{Fore.RED}❌ Error during live collect: {e}{Style.RESET_ALL}")
         raise SystemExit(1)
