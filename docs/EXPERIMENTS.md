@@ -20,7 +20,7 @@ The goal is to preserve design history in one place without turning
 | 2026-06-30 | C3 empty-room retrain incident | Partly superseded; lesson retained | `empty` captures must be first-class IDLE training data. |
 | 2026-07-03 | MVS-guided weighting bias and hard-negative retrain | Superseded by AGC-active normalization and clean data recollection | MVS can help as hard-negative mining, but it can also import MVS quiet-spike bias. |
 | 2026-07-04 | Multi-device sync and phase research | Active research note | `stimulus_id` and reference metadata remain useful for future multi-device experiments. |
-| 2026-07-05 | MVS startup-threshold and online adaptation sweep | Active research note | `P100 x 1.3` remains the safest global baseline; online threshold tracking helps some chips, but not all. |
+| 2026-07-05 | MVS startup-threshold and online adaptation sweep | Active research note | `max x 1.3` remains the safest global baseline; online threshold tracking helps some chips, but not all. |
 
 ## Current Superseding Events
 
@@ -101,11 +101,11 @@ The current production MVS startup path uses:
 - fixed production subcarriers
 - AGC-active coefficient-of-variation turbulence
 - startup adaptive threshold from baseline moving variance
-- `P100 x 1.3` as the default startup multiplier
+- `max x 1.3` as the default startup multiplier
 
 The two main hypotheses tested were:
 
-1. lower startup threshold (`P100 x 1.1`) might recover weak-motion recall
+1. lower startup threshold (`max x 1.1`) might recover weak-motion recall
 2. online idle-only threshold tracking might recover some false-positive drift
    after startup
 
@@ -140,7 +140,7 @@ Online threshold tracking became active after the sweep harness exposed update
 gates and candidate-threshold diagnostics. The best tested global compromise
 was approximately:
 
-- startup threshold: `P100 x 1.1`
+- startup threshold: `max x 1.1`
 - online tracking: idle-only, `p99 x 1.15`, margin `0.95`, transition guard `50`
 
 That variant improved aggregate precision and FP slightly, but it was not a
@@ -156,16 +156,16 @@ chips.
 
 #### Chip-Specific Result
 
-The useful diagnostic was to compare startup `P100 x 1.1` directly against the
-current `P100 x 1.3` baseline on chips that are sensitive to the threshold
+The useful diagnostic was to compare startup `max x 1.1` directly against the
+current `max x 1.3` baseline on chips that are sensitive to the threshold
 choice.
 
 S3 is the clearest negative case:
 
-- `P100 x 1.3`: recall `91.3%`, FP `12.3%`
-- `P100 x 1.1`: recall `93.2%`, FP `14.6%`
+- `max x 1.3`: recall `91.3%`, FP `12.3%`
+- `max x 1.1`: recall `93.2%`, FP `14.6%`
 
-Online threshold tracking on top of `P100 x 1.1` reduced some of that extra FP,
+Online threshold tracking on top of `max x 1.1` reduced some of that extra FP,
 but not enough to beat the safer startup threshold:
 
 - conservative tracking: recall `92.0%`, FP `14.1%`
@@ -175,8 +175,8 @@ So for S3, online tracking did not rescue the lower startup threshold.
 
 C6 is more encouraging:
 
-- `P100 x 1.3`: recall `98.9%`, precision `95.9%`, FP `2.3%`
-- `P100 x 1.1`: recall `99.0%`, precision `92.6%`, FP `4.7%`
+- `max x 1.3`: recall `98.9%`, precision `95.9%`, FP `2.3%`
+- `max x 1.1`: recall `99.0%`, precision `92.6%`, FP `4.7%`
 
 Online threshold tracking recovered most of that regression:
 
@@ -203,7 +203,7 @@ positive spikes. This path remains exploratory and is not close to promotion.
 
 #### Decision
 
-Keep `P100 x 1.3` as the default global MVS startup threshold.
+Keep `max x 1.3` as the default global MVS startup threshold.
 
 Do not port online threshold tracking or per-subcarrier EMA normalization into
 the runtime yet.
@@ -222,7 +222,7 @@ The current evidence supports these narrower conclusions:
 If this line of research is resumed, the next sensible experiment is not a
 global promotion attempt, but a chip-specific host-side study:
 
-1. keep `P100 x 1.3` as the default control
+1. keep `max x 1.3` as the default control
 2. test capped and less frequent threshold tracking only on chips like C5/C6
 3. treat S3 as a non-regression chip, not as a candidate for lower startup
    sensitivity

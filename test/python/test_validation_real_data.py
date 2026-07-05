@@ -270,10 +270,10 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
     Returns:
         tuple: (selected_band, adaptive_threshold)
     """
-    from threshold import calculate_adaptive_threshold
+    from threshold import get_threshold_factor
 
     selected_band = hint_band
-    mv_values = []
+    max_moving_variance = None
     window_size = mvs_window_size or DETECTOR_DEFAULT_WINDOW_SIZE
     cal_ctx = SegmentationContext(window_size=window_size, threshold=1.0, enable_hampel=True)
 
@@ -283,10 +283,12 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
         cal_ctx.add_turbulence(turb)
         cal_ctx.update_state()
         if cal_ctx.buffer_count >= cal_ctx.window_size:
-            mv_values.append(cal_ctx.current_moving_variance)
+            current_moving_variance = float(cal_ctx.current_moving_variance)
+            if max_moving_variance is None or current_moving_variance > max_moving_variance:
+                max_moving_variance = current_moving_variance
 
-    if mv_values:
-        adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, "auto")
+    if max_moving_variance is not None:
+        adaptive_threshold = max_moving_variance * get_threshold_factor("auto")
     else:
         adaptive_threshold = 1.0
     return selected_band, adaptive_threshold
@@ -625,7 +627,7 @@ class TestPerformanceMetrics:
         Startup uses fixed subcarriers from conftest.py.
         """
         import numpy as np
-        from threshold import calculate_adaptive_threshold
+        from threshold import get_threshold_factor
         static_presence_packets, motion_packets = real_data
         
         # Context-aware subcarriers from dataset_info metadata.
@@ -635,15 +637,21 @@ class TestPerformanceMetrics:
         cal_ctx = SegmentationContext(
             window_size=window_size, threshold=1.0, enable_hampel=enable_hampel
         )
-        mv_values = []
+        max_moving_variance = None
         calibration_packets = min(len(static_presence_packets), CALIBRATION_BUFFER_SIZE)
         for pkt in static_presence_packets[:calibration_packets]:
             turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
             cal_ctx.add_turbulence(turb)
             cal_ctx.update_state()
             if cal_ctx.buffer_count >= cal_ctx.window_size:
-                mv_values.append(cal_ctx.current_moving_variance)
-        adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, threshold_mode="auto")
+                current_moving_variance = float(cal_ctx.current_moving_variance)
+                if max_moving_variance is None or current_moving_variance > max_moving_variance:
+                    max_moving_variance = current_moving_variance
+        adaptive_threshold = (
+            max_moving_variance * get_threshold_factor("auto")
+            if max_moving_variance is not None
+            else 1.0
+        )
         
         # Initialize with adaptive threshold (new detector, matches C++)
         ctx = SegmentationContext(
@@ -712,7 +720,7 @@ class TestPerformanceMetrics:
         - Adaptive threshold from baseline calibration
         - Process ALL packets (no warmup skip)
         - Process baseline first, then movement (continuous context)
-        - Unified window_size (100) and adaptive threshold (P100 x 1.3)
+        - Unified window_size (100) and adaptive threshold (max x 1.3)
         - CV normalization for all chips
         
         Targets: >recall_target% Recall, <fp_rate_target% FP Rate.

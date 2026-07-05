@@ -196,7 +196,8 @@ static LongRunMetrics evaluate_mvs_long_recording() {
   calibration_detector.configure_lowpass(false);
   calibration_detector.configure_hampel(true);
 
-  std::vector<float> mv_values;
+  float max_mv = 0.0f;
+  bool has_mv = false;
   const int calibration_packets = std::min(csi_test_data::num_static_presence(),
                                            static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
   for (int i = 0; i < calibration_packets; i++) {
@@ -204,13 +205,13 @@ static LongRunMetrics evaluate_mvs_long_recording() {
                                         HT20_SELECTED_BAND_SIZE);
     calibration_detector.update_state();
     if (calibration_detector.is_ready()) {
-      mv_values.push_back(calibration_detector.get_motion_metric());
+      max_mv = std::max(max_mv, calibration_detector.get_motion_metric());
+      has_mv = true;
     }
   }
 
-  uint8_t percentile_tmp = 95;
-  float calibrated_threshold = 1.0f;
-  calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, calibrated_threshold, percentile_tmp);
+  const float calibrated_threshold =
+      has_mv ? (max_mv * get_threshold_factor(ThresholdMode::AUTO)) : 1.0f;
 
   MVSDetector detector(DETECTOR_DEFAULT_WINDOW_SIZE, calibrated_threshold);
   detector.configure_lowpass(false);

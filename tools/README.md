@@ -72,7 +72,7 @@ python 2_analyze_system_tuning.py --quick      # Reduced parameter space
 
 - Writes nearest 1:1 `static_presence` / `motion` pairing metadata for matching chip and subcarrier captures
 - Calculates `optimal_threshold_gridsearch` for `empty`, `static_presence`, `motion`, and `test` entries
-- Uses fixed default subcarriers, Hampel filtering, and adaptive P100 x 1.3 threshold bootstrap
+- Uses fixed default subcarriers, Hampel filtering, and adaptive max x 1.3 threshold bootstrap
 - Runs as a dry run by default, supports `--write` to update metadata, and supports `--check` for validation
 
 ```bash

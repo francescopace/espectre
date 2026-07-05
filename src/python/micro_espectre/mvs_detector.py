@@ -122,7 +122,7 @@ class MVSDetector(IDetector):
         return False
     
     def set_adaptive_threshold(self, threshold):
-        """Set adaptive threshold (from calibration)."""
+        """Set startup-calibrated threshold."""
         self._context.set_adaptive_threshold(threshold)
     
     def is_ready(self):

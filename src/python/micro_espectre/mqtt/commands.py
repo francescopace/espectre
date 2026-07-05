@@ -228,7 +228,7 @@ class MQTTCommands:
                 )
                 return
             
-            # Note: threshold is session-only, adaptive threshold is recalculated on every boot
+            # Note: threshold is session-only, startup threshold is recalculated on every boot
             
             self.send_response(
                 f"Detection threshold updated: {old_threshold:.4f} -> {threshold:.4f} (session-only)",

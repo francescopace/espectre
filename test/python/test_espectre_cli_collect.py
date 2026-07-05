@@ -154,6 +154,30 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
         def reset(self):
             pass
 
+    class FakeStartupThresholdCalibrator:
+        def __init__(self, target_packets):
+            self.target_packets = int(target_packets)
+            self.packet_count = 0
+            self.max_moving_variance = None
+
+        def observe_detector(self, detector):
+            self.packet_count += 1
+            if not detector.is_ready():
+                return None
+            current_mv = float(detector.get_motion_metric())
+            if self.max_moving_variance is None or current_mv > self.max_moving_variance:
+                self.max_moving_variance = current_mv
+            return current_mv
+
+        def is_complete(self):
+            return self.packet_count >= self.target_packets
+
+        def is_successful(self):
+            return self.max_moving_variance is not None
+
+        def calculate_threshold(self, mode="auto"):
+            return 1.5, "max x 1.3"
+
     fake_csi_utils.CSICollector = collector_cls
     fake_csi_utils.CSIReceiver = receiver_cls
     fake_csi_utils.StimulusSender = stimulus_cls
@@ -164,7 +188,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_mvs_detector.MVSDetector = FakeMVSDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
-    fake_threshold.calculate_adaptive_threshold = lambda values, mode="auto": (1.5, 95)
+    fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
 
     monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -1324,9 +1348,30 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
 
     calibration_calls = []
 
-    def fake_calculate_adaptive_threshold(values, mode="auto"):
-        calibration_calls.append((list(values), mode))
-        return 8.0, 95
+    class FakeStartupThresholdCalibrator:
+        def __init__(self, target_packets):
+            self.target_packets = int(target_packets)
+            self.packet_count = 0
+            self.max_moving_variance = None
+
+        def observe_detector(self, detector):
+            self.packet_count += 1
+            if not detector.is_ready():
+                return None
+            current_mv = float(detector.get_motion_metric())
+            if self.max_moving_variance is None or current_mv > self.max_moving_variance:
+                self.max_moving_variance = current_mv
+            return current_mv
+
+        def is_complete(self):
+            return self.packet_count >= self.target_packets
+
+        def is_successful(self):
+            return self.max_moving_variance is not None
+
+        def calculate_threshold(self, mode="auto"):
+            calibration_calls.append((float(self.max_moving_variance or 0.0), mode))
+            return 8.0, "max x 1.3"
 
     fake_csi_utils.CSICollector = object
     fake_csi_utils.CSIReceiver = FakeReceiver
@@ -1338,7 +1383,7 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     fake_ml_detector.MLDetector = FakeMLDetector
     fake_mvs_detector.MVSDetector = FakeMVSDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
-    fake_threshold.calculate_adaptive_threshold = fake_calculate_adaptive_threshold
+    fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
 
     monkeypatch.setitem(sys.modules, "tools.csi_utils", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -1352,7 +1397,7 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert "Detector:" in output and "MVS" in output
     assert "STATUS: CALIBRATING" in output
-    assert calibration_calls == [([3.0], "auto"), ([3.0], "auto")]
+    assert calibration_calls == [(3.0, "auto"), (3.0, "auto")]
     assert FakeMVSDetector.adaptive_thresholds == [8.0, 8.0]
     assert " 87% | mvmt:7.000000 thr:8.000000 | IDLE | 0 pkt/s" in output
     assert "STATUS: COLLECTING 2/2" in output

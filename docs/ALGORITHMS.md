@@ -81,7 +81,7 @@ With default `window_size=100`, this means 1000 packets. If you change `segmenta
 4. **Hampel Filter** (optional): Remove outliers using MAD
 5. **Low-Pass Filter** (optional): Remove high-frequency noise (Butterworth 1st order)
 6. **Moving Variance**: `Var(turbulence)` over sliding window
-7. **Adaptive Threshold**: Compare variance to `Pxx(baseline_mv)` → IDLE or MOTION
+7. **Adaptive Threshold**: Compare variance to `max(baseline_mv) x factor` → IDLE or MOTION
 
 ---
 
@@ -143,14 +143,14 @@ The fixed set balances three goals:
 For MVS, startup calibration keeps this fixed band and derives the adaptive threshold from baseline moving-variance values:
 
 ```python
-def calculate_adaptive_threshold(mv_values, percentile, factor):
-    return calculate_percentile(mv_values, percentile) * factor
+def calculate_adaptive_threshold(mv_values, factor):
+    return max(mv_values) * factor
 ```
 
 | Mode | Formula | Effect |
 |------|---------|--------|
-| Auto (default) | P100 x 1.3 | Lower false positives on no-gain-lock captures |
-| Min | P100 × 1.0 | Maximum sensitivity (may have FP) |
+| Auto (default) | max x 1.3 | Lower false positives on no-gain-lock captures |
+| Min | max x 1.0 | Maximum sensitivity (may have FP) |
 
 See [TUNING.md](TUNING.md) for configuration options (`segmentation_threshold`).
 
@@ -375,7 +375,7 @@ Both detectors use the same fixed, non-configurable subcarrier set:
 
 | Algorithm |Threshold | Boot Time |
 |-----------|---------------------|-----------|
-| MVS | Adaptive (percentile-based) | ~13s |
+| MVS | Adaptive (max-based) | ~13s |
 | ML | Fixed (5.0 on 0-10 scale) | **~3s** |
 
 The production subcarrier set is `[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`.

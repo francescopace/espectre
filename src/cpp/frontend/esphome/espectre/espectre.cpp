@@ -126,7 +126,7 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", snapshot.detector_name);
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.6f (%s)", snapshot.threshold, threshold_mode_display_name(config.threshold_mode));
   ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", config.segmentation_window_size);
-  ESP_LOGCONFIG(TAG, " └─ Baseline Pxx ....... %.6f", snapshot.best_pxx);
+  ESP_LOGCONFIG(TAG, " └─ Startup threshold .. %.6f", snapshot.startup_threshold);
   ESP_LOGCONFIG(TAG, "");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
                 snapshot.fixed_subcarriers[0], snapshot.fixed_subcarriers[1],

@@ -3,8 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <vector>
-
 #include "base_detector.h"
 #include "csi_manager.h"
 #include "ml_detector.h"
@@ -62,7 +60,8 @@ class EspIdfRuntime : public IEspectreRuntime {
   WiFiLifecycleManager wifi_lifecycle_;
   StimulusService stimulus_service_;
 
-  std::vector<float> threshold_calibration_values_;
+  float threshold_calibration_max_mv_{0.0f};
+  bool threshold_calibration_has_value_{false};
   uint16_t threshold_calibration_packets_{0};
   uint16_t threshold_calibration_target_{0};
   bool threshold_calibration_active_{false};

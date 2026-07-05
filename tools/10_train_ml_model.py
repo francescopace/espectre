@@ -336,7 +336,7 @@ from config import (
     SEG_WINDOW_SIZE,
 )
 from segmentation import SegmentationContext
-from threshold import calculate_adaptive_threshold
+from threshold import get_threshold_factor
 from features import (
     extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
     ROBUST_RELATIVE_FEATURES,
@@ -1386,7 +1386,7 @@ def estimate_mvs_threshold_from_packets(file_packets, window_size=SEG_WINDOW_SIZ
         threshold=1.0,
         enable_hampel=True,
     )
-    moving_variance_values = []
+    max_moving_variance = None
     for pkt in file_packets[:CALIBRATION_BUFFER_SIZE]:
         turb = ctx.calculate_spatial_turbulence(
             pkt['csi_data'],
@@ -1395,14 +1395,13 @@ def estimate_mvs_threshold_from_packets(file_packets, window_size=SEG_WINDOW_SIZ
         ctx.add_turbulence(turb)
         ctx.update_state()
         if ctx.buffer_count >= window_size:
-            moving_variance_values.append(ctx.current_moving_variance)
+            current_moving_variance = float(ctx.current_moving_variance)
+            if max_moving_variance is None or current_moving_variance > max_moving_variance:
+                max_moving_variance = current_moving_variance
 
-    if not moving_variance_values:
+    if max_moving_variance is None:
         return None
-    threshold, _percentile = calculate_adaptive_threshold(
-        moving_variance_values,
-        'auto',
-    )
+    threshold = max_moving_variance * get_threshold_factor('auto')
     return max(float(threshold), 1e-6)
 
 

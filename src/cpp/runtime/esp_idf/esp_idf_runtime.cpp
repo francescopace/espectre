@@ -2,8 +2,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <vector>
-
 #include "espectre_log.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
@@ -292,8 +290,8 @@ bool EspIdfRuntime::start_calibration_() {
   threshold_calibration_detector_.configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
   threshold_calibration_detector_.configure_hampel(config_.hampel_enabled, config_.hampel_window,
                                                    config_.hampel_threshold);
-  threshold_calibration_values_.clear();
-  threshold_calibration_values_.reserve(config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS);
+  threshold_calibration_max_mv_ = 0.0f;
+  threshold_calibration_has_value_ = false;
   threshold_calibration_packets_ = 0;
   threshold_calibration_target_ = config_.segmentation_window_size * CALIBRATION_NUM_WINDOWS;
   threshold_calibration_active_ = true;
@@ -313,12 +311,14 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
                                                  HT20_SELECTED_BAND_SIZE);
   threshold_calibration_detector_.update_state();
   if (threshold_calibration_detector_.is_ready()) {
-    threshold_calibration_values_.push_back(threshold_calibration_detector_.get_motion_metric());
+    threshold_calibration_has_value_ = true;
+    threshold_calibration_max_mv_ =
+        std::max(threshold_calibration_max_mv_, threshold_calibration_detector_.get_motion_metric());
   }
 
   threshold_calibration_packets_++;
   if (threshold_calibration_packets_ >= threshold_calibration_target_) {
-    finish_threshold_calibration_(!threshold_calibration_values_.empty());
+    finish_threshold_calibration_(threshold_calibration_has_value_);
   }
   return true;
 }
@@ -330,15 +330,15 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
 
   if (success) {
     float adaptive_threshold = 0.0f;
-    uint8_t percentile = 0;
     const ThresholdMode adaptive_mode =
         (config_.threshold_mode == ThresholdMode::MANUAL) ? ThresholdMode::AUTO : config_.threshold_mode;
-    calculate_adaptive_threshold(threshold_calibration_values_, adaptive_mode, adaptive_threshold, percentile);
-    snapshot_.best_pxx = adaptive_threshold;
+    adaptive_threshold = threshold_calibration_max_mv_ * get_threshold_factor(adaptive_mode);
+    snapshot_.startup_threshold = adaptive_threshold;
 
     if (config_.threshold_mode != ThresholdMode::MANUAL) {
       set_threshold_runtime(adaptive_threshold);
-      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (P%d)", adaptive_threshold, percentile);
+      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (max x %.1f)", adaptive_threshold,
+               get_threshold_factor(adaptive_mode));
     }
     csi_manager_.clear_detector_buffer();
   }

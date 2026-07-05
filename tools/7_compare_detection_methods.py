@@ -38,6 +38,7 @@ from config import (
     DEFAULT_SUBCARRIERS
 )
 from filters import HampelFilter, LowPassFilter
+from threshold import calculate_startup_threshold as calculate_shared_startup_threshold
 
 # Check if ML model is available (production implementation).
 ML_AVAILABLE = False
@@ -53,16 +54,8 @@ WINDOW_SIZE = SEG_WINDOW_SIZE
 THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else float(SEG_THRESHOLD)
 DATASET_INFO_PATH = data_dir() / 'dataset_info.json'
 
-# Adaptive threshold config (aligned with tools/3_analyze_moving_variance_segmentation.py)
-if SEG_THRESHOLD == "min":
-    ADAPTIVE_PERCENTILE = 100
-    ADAPTIVE_FACTOR = 1.0
-elif SEG_THRESHOLD == "auto":
-    ADAPTIVE_PERCENTILE = 95
-    ADAPTIVE_FACTOR = 1.0
-else:
-    ADAPTIVE_PERCENTILE = 95
-    ADAPTIVE_FACTOR = 1.0
+# Threshold mode config aligned with the shared micro_espectre startup path.
+THRESHOLD_MODE = SEG_THRESHOLD if isinstance(SEG_THRESHOLD, str) else "auto"
 
 
 def load_dataset_info():
@@ -234,17 +227,13 @@ def calculate_mean_amplitude(csi_packet):
     return np.mean(amplitudes)
 
 
-def calculate_adaptive_threshold(values, percentile=None, factor=None):
-    """Calculate adaptive threshold with same policy used in tool #3."""
+def calculate_adaptive_threshold(values, threshold_mode=None):
+    """Calculate threshold with the shared startup-threshold policy."""
     if len(values) == 0:
         return 1.0
-    if percentile is None:
-        percentile = ADAPTIVE_PERCENTILE
-    if factor is None:
-        factor = ADAPTIVE_FACTOR
-    pxx = np.percentile(values, percentile)
-    p100 = np.percentile(values, 100)
-    return min(pxx * factor, p100)
+    selected_mode = THRESHOLD_MODE if threshold_mode is None else threshold_mode
+    threshold, _formula = calculate_shared_startup_threshold(values, selected_mode)
+    return float(threshold)
 
 
 def apply_config_filters(series):

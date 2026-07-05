@@ -638,9 +638,9 @@
               <div class="metric-label">Motion Hits</div>
               <div class="metric-value" id="diagMotionHits">-</div>
             </div>
-            <div class="diag-item" id="diagBestPxxItem">
-              <div class="metric-label">Best Pxx</div>
-              <div class="metric-value" id="diagBestPxx">-</div>
+            <div class="diag-item" id="diagStartupThresholdItem">
+              <div class="metric-label">Startup threshold</div>
+              <div class="metric-value" id="diagStartupThreshold">-</div>
             </div>
           </div>
         </div>
@@ -873,7 +873,7 @@
       setCardVisible('diagPublishItem', capabilityState.supportsExtendedDiagnostics);
       setCardVisible('diagEvaluationItem', capabilityState.supportsExtendedDiagnostics);
       setCardVisible('diagMotionHitsItem', capabilityState.supportsExtendedDiagnostics);
-      setCardVisible('diagBestPxxItem', capabilityState.supportsExtendedDiagnostics);
+      setCardVisible('diagStartupThresholdItem', capabilityState.supportsExtendedDiagnostics);
 
       el('wifiApplyBtn').disabled = !isConnected || !capabilityState.supportsWifiProvisioning;
       el('wifiClearBtn').disabled = !isConnected || !capabilityState.supportsWifiProvisioning;
@@ -992,8 +992,8 @@
         el('diagMqtt').textContent = value === 'true' || value === '1' ? 'connected' : 'disconnected';
       } else if (key === 'motion_hits') {
         el('diagMotionHits').textContent = value;
-      } else if (key === 'best_pxx') {
-        el('diagBestPxx').textContent = value;
+      } else if (key === 'startup_threshold') {
+        el('diagStartupThreshold').textContent = value;
       }
     }
 

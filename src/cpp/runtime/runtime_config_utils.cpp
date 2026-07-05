@@ -27,10 +27,10 @@ const char *threshold_mode_display_name(ThresholdMode mode) {
     case ThresholdMode::MANUAL:
       return "Manual";
     case ThresholdMode::MIN:
-      return "Min (P100)";
+      return "Min (max)";
     case ThresholdMode::AUTO:
     default:
-      return "Auto (P100x1.3)";
+      return "Auto (max x1.3)";
   }
 }
 

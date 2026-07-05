@@ -48,7 +48,7 @@ CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect
 
 # Segmentation Parameters
 # SEG_THRESHOLD can be:
-#   - "auto" (default): adaptive threshold based on baseline noise
+#   - "auto" (default): startup threshold = max(calibration_mv) x 1.3
 #   - "min": maximum sensitivity (may have false positives)
 #   - a number (0.0-10.0): fixed manual threshold
 SEG_THRESHOLD = "auto"

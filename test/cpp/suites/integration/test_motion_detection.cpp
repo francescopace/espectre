@@ -255,22 +255,22 @@ void test_mvs_fixed_subcarriers(void) {
     cal_detector.configure_lowpass(false);
     cal_detector.configure_hampel(enable_hampel);
 
-    std::vector<float> mv_values;
+    float max_mv = 0.0f;
+    size_t mv_count = 0;
     int calibration_packets = std::min(num_static_presence, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
     for (int i = 0; i < calibration_packets; i++) {
         cal_detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
                           default_band, default_size);
         cal_detector.update_state();
         if (cal_detector.is_ready()) {
-            mv_values.push_back(cal_detector.get_motion_metric());
+            max_mv = std::max(max_mv, cal_detector.get_motion_metric());
+            mv_count++;
         }
     }
 
-    float adaptive_threshold;
-    uint8_t percentile;
-    calculate_adaptive_threshold(mv_values, ThresholdMode::AUTO, adaptive_threshold, percentile);
-    printf("Adaptive threshold: %.6f (P%d x %.1f, from %zu MV values)\n\n",
-           adaptive_threshold, percentile, DEFAULT_ADAPTIVE_FACTOR, mv_values.size());
+    float adaptive_threshold = mv_count > 0 ? (max_mv * get_threshold_factor(ThresholdMode::AUTO)) : 1.0f;
+    printf("Adaptive threshold: %.6f (max x %.1f, from %zu MV values)\n\n",
+           adaptive_threshold, DEFAULT_ADAPTIVE_FACTOR, mv_count);
     
     // Create detector for evaluation
     MVSDetector detector(window_size, adaptive_threshold);

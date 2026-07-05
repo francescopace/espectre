@@ -30,7 +30,7 @@ from config import (
 )
 from repo_paths import data_dir
 from segmentation import SegmentationContext
-from threshold import calculate_adaptive_threshold
+from threshold import get_threshold_factor
 
 
 DATA_DIR = data_dir()
@@ -214,10 +214,10 @@ def calibrate_startup_threshold(
     selected_band: tuple[int, ...] = DEFAULT_SUBCARRIERS,
     window_size: int = SEG_WINDOW_SIZE,
     filter_config: Optional[MVSFilterConfig] = None,
-) -> tuple[float, list[float]]:
+) -> tuple[float, Optional[float]]:
     """Mirror production startup calibration from packet 0."""
     ctx = build_segmentation_context(threshold=1.0, window_size=window_size, filter_config=filter_config)
-    moving_variance_values: list[float] = []
+    max_moving_variance: Optional[float] = None
     calibration_packets = min(CALIBRATION_BUFFER_SIZE, len(static_presence_packets))
 
     for pkt in static_presence_packets[:calibration_packets]:
@@ -225,13 +225,15 @@ def calibrate_startup_threshold(
         ctx.add_turbulence(turbulence)
         ctx.update_state()
         if ctx.buffer_count >= ctx.window_size:
-            moving_variance_values.append(float(ctx.current_moving_variance))
+            current_moving_variance = float(ctx.current_moving_variance)
+            if max_moving_variance is None or current_moving_variance > max_moving_variance:
+                max_moving_variance = current_moving_variance
 
-    if not moving_variance_values:
-        return 1.0, []
+    if max_moving_variance is None:
+        return 1.0, None
 
-    threshold, _percentile = calculate_adaptive_threshold(moving_variance_values, "auto")
-    return max(float(threshold), 1e-6), moving_variance_values
+    threshold = max_moving_variance * get_threshold_factor("auto")
+    return max(float(threshold), 1e-6), max_moving_variance
 
 
 def production_variant() -> MVSVariantConfig:

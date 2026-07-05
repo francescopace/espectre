@@ -45,8 +45,8 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
                 static_cast<unsigned>(config.motion_on_hits),
                 static_cast<unsigned>(config.motion_off_hits));
   visitor("motion_hits", value);
-  std::snprintf(value, sizeof(value), "%.6f", snapshot.best_pxx);
-  visitor("best_pxx", value);
+  std::snprintf(value, sizeof(value), "%.6f", snapshot.startup_threshold);
+  visitor("startup_threshold", value);
 }
 
 }  // namespace espectre

@@ -262,7 +262,7 @@ void test_dump_config_covers_configuration_branches(void) {
   RuntimeSnapshot snapshot{};
   snapshot.detector_name = "ml";
   snapshot.threshold = 4.2f;
-  snapshot.best_pxx = 0.42f;
+  snapshot.startup_threshold = 0.42f;
   snapshot.ready_to_publish = true;
   snapshot.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
   component.runtime_.record_snapshot(snapshot);
