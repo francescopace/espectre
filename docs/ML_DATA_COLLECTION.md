@@ -101,12 +101,15 @@ same host-side pipeline in live mode without saving files:
 ./espectre collect --stimulus-target 192.168.1.50 --no-save --log-turbulence
 ```
 
-`espectre collect` reads threshold, the fixed production subcarrier set,
+`espectre collect` reads threshold mode, the fixed production subcarrier set,
 Hampel, low-pass, and hit filtering from `src/python/micro_espectre/config.py` and
 `src/python/micro_espectre/config_local.py`, just like the rest of micro-ESPectre. Use
 `--stimulus-target <ip>` to point at the firmware device or shared stimulus
 group, and `--bind-ip <local_ip>` only when auto-detection picks the wrong host
 interface.
+
+For MVS, the live collect path mirrors the runtime startup threshold bootstrap:
+`auto` uses `max(calibration_mv) x 1.3`, and `min` uses `max(calibration_mv) x 1.0`.
 
 The same live path can also save the raw CSI packets it is inspecting. This
 uses the ordinary dataset format; no derived ML scores, feature vectors, or

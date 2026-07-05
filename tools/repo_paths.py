@@ -63,15 +63,6 @@ def generated_data_dir() -> Path:
     return data_dir() / "auto_generated"
 
 
-def models_dir() -> Path:
-    """Return the current shared models directory."""
-    root = repo_root()
-    new_layout = root / "models"
-    if new_layout.exists():
-        return new_layout
-    return micro_espectre_root() / "models"
-
-
 def cpp_core_dir() -> Path:
     """Return the current shared C++ core directory."""
     root = repo_root()

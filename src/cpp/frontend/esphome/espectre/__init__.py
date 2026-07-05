@@ -102,8 +102,8 @@ CONFIG_SCHEMA = cv.Schema({
     
     # Motion detection parameters
     # segmentation_threshold:
-    #   - auto (default): P95 × 1.1 - balanced sensitivity/false positives
-    #   - min: P100 - maximum sensitivity (may have FP)
+    #   - auto (default): max x 1.3 - lower false positives on no-gain-lock captures
+    #   - min: max x 1.0 - maximum sensitivity (may have FP)
     #   - number (0.0-10.0): fixed manual threshold
     cv.Optional(CONF_SEGMENTATION_THRESHOLD, default="auto"): validate_segmentation_threshold,
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE, default=100): cv.int_range(min=10, max=200),

@@ -81,7 +81,7 @@ With default `window_size=100`, this means 1000 packets. If you change `segmenta
 4. **Hampel Filter** (optional): Remove outliers using MAD
 5. **Low-Pass Filter** (optional): Remove high-frequency noise (Butterworth 1st order)
 6. **Moving Variance**: `Var(turbulence)` over sliding window
-7. **Adaptive Threshold**: Compare variance to `Pxx(baseline_mv)` → IDLE or MOTION
+7. **Adaptive Threshold**: Compare variance to `max(baseline_mv) x factor` → IDLE or MOTION
 
 ---
 
@@ -123,7 +123,7 @@ smaller (order of 1e-4 to 1e-3).
 
 ESPectre uses one shared fixed 12-subcarrier set for both detectors:
 
-`[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`
+`[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`
 
 This set was originally validated offline and is now treated as part of the production detector definition.
 
@@ -143,14 +143,14 @@ The fixed set balances three goals:
 For MVS, startup calibration keeps this fixed band and derives the adaptive threshold from baseline moving-variance values:
 
 ```python
-def calculate_adaptive_threshold(mv_values, percentile, factor):
-    return calculate_percentile(mv_values, percentile) * factor
+def calculate_adaptive_threshold(mv_values, factor):
+    return max(mv_values) * factor
 ```
 
 | Mode | Formula | Effect |
 |------|---------|--------|
-| Auto (default) | P95 × 1.1 | Balanced sensitivity/false positives |
-| Min | P100 × 1.0 | Maximum sensitivity (may have FP) |
+| Auto (default) | max x 1.3 | Lower false positives on no-gain-lock captures |
+| Min | max x 1.0 | Maximum sensitivity (may have FP) |
 
 See [TUNING.md](TUNING.md) for configuration options (`segmentation_threshold`).
 
@@ -375,10 +375,10 @@ Both detectors use the same fixed, non-configurable subcarrier set:
 
 | Algorithm |Threshold | Boot Time |
 |-----------|---------------------|-----------|
-| MVS | Adaptive (percentile-based) | ~13s |
+| MVS | Adaptive (max-based) | ~13s |
 | ML | Fixed (5.0 on 0-10 scale) | **~3s** |
 
-The production subcarrier set is `[12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52]`.
+The production subcarrier set is `[14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50]`.
 MVS uses a baseline threshold bootstrap after startup; ML keeps its fixed threshold and therefore starts immediately once CSI capture is active.
 
 ### Features

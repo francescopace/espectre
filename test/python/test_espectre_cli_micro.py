@@ -66,6 +66,7 @@ def _create_micro_src_tree(base_dir: Path) -> None:
         "ml_detector.py",
         "ml_weights.py",
         "traffic_generator.py",
+        "console_output.py",
         "main.py",
         "mqtt/__init__.py",
         "mqtt/handler.py",
@@ -300,9 +301,10 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
     mkdir_calls = [cmd for cmd in calls if "mkdir" in cmd]
     cp_calls = [cmd for cmd in calls if "cp" in cmd]
     assert len(mkdir_calls) == 2
-    assert len(cp_calls) == 18
+    assert len(cp_calls) == 19
     assert any(cmd[-1] == ":src/" for cmd in cp_calls)
     assert any(cmd[-1] == ":src/mqtt/" for cmd in cp_calls)
+    assert any(cmd[-2].endswith("console_output.py") for cmd in cp_calls)
 
 
 def test_deploy_code_rejects_invalid_healthcheck(monkeypatch, tmp_path: Path) -> None:
@@ -401,7 +403,13 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
     results = [
         SimpleNamespace(stdout="csi_start,csi_stop\n", stderr=""),
         SimpleNamespace(stdout="(1, 24, 0)\n", stderr=""),
-        SimpleNamespace(stdout="['main.py', 'config.py']\n", stderr=""),
+        SimpleNamespace(
+            stdout="['__init__.py', 'config.py', 'config_local.py', 'utils.py', 'threshold.py', 'filters.py', "
+            "'features.py', 'segmentation.py', 'detector_interface.py', 'runtime_policy.py', 'mvs_detector.py', "
+            "'ml_detector.py', 'ml_weights.py', 'traffic_generator.py', 'console_output.py', 'main.py', 'mqtt']\n",
+            stderr="",
+        ),
+        SimpleNamespace(stdout="['__init__.py', 'handler.py', 'commands.py']\n", stderr=""),
         SimpleNamespace(stdout="True\n", stderr=""),
     ]
 
@@ -419,6 +427,7 @@ def test_verify_installation_raises_when_required_checks_fail(monkeypatch) -> No
         SimpleNamespace(stdout="NONE\n", stderr=""),
         subprocess.CalledProcessError(1, ["mpremote"], stderr="version error"),
         subprocess.CalledProcessError(1, ["mpremote"], stderr="missing src"),
+        subprocess.CalledProcessError(1, ["mpremote"], stderr="missing mqtt"),
         subprocess.CalledProcessError(1, ["mpremote"], stderr="config missing"),
     ]
 

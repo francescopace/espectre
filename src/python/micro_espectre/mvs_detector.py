@@ -122,7 +122,7 @@ class MVSDetector(IDetector):
         return False
     
     def set_adaptive_threshold(self, threshold):
-        """Set adaptive threshold (from calibration)."""
+        """Set startup-calibrated threshold."""
         self._context.set_adaptive_threshold(threshold)
     
     def is_ready(self):
@@ -154,12 +154,3 @@ class MVSDetector(IDetector):
         """Get last turbulence value."""
         return self._context.last_turbulence
     
-    @property
-    def use_cv_normalization(self):
-        """Compatibility accessor for the always-normalized turbulence path."""
-        return True
-    
-    @use_cv_normalization.setter
-    def use_cv_normalization(self, value):
-        """Ignore attempts to disable normalized turbulence."""
-        self._context.use_cv_normalization = True

@@ -42,7 +42,8 @@ void MatterEspBindings::publish_periodic_state(uint16_t endpoint_id, const Matte
                         state.movement_metric);
   update_nullable_float(endpoint_id, ESPECTRE_MATTER_VENDOR_CLUSTER_ID, ESPECTRE_MATTER_ATTR_THRESHOLD,
                         state.threshold);
-  update_nullable_float(endpoint_id, ESPECTRE_MATTER_VENDOR_CLUSTER_ID, ESPECTRE_MATTER_ATTR_BEST_PXX, state.best_pxx);
+  update_nullable_float(endpoint_id, ESPECTRE_MATTER_VENDOR_CLUSTER_ID, ESPECTRE_MATTER_ATTR_STARTUP_THRESHOLD,
+                        state.startup_threshold);
   update_bool(endpoint_id, ESPECTRE_MATTER_VENDOR_CLUSTER_ID, ESPECTRE_MATTER_ATTR_READY_TO_PUBLISH,
               state.ready_to_publish);
   update_bool(endpoint_id, ESPECTRE_MATTER_VENDOR_CLUSTER_ID, ESPECTRE_MATTER_ATTR_CALIBRATING, state.calibrating);

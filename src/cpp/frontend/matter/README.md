@@ -144,7 +144,7 @@ The current frontend exposes:
 | Threshold | Vendor cluster `0xFFF1FC01`, attribute `0x0001` | nullable float | writable, nonvolatile |
 | Calibrating | Vendor cluster `0xFFF1FC01`, attribute `0x0002` | boolean | read-only |
 | Ready-to-publish | Vendor cluster `0xFFF1FC01`, attribute `0x0003` | boolean | read-only |
-| Best Pxx | Vendor cluster `0xFFF1FC01`, attribute `0x0004` | nullable float | read-only |
+| Startup threshold | Vendor cluster `0xFFF1FC01`, attribute `0x0004` | nullable float | read-only |
 | Manual recalibration trigger | Vendor cluster `0xFFF1FC01`, attribute `0x0006` | boolean | writable trigger |
 
 Relevant constants live in [`espectre/matter_surface.h`](espectre/matter_surface.h).

@@ -72,7 +72,7 @@ python 2_analyze_system_tuning.py --quick      # Reduced parameter space
 
 - Writes nearest 1:1 `static_presence` / `motion` pairing metadata for matching chip and subcarrier captures
 - Calculates `optimal_threshold_gridsearch` for `empty`, `static_presence`, `motion`, and `test` entries
-- Uses fixed default subcarriers, Hampel filtering, and adaptive P95 × 1.1 threshold bootstrap
+- Uses fixed default subcarriers, Hampel filtering, and adaptive max x 1.3 threshold bootstrap
 - Runs as a dry run by default, supports `--write` to update metadata, and supports `--check` for validation
 
 ```bash
@@ -101,42 +101,43 @@ python 4_analyze_filter_location.py --plot       # Show visualizations
 
 ### 5. Filter Turbulence Analysis (`5_analyze_filter_turbulence.py`)
 
-**Purpose**: Compare how different filters affect turbulence and motion detection
+**Purpose**: Run the production-aligned paired MVS sweep and compare candidate detector variants
 
-- **Hampel vs Lowpass comparison**: Shows the fundamental difference between outlier removal and frequency smoothing
-- Tests only the four runtime-relevant configurations: no filter, Hampel only, low-pass only, and Hampel + low-pass
-- Reuses the production `SegmentationContext` instead of maintaining parallel experimental filters
-- Visualizes the resulting moving-variance traces and effective MOTION/IDLE regions
+- Sweeps all explicit `static_presence` / `motion` pairs from `data/dataset_info.json` by default
+- Mirrors the current startup/runtime path: fixed production subcarriers, startup adaptive threshold, and continuous baseline -> motion evaluation
+- Compares detector variants such as `baseline`, `baseline_tracking`, and `subcarrier_ema_norm`
+- Supports optional filter-profile comparison mode (`production`, `no_filter`, `hampel_only`, `lowpass_only`, `hampel_lowpass`)
+- Reports aggregate metrics, per-chip breakdown, worst-pair regressions, and tracking diagnostics
+- Supports `--plot` for a single selected pair to visualize moving variance and threshold evolution
 
-**Key insight**: Hampel and Lowpass are NOT the same type of filter!
-- **Hampel**: Removes spikes/outliers (preserves signal shape)
-- **Lowpass**: Smooths high-frequency noise (introduces lag)
-- **Combined**: Best of both - spike removal + noise smoothing
+**Current lesson**: the plain production baseline remains the safest global default. Online threshold tracking is chip-dependent, and per-subcarrier EMA normalization is still experimental.
 
 ```bash
-python 5_analyze_filter_turbulence.py              # Use C6 dataset
-python 5_analyze_filter_turbulence.py --chip S3    # Use S3 dataset
-python 5_analyze_filter_turbulence.py --plot       # Show 4-panel visualization
+python 5_analyze_filter_turbulence.py
+python 5_analyze_filter_turbulence.py --variant baseline_tracking
+python 5_analyze_filter_turbulence.py --chip S3 --variant baseline_tracking
+python 5_analyze_filter_turbulence.py --compare-filters --filter-profile all
+python 5_analyze_filter_turbulence.py --dataset-id <pair_id> --plot
 ```
 
 ---
 
 ### 6. Filter Parameters Optimization (`6_optimize_filter_params.py`)
 
-**Purpose**: Optimize low-pass and Hampel filter parameters
+**Purpose**: Run paired filter-parameter sweeps on top of the same production-aligned MVS evaluator
 
-- Optimizes low-pass cutoff frequency and threshold parameters
-- Grid search for Hampel filter parameters (window, threshold)
-- Auto-detects chip from static-presence file metadata (ensures matching motion data)
-- Uses the fixed production subcarrier set
-- Finds optimal configuration for noisy environments
+- Reuses the shared paired sweep core instead of selecting the latest files by modification time
+- Evaluates explicit `dataset_info.json` pairs, optionally filtered by chip
+- Low-pass sweep mode compares runtime-relevant low-pass settings over the paired datasets
+- Hampel sweep mode compares `(window, threshold)` combinations over the paired datasets
+- `--all` runs low-pass first, then a Hampel sweep using the best low-pass setting found in that run
 
 ```bash
-python 6_optimize_filter_params.py              # Low-pass optimization
-python 6_optimize_filter_params.py c6           # Use only C6 data
-python 6_optimize_filter_params.py --hampel     # Hampel optimization
-python 6_optimize_filter_params.py c6 --hampel  # C6 + Hampel
-python 6_optimize_filter_params.py --all        # Combined optimization (low-pass + Hampel)
+python 6_optimize_filter_params.py
+python 6_optimize_filter_params.py c6
+python 6_optimize_filter_params.py --hampel
+python 6_optimize_filter_params.py c6 --hampel
+python 6_optimize_filter_params.py --all
 ```
 
 ---
@@ -247,7 +248,7 @@ Validates CSI datasets for integrity, signal quality, and ML readiness. It now c
 **Checks performed:**
 - File integrity — NPZ loads, expected keys exist, shapes are valid
 - Signal quality — amplitude range, zero-packet detection
-- Pair validation — static-presence vs motion variance ratio, temporal gap
+- Pair validation — static-presence vs motion variance ratio
 - ML readiness — label balance, minimum samples, chip diversity
 
 Turbulence mode follows runtime conventions: CV-normalized turbulence for every

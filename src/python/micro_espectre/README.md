@@ -148,6 +148,7 @@ MOTION_ON_HITS = 3
 MOTION_OFF_HITS = 3
 ```
 
+In `mvs` mode, `SEG_THRESHOLD = "auto"` means startup threshold = `max(calibration_mv) x 1.3`.
 Keep the room quiet after boot in `mvs` mode while threshold bootstrap runs.
 
 ### Filters

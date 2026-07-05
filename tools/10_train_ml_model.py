@@ -62,7 +62,6 @@ from dataclasses import dataclass
 from repo_paths import (
     cpp_core_dir,
     generated_data_dir,
-    models_dir,
     python_src_dir,
     python_tests_dir,
     repo_root,
@@ -337,7 +336,7 @@ from config import (
     SEG_WINDOW_SIZE,
 )
 from segmentation import SegmentationContext
-from threshold import calculate_adaptive_threshold
+from threshold import get_threshold_factor
 from features import (
     extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
     ROBUST_RELATIVE_FEATURES,
@@ -364,7 +363,6 @@ FEATURE_SET_CHOICES = {
     'hybrid': HYBRID_FEATURES,
 }
 # Directories
-MODELS_DIR = models_dir()
 GENERATED_DATA_DIR = generated_data_dir()
 SRC_DIR = python_src_dir()
 CPP_DIR = cpp_core_dir()
@@ -389,7 +387,7 @@ DEFAULT_ARCHITECTURE_SWEEP = (
     {'name': 'Current default (32-16)', 'layers': [32, 16]},
     {'name': 'Deep (24-12-6)', 'layers': [24, 12, 6]},
 )
-DEFAULT_EXPERIMENT_OUTPUT = MODELS_DIR / 'mlp_architecture_experiment.json'
+DEFAULT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_architecture_experiment.json'
 DEFAULT_EXPERIMENT_SCREENING_SEED = 20260519
 DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
 DEFAULT_EXPERIMENT_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
@@ -724,8 +722,8 @@ def _parse_iso_timestamp(value):
         return None
 
 
-def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 * 60):
-    """Resolve the paired baseline/movement file from metadata or nearest timestamp."""
+def _resolve_counterpart_name(label, entry, dataset_info=None):
+    """Resolve the paired baseline/movement file from explicit metadata."""
     if label not in ('static_presence', 'motion'):
         return None
 
@@ -737,30 +735,7 @@ def _resolve_counterpart_name(label, entry, dataset_info, max_delta_seconds=30 *
     explicit = entry.get(counterpart_field)
     if explicit:
         return str(explicit)
-
-    target_label = 'motion' if label == 'static_presence' else 'static_presence'
-    timestamp = _parse_iso_timestamp(entry.get('collected_at'))
-    if timestamp is None:
-        return None
-
-    chip = str(entry.get('chip', '')).upper()
-    best_name = None
-    best_delta = None
-    for candidate in dataset_info.get('files', {}).get(target_label, []):
-        if chip and str(candidate.get('chip', '')).upper() != chip:
-            continue
-        candidate_ts = _parse_iso_timestamp(candidate.get('collected_at'))
-        candidate_name = candidate.get('filename')
-        if candidate_ts is None or not candidate_name:
-            continue
-
-        delta = abs((candidate_ts - timestamp).total_seconds())
-        if delta > max_delta_seconds:
-            continue
-        if best_delta is None or delta < best_delta:
-            best_delta = delta
-            best_name = str(candidate_name)
-    return best_name
+    return None
 
 
 def _build_pair_id(label, entry, dataset_info=None):
@@ -837,8 +812,8 @@ def _fallback_file_context(filename, label, packet):
     return _build_file_context(label, fallback)
 
 
-def _is_temporally_paired(dataset_info, label, entry, max_delta_seconds=30 * 60):
-    """Check if entry has a valid counterpart within max delta."""
+def _has_explicit_pair(dataset_info, label, entry):
+    """Check if entry has an explicit counterpart in dataset_info."""
     if label == 'static_presence':
         counterpart_label = 'motion'
         counterpart_name = entry.get('optimal_pair_motion_file')
@@ -855,13 +830,7 @@ def _is_temporally_paired(dataset_info, label, entry, max_delta_seconds=30 * 60)
             break
     if counterpart is None:
         return False
-
-    try:
-        t1 = datetime.fromisoformat(entry['collected_at'])
-        t2 = datetime.fromisoformat(counterpart['collected_at'])
-    except Exception:
-        return False
-    return abs((t2 - t1).total_seconds()) <= max_delta_seconds
+    return True
 
 
 def build_gridsearch_tuning_map(dataset_info, default_threshold=None):
@@ -872,7 +841,7 @@ def build_gridsearch_tuning_map(dataset_info, default_threshold=None):
         dict: {
             filename: {
                 'threshold': float,
-                'mode': 'paired' | 'single-dataset fallback' | 'missing',
+                'mode': 'explicit-pair' | 'unpaired' | 'missing',
                 'confidence_factor': float,
             }
         }
@@ -885,13 +854,13 @@ def build_gridsearch_tuning_map(dataset_info, default_threshold=None):
                 continue
 
             threshold_value = entry.get('optimal_threshold_gridsearch', default_threshold)
-            paired = _is_temporally_paired(dataset_info, label, entry)
+            paired = _has_explicit_pair(dataset_info, label, entry)
             if threshold_value is None:
                 threshold = None
                 mode = 'missing'
             else:
                 threshold = float(threshold_value)
-                mode = 'paired' if paired else 'single-dataset fallback'
+                mode = 'explicit-pair' if paired else 'unpaired'
             tuning[name] = {
                 'threshold': threshold,
                 'mode': mode,
@@ -1417,7 +1386,7 @@ def estimate_mvs_threshold_from_packets(file_packets, window_size=SEG_WINDOW_SIZ
         threshold=1.0,
         enable_hampel=True,
     )
-    moving_variance_values = []
+    max_moving_variance = None
     for pkt in file_packets[:CALIBRATION_BUFFER_SIZE]:
         turb = ctx.calculate_spatial_turbulence(
             pkt['csi_data'],
@@ -1426,14 +1395,13 @@ def estimate_mvs_threshold_from_packets(file_packets, window_size=SEG_WINDOW_SIZ
         ctx.add_turbulence(turb)
         ctx.update_state()
         if ctx.buffer_count >= window_size:
-            moving_variance_values.append(ctx.current_moving_variance)
+            current_moving_variance = float(ctx.current_moving_variance)
+            if max_moving_variance is None or current_moving_variance > max_moving_variance:
+                max_moving_variance = current_moving_variance
 
-    if not moving_variance_values:
+    if max_moving_variance is None:
         return None
-    threshold, _percentile = calculate_adaptive_threshold(
-        moving_variance_values,
-        'auto',
-    )
+    threshold = max_moving_variance * get_threshold_factor('auto')
     return max(float(threshold), 1e-6)
 
 
@@ -3596,7 +3564,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     # Export models
     print("\nExporting model artifacts...")
     export_start = perf_counter()
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     # MicroPython weights
     mp_path = SRC_DIR / 'ml_weights.py'
@@ -3789,7 +3756,7 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
             static_presence_path, motion_path, _ = find_static_presence_motion_dataset(chip=chip, num_sc=64)
         except FileNotFoundError:
             continue
-        static_presence_packets = load_npz_as_packets(static_presence_path)[300:]
+        static_presence_packets = load_npz_as_packets(static_presence_path)
         motion_packets = load_npz_as_packets(motion_path)
         by_chip[chip] = evaluate_split(
             model,

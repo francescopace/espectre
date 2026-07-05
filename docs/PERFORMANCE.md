@@ -23,7 +23,7 @@ Shared validation configuration across chips and detectors:
 | Window Size | 100 | `DETECTOR_DEFAULT_WINDOW_SIZE` |
 | Calibration | Fixed subcarriers + threshold bootstrap | Shared 12-subcarrier set; threshold bootstrap applies to MVS, while ML keeps a fixed threshold |
 | Hampel Filter | ON | Enabled for both MVS and ML (window=7, threshold=5.0 MAD) |
-| Adaptive Threshold | Percentile-based | P95 × 1.1 (`DEFAULT_ADAPTIVE_FACTOR`) |
+| Adaptive Threshold | Max-based | max x 1.3 (`DEFAULT_ADAPTIVE_FACTOR`) |
 | CV Normalization | Always on | Shared AGC-active turbulence path (`std/mean`) |
 
 CV normalization is applied uniformly across the production and validation

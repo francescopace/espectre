@@ -235,7 +235,7 @@ def _run_live_collect(args) -> None:
         from ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD, MLDetector
         from mvs_detector import MVSDetector
         from runtime_policy import RuntimeMotionPolicy
-        from threshold import calculate_adaptive_threshold
+        from threshold import StartupThresholdCalibrator
     except ImportError:
         try:
             from tools.csi_utils import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
@@ -244,7 +244,7 @@ def _run_live_collect(args) -> None:
             from src.ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD, MLDetector
             from src.mvs_detector import MVSDetector
             from src.runtime_policy import RuntimeMotionPolicy
-            from src.threshold import calculate_adaptive_threshold
+            from src.threshold import StartupThresholdCalibrator
         except ImportError as e:
             print(f"{Fore.RED}❌ Failed to import live collect modules: {e}{Style.RESET_ALL}")
             raise SystemExit(1)
@@ -442,8 +442,7 @@ def _run_live_collect(args) -> None:
             "detector": detector,
             "runtime_policy": runtime_policy,
             "calibration_detector": create_calibration_detector() if detector_kind == "mvs" else None,
-            "calibration_packets": 0,
-            "calibration_values": [],
+            "calibration_tracker": StartupThresholdCalibrator(calibration_target_packets) if detector_kind == "mvs" else None,
             "calibration_done": detector_kind == "ml",
             "calibration_success": detector_kind == "ml",
             "calibration_threshold_source": "fixed" if detector_kind == "ml" else None,
@@ -507,9 +506,10 @@ def _run_live_collect(args) -> None:
         if not save_enabled:
             return None
         if state["calibration_active"] and detector_kind == "mvs":
+            calibration_tracker = device_state["calibration_tracker"]
             if device_state["calibration_done"]:
                 return "READY"
-            if device_state["calibration_packets"] > 0:
+            if calibration_tracker is not None and calibration_tracker.packet_count > 0:
                 return "CALIBRATING"
             return "WAITING"
         detector = device_state["detector"]
@@ -564,9 +564,10 @@ def _run_live_collect(args) -> None:
 
     def get_device_status(device_state):
         if state["calibration_active"] and detector_kind == "mvs":
+            calibration_tracker = device_state["calibration_tracker"]
             if device_state["calibration_done"]:
                 return "READY"
-            if device_state["calibration_packets"] > 0:
+            if calibration_tracker is not None and calibration_tracker.packet_count > 0:
                 return "CALIBRATING"
             return "WAITING"
         detector = device_state["detector"]
@@ -584,7 +585,7 @@ def _run_live_collect(args) -> None:
     def finalize_device_calibration(device_state):
         detector = device_state["detector"]
         runtime_policy = device_state["runtime_policy"]
-        calibration_values = device_state["calibration_values"]
+        calibration_tracker = device_state["calibration_tracker"]
         device_state["calibration_done"] = True
         device_state["publish_counter"] = 0
         if hasattr(runtime_policy, "reset"):
@@ -592,14 +593,14 @@ def _run_live_collect(args) -> None:
         if hasattr(detector, "reset"):
             detector.reset()
 
-        if calibration_values:
+        if calibration_tracker is not None and calibration_tracker.is_successful():
             if isinstance(raw_threshold_setting, str):
-                adaptive_threshold, percentile = calculate_adaptive_threshold(calibration_values, raw_threshold_setting)
+                startup_threshold, threshold_formula = calibration_tracker.calculate_threshold(raw_threshold_setting)
                 if hasattr(detector, "set_adaptive_threshold"):
-                    detector.set_adaptive_threshold(adaptive_threshold)
+                    detector.set_adaptive_threshold(startup_threshold)
                 elif hasattr(detector, "set_threshold"):
-                    detector.set_threshold(adaptive_threshold)
-                device_state["calibration_threshold_source"] = f"{raw_threshold_setting} (P{percentile})"
+                    detector.set_threshold(startup_threshold)
+                device_state["calibration_threshold_source"] = f"{raw_threshold_setting} ({threshold_formula})"
             else:
                 detector.set_threshold(float(raw_threshold_setting))
                 device_state["calibration_threshold_source"] = "manual"
@@ -618,20 +619,18 @@ def _run_live_collect(args) -> None:
 
     def process_calibration_packet(device_state, pkt):
         calibration_detector = device_state["calibration_detector"]
-        if calibration_detector is None or device_state["calibration_done"]:
+        calibration_tracker = device_state["calibration_tracker"]
+        if calibration_detector is None or calibration_tracker is None or device_state["calibration_done"]:
             return
 
         calibration_detector.process_packet(pkt.iq_raw, subcarriers)
         calibration_metrics = calibration_detector.update_state()
-        device_state["calibration_packets"] += 1
+        calibration_tracker.observe_detector(calibration_detector)
         device_state["motion_metric"] = extract_motion_metric(calibration_metrics)
         device_state["metric_threshold"] = calibration_metrics.get("threshold", calibration_detector.get_threshold())
         device_state["status"] = "CALIBRATING"
 
-        if calibration_detector.is_ready():
-            device_state["calibration_values"].append(calibration_detector.get_motion_metric())
-
-        if device_state["calibration_packets"] >= calibration_target_packets:
+        if calibration_tracker.is_complete():
             finalize_device_calibration(device_state)
 
     def is_calibration_complete():
@@ -664,6 +663,8 @@ def _run_live_collect(args) -> None:
             device_state = state["devices"][device_id]
             status = get_device_status(device_state)
             if state["calibration_active"] and detector_kind == "mvs":
+                calibration_tracker = device_state["calibration_tracker"]
+                calibration_packets = calibration_tracker.packet_count if calibration_tracker is not None else 0
                 if device_state["calibration_done"]:
                     detail_lines.append(
                         "    "
@@ -671,7 +672,7 @@ def _run_live_collect(args) -> None:
                             progress=1.0,
                             pps=device_state["pps"],
                             motion_metric=device_state["motion_metric"],
-                            calibration_packets=device_state["calibration_packets"],
+                            calibration_packets=calibration_packets,
                             calibration_target_packets=calibration_target_packets,
                             effective_state_label="READY",
                             device_label=device_state["label"],
@@ -682,10 +683,10 @@ def _run_live_collect(args) -> None:
                     detail_lines.append(
                         "    "
                         + format_calibration_status_line(
-                            progress=(device_state["calibration_packets"] / calibration_target_packets),
+                            progress=(calibration_packets / calibration_target_packets),
                             pps=device_state["pps"],
                             motion_metric=device_state["motion_metric"],
-                            calibration_packets=device_state["calibration_packets"],
+                            calibration_packets=calibration_packets,
                             calibration_target_packets=calibration_target_packets,
                             effective_state_label=status,
                             device_label=device_state["label"],

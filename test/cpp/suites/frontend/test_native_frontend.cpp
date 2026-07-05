@@ -28,7 +28,7 @@ RuntimeSnapshot make_ready_snapshot() {
   snapshot.motion_state = MotionState::MOTION;
   snapshot.movement_metric = 2.75f;
   snapshot.threshold = 1.5f;
-  snapshot.best_pxx = 0.42f;
+  snapshot.startup_threshold = 0.42f;
   snapshot.detector_name = "mvs";
   return snapshot;
 }

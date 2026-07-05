@@ -131,7 +131,7 @@ constexpr uint8_t HT20_GUARD_BAND_HIGH = 52;       // Last valid subcarrier
 constexpr uint8_t HT20_DC_SUBCARRIER = 32;         // DC null subcarrier
 constexpr uint8_t HT20_SELECTED_BAND_SIZE = 12;    // Selected subcarriers for motion detection
 constexpr uint8_t DEFAULT_SUBCARRIERS[HT20_SELECTED_BAND_SIZE] = {
-    12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52
+    14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50
 };
 using SelectedSubcarriers = std::array<uint8_t, HT20_SELECTED_BAND_SIZE>;
 

@@ -1810,7 +1810,7 @@ def load_npz_as_packets(filepath: Path) -> List[Dict[str, Any]]:
 
 def find_static_presence_motion_dataset(chip: str = None, num_sc: int = 64) -> Tuple[Path, Path, str]:
     """
-    Find static-presence and motion dataset files with nearest timestamps.
+    Find an explicit static-presence/motion dataset pair from dataset_info.json.
     
     Args:
         chip: Chip type (C6, S3, etc.) or None to find any chip
@@ -1820,100 +1820,51 @@ def find_static_presence_motion_dataset(chip: str = None, num_sc: int = 64) -> T
         tuple: (static_presence_path, motion_path, chip_name)
     
     Raises:
-        FileNotFoundError: If no matching files found
+        FileNotFoundError: If no explicit matching pair is found
     """
     static_presence_dir = DATA_DIR / 'static_presence'
     motion_dir = DATA_DIR / 'motion'
-    
-    # Build search pattern
-    if chip:
-        chip_lower = chip.lower()
-        static_presence_pattern = f'static_presence_{chip_lower}_{num_sc}sc_*.npz'
-        motion_pattern = f'motion_{chip_lower}_{num_sc}sc_*.npz'
-    else:
-        static_presence_pattern = f'*_{num_sc}sc_*.npz'
-        motion_pattern = f'*_{num_sc}sc_*.npz'
-    
-    static_presence_files = list(static_presence_dir.glob(static_presence_pattern))
-    motion_files = list(motion_dir.glob(motion_pattern))
-    
     chip_desc = f"{chip} ({num_sc} SC)" if chip else f"{num_sc} SC"
-    
-    if not static_presence_files:
+
+    info = load_dataset_info()
+    files_section = info.get('files', {})
+    motion_meta = {
+        str(entry.get('filename')): entry
+        for entry in files_section.get('motion', [])
+        if entry.get('filename')
+    }
+
+    selected_chip = chip.upper() if chip else None
+    candidates = []
+    for entry in files_section.get('static_presence', []):
+        if int(entry.get('subcarriers', 0)) != int(num_sc):
+            continue
+        if selected_chip is not None and str(entry.get('chip', '')).upper() != selected_chip:
+            continue
+
+        static_name = entry.get('filename')
+        motion_name = entry.get('optimal_pair_motion_file')
+        motion_entry = motion_meta.get(str(motion_name))
+        if not static_name or not motion_name or motion_entry is None:
+            continue
+        if int(motion_entry.get('subcarriers', 0)) != int(num_sc):
+            continue
+
+        static_presence_file = static_presence_dir / str(static_name)
+        motion_file = motion_dir / str(motion_name)
+        if static_presence_file.exists() and motion_file.exists():
+            env = str(entry.get('environment', ''))
+            chip_name = str(entry.get('chip', '')).upper()
+            candidates.append((chip_name, env, str(static_name), static_presence_file, motion_file))
+
+    if not candidates:
         raise FileNotFoundError(
-            f"No static-presence file found for {chip_desc} in {static_presence_dir}\n"
-            f"Collect data using: ./espectre collect --label static_presence --duration 10"
+            f"No explicit static-presence/motion pair found for {chip_desc} in dataset_info.json\n"
+            f"Run tools/3_refresh_dataset_metadata.py --write after collecting paired data."
         )
-    if not motion_files:
-        raise FileNotFoundError(
-            f"No motion file found for {chip_desc} in {motion_dir}\n"
-            f"Collect data using: ./espectre collect --label motion --duration 10"
-        )
-    
-    # Prefer nearest static-presence/motion pair from dataset_info metadata, so
-    # Python tests match C++ csi_test_data.h pairing policy.
-    static_presence_file = None
-    motion_file = None
-    try:
-        info = load_dataset_info()
-        files_section = info.get('files', {})
-        static_presence_meta = files_section.get('static_presence', [])
-        motion_meta = files_section.get('motion', [])
 
-        def _meta_matches(entry: Dict[str, Any], label_chip: Optional[str]) -> bool:
-            if int(entry.get('subcarriers', 0)) != int(num_sc):
-                return False
-            if label_chip is None:
-                return True
-            return str(entry.get('chip', '')).upper() == label_chip.upper()
+    _, _, _, static_presence_file, motion_file = sorted(candidates)[0]
 
-        def _parse_ts(value: Any) -> Optional[datetime]:
-            if not value:
-                return None
-            try:
-                # Supports both naive and timezone-aware ISO strings.
-                return datetime.fromisoformat(str(value))
-            except ValueError:
-                return None
-
-        selected_chip = chip.upper() if chip else None
-        static_presence_candidates = []
-        motion_candidates = []
-        for entry in static_presence_meta:
-            if _meta_matches(entry, selected_chip):
-                ts = _parse_ts(entry.get('collected_at'))
-                filename = entry.get('filename')
-                if ts and filename:
-                    candidate = static_presence_dir / str(filename)
-                    if candidate.exists():
-                        static_presence_candidates.append((ts, candidate))
-        for entry in motion_meta:
-            if _meta_matches(entry, selected_chip):
-                ts = _parse_ts(entry.get('collected_at'))
-                filename = entry.get('filename')
-                if ts and filename:
-                    candidate = motion_dir / str(filename)
-                    if candidate.exists():
-                        motion_candidates.append((ts, candidate))
-
-        best_delta = None
-        for b_ts, b_path in static_presence_candidates:
-            for m_ts, m_path in motion_candidates:
-                delta = abs((m_ts - b_ts).total_seconds())
-                if best_delta is None or delta < best_delta:
-                    best_delta = delta
-                    static_presence_file = b_path
-                    motion_file = m_path
-    except Exception:
-        # Keep backward-compatible fallback below.
-        static_presence_file = None
-        motion_file = None
-
-    # Fallback: use the most recent files by filename timestamp.
-    if static_presence_file is None or motion_file is None:
-        static_presence_file = sorted(static_presence_files)[-1]
-        motion_file = sorted(motion_files)[-1]
-    
     # Extract chip name from filename (e.g., static_presence_c6_64sc_... -> C6).
     parts = static_presence_file.stem.split('_')
     chip_name = parts[2].upper() if len(parts) >= 3 else 'UNKNOWN'

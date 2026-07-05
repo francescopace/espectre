@@ -16,7 +16,6 @@ import json
 import re
 from pathlib import Path
 from collections import defaultdict
-from datetime import datetime
 
 TOOLS_PATH = Path(__file__).resolve().parents[2] / 'tools'
 sys.path.insert(0, str(TOOLS_PATH))
@@ -38,18 +37,7 @@ from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE, HAMPEL_WINDOW, HAMPEL_T
 # Data directory (shared between tests and tools)
 DATA_DIR = data_dir()
 DATASET_INFO_PATH = DATA_DIR / 'dataset_info.json'
-PAIR_MAX_DELTA_SECONDS = 30 * 60
 UNIT_TEST_SUBCARRIERS = DEFAULT_SUBCARRIERS
-
-
-def get_default_fp_rate_target():
-    """Match C++ get_default_fp_rate_target()."""
-    return 5.0
-
-
-def get_default_recall_target():
-    """Match C++ get_default_recall_target()."""
-    return 95.0
 
 
 def get_mvs_fp_rate_target():
@@ -76,7 +64,7 @@ def format_targets_summary_line():
     """Build summary line from target getter functions."""
     return (
         "Targets: "
-        f"MVS >{get_default_recall_target():.0f}% R, <{get_default_fp_rate_target():.1f}% FP | "
+        f"MVS >{get_mvs_recall_target():.0f}% R, <{get_mvs_fp_rate_target():.1f}% FP | "
         f"ML >{get_ml_recall_target():.0f}% R, <{get_ml_fp_rate_target():.1f}% FP"
     )
 
@@ -91,18 +79,6 @@ def fp_rate_target(chip_type):
 def recall_target(chip_type):
     """MVS recall target fixture shared across test modules."""
     return get_mvs_recall_target()
-
-
-@pytest.fixture
-def mvs_default_fp_rate_target(chip_type):
-    """MVS default-band FP-rate target fixture shared across test modules."""
-    return get_default_fp_rate_target()
-
-
-@pytest.fixture
-def mvs_default_recall_target(chip_type):
-    """MVS default-band recall target fixture shared across test modules."""
-    return get_default_recall_target()
 
 
 @pytest.fixture
@@ -122,38 +98,6 @@ def _load_dataset_info():
         return {"files": {}}
     with open(DATASET_INFO_PATH, "r") as f:
         return json.load(f)
-
-
-def _lookup_file_info(dataset_info, filename):
-    files = dataset_info.get("files", {})
-    for label in ("static_presence", "motion"):
-        for entry in files.get(label, []):
-            if entry.get("filename") == filename:
-                return label, entry
-    return None, None
-
-
-def _pair_is_temporally_valid(dataset_info, label, entry):
-    if label == "static_presence":
-        pair_name = entry.get("optimal_pair_motion_file")
-        pair_label = "motion"
-    else:
-        pair_name = entry.get("optimal_pair_static_presence_file")
-        pair_label = "static_presence"
-    if not pair_name:
-        return False
-
-    files = dataset_info.get("files", {}).get(pair_label, [])
-    counterpart = next((x for x in files if x.get("filename") == pair_name), None)
-    if counterpart is None:
-        return False
-
-    try:
-        t1 = datetime.fromisoformat(entry["collected_at"])
-        t2 = datetime.fromisoformat(counterpart["collected_at"])
-    except Exception:
-        return False
-    return abs((t2 - t1).total_seconds()) <= PAIR_MAX_DELTA_SECONDS
 
 
 def extract_motion_start_from_description(description):
@@ -289,16 +233,9 @@ def optimal_threshold(request):
     """
     Dataset-aware threshold from dataset_info grid-search metadata.
 
-    If temporal pairing is invalid (>30 min) or metadata is missing,
-    falls back to 1.0.
+    Falls back to 1.0 when metadata is missing.
     """
     return 1.0
-
-
-@pytest.fixture
-def pairing_mode(request):
-    """Return pairing mode for logs: paired or single-dataset fallback."""
-    return "default"
 
 
 @pytest.fixture
@@ -547,17 +484,19 @@ _PERF_RESULTS_FILE = os.path.join(tempfile.gettempdir(), 'espectre_perf_results.
 
 
 def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
-                       precision: float = 0.0, f1: float = 0.0):
+                       precision: float = 0.0, f1: float = 0.0,
+                       dataset_id: str = ""):
     """
     Record performance metrics for the summary table.
     
     Args:
         chip: Chip type (C3, C5, C6, ESP32, S3)
-        algorithm: Algorithm name (mvs_default, mvs, ml)
+        algorithm: Algorithm name (mvs, ml)
         recall: Recall percentage
         fp_rate: False positive rate percentage
         precision: Precision percentage
         f1: F1-score percentage
+        dataset_id: Stable static-presence/motion pair id
     """
     # Load existing results
     results = {}
@@ -571,12 +510,18 @@ def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
     # Add new result
     if chip not in results:
         results[chip] = {}
-    results[chip][algorithm] = {
+    if algorithm not in results[chip]:
+        results[chip][algorithm] = []
+    elif isinstance(results[chip][algorithm], dict):
+        results[chip][algorithm] = [results[chip][algorithm]]
+
+    results[chip][algorithm].append({
+        'dataset_id': dataset_id,
         'recall': recall,
         'fp_rate': fp_rate,
         'precision': precision,
         'f1': f1
-    }
+    })
     
     # Save
     with open(_PERF_RESULTS_FILE, 'w') as f:
@@ -602,14 +547,27 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     
     if not results:
         return
-    
+
+    def average_metrics(entries):
+        if isinstance(entries, dict):
+            entries = [entries]
+        if not entries:
+            return None
+        return {
+            'count': len(entries),
+            'recall': sum(r['recall'] for r in entries) / len(entries),
+            'fp_rate': sum(r['fp_rate'] for r in entries) / len(entries),
+            'precision': sum(r.get('precision', 0) for r in entries) / len(entries),
+            'f1': sum(r.get('f1', 0) for r in entries) / len(entries),
+        }
+
     terminalreporter.write_line("")
     terminalreporter.write_line("=" * 105)
     terminalreporter.write_line("                              PERFORMANCE SUMMARY TABLE (Python)")
     terminalreporter.write_line("=" * 105)
     terminalreporter.write_line("")
-    terminalreporter.write_line("| Chip   | MVS Default             | MVS Runtime             | ML                      |")
-    terminalreporter.write_line("|--------|-------------------------|-------------------------|-------------------------|")
+    terminalreporter.write_line("| Chip   | Datasets | MVS                     | ML                      |")
+    terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|")
     
     # Sort chips for consistent output
     for chip in ['C3', 'C5', 'C6', 'ESP32', 'S3']:
@@ -617,29 +575,27 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             continue
         
         chip_results = results[chip]
+        dataset_count = max(
+            (len(v) if isinstance(v, list) else 1)
+            for v in chip_results.values()
+        )
         
-        # MVS Default
-        if 'mvs_default' in chip_results:
-            mvs_default = chip_results['mvs_default']
-            mvs_default_str = f"{mvs_default['recall']:.1f}% R, {mvs_default['fp_rate']:.1f}% FP"
-        else:
-            mvs_default_str = "N/A"
-        
-        # MVS runtime path
         if 'mvs' in chip_results:
-            mvs = chip_results['mvs']
+            mvs = average_metrics(chip_results['mvs'])
             mvs_str = f"{mvs['recall']:.1f}% R, {mvs['fp_rate']:.1f}% FP"
         else:
             mvs_str = "N/A"
         
         # ML
         if 'ml' in chip_results:
-            ml = chip_results['ml']
+            ml = average_metrics(chip_results['ml'])
             ml_str = f"{ml['recall']:.1f}% R, {ml['fp_rate']:.1f}% FP"
         else:
             ml_str = "N/A"
         
-        terminalreporter.write_line(f"| {chip:<6} | {mvs_default_str:<23} | {mvs_str:<23} | {ml_str:<23} |")
+        terminalreporter.write_line(
+            f"| {chip:<6} | {dataset_count:>8} | {mvs_str:<23} | {ml_str:<23} |"
+        )
     
     terminalreporter.write_line("")
     terminalreporter.write_line("Legend: R = Recall, FP = False Positive Rate")
@@ -650,8 +606,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line("")
     terminalreporter.write_line("                         DETAILED METRICS (for PERFORMANCE.md)")
     terminalreporter.write_line("-" * 105)
-    terminalreporter.write_line("| Chip   | Algorithm   | Recall  | Precision | FP Rate | F1-Score |")
-    terminalreporter.write_line("|--------|-------------|---------|-----------|---------|----------|")
+    terminalreporter.write_line("| Chip   | Algorithm   | Datasets | Recall  | Precision | FP Rate | F1-Score |")
+    terminalreporter.write_line("|--------|-------------|----------|---------|-----------|---------|----------|")
     
     for chip in ['C3', 'C5', 'C6', 'ESP32', 'S3']:
         if chip not in results:
@@ -659,15 +615,19 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         
         chip_results = results[chip]
         
-        for algo_key, algo_name in [('mvs_default', 'MVS Default'), ('mvs', 'MVS Runtime'), ('ml', 'ML')]:
-            if algo_key in chip_results:
-                r = chip_results[algo_key]
-                terminalreporter.write_line(
-                    f"| {chip:<6} | {algo_name:<11} | {r['recall']:>6.1f}% | {r.get('precision', 0):>8.1f}% | {r['fp_rate']:>6.1f}% | {r.get('f1', 0):>7.1f}% |"
-                )
+        if 'mvs' in chip_results:
+            mvs = average_metrics(chip_results['mvs'])
+            terminalreporter.write_line(
+                f"| {chip:<6} | {'MVS':<11} | {mvs['count']:>8} | {mvs['recall']:>6.1f}% | {mvs.get('precision', 0):>8.1f}% | {mvs['fp_rate']:>6.1f}% | {mvs.get('f1', 0):>7.1f}% |"
+            )
+
+        if 'ml' in chip_results:
+            r = average_metrics(chip_results['ml'])
+            terminalreporter.write_line(
+                f"| {chip:<6} | {'ML':<11} | {r['count']:>8} | {r['recall']:>6.1f}% | {r.get('precision', 0):>8.1f}% | {r['fp_rate']:>6.1f}% | {r.get('f1', 0):>7.1f}% |"
+            )
     
     terminalreporter.write_line("-" * 105)
     
     # Cleanup
     os.remove(_PERF_RESULTS_FILE)
-

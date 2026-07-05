@@ -9,11 +9,11 @@ Checks performed:
   1. Metadata completeness - Required derived/manual dataset_info fields exist
   2. File integrity        - NPZ loads, expected keys exist, shapes are valid
   3. Signal quality        - Amplitude range, zero-packet detection
-  4. Pair validation       - Static-presence vs motion variance ratio, temporal gap
+  4. Pair validation       - Static-presence vs motion variance ratio
   5. ML readiness          - Label balance, minimum samples, chip diversity
 
 Per-file integrity and signal-quality checks cover `empty`, `static_presence`,
-and `motion`. Pair validation and ML readiness intentionally focus on
+`motion`, and `test`. Pair validation and ML readiness intentionally focus on
 `static_presence` / `motion`.
 
 SOURCE CODE ALIGNMENT:
@@ -69,14 +69,21 @@ REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
 # Quality thresholds
 MIN_PACKETS = 800
 MAX_ZERO_PACKET_RATIO = 0.01
-MIN_VARIANCE_RATIO = 2.5
-MAX_TEMPORAL_GAP_S = 30 * 60
+MIN_VARIANCE_RATIO = 4
 MIN_AMPLITUDE_MEAN = 9.0
+MIN_CAPTURE_PACKET_RATE_PPS = 95.0
+MAX_STREAM_SEQ_MISSING_WARN_RATIO = 0.03
+MAX_STREAM_SEQ_MISSING_FAIL_RATIO = 0.10
+MAX_STREAM_SEQ_GAP_WARN_PACKETS = 20
+MAX_STREAM_SEQ_GAP_FAIL_PACKETS = 50
+MAX_INTER_PACKET_GAP_WARN_MS = 250.0
+MAX_INTER_PACKET_GAP_FAIL_MS = 1000.0
 MIN_EMPTY_SEPARABILITY_AUC = 0.70
 MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.70
 EMPTY_SEPARATION_TURB_MEAN_WEIGHT = 0.7
 EMPTY_SEPARATION_WAVEFORM_WEIGHT = 0.3
 METADATA_LABELS = ('empty', 'static_presence', 'motion', 'test')
+PER_FILE_QUALITY_LABELS = METADATA_LABELS
 REQUIRED_PAIR_FIELD_BY_LABEL = {
     'static_presence': 'optimal_pair_motion_file',
     'motion': 'optimal_pair_static_presence_file',
@@ -113,13 +120,12 @@ def _extract_amplitudes_matrix(csi_matrix):
 # Wrappers for src/ functions
 # ------------------------------------------------------------------
 
-def _spatial_turbulence_from_amps(amplitudes, band, use_cv_normalization=True):
+def _spatial_turbulence_from_amps(amplitudes, band):
     """Compute spatial turbulence from a pre-extracted amplitude list.
 
     Delegates to src/utils.py:calculate_spatial_turbulence().
-    Defaults to the shared production path: CV-normalized turbulence.
     """
-    return _src_spatial_turbulence(amplitudes, band, use_cv_normalization)
+    return _src_spatial_turbulence(amplitudes, band)
 
 
 def _moving_variance(values, window_size=None):
@@ -201,44 +207,6 @@ def _build_empty_separation_score(
         + EMPTY_SEPARATION_WAVEFORM_WEIGHT * static_wave_score
     )
     return empty_score, static_score
-
-
-def _coerce_metadata_scalar(value):
-    """Return a scalar value from NPZ-style metadata fields."""
-    return value.item() if hasattr(value, 'item') else value
-
-
-def _compute_capture_gap_seconds(bl_data, mv_data):
-    """Return the non-negative time gap between capture intervals.
-
-    The metric is order-agnostic:
-    - 0.0 means the captures overlap in time
-    - a positive value means they are separated by that many seconds
-
-    This avoids false warnings when `motion` is intentionally recorded before
-    `static_presence`.
-    """
-    bl_collected = bl_data.get('collected_at', None)
-    mv_collected = mv_data.get('collected_at', None)
-    bl_duration = bl_data.get('duration_ms', None)
-    mv_duration = mv_data.get('duration_ms', None)
-
-    if None in (bl_collected, mv_collected, bl_duration, mv_duration):
-        return None
-
-    bl_start = datetime.datetime.fromisoformat(str(_coerce_metadata_scalar(bl_collected)))
-    mv_start = datetime.datetime.fromisoformat(str(_coerce_metadata_scalar(mv_collected)))
-    bl_duration_ms = float(_coerce_metadata_scalar(bl_duration))
-    mv_duration_ms = float(_coerce_metadata_scalar(mv_duration))
-
-    bl_end = bl_start + datetime.timedelta(milliseconds=bl_duration_ms)
-    mv_end = mv_start + datetime.timedelta(milliseconds=mv_duration_ms)
-
-    if bl_end <= mv_start:
-        return (mv_start - bl_end).total_seconds()
-    if mv_end <= bl_start:
-        return (bl_start - mv_end).total_seconds()
-    return 0.0
 
 
 # ------------------------------------------------------------------
@@ -461,6 +429,173 @@ def validate_signal_quality(csi_data):
     return results
 
 
+def _read_scalar_metadata(data, key):
+    """Return a scalar NPZ metadata value, or None when unavailable."""
+    if key not in data.files:
+        return None
+    value = data[key]
+    if np.shape(value) == ():
+        return value.item()
+    return value
+
+
+def validate_capture_continuity(data, csi_data):
+    """Check packet cadence and stream continuity metadata when available."""
+    results = []
+    num_packets = int(csi_data.shape[0])
+
+    duration_ms = _read_scalar_metadata(data, 'duration_ms')
+    try:
+        duration_ms = float(duration_ms)
+    except (TypeError, ValueError):
+        duration_ms = 0.0
+
+    if duration_ms > 0:
+        packet_rate = num_packets / (duration_ms / 1000.0)
+        if packet_rate < MIN_CAPTURE_PACKET_RATE_PPS:
+            results.append(ValidationResult(
+                "packet_rate",
+                "WARN",
+                (
+                    f"Low packet rate: {packet_rate:.1f} pkt/s "
+                    f"(< {MIN_CAPTURE_PACKET_RATE_PPS:.1f} pkt/s)"
+                ),
+                round(packet_rate, 1),
+            ))
+        else:
+            results.append(ValidationResult(
+                "packet_rate",
+                "PASS",
+                f"Packet rate: {packet_rate:.1f} pkt/s",
+                round(packet_rate, 1),
+            ))
+
+    if 'stream_seq_num' not in data.files:
+        return results
+
+    stream_seq = np.asarray(data['stream_seq_num'], dtype=np.int64)
+    if stream_seq.shape[0] != num_packets:
+        results.append(ValidationResult(
+            "stream_seq_num",
+            "WARN",
+            (
+                "stream_seq_num length does not match CSI packets: "
+                f"{stream_seq.shape[0]} != {num_packets}"
+            ),
+        ))
+        return results
+
+    if stream_seq.shape[0] < 2:
+        results.append(ValidationResult(
+            "stream_seq_gaps",
+            "PASS",
+            "Not enough packets to evaluate stream gaps",
+        ))
+        return results
+
+    seq_delta = np.diff(stream_seq)
+    missing_packets = int(np.maximum(seq_delta - 1, 0).sum())
+    produced_packets = int(stream_seq[-1] - stream_seq[0] + 1)
+    if produced_packets <= 0:
+        results.append(ValidationResult(
+            "stream_seq_gaps",
+            "WARN",
+            "stream_seq_num is not monotonic over the capture",
+        ))
+        return results
+
+    missing_ratio = missing_packets / produced_packets
+    nonunit_steps = int(np.sum(seq_delta != 1))
+    max_seq_gap = int(np.maximum(seq_delta - 1, 0).max(initial=0))
+
+    if missing_ratio > MAX_STREAM_SEQ_MISSING_FAIL_RATIO:
+        status = "FAIL"
+    elif missing_ratio > MAX_STREAM_SEQ_MISSING_WARN_RATIO:
+        status = "WARN"
+    else:
+        status = "PASS"
+
+    results.append(ValidationResult(
+        "stream_seq_gaps",
+        status,
+        (
+            f"Missing stream packets: {missing_ratio:.1%} "
+            f"({missing_packets}/{produced_packets}, non-unit steps: {nonunit_steps})"
+        ),
+        round(missing_ratio, 4),
+    ))
+
+    if max_seq_gap > MAX_STREAM_SEQ_GAP_FAIL_PACKETS:
+        status = "FAIL"
+    elif max_seq_gap > MAX_STREAM_SEQ_GAP_WARN_PACKETS:
+        status = "WARN"
+    else:
+        status = "PASS"
+
+    results.append(ValidationResult(
+        "stream_seq_max_gap",
+        status,
+        (
+            f"Largest stream gap: {max_seq_gap} packets "
+            f"(warn > {MAX_STREAM_SEQ_GAP_WARN_PACKETS}, "
+            f"fail > {MAX_STREAM_SEQ_GAP_FAIL_PACKETS})"
+        ),
+        max_seq_gap,
+    ))
+
+    timestamp_key = None
+    if 'device_ticks_us' in data.files:
+        timestamp_key = 'device_ticks_us'
+    elif 'wifi_rx_ts_us' in data.files:
+        timestamp_key = 'wifi_rx_ts_us'
+
+    if timestamp_key is None:
+        return results
+
+    timestamps = np.asarray(data[timestamp_key], dtype=np.int64)
+    if timestamps.shape[0] != num_packets:
+        results.append(ValidationResult(
+            "inter_packet_gap",
+            "WARN",
+            (
+                f"{timestamp_key} length does not match CSI packets: "
+                f"{timestamps.shape[0]} != {num_packets}"
+            ),
+        ))
+        return results
+
+    timestamp_delta = np.diff(timestamps)
+    positive_delta = timestamp_delta[timestamp_delta > 0]
+    if positive_delta.size == 0:
+        results.append(ValidationResult(
+            "inter_packet_gap",
+            "WARN",
+            f"{timestamp_key} is not monotonic enough to evaluate packet gaps",
+        ))
+        return results
+
+    max_gap_ms = float(positive_delta.max()) / 1000.0
+    if max_gap_ms > MAX_INTER_PACKET_GAP_FAIL_MS:
+        status = "FAIL"
+    elif max_gap_ms > MAX_INTER_PACKET_GAP_WARN_MS:
+        status = "WARN"
+    else:
+        status = "PASS"
+
+    results.append(ValidationResult(
+        "inter_packet_gap",
+        status,
+        (
+            f"Largest inter-packet gap: {max_gap_ms:.1f} ms via {timestamp_key} "
+            f"(warn > {MAX_INTER_PACKET_GAP_WARN_MS:.1f} ms, "
+            f"fail > {MAX_INTER_PACKET_GAP_FAIL_MS:.1f} ms)"
+        ),
+        round(max_gap_ms, 1),
+    ))
+
+    return results
+
+
 def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
     """Validate a static-presence/motion pair.
 
@@ -470,7 +605,7 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
         bl_data: full static-presence NpzFile (for metadata)
         mv_data: full motion NpzFile (for metadata)
     Returns:
-        tuple: (results, bl_var, mv_var, ratio, gap_s)
+        tuple: (results, bl_var, mv_var, ratio)
     """
     results = []
 
@@ -504,26 +639,8 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
         results.append(ValidationResult("variance_ratio", "PASS",
             f"Ratio {ratio_for_check}x (static={bl_var:.6f}, motion={mv_var:.6f})", ratio_for_check))
 
-    # Temporal gap between capture intervals, independent of acquisition order.
-    gap_s = None
-    try:
-        gap_s = _compute_capture_gap_seconds(bl_data, mv_data)
-        if gap_s is not None:
-            if gap_s > MAX_TEMPORAL_GAP_S:
-                results.append(ValidationResult("temporal_gap", "WARN",
-                    f"Large gap: {gap_s:.1f}s > {MAX_TEMPORAL_GAP_S}s", gap_s))
-            else:
-                results.append(ValidationResult("temporal_gap", "PASS",
-                    f"Gap: {gap_s:.1f}s", gap_s))
-        else:
-            results.append(ValidationResult("temporal_gap", "WARN",
-                "Could not parse collected_at/duration_ms timestamps"))
-    except Exception:
-        results.append(ValidationResult("temporal_gap", "WARN",
-            "Could not parse collected_at/duration_ms timestamps"))
-
     # Return the same ratio value used by PASS/FAIL checks and logs.
-    return results, bl_var, mv_var, ratio_for_check, gap_s
+    return results, bl_var, mv_var, ratio_for_check
 
 
 def validate_ml_readiness(dataset_info):
@@ -904,7 +1021,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
     # Cache: path -> (NpzFile, csi_key) — avoids reloading in pair validation
     npz_cache = {}
 
-    for label in ['empty', 'static_presence', 'motion']:
+    for label in PER_FILE_QUALITY_LABELS:
         label_dir = DATA_DIR / label
         if not label_dir.exists():
             print(f"\n⚠️  Directory not found: {label_dir}")
@@ -929,6 +1046,11 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
 
             quality_results = validate_signal_quality(data[csi_key])
             for r in quality_results:
+                print(f"   {r}")
+                all_results.append(r)
+
+            continuity_results = validate_capture_continuity(data, data[csi_key])
+            for r in continuity_results:
                 print(f"   {r}")
                 all_results.append(r)
 
@@ -994,7 +1116,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                         all_results.append(r)
                     continue
 
-            pair_res, bl_var, mv_var, ratio, gap_s = validate_pair(
+            pair_res, bl_var, mv_var, ratio = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
                 bl_data, mv_data,
             )
@@ -1009,7 +1131,6 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                 'bl_var': bl_var,
                 'mv_var': mv_var,
                 'ratio': ratio,
-                'gap_s': gap_s,
                 'sc_source': sc_source,
                 'cv_mode': cv_mode,
                 'status': 'PASS' if ratio >= MIN_VARIANCE_RATIO else 'FAIL'
@@ -1094,7 +1215,7 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append(f"Generated by: `tools/11_validate_dataset_quality.py`\n")
 
     lines.append("## Validation rule\n")
-    lines.append("Per-file integrity and signal-quality checks cover `empty`, `static_presence`, and `motion`.\n")
+    lines.append("Per-file integrity and signal-quality checks cover `empty`, `static_presence`, `motion`, and `test`.\n")
     lines.append("A pair is considered valid when:\n")
     lines.append("- labels are coherent (`static_presence` vs `motion`)")
     lines.append(f"- `motion_variance > static_presence_variance` (ratio >= {MIN_VARIANCE_RATIO}x)\n")
@@ -1114,18 +1235,16 @@ def _generate_report(pair_results, all_results, dataset_info):
 
     lines.append("## Results (sorted by chip, then ratio desc)\n")
     lines.append("| Chip | File pair (static_presence / motion) | Static Presence Var | Motion Var "
-                 "| Ratio | Gap | Subcarriers | Turbulence | Status |")
-    lines.append("|---|---|---:|---:|---:|---:|---|---|---|")
+                 "| Ratio | Subcarriers | Turbulence | Status |")
+    lines.append("|---|---|---:|---:|---:|---|---|---|")
 
     sorted_pairs = sorted(pair_results, key=lambda x: (x['chip'], -x['ratio']))
     for p in sorted_pairs:
         bl_var_str = f"{p['bl_var']:.2e}" if p['bl_var'] < 0.01 else f"{p['bl_var']:.2f}"
         mv_var_str = f"{p['mv_var']:.2e}" if p['mv_var'] < 0.01 else f"{p['mv_var']:.2f}"
-        gap = p.get('gap_s')
-        gap_str = f"{gap:.1f}s" if gap is not None else "N/A"
         lines.append(
             f"| {p['chip']} | `{p['static_presence']}` / `{p['motion']}` | "
-            f"{bl_var_str} | {mv_var_str} | {p['ratio']:.2f}x | {gap_str} | "
+            f"{bl_var_str} | {mv_var_str} | {p['ratio']:.2f}x | "
             f"{p.get('sc_source', '?')} | {p.get('cv_mode', '?')} | {p['status']} |"
         )
 

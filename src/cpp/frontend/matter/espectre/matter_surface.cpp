@@ -16,7 +16,7 @@ MatterPeriodicState snapshot_to_periodic_state(const RuntimeSnapshot &snapshot, 
   MatterPeriodicState state{};
   state.movement_metric = snapshot.movement_metric;
   state.threshold = snapshot.threshold;
-  state.best_pxx = snapshot.best_pxx;
+  state.startup_threshold = snapshot.startup_threshold;
   state.ready_to_publish = snapshot.ready_to_publish;
   state.calibrating = snapshot.calibrating;
   state.detector_name = snapshot.detector_name;

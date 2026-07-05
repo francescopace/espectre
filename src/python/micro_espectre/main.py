@@ -204,7 +204,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     print('Please remain still for calibration...')
 
     from src.mvs_detector import MVSDetector
-    from src.threshold import calculate_adaptive_threshold
+    from src.threshold import StartupThresholdCalibrator
 
     calibration_detector = MVSDetector(
         window_size=config.SEG_WINDOW_SIZE,
@@ -215,18 +215,18 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
     )
-    mv_values = []
+    calibration_tracker = StartupThresholdCalibrator(config.CALIBRATION_BUFFER_SIZE)
 
     print('')
     print('-'*60)
     print(f'Threshold Bootstrap (~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
 
-    calibration_progress = 0
     timeout_counter = 0
     max_timeout = 15000  # 15 seconds
     packets_read = 0
     filtered_count = 0
+    calibration_progress = 0
     last_progress_time = time.ticks_ms()
     last_progress_count = 0
     collapse_logged = False
@@ -234,7 +234,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     frame_result = None
     
-    while calibration_progress < config.CALIBRATION_BUFFER_SIZE:
+    while not calibration_tracker.is_complete():
         frame = csi_read_frame(wlan, frame_result)
         packets_read += 1
         
@@ -260,11 +260,10 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
             del frame
             calibration_detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
             calibration_detector.update_state()
-            calibration_progress += 1
-            if calibration_detector.is_ready():
-                mv_values.append(calibration_detector.get_motion_metric())
+            calibration_tracker.observe_detector(calibration_detector)
             timeout_counter = 0  # Reset timeout on successful read
 
+            calibration_progress = calibration_tracker.packet_count
             if calibration_progress % 100 == 0:
                 current_time = time.ticks_ms()
                 elapsed = time.ticks_diff(current_time, last_progress_time)
@@ -297,18 +296,18 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
                 return False
 
     gc.collect()
-    success = bool(mv_values)
+    success = calibration_tracker.is_successful()
     if success:
         if isinstance(SEG_THRESHOLD, str):
-            adaptive_threshold, percentile = calculate_adaptive_threshold(mv_values, SEG_THRESHOLD)
-            detector.set_adaptive_threshold(adaptive_threshold)
-            threshold_source = f"{SEG_THRESHOLD} (P{percentile})"
-            print(f'Adaptive threshold: {adaptive_threshold:.4f} ({threshold_source})')
+            startup_threshold, threshold_formula = calibration_tracker.calculate_threshold(SEG_THRESHOLD)
+            detector.set_adaptive_threshold(startup_threshold)
+            threshold_source = f"{SEG_THRESHOLD} ({threshold_formula})"
+            print(f'Startup threshold: {startup_threshold:.4f} ({threshold_source})')
         else:
-            adaptive_threshold, _ = calculate_adaptive_threshold(mv_values, "auto")
+            startup_threshold, _ = calibration_tracker.calculate_threshold("auto")
             detector.set_threshold(float(SEG_THRESHOLD))
             threshold_source = "manual"
-            print(f'Manual threshold: {SEG_THRESHOLD:.2f} (adaptive would be: {adaptive_threshold:.4f})')
+            print(f'Manual threshold: {SEG_THRESHOLD:.2f} (startup would be: {startup_threshold:.4f})')
 
         detector.reset()
 

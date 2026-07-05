@@ -158,7 +158,6 @@ class MLDetector(IDetector):
     def __init__(self, window_size=100, threshold=ML_DEFAULT_THRESHOLD,
                  enable_lowpass=False, lowpass_cutoff=11.0,
                  enable_hampel=True, hampel_window=7, hampel_threshold=5.0,
-                 use_cv_normalization=True,
                  **kwargs):
         """
         Initialize ML detector.
@@ -171,7 +170,6 @@ class MLDetector(IDetector):
             enable_hampel: Enable Hampel filter (default: True, model trained with Hampel)
             hampel_window: Hampel window size (default: 7)
             hampel_threshold: Hampel threshold in MAD (default: 5.0)
-            use_cv_normalization: kept for compatibility; turbulence is always normalized
         """
         # Use SegmentationContext for turbulence calculation and filtering
         self._context = SegmentationContext(
@@ -183,7 +181,6 @@ class MLDetector(IDetector):
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold
         )
-        self._context.use_cv_normalization = True
         self._threshold = threshold
         self._packet_count = 0
         self._motion_count = 0

@@ -46,13 +46,9 @@ def _load_train_ml_model_module():
 
 def _evaluate_ml_long_recording(baseline_packets, movement_packets):
     """Run MLDetector across a long recording split and return packet metrics."""
-    use_cv_normalization = _long_recording_uses_cv_normalization(
-        baseline_packets, movement_packets
-    )
     detector = MLDetector(
         threshold=5.0,
         window_size=SEG_WINDOW_SIZE,
-        use_cv_normalization=use_cv_normalization,
     )
     warmup = SEG_WINDOW_SIZE
 
@@ -104,24 +100,14 @@ def _evaluate_ml_long_recording(baseline_packets, movement_packets):
         "f1": f1,
     }
 
-
-def _long_recording_uses_cv_normalization(baseline_packets, movement_packets):
-    """Return the shared production normalization mode for long recordings."""
-    return True
-
-
 def _evaluate_mvs_long_recording(baseline_packets, movement_packets):
     """Run production-style MVS with fixed subcarriers across a long recording split."""
-    use_cv_normalization = _long_recording_uses_cv_normalization(
-        baseline_packets, movement_packets
-    )
     selected_band, adaptive_threshold = run_calibration(
         baseline_packets,
         num_subcarriers=64,
         algorithm="fixed_default",
         hint_band=DEFAULT_SUBCARRIERS,
         mvs_window_size=SEG_WINDOW_SIZE,
-        use_cv_normalization=use_cv_normalization,
     )
 
     ctx = SegmentationContext(
@@ -129,7 +115,6 @@ def _evaluate_mvs_long_recording(baseline_packets, movement_packets):
         threshold=adaptive_threshold,
         enable_hampel=True,
     )
-    ctx.use_cv_normalization = use_cv_normalization
 
     warmup = SEG_WINDOW_SIZE
     baseline_eval_count = max(len(baseline_packets) - warmup, 0)
@@ -172,7 +157,6 @@ def _evaluate_mvs_long_recording(baseline_packets, movement_packets):
     return {
         "selected_band": list(selected_band) if selected_band is not None else [],
         "adaptive_threshold": adaptive_threshold,
-        "use_cv_normalization": use_cv_normalization,
         "baseline_eval_count": baseline_eval_count,
         "movement_eval_count": movement_eval_count,
         "tp": tp,
@@ -266,18 +250,17 @@ class TestLongRecordingsMVS:
             return
 
         print("")
-        print("=" * 118)
+        print("=" * 108)
         print("                             LONG RECORDING MVS FIXED SUMMARY")
-        print("=" * 118)
-        print("| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count | CV Norm |")
-        print("|--------|---------|-----------|---------|----------|----------|---------|")
+        print("=" * 108)
+        print("| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count |")
+        print("|--------|---------|-----------|---------|----------|----------|")
         for row in sorted(cls._rows, key=lambda item: item["chip"]):
             print(
                 f"| {row['chip']:<6} | {row['recall']:>6.1f}% | {row['precision']:>8.1f}% | "
-                f"{row['fp_rate']:>6.1f}% | {row['f1']:>7.1f}% | {row['fp_count']:>8d} | "
-                f"{'ON' if row['use_cv_normalization'] else 'OFF':>7} |"
+                f"{row['fp_rate']:>6.1f}% | {row['f1']:>7.1f}% | {row['fp_count']:>8d} |"
             )
-        print("-" * 118)
+        print("-" * 108)
 
     @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
     def test_mvs_vs_test_recordings(self, long_dataset):

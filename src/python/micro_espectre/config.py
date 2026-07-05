@@ -35,7 +35,7 @@ MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -
 CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
 
 # Fixed subcarriers shared by MVS and ML detectors.
-DEFAULT_SUBCARRIERS = (12, 14, 16, 18, 20, 24, 28, 36, 40, 44, 48, 52)
+DEFAULT_SUBCARRIERS = (14, 17, 20, 23, 26, 29, 35, 38, 41, 44, 47, 50)
 
 # Detection Algorithm
 # "mvs" (default): Moving Variance Segmentation - fast, good accuracy
@@ -48,7 +48,7 @@ CALIBRATION_NUM_WINDOWS = 10   # Number of windows worth of packets to collect
 
 # Segmentation Parameters
 # SEG_THRESHOLD can be:
-#   - "auto" (default): adaptive threshold based on baseline noise
+#   - "auto" (default): startup threshold = max(calibration_mv) x 1.3
 #   - "min": maximum sensitivity (may have false positives)
 #   - a number (0.0-10.0): fixed manual threshold
 SEG_THRESHOLD = "auto"

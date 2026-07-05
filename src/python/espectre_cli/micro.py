@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import subprocess
 import sys
@@ -28,9 +29,42 @@ from .common import (
 )
 
 
+MICRO_DEVICE_RELATIVE_FILES = [
+    "__init__.py",
+    "config.py",
+    "config_local.py",
+    "utils.py",
+    "threshold.py",
+    "filters.py",
+    "features.py",
+    "segmentation.py",
+    "detector_interface.py",
+    "runtime_policy.py",
+    "mvs_detector.py",
+    "ml_detector.py",
+    "ml_weights.py",
+    "traffic_generator.py",
+    "console_output.py",
+    "main.py",
+    "mqtt/__init__.py",
+    "mqtt/handler.py",
+    "mqtt/commands.py",
+]
+
+
 def _resolve_config_local_path() -> Path:
     """Return the canonical runtime config file path."""
     return PYTHON_SRC_DIR / "config_local.py"
+
+
+def _files_to_upload(config_local_path: Path) -> List[Tuple[str, str]]:
+    """Return the MicroPython source files copied by `micro deploy`."""
+    files: List[Tuple[str, str]] = []
+    for rel_path in MICRO_DEVICE_RELATIVE_FILES:
+        src_path = config_local_path if rel_path == "config_local.py" else (PYTHON_SRC_DIR / rel_path)
+        dst_dir = ":src/mqtt/" if rel_path.startswith("mqtt/") else ":src/"
+        files.append((str(src_path), dst_dir))
+    return files
 
 
 def _calculate_sha256(filepath: Path) -> str:
@@ -297,26 +331,7 @@ def deploy_code(args) -> None:
         subprocess.run(["mpremote", "connect", port, "mkdir", ":src/mqtt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
         print(f"{Fore.YELLOW}📤 Uploading files...{Style.RESET_ALL}")
-        files_to_upload: List[Tuple[str, str]] = [
-            (str(PYTHON_SRC_DIR / "__init__.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "config.py"), ":src/"),
-            (str(config_local_path), ":src/"),
-            (str(PYTHON_SRC_DIR / "utils.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "threshold.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "filters.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "features.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "segmentation.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "detector_interface.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "runtime_policy.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "mvs_detector.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "ml_detector.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "ml_weights.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "traffic_generator.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "main.py"), ":src/"),
-            (str(PYTHON_SRC_DIR / "mqtt" / "__init__.py"), ":src/mqtt/"),
-            (str(PYTHON_SRC_DIR / "mqtt" / "handler.py"), ":src/mqtt/"),
-            (str(PYTHON_SRC_DIR / "mqtt" / "commands.py"), ":src/mqtt/"),
-        ]
+        files_to_upload = _files_to_upload(config_local_path)
         for src, dst in files_to_upload:
             if not Path(src).exists():
                 print(f"{Fore.RED}  ❌ File not found: {src}{Style.RESET_ALL}")
@@ -426,13 +441,45 @@ def verify_installation(args) -> None:
 
     print(f"{Fore.YELLOW}🔍 Checking deployed files...{Style.RESET_ALL}")
     try:
-        result = subprocess.run(
+        src_result = subprocess.run(
             ["mpremote", "connect", port, "exec", 'import os; print(os.listdir("/src"))'],
             capture_output=True,
             text=True,
             check=True,
         )
-        print(f"{Fore.GREEN}✅ Source files found: {result.stdout.strip()}{Style.RESET_ALL}")
+        mqtt_result = subprocess.run(
+            ["mpremote", "connect", port, "exec", 'import os; print(os.listdir("/src/mqtt"))'],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        src_listing = src_result.stdout.strip()
+        mqtt_listing = mqtt_result.stdout.strip()
+
+        expected_src = {
+            Path(rel).name
+            for rel in MICRO_DEVICE_RELATIVE_FILES
+            if "/" not in rel
+        }
+        expected_mqtt = {
+            Path(rel).name
+            for rel in MICRO_DEVICE_RELATIVE_FILES
+            if rel.startswith("mqtt/")
+        }
+        src_present = set(ast.literal_eval(src_listing))
+        mqtt_present = set(ast.literal_eval(mqtt_listing))
+        missing_src = sorted(expected_src - src_present)
+        missing_mqtt = sorted(expected_mqtt - mqtt_present)
+
+        if missing_src or missing_mqtt:
+            print(f"{Fore.RED}❌ Missing deployed files detected{Style.RESET_ALL}")
+            if missing_src:
+                print(f"{Fore.YELLOW}   Missing in /src: {', '.join(missing_src)}{Style.RESET_ALL}")
+            if missing_mqtt:
+                print(f"{Fore.YELLOW}   Missing in /src/mqtt: {', '.join(missing_mqtt)}{Style.RESET_ALL}")
+            all_ok = False
+        else:
+            print(f"{Fore.GREEN}✅ Required source files found in /src and /src/mqtt{Style.RESET_ALL}")
     except subprocess.CalledProcessError:
         print(f"{Fore.RED}❌ Source files not found{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}   Hint: Deploy the code first:{Style.RESET_ALL}")
