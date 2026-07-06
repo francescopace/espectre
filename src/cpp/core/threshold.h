@@ -51,13 +51,14 @@ inline float calculate_max_value(const std::vector<float>& values) {
 
 /**
  * Get threshold multiplier from mode
- * 
+ *
  * @param mode Threshold mode (AUTO or MIN)
- * @return multiplier value (1.3 for AUTO, 1.0 for MIN)
+ * @param auto_factor Detector-specific AUTO multiplier (default: 1.3)
+ * @return multiplier value (auto_factor for AUTO, 1.0 for MIN)
  */
-inline float get_threshold_factor(ThresholdMode mode) {
+inline float get_threshold_factor(ThresholdMode mode, float auto_factor = DEFAULT_ADAPTIVE_FACTOR) {
   if (mode == ThresholdMode::AUTO) {
-    return DEFAULT_ADAPTIVE_FACTOR;
+    return auto_factor;
   }
   return 1.0f;  // MIN: no multiplier
 }

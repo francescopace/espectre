@@ -21,6 +21,9 @@ The goal is to preserve design history in one place without turning
 | 2026-07-03 | MVS-guided weighting bias and hard-negative retrain | Superseded by AGC-active normalization and clean data recollection | MVS can help as hard-negative mining, but it can also import MVS quiet-spike bias. |
 | 2026-07-04 | Multi-device sync and phase research | Active research note | `stimulus_id` and reference metadata remain useful for future multi-device experiments. |
 | 2026-07-05 | MVS startup-threshold and online adaptation sweep | Active research note | `max x 1.3` remains the safest global baseline; online threshold tracking helps some chips, but not all. |
+| 2026-07-05 | Motion-feature benchmark and L1-Delta promotion | Promoted to Micro-ESPectre runtime candidate | L1 profile displacement matches MVS quality with a far more stable quiet level; no candidate supports a fixed factory threshold. |
+| 2026-07-06 | L1-Delta startup-threshold and online recovery sweep | Active research note | Clean data still favor static `max x 1.1`, but startup-spike recovery is real; the best no-buffer candidate is a conservative decaying-peak tracker. |
+| 2026-07-06 | Clean relative-8 refresh and L1-Delta ML feature check | Active ML baseline candidate | Removing `waveform_length_over_mean` improved the Python ML baseline; `l1_delta` remained useful as a standalone detector, but not as a winning MLP feature. |
 
 ## Current Superseding Events
 
@@ -226,6 +229,475 @@ global promotion attempt, but a chip-specific host-side study:
 2. test capped and less frequent threshold tracking only on chips like C5/C6
 3. treat S3 as a non-regression chip, not as a candidate for lower startup
    sensitivity
+
+### Motion-Feature Benchmark And L1-Delta Promotion
+
+Date: 2026-07-05
+
+Status: Promoted to Micro-ESPectre runtime candidate (`l1_delta` detector);
+C++ port pending live cross-session validation.
+
+#### Goal
+
+Find a per-packet motion metric that discriminates quiet from motion as well
+as the MVS moving variance but with a more sustainable threshold over time:
+robust to AGC, RF noise, and chip differences, and less dependent on fragile
+session-specific startup thresholds.
+
+#### Physical Framing
+
+Motion changes the multipath, so the channel profile `H(f, t)` decorrelates
+over time coherently across subcarriers. The AGC applies a scalar per-packet
+gain and PLL/STO/CFO randomize absolute phase, so a robust metric must be
+invariant to per-packet scale and measure the temporal displacement of the
+normalized spectral shape, not absolute energy.
+
+#### Method
+
+Offline benchmark over the repo datasets (paired `static_presence -> motion`
+plus `empty` captures; 4 chips x 3 environments), all candidates causal with
+windows matched to MVS (~1 s at 100 pps). The MVS baseline reproduction was
+verified against `SegmentationContext` to a relative error of `2e-6`.
+
+Protocols:
+
+1. Per-pair AUC (threshold-free separability)
+2. Session-calibrated threshold, production semantics
+   (`max(calibration) x factor`), with the factor swept per candidate for a
+   fair comparison against the MVS-tuned `1.3`
+3. Leave-one-chip-out universal threshold (fixed threshold chosen on the other
+   chips), in best-F1 and quiet-quantile variants
+4. Empty-room FPR, temporal stability (CV, drift), and quiet-median spread
+   across sessions
+5. Synthetic perturbations applied after clean calibration: AGC ramp/step,
+   amplitude spikes, broadband AWGN (5% and 15% RMS), narrowband bursts
+
+One S3 hobby-room pair was found contaminated during the run (static capture
+with motion-level turbulence throughout, confirmed by
+`tools/11_validate_dataset_quality.py`) and was later removed from the
+dataset; headline numbers exclude it.
+
+#### Candidates And Results
+
+Session-calibrated protocol at each candidate's best global factor, valid
+pairs only:
+
+| Candidate | AUC mean | Recall | FP rate | F1 | Verdict |
+|-----------|----------|--------|---------|----|---------|
+| `l1_delta` (lag-10 L1 profile displacement, factor 1.1) | 0.993 | 93.2% | 2.5% | 94.2% | Promoted |
+| `mvs` baseline (factor 1.3) | 0.989 | 94.3% | 3.2% | 94.1% | Baseline |
+| `turb_cv` (std/mean of turbulence window) | 0.987 | 92.3% | 4.9% | 91.6% | ML feature only |
+| `turb_madratio` (MAD/median) | - | 90.0% | 6.4% | 89.1% | ML feature only |
+| `band_power_ratio` (0.5-10 Hz energy fraction, window 256) | 0.978 | 82.3% | 6.0% | 85.1% | Reserved as RF-noise gate |
+| `eigen_ratio` (top eigenvalue / trace) | 0.887 | 84.5% | 10.3% | 82.9% | Rejected |
+| `corr_amp_d10` (1 - Pearson at lag 10) | 0.887 | 78.4% | 7.1% | 81.8% | Rejected |
+| `corr_complex_d10` (1 - complex correlation) | 0.830 | 56.2% | 6.8% | 66.5% | Rejected |
+| `corr_amp_d1` (1 - Pearson at lag 1) | 0.678 | 25.8% | 1.9% | 39.9% | Rejected |
+
+Key robustness results:
+
+- `l1_delta` per-chip recall is uniform (89-96%, including S3 where MVS drops
+  to ~80%), its quiet score has the lowest temporal CV (0.084), and its
+  quiet-median spread across sessions is <=1.3x versus up to 14.5x for MVS.
+- All per-packet-normalized candidates, MVS included, are exactly invariant to
+  scalar AGC perturbations (gain ramp/step produced zero metric change).
+- All dispersion-style metrics (MVS, `l1_delta`, `turb_*`, `corr_*`) fail open
+  if broadband noise rises after calibration (FPR ~90% under +5% RMS AWGN).
+  Only `band_power_ratio` fails closed (FPR drops, recall drops) and it is
+  also immune to narrowband bursts.
+- No candidate, including fusions, supports a fixed factory threshold:
+  leave-one-chip-out thresholds collapse recall or explode FPR on the held-out
+  chip. Startup calibration remains necessary; `l1_delta` makes it far less
+  fragile rather than unnecessary.
+
+Why the rejected candidates fail:
+
+- Pearson/complex correlations are dominated by the static frequency-selective
+  fading shape, which dwarfs the motion perturbation (worst case AUC 0.23 on a
+  C5 pair); the complex variant additionally absorbs per-packet STO/CFO phase
+  noise.
+- Lag-1 differences measure receiver noise: at 10 ms the body has not
+  displaced the multipath yet.
+- `eigen_ratio` is chip-inconsistent and the most expensive candidate.
+
+#### AND Fusion (Held In Reserve)
+
+`l1_delta (factor 1.1) AND band_power_ratio (factor 1.0)` with session
+thresholds: F1 93.4%, FP 1.1%, and FPR under post-calibration AWGN reduced
+from ~91% to ~6.5% at a ~4-point recall cost. Deferred because the RF-noise
+fail-open scenario has only been demonstrated synthetically, MVS shares the
+same vulnerability (no regression), and the gate costs a 256-packet window
+(~2.6 s confirmation latency) plus per-hop FFTs. Revisit if long quiet runs
+show false positives correlated with RF events (`noise_floor_dbm`, RSSI).
+
+#### Live Validation
+
+Loopback UDP replay of repo captures and a live C3 session with
+`./espectre collect --no-save --detector mvs,l1_delta,ml` confirmed the
+offline picture: independent per-detector startup calibration, stable IDLE in
+quiet (metric at ~91% of threshold by construction, see
+[ALGORITHMS.md](ALGORITHMS.md)), and clean IDLE -> MOTION transitions with the
+metric at ~2x threshold during movement.
+
+#### Computational Cost
+
+Measured on the Python reference implementations (10k real packets):
+`l1_delta` is ~20% cheaper than MVS+Hampel per packet in the firmware-like
+path (evaluation every 25 packets) and ~50% cheaper when evaluating every
+packet, because its running-mean update is O(1) versus the O(window) two-pass
+variance and it needs no Hampel sorting; its hot path is allocation-free like
+the shared turbulence path. It uses ~100 extra floats of state.
+Details in [ALGORITHMS.md](ALGORITHMS.md).
+
+#### Decision
+
+Promote `l1_delta` as a Micro-ESPectre runtime detector with startup factor
+`1.1` alongside MVS, and use the multi-detector live collect for side-by-side
+validation. Next gates before a C++ port:
+
+1. cross-session threshold stability live (expect <=~1.3x spread)
+2. long quiet runs for the real false-positive rate at factor 1.1
+3. S3 side-by-side, where the offline gap versus MVS is largest
+
+---
+
+### L1-Delta Startup-Threshold And Online Recovery Sweep
+
+Date: 2026-07-06
+
+Status: Active research note.
+
+#### Goal
+
+Test whether `l1_delta` can keep the simple startup threshold
+`max(calibration) x 1.1` while recovering automatically from a noisy startup in
+real deployments, where the nominal quiet-room calibration may include
+micromovements, RF disturbances, or a not-quite-static device.
+
+#### Background
+
+The initial offline promotion used controlled paired datasets, where startup
+calibration is relatively clean. That environment answers the question "is
+`max x 1.1` a good session threshold in ordinary quiet captures?" but not the
+more deployment-oriented question "can the detector recover if startup itself is
+contaminated?"
+
+The working assumption for this sweep was:
+
+- the `l1_delta` quiet floor is structurally stable enough that startup
+  contamination should be easier to repair than for MVS
+- startup contamination matters more than the clean-room optimum, because the
+  runtime can ask the user to stay still, but cannot guarantee a perfectly quiet
+  environment
+
+#### What Was Evaluated
+
+Host-side sweeps reused the current `l1_delta` production semantics:
+
+- startup threshold from the ready-state calibration metric
+- threshold formula anchored to `max(calibration) x 1.1`
+- continuous baseline -> motion evaluation on the paired real-data datasets
+
+To stress startup robustness, the startup window was synthetically contaminated
+with movement packets before running the normal clean baseline -> motion
+evaluation:
+
+- tail contamination at 5%, 10%, 15%, and 20% of startup
+- sparse contamination at 10% of startup
+
+The following threshold families were compared:
+
+1. static startup threshold only (`max x 1.1`)
+2. alternate startup statistics (`p95`, `p98`, `p99`, `p99.5`, `p99.9`,
+   `mean + k*std`)
+3. switch/capped hybrids such as "use `p95` when `max/p95` looks suspicious"
+4. online threshold tracking without a new buffer (`decaying peak`)
+5. exact moving-max tracking with a minimal additional buffer
+6. min-based ideas (`moving min`, and min+range variants)
+
+#### Startup-Only Sweep Result
+
+On clean paired datasets, the startup calibration window already shows that
+`max` is much less pathological for `l1_delta` than for MVS:
+
+- median `max / p99` during startup: `1.0079x`
+- p90 `max / p99`: `1.0196x`
+- worst observed `max / p99`: `1.0415x`
+
+So on clean data, `max` is already close to the upper quiet edge rather than an
+isolated spike. That explains why the clean all-pairs sweep still favors the
+simple static policy:
+
+- `max x 1.10`: recall `94.1%`, FP `2.3%`, F1 `94.7%`
+- `max x 1.08`: recall `95.2%`, FP `2.9%`, F1 `94.7%`
+- `p95 x 1.10`: recall `96.3%`, FP `3.8%`, F1 `94.5%`
+
+Interpretation: on clean sessions, replacing `max` with a lower quantile buys
+recall mostly by spending more quiet-room FP.
+
+#### Contaminated-Startup Result
+
+Under synthetic startup contamination, lower-quantile startup thresholds became
+useful. For example, under 10% tail contamination of startup:
+
+- `max x 1.10`: recall `85.8%`, FP `0.95%`, F1 `91.4%`
+- `p98 x 1.10`: recall `89.6%`, FP `1.36%`, F1 `93.2%`
+- `p95 x 1.10`: recall `93.5%`, FP `2.37%`, F1 `94.3%`
+
+This confirmed the expected trade-off:
+
+- static `max` is still the clean-data winner
+- lower startup quantiles are more tolerant of dirty startup
+- but they pay with higher quiet FP when startup was already clean
+
+#### Online Recovery Result
+
+The strongest no-new-buffer candidate was an online decaying-peak tracker:
+
+- reference update: `ref = max(metric, ref * 0.998)`
+- tracking gate: only when `state == IDLE` and `metric < threshold * 0.70`
+- threshold update: `threshold = min(threshold, max(ref * 1.1, startup * 0.85))`
+
+This candidate (`peak9980_safe70_floor85`) outperformed static `max x 1.1`
+whenever startup contamination was the dominant problem:
+
+| Policy | Clean F1 | Tail 10% F1 | Tail 20% F1 | Sparse 10% F1 | Quiet FP |
+|--------|----------|-------------|-------------|---------------|----------|
+| `static max x 1.1` | 94.66% | 91.40% | 59.81% | 95.49% | 2.08% |
+| `peak9980_safe70_floor85` | 93.56% | 94.21% | 77.93% | 93.47% | 6.34% |
+
+So the aggressive decaying-peak policy is a good startup-recovery mechanism,
+but not a universal default:
+
+- better when startup is genuinely dirty
+- worse on clean sessions and on quiet-only FP
+
+#### Conservative Online Recovery Result
+
+A milder family reduced that FP cost while still beating static `max x 1.1` on
+the contaminated-startup stress tests. The best practical compromise from the
+focused sweep was:
+
+- `ref = max(metric, ref * 0.9995)`
+- only update when `state == IDLE` and `metric < threshold * 0.60`
+- clamp to at least `0.90 x startup_threshold`
+
+`peak9995_safe60_floor90`:
+
+- clean F1 `94.04%`
+- tail 10% F1 `93.25%`
+- tail 20% F1 `70.62%`
+- sparse 10% F1 `94.62%`
+- quiet FP `2.46%`
+
+Compared with the aggressive candidate, this variant gives back some startup
+recovery, but it stays much closer to the quiet-room behavior of static
+`max x 1.1`.
+
+#### Rejected Directions
+
+Several ideas were explicitly tested and did not beat the decaying-peak line:
+
+- exact moving-max tracking over a small new buffer of recent metrics
+- moving-min and min+range heuristics
+- quantile-tracking proxies that effectively collapsed toward the floor
+
+Key reasons:
+
+- exact moving-max with a tiny buffer still dropped the threshold too abruptly
+  and produced more quiet FP than the best decaying-peak line
+- the `min` is indeed more stable across sessions than `max`, but it tracks the
+  lower quiet edge, not the upper quiet edge where the threshold must sit
+- permanently active downward-only quantile or min tracking tends to ratchet the
+  threshold too low unless it is heavily clamped, at which point it stops
+  outperforming the simpler peak tracker
+
+#### Decision
+
+Keep static `max x 1.1` as the default startup threshold for now.
+
+For future runtime experimentation, the evidence supports two distinct paths:
+
+1. conservative control: keep static `max x 1.1`
+2. recovery candidate: test a guarded decaying-peak line, starting with
+   `peak9995_safe60_floor90`
+
+Do not promote quantile-only startup replacement, moving-min tracking, or the
+minimal moving-max buffer variants into the runtime yet.
+
+#### Follow-Up
+
+The next live validation should not be another broad offline sweep. The next
+useful gates are:
+
+1. long real quiet runs comparing `static max x 1.1` versus
+   `peak9995_safe60_floor90`
+2. at least one deliberately noisy startup session to verify that the decaying
+   peak actually repairs threshold overshoot in a live deployment
+3. S3-specific live side-by-side, because that chip remains the strongest
+   cross-session false-positive risk
+
+---
+
+### Clean Relative-8 Refresh And L1-Delta ML Feature Check
+
+Date: 2026-07-06
+
+Status: Active ML baseline candidate.
+
+#### Goal
+
+Re-evaluate the AGC-active relative-8 Python ML baseline on the cleaned
+dataset, identify weak features under grouped CV and real-data holdouts, and
+check whether `l1_delta` should enter the MLP after its strong standalone
+detector benchmark.
+
+#### Background
+
+The cleaned July dataset reset changed the meaning of older ML targets. The
+current runtime and training path already use AGC-active coefficient-of-
+variation turbulence, so the right question was no longer "does the historical
+relative-8 export still pass?" but:
+
+1. which existing ML features are actually helping on the refreshed dataset
+2. whether the baseline should be simplified before another full export
+3. whether `l1_delta` adds complementary information beyond the existing
+   relative window statistics
+
+The starting production feature set was:
+
+- `turb_std_over_mean`
+- `turb_max_over_mean`
+- `turb_min_over_mean`
+- `turb_iqr_over_mean`
+- `turb_mad_over_mean`
+- `waveform_length_over_mean`
+- `turb_skewness`
+- `turb_autocorr`
+
+#### Tooling Added
+
+`tools/10_train_ml_model.py` gained analysis helpers to make focused feature
+studies reproducible:
+
+- `--feature-drop a,b,c`
+- `--feature-swap old=new`
+- `--feature-sweep feature`
+
+The Python ML runtime was also extended so that exported Python weights can
+consume `l1_delta` when the exported `FEATURE_NAMES` require it. C++ parity for
+that specific feature is still pending, so modified feature sets remain
+analysis-only outside the Python path.
+
+#### What Was Evaluated
+
+- SHAP and ablation-style follow-up on the clean relative-8 line
+- direct drop candidates:
+  - drop `waveform_length_over_mean`
+  - drop `turb_skewness`
+  - drop both
+  - drop all three of `waveform_length_over_mean`, `turb_skewness`,
+    `turb_min_over_mean`
+- one-for-one `l1_delta` sweep across every slot of the relative-8 set
+- a production-like Python rerun of the most relevant `l1_delta` candidate:
+  replace `waveform_length_over_mean` with `l1_delta`
+
+#### Key Result: `waveform_length_over_mean` Was Weak
+
+On grouped blocked CV, the clean relative-8 baseline scored:
+
+- blocked OOF F1: `79.49%`
+- fold F1: `81.19%`
+- worst-chip recall: `68.8%`
+
+Dropping only `waveform_length_over_mean` improved all three:
+
+- blocked OOF F1: `81.0%`
+- fold F1: `83.0%`
+- worst-chip recall: `75.1%`
+
+Dropping only `turb_skewness` improved less:
+
+- blocked OOF F1: `80.2%`
+- fold F1: `82.5%`
+
+Dropping both `waveform_length_over_mean` and `turb_skewness` matched the CV
+headline (`81.0%` blocked OOF F1, `83.0%` fold F1), but did not hold the same
+paired-data quality as the simpler 7-feature candidate. Dropping
+`turb_min_over_mean` on top of that reduced the global score further, so
+`turb_min_over_mean` was kept.
+
+#### Real-Data Python Validation
+
+The two serious post-CV candidates were compared directly on the paired
+real-data gate and on the Python long quiet/FP gate:
+
+| Candidate | Features | Paired Mean Recall | Paired Worst-Chip Recall | Paired Mean F1 | Total FP | Long Quiet FP | Long Max FP Rate |
+|-----------|----------|-------------------:|-------------------------:|---------------:|---------:|--------------:|-----------------:|
+| Relative-8 minus `waveform_length_over_mean` | 7 | 94.0% | 83.6% | 95.7% | 798 | 4057 | 2.67% |
+| Relative-8 minus `waveform_length_over_mean`, `turb_skewness` | 6 | 92.8% | 79.3% | 95.0% | 786 | 5781 | 5.87% |
+
+Interpretation:
+
+- removing `waveform_length_over_mean` is the real win
+- removing `turb_skewness` as well saves little on paired false positives and
+  makes recall materially worse
+- the best clean-data Python candidate is the 7-feature set with
+  `turb_skewness` still present
+
+#### L1-Delta As An ML Feature
+
+`l1_delta` remained strong as a standalone detector, but it did not become a
+winning MLP feature.
+
+The slot-by-slot sweep showed no one-for-one replacement that beat the clean
+relative-8 baseline. The most relevant production-like candidate was the exact
+replacement:
+
+- drop `waveform_length_over_mean`
+- add `l1_delta`
+
+That candidate scored:
+
+- blocked OOF F1: `76.59%`
+- fold F1: `78.74%`
+
+And it failed more paired Python datasets than the 7-feature candidate after
+the Python runtime was updated to support `l1_delta` extraction.
+
+The qualitative pattern was consistent:
+
+- `l1_delta` lowered quiet-room false positives on some long idle segments
+- but it also made the MLP too conservative, hurting recall and aggregate F1
+- no tested `l1_delta` substitution beat the simpler 7-feature candidate
+
+#### Decision
+
+For the next ML promotion candidate:
+
+- remove `waveform_length_over_mean`
+- keep `turb_skewness`
+- do not add `l1_delta` to the MLP feature set yet
+
+Candidate feature set:
+
+- `turb_std_over_mean`
+- `turb_max_over_mean`
+- `turb_min_over_mean`
+- `turb_iqr_over_mean`
+- `turb_mad_over_mean`
+- `turb_skewness`
+- `turb_autocorr`
+
+#### Follow-Up
+
+1. Promote the 7-feature Python baseline into the next full production retrain
+   and export flow
+2. Align the C++ ML feature path before treating any non-default `l1_delta`
+   export as production-like
+3. Revisit `l1_delta` for ML only if a later model family wants stronger
+   conservative gating, or if a different temporal context makes it less
+   redundant with the current relative window statistics
 
 ---
 

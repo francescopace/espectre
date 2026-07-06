@@ -28,6 +28,8 @@ Usage:
     python tools/10_train_ml_model.py --device mps  # Force Apple GPU when available
     python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
     python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
+    python tools/10_train_ml_model.py --feature-swap waveform_length_over_mean=l1_delta --no-export
+                                                    # Simple one-slot feature swap experiment
 
 Configuration:
   - TRAINING_FEATURES: Edit at top of file to change feature set
@@ -344,7 +346,7 @@ from segmentation import SegmentationContext
 from threshold import get_threshold_factor
 from features import (
     extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
-    ROBUST_RELATIVE_FEATURES,
+    ROBUST_RELATIVE_FEATURES, ALL_FEATURES,
 )
 
 # ============================================================================
@@ -532,6 +534,129 @@ def resolve_training_feature_set(name):
             f"unsupported feature set {name!r}; expected one of {sorted(FEATURE_SET_CHOICES)}"
         )
     return list(FEATURE_SET_CHOICES[key])
+
+
+def parse_feature_swap(value):
+    """Parse one feature swap specification in OLD=NEW or OLD:NEW form."""
+    text = str(value or '').strip()
+    if not text:
+        raise argparse.ArgumentTypeError(
+            "feature swap cannot be empty; use OLD=NEW"
+        )
+
+    separator = '=' if '=' in text else ':'
+    if separator not in text:
+        raise argparse.ArgumentTypeError(
+            "feature swap must be in OLD=NEW form"
+        )
+
+    old_name, new_name = [part.strip() for part in text.split(separator, 1)]
+    if not old_name or not new_name:
+        raise argparse.ArgumentTypeError(
+            "feature swap must provide both OLD and NEW feature names"
+        )
+    return old_name, new_name
+
+
+def parse_feature_drop_list(value):
+    """Parse a comma-separated feature drop list."""
+    text = str(value or '').strip()
+    if not text:
+        raise argparse.ArgumentTypeError(
+            "feature drop list cannot be empty; use name1,name2"
+        )
+
+    items = [item.strip() for item in text.split(',')]
+    features = [item for item in items if item]
+    if not features:
+        raise argparse.ArgumentTypeError(
+            "feature drop list cannot be empty; use name1,name2"
+        )
+    return features
+
+
+def apply_feature_drops(feature_names, dropped_features):
+    """Drop one or more features from a resolved feature list."""
+    features = list(feature_names)
+    if not dropped_features:
+        return features
+
+    valid_features = set(ALL_FEATURES)
+    for feature_name in dropped_features:
+        if feature_name not in valid_features:
+            raise argparse.ArgumentTypeError(
+                f"unknown dropped feature {feature_name!r}; expected one of {sorted(valid_features)}"
+            )
+        if feature_name not in features:
+            raise argparse.ArgumentTypeError(
+                f"cannot drop {feature_name!r}: not present in the selected feature set {features}"
+            )
+        features.remove(feature_name)
+
+    if not features:
+        raise argparse.ArgumentTypeError(
+            "feature drop would leave an empty feature set"
+        )
+    return features
+
+
+def apply_feature_swaps(feature_names, swaps):
+    """Apply one or more OLD=NEW feature swaps to a resolved feature list."""
+    features = list(feature_names)
+    if not swaps:
+        return features
+
+    valid_features = set(ALL_FEATURES)
+    for old_name, new_name in swaps:
+        if old_name not in valid_features:
+            raise argparse.ArgumentTypeError(
+                f"unknown source feature {old_name!r}; expected one of {sorted(valid_features)}"
+            )
+        if new_name not in valid_features:
+            raise argparse.ArgumentTypeError(
+                f"unknown replacement feature {new_name!r}; expected one of {sorted(valid_features)}"
+            )
+        if old_name not in features:
+            raise argparse.ArgumentTypeError(
+                f"cannot swap {old_name!r}: not present in the selected feature set {features}"
+            )
+
+        idx = features.index(old_name)
+        if new_name != old_name and new_name in features:
+            raise argparse.ArgumentTypeError(
+                f"cannot swap {old_name!r} -> {new_name!r}: replacement already exists in the selected feature set"
+            )
+        features[idx] = new_name
+    return features
+
+
+def build_feature_sweep_candidates(feature_names, incoming_feature):
+    """Build all one-slot replacement candidates for an incoming feature."""
+    incoming = str(incoming_feature or '').strip()
+    if not incoming:
+        raise argparse.ArgumentTypeError("feature sweep requires a feature name")
+
+    valid_features = set(ALL_FEATURES)
+    if incoming not in valid_features:
+        raise argparse.ArgumentTypeError(
+            f"unknown sweep feature {incoming!r}; expected one of {sorted(valid_features)}"
+        )
+
+    base_features = list(feature_names)
+    if incoming in base_features:
+        raise argparse.ArgumentTypeError(
+            f"cannot sweep {incoming!r}: it is already present in the selected feature set"
+        )
+
+    candidates = []
+    for replaced in base_features:
+        candidate_features = apply_feature_swaps(base_features, [(replaced, incoming)])
+        candidates.append({
+            'replaced': replaced,
+            'incoming': incoming,
+            'feature_names': candidate_features,
+        })
+    return candidates
 
 
 def normalize_architecture_specs(architectures):
@@ -1308,7 +1433,8 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
         )
-        last_amplitudes = None
+        needs_amplitude_history = 'l1_delta' in feature_names
+        amplitude_history = deque(maxlen=window_size) if needs_amplitude_history else None
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
@@ -1318,7 +1444,8 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
                 return_amplitudes=True,
             )
             ctx.add_turbulence(turb)
-            last_amplitudes = amps
+            if amplitude_history is not None:
+                amplitude_history.append(amps)
 
             if ctx.buffer_count < window_size:
                 continue
@@ -1330,8 +1457,9 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
 
             features = extract_features_by_name(
                 turb_list, n,
-                amplitudes=last_amplitudes,
-                feature_names=feature_names
+                amplitudes=amps,
+                feature_names=feature_names,
+                amplitude_history=list(amplitude_history) if amplitude_history is not None else None,
             )
 
             X.append(features)
@@ -3205,6 +3333,193 @@ def run_ablation_study(X, y, feature_names, sample_context=None, sample_weight=N
     return results
 
 
+def run_feature_sweep_study(X, y, feature_names, incoming_feature, X_incoming,
+                            sample_context=None, sample_weight=None,
+                            hidden_layers=None, fp_weight=DEFAULT_FP_WEIGHT,
+                            scaler_mode=DEFAULT_SCALER_MODE,
+                            batch_size=DEFAULT_BATCH_SIZE,
+                            seed=None):
+    """
+    Evaluate swapping one incoming feature into each slot of the active set.
+
+    This is the direct complement to ablation for a candidate feature that is not
+    yet in the model: keep model width fixed, replace one feature at a time, and
+    compare grouped CV metrics.
+    """
+    print("\n" + "=" * 90)
+    print("                             FEATURE SWEEP")
+    print("=" * 90 + "\n")
+    print(
+        f"Testing '{incoming_feature}' as a one-slot replacement for each feature in the active set...\n"
+    )
+
+    if hidden_layers is None:
+        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+
+    groups = None
+    if sample_context is not None:
+        groups = sample_context.get(DEFAULT_PRIMARY_GROUP_KEY)
+
+    def _extract_summary(cv_results):
+        group_reports = cv_results.get('group_reports', {})
+        session_report = group_reports.get('session_group') or {}
+        chip_report = group_reports.get('chip') or {}
+        return {
+            'f1_mean': cv_results['f1_mean'],
+            'f1_std': cv_results['f1_std'],
+            'oof_f1': cv_results['oof_f1'],
+            'recall_mean': cv_results['recall_mean'],
+            'fp_rate_mean': cv_results['fp_rate_mean'],
+            'worst_session_recall': session_report.get('worst_recall', {}).get('recall', 0.0),
+            'worst_session_fp_rate': session_report.get('worst_fp_rate', {}).get('fp_rate', 0.0),
+            'worst_chip_recall': chip_report.get('worst_recall', {}).get('recall', 0.0),
+        }
+
+    results = []
+
+    print(f"[1/{len(feature_names) + 1}] Baseline ({len(feature_names)} features)...")
+    with suppress_stderr():
+        baseline_cv = cross_validate(
+            X, y,
+            hidden_layers=hidden_layers,
+            n_folds=DEFAULT_CV_FOLDS,
+            max_epochs=DEFAULT_MAX_EPOCHS,
+            fp_weight=fp_weight,
+            sample_weight=sample_weight,
+            groups=groups,
+            sample_context=sample_context,
+            scaler_mode=scaler_mode,
+            batch_size=batch_size,
+            block_stride=SEG_WINDOW_SIZE,
+            report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
+            seed=derive_seed(seed, 0),
+        )
+    baseline_summary = _extract_summary(baseline_cv)
+    results.append({
+        'label': 'baseline',
+        'replaced': None,
+        'incoming': None,
+        'feature_names': list(feature_names),
+        'cv': baseline_cv,
+        'delta_f1': 0.0,
+        'delta_oof_f1': 0.0,
+        **baseline_summary,
+    })
+    print(
+        f"    OOF F1: {baseline_summary['oof_f1']:.2f}% | "
+        f"fold F1: {baseline_summary['f1_mean']:.2f}% | "
+        f"worst chip recall: {baseline_summary['worst_chip_recall']:.2f}%\n"
+    )
+
+    incoming_column = np.asarray(X_incoming).reshape(-1)
+    if len(incoming_column) != len(X):
+        raise ValueError(
+            f"incoming feature length mismatch (incoming={len(incoming_column)}, base={len(X)})"
+        )
+
+    candidates = build_feature_sweep_candidates(feature_names, incoming_feature)
+    for idx, candidate in enumerate(candidates, start=2):
+        replaced = candidate['replaced']
+        candidate_features = candidate['feature_names']
+        replace_idx = list(feature_names).index(replaced)
+        X_candidate = X.copy()
+        X_candidate[:, replace_idx] = incoming_column
+        print(f"[{idx}/{len(feature_names) + 1}] Replacing '{replaced}' -> '{incoming_feature}'...")
+
+        with suppress_stderr():
+            cv = cross_validate(
+                X_candidate, y,
+                hidden_layers=hidden_layers,
+                n_folds=DEFAULT_CV_FOLDS,
+                max_epochs=DEFAULT_MAX_EPOCHS,
+                fp_weight=fp_weight,
+                sample_weight=sample_weight,
+                groups=groups,
+                sample_context=sample_context,
+                scaler_mode=scaler_mode,
+                batch_size=batch_size,
+                block_stride=SEG_WINDOW_SIZE,
+                report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
+                seed=derive_seed(seed, idx),
+            )
+
+        summary = _extract_summary(cv)
+        delta_f1 = summary['f1_mean'] - baseline_summary['f1_mean']
+        delta_oof_f1 = summary['oof_f1'] - baseline_summary['oof_f1']
+        results.append({
+            'label': f"{incoming_feature} for {replaced}",
+            'replaced': replaced,
+            'incoming': incoming_feature,
+            'feature_names': candidate_features,
+            'cv': cv,
+            'delta_f1': delta_f1,
+            'delta_oof_f1': delta_oof_f1,
+            **summary,
+        })
+
+        direction = "↑" if delta_oof_f1 > 0.1 else "↓" if delta_oof_f1 < -0.1 else "≈"
+        print(
+            f"    OOF F1: {summary['oof_f1']:.2f}% ({direction} {delta_oof_f1:+.2f}%) | "
+            f"fold F1: {summary['f1_mean']:.2f}% | "
+            f"worst chip recall: {summary['worst_chip_recall']:.2f}%\n"
+        )
+
+    print("\n" + "=" * 108)
+    print("                                  FEATURE SWEEP SUMMARY")
+    print("=" * 108 + "\n")
+    print(
+        f"{'Replaced Feature':<24} {'OOF F1':>9} {'Delta':>9} {'Fold F1':>10} "
+        f"{'Recall':>9} {'FP Rate':>9} {'Worst Sess R':>12} {'Worst Sess FP':>13} {'Worst Chip R':>12} {'Note':<10}"
+    )
+    print("-" * 108)
+
+    baseline = results[0]
+    print(
+        f"{'None (baseline)':<24} {baseline['oof_f1']:>8.2f}% {'---':>9} "
+        f"{baseline['f1_mean']:>9.2f}% {baseline['recall_mean']:>8.1f}% "
+        f"{baseline['fp_rate_mean']:>8.1f}% {baseline['worst_session_recall']:>11.1f}% "
+        f"{baseline['worst_session_fp_rate']:>12.1f}% {baseline['worst_chip_recall']:>11.1f}%"
+    )
+    print("-" * 108)
+
+    ranked_results = sorted(
+        results[1:],
+        key=lambda row: build_candidate_key(row['cv']),
+        reverse=True,
+    )
+    for idx, row in enumerate(ranked_results):
+        note = ""
+        if idx == 0:
+            note = "best"
+        elif row['delta_oof_f1'] > 0.1:
+            note = "improves"
+        elif row['delta_oof_f1'] < -0.1:
+            note = "worse"
+        else:
+            note = "neutral"
+
+        print(
+            f"{row['replaced']:<24} {row['oof_f1']:>8.2f}% {row['delta_oof_f1']:>+8.2f}% "
+            f"{row['f1_mean']:>9.2f}% {row['recall_mean']:>8.1f}% {row['fp_rate_mean']:>8.1f}% "
+            f"{row['worst_session_recall']:>11.1f}% {row['worst_session_fp_rate']:>12.1f}% "
+            f"{row['worst_chip_recall']:>11.1f}% {note:<10}"
+        )
+
+    best = ranked_results[0]
+    print("-" * 108)
+    print(
+        f"\nBest sweep candidate: replace '{best['replaced']}' with '{incoming_feature}' "
+        f"(OOF F1={best['oof_f1']:.2f}%, worst-chip recall={best['worst_chip_recall']:.1f}%, "
+        f"worst-session FP={best['worst_session_fp_rate']:.1f}%)"
+    )
+    print(
+        "Ranking priority: worst-session recall, worst-chip recall, "
+        "worst-session FP, blocked OOF F1, fold F1."
+    )
+    print()
+    return results
+
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -3344,7 +3659,7 @@ def show_info():
 
 
 def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
-              feature_importance=False, ablation=False, shap_samples=200,
+              feature_importance=False, ablation=False, feature_sweep=None, shap_samples=200,
               hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
               batch_size=DEFAULT_BATCH_SIZE, export_artifacts=True,
               environment_filter=None, excluded_chips=None,
@@ -3362,6 +3677,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         feature_names: List of feature names to use. If None, uses DEFAULT_FEATURES.
         feature_importance: If True, calculate and display SHAP feature importance.
         ablation: If True, run ablation study instead of training.
+        feature_sweep: Optional incoming feature name to sweep across slots.
         hidden_layers: Hidden layer widths. None uses DEFAULT_HIDDEN_LAYERS.
         scaler_mode: Feature normalization mode.
         batch_size: Mini-batch size used for training and CV.
@@ -3500,6 +3816,30 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             fp_weight=fp_weight,
             scaler_mode=scaler_mode,
             batch_size=batch_size,
+        )
+        return 0, seed, None
+
+    if feature_sweep is not None:
+        incoming_matrix, _ = load_training_matrix(
+            environment_filter=environment_filter,
+            excluded_chips=excluded_chips,
+            feature_names=[feature_sweep],
+            sample_weight_mode=sample_weight_mode,
+            use_cache=use_cache,
+        )
+        run_feature_sweep_study(
+            X,
+            y,
+            actual_feature_names,
+            feature_sweep,
+            incoming_matrix['X'][:, 0],
+            sample_context=sample_context,
+            sample_weight=sample_weights,
+            hidden_layers=hidden_layers,
+            fp_weight=fp_weight,
+            scaler_mode=scaler_mode,
+            batch_size=batch_size,
+            seed=seed,
         )
         return 0, seed, None
 
@@ -4777,6 +5117,10 @@ Examples:
                                            # Compare raw/relative/hybrid feature sets under gain stress
   python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
   python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
+  python tools/10_train_ml_model.py --feature-sweep l1_delta --no-export
+                                           # Try one incoming feature in every slot of the active set
+  python tools/10_train_ml_model.py --feature-drop waveform_length_over_mean,turb_skewness --no-export
+                                           # Train/evaluate after removing comma-separated features
 
 Configuration (edit at top of this file):
   TRAINING_FEATURES = [...]   # Feature list to use
@@ -4836,6 +5180,17 @@ To compare ML with MVS, use:
     parser.add_argument('--feature-set', choices=sorted(FEATURE_SET_CHOICES), default='production',
                        help='Named binary-training feature set. Only production is export-compatible '
                             '(default: production)')
+    parser.add_argument('--feature-swap', type=parse_feature_swap, action='append', default=None,
+                       metavar='OLD=NEW',
+                       help='Replace one feature in the selected set with another. '
+                            'May be repeated. Example: --feature-swap waveform_length_over_mean=l1_delta')
+    parser.add_argument('--feature-drop', type=parse_feature_drop_list, default=None,
+                       metavar='FEATURE1,FEATURE2',
+                       help='Drop comma-separated features from the selected set. '
+                            'Example: --feature-drop waveform_length_over_mean,turb_skewness')
+    parser.add_argument('--feature-sweep', type=str, default=None, metavar='FEATURE',
+                       help='Sweep one incoming feature across all slots of the selected set '
+                            '(analysis-only). Example: --feature-sweep l1_delta')
     parser.add_argument('--no-export', action='store_true',
                        help='Run training/CV analysis without exporting runtime artifacts')
     parser.add_argument('--no-cache', action='store_true',
@@ -4866,8 +5221,21 @@ To compare ML with MVS, use:
                        help='Run ablation study (test removing each feature)')
     args = parser.parse_args()
     set_active_torch_device(args.device)
-    selected_training_features = resolve_training_feature_set(args.feature_set)
-    export_compatible_feature_set = args.feature_set == 'production'
+    if args.feature_swap and args.feature_sweep:
+        print("Error: --feature-swap and --feature-sweep are mutually exclusive")
+        return 1
+    selected_training_features = apply_feature_swaps(
+        apply_feature_drops(
+            resolve_training_feature_set(args.feature_set),
+            args.feature_drop,
+        ),
+        args.feature_swap,
+    )
+    export_compatible_feature_set = (
+        args.feature_set == 'production'
+        and not args.feature_swap
+        and not args.feature_drop
+    )
     
     if args.info:
         show_info()
@@ -4880,8 +5248,8 @@ To compare ML with MVS, use:
         if args.seed_search_until_improvement > 0 or args.seed is not None:
             print("Error: --gain-stress-gate evaluates exported artifacts and cannot use --seed or seed-search")
             return 1
-        if args.shap is not None or args.ablation or args.correlation:
-            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation, or --correlation")
+        if args.shap is not None or args.ablation or args.correlation or args.feature_sweep is not None:
+            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation, --correlation, or --feature-sweep")
             return 1
         if args.positive_chip_boost is not None:
             print("Error: --positive-chip-boost is a training option and cannot be used with --gain-stress-gate")
@@ -4901,8 +5269,8 @@ To compare ML with MVS, use:
         if args.seed_search_until_improvement > 0:
             print("Error: --gain-feature-experiment cannot be combined with seed-search")
             return 1
-        if args.shap is not None or args.ablation or args.correlation:
-            print("Error: --gain-feature-experiment cannot be combined with --shap, --ablation, or --correlation")
+        if args.shap is not None or args.ablation or args.correlation or args.feature_sweep is not None:
+            print("Error: --gain-feature-experiment cannot be combined with --shap, --ablation, --correlation, or --feature-sweep")
             return 1
         if args.positive_chip_boost is not None:
             print("Error: --positive-chip-boost is not supported by --gain-feature-experiment")
@@ -4955,8 +5323,8 @@ To compare ML with MVS, use:
         if args.seed is not None:
             print("Error: --seed and --seed-search-until-improvement are mutually exclusive")
             return 1
-        if args.shap is not None or args.ablation:
-            print("Error: --seed-search-until-improvement cannot be combined with --shap or --ablation")
+        if args.shap is not None or args.ablation or args.feature_sweep is not None:
+            print("Error: --seed-search-until-improvement cannot be combined with --shap, --ablation, or --feature-sweep")
             return 1
         return train_until_improvement(
             max_trials=args.seed_search_until_improvement,
@@ -4975,12 +5343,12 @@ To compare ML with MVS, use:
     if (
         not export_compatible_feature_set
         and not args.no_export
-        and not (args.ablation or args.correlation or args.shap is not None)
+        and not (args.ablation or args.correlation or args.shap is not None or args.feature_sweep is not None)
     ):
         print(
             "Error: non-production feature sets are analysis-only until the C++ runtime "
             "extractor is updated for export compatibility. Use --no-export, --ablation, "
-            "--shap, or --correlation."
+            "--shap, --correlation, or --feature-sweep."
         )
         return 1
 
@@ -4990,6 +5358,7 @@ To compare ML with MVS, use:
         feature_names=selected_training_features,
         feature_importance=args.shap is not None,
         ablation=args.ablation,
+        feature_sweep=args.feature_sweep,
         shap_samples=args.shap if args.shap is not None else 200,
         hidden_layers=args.hidden_layers,
         scaler_mode=args.scaler,

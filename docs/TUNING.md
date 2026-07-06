@@ -2,7 +2,7 @@
 
 Quick guide to tune ESPectre for reliable movement detection in your environment.
 
-> **Note on Detection Algorithms**: This guide focuses on **MVS** (the default detection algorithm). Filters (low-pass, Hampel) apply to both MVS and ML detectors.
+> **Note on Detection Algorithms**: This guide focuses on **MVS** (the default detection algorithm). Filters (low-pass, Hampel) apply to both MVS and ML detectors. The **L1-Delta** detector shares the same threshold-bootstrap tuning model with an `auto` factor of `max x 1.1`; its quiet metric intentionally sits close to the threshold (85-95%) because the metric is much more stable than the MVS moving variance. See [ALGORITHMS.md](ALGORITHMS.md).
 >
 > **Frontend scope**: This guide is written as a shared tuning reference first. When a workflow differs by frontend, the text calls that out explicitly instead of treating one frontend as the universal path.
 >

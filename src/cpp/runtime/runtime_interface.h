@@ -15,6 +15,7 @@ namespace espectre {
 
 enum class DetectionAlgorithm {
   MVS,
+  L1_DELTA,
   ML,
 };
 

@@ -26,7 +26,7 @@ class MQTTHandler:
         
         Args:
             config: Configuration module
-            detector: IDetector instance (MVSDetector or MLDetector)
+            detector: IDetector instance
             wlan: WLAN instance
             global_state: GlobalState instance for accessing loop metrics (optional)
         """

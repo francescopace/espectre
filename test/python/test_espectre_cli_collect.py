@@ -155,8 +155,9 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
             pass
 
     class FakeStartupThresholdCalibrator:
-        def __init__(self, target_packets):
+        def __init__(self, target_packets, auto_factor=1.3):
             self.target_packets = int(target_packets)
+            self.auto_factor = float(auto_factor)
             self.packet_count = 0
             self.max_moving_variance = None
 
@@ -189,6 +190,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
     fake_mvs_detector.MVSDetector = FakeMVSDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
+    fake_threshold.get_detector_auto_factor = lambda detector: getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.3)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -306,6 +308,42 @@ def test_collect_parser_accepts_detector_choice_and_no_save() -> None:
     assert args.detector == "mvs"
     assert args.no_save is True
     assert args.duration is None
+
+
+def test_collect_parser_accepts_comma_separated_detectors() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "collect",
+            "--stimulus-target",
+            "192.168.1.15",
+            "--detector",
+            "mvs,l1_delta",
+            "--no-save",
+        ]
+    )
+
+    assert args.namespace == "collect"
+    assert args.detector == "mvs,l1_delta"
+
+
+def test_collect_live_rejects_unknown_detector(monkeypatch, capsys) -> None:
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            pass
+
+    class FakeStimulusSender:
+        def __init__(self, **kwargs):
+            pass
+
+    _install_live_collect_modules(monkeypatch, FakeReceiver, FakeStimulusSender)
+
+    with pytest.raises(SystemExit):
+        host.collect_csi_data(_make_live_collect_args(detector="mvs,bogus", no_save=True))
+
+    output = capsys.readouterr().out
+    assert "Unsupported detector(s): bogus" in output
 
 
 def test_detect_command_is_rejected() -> None:
@@ -1349,8 +1387,9 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     calibration_calls = []
 
     class FakeStartupThresholdCalibrator:
-        def __init__(self, target_packets):
+        def __init__(self, target_packets, auto_factor=1.3):
             self.target_packets = int(target_packets)
+            self.auto_factor = float(auto_factor)
             self.packet_count = 0
             self.max_moving_variance = None
 
@@ -1384,6 +1423,7 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     fake_mvs_detector.MVSDetector = FakeMVSDetector
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
+    fake_threshold.get_detector_auto_factor = lambda detector: getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.3)
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -1401,6 +1441,65 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     assert FakeMVSDetector.adaptive_thresholds == [8.0, 8.0]
     assert " 87% | mvmt:7.000000 thr:8.000000 | IDLE | 0 pkt/s" in output
     assert "STATUS: COLLECTING 2/2" in output
+
+
+def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) -> None:
+    class FakePacket:
+        def __init__(self, seq_num: int):
+            self.seq_num = seq_num
+            self.device_id = 0x22
+            self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
+            self.chip = "c3"
+            self.source_ip = "192.168.1.24"
+            self.channel = 6
+            self.rssi_dbm = -45
+
+    class FakeReceiver:
+        def __init__(self, **kwargs):
+            self._callbacks = []
+            self.dropped_count = 0
+            self.pps = 100
+
+        def add_callback(self, callback):
+            self._callbacks.append(callback)
+
+        def run(self, timeout: float = 0, quiet: bool = False):
+            for seq_num in range(1, 5):
+                for callback in self._callbacks:
+                    callback(FakePacket(seq_num))
+            raise KeyboardInterrupt
+
+        def stop(self):
+            pass
+
+    class FakeStimulusSender:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    _install_live_collect_modules(
+        monkeypatch,
+        FakeReceiver,
+        FakeStimulusSender,
+        config_overrides={"CALIBRATION_BUFFER_SIZE": 2},
+    )
+
+    host.collect_csi_data(
+        _make_live_collect_args(stimulus_target="192.168.1.24", detector="mvs,ml", no_save=True)
+    )
+
+    output = capsys.readouterr().out
+    assert "Detector:" in output and "MVS, ML" in output
+    assert "STATUS: CALIBRATING 1/1" in output
+    assert "STATUS: COLLECTING 1/1" in output
+    # One live line per (device, detector) pair.
+    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [mvs]" in output
+    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [ml ]" in output
 
 
 def test_collect_live_surfaces_runtime_error(monkeypatch) -> None:

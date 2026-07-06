@@ -231,11 +231,12 @@ These concepts are shared across the C++ platform, even though each frontend exp
 
 ### Detection Algorithms
 
-ESPectre currently supports two detector families:
+ESPectre currently supports three detector families:
 
 | Algorithm | Summary | Shared behavior |
 |-----------|---------|-----------------|
-| `MVS` | Moving-variance detector | Requires startup threshold bootstrap from a quiet room |
+| `MVS` | Moving-variance detector | Requires startup threshold bootstrap from a quiet room (`max x 1.3`) |
+| `L1-Delta` | Normalized profile-displacement detector | Requires startup threshold bootstrap from a quiet room (`max x 1.1`); more stable quiet level across sessions than MVS |
 | `ML` | Neural-network detector | Skips threshold bootstrap and starts faster |
 
 The algorithm theory belongs in [ALGORITHMS.md](ALGORITHMS.md). 
@@ -246,7 +247,7 @@ Frontend-level configuration syntax belongs in the README of the frontend you ar
 At boot, the shared runtime may perform:
 
 1. AGC-active startup with the shared normalized turbulence path
-2. startup calibration for `MVS`, which expects the room to stay quiet for about 10 seconds
+2. startup calibration for `MVS` and `L1-Delta`, which expects the room to stay quiet for about 10 seconds
 3. transition into steady-state motion detection
 
 For practical tuning guidance, sensor placement, and parameter tradeoffs, see [TUNING.md](TUNING.md).

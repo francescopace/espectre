@@ -1,8 +1,7 @@
 """
 Micro-ESPectre - Main Application
 
-Motion detection using WiFi CSI with MVS algorithm.
-Main entry point for the Micro-ESPectre system running on ESP32-C6.
+Main entry point for the Micro-ESPectre Wi-Fi CSI runtime.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 License: GPLv3
@@ -13,6 +12,13 @@ import gc
 import os
 import src.config as config
 from src.console_output import format_calibration_status_line, format_detection_publish_line
+from src.detector_interface import (
+    detector_needs_startup_calibration,
+    get_detector_algorithm,
+    get_detector_label,
+    load_detector_class,
+    normalize_detector_algorithm,
+)
 
 ML_DEFAULT_THRESHOLD = 5.0
 
@@ -39,6 +45,42 @@ def print_heap(label):
     """Print a compact heap snapshot for boot/runtime profiling."""
     gc.collect()
     print(f"[MEM] {label}: free={gc.mem_free()} alloc={gc.mem_alloc()}")
+
+
+def create_detector(detection_algorithm, initial_threshold):
+    """
+    Create the configured detector instance from the shared registry.
+
+    The runtime keeps one common detector contract:
+    - canonical algorithm key via `ALGORITHM`
+    - shared `motion_metric` field in update_state()
+    """
+    try:
+        detector_class = load_detector_class(detection_algorithm)
+    except ValueError:
+        raise ValueError(f"Unsupported DETECTION_ALGORITHM: {detection_algorithm}")
+
+    if detector_needs_startup_calibration(detection_algorithm):
+        threshold = initial_threshold if isinstance(initial_threshold, (int, float)) else 1.0
+    else:
+        threshold = ML_DEFAULT_THRESHOLD
+
+    print(f'Detection algorithm: {get_detector_label(detection_algorithm)}')
+    return detector_class(
+        window_size=config.SEG_WINDOW_SIZE,
+        threshold=threshold,
+        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
+        lowpass_cutoff=config.LOWPASS_CUTOFF,
+        enable_hampel=config.ENABLE_HAMPEL_FILTER,
+        hampel_window=config.HAMPEL_WINDOW,
+        hampel_threshold=config.HAMPEL_THRESHOLD,
+    )
+
+
+def detector_uses_startup_calibration(detector):
+    """Return True when the detector needs quiet-room startup calibration."""
+    return detector_needs_startup_calibration(get_detector_algorithm(detector))
+
 
 def cleanup_wifi(wlan):
     """
@@ -161,7 +203,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     
     Args:
         wlan: WLAN instance
-        detector: IDetector instance (MVSDetector or MLDetector)
+        detector: IDetector instance
         traffic_gen: TrafficGenerator instance
         chip_type: Chip type ('C5', 'C6', 'S3', etc.) for subcarrier filtering
         restart_traffic_gen: Restart the traffic generator before returning
@@ -170,9 +212,9 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
         bool: True if startup calibration completed
     """
     detector_name = detector.get_name()
-    is_ml = detector_name == "ML"
+    detector_algorithm = get_detector_algorithm(detector)
 
-    if is_ml:
+    if not detector_uses_startup_calibration(detector):
         g_state.calibration_mode = True
 
         print('')
@@ -195,6 +237,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     g_state.calibration_mode = True
 
     gc.collect()
+    detector.reset()
 
     print('')
     print('='*60)
@@ -203,23 +246,16 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     print(f'Free memory: {gc.mem_free()} bytes')
     print('Please remain still for calibration...')
 
-    from src.mvs_detector import MVSDetector
-    from src.threshold import StartupThresholdCalibrator
+    from src.threshold import StartupThresholdCalibrator, get_detector_auto_factor
 
-    calibration_detector = MVSDetector(
-        window_size=config.SEG_WINDOW_SIZE,
-        threshold=1.0,
-        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=config.LOWPASS_CUTOFF,
-        enable_hampel=config.ENABLE_HAMPEL_FILTER,
-        hampel_window=config.HAMPEL_WINDOW,
-        hampel_threshold=config.HAMPEL_THRESHOLD,
+    calibration_tracker = StartupThresholdCalibrator(
+        config.CALIBRATION_BUFFER_SIZE,
+        auto_factor=get_detector_auto_factor(detector),
     )
-    calibration_tracker = StartupThresholdCalibrator(config.CALIBRATION_BUFFER_SIZE)
 
     print('')
     print('-'*60)
-    print(f'Threshold Bootstrap (~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
+    print(f'{detector_name} Threshold Bootstrap (~7 seconds) [HT20: {NUM_SUBCARRIERS} SC]')
     print('-'*60)
 
     timeout_counter = 0
@@ -258,9 +294,9 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
                 print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                 remap_logged = True
             del frame
-            calibration_detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
-            calibration_detector.update_state()
-            calibration_tracker.observe_detector(calibration_detector)
+            detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
+            detector.update_state()
+            calibration_tracker.observe_detector(detector)
             timeout_counter = 0  # Reset timeout on successful read
 
             calibration_progress = calibration_tracker.packet_count
@@ -271,7 +307,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
                 pps = int((packets_delta * 1000) / elapsed) if elapsed > 0 else 0
                 dropped = wlan.csi_dropped()
                 tg_pps = traffic_gen.get_actual_pps()
-                current_mv = calibration_detector.get_motion_metric() if calibration_detector.is_ready() else None
+                current_mv = detector.get_motion_metric() if detector.is_ready() else None
                 print(
                     format_calibration_status_line(
                         progress=calibration_progress / config.CALIBRATION_BUFFER_SIZE,
@@ -313,7 +349,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
 
         print('')
         print('='*60)
-        print('Startup Calibration Complete!')
+        print(f'{detector_name} Startup Calibration Complete!')
         print(f'   Subcarriers: {list(config.DEFAULT_SUBCARRIERS)}')
         print(f'   Threshold: {detector.get_threshold():.4f} ({threshold_source})')
         print('='*60)
@@ -321,7 +357,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     else:
         print('')
         print('='*60)
-        print('Startup Calibration Failed')
+        print(f'{detector_name} Startup Calibration Failed')
         print(f'   Keeping threshold: {detector.get_threshold():.4f}')
         print(f'   Subcarriers: {list(config.DEFAULT_SUBCARRIERS)}')
         print('='*60)
@@ -371,33 +407,12 @@ def main():
     print_heap('after_connect_wifi')
     
     # Initialize detector based on configured algorithm
-    detection_algorithm = getattr(config, 'DETECTION_ALGORITHM', 'mvs').lower()
+    detection_algorithm = normalize_detector_algorithm(
+        getattr(config, 'DETECTION_ALGORITHM', 'mvs')
+    )
     initial_threshold = getattr(config, 'SEG_THRESHOLD', 1.0)
-    
-    if detection_algorithm == 'ml':
-        print(f'Detection algorithm: ML (Neural Network)')
-        from src.ml_detector import MLDetector
-        detector = MLDetector(
-            window_size=config.SEG_WINDOW_SIZE,
-            threshold=ML_DEFAULT_THRESHOLD,
-            enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-            lowpass_cutoff=config.LOWPASS_CUTOFF,
-            enable_hampel=config.ENABLE_HAMPEL_FILTER,
-            hampel_window=config.HAMPEL_WINDOW,
-            hampel_threshold=config.HAMPEL_THRESHOLD
-        )
-    else:
-        print(f'Detection algorithm: MVS (Moving Variance Segmentation)')
-        from src.mvs_detector import MVSDetector
-        detector = MVSDetector(
-            window_size=config.SEG_WINDOW_SIZE,
-            threshold=initial_threshold if isinstance(initial_threshold, (int, float)) else 1.0,
-            enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-            lowpass_cutoff=config.LOWPASS_CUTOFF,
-            enable_hampel=config.ENABLE_HAMPEL_FILTER,
-            hampel_window=config.HAMPEL_WINDOW,
-            hampel_threshold=config.HAMPEL_THRESHOLD
-        )
+
+    detector = create_detector(detection_algorithm, initial_threshold)
     print_heap('after_detector_init')
     
     # Initialize and start traffic generator (rate is static from config.py)
@@ -580,8 +595,7 @@ def main():
                         dropped_delta = dropped - last_dropped
                         last_dropped = dropped
                         
-                        state_str = 'MOTION' if effective_state == 1 else 'IDLE'
-                        motion_metric = metrics.get('moving_variance', metrics.get('jitter', metrics.get('probability', 0)))
+                        motion_metric = metrics.get('motion_metric', 0.0)
                         threshold = metrics['threshold']
                         progress = motion_metric / threshold if threshold > 0 else 0
                         print(

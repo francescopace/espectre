@@ -83,6 +83,19 @@ Data location: `data/`
 
 ---
 
+## Offline Candidate Benchmarks
+
+Candidate detector metrics that are not yet part of the validation suite are
+benchmarked offline against the MVS baseline on the same datasets. The
+2026-07-05 motion-feature benchmark (9 candidates, session-calibrated and
+leave-one-chip-out protocols, robustness perturbations) selected the
+`l1_delta` profile-displacement metric, now available in Micro-ESPectre and
+the host CLI. Protocol, per-candidate numbers, and the computational-cost
+comparison live in [EXPERIMENTS.md](EXPERIMENTS.md) and
+[ALGORITHMS.md](ALGORITHMS.md).
+
+---
+
 ## Result History (ESP32-C6)
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |

@@ -39,7 +39,15 @@ const char *traffic_mode_name(RuntimeTrafficMode mode) {
 }
 
 const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
-  return algorithm == DetectionAlgorithm::ML ? "ml" : "mvs";
+  switch (algorithm) {
+    case DetectionAlgorithm::ML:
+      return "ml";
+    case DetectionAlgorithm::L1_DELTA:
+      return "l1_delta";
+    case DetectionAlgorithm::MVS:
+    default:
+      return "mvs";
+  }
 }
 
 const char *subcarrier_source_name(RuntimeSubcarrierSource source) {
@@ -62,7 +70,13 @@ RuntimeTrafficMode parse_traffic_mode(const char *mode) {
 }
 
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {
-  return (algorithm != nullptr && std::strcmp(algorithm, "ml") == 0) ? DetectionAlgorithm::ML : DetectionAlgorithm::MVS;
+  if (algorithm != nullptr && std::strcmp(algorithm, "ml") == 0) {
+    return DetectionAlgorithm::ML;
+  }
+  if (algorithm != nullptr && std::strcmp(algorithm, "l1_delta") == 0) {
+    return DetectionAlgorithm::L1_DELTA;
+  }
+  return DetectionAlgorithm::MVS;
 }
 
 void set_manual_threshold(RuntimeConfig &config, float threshold) {

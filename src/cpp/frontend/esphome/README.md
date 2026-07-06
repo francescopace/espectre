@@ -75,7 +75,7 @@ All frontend parameters live under the `espectre:` section:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `detection_algorithm` | string | `mvs` | Detection algorithm: `mvs` or `ml` |
+| `detection_algorithm` | string | `mvs` | Detection algorithm: `mvs`, `l1_delta`, or `ml` |
 | `traffic_generator_rate` | int | `100` | Packets per second for CSI generation (`0-1000`, `0` disables the internal generator) |
 | `traffic_generator_mode` | string | `ping` | Traffic generator mode: `ping` or `dns` |
 | `publish_interval` | int | `auto` | Packets between periodic movement/log updates |
@@ -108,13 +108,14 @@ control is exposed separately through the entities below:
 
 ```yaml
 espectre:
-  detection_algorithm: mvs  # or ml
+  detection_algorithm: mvs  # or l1_delta, ml
 ```
 
 Threshold behavior:
 
 - range: `0.0-10.0`
-- `mvs` default: `auto`
+- `mvs` default: `auto` (startup calibration, `max x 1.3`)
+- `l1_delta` default: `auto` (startup calibration, `max x 1.1`)
 - `ml` default: `5.0`
 
 ### Example

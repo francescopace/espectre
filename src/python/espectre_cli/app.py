@@ -82,7 +82,11 @@ def _add_collect_parser(
     collect_parser.add_argument("--stimulus-port", type=int, default=9999, help="UDP port used by the streamer listener (default: 9999)")
     collect_parser.add_argument("--stimulus-rate", type=int, default=100, help="Stimulus packets per second sent to the streamer (default: 100)")
     collect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth stimulus packet as reference (default: 0 = measurement only)")
-    collect_parser.add_argument("--detector", choices=["ml", "mvs"], default="mvs", help="Detection algorithm (default: mvs)")
+    collect_parser.add_argument(
+        "--detector",
+        default="mvs",
+        help="Detection algorithm(s), comma-separated for parallel live comparison: mvs, ml, l1_delta (default: mvs)",
+    )
     collect_parser.add_argument("--no-save", action="store_true", help="Run live collect without saving dataset files")
     collect_parser.add_argument("--log-features", action="store_true", help="Print the 8 ML features after each published sample (ML only)")
     collect_parser.add_argument("--log-turbulence", action="store_true", help="Print raw/filtered turbulence and recent buffer tail after each publish")

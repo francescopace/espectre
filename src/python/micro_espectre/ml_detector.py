@@ -154,6 +154,7 @@ class MLDetector(IDetector):
     4. Run neural network inference
     5. Compare probability to threshold for state decision
     """
+    ALGORITHM = "ml"
     
     def __init__(self, window_size=100, threshold=ML_DEFAULT_THRESHOLD,
                  enable_lowpass=False, lowpass_cutoff=11.0,
@@ -186,6 +187,13 @@ class MLDetector(IDetector):
         self._motion_count = 0
         self._state = MotionState.IDLE
         self._current_probability = 0.0
+        self._use_amplitude_history = 'l1_delta' in FEATURE_NAMES
+        if self._use_amplitude_history:
+            self._amplitude_history = [None] * window_size
+        else:
+            self._amplitude_history = None
+        self._amplitude_index = 0
+        self._amplitude_count = 0
         
         # For tracking (optional)
         self.probability_history = []
@@ -201,14 +209,24 @@ class MLDetector(IDetector):
             selected_subcarriers: Subcarrier indices to use
         """
         self._packet_count += 1
-        
-        # ML features use only the turbulence window; skip per-packet amplitude lists.
-        turbulence = self._context.calculate_spatial_turbulence(
-            csi_data, selected_subcarriers
-        )
+
+        amplitudes = None
+        if self._use_amplitude_history:
+            turbulence, amplitudes = self._context.calculate_spatial_turbulence(
+                csi_data,
+                selected_subcarriers,
+                return_amplitudes=True,
+            )
+        else:
+            # Fast path for the default exported models: only the turbulence window is needed.
+            turbulence = self._context.calculate_spatial_turbulence(
+                csi_data, selected_subcarriers
+            )
 
         # Add to buffer
         self._context.add_turbulence(turbulence)
+        if self._use_amplitude_history:
+            self._store_amplitudes(amplitudes)
     
     def update_state(self):
         """
@@ -220,6 +238,7 @@ class MLDetector(IDetector):
         if not self.is_ready():
             return {
                 'state': self._state,
+                'motion_metric': 0.0,
                 'probability': 0.0,
                 'threshold': self._threshold
             }
@@ -245,6 +264,7 @@ class MLDetector(IDetector):
         
         return {
             'state': self._state,
+            'motion_metric': self._current_probability,
             'probability': self._current_probability,
             'threshold': self._threshold
         }
@@ -270,11 +290,31 @@ class MLDetector(IDetector):
             # buffer_index points to the NEXT write position (oldest value)
             idx = ctx.buffer_index
             turb_list = ctx.turbulence_buffer[idx:] + ctx.turbulence_buffer[:idx]
-        
+
+        amplitude_history = self._get_amplitude_history()
         return extract_features_by_name(
             turb_list, len(turb_list),
-            feature_names=FEATURE_NAMES
+            feature_names=FEATURE_NAMES,
+            amplitude_history=amplitude_history,
         )
+
+    def _store_amplitudes(self, amplitudes):
+        """Store the latest amplitude profile in a circular history."""
+        if self._amplitude_history is None:
+            return
+        self._amplitude_history[self._amplitude_index] = amplitudes
+        self._amplitude_index = (self._amplitude_index + 1) % len(self._amplitude_history)
+        if self._amplitude_count < len(self._amplitude_history):
+            self._amplitude_count += 1
+
+    def _get_amplitude_history(self):
+        """Return amplitude history ordered from oldest to newest."""
+        if self._amplitude_history is None or self._amplitude_count == 0:
+            return None
+        if self._amplitude_count < len(self._amplitude_history):
+            return self._amplitude_history[:self._amplitude_count]
+        idx = self._amplitude_index
+        return self._amplitude_history[idx:] + self._amplitude_history[:idx]
     
     def get_state(self):
         """Get current motion state."""
@@ -305,6 +345,10 @@ class MLDetector(IDetector):
         self._state = MotionState.IDLE
         self._current_probability = 0.0
         self._motion_count = 0
+        if self._amplitude_history is not None:
+            self._amplitude_history = [None] * len(self._amplitude_history)
+        self._amplitude_index = 0
+        self._amplitude_count = 0
         self.probability_history = []
         self.state_history = []
     

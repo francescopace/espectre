@@ -21,6 +21,7 @@ from tools.lib.repo_paths import generated_data_dir, python_src_dir
 sys.path.insert(0, str(python_src_dir()))
 
 from config import DEFAULT_SUBCARRIERS
+import ml_detector as ml_detector_module
 from ml_detector import (
     relu, sigmoid, normalize_features, predict, is_motion,
     MLDetector, ML_DEFAULT_THRESHOLD, ML_METRIC_SCALE
@@ -31,6 +32,23 @@ from ml_weights import FEATURE_MEAN, FEATURE_NAMES
 
 
 MODEL_INPUT_SIZE = len(FEATURE_MEAN)
+
+
+def _make_band_profile(offset=0):
+    """Return a simple frequency-selective amplitude profile over model subcarriers."""
+    return {
+        sc: (20 + 3 * ((idx + offset) % 5))
+        for idx, sc in enumerate(DEFAULT_SUBCARRIERS)
+    }
+
+
+def _make_csi_payload(profile):
+    """Build a 64-subcarrier I/Q payload using the provided real amplitudes."""
+    csi = [0] * 128
+    for sc_idx, amplitude in profile.items():
+        csi[sc_idx * 2] = 0
+        csi[sc_idx * 2 + 1] = int(amplitude)
+    return csi
 
 
 class TestRelu:
@@ -187,6 +205,7 @@ class TestMLDetector:
     def test_initialization_defaults(self):
         """Test default initialization."""
         detector = MLDetector()
+        assert detector.ALGORITHM == "ml"
         assert detector._threshold == ML_DEFAULT_THRESHOLD
         assert detector._state == MotionState.IDLE
         assert detector._packet_count == 0
@@ -251,6 +270,18 @@ class TestMLDetector:
         """Initial motion metric is 0."""
         detector = MLDetector()
         assert detector.get_motion_metric() == 0.0
+
+    def test_update_state_exposes_common_motion_metric(self):
+        """Update state returns the common motion_metric alias."""
+        detector = MLDetector(window_size=5)
+        csi_data = [10, 10] * 64
+
+        for _ in range(6):
+            detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
+
+        metrics = detector.update_state()
+        assert 'motion_metric' in metrics
+        assert metrics['motion_metric'] == metrics['probability']
     
     def test_total_packets_initial(self):
         """Initial packet count is 0."""
@@ -377,6 +408,24 @@ class TestExtractFeaturesIntegration:
         
         assert len(features) == len(FEATURE_NAMES)
         assert all(isinstance(f, (int, float)) for f in features)
+
+    def test_extract_features_supports_l1_delta_runtime_path(self, monkeypatch):
+        """MLDetector keeps amplitude history when exported features require l1_delta."""
+        monkeypatch.setattr(ml_detector_module, "FEATURE_NAMES", ["l1_delta"])
+        detector = MLDetector(window_size=20)
+
+        quiet = _make_csi_payload(_make_band_profile(offset=0))
+        moved = _make_csi_payload(_make_band_profile(offset=2))
+
+        for _ in range(30):
+            detector.process_packet(quiet, DEFAULT_SUBCARRIERS)
+        for i in range(40):
+            detector.process_packet(moved if i % 3 == 0 else quiet, DEFAULT_SUBCARRIERS)
+
+        features = detector._extract_features()
+
+        assert len(features) == 1
+        assert features[0] > 0.0
 
 
 class TestMLDetectorMotionTracking:

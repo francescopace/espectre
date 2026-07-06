@@ -38,6 +38,11 @@ add_espectre_test(test_mvs_detector
     LIBRARIES espectre_core_testlib
 )
 
+add_espectre_test(test_l1_delta_detector
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_l1_delta_detector.cpp"
+    LIBRARIES espectre_core_testlib
+)
+
 add_espectre_test(test_ml_detector
     "${CMAKE_CURRENT_SOURCE_DIR}/core/test_ml_detector.cpp"
     LIBRARIES espectre_core_testlib

@@ -54,6 +54,8 @@ from config import (
     HAMPEL_WINDOW,
     HAMPEL_THRESHOLD,
 )
+from detector_interface import MotionState
+from l1_delta_detector import L1DeltaDetector
 
 
 # ============================================================================
@@ -313,6 +315,35 @@ def run_calibration(static_presence_packets, num_subcarriers, algorithm="fixed_d
         hint_band=hint_band,
         mvs_window_size=mvs_window_size,
     )
+
+
+def run_l1_delta_calibration(static_presence_packets, selected_band, window_size):
+    """
+    Run startup calibration for the L1-delta detector.
+
+    The calibration mirrors the runtime flow used by `collect`: observe the
+    detector over the startup packets, keep the max ready-state metric, and
+    scale it by the detector-specific startup factor.
+    """
+    detector = L1DeltaDetector(window_size=window_size, threshold=1.0)
+    max_metric = None
+    calibration_packets = min(CALIBRATION_BUFFER_SIZE, len(static_presence_packets))
+    startup_factor = float(getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.0))
+
+    for pkt in static_presence_packets[:calibration_packets]:
+        detector.process_packet(pkt["csi_data"], selected_band)
+        detector.update_state()
+        if not detector.is_ready():
+            continue
+        current_metric = float(detector.get_motion_metric())
+        if max_metric is None or current_metric > max_metric:
+            max_metric = current_metric
+
+    if max_metric is None:
+        adaptive_threshold = 1.0
+    else:
+        adaptive_threshold = max_metric * startup_factor
+    return adaptive_threshold
 
 
 class TestMVSDetectionRealData:
@@ -824,6 +855,106 @@ class TestPerformanceMetrics:
         # ========================================
         assert pkt_recall > recall_target, f"Recall too low: {pkt_recall:.1f}% (target: >{recall_target}%)"
         assert pkt_fp_rate < fp_rate_target, f"FP Rate too high: {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)"
+
+    def test_l1_delta_detection_accuracy(self, real_data, window_size, chip_type,
+                                         default_subcarriers, dataset_id):
+        """
+        Benchmark L1-delta motion detection accuracy with real CSI data.
+
+        This test is intentionally benchmark-oriented instead of a strict gate:
+        it records comparable packet metrics on every cleaned dataset using the
+        runtime startup calibration flow, but only asserts broad sanity bounds
+        so the suite remains useful for cross-dataset comparison.
+        """
+        static_presence_packets, motion_packets = real_data
+
+        adaptive_threshold = run_l1_delta_calibration(
+            static_presence_packets,
+            selected_band=default_subcarriers,
+            window_size=window_size,
+        )
+        detector = L1DeltaDetector(window_size=window_size, threshold=adaptive_threshold)
+
+        warmup = max(window_size, detector.lag)
+        baseline_eval_count = max(len(static_presence_packets) - warmup, 0)
+        movement_eval_count = max(len(motion_packets) - warmup, 0)
+        static_presence_motion_packets = 0
+        motion_with_motion = 0
+        motion_without_motion = 0
+
+        for i, pkt in enumerate(static_presence_packets):
+            detector.process_packet(pkt["csi_data"], default_subcarriers)
+            detector.update_state()
+            if i >= warmup and detector.get_state() == MotionState.MOTION:
+                static_presence_motion_packets += 1
+
+        for i, pkt in enumerate(motion_packets):
+            detector.process_packet(pkt["csi_data"], default_subcarriers)
+            detector.update_state()
+            if i >= warmup:
+                if detector.get_state() == MotionState.MOTION:
+                    motion_with_motion += 1
+                else:
+                    motion_without_motion += 1
+
+        pkt_tp = motion_with_motion
+        pkt_fn = motion_without_motion
+        pkt_tn = baseline_eval_count - static_presence_motion_packets if baseline_eval_count > 0 else 0
+        pkt_fp = static_presence_motion_packets
+
+        pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0
+        pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0
+        pkt_fp_rate = pkt_fp / baseline_eval_count * 100.0 if baseline_eval_count > 0 else 0
+        pkt_f1 = (
+            2 * (pkt_precision / 100) * (pkt_recall / 100) / ((pkt_precision + pkt_recall) / 100) * 100
+            if (pkt_precision + pkt_recall) > 0
+            else 0
+        )
+
+        print("\n")
+        print("=" * 70)
+        print("                 L1-DELTA DETECTION TEST SUMMARY")
+        print("=" * 70)
+        print(f"Dataset pair: {dataset_id}")
+        print(f"Subcarriers: {default_subcarriers}")
+        print(f"Threshold:   {adaptive_threshold:.6f}")
+        print(f"Warmup:      {warmup} packets")
+        print()
+        print(f"CONFUSION MATRIX ({baseline_eval_count} baseline + {movement_eval_count} movement packets):")
+        print("                    Predicted")
+        print("                IDLE      MOTION")
+        print(f"Actual IDLE     {pkt_tn:4d} (TN)  {pkt_fp:4d} (FP)")
+        print(f"    MOTION      {pkt_fn:4d} (FN)  {pkt_tp:4d} (TP)")
+        print()
+        print("MOTION DETECTION METRICS:")
+        print(f"  * Recall:     {pkt_recall:.1f}%")
+        print(f"  * Precision:  {pkt_precision:.1f}%")
+        print(f"  * FP Rate:    {pkt_fp_rate:.1f}%")
+        print(f"  * F1-Score:   {pkt_f1:.1f}%")
+        print()
+        print("=" * 70)
+
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent))
+        from conftest import record_performance
+        record_performance(
+            chip_type,
+            "l1_delta",
+            pkt_recall,
+            pkt_fp_rate,
+            pkt_precision,
+            pkt_f1,
+            dataset_id=dataset_id,
+        )
+
+        assert baseline_eval_count > 0
+        assert movement_eval_count > 0
+        assert 0.0 <= adaptive_threshold <= 10.0
+        assert 0.0 <= pkt_recall <= 100.0
+        assert 0.0 <= pkt_precision <= 100.0
+        assert 0.0 <= pkt_fp_rate <= 100.0
+        assert 0.0 <= pkt_f1 <= 100.0
 
     def test_ml_detection_accuracy(self, real_data, num_subcarriers, ml_fp_rate_target, ml_recall_target,
                                    chip_type, dataset_id):

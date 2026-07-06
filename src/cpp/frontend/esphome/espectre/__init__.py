@@ -114,10 +114,11 @@ CONFIG_SCHEMA = cv.Schema({
     # Traffic generator mode: ping (default) or dns
     cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default="ping"): cv.one_of("dns", "ping", lower=True),
     
-    # Detection algorithm: mvs (default) or ml
+    # Detection algorithm: mvs (default), l1_delta, or ml
     # MVS: Moving Variance Segmentation - adaptive threshold, general purpose
+    # L1_DELTA: Normalized profile displacement - adaptive threshold, more stable quiet level
     # ML: Machine Learning (MLP neural network) - higher accuracy, fixed subcarriers
-    cv.Optional(CONF_DETECTION_ALGORITHM, default="mvs"): cv.one_of("mvs", "ml", lower=True),
+    cv.Optional(CONF_DETECTION_ALGORITHM, default="mvs"): cv.one_of("mvs", "l1_delta", "ml", lower=True),
     cv.Optional(CONF_EVALUATION_INTERVAL, default=25): cv.int_range(min=1, max=1000),
     cv.Optional(CONF_MOTION_ON_HITS, default=3): cv.int_range(min=1, max=20),
     cv.Optional(CONF_MOTION_OFF_HITS, default=3): cv.int_range(min=1, max=20),

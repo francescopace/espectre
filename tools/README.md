@@ -211,6 +211,7 @@ The main repository workflow and this training stack target Python `3.14`.
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
 - Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms
 - Supports FP-first architecture campaigns, gain-shift diagnostics, and feature-importance analysis
+- Supports analysis-only feature-set experiments via drop, swap, and sweep helpers
 - Exports weights for both platforms:
   - `src/python/micro_espectre/ml_weights.py`
   - `src/cpp/core/ml_weights.h`
@@ -234,7 +235,21 @@ python 10_train_ml_model.py --gain-stress-gate --gain-stress-scales 0.75,1.0,1.2
 python 10_train_ml_model.py --gain-feature-experiment  # Compare raw/relative/hybrid gain robustness
 python 10_train_ml_model.py --shap         # SHAP importance (200 samples)
 python 10_train_ml_model.py --shap 500     # SHAP importance (500 samples)
+python 10_train_ml_model.py --feature-swap waveform_length_over_mean=l1_delta --no-export
+                                           # Replace one active feature with another for analysis
+python 10_train_ml_model.py --feature-sweep l1_delta --no-export
+                                           # Try one incoming feature in every slot of the active set
+python 10_train_ml_model.py --feature-drop waveform_length_over_mean,turb_skewness --no-export
+                                           # Train/evaluate after removing comma-separated features
 ```
+
+Feature-set experiment notes:
+
+- `--feature-set production` is the default; you can omit it unless you want a named alternative such as `robust_relative`
+- `--feature-swap OLD=NEW` replaces one active feature; repeat the flag to apply multiple swaps
+- `--feature-sweep FEATURE` evaluates the same incoming feature as a one-slot replacement for every feature in the selected set
+- `--feature-drop a,b,c` removes comma-separated features from the selected set before training
+- Non-production and modified feature sets are analysis-only for now; use `--no-export`, `--ablation`, `--shap`, `--correlation`, or `--feature-sweep`
 
 For the complete ML training workflow, promotion guidance, gain-stress
 diagnostics, and post-training regressions, see

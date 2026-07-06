@@ -12,6 +12,9 @@ License: GPLv3
 """
 import math
 
+# Match the detector path: compare normalized profiles 10 packets apart
+# (~100 ms at 100 pps).
+L1_DELTA_LAG = 10
 
 
 def calc_skewness(values, count, mean, std):
@@ -164,11 +167,100 @@ ROBUST_RELATIVE_FEATURES = [
     'turb_autocorr',
 ]
 
+# Experimental feature candidates that are not part of production defaults.
+EXPERIMENTAL_FEATURES = [
+    'l1_delta',
+]
+
 # Production feature set: gain-invariant turbulence-window statistics.
 DEFAULT_FEATURES = RELATIVE_FEATURES
 
+ALL_FEATURES = tuple(dict.fromkeys(
+    RAW_FEATURES + RELATIVE_FEATURES + ROBUST_RELATIVE_FEATURES + EXPERIMENTAL_FEATURES
+))
 
-def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, feature_names=None):
+
+def normalize_amplitude_profile_into(amplitudes, count, out):
+    """
+    Write the mean-normalized amplitude profile into ``out[:count]``.
+
+    Shared numeric core for the L1-delta detector and the ML feature path;
+    allocation-free so device hot paths can reuse pre-allocated buffers.
+
+    Returns:
+        int: Number of values written (0 when the profile is invalid).
+    """
+    if amplitudes is None or count < 2 or count > len(out):
+        return 0
+    total = 0.0
+    for i in range(count):
+        total += amplitudes[i]
+    if total <= 0.0:
+        return 0
+    mean = total / count
+    for i in range(count):
+        out[i] = amplitudes[i] / mean
+    return count
+
+
+def _normalize_amplitude_profile(amplitudes):
+    """Return a mean-normalized amplitude profile as a new list, or None if invalid."""
+    if amplitudes is None:
+        return None
+    count = len(amplitudes)
+    out = [0.0] * count
+    if normalize_amplitude_profile_into(amplitudes, count, out) == 0:
+        return None
+    return out
+
+
+def calc_l1_delta(amplitude_history, buffer_count, lag=L1_DELTA_LAG):
+    """
+    Calculate the L1 normalized profile displacement over a sliding window.
+
+    This matches the standalone `L1DeltaDetector` metric:
+    1. normalize each per-packet amplitude profile by its mean
+    2. compare each profile with the one `lag` packets earlier
+    3. average the mean absolute per-subcarrier displacement over the window
+    """
+    if amplitude_history is None:
+        return 0.0
+    n = min(int(buffer_count), len(amplitude_history))
+    if n < lag + 1:
+        return 0.0
+
+    normalized_profiles = [None] * n
+    for i in range(n):
+        normalized_profiles[i] = _normalize_amplitude_profile(amplitude_history[i])
+
+    delta_sum = 0.0
+    delta_count = 0
+    for i in range(lag, n):
+        current = normalized_profiles[i]
+        reference = normalized_profiles[i - lag]
+        if current is None or reference is None or len(current) != len(reference):
+            continue
+
+        total = 0.0
+        width = len(current)
+        for j in range(width):
+            diff = current[j] - reference[j]
+            total += diff if diff >= 0.0 else -diff
+        delta_sum += total / width
+        delta_count += 1
+
+    if delta_count == 0:
+        return 0.0
+    return delta_sum / delta_count
+
+
+def extract_features_by_name(
+    turbulence_buffer,
+    buffer_count,
+    amplitudes=None,
+    feature_names=None,
+    amplitude_history=None,
+):
     """Extract configured feature vector from turbulence buffer."""
     if feature_names is None:
         feature_names = DEFAULT_FEATURES
@@ -264,6 +356,8 @@ def extract_features_by_name(turbulence_buffer, buffer_count, amplitudes=None, f
             if waveform_length is None:
                 waveform_length = calc_waveform_length(turb_list, n)
             features.append(waveform_length / waveform_denom)
+        elif name == 'l1_delta':
+            features.append(calc_l1_delta(amplitude_history, n))
         else:
             raise ValueError(f"Unknown feature: {name}")
     return features

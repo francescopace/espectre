@@ -36,6 +36,8 @@ All notable changes to this project will be documented in this file.
   - MQTT OTA status surface and MQTT OTA command handling in ESPectre Protocol
   - firmware version reporting wired into frontend info/status paths
 
+- **New L1-Delta detector** (`l1_delta`), in both the Micro-ESPectre runtime and the shared C++ core: motion metric based on the mean L1 displacement of the per-packet normalized amplitude profile (lag 10, window 100). Selected by an offline benchmark of 9 candidate metrics over the repo datasets: it matches MVS aggregate quality with more uniform per-chip recall (S3: 95% vs 80% for MVS on the C++ validation datasets), a quiet level that varies <=1.3x across sessions (vs up to 14.5x for the MVS moving variance), and a ~20% lower per-packet cost thanks to an allocation-free O(1) running-mean evaluation with no Hampel sorting. Startup calibration reuses the shared flow with a detector-specific `auto` factor (`max x 1.1`). Selectable in the ESPHome frontend (`detection_algorithm: l1_delta`) and the Matter frontend (`ESPECTRE_MATTER_DETECTION_ALGORITHM_L1_DELTA`). See `docs/ALGORITHMS.md` and `docs/EXPERIMENTS.md`.
+- **Parallel multi-detector live collect**: `./espectre collect --detector` now accepts a comma-separated list (`mvs,l1_delta,ml`) and runs the detectors side by side, with independent per-detector startup calibration and one live status line per device and detector for direct A/B comparison.
 - **BLE-assisted Wi-Fi provisioning for the streamer firmware** via `tools/web/espectre-ble.html`
 - **Updated architecture documentation** in `docs/ARCHITECTURE.md`
 

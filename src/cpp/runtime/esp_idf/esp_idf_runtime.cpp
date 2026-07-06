@@ -183,15 +183,16 @@ bool EspIdfRuntime::configure_detector_() {
     config_.segmentation_threshold = ml_threshold;
     snapshot_.threshold = ml_threshold;
     ml_detector_ = MLDetector(config_.segmentation_window_size, ml_threshold);
-    ml_detector_.configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
-    ml_detector_.configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
     detector_ = &ml_detector_;
+  } else if (config_.detection_algorithm == DetectionAlgorithm::L1_DELTA) {
+    l1_delta_detector_ = L1DeltaDetector(config_.segmentation_window_size, config_.segmentation_threshold);
+    detector_ = &l1_delta_detector_;
   } else {
     mvs_detector_ = MVSDetector(config_.segmentation_window_size, config_.segmentation_threshold);
-    mvs_detector_.configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
-    mvs_detector_.configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
     detector_ = &mvs_detector_;
   }
+  detector_->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
+  detector_->configure_hampel(config_.hampel_enabled, config_.hampel_window, config_.hampel_threshold);
 
   if (detector_ == nullptr) {
     notify_fault_("Failed to configure detector");
@@ -286,10 +287,9 @@ bool EspIdfRuntime::start_calibration_() {
     listener_->on_calibration_started(snapshot_);
   }
 
-  threshold_calibration_detector_ = MVSDetector(config_.segmentation_window_size, MVS_DEFAULT_THRESHOLD);
-  threshold_calibration_detector_.configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);
-  threshold_calibration_detector_.configure_hampel(config_.hampel_enabled, config_.hampel_window,
-                                                   config_.hampel_threshold);
+  // Calibrate on the runtime detector itself (cold-cleared first), so the
+  // observed metric matches the configured algorithm. Mirrors the Python
+  // runtime calibration flow.
   threshold_calibration_max_mv_ = 0.0f;
   threshold_calibration_has_value_ = false;
   threshold_calibration_packets_ = 0;
@@ -298,22 +298,23 @@ bool EspIdfRuntime::start_calibration_() {
   csi_manager_.clear_detector_buffer();
   csi_manager_.set_packet_interceptor(
       [this](const int8_t *csi_data, size_t csi_len) { return handle_threshold_calibration_packet_(csi_data, csi_len); });
-  ESP_LOGI(RUNTIME_TAG, "Starting MVS threshold calibration with fixed subcarriers");
+  ESP_LOGI(RUNTIME_TAG, "Starting %s threshold calibration with fixed subcarriers",
+           detector_ != nullptr ? detector_->get_name() : "detector");
   return true;
 }
 
 bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len) {
-  if (!threshold_calibration_active_) {
+  if (!threshold_calibration_active_ || detector_ == nullptr) {
     return false;
   }
 
-  threshold_calibration_detector_.process_packet(csi_data, csi_len, snapshot_.fixed_subcarriers.data(),
-                                                 HT20_SELECTED_BAND_SIZE);
-  threshold_calibration_detector_.update_state();
-  if (threshold_calibration_detector_.is_ready()) {
+  detector_->process_packet(csi_data, csi_len, snapshot_.fixed_subcarriers.data(),
+                            HT20_SELECTED_BAND_SIZE);
+  detector_->update_state();
+  if (detector_->is_ready()) {
     threshold_calibration_has_value_ = true;
     threshold_calibration_max_mv_ =
-        std::max(threshold_calibration_max_mv_, threshold_calibration_detector_.get_motion_metric());
+        std::max(threshold_calibration_max_mv_, detector_->get_motion_metric());
   }
 
   threshold_calibration_packets_++;
@@ -332,13 +333,15 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
     float adaptive_threshold = 0.0f;
     const ThresholdMode adaptive_mode =
         (config_.threshold_mode == ThresholdMode::MANUAL) ? ThresholdMode::AUTO : config_.threshold_mode;
-    adaptive_threshold = threshold_calibration_max_mv_ * get_threshold_factor(adaptive_mode);
+    const float auto_factor =
+        detector_ != nullptr ? detector_->get_startup_threshold_factor() : DEFAULT_ADAPTIVE_FACTOR;
+    const float factor = get_threshold_factor(adaptive_mode, auto_factor);
+    adaptive_threshold = threshold_calibration_max_mv_ * factor;
     snapshot_.startup_threshold = adaptive_threshold;
 
     if (config_.threshold_mode != ThresholdMode::MANUAL) {
       set_threshold_runtime(adaptive_threshold);
-      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (max x %.1f)", adaptive_threshold,
-               get_threshold_factor(adaptive_mode));
+      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (max x %.1f)", adaptive_threshold, factor);
     }
     csi_manager_.clear_detector_buffer();
   }

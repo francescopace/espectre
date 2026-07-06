@@ -98,6 +98,7 @@ class MockSegmentation:
 
 class MockDetector:
     """Mock IDetector implementation for testing"""
+    ALGORITHM = "mvs"
     
     def __init__(self):
         self._threshold = 1.0
@@ -219,6 +220,7 @@ class TestMQTTHandler:
         assert payload['motion_state'] == 'idle'
         assert payload['movement_score'] == 0.5
         assert payload['threshold'] == 1.0
+        assert payload['detector'] == 'MVS'
         assert payload['health']['uptime_s'] >= 0
         assert 'packets_processed' not in payload
         assert 'packets_dropped' not in payload
@@ -243,6 +245,7 @@ class TestMQTTHandler:
         assert payload['motion_state'] == 'motion'
         assert payload['movement_score'] == 5.0
         assert payload['threshold'] == 1.0
+        assert payload['detector'] == 'MVS'
    
     def test_publish_state_error_handling(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test error handling during publish"""
@@ -597,6 +600,7 @@ class TestMQTTCommands:
         assert payload['network']['ip_address'] == '192.168.1.100'
         assert payload['network']['mac_address'] == '12:34:56:78:9A:BC'
         assert payload['network']['channel']['primary'] == 6
+        assert payload['detection']['algorithm'] == 'MVS'
     
     def test_cmd_info_with_inactive_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_global_state):
         """Test info command with inactive WLAN"""
@@ -625,3 +629,32 @@ class TestMQTTCommands:
         assert payload['device_name'] == 'ESPectre C6 device'
         assert payload['network']['ip_address'] == ''
         assert payload['network']['mac_address'] == ''
+        assert payload['detection']['algorithm'] == 'MVS'
+
+    def test_cmd_info_uses_l1_delta_name_label(self, mock_mqtt_client_instance, mock_config, mock_wlan, mock_global_state):
+        """Test info command reports the get_name() label for L1-delta (C++ wire parity)."""
+        from mqtt.commands import MQTTCommands
+
+        class MockL1Detector(MockDetector):
+            ALGORITHM = "l1_delta"
+
+            def get_name(self):
+                return "L1D"
+
+        commands = MQTTCommands(
+            mock_mqtt_client_instance,
+            mock_config,
+            MockL1Detector(),
+            "test/espectre/devices/test-device/commands/accepted",
+            "test/espectre/devices/test-device/commands/rejected",
+            "test/espectre/devices/test-device/info",
+            "test/espectre/devices/test-device/stats",
+            mock_wlan,
+            mock_global_state
+        )
+
+        commands.cmd_info()
+
+        call_args = mock_mqtt_client_instance.publish.call_args
+        payload = json.loads(call_args[0][1])
+        assert payload['detection']['algorithm'] == 'L1D'

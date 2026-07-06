@@ -65,6 +65,7 @@ def format_targets_summary_line():
     return (
         "Targets: "
         f"MVS >{get_mvs_recall_target():.0f}% R, <{get_mvs_fp_rate_target():.1f}% FP | "
+        "L1D benchmark-only | "
         f"ML >{get_ml_recall_target():.0f}% R, <{get_ml_fp_rate_target():.1f}% FP"
     )
 
@@ -492,7 +493,7 @@ def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
     
     Args:
         chip: Chip type (C3, C5, C6, ESP32, S3)
-        algorithm: Algorithm name (mvs, ml)
+        algorithm: Algorithm name (mvs, l1_delta, ml)
         recall: Recall percentage
         fp_rate: False positive rate percentage
         precision: Precision percentage
@@ -567,8 +568,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line("                              PERFORMANCE SUMMARY TABLE (Python)")
     terminalreporter.write_line("=" * 105)
     terminalreporter.write_line("")
-    terminalreporter.write_line("| Chip   | Datasets | MVS                     | ML                      |")
-    terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|")
+    terminalreporter.write_line("| Chip   | Datasets | MVS                     | L1D                     | ML                      |")
+    terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|-------------------------|")
     
     # Sort chips for consistent output
     for chip in ['C3', 'C5', 'C6', 'ESP32', 'S3']:
@@ -586,6 +587,12 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             mvs_str = f"{mvs['recall']:.1f}% R, {mvs['fp_rate']:.1f}% FP"
         else:
             mvs_str = "N/A"
+
+        if 'l1_delta' in chip_results:
+            l1_delta = average_metrics(chip_results['l1_delta'])
+            l1_delta_str = f"{l1_delta['recall']:.1f}% R, {l1_delta['fp_rate']:.1f}% FP"
+        else:
+            l1_delta_str = "N/A"
         
         # ML
         if 'ml' in chip_results:
@@ -595,7 +602,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             ml_str = "N/A"
         
         terminalreporter.write_line(
-            f"| {chip:<6} | {dataset_count:>8} | {mvs_str:<23} | {ml_str:<23} |"
+            f"| {chip:<6} | {dataset_count:>8} | {mvs_str:<23} | {l1_delta_str:<23} | {ml_str:<23} |"
         )
     
     terminalreporter.write_line("")
@@ -620,6 +627,12 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             mvs = average_metrics(chip_results['mvs'])
             terminalreporter.write_line(
                 f"| {chip:<6} | {'MVS':<11} | {mvs['count']:>8} | {mvs['recall']:>6.1f}% | {mvs.get('precision', 0):>8.1f}% | {mvs['fp_rate']:>6.1f}% | {mvs.get('f1', 0):>7.1f}% |"
+            )
+
+        if 'l1_delta' in chip_results:
+            l1_delta = average_metrics(chip_results['l1_delta'])
+            terminalreporter.write_line(
+                f"| {chip:<6} | {'L1_DELTA':<11} | {l1_delta['count']:>8} | {l1_delta['recall']:>6.1f}% | {l1_delta.get('precision', 0):>8.1f}% | {l1_delta['fp_rate']:>6.1f}% | {l1_delta.get('f1', 0):>7.1f}% |"
             )
 
         if 'ml' in chip_results:
