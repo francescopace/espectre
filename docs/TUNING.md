@@ -2,7 +2,7 @@
 
 Quick guide to tune ESPectre for reliable movement detection in your environment.
 
-> **Note on Detection Algorithms**: This guide focuses on **MVS** (the default detection algorithm). Filters (low-pass, Hampel) apply to both MVS and ML detectors. The **L1-Delta** detector shares the same threshold-bootstrap tuning model with an `auto` factor of `max x 1.1`; its quiet metric intentionally sits close to the threshold (85-95%) because the metric is much more stable than the MVS moving variance. See [ALGORITHMS.md](ALGORITHMS.md).
+> **Note on Detection Algorithms**: This guide focuses on **MVS** (the default detection algorithm). The turbulence-path filters described below apply to the `mvs` and `ml` paths; `l1_delta` shares the same threshold-bootstrap tuning model with an `auto` factor of `max x 1.1`, but does not use the Hampel path and intentionally keeps its quiet metric close to threshold (85-95%) because that metric is much more stable than the MVS moving variance. See [ALGORITHMS.md](ALGORITHMS.md).
 >
 > **Frontend scope**: This guide is written as a shared tuning reference first. When a workflow differs by frontend, the text calls that out explicitly instead of treating one frontend as the universal path.
 >
@@ -12,7 +12,7 @@ Quick guide to tune ESPectre for reliable movement detection in your environment
 
 ## Quick Start (5 minutes)
 
-> **Note on Subcarrier Selection**: ESPectre now uses one shared fixed 12-subcarrier set for both MVS and ML. Only the threshold bootstrap differs between detectors.
+> **Note on Subcarrier Selection**: ESPectre now uses one shared fixed 12-subcarrier set across `mvs`, `l1_delta`, and `ml`. Only the detector-specific metric and threshold/bootstrap behavior differ.
 
 ### 1. Flash and Boot
 
@@ -90,13 +90,15 @@ For example:
 
 ## Understanding Parameters
 
-> The following parameters apply to the MVS detection algorithm.
+> The following parameters focus on the startup-calibrated detector paths. The
+> numeric guidance is MVS-first; `l1_delta` uses the same controls but a lower
+> `auto` factor (`max x 1.1` instead of `max x 1.3`).
 
 ### Segmentation Threshold
 
-**What it does:** Determines sensitivity for motion detection (MVS only).
+**What it does:** Determines sensitivity for motion detection in the startup-calibrated detector paths (`mvs`, `l1_delta`).
 
-**Default:** `auto` (adaptive threshold, minimizes false positives)
+**Default:** `auto` (adaptive threshold; `max x 1.3` in `mvs`, `max x 1.1` in `l1_delta`)
 
 | Value | Sensitivity | Use Case |
 |-------|-------------|----------|
@@ -290,6 +292,13 @@ espectre:
 |------|---------|-------------|
 | `auto` (default) | max x 1.3 | Minimizes false positives |
 | `min` | max x 1.0 | Maximum sensitivity |
+
+In `l1_delta` mode the same formula is applied to the window accepted by the
+calibration consistency gate: if movement contaminated the startup window,
+calibration extends chunk by chunk (up to ~20 extra seconds at 100 pps) until
+the metric is consistently quiet, instead of locking in an inflated
+threshold. The extension is logged; no tuning is required. See
+[ALGORITHMS.md](ALGORITHMS.md) for the gate details.
 
 **Note:** The subcarrier set is fixed. Only the threshold calculation varies.
 
@@ -532,6 +541,8 @@ is too sparse, or the sensor is placed too close to the access point.
 2. **Keep the room quiet during startup**:
    - avoid movement in the monitored area
    - wait for calibration/readiness to complete before evaluating motion quality
+   - in `l1_delta` mode, movement during startup extends calibration
+     automatically; let it settle instead of restarting the device
 
 3. **Verify CSI packet flow and stimulus configuration**:
    - keep `traffic_generator_rate` above `0` on integrated frontends
@@ -579,9 +590,9 @@ is too sparse, or the sensor is placed too close to the access point.
 2. **Avoid DFS channels:** Channels 52-144 (5GHz DFS) may switch unexpectedly due to radar detection
 3. **Check for interference:** Nearby networks on the same channel can cause instability
 
-### Runtime Recalibration (MVS only)
+### Runtime Recalibration (`mvs` and `l1_delta`)
 
-**When needed:** Recompute the adaptive threshold without reflashing (e.g., after moving furniture or changing room layout). This applies only to MVS mode; ML keeps its fixed threshold.
+**When needed:** Recompute the adaptive threshold without reflashing (e.g., after moving furniture or changing room layout). This applies to the startup-calibrated detector modes `mvs` and `l1_delta`; `ml` keeps its fixed threshold.
 
 Use the recalibration control exposed by your frontend, when available.
 
@@ -603,9 +614,9 @@ Examples:
 [I][espectre]: Calibration completed successfully
 ```
 
-### Reset Calibration (MVS only)
+### Reset Calibration (`mvs` and `l1_delta`)
 
-**When needed:** Start completely fresh and recompute the adaptive threshold from a quiet baseline. This applies only to MVS mode.
+**When needed:** Start completely fresh and recompute the adaptive threshold from a quiet baseline. This applies to the startup-calibrated detector modes `mvs` and `l1_delta`.
 
 **How to reset:**
 

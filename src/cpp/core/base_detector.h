@@ -160,6 +160,14 @@ public:
      * runtime's detector STARTUP_THRESHOLD_FACTOR convention.
      */
     virtual float get_startup_threshold_factor() const { return 1.3f; }
+
+    /**
+     * Whether startup calibration uses the consistency gate (threshold.h)
+     *
+     * Enabled only for detectors with a tight quiet floor (l1_delta).
+     * Matches the Python runtime's detector STARTUP_GATE convention.
+     */
+    virtual bool startup_gate_enabled() const { return false; }
     
     // ========================================================================
     // FILTER CONFIGURATION

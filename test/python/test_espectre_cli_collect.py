@@ -155,9 +155,10 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
             pass
 
     class FakeStartupThresholdCalibrator:
-        def __init__(self, target_packets, auto_factor=1.3):
+        def __init__(self, target_packets, auto_factor=1.3, gate_enabled=False):
             self.target_packets = int(target_packets)
             self.auto_factor = float(auto_factor)
+            self.gate_enabled = bool(gate_enabled)
             self.packet_count = 0
             self.max_moving_variance = None
 
@@ -172,6 +173,9 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
 
         def is_complete(self):
             return self.packet_count >= self.target_packets
+
+        def is_extending(self):
+            return False
 
         def is_successful(self):
             return self.max_moving_variance is not None
@@ -191,6 +195,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, stimulus_cls, colle
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
     fake_threshold.get_detector_auto_factor = lambda detector: getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.3)
+    fake_threshold.get_detector_startup_gate = lambda detector: bool(getattr(detector, "STARTUP_GATE", False))
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)
@@ -1387,9 +1392,10 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     calibration_calls = []
 
     class FakeStartupThresholdCalibrator:
-        def __init__(self, target_packets, auto_factor=1.3):
+        def __init__(self, target_packets, auto_factor=1.3, gate_enabled=False):
             self.target_packets = int(target_packets)
             self.auto_factor = float(auto_factor)
+            self.gate_enabled = bool(gate_enabled)
             self.packet_count = 0
             self.max_moving_variance = None
 
@@ -1404,6 +1410,9 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
 
         def is_complete(self):
             return self.packet_count >= self.target_packets
+
+        def is_extending(self):
+            return False
 
         def is_successful(self):
             return self.max_moving_variance is not None
@@ -1424,6 +1433,7 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
     fake_threshold.StartupThresholdCalibrator = FakeStartupThresholdCalibrator
     fake_threshold.get_detector_auto_factor = lambda detector: getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.3)
+    fake_threshold.get_detector_startup_gate = lambda detector: bool(getattr(detector, "STARTUP_GATE", False))
 
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setitem(sys.modules, "config", fake_config)

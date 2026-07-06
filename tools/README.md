@@ -337,7 +337,7 @@ Tested on 60-second noisy static-presence capture with C6 chip:
 
 ### Fixed Subcarriers
 
-ESPectre now uses one shared fixed 12-subcarrier set for both MVS and ML. The runtime calibration step tunes only the MVS threshold from baseline data.
+ESPectre now uses one shared fixed 12-subcarrier set across `mvs`, `l1_delta`, and `ml`. The startup-calibrated runtime paths tune detector-specific thresholds from baseline data.
 
 For detailed performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 
@@ -345,6 +345,6 @@ For detailed performance metrics, see [PERFORMANCE.md](../docs/PERFORMANCE.md).
 
 ## Additional Resources
 
-- [ALGORITHMS.md](../docs/ALGORITHMS.md) - Algorithm documentation (MVS, fixed subcarriers, Hampel)
+- [ALGORITHMS.md](../docs/ALGORITHMS.md) - Algorithm documentation (MVS, L1-Delta, fixed subcarriers, Hampel)
 - [Micro-ESPectre](../src/python/micro_espectre/README.md) - R&D platform documentation
 - [ESPectre](../README.md) - Main project with Home Assistant integration

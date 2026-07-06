@@ -104,6 +104,7 @@ control is exposed separately through the entities below:
 | Algorithm | Summary | Shared behavior |
 |-----------|---------|-----------------|
 | `mvs` | Moving-variance detector | Adaptive startup threshold bootstrap |
+| `l1_delta` | Normalized profile-displacement detector | Adaptive startup threshold bootstrap with a lower `auto` factor |
 | `ml` | Neural-network detector | Faster boot, no threshold bootstrap |
 
 ```yaml
@@ -261,17 +262,18 @@ For rate recommendations, airtime tradeoffs, and placement guidance, see
 
 ## Startup Calibration
 
-In `MVS` mode, keep the room quiet after boot so the runtime can complete the
-startup threshold bootstrap.
+In `MVS` and `L1-Delta` mode, keep the room quiet after boot so the runtime can
+complete the startup threshold bootstrap.
 
 Startup behavior:
 
-1. AGC-active startup with normalized turbulence
-2. adaptive threshold bootstrap for `MVS`
+1. AGC-active startup with detector-specific normalized metrics
+2. adaptive threshold bootstrap for `mvs` or `l1_delta`
 3. normal motion detection loop
 
-With the default `segmentation_window_size: 100`, MVS collects `1000` packets
-for the startup baseline. `ML` skips this threshold bootstrap.
+With the default `segmentation_window_size: 100`, both startup-calibrated
+detectors collect `1000` packets for the startup baseline. `ML` skips this
+threshold bootstrap.
 
 Runtime recalibration is exposed as the `calibrate_switch` entity in Home
 Assistant.
@@ -357,7 +359,7 @@ The frontend itself does not require a custom partition table.
 
 1. Verify Wi-Fi is connected
 2. Verify traffic generation is active, or provide external traffic
-3. Wait for startup calibration to complete in `MVS`
+3. Wait for startup calibration to complete in `mvs` or `l1_delta`
 4. Lower `segmentation_threshold` if the detector is too conservative
 
 ### False positives

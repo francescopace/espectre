@@ -96,6 +96,7 @@ def test_not_ready_until_window_full():
 def test_startup_threshold_factor_and_adaptive_clamp():
     detector = L1DeltaDetector()
     assert L1DeltaDetector.STARTUP_THRESHOLD_FACTOR == 1.1
+    assert L1DeltaDetector.STARTUP_GATE is True
 
     detector.set_adaptive_threshold(0.0)
     assert detector.get_threshold() == 1e-6

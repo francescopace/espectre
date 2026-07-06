@@ -22,7 +22,8 @@ The goal is to preserve design history in one place without turning
 | 2026-07-04 | Multi-device sync and phase research | Active research note | `stimulus_id` and reference metadata remain useful for future multi-device experiments. |
 | 2026-07-05 | MVS startup-threshold and online adaptation sweep | Active research note | `max x 1.3` remains the safest global baseline; online threshold tracking helps some chips, but not all. |
 | 2026-07-05 | Motion-feature benchmark and L1-Delta promotion | Promoted to Micro-ESPectre runtime candidate | L1 profile displacement matches MVS quality with a far more stable quiet level; no candidate supports a fixed factory threshold. |
-| 2026-07-06 | L1-Delta startup-threshold and online recovery sweep | Active research note | Clean data still favor static `max x 1.1`, but startup-spike recovery is real; the best no-buffer candidate is a conservative decaying-peak tracker. |
+| 2026-07-06 | L1-Delta startup-threshold and online recovery sweep | Superseded by the contaminated-calibration gate sweep | Clean data still favor static `max x 1.1`, but startup-spike recovery is real; the best no-buffer candidate is a conservative decaying-peak tracker. |
+| 2026-07-06 | L1-Delta contaminated-calibration gate and extension sweep | Promoted to runtime (Python and C++) | A floor-anchored rolling-chunk consistency gate with calibration extension keeps F1 >= 94.3% from clean startup up to 100% contaminated startup. |
 | 2026-07-06 | Clean relative-8 refresh and L1-Delta ML feature check | Active ML baseline candidate | Removing `waveform_length_over_mean` improved the Python ML baseline; `l1_delta` remained useful as a standalone detector, but not as a winning MLP feature. |
 
 ## Current Superseding Events
@@ -536,6 +537,120 @@ useful gates are:
    peak actually repairs threshold overshoot in a live deployment
 3. S3-specific live side-by-side, because that chip remains the strongest
    cross-session false-positive risk
+
+---
+
+### L1-Delta Contaminated-Calibration Gate And Extension Sweep
+
+Date: 2026-07-06
+
+Status: Promoted to the Micro-ESPectre and shared C++ runtimes; supersedes
+the startup-threshold and online recovery sweep decision above.
+
+#### Goal
+
+Pick the final `l1_delta` startup-threshold policy for deployments where the
+quiet-room calibration cannot be guaranteed, closing the open question from
+the same-day startup-threshold and online recovery sweep.
+
+#### What Changed Versus The Previous Sweep
+
+Contamination was made realistic: calibration packets were replaced with real
+motion packets from the paired motion capture instead of milder synthetic
+perturbations. Under real-motion contamination the static policy collapses
+much harder than previously measured, because the calibration max lands at
+motion level and recall fails closed:
+
+- `static max x 1.1`: F1 `51.5%` at tail 10%, `24.7%` at tail 20%, `3.4%` at
+  tail 100% (motion during the entire calibration)
+
+Scenario set: clean, tail contamination at 5/10/15/20/30/40/60/100% of the
+1000-packet calibration window, mid-window blocks at 10/20%, and sparse 10%.
+All 11 explicit 64-subcarrier pairs (C3/C5/C6/S3) were evaluated with
+production semantics (ready-state metric, `max(calibration) x 1.1`,
+continuous baseline -> motion pass). Clean-startup tightness reproduced the
+previous note exactly (median `max/p99` `1.0079`, worst `1.0415`).
+
+#### Winner: Rolling-Chunk Consistency Gate With Calibration Extension
+
+Device state cost is `k + 2` floats; no metric buffer:
+
+1. group ready-state calibration metrics into `k = 6` chunks (~150 samples);
+   keep a ring of per-chunk maxima and the minimum chunk max ever observed
+2. accept calibration only when both hold:
+   - spread gate: `max(ring) <= 1.10 x median(ring)`
+   - floor anchor: `median(ring) <= 1.5 x min_chunk_ever`
+3. on rejection, keep calibrating one chunk at a time (ring slides), up to
+   +2000 packets; on budget exhaustion fall back to `median(ring) x 1.1`
+4. on acceptance, threshold = `max(ring) x 1.1` — the unchanged production
+   formula applied to the accepted window
+
+The floor anchor is what fixes majority-homogeneous contamination (tail 60%),
+where a spread-only gate accepts a motion-level ring as "consistent"
+(F1 `80-86%` without the anchor).
+
+#### Results
+
+Aggregate over all 11 pairs (`gate` = `k6`, ratio `1.10`, anchor `1.5`):
+
+| Scenario | `static max x 1.1` F1 | Gate F1 | Gate FP | Gate avg extension |
+|----------|----------------------|---------|---------|--------------------|
+| clean | 94.23% | 94.29% | 2.42% | 256 pkts (2/11 sessions) |
+| tail 5% | 81.18% | 94.38% | 2.68% | 915 pkts |
+| tail 10% | 51.47% | 94.90% | 2.17% | 1292 pkts |
+| tail 20% | 24.68% | 94.90% | 2.17% | 1292 pkts |
+| tail 40% | 11.53% | 94.90% | 2.17% | 1292 pkts |
+| tail 60% | 10.74% | 94.90% | 2.17% | 1292 pkts |
+| tail 100% | 3.39% | 94.90% | 2.17% | 1292 pkts |
+| mid 20% | 22.42% | 95.12% | 1.87% | 807 pkts |
+| sparse 10% | 94.82% | 94.75% | 2.09% | 215 pkts |
+
+Properties worth keeping in mind:
+
+- on 9/11 clean sessions the gate never fires and the threshold is identical
+  to production `static max x 1.1`; the clean cost is ~2.6 s of average extra
+  calibration and `+0.10%` quiet FP overall
+- recovery is contamination-agnostic: the extension simply slides to the
+  first self-consistent window, so tail 10% and tail 100% converge to the
+  same threshold
+- bounded worst case: contamination homogeneous and mild enough to pass both
+  gates can inflate the threshold by at most ~`anchor x factor` (~1.65x the
+  quiet max), versus unbounded inflation for static `max` (6x observed)
+
+#### Rejected In This Sweep
+
+- startup quantiles (`p95`, `p98`) and chunk-median-only thresholds: pay
+  quiet FP on clean sessions (up to `6.1%`) and still fail from tail 40% up
+- decaying-peak online recovery (both `peak9980_safe70_floor85` and
+  `peak9995_safe60_floor90`): the safety floors cap repair at 10-15%, so
+  recall never recovers under real-motion contamination (F1 `62.6%` at
+  tail 10%, `21.9%` at tail 100% for the conservative line); superseded as a
+  startup-repair mechanism (unchanged as a possible future drift tracker)
+- spread-only gate without the floor anchor: accepts homogeneous majority
+  contamination (tail 60%)
+- `k = 8` with ratio `1.15` variants: dominated by the `k6` anchored gate
+
+#### Decision
+
+Promote the floor-anchored rolling-chunk gate with calibration extension as
+the `l1_delta` startup-threshold policy:
+
+- parameters: `k = 6` chunks, spread ratio `1.10`, floor anchor `1.5`,
+  extension cap +2000 packets, fallback `median(ring) x 1.1`
+- the threshold formula stays `max x 1.1` on the accepted window; no online
+  threshold adaptation is promoted
+- MVS keeps `max x 1.3` unchanged: its quiet floor is far less tight (up to
+  14.5x cross-session), so this gate is not validated for MVS and would need
+  its own sweep
+
+#### Follow-Up
+
+The gate is implemented in `StartupThresholdCalibrator` on both sides
+(`src/python/micro_espectre/threshold.py`, `src/cpp/core/threshold.h`), with
+an `EXTENDING` status surfaced during extension. Remaining live gates:
+
+1. one deliberately noisy live startup session to confirm on-device recovery
+2. long quiet runs on S3, still the strongest cross-session FP risk
 
 ---
 

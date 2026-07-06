@@ -93,6 +93,7 @@ void test_l1_delta_detector_startup_threshold_factor(void) {
     TEST_ASSERT_EQUAL_FLOAT(1.1f, detector.get_startup_threshold_factor());
     TEST_ASSERT_EQUAL_FLOAT(L1_DELTA_STARTUP_THRESHOLD_FACTOR,
                             detector.get_startup_threshold_factor());
+    TEST_ASSERT_TRUE(detector.startup_gate_enabled());
 }
 
 // ============================================================================

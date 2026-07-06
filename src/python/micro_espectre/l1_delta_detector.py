@@ -46,13 +46,20 @@ class L1DeltaDetector(IDetector):
 
     The startup threshold uses the shared calibration flow
     (max metric during calibration x factor); the benchmark-tuned factor
-    for this metric is STARTUP_THRESHOLD_FACTOR.
+    for this metric is STARTUP_THRESHOLD_FACTOR. The tight quiet floor of
+    this metric also enables the calibration consistency gate in
+    threshold.py, which extends a contaminated startup window instead of
+    accepting a movement-inflated max.
     """
     ALGORITHM = "l1_delta"
 
     # Startup calibration multiplier (benchmark-tuned for this metric;
     # MVS uses the threshold.py "auto" factor instead).
     STARTUP_THRESHOLD_FACTOR = 1.1
+
+    # Opt into the startup consistency gate (threshold.py); validated for
+    # this metric only, not for MVS moving variance.
+    STARTUP_GATE = True
 
     def __init__(self,
                  window_size=100,

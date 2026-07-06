@@ -27,13 +27,14 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 | `test_core_helpers` | Core | Unit | Synthetic | Core helper edge cases, thresholds, move semantics |
 | `test_hampel_filter` | Core | Unit | **Real** | Outlier removal filter |
 | `test_mvs_detector` | Core | Unit | **Real** | MVS algorithm, threshold, filters, state machine, lowpass |
+| `test_l1_delta_detector` | Core | Unit | **Real** | L1-Delta algorithm, threshold bootstrap behavior, and state machine |
 | `test_ml_detector` | Core | Unit | **Real** | ML detector, feature extraction, inference |
 | `test_traffic_generator` | Runtime | Unit | Synthetic | Error handling, rate limiting, adaptive backoff |
 | `test_runtime_helpers` | Runtime | Unit | Synthetic | Gain controller and WiFi CSI helper behavior |
 | `test_wifi_lifecycle` | Runtime | Unit | Synthetic | WiFi init policy, handler registration, cleanup paths |
 | `test_csi_manager` | Runtime | Unit | Synthetic | CSIManager API, enable/disable, callbacks |
-| `test_motion_detection` | Integration | Integration | **Real** | MVS/ML performance with the fixed-subcarrier runtime |
-| `test_long_recordings` | Integration | Integration | **Real** | Long-recording diagnostics for MVS fixed-subcarrier runtime and ML |
+| `test_motion_detection` | Integration | Integration | **Real** | MVS/L1-Delta/ML performance with the fixed-subcarrier runtime |
+| `test_long_recordings` | Integration | Integration | **Real** | Long-recording diagnostics for the fixed-subcarrier runtime detector paths |
 | `test_sensor_publisher` | Frontend | Unit | Synthetic | ESPHome sensor publishing and status logging |
 | `test_frontend_controls` | Frontend | Unit | Synthetic | ESPHome threshold number, calibrate switch, frontend runtime shim |
 | `test_matter_frontend` | Frontend | Unit | Synthetic | Matter adapter lifecycle, event mapping, threshold/recalibration controls |

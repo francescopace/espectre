@@ -88,6 +88,9 @@ public:
     float get_threshold() const override { return threshold_; }
     const char* get_name() const override { return "L1D"; }
     float get_startup_threshold_factor() const override { return L1_DELTA_STARTUP_THRESHOLD_FACTOR; }
+    // The tight quiet floor of this metric enables the startup consistency
+    // gate (threshold.h); validated for this metric only, not for MVS.
+    bool startup_gate_enabled() const override { return true; }
 
 private:
     void clear_l1_state_();

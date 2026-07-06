@@ -246,11 +246,16 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     print(f'Free memory: {gc.mem_free()} bytes')
     print('Please remain still for calibration...')
 
-    from src.threshold import StartupThresholdCalibrator, get_detector_auto_factor
+    from src.threshold import (
+        StartupThresholdCalibrator,
+        get_detector_auto_factor,
+        get_detector_startup_gate,
+    )
 
     calibration_tracker = StartupThresholdCalibrator(
         config.CALIBRATION_BUFFER_SIZE,
         auto_factor=get_detector_auto_factor(detector),
+        gate_enabled=get_detector_startup_gate(detector),
     )
 
     print('')
@@ -267,6 +272,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
     last_progress_count = 0
     collapse_logged = False
     remap_logged = False
+    extending_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     frame_result = None
     
@@ -299,6 +305,11 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
             calibration_tracker.observe_detector(detector)
             timeout_counter = 0  # Reset timeout on successful read
 
+            if not extending_logged and calibration_tracker.is_extending():
+                print('[INFO] Calibration window not consistent (movement during '
+                      'calibration?); extending until the room is quiet...')
+                extending_logged = True
+
             calibration_progress = calibration_tracker.packet_count
             if calibration_progress % 100 == 0:
                 current_time = time.ticks_ms()
@@ -310,11 +321,15 @@ def run_startup_calibration(wlan, detector, traffic_gen, chip_type=None, restart
                 current_mv = detector.get_motion_metric() if detector.is_ready() else None
                 print(
                     format_calibration_status_line(
-                        progress=calibration_progress / config.CALIBRATION_BUFFER_SIZE,
+                        progress=min(1.0, calibration_progress / config.CALIBRATION_BUFFER_SIZE),
                         pps=pps,
                         motion_metric=current_mv,
                         calibration_packets=calibration_progress,
                         calibration_target_packets=config.CALIBRATION_BUFFER_SIZE,
+                        effective_state_label=(
+                            "EXTENDING" if calibration_tracker.is_extending()
+                            else "CALIBRATING"
+                        ),
                     )
                     + f" | TG:{tg_pps} drop:{dropped}"
                 )

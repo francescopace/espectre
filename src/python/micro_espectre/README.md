@@ -127,7 +127,7 @@ Do not commit `config_local.py`.
 Micro-ESPectre follows the same detector direction as the C++ platform:
 
 ```text
-Boot -> AGC-active startup -> MVS threshold bootstrap or ML startup -> Detection Loop
+Boot -> AGC-active startup -> MVS/L1-Delta threshold bootstrap or ML startup -> Detection Loop
 ```
 
 ### Detection Algorithms
@@ -156,7 +156,10 @@ In startup-calibrated modes, `SEG_THRESHOLD = "auto"` means startup threshold =
 - `l1_delta`: `x 1.1`
 
 Keep the room quiet after boot in `mvs` and `l1_delta` mode while threshold
-bootstrap runs.
+bootstrap runs. In `l1_delta` mode, a calibration consistency gate detects a
+contaminated startup window and extends calibration automatically (status
+`EXTENDING`) until the room is consistently quiet, up to about 20 extra
+seconds; see `docs/ALGORITHMS.md`.
 
 ### Filters
 

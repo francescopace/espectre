@@ -94,7 +94,7 @@ When adding a notebook:
 
 ## Related Resources
 
-- [ALGORITHMS.md](../docs/ALGORITHMS.md) — Algorithm documentation (MVS, fixed subcarriers, ML features)
+- [ALGORITHMS.md](../docs/ALGORITHMS.md) — Algorithm documentation (MVS, L1-Delta, fixed subcarriers, ML features)
 - [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md) — How to collect labeled CSI datasets
 - [tools/README.md](../tools/README.md) — Analysis scripts for advanced workflows
 - [tools/10_train_ml_model.py](../tools/10_train_ml_model.py) — Production ML training script

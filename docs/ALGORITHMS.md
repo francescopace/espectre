@@ -374,6 +374,30 @@ median. At steady state the quiet metric typically reads 85-95% of the
 threshold on the live progress bar; that is expected and not an imminent
 false positive.
 
+### Calibration Consistency Gate
+
+The tight quiet floor also enables a consistency gate that protects the
+startup threshold when the calibration window is contaminated by movement.
+During calibration, ready-state metrics are grouped into 6 chunks and only
+the per-chunk maxima are kept. The window is accepted when:
+
+- spread: `max(chunk maxima) <= 1.10 x median(chunk maxima)`
+- floor anchor: `median(chunk maxima) <= 1.5 x min(chunk maxima ever seen)`
+
+If either check fails, calibration silently extends one chunk (~1.5 s) at a
+time until the ring becomes consistent, up to 2000 extra packets; on budget
+exhaustion the threshold falls back to `median(chunk maxima) x 1.1`. On a
+clean startup the gate usually never fires and the threshold is identical to
+the plain `max x 1.1` formula.
+
+On the paired datasets this keeps F1 at 94-95% even when the entire
+calibration window is contaminated by motion, where the ungated `max x 1.1`
+recall fails closed (F1 down to 3%). The gate is validated for the L1-Delta
+metric only: the MVS moving variance has a much looser quiet floor, so MVS
+keeps the plain `max x 1.3` bootstrap. Full sweep in
+[EXPERIMENTS.md](EXPERIMENTS.md), "L1-Delta Contaminated-Calibration Gate And
+Extension Sweep".
+
 ### Why No Hampel Filter
 
 MVS squares deviations inside the moving variance, so a single spiked packet

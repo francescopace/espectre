@@ -239,7 +239,11 @@ def _run_live_collect(args) -> None:
         )
         from ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD
         from runtime_policy import RuntimeMotionPolicy
-        from threshold import StartupThresholdCalibrator, get_detector_auto_factor
+        from threshold import (
+            StartupThresholdCalibrator,
+            get_detector_auto_factor,
+            get_detector_startup_gate,
+        )
     except ImportError:
         try:
             from tools.lib.csi_io import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
@@ -252,7 +256,11 @@ def _run_live_collect(args) -> None:
             )
             from src.ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD
             from src.runtime_policy import RuntimeMotionPolicy
-            from src.threshold import StartupThresholdCalibrator, get_detector_auto_factor
+            from src.threshold import (
+                StartupThresholdCalibrator,
+                get_detector_auto_factor,
+                get_detector_startup_gate,
+            )
         except ImportError as e:
             print(f"{Fore.RED}❌ Failed to import live collect modules: {e}{Style.RESET_ALL}")
             raise SystemExit(1)
@@ -443,6 +451,7 @@ def _run_live_collect(args) -> None:
             "calibration_tracker": StartupThresholdCalibrator(
                 calibration_target_packets,
                 auto_factor=get_detector_auto_factor(detector),
+                gate_enabled=get_detector_startup_gate(detector),
             ) if needs_calibration else None,
             "calibration_done": not needs_calibration,
             "calibration_success": not needs_calibration,
@@ -656,7 +665,9 @@ def _run_live_collect(args) -> None:
             calibration_tracker.observe_detector(calibration_detector)
             slot["motion_metric"] = extract_motion_metric(calibration_metrics)
             slot["metric_threshold"] = calibration_metrics.get("threshold", calibration_detector.get_threshold())
-            slot["status"] = "CALIBRATING"
+            slot["status"] = (
+                "EXTENDING" if calibration_tracker.is_extending() else "CALIBRATING"
+            )
 
             if calibration_tracker.is_complete():
                 finalize_slot_calibration(slot)
