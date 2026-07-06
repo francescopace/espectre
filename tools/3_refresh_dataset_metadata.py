@@ -5,11 +5,11 @@ Refresh derived dataset metadata in data/dataset_info.json.
 This tool updates metadata derived from the recorded NPZ files:
 
 - nearest 1:1 static_presence/motion pairing fields
-- production-aligned `optimal_threshold_gridsearch`
 
-The threshold path stays aligned with the production MVS startup path:
-
-  fixed default subcarriers + Hampel + adaptive max x 1.3 threshold.
+Detection thresholds are intentionally not stored in dataset metadata: they
+are detector-specific, so each tool replays the startup calibration of the
+detector it evaluates (l1_delta or MVS) on the quiet capture it needs, using
+the shared helpers in `tools/lib`.
 
 Usage:
     python tools/3_refresh_dataset_metadata.py                  # Dry run
@@ -23,7 +23,6 @@ License: GPLv3
 
 import argparse
 import json
-import re
 import sys
 from copy import deepcopy
 from datetime import datetime
@@ -36,25 +35,12 @@ sys.path.insert(0, str(SCRIPT_DIR))
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.lib.repo_paths import data_dir, python_src_dir  # noqa: E402
-
-SRC_DIR = python_src_dir()
-sys.path.insert(0, str(SRC_DIR))
-
-from tools.lib.csi_io import load_npz_as_packets  # noqa: E402
-from config import (  # noqa: E402
-    CALIBRATION_BUFFER_SIZE,
-    DEFAULT_SUBCARRIERS,
-    SEG_WINDOW_SIZE,
-)
-from segmentation import SegmentationContext  # noqa: E402
-from threshold import get_threshold_factor  # noqa: E402
+from tools.lib.repo_paths import data_dir  # noqa: E402
 
 
 DATA_DIR = data_dir()
 DATASET_INFO_PATH = DATA_DIR / "dataset_info.json"
 PAIR_MAX_DELTA_SECONDS = 30 * 60
-
 
 def load_dataset_info():
     """Load dataset_info.json."""
@@ -69,20 +55,6 @@ def save_dataset_info(info):
         f.write("\n")
 
 
-def parse_motion_start_from_description(description):
-    """Extract motion start packet index from test metadata."""
-    if not description:
-        return None
-    match = re.search(
-        r"motion\s+starts\s+at\s+packet(?:\s+index)?(?:\s+n\.)?\s+(\d+)",
-        str(description),
-        re.IGNORECASE,
-    )
-    if match:
-        return int(match.group(1))
-    return None
-
-
 def parse_iso_timestamp(value):
     """Parse an ISO timestamp string, returning None when unavailable."""
     if not value:
@@ -91,78 +63,6 @@ def parse_iso_timestamp(value):
         return datetime.fromisoformat(str(value))
     except ValueError:
         return None
-
-
-def compute_threshold_info(packets):
-    """
-    Calculate production-aligned adaptive threshold metadata for a packet list.
-
-    Only the first CALIBRATION_BUFFER_SIZE packets are used, matching the MVS
-    startup bootstrap. The returned threshold is max x 1.3 over full-window
-    moving-variance values.
-    """
-    if not packets:
-        return None
-
-    context = SegmentationContext(
-        window_size=SEG_WINDOW_SIZE,
-        threshold=1.0,
-        enable_hampel=True,
-    )
-
-    calibration_packets = min(CALIBRATION_BUFFER_SIZE, len(packets))
-    max_moving_variance = None
-    for pkt in packets[:calibration_packets]:
-        turbulence = context.calculate_spatial_turbulence(
-            pkt["csi_data"],
-            DEFAULT_SUBCARRIERS,
-        )
-        context.add_turbulence(turbulence)
-        context.update_state()
-        if context.buffer_count >= context.window_size:
-            current_moving_variance = float(context.current_moving_variance)
-            if max_moving_variance is None or current_moving_variance > max_moving_variance:
-                max_moving_variance = current_moving_variance
-
-    if max_moving_variance is None:
-        return None
-
-    threshold = max_moving_variance * get_threshold_factor("auto")
-    return {
-        "threshold": round(float(threshold), 9),
-    }
-
-
-def threshold_fields(threshold_info):
-    """Build the dataset_info fields derived from threshold_info."""
-    return {
-        "optimal_threshold_gridsearch": threshold_info["threshold"],
-    }
-
-
-def apply_threshold_fields(entry, threshold_info):
-    """Apply threshold metadata fields to one dataset_info entry."""
-    entry.update(threshold_fields(threshold_info))
-
-
-def build_filename_index(info):
-    """Return filename -> (label, entry) for all dataset_info files."""
-    index = {}
-    for label, entries in info.get("files", {}).items():
-        for entry in entries:
-            filename = entry.get("filename")
-            if filename:
-                index[str(filename)] = (label, entry)
-    return index
-
-
-def load_packets_for(label, filename):
-    """Load an NPZ file from a dataset label directory."""
-    path = DATA_DIR / label / filename
-    if not path.exists():
-        return None
-    return load_npz_as_packets(path)
-
 
 def _entry_matches_chip(entry, selected_chips):
     if selected_chips is None:
@@ -253,88 +153,16 @@ def refresh_pair_metadata(files, *, selected_chips=None):
 
 
 def refresh_metadata(info, chip_filter=None):
-    """
-    Return a refreshed copy of dataset_info and derived metadata summaries.
-
-    `empty` files use their own quiet capture. `static_presence` files use their
-    own capture, and paired `motion` files inherit that threshold. `test` files
-    use the annotated idle prefix when available, otherwise the full recording.
-    """
+    """Return a refreshed copy of dataset_info and derived metadata summaries."""
     refreshed = deepcopy(info)
     files = refreshed.get("files", {})
     selected_chips = {chip.upper() for chip in chip_filter} if chip_filter else None
     pair_rows = refresh_pair_metadata(files, selected_chips=selected_chips)
-    by_name = build_filename_index(refreshed)
-    threshold_rows = []
 
-    def chip_allowed(entry):
-        return _entry_matches_chip(entry, selected_chips)
-
-    for entry in files.get("empty", []):
-        filename = entry.get("filename")
-        if not filename or not chip_allowed(entry):
-            continue
-        packets = load_packets_for("empty", filename)
-        if packets is None:
-            continue
-        threshold_info = compute_threshold_info(packets)
-        if threshold_info is None:
-            continue
-        apply_threshold_fields(entry, threshold_info)
-        threshold_rows.append(("empty", filename, threshold_info["threshold"], filename))
-
-    for static_entry in files.get("static_presence", []):
-        static_name = static_entry.get("filename")
-        if not static_name or not chip_allowed(static_entry):
-            continue
-        packets = load_packets_for("static_presence", static_name)
-        if packets is None:
-            continue
-        threshold_info = compute_threshold_info(packets)
-        if threshold_info is None:
-            continue
-
-        apply_threshold_fields(static_entry, threshold_info)
-        threshold_rows.append(
-            ("static_presence", static_name, threshold_info["threshold"], static_name)
-        )
-
-        motion_name = static_entry.get("optimal_pair_motion_file")
-        if not motion_name or motion_name not in by_name:
-            continue
-        motion_label, motion_entry = by_name[motion_name]
-        if motion_label != "motion" or not chip_allowed(motion_entry):
-            continue
-        apply_threshold_fields(motion_entry, threshold_info)
-        threshold_rows.append(("motion", motion_name, threshold_info["threshold"], static_name))
-
-    for entry in files.get("test", []):
-        filename = entry.get("filename")
-        if not filename or not chip_allowed(entry):
-            continue
-        packets = load_packets_for("test", filename)
-        if packets is None:
-            continue
-        motion_start = parse_motion_start_from_description(entry.get("description"))
-        if motion_start is None:
-            threshold_packets = packets
-            source = f"{filename}:full_capture"
-        else:
-            if motion_start <= 0:
-                continue
-            threshold_packets = packets[:motion_start]
-            source = f"{filename}:idle_prefix"
-
-        threshold_info = compute_threshold_info(threshold_packets)
-        if threshold_info is None:
-            continue
-        apply_threshold_fields(entry, threshold_info)
-        threshold_rows.append(("test", filename, threshold_info["threshold"], source))
-
-    if pair_rows or threshold_rows:
+    if pair_rows:
         refreshed["updated_at"] = datetime.now().isoformat(timespec="microseconds")
 
-    return refreshed, pair_rows, threshold_rows
+    return refreshed, pair_rows
 
 
 def normalize_updated_at(info, value):
@@ -357,20 +185,6 @@ def summarize_pair_rows(pair_rows):
         by_chip[chip] = by_chip.get(chip, 0) + 1
     for chip in sorted(by_chip):
         print(f"  {chip:<15} count={by_chip[chip]:2d}")
-
-
-def summarize_threshold_rows(rows):
-    """Print a compact summary of calculated thresholds."""
-    print(f"Calculated threshold metadata for {len(rows)} entries")
-    for label in ("empty", "static_presence", "motion", "test"):
-        values = sorted(row[2] for row in rows if row[0] == label)
-        if not values:
-            continue
-        median = values[len(values) // 2]
-        print(
-            f"  {label:<15} count={len(values):2d} "
-            f"min={values[0]:.9g} median={median:.9g} max={values[-1]:.9g}"
-        )
 
 
 def build_arg_parser():
@@ -411,9 +225,8 @@ def main():
         parser.error("--force requires --write")
 
     current = load_dataset_info()
-    refreshed, pair_rows, threshold_rows = refresh_metadata(current, chip_filter=args.chip)
+    refreshed, pair_rows = refresh_metadata(current, chip_filter=args.chip)
     summarize_pair_rows(pair_rows)
-    summarize_threshold_rows(threshold_rows)
 
     current_updated_at = current.get("updated_at")
     comparable_refreshed = normalize_updated_at(refreshed, current_updated_at)

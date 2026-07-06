@@ -71,8 +71,6 @@ python 2_analyze_system_tuning.py --quick      # Reduced parameter space
 **Purpose**: Refresh derived fields in `data/dataset_info.json`
 
 - Writes nearest 1:1 `static_presence` / `motion` pairing metadata for matching chip and subcarrier captures
-- Calculates `optimal_threshold_gridsearch` for `empty`, `static_presence`, `motion`, and `test` entries
-- Uses fixed default subcarriers, Hampel filtering, and adaptive max x 1.3 threshold bootstrap
 - Runs as a dry run by default, supports `--write` to update metadata, and supports `--check` for validation
 
 ```bash
@@ -146,14 +144,14 @@ python 6_optimize_filter_params.py --all
 
 **Purpose**: Compare different motion detection algorithms
 
-- Compares RSSI, Mean Amplitude, Turbulence, and MVS detection methods
-- Demonstrates MVS superiority with simpler approach and lower CPU
+- Compares RSSI, Mean Amplitude, Turbulence, MVS, L1-Delta, and ML detection methods
+- L1-Delta and MVS both calibrate their thresholds from the selected static capture using their production startup logic
 - Shows separation between static presence and motion
 
 ```bash
 python 7_compare_detection_methods.py              # Use C6 dataset
 python 7_compare_detection_methods.py --chip S3    # Use S3 dataset
-python 7_compare_detection_methods.py --plot       # Show 5×2 comparison
+python 7_compare_detection_methods.py --plot       # Show per-method comparison
 ```
 
 ![Detection Methods Comparison](../docs/images/detection_method_comparison.png)
@@ -206,7 +204,7 @@ pip install -r requirements-ml.txt
 The main repository workflow and this training stack target Python `3.14`.
 
 - Trains the MLP detector with weighted binary cross-entropy
-- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, grouped session-level CV, and hard-negative MVS sample weighting
+- Default training uses `--fp-weight 2.0`, `--scaler standard`, `--batch-size 1024`, `--device cpu`, grouped session-level CV, and no support-detector sample weighting (`--sample-weight-mode none`; l1_delta-guided modes are available for ablations)
 - Caches derived features and base sample weights for repeated local runs; use `--no-cache` to rebuild
 - Reports blocked out-of-fold metrics plus worst session/chip/source-file groups
 - Uses a PyTorch MLP trainer and exports runtime-compatible weights for both platforms
@@ -258,7 +256,7 @@ see [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md).
 
 ### 11. Dataset Quality Validation (`11_validate_dataset_quality.py`)
 
-Validates CSI datasets for integrity, signal quality, and ML readiness. It now checks per-file integrity for `empty`, `static_presence`, and `motion`, keeps pair validation focused on `static_presence`/`motion`, and includes an `EMPTY SANITY` phase that measures how well `empty` separates from overlapping `static_presence` groups.
+Validates CSI datasets for integrity, signal quality, and ML readiness. It now checks per-file integrity for `empty`, `static_presence`, and `motion`, keeps pair validation focused on `static_presence`/`motion`, includes an `EMPTY SANITY` phase that measures how well `empty` separates from overlapping `static_presence` groups, and replays the production `l1_delta` startup calibration for each validated pair.
 
 **Checks performed:**
 - File integrity — NPZ loads, expected keys exist, shapes are valid
@@ -292,7 +290,7 @@ cd tools
 #   Terminal 2: ./espectre collect --label static_presence --duration 60
 #               ./espectre collect --label motion --duration 30
 # Optional debug terminal:
-#               ./espectre collect --streamer-ip 192.168.1.50 --no-save --log-turbulence
+#               ./espectre collect --target 192.168.1.50 --no-save --log-turbulence
 # see ../docs/ML_DATA_COLLECTION.md for details
 
 # 1. Analyze raw data

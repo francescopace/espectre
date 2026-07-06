@@ -24,7 +24,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.lib.csi_io import load_npz_as_packets
-from tools.lib.dataset_metadata import load_dataset_info, resolve_explicit_pair
+from tools.lib.dataset_metadata import load_dataset_info
 from config import (
     CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
@@ -369,30 +369,22 @@ def evaluate_pair(
     window_size: int = SEG_WINDOW_SIZE,
     selected_band: tuple[int, ...] = DEFAULT_SUBCARRIERS,
     track_trace: bool = False,
-    threshold_source: str = "metadata",
+    threshold_source: str = "calibrate",
 ) -> MVSEvaluationResult:
     """Evaluate one paired dataset with a continuous baseline -> motion pass."""
     cfg = filter_config or MVSFilterConfig()
     variant_cfg = variant or production_variant()
     static_presence_packets, motion_packets = load_paired_packets(pair)
 
-    resolved_metadata_pair = resolve_explicit_pair(
-        dataset=pair.static_presence_path.name,
-        num_sc=pair.num_subcarriers,
+    # MVS always replays its own startup calibration from the selected static
+    # capture; detector thresholds are no longer stored in dataset metadata.
+    startup_threshold, _calibration_mv = calibrate_startup_threshold(
+        static_presence_packets,
+        selected_band=selected_band,
+        window_size=window_size,
+        filter_config=cfg,
     )
-    resolved_metadata_threshold = resolved_metadata_pair.threshold
-    metadata_threshold_available = resolved_metadata_threshold is not None
-    if threshold_source == "metadata" and metadata_threshold_available:
-        startup_threshold = float(resolved_metadata_threshold)
-        effective_threshold_source = resolved_metadata_pair.threshold_source
-    else:
-        startup_threshold, _calibration_mv = calibrate_startup_threshold(
-            static_presence_packets,
-            selected_band=selected_band,
-            window_size=window_size,
-            filter_config=cfg,
-        )
-        effective_threshold_source = "fallback_calibration" if threshold_source == "metadata" else "calibrate"
+    effective_threshold_source = "calibrate"
 
     ctx = build_segmentation_context(threshold=startup_threshold, window_size=window_size, filter_config=cfg)
     tracking = variant_cfg.baseline_tracking
@@ -593,7 +585,7 @@ def evaluate_pairs(
     window_size: int = SEG_WINDOW_SIZE,
     selected_band: tuple[int, ...] = DEFAULT_SUBCARRIERS,
     track_trace: bool = False,
-    threshold_source: str = "metadata",
+    threshold_source: str = "calibrate",
 ) -> list[MVSEvaluationResult]:
     """Evaluate a list of paired datasets with the same configuration."""
     return [

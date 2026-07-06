@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Detection Methods Comparison
-Compares RSSI, Mean Amplitude, Turbulence, MVS, and ML algorithms
+Compares RSSI, MVS, L1-Delta, and ML algorithms
 
 Usage:
     python tools/7_compare_detection_methods.py              # Use C6 dataset
@@ -25,16 +25,15 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.csi_io import load_npz_as_packets, load_static_presence_and_motion
 from tools.lib.dataset_metadata import (
     DATA_DIR,
+    estimate_runtime_threshold,
     load_dataset_info,
-    resolve_dataset_selection,
     resolve_explicit_pair,
-    resolve_dataset_threshold,
     select_dataset_interactively,
 )
+from tools.lib.mvs_sweep_core import calibrate_startup_threshold
 from tools.lib.ui import show_plot_window
 from config import (
     SEG_WINDOW_SIZE, SEG_THRESHOLD,
@@ -43,7 +42,8 @@ from config import (
     DEFAULT_SUBCARRIERS
 )
 from filters import HampelFilter, LowPassFilter
-from threshold import calculate_startup_threshold_from_max
+from threshold import DEFAULT_ADAPTIVE_FACTOR, calculate_startup_threshold_from_max
+from l1_delta_detector import L1DeltaDetector as ProdL1DeltaDetector
 from mvs_detector import MVSDetector as ProdMVSDetector
 
 # Check if ML model is available (production implementation).
@@ -138,31 +138,43 @@ def load_test_dataset(chip=None, motion_start_packet=None):
     return test_path, static_presence_packets, motion_packets, motion_start_packet, selected_chip, selected
 
 
-def resolve_context_aware_config_for_test(test_entry):
-    """Resolve threshold for a test dataset from metadata."""
-    threshold, source = resolve_dataset_threshold(test_entry)
+def resolve_context_aware_config_for_test(test_entry, static_presence_packets):
+    """Resolve the L1D threshold for a test split from its quiet prefix."""
+    threshold = estimate_runtime_threshold(
+        static_presence_packets,
+        selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
+    )
     if threshold is None:
         threshold = THRESHOLD
-        source = 'test default threshold'
-    return {
-        'threshold': threshold,
-        'context_source': f'test {source}',
-        'confidence_factor': 1.0 if source == 'metadata' else 0.5,
-    }
-
-
-def resolve_context_aware_config(pair):
-    """Resolve threshold from a shared explicit pair selection."""
-    threshold = pair.threshold if pair.threshold is not None else THRESHOLD
-    context_source = (
-        f'explicit-pair {pair.threshold_source}'
-        if pair.threshold is not None
-        else 'explicit-pair default'
-    )
+        context_source = 'test fallback threshold'
+        confidence_factor = 0.5
+    else:
+        context_source = 'test runtime l1_delta calibration'
+        confidence_factor = 1.0
     return {
         'threshold': threshold,
         'context_source': context_source,
-        'confidence_factor': 1.0 if pair.threshold is not None else 0.5,
+        'confidence_factor': confidence_factor,
+    }
+
+
+def resolve_context_aware_config(pair, static_presence_packets):
+    """Resolve the L1D threshold from the selected pair static capture."""
+    threshold = estimate_runtime_threshold(
+        static_presence_packets,
+        selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
+    )
+    if threshold is None:
+        threshold = THRESHOLD
+        context_source = 'explicit-pair fallback threshold'
+        confidence_factor = 0.5
+    else:
+        context_source = 'explicit-pair runtime l1_delta calibration'
+        confidence_factor = 1.0
+    return {
+        'threshold': threshold,
+        'context_source': context_source,
+        'confidence_factor': confidence_factor,
     }
 
 
@@ -176,23 +188,15 @@ def calculate_rssi(csi_packet):
     return np.mean(amplitudes)
 
 
-def calculate_mean_amplitude(csi_packet):
-    """Calculate mean amplitude of the fixed production subcarriers."""
-    amplitudes = []
-    for sc_idx in DEFAULT_SUBCARRIERS:
-        Q = float(csi_packet[sc_idx * 2])
-        I = float(csi_packet[sc_idx * 2 + 1])
-        amplitudes.append(np.sqrt(I*I + Q*Q))
-    return np.mean(amplitudes)
-
-
-def calculate_adaptive_threshold(values, threshold_mode=None):
+def calculate_adaptive_threshold(values, threshold_mode=None, auto_factor=DEFAULT_ADAPTIVE_FACTOR):
     """Calculate threshold with the shared startup-threshold policy."""
     if len(values) == 0:
         return 1.0
     selected_mode = THRESHOLD_MODE if threshold_mode is None else threshold_mode
     max_value = float(np.max(np.asarray(values, dtype=float)))
-    threshold, _formula = calculate_startup_threshold_from_max(max_value, selected_mode)
+    threshold, _formula = calculate_startup_threshold_from_max(
+        max_value, selected_mode, auto_factor=auto_factor
+    )
     return float(threshold)
 
 
@@ -271,6 +275,32 @@ class MVSDetectorAdapter:
         self.state_history = []
 
 
+class L1DeltaDetectorAdapter:
+    """Compatibility wrapper around the production L1-Delta detector."""
+
+    def __init__(self, window_size=SEG_WINDOW_SIZE, threshold=1.0, track_data=False):
+        self._detector = ProdL1DeltaDetector(
+            window_size=window_size,
+            threshold=threshold,
+        )
+        self._track_data = bool(track_data)
+        self.metric_history = []
+        self.state_history = []
+
+    def process_packet(self, packet):
+        csi_data = packet['csi_data'] if isinstance(packet, dict) else packet
+        self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
+        state = self._detector.update_state()
+        if self._track_data:
+            self.metric_history.append(float(state.get('motion_metric', 0.0)))
+            self.state_history.append(str(state.get('state', 'IDLE')).upper())
+
+    def reset(self):
+        self._detector.reset()
+        self.metric_history = []
+        self.state_history = []
+
+
 class MLDetectorAdapter:
     """Compatibility wrapper around production MLDetector."""
 
@@ -309,18 +339,19 @@ def compare_detection_methods(
     motion_packets,
     window_size,
     threshold,
-    *,
-    threshold_source='metadata',
 ):
     """
     Compare different detection methods on same data.
+
+    ``threshold`` is the production-aligned l1_delta startup threshold
+    calibrated from the selected static capture. MVS and RSSI also calibrate
+    from the same static capture using their own detector-specific paths.
     Returns metrics for each method.
     """
     methods = {
         'RSSI': {'static_presence': [], 'motion': []},
-        'Mean Amplitude': {'static_presence': [], 'motion': []},
-        'Turbulence': {'static_presence': [], 'motion': []},
         'MVS': {'static_presence': [], 'motion': []},
+        'L1D': {'static_presence': [], 'motion': []},
     }
     
     if ML_AVAILABLE:
@@ -333,18 +364,13 @@ def compare_detection_methods(
     # Process static presence - simple metrics
     for pkt in static_presence_packets:
         methods['RSSI']['static_presence'].append(calculate_rssi(pkt['csi_data']))
-        methods['Mean Amplitude']['static_presence'].append(calculate_mean_amplitude(pkt['csi_data']))
-        methods['Turbulence']['static_presence'].append(
-            calculate_spatial_turbulence(pkt['csi_data'])
-        )
     
     methods['RSSI']['static_presence'] = np.array(methods['RSSI']['static_presence'])
-    methods['Mean Amplitude']['static_presence'] = np.array(methods['Mean Amplitude']['static_presence'])
-    methods['Turbulence']['static_presence'] = np.array(methods['Turbulence']['static_presence'])
     
-    # MVS static presence
+    # MVS static presence (state-machine threshold is metrics-neutral: the
+    # comparison threshold is self-calibrated in method_thresholds below).
     start = time.perf_counter()
-    mvs_baseline = MVSDetectorAdapter(window_size, threshold, track_data=True)
+    mvs_baseline = MVSDetectorAdapter(window_size, 1.0, track_data=True)
     for pkt in static_presence_packets:
         mvs_baseline.process_packet(pkt)
     methods['MVS']['static_presence'] = np.array(mvs_baseline.moving_var_history)
@@ -352,25 +378,32 @@ def compare_detection_methods(
     # Process motion - simple metrics
     for pkt in motion_packets:
         methods['RSSI']['motion'].append(calculate_rssi(pkt['csi_data']))
-        methods['Mean Amplitude']['motion'].append(calculate_mean_amplitude(pkt['csi_data']))
-        methods['Turbulence']['motion'].append(
-            calculate_spatial_turbulence(pkt['csi_data'])
-        )
     
     methods['RSSI']['motion'] = np.array(methods['RSSI']['motion'])
-    methods['Mean Amplitude']['motion'] = np.array(methods['Mean Amplitude']['motion'])
-    methods['Turbulence']['motion'] = np.array(methods['Turbulence']['motion'])
     
     # MVS motion
-    mvs_movement = MVSDetectorAdapter(window_size, threshold, track_data=True)
+    mvs_movement = MVSDetectorAdapter(window_size, 1.0, track_data=True)
     for pkt in motion_packets:
         mvs_movement.process_packet(pkt)
     mvs_time = time.perf_counter() - start
     timing['MVS'] = (mvs_time / num_packets) * 1e6
     methods['MVS']['motion'] = np.array(mvs_movement.moving_var_history)
 
+    # L1-Delta static presence and motion (production support detector)
+    start = time.perf_counter()
+    l1_baseline = L1DeltaDetectorAdapter(window_size, threshold, track_data=True)
+    for pkt in static_presence_packets:
+        l1_baseline.process_packet(pkt)
+    methods['L1D']['static_presence'] = np.array(l1_baseline.metric_history)
+    l1_movement = L1DeltaDetectorAdapter(window_size, threshold, track_data=True)
+    for pkt in motion_packets:
+        l1_movement.process_packet(pkt)
+    l1_time = time.perf_counter() - start
+    timing['L1D'] = (l1_time / num_packets) * 1e6
+    methods['L1D']['motion'] = np.array(l1_movement.metric_history)
+
     # Apply runtime filter chain to simple methods for fair comparison.
-    for method_name in ('RSSI', 'Mean Amplitude', 'Turbulence'):
+    for method_name in ('RSSI',):
         methods[method_name]['static_presence'] = apply_config_filters(methods[method_name]['static_presence'])
         methods[method_name]['motion'] = apply_config_filters(methods[method_name]['motion'])
     
@@ -379,16 +412,6 @@ def compare_detection_methods(
     for pkt in all_packets:
         calculate_rssi(pkt['csi_data'])
     timing['RSSI'] = ((time.perf_counter() - start) / num_packets) * 1e6
-    
-    start = time.perf_counter()
-    for pkt in all_packets:
-        calculate_mean_amplitude(pkt['csi_data'])
-    timing['Mean Amplitude'] = ((time.perf_counter() - start) / num_packets) * 1e6
-    
-    start = time.perf_counter()
-    for pkt in all_packets:
-        calculate_spatial_turbulence(pkt['csi_data'])
-    timing['Turbulence'] = ((time.perf_counter() - start) / num_packets) * 1e6
     
     # ML detector (if available)
     ml_baseline = None
@@ -408,12 +431,20 @@ def compare_detection_methods(
         ml_time = time.perf_counter() - start
         timing['ML'] = (ml_time / num_packets) * 1e6
 
-    # Method-specific thresholds (adaptive like tool #3, ML fixed threshold).
+    # Method-specific thresholds. MVS and L1D both reuse their shared runtime
+    # startup calibration paths so the comparison matches production behavior.
+    mvs_runtime_threshold, _mvs_calibration_max = calibrate_startup_threshold(
+        static_presence_packets,
+        selected_band=tuple(DEFAULT_SUBCARRIERS),
+        window_size=window_size,
+    )
     method_thresholds = {
         'RSSI': calculate_adaptive_threshold(methods['RSSI']['static_presence']),
-        'Mean Amplitude': calculate_adaptive_threshold(methods['Mean Amplitude']['static_presence']),
-        'Turbulence': calculate_adaptive_threshold(methods['Turbulence']['static_presence']),
-        'MVS': float(threshold) if threshold_source == 'metadata' else calculate_adaptive_threshold(methods['MVS']['static_presence']),
+        'MVS': float(mvs_runtime_threshold),
+        'L1D': float(threshold) if threshold > 0 else calculate_adaptive_threshold(
+            methods['L1D']['static_presence'],
+            auto_factor=ProdL1DeltaDetector.STARTUP_THRESHOLD_FACTOR,
+        ),
     }
     if ML_AVAILABLE and 'ML' in methods:
         method_thresholds['ML'] = ML_DEFAULT_THRESHOLD
@@ -429,7 +460,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
                    method_thresholds=None, results=None):
     """Plot comparison of detection methods"""
     # Determine number of rows based on available methods
-    method_names = ['RSSI', 'Mean Amplitude', 'Turbulence', 'MVS']
+    method_names = ['RSSI', 'MVS', 'L1D']
     if ML_AVAILABLE and 'ML' in methods:
         method_names.append('ML')
     
@@ -479,6 +510,8 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         # Colors
         if method_name == 'MVS':
             color, linewidth, linestyle = 'blue', 1.5, '-'
+        elif method_name == 'L1D':
+            color, linewidth, linestyle = 'purple', 1.5, '-'
         elif method_name == 'ML':
             # Match MVS palette for visual consistency; dashed line keeps ML distinguishable.
             color, linewidth, linestyle = 'blue', 1.5, '--'
@@ -509,12 +542,8 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         ax_baseline.grid(True, alpha=0.3)
         ax_baseline.legend(fontsize=9)
         
-        # Border
-        if method_name == 'MVS':
-            for spine in ax_baseline.spines.values():
-                spine.set_edgecolor('green')
-                spine.set_linewidth(3)
-        elif method_name == 'ML':
+        # Border for production detectors
+        if method_name in ('MVS', 'L1D', 'ML'):
             for spine in ax_baseline.spines.values():
                 spine.set_edgecolor('green')
                 spine.set_linewidth(3)
@@ -548,11 +577,7 @@ def plot_comparison(methods, mvs_baseline, mvs_movement,
         ax_movement.grid(True, alpha=0.3)
         ax_movement.legend(fontsize=9)
         
-        if method_name == 'MVS':
-            for spine in ax_movement.spines.values():
-                spine.set_edgecolor('green')
-                spine.set_linewidth(3)
-        elif method_name == 'ML':
+        if method_name in ('MVS', 'L1D', 'ML'):
             for spine in ax_movement.spines.values():
                 spine.set_edgecolor('green')
                 spine.set_linewidth(3)
@@ -575,11 +600,11 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement,
     
     print(f"Configuration:")
     print(f"  Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
-    print(f"  MVS Window Size: {WINDOW_SIZE}")
-    print(f"  MVS Threshold: {threshold}")
+    print(f"  Window Size: {WINDOW_SIZE}")
+    print(f"  L1D context threshold: {threshold}")
     if method_thresholds:
-        print("  Adaptive thresholds:")
-        for method_name in ['RSSI', 'Mean Amplitude', 'Turbulence', 'MVS']:
+        print("  Method thresholds:")
+        for method_name in ['RSSI', 'MVS', 'L1D']:
             if method_name in method_thresholds:
                 print(f"    - {method_name}: {method_thresholds[method_name]:.4f}")
         if 'ML' in method_thresholds:
@@ -608,40 +633,39 @@ def print_comparison_summary(methods, mvs_baseline, mvs_movement,
     print(f"   - Recall: {best_by_f1['recall']:.1f}%")
     print(f"   - Precision: {best_by_f1['precision']:.1f}%")
     
-    # MVS vs ML comparison
-    mvs_result = next(r for r in results if r['name'] == 'MVS')
-    ml_result = next((r for r in results if r['name'] == 'ML'), None)
-    
+    # Production detector comparison (MVS vs L1D vs ML)
+    prod_results = [r for r in results if r['name'] in ('MVS', 'L1D', 'ML')]
+
     print("\n" + "-"*80)
-    if ml_result:
-        print("  MVS vs ML Comparison")
+    if len(prod_results) > 1:
+        print("  Production Detector Comparison")
         print("-"*80)
-        print(f"  {'Metric':<15} {'MVS':<15} {'ML':<15} {'Winner':<15}")
+        print("  " + f"{'Metric':<15}"
+              + "".join(f"{r['name']:<12}" for r in prod_results)
+              + "Winner")
         print(f"  {'-'*60}")
-        
-        metrics = [
-            ('Recall', mvs_result['recall'], ml_result['recall']),
-            ('Precision', mvs_result['precision'], ml_result['precision']),
-            ('F1 Score', mvs_result['f1'], ml_result['f1']),
-            ('False Pos.', -mvs_result['fp'], -ml_result['fp']),
+
+        metric_rows = [
+            ('Recall', lambda r: r['recall'], False),
+            ('Precision', lambda r: r['precision'], False),
+            ('F1 Score', lambda r: r['f1'], False),
+            ('False Pos.', lambda r: float(r['fp']), True),
         ]
-        
-        mvs_wins, ml_wins = 0, 0
-        for name, mvs_val, ml_val in metrics:
-            if name == 'False Pos.':
-                mvs_display, ml_display = -mvs_val, -ml_val
-            else:
-                mvs_display, ml_display = mvs_val, ml_val
-            
-            winner = 'MVS' if mvs_val > ml_val else ('ML' if ml_val > mvs_val else 'Tie')
-            if winner == 'MVS':
-                mvs_wins += 1
-            elif winner == 'ML':
-                ml_wins += 1
-                
-            print(f"  {name:<15} {mvs_display:<15.1f} {ml_display:<15.1f} {winner:<15}")
-        
-        print(f"\n  Overall: MVS wins {mvs_wins}/4, ML wins {ml_wins}/4\n")
+
+        wins = {r['name']: 0 for r in prod_results}
+        for metric_name, getter, lower_is_better in metric_rows:
+            values = [getter(r) for r in prod_results]
+            best_value = min(values) if lower_is_better else max(values)
+            winners = [r['name'] for r, v in zip(prod_results, values) if v == best_value]
+            winner = winners[0] if len(winners) == 1 else 'Tie'
+            if winner != 'Tie':
+                wins[winner] += 1
+            print("  " + f"{metric_name:<15}"
+                  + "".join(f"{value:<12.1f}" for value in values)
+                  + winner)
+
+        overall = ", ".join(f"{name} {count}/4" for name, count in wins.items())
+        print(f"\n  Overall wins: {overall}\n")
 
 
 def run_all_chips():
@@ -674,7 +698,7 @@ def run_all_chips():
         except FileNotFoundError:
             continue
 
-        context_cfg = resolve_context_aware_config(pair)
+        context_cfg = resolve_context_aware_config(pair, static_presence_packets)
         chip_threshold = context_cfg['threshold']
         
         print(f"Processing {chip}...", end=" ", flush=True)
@@ -684,7 +708,6 @@ def run_all_chips():
             motion_packets,
             WINDOW_SIZE,
             chip_threshold,
-            threshold_source='metadata',
         )
         methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
         result_by_name = {r['name']: r for r in results}
@@ -701,7 +724,16 @@ def run_all_chips():
         mvs_recall = mvs_tp / num_movement * 100 if num_movement > 0 else 0
         mvs_precision = mvs_tp / (mvs_tp + mvs_fp) * 100 if (mvs_tp + mvs_fp) > 0 else 0
         mvs_f1 = 2 * mvs_precision * mvs_recall / (mvs_precision + mvs_recall) if (mvs_precision + mvs_recall) > 0 else 0
-        
+
+        # L1D metrics from the runtime-calibrated l1_delta path
+        l1_res = result_by_name.get('L1D', {'fp': 0, 'tp': 0})
+        l1_fp = l1_res['fp']
+        l1_tp = l1_res['tp']
+        l1_recall = l1_tp / num_movement * 100 if num_movement > 0 else 0
+        l1_precision = l1_tp / (l1_tp + l1_fp) * 100 if (l1_tp + l1_fp) > 0 else 0
+        l1_f1 = 2 * l1_precision * l1_recall / (l1_precision + l1_recall) if (l1_precision + l1_recall) > 0 else 0
+
+
         # ML metrics from fixed-threshold evaluation path
         if ml_baseline and ml_movement:
             ml_res = result_by_name.get('ML', {'fp': 0, 'tp': 0})
@@ -717,7 +749,9 @@ def run_all_chips():
         all_results.append({
             'chip': chip,
             'context_source': context_cfg['context_source'],
+            'num_baseline': num_baseline,
             'mvs': {'recall': mvs_recall, 'fp': mvs_fp, 'precision': mvs_precision, 'f1': mvs_f1},
+            'l1d': {'recall': l1_recall, 'fp': l1_fp, 'precision': l1_precision, 'f1': l1_f1},
             'ml': {'recall': ml_recall, 'fp': ml_fp, 'precision': ml_precision, 'f1': ml_f1},
         })
         print("done")
@@ -732,13 +766,13 @@ def run_all_chips():
     
     for r in all_results:
         chip = r['chip']
-        num_baseline = 1000  # Approximate for FP rate calculation
+        num_baseline = r['num_baseline']
         print(f"Context source ({chip}): {r['context_source']}")
         
-        for detector, data in [('MVS', r['mvs']), ('ML', r['ml'])]:
+        for detector, data in [('MVS', r['mvs']), ('L1D', r['l1d']), ('ML', r['ml'])]:
             fp_rate = data['fp'] / num_baseline * 100 if num_baseline > 0 else 0
             # Highlight best detector per chip
-            best_f1 = max(r['mvs']['f1'], r['ml']['f1'])
+            best_f1 = max(r['mvs']['f1'], r['l1d']['f1'], r['ml']['f1'])
             marker = "**" if data['f1'] == best_f1 and data['f1'] > 0 else ""
             print(f"{chip:<6} {marker}{detector:<8} {data['recall']:>9.1f}% {fp_rate:>9.1f}% {data['precision']:>9.1f}% {data['f1']:>9.1f}%")
         print()
@@ -751,7 +785,7 @@ def run_all_chips():
 def main():
     raw_args = sys.argv[1:]
     chip_explicit = '--chip' in raw_args
-    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, Mean Amplitude, Turbulence, MVS, ML)')
+    parser = argparse.ArgumentParser(description='Compare detection methods (RSSI, MVS, L1-Delta, ML)')
     parser.add_argument('--chip', type=str, default='C6', help='Chip type: C6, S3, etc.')
     parser.add_argument('--dataset', type=str, default=None,
                         help='Dataset filename, stem, or dataset id; pair is resolved from metadata')
@@ -763,9 +797,6 @@ def main():
     parser.add_argument('--test-motion-start-packet', type=int, default=None,
                         help='Override motion start packet index when using --use-test-dataset')
     parser.add_argument('--plot', action='store_true', help='Show visualization plots')
-    parser.add_argument('--threshold-source', choices=['metadata', 'adaptive'], default='metadata',
-                        help='Use metadata MVS threshold or recompute it from the selected baseline capture')
-    
     args = parser.parse_args()
     
     if args.all:
@@ -773,7 +804,7 @@ def main():
         return
     
     print("\n" + "="*60)
-    print("       Detection Methods Comparison (MVS vs ML)")
+    print("       Detection Methods Comparison (MVS vs L1D vs ML)")
     print("="*60 + "\n")
     
     chip = args.chip.upper()
@@ -797,7 +828,7 @@ def main():
                     chip=None,
                     motion_start_packet=args.test_motion_start_packet
                 )
-            context_cfg = resolve_context_aware_config_for_test(test_entry)
+            context_cfg = resolve_context_aware_config_for_test(test_entry, static_presence_packets)
             threshold = context_cfg['threshold']
             context_source = context_cfg['context_source']
             confidence_factor = context_cfg['confidence_factor']
@@ -822,7 +853,7 @@ def main():
                 chip=chip,
                 dataset=args.dataset,
             )
-            context_cfg = resolve_context_aware_config(pair)
+            context_cfg = resolve_context_aware_config(pair, static_presence_packets)
             threshold = context_cfg['threshold']
             context_source = context_cfg['context_source']
             confidence_factor = context_cfg['confidence_factor']
@@ -842,8 +873,7 @@ def main():
     print(f"   Static presence: {len(static_presence_packets)} packets")
     print(f"   Motion:          {len(motion_packets)} packets\n")
     print(f"   Fixed subcarriers: {list(DEFAULT_SUBCARRIERS)}")
-    print(f"   Context-aware threshold: {threshold:.6f}")
-    print(f"   MVS evaluation threshold source: {args.threshold_source}")
+    print(f"   L1D runtime threshold: {threshold:.6f}")
     print(f"   Confidence factor: {confidence_factor:.1f}\n")
     
     result = compare_detection_methods(
@@ -851,7 +881,6 @@ def main():
         motion_packets,
         WINDOW_SIZE,
         threshold,
-        threshold_source=args.threshold_source,
     )
     methods, mvs_baseline, mvs_movement, timing, ml_baseline, ml_movement, method_thresholds, results = result
     

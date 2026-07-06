@@ -232,9 +232,10 @@ def default_subcarriers(request):
 @pytest.fixture
 def optimal_threshold(request):
     """
-    Dataset-aware threshold from dataset_info grid-search metadata.
+    Legacy compatibility threshold fixture.
 
-    Falls back to 1.0 when metadata is missing.
+    Detector-specific startup thresholds are now calibrated per capture, so
+    tests that still request this fixture receive a neutral placeholder.
     """
     return 1.0
 

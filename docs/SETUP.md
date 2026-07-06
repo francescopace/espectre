@@ -180,7 +180,7 @@ check or when a build reports an ESP-IDF setup problem:
 | `Matter` | `build`, `flash` | `./espectre matter build --chip c3` |
 | `Streamer` | `build`, `flash` | `./espectre streamer flash --port /dev/cu.usbmodemXXXX` |
 | `Micro-ESPectre` | `flash`, `deploy`, `run`, `verify` | `./espectre micro deploy` |
-| `Host tools` | `collect`, `ui`, `mqtt`, `monitor` | `./espectre collect --stimulus-target 239.1.1.50 --no-save --log-turbulence` |
+| `Host tools` | `collect`, `ui`, `mqtt`, `monitor` | `./espectre collect --target 239.1.1.50 --no-save --log-turbulence` |
 
 On Windows, replace `./espectre` with `.\espectre.cmd` and use the COM port shown by Device Manager, for example `COM5`, instead of `/dev/cu...`.
 

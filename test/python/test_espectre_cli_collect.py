@@ -23,9 +23,9 @@ def _make_collect_args(**overrides) -> argparse.Namespace:
         "interactive": False,
         "udp_port": 5001,
         "bind_ip": None,
-        "stimulus_target": "192.168.1.15",
-        "stimulus_port": 9999,
-        "stimulus_rate": 100,
+        "target": "192.168.1.15",
+        "target_port": 9999,
+        "rate": 100,
         "reference_every": 20,
         "contributor": None,
         "description": None,
@@ -44,9 +44,9 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
         "interactive": False,
         "udp_port": 5001,
         "bind_ip": None,
-        "stimulus_target": "192.168.1.15",
-        "stimulus_port": 9999,
-        "stimulus_rate": 100,
+        "target": "192.168.1.15",
+        "target_port": 9999,
+        "rate": 100,
         "reference_every": 0,
         "detector": "mvs",
         "no_save": False,
@@ -219,7 +219,7 @@ def test_collect_parser_accepts_count_alias() -> None:
             "3",
             "--start-delay",
             "15",
-            "--stimulus-target",
+            "--target",
             "239.1.1.15",
         ]
     )
@@ -233,7 +233,7 @@ def test_micro_collect_alias_is_rejected() -> None:
     parser = build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["micro", "collect", "--label", "motion", "--stimulus-target", "192.168.1.15"])
+        parser.parse_args(["micro", "collect", "--label", "motion", "--target", "192.168.1.15"])
 
 
 def test_collect_parser_keeps_samples_option() -> None:
@@ -246,7 +246,7 @@ def test_collect_parser_keeps_samples_option() -> None:
             "motion",
             "--samples",
             "4",
-            "--stimulus-target",
+            "--target",
             "192.168.1.15",
         ]
     )
@@ -255,7 +255,7 @@ def test_collect_parser_keeps_samples_option() -> None:
     assert args.start_delay == 0.0
 
 
-def test_collect_parser_accepts_comma_separated_stimulus_targets() -> None:
+def test_collect_parser_accepts_comma_separated_targets() -> None:
     parser = build_parser()
 
     args = parser.parse_args(
@@ -263,12 +263,28 @@ def test_collect_parser_accepts_comma_separated_stimulus_targets() -> None:
             "collect",
             "--label",
             "test",
-            "--stimulus-target",
+            "--target",
             "192.168.1.17,192.168.1.24,192.168.1.29",
         ]
     )
 
-    assert args.stimulus_target == "192.168.1.17,192.168.1.24,192.168.1.29"
+    assert args.target == "192.168.1.17,192.168.1.24,192.168.1.29"
+
+
+def test_collect_parser_accepts_target_short_flag() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "collect",
+            "--label",
+            "motion",
+            "-t",
+            "192.168.1.15",
+        ]
+    )
+
+    assert args.target == "192.168.1.15"
 
 
 def test_collect_parser_accepts_live_options() -> None:
@@ -277,7 +293,7 @@ def test_collect_parser_accepts_live_options() -> None:
     args = parser.parse_args(
         [
             "collect",
-            "--stimulus-target",
+            "--target",
             "192.168.1.15",
             "--label",
             "test",
@@ -301,7 +317,7 @@ def test_collect_parser_accepts_detector_choice_and_no_save() -> None:
     args = parser.parse_args(
         [
             "collect",
-            "--stimulus-target",
+            "--target",
             "192.168.1.15",
             "--detector",
             "mvs",
@@ -321,7 +337,7 @@ def test_collect_parser_accepts_comma_separated_detectors() -> None:
     args = parser.parse_args(
         [
             "collect",
-            "--stimulus-target",
+            "--target",
             "192.168.1.15",
             "--detector",
             "mvs,l1_delta",
@@ -355,7 +371,7 @@ def test_detect_command_is_rejected() -> None:
     parser = build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["detect", "--stimulus-target", "192.168.1.15"])
+        parser.parse_args(["detect", "--target", "192.168.1.15"])
 
 
 def test_ui_parser_accepts_ble_interface() -> None:
@@ -518,7 +534,7 @@ def test_collect_csi_data_validates_arguments_and_imports(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
 
     with pytest.raises(SystemExit):
-        host.collect_csi_data(_make_collect_args(stimulus_target=None))
+        host.collect_csi_data(_make_collect_args(target=None))
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_collect_args(start_delay=-1))
@@ -596,7 +612,7 @@ def test_collect_applies_start_delay_before_starting_stimulus(monkeypatch) -> No
     monkeypatch.setitem(sys.modules, "tools.lib.csi_io", fake_csi_utils)
     monkeypatch.setattr(host, "_wait_before_collection", lambda delay: events.append(("delay", delay)))
 
-    host.collect_csi_data(_make_collect_args(stimulus_target="192.168.1.17,192.168.1.24,192.168.1.29"))
+    host.collect_csi_data(_make_collect_args(target="192.168.1.17,192.168.1.24,192.168.1.29"))
 
     assert ("delay", 5.0) in events
     assert ("collect_timed", 10.0, 2) in events
@@ -733,7 +749,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
 
     host.collect_csi_data(
         _make_live_collect_args(
-            stimulus_target="192.168.1.29",
+            target="192.168.1.29",
             label="test",
             description="live collect ML, idle-motion-idle",
             detector="ml",
@@ -877,7 +893,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
 
     host.collect_csi_data(
         _make_live_collect_args(
-            stimulus_target="192.168.1.29",
+            target="192.168.1.29",
             label="test",
             duration=10,
             description="interrupted run",
@@ -1218,7 +1234,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     monkeypatch.setitem(sys.modules, "ml_detector", fake_ml_detector)
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
 
-    host.collect_csi_data(_make_live_collect_args(stimulus_target="192.168.1.17,192.168.1.24", no_save=True, detector="ml"))
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.17,192.168.1.24", no_save=True, detector="ml"))
 
     output = capsys.readouterr().out
     assert len(FakeMLDetector.instances) == 2
@@ -1442,7 +1458,7 @@ def test_collect_live_calibrates_mvs_per_device(monkeypatch, capsys) -> None:
     monkeypatch.setitem(sys.modules, "runtime_policy", fake_runtime_policy)
     monkeypatch.setitem(sys.modules, "threshold", fake_threshold)
 
-    host.collect_csi_data(_make_live_collect_args(stimulus_target="192.168.1.17,192.168.1.24", detector="mvs", no_save=True))
+    host.collect_csi_data(_make_live_collect_args(target="192.168.1.17,192.168.1.24", detector="mvs", no_save=True))
 
     output = capsys.readouterr().out
     assert "Detector:" in output and "MVS" in output
@@ -1500,7 +1516,7 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
     )
 
     host.collect_csi_data(
-        _make_live_collect_args(stimulus_target="192.168.1.24", detector="mvs,ml", no_save=True)
+        _make_live_collect_args(target="192.168.1.24", detector="mvs,ml", no_save=True)
     )
 
     output = capsys.readouterr().out

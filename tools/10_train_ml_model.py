@@ -334,16 +334,19 @@ if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
 from tools.lib.csi_io import load_npz_as_packets
-from tools.lib.dataset_metadata import DATA_DIR, resolve_explicit_pair
+from tools.lib.dataset_metadata import (
+    DATA_DIR,
+    estimate_runtime_threshold,
+    resolve_explicit_pair,
+)
 from config import (
-    CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     SEG_WINDOW_SIZE,
 )
+from l1_delta_detector import L1DeltaDetector
 from segmentation import SegmentationContext
-from threshold import get_threshold_factor
 from features import (
     extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
     ROBUST_RELATIVE_FEATURES, ALL_FEATURES,
@@ -380,9 +383,9 @@ DEFAULT_FP_WEIGHT = 2.0
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
-SAMPLE_WEIGHT_MODES = ('none', 'mvs_global', 'mvs_gridsearch', 'mvs_hard_negative')
+SAMPLE_WEIGHT_MODES = ('none', 'l1_guided', 'l1_hard_negative')
 DEFAULT_SAMPLE_WEIGHT_MODE = 'none'
-TRAINING_CACHE_VERSION = 2
+TRAINING_CACHE_VERSION = 4
 DEFAULT_ML_TEMPERATURE = 5.0
 # All chips included: MLDetector keeps MVS CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
@@ -942,60 +945,15 @@ def _fallback_file_context(filename, label, packet):
     return _build_file_context(label, fallback)
 
 
-def _has_explicit_pair(dataset_info, label, entry):
-    """Check if entry has an explicit counterpart in dataset_info."""
-    if label == 'static_presence':
-        counterpart_label = 'motion'
-        counterpart_name = entry.get('optimal_pair_motion_file')
-    else:
-        counterpart_label = 'static_presence'
-        counterpart_name = entry.get('optimal_pair_static_presence_file')
-    if not counterpart_name:
-        return False
-
-    counterpart = None
-    for candidate in dataset_info.get('files', {}).get(counterpart_label, []):
-        if candidate.get('filename') == counterpart_name:
-            counterpart = candidate
-            break
-    if counterpart is None:
-        return False
-    return True
-
-
-def build_gridsearch_tuning_map(dataset_info, default_threshold=None):
-    """
-    Build per-file tuning map from dataset_info.
-
-    Returns:
-        dict: {
-            filename: {
-                'threshold': float,
-                'mode': 'explicit-pair' | 'unpaired' | 'missing',
-                'confidence_factor': float,
-            }
-        }
-    """
-    tuning = {}
-    for label, files in dataset_info.get('files', {}).items():
-        for entry in files:
-            name = entry.get('filename')
-            if not name:
-                continue
-
-            threshold_value = entry.get('optimal_threshold_gridsearch', default_threshold)
-            paired = _has_explicit_pair(dataset_info, label, entry)
-            if threshold_value is None:
-                threshold = None
-                mode = 'missing'
-            else:
-                threshold = float(threshold_value)
-                mode = 'explicit-pair' if paired else 'unpaired'
-            tuning[name] = {
-                'threshold': threshold,
-                'mode': mode,
-            }
-    return tuning
+def build_pair_static_map(dataset_info):
+    """Map motion filename -> paired static_presence filename from dataset_info."""
+    pair_map = {}
+    for entry in dataset_info.get('files', {}).get('motion', []):
+        name = entry.get('filename')
+        static_name = entry.get('optimal_pair_static_presence_file')
+        if name and static_name:
+            pair_map[str(name)] = str(static_name)
+    return pair_map
 
 
 def is_motion_label(label_name, dataset_info):
@@ -1488,67 +1446,42 @@ def compute_sample_weights(packets, labels, sample_weight_mode=DEFAULT_SAMPLE_WE
         return np.ones(len(labels), dtype=np.float32)
 
     dataset_info = load_dataset_info()
-    if mode == 'mvs_global':
-        tuning_map = {}
-        mvs_policy = 'full'
-        fallback_threshold = 1.0
-    elif mode == 'mvs_gridsearch':
-        tuning_map = build_gridsearch_tuning_map(dataset_info)
-        mvs_policy = 'full'
-        fallback_threshold = None
-    elif mode == 'mvs_hard_negative':
-        tuning_map = build_gridsearch_tuning_map(dataset_info)
-        mvs_policy = 'hard_negative'
-        fallback_threshold = None
+    if mode == 'l1_guided':
+        policy = 'full'
+    elif mode == 'l1_hard_negative':
+        policy = 'hard_negative'
     else:
         raise AssertionError(f"Unhandled sample weight mode: {mode}")
 
-    return compute_mvs_guided_sample_weights(
+    return compute_l1_guided_sample_weights(
         packets,
-        tuning_map,
+        build_pair_static_map(dataset_info),
         window_size=window_size,
-        policy=mvs_policy,
-        fallback_threshold=fallback_threshold,
+        policy=policy,
     )
 
 
-def estimate_mvs_threshold_from_packets(file_packets, window_size=SEG_WINDOW_SIZE):
-    """Estimate the production adaptive threshold from a file calibration prefix."""
-    ctx = SegmentationContext(
-        window_size=window_size,
-        threshold=1.0,
-        enable_hampel=True,
-    )
-    max_moving_variance = None
-    for pkt in file_packets[:CALIBRATION_BUFFER_SIZE]:
-        turb = ctx.calculate_spatial_turbulence(
-            pkt['csi_data'],
-            DEFAULT_SUBCARRIERS,
-        )
-        ctx.add_turbulence(turb)
-        ctx.update_state()
-        if ctx.buffer_count >= window_size:
-            current_moving_variance = float(ctx.current_moving_variance)
-            if max_moving_variance is None or current_moving_variance > max_moving_variance:
-                max_moving_variance = current_moving_variance
-
-    if max_moving_variance is None:
+def estimate_support_threshold_from_packets(file_packets):
+    """Estimate the production l1_delta startup threshold from a file capture."""
+    threshold = estimate_runtime_threshold(file_packets)
+    if threshold is None:
         return None
-    threshold = max_moving_variance * get_threshold_factor('auto')
     return max(float(threshold), 1e-6)
 
 
-def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDOW_SIZE,
-                                      policy='full', fallback_threshold=None):
+def compute_l1_guided_sample_weights(packets, pair_static_map, window_size=SEG_WINDOW_SIZE,
+                                     policy='full'):
     """
-    Compute sample weights using context-aware MVS scoring per source file.
+    Compute sample weights using context-aware l1_delta scoring per source file.
 
     Weight policy:
     - full policy: hard-positive mining for movement samples
     - hard_negative policy: leave movement samples neutral
     - baseline samples: promote hard negatives (2.0) when metric >= threshold, else 1.0
-    - per-file thresholds come from dataset metadata when available
-    - missing metadata falls back to a production-style calibration-prefix estimate
+    - per-file thresholds replay the production l1_delta startup calibration:
+      quiet captures self-calibrate, and motion files inherit the threshold of
+      their paired static capture when it is part of the training set
+    - unpaired motion files fall back to their own gated calibration replay
     - weights are normalized per file so no single recording dominates training
     """
     weights = []
@@ -1558,35 +1491,38 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
         source = pkt.get('source_file', '__single_stream__')
         grouped.setdefault(source, []).append(pkt)
 
-    for source_file, file_packets in grouped.items():
-        cfg = tuning_map.get(source_file, None)
-        if cfg is None or cfg.get('threshold') is None:
-            if fallback_threshold is None:
-                threshold = estimate_mvs_threshold_from_packets(
-                    file_packets,
-                    window_size=window_size,
-                )
-                if threshold is None:
-                    threshold = 1.0
-            else:
-                threshold = float(fallback_threshold)
-        else:
-            threshold = max(float(cfg['threshold']), 1e-6)
-        effective_threshold = max(float(threshold), 1e-6)
+    threshold_cache = {}
 
-        ctx = SegmentationContext(window_size=window_size, threshold=effective_threshold)
+    def threshold_for(source_file):
+        """Production l1_delta startup threshold for one source file."""
+        if source_file in threshold_cache:
+            return threshold_cache[source_file]
+        static_name = pair_static_map.get(source_file)
+        if static_name is not None and static_name != source_file and static_name in grouped:
+            threshold = threshold_for(static_name)
+        else:
+            threshold = estimate_support_threshold_from_packets(grouped[source_file])
+        if threshold is None:
+            threshold = 1.0
+        threshold_cache[source_file] = threshold
+        return threshold
+
+    for source_file, file_packets in grouped.items():
+        effective_threshold = max(float(threshold_for(source_file)), 1e-6)
+
+        detector = L1DeltaDetector(window_size=window_size, threshold=effective_threshold)
         file_weights = []
-        for pkt in file_packets:
-            turb = ctx.calculate_spatial_turbulence(
-                pkt['csi_data'],
-                DEFAULT_SUBCARRIERS,
-            )
-            ctx.add_turbulence(turb)
-            ctx.update_state()
-            if ctx.buffer_count < window_size:
+        for packet_index, pkt in enumerate(file_packets):
+            detector.process_packet(pkt['csi_data'], DEFAULT_SUBCARRIERS)
+            detector.update_state()
+            # Gate on the packet count, not detector readiness, so weights stay
+            # 1:1 with the extract_features window rows; the l1_delta metric
+            # reads 0.0 for the extra lag packets, leaving those rows at the
+            # base weight.
+            if packet_index + 1 < window_size:
                 continue
 
-            ratio = max(0.0, float(ctx.current_moving_variance)) / max(effective_threshold, 1e-6)
+            ratio = max(0.0, float(detector.get_motion_metric())) / max(effective_threshold, 1e-6)
             if pkt.get('is_motion', False):
                 # Hard-positive mining:
                 # subtle/near-threshold motion is exactly where recall drops in
@@ -4324,6 +4260,17 @@ def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, 
     )
 
 
+def _search_candidate_key(cv_metrics, gate=None):
+    """Ranking key for broken-baseline seed search fallback."""
+    gate_passed = 1 if gate is not None and gate.passed else 0
+    paired_passed = 1 if gate is not None and gate.paired_returncode == 0 else 0
+    long_available = 1 if gate is not None and gate.long_metrics is not None else 0
+    real_key = _real_ml_gate_key(gate.long_metrics if gate is not None else None)
+    if real_key is None:
+        real_key = (-float('inf'),) * 6
+    return (gate_passed, paired_passed, long_available) + tuple(real_key) + build_candidate_key(cv_metrics)
+
+
 def _model_artifact_paths():
     """Return paths of generated model artifacts."""
     return [
@@ -4366,6 +4313,11 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     Promotion uses a two-stage decision:
       1) grouped CV prefilter
       2) ML-only real-data gate on exported artifacts
+
+    When the current exported baseline fails those gates, the command falls back
+    to a ranking mode: it evaluates all MAX_TRIALS candidates, keeps the best
+    exported candidate that beats the broken baseline, and restores it at the
+    end even if no candidate reaches a fully passing gate state.
     """
     if max_trials < 1:
         print("Error: --seed-search-until-improvement must be >= 1")
@@ -4443,13 +4395,12 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     )
     static_presence_gate = run_exported_ml_gates()
     print(f"Baseline exported ML gates: {_format_exported_gate_summary(static_presence_gate)}")
-    if not static_presence_gate.passed:
-        print("Error: baseline exported ML gates are required for seed-search promotion")
-        if static_presence_gate.paired_returncode != 0 and static_presence_gate.paired_output.strip():
-            print(static_presence_gate.paired_output.strip())
-        if static_presence_gate.long_metrics is None and static_presence_gate.long_output.strip():
-            print(static_presence_gate.long_output.strip())
-        return 1
+    broken_baseline_mode = not static_presence_gate.passed
+    if broken_baseline_mode:
+        print(
+            "Warning: baseline exported ML gates failed; "
+            "running all trials and ranking candidates against the broken baseline"
+        )
 
     backup_dir, saved_files = _backup_artifacts()
     print(f"Artifacts backup: {backup_dir}")
@@ -4459,6 +4410,9 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     improved_seed = None
     improved_metrics = None
     improved_gate = None
+    best_candidate_backup_dir = None
+    best_candidate_saved_files = None
+    best_search_key = _search_candidate_key(static_presence_metrics, static_presence_gate)
 
     for idx in range(1, max_trials + 1):
         print(f"\n[{idx}/{max_trials}] Training with auto-generated seed")
@@ -4491,12 +4445,15 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             f"blocked_oof_f1={metrics['oof_f1']:.1f}%"
         )
 
-        if build_candidate_key(metrics) <= build_candidate_key(static_presence_metrics):
+        if not broken_baseline_mode and build_candidate_key(metrics) <= build_candidate_key(static_presence_metrics):
             trial_summaries.append((used_seed, metrics, None, 'cv_rejected'))
             print("  CV filter: rejected before real-data ML gate")
             continue
 
-        print("  CV filter: passed, exporting candidate for real-data ML gate...")
+        if broken_baseline_mode:
+            print("  Broken baseline mode: exporting candidate for ranking...")
+        else:
+            print("  CV filter: passed, exporting candidate for real-data ML gate...")
         export_rc, _, final_metrics = train_all(
             fp_weight=fp_weight,
             seed=used_seed,
@@ -4528,6 +4485,26 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             if candidate_gate.long_metrics is None and candidate_gate.long_output.strip():
                 print(candidate_gate.long_output.strip())
 
+        if broken_baseline_mode:
+            status = 'ranked_rejected'
+            candidate_search_key = _search_candidate_key(final_metrics, candidate_gate)
+            if candidate_search_key > best_search_key:
+                improved = True
+                improved_seed = used_seed
+                improved_metrics = final_metrics
+                improved_gate = candidate_gate
+                best_search_key = candidate_search_key
+                if best_candidate_backup_dir is not None:
+                    shutil.rmtree(best_candidate_backup_dir, ignore_errors=True)
+                best_candidate_backup_dir, best_candidate_saved_files = _backup_artifacts()
+                status = 'ranked_best'
+                print("  Broken baseline mode: current best candidate updated")
+            else:
+                print("  Broken baseline mode: candidate did not beat current best")
+            trial_summaries.append((used_seed, final_metrics, candidate_gate, status))
+            _restore_artifacts(saved_files)
+            continue
+
         trial_summaries.append((used_seed, final_metrics, candidate_gate, 'exported_gates'))
         if _candidate_beats_baseline(final_metrics, candidate_gate, static_presence_metrics, static_presence_gate):
             improved = True
@@ -4554,12 +4531,24 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         )
 
     if improved:
+        if broken_baseline_mode and best_candidate_saved_files is not None:
+            _restore_artifacts(best_candidate_saved_files)
+            print(
+                f"\nSelected seed after broken-baseline ranking: {improved_seed} "
+                f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
+                f"{_format_exported_gate_summary(improved_gate)})"
+            )
+            return 0
         print(
             f"\nSelected seed: {improved_seed} "
             f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
             f"{_format_exported_gate_summary(improved_gate)})"
         )
         return 0
+
+    if broken_baseline_mode:
+        print("\nNo candidate beat the current broken baseline; current artifacts remain unchanged")
+        return 1
 
     print("\nNo improvement found within max trials; current artifacts remain unchanged")
     return 1
@@ -5146,7 +5135,10 @@ To compare ML with MVS, use:
     parser.add_argument('--seed-search-until-improvement', type=int, default=0, metavar='MAX_TRIALS',
                        help='Train with auto-generated seeds until first '
                             'improvement over current ML performance, with '
-                            'at most MAX_TRIALS attempts')
+                            'at most MAX_TRIALS attempts. If the exported '
+                            'baseline is already broken, evaluate all '
+                            'MAX_TRIALS candidates and keep the best one that '
+                            'beats the current baseline')
     parser.add_argument('--gain-stress-gate', action='store_true',
                        help='Evaluate current exported ML artifacts under '
                             'artificial gain scaling without training/exporting')
@@ -5207,10 +5199,11 @@ To compare ML with MVS, use:
                        help='Boost motion samples for specific chips, e.g. ESP32=1.2 or ESP32=1.2,S3=1.1')
     parser.add_argument('--sample-weight-mode', choices=SAMPLE_WEIGHT_MODES,
                        default=DEFAULT_SAMPLE_WEIGHT_MODE,
-                       help='Base sample weighting policy. "none" keeps MVS out of training; '
-                            '"mvs_global" uses the legacy global MVS score; '
-                            '"mvs_gridsearch" uses per-file optimal_threshold_gridsearch; '
-                            '"mvs_hard_negative" uses MVS only to promote hard idle windows '
+                       help='Base sample weighting policy. "none" keeps the support detector '
+                            'out of training; "l1_guided" scores windows with the l1_delta '
+                            'replay against per-file runtime-calibrated startup thresholds '
+                            '(motion files inherit the paired static capture); '
+                            '"l1_hard_negative" uses l1_delta only to promote hard idle windows '
                             f'(default: {DEFAULT_SAMPLE_WEIGHT_MODE})')
     parser.add_argument('--shap', type=int, nargs='?', const=200, default=None,
                        metavar='SAMPLES',

@@ -43,6 +43,7 @@ if str(PYTHON_SRC) not in sys.path:
 
 from tools.lib.csi_io import load_npz_as_packets
 from tools.lib.dataset_metadata import DATA_DIR, load_dataset_info
+from tools.lib.mvs_sweep_core import calibrate_startup_threshold
 
 from config import (
     CALIBRATION_BUFFER_SIZE,
@@ -55,7 +56,6 @@ from detector_interface import MotionState
 from filters import HampelFilter
 from ml_detector import MLDetector, ML_DEFAULT_THRESHOLD
 from segmentation import SegmentationContext
-from threshold import get_threshold_factor
 
 
 PAIR_THRESHOLD_GRID_SIZE = 256
@@ -76,6 +76,7 @@ class StreamRecord:
     kind: str
     group_id: str
     idle_prefix_len: int
+    idle_prefix_packets: list[dict[str, object]]
     amplitudes: np.ndarray
     labels: np.ndarray
 
@@ -229,6 +230,7 @@ def _load_stream_records() -> List[StreamRecord]:
                 kind="pair",
                 group_id=pair_id,
                 idle_prefix_len=len(static_packets),
+                idle_prefix_packets=static_packets,
                 amplitudes=amplitudes,
                 labels=labels,
             )
@@ -253,6 +255,7 @@ def _load_stream_records() -> List[StreamRecord]:
                 kind="empty",
                 group_id=f"file:{empty_name}",
                 idle_prefix_len=len(packets),
+                idle_prefix_packets=packets,
                 amplitudes=amplitudes,
                 labels=labels,
             )
@@ -288,6 +291,7 @@ def _load_stream_records() -> List[StreamRecord]:
                 kind=kind,
                 group_id=f"file:{test_name}",
                 idle_prefix_len=motion_start,
+                idle_prefix_packets=packets[:motion_start],
                 amplitudes=amplitudes,
                 labels=labels,
             )
@@ -738,32 +742,19 @@ def _evaluate_global_threshold_family(
     return summary
 
 
-def _estimate_mvs_threshold_from_idle_prefix(amplitudes: np.ndarray, idle_prefix_len: int) -> float:
-    """Replay the production startup threshold bootstrap on an idle prefix."""
-    calibration_len = min(int(idle_prefix_len), int(CALIBRATION_BUFFER_SIZE))
-    calibration_len = max(0, calibration_len)
-
-    ctx = SegmentationContext(window_size=SEG_WINDOW_SIZE, threshold=1.0, enable_hampel=True)
-    max_moving_variance: Optional[float] = None
-    for idx in range(calibration_len):
-        packet_amplitudes = amplitudes[idx]
-        mean_amp = float(np.mean(packet_amplitudes))
-        turbulence = float(np.std(packet_amplitudes) / max(mean_amp, 1e-6))
-        ctx.add_turbulence(turbulence)
-        ctx.update_state()
-        if ctx.buffer_count >= ctx.window_size:
-            current_mv = float(ctx.current_moving_variance)
-            if max_moving_variance is None or current_mv > max_moving_variance:
-                max_moving_variance = current_mv
-
-    if max_moving_variance is None:
-        return 1.0
-    return max(max_moving_variance * get_threshold_factor("auto"), 1e-6)
+def _estimate_mvs_threshold_from_idle_prefix(idle_prefix_packets: list[dict[str, object]]) -> float:
+    """Replay the shared MVS startup bootstrap on the raw idle prefix."""
+    threshold, _calibration_mv = calibrate_startup_threshold(
+        idle_prefix_packets,
+        selected_band=tuple(DEFAULT_SUBCARRIERS),
+        window_size=SEG_WINDOW_SIZE,
+    )
+    return float(threshold)
 
 
 def _evaluate_mvs_session_baseline(stream: StreamRecord) -> Dict[str, object]:
     """Evaluate production-style per-stream MVS."""
-    threshold = _estimate_mvs_threshold_from_idle_prefix(stream.amplitudes, stream.idle_prefix_len)
+    threshold = _estimate_mvs_threshold_from_idle_prefix(stream.idle_prefix_packets)
     ctx = SegmentationContext(window_size=SEG_WINDOW_SIZE, threshold=threshold, enable_hampel=True)
     score_series = np.full(len(stream.labels), np.nan, dtype=np.float64)
     state_series = np.zeros(len(stream.labels), dtype=np.int8)

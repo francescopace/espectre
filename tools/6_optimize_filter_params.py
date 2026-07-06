@@ -58,12 +58,6 @@ def parse_args():
     parser.add_argument("--limit", type=int, default=None, help="Limit the number of dataset pairs")
     parser.add_argument("--hampel", action="store_true", help="Optimize Hampel parameters")
     parser.add_argument("--all", action="store_true", help="Run low-pass and Hampel sweeps in sequence")
-    parser.add_argument(
-        "--threshold-source",
-        choices=["metadata", "calibrate"],
-        default="metadata",
-        help="Use metadata thresholds by default, or force calibration replay",
-    )
     return parser.parse_args()
 
 
@@ -77,7 +71,6 @@ def evaluate_configurations(pairs, configs):
             window_size=WINDOW_SIZE,
             selected_band=DEFAULT_SUBCARRIERS,
             track_trace=False,
-            threshold_source=ARGS.threshold_source,
         )
         summary = summarize_results(results)
         rows.append({"label": label, "config": filter_cfg, "summary": summary})
@@ -106,7 +99,7 @@ def print_header(pairs, chip_filter):
         print(f"Dataset filter: {ARGS.dataset_id}")
     print(f"Window size: {WINDOW_SIZE} packets")
     print(f"Selected band: {list(DEFAULT_SUBCARRIERS)}")
-    print(f"Threshold source: {ARGS.threshold_source}")
+    print("Threshold source: per-pair MVS startup calibration")
     print(f"Targets: recall >{TARGET_RECALL:.0f}% | fp rate <{TARGET_FP_RATE:.1f}%")
     print()
 

@@ -48,9 +48,11 @@ from features import (
 from filters import HampelFilter
 from tools.lib.csi_analysis import MVSDetector, calculate_spatial_turbulence, calculate_variance_two_pass
 from tools.lib.csi_io import load_static_presence_and_motion
+from tools.lib.dataset_metadata import estimate_runtime_threshold
+from tools.lib.mvs_sweep_core import calibrate_startup_threshold
 from config import (
+    DEFAULT_SUBCARRIERS,
     SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
-    CALIBRATION_BUFFER_SIZE,
     HAMPEL_WINDOW,
     HAMPEL_THRESHOLD,
 )
@@ -270,27 +272,14 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
     Returns:
         tuple: (selected_band, adaptive_threshold)
     """
-    from threshold import get_threshold_factor
-
-    selected_band = hint_band
+    selected_band = hint_band if hint_band is not None else DEFAULT_SUBCARRIERS
     max_moving_variance = None
     window_size = mvs_window_size or DETECTOR_DEFAULT_WINDOW_SIZE
-    cal_ctx = SegmentationContext(window_size=window_size, threshold=1.0, enable_hampel=True)
-
-    buffer_size = min(CALIBRATION_BUFFER_SIZE, len(static_presence_packets))
-    for pkt in static_presence_packets[:buffer_size]:
-        turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
-        cal_ctx.add_turbulence(turb)
-        cal_ctx.update_state()
-        if cal_ctx.buffer_count >= cal_ctx.window_size:
-            current_moving_variance = float(cal_ctx.current_moving_variance)
-            if max_moving_variance is None or current_moving_variance > max_moving_variance:
-                max_moving_variance = current_moving_variance
-
-    if max_moving_variance is not None:
-        adaptive_threshold = max_moving_variance * get_threshold_factor("auto")
-    else:
-        adaptive_threshold = 1.0
+    adaptive_threshold, max_moving_variance = calibrate_startup_threshold(
+        static_presence_packets,
+        selected_band=tuple(selected_band),
+        window_size=window_size,
+    )
     return selected_band, adaptive_threshold
 
 
@@ -325,25 +314,11 @@ def run_l1_delta_calibration(static_presence_packets, selected_band, window_size
     detector over the startup packets, keep the max ready-state metric, and
     scale it by the detector-specific startup factor.
     """
-    detector = L1DeltaDetector(window_size=window_size, threshold=1.0)
-    max_metric = None
-    calibration_packets = min(CALIBRATION_BUFFER_SIZE, len(static_presence_packets))
-    startup_factor = float(getattr(detector, "STARTUP_THRESHOLD_FACTOR", 1.0))
-
-    for pkt in static_presence_packets[:calibration_packets]:
-        detector.process_packet(pkt["csi_data"], selected_band)
-        detector.update_state()
-        if not detector.is_ready():
-            continue
-        current_metric = float(detector.get_motion_metric())
-        if max_metric is None or current_metric > max_metric:
-            max_metric = current_metric
-
-    if max_metric is None:
-        adaptive_threshold = 1.0
-    else:
-        adaptive_threshold = max_metric * startup_factor
-    return adaptive_threshold
+    adaptive_threshold = estimate_runtime_threshold(
+        static_presence_packets,
+        selected_subcarriers=selected_band,
+    )
+    return 1.0 if adaptive_threshold is None else adaptive_threshold
 
 
 class TestMVSDetectionRealData:
@@ -656,30 +631,15 @@ class TestPerformanceMetrics:
         Startup uses fixed subcarriers from conftest.py.
         """
         import numpy as np
-        from threshold import get_threshold_factor
         static_presence_packets, motion_packets = real_data
         
         # Context-aware subcarriers from dataset_info metadata.
         selected_band = default_subcarriers
         
-        # Keep threshold calibration aligned with runtime test pipeline.
-        cal_ctx = SegmentationContext(
-            window_size=window_size, threshold=1.0, enable_hampel=enable_hampel
-        )
-        max_moving_variance = None
-        calibration_packets = min(len(static_presence_packets), CALIBRATION_BUFFER_SIZE)
-        for pkt in static_presence_packets[:calibration_packets]:
-            turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
-            cal_ctx.add_turbulence(turb)
-            cal_ctx.update_state()
-            if cal_ctx.buffer_count >= cal_ctx.window_size:
-                current_moving_variance = float(cal_ctx.current_moving_variance)
-                if max_moving_variance is None or current_moving_variance > max_moving_variance:
-                    max_moving_variance = current_moving_variance
-        adaptive_threshold = (
-            max_moving_variance * get_threshold_factor("auto")
-            if max_moving_variance is not None
-            else 1.0
+        adaptive_threshold, _max_moving_variance = calibrate_startup_threshold(
+            static_presence_packets,
+            selected_band=tuple(selected_band),
+            window_size=window_size,
         )
         
         # Initialize with adaptive threshold (new detector, matches C++)

@@ -74,14 +74,14 @@ def _add_collect_parser(
     collect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
     collect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
     collect_parser.add_argument(
-        "--stimulus-target",
-        "--streamer-ip",
-        dest="stimulus_target",
-        help="IPv4 stimulus destination(s), comma-separated for multi-unicast",
+        "--target",
+        "-t",
+        dest="target",
+        help="IPv4 target destination(s), comma-separated for multi-unicast",
     )
-    collect_parser.add_argument("--stimulus-port", type=int, default=9999, help="UDP port used by the streamer listener (default: 9999)")
-    collect_parser.add_argument("--stimulus-rate", type=int, default=100, help="Stimulus packets per second sent to the streamer (default: 100)")
-    collect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth stimulus packet as reference (default: 0 = measurement only)")
+    collect_parser.add_argument("--target-port", dest="target_port", type=int, default=9999, help="UDP port used by the target listener (default: 9999)")
+    collect_parser.add_argument("--rate", type=int, default=100, help="Traffic send rate in packets per second (default: 100)")
+    collect_parser.add_argument("--reference-every", type=int, default=0, help="Mark every Nth traffic packet as reference (default: 0 = measurement only)")
     collect_parser.add_argument(
         "--detector",
         default="mvs",
@@ -200,9 +200,9 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('micro', 'deploy')}",
             f"  {cli_command('mqtt')}",
             f"  {cli_command('ui', 'theremin')}",
-            f"  {cli_command('collect', '--stimulus-target', '192.168.1.50', '--no-save', '--log-turbulence')}",
-            f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--stimulus-target', '192.168.1.50')}",
-            f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}",
+            f"  {cli_command('collect', '--target', '192.168.1.50', '--no-save', '--log-turbulence')}",
+            f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
+            f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}",
             f"  {cli_command('doctor')}",
             f"  {cli_command('monitor', '--port', serial_port_example())}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--dev')}",

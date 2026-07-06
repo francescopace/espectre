@@ -9,7 +9,7 @@ Checks performed:
   1. Metadata completeness - Required derived/manual dataset_info fields exist
   2. File integrity        - NPZ loads, expected keys exist, shapes are valid
   3. Signal quality        - Amplitude range, zero-packet detection
-  4. Pair validation       - Runtime-like threshold activation on static/motion pairs
+  4. Pair validation       - Metadata-backed production-aligned threshold activation on static/motion pairs
   5. ML readiness          - Label balance, minimum samples, chip diversity
 
 Per-file integrity and signal-quality checks cover `empty`, `static_presence`,
@@ -20,7 +20,7 @@ SOURCE CODE ALIGNMENT:
   This script imports core functions directly from src/python/micro_espectre/ to ensure correctness:
   - src/python/micro_espectre/utils.py: calculate_spatial_turbulence(), calculate_moving_variance()
   - src/python/micro_espectre/config.py: SEG_WINDOW_SIZE, DEFAULT_SUBCARRIERS
-  - src/python/micro_espectre/mvs_detector.py: production runtime replay for pair validation
+  - src/python/micro_espectre/l1_delta_detector.py: production runtime replay for pair validation
 
   Amplitude extraction is vectorized with numpy (int8 → int16 to avoid overflow)
   rather than looping through src/micro_espectre/utils.py:extract_amplitudes() per packet.
@@ -52,6 +52,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 from tools.lib.repo_paths import generated_data_dir, python_src_dir  # noqa: E402
+from tools.lib.dataset_metadata import estimate_runtime_threshold  # noqa: E402
 
 SRC_DIR = python_src_dir()
 sys.path.insert(0, str(SRC_DIR))
@@ -62,15 +63,10 @@ from utils import (                                      # noqa: E402
 )
 from config import (  # noqa: E402
     DEFAULT_SUBCARRIERS,
-    ENABLE_HAMPEL_FILTER,
-    ENABLE_LOWPASS_FILTER,
-    HAMPEL_THRESHOLD,
-    HAMPEL_WINDOW,
-    LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
 from features import extract_features_by_name  # noqa: E402
-from mvs_detector import MVSDetector  # noqa: E402
+from l1_delta_detector import L1DeltaDetector  # noqa: E402
 
 # ------------------------------------------------------------------
 # Constants
@@ -302,10 +298,6 @@ def validate_metadata_completeness(dataset_info, chip_filter=None):
             if _is_missing_metadata_value(entry.get('environment')):
                 entry_errors.append("missing environment")
 
-            threshold = _coerce_positive_float(entry.get('optimal_threshold_gridsearch'))
-            if threshold is None:
-                entry_errors.append("optimal_threshold_gridsearch must be a positive number")
-
             pair_field = REQUIRED_PAIR_FIELD_BY_LABEL.get(label)
             if pair_field:
                 counterpart_label = PAIR_COUNTERPART_LABEL[label]
@@ -358,8 +350,6 @@ def should_recommend_dataset_metadata_refresh(results, missing_motion_pair_count
 
     for result in results:
         message = str(getattr(result, "message", ""))
-        if "optimal_threshold_gridsearch" in message:
-            return True
         if "optimal_pair_motion_file" in message:
             return True
         if "optimal_pair_static_presence_file" in message:
@@ -611,7 +601,7 @@ def validate_capture_continuity(data, csi_data):
     return results
 
 
-def validate_pair(bl_csi, mv_csi, bl_data, mv_data, threshold):
+def validate_pair(bl_csi, mv_csi, bl_data, mv_data):
     """Validate a static-presence/motion pair.
 
     Args:
@@ -619,7 +609,6 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data, threshold):
         mv_csi: motion CSI array (num_packets, 128)
         bl_data: full static-presence NpzFile (for metadata)
         mv_data: full motion NpzFile (for metadata)
-        threshold: production-aligned threshold used by the runtime detector
     Returns:
         tuple: (
             results,
@@ -630,19 +619,23 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data, threshold):
         )
     """
     results = []
+    bl_csi = _filter_measurement_frames(bl_csi, bl_data)
+    mv_csi = _filter_measurement_frames(mv_csi, mv_data)
+    threshold = estimate_runtime_threshold(
+        bl_csi,
+        selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
+    )
     threshold = _coerce_positive_float(threshold)
     if threshold is None:
         results.append(ValidationResult(
             "threshold_activation",
             "FAIL",
-            "Missing or invalid optimal_threshold_gridsearch for pair validation",
+            "Could not calibrate the l1_delta startup threshold from the static capture",
         ))
         return results, 0.0, 0.0, 0.0, 0.0
 
-    bl_csi = _filter_measurement_frames(bl_csi, bl_data)
-    mv_csi = _filter_measurement_frames(mv_csi, mv_data)
-    bl_metric = _replay_mvs_metric_series(bl_csi, threshold)
-    mv_metric = _replay_mvs_metric_series(mv_csi, threshold)
+    bl_metric = _replay_l1_metric_series(bl_csi, threshold)
+    mv_metric = _replay_l1_metric_series(mv_csi, threshold)
     if len(bl_metric) == 0 or len(mv_metric) == 0:
         results.append(ValidationResult(
             "threshold_activation",
@@ -662,7 +655,7 @@ def validate_pair(bl_csi, mv_csi, bl_data, mv_data, threshold):
         and active_ratio_delta >= MIN_ACTIVE_RATIO_MARGIN
     )
     message = (
-        "Runtime-like MVS threshold activation: "
+        "Runtime-calibrated l1_delta threshold activation: "
         f"static_above={static_active_ratio:.1%}, "
         f"motion_above={motion_active_ratio:.1%}, "
         f"delta={active_ratio_delta:+.1%}, "
@@ -777,25 +770,21 @@ def _compute_turbulence_and_moving_variance_series(csi_data):
     return np.asarray(turbulence, dtype=np.float64), moving_variance
 
 
-def _replay_mvs_metric_series(csi_data, threshold):
-    """Replay one capture through the production MVS detector."""
-    detector = MVSDetector(
+def _replay_l1_metric_series(csi_data, threshold):
+    """Replay one capture through the production l1_delta detector."""
+    detector = L1DeltaDetector(
         window_size=SEG_WINDOW_SIZE,
         threshold=float(threshold),
-        enable_lowpass=ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=LOWPASS_CUTOFF,
-        enable_hampel=ENABLE_HAMPEL_FILTER,
-        hampel_window=HAMPEL_WINDOW,
-        hampel_threshold=HAMPEL_THRESHOLD,
     )
     metric_series = []
     for packet in csi_data:
         detector.process_packet(packet.tolist(), DEFAULT_SUBCARRIERS)
-        metric_series.append(float(detector.update_state()['moving_variance']))
+        metric_series.append(float(detector.update_state()['motion_metric']))
 
-    if len(metric_series) <= SEG_WINDOW_SIZE:
+    warmup = SEG_WINDOW_SIZE + detector.lag
+    if len(metric_series) <= warmup:
         return np.asarray([], dtype=np.float64)
-    return np.asarray(metric_series[SEG_WINDOW_SIZE:], dtype=np.float64)
+    return np.asarray(metric_series[warmup:], dtype=np.float64)
 
 
 def _evaluate_threshold_direction(neg_values, pos_values, expect_pos_higher=True):
@@ -1173,11 +1162,9 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
                         all_results.append(r)
                     continue
 
-            threshold = _coerce_positive_float(entry.get("optimal_threshold_gridsearch"))
             pair_res, static_active_ratio, motion_active_ratio, pair_threshold, motion_peak_ratio = validate_pair(
                 bl_data[bl_key], mv_data[mv_key],
                 bl_data, mv_data,
-                threshold,
             )
             for r in pair_res:
                 print(f"   {r}")
@@ -1250,7 +1237,7 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
     ):
         print("\n💡 Metadata refresh recommended:")
         print("   Run `python tools/3_refresh_dataset_metadata.py --write`")
-        print("   to regenerate pair metadata and optimal_threshold_gridsearch.")
+        print("   to regenerate explicit static_presence/motion pair metadata.")
 
     if generate_report:
         _generate_report(pair_results, all_results, dataset_info)
@@ -1280,8 +1267,8 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("A pair is considered valid when:\n")
     lines.append("- labels are coherent (`static_presence` vs `motion`)")
     lines.append(
-        "- replaying the production `MVSDetector` with the pair-specific "
-        "`optimal_threshold_gridsearch` keeps `static_presence` mostly below threshold"
+        "- replaying the production `L1DeltaDetector` with a threshold calibrated "
+        "from the pair `static_presence` capture keeps `static_presence` mostly below threshold"
     )
     lines.append(
         f"- `static_presence` above-threshold share <= {MAX_STATIC_ACTIVE_RATIO:.0%}, "
@@ -1292,9 +1279,9 @@ def _generate_report(pair_results, all_results, dataset_info):
     lines.append("chip/environment to check both quietness and separability, after dropping ")
     lines.append("reference frames from `empty` files when present.\n")
     lines.append("Computed metrics:\n")
-    lines.append("- `Threshold`: pair-specific `optimal_threshold_gridsearch` from `dataset_info.json`")
-    lines.append("- `Static Above`: share of replayed MVS windows above threshold on `static_presence`")
-    lines.append("- `Motion Above`: share of replayed MVS windows above threshold on `motion`")
+    lines.append("- `Threshold`: pair-specific `l1_delta` runtime threshold calibrated from `static_presence`")
+    lines.append("- `Static Above`: share of replayed l1_delta windows above threshold on `static_presence`")
+    lines.append("- `Motion Above`: share of replayed l1_delta windows above threshold on `motion`")
     lines.append("- `Motion Peak`: maximum replayed motion metric divided by the threshold")
     lines.append("- `Empty separation`: score-based separability between `empty` and ")
     lines.append("  `static_presence` windows using `0.7*z(turb_mean) + 0.3*z(waveform_length_over_mean)`")

@@ -15,8 +15,8 @@ _WEB_UI_FILES = {
 }
 
 
-def _parse_stimulus_targets(targets: str) -> tuple[list[str], str]:
-    """Validate one or more comma-separated IPv4 stimulus destinations."""
+def _parse_targets(targets: str) -> tuple[list[str], str]:
+    """Validate one or more comma-separated IPv4 destinations."""
     parsed_targets: list[str] = []
     mode_counts = {"unicast": 0, "broadcast": 0, "multicast": 0}
     for raw_target in str(targets).split(","):
@@ -26,9 +26,9 @@ def _parse_stimulus_targets(targets: str) -> tuple[list[str], str]:
         try:
             target_ip = ipaddress.ip_address(target)
         except ValueError as exc:
-            raise ValueError(f"invalid stimulus target: {target}") from exc
+            raise ValueError(f"invalid target: {target}") from exc
         if target_ip.version != 4:
-            raise ValueError(f"stimulus target must be an IPv4 address: {target}")
+            raise ValueError(f"target must be an IPv4 address: {target}")
         normalized_target = str(target_ip)
         parsed_targets.append(normalized_target)
         if target_ip.is_multicast:
@@ -39,7 +39,7 @@ def _parse_stimulus_targets(targets: str) -> tuple[list[str], str]:
             mode_counts["unicast"] += 1
 
     if not parsed_targets:
-        raise ValueError("stimulus target required. Use --stimulus-target <ip[,ip,...]>")
+        raise ValueError("target required. Use --target <ip[,ip,...]>")
 
     unique_targets = list(dict.fromkeys(parsed_targets))
     if mode_counts["multicast"]:
@@ -121,7 +121,7 @@ def _collect_dataset_csi_data(args) -> None:
             print()
             print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
             print("    1. Run the streamer firmware on the device")
-            print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}")
+            print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}")
         else:
             print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10}{Style.RESET_ALL}")
             print(f"  {'-' * 32}")
@@ -135,13 +135,13 @@ def _collect_dataset_csi_data(args) -> None:
     if not args.label:
         print(f"{Fore.RED}❌ Label required. Use --label <name>{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Examples:{Style.RESET_ALL}")
-        print(f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}")
-        print(f"  {cli_command('collect', '--label', 'static_presence', '--duration', '10', '--stimulus-target', '192.168.1.50')}")
+        print(f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}")
+        print(f"  {cli_command('collect', '--label', 'static_presence', '--duration', '10', '--target', '192.168.1.50')}")
         print(f"  {cli_command('collect', '--info')}")
         raise SystemExit(1)
 
-    if not args.stimulus_target:
-        print(f"{Fore.RED}❌ Stimulus target required. Use --stimulus-target <ip[,ip,...]>{Style.RESET_ALL}")
+    if not args.target:
+        print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]>{Style.RESET_ALL}")
         raise SystemExit(1)
 
     if args.start_delay < 0:
@@ -154,7 +154,7 @@ def _collect_dataset_csi_data(args) -> None:
         raise SystemExit(1)
 
     try:
-        stimulus_targets, target_mode = _parse_stimulus_targets(args.stimulus_target)
+        targets, target_mode = _parse_targets(args.target)
     except ValueError as e:
         print(f"{Fore.RED}❌ {e}{Style.RESET_ALL}")
         raise SystemExit(1)
@@ -171,15 +171,15 @@ def _collect_dataset_csi_data(args) -> None:
         print(f"  {Fore.CYAN}Start delay:{Style.RESET_ALL} {args.start_delay}s")
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
-    print(f"  {Fore.CYAN}Stimulus target:{Style.RESET_ALL} {', '.join(stimulus_targets)} ({target_mode})")
-    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {len(stimulus_targets)} target(s) on UDP {args.stimulus_port}")
+    print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)} ({target_mode})")
+    print(f"  {Fore.CYAN}Traffic:{Style.RESET_ALL}   {args.rate} pps -> {len(targets)} target(s) on UDP {args.target_port}")
     if args.reference_every > 0:
         print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
     if args.description:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
     print(f"  {Fore.YELLOW}Chip type auto-detected from CSI stream{Style.RESET_ALL}")
-    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening for the configured shared stimulus target{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening on the configured target/port{Style.RESET_ALL}")
     print()
 
     collector = CSICollector(
@@ -188,13 +188,13 @@ def _collect_dataset_csi_data(args) -> None:
         contributor=args.contributor,
         description=args.description,
         bind_host=resolved_bind_ip,
-        expected_device_count=len(stimulus_targets),
-        expected_source_hosts=stimulus_targets,
+        expected_device_count=len(targets),
+        expected_source_hosts=targets,
     )
     stimulus_sender = StimulusSender(
-        target_host=stimulus_targets,
-        target_port=args.stimulus_port,
-        rate_pps=args.stimulus_rate,
+        target_host=targets,
+        target_port=args.target_port,
+        rate_pps=args.rate,
         reference_every=args.reference_every,
         source_host=resolved_bind_ip,
     )
@@ -291,8 +291,8 @@ def _run_live_collect(args) -> None:
     if live_duration is not None and live_duration <= 0:
         print(f"{Fore.RED}❌ Duration must be > 0 seconds{Style.RESET_ALL}")
         raise SystemExit(1)
-    if not getattr(args, "stimulus_target", None):
-        print(f"{Fore.RED}❌ Stimulus target required. Use --stimulus-target <ip[,ip,...]>{Style.RESET_ALL}")
+    if not getattr(args, "target", None):
+        print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]>{Style.RESET_ALL}")
         raise SystemExit(1)
     if not save_enabled and not no_save and label is None:
         print(f"{Fore.RED}❌ Label required unless you use --no-save{Style.RESET_ALL}")
@@ -551,7 +551,7 @@ def _run_live_collect(args) -> None:
 
     def summarize_ready_gate():
         observed_count = len(state["devices"])
-        required_count = max(1, len(stimulus_targets))
+        required_count = max(1, len(targets))
         if observed_count < required_count:
             return {
                 "ready": False,
@@ -676,7 +676,7 @@ def _run_live_collect(args) -> None:
             device_state["publish_counter"] = 0
 
     def is_calibration_complete():
-        required_count = max(1, len(stimulus_targets))
+        required_count = max(1, len(targets))
         if len(state["devices"]) < required_count:
             return False
         return all(
@@ -704,7 +704,7 @@ def _run_live_collect(args) -> None:
 
     def render_multi_device_summary(now):
         observed_count = len(state["devices"])
-        required_count = max(1, len(stimulus_targets))
+        required_count = max(1, len(targets))
         detail_lines = []
         for device_id in sorted(state["devices"], key=lambda value: (value is None, value if value is not None else 0)):
             device_state = state["devices"][device_id]
@@ -803,7 +803,7 @@ def _run_live_collect(args) -> None:
         )
 
     try:
-        stimulus_targets, target_mode = _parse_stimulus_targets(args.stimulus_target)
+        targets, target_mode = _parse_targets(args.target)
     except ValueError as e:
         print(f"{Fore.RED}❌ {e}{Style.RESET_ALL}")
         raise SystemExit(1)
@@ -813,9 +813,9 @@ def _run_live_collect(args) -> None:
     publish_rate = getattr(config, "PUBLISH_INTERVAL", 100) or 100
     receiver = CSIReceiver(port=args.udp_port, buffer_size=4000, bind_host=resolved_bind_ip)
     stimulus_sender = StimulusSender(
-        target_host=stimulus_targets,
-        target_port=args.stimulus_port,
-        rate_pps=args.stimulus_rate,
+        target_host=targets,
+        target_port=args.target_port,
+        rate_pps=args.rate,
         reference_every=args.reference_every,
         source_host=resolved_bind_ip,
     )
@@ -827,8 +827,8 @@ def _run_live_collect(args) -> None:
             contributor=getattr(args, "contributor", None),
             description=getattr(args, "description", None),
             bind_host=resolved_bind_ip,
-            expected_device_count=len(stimulus_targets),
-            expected_source_hosts=stimulus_targets,
+            expected_device_count=len(targets),
+            expected_source_hosts=targets,
         )
 
     state = {
@@ -968,8 +968,8 @@ def _run_live_collect(args) -> None:
     print(f"  {Fore.CYAN}Detector:{Style.RESET_ALL}  {', '.join(kind.upper() for kind in detector_kinds)}")
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
-    print(f"  {Fore.CYAN}Stimulus target:{Style.RESET_ALL} {', '.join(stimulus_targets)} ({target_mode})")
-    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {len(stimulus_targets)} target(s) on UDP {args.stimulus_port}")
+    print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)} ({target_mode})")
+    print(f"  {Fore.CYAN}Traffic:{Style.RESET_ALL}   {args.rate} pps -> {len(targets)} target(s) on UDP {args.target_port}")
     if args.reference_every > 0:
         print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
     if "ml" in detector_kinds:
@@ -996,7 +996,7 @@ def _run_live_collect(args) -> None:
     else:
         print(f"  {Fore.CYAN}Save:{Style.RESET_ALL}      disabled")
     print()
-    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening for the configured shared stimulus target{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening on the configured target/port{Style.RESET_ALL}")
     if calibrated_kinds:
         print(f"  {Fore.YELLOW}Please remain still during the startup calibration phase{Style.RESET_ALL}")
     print(f"  {Fore.YELLOW}Press Ctrl+C to stop{Style.RESET_ALL}")

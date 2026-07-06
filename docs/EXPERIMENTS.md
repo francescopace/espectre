@@ -37,8 +37,7 @@ turbulence (`std(amplitudes) / mean(amplitudes)`) as the single production
 path. Earlier dataset captures may also have been contaminated by a collection
 bug. For that reason, the next clean ML baseline starts from
 `--sample-weight-mode none`; MVS-guided weighting should be re-evaluated only
-after clean data collection and refreshed `optimal_threshold_gridsearch`
-metadata.
+after clean data collection and refreshed explicit pair metadata.
 
 ## Active Research Notes
 
@@ -1270,11 +1269,11 @@ validation showed that both MVS and ML can produce quiet-room motion spikes.
 
 #### Background
 
-The training stack was extended to annotate `optimal_threshold_gridsearch` in
-`data/dataset_info.json`. The first use of this metadata treated MVS as a
-context-aware training guide: per-file thresholds affected the moving-variance
-ratio used for sample weights, including both hard-positive mining and hard
-negative emphasis.
+At that stage the training stack experimented with storing a per-file
+`optimal_threshold_gridsearch` value in `data/dataset_info.json`. The first use
+of this metadata treated MVS as a context-aware training guide: per-file
+thresholds affected the moving-variance ratio used for sample weights,
+including both hard-positive mining and hard-negative emphasis.
 
 That full MVS-guided approach was not a clear win:
 
@@ -1295,8 +1294,8 @@ import MVS quiet-spike bias into the ML decision boundary.
 
 - `none`: uniform sample weights; no MVS involvement
 - `mvs_global`: legacy MVS-guided weighting with the global fallback threshold
-- `mvs_gridsearch`: full MVS-guided weighting using per-file
-  `optimal_threshold_gridsearch`
+- `mvs_gridsearch`: full MVS-guided weighting using the then-current per-file
+  `optimal_threshold_gridsearch` metadata
 - `mvs_hard_negative`: use MVS only to up-weight IDLE windows that look
   motion-like; motion samples remain neutral
 
@@ -1364,7 +1363,9 @@ training now defaults back to `none` so the first clean retrain establishes an
 unbiased baseline.
 
 Compare `mvs_hard_negative` against `none` again only after clean data
-collection and refreshed `optimal_threshold_gridsearch` metadata.
+collection and refreshed explicit pair metadata; if detector guidance is used,
+recompute it from the correct detector-specific startup calibration instead of
+relying on stored thresholds.
 
 ---
 

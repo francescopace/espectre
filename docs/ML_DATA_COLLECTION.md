@@ -67,8 +67,8 @@ If you haven't already flashed the firmware:
 ### 3. Start the Streamer Firmware
 
 Start the standalone streamer firmware on the device. The host collector now
-drives the UDP stimulus and the streamer learns the collector IP from incoming
-stimulus packets (default CSI UDP port: `5001`):
+drives the UDP target traffic, and the streamer learns the collector IP from
+incoming traffic packets (default CSI UDP port: `5001`):
 
 ```bash
 ./espectre streamer build --chip <chip> --clean
@@ -90,7 +90,7 @@ Use that README as the source of truth for:
 **Features:**
 - 64 subcarriers (HT20 mode)
 - 32-bit sequence numbers for packet loss detection
-- collector-driven stimulus rate (see streamer README for practical transport profiles and benchmarks)
+- collector-driven traffic rate (see streamer README for practical transport profiles and benchmarks)
 
 ### 4. Optional: Inspect Live Motion With `collect`
 
@@ -98,18 +98,28 @@ If you want to validate runtime detector behavior before saving data, run the
 same host-side pipeline in live mode without saving files:
 
 ```bash
-./espectre collect --stimulus-target 192.168.1.50 --no-save --log-turbulence
+./espectre collect --target 192.168.1.50 --no-save --log-turbulence
 ```
 
 `espectre collect` reads threshold mode, the fixed production subcarrier set,
 Hampel, low-pass, and hit filtering from `src/python/micro_espectre/config.py` and
 `src/python/micro_espectre/config_local.py`, just like the rest of micro-ESPectre. Use
-`--stimulus-target <ip>` to point at the firmware device or shared stimulus
+`--target <ip>` to point at the firmware device or shared target
 group, and `--bind-ip <local_ip>` only when auto-detection picks the wrong host
 interface.
 
-For MVS, the live collect path mirrors the runtime startup threshold bootstrap:
-`auto` uses `max(calibration_mv) x 1.3`, and `min` uses `max(calibration_mv) x 1.0`.
+For startup-calibrated detectors, the live collect path mirrors the runtime
+startup threshold bootstrap. `mvs` keeps the plain threshold rule (`auto` uses
+`max(calibration_metric) x 1.3`, and `min` uses `max(calibration_metric) x
+1.0`), while `l1_delta` uses `max(calibration_metric) x 1.1` in `auto` and the
+same startup consistency gate as the runtime to extend contaminated calibration
+windows before finalizing the threshold.
+
+If you pass a comma-separated detector list to `--detector`, `espectre collect`
+runs the detectors side by side on the same live CSI stream. This is useful for
+quick A/B comparisons because each detector keeps its own threshold bootstrap
+and status line while sharing the same packets, device metadata, and target
+traffic.
 
 The same live path can also save the raw CSI packets it is inspecting. This
 uses the ordinary dataset format; no derived ML scores, feature vectors, or
@@ -119,7 +129,7 @@ and the exported model.
 ```bash
 # Mixed idle/motion/idle smoke-test capture: store under data/test/
 ./espectre collect \
-  --stimulus-target 192.168.1.50 \
+  --target 192.168.1.50 \
   --log-features \
   --label test \
   --duration 45 \
@@ -127,7 +137,7 @@ and the exported model.
 
 # Homogeneous hard-negative capture: store under data/empty/
 ./espectre collect \
-  --stimulus-target 192.168.1.50 \
+  --target 192.168.1.50 \
   --label empty \
   --duration 60 \
   --description "live collect ML, empty room"
@@ -143,20 +153,21 @@ the whole capture is label-homogeneous.
 
 The `espectre collect` subcommand now covers both live inspection and dataset
 capture. Each saved capture window emits one `.npz` per `device_id`, so a
-shared-stimulus session can save multiple dataset files without mixing devices
+shared-target session can save multiple dataset files without mixing devices
 into one file.
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `./espectre collect --stimulus-target <ip> --no-save --log-turbulence` | Inspect live detector output without saving files |
-| `./espectre collect --label <name> --duration <sec> --stimulus-target <ip>` | Run live collect and save the accepted capture window for the specified duration |
-| `./espectre collect --label <name> --stimulus-target <ip>` | Run live collect, wait for the ready gate, then keep saving until `Ctrl+C` |
-| `./espectre collect --label <name> --samples <n> --stimulus-target <ip>` | Legacy timed dataset mode: record `n` timed collections |
-| `./espectre collect --label <name> --count <n> --stimulus-target <ip>` | Alias for `--samples`, useful for repeated timed collections |
-| `./espectre collect --label <name> --start-delay <sec> --stimulus-target <ip>` | Legacy timed dataset mode: wait before starting collection |
-| `./espectre collect --label <name> --stimulus-target <ip> --reference-every <N>` | Mark every `N`th stimulus packet as a reference frame |
+| `./espectre collect --target <ip> --no-save --log-turbulence` | Inspect live detector output without saving files |
+| `./espectre collect --target <ip> --no-save --detector mvs,l1_delta,ml` | Compare multiple detectors side by side on the same live CSI stream |
+| `./espectre collect --label <name> --duration <sec> --target <ip>` | Run live collect and save the accepted capture window for the specified duration |
+| `./espectre collect --label <name> --target <ip>` | Run live collect, wait for the ready gate, then keep saving until `Ctrl+C` |
+| `./espectre collect --label <name> --samples <n> --target <ip>` | Legacy timed dataset mode: record `n` timed collections |
+| `./espectre collect --label <name> --count <n> --target <ip>` | Alias for `--samples`, useful for repeated timed collections |
+| `./espectre collect --label <name> --start-delay <sec> --target <ip>` | Legacy timed dataset mode: wait before starting collection |
+| `./espectre collect --label <name> --target <ip> --reference-every <N>` | Mark every `N`th traffic packet as a reference frame |
 | `./espectre collect --label <name> --contributor <user>` | Override contributor (auto-detected from git) |
 | `./espectre collect --label <name> --description "text"` | Add description to sample |
 | `./espectre collect --info` | Show dataset statistics |
@@ -194,12 +205,12 @@ happens after the startup calibration phase.
 
 | Option | Meaning |
 |--------|---------|
-| `--stimulus-target`, `--streamer-ip` | One or more IPv4 stimulus targets, comma-separated for multi-unicast |
+| `--target`, `-t` | One or more IPv4 target destinations, comma-separated for multi-unicast |
 | `--bind-ip <ip>` | Override the local bind interface used for UDP reception |
 | `--udp-port <port>` | CSI UDP listen port (default `5001`) |
-| `--stimulus-port <port>` | Streamer listener UDP port for stimulus packets (default `9999`) |
-| `--stimulus-rate <pps>` | Stimulus send rate in packets per second (default `100`) |
-| `--reference-every <n>` | Mark every `n`th stimulus packet as a reference frame |
+| `--target-port <port>` | UDP port used by the target listener (default `9999`) |
+| `--rate <pps>` | Traffic send rate in packets per second (default `100`) |
+| `--reference-every <n>` | Mark every `n`th traffic packet as a reference frame |
 | `--contributor <user>` | Override contributor metadata for saved files |
 | `--description "text"` | Store a human-readable description in dataset metadata |
 
@@ -217,59 +228,62 @@ happens after the startup calibration phase.
 
 ```bash
 # Live inspection only, no files written
-./espectre collect --stimulus-target 192.168.1.50 --no-save --detector mvs --log-turbulence
+./espectre collect --target 192.168.1.50 --no-save --detector mvs --log-turbulence
+
+# Live comparison on the same stream: one status line per detector
+./espectre collect --target 192.168.1.50 --no-save --detector mvs,l1_delta,ml
 
 # Live recording: save after the stream stays below threshold for 3s
 # and stop automatically after 60 accepted seconds
-./espectre collect --label static_presence --duration 60 --stimulus-target 192.168.1.50
+./espectre collect --label static_presence --duration 60 --target 192.168.1.50
 
 # Record 60 seconds of static presence from one device
-./espectre collect --label static_presence --duration 60 --stimulus-target 192.168.1.50
+./espectre collect --label static_presence --duration 60 --target 192.168.1.50
 
 # Record 30 seconds of motion
-./espectre collect --label motion --duration 30 --stimulus-target 192.168.1.50
+./espectre collect --label motion --duration 30 --target 192.168.1.50
 
 # Record with explicit contributor override
-./espectre collect --label gesture --samples 10 --interactive --stimulus-target 192.168.1.50 --contributor otheruser
+./espectre collect --label gesture --samples 10 --interactive --target 192.168.1.50 --contributor otheruser
 
-# Mark every 20th stimulus packet as a reference frame
-./espectre collect --label static_presence --duration 30 --stimulus-target 192.168.1.50 --reference-every 20
+# Mark every 20th traffic packet as a reference frame
+./espectre collect --label static_presence --duration 30 --target 192.168.1.50 --reference-every 20
 
-# Shared-stimulus session: all streamers subscribed to the multicast group
+# Shared-target session: all streamers subscribed to the multicast group
 # save their own per-device files during the same capture window
-./espectre collect --label empty --duration 30 --stimulus-target 239.1.1.50
+./espectre collect --label empty --duration 30 --target 239.1.1.50
 
 # Wait 15 seconds, then record 3 timed collections
-./espectre collect --label static_presence --duration 10 --count 3 --start-delay 15 --stimulus-target 192.168.1.50
+./espectre collect --label static_presence --duration 10 --count 3 --start-delay 15 --target 192.168.1.50
 
-./espectre collect --label static_presence --duration 10 --stimulus-target 192.168.1.50
+./espectre collect --label static_presence --duration 10 --target 192.168.1.50
 
 # Continuous live recording until Ctrl+C
-./espectre collect --label test --stimulus-target 192.168.1.50 --detector ml --log-features
+./espectre collect --label test --target 192.168.1.50 --detector ml --log-features
 ```
 
 Accepted target forms:
 
 - unicast IPv4, for one streamer
 - multicast IPv4, for multiple streamers joined to the same group
-- broadcast IPv4, when your network setup intentionally uses broadcast stimulus
+- broadcast IPv4, when your network setup intentionally uses broadcast target traffic
 
 Every saved `.npz` is single-device. If packets arrive without `device_id`
 metadata, the collector fails instead of emitting a mixed or anonymous file.
 
 ### Reference Frames
 
-The host collector can optionally mark some stimulus packets as reference
+The host collector can optionally mark some traffic packets as reference
 frames with:
 
 ```bash
-./espectre collect --label static_presence --stimulus-target 192.168.1.50 --reference-every 20
+./espectre collect --label static_presence --target 192.168.1.50 --reference-every 20
 ```
 
 Semantics:
 
-- `--reference-every 0` means measurement-only stimulus (default)
-- `--reference-every N` means every `N`th stimulus packet is sent with the
+- `--reference-every 0` means measurement-only traffic (default)
+- `--reference-every N` means every `N`th traffic packet is sent with the
   `reference` role in the `ESTM` header
 - the streamer copies that role into the outgoing CSI UDP packet through
   `STREAM_FLAG_REFERENCE_FRAME`
@@ -282,7 +296,7 @@ CSI; it only tags frames so downstream tooling can distinguish:
   normalization, or analysis policies
 
 In the current ESPectre workflow, most ordinary ML dataset collection still uses
-measurement-only stimulus. The main reason to preserve `stimulus_id` and
+measurement-only traffic. The main reason to preserve `stimulus_id` and
 optional reference markers is to keep datasets usable for future multi-device
 host-side experiments, especially phase-coherence studies and temporally aligned
 feature fusion. See [`EXPERIMENTS.md`](EXPERIMENTS.md) for the research context
@@ -520,7 +534,7 @@ This prints the current dataset summary used by the training pipeline.
 
 | Aspect | Recommendation |
 |--------|----------------|
-| **Duration** | 30-60 seconds per sample (packet count depends on the chosen stimulus rate) |
+| **Duration** | 30-60 seconds per sample (packet count depends on the chosen traffic rate) |
 | **Repetitions** | 10+ samples per label for variability |
 | **Environment** | Same environment for all samples in a session |
 | **Position** | Vary position/distance between samples for robustness |
@@ -548,8 +562,8 @@ gesture1      # non-descriptive
 ### Session Workflow
 
 1. **Prepare environment**: Ensure room is quiet for `static_presence`
-2. **Record static presence first**: `./espectre collect --label static_presence --duration 60 --stimulus-target <ip>`
-3. **Record motion**: `./espectre collect --label motion --duration 60 --stimulus-target <ip>`
+2. **Record static presence first**: `./espectre collect --label static_presence --duration 60 --target <ip>`
+3. **Record motion**: `./espectre collect --label motion --duration 60 --target <ip>`
 4. **Verify dataset**: `./espectre collect --info`
 5. **Backup data**: Copy `data/` to safe location
 

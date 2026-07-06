@@ -83,20 +83,6 @@ def test_empty_separation_uses_two_feature_score(monkeypatch) -> None:
     )
 
 
-def test_metadata_refresh_recommendation_triggers_for_missing_threshold() -> None:
-    module = _load_validator_module()
-
-    results = [
-        module.ValidationResult(
-            "metadata_test/example.npz",
-            "FAIL",
-            "optimal_threshold_gridsearch must be a positive number",
-        )
-    ]
-
-    assert module.should_recommend_dataset_metadata_refresh(results) is True
-
-
 def test_metadata_refresh_recommendation_triggers_for_missing_pair_warning() -> None:
     module = _load_validator_module()
 
@@ -123,7 +109,6 @@ def test_metadata_completeness_fails_when_environment_is_missing() -> None:
                 {
                     "filename": "static_a.npz",
                     "chip": "C5",
-                    "optimal_threshold_gridsearch": 1.5,
                     "optimal_pair_motion_file": "motion_a.npz",
                 },
             ],
@@ -132,7 +117,6 @@ def test_metadata_completeness_fails_when_environment_is_missing() -> None:
                     "filename": "motion_a.npz",
                     "chip": "C5",
                     "environment": "bedroom",
-                    "optimal_threshold_gridsearch": 1.8,
                     "optimal_pair_static_presence_file": "static_a.npz",
                 },
             ],
@@ -208,6 +192,11 @@ def test_validate_pair_uses_threshold_activation_logic(monkeypatch) -> None:
     threshold = 0.5
 
     monkeypatch.setattr(module, "_filter_measurement_frames", lambda csi_data, data: csi_data)
+    monkeypatch.setattr(
+        module,
+        "estimate_runtime_threshold",
+        lambda packets, selected_subcarriers=None: threshold,
+    )
 
     def fake_replay(csi_data, runtime_threshold):
         assert runtime_threshold == threshold
@@ -215,14 +204,13 @@ def test_validate_pair_uses_threshold_activation_logic(monkeypatch) -> None:
             return np.array([0.10, 0.20, 0.30], dtype=np.float64)
         return np.array([0.55, 0.70, 0.80], dtype=np.float64)
 
-    monkeypatch.setattr(module, "_replay_mvs_metric_series", fake_replay)
+    monkeypatch.setattr(module, "_replay_l1_metric_series", fake_replay)
 
     results, static_active, motion_active, returned_threshold, motion_peak_ratio = module.validate_pair(
         static_csi,
         motion_csi,
         {},
         {},
-        threshold,
     )
 
     activation = results[0]
@@ -242,6 +230,11 @@ def test_validate_pair_fails_when_motion_stays_below_threshold(monkeypatch) -> N
     threshold = 0.5
 
     monkeypatch.setattr(module, "_filter_measurement_frames", lambda csi_data, data: csi_data)
+    monkeypatch.setattr(
+        module,
+        "estimate_runtime_threshold",
+        lambda packets, selected_subcarriers=None: threshold,
+    )
 
     def fake_replay(csi_data, runtime_threshold):
         assert runtime_threshold == threshold
@@ -249,14 +242,13 @@ def test_validate_pair_fails_when_motion_stays_below_threshold(monkeypatch) -> N
             return np.array([0.10, 0.15, 0.20], dtype=np.float64)
         return np.array([0.25, 0.30, 0.40], dtype=np.float64)
 
-    monkeypatch.setattr(module, "_replay_mvs_metric_series", fake_replay)
+    monkeypatch.setattr(module, "_replay_l1_metric_series", fake_replay)
 
     results, static_active, motion_active, returned_threshold, motion_peak_ratio = module.validate_pair(
         static_csi,
         motion_csi,
         {},
         {},
-        threshold,
     )
 
     activation = results[0]

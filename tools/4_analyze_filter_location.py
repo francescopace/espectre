@@ -30,17 +30,14 @@ if str(REPO_ROOT) not in sys.path:
 from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.csi_io import load_static_presence_and_motion
 from tools.lib.dataset_metadata import resolve_explicit_pair, select_dataset_interactively
+from tools.lib.mvs_sweep_core import calibrate_startup_threshold
 from tools.lib.ui import show_plot_window
-from config import (SEG_WINDOW_SIZE, SEG_THRESHOLD,
-                    HAMPEL_WINDOW, HAMPEL_THRESHOLD, DEFAULT_SUBCARRIERS)
+from config import (SEG_WINDOW_SIZE, HAMPEL_WINDOW, HAMPEL_THRESHOLD, DEFAULT_SUBCARRIERS)
 from filters import HampelFilter
 from segmentation import SegmentationContext
 
 # Alias for backward compatibility
 WINDOW_SIZE = SEG_WINDOW_SIZE
-THRESHOLD = 1.0 if SEG_THRESHOLD == "auto" else SEG_THRESHOLD
-
-
 class StreamingSegmentationWrapper:
     """Wrapper around SegmentationContext for analysis scripts.
     
@@ -333,11 +330,15 @@ def main():
     
     static_presence_packets = static_presence_data
     motion_packets = motion_data
-    threshold = pair.threshold if pair.threshold is not None else THRESHOLD
+    threshold, _calibration_mv = calibrate_startup_threshold(
+        static_presence_packets,
+        selected_band=tuple(DEFAULT_SUBCARRIERS),
+        window_size=WINDOW_SIZE,
+    )
     
     print(f"Chip: {chip_name}")
     print(f"Loaded {len(static_presence_packets)} static-presence packets, {len(motion_packets)} motion packets\n")
-    print(f"Using threshold: {threshold:.6f}")
+    print(f"Using MVS startup threshold: {threshold:.6f}")
     
     results = run_comparison(static_presence_packets, motion_packets, threshold, track_data=args.plot)
     

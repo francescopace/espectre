@@ -106,12 +106,6 @@ def parse_args():
         action="store_true",
         help="Choose one dataset pair interactively from dataset_info.json",
     )
-    parser.add_argument(
-        "--threshold-source",
-        choices=["metadata", "calibrate"],
-        default="metadata",
-        help="Use metadata thresholds by default, or force calibration replay",
-    )
     parser.add_argument("--plot", action="store_true", help="Plot moving variance for one selected pair")
     parser.add_argument(
         "--variant",
@@ -206,7 +200,7 @@ def print_header(args, pair_count):
     print(f"Window size: {WINDOW_SIZE} packets")
     print(f"Selected band: {list(DEFAULT_SUBCARRIERS)}")
     print(f"Pairs: {pair_count}")
-    print(f"Threshold source: {args.threshold_source}")
+    print("Threshold source: per-pair MVS startup calibration")
     if args.chip:
         print(f"Chip filter: {args.chip.upper()}")
     if args.dataset_id:
@@ -332,7 +326,6 @@ def build_rows(args, pairs):
                 window_size=WINDOW_SIZE,
                 selected_band=DEFAULT_SUBCARRIERS,
                 track_trace=args.plot,
-                threshold_source=args.threshold_source,
             )
             rows.append(
                 {
@@ -350,7 +343,6 @@ def build_rows(args, pairs):
                 window_size=WINDOW_SIZE,
                 selected_band=DEFAULT_SUBCARRIERS,
                 track_trace=args.plot,
-                threshold_source=args.threshold_source,
             )
             rows.append(
                 {

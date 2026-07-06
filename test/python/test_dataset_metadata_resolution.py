@@ -13,7 +13,7 @@ def _write_dataset_info(tmp_path: Path, payload: dict) -> None:
     (data_dir / "dataset_info.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_resolve_explicit_pair_uses_metadata_pair_and_threshold(monkeypatch, tmp_path) -> None:
+def test_resolve_explicit_pair_uses_metadata_pair(monkeypatch, tmp_path) -> None:
     info = {
         "files": {
             "static_presence": [
@@ -24,7 +24,6 @@ def test_resolve_explicit_pair_uses_metadata_pair_and_threshold(monkeypatch, tmp
                     "subcarriers": 64,
                     "collected_at": "2026-07-05T10:00:00",
                     "optimal_pair_motion_file": "motion_c6_64sc_lab_001.npz",
-                    "optimal_threshold_gridsearch": 1.75,
                 }
             ],
             "motion": [
@@ -53,8 +52,8 @@ def test_resolve_explicit_pair_uses_metadata_pair_and_threshold(monkeypatch, tmp
 
     assert pair.static_presence.path == static_path
     assert pair.motion.path == motion_path
-    assert pair.threshold == 1.75
-    assert pair.threshold_source == "metadata"
+    assert pair.chip == "C6"
+    assert pair.num_subcarriers == 64
 
 
 def test_resolve_dataset_selection_returns_counterpart_for_motion(monkeypatch, tmp_path) -> None:
@@ -68,7 +67,6 @@ def test_resolve_dataset_selection_returns_counterpart_for_motion(monkeypatch, t
                     "subcarriers": 64,
                     "collected_at": "2026-07-05T12:00:00",
                     "optimal_pair_motion_file": "motion_s3_64sc_room_001.npz",
-                    "optimal_threshold_gridsearch": 0.9,
                 }
             ],
             "motion": [
@@ -97,19 +95,6 @@ def test_resolve_dataset_selection_returns_counterpart_for_motion(monkeypatch, t
     assert selected.counterpart_label == "static_presence"
     assert selected.counterpart_entry["filename"] == "static_presence_s3_64sc_room_001.npz"
 
-
-def test_resolve_dataset_threshold_falls_back_to_calibration(monkeypatch) -> None:
-    monkeypatch.setattr(dataset_metadata, "estimate_runtime_mvs_threshold", lambda packets, threshold_mode=None, selected_subcarriers=None: 1.23)
-
-    threshold, source = dataset_metadata.resolve_dataset_threshold(
-        {"filename": "example.npz"},
-        packets=[{"csi_data": [1, 2, 3, 4]}],
-    )
-
-    assert threshold == 1.23
-    assert source == "fallback_calibration"
-
-
 def test_resolve_dataset_selection_require_pair_excludes_non_pair_labels(monkeypatch, tmp_path) -> None:
     info = {
         "files": {
@@ -130,7 +115,6 @@ def test_resolve_dataset_selection_require_pair_excludes_non_pair_labels(monkeyp
                     "subcarriers": 64,
                     "collected_at": "2026-07-05T12:00:00",
                     "optimal_pair_motion_file": "motion_s3_64sc_room_001.npz",
-                    "optimal_threshold_gridsearch": 0.9,
                 }
             ],
             "motion": [

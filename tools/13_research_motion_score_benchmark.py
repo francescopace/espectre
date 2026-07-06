@@ -67,6 +67,7 @@ from tools.lib import motion_score_lab as msl
 from tools.lib import mvs_sweep_core as sweep
 from tools.lib.csi_io import load_npz_as_packets
 from tools.lib.dataset_metadata import load_dataset_info
+from tools.lib.mvs_sweep_core import calibrate_startup_threshold
 from tools.lib.repo_paths import data_dir
 
 import config
@@ -103,6 +104,7 @@ class IdleSeries:
     chip: str
     rec_id: str
     source: str  # "empty" | "test_quiet"
+    packets: Sequence[Dict[str, Any]]
     turb_filtered: np.ndarray
     amp_sel: np.ndarray
     amp_all: np.ndarray
@@ -195,6 +197,7 @@ def load_idle_recordings(chip: Optional[str] = None) -> List[IdleSeries]:
                     chip=entry_chip,
                     rec_id=f"{source}:{path.stem}",
                     source=source,
+                    packets=packets,
                     turb_filtered=turb_filtered,
                     amp_sel=amp_sel,
                     amp_all=amp_all,
@@ -625,48 +628,36 @@ def compute_spike_stress(
 
 
 # ---------------------------------------------------------------------------
-# Production reference (real MVS code, real metadata thresholds)
+# Production reference (real MVS code, self-calibrated thresholds; metadata
+# thresholds now belong to the l1_delta support path)
 # ---------------------------------------------------------------------------
 
 
 def production_mvs_reference() -> Dict[str, Any]:
     pairs = sweep.iter_paired_datasets()
-    results = sweep.evaluate_pairs(pairs, threshold_source="metadata")
+    results = sweep.evaluate_pairs(pairs, threshold_source="calibrate")
     summary = sweep.summarize_results(results)
     return summary
 
 
 def production_mvs_quiet_room(idle_recs: Sequence[IdleSeries]) -> Dict[str, float]:
-    """Run the exact SegmentationContext with each recording's own metadata threshold."""
+    """Run the exact MVS packet path with a per-recording calibrated threshold."""
     from segmentation import SegmentationContext
     from detector_interface import MotionState
-
-    info = load_dataset_info()
-    threshold_by_filename: Dict[str, float] = {}
-    for label in ("empty", "test"):
-        for entry in info.get("files", {}).get(label, []):
-            value = entry.get("optimal_threshold_gridsearch")
-            if value:
-                threshold_by_filename[str(entry.get("filename"))] = float(value)
 
     per_chip_motion = {}
     per_chip_total = {}
     for rec in idle_recs:
-        filename = rec.rec_id.split(":", 1)[1]
-        # rec_id stem does not include extension; look up by stem match.
-        matched_threshold = None
-        for filename_key, threshold in threshold_by_filename.items():
-            if Path(filename_key).stem == filename:
-                matched_threshold = threshold
-                break
-        if matched_threshold is None:
-            continue
-        # Replay from raw amplitudes so ctx applies its own (single) filter chain.
+        matched_threshold, _calibration_mv = calibrate_startup_threshold(
+            list(rec.packets),
+            selected_band=tuple(config.DEFAULT_SUBCARRIERS),
+            window_size=config.SEG_WINDOW_SIZE,
+        )
         ctx = SegmentationContext(window_size=config.SEG_WINDOW_SIZE, threshold=matched_threshold, enable_hampel=True)
         motion_count = 0
         total = 0
-        for row in rec.amp_sel:
-            turbulence = SegmentationContext._turbulence_from_amplitude_buffer(list(row), len(row))
+        for pkt in rec.packets:
+            turbulence = ctx.calculate_spatial_turbulence(pkt["csi_data"], config.DEFAULT_SUBCARRIERS)
             ctx.add_turbulence(turbulence)
             ctx.update_state()
             total += 1

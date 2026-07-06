@@ -10,8 +10,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-import numpy as np
-
 from .bootstrap import setup_paths
 from .repo_paths import data_dir
 
@@ -23,11 +21,19 @@ except ImportError:
     import src.config as config
 
 try:
-    from mvs_detector import MVSDetector as MVSDetectorNew
-    from threshold import StartupThresholdCalibrator
+    from l1_delta_detector import L1DeltaDetector
+    from threshold import (
+        StartupThresholdCalibrator,
+        get_detector_auto_factor,
+        get_detector_startup_gate,
+    )
 except ImportError:  # pragma: no cover
-    from src.mvs_detector import MVSDetector as MVSDetectorNew
-    from src.threshold import StartupThresholdCalibrator
+    from src.l1_delta_detector import L1DeltaDetector
+    from src.threshold import (
+        StartupThresholdCalibrator,
+        get_detector_auto_factor,
+        get_detector_startup_gate,
+    )
 
 
 DATASET_FORMAT_VERSION = "1.1"
@@ -42,8 +48,6 @@ class ResolvedDataset:
     label: str
     entry: Dict[str, Any]
     path: Path
-    threshold: Optional[float]
-    threshold_source: str
     counterpart_label: Optional[str] = None
     counterpart_entry: Optional[Dict[str, Any]] = None
     counterpart_path: Optional[Path] = None
@@ -51,14 +55,18 @@ class ResolvedDataset:
 
 @dataclass(frozen=True)
 class ResolvedPair:
-    """Resolved static_presence/motion pair with shared threshold metadata."""
+    """Resolved static_presence/motion pair.
+
+    Detection thresholds are intentionally not resolved here: they are
+    detector-specific, so consumers replay the startup calibration of the
+    detector they evaluate (`estimate_runtime_threshold` for l1_delta, the MVS
+    sweep calibration for MVS) on the static capture of the pair.
+    """
 
     static_presence: ResolvedDataset
     motion: ResolvedDataset
     chip: str
     num_subcarriers: int
-    threshold: Optional[float]
-    threshold_source: str
 
 
 def load_dataset_info() -> Dict[str, Any]:
@@ -109,17 +117,6 @@ def get_dataset_stats() -> Dict[str, Any]:
     return stats
 
 
-def _coerce_positive_float(value: Any) -> Optional[float]:
-    """Return a finite positive float, or None when unavailable."""
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(numeric) or numeric <= 0:
-        return None
-    return numeric
-
-
 def _dataset_sort_key(entry: Dict[str, Any]) -> Tuple[str, str]:
     """Sort entries newest-first by collected_at, then by filename."""
     return (str(entry.get("collected_at") or ""), str(entry.get("filename") or ""))
@@ -161,24 +158,23 @@ def _threshold_mode_from_config() -> str:
     return str(config.SEG_THRESHOLD) if isinstance(config.SEG_THRESHOLD, str) else "auto"
 
 
-def estimate_runtime_mvs_threshold(
+def estimate_runtime_threshold(
     packets: Iterable[Dict[str, Any]],
     *,
     threshold_mode: Optional[str] = None,
     selected_subcarriers: Optional[Iterable[int]] = None,
 ) -> Optional[float]:
-    """Replay startup calibration and return a production-aligned MVS threshold."""
+    """Replay the l1_delta startup calibration and return a production-aligned threshold."""
     selected_mode = _threshold_mode_from_config() if threshold_mode is None else str(threshold_mode)
-    detector = MVSDetectorNew(
+    detector = L1DeltaDetector(
         window_size=config.SEG_WINDOW_SIZE,
         threshold=1.0,
-        enable_hampel=config.ENABLE_HAMPEL_FILTER,
-        hampel_window=config.HAMPEL_WINDOW,
-        hampel_threshold=config.HAMPEL_THRESHOLD,
-        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=config.LOWPASS_CUTOFF,
     )
-    calibrator = StartupThresholdCalibrator(config.CALIBRATION_BUFFER_SIZE)
+    calibrator = StartupThresholdCalibrator(
+        config.CALIBRATION_BUFFER_SIZE,
+        auto_factor=get_detector_auto_factor(detector),
+        gate_enabled=get_detector_startup_gate(detector),
+    )
     band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
     for pkt in packets:
         csi_data = pkt["csi_data"] if isinstance(pkt, dict) else pkt
@@ -191,24 +187,6 @@ def estimate_runtime_mvs_threshold(
         return None
     threshold, _ = calibrator.calculate_threshold(selected_mode)
     return float(threshold)
-
-
-def resolve_dataset_threshold(
-    entry: Dict[str, Any],
-    *,
-    packets: Optional[Iterable[Dict[str, Any]]] = None,
-    threshold_mode: Optional[str] = None,
-) -> Tuple[Optional[float], str]:
-    """Resolve the production threshold for one dataset entry."""
-    stored = _coerce_positive_float(entry.get("optimal_threshold_gridsearch"))
-    if stored is not None:
-        return stored, "metadata"
-    if packets is None:
-        return None, "missing"
-    estimated = estimate_runtime_mvs_threshold(packets, threshold_mode=threshold_mode)
-    if estimated is None:
-        return None, "missing"
-    return estimated, "fallback_calibration"
 
 
 def resolve_dataset_selection(
@@ -294,13 +272,10 @@ def resolve_dataset_selection(
                 counterpart_path = _resolve_entry_path(counterpart_label, counterpart_entry)
                 break
 
-    threshold, threshold_source = resolve_dataset_threshold(entry)
     return ResolvedDataset(
         label=resolved_label,
         entry=entry,
         path=resolved_path,
-        threshold=threshold,
-        threshold_source=threshold_source,
         counterpart_label=counterpart_label,
         counterpart_entry=counterpart_entry,
         counterpart_path=counterpart_path,
@@ -338,44 +313,30 @@ def resolve_explicit_pair(
 
     if resolved.label == "static_presence":
         static_dataset = resolved
-        motion_threshold = resolve_dataset_threshold(resolved.counterpart_entry)[0]
         motion_dataset = ResolvedDataset(
             label="motion",
             entry=resolved.counterpart_entry,
             path=resolved.counterpart_path,
-            threshold=resolved.threshold if resolved.threshold is not None else motion_threshold,
-            threshold_source=resolved.threshold_source if resolved.threshold is not None else "metadata",
             counterpart_label="static_presence",
             counterpart_entry=resolved.entry,
             counterpart_path=resolved.path,
         )
     else:
-        static_threshold = resolve_dataset_threshold(resolved.counterpart_entry)[0]
         static_dataset = ResolvedDataset(
             label="static_presence",
             entry=resolved.counterpart_entry,
             path=resolved.counterpart_path,
-            threshold=static_threshold,
-            threshold_source="metadata" if static_threshold is not None else "missing",
             counterpart_label="motion",
             counterpart_entry=resolved.entry,
             counterpart_path=resolved.path,
         )
         motion_dataset = resolved
 
-    pair_threshold = static_dataset.threshold if static_dataset.threshold is not None else motion_dataset.threshold
-    pair_threshold_source = (
-        static_dataset.threshold_source
-        if static_dataset.threshold is not None
-        else motion_dataset.threshold_source
-    )
     return ResolvedPair(
         static_presence=static_dataset,
         motion=motion_dataset,
         chip=str(static_dataset.entry.get("chip", motion_dataset.entry.get("chip", "UNKNOWN"))).upper(),
         num_subcarriers=int(static_dataset.entry.get("subcarriers", num_sc) or num_sc),
-        threshold=pair_threshold,
-        threshold_source=pair_threshold_source,
     )
 
 

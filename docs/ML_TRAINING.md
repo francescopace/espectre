@@ -86,8 +86,8 @@ The training pipeline:
    `motion`.
 2. Uses the shared CV-normalized turbulence path (`std/mean`) across all files.
 3. Applies the selected sample-weight policy. The default production retrain
-   uses `none` so the first clean AGC-active baseline does not inherit MVS
-   threshold bias.
+   uses `none` so the first clean AGC-active baseline does not inherit
+   support-detector threshold bias.
 4. Extracts 8 relative ML features per sliding window.
 5. Runs grouped cross-validation by paired capture/session, with blocked
    scoring to reduce overlap optimism.
@@ -95,11 +95,10 @@ The training pipeline:
 7. Trains the selected MLP architecture with PyTorch, early stopping, and dropout.
 8. Exports artifacts for both Python and C++ runtimes plus a regression dataset.
 
-MVS-guided weighting is analysis-only until the clean AGC-active dataset is
-recollected and re-evaluated. Previous contaminated-dataset experiments selected
-`mvs_hard_negative`, but that result should not drive the new baseline. Use
-`mvs_hard_negative`, `mvs_gridsearch`, and `mvs_global` only for ablations after
-refreshing `optimal_threshold_gridsearch`.
+Support-detector-guided weighting is analysis-only until the clean AGC-active
+dataset is recollected and re-evaluated. The guided modes now score windows with
+the l1_delta runtime replay, which keeps a near-static quiet floor across
+AGC and RF-interference changes.
 
 ## Exported Artifacts
 
