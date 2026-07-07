@@ -1,6 +1,7 @@
 #include "protocol_json.h"
 
 #include <cctype>
+#include <cstdint>
 
 namespace esphome {
 namespace espectre {
