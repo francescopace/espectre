@@ -2703,6 +2703,14 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
         Size of generated code
     """
     from datetime import datetime
+
+    def cpp_float(value):
+        """Render a numeric literal with a valid C++ float suffix."""
+        text = f'{float(value):.9g}'
+        if 'e' not in text and 'E' not in text and '.' not in text:
+            text += '.0'
+        return text + 'f'
+
     weights = extract_model_weights(model)
     architecture = get_model_architecture(model)
     arch = ' -> '.join(map(str, architecture))
@@ -2713,8 +2721,8 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
     seed_info = f"Seed: {seed}"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     architecture_csv = ', '.join(str(x) for x in architecture)
-    center_csv = ', '.join(f'{x:.9g}f' for x in center)
-    scale_csv = ', '.join(f'{x:.9g}f' for x in scale)
+    center_csv = ', '.join(cpp_float(x) for x in center)
+    scale_csv = ', '.join(cpp_float(x) for x in scale)
     
     code = f'''/*
  * ESPectre - ML Model Weights
@@ -2765,8 +2773,8 @@ constexpr float ML_FEATURE_SCALE[{len(scale)}] = {{{scale_csv}}};
         code += f'// Layer {layer_num}: {in_size} -> {out_size} ({activation})\n'
         flat_weights = W.reshape(-1)
         code += f'constexpr float ML_W{layer_num}[{len(flat_weights)}] = {{' \
-                + ', '.join(f'{x:.9g}f' for x in flat_weights) + '};\n'
-        code += f'constexpr float ML_B{layer_num}[{out_size}] = {{{", ".join(f"{x:.9g}f" for x in b)}}};\n\n'
+                + ', '.join(cpp_float(x) for x in flat_weights) + '};\n'
+        code += f'constexpr float ML_B{layer_num}[{out_size}] = {{{", ".join(cpp_float(x) for x in b)}}};\n\n'
         weight_names.append(f'ML_W{layer_num}')
         bias_names.append(f'ML_B{layer_num}')
         input_sizes.append(str(in_size))

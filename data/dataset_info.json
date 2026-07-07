@@ -551,18 +551,6 @@
         "environment": "hobby_room"
       },
       {
-        "filename": "test_c6_64sc_dev00007c2c6742bbac_20260704_175449_155134_0002.npz",
-        "chip": "C6",
-        "subcarriers": 64,
-        "contributor": "francescopace",
-        "collected_at": "2026-07-04T17:54:49.117365",
-        "duration_ms": 599978,
-        "num_packets": 59341,
-        "description": "HT20 test sample",
-        "environment": "bedroom",
-        "device_id": "0x00007c2c6742bbac"
-      },
-      {
         "filename": "test_s3_64sc_dev000010b41de8ec00_20260704_181757_047886_0001.npz",
         "chip": "S3",
         "subcarriers": 64,

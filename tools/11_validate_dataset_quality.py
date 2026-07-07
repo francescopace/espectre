@@ -39,6 +39,7 @@ import sys
 import json
 import argparse
 import datetime
+import re
 from pathlib import Path
 
 import numpy as np
@@ -53,20 +54,24 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 from tools.lib.repo_paths import generated_data_dir, python_src_dir  # noqa: E402
 from tools.lib.dataset_metadata import estimate_runtime_threshold  # noqa: E402
+from tools.lib.mvs_sweep_core import calibrate_startup_threshold  # noqa: E402
 
 SRC_DIR = python_src_dir()
 sys.path.insert(0, str(SRC_DIR))
 
+from detector_interface import MotionState  # noqa: E402
 from utils import (                                      # noqa: E402
     calculate_spatial_turbulence as _src_spatial_turbulence,
     calculate_moving_variance as _src_moving_variance,
 )
 from config import (  # noqa: E402
+    CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
     SEG_WINDOW_SIZE,
 )
 from features import extract_features_by_name  # noqa: E402
 from l1_delta_detector import L1DeltaDetector  # noqa: E402
+from segmentation import SegmentationContext  # noqa: E402
 
 # ------------------------------------------------------------------
 # Constants
@@ -90,6 +95,10 @@ MIN_EMPTY_SEPARABILITY_AUC = 0.70
 MIN_EMPTY_SEPARABILITY_BALANCED_ACC = 0.70
 EMPTY_SEPARATION_TURB_MEAN_WEIGHT = 0.7
 EMPTY_SEPARATION_WAVEFORM_WEIGHT = 0.3
+QUIET_TEST_L1_FP_WARN_RATIO = 0.15
+QUIET_TEST_L1_FP_FAIL_RATIO = 0.30
+QUIET_TEST_MVS_FP_WARN_RATIO = 0.05
+QUIET_TEST_MVS_FP_FAIL_RATIO = 0.15
 MAX_STATIC_ACTIVE_RATIO = 0.20
 MIN_MOTION_ACTIVE_RATIO = 0.20
 MIN_ACTIVE_RATIO_MARGIN = 0.10
@@ -270,6 +279,20 @@ def _coerce_positive_float(value):
         return None
     return numeric
 
+
+def _extract_motion_start_from_description(description):
+    """Extract motion start packet index from free-text test metadata."""
+    if not description:
+        return None
+
+    match = re.search(
+        r"motion\s+starts\s+at\s+packet(?:\s+index)?(?:\s+n\.)?\s+(\d+)",
+        str(description),
+        re.IGNORECASE,
+    )
+    if match:
+        return int(match.group(1))
+    return None
 
 def validate_metadata_completeness(dataset_info, chip_filter=None):
     """Check derived/manual dataset_info fields required by training workflows."""
@@ -787,6 +810,98 @@ def _replay_l1_metric_series(csi_data, threshold):
     return np.asarray(metric_series[warmup:], dtype=np.float64)
 
 
+def _csi_matrix_to_packets(csi_data):
+    """Wrap a CSI matrix into the packet dict shape used by runtime helpers."""
+    return [{"csi_data": packet.tolist()} for packet in csi_data]
+
+
+def _evaluate_l1_quiet_fp(csi_data):
+    """Return self-calibrated quiet FP metrics for one idle-only stream."""
+    threshold = _coerce_positive_float(
+        estimate_runtime_threshold(
+            _csi_matrix_to_packets(csi_data),
+            selected_subcarriers=tuple(DEFAULT_SUBCARRIERS),
+        )
+    )
+    if threshold is None:
+        return None
+
+    detector = L1DeltaDetector(
+        window_size=SEG_WINDOW_SIZE,
+        threshold=float(threshold),
+    )
+    warmup = SEG_WINDOW_SIZE + detector.lag
+    eval_count = max(len(csi_data) - warmup, 0)
+    motion_count = 0
+    for i, packet in enumerate(csi_data):
+        detector.process_packet(packet.tolist(), DEFAULT_SUBCARRIERS)
+        detector.update_state()
+        if i >= warmup and detector.get_state() == MotionState.MOTION:
+            motion_count += 1
+
+    fp_rate = motion_count / eval_count if eval_count > 0 else 0.0
+    return {
+        "threshold": float(threshold),
+        "eval_count": int(eval_count),
+        "motion_count": int(motion_count),
+        "fp_rate": float(fp_rate),
+    }
+
+
+def _evaluate_mvs_quiet_fp(csi_data):
+    """Return self-calibrated quiet FP metrics for one idle-only stream."""
+    packets = _csi_matrix_to_packets(csi_data)
+    threshold, _max_moving_variance = calibrate_startup_threshold(
+        packets,
+        selected_band=tuple(DEFAULT_SUBCARRIERS),
+        window_size=SEG_WINDOW_SIZE,
+    )
+    threshold = _coerce_positive_float(threshold)
+    if threshold is None:
+        return None
+
+    ctx = SegmentationContext(
+        window_size=SEG_WINDOW_SIZE,
+        threshold=float(threshold),
+        enable_hampel=True,
+    )
+    warmup = SEG_WINDOW_SIZE
+    eval_count = max(len(csi_data) - warmup, 0)
+    motion_count = 0
+    for i, packet in enumerate(csi_data):
+        turbulence = ctx.calculate_spatial_turbulence(packet.tolist(), DEFAULT_SUBCARRIERS)
+        ctx.add_turbulence(turbulence)
+        ctx.update_state()
+        if i >= warmup and ctx.get_state() == SegmentationContext.STATE_MOTION:
+            motion_count += 1
+
+    fp_rate = motion_count / eval_count if eval_count > 0 else 0.0
+    return {
+        "threshold": float(threshold),
+        "eval_count": int(eval_count),
+        "motion_count": int(motion_count),
+        "fp_rate": float(fp_rate),
+    }
+
+
+def _quiet_fp_status(value, warn_ratio, fail_ratio):
+    """Return PASS/WARN/FAIL for one quiet-run FP ratio."""
+    if value > fail_ratio:
+        return "FAIL"
+    if value > warn_ratio:
+        return "WARN"
+    return "PASS"
+
+
+def _merge_statuses(*statuses):
+    """Return the highest-severity status across PASS/WARN/FAIL values."""
+    if any(status == "FAIL" for status in statuses):
+        return "FAIL"
+    if any(status == "WARN" for status in statuses):
+        return "WARN"
+    return "PASS"
+
+
 def _evaluate_threshold_direction(neg_values, pos_values, expect_pos_higher=True):
     """Return best balanced-accuracy threshold for one score direction."""
     if len(neg_values) == 0 or len(pos_values) == 0:
@@ -1013,6 +1128,79 @@ def validate_empty_sanity(dataset_info, npz_cache, chip_filter=None):
     return results
 
 
+def validate_quiet_test_recordings(dataset_info, npz_cache, chip_filter=None):
+    """Validate idle-only `test/` recordings used by the long quiet gate."""
+    results = []
+    test_entries = dataset_info.get("files", {}).get("test", [])
+    if chip_filter:
+        chip_upper = chip_filter.upper()
+        test_entries = [entry for entry in test_entries if str(entry.get("chip", "")).upper() == chip_upper]
+
+    idle_candidates = []
+    for entry in test_entries:
+        if _extract_motion_start_from_description(entry.get("description")) is not None:
+            continue
+        idle_candidates.append(entry)
+
+    if not idle_candidates:
+        results.append(ValidationResult(
+            "quiet_test_presence",
+            "WARN",
+            "No idle-only test recordings available for validation",
+        ))
+        return results
+
+    results.append(ValidationResult(
+        "quiet_test_presence",
+        "PASS",
+        f"{len(idle_candidates)} idle-only test file(s) available",
+        len(idle_candidates),
+    ))
+
+    for entry in idle_candidates:
+        filename = str(entry.get("filename", "<missing filename>"))
+        filepath = _resolve_dataset_entry_path(entry, "test")
+        data, csi_key = _load_cached_or_npz(filepath, npz_cache)
+        csi_data = _filter_measurement_frames(data[csi_key], data)
+
+        l1_metrics = _evaluate_l1_quiet_fp(csi_data)
+        mvs_metrics = _evaluate_mvs_quiet_fp(csi_data)
+        if l1_metrics is None or mvs_metrics is None:
+            results.append(ValidationResult(
+                f"quiet_test_idle/{filename}",
+                "FAIL",
+                "Could not self-calibrate L1D or MVS on the idle-only test recording",
+            ))
+            continue
+
+        l1_status = _quiet_fp_status(
+            l1_metrics["fp_rate"],
+            QUIET_TEST_L1_FP_WARN_RATIO,
+            QUIET_TEST_L1_FP_FAIL_RATIO,
+        )
+        mvs_status = _quiet_fp_status(
+            mvs_metrics["fp_rate"],
+            QUIET_TEST_MVS_FP_WARN_RATIO,
+            QUIET_TEST_MVS_FP_FAIL_RATIO,
+        )
+        status = _merge_statuses(l1_status, mvs_status)
+
+        results.append(ValidationResult(
+            f"quiet_test_idle/{filename}",
+            status,
+            (
+                "Idle-only long-run replay: "
+                f"L1D self-FP={l1_metrics['fp_rate']:.1%} "
+                f"(threshold={l1_metrics['threshold']:.6f}, eval={l1_metrics['eval_count']}), "
+                f"MVS self-FP={mvs_metrics['fp_rate']:.1%} "
+                f"(threshold={mvs_metrics['threshold']:.6f}, eval={mvs_metrics['eval_count']})"
+            ),
+            round(max(l1_metrics["fp_rate"], mvs_metrics["fp_rate"]), 4),
+        ))
+
+    return results
+
+
 # ------------------------------------------------------------------
 # Main validation pipeline
 # ------------------------------------------------------------------
@@ -1201,7 +1389,23 @@ def run_validation(chip_filter=None, strict=False, generate_report=False):
         all_results.append(r)
 
     # ------------------------------------------------------------------
-    # Phase 5: ML readiness
+    # Phase 5: Quiet-test sanity
+    # ------------------------------------------------------------------
+    print("\n" + "-" * 70)
+    print("  QUIET TEST SANITY")
+    print("-" * 70)
+
+    quiet_test_results = validate_quiet_test_recordings(
+        dataset_info,
+        npz_cache,
+        chip_filter=chip_filter,
+    )
+    for r in quiet_test_results:
+        print(f"   {r}")
+        all_results.append(r)
+
+    # ------------------------------------------------------------------
+    # Phase 6: ML readiness
     # ------------------------------------------------------------------
     print("\n" + "-" * 70)
     print("  ML READINESS")
