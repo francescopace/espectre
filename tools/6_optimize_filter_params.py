@@ -9,8 +9,15 @@ sweep core instead of ad hoc latest-file selection or fixed thresholds.
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
-from csi_utils import setup_paths  # noqa: F401 - side effect import
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.lib.bootstrap import setup_paths  # noqa: F401
 from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
@@ -20,7 +27,7 @@ from config import (
     LOWPASS_CUTOFF,
     SEG_WINDOW_SIZE,
 )
-from mvs_sweep_core import (
+from tools.lib.mvs_sweep_core import (
     MVSFilterConfig,
     evaluate_pairs,
     iter_paired_datasets,
@@ -32,6 +39,7 @@ from mvs_sweep_core import (
 WINDOW_SIZE = SEG_WINDOW_SIZE
 TARGET_FP_RATE = 5.0
 TARGET_RECALL = 95.0
+ARGS = None
 
 
 def parse_args():
@@ -40,6 +48,13 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("chip", nargs="?", default=None, help="Optional chip filter, e.g. c6 or s3")
+    parser.add_argument(
+        "--dataset",
+        dest="dataset_id",
+        type=str,
+        default=None,
+        help="Only evaluate one explicit dataset pair by filename, stem, or dataset id",
+    )
     parser.add_argument("--limit", type=int, default=None, help="Limit the number of dataset pairs")
     parser.add_argument("--hampel", action="store_true", help="Optimize Hampel parameters")
     parser.add_argument("--all", action="store_true", help="Run low-pass and Hampel sweeps in sequence")
@@ -80,8 +95,11 @@ def print_header(pairs, chip_filter):
     print(f"Pairs: {len(pairs)}")
     if chip_filter:
         print(f"Chip filter: {chip_filter.upper()}")
+    if ARGS and ARGS.dataset_id:
+        print(f"Dataset filter: {ARGS.dataset_id}")
     print(f"Window size: {WINDOW_SIZE} packets")
     print(f"Selected band: {list(DEFAULT_SUBCARRIERS)}")
+    print("Threshold source: per-pair MVS startup calibration")
     print(f"Targets: recall >{TARGET_RECALL:.0f}% | fp rate <{TARGET_FP_RATE:.1f}%")
     print()
 
@@ -165,8 +183,15 @@ def run_hampel_sweep(pairs, *, enable_lowpass=False, lowpass_cutoff=LOWPASS_CUTO
 
 
 def main():
+    global ARGS
     args = parse_args()
-    pairs = iter_paired_datasets(chip=args.chip, num_subcarriers=64, limit=args.limit)
+    ARGS = args
+    pairs = iter_paired_datasets(
+        chip=args.chip,
+        dataset_id=args.dataset_id,
+        num_subcarriers=64,
+        limit=args.limit,
+    )
     if not pairs:
         print("ERROR: no explicit dataset_info.json pairs matched the selected filters.")
         print("Run tools/3_refresh_dataset_metadata.py --write if pair metadata is stale.")

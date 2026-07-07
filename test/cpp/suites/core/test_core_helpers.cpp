@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "l1_delta_detector.h"
 #include "ml_detector.h"
 #include "ml_features.h"
 #include "mvs_detector.h"
@@ -118,6 +119,91 @@ void test_threshold_helpers_cover_modes_and_ranges(void) {
     TEST_ASSERT_EQUAL_FLOAT(calculate_max_value(values) * 1.1f, calculate_adaptive_threshold(values, 1.1f));
 }
 
+void test_startup_threshold_calibrator_gate_disabled_matches_max(void) {
+    StartupThresholdCalibrator calibrator;
+    calibrator.begin(3, false);
+    calibrator.observe(true, 0.02f);
+    calibrator.observe(true, 0.05f);
+    calibrator.observe(true, 0.03f);
+
+    TEST_ASSERT_TRUE(calibrator.is_complete());
+    TEST_ASSERT_TRUE(calibrator.is_successful());
+    TEST_ASSERT_FALSE(calibrator.is_extending());
+    TEST_ASSERT_EQUAL_FLOAT(0.05f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING("max", calibrator.statistic_name());
+}
+
+void test_startup_threshold_calibrator_gate_accepts_clean_startup(void) {
+    StartupThresholdCalibrator calibrator;
+    calibrator.begin(60, true);
+    for (int i = 0; i < 60; ++i) {
+        calibrator.observe(true, (i % 2 == 0) ? 0.05f : 0.048f);
+    }
+
+    TEST_ASSERT_TRUE(calibrator.is_complete());
+    TEST_ASSERT_TRUE(calibrator.gate_accepted());
+    TEST_ASSERT_EQUAL_FLOAT(0.05f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING("gated max", calibrator.statistic_name());
+}
+
+void test_startup_threshold_calibrator_gate_extends_past_contaminated_tail(void) {
+    StartupThresholdCalibrator calibrator;
+    calibrator.begin(60, true);
+    // Quiet floor for 5 chunks, movement in the last chunk of the window.
+    for (int i = 0; i < 50; ++i) {
+        calibrator.observe(true, 0.05f);
+    }
+    for (int i = 0; i < 10; ++i) {
+        calibrator.observe(true, 0.5f);
+    }
+
+    TEST_ASSERT_FALSE(calibrator.is_complete());
+    TEST_ASSERT_TRUE(calibrator.is_extending());
+
+    // Quiet extension flushes the contaminated chunk out of the ring.
+    for (int i = 0; i < 60; ++i) {
+        calibrator.observe(true, 0.05f);
+    }
+
+    TEST_ASSERT_TRUE(calibrator.is_complete());
+    TEST_ASSERT_TRUE(calibrator.gate_accepted());
+    TEST_ASSERT_EQUAL_FLOAT(0.05f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_INT(120, static_cast<int>(calibrator.packet_count()));
+}
+
+void test_startup_threshold_calibrator_floor_anchor_rejects_homogeneous_motion(void) {
+    StartupThresholdCalibrator calibrator;
+    calibrator.begin(60, true);
+    // One quiet chunk, then homogeneous movement: the spread gate alone would
+    // accept the motion-level ring, the floor anchor must keep it open.
+    for (int i = 0; i < 10; ++i) {
+        calibrator.observe(true, 0.05f);
+    }
+    for (int i = 0; i < 50; ++i) {
+        calibrator.observe(true, 0.5f);
+    }
+
+    TEST_ASSERT_FALSE(calibrator.is_complete());
+    TEST_ASSERT_TRUE(calibrator.is_extending());
+
+    // Never settles: exhaust the extension budget and fall back to the median.
+    for (uint16_t i = 0; i < STARTUP_GATE_EXTENSION_PACKETS; ++i) {
+        calibrator.observe(true, 0.5f);
+    }
+
+    TEST_ASSERT_TRUE(calibrator.is_complete());
+    TEST_ASSERT_FALSE(calibrator.gate_accepted());
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, calibrator.threshold_metric());
+    TEST_ASSERT_EQUAL_STRING("gated median", calibrator.statistic_name());
+}
+
+void test_detector_startup_gate_traits(void) {
+    L1DeltaDetector l1_delta;
+    MVSDetector mvs;
+    TEST_ASSERT_TRUE(l1_delta.startup_gate_enabled());
+    TEST_ASSERT_FALSE(mvs.startup_gate_enabled());
+}
+
 void test_ml_feature_helpers_cover_guard_paths(void) {
     float sample[] = {1.0f, 3.0f, 5.0f, 7.0f};
     float sorted[] = {1.0f, 3.0f, 5.0f, 7.0f};
@@ -192,6 +278,11 @@ int process(void) {
     RUN_TEST(test_utils_statistical_helpers_cover_edge_cases);
     RUN_TEST(test_utils_spatial_turbulence_handles_invalid_inputs);
     RUN_TEST(test_threshold_helpers_cover_modes_and_ranges);
+    RUN_TEST(test_startup_threshold_calibrator_gate_disabled_matches_max);
+    RUN_TEST(test_startup_threshold_calibrator_gate_accepts_clean_startup);
+    RUN_TEST(test_startup_threshold_calibrator_gate_extends_past_contaminated_tail);
+    RUN_TEST(test_startup_threshold_calibrator_floor_anchor_rejects_homogeneous_motion);
+    RUN_TEST(test_detector_startup_gate_traits);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_mvs_detector_move_semantics_and_base_accessors);
     RUN_TEST(test_ml_detector_move_semantics_and_cv_state);

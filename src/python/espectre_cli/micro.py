@@ -41,6 +41,7 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "detector_interface.py",
     "runtime_policy.py",
     "mvs_detector.py",
+    "l1_delta_detector.py",
     "ml_detector.py",
     "ml_weights.py",
     "traffic_generator.py",

@@ -28,6 +28,7 @@ class MVSDetector(IDetector):
     3. Calculate moving variance of turbulence
     4. Compare to threshold for state decision
     """
+    ALGORITHM = "mvs"
     
     def __init__(self,
                  window_size=100,
@@ -92,6 +93,7 @@ class MVSDetector(IDetector):
             dict: Current metrics
         """
         metrics = self._context.update_state()
+        metrics['motion_metric'] = metrics['moving_variance']
         
         if self.track_data:
             self.moving_var_history.append(metrics['moving_variance'])

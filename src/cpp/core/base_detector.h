@@ -152,6 +152,22 @@ public:
      * Get detector name for logging
      */
     virtual const char* get_name() const = 0;
+
+    /**
+     * Get the detector-specific startup multiplier for AUTO threshold mode
+     *
+     * threshold = max(calibration metric) x factor. Matches the Python
+     * runtime's detector STARTUP_THRESHOLD_FACTOR convention.
+     */
+    virtual float get_startup_threshold_factor() const { return 1.3f; }
+
+    /**
+     * Whether startup calibration uses the consistency gate (threshold.h)
+     *
+     * Enabled only for detectors with a tight quiet floor (l1_delta).
+     * Matches the Python runtime's detector STARTUP_GATE convention.
+     */
+    virtual bool startup_gate_enabled() const { return false; }
     
     // ========================================================================
     // FILTER CONFIGURATION
@@ -177,8 +193,11 @@ public:
     
     /**
      * Clear turbulence buffer (cold restart)
+     *
+     * Virtual so detectors with additional state (e.g. L1-Delta profile
+     * rings) can extend the cold clear.
      */
-    void clear_buffer();
+    virtual void clear_buffer();
     
     // ========================================================================
     // BUFFER ACCESSORS (for subclasses and feature extraction)

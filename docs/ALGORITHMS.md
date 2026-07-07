@@ -12,6 +12,7 @@ Scientific documentation of the algorithms used in ESPectre for Wi-Fi CSI-based 
 - [Fixed Subcarrier Set](#fixed-subcarrier-set)
 - [Signal Conditioning](#signal-conditioning)
 - [MVS: Moving Variance Segmentation](#mvs-moving-variance-segmentation)
+- [L1-Delta: Normalized Profile Displacement](#l1-delta-normalized-profile-displacement)
 - [ML: Neural Network Detector](#ml-neural-network-detector)
 - [References](#references)
 
@@ -308,6 +309,153 @@ By monitoring the **variance of turbulence** over a sliding window, we can relia
 For detailed performance metrics, see [PERFORMANCE.md](PERFORMANCE.md).
 
 **Reference**: [2] MVS segmentation: the fused CSI stream and corresponding moving variance sequence
+
+---
+
+## L1-Delta: Normalized Profile Displacement
+
+### The Insight
+
+Human motion changes the multipath geometry, so the **shape** of the amplitude
+profile across subcarriers decorrelates over time. Instead of measuring how
+much a scalar summary (turbulence) fluctuates, L1-Delta measures the profile
+displacement directly:
+
+- **Idle state**: The normalized profile is stable; packet-to-packet differences
+  are only receiver noise, which sits on a stable floor.
+- **Motion state**: The profile shifts coherently across all subcarriers,
+  raising the displacement well above the noise floor.
+
+Because the profile is normalized per packet, the metric is invariant to the
+scalar AGC gain, like the CV turbulence path.
+
+### Algorithm Steps
+
+1. **Normalized Amplitude Profile**
+
+   Per packet, amplitudes of the 12 selected subcarriers divided by their mean:
+   ```
+   A_norm[k] = A[k] / mean(A)
+   ```
+
+2. **Lagged L1 Displacement**
+
+   Compare against the profile observed `lag` packets earlier
+   (default `lag = 10`, about 100 ms at 100 pps):
+   ```
+   d[n] = mean_k |A_norm[n][k] - A_norm[n - lag][k]|
+   ```
+   The lag matters: at 10 ms (lag 1) the body has not displaced the multipath
+   yet and the difference is mostly receiver noise; at 100 ms the motion
+   signature dominates.
+
+3. **Motion Metric**
+
+   Running mean of `d` over the sliding window (same `window_size = 100` as
+   MVS), maintained incrementally with a running sum.
+
+4. **State Machine**
+
+   Identical to MVS: metric above threshold enters MOTION, below returns IDLE.
+
+### Startup Threshold
+
+L1-Delta uses the shared startup calibration flow with a detector-specific
+`auto` factor:
+
+```
+threshold = max(calibration_metric) x 1.1
+```
+
+The factor is lower than the MVS `1.3` because the quiet-state metric is much
+tighter: its quiet distribution has a coefficient of variation of about `0.08`
+(offline benchmark), so the calibration max already sits close to the quiet
+median. At steady state the quiet metric typically reads 85-95% of the
+threshold on the live progress bar; that is expected and not an imminent
+false positive.
+
+### Calibration Consistency Gate
+
+The tight quiet floor also enables a consistency gate that protects the
+startup threshold when the calibration window is contaminated by movement.
+During calibration, ready-state metrics are grouped into 6 chunks and only
+the per-chunk maxima are kept. The window is accepted when:
+
+- spread: `max(chunk maxima) <= 1.10 x median(chunk maxima)`
+- floor anchor: `median(chunk maxima) <= 1.5 x min(chunk maxima ever seen)`
+
+If either check fails, calibration silently extends one chunk (~1.5 s) at a
+time until the ring becomes consistent, up to 2000 extra packets; on budget
+exhaustion the threshold falls back to `median(chunk maxima) x 1.1`. On a
+clean startup the gate usually never fires and the threshold is identical to
+the plain `max x 1.1` formula.
+
+On the paired datasets this keeps F1 at 94-95% even when the entire
+calibration window is contaminated by motion, where the ungated `max x 1.1`
+recall fails closed (F1 down to 3%). The gate is validated for the L1-Delta
+metric only: the MVS moving variance has a much looser quiet floor, so MVS
+keeps the plain `max x 1.3` bootstrap. Full sweep in
+[EXPERIMENTS.md](EXPERIMENTS.md), "L1-Delta Contaminated-Calibration Gate And
+Extension Sweep".
+
+### Why No Hampel Filter
+
+MVS squares deviations inside the moving variance, so a single spiked packet
+can dominate the window; the Hampel filter exists to remove those outliers.
+L1-Delta averages absolute differences, so one spiked packet contributes at
+most `1/window_size` of the metric. The detector therefore accepts the filter
+kwargs for interface compatibility but does not apply them.
+
+### Properties (Offline Benchmark)
+
+Measured on the repo datasets (4 chips, 3 environments, paired
+static-presence/motion plus empty captures); full protocol and numbers in
+[EXPERIMENTS.md](EXPERIMENTS.md):
+
+- Separability (AUC) equal or better than MVS on every chip, with more uniform
+  per-chip recall (89-96% including S3, where MVS drops to ~80%).
+- Quiet-level stability: the quiet metric median varies <=1.3x across sessions
+  on the same chip, against up to 14.5x for the MVS moving variance. Startup
+  thresholds therefore age much better.
+- Same fail-open behavior as MVS if the RF noise floor rises after calibration;
+  neither detector covers that case today.
+
+### Computational Cost vs MVS
+
+Per packet, both detectors share the amplitude extraction (12x `sqrt`). After
+that:
+
+| Stage | MVS | L1-Delta |
+|-------|-----|----------|
+| Per-packet metric | CV turbulence (mean + std + `sqrt` + div) | Normalize (12 div) + L1 diff (12 abs/add) |
+| Outlier handling | Hampel(7): 2 insertion sorts per packet | Not needed |
+| State evaluation | Two-pass variance, O(window) = ~100 ops | Running-sum mean, O(1) |
+| Persistent state | ~126 floats | ~232 floats (adds `lag` profiles ring) |
+
+Measured on the Python reference implementations over 10k real packets
+(relative numbers are what matter; absolute values are host CPython):
+
+| Path | MVS (Hampel on) | L1-Delta | Delta |
+|------|-----------------|----------|-------|
+| Evaluation every 25 packets (firmware-like) | 8.7 us/pkt | 7.0 us/pkt | ~20% cheaper |
+| Evaluation every packet (host live CLI) | 15.5 us/pkt | 7.3 us/pkt | ~50% cheaper |
+
+The O(1) evaluation means the L1-Delta cost is flat regardless of evaluation
+rate, while the MVS two-pass variance grows with evaluation frequency. Like
+the shared turbulence path, the L1-Delta hot path is allocation-free
+(pre-allocated profile rings, buffer swap instead of copy), which matters for
+MicroPython GC pressure. The extra ~100 floats of state (~0.4 KB in float32)
+are negligible on target hardware.
+
+### Status
+
+Implemented in both runtimes with aligned semantics:
+
+- Micro-ESPectre (`src/python/micro_espectre/l1_delta_detector.py`), including
+  side-by-side live comparison in the host CLI (`--detector mvs,l1_delta`)
+- Shared C++ core (`src/cpp/core/l1_delta_detector.*`), selectable in the
+  ESPHome (`detection_algorithm: l1_delta`) and Matter (Kconfig choice)
+  frontends; the native frontend keeps the MVS default
 
 ---
 

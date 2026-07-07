@@ -75,7 +75,7 @@ All frontend parameters live under the `espectre:` section:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `detection_algorithm` | string | `mvs` | Detection algorithm: `mvs` or `ml` |
+| `detection_algorithm` | string | `mvs` | Detection algorithm: `mvs`, `l1_delta`, or `ml` |
 | `traffic_generator_rate` | int | `100` | Packets per second for CSI generation (`0-1000`, `0` disables the internal generator) |
 | `traffic_generator_mode` | string | `ping` | Traffic generator mode: `ping` or `dns` |
 | `publish_interval` | int | `auto` | Packets between periodic movement/log updates |
@@ -104,17 +104,19 @@ control is exposed separately through the entities below:
 | Algorithm | Summary | Shared behavior |
 |-----------|---------|-----------------|
 | `mvs` | Moving-variance detector | Adaptive startup threshold bootstrap |
+| `l1_delta` | Normalized profile-displacement detector | Adaptive startup threshold bootstrap with a lower `auto` factor |
 | `ml` | Neural-network detector | Faster boot, no threshold bootstrap |
 
 ```yaml
 espectre:
-  detection_algorithm: mvs  # or ml
+  detection_algorithm: mvs  # or l1_delta, ml
 ```
 
 Threshold behavior:
 
 - range: `0.0-10.0`
-- `mvs` default: `auto`
+- `mvs` default: `auto` (startup calibration, `max x 1.3`)
+- `l1_delta` default: `auto` (startup calibration, `max x 1.1`)
 - `ml` default: `5.0`
 
 ### Example
@@ -260,17 +262,18 @@ For rate recommendations, airtime tradeoffs, and placement guidance, see
 
 ## Startup Calibration
 
-In `MVS` mode, keep the room quiet after boot so the runtime can complete the
-startup threshold bootstrap.
+In `MVS` and `L1-Delta` mode, keep the room quiet after boot so the runtime can
+complete the startup threshold bootstrap.
 
 Startup behavior:
 
-1. AGC-active startup with normalized turbulence
-2. adaptive threshold bootstrap for `MVS`
+1. AGC-active startup with detector-specific normalized metrics
+2. adaptive threshold bootstrap for `mvs` or `l1_delta`
 3. normal motion detection loop
 
-With the default `segmentation_window_size: 100`, MVS collects `1000` packets
-for the startup baseline. `ML` skips this threshold bootstrap.
+With the default `segmentation_window_size: 100`, both startup-calibrated
+detectors collect `1000` packets for the startup baseline. `ML` skips this
+threshold bootstrap.
 
 Runtime recalibration is exposed as the `calibrate_switch` entity in Home
 Assistant.
@@ -356,7 +359,7 @@ The frontend itself does not require a custom partition table.
 
 1. Verify Wi-Fi is connected
 2. Verify traffic generation is active, or provide external traffic
-3. Wait for startup calibration to complete in `MVS`
+3. Wait for startup calibration to complete in `mvs` or `l1_delta`
 4. Lower `segmentation_threshold` if the detector is too conservative
 
 ### False positives

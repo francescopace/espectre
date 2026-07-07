@@ -11,7 +11,7 @@ License: GPLv3
 import pytest
 import numpy as np
 from segmentation import SegmentationContext
-from csi_utils import calculate_spatial_turbulence
+from tools.lib.csi_analysis import calculate_spatial_turbulence
 
 # Test configuration
 WINDOW_SIZE = 50

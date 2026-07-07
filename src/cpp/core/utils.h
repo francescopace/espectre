@@ -265,13 +265,84 @@ inline float calculate_spatial_turbulence(const float* magnitudes,
 }
 
 /**
+ * Extract subcarrier amplitudes from raw CSI data (I/Q pairs)
+ *
+ * Mirrors the Python `SegmentationContext._fill_amplitude_buffer` helper.
+ *
+ * @param csi_data Raw CSI data (interleaved I/Q pairs, Espressif format)
+ * @param csi_len Length of CSI data in bytes
+ * @param subcarriers Array of selected subcarrier indices
+ * @param num_subcarriers Number of selected subcarriers
+ * @param out Output amplitude buffer
+ * @param out_capacity Capacity of the output buffer
+ * @return Number of amplitudes written
+ */
+inline uint8_t extract_subcarrier_amplitudes(const int8_t* csi_data,
+                                             size_t csi_len,
+                                             const uint8_t* subcarriers,
+                                             uint8_t num_subcarriers,
+                                             float* out,
+                                             uint8_t out_capacity) {
+    if (!csi_data || csi_len < 2 || num_subcarriers == 0 || !subcarriers || !out) {
+        return 0;
+    }
+
+    int total_subcarriers = static_cast<int>(csi_len / 2);
+    uint8_t valid_count = 0;
+
+    for (int i = 0; i < num_subcarriers && valid_count < out_capacity; i++) {
+        int sc_idx = subcarriers[i];
+        if (sc_idx >= total_subcarriers) {
+            continue;
+        }
+
+        // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
+        float Q = static_cast<float>(csi_data[sc_idx * 2]);
+        float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);
+        out[valid_count++] = std::sqrt(I * I + Q * Q);
+    }
+    return valid_count;
+}
+
+/**
+ * Write the mean-normalized amplitude profile into `out`
+ *
+ * Shared numeric core for the L1-Delta detector; mirrors the Python
+ * `features.normalize_amplitude_profile_into` helper.
+ *
+ * @param amplitudes Input amplitude values
+ * @param count Number of input values
+ * @param out Output buffer (at least `count` elements)
+ * @return Number of values written (0 when the profile is invalid)
+ */
+inline uint8_t normalize_amplitude_profile(const float* amplitudes,
+                                           uint8_t count,
+                                           float* out) {
+    if (!amplitudes || !out || count < 2) {
+        return 0;
+    }
+    float total = 0.0f;
+    for (uint8_t i = 0; i < count; i++) {
+        total += amplitudes[i];
+    }
+    if (total <= 0.0f) {
+        return 0;
+    }
+    float mean = total / count;
+    for (uint8_t i = 0; i < count; i++) {
+        out[i] = amplitudes[i] / mean;
+    }
+    return count;
+}
+
+/**
  * Calculate spatial turbulence directly from raw CSI data (I/Q pairs)
- * 
+ *
  * This is a convenience wrapper that calculates magnitudes internally
  * before computing spatial turbulence.
- * 
+ *
  * HT20 only: 64 subcarriers, 128 bytes CSI data.
- * 
+ *
  * @param csi_data Raw CSI data (interleaved I/Q pairs)
  * @param csi_len Length of CSI data in bytes (expected: 128 for HT20)
  * @param subcarriers Array of selected subcarrier indices
@@ -282,27 +353,15 @@ inline float calculate_spatial_turbulence_from_csi(const int8_t* csi_data,
                                                    size_t csi_len,
                                                    const uint8_t* subcarriers,
                                                    uint8_t num_subcarriers) {
-    if (!csi_data || csi_len < 2 || num_subcarriers == 0 || !subcarriers) {
-        return 0.0f;
-    }
-
-    int total_subcarriers = static_cast<int>(csi_len / 2);
     float amplitudes[12];
     uint8_t compact_indices[12];
-    uint8_t valid_count = 0;
-
-    for (int i = 0; i < num_subcarriers && valid_count < 12; i++) {
-        int sc_idx = subcarriers[i];
-        if (sc_idx >= total_subcarriers) {
-            continue;
-        }
-
-        // Espressif CSI format: [Imaginary, Real, ...] per subcarrier
-        float Q = static_cast<float>(csi_data[sc_idx * 2]);
-        float I = static_cast<float>(csi_data[sc_idx * 2 + 1]);
-        amplitudes[valid_count] = std::sqrt(I * I + Q * Q);
-        compact_indices[valid_count] = valid_count;
-        valid_count++;
+    uint8_t valid_count = extract_subcarrier_amplitudes(
+        csi_data, csi_len, subcarriers, num_subcarriers, amplitudes, 12);
+    if (valid_count == 0) {
+        return 0.0f;
+    }
+    for (uint8_t i = 0; i < valid_count; i++) {
+        compact_indices[i] = i;
     }
 
     return calculate_spatial_turbulence(

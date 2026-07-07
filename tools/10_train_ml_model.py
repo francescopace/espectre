@@ -28,6 +28,8 @@ Usage:
     python tools/10_train_ml_model.py --device mps  # Force Apple GPU when available
     python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
     python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
+    python tools/10_train_ml_model.py --feature-swap waveform_length_over_mean=l1_delta --no-export
+                                                    # Simple one-slot feature swap experiment
 
 Configuration:
   - TRAINING_FEATURES: Edit at top of file to change feature set
@@ -59,7 +61,12 @@ from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
 
-from repo_paths import (
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT_PATH = SCRIPT_DIR.parent
+if str(REPO_ROOT_PATH) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT_PATH))
+
+from tools.lib.repo_paths import (
     cpp_core_dir,
     generated_data_dir,
     python_src_dir,
@@ -69,6 +76,10 @@ from repo_paths import (
 from contextlib import contextmanager
 from datetime import datetime
 from time import perf_counter
+
+REPO_ROOT = repo_root()
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 try:
     import torch
@@ -318,28 +329,27 @@ def predict_logits(model, X):
         logits = model.forward_logits(torch.from_numpy(X).to(device))
     return logits.detach().cpu().numpy().reshape(-1)
 
-# Import csi_utils first - it sets up paths automatically
 TESTS_DIR = python_tests_dir()
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
-from csi_utils import (
-    find_static_presence_motion_dataset,
-    load_npz_as_packets,
+from tools.lib.csi_io import load_npz_as_packets
+from tools.lib.dataset_metadata import (
     DATA_DIR,
+    estimate_runtime_threshold,
+    resolve_explicit_pair,
 )
 from config import (
-    CALIBRATION_BUFFER_SIZE,
     DEFAULT_SUBCARRIERS,
     HAMPEL_THRESHOLD,
     HAMPEL_WINDOW,
     SEG_WINDOW_SIZE,
 )
+from l1_delta_detector import L1DeltaDetector
 from segmentation import SegmentationContext
-from threshold import get_threshold_factor
 from features import (
     extract_features_by_name, DEFAULT_FEATURES, RAW_FEATURES, RELATIVE_FEATURES,
-    ROBUST_RELATIVE_FEATURES,
+    ROBUST_RELATIVE_FEATURES, ALL_FEATURES,
 )
 
 # ============================================================================
@@ -373,9 +383,9 @@ DEFAULT_FP_WEIGHT = 2.0
 DEFAULT_SCALER_MODE = 'standard'
 DEFAULT_BATCH_SIZE = 1024
 DEFAULT_TORCH_DEVICE = 'cpu'
-SAMPLE_WEIGHT_MODES = ('none', 'mvs_global', 'mvs_gridsearch', 'mvs_hard_negative')
+SAMPLE_WEIGHT_MODES = ('none', 'l1_guided', 'l1_hard_negative')
 DEFAULT_SAMPLE_WEIGHT_MODE = 'none'
-TRAINING_CACHE_VERSION = 2
+TRAINING_CACHE_VERSION = 4
 DEFAULT_ML_TEMPERATURE = 5.0
 # All chips included: MLDetector keeps MVS CV normalization disabled, then
 # extracts the exported raw/relative feature set from the same turbulence base.
@@ -527,6 +537,129 @@ def resolve_training_feature_set(name):
             f"unsupported feature set {name!r}; expected one of {sorted(FEATURE_SET_CHOICES)}"
         )
     return list(FEATURE_SET_CHOICES[key])
+
+
+def parse_feature_swap(value):
+    """Parse one feature swap specification in OLD=NEW or OLD:NEW form."""
+    text = str(value or '').strip()
+    if not text:
+        raise argparse.ArgumentTypeError(
+            "feature swap cannot be empty; use OLD=NEW"
+        )
+
+    separator = '=' if '=' in text else ':'
+    if separator not in text:
+        raise argparse.ArgumentTypeError(
+            "feature swap must be in OLD=NEW form"
+        )
+
+    old_name, new_name = [part.strip() for part in text.split(separator, 1)]
+    if not old_name or not new_name:
+        raise argparse.ArgumentTypeError(
+            "feature swap must provide both OLD and NEW feature names"
+        )
+    return old_name, new_name
+
+
+def parse_feature_drop_list(value):
+    """Parse a comma-separated feature drop list."""
+    text = str(value or '').strip()
+    if not text:
+        raise argparse.ArgumentTypeError(
+            "feature drop list cannot be empty; use name1,name2"
+        )
+
+    items = [item.strip() for item in text.split(',')]
+    features = [item for item in items if item]
+    if not features:
+        raise argparse.ArgumentTypeError(
+            "feature drop list cannot be empty; use name1,name2"
+        )
+    return features
+
+
+def apply_feature_drops(feature_names, dropped_features):
+    """Drop one or more features from a resolved feature list."""
+    features = list(feature_names)
+    if not dropped_features:
+        return features
+
+    valid_features = set(ALL_FEATURES)
+    for feature_name in dropped_features:
+        if feature_name not in valid_features:
+            raise argparse.ArgumentTypeError(
+                f"unknown dropped feature {feature_name!r}; expected one of {sorted(valid_features)}"
+            )
+        if feature_name not in features:
+            raise argparse.ArgumentTypeError(
+                f"cannot drop {feature_name!r}: not present in the selected feature set {features}"
+            )
+        features.remove(feature_name)
+
+    if not features:
+        raise argparse.ArgumentTypeError(
+            "feature drop would leave an empty feature set"
+        )
+    return features
+
+
+def apply_feature_swaps(feature_names, swaps):
+    """Apply one or more OLD=NEW feature swaps to a resolved feature list."""
+    features = list(feature_names)
+    if not swaps:
+        return features
+
+    valid_features = set(ALL_FEATURES)
+    for old_name, new_name in swaps:
+        if old_name not in valid_features:
+            raise argparse.ArgumentTypeError(
+                f"unknown source feature {old_name!r}; expected one of {sorted(valid_features)}"
+            )
+        if new_name not in valid_features:
+            raise argparse.ArgumentTypeError(
+                f"unknown replacement feature {new_name!r}; expected one of {sorted(valid_features)}"
+            )
+        if old_name not in features:
+            raise argparse.ArgumentTypeError(
+                f"cannot swap {old_name!r}: not present in the selected feature set {features}"
+            )
+
+        idx = features.index(old_name)
+        if new_name != old_name and new_name in features:
+            raise argparse.ArgumentTypeError(
+                f"cannot swap {old_name!r} -> {new_name!r}: replacement already exists in the selected feature set"
+            )
+        features[idx] = new_name
+    return features
+
+
+def build_feature_sweep_candidates(feature_names, incoming_feature):
+    """Build all one-slot replacement candidates for an incoming feature."""
+    incoming = str(incoming_feature or '').strip()
+    if not incoming:
+        raise argparse.ArgumentTypeError("feature sweep requires a feature name")
+
+    valid_features = set(ALL_FEATURES)
+    if incoming not in valid_features:
+        raise argparse.ArgumentTypeError(
+            f"unknown sweep feature {incoming!r}; expected one of {sorted(valid_features)}"
+        )
+
+    base_features = list(feature_names)
+    if incoming in base_features:
+        raise argparse.ArgumentTypeError(
+            f"cannot sweep {incoming!r}: it is already present in the selected feature set"
+        )
+
+    candidates = []
+    for replaced in base_features:
+        candidate_features = apply_feature_swaps(base_features, [(replaced, incoming)])
+        candidates.append({
+            'replaced': replaced,
+            'incoming': incoming,
+            'feature_names': candidate_features,
+        })
+    return candidates
 
 
 def normalize_architecture_specs(architectures):
@@ -812,60 +945,15 @@ def _fallback_file_context(filename, label, packet):
     return _build_file_context(label, fallback)
 
 
-def _has_explicit_pair(dataset_info, label, entry):
-    """Check if entry has an explicit counterpart in dataset_info."""
-    if label == 'static_presence':
-        counterpart_label = 'motion'
-        counterpart_name = entry.get('optimal_pair_motion_file')
-    else:
-        counterpart_label = 'static_presence'
-        counterpart_name = entry.get('optimal_pair_static_presence_file')
-    if not counterpart_name:
-        return False
-
-    counterpart = None
-    for candidate in dataset_info.get('files', {}).get(counterpart_label, []):
-        if candidate.get('filename') == counterpart_name:
-            counterpart = candidate
-            break
-    if counterpart is None:
-        return False
-    return True
-
-
-def build_gridsearch_tuning_map(dataset_info, default_threshold=None):
-    """
-    Build per-file tuning map from dataset_info.
-
-    Returns:
-        dict: {
-            filename: {
-                'threshold': float,
-                'mode': 'explicit-pair' | 'unpaired' | 'missing',
-                'confidence_factor': float,
-            }
-        }
-    """
-    tuning = {}
-    for label, files in dataset_info.get('files', {}).items():
-        for entry in files:
-            name = entry.get('filename')
-            if not name:
-                continue
-
-            threshold_value = entry.get('optimal_threshold_gridsearch', default_threshold)
-            paired = _has_explicit_pair(dataset_info, label, entry)
-            if threshold_value is None:
-                threshold = None
-                mode = 'missing'
-            else:
-                threshold = float(threshold_value)
-                mode = 'explicit-pair' if paired else 'unpaired'
-            tuning[name] = {
-                'threshold': threshold,
-                'mode': mode,
-            }
-    return tuning
+def build_pair_static_map(dataset_info):
+    """Map motion filename -> paired static_presence filename from dataset_info."""
+    pair_map = {}
+    for entry in dataset_info.get('files', {}).get('motion', []):
+        name = entry.get('filename')
+        static_name = entry.get('optimal_pair_static_presence_file')
+        if name and static_name:
+            pair_map[str(name)] = str(static_name)
+    return pair_map
 
 
 def is_motion_label(label_name, dataset_info):
@@ -1303,7 +1391,8 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
         )
-        last_amplitudes = None
+        needs_amplitude_history = 'l1_delta' in feature_names
+        amplitude_history = deque(maxlen=window_size) if needs_amplitude_history else None
         window_index = 0
         for pkt in file_packets:
             csi_data = pkt['csi_data']
@@ -1313,7 +1402,8 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
                 return_amplitudes=True,
             )
             ctx.add_turbulence(turb)
-            last_amplitudes = amps
+            if amplitude_history is not None:
+                amplitude_history.append(amps)
 
             if ctx.buffer_count < window_size:
                 continue
@@ -1325,8 +1415,9 @@ def extract_features(packets, window_size=SEG_WINDOW_SIZE,
 
             features = extract_features_by_name(
                 turb_list, n,
-                amplitudes=last_amplitudes,
-                feature_names=feature_names
+                amplitudes=amps,
+                feature_names=feature_names,
+                amplitude_history=list(amplitude_history) if amplitude_history is not None else None,
             )
 
             X.append(features)
@@ -1355,67 +1446,42 @@ def compute_sample_weights(packets, labels, sample_weight_mode=DEFAULT_SAMPLE_WE
         return np.ones(len(labels), dtype=np.float32)
 
     dataset_info = load_dataset_info()
-    if mode == 'mvs_global':
-        tuning_map = {}
-        mvs_policy = 'full'
-        fallback_threshold = 1.0
-    elif mode == 'mvs_gridsearch':
-        tuning_map = build_gridsearch_tuning_map(dataset_info)
-        mvs_policy = 'full'
-        fallback_threshold = None
-    elif mode == 'mvs_hard_negative':
-        tuning_map = build_gridsearch_tuning_map(dataset_info)
-        mvs_policy = 'hard_negative'
-        fallback_threshold = None
+    if mode == 'l1_guided':
+        policy = 'full'
+    elif mode == 'l1_hard_negative':
+        policy = 'hard_negative'
     else:
         raise AssertionError(f"Unhandled sample weight mode: {mode}")
 
-    return compute_mvs_guided_sample_weights(
+    return compute_l1_guided_sample_weights(
         packets,
-        tuning_map,
+        build_pair_static_map(dataset_info),
         window_size=window_size,
-        policy=mvs_policy,
-        fallback_threshold=fallback_threshold,
+        policy=policy,
     )
 
 
-def estimate_mvs_threshold_from_packets(file_packets, window_size=SEG_WINDOW_SIZE):
-    """Estimate the production adaptive threshold from a file calibration prefix."""
-    ctx = SegmentationContext(
-        window_size=window_size,
-        threshold=1.0,
-        enable_hampel=True,
-    )
-    max_moving_variance = None
-    for pkt in file_packets[:CALIBRATION_BUFFER_SIZE]:
-        turb = ctx.calculate_spatial_turbulence(
-            pkt['csi_data'],
-            DEFAULT_SUBCARRIERS,
-        )
-        ctx.add_turbulence(turb)
-        ctx.update_state()
-        if ctx.buffer_count >= window_size:
-            current_moving_variance = float(ctx.current_moving_variance)
-            if max_moving_variance is None or current_moving_variance > max_moving_variance:
-                max_moving_variance = current_moving_variance
-
-    if max_moving_variance is None:
+def estimate_support_threshold_from_packets(file_packets):
+    """Estimate the production l1_delta startup threshold from a file capture."""
+    threshold = estimate_runtime_threshold(file_packets)
+    if threshold is None:
         return None
-    threshold = max_moving_variance * get_threshold_factor('auto')
     return max(float(threshold), 1e-6)
 
 
-def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDOW_SIZE,
-                                      policy='full', fallback_threshold=None):
+def compute_l1_guided_sample_weights(packets, pair_static_map, window_size=SEG_WINDOW_SIZE,
+                                     policy='full'):
     """
-    Compute sample weights using context-aware MVS scoring per source file.
+    Compute sample weights using context-aware l1_delta scoring per source file.
 
     Weight policy:
     - full policy: hard-positive mining for movement samples
     - hard_negative policy: leave movement samples neutral
     - baseline samples: promote hard negatives (2.0) when metric >= threshold, else 1.0
-    - per-file thresholds come from dataset metadata when available
-    - missing metadata falls back to a production-style calibration-prefix estimate
+    - per-file thresholds replay the production l1_delta startup calibration:
+      quiet captures self-calibrate, and motion files inherit the threshold of
+      their paired static capture when it is part of the training set
+    - unpaired motion files fall back to their own gated calibration replay
     - weights are normalized per file so no single recording dominates training
     """
     weights = []
@@ -1425,35 +1491,38 @@ def compute_mvs_guided_sample_weights(packets, tuning_map, window_size=SEG_WINDO
         source = pkt.get('source_file', '__single_stream__')
         grouped.setdefault(source, []).append(pkt)
 
-    for source_file, file_packets in grouped.items():
-        cfg = tuning_map.get(source_file, None)
-        if cfg is None or cfg.get('threshold') is None:
-            if fallback_threshold is None:
-                threshold = estimate_mvs_threshold_from_packets(
-                    file_packets,
-                    window_size=window_size,
-                )
-                if threshold is None:
-                    threshold = 1.0
-            else:
-                threshold = float(fallback_threshold)
-        else:
-            threshold = max(float(cfg['threshold']), 1e-6)
-        effective_threshold = max(float(threshold), 1e-6)
+    threshold_cache = {}
 
-        ctx = SegmentationContext(window_size=window_size, threshold=effective_threshold)
+    def threshold_for(source_file):
+        """Production l1_delta startup threshold for one source file."""
+        if source_file in threshold_cache:
+            return threshold_cache[source_file]
+        static_name = pair_static_map.get(source_file)
+        if static_name is not None and static_name != source_file and static_name in grouped:
+            threshold = threshold_for(static_name)
+        else:
+            threshold = estimate_support_threshold_from_packets(grouped[source_file])
+        if threshold is None:
+            threshold = 1.0
+        threshold_cache[source_file] = threshold
+        return threshold
+
+    for source_file, file_packets in grouped.items():
+        effective_threshold = max(float(threshold_for(source_file)), 1e-6)
+
+        detector = L1DeltaDetector(window_size=window_size, threshold=effective_threshold)
         file_weights = []
-        for pkt in file_packets:
-            turb = ctx.calculate_spatial_turbulence(
-                pkt['csi_data'],
-                DEFAULT_SUBCARRIERS,
-            )
-            ctx.add_turbulence(turb)
-            ctx.update_state()
-            if ctx.buffer_count < window_size:
+        for packet_index, pkt in enumerate(file_packets):
+            detector.process_packet(pkt['csi_data'], DEFAULT_SUBCARRIERS)
+            detector.update_state()
+            # Gate on the packet count, not detector readiness, so weights stay
+            # 1:1 with the extract_features window rows; the l1_delta metric
+            # reads 0.0 for the extra lag packets, leaving those rows at the
+            # base weight.
+            if packet_index + 1 < window_size:
                 continue
 
-            ratio = max(0.0, float(ctx.current_moving_variance)) / max(effective_threshold, 1e-6)
+            ratio = max(0.0, float(detector.get_motion_metric())) / max(effective_threshold, 1e-6)
             if pkt.get('is_motion', False):
                 # Hard-positive mining:
                 # subtle/near-threshold motion is exactly where recall drops in
@@ -2634,6 +2703,14 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
         Size of generated code
     """
     from datetime import datetime
+
+    def cpp_float(value):
+        """Render a numeric literal with a valid C++ float suffix."""
+        text = f'{float(value):.9g}'
+        if 'e' not in text and 'E' not in text and '.' not in text:
+            text += '.0'
+        return text + 'f'
+
     weights = extract_model_weights(model)
     architecture = get_model_architecture(model)
     arch = ' -> '.join(map(str, architecture))
@@ -2644,8 +2721,8 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
     seed_info = f"Seed: {seed}"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     architecture_csv = ', '.join(str(x) for x in architecture)
-    center_csv = ', '.join(f'{x:.9g}f' for x in center)
-    scale_csv = ', '.join(f'{x:.9g}f' for x in scale)
+    center_csv = ', '.join(cpp_float(x) for x in center)
+    scale_csv = ', '.join(cpp_float(x) for x in scale)
     
     code = f'''/*
  * ESPectre - ML Model Weights
@@ -2696,8 +2773,8 @@ constexpr float ML_FEATURE_SCALE[{len(scale)}] = {{{scale_csv}}};
         code += f'// Layer {layer_num}: {in_size} -> {out_size} ({activation})\n'
         flat_weights = W.reshape(-1)
         code += f'constexpr float ML_W{layer_num}[{len(flat_weights)}] = {{' \
-                + ', '.join(f'{x:.9g}f' for x in flat_weights) + '};\n'
-        code += f'constexpr float ML_B{layer_num}[{out_size}] = {{{", ".join(f"{x:.9g}f" for x in b)}}};\n\n'
+                + ', '.join(cpp_float(x) for x in flat_weights) + '};\n'
+        code += f'constexpr float ML_B{layer_num}[{out_size}] = {{{", ".join(cpp_float(x) for x in b)}}};\n\n'
         weight_names.append(f'ML_W{layer_num}')
         bias_names.append(f'ML_B{layer_num}')
         input_sizes.append(str(in_size))
@@ -3200,6 +3277,193 @@ def run_ablation_study(X, y, feature_names, sample_context=None, sample_weight=N
     return results
 
 
+def run_feature_sweep_study(X, y, feature_names, incoming_feature, X_incoming,
+                            sample_context=None, sample_weight=None,
+                            hidden_layers=None, fp_weight=DEFAULT_FP_WEIGHT,
+                            scaler_mode=DEFAULT_SCALER_MODE,
+                            batch_size=DEFAULT_BATCH_SIZE,
+                            seed=None):
+    """
+    Evaluate swapping one incoming feature into each slot of the active set.
+
+    This is the direct complement to ablation for a candidate feature that is not
+    yet in the model: keep model width fixed, replace one feature at a time, and
+    compare grouped CV metrics.
+    """
+    print("\n" + "=" * 90)
+    print("                             FEATURE SWEEP")
+    print("=" * 90 + "\n")
+    print(
+        f"Testing '{incoming_feature}' as a one-slot replacement for each feature in the active set...\n"
+    )
+
+    if hidden_layers is None:
+        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
+
+    groups = None
+    if sample_context is not None:
+        groups = sample_context.get(DEFAULT_PRIMARY_GROUP_KEY)
+
+    def _extract_summary(cv_results):
+        group_reports = cv_results.get('group_reports', {})
+        session_report = group_reports.get('session_group') or {}
+        chip_report = group_reports.get('chip') or {}
+        return {
+            'f1_mean': cv_results['f1_mean'],
+            'f1_std': cv_results['f1_std'],
+            'oof_f1': cv_results['oof_f1'],
+            'recall_mean': cv_results['recall_mean'],
+            'fp_rate_mean': cv_results['fp_rate_mean'],
+            'worst_session_recall': session_report.get('worst_recall', {}).get('recall', 0.0),
+            'worst_session_fp_rate': session_report.get('worst_fp_rate', {}).get('fp_rate', 0.0),
+            'worst_chip_recall': chip_report.get('worst_recall', {}).get('recall', 0.0),
+        }
+
+    results = []
+
+    print(f"[1/{len(feature_names) + 1}] Baseline ({len(feature_names)} features)...")
+    with suppress_stderr():
+        baseline_cv = cross_validate(
+            X, y,
+            hidden_layers=hidden_layers,
+            n_folds=DEFAULT_CV_FOLDS,
+            max_epochs=DEFAULT_MAX_EPOCHS,
+            fp_weight=fp_weight,
+            sample_weight=sample_weight,
+            groups=groups,
+            sample_context=sample_context,
+            scaler_mode=scaler_mode,
+            batch_size=batch_size,
+            block_stride=SEG_WINDOW_SIZE,
+            report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
+            seed=derive_seed(seed, 0),
+        )
+    baseline_summary = _extract_summary(baseline_cv)
+    results.append({
+        'label': 'baseline',
+        'replaced': None,
+        'incoming': None,
+        'feature_names': list(feature_names),
+        'cv': baseline_cv,
+        'delta_f1': 0.0,
+        'delta_oof_f1': 0.0,
+        **baseline_summary,
+    })
+    print(
+        f"    OOF F1: {baseline_summary['oof_f1']:.2f}% | "
+        f"fold F1: {baseline_summary['f1_mean']:.2f}% | "
+        f"worst chip recall: {baseline_summary['worst_chip_recall']:.2f}%\n"
+    )
+
+    incoming_column = np.asarray(X_incoming).reshape(-1)
+    if len(incoming_column) != len(X):
+        raise ValueError(
+            f"incoming feature length mismatch (incoming={len(incoming_column)}, base={len(X)})"
+        )
+
+    candidates = build_feature_sweep_candidates(feature_names, incoming_feature)
+    for idx, candidate in enumerate(candidates, start=2):
+        replaced = candidate['replaced']
+        candidate_features = candidate['feature_names']
+        replace_idx = list(feature_names).index(replaced)
+        X_candidate = X.copy()
+        X_candidate[:, replace_idx] = incoming_column
+        print(f"[{idx}/{len(feature_names) + 1}] Replacing '{replaced}' -> '{incoming_feature}'...")
+
+        with suppress_stderr():
+            cv = cross_validate(
+                X_candidate, y,
+                hidden_layers=hidden_layers,
+                n_folds=DEFAULT_CV_FOLDS,
+                max_epochs=DEFAULT_MAX_EPOCHS,
+                fp_weight=fp_weight,
+                sample_weight=sample_weight,
+                groups=groups,
+                sample_context=sample_context,
+                scaler_mode=scaler_mode,
+                batch_size=batch_size,
+                block_stride=SEG_WINDOW_SIZE,
+                report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
+                seed=derive_seed(seed, idx),
+            )
+
+        summary = _extract_summary(cv)
+        delta_f1 = summary['f1_mean'] - baseline_summary['f1_mean']
+        delta_oof_f1 = summary['oof_f1'] - baseline_summary['oof_f1']
+        results.append({
+            'label': f"{incoming_feature} for {replaced}",
+            'replaced': replaced,
+            'incoming': incoming_feature,
+            'feature_names': candidate_features,
+            'cv': cv,
+            'delta_f1': delta_f1,
+            'delta_oof_f1': delta_oof_f1,
+            **summary,
+        })
+
+        direction = "↑" if delta_oof_f1 > 0.1 else "↓" if delta_oof_f1 < -0.1 else "≈"
+        print(
+            f"    OOF F1: {summary['oof_f1']:.2f}% ({direction} {delta_oof_f1:+.2f}%) | "
+            f"fold F1: {summary['f1_mean']:.2f}% | "
+            f"worst chip recall: {summary['worst_chip_recall']:.2f}%\n"
+        )
+
+    print("\n" + "=" * 108)
+    print("                                  FEATURE SWEEP SUMMARY")
+    print("=" * 108 + "\n")
+    print(
+        f"{'Replaced Feature':<24} {'OOF F1':>9} {'Delta':>9} {'Fold F1':>10} "
+        f"{'Recall':>9} {'FP Rate':>9} {'Worst Sess R':>12} {'Worst Sess FP':>13} {'Worst Chip R':>12} {'Note':<10}"
+    )
+    print("-" * 108)
+
+    baseline = results[0]
+    print(
+        f"{'None (baseline)':<24} {baseline['oof_f1']:>8.2f}% {'---':>9} "
+        f"{baseline['f1_mean']:>9.2f}% {baseline['recall_mean']:>8.1f}% "
+        f"{baseline['fp_rate_mean']:>8.1f}% {baseline['worst_session_recall']:>11.1f}% "
+        f"{baseline['worst_session_fp_rate']:>12.1f}% {baseline['worst_chip_recall']:>11.1f}%"
+    )
+    print("-" * 108)
+
+    ranked_results = sorted(
+        results[1:],
+        key=lambda row: build_candidate_key(row['cv']),
+        reverse=True,
+    )
+    for idx, row in enumerate(ranked_results):
+        note = ""
+        if idx == 0:
+            note = "best"
+        elif row['delta_oof_f1'] > 0.1:
+            note = "improves"
+        elif row['delta_oof_f1'] < -0.1:
+            note = "worse"
+        else:
+            note = "neutral"
+
+        print(
+            f"{row['replaced']:<24} {row['oof_f1']:>8.2f}% {row['delta_oof_f1']:>+8.2f}% "
+            f"{row['f1_mean']:>9.2f}% {row['recall_mean']:>8.1f}% {row['fp_rate_mean']:>8.1f}% "
+            f"{row['worst_session_recall']:>11.1f}% {row['worst_session_fp_rate']:>12.1f}% "
+            f"{row['worst_chip_recall']:>11.1f}% {note:<10}"
+        )
+
+    best = ranked_results[0]
+    print("-" * 108)
+    print(
+        f"\nBest sweep candidate: replace '{best['replaced']}' with '{incoming_feature}' "
+        f"(OOF F1={best['oof_f1']:.2f}%, worst-chip recall={best['worst_chip_recall']:.1f}%, "
+        f"worst-session FP={best['worst_session_fp_rate']:.1f}%)"
+    )
+    print(
+        "Ranking priority: worst-session recall, worst-chip recall, "
+        "worst-session FP, blocked OOF F1, fold F1."
+    )
+    print()
+    return results
+
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -3339,7 +3603,7 @@ def show_info():
 
 
 def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
-              feature_importance=False, ablation=False, shap_samples=200,
+              feature_importance=False, ablation=False, feature_sweep=None, shap_samples=200,
               hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
               batch_size=DEFAULT_BATCH_SIZE, export_artifacts=True,
               environment_filter=None, excluded_chips=None,
@@ -3357,6 +3621,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         feature_names: List of feature names to use. If None, uses DEFAULT_FEATURES.
         feature_importance: If True, calculate and display SHAP feature importance.
         ablation: If True, run ablation study instead of training.
+        feature_sweep: Optional incoming feature name to sweep across slots.
         hidden_layers: Hidden layer widths. None uses DEFAULT_HIDDEN_LAYERS.
         scaler_mode: Feature normalization mode.
         batch_size: Mini-batch size used for training and CV.
@@ -3495,6 +3760,30 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             fp_weight=fp_weight,
             scaler_mode=scaler_mode,
             batch_size=batch_size,
+        )
+        return 0, seed, None
+
+    if feature_sweep is not None:
+        incoming_matrix, _ = load_training_matrix(
+            environment_filter=environment_filter,
+            excluded_chips=excluded_chips,
+            feature_names=[feature_sweep],
+            sample_weight_mode=sample_weight_mode,
+            use_cache=use_cache,
+        )
+        run_feature_sweep_study(
+            X,
+            y,
+            actual_feature_names,
+            feature_sweep,
+            incoming_matrix['X'][:, 0],
+            sample_context=sample_context,
+            sample_weight=sample_weights,
+            hidden_layers=hidden_layers,
+            fp_weight=fp_weight,
+            scaler_mode=scaler_mode,
+            batch_size=batch_size,
+            seed=seed,
         )
         return 0, seed, None
 
@@ -3753,11 +4042,11 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
     by_chip = {}
     for chip in chips:
         try:
-            static_presence_path, motion_path, _ = find_static_presence_motion_dataset(chip=chip, num_sc=64)
+            pair = resolve_explicit_pair(chip=chip, num_sc=64)
         except FileNotFoundError:
             continue
-        static_presence_packets = load_npz_as_packets(static_presence_path)
-        motion_packets = load_npz_as_packets(motion_path)
+        static_presence_packets = load_npz_as_packets(pair.static_presence.path)
+        motion_packets = load_npz_as_packets(pair.motion.path)
         by_chip[chip] = evaluate_split(
             model,
             scaler,
@@ -3979,6 +4268,17 @@ def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, 
     )
 
 
+def _search_candidate_key(cv_metrics, gate=None):
+    """Ranking key for broken-baseline seed search fallback."""
+    gate_passed = 1 if gate is not None and gate.passed else 0
+    paired_passed = 1 if gate is not None and gate.paired_returncode == 0 else 0
+    long_available = 1 if gate is not None and gate.long_metrics is not None else 0
+    real_key = _real_ml_gate_key(gate.long_metrics if gate is not None else None)
+    if real_key is None:
+        real_key = (-float('inf'),) * 6
+    return (gate_passed, paired_passed, long_available) + tuple(real_key) + build_candidate_key(cv_metrics)
+
+
 def _model_artifact_paths():
     """Return paths of generated model artifacts."""
     return [
@@ -4021,6 +4321,11 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     Promotion uses a two-stage decision:
       1) grouped CV prefilter
       2) ML-only real-data gate on exported artifacts
+
+    When the current exported baseline fails those gates, the command falls back
+    to a ranking mode: it evaluates all MAX_TRIALS candidates, keeps the best
+    exported candidate that beats the broken baseline, and restores it at the
+    end even if no candidate reaches a fully passing gate state.
     """
     if max_trials < 1:
         print("Error: --seed-search-until-improvement must be >= 1")
@@ -4098,13 +4403,12 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     )
     static_presence_gate = run_exported_ml_gates()
     print(f"Baseline exported ML gates: {_format_exported_gate_summary(static_presence_gate)}")
-    if not static_presence_gate.passed:
-        print("Error: baseline exported ML gates are required for seed-search promotion")
-        if static_presence_gate.paired_returncode != 0 and static_presence_gate.paired_output.strip():
-            print(static_presence_gate.paired_output.strip())
-        if static_presence_gate.long_metrics is None and static_presence_gate.long_output.strip():
-            print(static_presence_gate.long_output.strip())
-        return 1
+    broken_baseline_mode = not static_presence_gate.passed
+    if broken_baseline_mode:
+        print(
+            "Warning: baseline exported ML gates failed; "
+            "running all trials and ranking candidates against the broken baseline"
+        )
 
     backup_dir, saved_files = _backup_artifacts()
     print(f"Artifacts backup: {backup_dir}")
@@ -4114,6 +4418,9 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     improved_seed = None
     improved_metrics = None
     improved_gate = None
+    best_candidate_backup_dir = None
+    best_candidate_saved_files = None
+    best_search_key = _search_candidate_key(static_presence_metrics, static_presence_gate)
 
     for idx in range(1, max_trials + 1):
         print(f"\n[{idx}/{max_trials}] Training with auto-generated seed")
@@ -4146,12 +4453,15 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             f"blocked_oof_f1={metrics['oof_f1']:.1f}%"
         )
 
-        if build_candidate_key(metrics) <= build_candidate_key(static_presence_metrics):
+        if not broken_baseline_mode and build_candidate_key(metrics) <= build_candidate_key(static_presence_metrics):
             trial_summaries.append((used_seed, metrics, None, 'cv_rejected'))
             print("  CV filter: rejected before real-data ML gate")
             continue
 
-        print("  CV filter: passed, exporting candidate for real-data ML gate...")
+        if broken_baseline_mode:
+            print("  Broken baseline mode: exporting candidate for ranking...")
+        else:
+            print("  CV filter: passed, exporting candidate for real-data ML gate...")
         export_rc, _, final_metrics = train_all(
             fp_weight=fp_weight,
             seed=used_seed,
@@ -4183,6 +4493,26 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             if candidate_gate.long_metrics is None and candidate_gate.long_output.strip():
                 print(candidate_gate.long_output.strip())
 
+        if broken_baseline_mode:
+            status = 'ranked_rejected'
+            candidate_search_key = _search_candidate_key(final_metrics, candidate_gate)
+            if candidate_search_key > best_search_key:
+                improved = True
+                improved_seed = used_seed
+                improved_metrics = final_metrics
+                improved_gate = candidate_gate
+                best_search_key = candidate_search_key
+                if best_candidate_backup_dir is not None:
+                    shutil.rmtree(best_candidate_backup_dir, ignore_errors=True)
+                best_candidate_backup_dir, best_candidate_saved_files = _backup_artifacts()
+                status = 'ranked_best'
+                print("  Broken baseline mode: current best candidate updated")
+            else:
+                print("  Broken baseline mode: candidate did not beat current best")
+            trial_summaries.append((used_seed, final_metrics, candidate_gate, status))
+            _restore_artifacts(saved_files)
+            continue
+
         trial_summaries.append((used_seed, final_metrics, candidate_gate, 'exported_gates'))
         if _candidate_beats_baseline(final_metrics, candidate_gate, static_presence_metrics, static_presence_gate):
             improved = True
@@ -4209,12 +4539,24 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         )
 
     if improved:
+        if broken_baseline_mode and best_candidate_saved_files is not None:
+            _restore_artifacts(best_candidate_saved_files)
+            print(
+                f"\nSelected seed after broken-baseline ranking: {improved_seed} "
+                f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
+                f"{_format_exported_gate_summary(improved_gate)})"
+            )
+            return 0
         print(
             f"\nSelected seed: {improved_seed} "
             f"(blocked_oof_f1={improved_metrics['oof_f1']:.1f}%, "
             f"{_format_exported_gate_summary(improved_gate)})"
         )
         return 0
+
+    if broken_baseline_mode:
+        print("\nNo candidate beat the current broken baseline; current artifacts remain unchanged")
+        return 1
 
     print("\nNo improvement found within max trials; current artifacts remain unchanged")
     return 1
@@ -4772,6 +5114,10 @@ Examples:
                                            # Compare raw/relative/hybrid feature sets under gain stress
   python tools/10_train_ml_model.py --shap              # SHAP importance (200 samples)
   python tools/10_train_ml_model.py --shap 500          # SHAP importance (500 samples)
+  python tools/10_train_ml_model.py --feature-sweep l1_delta --no-export
+                                           # Try one incoming feature in every slot of the active set
+  python tools/10_train_ml_model.py --feature-drop waveform_length_over_mean,turb_skewness --no-export
+                                           # Train/evaluate after removing comma-separated features
 
 Configuration (edit at top of this file):
   TRAINING_FEATURES = [...]   # Feature list to use
@@ -4797,7 +5143,10 @@ To compare ML with MVS, use:
     parser.add_argument('--seed-search-until-improvement', type=int, default=0, metavar='MAX_TRIALS',
                        help='Train with auto-generated seeds until first '
                             'improvement over current ML performance, with '
-                            'at most MAX_TRIALS attempts')
+                            'at most MAX_TRIALS attempts. If the exported '
+                            'baseline is already broken, evaluate all '
+                            'MAX_TRIALS candidates and keep the best one that '
+                            'beats the current baseline')
     parser.add_argument('--gain-stress-gate', action='store_true',
                        help='Evaluate current exported ML artifacts under '
                             'artificial gain scaling without training/exporting')
@@ -4831,6 +5180,17 @@ To compare ML with MVS, use:
     parser.add_argument('--feature-set', choices=sorted(FEATURE_SET_CHOICES), default='production',
                        help='Named binary-training feature set. Only production is export-compatible '
                             '(default: production)')
+    parser.add_argument('--feature-swap', type=parse_feature_swap, action='append', default=None,
+                       metavar='OLD=NEW',
+                       help='Replace one feature in the selected set with another. '
+                            'May be repeated. Example: --feature-swap waveform_length_over_mean=l1_delta')
+    parser.add_argument('--feature-drop', type=parse_feature_drop_list, default=None,
+                       metavar='FEATURE1,FEATURE2',
+                       help='Drop comma-separated features from the selected set. '
+                            'Example: --feature-drop waveform_length_over_mean,turb_skewness')
+    parser.add_argument('--feature-sweep', type=str, default=None, metavar='FEATURE',
+                       help='Sweep one incoming feature across all slots of the selected set '
+                            '(analysis-only). Example: --feature-sweep l1_delta')
     parser.add_argument('--no-export', action='store_true',
                        help='Run training/CV analysis without exporting runtime artifacts')
     parser.add_argument('--no-cache', action='store_true',
@@ -4847,10 +5207,11 @@ To compare ML with MVS, use:
                        help='Boost motion samples for specific chips, e.g. ESP32=1.2 or ESP32=1.2,S3=1.1')
     parser.add_argument('--sample-weight-mode', choices=SAMPLE_WEIGHT_MODES,
                        default=DEFAULT_SAMPLE_WEIGHT_MODE,
-                       help='Base sample weighting policy. "none" keeps MVS out of training; '
-                            '"mvs_global" uses the legacy global MVS score; '
-                            '"mvs_gridsearch" uses per-file optimal_threshold_gridsearch; '
-                            '"mvs_hard_negative" uses MVS only to promote hard idle windows '
+                       help='Base sample weighting policy. "none" keeps the support detector '
+                            'out of training; "l1_guided" scores windows with the l1_delta '
+                            'replay against per-file runtime-calibrated startup thresholds '
+                            '(motion files inherit the paired static capture); '
+                            '"l1_hard_negative" uses l1_delta only to promote hard idle windows '
                             f'(default: {DEFAULT_SAMPLE_WEIGHT_MODE})')
     parser.add_argument('--shap', type=int, nargs='?', const=200, default=None,
                        metavar='SAMPLES',
@@ -4861,8 +5222,21 @@ To compare ML with MVS, use:
                        help='Run ablation study (test removing each feature)')
     args = parser.parse_args()
     set_active_torch_device(args.device)
-    selected_training_features = resolve_training_feature_set(args.feature_set)
-    export_compatible_feature_set = args.feature_set == 'production'
+    if args.feature_swap and args.feature_sweep:
+        print("Error: --feature-swap and --feature-sweep are mutually exclusive")
+        return 1
+    selected_training_features = apply_feature_swaps(
+        apply_feature_drops(
+            resolve_training_feature_set(args.feature_set),
+            args.feature_drop,
+        ),
+        args.feature_swap,
+    )
+    export_compatible_feature_set = (
+        args.feature_set == 'production'
+        and not args.feature_swap
+        and not args.feature_drop
+    )
     
     if args.info:
         show_info()
@@ -4875,8 +5249,8 @@ To compare ML with MVS, use:
         if args.seed_search_until_improvement > 0 or args.seed is not None:
             print("Error: --gain-stress-gate evaluates exported artifacts and cannot use --seed or seed-search")
             return 1
-        if args.shap is not None or args.ablation or args.correlation:
-            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation, or --correlation")
+        if args.shap is not None or args.ablation or args.correlation or args.feature_sweep is not None:
+            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation, --correlation, or --feature-sweep")
             return 1
         if args.positive_chip_boost is not None:
             print("Error: --positive-chip-boost is a training option and cannot be used with --gain-stress-gate")
@@ -4896,8 +5270,8 @@ To compare ML with MVS, use:
         if args.seed_search_until_improvement > 0:
             print("Error: --gain-feature-experiment cannot be combined with seed-search")
             return 1
-        if args.shap is not None or args.ablation or args.correlation:
-            print("Error: --gain-feature-experiment cannot be combined with --shap, --ablation, or --correlation")
+        if args.shap is not None or args.ablation or args.correlation or args.feature_sweep is not None:
+            print("Error: --gain-feature-experiment cannot be combined with --shap, --ablation, --correlation, or --feature-sweep")
             return 1
         if args.positive_chip_boost is not None:
             print("Error: --positive-chip-boost is not supported by --gain-feature-experiment")
@@ -4950,8 +5324,8 @@ To compare ML with MVS, use:
         if args.seed is not None:
             print("Error: --seed and --seed-search-until-improvement are mutually exclusive")
             return 1
-        if args.shap is not None or args.ablation:
-            print("Error: --seed-search-until-improvement cannot be combined with --shap or --ablation")
+        if args.shap is not None or args.ablation or args.feature_sweep is not None:
+            print("Error: --seed-search-until-improvement cannot be combined with --shap, --ablation, or --feature-sweep")
             return 1
         return train_until_improvement(
             max_trials=args.seed_search_until_improvement,
@@ -4970,12 +5344,12 @@ To compare ML with MVS, use:
     if (
         not export_compatible_feature_set
         and not args.no_export
-        and not (args.ablation or args.correlation or args.shap is not None)
+        and not (args.ablation or args.correlation or args.shap is not None or args.feature_sweep is not None)
     ):
         print(
             "Error: non-production feature sets are analysis-only until the C++ runtime "
             "extractor is updated for export compatibility. Use --no-export, --ablation, "
-            "--shap, or --correlation."
+            "--shap, --correlation, or --feature-sweep."
         )
         return 1
 
@@ -4985,6 +5359,7 @@ To compare ML with MVS, use:
         feature_names=selected_training_features,
         feature_importance=args.shap is not None,
         ablation=args.ablation,
+        feature_sweep=args.feature_sweep,
         shap_samples=args.shap if args.shap is not None else 200,
         hidden_layers=args.hidden_layers,
         scaler_mode=args.scaler,

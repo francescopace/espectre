@@ -24,6 +24,7 @@
 #include "utils.h"
 #include "filters.h"
 #include "mvs_detector.h"
+#include "l1_delta_detector.h"
 #include "ml_detector.h"
 #include "threshold.h"
 #include "esphome/core/log.h"
@@ -58,6 +59,7 @@ struct DatasetResults {
     std::string dataset_name;
     const char* chip_name;
     PerformanceResult mvs;
+    PerformanceResult l1_delta;
     PerformanceResult ml;
 };
 
@@ -66,6 +68,8 @@ static std::vector<DatasetResults> g_results;
 // Forward declarations for target getters used in summary output.
 inline float get_mvs_fp_rate_target();
 inline float get_mvs_recall_target();
+inline float get_l1_delta_fp_rate_target();
+inline float get_l1_delta_recall_target();
 inline float get_ml_fp_rate_target();
 inline float get_ml_recall_target();
 
@@ -76,6 +80,7 @@ static void record_result(const char* algorithm, float recall, float fp_rate, fl
         row.dataset_name = current_label;
         row.chip_name = csi_test_data::chip_name(csi_test_data::current_chip());
         row.mvs = {0, 0, 0, 0, false};
+        row.l1_delta = {0, 0, 0, 0, false};
         row.ml = {0, 0, 0, 0, false};
         g_results.push_back(row);
     }
@@ -83,19 +88,24 @@ static void record_result(const char* algorithm, float recall, float fp_rate, fl
     DatasetResults& current = g_results.back();
     if (strcmp(algorithm, "mvs") == 0) {
         current.mvs = {recall, fp_rate, precision, f1, true};
+    } else if (strcmp(algorithm, "l1_delta") == 0) {
+        current.l1_delta = {recall, fp_rate, precision, f1, true};
     } else if (strcmp(algorithm, "ml") == 0) {
         current.ml = {recall, fp_rate, precision, f1, true};
     }
 }
 
-static PerformanceResult mean_result_for_chip(const char* chip_name, bool ml) {
+static PerformanceResult mean_result_for_chip(const char* chip_name, const char* algorithm) {
     PerformanceResult mean{0, 0, 0, 0, false};
     int count = 0;
     for (const auto& r : g_results) {
         if (strcmp(r.chip_name, chip_name) != 0) {
             continue;
         }
-        const PerformanceResult& value = ml ? r.ml : r.mvs;
+        const PerformanceResult& value =
+            (strcmp(algorithm, "ml") == 0) ? r.ml
+            : (strcmp(algorithm, "l1_delta") == 0) ? r.l1_delta
+                                                   : r.mvs;
         if (!value.valid) {
             continue;
         }
@@ -132,8 +142,8 @@ static void print_summary_table() {
     printf("                      PERFORMANCE SUMMARY TABLE (C++)\n");
     printf("================================================================================\n");
     printf("\n");
-    printf("| Chip   | Datasets | MVS                     | ML                      |\n");
-    printf("|--------|----------|-------------------------|-------------------------|\n");
+    printf("| Chip   | Datasets | MVS                     | L1D                     | ML                      |\n");
+    printf("|--------|----------|-------------------------|-------------------------|-------------------------|\n");
 
     for (auto chip : csi_test_data::get_supported_chips()) {
         const char* chip_name = csi_test_data::chip_name(chip);
@@ -143,27 +153,34 @@ static void print_summary_table() {
         }
 
         char mvs_str[32] = "N/A";
+        char l1_str[32] = "N/A";
         char ml_str[32] = "N/A";
-        const PerformanceResult mvs = mean_result_for_chip(chip_name, false);
-        const PerformanceResult ml = mean_result_for_chip(chip_name, true);
+        const PerformanceResult mvs = mean_result_for_chip(chip_name, "mvs");
+        const PerformanceResult l1 = mean_result_for_chip(chip_name, "l1_delta");
+        const PerformanceResult ml = mean_result_for_chip(chip_name, "ml");
         
         if (mvs.valid) {
             snprintf(mvs_str, sizeof(mvs_str), "%.1f%% R, %.1f%% FP",
                      mvs.recall, mvs.fp_rate);
+        }
+        if (l1.valid) {
+            snprintf(l1_str, sizeof(l1_str), "%.1f%% R, %.1f%% FP",
+                     l1.recall, l1.fp_rate);
         }
         if (ml.valid) {
             snprintf(ml_str, sizeof(ml_str), "%.1f%% R, %.1f%% FP",
                      ml.recall, ml.fp_rate);
         }
         
-        printf("| %-6s | %8d | %-23s | %-23s |\n",
-               chip_name, dataset_count, mvs_str, ml_str);
+        printf("| %-6s | %8d | %-23s | %-23s | %-23s |\n",
+               chip_name, dataset_count, mvs_str, l1_str, ml_str);
     }
     
     printf("\n");
     printf("Legend: R = Recall, FP = False Positive Rate\n");
-    printf("Targets: MVS >%.0f%% R, <%.1f%% FP | ML >%.0f%% R, <%.1f%% FP\n",
+    printf("Targets: MVS >%.0f%% R, <%.1f%% FP | L1D >%.0f%% R, <%.1f%% FP | ML >%.0f%% R, <%.1f%% FP\n",
            get_mvs_recall_target(), get_mvs_fp_rate_target(),
+           get_l1_delta_recall_target(), get_l1_delta_fp_rate_target(),
            get_ml_recall_target(), get_ml_fp_rate_target());
     printf("================================================================================\n");
     
@@ -185,6 +202,11 @@ static void print_summary_table() {
             printf("| %-47.47s | %-6s | MVS         | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
                    dataset_name.c_str(), r.chip_name, r.mvs.recall, r.mvs.precision,
                    r.mvs.fp_rate, r.mvs.f1);
+        }
+        if (r.l1_delta.valid) {
+            printf("| %-47.47s | %-6s | L1_DELTA    | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
+                   dataset_name.c_str(), r.chip_name, r.l1_delta.recall, r.l1_delta.precision,
+                   r.l1_delta.fp_rate, r.l1_delta.f1);
         }
         if (r.ml.valid) {
             printf("| %-47.47s | %-6s | ML          | %6.1f%% | %8.1f%% | %6.1f%% | %7.1f%% |\n",
@@ -213,6 +235,9 @@ inline float get_mvs_fp_rate_target() { return 5.0f; }
 inline float get_mvs_recall_target() { return 95.0f; }
 
 // ML targets
+inline float get_l1_delta_fp_rate_target() { return 5.0f; }
+inline float get_l1_delta_recall_target() { return 95.0f; }
+
 inline float get_ml_fp_rate_target() { return 5.0f; }
 inline float get_ml_recall_target() { return 95.0f; }
 
@@ -321,7 +346,100 @@ void test_mvs_fixed_subcarriers(void) {
 }
 
 // ============================================================================
-// Test 2: ML Detection
+// Test 2: L1-Delta Detection
+// ============================================================================
+// Tests the L1-Delta detector with fixed subcarriers and its
+// static-presence-derived adaptive threshold (max x 1.1).
+
+void test_l1_delta_fixed_subcarriers(void) {
+    float fp_target = get_l1_delta_fp_rate_target();
+    float recall_target = get_l1_delta_recall_target();
+    uint16_t window_size = get_window_size();
+    const int pkt_size = csi_test_data::packet_size();
+
+    printf("\n");
+    printf("═══════════════════════════════════════════════════════\n");
+    printf("  TEST: L1-Delta with Fixed Subcarriers (Runtime Path)\n");
+    printf("  Chip: %s, Window: %d\n",
+           csi_test_data::chip_name(csi_test_data::current_chip()),
+           window_size);
+    printf("  Pair: %s\n", csi_test_data::current_pair_label());
+    printf("═══════════════════════════════════════════════════════\n\n");
+
+    const uint8_t* default_band = DEFAULT_SUBCARRIERS;
+    const uint8_t default_size = 12;
+
+    // Calculate adaptive threshold from static presence using the selected band.
+    L1DeltaDetector cal_detector(window_size, L1_DELTA_DEFAULT_THRESHOLD);
+
+    float max_metric = 0.0f;
+    size_t metric_count = 0;
+    int calibration_packets = std::min(num_static_presence, static_cast<int>(CALIBRATION_DEFAULT_BUFFER_SIZE));
+    for (int i = 0; i < calibration_packets; i++) {
+        cal_detector.process_packet((const int8_t*)static_presence_packets[i], pkt_size,
+                          default_band, default_size);
+        cal_detector.update_state();
+        if (cal_detector.is_ready()) {
+            max_metric = std::max(max_metric, cal_detector.get_motion_metric());
+            metric_count++;
+        }
+    }
+
+    const float auto_factor = cal_detector.get_startup_threshold_factor();
+    float adaptive_threshold = metric_count > 0
+        ? (max_metric * get_threshold_factor(ThresholdMode::AUTO, auto_factor))
+        : L1_DELTA_DEFAULT_THRESHOLD;
+    printf("Adaptive threshold: %.6f (max x %.1f, from %zu metric values)\n\n",
+           adaptive_threshold, auto_factor, metric_count);
+
+    // Create detector for evaluation
+    L1DeltaDetector detector(window_size, adaptive_threshold);
+
+    // Process static presence
+    int static_presence_motion = 0;
+    for (int p = 0; p < num_static_presence; p++) {
+        detector.process_packet((const int8_t*)static_presence_packets[p], pkt_size,
+                          default_band, default_size);
+        detector.update_state();
+        if (detector.get_state() == MotionState::MOTION) {
+            static_presence_motion++;
+        }
+    }
+
+    // Process motion
+    int motion_detected = 0;
+    for (int p = 0; p < num_motion; p++) {
+        detector.process_packet((const int8_t*)motion_packets[p], pkt_size,
+                          default_band, default_size);
+        detector.update_state();
+        if (detector.get_state() == MotionState::MOTION) {
+            motion_detected++;
+        }
+    }
+
+    // Calculate metrics
+    float recall = (float)motion_detected / num_motion * 100.0f;
+    float fp_rate = (float)static_presence_motion / num_static_presence * 100.0f;
+    float precision = (motion_detected + static_presence_motion > 0) ?
+        (float)motion_detected / (motion_detected + static_presence_motion) * 100.0f : 0.0f;
+    float f1 = (precision + recall > 0) ?
+        2.0f * (precision / 100.0f) * (recall / 100.0f) / ((precision + recall) / 100.0f) * 100.0f : 0.0f;
+
+    printf("Results:\n");
+    printf("  * Recall:    %.1f%% (target: >%.0f%%)\n", recall, recall_target);
+    printf("  * FP Rate:   %.1f%% (target: <%.0f%%)\n", fp_rate, fp_target);
+    printf("  * Precision: %.1f%%\n", precision);
+    printf("  * F1-Score:  %.1f%%\n\n", f1);
+
+    // Record for summary table
+    record_result("l1_delta", recall, fp_rate, precision, f1);
+
+    TEST_ASSERT_TRUE_MESSAGE(recall > recall_target, "L1-Delta recall too low");
+    TEST_ASSERT_TRUE_MESSAGE(fp_rate < fp_target, "L1-Delta FP Rate too high");
+}
+
+// ============================================================================
+// Test 3: ML Detection
 // ============================================================================
 // Tests ML neural network detector with fixed subcarriers.
 
@@ -421,7 +539,8 @@ int run_tests_for_pair(int pair_index) {
     }
     
     UNITY_BEGIN();
-    RUN_TEST(test_mvs_fixed_subcarriers);   // Production runtime path
+    RUN_TEST(test_mvs_fixed_subcarriers);     // Production runtime path
+    RUN_TEST(test_l1_delta_fixed_subcarriers);// L1-Delta runtime path
     RUN_TEST(test_ml_detection);              // ML neural network
     return UNITY_END();
 }

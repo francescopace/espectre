@@ -63,7 +63,7 @@ class MQTTCommands:
         Args:
             mqtt_client: MQTT client instance
             config: Configuration module
-            detector: IDetector instance (MVSDetector or MLDetector)
+            detector: IDetector instance
             accepted_topic: MQTT topic for accepted command responses
             rejected_topic: MQTT topic for rejected command responses
             info_topic: MQTT topic for live system info
@@ -82,11 +82,9 @@ class MQTTCommands:
         self.stats_topic = stats_topic
         self.start_time = time.time()
         
-        # Check detector type for MVS-specific features
-        self._is_mvs = detector.get_name() == "MVS"
-    
     def _get_detection_info(self):
         """Build detection info dict based on detector type."""
+        # Wire format matches the C++ runtime: get_name() labels ("MVS", "L1D", "ML").
         return {"algorithm": self.detector.get_name()}
         
     def send_response(self, message, accepted=True, command_id="", command=""):

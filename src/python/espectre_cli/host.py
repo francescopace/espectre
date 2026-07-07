@@ -15,8 +15,8 @@ _WEB_UI_FILES = {
 }
 
 
-def _parse_stimulus_targets(targets: str) -> tuple[list[str], str]:
-    """Validate one or more comma-separated IPv4 stimulus destinations."""
+def _parse_targets(targets: str) -> tuple[list[str], str]:
+    """Validate one or more comma-separated IPv4 destinations."""
     parsed_targets: list[str] = []
     mode_counts = {"unicast": 0, "broadcast": 0, "multicast": 0}
     for raw_target in str(targets).split(","):
@@ -26,9 +26,9 @@ def _parse_stimulus_targets(targets: str) -> tuple[list[str], str]:
         try:
             target_ip = ipaddress.ip_address(target)
         except ValueError as exc:
-            raise ValueError(f"invalid stimulus target: {target}") from exc
+            raise ValueError(f"invalid target: {target}") from exc
         if target_ip.version != 4:
-            raise ValueError(f"stimulus target must be an IPv4 address: {target}")
+            raise ValueError(f"target must be an IPv4 address: {target}")
         normalized_target = str(target_ip)
         parsed_targets.append(normalized_target)
         if target_ip.is_multicast:
@@ -39,7 +39,7 @@ def _parse_stimulus_targets(targets: str) -> tuple[list[str], str]:
             mode_counts["unicast"] += 1
 
     if not parsed_targets:
-        raise ValueError("stimulus target required. Use --stimulus-target <ip[,ip,...]>")
+        raise ValueError("target required. Use --target <ip[,ip,...]>")
 
     unique_targets = list(dict.fromkeys(parsed_targets))
     if mode_counts["multicast"]:
@@ -104,10 +104,10 @@ def _uses_legacy_dataset_collection(args) -> bool:
 def _collect_dataset_csi_data(args) -> None:
     """Run the legacy timed/interactive dataset collection workflow."""
     try:
-        from tools.csi_utils import CSICollector, StimulusSender, get_dataset_stats, get_default_bind_host
+        from tools.lib.csi_io import CSICollector, StimulusSender, get_dataset_stats, get_default_bind_host
     except ImportError as e:
-        print(f"{Fore.RED}❌ Failed to import csi_utils: {e}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Make sure tools/csi_utils.py exists{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ Failed to import tooling helpers: {e}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Make sure the tools library package is available{Style.RESET_ALL}")
         raise SystemExit(1)
 
     if args.info:
@@ -121,7 +121,7 @@ def _collect_dataset_csi_data(args) -> None:
             print()
             print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
             print("    1. Run the streamer firmware on the device")
-            print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}")
+            print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}")
         else:
             print(f"  {Fore.CYAN}{'Label':<20} {'Samples':>10}{Style.RESET_ALL}")
             print(f"  {'-' * 32}")
@@ -135,13 +135,13 @@ def _collect_dataset_csi_data(args) -> None:
     if not args.label:
         print(f"{Fore.RED}❌ Label required. Use --label <name>{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Examples:{Style.RESET_ALL}")
-        print(f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--stimulus-target', '192.168.1.50')}")
-        print(f"  {cli_command('collect', '--label', 'static_presence', '--duration', '10', '--stimulus-target', '192.168.1.50')}")
+        print(f"  {cli_command('collect', '--label', 'wave', '--samples', '10', '--target', '192.168.1.50')}")
+        print(f"  {cli_command('collect', '--label', 'static_presence', '--duration', '10', '--target', '192.168.1.50')}")
         print(f"  {cli_command('collect', '--info')}")
         raise SystemExit(1)
 
-    if not args.stimulus_target:
-        print(f"{Fore.RED}❌ Stimulus target required. Use --stimulus-target <ip[,ip,...]>{Style.RESET_ALL}")
+    if not args.target:
+        print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]>{Style.RESET_ALL}")
         raise SystemExit(1)
 
     if args.start_delay < 0:
@@ -154,7 +154,7 @@ def _collect_dataset_csi_data(args) -> None:
         raise SystemExit(1)
 
     try:
-        stimulus_targets, target_mode = _parse_stimulus_targets(args.stimulus_target)
+        targets, target_mode = _parse_targets(args.target)
     except ValueError as e:
         print(f"{Fore.RED}❌ {e}{Style.RESET_ALL}")
         raise SystemExit(1)
@@ -171,15 +171,15 @@ def _collect_dataset_csi_data(args) -> None:
         print(f"  {Fore.CYAN}Start delay:{Style.RESET_ALL} {args.start_delay}s")
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
-    print(f"  {Fore.CYAN}Stimulus target:{Style.RESET_ALL} {', '.join(stimulus_targets)} ({target_mode})")
-    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {len(stimulus_targets)} target(s) on UDP {args.stimulus_port}")
+    print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)} ({target_mode})")
+    print(f"  {Fore.CYAN}Traffic:{Style.RESET_ALL}   {args.rate} pps -> {len(targets)} target(s) on UDP {args.target_port}")
     if args.reference_every > 0:
         print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
     if args.description:
         print(f"  {Fore.CYAN}Description:{Style.RESET_ALL} {args.description}")
     print()
     print(f"  {Fore.YELLOW}Chip type auto-detected from CSI stream{Style.RESET_ALL}")
-    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening for the configured shared stimulus target{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening on the configured target/port{Style.RESET_ALL}")
     print()
 
     collector = CSICollector(
@@ -188,13 +188,13 @@ def _collect_dataset_csi_data(args) -> None:
         contributor=args.contributor,
         description=args.description,
         bind_host=resolved_bind_ip,
-        expected_device_count=len(stimulus_targets),
-        expected_source_hosts=stimulus_targets,
+        expected_device_count=len(targets),
+        expected_source_hosts=targets,
     )
     stimulus_sender = StimulusSender(
-        target_host=stimulus_targets,
-        target_port=args.stimulus_port,
-        rate_pps=args.stimulus_rate,
+        target_host=targets,
+        target_port=args.target_port,
+        rate_pps=args.rate,
         reference_every=args.reference_every,
         source_host=resolved_bind_ip,
     )
@@ -229,30 +229,58 @@ def collect_csi_data(args) -> None:
 def _run_live_collect(args) -> None:
     """Run the host-side live collect pipeline."""
     try:
-        from tools.csi_utils import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
+        from tools.lib.csi_io import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
         import config
         from console_output import format_calibration_status_line, format_detection_publish_line
-        from ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD, MLDetector
-        from mvs_detector import MVSDetector
+        from detector_interface import (
+            detector_needs_startup_calibration,
+            load_detector_class,
+            supported_detector_algorithms,
+        )
+        from ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD
         from runtime_policy import RuntimeMotionPolicy
-        from threshold import StartupThresholdCalibrator
+        from threshold import (
+            StartupThresholdCalibrator,
+            get_detector_auto_factor,
+            get_detector_startup_gate,
+        )
     except ImportError:
         try:
-            from tools.csi_utils import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
+            from tools.lib.csi_io import CSICollector, CSIReceiver, StimulusSender, get_default_bind_host
             import src.config as config
             from src.console_output import format_calibration_status_line, format_detection_publish_line
-            from src.ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD, MLDetector
-            from src.mvs_detector import MVSDetector
+            from src.detector_interface import (
+                detector_needs_startup_calibration,
+                load_detector_class,
+                supported_detector_algorithms,
+            )
+            from src.ml_detector import FEATURE_NAMES as ML_FEATURE_NAMES, ML_DEFAULT_THRESHOLD
             from src.runtime_policy import RuntimeMotionPolicy
-            from src.threshold import StartupThresholdCalibrator
+            from src.threshold import (
+                StartupThresholdCalibrator,
+                get_detector_auto_factor,
+                get_detector_startup_gate,
+            )
         except ImportError as e:
             print(f"{Fore.RED}❌ Failed to import live collect modules: {e}{Style.RESET_ALL}")
             raise SystemExit(1)
 
-    detector_kind = str(getattr(args, "detector", "mvs")).lower()
-    if detector_kind not in {"ml", "mvs"}:
-        print(f"{Fore.RED}❌ Unsupported detector: {detector_kind}{Style.RESET_ALL}")
+    supported_detectors = supported_detector_algorithms()
+    detector_kinds = list(dict.fromkeys(
+        kind.strip().lower()
+        for kind in str(getattr(args, "detector", "mvs")).split(",")
+        if kind.strip()
+    ))
+    if not detector_kinds:
+        detector_kinds = ["mvs"]
+    unsupported = [kind for kind in detector_kinds if kind not in supported_detectors]
+    if unsupported:
+        print(f"{Fore.RED}❌ Unsupported detector(s): {', '.join(unsupported)}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Supported detectors: {', '.join(supported_detectors)}{Style.RESET_ALL}")
         raise SystemExit(1)
+
+    calibrated_kinds = [kind for kind in detector_kinds if detector_needs_startup_calibration(kind)]
+    detector_tag_width = max(len(kind) for kind in detector_kinds)
 
     label = getattr(args, "label", None)
     live_duration = getattr(args, "duration", None)
@@ -263,19 +291,20 @@ def _run_live_collect(args) -> None:
     if live_duration is not None and live_duration <= 0:
         print(f"{Fore.RED}❌ Duration must be > 0 seconds{Style.RESET_ALL}")
         raise SystemExit(1)
-    if not getattr(args, "stimulus_target", None):
-        print(f"{Fore.RED}❌ Stimulus target required. Use --stimulus-target <ip[,ip,...]>{Style.RESET_ALL}")
+    if not getattr(args, "target", None):
+        print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]>{Style.RESET_ALL}")
         raise SystemExit(1)
     if not save_enabled and not no_save and label is None:
         print(f"{Fore.RED}❌ Label required unless you use --no-save{Style.RESET_ALL}")
         raise SystemExit(1)
 
-    feature_names = ML_FEATURE_NAMES if detector_kind == "ml" else []
+    feature_names = ML_FEATURE_NAMES if "ml" in detector_kinds else []
     raw_threshold_setting = getattr(config, "SEG_THRESHOLD", ML_DEFAULT_THRESHOLD)
     calibration_target_packets = max(
         1,
         int(getattr(config, "CALIBRATION_BUFFER_SIZE", getattr(config, "SEG_WINDOW_SIZE", 100) * 10)),
     )
+    summary_evaluation_interval = max(1, int(getattr(config, "EVALUATION_INTERVAL", 25)))
 
     def format_feature_vector(features):
         return " ".join(f"{name}={value:.4f}" for name, value in zip(feature_names, features))
@@ -293,22 +322,23 @@ def _run_live_collect(args) -> None:
     def format_turbulence_tail(values):
         return " ".join(f"{value:.4f}" for value in values)
 
-    def get_initial_threshold():
-        if detector_kind == "ml":
-            if isinstance(raw_threshold_setting, (int, float)):
-                return float(raw_threshold_setting)
-            return ML_DEFAULT_THRESHOLD
+    def get_initial_threshold(kind):
         if isinstance(raw_threshold_setting, (int, float)):
             return float(raw_threshold_setting)
+        if kind == "ml":
+            return ML_DEFAULT_THRESHOLD
         return 1.0
 
-    def get_detector_threshold(detector):
+    def get_detector_threshold(detector, fallback=1.0):
         if hasattr(detector, "get_threshold"):
             return detector.get_threshold()
-        return initial_threshold
+        return fallback
 
     def extract_motion_metric(metrics):
-        return metrics.get("probability", metrics.get("moving_variance", metrics.get("jitter", 0.0)))
+        return metrics.get(
+            "motion_metric",
+            metrics.get("probability", metrics.get("moving_variance", metrics.get("jitter", 0.0))),
+        )
 
     def supports_inline_terminal(stream=None):
         target_stream = sys.stdout if stream is None else stream
@@ -378,24 +408,10 @@ def _run_live_collect(args) -> None:
             return None
         return int(device_id)
 
-    def create_runtime_detector(initial_threshold):
-        common_kwargs = {
-            "window_size": config.SEG_WINDOW_SIZE,
-            "threshold": initial_threshold,
-            "enable_lowpass": config.ENABLE_LOWPASS_FILTER,
-            "lowpass_cutoff": config.LOWPASS_CUTOFF,
-            "enable_hampel": config.ENABLE_HAMPEL_FILTER,
-            "hampel_window": config.HAMPEL_WINDOW,
-            "hampel_threshold": config.HAMPEL_THRESHOLD,
-        }
-        if detector_kind == "ml":
-            return MLDetector(**common_kwargs)
-        return MVSDetector(**common_kwargs)
-
-    def create_calibration_detector():
-        return MVSDetector(
+    def create_detector(kind, threshold):
+        return load_detector_class(kind)(
             window_size=config.SEG_WINDOW_SIZE,
-            threshold=1.0,
+            threshold=threshold,
             enable_lowpass=config.ENABLE_LOWPASS_FILTER,
             lowpass_cutoff=config.LOWPASS_CUTOFF,
             enable_hampel=config.ENABLE_HAMPEL_FILTER,
@@ -414,13 +430,37 @@ def _run_live_collect(args) -> None:
         state["last_seq_by_device"][device_id] = seq_num
         return dropped
 
-    def build_device_state(device_id):
-        detector = create_runtime_detector(initial_threshold)
+    def build_detector_slot(kind):
+        needs_calibration = kind in calibrated_kinds
+        slot_initial_threshold = get_initial_threshold(kind)
+        detector = create_detector(kind, slot_initial_threshold)
         runtime_policy = RuntimeMotionPolicy(
             evaluation_interval=getattr(config, "EVALUATION_INTERVAL", 25),
             motion_on_hits=getattr(config, "MOTION_ON_HITS", 3),
             motion_off_hits=getattr(config, "MOTION_OFF_HITS", 3),
         )
+        return {
+            "kind": kind,
+            "detector": detector,
+            "runtime_policy": runtime_policy,
+            "motion_metric": 0.0,
+            "metric_threshold": get_detector_threshold(detector, slot_initial_threshold),
+            "effective_state": 0,
+            "status": "WARMUP" if not needs_calibration else "WAITING",
+            "calibration_detector": create_detector(kind, 1.0) if needs_calibration else None,
+            "calibration_tracker": StartupThresholdCalibrator(
+                calibration_target_packets,
+                auto_factor=get_detector_auto_factor(detector),
+                gate_enabled=get_detector_startup_gate(detector),
+            ) if needs_calibration else None,
+            "calibration_done": not needs_calibration,
+            "calibration_success": not needs_calibration,
+            "calibration_threshold_source": None if needs_calibration else "fixed",
+            "ready_below_since": None,
+            "ready_stable_for": 0.0,
+        }
+
+    def build_device_state(device_id):
         device_state = {
             "device_id": device_id,
             "source_ip": "?",
@@ -434,20 +474,8 @@ def _run_live_collect(args) -> None:
             "pps": 0,
             "pps_window_started_at": None,
             "pps_window_packets": 0,
-            "motion_metric": 0.0,
-            "metric_threshold": get_detector_threshold(detector),
-            "effective_state": 0,
-            "status": "WARMUP" if detector_kind == "ml" else "WAITING",
             "last_publish_at": None,
-            "detector": detector,
-            "runtime_policy": runtime_policy,
-            "calibration_detector": create_calibration_detector() if detector_kind == "mvs" else None,
-            "calibration_tracker": StartupThresholdCalibrator(calibration_target_packets) if detector_kind == "mvs" else None,
-            "calibration_done": detector_kind == "ml",
-            "calibration_success": detector_kind == "ml",
-            "calibration_threshold_source": "fixed" if detector_kind == "ml" else None,
-            "ready_below_since": None,
-            "ready_stable_for": 0.0,
+            "slots": [build_detector_slot(kind) for kind in detector_kinds],
         }
         device_state["label"] = format_device_label(device_state)
         return device_state
@@ -484,46 +512,46 @@ def _run_live_collect(args) -> None:
             device_state["pps_window_packets"] = 0
 
     def update_ready_gate_state(device_state, now):
-        if not save_enabled or state["calibration_active"]:
-            device_state["ready_below_since"] = None
-            device_state["ready_stable_for"] = 0.0
-            return
-        detector = device_state["detector"]
-        threshold = float(device_state.get("metric_threshold", 0.0) or 0.0)
-        if threshold <= 0 or not detector.is_ready():
-            device_state["ready_below_since"] = None
-            device_state["ready_stable_for"] = 0.0
-            return
-        if float(device_state["motion_metric"]) <= threshold:
-            if device_state["ready_below_since"] is None:
-                device_state["ready_below_since"] = now
-            device_state["ready_stable_for"] = max(0.0, now - device_state["ready_below_since"])
-        else:
-            device_state["ready_below_since"] = None
-            device_state["ready_stable_for"] = 0.0
+        for slot in device_state["slots"]:
+            if not save_enabled or state["calibration_active"]:
+                slot["ready_below_since"] = None
+                slot["ready_stable_for"] = 0.0
+                continue
+            detector = slot["detector"]
+            threshold = float(slot.get("metric_threshold", 0.0) or 0.0)
+            if threshold <= 0 or not detector.is_ready():
+                slot["ready_below_since"] = None
+                slot["ready_stable_for"] = 0.0
+                continue
+            if float(slot["motion_metric"]) <= threshold:
+                if slot["ready_below_since"] is None:
+                    slot["ready_below_since"] = now
+                slot["ready_stable_for"] = max(0.0, now - slot["ready_below_since"])
+            else:
+                slot["ready_below_since"] = None
+                slot["ready_stable_for"] = 0.0
 
-    def get_device_gate_label(device_state):
+    def get_slot_gate_label(slot):
         if not save_enabled:
             return None
-        if state["calibration_active"] and detector_kind == "mvs":
-            calibration_tracker = device_state["calibration_tracker"]
-            if device_state["calibration_done"]:
+        if state["calibration_active"] and slot["calibration_tracker"] is not None:
+            if slot["calibration_done"]:
                 return "READY"
-            if calibration_tracker is not None and calibration_tracker.packet_count > 0:
+            if slot["calibration_tracker"].packet_count > 0:
                 return "CALIBRATING"
             return "WAITING"
-        detector = device_state["detector"]
+        detector = slot["detector"]
         if not detector.is_ready():
             return "WARMUP"
-        if float(device_state["motion_metric"]) > float(device_state["metric_threshold"]):
+        if float(slot["motion_metric"]) > float(slot["metric_threshold"]):
             return "UNSTABLE"
-        if float(device_state["ready_stable_for"]) >= ready_stable_seconds:
+        if float(slot["ready_stable_for"]) >= ready_stable_seconds:
             return "READY"
         return "STABLE"
 
     def summarize_ready_gate():
         observed_count = len(state["devices"])
-        required_count = max(1, len(stimulus_targets))
+        required_count = max(1, len(targets))
         if observed_count < required_count:
             return {
                 "ready": False,
@@ -531,7 +559,11 @@ def _run_live_collect(args) -> None:
                 "stable_elapsed": 0.0,
             }
         relevant_states = list(state["devices"].values())
-        warm_count = sum(1 for device_state in relevant_states if device_state["detector"].is_ready())
+        warm_count = sum(
+            1
+            for device_state in relevant_states
+            if all(slot["detector"].is_ready() for slot in device_state["slots"])
+        )
         if warm_count < observed_count:
             return {
                 "ready": False,
@@ -541,7 +573,10 @@ def _run_live_collect(args) -> None:
         stable_count = sum(
             1
             for device_state in relevant_states
-            if float(device_state["motion_metric"]) <= float(device_state["metric_threshold"])
+            if all(
+                float(slot["motion_metric"]) <= float(slot["metric_threshold"])
+                for slot in device_state["slots"]
+            )
         )
         if stable_count < observed_count:
             return {
@@ -549,7 +584,10 @@ def _run_live_collect(args) -> None:
                 "status": f"UNSTABLE {stable_count}/{required_count}",
                 "stable_elapsed": 0.0,
             }
-        stable_elapsed = min(float(device_state["ready_stable_for"]) for device_state in relevant_states)
+        stable_elapsed = min(
+            min(float(slot["ready_stable_for"]) for slot in device_state["slots"])
+            for device_state in relevant_states
+        )
         if stable_elapsed >= ready_stable_seconds:
             return {
                 "ready": True,
@@ -562,18 +600,17 @@ def _run_live_collect(args) -> None:
             "stable_elapsed": stable_elapsed,
         }
 
-    def get_device_status(device_state):
-        if state["calibration_active"] and detector_kind == "mvs":
-            calibration_tracker = device_state["calibration_tracker"]
-            if device_state["calibration_done"]:
+    def get_slot_status(slot):
+        if state["calibration_active"] and slot["calibration_tracker"] is not None:
+            if slot["calibration_done"]:
                 return "READY"
-            if calibration_tracker is not None and calibration_tracker.packet_count > 0:
+            if slot["calibration_tracker"].packet_count > 0:
                 return "CALIBRATING"
             return "WAITING"
-        detector = device_state["detector"]
+        detector = slot["detector"]
         if not detector.is_ready():
             return "WARMUP"
-        return "MOTION" if int(device_state["effective_state"]) == 1 else "IDLE"
+        return "MOTION" if int(slot["effective_state"]) == 1 else "IDLE"
 
     def should_print_publish_details(effective_state):
         if not (args.log_turbulence or args.log_features):
@@ -582,12 +619,11 @@ def _run_live_collect(args) -> None:
             return False
         return True
 
-    def finalize_device_calibration(device_state):
-        detector = device_state["detector"]
-        runtime_policy = device_state["runtime_policy"]
-        calibration_tracker = device_state["calibration_tracker"]
-        device_state["calibration_done"] = True
-        device_state["publish_counter"] = 0
+    def finalize_slot_calibration(slot):
+        detector = slot["detector"]
+        runtime_policy = slot["runtime_policy"]
+        calibration_tracker = slot["calibration_tracker"]
+        slot["calibration_done"] = True
         if hasattr(runtime_policy, "reset"):
             runtime_policy.reset()
         if hasattr(detector, "reset"):
@@ -600,44 +636,54 @@ def _run_live_collect(args) -> None:
                     detector.set_adaptive_threshold(startup_threshold)
                 elif hasattr(detector, "set_threshold"):
                     detector.set_threshold(startup_threshold)
-                device_state["calibration_threshold_source"] = f"{raw_threshold_setting} ({threshold_formula})"
+                slot["calibration_threshold_source"] = f"{raw_threshold_setting} ({threshold_formula})"
             else:
                 detector.set_threshold(float(raw_threshold_setting))
-                device_state["calibration_threshold_source"] = "manual"
-            device_state["calibration_success"] = True
-            device_state["metric_threshold"] = get_detector_threshold(detector)
+                slot["calibration_threshold_source"] = "manual"
+            slot["calibration_success"] = True
         else:
-            device_state["calibration_success"] = False
-            device_state["calibration_threshold_source"] = "failed"
-            device_state["metric_threshold"] = get_detector_threshold(detector)
+            slot["calibration_success"] = False
+            slot["calibration_threshold_source"] = "failed"
+        slot["metric_threshold"] = get_detector_threshold(detector, slot["metric_threshold"])
 
-        device_state["motion_metric"] = 0.0
-        device_state["effective_state"] = 0
-        device_state["status"] = "IDLE"
-        device_state["ready_below_since"] = None
-        device_state["ready_stable_for"] = 0.0
+        slot["motion_metric"] = 0.0
+        slot["effective_state"] = 0
+        slot["status"] = "IDLE"
+        slot["ready_below_since"] = None
+        slot["ready_stable_for"] = 0.0
 
     def process_calibration_packet(device_state, pkt):
-        calibration_detector = device_state["calibration_detector"]
-        calibration_tracker = device_state["calibration_tracker"]
-        if calibration_detector is None or calibration_tracker is None or device_state["calibration_done"]:
-            return
+        finalized_any = False
+        for slot in device_state["slots"]:
+            calibration_detector = slot["calibration_detector"]
+            calibration_tracker = slot["calibration_tracker"]
+            if calibration_detector is None or calibration_tracker is None or slot["calibration_done"]:
+                continue
 
-        calibration_detector.process_packet(pkt.iq_raw, subcarriers)
-        calibration_metrics = calibration_detector.update_state()
-        calibration_tracker.observe_detector(calibration_detector)
-        device_state["motion_metric"] = extract_motion_metric(calibration_metrics)
-        device_state["metric_threshold"] = calibration_metrics.get("threshold", calibration_detector.get_threshold())
-        device_state["status"] = "CALIBRATING"
+            calibration_detector.process_packet(pkt.iq_raw, subcarriers)
+            calibration_metrics = calibration_detector.update_state()
+            calibration_tracker.observe_detector(calibration_detector)
+            slot["motion_metric"] = extract_motion_metric(calibration_metrics)
+            slot["metric_threshold"] = calibration_metrics.get("threshold", calibration_detector.get_threshold())
+            slot["status"] = (
+                "EXTENDING" if calibration_tracker.is_extending() else "CALIBRATING"
+            )
 
-        if calibration_tracker.is_complete():
-            finalize_device_calibration(device_state)
+            if calibration_tracker.is_complete():
+                finalize_slot_calibration(slot)
+                finalized_any = True
+        if finalized_any:
+            device_state["publish_counter"] = 0
 
     def is_calibration_complete():
-        required_count = max(1, len(stimulus_targets))
+        required_count = max(1, len(targets))
         if len(state["devices"]) < required_count:
             return False
-        return all(device_state["calibration_done"] for device_state in state["devices"].values())
+        return all(
+            slot["calibration_done"]
+            for device_state in state["devices"].values()
+            for slot in device_state["slots"]
+        )
 
     def maybe_stop_live_session(now):
         start_time = state["capture_started_at"] if save_enabled else state["session_started_at"]
@@ -651,69 +697,72 @@ def _run_live_collect(args) -> None:
         receiver.stop()
         return True
 
-    def render_multi_device_summary(now, *, force=False):
-        refresh_seconds = 1.0
-        if not force and (now - state["summary_last_rendered_at"]) < refresh_seconds:
-            return
+    def format_slot_label(device_state, slot):
+        if len(detector_kinds) == 1:
+            return device_state["label"]
+        return f"{device_state['label']} [{slot['kind']:<{detector_tag_width}s}]"
 
+    def render_multi_device_summary(now):
         observed_count = len(state["devices"])
-        required_count = max(1, len(stimulus_targets))
+        required_count = max(1, len(targets))
         detail_lines = []
         for device_id in sorted(state["devices"], key=lambda value: (value is None, value if value is not None else 0)):
             device_state = state["devices"][device_id]
-            status = get_device_status(device_state)
-            if state["calibration_active"] and detector_kind == "mvs":
-                calibration_tracker = device_state["calibration_tracker"]
-                calibration_packets = calibration_tracker.packet_count if calibration_tracker is not None else 0
-                if device_state["calibration_done"]:
-                    detail_lines.append(
-                        "    "
-                        + format_calibration_status_line(
-                            progress=1.0,
-                            pps=device_state["pps"],
-                            motion_metric=device_state["motion_metric"],
-                            calibration_packets=calibration_packets,
-                            calibration_target_packets=calibration_target_packets,
-                            effective_state_label="READY",
-                            device_label=device_state["label"],
+            for slot in device_state["slots"]:
+                status = get_slot_status(slot)
+                slot_label = format_slot_label(device_state, slot)
+                if state["calibration_active"] and slot["calibration_tracker"] is not None:
+                    calibration_tracker = slot["calibration_tracker"]
+                    calibration_packets = calibration_tracker.packet_count
+                    if slot["calibration_done"]:
+                        detail_lines.append(
+                            "    "
+                            + format_calibration_status_line(
+                                progress=1.0,
+                                pps=device_state["pps"],
+                                motion_metric=slot["motion_metric"],
+                                calibration_packets=calibration_packets,
+                                calibration_target_packets=calibration_target_packets,
+                                effective_state_label="READY",
+                                device_label=slot_label,
+                            )
+                            + f" | thr:{slot['metric_threshold']:.4f} src:{slot['calibration_threshold_source']}"
                         )
-                        + f" | thr:{device_state['metric_threshold']:.4f} src:{device_state['calibration_threshold_source']}"
-                    )
+                    else:
+                        detail_lines.append(
+                            "    "
+                            + format_calibration_status_line(
+                                progress=(calibration_packets / calibration_target_packets),
+                                pps=device_state["pps"],
+                                motion_metric=slot["motion_metric"],
+                                calibration_packets=calibration_packets,
+                                calibration_target_packets=calibration_target_packets,
+                                effective_state_label=status,
+                                device_label=slot_label,
+                            )
+                        )
                 else:
-                    detail_lines.append(
+                    progress_score = (
+                        slot["motion_metric"] / slot["metric_threshold"]
+                        if slot["metric_threshold"] > 0
+                        else 0.0
+                    )
+                    detail_line = (
                         "    "
-                        + format_calibration_status_line(
-                            progress=(calibration_packets / calibration_target_packets),
+                        + format_detection_publish_line(
                             pps=device_state["pps"],
-                            motion_metric=device_state["motion_metric"],
-                            calibration_packets=calibration_packets,
-                            calibration_target_packets=calibration_target_packets,
-                            effective_state_label=status,
-                            device_label=device_state["label"],
+                            motion_metric=slot["motion_metric"],
+                            threshold=slot["metric_threshold"],
+                            effective_state=slot["effective_state"],
+                            progress=progress_score,
+                            device_label=slot_label,
                         )
                     )
-            else:
-                progress_score = (
-                    device_state["motion_metric"] / device_state["metric_threshold"]
-                    if device_state["metric_threshold"] > 0
-                    else 0.0
-                )
-                detail_line = (
-                    "    "
-                    + format_detection_publish_line(
-                        pps=device_state["pps"],
-                        motion_metric=device_state["motion_metric"],
-                        threshold=device_state["metric_threshold"],
-                        effective_state=device_state["effective_state"],
-                        progress=progress_score,
-                        device_label=device_state["label"],
-                    )
-                )
-                if save_enabled and not state["capture_ready"]:
-                    detail_line += f" | {get_device_gate_label(device_state)}"
-                detail_lines.append(detail_line)
+                    if save_enabled and not state["capture_ready"]:
+                        detail_line += f" | {get_slot_gate_label(slot)}"
+                    detail_lines.append(detail_line)
 
-        if state["calibration_active"] and detector_kind == "mvs":
+        if state["calibration_active"]:
             summary_line = (
                 f"  STATUS: CALIBRATING {observed_count}/{required_count} | "
                 f"target {calibration_target_packets} pkts/device | capture {len(state['capture_packets'])}"
@@ -752,23 +801,21 @@ def _run_live_collect(args) -> None:
             previous_line_count=state["summary_line_count"],
             inline=state["summary_use_inline"],
         )
-        state["summary_last_rendered_at"] = now
 
     try:
-        stimulus_targets, target_mode = _parse_stimulus_targets(args.stimulus_target)
+        targets, target_mode = _parse_targets(args.target)
     except ValueError as e:
         print(f"{Fore.RED}❌ {e}{Style.RESET_ALL}")
         raise SystemExit(1)
 
     resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
     subcarriers = list(config.DEFAULT_SUBCARRIERS)
-    initial_threshold = get_initial_threshold()
     publish_rate = getattr(config, "PUBLISH_INTERVAL", 100) or 100
     receiver = CSIReceiver(port=args.udp_port, buffer_size=4000, bind_host=resolved_bind_ip)
     stimulus_sender = StimulusSender(
-        target_host=stimulus_targets,
-        target_port=args.stimulus_port,
-        rate_pps=args.stimulus_rate,
+        target_host=targets,
+        target_port=args.target_port,
+        rate_pps=args.rate,
         reference_every=args.reference_every,
         source_host=resolved_bind_ip,
     )
@@ -780,8 +827,8 @@ def _run_live_collect(args) -> None:
             contributor=getattr(args, "contributor", None),
             description=getattr(args, "description", None),
             bind_host=resolved_bind_ip,
-            expected_device_count=len(stimulus_targets),
-            expected_source_hosts=stimulus_targets,
+            expected_device_count=len(targets),
+            expected_source_hosts=targets,
         )
 
     state = {
@@ -795,10 +842,9 @@ def _run_live_collect(args) -> None:
         "interrupted": False,
         "devices": {},
         "last_seq_by_device": {},
-        "summary_last_rendered_at": 0.0,
         "summary_line_count": 0,
         "summary_use_inline": supports_inline_terminal(),
-        "calibration_active": detector_kind == "mvs",
+        "calibration_active": bool(calibrated_kinds),
     }
 
     def handle_sigint(_signum, _frame):
@@ -821,71 +867,86 @@ def _run_live_collect(args) -> None:
         device_state["dropped_count"] += check_sequence_by_device(pkt)
         update_device_pps(device_state, now)
 
-        if state["calibration_active"] and detector_kind == "mvs":
+        if state["calibration_active"]:
             process_calibration_packet(device_state, pkt)
+            calibration_trackers = [
+                slot["calibration_tracker"]
+                for slot in device_state["slots"]
+                if slot["calibration_tracker"] is not None
+            ]
+            calibration_render_due = any(
+                (tracker.packet_count % summary_evaluation_interval) == 0
+                for tracker in calibration_trackers
+            )
             if is_calibration_complete():
                 state["calibration_active"] = False
-                state["summary_last_rendered_at"] = 0.0
-            render_multi_device_summary(now, force=not state["calibration_active"])
+                render_multi_device_summary(now)
+            elif calibration_render_due:
+                render_multi_device_summary(now)
             if not save_enabled and maybe_stop_live_session(now):
                 return
             return
 
-        detector = device_state["detector"]
-        runtime_policy = device_state["runtime_policy"]
-        raw_turbulence = None
-        if args.log_turbulence:
-            raw_turbulence = detector._context._compute_spatial_turbulence_in_buffer(pkt.iq_raw, subcarriers)
-        detector.process_packet(pkt.iq_raw, subcarriers)
-        filtered_turbulence = detector._context.last_turbulence
-        runtime_policy.note_packet()
-        metrics = detector.update_state()
-        device_state["motion_metric"] = extract_motion_metric(metrics)
-        device_state["metric_threshold"] = metrics["threshold"]
-        update_ready_gate_state(device_state, now)
-
         should_publish = device_state["publish_counter"] >= publish_rate
-        if runtime_policy.should_evaluate(should_publish):
-            effective_state, _ = runtime_policy.apply_state(metrics["state"])
-            runtime_policy.after_evaluation()
-            device_state["effective_state"] = effective_state
-            device_state["status"] = get_device_status(device_state)
+        should_render_summary = False
+        for slot in device_state["slots"]:
+            detector = slot["detector"]
+            runtime_policy = slot["runtime_policy"]
+            has_turbulence_context = hasattr(detector, "_context")
+            raw_turbulence = None
+            if args.log_turbulence and has_turbulence_context:
+                raw_turbulence = detector._context._compute_spatial_turbulence_in_buffer(pkt.iq_raw, subcarriers)
+            detector.process_packet(pkt.iq_raw, subcarriers)
+            filtered_turbulence = detector._context.last_turbulence if has_turbulence_context else None
+            runtime_policy.note_packet()
+            metrics = detector.update_state()
+            slot["motion_metric"] = extract_motion_metric(metrics)
+            slot["metric_threshold"] = metrics["threshold"]
 
-            if should_publish:
-                motion_metric = device_state["motion_metric"]
-                metric_threshold = device_state["metric_threshold"]
-                device_state["last_publish_at"] = now
-                progress_score = motion_metric / metric_threshold if metric_threshold > 0 else 0.0
+            if runtime_policy.should_evaluate(should_publish):
+                effective_state, _ = runtime_policy.apply_state(metrics["state"])
+                runtime_policy.after_evaluation()
+                slot["effective_state"] = effective_state
+                slot["status"] = get_slot_status(slot)
+                should_render_summary = True
 
-                if should_print_publish_details(effective_state):
-                    clear_status_block()
-                    print(
-                        format_detection_publish_line(
-                            pps=device_state["pps"],
-                            motion_metric=motion_metric,
-                            threshold=metric_threshold,
-                            effective_state=effective_state,
-                            progress=progress_score,
-                            device_label=device_state["label"],
+                if should_publish:
+                    motion_metric = slot["motion_metric"]
+                    metric_threshold = slot["metric_threshold"]
+                    device_state["last_publish_at"] = now
+                    progress_score = motion_metric / metric_threshold if metric_threshold > 0 else 0.0
+
+                    if should_print_publish_details(effective_state):
+                        clear_status_block()
+                        print(
+                            format_detection_publish_line(
+                                pps=device_state["pps"],
+                                motion_metric=motion_metric,
+                                threshold=metric_threshold,
+                                effective_state=effective_state,
+                                progress=progress_score,
+                                device_label=format_slot_label(device_state, slot),
+                            )
                         )
-                    )
-                    if args.log_turbulence:
-                        window_tail = get_ordered_turbulence_tail(detector._context, args.window_tail)
-                        print(f"  turbulence: raw={raw_turbulence:.4f} filtered={filtered_turbulence:.4f}")
-                        if window_tail:
-                            print(f"  tail[{len(window_tail)}]: {format_turbulence_tail(window_tail)}")
-                    if args.log_features and detector_kind == "ml" and detector.is_ready():
-                        features = detector._extract_features()
-                        print(f"  features: {format_feature_vector(features)}")
+                        if args.log_turbulence and has_turbulence_context:
+                            window_tail = get_ordered_turbulence_tail(detector._context, args.window_tail)
+                            print(f"  turbulence: raw={raw_turbulence:.4f} filtered={filtered_turbulence:.4f}")
+                            if window_tail:
+                                print(f"  tail[{len(window_tail)}]: {format_turbulence_tail(window_tail)}")
+                        if args.log_features and slot["kind"] == "ml" and detector.is_ready():
+                            features = detector._extract_features()
+                            print(f"  features: {format_feature_vector(features)}")
 
-                device_state["publish_counter"] = 0
+        update_ready_gate_state(device_state, now)
+        if should_publish:
+            device_state["publish_counter"] = 0
 
         if save_enabled and not state["capture_ready"]:
             ready_summary = summarize_ready_gate()
             if ready_summary["ready"]:
                 state["capture_ready"] = True
                 state["capture_started_at"] = now
-                state["summary_last_rendered_at"] = 0.0
+                should_render_summary = True
 
         if save_enabled and state["capture_ready"]:
             if maybe_stop_live_session(now):
@@ -894,25 +955,27 @@ def _run_live_collect(args) -> None:
         elif not save_enabled and maybe_stop_live_session(now):
             return
 
-        render_multi_device_summary(now)
+        if should_render_summary:
+            render_multi_device_summary(now)
 
     receiver.add_callback(on_packet)
     signal.signal(signal.SIGINT, handle_sigint)
 
     print(f"\n{Fore.MAGENTA}╔═══════════════════════════════════════════════════════════╗{Style.RESET_ALL}")
-    print(f"{Fore.MAGENTA}║         μESPectre - Live CSI Collect                     ║{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}║         μESPectre - Live CSI Collect                      ║{Style.RESET_ALL}")
     print(f"{Fore.MAGENTA}╚═══════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
     print()
-    print(f"  {Fore.CYAN}Detector:{Style.RESET_ALL}  {detector_kind.upper()}")
+    print(f"  {Fore.CYAN}Detector:{Style.RESET_ALL}  {', '.join(kind.upper() for kind in detector_kinds)}")
     print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}")
     print(f"  {Fore.CYAN}UDP Port:{Style.RESET_ALL}  {args.udp_port}")
-    print(f"  {Fore.CYAN}Stimulus target:{Style.RESET_ALL} {', '.join(stimulus_targets)} ({target_mode})")
-    print(f"  {Fore.CYAN}Stimulus:{Style.RESET_ALL}  {args.stimulus_rate} pps -> {len(stimulus_targets)} target(s) on UDP {args.stimulus_port}")
+    print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)} ({target_mode})")
+    print(f"  {Fore.CYAN}Traffic:{Style.RESET_ALL}   {args.rate} pps -> {len(targets)} target(s) on UDP {args.target_port}")
     if args.reference_every > 0:
         print(f"  {Fore.CYAN}Reference:{Style.RESET_ALL} every {args.reference_every} packets")
-    if detector_kind == "ml":
-        print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {initial_threshold:.1f}")
-    else:
+    if "ml" in detector_kinds:
+        ml_suffix = " (ml, fixed)" if len(detector_kinds) > 1 else ""
+        print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {get_initial_threshold('ml'):.1f}{ml_suffix}")
+    if calibrated_kinds:
         threshold_text = raw_threshold_setting if isinstance(raw_threshold_setting, str) else f"{float(raw_threshold_setting):.4f}"
         print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} {threshold_text} (after startup calibration)")
         print(f"  {Fore.CYAN}Calibration:{Style.RESET_ALL} {calibration_target_packets} packets/device")
@@ -933,8 +996,8 @@ def _run_live_collect(args) -> None:
     else:
         print(f"  {Fore.CYAN}Save:{Style.RESET_ALL}      disabled")
     print()
-    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening for the configured shared stimulus target{Style.RESET_ALL}")
-    if detector_kind == "mvs":
+    print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening on the configured target/port{Style.RESET_ALL}")
+    if calibrated_kinds:
         print(f"  {Fore.YELLOW}Please remain still during the startup calibration phase{Style.RESET_ALL}")
     print(f"  {Fore.YELLOW}Press Ctrl+C to stop{Style.RESET_ALL}")
     print()
@@ -943,10 +1006,9 @@ def _run_live_collect(args) -> None:
         stimulus_sender.start()
         while state["running"]:
             receiver.run(timeout=1.0, quiet=True)
-            render_multi_device_summary(time.monotonic(), force=True)
     except KeyboardInterrupt:
         state["interrupted"] = True
-        render_multi_device_summary(time.monotonic(), force=True)
+        render_multi_device_summary(time.monotonic())
     except Exception as e:
         print(f"\n{Fore.RED}❌ Error during live collect: {e}{Style.RESET_ALL}")
         raise SystemExit(1)

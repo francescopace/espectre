@@ -14,10 +14,10 @@ protocol.
 The streamer frontend is responsible for:
 
 - capturing CSI on-device
-- receiving external UDP stimulus
+- receiving external UDP traffic (stimulus)
 - immediate AGC-active normalized startup
 - packaging CSI into the UDP stream format
-- sending packets to the most recent stimulus sender host
+- sending packets to the most recent collector host
 
 Use [`ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md) for the
 ML data collection workflow.
@@ -201,33 +201,35 @@ Runtime behavior notes:
 - MQTT is intentionally narrow on the streamer: it exposes `info`, `stats`,
   `ota_check`, `ota_start`, `ota_status`, and command results, but not CSI or
   continuous telemetry
-- the collector address is learned from the source IP of the latest UDP stimulus packet
-- the UDP stimulus payload may carry the `ESTM` metadata header
+- the collector address is learned from the source IP of the latest valid UDP
+  target-traffic packet
+- the UDP target-traffic payload may carry the `ESTM` metadata header
   (`magic + version + role + stimulus_id`), which is propagated into the CSI
   stream when present
 - the UDP sender uses a bounded queue plus datagram batching, so queue depth and
   queue peak are useful indicators when tuning packet rate
 
-## Collector-Driven Stimulus
+## Collector-Driven Target Traffic
 
-The streamer expects external UDP stimulus from the host collector.
+The streamer expects external UDP target traffic from the host collector.
 
 The collector is responsible for:
 
-- sending UDP packets to the streamer stimulus port
-- choosing the stimulus rate (`pps`)
+- sending UDP packets to the configured target port
+- choosing the traffic rate (`pps`)
 - assigning `stimulus_id`
 - optionally marking packets as reference frames
-- choosing a shared stimulus destination, which may be unicast, broadcast, or
+- choosing a shared target destination, which may be unicast, broadcast, or
   multicast depending on the session design
 
 The streamer is responsible for:
 
-- learning the collector IP from the source address of valid incoming stimulus
+- learning the collector IP from the source address of valid incoming target
+  traffic
 - extracting `ESTM` metadata from the packet payload seen in CSI
 - copying `stimulus_id` / `reference` markers into the UDP CSI stream
 
-When multiple streamers share the same stimulus target, the host collector is
+When multiple streamers share the same target, the host collector is
 expected to demultiplex incoming CSI by `device_id` and save one dataset file
 per device. Mixed-device `.npz` files are not part of the supported workflow.
 
@@ -289,7 +291,7 @@ Operational model:
 - MQTT stays connected as the remote control plane
 - `ota_check` checks a remote HTTPS manifest
 - `ota_start` downloads the OTA image into the inactive slot
-- the frontend stops CSI capture and stimulus processing before applying the OTA
+- the frontend stops CSI capture and target-traffic processing before applying the OTA
 - MQTT does not become a second data plane for CSI streaming
 
 Artifact model:
@@ -309,7 +311,7 @@ current Espressif QEMU fork does not support them.
 
 The table below summarizes a standalone streamer transport benchmark snapshot on
 `ESP32-C3`, recorded on `2026-07-03` near commit `7d96792`. It was measured
-with collector-driven UDP stimulus and host-side receive stats over `4 s`
+with collector-driven UDP target traffic and host-side receive stats over `4 s`
 windows. Broader project performance metrics live in
 [`PERFORMANCE.md`](../../../../docs/PERFORMANCE.md).
 
@@ -328,7 +330,7 @@ Benchmark firmware profile:
 
 Observed results:
 
-| Requested Stimulus Rate | Observed Host Receive Rate | Host Drop Rate |
+| Requested Traffic Rate | Observed Host Receive Rate | Host Drop Rate |
 |-------------------------|----------------------------|----------------|
 | `500 pps` | `~473 pps` | `~1.2%` |
 | `650 pps` | `~618 pps` | `~0.0%` |

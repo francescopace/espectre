@@ -22,7 +22,7 @@ sys.path.insert(0, str(TOOLS_PATH))
 PYTHON_ROOT_PATH = Path(__file__).resolve().parents[2] / "src" / "python"
 sys.path.insert(0, str(PYTHON_ROOT_PATH))
 
-from repo_paths import data_dir, python_src_dir, tools_dir
+from tools.lib.repo_paths import data_dir, python_src_dir, tools_dir
 
 # Add both the Python root and the Micro-ESPectre runtime source dir.
 # The runtime dir is inserted last (position 0) so it takes precedence for
@@ -65,6 +65,7 @@ def format_targets_summary_line():
     return (
         "Targets: "
         f"MVS >{get_mvs_recall_target():.0f}% R, <{get_mvs_fp_rate_target():.1f}% FP | "
+        "L1D benchmark-only | "
         f"ML >{get_ml_recall_target():.0f}% R, <{get_ml_fp_rate_target():.1f}% FP"
     )
 
@@ -125,7 +126,7 @@ def get_available_long_test_datasets(chips=None):
     When test metadata does not annotate a motion start packet, the whole stream
     is treated as baseline and the movement segment is empty.
     """
-    from csi_utils import load_npz_as_packets
+    from tools.lib.csi_io import load_npz_as_packets
 
     dataset_info = _load_dataset_info()
     test_entries = dataset_info.get("files", {}).get("test", [])
@@ -231,9 +232,10 @@ def default_subcarriers(request):
 @pytest.fixture
 def optimal_threshold(request):
     """
-    Dataset-aware threshold from dataset_info grid-search metadata.
+    Legacy compatibility threshold fixture.
 
-    Falls back to 1.0 when metadata is missing.
+    Detector-specific startup thresholds are now calibrated per capture, so
+    tests that still request this fixture receive a neutral placeholder.
     """
     return 1.0
 
@@ -391,7 +393,7 @@ def synthetic_csi_movement_packets(synthetic_csi_motion_packets):
 @pytest.fixture
 def real_csi_data_available():
     """Check if real CSI data files are available"""
-    from csi_utils import find_static_presence_motion_dataset
+    from tools.lib.csi_io import find_static_presence_motion_dataset
     try:
         find_static_presence_motion_dataset(chip='C6')
         return True
@@ -405,7 +407,7 @@ def real_static_presence_packets(real_csi_data_available):
     if not real_csi_data_available:
         pytest.skip("Real CSI data not available")
     
-    from csi_utils import load_static_presence_and_motion
+    from tools.lib.csi_io import load_static_presence_and_motion
     baseline, _ = load_static_presence_and_motion()
     return baseline
 
@@ -422,7 +424,7 @@ def real_motion_packets(real_csi_data_available):
     if not real_csi_data_available:
         pytest.skip("Real CSI data not available")
     
-    from csi_utils import load_static_presence_and_motion
+    from tools.lib.csi_io import load_static_presence_and_motion
     _, movement = load_static_presence_and_motion()
     return movement
 
@@ -439,7 +441,8 @@ def real_turbulence_values(real_csi_data_available, default_subcarriers):
     if not real_csi_data_available:
         pytest.skip("Real CSI data not available")
     
-    from csi_utils import load_static_presence_and_motion, calculate_spatial_turbulence
+    from tools.lib.csi_analysis import calculate_spatial_turbulence
+    from tools.lib.csi_io import load_static_presence_and_motion
     
     baseline, movement = load_static_presence_and_motion()
     turbulence_values = []
@@ -491,7 +494,7 @@ def record_performance(chip: str, algorithm: str, recall: float, fp_rate: float,
     
     Args:
         chip: Chip type (C3, C5, C6, ESP32, S3)
-        algorithm: Algorithm name (mvs, ml)
+        algorithm: Algorithm name (mvs, l1_delta, ml)
         recall: Recall percentage
         fp_rate: False positive rate percentage
         precision: Precision percentage
@@ -566,8 +569,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line("                              PERFORMANCE SUMMARY TABLE (Python)")
     terminalreporter.write_line("=" * 105)
     terminalreporter.write_line("")
-    terminalreporter.write_line("| Chip   | Datasets | MVS                     | ML                      |")
-    terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|")
+    terminalreporter.write_line("| Chip   | Datasets | MVS                     | L1D                     | ML                      |")
+    terminalreporter.write_line("|--------|----------|-------------------------|-------------------------|-------------------------|")
     
     # Sort chips for consistent output
     for chip in ['C3', 'C5', 'C6', 'ESP32', 'S3']:
@@ -585,6 +588,12 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             mvs_str = f"{mvs['recall']:.1f}% R, {mvs['fp_rate']:.1f}% FP"
         else:
             mvs_str = "N/A"
+
+        if 'l1_delta' in chip_results:
+            l1_delta = average_metrics(chip_results['l1_delta'])
+            l1_delta_str = f"{l1_delta['recall']:.1f}% R, {l1_delta['fp_rate']:.1f}% FP"
+        else:
+            l1_delta_str = "N/A"
         
         # ML
         if 'ml' in chip_results:
@@ -594,7 +603,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             ml_str = "N/A"
         
         terminalreporter.write_line(
-            f"| {chip:<6} | {dataset_count:>8} | {mvs_str:<23} | {ml_str:<23} |"
+            f"| {chip:<6} | {dataset_count:>8} | {mvs_str:<23} | {l1_delta_str:<23} | {ml_str:<23} |"
         )
     
     terminalreporter.write_line("")
@@ -619,6 +628,12 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             mvs = average_metrics(chip_results['mvs'])
             terminalreporter.write_line(
                 f"| {chip:<6} | {'MVS':<11} | {mvs['count']:>8} | {mvs['recall']:>6.1f}% | {mvs.get('precision', 0):>8.1f}% | {mvs['fp_rate']:>6.1f}% | {mvs.get('f1', 0):>7.1f}% |"
+            )
+
+        if 'l1_delta' in chip_results:
+            l1_delta = average_metrics(chip_results['l1_delta'])
+            terminalreporter.write_line(
+                f"| {chip:<6} | {'L1_DELTA':<11} | {l1_delta['count']:>8} | {l1_delta['recall']:>6.1f}% | {l1_delta.get('precision', 0):>8.1f}% | {l1_delta['fp_rate']:>6.1f}% | {l1_delta.get('f1', 0):>7.1f}% |"
             )
 
         if 'ml' in chip_results:

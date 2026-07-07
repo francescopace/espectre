@@ -20,6 +20,7 @@ class TestMVSDetectorBasics:
         """Test detector initialization with defaults"""
         detector = MVSDetector()
         
+        assert detector.ALGORITHM == "mvs"
         assert detector.get_name() == "MVS"
         assert detector.total_packets == 0
         assert not detector.is_ready()
@@ -71,8 +72,10 @@ class TestMVSDetectorBasics:
         
         metrics = detector.update_state()
         
+        assert 'motion_metric' in metrics
         assert 'moving_variance' in metrics
         assert 'state' in metrics
+        assert metrics['motion_metric'] == metrics['moving_variance']
     
     def test_get_state(self):
         """Test getting current state"""

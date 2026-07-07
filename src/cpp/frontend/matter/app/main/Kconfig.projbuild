@@ -17,6 +17,12 @@ choice ESPECTRE_MATTER_DETECTION_ALGORITHM
         help
             Moving-variance detector with startup threshold calibration.
 
+    config ESPECTRE_MATTER_DETECTION_ALGORITHM_L1_DELTA
+        bool "L1_DELTA"
+        help
+            Normalized profile-displacement detector with startup threshold
+            calibration and a more stable quiet level across sessions.
+
     config ESPECTRE_MATTER_DETECTION_ALGORITHM_ML
         bool "ML"
         help

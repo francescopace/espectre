@@ -365,7 +365,7 @@ Current BLE `sysinfo` diagnostic keys may include:
 | Key | Meaning |
 |-----|---------|
 | `chip` | Target chip reported by the firmware, such as `esp32c3` |
-| `detector` | Active detector name |
+| `detector` | Active detector name label: `MVS`, `L1D`, or `ML` |
 | `window` | Detection window size in packets |
 | `lowpass` | Whether the low-pass stage is enabled |
 | `lowpass_cutoff` | Low-pass cutoff in Hz |

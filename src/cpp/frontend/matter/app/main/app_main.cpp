@@ -44,6 +44,8 @@ esphome::espectre::RuntimeConfig build_runtime_config() {
   esphome::espectre::RuntimeConfig config;
 #if CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_ML
   config.detection_algorithm = esphome::espectre::DetectionAlgorithm::ML;
+#elif CONFIG_ESPECTRE_MATTER_DETECTION_ALGORITHM_L1_DELTA
+  config.detection_algorithm = esphome::espectre::DetectionAlgorithm::L1_DELTA;
 #else
   config.detection_algorithm = esphome::espectre::DetectionAlgorithm::MVS;
 #endif
@@ -51,7 +53,15 @@ esphome::espectre::RuntimeConfig build_runtime_config() {
 }
 
 const char *detector_name(const esphome::espectre::RuntimeConfig &config) {
-  return config.detection_algorithm == esphome::espectre::DetectionAlgorithm::ML ? "ML" : "MVS";
+  switch (config.detection_algorithm) {
+    case esphome::espectre::DetectionAlgorithm::ML:
+      return "ML";
+    case esphome::espectre::DetectionAlgorithm::L1_DELTA:
+      return "L1D";
+    case esphome::espectre::DetectionAlgorithm::MVS:
+    default:
+      return "MVS";
+  }
 }
 
 bool has_commissioned_fabric() { return chip::Server::GetInstance().GetFabricTable().FabricCount() != 0; }

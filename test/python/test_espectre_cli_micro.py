@@ -63,6 +63,7 @@ def _create_micro_src_tree(base_dir: Path) -> None:
         "detector_interface.py",
         "runtime_policy.py",
         "mvs_detector.py",
+        "l1_delta_detector.py",
         "ml_detector.py",
         "ml_weights.py",
         "traffic_generator.py",
@@ -301,10 +302,11 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
     mkdir_calls = [cmd for cmd in calls if "mkdir" in cmd]
     cp_calls = [cmd for cmd in calls if "cp" in cmd]
     assert len(mkdir_calls) == 2
-    assert len(cp_calls) == 19
+    assert len(cp_calls) == 20
     assert any(cmd[-1] == ":src/" for cmd in cp_calls)
     assert any(cmd[-1] == ":src/mqtt/" for cmd in cp_calls)
     assert any(cmd[-2].endswith("console_output.py") for cmd in cp_calls)
+    assert any(cmd[-2].endswith("l1_delta_detector.py") for cmd in cp_calls)
 
 
 def test_deploy_code_rejects_invalid_healthcheck(monkeypatch, tmp_path: Path) -> None:
@@ -406,6 +408,7 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
         SimpleNamespace(
             stdout="['__init__.py', 'config.py', 'config_local.py', 'utils.py', 'threshold.py', 'filters.py', "
             "'features.py', 'segmentation.py', 'detector_interface.py', 'runtime_policy.py', 'mvs_detector.py', "
+            "'l1_delta_detector.py', "
             "'ml_detector.py', 'ml_weights.py', 'traffic_generator.py', 'console_output.py', 'main.py', 'mqtt']\n",
             stderr="",
         ),

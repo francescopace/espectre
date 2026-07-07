@@ -74,8 +74,9 @@ Notes:
 - On Windows, use `.\espectre.cmd matter ...` and `.\espectre.cmd monitor --port COM5`.
 - If the wrapper cannot find or validate ESP-IDF, run `.\espectre.cmd doctor`
   or `./espectre doctor` for troubleshooting.
-- the Matter frontend detector is selected through `sdkconfig`; the default is
-  `ML`
+- the Matter frontend detector is selected through `sdkconfig`
+  (`ESPECTRE_MATTER_DETECTION_ALGORITHM`: `MVS`, `L1_DELTA`, or `ML`); the
+  default is `ML`
 - the first build downloads managed components and compiles `esp_matter`, so it
   is significantly slower than incremental builds
 

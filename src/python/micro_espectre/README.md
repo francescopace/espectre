@@ -127,20 +127,21 @@ Do not commit `config_local.py`.
 Micro-ESPectre follows the same detector direction as the C++ platform:
 
 ```text
-Boot -> AGC-active startup -> MVS threshold bootstrap or ML startup -> Detection Loop
+Boot -> AGC-active startup -> MVS/L1-Delta threshold bootstrap or ML startup -> Detection Loop
 ```
 
 ### Detection Algorithms
 
 | Algorithm | Method | Startup behavior |
 |-----------|--------|------------------|
-| `mvs` | Moving variance over turbulence | Threshold bootstrap with normalized AGC-active turbulence |
+| `mvs` | Moving variance over turbulence | Threshold bootstrap with normalized AGC-active turbulence (`max x 1.3` in `auto`) |
+| `l1_delta` | Mean L1 displacement of the normalized amplitude profile | Threshold bootstrap with normalized AGC-active profile displacement (`max x 1.1` in `auto`) |
 | `ml` | 8-feature MLP over turbulence windows | Immediate startup with normalized AGC-active turbulence |
 
 Key config values live in `config.py`:
 
 ```python
-DETECTION_ALGORITHM = "mvs"  # "mvs" or "ml"
+DETECTION_ALGORITHM = "mvs"  # "mvs", "l1_delta", or "ml"
 SEG_THRESHOLD = "auto"       # "auto", "min", or 0.0-10.0
 SEG_WINDOW_SIZE = 100
 EVALUATION_INTERVAL = 25
@@ -148,8 +149,17 @@ MOTION_ON_HITS = 3
 MOTION_OFF_HITS = 3
 ```
 
-In `mvs` mode, `SEG_THRESHOLD = "auto"` means startup threshold = `max(calibration_mv) x 1.3`.
-Keep the room quiet after boot in `mvs` mode while threshold bootstrap runs.
+In startup-calibrated modes, `SEG_THRESHOLD = "auto"` means startup threshold =
+`max(calibration_metric) x detector_factor`:
+
+- `mvs`: `x 1.3`
+- `l1_delta`: `x 1.1`
+
+Keep the room quiet after boot in `mvs` and `l1_delta` mode while threshold
+bootstrap runs. In `l1_delta` mode, a calibration consistency gate detects a
+contaminated startup window and extends calibration automatically (status
+`EXTENDING`) until the room is consistently quiet, up to about 20 extra
+seconds; see `docs/ALGORITHMS.md`.
 
 ### Filters
 

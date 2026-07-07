@@ -47,6 +47,8 @@ void test_runtime_config_utils_validate_and_name_modes(void) {
     TEST_ASSERT_EQUAL_STRING("ping", traffic_mode_name(RuntimeTrafficMode::PING));
     TEST_ASSERT_EQUAL_STRING("dns", traffic_mode_name(RuntimeTrafficMode::DNS));
     TEST_ASSERT_EQUAL_STRING("ml", detection_algorithm_name(DetectionAlgorithm::ML));
+    TEST_ASSERT_EQUAL_STRING("mvs", detection_algorithm_name(DetectionAlgorithm::MVS));
+    TEST_ASSERT_EQUAL_STRING("l1_delta", detection_algorithm_name(DetectionAlgorithm::L1_DELTA));
     TEST_ASSERT_EQUAL_STRING("fixed", subcarrier_source_name(RuntimeSubcarrierSource::FIXED_DEFAULT));
     TEST_ASSERT_TRUE(parse_threshold_mode("min") == ThresholdMode::MIN);
     TEST_ASSERT_TRUE(parse_threshold_mode("auto") == ThresholdMode::AUTO);
@@ -54,6 +56,8 @@ void test_runtime_config_utils_validate_and_name_modes(void) {
     TEST_ASSERT_TRUE(parse_traffic_mode("dns") == RuntimeTrafficMode::DNS);
     TEST_ASSERT_TRUE(parse_detection_algorithm("ml") == DetectionAlgorithm::ML);
     TEST_ASSERT_TRUE(parse_detection_algorithm("mvs") == DetectionAlgorithm::MVS);
+    TEST_ASSERT_TRUE(parse_detection_algorithm("l1_delta") == DetectionAlgorithm::L1_DELTA);
+    TEST_ASSERT_TRUE(parse_detection_algorithm("bogus") == DetectionAlgorithm::MVS);
 }
 
 void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {

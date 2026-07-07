@@ -14,13 +14,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from repo_paths import tools_dir
+from tools.lib.repo_paths import tools_dir
 
 TESTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(TESTS_DIR))
 
 from config import DEFAULT_SUBCARRIERS, SEG_WINDOW_SIZE
 from detector_interface import MotionState
+from l1_delta_detector import L1DeltaDetector
 from ml_detector import MLDetector
 from segmentation import SegmentationContext
 from conftest import (
@@ -30,7 +31,7 @@ from conftest import (
     extract_motion_start_from_description,
     get_available_long_test_datasets,
 )
-from test_validation_real_data import run_calibration
+from test_validation_real_data import run_calibration, run_l1_delta_calibration
 
 
 TRAIN_ML_MODEL_PATH = tools_dir() / "10_train_ml_model.py"
@@ -170,6 +171,70 @@ def _evaluate_mvs_long_recording(baseline_packets, movement_packets):
     }
 
 
+def _evaluate_l1_delta_long_recording(baseline_packets, movement_packets):
+    """Run startup-calibrated L1-delta across a long recording split."""
+    adaptive_threshold = run_l1_delta_calibration(
+        baseline_packets,
+        selected_band=DEFAULT_SUBCARRIERS,
+        window_size=SEG_WINDOW_SIZE,
+    )
+    detector = L1DeltaDetector(
+        window_size=SEG_WINDOW_SIZE,
+        threshold=adaptive_threshold,
+    )
+
+    warmup = max(SEG_WINDOW_SIZE, detector.lag)
+    baseline_eval_count = max(len(baseline_packets) - warmup, 0)
+    movement_eval_count = max(len(movement_packets) - warmup, 0)
+    baseline_motion_packets = 0
+    movement_with_motion = 0
+    movement_without_motion = 0
+
+    for i, pkt in enumerate(baseline_packets):
+        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.update_state()
+        if i >= warmup and detector.get_state() == MotionState.MOTION:
+            baseline_motion_packets += 1
+
+    for i, pkt in enumerate(movement_packets):
+        detector.process_packet(pkt["csi_data"], DEFAULT_SUBCARRIERS)
+        detector.update_state()
+        if i >= warmup:
+            if detector.get_state() == MotionState.MOTION:
+                movement_with_motion += 1
+            else:
+                movement_without_motion += 1
+
+    tp = movement_with_motion
+    fn = movement_without_motion
+    fp = baseline_motion_packets
+    tn = max(baseline_eval_count - baseline_motion_packets, 0)
+
+    recall = tp / (tp + fn) * 100.0 if (tp + fn) > 0 else 0.0
+    precision = tp / (tp + fp) * 100.0 if (tp + fp) > 0 else 0.0
+    fp_rate = fp / baseline_eval_count * 100.0 if baseline_eval_count > 0 else 0.0
+    f1 = (
+        2 * (precision / 100.0) * (recall / 100.0) / ((precision + recall) / 100.0) * 100.0
+        if (precision + recall) > 0
+        else 0.0
+    )
+
+    return {
+        "adaptive_threshold": adaptive_threshold,
+        "warmup": warmup,
+        "baseline_eval_count": baseline_eval_count,
+        "movement_eval_count": movement_eval_count,
+        "tp": tp,
+        "fn": fn,
+        "fp": fp,
+        "tn": tn,
+        "recall": recall,
+        "precision": precision,
+        "fp_rate": fp_rate,
+        "f1": f1,
+    }
+
+
 class TestLongRecordings:
     """Validate MLDetector on the curated 60-second recordings."""
 
@@ -287,6 +352,67 @@ class TestLongRecordingsMVS:
         else:
             assert len(movement_packets) > 0
         assert len(metrics["selected_band"]) == 12
+        assert metrics["baseline_eval_count"] >= 0
+        assert metrics["movement_eval_count"] >= 0
+        assert 0.0 <= metrics["adaptive_threshold"] <= 10.0
+        assert 0.0 <= metrics["recall"] <= 100.0
+        assert 0.0 <= metrics["precision"] <= 100.0
+        assert 0.0 <= metrics["fp_rate"] <= 100.0
+        assert 0.0 <= metrics["f1"] <= 100.0
+        assert str(entry.get("chip", "")).upper() == chip
+
+
+class TestLongRecordingsL1Delta:
+    """Validate L1-delta on the curated 60-second recordings."""
+
+    _rows = []
+
+    @classmethod
+    def setup_class(cls):
+        cls._rows = []
+
+    @classmethod
+    def teardown_class(cls):
+        if not cls._rows:
+            return
+
+        print("")
+        print("=" * 108)
+        print("                          LONG RECORDING L1-DELTA SUMMARY")
+        print("=" * 108)
+        print("| Chip   | Recall  | Precision | FP Rate | F1-Score | FP Count |")
+        print("|--------|---------|-----------|---------|----------|----------|")
+        for row in sorted(cls._rows, key=lambda item: item["chip"]):
+            print(
+                f"| {row['chip']:<6} | {row['recall']:>6.1f}% | {row['precision']:>8.1f}% | "
+                f"{row['fp_rate']:>6.1f}% | {row['f1']:>7.1f}% | {row['fp_count']:>8d} |"
+            )
+        print("-" * 108)
+
+    @pytest.mark.parametrize("long_dataset", build_long_test_params(), indirect=False)
+    def test_l1_delta_vs_test_recordings(self, long_dataset):
+        """Evaluate startup-calibrated L1-delta on the 60-second test recordings."""
+        if long_dataset is None:
+            pytest.skip("No long test recordings available in data/test")
+
+        _, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
+        metrics = _evaluate_l1_delta_long_recording(baseline_packets, movement_packets)
+        self.__class__._rows.append(
+            {
+                "chip": chip,
+                "motion_start_packet": motion_start_packet,
+                "baseline_packets": len(baseline_packets),
+                "movement_packets": len(movement_packets),
+                "fp_count": metrics["fp"],
+                **metrics,
+            }
+        )
+
+        assert len(baseline_packets) == motion_start_packet
+        if extract_motion_start_from_description(entry.get("description")) is None:
+            assert len(movement_packets) == 0
+        else:
+            assert len(movement_packets) > 0
         assert metrics["baseline_eval_count"] >= 0
         assert metrics["movement_eval_count"] >= 0
         assert 0.0 <= metrics["adaptive_threshold"] <= 10.0

@@ -6,14 +6,12 @@ This document provides detailed performance metrics for ESPectre's motion detect
 
 ## Performance Targets
 
-| Scope | Metric | Target | Rationale |
-|-------|--------|--------|-----------|
-| MVS | Recall | >95% | Minimize missed detections |
-| MVS | FP Rate | <5% | Avoid false alarms |
-| ML | Recall | >95% | Maintain high sensitivity |
-| ML | FP Rate | <5% | Avoid false alarms |
+| Metric | Target | 
+|-------|--------|
+| Recall | >95% |
+| FP Rate | <5% |
 
---
+---
 ### Test Configuration
 
 Shared validation configuration across chips and detectors:
@@ -21,9 +19,11 @@ Shared validation configuration across chips and detectors:
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Window Size | 100 | `DETECTOR_DEFAULT_WINDOW_SIZE` |
-| Calibration | Fixed subcarriers + threshold bootstrap | Shared 12-subcarrier set; threshold bootstrap applies to MVS, while ML keeps a fixed threshold |
-| Hampel Filter | ON | Enabled for both MVS and ML (window=7, threshold=5.0 MAD) |
-| Adaptive Threshold | Max-based | max x 1.3 (`DEFAULT_ADAPTIVE_FACTOR`) |
+| Calibration | Fixed subcarriers + detector-specific threshold bootstrap | Shared 12-subcarrier set across MVS, L1-Delta, and ML validation |
+| MVS Threshold | `max x 1.3` | Shared startup bootstrap (`DEFAULT_ADAPTIVE_FACTOR`) |
+| L1-Delta Threshold | Startup gate + detector factor | `StartupThresholdCalibrator` with factor `1.1`, rolling-chunk consistency gate, and calibration extension |
+| Hampel Filter | MVS on, L1-Delta off | MVS still uses the runtime Hampel path (`window=7`, `threshold=5.0 MAD`); L1-Delta does not require it |
+| ML Threshold | Fixed | `5.0` exported runtime threshold |
 | CV Normalization | Always on | Shared AGC-active turbulence path (`std/mean`) |
 
 CV normalization is applied uniformly across the production and validation
@@ -35,7 +35,8 @@ still exports relative neural-detector features such as `std/mean`, `iqr/mean`,
 
 ## Training Dataset
 
-`data/dataset_info.json` contains canonical `empty` / `static_presence` /`motion` labels across multiple collection sessions and environments.  
+`data/dataset_info.json` contains canonical `empty` / `static_presence` /
+`motion` labels across multiple collection sessions and environments.
 The counts below are aggregated packet totals across all currently available training captures, including the dedicated empty-room recordings.
 
 | Chip | Empty | Static Presence | Motion | Total |
@@ -57,29 +58,38 @@ Data location: `data/`
 - Python `TestPerformanceMetrics`
 - Python `test_validation_long_recordings.py`
 
-### Real-data validation
+### Paired Real-Data Validation
 
 | Chip | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|-----------|--------|-----------|---------|----------|
-| ESP32-C3 | MVS  | 99.3% | 84.0% | 9.6% | 91.0% |
-| ESP32-C3 | ML | 94.1% | 100.0% | 0.0% | 97.0% |
-| ESP32-C5 | MVS  | 100.0% | 86.8% | 7.7% | 92.9% |
-| ESP32-C5 | ML | 100.0% | 87.4% | 7.3% | 93.3% |
-| ESP32-C6 | MVS  | 58.8% | 99.6% | 0.1% | 73.9% |
-| ESP32-C6 | ML | 89.9% | 99.5% | 0.2% | 94.4% |
-| ESP32-S3 | MVS | 75.3% | 96.7% | 1.3% | 84.7% |
-| ESP32-S3 | ML | 92.6% | 89.8% | 5.2% | 91.2% |
+| ESP32-C3 | MVS | 93.7% | 95.4% | 2.7% | 94.2% |
+| ESP32-C3 | L1-Delta | 89.7% | 96.9% | 1.7% | 92.7% |
+| ESP32-C3 | ML | 94.9% | 99.9% | 0.1% | 97.3% |
+| ESP32-C5 | MVS | 99.7% | 96.5% | 1.8% | 98.1% |
+| ESP32-C5 | L1-Delta | 95.8% | 99.3% | 0.3% | 97.5% |
+| ESP32-C5 | ML | 98.4% | 91.9% | 5.1% | 94.6% |
+| ESP32-C6 | MVS | 98.9% | 95.9% | 2.3% | 97.3% |
+| ESP32-C6 | L1-Delta | 96.2% | 94.8% | 2.8% | 95.3% |
+| ESP32-C6 | ML | 95.1% | 99.6% | 0.2% | 97.3% |
+| ESP32-S3 | MVS | 79.5% | 88.5% | 6.4% | 82.4% |
+| ESP32-S3 | L1-Delta | 96.4% | 89.9% | 6.0% | 92.7% |
+| ESP32-S3 | ML | 88.4% | 91.6% | 4.2% | 89.7% |
 
 ---
 
-## Long Test Recordings
+## Long Quiet Recordings
 
-| Chip | MVS Recall | MVS FP Rate | ML Recall | ML FP Rate |
-|------|-------|-----|------|----|
-| C3 | 2.7% | 4.4% | 0.0% | 0.0% |
-| C5 | 2.0% | 1.5% | 1.7% | 1.6% |
-| C6 | 8.0% | 6.9% | 0.2% | 0.2% |
-| S3 | 14.5% | 11.9% | 7.4% | 4.4% |
+The current long-run validation set contains quiet-only captures with no
+annotated motion segment (`motion_start_packet` is absent, so the full stream is
+treated as baseline). In practice this section is a sustained false-positive
+gate, not a recall benchmark.
+
+| Chip | Recordings | MVS Avg FP Rate | MVS Max FP Rate | L1D Avg FP Rate | L1D Max FP Rate | ML Avg FP Rate | ML Max FP Rate |
+|------|------------|-----------------|-----------------|-----------------|-----------------|----------------|----------------|
+| C3 | 2 | 0.72% | 1.02% | 0.30% | 0.42% | 0.00% | 0.00% |
+| C5 | 3 | 0.53% | 1.33% | 0.37% | 1.06% | 1.42% | 2.90% |
+| C6 | 2 | 0.75% | 0.82% | 6.38% | 11.94% | 0.02% | 0.03% |
+| S3 | 3 | 6.68% | 11.84% | 3.63% | 7.90% | 4.60% | 7.71% |
 
 ---
 
@@ -87,8 +97,9 @@ Data location: `data/`
 
 | Date | Version | Dataset | Calibration | Algorithm | Recall | Precision | FP Rate | F1-Score |
 |------|---------|---------|-------------|-----------|--------|-----------|---------|----------|
-| 2026-07-04 | v3.0.0 | C6 |  -   | ML + Hampel | 89.9% | 99.5% | 0.2% | 94.4% |
-| 2026-07-04 | v3.0.0 | C6 |  -   | MVS + Hampel | 58.8% | 99.6% | 0.1% | 73.9% |
+| 2026-07-07 | v3.0.0 | C6 | legacy| L1D | 96.2% | 94.8% | 2.8% | 95.3% |
+| 2026-07-07 | v3.0.0 | C6 |  -   |  ML  | 95.1% | 99.6% | 0.2% | 97.3% |
+| 2026-07-07 | v3.0.0 | C6 | `max x 1.3` | MVS + Hampel | 98.9% | 95.9% | 2.3% | 97.3% |
 | 2026-05-21 | v2.8.0 | C6 |  -   | ML + Hampel | 100.0% | 100.0% | 0.0% | 100.0% |
 | 2026-05-21 | v2.8.0 | C6 | NBVI | MVS + Hampel| 99.6% | 100.0% | 0.0% | 99.8% |
 | 2026-03-11 | v2.6.1 | C6 |  -   | ML | 100.0% | 100.0% | 0.0% | 100.0% |

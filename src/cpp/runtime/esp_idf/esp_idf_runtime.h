@@ -5,6 +5,7 @@
 #include <string>
 #include "base_detector.h"
 #include "csi_manager.h"
+#include "l1_delta_detector.h"
 #include "ml_detector.h"
 #include "mvs_detector.h"
 #include "runtime_interface.h"
@@ -53,18 +54,16 @@ class EspIdfRuntime : public IEspectreRuntime {
 
   BaseDetector *detector_{nullptr};
   MVSDetector mvs_detector_;
+  L1DeltaDetector l1_delta_detector_;
   MLDetector ml_detector_;
-  MVSDetector threshold_calibration_detector_;
 
   CSIManager csi_manager_;
   WiFiLifecycleManager wifi_lifecycle_;
   StimulusService stimulus_service_;
 
-  float threshold_calibration_max_mv_{0.0f};
-  bool threshold_calibration_has_value_{false};
-  uint16_t threshold_calibration_packets_{0};
-  uint16_t threshold_calibration_target_{0};
+  StartupThresholdCalibrator threshold_calibrator_;
   bool threshold_calibration_active_{false};
+  bool threshold_calibration_extending_logged_{false};
   bool services_armed_{true};
   bool live_telemetry_enabled_{true};
   bool wifi_ready_{false};

@@ -120,6 +120,7 @@ ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 - Entry-point docs may include product/subproject branding in the title when established style supports it.
 - Other docs should use simple descriptive titles.
 - Emoji should be rare and purposeful, not ornamental.
+- Update `docs/CHANGELOG.md` only in the latest active section; do not rewrite historical release entries except to fix factual errors the user explicitly asked to correct.
 
 ## GitHub And CI Rules
 

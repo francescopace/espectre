@@ -78,7 +78,7 @@ Dependency shape:
 ┌────────────────────────────────────────────────────────────┐
 │ CORE                                                       │
 │                                                            │
-│  BaseDetector / MVSDetector / MLDetector / filters / math  │
+│  Detectors (MVS, ML, L1_DELTA) / filters / math            │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -91,7 +91,7 @@ surfaces rather than reaching into `core` directly.
 
 `core` contains reusable detection logic and domain primitives:
 
-- detectors such as `MVSDetector` and `MLDetector`
+- detectors such as `MVSDetector`, `L1DeltaDetector`, and `MLDetector`
 - signal-processing helpers such as filters and turbulence math
 - threshold/domain constants
 - model features and exported ML weights

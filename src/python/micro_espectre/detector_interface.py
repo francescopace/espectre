@@ -17,12 +17,85 @@ class MotionState:
     MOTION = 1
 
 
+def normalize_detector_algorithm(name):
+    """
+    Normalize detector identifiers to the shared config/protocol names.
+
+    Examples:
+    - "MVS" -> "mvs"
+    - "ML" -> "ml"
+    - "l1d" -> "l1_delta"
+    """
+    normalized = str(name or "mvs").strip().lower().replace("-", "_")
+    aliases = {
+        "mvs": "mvs",
+        "ml": "ml",
+        "l1d": "l1_delta",
+        "l1_delta": "l1_delta",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def get_detector_algorithm(detector):
+    """Return the canonical algorithm key for a detector instance."""
+    algorithm = getattr(detector, "ALGORITHM", None)
+    if algorithm:
+        return normalize_detector_algorithm(algorithm)
+    return normalize_detector_algorithm(detector.get_name())
+
+
+# Single source of truth for the available detector algorithms:
+# canonical key -> (module name, class name, needs startup calibration, label).
+DETECTOR_REGISTRY = {
+    "mvs": ("mvs_detector", "MVSDetector", True, "MVS (Moving Variance Segmentation)"),
+    "l1_delta": ("l1_delta_detector", "L1DeltaDetector", True, "L1-Delta (Normalized Profile Displacement)"),
+    "ml": ("ml_detector", "MLDetector", False, "ML (Neural Network)"),
+}
+
+
+def supported_detector_algorithms():
+    """Return the canonical keys of all available detector algorithms."""
+    return tuple(DETECTOR_REGISTRY)
+
+
+def detector_needs_startup_calibration(algorithm):
+    """Return True when the algorithm needs quiet-room startup calibration."""
+    spec = DETECTOR_REGISTRY.get(normalize_detector_algorithm(algorithm))
+    return bool(spec and spec[2])
+
+
+def get_detector_label(algorithm):
+    """Return the human-friendly label for a canonical algorithm key."""
+    spec = DETECTOR_REGISTRY.get(normalize_detector_algorithm(algorithm))
+    return spec[3] if spec else str(algorithm)
+
+
+def load_detector_class(algorithm):
+    """
+    Lazily import and return the detector class for a canonical algorithm key.
+
+    Lazy import keeps device boot memory low: only the configured detector
+    module is loaded.
+    """
+    key = normalize_detector_algorithm(algorithm)
+    spec = DETECTOR_REGISTRY.get(key)
+    if spec is None:
+        raise ValueError("Unsupported detector algorithm: %s" % algorithm)
+    module_name, class_name = spec[0], spec[1]
+    try:
+        module = __import__("src." + module_name, None, None, (class_name,))
+    except ImportError:
+        module = __import__(module_name, None, None, (class_name,))
+    return getattr(module, class_name)
+
+
 class IDetector:
     """
     Interface for motion detection algorithms.
     
     Implementations:
     - MVSDetector: Moving Variance Segmentation (default)
+    - L1DeltaDetector: Normalized profile displacement
     - MLDetector: Neural Network classifier
     
     Subclasses must implement all methods.
@@ -43,7 +116,8 @@ class IDetector:
         Update motion state based on current metrics.
         
         Returns:
-            dict: Current metrics including state
+            dict: Current metrics including state. Implementations should expose
+                  a shared `motion_metric` key plus any algorithm-specific keys.
         """
         raise NotImplementedError
     
@@ -104,7 +178,7 @@ class IDetector:
         Get detector algorithm name.
         
         Returns:
-            str: "MVS" or "ML"
+            str: Human-friendly detector label, for example "MVS", "L1D", or "ML"
         """
         raise NotImplementedError
     

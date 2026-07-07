@@ -36,7 +36,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 
-from repo_paths import data_dir, python_src_dir
+from tools.lib.repo_paths import data_dir, python_src_dir
 
 sys.path.insert(0, str(python_src_dir()))
 
@@ -46,16 +46,18 @@ from features import (
     calc_skewness, calc_mad,
 )
 from filters import HampelFilter
-from csi_utils import (
-    load_static_presence_and_motion, calculate_spatial_turbulence,
-    calculate_variance_two_pass, MVSDetector
-)
+from tools.lib.csi_analysis import MVSDetector, calculate_spatial_turbulence, calculate_variance_two_pass
+from tools.lib.csi_io import load_static_presence_and_motion
+from tools.lib.dataset_metadata import estimate_runtime_threshold
+from tools.lib.mvs_sweep_core import calibrate_startup_threshold
 from config import (
+    DEFAULT_SUBCARRIERS,
     SEG_WINDOW_SIZE as DETECTOR_DEFAULT_WINDOW_SIZE,
-    CALIBRATION_BUFFER_SIZE,
     HAMPEL_WINDOW,
     HAMPEL_THRESHOLD,
 )
+from detector_interface import MotionState
+from l1_delta_detector import L1DeltaDetector
 
 
 # ============================================================================
@@ -148,7 +150,7 @@ def real_data(dataset_config):
     - Baseline: all packets loaded, starting from packet 0
     - Movement: all packets loaded
     """
-    from csi_utils import load_npz_as_packets
+    from tools.lib.csi_io import load_npz_as_packets
     static_presence_path, motion_path, num_sc, chip, dataset_id = dataset_config
 
     static_presence_packets = load_npz_as_packets(static_presence_path)
@@ -270,27 +272,14 @@ def run_fixed_subcarrier_calibration(static_presence_packets, num_subcarriers, h
     Returns:
         tuple: (selected_band, adaptive_threshold)
     """
-    from threshold import get_threshold_factor
-
-    selected_band = hint_band
+    selected_band = hint_band if hint_band is not None else DEFAULT_SUBCARRIERS
     max_moving_variance = None
     window_size = mvs_window_size or DETECTOR_DEFAULT_WINDOW_SIZE
-    cal_ctx = SegmentationContext(window_size=window_size, threshold=1.0, enable_hampel=True)
-
-    buffer_size = min(CALIBRATION_BUFFER_SIZE, len(static_presence_packets))
-    for pkt in static_presence_packets[:buffer_size]:
-        turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
-        cal_ctx.add_turbulence(turb)
-        cal_ctx.update_state()
-        if cal_ctx.buffer_count >= cal_ctx.window_size:
-            current_moving_variance = float(cal_ctx.current_moving_variance)
-            if max_moving_variance is None or current_moving_variance > max_moving_variance:
-                max_moving_variance = current_moving_variance
-
-    if max_moving_variance is not None:
-        adaptive_threshold = max_moving_variance * get_threshold_factor("auto")
-    else:
-        adaptive_threshold = 1.0
+    adaptive_threshold, max_moving_variance = calibrate_startup_threshold(
+        static_presence_packets,
+        selected_band=tuple(selected_band),
+        window_size=window_size,
+    )
     return selected_band, adaptive_threshold
 
 
@@ -315,6 +304,21 @@ def run_calibration(static_presence_packets, num_subcarriers, algorithm="fixed_d
         hint_band=hint_band,
         mvs_window_size=mvs_window_size,
     )
+
+
+def run_l1_delta_calibration(static_presence_packets, selected_band, window_size):
+    """
+    Run startup calibration for the L1-delta detector.
+
+    The calibration mirrors the runtime flow used by `collect`: observe the
+    detector over the startup packets, keep the max ready-state metric, and
+    scale it by the detector-specific startup factor.
+    """
+    adaptive_threshold = estimate_runtime_threshold(
+        static_presence_packets,
+        selected_subcarriers=selected_band,
+    )
+    return 1.0 if adaptive_threshold is None else adaptive_threshold
 
 
 class TestMVSDetectionRealData:
@@ -399,14 +403,14 @@ class TestMVSDetectionRealData:
         )
         
         # Test with the calibrated band and adaptive threshold
-        # Note: csi_utils.MVSDetector has different signature than src.mvs_detector.MVSDetector
+        # Note: the tools compatibility detector has a different signature than src.mvs_detector.MVSDetector
         detector = MVSDetector(
             window_size=window_size,
             threshold=adaptive_threshold,
             selected_subcarriers=selected_band,
             track_data=True
         )
-        # csi_utils.MVSDetector internally uses SegmentationContext
+        # The tools compatibility detector internally uses SegmentationContext.
         
         for pkt in static_presence_packets:
             detector.process_packet(pkt)
@@ -627,30 +631,15 @@ class TestPerformanceMetrics:
         Startup uses fixed subcarriers from conftest.py.
         """
         import numpy as np
-        from threshold import get_threshold_factor
         static_presence_packets, motion_packets = real_data
         
         # Context-aware subcarriers from dataset_info metadata.
         selected_band = default_subcarriers
         
-        # Keep threshold calibration aligned with runtime test pipeline.
-        cal_ctx = SegmentationContext(
-            window_size=window_size, threshold=1.0, enable_hampel=enable_hampel
-        )
-        max_moving_variance = None
-        calibration_packets = min(len(static_presence_packets), CALIBRATION_BUFFER_SIZE)
-        for pkt in static_presence_packets[:calibration_packets]:
-            turb = cal_ctx.calculate_spatial_turbulence(pkt['csi_data'], selected_band)
-            cal_ctx.add_turbulence(turb)
-            cal_ctx.update_state()
-            if cal_ctx.buffer_count >= cal_ctx.window_size:
-                current_moving_variance = float(cal_ctx.current_moving_variance)
-                if max_moving_variance is None or current_moving_variance > max_moving_variance:
-                    max_moving_variance = current_moving_variance
-        adaptive_threshold = (
-            max_moving_variance * get_threshold_factor("auto")
-            if max_moving_variance is not None
-            else 1.0
+        adaptive_threshold, _max_moving_variance = calibrate_startup_threshold(
+            static_presence_packets,
+            selected_band=tuple(selected_band),
+            window_size=window_size,
         )
         
         # Initialize with adaptive threshold (new detector, matches C++)
@@ -827,6 +816,106 @@ class TestPerformanceMetrics:
         assert pkt_recall > recall_target, f"Recall too low: {pkt_recall:.1f}% (target: >{recall_target}%)"
         assert pkt_fp_rate < fp_rate_target, f"FP Rate too high: {pkt_fp_rate:.1f}% (target: <{fp_rate_target}%)"
 
+    def test_l1_delta_detection_accuracy(self, real_data, window_size, chip_type,
+                                         default_subcarriers, dataset_id):
+        """
+        Benchmark L1-delta motion detection accuracy with real CSI data.
+
+        This test is intentionally benchmark-oriented instead of a strict gate:
+        it records comparable packet metrics on every cleaned dataset using the
+        runtime startup calibration flow, but only asserts broad sanity bounds
+        so the suite remains useful for cross-dataset comparison.
+        """
+        static_presence_packets, motion_packets = real_data
+
+        adaptive_threshold = run_l1_delta_calibration(
+            static_presence_packets,
+            selected_band=default_subcarriers,
+            window_size=window_size,
+        )
+        detector = L1DeltaDetector(window_size=window_size, threshold=adaptive_threshold)
+
+        warmup = max(window_size, detector.lag)
+        baseline_eval_count = max(len(static_presence_packets) - warmup, 0)
+        movement_eval_count = max(len(motion_packets) - warmup, 0)
+        static_presence_motion_packets = 0
+        motion_with_motion = 0
+        motion_without_motion = 0
+
+        for i, pkt in enumerate(static_presence_packets):
+            detector.process_packet(pkt["csi_data"], default_subcarriers)
+            detector.update_state()
+            if i >= warmup and detector.get_state() == MotionState.MOTION:
+                static_presence_motion_packets += 1
+
+        for i, pkt in enumerate(motion_packets):
+            detector.process_packet(pkt["csi_data"], default_subcarriers)
+            detector.update_state()
+            if i >= warmup:
+                if detector.get_state() == MotionState.MOTION:
+                    motion_with_motion += 1
+                else:
+                    motion_without_motion += 1
+
+        pkt_tp = motion_with_motion
+        pkt_fn = motion_without_motion
+        pkt_tn = baseline_eval_count - static_presence_motion_packets if baseline_eval_count > 0 else 0
+        pkt_fp = static_presence_motion_packets
+
+        pkt_recall = pkt_tp / (pkt_tp + pkt_fn) * 100.0 if (pkt_tp + pkt_fn) > 0 else 0
+        pkt_precision = pkt_tp / (pkt_tp + pkt_fp) * 100.0 if (pkt_tp + pkt_fp) > 0 else 0
+        pkt_fp_rate = pkt_fp / baseline_eval_count * 100.0 if baseline_eval_count > 0 else 0
+        pkt_f1 = (
+            2 * (pkt_precision / 100) * (pkt_recall / 100) / ((pkt_precision + pkt_recall) / 100) * 100
+            if (pkt_precision + pkt_recall) > 0
+            else 0
+        )
+
+        print("\n")
+        print("=" * 70)
+        print("                 L1-DELTA DETECTION TEST SUMMARY")
+        print("=" * 70)
+        print(f"Dataset pair: {dataset_id}")
+        print(f"Subcarriers: {default_subcarriers}")
+        print(f"Threshold:   {adaptive_threshold:.6f}")
+        print(f"Warmup:      {warmup} packets")
+        print()
+        print(f"CONFUSION MATRIX ({baseline_eval_count} baseline + {movement_eval_count} movement packets):")
+        print("                    Predicted")
+        print("                IDLE      MOTION")
+        print(f"Actual IDLE     {pkt_tn:4d} (TN)  {pkt_fp:4d} (FP)")
+        print(f"    MOTION      {pkt_fn:4d} (FN)  {pkt_tp:4d} (TP)")
+        print()
+        print("MOTION DETECTION METRICS:")
+        print(f"  * Recall:     {pkt_recall:.1f}%")
+        print(f"  * Precision:  {pkt_precision:.1f}%")
+        print(f"  * FP Rate:    {pkt_fp_rate:.1f}%")
+        print(f"  * F1-Score:   {pkt_f1:.1f}%")
+        print()
+        print("=" * 70)
+
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent))
+        from conftest import record_performance
+        record_performance(
+            chip_type,
+            "l1_delta",
+            pkt_recall,
+            pkt_fp_rate,
+            pkt_precision,
+            pkt_f1,
+            dataset_id=dataset_id,
+        )
+
+        assert baseline_eval_count > 0
+        assert movement_eval_count > 0
+        assert 0.0 <= adaptive_threshold <= 10.0
+        assert 0.0 <= pkt_recall <= 100.0
+        assert 0.0 <= pkt_precision <= 100.0
+        assert 0.0 <= pkt_fp_rate <= 100.0
+        assert 0.0 <= pkt_f1 <= 100.0
+
     def test_ml_detection_accuracy(self, real_data, num_subcarriers, ml_fp_rate_target, ml_recall_target,
                                    chip_type, dataset_id):
         """
@@ -950,7 +1039,7 @@ class TestPerformanceMetrics:
     @pytest.mark.parametrize("empty_dataset_path", get_available_empty_datasets())
     def test_ml_empty_false_positive_rate(self, empty_dataset_path):
         """Validate that empty-room recordings stay below the ML FP target."""
-        from csi_utils import load_npz_as_packets
+        from tools.lib.csi_io import load_npz_as_packets
         from ml_detector import MLDetector
         from config import DEFAULT_SUBCARRIERS
         from detector_interface import MotionState
